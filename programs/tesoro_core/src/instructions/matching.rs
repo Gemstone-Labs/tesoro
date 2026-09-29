@@ -333,3 +333,36 @@ pub(crate) fn refund_match<'info>(
         .map_err(core_err)?;
     credit_payouts(&payouts, ctx.remaining_accounts)
 }
+
+/// A registered Game's authority pushes an Active Match's refund deadline out, so an async Game
+/// can outlast the default 1h window. Never moves it earlier; capped at `MAX_MATCH_EXTENSION_SECS`.
+#[derive(Accounts)]
+pub struct ExtendMatchDeadline<'info> {
+    pub game_authority: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(
+        mut,
+        seeds = [MATCH_SEED, &match_state.id.to_le_bytes()],
+        bump = match_state.bump
+    )]
+    pub match_state: Box<Account<'info, MatchState>>,
+}
+
+pub(crate) fn extend_match_deadline(
+    ctx: Context<ExtendMatchDeadline>,
+    new_deadline: i64,
+) -> Result<()> {
+    let game = Pubkey::new_from_array(ctx.accounts.match_state.inner.game);
+    let entry = game_entry(&ctx.accounts.config, &game)?;
+    require_keys_eq!(
+        entry.authority,
+        ctx.accounts.game_authority.key(),
+        TesoroError::Unauthorized
+    );
+    ctx.accounts
+        .match_state
+        .inner
+        .extend_deadline(now()?, new_deadline)
+        .map_err(core_err)
+}

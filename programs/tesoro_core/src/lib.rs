@@ -146,6 +146,13 @@ pub mod tesoro_core {
         instructions::matching::settle_match(ctx, result)
     }
 
+    pub fn extend_match_deadline(
+        ctx: Context<ExtendMatchDeadline>,
+        new_deadline: i64,
+    ) -> Result<()> {
+        instructions::matching::extend_match_deadline(ctx, new_deadline)
+    }
+
     pub fn refund_match<'info>(
         ctx: Context<'_, '_, 'info, 'info, RefundMatch<'info>>,
     ) -> Result<()> {
