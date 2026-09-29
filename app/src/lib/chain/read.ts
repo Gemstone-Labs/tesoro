@@ -5,6 +5,7 @@ import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/
 import type { GameId } from "@/lib/mock/types";
 import { getChain, getHoldem } from "./client";
 import { debtGemas, debtUnits, redeemableFor, type SourceMath } from "./ledger";
+import { SIM_SOL_MINT, fetchNativeInfo, fetchNativeMarket, type NativeInfo, type NativeMarket } from "./native";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
@@ -46,6 +47,8 @@ export interface ChainHolding {
   /** Owner Account key of the Source's Position. */
   sourceOwner: string;
   asset: "SOL" | "ETH" | "HYPE";
+  /** The Source's Position holds simSOL custody: Redeem pays simSOL on Solana. */
+  native: boolean;
 }
 
 export interface ChainAdvance {
@@ -67,6 +70,8 @@ export interface ChainPosition {
   /** Debt in asset units. */
   debt: number;
   yieldAccrued: number;
+  /** simSOL custody details, for Solana-native Positions. */
+  native: NativeInfo | null;
 }
 
 export interface AccountSnapshot {
@@ -79,6 +84,8 @@ export interface AccountSnapshot {
   holdings: ChainHolding[];
   positions: ChainPosition[];
   matches: ChainMatch[];
+  /** sim_lst pool, price feed and simSOL balance (SIMULATED yield). Null until read. */
+  market: NativeMarket | null;
   fetchedAt: number;
 }
 
@@ -232,8 +239,11 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
     holdings: [],
     positions: [],
     matches: [],
+    market: null,
     fetchedAt: Date.now(),
   };
+  const market = await fetchNativeMarket(chain.base, authority).catch(() => null);
+  empty.market = market;
   if (!acct) return empty;
 
   const [holdingRows, positionRows, matches] = await Promise.all([
@@ -251,6 +261,14 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
   for (const p of ownedPositions) positionKeys.set(p.toBase58(), p);
   const heldPositions = await chain.core.account.positionState.fetchMultiple([...positionKeys.values()]);
   const positionByKey = new Map<string, any>([...positionKeys.keys()].map((k, i) => [k, heldPositions[i]]));
+
+  const isNativePosition = (pos: any) => !!pos && pk(pos.inner.sourceAsset).equals(SIM_SOL_MINT) && enumKey(pos.inner.sourceChain) === "solana";
+  const nativeInfo = new Map<string, NativeInfo | null>();
+  await Promise.all(
+    [...positionByKey.entries()]
+      .filter(([, pos]) => isNativePosition(pos))
+      .map(async ([k]) => nativeInfo.set(k, await fetchNativeInfo(chain.base, new PublicKey(k)).catch(() => null))),
+  );
 
   const holdings: ChainHolding[] = [];
   holdingRows.forEach((row: any, i: number) => {
@@ -271,6 +289,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       free,
       redeemable: redeemableFor(sourceMath(src.inner), free),
       sourceOwner: pk(src.inner.owner).toBase58(),
+      native: !!nativeInfo.get(pk(src.inner.position).toBase58()),
       asset: ASSETS[pos ? ["solana", "ethereum", "hyperEvm"].indexOf(enumKey(pos.inner.sourceChain)) : 0] ?? "SOL",
     });
   });
@@ -308,6 +327,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       advance,
       debt,
       yieldAccrued: Number(big(p.cumulativeYield)) / decimals,
+      native: nativeInfo.get((row.publicKey as PublicKey).toBase58()) ?? null,
     });
   }
 
@@ -320,6 +340,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
     holdings,
     positions,
     matches,
+    market,
     fetchedAt: Date.now(),
   };
 }

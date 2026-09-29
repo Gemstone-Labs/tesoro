@@ -16,12 +16,16 @@ import { redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import type { Position } from "@/lib/mock";
 import { AdvanceSheet } from "./AdvanceSheet";
+import { DEMO_ADVANCE } from "@/lib/chain/config";
 import { DemoAdvanceSheet } from "./DemoAdvanceSheet";
 import { RedeemSheet, ReturnSheet } from "./MoneySheets";
+import { NativeGetGemas, NativePositionCard, NativeRedeemSheet, OpenPositionSheet, nativeRedeemables } from "./NativePositions";
 
 export default function Wallet() {
-  const { gemas, positions, holdings, auth, onChain, loading } = useAccount();
+  const { gemas, positions, holdings, auth, onChain, loading, snapshot } = useAccount();
   const [demoOpen, setDemoOpen] = useState(false);
+  const [openPos, setOpenPos] = useState(false);
+  const [nativeRedeemOpen, setNativeRedeemOpen] = useState(false);
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
   const [returnFor, setReturnFor] = useState<Position | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
@@ -38,6 +42,9 @@ export default function Wallet() {
     );
   }
 
+  const market = snapshot?.market ?? null;
+  const nativeIds = new Set((snapshot?.positions ?? []).filter((p) => p.native).map((p) => p.address.toBase58()));
+  const nativeRedeemable = nativeRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0);
   const redeemable = holdings.filter((h) => redeemableOf(h) > 0);
   const pendingItems = holdings
     .filter((h) => h.gemas - redeemableOf(h) > 0)
@@ -55,19 +62,22 @@ export default function Wallet() {
         <div className="stack">
           <BalanceCard total={gemas.total} />
           <BalanceSplit redeemable={gemas.redeemable} pending={gemas.pending} redeemableSources={redeemable.length} />
-          <Button variant="money" block disabled={gemas.redeemable === 0 || onChain} onClick={() => auth.gate("Redeem", () => setRedeemOpen(true))}>
-            Redeem {fmtGemas(gemas.redeemable)}
+          <Button
+            variant="money"
+            block
+            disabled={onChain ? nativeRedeemable === 0 : gemas.redeemable === 0}
+            onClick={() => auth.gate("Redeem", () => (onChain ? setNativeRedeemOpen(true) : setRedeemOpen(true)))}
+          >
+            Redeem {fmtGemas(onChain ? nativeRedeemable : gemas.redeemable)}
           </Button>
-          {onChain && <p className="note">Redeem pays out on the Source chain once real Position custody is built. Balances above are read from Solana devnet.</p>}
-          {onChain && (
+          {onChain && <p className="note">Redeem pays simSOL (Simulated) from the Source Position&apos;s accrued yield. Balances above are read from Solana devnet.</p>}
+          {onChain && <NativeGetGemas market={market} loading={loading} onOpen={() => setOpenPos(true)} />}
+          {onChain && DEMO_ADVANCE && (
             <Card large>
               <div className="stack">
-                <Label>Get Gemas</Label>
-                <p className="meta">
-                  {loading ? "Reading your Account from Solana devnet…" : "Take a simulated Advance to get Gemas to play with."}
-                </p>
-                <Button variant="money" block onClick={() => setDemoOpen(true)}>Take a demo Advance</Button>
-                <span className="sim">Simulated · demo Advance</span>
+                <Label>Dev only</Label>
+                <Button block onClick={() => setDemoOpen(true)}>Take a demo Advance</Button>
+                <span className="sim">Simulated · demo Advance (NEXT_PUBLIC_DEMO_ADVANCE)</span>
               </div>
             </Card>
           )}
@@ -85,9 +95,12 @@ export default function Wallet() {
         </div>
         <SimulatedYieldLabel />
         {onChain && positions.length === 0 && (
-          <p className="meta">{loading ? "Reading Positions…" : "No Positions yet. Take a demo Advance to open a simulated one."}</p>
+          <p className="meta">{loading ? "Reading Positions…" : "No Positions yet. Get test simSOL, then open a Position."}</p>
         )}
-        {positions.map((p) => (
+        {onChain && (snapshot?.positions ?? []).filter((p) => p.native).map((p) => (
+          <NativePositionCard key={p.address.toBase58()} position={p} market={market} />
+        ))}
+        {positions.filter((p) => !nativeIds.has(p.id)).map((p) => (
           <Card key={p.id} large as="article" aria-label={`${p.asset} Position`}>
             <div className="stack">
               <div className="spread">
@@ -126,7 +139,9 @@ export default function Wallet() {
         </p>
       </section>
 
-      <DemoAdvanceSheet open={demoOpen} onClose={() => setDemoOpen(false)} />
+      <OpenPositionSheet open={openPos} onClose={() => setOpenPos(false)} market={market} />
+      <NativeRedeemSheet open={nativeRedeemOpen} onClose={() => setNativeRedeemOpen(false)} />
+      {DEMO_ADVANCE && <DemoAdvanceSheet open={demoOpen} onClose={() => setDemoOpen(false)} />}
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
       <ReturnSheet position={returnFor} onClose={() => setReturnFor(null)} />
       <RedeemSheet open={redeemOpen} onClose={() => setRedeemOpen(false)} />
