@@ -4,6 +4,9 @@ mod instructions;
 mod msg_codec;
 mod state;
 
+#[cfg(test)]
+mod flow_tests;
+
 use anchor_lang::prelude::*;
 use errors::BridgeError;
 use instructions::*;
