@@ -63,4 +63,10 @@ admin-funded reserve; withdrawals beyond the vault balance are refused. The fauc
 
 Helpers: `scripts/sim-lst` (`pnpm rate`, `pnpm faucet`, `pnpm tsx src/cli.ts init | fund <sol>`).
 
-Deploy status: pending (see below).
+Deploy status (2026-09-30, via `https://rpc.magicblock.app/devnet`):
+
+| Step | Signature |
+|---|---|
+| deploy | `4Ttfse8f3Ktji6tzk4uweLGBcxngSUFx85rhtzdwmiSpwv43oHPPjvUWA4Kj72BSMmh7otza16PYo8zvYogQmgJ3` |
+| init (7% APY, 4,320× speedup, faucet 10 simSOL/h) | `3nVnaaBRmEtm34yTjzrcaYyotuhHpzTaBJqftRkRQBW95LbZppmc3wpFv1TCTgUheB4Bp6xYDp9d3S9YxeLqwRaV` |
+| fund reserve 20 SOL | `4bvoXZ8zfe6LVUPTfzVFTdKpx8Bz2LPQEoXJUj3G2HPTLyHUshm4jmLwRfNr4nzET4mhDrEZkmDe9EnfMKCCvH2r` |
