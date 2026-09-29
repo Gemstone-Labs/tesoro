@@ -1,0 +1,91 @@
+{
+  "txs": [
+    {
+      "step": "tesoro_core open_match (p0, entry 500)",
+      "layer": "base",
+      "sig": "3bA8pmbx7xtQjaCZZHwZL1hYZJc5GTkoJThwrdcmsFm7mH4emmx1AZs4SGKnLMEJCEkfaDzR3vz1ZNqcn3kdVRrF",
+      "link": "https://explorer.solana.com/tx/3bA8pmbx7xtQjaCZZHwZL1hYZJc5GTkoJThwrdcmsFm7mH4emmx1AZs4SGKnLMEJCEkfaDzR3vz1ZNqcn3kdVRrF?cluster=devnet"
+    },
+    {
+      "step": "tesoro_core join_match (p1)",
+      "layer": "base",
+      "sig": "3HrkRCuWkioPtHM1CkEDYtjy2WqSC3K8spGMxur8P2meVtMBjTeRCFMLRaM5tuHmzzzSLYdn5YsUn4t5VAouJrKm",
+      "link": "https://explorer.solana.com/tx/3HrkRCuWkioPtHM1CkEDYtjy2WqSC3K8spGMxur8P2meVtMBjTeRCFMLRaM5tuHmzzzSLYdn5YsUn4t5VAouJrKm?cluster=devnet"
+    },
+    {
+      "step": "create_match",
+      "layer": "base",
+      "sig": "2w3HfYNW71XTiaaDzzFCeqTh79HmuAwsvkwx939XoXZDWEFU59raNnw2rnKoUb1M1nj5G8gi3g4qnFbwVNqqCvt9",
+      "link": "https://explorer.solana.com/tx/2w3HfYNW71XTiaaDzzFCeqTh79HmuAwsvkwx939XoXZDWEFU59raNnw2rnKoUb1M1nj5G8gi3g4qnFbwVNqqCvt9?cluster=devnet"
+    },
+    {
+      "step": "delegate_match",
+      "layer": "base",
+      "sig": "5Xd1Wph4QnhSGJ348yo42gMvT5Vtoj6UaKvMxyzekx3i7qZ35WaDBPCTYLhVVUF6HPyubjyzL5MV2zQmZ9isKPZV",
+      "link": "https://explorer.solana.com/tx/5Xd1Wph4QnhSGJ348yo42gMvT5Vtoj6UaKvMxyzekx3i7qZ35WaDBPCTYLhVVUF6HPyubjyzL5MV2zQmZ9isKPZV?cluster=devnet"
+    },
+    {
+      "step": "init_permissions",
+      "layer": "tee",
+      "sig": "4VUidHjBoKQ5bFBfBDU75LeGcfG7K89dBAG4fPtP6UkuQJjUF2tzYhCLckkAcvTKydNTxzF2L9Gdf6v2rjoky9SC"
+    },
+    {
+      "step": "contribute_entropy",
+      "layer": "tee",
+      "sig": "3YoFfNHzZdEQWmEv5A74RQ3GvPsKV3c7TwTbjXJSp3WbzdhG99bc2WX4DxkBJFVmzQmKCo3vsgerpmvcMBHMcicY"
+    },
+    {
+      "step": "claim_timeout",
+      "layer": "tee",
+      "sig": "2jJb1hh4BBwUnoFanGW8z9nfwKXLCWnxVykvQeSPZHjFSxvyvgaGECa7yrwfKV72mzRj72WFdq1y7QcBRvUtAz2Q"
+    },
+    {
+      "step": "close_match",
+      "layer": "tee",
+      "sig": "4xBuXf3AufFivuNyyZYWENt2TBByocPtM8gaXPcocbdGLXv27cSe6DiABz2J1MQDCyJNefHRu2KVpryW8LAnW5vz"
+    },
+    {
+      "step": "close_match commit",
+      "layer": "base",
+      "sig": "4CnWGbuE6uQKkLzfER3irWhMhauh3bfz9VKF4db7F5gTraipS3k96q3YCPAGLuaQc2iJHVAc3PrZu5KTLCTKCtit",
+      "link": "https://explorer.solana.com/tx/4CnWGbuE6uQKkLzfER3irWhMhauh3bfz9VKF4db7F5gTraipS3k96q3YCPAGLuaQc2iJHVAc3PrZu5KTLCTKCtit?cluster=devnet"
+    },
+    {
+      "step": "finalize",
+      "layer": "base",
+      "sig": "4vZiuDrwKu3hzyjHqm966yrC5ssptfzYmCBNeJarSi24w3bvxscXpRqWeDbM4Nz1BBBJoDnNU4dyJyRzDFyE7LTq",
+      "link": "https://explorer.solana.com/tx/4vZiuDrwKu3hzyjHqm966yrC5ssptfzYmCBNeJarSi24w3bvxscXpRqWeDbM4Nz1BBBJoDnNU4dyJyRzDFyE7LTq?cluster=devnet"
+    }
+  ],
+  "checks": [
+    {
+      "name": "no-show: hand one cancelled by a permissionless claim_timeout",
+      "pass": true,
+      "detail": "hand 1 phase 5 stacks 1450,1400 bets 50,100 pot 150 board ??,??,??,??,?? toAct 0"
+    },
+    {
+      "name": "tesoro_core Match refunded by the holdem PDA authority (CPI)",
+      "pass": true,
+      "detail": [
+        "refunded"
+      ]
+    },
+    {
+      "name": "no-show: both entries refunded through tesoro_core",
+      "pass": true,
+      "detail": {
+        "escrowed": {
+          "p0": "73500",
+          "p1": "74450"
+        },
+        "after": {
+          "p0": "74000",
+          "p1": "74950"
+        }
+      }
+    }
+  ],
+  "summary": {
+    "matchId": "1790715851010"
+  }
+}

@@ -1,0 +1,384 @@
+{
+  "txs": [
+    {
+      "step": "fund",
+      "layer": "base",
+      "sig": "4Wv6bE51f96LNPMiAhzEiKv3NfJaMQsmDomJ8rVcVPnbYoaUj2LmiN287NuD3Zcunz6f7GdqzUEK6ZnAsTuQKfR2",
+      "link": "https://explorer.solana.com/tx/4Wv6bE51f96LNPMiAhzEiKv3NfJaMQsmDomJ8rVcVPnbYoaUj2LmiN287NuD3Zcunz6f7GdqzUEK6ZnAsTuQKfR2?cluster=devnet"
+    },
+    {
+      "step": "fund",
+      "layer": "base",
+      "sig": "5dn5KTs5NfP7BmbzX4R62gnwpTwq3GeCTUMBPaA6SPCgcLmLvoeCjqmKVvSEVysSMz8TGVjVaqYwwjNdsL2JhW6Z",
+      "link": "https://explorer.solana.com/tx/5dn5KTs5NfP7BmbzX4R62gnwpTwq3GeCTUMBPaA6SPCgcLmLvoeCjqmKVvSEVysSMz8TGVjVaqYwwjNdsL2JhW6Z?cluster=devnet"
+    },
+    {
+      "step": "register_game holdem (authority = PDA)",
+      "layer": "base",
+      "sig": "2eLBr7oYRtQE5RRVrDdSZZ63wXyaM1nbLZH8Bq65G6Jr9pdm5a1BXHJb74G9koqoksgDYqXzx2QmkcKLRtvbccaj",
+      "link": "https://explorer.solana.com/tx/2eLBr7oYRtQE5RRVrDdSZZ63wXyaM1nbLZH8Bq65G6Jr9pdm5a1BXHJb74G9koqoksgDYqXzx2QmkcKLRtvbccaj?cluster=devnet"
+    },
+    {
+      "step": "create_account p0",
+      "layer": "base",
+      "sig": "iHjD3jTqrqyGmkiyEKXrcmGoGTLwSH6XXquaLUzWCBdcypztDQa9vDerbSjF9cK1Cw8MpHMDRNFq8SKEpPG2b65",
+      "link": "https://explorer.solana.com/tx/iHjD3jTqrqyGmkiyEKXrcmGoGTLwSH6XXquaLUzWCBdcypztDQa9vDerbSjF9cK1Cw8MpHMDRNFq8SKEpPG2b65?cluster=devnet"
+    },
+    {
+      "step": "open_position p0 (simulated)",
+      "layer": "base",
+      "sig": "5Srhg43bQvsCnszb8jzhqKfMCMjccEFDk2eHqqgNvyvhTpfR8vA8LAJ7b4ZmiooofkgHGPYxyZnnRzZaE5tCm3pb",
+      "link": "https://explorer.solana.com/tx/5Srhg43bQvsCnszb8jzhqKfMCMjccEFDk2eHqqgNvyvhTpfR8vA8LAJ7b4ZmiooofkgHGPYxyZnnRzZaE5tCm3pb?cluster=devnet"
+    },
+    {
+      "step": "take_advance p0 (simulated yield)",
+      "layer": "base",
+      "sig": "3gWYqk1b48bLeusFHHr6Fx7GgEQ8GYpJQVJrMGF34wQFTdkCoRHRNhXqBoNp4PczgGk9nAQ6FkKmwwmgXiqMJ4wy",
+      "link": "https://explorer.solana.com/tx/3gWYqk1b48bLeusFHHr6Fx7GgEQ8GYpJQVJrMGF34wQFTdkCoRHRNhXqBoNp4PczgGk9nAQ6FkKmwwmgXiqMJ4wy?cluster=devnet"
+    },
+    {
+      "step": "create_account p1",
+      "layer": "base",
+      "sig": "4gn8HK34anEULugis2WPD1qvg8YPXTe22cNYfmW7FsP72bgWr4EyVNhfdXUtjrKvP53aMUoBYj4HeL381srb8wPZ",
+      "link": "https://explorer.solana.com/tx/4gn8HK34anEULugis2WPD1qvg8YPXTe22cNYfmW7FsP72bgWr4EyVNhfdXUtjrKvP53aMUoBYj4HeL381srb8wPZ?cluster=devnet"
+    },
+    {
+      "step": "open_position p1 (simulated)",
+      "layer": "base",
+      "sig": "5M1HDpgGorfjUymUd21JXjxjLRpcWg3iM7hwN4mQfKjW1qTodT1s1EW6SEX9Du4ucYcFEDV73KsvvyKYYjvzhHSp",
+      "link": "https://explorer.solana.com/tx/5M1HDpgGorfjUymUd21JXjxjLRpcWg3iM7hwN4mQfKjW1qTodT1s1EW6SEX9Du4ucYcFEDV73KsvvyKYYjvzhHSp?cluster=devnet"
+    },
+    {
+      "step": "take_advance p1 (simulated yield)",
+      "layer": "base",
+      "sig": "3TD34KZPiBAjUmTHzfCsjeXyzh9DFAeah3Cn8gQKtDkcFUp8eRAHygodnz5tGsQtxXDaFiL8ZJR2B7dsey7qm1br",
+      "link": "https://explorer.solana.com/tx/3TD34KZPiBAjUmTHzfCsjeXyzh9DFAeah3Cn8gQKtDkcFUp8eRAHygodnz5tGsQtxXDaFiL8ZJR2B7dsey7qm1br?cluster=devnet"
+    },
+    {
+      "step": "tesoro_core open_match (p0, entry 500)",
+      "layer": "base",
+      "sig": "2T4PkCakHy1mK8HhH7yWRunsohzcjopSACQ9h6xLysVCqRPFsJK9V1p5L94cp1FqePNMQR4SdvKG6PRdJNjDpA8H",
+      "link": "https://explorer.solana.com/tx/2T4PkCakHy1mK8HhH7yWRunsohzcjopSACQ9h6xLysVCqRPFsJK9V1p5L94cp1FqePNMQR4SdvKG6PRdJNjDpA8H?cluster=devnet"
+    },
+    {
+      "step": "tesoro_core join_match (p1)",
+      "layer": "base",
+      "sig": "g4kGzHvDDMnvwxrpNYzvv6gV8xP5qA1mKCWAQfGuwtLwaQYjYknvHjWomsQiSeEebBitsqtu6FNfGXfv7WVzzw1",
+      "link": "https://explorer.solana.com/tx/g4kGzHvDDMnvwxrpNYzvv6gV8xP5qA1mKCWAQfGuwtLwaQYjYknvHjWomsQiSeEebBitsqtu6FNfGXfv7WVzzw1?cluster=devnet"
+    },
+    {
+      "step": "create_match",
+      "layer": "base",
+      "sig": "4Foge7arCz9xhzJgtkaTZHqtkLcSvzw3DZGbrdrYHWSPdfAT6XFeNECsyWpgMAwKkL32agsUW2PkffWgVZXtoprn",
+      "link": "https://explorer.solana.com/tx/4Foge7arCz9xhzJgtkaTZHqtkLcSvzw3DZGbrdrYHWSPdfAT6XFeNECsyWpgMAwKkL32agsUW2PkffWgVZXtoprn?cluster=devnet"
+    },
+    {
+      "step": "delegate_match",
+      "layer": "base",
+      "sig": "5TAqmDHwuUBL7gyUYfhpgdUDs6bsU6hP9FxWxoWH9aeveGCB6WzHntffKqz2mUsmP2dQzk8FuwcLMQGZBuA1ugNH",
+      "link": "https://explorer.solana.com/tx/5TAqmDHwuUBL7gyUYfhpgdUDs6bsU6hP9FxWxoWH9aeveGCB6WzHntffKqz2mUsmP2dQzk8FuwcLMQGZBuA1ugNH?cluster=devnet"
+    },
+    {
+      "step": "init_permissions",
+      "layer": "tee",
+      "sig": "454MSkepnCzfHpkvJ1cSvxphnNP5uGVHuAHuDsAekkZcXDb8zvhyXiecyG2LN1PaxwSY1ueV7B5BBKfB5wZcaLoL"
+    },
+    {
+      "step": "contribute_entropy",
+      "layer": "tee",
+      "sig": "5oq9HTYtTSCSuGiBboE7GoHG3zZHCibLq2uBYrWgZTzpa6gVLppd9N1nLRL62Wrvaus4XnohsSUzBsVjzTnrwMWA"
+    },
+    {
+      "step": "contribute_entropy+request_vrf",
+      "layer": "tee",
+      "sig": "5V1Xw1JP1HkfFPksWZmCUdusVcdvbZbfTuYTmeCLUeiUqyNyAQnHAPxd1TGLXADd1zUExoiLwEZCNgWsm9JEZikK"
+    },
+    {
+      "step": "deal",
+      "layer": "tee",
+      "sig": "2W7TfJ73KhfmMhq9EeUWKndQHC4ZLfjDxySwR1z9FaUeJ785WzNgzhZTJwezSTx36gi6NFg51mRNj6cCGvzdSGLT"
+    },
+    {
+      "step": "act call",
+      "layer": "tee",
+      "sig": "3hr6oTGkAvN9Rf6KUdaBHnypeHGcpEK4JwpuNW4BPCRdFaCkjPbocBoEa2voDXbxVwwinTcd6dBo5dQiQTdLErVH"
+    },
+    {
+      "step": "act check",
+      "layer": "tee",
+      "sig": "LdKUK3bytb4iYkBD2jSFxZnrDU3udcKHnQGFSqqLwpwMiirENUAxUMzxseanqRfpYQd9jdmvgZgmiWqwFNmFke9"
+    },
+    {
+      "step": "act check",
+      "layer": "tee",
+      "sig": "4zsC8ayiXNLEcrFA6Pt5FraWDGg2kvQtPgUAqmGVyR9D9iwsKk1LQweJ7DVWpaFtTDY4wVYcSoEdi6LBProzG2EH"
+    },
+    {
+      "step": "act check",
+      "layer": "tee",
+      "sig": "3NZsMhvkLXHUve55kicuVX97xoDsbzUek4A1VSegsYkf1mFjHttADdhSXj7Y3sidXfKPmWbJ4hd4BzuCw9Q67Xmz"
+    },
+    {
+      "step": "act check",
+      "layer": "tee",
+      "sig": "BqBzyE8Y3e1gpbrFeRVkyU9Tg7XrhWFXNhk4KzrtR9x6wuP7RGZg1STZV7X9yba6FtHZKc45DF3GeSoD2NavZWx"
+    },
+    {
+      "step": "act check",
+      "layer": "tee",
+      "sig": "sHQZS2GhXpd6KSXgnmor1jxkbxCPpm9v6xbQSXmCBaoHGLQmMtwq8XB8rCiGw3H1fqbFPtTiset7sVkhSgR3iHy"
+    },
+    {
+      "step": "act check",
+      "layer": "tee",
+      "sig": "5pDVqtLcv3R7JwN39FRMLw1V4SCBjyEsoAVWWeDKKwuXXUTtDhqW4Rxw6pc1FLkpUgLKpq9zBeewEZf7EYGkcDej"
+    },
+    {
+      "step": "act check",
+      "layer": "tee",
+      "sig": "96Q2cWV2VCGPKoauDk3c8Ba6oLGqBc7sUx4H97JAGoEF4N87SF9ahEn1DChbJdfqFfCc6kDze3ewNvfyrnWtMA7"
+    },
+    {
+      "step": "contribute_entropy",
+      "layer": "tee",
+      "sig": "3YBFnemokejT89RQv2CLkcpofdQJCieu4HFgNCVavNgwSRyYEha3i5VbkMtU3ogc9M4NQ55drHZAFZZNxCBNnSMb"
+    },
+    {
+      "step": "contribute_entropy+request_vrf",
+      "layer": "tee",
+      "sig": "4Hzjaa4z1JeppU41SDfnLrbditZBZzuCusSzCoTFrdE14f3ZDdueu1VfWMUa5xhMUWmVnciFjbEQa5fxJkXxXwBA"
+    },
+    {
+      "step": "deal",
+      "layer": "tee",
+      "sig": "2gi6B3ygM9XM3Y4pYDPoMxc6EzGMSmXQgj9ZjXws2v4B4HQd1XGJvSv6D7VLbAz5GKVin5YGbyubBKt3ivXqMn5p"
+    },
+    {
+      "step": "act call",
+      "layer": "tee",
+      "sig": "3bq5A7ePCJ2a2G5QqKCyTDetbdCttbeGrfRVgsGi5746MJN7Mo1n3xySymnXHGkPPJFsfxJe4WoHDRbQdEejXdi6"
+    },
+    {
+      "step": "act raise",
+      "layer": "tee",
+      "sig": "JuCqsttgBH2n12hC1RuZmRbzdHTKyodydNE7e5tyKNgPmiUxyiqDc83djNNaYvs6w9mt2Yf4ttU67bp6455SYWu"
+    },
+    {
+      "step": "act call",
+      "layer": "tee",
+      "sig": "5ZqX2C42izBM9LdULMh9MPbjfdQ1ZLaJRu7SAPVVuwoH2dw6srFci1SuyZLW45JrQQrsMAx72dsr3ndXs64ffQ6t"
+    },
+    {
+      "step": "contribute_entropy",
+      "layer": "tee",
+      "sig": "3gJYGQ8xVgaj3eYd8Kijwe112LLpWrhixu7rQncBtBabuJb64xc9z1WPYMETtMCCKvWve2ncHWBYMArDDfmSBBLn"
+    },
+    {
+      "step": "contribute_entropy+request_vrf",
+      "layer": "tee",
+      "sig": "3vKZ7wJWvsnkBAzGSQrdyqqAqENFS7VHhWDbz4NsR1126aQsp5Zis9Be6A9KPoq2F2YFBKBvjFFd1RBp875oQf4G"
+    },
+    {
+      "step": "deal",
+      "layer": "tee",
+      "sig": "3FQwDb4yC9tg1kgq1mDyfmRPDhCMWJdZAfCifVVqtafH3pSfwmznVnh1nLHV6Z9TgP5tsFfTLABsEsE6UiCztrux"
+    },
+    {
+      "step": "close_match",
+      "layer": "tee",
+      "sig": "4bKVVpUeTVrSifAYedXtKUEyVLarGVkLUusBQxbYXAB5yMZqbVp2GSt1HDZ3A9QgUos5XYArhtS7CapHYAnu8icb"
+    },
+    {
+      "step": "close_match commit",
+      "layer": "base",
+      "sig": "5wrapuqAsFzfF4SkVCBiUZJDG9kQFSLTAU1qk4AUZUPTG8f99UzwuMPAN8ni7S5jUi82VvKQXtPWB1aCVkbTTUVm",
+      "link": "https://explorer.solana.com/tx/5wrapuqAsFzfF4SkVCBiUZJDG9kQFSLTAU1qk4AUZUPTG8f99UzwuMPAN8ni7S5jUi82VvKQXtPWB1aCVkbTTUVm?cluster=devnet"
+    },
+    {
+      "step": "open_holding",
+      "layer": "base",
+      "sig": "5T66ZGrHkxTRXUSq6q2MqqG6cx7dgmVgrTmb9JawNyehCrmce69rfKvKgUUP4e1fxLBjUMjt2J84tBE7LUFCoq2h",
+      "link": "https://explorer.solana.com/tx/5T66ZGrHkxTRXUSq6q2MqqG6cx7dgmVgrTmb9JawNyehCrmce69rfKvKgUUP4e1fxLBjUMjt2J84tBE7LUFCoq2h?cluster=devnet"
+    },
+    {
+      "step": "open_holding",
+      "layer": "base",
+      "sig": "ZYehi3VqwnBreSbJM5Rc5YYNQp1FShMPjiSfjaggBwdoQPP1FVemcSecfHVRTKiGuAZ4Jbq5WzSVomuMr1wwUAc",
+      "link": "https://explorer.solana.com/tx/ZYehi3VqwnBreSbJM5Rc5YYNQp1FShMPjiSfjaggBwdoQPP1FVemcSecfHVRTKiGuAZ4Jbq5WzSVomuMr1wwUAc?cluster=devnet"
+    },
+    {
+      "step": "finalize",
+      "layer": "base",
+      "sig": "bQ9xvM9FZAtcykus5TXu7QRrQChHxpiapPR5riin6EsEYUiZorchKTREkA39WQXPryCh2y4u6k3biPLGaG1STFj",
+      "link": "https://explorer.solana.com/tx/bQ9xvM9FZAtcykus5TXu7QRrQChHxpiapPR5riin6EsEYUiZorchKTREkA39WQXPryCh2y4u6k3biPLGaG1STFj?cluster=devnet"
+    }
+  ],
+  "checks": [
+    {
+      "name": "table delegated to the TEE validator",
+      "pass": true,
+      "detail": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+    },
+    {
+      "name": "Match started with equal Chips and blinds posted",
+      "pass": true,
+      "detail": "hand 1 phase 0 stacks 1450,1400 bets 50,100 pot 150 board ??,??,??,??,?? toAct 0"
+    },
+    {
+      "name": "player 0 reads own hole cards",
+      "pass": true,
+      "detail": [
+        "5d",
+        "Kh"
+      ]
+    },
+    {
+      "name": "player 1 reads own hole cards",
+      "pass": true,
+      "detail": [
+        "6s",
+        "5h"
+      ]
+    },
+    {
+      "name": "player 0 cannot read player 1's hole cards",
+      "pass": true,
+      "detail": "null"
+    },
+    {
+      "name": "player 1 cannot read player 0's hole cards",
+      "pass": true,
+      "detail": "null"
+    },
+    {
+      "name": "the Deck is unreadable by both Players and an outsider",
+      "pass": true,
+      "detail": [
+        "null",
+        "null",
+        "null"
+      ]
+    },
+    {
+      "name": "an outsider reads neither hole account nor the table",
+      "pass": true,
+      "detail": [
+        "null",
+        "null",
+        "null"
+      ]
+    },
+    {
+      "name": "four distinct valid hole cards",
+      "pass": true,
+      "detail": [
+        "5d",
+        "Kh",
+        "6s",
+        "5h"
+      ]
+    },
+    {
+      "name": "the base-layer copy of a hole account shows no cards mid-match",
+      "pass": true,
+      "detail": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "no board card is public before the flop",
+      "pass": true,
+      "detail": [
+        255,
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    {
+      "name": "board revealed street by street (0,3,4,5 cards seen)",
+      "pass": true,
+      "detail": [
+        0,
+        0,
+        3,
+        3,
+        4,
+        4,
+        5,
+        5
+      ]
+    },
+    {
+      "name": "showdown reveals both hole cards and the full board",
+      "pass": true,
+      "detail": {
+        "shown": [
+          "5d",
+          "Kh",
+          "6s",
+          "5h"
+        ],
+        "board": [
+          "3s",
+          "2s",
+          "Qd",
+          "2d",
+          "9s"
+        ],
+        "result": 0
+      }
+    },
+    {
+      "name": "Match over: one Player holds all 3,000 Chips",
+      "pass": true,
+      "detail": "hand 3 phase 5 stacks 0,3000 bets 0,0 pot 0 board 8c,8d,Qd,9h,Jd toAct 0"
+    },
+    {
+      "name": "tesoro_core Match Settled by the holdem PDA authority (CPI)",
+      "pass": true,
+      "detail": [
+        "settled"
+      ]
+    },
+    {
+      "name": "winner receives own 500 back plus loser's 500 minus 5% fee (950 total)",
+      "pass": true,
+      "detail": "950"
+    },
+    {
+      "name": "hidden accounts wiped on the base layer after commit",
+      "pass": true,
+      "detail": {
+        "status": 2,
+        "finalized": true
+      }
+    },
+    {
+      "name": "Deck is back on the base layer with no entropy, VRF output or cards",
+      "pass": true,
+      "detail": {
+        "dealt": true
+      }
+    }
+  ],
+  "summary": {
+    "matchId": "1790715657340",
+    "winnerSeat": 1,
+    "hands": 3,
+    "settleSig": "bQ9xvM9FZAtcykus5TXu7QRrQChHxpiapPR5riin6EsEYUiZorchKTREkA39WQXPryCh2y4u6k3biPLGaG1STFj",
+    "addresses": {
+      "gameMatch": "5UdtBvaARNc5Vo7du2XUTzrxcThPbmzeUPgMks8UNtT7",
+      "deck": "9BZY5eACqtNHuY8iLPNbEx5WTxnJntEmzwrKzCF9xjuW",
+      "hole0": "J4r1cYY9iDdYYjZSME19X82kzqeoDUiEoKyxakwSxFMm",
+      "hole1": "FvNVFdXFLG8BhBYpe1VjwP8VEzaFdtYvVT1ZXn6af4oG",
+      "authority": "Eu2RtadRsFCV9Xe2A7v7GivS9W5Trbrz6tCagNRUCwtn"
+    },
+    "players": [
+      "BQoGqkAWidhczrNni7GC2ypmPTxL3Wh1Whj58gRePPy2",
+      "FwJirzRfTM8VBS7f45WjpxYFvTrtXo6AydkaSSYQKfZg"
+    ]
+  }
+}

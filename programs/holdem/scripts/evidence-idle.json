@@ -1,0 +1,132 @@
+{
+  "txs": [
+    {
+      "step": "tesoro_core open_match (p0, entry 500)",
+      "layer": "base",
+      "sig": "4VoBzV5PTsVqQiFcQptp18zBgC3bLEjZwqASogWM11orZdxBQvaiQh7UwC8vUcafAWF3rnVCyrv4Uw8FEoEHmbnN",
+      "link": "https://explorer.solana.com/tx/4VoBzV5PTsVqQiFcQptp18zBgC3bLEjZwqASogWM11orZdxBQvaiQh7UwC8vUcafAWF3rnVCyrv4Uw8FEoEHmbnN?cluster=devnet"
+    },
+    {
+      "step": "tesoro_core join_match (p1)",
+      "layer": "base",
+      "sig": "4XrkuFKq6cyAt4JvnWziCEt3vfShf6UWrDxBj2cNaWKJCeBW4x5sbhRL64bCnF2WxAFZhqnAML7jyxhj36BTQvke",
+      "link": "https://explorer.solana.com/tx/4XrkuFKq6cyAt4JvnWziCEt3vfShf6UWrDxBj2cNaWKJCeBW4x5sbhRL64bCnF2WxAFZhqnAML7jyxhj36BTQvke?cluster=devnet"
+    },
+    {
+      "step": "create_match",
+      "layer": "base",
+      "sig": "56ZRroR13xpjf4u3HtmSYkHitu9iRuj7t9H6bXXZ6uGy8BY6M7779u61Zuj5mhac8awvChzZ6CmWPfBCB5qXZR4P",
+      "link": "https://explorer.solana.com/tx/56ZRroR13xpjf4u3HtmSYkHitu9iRuj7t9H6bXXZ6uGy8BY6M7779u61Zuj5mhac8awvChzZ6CmWPfBCB5qXZR4P?cluster=devnet"
+    },
+    {
+      "step": "delegate_match",
+      "layer": "base",
+      "sig": "3BQDJKfAMQPG2sV7Z9sbPvXfgwyCGVBcFiiTjrRfAS7nFyM99NGT18b9sF1pMTkdkCzb1qyc3rNhNjpUCqybhzKH",
+      "link": "https://explorer.solana.com/tx/3BQDJKfAMQPG2sV7Z9sbPvXfgwyCGVBcFiiTjrRfAS7nFyM99NGT18b9sF1pMTkdkCzb1qyc3rNhNjpUCqybhzKH?cluster=devnet"
+    },
+    {
+      "step": "init_permissions",
+      "layer": "tee",
+      "sig": "4c24PraX5Wdqd5R9kyHE8ZVu8dAnMNQo3mV5JgZEyPdtkWGmxX1yFE3fvBQp9jcbXg8RPDBdcpS1ng4kj4m6ytM4"
+    },
+    {
+      "step": "contribute_entropy",
+      "layer": "tee",
+      "sig": "4mmnvq759Cmqw272ZNvfvMThGTwuDZU6SWdnuNpcarQyu63SspNjwuAeaSxhXrAu4JBaTtBUh4NCe1RTeVYZZ3Db"
+    },
+    {
+      "step": "contribute_entropy+request_vrf",
+      "layer": "tee",
+      "sig": "2Rm9fUhopeNiHwPwmBE2xdry7ZE58TEqhPK9nSEaE5wSdGpXpoCY73Azw9brr3UYXbgaLh8bqCzJv7iLB543idjA"
+    },
+    {
+      "step": "deal",
+      "layer": "tee",
+      "sig": "3Sszq61q1WYToNHcn5aoheoctnhdsPZvEZvS3BxxHyj7Rqgao8Nyweh4fxjrsQMiv65yBrL31qyVm5Cw4PP1NMhb"
+    },
+    {
+      "step": "claim_timeout",
+      "layer": "tee",
+      "sig": "zS5KEbSHLmERo1NZGoFcvLK8inzCgXrhUdR8rEEzxyhhq4wQwTVj37K1NUJfMJ6xMCaS5Apcd2vT8RaECho3hJV"
+    },
+    {
+      "step": "contribute_entropy",
+      "layer": "tee",
+      "sig": "5BBX7N8tty6qTKej4LEZxz3jCWJF86J86ed9ddKKcva3Mz8EnaaGxXTprp75LtuC1NXdDW2aL2vt1pHh171YUEM8"
+    },
+    {
+      "step": "contribute_entropy+request_vrf",
+      "layer": "tee",
+      "sig": "4thHUgzrpzuvTvwDRraanjRXK6zeuNScEaShr2b3Nf4owajdW8HFvM5cf9Njot46WiuJmadKE4kQ88PTogRPPMtQ"
+    },
+    {
+      "step": "deal",
+      "layer": "tee",
+      "sig": "3HidcP3pwbKtHR9CFFx2UmaY8bGHvv2ztSBLozzKU36F9jYB3PQMM6Ly35L9NapsPZTqK6yX4qHxZSYP9m5iiYKf"
+    },
+    {
+      "step": "act call",
+      "layer": "tee",
+      "sig": "4NK8KkpqAAn4kg673BL9ZzkK6PPTDNFYymmNWEErkA65h4g2LeuAuCFiZQWD25wJwn1o4K6XsN3pKvkA1vPrQpyG"
+    },
+    {
+      "step": "claim_timeout",
+      "layer": "tee",
+      "sig": "2RywHichTwEvgxjFUjGyGFFFnKfAjSqc86H6urDG9UWt7Ah4QUAzhyY6hmF4m7S4gDjwJy9JaVFLHeL8sfpZhDUY"
+    },
+    {
+      "step": "claim_timeout",
+      "layer": "tee",
+      "sig": "CkGwwaCxV6ym9o8drJYFJ2HATUK2VcRs4xDGi74TskcJbiFTXfnycCqEWukRGkYzCBTebNzqFD36hQkF83D5PRa"
+    },
+    {
+      "step": "close_match",
+      "layer": "tee",
+      "sig": "4Ecy7FMZvKx617JU8onWxC6j6boZuzaNFTH7WMT9eNoqWjCAbC3R6fGy3VTN5uTsKUJAz3hHv73UqUswJhiHs99h"
+    },
+    {
+      "step": "close_match commit",
+      "layer": "base",
+      "sig": "Xd6UfJoLDwkvbjmJqBdck5HZoaxuWt7dryPEYFRdNY9CdVMZ4i1fC3yaSbD3JqDaZj5VJfNnLq4Cxn9J9CWuVN7",
+      "link": "https://explorer.solana.com/tx/Xd6UfJoLDwkvbjmJqBdck5HZoaxuWt7dryPEYFRdNY9CdVMZ4i1fC3yaSbD3JqDaZj5VJfNnLq4Cxn9J9CWuVN7?cluster=devnet"
+    },
+    {
+      "step": "finalize",
+      "layer": "base",
+      "sig": "3oMzpshR19q92sNTQ1FPi6pxarb5qpxDq6DwWnHo6hYLVhqC4xDzoj5WTeXhbRVtQvNCXnMaLk8F92THCop61Ma8",
+      "link": "https://explorer.solana.com/tx/3oMzpshR19q92sNTQ1FPi6pxarb5qpxDq6DwWnHo6hYLVhqC4xDzoj5WTeXhbRVtQvNCXnMaLk8F92THCop61Ma8?cluster=devnet"
+    }
+  ],
+  "checks": [
+    {
+      "name": "idle Player forfeits after three missed turns in a row",
+      "pass": true,
+      "detail": {
+        "status": 2,
+        "winner": 1,
+        "missed": [
+          3,
+          0
+        ]
+      }
+    },
+    {
+      "name": "tesoro_core Match settled by the holdem PDA authority (CPI)",
+      "pass": true,
+      "detail": [
+        "settled"
+      ]
+    },
+    {
+      "name": "forfeit settled: the present Player gets 950 (own 500 + 500 minus 5% fee)",
+      "pass": true,
+      "detail": {
+        "p0": "73000",
+        "p1": "74900"
+      }
+    }
+  ],
+  "summary": {
+    "matchId": "1790716013129"
+  }
+}
