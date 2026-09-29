@@ -1,0 +1,21 @@
+{
+  "name": "@tesoro/bridge-scripts",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "lz": "ts-node-transpile-only scripts/lz.ts",
+    "flow": "ts-node-transpile-only scripts/flow.ts"
+  },
+  "devDependencies": {
+    "@layerzerolabs/lz-solana-sdk-v2": "^3.0.118",
+    "@layerzerolabs/lz-v2-utilities": "^3.0.86",
+    "@metaplex-foundation/umi": "^0.9.2",
+    "@metaplex-foundation/umi-bundle-defaults": "^0.9.2",
+    "@metaplex-foundation/umi-web3js-adapters": "^0.9.2",
+    "@solana/web3.js": "~1.95.8",
+    "@types/node": "~18.18.14",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.4"
+  }
+}

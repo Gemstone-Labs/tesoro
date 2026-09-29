@@ -89,3 +89,20 @@ Backward-compatible upgrade of `AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh` vi
 | `unlock` (Principal simSOL returned; wallet 9.999999999 simSOL) | `HZWYkvfhVTFZWGqNkMJEvUTaKoR2z84kh5MmgD2v48RP8MXENPrQ9k1tLKXVqHPmzdyTK2jzqTxP6Xg4hdjzsGK` |
 
 Position `2QxKeDKJfWvGa6uNwXG6533ZpNTazyoUEXj4ALRj2Zb6` (owner wallet = the deployer, nonce 1). One month of Horizon takes about 10.1 min because sim_lst accrues per 30-day month while the Advance projects 1/12 of a year. Helper: `scripts/native-position` (`RPC_URL=https://rpc.magicblock.app/devnet pnpm cli status`).
+
+## Cross-chain bridge (LayerZero V2), 2026-09-30
+
+Details, flow and every proof tx with LayerZero Scan links: `docs/cross-chain.md`.
+
+| Item | Value |
+|---|---|
+| `tesoro_bridge` program (Solana devnet) | `5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ`, deploy tx `4nQnHMsK1Y3S8zTUhjLiRvp1fAYcSLNoqfK2NRUZwbUdwtpFYqWQw7kCLXhyuVwTASwozjm36ZsrEmeMeVW32sEZ`, upgrade authority = deployer, keypair `~/.config/tesoro/deploy-keys/tesoro_bridge-keypair.json` |
+| OApp address (Store PDA, EVM peer) | `7WQLHW8EuyV1V8tWNh8DQGu7mVRgaHGgLU7fi8G91rVw` = `0x60ae58df1215bf45cc054e633b49c92a3b1309f76075bac72b26e0c6e1c0c792`; `init_store` `3bHFM3Rh6KrU98UQGsovRc7Ht6xnoEUV45TcXiWmAxpwDrRTkMmhzTrZY1aFe7nH9pZAqnX564fSLWmbRHaiK2kb` |
+| Bridge authority PDA (`["authority"]`, tesoro_core source authority for Ethereum and HyperEVM) | `FEgxs5f7zavRaR7tZJBNZzrYeCMGegMpMWFiHjvyvaLg`, `set_source_authority` `3JUc3Vd7CZ27rgAFcrbNi35k9nRbPsvpmWW29iMRB81cU1MhDqJQiqGMrEbfqXyku3DoQLqCeHP5mQLm3k7qkNkb` |
+| tesoro_core upgrade (adds source authorities; includes the native-Position instructions already on devnet) | `bpyct2A3AuopZvJUtW3RiQVjqtKp4ZJKTXtNeUtV1D97DFYzpNi927ZSFUYa8cRNN1p9hia2W9s1dWXSmpkgFsG` (extended by 60,000 bytes first; built from `integ/core-source-native-30-09-2026` = native branch + the source-authority commits) |
+| Hoodi `PositionVaultOApp` (SimLST, simETH, SIMULATED) | `0x8289fa2e5A7a57618A93B93fc720B85eF3E87b7c`, deploy `0x1abcc8cdbe7c185655ee163bde3316ddbc5bc839c607f6881c6b3cfb69e9c0f9`, `setPeer` `0xff68a61d706539d72ee6faeabc2ae9568d9b9530d55c3f18a894500b2427a1e6` |
+| Hoodi `PositionVaultOApp` (real Lido wstETH) | `0x214A695C1F9F0136D87c459fa542878da1128DeD`, `setPeer` `0x0f9531f634fab3c48c66b3f7c9706aaecb6fe85a7a53dd74d4227876080e53f6`; wired on Solana with 300 bps, not exercised end to end |
+| Solana `set_peer_config` + pathway init | SimLST vault: `5aGWx8kEJVmsjbwHkUxbBv1qPVEh1qrTHE8Q7a1EehomDP1T8eiHdqKuS7AojouSMCE5GXcnz7iL7HEBwiFH4mV8`; wstETH vault: `3avujqcnk7d9ZdsRTRabKc8c28AN4tWK7fmkcAUbkzTpqTGPb5JLp1UWTPqsn43k9doi25RAwV6diveMecEREbrz` |
+| HyperEVM | not deployed (no HYPE); Solana pathway for 40362 wired. See `docs/cross-chain.md` |
+
+The vaults deployed earlier with `MockEndpoint` (table above) are superseded by these.

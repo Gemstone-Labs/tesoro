@@ -1,0 +1,17 @@
+[toolchain]
+anchor_version = "0.31.1"
+
+[features]
+seeds = false
+resolution = false
+skip-lint = false
+
+[programs.localnet]
+tesoro_bridge = "5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ"
+
+[programs.devnet]
+tesoro_bridge = "5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"
