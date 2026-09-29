@@ -1,0 +1,102 @@
+/* Hold'em table. The cards are the game art (paper faces, red and black suits); the surface around
+   them is neutral. Chips are plain mono numbers: no emerald, no Gema mark. */
+.hd { display: grid; gap: 12px; }
+.hd-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--fg-2); font-size: 12px; }
+.hd-level { color: var(--fg); font-weight: 500; }
+
+.hd-table {
+  --c: var(--cut-frame);
+  display: grid; gap: 14px; padding: 16px 12px;
+  background: #111519; border: 1px solid var(--line);
+}
+
+/* cards */
+.hd-card {
+  --w: 44px;
+  position: relative; display: inline-grid; place-items: center; align-content: center; gap: 0;
+  width: var(--w); aspect-ratio: 5 / 7; border-radius: 5px; flex: none; line-height: 1;
+}
+.hd-card.lg { --w: 58px; }
+.hd-card.face { background: #f3efe6; color: #16191c; box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(0, 0, 0, 0.12); }
+.hd-card.face.red { color: #c2362b; }
+.hd-rank { font-weight: 900; font-size: calc(var(--w) * 0.42); letter-spacing: -0.04em; }
+.hd-suit { font-size: calc(var(--w) * 0.44); margin-top: -2px; }
+.hd-card.back {
+  background: repeating-linear-gradient(45deg, #26303a 0 5px, #2e3a46 5px 10px);
+  box-shadow: inset 0 0 0 2px #1a2129, inset 0 0 0 3px rgba(234, 239, 236, 0.16);
+}
+.hd-card.empty { border: 1px dashed rgba(234, 239, 236, 0.16); background: rgba(255, 255, 255, 0.02); }
+
+/* seats */
+.hd-seat { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
+.hd-cards { display: flex; gap: 6px; }
+.hd-info { min-width: 0; display: grid; gap: 2px; }
+.hd-name { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.hd-addr { color: var(--fg-2); font-size: 11px; }
+.hd-btn {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--fg); color: var(--shell); font-size: 10px; font-weight: 900;
+}
+.hd-stack { font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.hd-unit { font-size: 11px; color: var(--fg-2); }
+.hd-tag { margin-left: 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warn); }
+.hd-missed { color: var(--warn); }
+.hd-bet { min-width: 44px; text-align: right; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--fg); }
+.hd-bet:not(:empty)::before { content: "Bet "; color: var(--fg-2); font-size: 10.5px; }
+.hd-seat.active .hd-name strong::after { content: " · to act"; color: var(--fg-2); font-weight: 500; font-size: 12px; }
+.hd-seat.active .hd-cards { filter: drop-shadow(0 0 0 transparent); }
+
+/* board and pot */
+.hd-mid { display: grid; gap: 8px; justify-items: center; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.hd-board { display: flex; gap: 6px; }
+.hd-pot { font-size: 16px; font-variant-numeric: tabular-nums; }
+.hd-pot-l, .hd-pot-u { font-size: 11px; color: var(--fg-2); letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* hand result */
+.hd-result { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); background: var(--raised); }
+.hd-result-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; }
+.hd-show { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hd-show .hd-card { --w: 34px; }
+.hd-show-l { font-size: 11px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.08em; }
+.hd-show-l:not(:first-child) { margin-left: 8px; }
+
+/* clock */
+.hd-clock { display: grid; gap: 6px; }
+.hd-clock-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hd-who { font-weight: 700; font-size: 14px; }
+.hd-secs { font-size: 18px; font-variant-numeric: tabular-nums; }
+.hd-secs.low { color: var(--warn); }
+.hd-clock-bar { height: 4px; background: rgba(255, 255, 255, 0.08); }
+.hd-clock-bar i { display: block; height: 100%; background: var(--fg-2); transition: width 250ms linear; }
+.hd-clock-bar i.low { background: var(--warn); }
+.hd-claim { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* actions */
+.hd-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.hd-actions.two { grid-template-columns: 1fr 1.4fr; }
+.hd-actions .btn { padding: 12px 8px; }
+.hd-hint { grid-column: 1 / -1; }
+.hd-raise { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); background: var(--raised); }
+.hd-raise-head { display: flex; align-items: baseline; justify-content: space-between; }
+.hd-raise-v { font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.hd-raise-ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--fg-2); }
+.hd-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.hd-preset { padding: 8px 4px; font-size: 12px; font-weight: 700; background: transparent; border: 1px solid var(--line); color: var(--fg); }
+.hd-preset:hover { background: #1b1f23; }
+
+/* neutral range (Chips are not Gemas: the emerald slider is for Gema amounts only) */
+.hd-range { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; margin: 0; }
+.hd-range::-webkit-slider-runnable-track { height: 4px; background: linear-gradient(90deg, var(--fg) var(--pct, 0%), rgba(255, 255, 255, 0.14) var(--pct, 0%)); }
+.hd-range::-moz-range-track { height: 4px; background: rgba(255, 255, 255, 0.14); }
+.hd-range::-moz-range-progress { height: 4px; background: var(--fg); }
+.hd-range::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -9px; background: var(--fg); border: 0; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.hd-range::-moz-range-thumb { width: 22px; height: 22px; background: var(--fg); border: 0; border-radius: 0; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.hd-range:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+.hd-sigs summary { cursor: pointer; }
+.hd-sigs { gap: 6px; }
+
+@media (min-width: 720px) {
+  .hd-card { --w: 52px; }
+  .hd-card.lg { --w: 66px; }
+}

@@ -1,0 +1,3230 @@
+{
+  "address": "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE",
+  "metadata": {
+    "name": "holdem",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "act",
+      "docs": [
+        "Rollup. A Player acts on their turn."
+      ],
+      "discriminator": [
+        114,
+        158,
+        229,
+        112,
+        242,
+        50,
+        227,
+        5
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
+        },
+        {
+          "name": "game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match.match_id",
+                "account": "GameMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deck",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0"
+        },
+        {
+          "name": "hole_1"
+        }
+      ],
+      "args": [
+        {
+          "name": "action",
+          "type": {
+            "defined": {
+              "name": "Action"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "claim_timeout",
+      "docs": [
+        "Rollup, permissionless. Once the current deadline has passed: an idle Player is checked",
+        "(or folded when facing a bet); missing entropy cancels hand one (no-show, both entries",
+        "refunded) or forfeits a later hand; three missed turns in a row forfeit the Match."
+      ],
+      "discriminator": [
+        130,
+        234,
+        45,
+        53,
+        120,
+        90,
+        86,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match.match_id",
+                "account": "GameMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deck",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0"
+        },
+        {
+          "name": "hole_1"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_match",
+      "docs": [
+        "Rollup. After the Match is over (or cancelled): wipes the hidden accounts, closes their",
+        "permissions and commits + undelegates everything back to the base layer. Whatever is in",
+        "state at commit becomes public, hence the wipe."
+      ],
+      "discriminator": [
+        79,
+        174,
+        36,
+        80,
+        233,
+        185,
+        176,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match.match_id",
+                "account": "GameMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        },
+        {
+          "name": "deck_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "deck"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "hole_0_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "hole_1_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "contribute_entropy",
+      "docs": [
+        "Rollup. A Player folds a fresh secret into this hand's Deck entropy. The secret only ever",
+        "exists in this transaction (inside the TEE) and in the private Deck."
+      ],
+      "discriminator": [
+        226,
+        50,
+        83,
+        148,
+        208,
+        127,
+        106,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
+        },
+        {
+          "name": "game_match",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match.match_id",
+                "account": "GameMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "secret",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_match",
+      "docs": [
+        "Base layer. Binds a new table to an Active tesoro_core Match of this Game and pre-funds",
+        "the ephemeral permission rent of each hidden account. Either Player may create it."
+      ],
+      "discriminator": [
+        107,
+        2,
+        184,
+        145,
+        70,
+        142,
+        17,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tesoro_match",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.id",
+                "account": "MatchState"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "account_a",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account_a.authority",
+                "account": "TesoroAccount"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "account_b",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account_b.authority",
+                "account": "TesoroAccount"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
+        },
+        {
+          "name": "speed",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "deal",
+      "docs": [
+        "Rollup. Shuffles from `H(entropy || vrf || hand)`, deals two cards to each Hole account",
+        "and opens preflop betting. Anyone may call it once the VRF output is in."
+      ],
+      "discriminator": [
+        128,
+        0,
+        138,
+        208,
+        72,
+        249,
+        203,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match.match_id",
+                "account": "GameMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_match",
+      "docs": [
+        "Base layer. Delegates the table and its hidden accounts to the TEE validator."
+      ],
+      "discriminator": [
+        30,
+        116,
+        9,
+        69,
+        147,
+        61,
+        133,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "buffer_game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                174,
+                96,
+                200,
+                103,
+                127,
+                104,
+                62,
+                170,
+                232,
+                90,
+                29,
+                158,
+                38,
+                83,
+                120,
+                138,
+                228,
+                74,
+                166,
+                86,
+                92,
+                73,
+                111,
+                43,
+                52,
+                38,
+                103,
+                98,
+                92,
+                102,
+                245,
+                169
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "deck"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                174,
+                96,
+                200,
+                103,
+                127,
+                104,
+                62,
+                170,
+                232,
+                90,
+                29,
+                158,
+                38,
+                83,
+                120,
+                138,
+                228,
+                74,
+                166,
+                86,
+                92,
+                73,
+                111,
+                43,
+                52,
+                38,
+                103,
+                98,
+                92,
+                102,
+                245,
+                169
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "deck"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "deck"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_hole_0",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                174,
+                96,
+                200,
+                103,
+                127,
+                104,
+                62,
+                170,
+                232,
+                90,
+                29,
+                158,
+                38,
+                83,
+                120,
+                138,
+                228,
+                74,
+                166,
+                86,
+                92,
+                73,
+                111,
+                43,
+                52,
+                38,
+                103,
+                98,
+                92,
+                102,
+                245,
+                169
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_hole_0",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_0"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_hole_0",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_0"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "buffer_hole_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                174,
+                96,
+                200,
+                103,
+                127,
+                104,
+                62,
+                170,
+                232,
+                90,
+                29,
+                158,
+                38,
+                83,
+                120,
+                138,
+                228,
+                74,
+                166,
+                86,
+                92,
+                73,
+                111,
+                43,
+                52,
+                38,
+                103,
+                98,
+                92,
+                102,
+                245,
+                169
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_hole_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_1"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_hole_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_1"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "finalize",
+      "docs": [
+        "Base layer, permissionless. Settles the tesoro_core Match from the committed result by CPI,",
+        "signing as this Game's `authority` PDA: the winner takes the Pot minus fees. A cancelled",
+        "Match, or one never started before its start deadline, refunds both entries.",
+        "`remaining_accounts` are the payout accounts tesoro_core expects (recipient",
+        "`TesoroAccount` then its Holding, per payout, sorted by recipient and Source)."
+      ],
+      "discriminator": [
+        171,
+        61,
+        218,
+        56,
+        127,
+        115,
+        12,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match.match_id",
+                "account": "GameMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tesoro_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tesoro_match.id",
+                "account": "MatchState"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tesoro_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_permissions",
+      "docs": [
+        "Rollup. Creates the four ephemeral permissions (the table is visible to both Players,",
+        "each Hole account only to its Player, the Deck to nobody) and starts the Match: equal",
+        "Chips, first hand, blinds posted."
+      ],
+      "discriminator": [
+        247,
+        240,
+        133,
+        29,
+        26,
+        176,
+        185,
+        61
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_match",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match.match_id",
+                "account": "GameMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hole_0",
+          "writable": true
+        },
+        {
+          "name": "hole_1",
+          "writable": true
+        },
+        {
+          "name": "match_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "deck_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "deck"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "hole_0_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "hole_1_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hole_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  110,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  45,
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_account"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                181,
+                183,
+                0,
+                225,
+                242,
+                87,
+                58,
+                192,
+                204,
+                6,
+                34,
+                1,
+                52,
+                74,
+                207,
+                151,
+                184,
+                53,
+                6,
+                235,
+                140,
+                229,
+                25,
+                152,
+                204,
+                98,
+                126,
+                24,
+                147,
+                128,
+                167,
+                62
+              ]
+            }
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "request_vrf",
+      "docs": [
+        "Rollup. Requests VRF randomness from the delegated oracle queue; the oracle calls back",
+        "into `vrf_callback_shuffle` inside the rollup. May be repeated until the output arrives."
+      ],
+      "discriminator": [
+        5,
+        87,
+        79,
+        152,
+        164,
+        176,
+        190,
+        226
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_match",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match.match_id",
+                "account": "GameMatch"
+              }
+            ]
+          }
+        },
+        {
+          "name": "deck",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_match"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle_queue",
+          "writable": true,
+          "address": "5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc"
+        },
+        {
+          "name": "program_identity",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_program",
+          "address": "Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz"
+        },
+        {
+          "name": "slot_hashes",
+          "address": "SysvarS1otHashes111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "client_seed",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "vrf_callback_shuffle",
+      "docs": [
+        "Rollup. VRF callback: the output is written only into the private Deck."
+      ],
+      "discriminator": [
+        143,
+        184,
+        18,
+        167,
+        228,
+        222,
+        176,
+        162
+      ],
+      "accounts": [
+        {
+          "name": "vrf_program_identity",
+          "docs": [
+            "Scoped VRF identity PDA, bound to this program. Its presence as a signer proves",
+            "the callback was issued by the VRF program for this program."
+          ],
+          "signer": true
+        },
+        {
+          "name": "deck",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "deck.game_match",
+                "account": "Deck"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "randomness",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Deck",
+      "discriminator": [
+        192,
+        215,
+        78,
+        133,
+        216,
+        161,
+        59,
+        154
+      ]
+    },
+    {
+      "name": "GameMatch",
+      "discriminator": [
+        87,
+        187,
+        102,
+        98,
+        236,
+        52,
+        127,
+        39
+      ]
+    },
+    {
+      "name": "Hole",
+      "discriminator": [
+        14,
+        167,
+        116,
+        207,
+        25,
+        217,
+        219,
+        50
+      ]
+    },
+    {
+      "name": "MatchState",
+      "discriminator": [
+        250,
+        209,
+        137,
+        70,
+        235,
+        96,
+        121,
+        216
+      ]
+    },
+    {
+      "name": "TesoroAccount",
+      "discriminator": [
+        50,
+        226,
+        60,
+        36,
+        163,
+        217,
+        197,
+        178
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NotAPlayer",
+      "msg": "Signer is not a Player of this Match"
+    },
+    {
+      "code": 6001,
+      "name": "AlreadyContributed",
+      "msg": "Entropy already contributed for this hand"
+    },
+    {
+      "code": 6002,
+      "name": "EntropyIncomplete",
+      "msg": "Both Players must contribute entropy and the VRF output must arrive first"
+    },
+    {
+      "code": 6003,
+      "name": "AlreadyDealt",
+      "msg": "Deck already dealt"
+    },
+    {
+      "code": 6004,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidSpeed",
+      "msg": "Unknown speed"
+    },
+    {
+      "code": 6006,
+      "name": "AlreadyStarted",
+      "msg": "Match already started"
+    },
+    {
+      "code": 6007,
+      "name": "NotLive",
+      "msg": "Match is not live"
+    },
+    {
+      "code": 6008,
+      "name": "WrongPhase",
+      "msg": "Not valid in this phase of the hand"
+    },
+    {
+      "code": 6009,
+      "name": "NotYourTurn",
+      "msg": "It is not your turn"
+    },
+    {
+      "code": 6010,
+      "name": "CannotCheck",
+      "msg": "Cannot check facing a bet"
+    },
+    {
+      "code": 6011,
+      "name": "NothingToCall",
+      "msg": "Nothing to call"
+    },
+    {
+      "code": 6012,
+      "name": "OpponentAllIn",
+      "msg": "The opponent is all-in"
+    },
+    {
+      "code": 6013,
+      "name": "RaiseTooSmall",
+      "msg": "Raise below the minimum"
+    },
+    {
+      "code": 6014,
+      "name": "NotEnoughChips",
+      "msg": "Not enough chips"
+    },
+    {
+      "code": 6015,
+      "name": "NotTimedOut",
+      "msg": "Deadline has not passed"
+    },
+    {
+      "code": 6016,
+      "name": "BadTesoroMatch",
+      "msg": "The tesoro_core Match is not an Active Match of this Game"
+    },
+    {
+      "code": 6017,
+      "name": "MatchNotOver",
+      "msg": "The Match is not over"
+    },
+    {
+      "code": 6018,
+      "name": "AlreadyFinalized",
+      "msg": "Already settled or refunded in tesoro_core"
+    }
+  ],
+  "types": [
+    {
+      "name": "Account",
+      "docs": [
+        "One Account's identity ledger. Balances mirror the sum of its Holdings, split by whether the",
+        "Gemas are own-sourced (Source owned by this Account) or won (any other Source)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "own_total",
+            "type": "u64"
+          },
+          {
+            "name": "won_total",
+            "type": "u64"
+          },
+          {
+            "name": "own_reserved",
+            "docs": [
+              "Reserved for Offers (part of the totals, not free to enter Matches or redeem)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "won_reserved",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Action",
+      "docs": [
+        "A Player's decision. `Raise { to }` is the total bet for the street after the raise (a bet",
+        "when nothing is open); `to` equal to the Player's whole stack is an all-in."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Fold"
+          },
+          {
+            "name": "Check"
+          },
+          {
+            "name": "Call"
+          },
+          {
+            "name": "Raise",
+            "fields": [
+              {
+                "name": "to",
+                "type": "u64"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle_authority",
+            "docs": [
+              "Trusted for now to supply the issuance price and `YieldAccrued`/`PositionLocked` facts.",
+              "This is the seam for the LayerZero receiver (messages) and Pyth (price)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_recipient",
+            "docs": [
+              "`TesoroAccount` that receives the Platform Fee."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "games",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "GameEntry"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Deck",
+      "docs": [
+        "Hidden. Zero-member permission: nobody but the program reads it. Reshuffled every hand from",
+        "fresh Player secrets and a fresh VRF output."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "game_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "hand_no",
+            "docs": [
+              "The hand this deck state belongs to; a stale value means \"reset on first use\"."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "entropy",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "contributed",
+            "type": {
+              "array": [
+                "bool",
+                2
+              ]
+            }
+          },
+          {
+            "name": "vrf_seen",
+            "type": "bool"
+          },
+          {
+            "name": "vrf",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "dealt",
+            "type": "bool"
+          },
+          {
+            "name": "cards",
+            "type": {
+              "array": [
+                "u8",
+                52
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeTerms",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "platform_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_recipient",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "studio_recipient",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game",
+            "docs": [
+              "Identity of the Game (its program id)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Only this key may settle the Game's Matches (a PDA of the Game program, or a server key)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "docs": [
+              "`TesoroAccount` that receives the Studio Fee."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameMatch",
+      "docs": [
+        "The public table. Readable by both Players; holds no hidden card."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority_bump",
+            "docs": [
+              "Canonical bump of the `authority` PDA, stored so settlement never re-derives it."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "match_id",
+            "docs": [
+              "Same id as the tesoro_core Match this Game settles."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "tesoro_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "players",
+            "docs": [
+              "Seat 0 opened the tesoro_core Match, seat 1 joined."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "speed",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "finalized",
+            "docs": [
+              "Set on the base layer once tesoro_core has been settled or refunded."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "winner",
+            "docs": [
+              "Winning seat when `status == STATUS_OVER`, else `NO_WINNER`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "start_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "hand_no",
+            "type": "u32"
+          },
+          {
+            "name": "dealer",
+            "docs": [
+              "Seat of the button; in heads-up it posts the small blind and acts first preflop."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "phase",
+            "type": "u8"
+          },
+          {
+            "name": "small_blind",
+            "type": "u64"
+          },
+          {
+            "name": "big_blind",
+            "type": "u64"
+          },
+          {
+            "name": "stacks",
+            "docs": [
+              "Chips behind, per seat."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "bets",
+            "docs": [
+              "Chips put in during the current street."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "committed",
+            "docs": [
+              "Chips put in during the whole hand."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "to_act",
+            "type": "u8"
+          },
+          {
+            "name": "acted",
+            "type": {
+              "array": [
+                "bool",
+                2
+              ]
+            }
+          },
+          {
+            "name": "last_raise",
+            "docs": [
+              "Size of the last full raise this street: the minimum next raise."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "board",
+            "type": {
+              "array": [
+                "u8",
+                5
+              ]
+            }
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "missed",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "last_hand_no",
+            "type": "u32"
+          },
+          {
+            "name": "last_result",
+            "docs": [
+              "Winning seat of the last hand, or `SPLIT`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "last_pot",
+            "type": "u64"
+          },
+          {
+            "name": "last_showdown",
+            "type": "bool"
+          },
+          {
+            "name": "last_shown",
+            "docs": [
+              "Hole cards shown at the last showdown (`NO_CARD` when not shown)."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "last_board",
+            "type": {
+              "array": [
+                "u8",
+                5
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Hole",
+      "docs": [
+        "Hidden. Readable only by its Player through the permission program."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "game_match",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "hand_no",
+            "type": "u32"
+          },
+          {
+            "name": "dealt",
+            "type": "bool"
+          },
+          {
+            "name": "cards",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Line",
+      "docs": [
+        "A slice of Gemas of one Source moving into a Pot or a reservation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Match",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "entry",
+            "type": "u64"
+          },
+          {
+            "name": "fees",
+            "docs": [
+              "Fee terms snapshotted when the Match opened."
+            ],
+            "type": {
+              "defined": {
+                "name": "FeeTerms"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "MatchStatus"
+              }
+            }
+          },
+          {
+            "name": "a",
+            "type": {
+              "defined": {
+                "name": "Side"
+              }
+            }
+          },
+          {
+            "name": "b",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "Side"
+                }
+              }
+            }
+          },
+          {
+            "name": "deadline",
+            "docs": [
+              "After this time anyone may refund the Match as abandoned / no-show."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "Match"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Refunded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Side",
+      "docs": [
+        "One entrant. `funder == player` unless the entry is backed; then `share_bps` is the Player's",
+        "share of the surplus from the accepted Offer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funder",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "lines",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Line"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TesoroAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Solana wallet that controls the Account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "evm_address",
+            "docs": [
+              "The EVM family address of the Account (zero until set)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "Account"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

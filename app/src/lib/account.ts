@@ -75,10 +75,10 @@ function fromSnapshot(s: AccountSnapshot) {
       const delta = matchDelta(m);
       return {
         id: m.id.toString(),
-        game: "block-puzzle" as const,
+        game: m.game,
         entry: m.entry as Match["entry"],
         opponent: m.opponent ? short(m.opponent) : "no opponent",
-        result: !m.session ? "refunded" : draw ? "draw" : delta > 0 ? "won" : "lost",
+        result: draw ? "draw" : m.status === "refunded" || (m.game === "block-puzzle" && !m.session) ? "refunded" : delta > 0 ? "won" : "lost",
         gemasDelta: delta,
         seed: m.session ? `0x${m.session.seed.toString(16).padStart(16, "0").slice(0, 4)}…${m.session.seed.toString(16).slice(-4)}` : "—",
         playedAt: new Date(Number(m.id >> 1n)).toISOString(),

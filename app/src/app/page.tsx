@@ -14,21 +14,28 @@ export default function Lobby() {
   const { gemas, auth, onChain, openMatches, loading } = useAccount();
   const router = useRouter();
   const [waiting, setWaiting] = useState<number | null>(null);
+  const [waitingHoldem, setWaitingHoldem] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
     import("@/lib/chain/read")
-      .then((m) => m.queueDepth())
-      .then((n) => live && setWaiting(n))
+      .then(async (m) => [await m.queueDepth("block-puzzle"), await m.queueDepth("holdem")] as const)
+      .then(([bp, hd]) => {
+        if (!live) return;
+        setWaiting(bp);
+        setWaitingHoldem(hd);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, []);
-  const queueDepth = { ...mockQueueDepth, "block-puzzle": waiting ?? mockQueueDepth["block-puzzle"] };
+  const queueDepth = { ...mockQueueDepth, "block-puzzle": waiting ?? mockQueueDepth["block-puzzle"], holdem: waitingHoldem ?? mockQueueDepth.holdem };
   const { requests } = useBacking();
   const [entry, setEntry] = useState<EntrySize>(1000);
+  const [holdemEntry, setHoldemEntry] = useState<EntrySize>(500);
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
   const canEnter = !signedIn || loading || gemas.total >= entry;
+  const canEnterHoldem = !signedIn || loading || gemas.total >= holdemEntry;
   const enter = (href: string) => auth.gate("Enter a Match", () => router.push(href));
 
   return (
@@ -75,7 +82,7 @@ export default function Lobby() {
                 key={m.id.toString()}
                 href={`/play/match/${m.id.toString()}`}
                 thumb={<Thumb>{m.entry >= 1000 ? `${m.entry / 1000}K` : m.entry}</Thumb>}
-                title={`Block Puzzle · ${fmtGemas(m.entry)} entry`}
+                title={`${GAME_NAMES[m.game]} · ${fmtGemas(m.entry)} entry`}
                 meta={m.status === "open" ? (m.challenge ? "Waiting for your Challenge to be opened" : "Waiting for an opponent") : "Opponent found · continue"}
                 cta="Open"
               />
@@ -83,13 +90,32 @@ export default function Lobby() {
           </section>
         )}
 
-        <Row
-          onClick={() => enter("/play?game=holdem&entry=500")}
-          thumb={<Thumb variant="poker">A♠K</Thumb>}
-          title={GAME_NAMES.holdem}
-          meta={`Live · ${queueDepth.holdem} in Queue`}
-          cta="Play"
-        />
+        <Card as="section" aria-label="Heads-up Hold'em">
+          <div className="stack">
+            <div className="hstack">
+              <Thumb variant="poker">A♠K</Thumb>
+              <span className="row-body">
+                <h2 className="row-title">{GAME_NAMES.holdem}</h2>
+                <span className="row-meta">Live · 30 s per action · Turbo blinds</span>
+              </span>
+            </div>
+            <EntryPicker value={holdemEntry} onChange={setHoldemEntry} legend="Entry for Hold'em" name="holdem-entry" maxAffordable={signedIn ? gemas.total : undefined} />
+            <Button variant="money" block onClick={() => enter(`/play/queue?game=holdem&entry=${holdemEntry}`)} disabled={!canEnterHoldem}>
+              Enter · {fmtGemas(holdemEntry)} Gemas
+            </Button>
+            {!canEnterHoldem && onChain && (
+              <span className="meta">
+                You need {fmtGemas(holdemEntry)} Gemas to enter. <Link href="/wallet">Get Gemas in your Wallet</Link>
+              </span>
+            )}
+            <span className="meta">{queueDepth.holdem} waiting in Queue · play starts when an opponent sits down</span>
+            <div className="hstack wrap">
+              <Button size="sm" onClick={() => auth.gate("Challenge a friend", () => router.push(`/play/challenge?game=holdem&entry=${holdemEntry}`))}>
+                Challenge a friend
+              </Button>
+            </div>
+          </div>
+        </Card>
       </div>
 
       <section className="stack" aria-labelledby="req-h">

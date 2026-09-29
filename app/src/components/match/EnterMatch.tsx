@@ -6,8 +6,13 @@ import { Button, Card, GemaAmount } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ChallengeError, EntryError, createChallenge, enterQueue, joinChallenge } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
+import { GAME_NAMES } from "@/lib/mock";
+import type { GameId } from "@/lib/mock";
 
-export type EnterKind = { kind: "queue"; entry: number } | { kind: "challenge-new"; entry: number } | { kind: "challenge-join"; id: string };
+export type EnterKind =
+  | { kind: "queue"; entry: number; game?: GameId }
+  | { kind: "challenge-new"; entry: number; game?: GameId }
+  | { kind: "challenge-join"; id: string };
 
 function explain(e: unknown): { text: string; wallet?: boolean } {
   if (e instanceof EntryError) {
@@ -41,11 +46,11 @@ export function EnterMatch(props: EnterKind) {
       try {
         setStatus("Checking your SOL and Account…");
         if (props.kind === "queue") {
-          const r = await enterQueue(signer, props.entry, auth.getAccessToken);
+          const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game);
           setStatus(r.joined ? "Opponent found." : "Entered the Queue.");
           router.replace(`/play/match/${r.id.toString()}`);
         } else if (props.kind === "challenge-new") {
-          const id = await createChallenge(signer, props.entry, auth.getAccessToken);
+          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game);
           router.replace(`/play/match/${id.toString()}`);
         } else {
           setStatus("Joining the Challenge…");
@@ -68,7 +73,7 @@ export function EnterMatch(props: EnterKind) {
         <h1 className="page-title">{title}</h1>
         {props.kind !== "challenge-join" && (
           <span className="hstack">
-            <GemaAmount value={props.entry} size="lg" /> <span className="meta">entry · Block Puzzle</span>
+            <GemaAmount value={props.entry} size="lg" /> <span className="meta">entry · {GAME_NAMES[props.game ?? "block-puzzle"]}</span>
           </span>
         )}
         {signedOut ? (
