@@ -271,7 +271,12 @@ mod tests {
             "5s 6s 7s 8s 9s Kd 2c",
         ];
         for w in ladder.windows(2) {
-            assert!(eval7(&hand(w[0])) < eval7(&hand(w[1])), "{} < {}", w[0], w[1]);
+            assert!(
+                eval7(&hand(w[0])) < eval7(&hand(w[1])),
+                "{} < {}",
+                w[0],
+                w[1]
+            );
         }
     }
 

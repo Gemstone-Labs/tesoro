@@ -42,11 +42,13 @@ pub fn blinds(speed: u8, hand_no: u32) -> Result<(u64, u64)> {
 }
 
 fn add(a: u64, b: u64) -> Result<u64> {
-    a.checked_add(b).ok_or_else(|| error!(HoldemError::Overflow))
+    a.checked_add(b)
+        .ok_or_else(|| error!(HoldemError::Overflow))
 }
 
 fn sub(a: u64, b: u64) -> Result<u64> {
-    a.checked_sub(b).ok_or_else(|| error!(HoldemError::Overflow))
+    a.checked_sub(b)
+        .ok_or_else(|| error!(HoldemError::Overflow))
 }
 
 fn other(seat: usize) -> usize {
@@ -129,7 +131,9 @@ impl GameMatch {
         if self.all_in(0) || self.all_in(1) {
             // A short all-in or a call for less ends the betting once the other Player has at
             // least matched every all-in bet; anything above is returned as uncalled.
-            return !(0..2).any(|i| self.all_in(i) && !self.all_in(other(i)) && self.bets[other(i)] < self.bets[i]);
+            return !(0..2).any(|i| {
+                self.all_in(i) && !self.all_in(other(i)) && self.bets[other(i)] < self.bets[i]
+            });
         }
         self.acted[0] && self.acted[1] && self.bets[0] == self.bets[1]
     }
@@ -162,7 +166,10 @@ impl GameMatch {
             (PHASE_PREFLOP..=PHASE_RIVER).contains(&self.phase),
             HoldemError::WrongPhase
         );
-        require!(seat < 2 && usize::from(self.to_act) == seat, HoldemError::NotYourTurn);
+        require!(
+            seat < 2 && usize::from(self.to_act) == seat,
+            HoldemError::NotYourTurn
+        );
         let opp = other(seat);
         let current = self.current_bet();
 
@@ -212,7 +219,11 @@ impl GameMatch {
         now: i64,
     ) -> Result<()> {
         if self.bets[0] != self.bets[1] {
-            let (high, low) = if self.bets[0] > self.bets[1] { (0, 1) } else { (1, 0) };
+            let (high, low) = if self.bets[0] > self.bets[1] {
+                (0, 1)
+            } else {
+                (1, 0)
+            };
             let excess = sub(self.bets[high], self.bets[low])?;
             self.bets[high] = sub(self.bets[high], excess)?;
             self.committed[high] = sub(self.committed[high], excess)?;
@@ -227,7 +238,11 @@ impl GameMatch {
             return self.showdown(holes, now);
         }
         self.phase = self.phase.saturating_add(1);
-        let visible = if self.phase == PHASE_FLOP { 3 } else { usize::from(self.phase) + 1 };
+        let visible = if self.phase == PHASE_FLOP {
+            3
+        } else {
+            usize::from(self.phase) + 1
+        };
         self.reveal_board(deck, visible);
         // Heads-up: the Player out of position (the big blind) acts first after the flop.
         self.to_act = 1 - self.dealer;
@@ -385,7 +400,8 @@ impl GameMatch {
 }
 
 fn add_time(now: i64, secs: i64) -> Result<i64> {
-    now.checked_add(secs).ok_or_else(|| error!(HoldemError::Overflow))
+    now.checked_add(secs)
+        .ok_or_else(|| error!(HoldemError::Overflow))
 }
 
 #[cfg(test)]
@@ -430,7 +446,12 @@ mod tests {
         m
     }
 
-    fn dealt(m: &mut GameMatch, seat0: [&str; 2], seat1: [&str; 2], board: [&str; 5]) -> ([u8; DECK_SIZE], [[u8; 2]; 2]) {
+    fn dealt(
+        m: &mut GameMatch,
+        seat0: [&str; 2],
+        seat1: [&str; 2],
+        board: [&str; 5],
+    ) -> ([u8; DECK_SIZE], [[u8; 2]; 2]) {
         let (deck, holes) = deck_of(cards(seat0), cards(seat1), cards(board));
         m.on_dealt(&deck, &holes, NOW).expect("deal");
         (deck, holes)
@@ -477,10 +498,18 @@ mod tests {
     #[test]
     fn button_acts_first_preflop_and_big_blind_first_after_the_flop() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         assert_eq!(m.phase, PHASE_PREFLOP);
         assert_eq!(m.to_act, 0);
-        assert!(act(&mut m, &c, 1, Action::Check).is_err(), "not seat 1's turn");
+        assert!(
+            act(&mut m, &c, 1, Action::Check).is_err(),
+            "not seat 1's turn"
+        );
         act(&mut m, &c, 0, Action::Call).unwrap();
         // The big blind still has the option.
         assert_eq!(m.phase, PHASE_PREFLOP);
@@ -497,13 +526,24 @@ mod tests {
     #[test]
     fn check_call_and_raise_legality() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         // Small blind faces 25 to call: cannot check.
         assert!(act(&mut m, &c, 0, Action::Check).is_err());
         // Min raise: to 100 (call 50 + raise of 50); 99 is too small.
         assert!(act(&mut m, &c, 0, Action::Raise { to: 99 }).is_err());
-        assert!(act(&mut m, &c, 0, Action::Raise { to: 50 }).is_err(), "not above the bet");
-        assert!(act(&mut m, &c, 0, Action::Raise { to: 5_000 }).is_err(), "more than the stack");
+        assert!(
+            act(&mut m, &c, 0, Action::Raise { to: 50 }).is_err(),
+            "not above the bet"
+        );
+        assert!(
+            act(&mut m, &c, 0, Action::Raise { to: 5_000 }).is_err(),
+            "more than the stack"
+        );
         act(&mut m, &c, 0, Action::Raise { to: 100 }).unwrap();
         assert_eq!(m.last_raise, 50);
         // Big blind re-raises: min is 100 + 50.
@@ -522,7 +562,12 @@ mod tests {
     #[test]
     fn postflop_bet_minimum_is_the_big_blind() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         act(&mut m, &c, 0, Action::Call).unwrap();
         act(&mut m, &c, 1, Action::Check).unwrap();
         assert!(act(&mut m, &c, 1, Action::Raise { to: 49 }).is_err());
@@ -542,7 +587,12 @@ mod tests {
     #[test]
     fn check_down_to_showdown_pays_the_better_hand_and_reveals_only_then() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         act(&mut m, &c, 0, Action::Call).unwrap();
         act(&mut m, &c, 1, Action::Check).unwrap();
         for _ in 0..3 {
@@ -564,7 +614,12 @@ mod tests {
     fn split_pot_returns_each_stack() {
         let mut m = table(SPEED_STANDARD);
         // Board plays for both (broadway straight).
-        let c = dealt(&mut m, ["2s", "3d"], ["2c", "3h"], ["Ts", "Jd", "Qc", "Kh", "Ad"]);
+        let c = dealt(
+            &mut m,
+            ["2s", "3d"],
+            ["2c", "3h"],
+            ["Ts", "Jd", "Qc", "Kh", "Ad"],
+        );
         act(&mut m, &c, 0, Action::Call).unwrap();
         act(&mut m, &c, 1, Action::Check).unwrap();
         for _ in 0..3 {
@@ -578,7 +633,12 @@ mod tests {
     #[test]
     fn all_in_and_call_runs_out_the_board() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         act(&mut m, &c, 0, Action::Raise { to: 1_500 }).unwrap();
         // The opponent is all-in-able: min-raise rules do not apply to a shove.
         assert_eq!(m.to_act, 1);
@@ -594,7 +654,12 @@ mod tests {
     fn call_for_less_returns_the_uncalled_chips() {
         let mut m = table(SPEED_STANDARD);
         m.stacks = [1_475, 275];
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         act(&mut m, &c, 0, Action::Raise { to: 1_000 }).unwrap();
         // Seat 1 has 325 in total: calls all-in for less.
         act(&mut m, &c, 1, Action::Call).unwrap();
@@ -608,11 +673,19 @@ mod tests {
         let mut m = table(SPEED_STANDARD);
         m.stacks = [1_475, 125];
         let before = chips(&m);
-        let c = dealt(&mut m, ["2s", "3d"], ["Ac", "Ad"], ["9h", "7s", "8c", "Jd", "Kh"]);
+        let c = dealt(
+            &mut m,
+            ["2s", "3d"],
+            ["Ac", "Ad"],
+            ["9h", "7s", "8c", "Jd", "Kh"],
+        );
         act(&mut m, &c, 0, Action::Call).unwrap();
         // Seat 1 shoves its last 175 in total.
         act(&mut m, &c, 1, Action::Raise { to: 175 }).unwrap();
-        assert!(act(&mut m, &c, 0, Action::Raise { to: 400 }).is_err(), "opponent is all-in");
+        assert!(
+            act(&mut m, &c, 0, Action::Raise { to: 400 }).is_err(),
+            "opponent is all-in"
+        );
         act(&mut m, &c, 0, Action::Call).unwrap();
         assert_eq!(m.status, STATUS_LIVE);
         assert_eq!(m.last_result, 1, "aces hold against 2-3 on this board");
@@ -651,7 +724,10 @@ mod tests {
         // Seat 0 has 340: to 340 is a raise of 40 < 300 but it is all-in, so allowed.
         assert!(act(&mut m, &c, 0, Action::Raise { to: 339 }).is_err());
         act(&mut m, &c, 0, Action::Raise { to: 340 }).unwrap();
-        assert_eq!(m.last_raise, 300, "an incomplete raise does not change the minimum");
+        assert_eq!(
+            m.last_raise, 300,
+            "an incomplete raise does not change the minimum"
+        );
         // Seat 1 must call or fold; the raise option is gone since seat 0 is all-in.
         assert!(act(&mut m, &c, 1, Action::Raise { to: 900 }).is_err());
     }
@@ -676,22 +752,38 @@ mod tests {
     #[test]
     fn match_ends_when_a_player_has_all_chips_and_seat_two_can_win() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["2s", "3d"], ["Ac", "Ad"], ["9h", "7s", "8c", "Jd", "Kh"]);
+        let c = dealt(
+            &mut m,
+            ["2s", "3d"],
+            ["Ac", "Ad"],
+            ["9h", "7s", "8c", "Jd", "Kh"],
+        );
         act(&mut m, &c, 0, Action::Raise { to: 1_500 }).unwrap();
         act(&mut m, &c, 1, Action::Call).unwrap();
         assert_eq!(m.status, STATUS_OVER);
         assert_eq!(m.winner, 1);
         assert_eq!(m.phase, PHASE_NONE);
         assert_eq!(m.stacks, [0, 3_000]);
-        assert!(act(&mut m, &c, 0, Action::Check).is_err(), "no actions after the end");
+        assert!(
+            act(&mut m, &c, 0, Action::Check).is_err(),
+            "no actions after the end"
+        );
     }
 
     #[test]
     fn timeouts_check_when_free_and_fold_when_facing_a_bet() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         let late = m.deadline + 1;
-        assert!(m.timeout([true, true], &c.0, &c.1, m.deadline).is_err(), "not late yet");
+        assert!(
+            m.timeout([true, true], &c.0, &c.1, m.deadline).is_err(),
+            "not late yet"
+        );
         // Seat 0 (small blind) faces 25: the timeout folds.
         m.timeout([true, true], &c.0, &c.1, late).unwrap();
         assert_eq!(m.last_result, 1);
@@ -699,7 +791,12 @@ mod tests {
         assert_eq!(m.missed, [1, 0]);
 
         // Next hand: seat 1 is the button; seat 0 checks (BB) is not possible preflop; play on.
-        let c2 = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c2 = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         act(&mut m, &c2, 1, Action::Call).unwrap();
         // Seat 0 (BB) is late with a free check.
         let late = m.deadline + 1;
@@ -711,7 +808,12 @@ mod tests {
     #[test]
     fn three_missed_turns_forfeit_the_match() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         m.missed = [2, 0];
         let late = m.deadline + 1;
         m.timeout([true, true], &c.0, &c.1, late).unwrap();
@@ -722,7 +824,12 @@ mod tests {
     #[test]
     fn a_voluntary_action_clears_the_missed_streak() {
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         m.missed = [2, 0];
         act(&mut m, &c, 0, Action::Call).unwrap();
         assert_eq!(m.missed, [0, 0]);
@@ -744,12 +851,14 @@ mod tests {
         // Started, but a Player never contributes entropy to hand one.
         let mut m = table(SPEED_STANDARD);
         assert!(m.timeout([true, false], &deck, &holes, m.deadline).is_err());
-        m.timeout([true, false], &deck, &holes, m.deadline + 1).unwrap();
+        m.timeout([true, false], &deck, &holes, m.deadline + 1)
+            .unwrap();
         assert_eq!(m.status, STATUS_CANCELLED);
         assert_eq!(m.winner, NO_WINNER);
 
         let mut m = table(SPEED_STANDARD);
-        m.timeout([false, false], &deck, &holes, m.deadline + 1).unwrap();
+        m.timeout([false, false], &deck, &holes, m.deadline + 1)
+            .unwrap();
         assert_eq!(m.status, STATUS_CANCELLED);
     }
 
@@ -758,7 +867,12 @@ mod tests {
         let deck = [0u8; DECK_SIZE];
         let holes = [[0u8; 2]; 2];
         let mut m = table(SPEED_STANDARD);
-        let c = dealt(&mut m, ["As", "Ad"], ["Kc", "Kd"], ["2h", "7s", "9c", "Jd", "3h"]);
+        let c = dealt(
+            &mut m,
+            ["As", "Ad"],
+            ["Kc", "Kd"],
+            ["2h", "7s", "9c", "Jd", "3h"],
+        );
         act(&mut m, &c, 0, Action::Fold).unwrap();
         assert_eq!(m.hand_no, 2);
         let d = m.deadline;
@@ -783,7 +897,11 @@ mod tests {
             state
         };
         for game in 0..400 {
-            let speed = if game % 2 == 0 { SPEED_STANDARD } else { SPEED_TURBO };
+            let speed = if game % 2 == 0 {
+                SPEED_STANDARD
+            } else {
+                SPEED_TURBO
+            };
             let mut m = table(speed);
             let mut steps = 0;
             while m.status == STATUS_LIVE {
@@ -807,10 +925,18 @@ mod tests {
                     let action = if roll < 2 {
                         Action::Fold
                     } else if roll < 6 {
-                        if m.bets[seat] == current { Action::Check } else { Action::Call }
+                        if m.bets[seat] == current {
+                            Action::Check
+                        } else {
+                            Action::Call
+                        }
                     } else if roll < 9 && max_to > current && m.stacks[1 - seat] > 0 {
                         let min = current + m.last_raise;
-                        let to = if min >= max_to { max_to } else { min + next() % (max_to - min + 1) };
+                        let to = if min >= max_to {
+                            max_to
+                        } else {
+                            min + next() % (max_to - min + 1)
+                        };
                         Action::Raise { to }
                     } else if m.bets[seat] == current {
                         Action::Check
