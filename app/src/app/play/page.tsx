@@ -2,6 +2,7 @@ import { Card, Chip, CheckIcon, Label, XIcon, MinusIcon, GemaAmount, ChainChip }
 import { GAME_NAMES, matches } from "@/lib/mock";
 import type { EntrySize, GameId, MatchResult } from "@/lib/mock";
 import { fmtGemas } from "@/lib/format";
+import { BlockPuzzleGame } from "@/games/block-puzzle/BlockPuzzleGame";
 
 const RESULT: Record<MatchResult, { text: string; tone: "money" | "danger" | "neutral"; icon: React.ReactNode }> = {
   won: { text: "Won", tone: "money", icon: <CheckIcon /> },
@@ -18,22 +19,28 @@ export default async function Play({ searchParams }: PageProps<"/play">) {
   return (
     <div className="cols cols-2">
       <section className="stack" aria-label="Game">
-        <div className="spread">
-          <h1 className="page-title">{GAME_NAMES[game]}</h1>
-          <Chip tone="money">
-            <GemaAmount value={entry} size="sm" /> entry
-          </Chip>
-        </div>
-        <div className="cut cut-frame game-frame" role="img" aria-label="Game frame placeholder">
-          <div className="stack" style={{ justifyItems: "center" }}>
-            <Label>Game frame</Label>
-            <p className="meta">
-              {GAME_NAMES[game]} runs here. Both Players play the same Seed; the server&apos;s replay of your inputs is
-              the score.
-            </p>
-            <span className="mono meta">Seed 0x9f3a…c21e · 01:30</span>
-          </div>
-        </div>
+        {game === "block-puzzle" ? (
+          <BlockPuzzleGame />
+        ) : (
+          <>
+            <div className="spread">
+              <h1 className="page-title">{GAME_NAMES[game]}</h1>
+              <Chip tone="money">
+                <GemaAmount value={entry} size="sm" /> entry
+              </Chip>
+            </div>
+            <div className="cut cut-frame game-frame" role="img" aria-label="Game frame placeholder">
+              <div className="stack" style={{ justifyItems: "center" }}>
+                <Label>Game frame</Label>
+                <p className="meta">
+                  {GAME_NAMES[game]} runs here. Both Players play the same Seed; the server&apos;s replay of your inputs
+                  is the score.
+                </p>
+                <span className="mono meta">Seed 0x9f3a…c21e · 01:30</span>
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="stack" aria-labelledby="mh">
