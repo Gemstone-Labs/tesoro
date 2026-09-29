@@ -12,3 +12,4 @@ contracts/broadcast/*/31337/
 *.tsbuildinfo
 next-env.d.ts
 .vercel
+.claude/worktrees/
