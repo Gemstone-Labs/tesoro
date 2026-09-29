@@ -1,6 +1,5 @@
 use anchor_lang::{
-    prelude::Pubkey as APk, solana_program::system_program, AccountDeserialize, InstructionData,
-    ToAccountMetas,
+    prelude::Pubkey as APk, system_program, AccountDeserialize, InstructionData, ToAccountMetas,
 };
 use anchor_spl::{
     associated_token::{get_associated_token_address, ID as ATA_PROGRAM_ID},

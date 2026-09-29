@@ -97,7 +97,10 @@ pub mod tesoro_core {
         instructions::position::return_own(ctx, amount)
     }
 
-    pub fn redeem(ctx: Context<Redeem>, amount: u64) -> Result<()> {
+    pub fn redeem<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Redeem<'info>>,
+        amount: u64,
+    ) -> Result<()> {
         instructions::position::redeem(ctx, amount)
     }
 
@@ -105,8 +108,34 @@ pub mod tesoro_core {
         instructions::position::claim_free_yield(ctx, amount)
     }
 
-    pub fn unlock(ctx: Context<Unlock>) -> Result<()> {
+    pub fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -> Result<()> {
         instructions::position::unlock(ctx)
+    }
+
+    // --- Solana-native Positions (simSOL custody, permissionless yield) ----------------------
+
+    pub fn set_price(ctx: Context<SetPrice>, price_micro_usd: u64) -> Result<()> {
+        instructions::native::set_price(ctx, price_micro_usd)
+    }
+
+    pub fn open_native_position(
+        ctx: Context<OpenNativePosition>,
+        nonce: u64,
+        lst_amount: u64,
+    ) -> Result<()> {
+        instructions::native::open_native_position(ctx, nonce, lst_amount)
+    }
+
+    pub fn take_native_advance(ctx: Context<TakeNativeAdvance>, horizon_months: u8) -> Result<()> {
+        instructions::native::take_native_advance(ctx, horizon_months)
+    }
+
+    pub fn accrue_native_yield(ctx: Context<AccrueNativeYield>) -> Result<()> {
+        instructions::native::accrue_native_yield(ctx)
+    }
+
+    pub fn sweep_native_surplus(ctx: Context<SweepNativeSurplus>) -> Result<()> {
+        instructions::native::sweep_native_surplus(ctx)
     }
 
     // --- Matches ----------------------------------------------------------------------------

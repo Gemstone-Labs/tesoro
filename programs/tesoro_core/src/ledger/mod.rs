@@ -9,6 +9,7 @@
 pub mod backing;
 pub mod matches;
 pub mod money;
+pub mod native;
 
 #[cfg(test)]
 mod tests;
@@ -16,6 +17,10 @@ mod tests;
 pub use backing::*;
 pub use matches::*;
 pub use money::*;
+pub use native::{
+    accrued_yield, check_cover, owed_units, required_shares, shares_for_units_ceil,
+    shares_for_units_floor, shares_value, surplus_shares,
+};
 
 /// Identity of an Account, Position, Source, Game, ... (a Solana public key in the program).
 pub type Key = [u8; 32];
@@ -88,6 +93,8 @@ core_errors! {
     ReservationMismatch => "holdings do not match the offer reservation",
     FeeTooHigh => "fees exceed the cap",
     InvalidDeadline => "deadline may only move later, within the extension cap",
+    VaultShortfall => "vault would not cover principal and the yield owed to holders",
+    ZeroShares => "amount is worth less than one share at the current rate",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
