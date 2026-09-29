@@ -29,9 +29,15 @@ export const MAX_PRICE_AGE_SECS = 24 * 60 * 60;
 
 const pda = (seeds: (Buffer | Uint8Array)[], program = TESORO_CORE_ID) => PublicKey.findProgramAddressSync(seeds, program)[0];
 const s = (x: string) => Buffer.from(x);
+// The browser Buffer polyfill has no bigint accessors: read and write through DataView.
+const view = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset, d.byteLength);
+const rdU64 = (d: Uint8Array, o: number) => view(d).getBigUint64(o, true);
+const rdI64 = (d: Uint8Array, o: number) => view(d).getBigInt64(o, true);
+const rdU32 = (d: Uint8Array, o: number) => view(d).getUint32(o, true);
+const rdU16 = (d: Uint8Array, o: number) => view(d).getUint16(o, true);
 const u64 = (n: bigint | number) => {
   const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(BigInt(n));
+  view(b).setBigUint64(0, BigInt(n), true);
   return b;
 };
 /** Anchor discriminators, `sha256("global:<name>")[..8]`, precomputed so the browser needs no hash library. */
@@ -65,7 +71,7 @@ export const custodyPda = (position: PublicKey) => pda([s("native"), position.to
 export const vaultPda = (position: PublicKey) => pda([s("native_vault"), position.toBuffer()]);
 export const sourcePda = (position: PublicKey, index: number) => {
   const i = Buffer.alloc(4);
-  i.writeUInt32LE(index);
+  view(i).setUint32(0, index, true);
   return pda([s("source"), position.toBuffer(), i]);
 };
 export const holdingPda = (account: PublicKey, source: PublicKey) => pda([s("holding"), account.toBuffer(), source.toBuffer()]);
@@ -312,15 +318,15 @@ export async function fetchNativeMarket(c: Connection, wallet: PublicKey): Promi
   if (!pool) throw new Error("sim_lst pool not initialized");
   const d = Buffer.from(pool.data);
   let simSol = 0n;
-  if (ata) simSol = Buffer.from(ata.data).readBigUInt64LE(64);
+  if (ata) simSol = rdU64(ata.data, 64);
   let price: PriceFeedView | null = null;
   if (feed && feed.owner.equals(TESORO_CORE_ID)) {
     const f = Buffer.from(feed.data);
     // disc 8, bump 1, asset 32, price u64, updated_ts i64
-    price = { microUsd: f.readBigUInt64LE(41), updatedTs: Number(f.readBigInt64LE(49)) };
+    price = { microUsd: rdU64(f, 41), updatedTs: Number(rdI64(f, 49)) };
   }
   return {
-    pool: { baseRate: d.readBigUInt64LE(72), baseTs: Number(d.readBigInt64LE(80)), apyBps: d.readUInt32LE(88), speedup: d.readUInt32LE(92) },
+    pool: { baseRate: rdU64(d, 72), baseTs: Number(rdI64(d, 80)), apyBps: rdU32(d, 88), speedup: rdU32(d, 92) },
     price,
     simSol,
   };
@@ -328,17 +334,17 @@ export async function fetchNativeMarket(c: Connection, wallet: PublicKey): Promi
 
 function parseSource(key: PublicKey, data: Buffer) {
   let o = 8 + 1 + 32 + 32; // disc, bump, position, owner
-  const index = data.readUInt32LE(o);
+  const index = rdU32(data, o);
   const horizonMonths = data[o + 4];
   o += 5;
-  const unitNum = data.readBigUInt64LE(o) + (data.readBigUInt64LE(o + 8) << 64n);
-  const unitDen = data.readBigUInt64LE(o + 16);
+  const unitNum = rdU64(data, o) + (rdU64(data, o + 8) << 64n);
+  const unitDen = rdU64(data, o + 16);
   o += 24;
   const math: SourceMath = {
-    issued: data.readBigUInt64LE(o),
-    returned: data.readBigUInt64LE(o + 8),
-    redeemed: data.readBigUInt64LE(o + 16),
-    yieldUnits: data.readBigUInt64LE(o + 24),
+    issued: rdU64(data, o),
+    returned: rdU64(data, o + 8),
+    redeemed: rdU64(data, o + 16),
+    yieldUnits: rdU64(data, o + 24),
     unitNum,
     unitDen,
   };
@@ -352,19 +358,19 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
   if (!pos || !cust || !vault) return null;
   const d = Buffer.from(pos.data);
   let o = 8 + 1 + 32 + 32 + 1 + 32 + 1; // disc, bump, id, owner, chain, asset, decimals
-  const principalLamports = d.readBigUInt64LE(o);
-  const rateBps = d.readUInt16LE(o + 8);
+  const principalLamports = rdU64(d, o);
+  const rateBps = rdU16(d, o + 8);
   o += 10;
   const status = d[o] === 0 ? "locked" : "unlocked";
   o += 1;
-  const advances = d.readUInt32LE(o);
+  const advances = rdU32(d, o);
   o += 4;
-  const openAdvance = d[o] === 1 ? d.readUInt32LE(o + 1) : null;
+  const openAdvance = d[o] === 1 ? rdU32(d, o + 1) : null;
   o += (d[o] === 1 ? 5 : 1) + 8; // open_advance (Option<u32>), last_seq
-  const cumulativeYield = d.readBigUInt64LE(o);
-  const freeYield = d.readBigUInt64LE(o + 8);
+  const cumulativeYield = rdU64(d, o);
+  const freeYield = rdU64(d, o + 8);
   // NativeCustody: disc 8, bump, vault_bump, 5 keys (position, owner, pool, mint, vault), rate_at_open, deposited, redeemed
-  const redeemedUnits = Buffer.from(cust.data).readBigUInt64LE(8 + 2 + 5 * 32 + 16);
+  const redeemedUnits = rdU64(cust.data, 8 + 2 + 5 * 32 + 16);
   let source: NativeInfo["source"] = null;
   if (advances > 0) {
     const key = sourcePda(position, advances - 1);
@@ -381,7 +387,7 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
     openAdvance,
     cumulativeYield,
     freeYield,
-    vaultShares: Buffer.from(vault.data).readBigUInt64LE(64),
+    vaultShares: rdU64(vault.data, 64),
     redeemedUnits,
     source,
   };

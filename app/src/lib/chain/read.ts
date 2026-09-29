@@ -242,7 +242,10 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
     market: null,
     fetchedAt: Date.now(),
   };
-  const market = await fetchNativeMarket(chain.base, authority).catch(() => null);
+  const market = await fetchNativeMarket(chain.base, authority).catch((e) => {
+    console.warn("native market", e);
+    return null;
+  });
   empty.market = market;
   if (!acct) return empty;
 
