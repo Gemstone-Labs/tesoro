@@ -13,3 +13,4 @@ contracts/broadcast/*/31337/
 next-env.d.ts
 .vercel
 .claude/worktrees/
+CLAUDE.local.md
