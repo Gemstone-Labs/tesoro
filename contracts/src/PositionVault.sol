@@ -39,7 +39,7 @@ contract PositionVault {
 
     IERC20Minimal public immutable lst;
     IRateSource public immutable rateSource;
-    address public immutable endpoint;
+    address public immutable messageEndpoint;
     /// @notice Tesoro chain id carried in every payload; the Solana side keys Positions by (sourceChain, positionId).
     uint32 public immutable sourceChain;
 
@@ -67,7 +67,7 @@ contract PositionVault {
     constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_) {
         lst = IERC20Minimal(lst_);
         rateSource = IRateSource(rateSource_);
-        endpoint = endpoint_;
+        messageEndpoint = endpoint_;
         sourceChain = sourceChain_;
     }
 
@@ -89,7 +89,7 @@ contract PositionVault {
 
     // ---------------------------------------------------------------- outbound
 
-    function openPosition(uint256 lstAmount, uint8 horizonMonths) external returns (uint64 id) {
+    function openPosition(uint256 lstAmount, uint8 horizonMonths) external payable returns (uint64 id) {
         if (lstAmount == 0) revert ZeroAmount();
         if (horizonMonths < 1 || horizonMonths > 12) revert BadHorizon();
 
@@ -125,7 +125,8 @@ contract PositionVault {
     }
 
     /// @notice Permissionless (keeper-friendly): reports cumulative accrued yield in underlying units.
-    function reportYield(uint64 id) external {
+    ///         Payable: a LayerZero subclass charges the caller the message fee (see PositionVaultOApp).
+    function reportYield(uint64 id) external payable {
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
         uint256 rate = rateSource.underlyingPerShare();
@@ -139,7 +140,7 @@ contract PositionVault {
 
     /// @notice Only the messaging endpoint may deliver. A LayerZero subclass calls `_receive` directly instead.
     function receiveMessage(bytes calldata payload) external {
-        if (msg.sender != endpoint) revert NotEndpoint();
+        if (msg.sender != messageEndpoint) revert NotEndpoint();
         _receive(payload);
     }
 
@@ -215,6 +216,6 @@ contract PositionVault {
 
     /// @dev Override to send through LayerZero. Default: the configured endpoint.
     function _send(bytes memory payload) internal virtual {
-        IMessageEndpoint(endpoint).send(payload);
+        IMessageEndpoint(messageEndpoint).send(payload);
     }
 }
