@@ -24,7 +24,7 @@ export function MatchHistory() {
           <Card key={m.id.toString()} as="article" aria-label="Match in progress">
             <Link href={`/play/match/${m.id.toString()}`} className="spread">
               <span className="row-body">
-                <span className="row-title">Block Puzzle · in progress</span>
+                <span className="row-title">{GAME_NAMES[m.game]} · in progress</span>
                 <span className="row-meta">Entry {fmtGemas(m.entry)} · {m.status === "open" ? "waiting for an opponent" : "opponent found"}</span>
               </span>
               <Chip tone="strong">Open</Chip>

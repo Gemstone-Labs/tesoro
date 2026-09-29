@@ -218,11 +218,11 @@ export class BlockPuzzleChain {
 
   // ---- tesoro_core: create and join ---------------------------------------------------------
 
-  /** Seat 0 opens a Match for Block Puzzle. `holdings`: own-sourced first, then won (see tesoro-core.md). */
-  async openMatch(signer: ChainSigner, matchId: bigint, entry: number, holdings: PublicKey[]) {
+  /** Seat 0 opens a Match (Block Puzzle unless `game` says otherwise). `holdings`: own-sourced first, then won (see tesoro-core.md). */
+  async openMatch(signer: ChainSigner, matchId: bigint, entry: number, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.core.methods
-      .openMatch(new BN(matchId.toString()), BLOCK_PUZZLE_PROGRAM_ID, new BN(entry))
+      .openMatch(new BN(matchId.toString()), game, new BN(entry))
       .accountsPartial({
         playerAuthority: signer.publicKey,
         config: a.config,

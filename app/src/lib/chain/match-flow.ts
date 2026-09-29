@@ -2,6 +2,8 @@ import "./polyfill";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type ChainSigner, type Move, type Seat } from "@/games/block-puzzle/chain";
+import { HOLDEM_PROGRAM_ID } from "@/games/holdem/chain";
+import type { GameId } from "@/lib/mock/types";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { ensureSol, type GetToken } from "./demo-client";
@@ -9,6 +11,9 @@ import { EntryError, planEntry } from "./ledger";
 import { fetchMatch, fetchSnapshot, findQueueMatch, type AccountSnapshot, type ChainMatch } from "./read";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The program id a Match of each Game is opened with. */
+const GAME_IDS: Record<GameId, PublicKey> = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID };
 
 /**
  * Match ids are chosen by the opener (ms clock, doubled). tesoro_core has no Queue/Challenge
@@ -55,12 +60,12 @@ export interface Entered {
 }
 
 /** Queue: join the oldest open Match at this entry from another Account, else open one. */
-export async function enterQueue(signer: ChainSigner, entry: number, getToken: GetToken): Promise<Entered> {
+export async function enterQueue(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle"): Promise<Entered> {
   const chain = getChain();
   const snap = await ensureReady(signer, getToken);
   const holdings = entryHoldings(snap, entry);
   for (let attempt = 0; attempt < 3; attempt++) {
-    const id = await findQueueMatch(entry, snap.accountKey);
+    const id = await findQueueMatch(entry, snap.accountKey, game);
     if (id === null) break;
     try {
       await chain.joinMatch(signer, id, holdings);
@@ -71,15 +76,15 @@ export async function enterQueue(signer: ChainSigner, entry: number, getToken: G
     }
   }
   const id = newMatchId(false);
-  await chain.openMatch(signer, id, entry, holdings);
+  await chain.openMatch(signer, id, entry, holdings, GAME_IDS[game]);
   return { id, joined: false };
 }
 
 /** Challenge: open a Match only reachable through its link. */
-export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken): Promise<bigint> {
+export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle"): Promise<bigint> {
   const snap = await ensureReady(signer, getToken);
   const id = newMatchId(true);
-  await getChain().openMatch(signer, id, entry, entryHoldings(snap, entry));
+  await getChain().openMatch(signer, id, entry, entryHoldings(snap, entry), GAME_IDS[game]);
   return id;
 }
 

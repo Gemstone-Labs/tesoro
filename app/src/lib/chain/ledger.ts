@@ -111,15 +111,20 @@ export function feeGemas(entry: bigint, platformBps: number, studioBps: number):
   return (pot * BigInt(platformBps)) / 10_000n + (pot * BigInt(studioBps)) / 10_000n;
 }
 
-/** Gemas won or lost at settlement, net of Fees. Refunds and draws are 0. */
+/**
+ * Gemas won or lost at settlement, net of Fees. Refunds and draws are 0. Block Puzzle settles from
+ * its Session; Hold'em has none, so a settled table's winner comes in as `winner`.
+ */
 export function matchDelta(m: {
   seat: 0 | 1 | null;
   entry: number;
   fees: { platformBps: number; studioBps: number };
   session: { settled: boolean; result: "opener" | "joiner" | "draw" } | null;
+  winner?: "opener" | "joiner" | null;
 }): number {
-  if (!m.session?.settled || m.seat === null || m.session.result === "draw") return 0;
-  const won = (m.session.result === "opener") === (m.seat === 0);
+  const result = m.session ? (m.session.settled ? m.session.result : null) : (m.winner ?? null);
+  if (!result || m.seat === null || result === "draw") return 0;
+  const won = (result === "opener") === (m.seat === 0);
   if (!won) return -m.entry;
   return m.entry - Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps));
 }

@@ -27,16 +27,18 @@ export default async function Play({ searchParams }: PageProps<"/play">) {
                 <GemaAmount value={entry} size="sm" /> entry
               </Chip>
             </div>
-            <div className="cut cut-frame game-frame" role="img" aria-label="Game frame placeholder">
-              <div className="stack" style={{ justifyItems: "center" }}>
-                <Label>Game frame</Label>
+            <div className="cut cut-frame game-frame">
+              <div className="stack">
+                <Label>How a Match plays</Label>
                 <p className="meta">
-                  {GAME_NAMES[game]} runs here. Both Players play the same Seed; the server&apos;s replay of your inputs
-                  is the score.
+                  Heads-up no-limit, 1,500 Chips each, Turbo blinds rising every hand, 30 seconds per action. Play until one
+                  Player holds every Chip; the winner takes the Pot minus Fees. Chips are scorekeeping inside the Match, not Gemas.
                 </p>
-                <span className="mono meta">Seed 0x9f3a…c21e · 01:30</span>
               </div>
             </div>
+            <Button href={`/play/queue?game=holdem&entry=${entry}`} variant="money" block>
+              Enter a Match · {entry.toLocaleString("en-US")} Gemas
+            </Button>
           </>
         )}
       </section>

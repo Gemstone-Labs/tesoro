@@ -1,7 +1,9 @@
 import { BN } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, TESORO_CORE_PROGRAM_ID } from "@/games/block-puzzle/chain";
-import { getChain } from "./client";
+import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/chain";
+import type { GameId } from "@/lib/mock/types";
+import { getChain, getHoldem } from "./client";
 import { debtGemas, debtUnits, redeemableFor, type SourceMath } from "./ledger";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
@@ -12,6 +14,7 @@ export type MatchStatus = "open" | "active" | "settled" | "refunded";
 /** A Match as the signed-in Account sees it. */
 export interface ChainMatch {
   id: bigint;
+  game: GameId;
   address: PublicKey;
   status: MatchStatus;
   entry: number;
@@ -24,7 +27,9 @@ export interface ChainMatch {
   /** Challenge Matches have an odd id (see match-flow.ts). */
   challenge: boolean;
   fees: { platformBps: number; studioBps: number };
-  /** Set once the Match reached Active and a Session exists. */
+  /** Hold'em: the winning seat of a settled table (null for a refund or while unsettled). */
+  winner: "opener" | "joiner" | null;
+  /** Block Puzzle: set once the Match reached Active and a Session exists. */
   session: { settled: boolean; result: "opener" | "joiner" | "draw"; scores: [number, number]; seed: bigint; deadline: number } | null;
 }
 
@@ -81,6 +86,13 @@ const ASSETS = ["SOL", "ETH", "HYPE"] as const;
 const enumKey = (o: object) => Object.keys(o)[0];
 const isChallengeId = (id: bigint) => (id & 1n) === 1n;
 
+/** The Game a tesoro_core Match belongs to, or null for a program this app does not play. */
+export function gameOf(game: PublicKey): GameId | null {
+  if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return "block-puzzle";
+  if (game.equals(HOLDEM_PROGRAM_ID)) return "holdem";
+  return null;
+}
+
 function sourceMath(inner: any): SourceMath {
   return {
     issued: big(inner.issued),
@@ -92,23 +104,26 @@ function sourceMath(inner: any): SourceMath {
   };
 }
 
-export function toChainMatch(state: any, me: PublicKey | null, session: any | null): ChainMatch {
+export function toChainMatch(state: any, me: PublicKey | null, session: any | null, table: any | null = null): ChainMatch {
   const m = state.inner;
   const a = pk(m.a.player).toBase58();
   const b = m.b ? pk(m.b.player).toBase58() : null;
   const mine = me?.toBase58();
   const seat = mine === a ? 0 : mine && mine === b ? 1 : null;
   const id = big(state.id);
+  const status = enumKey(m.status).toLowerCase() as MatchStatus;
   return {
     id,
+    game: gameOf(pk(m.game)) ?? "block-puzzle",
     address: BlockPuzzleChain.addresses(id).match,
-    status: enumKey(m.status).toLowerCase() as MatchStatus,
+    status,
     entry: Number(m.entry.toString()),
     seat,
     opponent: seat === 0 ? b : seat === 1 ? a : null,
     deadline: Number(m.deadline.toString()),
     challenge: isChallengeId(id),
     fees: { platformBps: m.fees.platformBps, studioBps: m.fees.studioBps },
+    winner: status === "settled" && table ? (table.winner === 0 ? "opener" : table.winner === 1 ? "joiner" : null) : null,
     session: session
       ? {
           settled: session.settled,
@@ -127,8 +142,18 @@ export async function fetchMatch(id: bigint, me: PublicKey | null): Promise<Chai
   const a = BlockPuzzleChain.addresses(id);
   const state = await chain.core.account.matchState.fetchNullable(a.match);
   if (!state) return null;
+  if (gameOf(pk(state.inner.game)) === "holdem") {
+    const table = enumKey(state.inner.status) === "settled" ? await holdemTable(id) : null;
+    return toChainMatch(state, me, null, table);
+  }
   const session = await chain.bp.account.session.fetchNullable(a.session).catch(() => null);
   return toChainMatch(state, me, session);
+}
+
+/** A finished Hold'em table on the base layer (committed back by `close_match`). */
+async function holdemTable(id: bigint): Promise<any | null> {
+  const acc = getHoldem().program.account as Record<string, any>;
+  return (await acc.gameMatch.fetchNullable(holdemAddresses(id).gameMatch).catch(() => null)) ?? null;
 }
 
 /** Every Match this Account is in, newest first. */
@@ -137,17 +162,29 @@ async function fetchMyMatches(me: PublicKey): Promise<ChainMatch[]> {
   const all = await chain.core.account.matchState.all();
   const mine = all.filter((m: any) => {
     const inner = m.account.inner;
-    return pk(inner.game).equals(BLOCK_PUZZLE_PROGRAM_ID) && (pk(inner.a.player).equals(me) || (inner.b && pk(inner.b.player).equals(me)));
+    return gameOf(pk(inner.game)) !== null && (pk(inner.a.player).equals(me) || (inner.b && pk(inner.b.player).equals(me)));
   });
-  const sessionKeys = mine.map((m: any) => BlockPuzzleChain.addresses(big(m.account.id)).session);
+  const isHoldem = (m: any) => gameOf(pk(m.account.inner.game)) === "holdem";
+  const bpRows = mine.filter((m: any) => !isHoldem(m));
+  const sessionKeys = bpRows.map((m: any) => BlockPuzzleChain.addresses(big(m.account.id)).session);
   const sessions = sessionKeys.length ? await chain.bp.account.session.fetchMultiple(sessionKeys) : [];
+  const sessionOf = new Map<string, any>(bpRows.map((m: any, i: number) => [big(m.account.id).toString(), sessions[i] ?? null]));
+  const tables = new Map<string, any>();
+  await Promise.all(
+    mine
+      .filter((m: any) => isHoldem(m) && enumKey(m.account.inner.status) === "settled")
+      .map(async (m: any) => tables.set(big(m.account.id).toString(), await holdemTable(big(m.account.id)))),
+  );
   return mine
-    .map((m: any, i: number) => toChainMatch(m.account, me, sessions[i] ?? null))
+    .map((m: any) => {
+      const key = big(m.account.id).toString();
+      return toChainMatch(m.account, me, sessionOf.get(key) ?? null, tables.get(key) ?? null);
+    })
     .sort((x: ChainMatch, y: ChainMatch) => (x.id < y.id ? 1 : -1));
 }
 
 /** The oldest Open Queue Match at this entry from another Account, if any (Challenges are excluded). */
-export async function findQueueMatch(entry: number, me: PublicKey): Promise<bigint | null> {
+export async function findQueueMatch(entry: number, me: PublicKey, game: GameId = "block-puzzle"): Promise<bigint | null> {
   const chain = getChain();
   const now = Math.floor(Date.now() / 1000);
   const all = await chain.core.account.matchState.all();
@@ -156,7 +193,7 @@ export async function findQueueMatch(entry: number, me: PublicKey): Promise<bigi
       const inner = m.account.inner;
       return (
         enumKey(inner.status) === "open" &&
-        pk(inner.game).equals(BLOCK_PUZZLE_PROGRAM_ID) &&
+        gameOf(pk(inner.game)) === game &&
         Number(inner.entry.toString()) === entry &&
         !isChallengeId(big(m.account.id)) &&
         !pk(inner.a.player).equals(me) &&
@@ -168,14 +205,14 @@ export async function findQueueMatch(entry: number, me: PublicKey): Promise<bigi
   return open[0] ?? null;
 }
 
-/** Number of Open Queue Matches per entry size (for the Lobby). */
-export async function queueDepth(): Promise<number> {
+/** Number of Open Queue Matches for one Game (for the Lobby). */
+export async function queueDepth(game: GameId = "block-puzzle"): Promise<number> {
   const chain = getChain();
   const now = Math.floor(Date.now() / 1000);
   const all = await chain.core.account.matchState.all();
   return all.filter((m: any) => {
     const inner = m.account.inner;
-    return enumKey(inner.status) === "open" && pk(inner.game).equals(BLOCK_PUZZLE_PROGRAM_ID) && !isChallengeId(big(m.account.id)) && Number(inner.deadline.toString()) > now;
+    return enumKey(inner.status) === "open" && gameOf(pk(inner.game)) === game && !isChallengeId(big(m.account.id)) && Number(inner.deadline.toString()) > now;
   }).length;
 }
 
