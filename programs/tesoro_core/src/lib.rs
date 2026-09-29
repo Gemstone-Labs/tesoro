@@ -109,6 +109,51 @@ pub mod tesoro_core {
         instructions::position::unlock(ctx)
     }
 
+    // --- Source authorities (cross-chain bridge) --------------------------------------------
+
+    pub fn set_source_authority(
+        ctx: Context<SetSourceAuthority>,
+        chain: ledger::SourceChain,
+        authority: Pubkey,
+    ) -> Result<()> {
+        instructions::source_auth::set_source_authority(ctx, chain, authority)
+    }
+
+    pub fn remove_source_authority(
+        ctx: Context<RemoveSourceAuthority>,
+        chain: ledger::SourceChain,
+    ) -> Result<()> {
+        instructions::source_auth::remove_source_authority(ctx, chain)
+    }
+
+    pub fn open_position_from_source(
+        ctx: Context<OpenPositionFromSource>,
+        source_chain: ledger::SourceChain,
+        position_id: [u8; 32],
+        source_asset: Pubkey,
+        decimals: u8,
+        principal: u64,
+        rate_bps: u16,
+    ) -> Result<()> {
+        instructions::source_auth::open_position_from_source(
+            ctx,
+            source_chain,
+            position_id,
+            source_asset,
+            decimals,
+            principal,
+            rate_bps,
+        )
+    }
+
+    pub fn apply_yield_from_source(
+        ctx: Context<ApplyYieldFromSource>,
+        seq: u64,
+        cumulative: u64,
+    ) -> Result<()> {
+        instructions::source_auth::apply_yield_from_source(ctx, seq, cumulative)
+    }
+
     // --- Matches ----------------------------------------------------------------------------
 
     pub fn open_match<'info>(

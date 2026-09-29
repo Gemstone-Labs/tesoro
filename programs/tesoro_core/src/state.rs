@@ -13,6 +13,7 @@ pub const HOLDING_SEED: &[u8] = b"holding";
 pub const MATCH_SEED: &[u8] = b"match";
 pub const REQUEST_SEED: &[u8] = b"request";
 pub const OFFER_SEED: &[u8] = b"offer";
+pub const SOURCE_AUTHORITY_SEED: &[u8] = b"source_auth";
 
 pub const MAX_GAMES: usize = 8;
 
@@ -55,6 +56,19 @@ impl Config {
             studio_recipient: g.studio_recipient.to_bytes(),
         }
     }
+}
+
+/// The signer allowed to report `PositionLocked` / `YieldAccrued` for Positions of one source
+/// chain (the cross-chain bridge PDA). Registered by the admin; seeds `["source_auth", chain_byte]`.
+#[account]
+pub struct SourceAuthority {
+    pub bump: u8,
+    pub chain: ledger::SourceChain,
+    pub authority: Pubkey,
+}
+
+impl SourceAuthority {
+    pub const SPACE: usize = 8 + 1 + 1 + 32;
 }
 
 #[account]
