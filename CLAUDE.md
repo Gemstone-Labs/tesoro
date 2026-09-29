@@ -18,6 +18,7 @@ Nothing outside this repo about earlier Tesoro work is a source. Do not read or 
 ## Commands
 
 - Programs: `pnpm build:programs` (wraps `scripts/build-programs.sh` — uses platform tools v1.54 because the default tools' Cargo 1.84 cannot parse edition-2024 crates; plain `anchor build` fails). Tests: `cargo test --workspace`. Then `cargo fmt` and `cargo clippy -- -W clippy::all`.
+- `/tmp` is a small shared tmpfs: export `TMPDIR=$HOME/.cache/tesoro-tmp` before any cargo/anchor/forge build or test (the build script does this itself).
 - Contracts: `pnpm build:contracts`, `pnpm test:contracts`.
 - App: `pnpm dev`, `pnpm build:app`.
 
