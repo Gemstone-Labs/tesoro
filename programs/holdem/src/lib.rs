@@ -65,9 +65,8 @@ pub mod holdem {
     /// Base layer. Creates the Match, Deck and both Hole accounts and pre-funds each with the
     /// rent of its ephemeral permission, which the delegated PDA pays on the rollup.
     pub fn create_match(ctx: Context<CreateMatch>, match_id: u64, opponent: Pubkey) -> Result<()> {
-        let permission_rent = ephemeral_rollups_sdk::ephemeral_accounts::rent(
-            EphemeralPermission::size_of(2) as u32,
-        );
+        let permission_rent =
+            ephemeral_rollups_sdk::ephemeral_accounts::rent(EphemeralPermission::size_of(2) as u32);
         let match_key = ctx.accounts.game_match.key();
 
         for target in [
@@ -121,8 +120,11 @@ pub mod holdem {
             &[MATCH_SEED, &match_id.to_le_bytes()],
             config(),
         )?;
-        ctx.accounts
-            .delegate_deck(&ctx.accounts.payer, &[DECK_SEED, match_key.as_ref()], config())?;
+        ctx.accounts.delegate_deck(
+            &ctx.accounts.payer,
+            &[DECK_SEED, match_key.as_ref()],
+            config(),
+        )?;
         ctx.accounts.delegate_hole_0(
             &ctx.accounts.payer,
             &[HOLE_SEED, match_key.as_ref(), &[0]],
@@ -176,7 +178,12 @@ pub mod holdem {
                 is_private: true,
                 members: vec![player_member(players[0])],
             },
-            &[HOLE_SEED, match_key.as_ref(), &[0], &[ctx.accounts.hole_0.bump]],
+            &[
+                HOLE_SEED,
+                match_key.as_ref(),
+                &[0],
+                &[ctx.accounts.hole_0.bump],
+            ],
         )?;
         create_permission(
             &*ctx.accounts,
@@ -186,7 +193,12 @@ pub mod holdem {
                 is_private: true,
                 members: vec![player_member(players[1])],
             },
-            &[HOLE_SEED, match_key.as_ref(), &[1], &[ctx.accounts.hole_1.bump]],
+            &[
+                HOLE_SEED,
+                match_key.as_ref(),
+                &[1],
+                &[ctx.accounts.hole_1.bump],
+            ],
         )?;
         Ok(())
     }
@@ -307,13 +319,23 @@ pub mod holdem {
             &*ctx.accounts,
             &ctx.accounts.hole_0.to_account_info(),
             &ctx.accounts.hole_0_permission,
-            &[HOLE_SEED, match_key.as_ref(), &[0], &[ctx.accounts.hole_0.bump]],
+            &[
+                HOLE_SEED,
+                match_key.as_ref(),
+                &[0],
+                &[ctx.accounts.hole_0.bump],
+            ],
         )?;
         close_permission(
             &*ctx.accounts,
             &ctx.accounts.hole_1.to_account_info(),
             &ctx.accounts.hole_1_permission,
-            &[HOLE_SEED, match_key.as_ref(), &[1], &[ctx.accounts.hole_1.bump]],
+            &[
+                HOLE_SEED,
+                match_key.as_ref(),
+                &[1],
+                &[ctx.accounts.hole_1.bump],
+            ],
         )?;
 
         MagicIntentBundleBuilder::new(
