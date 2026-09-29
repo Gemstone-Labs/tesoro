@@ -1,6 +1,6 @@
 use crate::*;
 use anchor_lang::solana_program::system_program;
-use msg_codec::PositionMessage;
+use msg_codec::decode_inbound;
 use oapp::{
     common::{
         compact_accounts_with_alts, AccountMetaRef, AddressLocator, EXECUTION_CONTEXT_VERSION_1,
@@ -18,21 +18,21 @@ pub struct LzReceiveTypesV2<'info> {
 }
 
 impl LzReceiveTypesV2<'_> {
-    // The accounts lz_receive needs (peer, position) are derived from src_eid and the message
-    // body, so the message is decoded here too. Order must match `LzReceive`.
+    // The accounts lz_receive needs (peer, bridge position) are derived from src_eid, the sender
+    // and the message body, so the message is decoded here too. Order must match `LzReceive`.
     pub fn apply(
         ctx: &Context<LzReceiveTypesV2>,
         params: &LzReceiveParams,
     ) -> Result<LzReceiveTypesV2Result> {
-        let msg = PositionMessage::decode(&params.message)?;
+        let (header, _) = decode_inbound(&params.message)?;
         let store_key = ctx.accounts.store.key();
 
         let (peer, _) = Pubkey::find_program_address(
-            &[PEER_SEED, store_key.as_ref(), &params.src_eid.to_be_bytes()],
+            &[PEER_SEED, store_key.as_ref(), &params.src_eid.to_be_bytes(), &params.sender],
             ctx.program_id,
         );
         let (position, _) = Pubkey::find_program_address(
-            &[POSITION_SEED, &params.src_eid.to_be_bytes(), &msg.position_id],
+            &[POSITION_SEED, &params.src_eid.to_be_bytes(), &header.position_id],
             ctx.program_id,
         );
 

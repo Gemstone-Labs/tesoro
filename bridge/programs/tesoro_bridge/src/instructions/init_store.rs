@@ -30,10 +30,13 @@ pub struct InitStore<'info> {
 
 impl InitStore<'_> {
     pub fn apply(ctx: &mut Context<InitStore>, params: &InitStoreParams) -> Result<()> {
-        require_keys_eq!(params.endpoint, ENDPOINT_ID, LzOAppError::InvalidEndpoint);
+        require_keys_eq!(params.endpoint, ENDPOINT_ID, BridgeError::InvalidEndpoint);
+        let (_, authority_bump) =
+            Pubkey::find_program_address(&[AUTHORITY_SEED], ctx.program_id);
         let store = &mut ctx.accounts.store;
         store.admin = params.admin;
         store.bump = ctx.bumps.store;
+        store.authority_bump = authority_bump;
         store.endpoint_program = params.endpoint;
 
         let types = &mut ctx.accounts.lz_receive_types_accounts;

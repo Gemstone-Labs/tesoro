@@ -7,10 +7,10 @@ resolution = false
 skip-lint = false
 
 [programs.localnet]
-lz_oapp = "GA9hzB3RY6jmoPjh58H8V2kU6eg8isDr5h9op7pigJM2"
+tesoro_bridge = "5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ"
 
 [programs.devnet]
-lz_oapp = "GA9hzB3RY6jmoPjh58H8V2kU6eg8isDr5h9op7pigJM2"
+tesoro_bridge = "5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ"
 
 [provider]
 cluster = "devnet"

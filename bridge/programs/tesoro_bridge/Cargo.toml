@@ -1,13 +1,13 @@
 [package]
-name = "lz_oapp"
+name = "tesoro_bridge"
 version = "0.1.0"
-description = "Tesoro spike S2/S3: LayerZero V2 OApp carrying Position messages"
+description = "Tesoro LayerZero V2 OApp: carries Position messages between EVM vaults and tesoro_core"
 edition = "2021"
 rust-version = "1.84"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "lz_oapp"
+name = "tesoro_bridge"
 
 [features]
 no-entrypoint = []
@@ -15,8 +15,9 @@ no-idl = []
 no-log-ix-name = []
 cpi = ["no-entrypoint"]
 default = []
-idl-build = ["anchor-lang/idl-build", "oapp/idl-build"]
+idl-build = ["anchor-lang/idl-build", "oapp/idl-build", "tesoro_core/idl-build"]
 
 [dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
 oapp = { package = "oapp-latest", git = "https://github.com/LayerZero-Labs/LayerZero-v2.git", rev = "c09287a" }
+tesoro_core = { path = "../../../programs/tesoro_core", features = ["cpi"] }
