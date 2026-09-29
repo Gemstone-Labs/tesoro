@@ -14,7 +14,7 @@ import {
   Slider,
   Thumb,
 } from "@/components/ui";
-import { useBacking } from "@/lib/account";
+import { useAccount, useBacking } from "@/lib/account";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId, Offer, PlayerRecord, Request } from "@/lib/mock";
@@ -23,6 +23,7 @@ const record = (p: PlayerRecord) => `${p.matches} Matches · ${Math.round(p.winR
 
 export default function Backing() {
   const { requests, offers } = useBacking();
+  const { auth } = useAccount();
   const [offerFor, setOfferFor] = useState<Request | "public" | null>(null);
   const publicOffers = offers.filter((o) => o.requestId === null && o.backer !== "You");
   const mine = offers.filter((o) => o.backer === "You");
@@ -41,7 +42,7 @@ export default function Backing() {
                 meta={`${GAME_NAMES[r.game]} · ${record(r.player)}`}
                 cta="Make an Offer"
                 ctaTone="money"
-                onClick={() => setOfferFor(r)}
+                onClick={() => auth.gate("make an Offer", () => setOfferFor(r))}
               />
             </div>
           ))}
@@ -59,7 +60,7 @@ export default function Backing() {
           <section className="stack" aria-labelledby="mine-h">
             <div className="section-head">
               <Label><span id="mine-h">Your Offers</span></Label>
-              <Button size="sm" variant="money" onClick={() => setOfferFor("public")}>New public Offer</Button>
+              <Button size="sm" variant="money" onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>New public Offer</Button>
             </div>
             {mine.map((o) => (
               <MyOffer key={o.id} offer={o} />

@@ -12,7 +12,8 @@ export type EntrySize = 500 | 1000 | 2500;
 export interface Account {
   id: string;
   displayName: string;
-  addresses: { solana: string; evm: string };
+  /** Null until the embedded wallet exists (a moment after first sign-in) or while signed out. */
+  addresses: { solana: string | null; evm: string | null };
 }
 
 export interface Advance {
