@@ -4,11 +4,19 @@
 # current dependency tree, so programs build with platform tools v1.54 and IDLs build separately.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# /tmp is a small tmpfs shared with other sessions; rustc temp files there hit "Disk quota exceeded".
+export TMPDIR="${TESORO_TMPDIR:-$HOME/.cache/tesoro-tmp}"
+mkdir -p "$TMPDIR"
+stamp=$(mktemp)
 mkdir -p target/deploy target/idl target/types
 for key in ~/.config/tesoro/deploy-keys/*-keypair.json; do
   [ -f "target/deploy/$(basename "$key")" ] || cp "$key" target/deploy/
 done
 anchor build --no-idl -- --tools-version v1.54
+for dir in programs/*/; do
+  so="target/deploy/$(basename "$dir").so"
+  if [ ! "$so" -nt "$stamp" ]; then echo "error: $so was not rebuilt" >&2; exit 1; fi
+done
 for dir in programs/*/; do
   p=$(basename "$dir")
   anchor idl build -p "$p" -o "target/idl/$p.json" -t "target/types/$p.ts"
