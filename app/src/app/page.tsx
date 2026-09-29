@@ -55,7 +55,7 @@ export default function Lobby() {
               onClick={() => enter(`/play/queue?entry=${entry}`)}
               disabled={!canEnter}
             >
-              Enter · {fmtGemas(entry)} Gemas
+              Play now · {fmtGemas(entry)} Gemas
             </Button>
             {!canEnter && onChain && (
               <span className="meta">
@@ -63,7 +63,7 @@ export default function Lobby() {
               </span>
             )}
             <span className="meta">
-              {queueDepth["block-puzzle"]} waiting in Queue · play starts as soon as an opponent is paired
+              {queueDepth["block-puzzle"]} waiting in Queue · play now, you&apos;ll be paired
             </span>
             <div className="hstack wrap">
               <Button size="sm" onClick={() => auth.gate("Challenge a friend", () => router.push(`/play/challenge?entry=${entry}`))}>
@@ -83,7 +83,7 @@ export default function Lobby() {
                 href={`/play/match/${m.id.toString()}`}
                 thumb={<Thumb>{m.entry >= 1000 ? `${m.entry / 1000}K` : m.entry}</Thumb>}
                 title={`${GAME_NAMES[m.game]} · ${fmtGemas(m.entry)} entry`}
-                meta={m.status === "open" ? (m.challenge ? "Waiting for your Challenge to be opened" : "Waiting for an opponent") : "Opponent found · continue"}
+                meta={m.status === "open" ? (m.challenge ? "Waiting for your Challenge to be opened" : m.game === "block-puzzle" ? "Waiting to be paired" : "Waiting for an opponent") : "Opponent found · continue"}
                 cta="Open"
               />
             ))}

@@ -7,7 +7,7 @@ import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
 import { getChain } from "@/lib/chain/client";
 import { matchDelta } from "@/lib/chain/ledger";
-import { RunSubmitter, canClaimTimeout, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
+import { RunSubmitter, canClaimTimeout, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 
@@ -15,7 +15,7 @@ type Phase =
   | "loading"
   | "notfound"
   | "spectator"
-  | "waiting"
+  | "queued"
   | "prep"
   | "ready"
   | "starting"
@@ -78,10 +78,10 @@ export function MatchView({ matchId }: { matchId: string }) {
       const me = BlockPuzzleChain.coreAccount(signer.publicKey);
       const m = await fetchMatch(id, me);
       setMatch(m);
-      setRefundable(!!m && m.status === "active" && !m.session && Date.now() / 1000 > m.deadline);
+      const now = Date.now() / 1000;
+      setRefundable(!!m && (m.status === "open" || !m.session?.joined) && now > m.deadline);
       if (!m) return setPhase("notfound");
       if (m.seat === null) return setPhase("spectator");
-      if (m.status === "open") return setPhase("waiting");
       if (m.status === "settled" || m.status === "refunded") {
         if (!settledSeen.current) {
           settledSeen.current = true;
@@ -90,7 +90,9 @@ export function MatchView({ matchId }: { matchId: string }) {
         return setPhase("result");
       }
 
-      const stage = await probeRun(signer, m);
+      await ensureJoined(signer, m);
+      // The opener plays as soon as the Match exists; the joiner plays after joining. Same steps.
+      const stage = await probeRun(signer, m, phaseRef.current !== "ready");
       if (stage === "needs-prep") {
         setPhase("prep");
         setError(null);
@@ -103,11 +105,12 @@ export function MatchView({ matchId }: { matchId: string }) {
         // The page was reloaded mid-run: the run cannot be resumed, so close it with what landed.
         await getChain().finish(signer, id, m.seat).catch(() => undefined);
       }
+      if (m.status === "open") return setPhase("queued");
       setPhase("awaiting");
       if (await canClaimTimeout(m)) setTimeoutOk(true);
       if (Date.now() - lastSettle.current >= SETTLE_TRY_MS) {
         lastSettle.current = Date.now();
-        const r = await trySettle(signer, id);
+        const r = await trySettle(signer, id, m.session);
         if (r.sig) addSig("settle", r.sig);
         if (r.outcome === "settled") setMatch(await fetchMatch(id, me));
         if (r.outcome === "failed") setError(r.error ?? "Settlement failed");
@@ -136,12 +139,12 @@ export function MatchView({ matchId }: { matchId: string }) {
     setPhase("starting");
     try {
       const startedAt = performance.now();
-      const sig = await getChain().beginRun(signer, id, seat);
+      const { sig, seed } = await getChain().beginRun(signer, id, seat);
       addSig("begin_run (private)", sig);
       const sub = new RunSubmitter(signer, id, seat);
       submitter.current = sub;
       setRun({
-        seed: match.session.seed,
+        seed,
         startedAt,
         entry: match.entry,
         onMove: (mv) => sub.push(mv),
@@ -214,7 +217,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   const mineIdx = m?.seat ?? 0;
   const scores = session ? [session.scores[mineIdx], session.scores[1 - mineIdx]] : null;
   const delta = m ? matchDelta(m) : 0;
-  const outcome = !m || m.status === "open" || m.status === "active" ? null : !session ? "refunded" : session.result === "draw" ? "draw" : delta > 0 ? "won" : "lost";
+  const outcome = !m || m.status === "open" || m.status === "active" ? null : !session || !session.settled ? "refunded" : session.result === "draw" ? "draw" : delta > 0 ? "won" : "lost";
 
   return (
     <div className="stack-lg" style={{ maxWidth: 480, margin: "0 auto" }}>
@@ -227,13 +230,16 @@ export function MatchView({ matchId }: { matchId: string }) {
         )}
       </div>
 
-      {phase === "waiting" && m && (
+      {phase === "queued" && m && (
         <Card large>
           <div className="stack">
-            <Label>Waiting for an opponent</Label>
+            <Label>Your run is in · waiting to be paired</Label>
+            {final && <span className="bp-final tnum">{final.score}</span>}
             <p className="meta">
-              Your entry of {fmtGemas(m.entry)} Gemas is held in escrow. Your run starts the moment an opponent joins: on
-              chain both Players get the same Seed and their own private Board, so play begins once you are paired. Keep this page open, or come back from the Lobby.
+              Your entry of {fmtGemas(m.entry)} Gemas is held in escrow and your run is hidden in the private rollup.
+              The next Player to join plays the same Seed against your score; nobody sees your moves until both runs are
+              closed. If nobody joins before {m.deadline ? new Date(m.deadline * 1000).toLocaleTimeString() : "the Queue window ends"}, you are refunded.
+              Keep this page open, or come back from the Lobby.
             </p>
             {m.challenge && (
               <div className="stack">
@@ -260,9 +266,9 @@ export function MatchView({ matchId }: { matchId: string }) {
       {phase === "prep" && (
         <Card large>
           <div className="stack">
-            <Label>Opponent found · getting the Match ready</Label>
+            <Label>Getting your run ready</Label>
             <p className="status" role="status">{step || "Preparing"}…</p>
-            <p className="note">Both Boards move to a private rollup so neither Player can see the other&apos;s moves. About 20 seconds.</p>
+            <p className="note">Your Board moves to a private rollup, and the Seed is drawn there where nobody can read it. About 20 seconds.</p>
           </div>
         </Card>
       )}
@@ -272,8 +278,11 @@ export function MatchView({ matchId }: { matchId: string }) {
           <div className="stack">
             <Label>Ready</Label>
             <p className="meta">
-              You and your opponent play the same Seed, 90 seconds each. The clock starts when you press Start. Higher
-              score wins {fmtGemas(m.entry * 2 - Number(fmtFee(m)))} Gemas.
+              You and your opponent play the same Seed, 90 seconds each, one after the other. The pieces stay hidden until
+              you press Start, and that is when your clock starts.{" "}
+              {m.status === "open"
+                ? "No opponent yet: play now and you will be paired with the next Player."
+                : `Higher score wins ${fmtGemas(m.entry * 2 - Number(fmtFee(m)))} Gemas.`}
             </p>
             <Button variant="money" block disabled={phase === "starting"} onClick={begin}>
               {phase === "starting" ? "Starting…" : "Start run · 90 s"}

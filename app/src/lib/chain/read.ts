@@ -29,8 +29,18 @@ export interface ChainMatch {
   fees: { platformBps: number; studioBps: number };
   /** Hold'em: the winning seat of a settled table (null for a refund or while unsettled). */
   winner: "opener" | "joiner" | null;
-  /** Block Puzzle: set once the Match reached Active and a Session exists. */
-  session: { settled: boolean; result: "opener" | "joiner" | "draw"; scores: [number, number]; seed: bigint; deadline: number } | null;
+  /** Block Puzzle: set as soon as the Match is opened (the opener plays before anyone is paired). */
+  session: {
+    settled: boolean;
+    joined: boolean;
+    result: "opener" | "joiner" | "draw";
+    scores: [number, number];
+    /** Zero until settlement: the Seed is hidden from everyone until their own run begins. */
+    seed: bigint;
+    /** Opener must begin before this; a joiner's deadline is `deadline` (zero until joined). */
+    openerDeadline: number;
+    deadline: number;
+  } | null;
 }
 
 export interface ChainHolding {
@@ -127,6 +137,8 @@ export function toChainMatch(state: any, me: PublicKey | null, session: any | nu
     session: session
       ? {
           settled: session.settled,
+          joined: session.joined,
+          openerDeadline: Number(session.openerDeadline.toString()),
           result: (["opener", "joiner", "draw"] as const)[session.result as number],
           scores: (session.scores as number[]).map(Number) as [number, number],
           seed: big(session.seed),
@@ -202,7 +214,10 @@ export async function findQueueMatch(entry: number, me: PublicKey, game: GameId 
     })
     .map((m: any) => big(m.account.id))
     .sort((x: bigint, y: bigint) => (x < y ? -1 : 1));
-  return open[0] ?? null;
+  // Only Matches whose opener has a Session (opened by this version of the app) can be joined.
+  const sessions = open.length ? await chain.bp.account.session.fetchMultiple(open.map((id: bigint) => BlockPuzzleChain.addresses(id).session)) : [];
+  const idx = open.findIndex((_id: bigint, i: number) => sessions[i]);
+  return idx >= 0 ? open[idx] : null;
 }
 
 /** Number of Open Queue Matches for one Game (for the Lobby). */

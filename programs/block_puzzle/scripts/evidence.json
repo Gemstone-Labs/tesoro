@@ -294,6 +294,284 @@
         "seed": "10682468841280942559",
         "deadline": 1790802000
       }
+    },
+    {
+      "at": "2026-09-29T22:10:59.965Z",
+      "txs": [
+        {
+          "step": "open_match + open_session (p0, 1,000 Gemas; Match stays Open)",
+          "layer": "base",
+          "sig": "5sATS6RzekG45wCkUfJ7qmPEhVi521fNvCgDWX9ySFMW46p33CG25FNLLpnahXEMSydZY5dWAhkKRSc7ndaC8egR",
+          "link": "https://explorer.solana.com/tx/5sATS6RzekG45wCkUfJ7qmPEhVi521fNvCgDWX9ySFMW46p33CG25FNLLpnahXEMSydZY5dWAhkKRSc7ndaC8egR?cluster=devnet"
+        },
+        {
+          "step": "delegate_opener (Board 0 + SeedVault to the TEE validator)",
+          "layer": "base",
+          "sig": "3YpZqjaEvXSvYxxHb3HhCAcS5Qb5ZnYxdFsatsB3qdCsMtdFWd19BnJCYQCJLKxwPC92j3ywCtXe9p4iuaa7xchu",
+          "link": "https://explorer.solana.com/tx/3YpZqjaEvXSvYxxHb3HhCAcS5Qb5ZnYxdFsatsB3qdCsMtdFWd19BnJCYQCJLKxwPC92j3ywCtXe9p4iuaa7xchu?cluster=devnet"
+        },
+        {
+          "step": "init_vault_permission (private, zero members)",
+          "layer": "tee",
+          "sig": "2f2LrPQXjKeMnVrXkz5Be8ShjToEjTVakTLg68t2NPiGRJ1cqUNNBxdM5q1xr7kkuQvgdPpu2wi7hQeojvvDy48Z"
+        },
+        {
+          "step": "init_permission p0",
+          "layer": "tee",
+          "sig": "5kthjX5fVg7txRqy5FmyErdHXbWkzgsaVFGAUVpzhXUW25q3YwKfdJaAsMuLvG5aEHvKmNdXz5qyADdnnQgdN6ha"
+        },
+        {
+          "step": "request_seed (VRF inside the TEE)",
+          "layer": "tee",
+          "sig": "3q3a9DdLRJasbKPVcnCQYUpcE1fXP9fj7iW8JK4Nd2xkgSdGhb7Uwg45CFhAVJQKtTMTS1qrFB9PKS6gzUohbDRU"
+        },
+        {
+          "step": "begin_run p0 (Seed copied into p0's private Board)",
+          "layer": "tee",
+          "sig": "2j5nxoebhoSeBFfGVVzf39xM6uGfSWHrPW9YHKKqtGfunmHCXrToqCMsXTThJ29CqWFKeUB7cdDuNMN32Pzc3Jsv"
+        },
+        {
+          "step": "play p0 batch 0",
+          "layer": "tee",
+          "sig": "66DjRg2trubb2Uy9FJxsbrocD423ewhV438qr9WSAUve17tPziRDWXkoLaAsoZrvdccDYZNygXyNqpwvoXTvPKJe"
+        },
+        {
+          "step": "finish p0",
+          "layer": "tee",
+          "sig": "4UnzN3tsD4MrFt7b74GYLesWFuQtKXcYVbdE6L9qzNjrB6onXp65cW5bFEXbume2nL4amD5hT6rNMPtjSeyZ2HDb"
+        },
+        {
+          "step": "join_match + join_session (p1)",
+          "layer": "base",
+          "sig": "2npQFi9mNJ7KBynMKea6VvVWSQ7wEP5hJ9VkCmxrWH5DipumMCbKSDHJNEU1NTjeiZ35AsdnEM3TMLYBXDpsp4fh",
+          "link": "https://explorer.solana.com/tx/2npQFi9mNJ7KBynMKea6VvVWSQ7wEP5hJ9VkCmxrWH5DipumMCbKSDHJNEU1NTjeiZ35AsdnEM3TMLYBXDpsp4fh?cluster=devnet"
+        },
+        {
+          "step": "delegate_joiner (Board 1)",
+          "layer": "base",
+          "sig": "2Du5rmxpX547QVxadTe9GwLJ53dwKWvbDMz3zh6bSqXqA4HzbJFMiF1vhKnDjhThoqFNf6u9qTtSrwf41upyruF5",
+          "link": "https://explorer.solana.com/tx/2Du5rmxpX547QVxadTe9GwLJ53dwKWvbDMz3zh6bSqXqA4HzbJFMiF1vhKnDjhThoqFNf6u9qTtSrwf41upyruF5?cluster=devnet"
+        },
+        {
+          "step": "init_permission p1",
+          "layer": "tee",
+          "sig": "4Q26rbvnaUzxNtYxwnoFeS33pXygfgvWacD2zeLdnHQs5UMpWUjYjNTTB9ZyYRQyXF6LeHpcJg7AuKW5y6pdZzYZ"
+        },
+        {
+          "step": "begin_run p1 (same Seed)",
+          "layer": "tee",
+          "sig": "Yfp77DhECVJnmdw726WcYAiNWxztuFDWRyaAru7MKHcNHmRf7Ur1kkThXiwgErJoQwFawbCFQxup58xNhSNzYZL"
+        },
+        {
+          "step": "play p1 batch 0",
+          "layer": "tee",
+          "sig": "2mjhiMCALRNkN52bTSk6aVZeRqeu9jz82mDfBXM5ZfNq1V2zFrHfrBsf3ooftkQfYnCQMYLSUzcF3h7HkacEVGr4"
+        },
+        {
+          "step": "finish p1",
+          "layer": "tee",
+          "sig": "4VwMK6SeLnvWy781dubh3rW8zSLVq8KRNtsD21MmK1D1vfMUePNkouhaQVxPaN1MbjSxeREHNPzLvT8twEwoeSg8"
+        },
+        {
+          "step": "seal + commit_boards (permissions closed, Boards + SeedVault undelegated)",
+          "layer": "tee",
+          "sig": "5uReBFH3466Cy5NRvzbn9iMrrfQpCgR1y7rpwMwqE3xJBBbhYZomCEWSFYPwa4JXTWxw6qxuzT19DT2jNomeiNDW"
+        },
+        {
+          "step": "commit on base layer",
+          "layer": "base",
+          "sig": "3nd1pMGbPrTG3V5enz5LU118nDGd4tQXjrJR4NbarB4UUod6hn8kPfgYA6eFZdPVhgr9dEDmMFFtVuCpVUrxqr9B",
+          "link": "https://explorer.solana.com/tx/3nd1pMGbPrTG3V5enz5LU118nDGd4tQXjrJR4NbarB4UUod6hn8kPfgYA6eFZdPVhgr9dEDmMFFtVuCpVUrxqr9B?cluster=devnet"
+        },
+        {
+          "step": "settle via CPI to tesoro_core (result: opener)",
+          "layer": "base",
+          "sig": "KK3MY8Djm3GqKAe5oroW61NVXdeNjYyGKFm4fSz8fVxcGYc8GeA99vcQjsjZbzxryJJxvtFkWFXSU2nRfz7gVss",
+          "link": "https://explorer.solana.com/tx/KK3MY8Djm3GqKAe5oroW61NVXdeNjYyGKFm4fSz8fVxcGYc8GeA99vcQjsjZbzxryJJxvtFkWFXSU2nRfz7gVss?cluster=devnet"
+        }
+      ],
+      "checks": [
+        {
+          "name": "TEE RPC attestation (verifyTeeRpcIntegrity)",
+          "pass": true,
+          "detail": true
+        },
+        {
+          "name": "before begin_run p0's own Board holds no Seed",
+          "pass": true,
+          "detail": {
+            "seed": "0"
+          }
+        },
+        {
+          "name": "VRF callback wrote the Seed into the SeedVault (check_seed succeeds)",
+          "pass": true,
+          "detail": "ready"
+        },
+        {
+          "name": "SeedVault is unreadable by p0, p1 and an anonymous TEE client (zero-member permission)",
+          "pass": true,
+          "detail": [
+            "null",
+            "null",
+            "null"
+          ]
+        },
+        {
+          "name": "base-layer copy of the SeedVault holds no Seed while delegated",
+          "pass": true,
+          "detail": {
+            "ready": false
+          }
+        },
+        {
+          "name": "opener finished their run while the Match is still Open (no opponent yet)",
+          "pass": true,
+          "detail": {
+            "open": {}
+          }
+        },
+        {
+          "name": "p0 reads own Board in the TEE (score visible)",
+          "pass": true,
+          "detail": {
+            "score": 297,
+            "moves": 30
+          }
+        },
+        {
+          "name": "unauthenticated TEE read of p0's Board fails",
+          "pass": true,
+          "detail": "null"
+        },
+        {
+          "name": "base-layer copy of p0's Board holds no moves and no Seed",
+          "pass": true,
+          "detail": {
+            "moves": 0,
+            "score": 0
+          }
+        },
+        {
+          "name": "join extended the tesoro_core refund deadline past the 24h submission deadline",
+          "pass": true,
+          "detail": {
+            "matchDeadline": "1790809903",
+            "submissionDeadline": "1790806303"
+          }
+        },
+        {
+          "name": "joiner p1 cannot read the opener's Board in the TEE",
+          "pass": true,
+          "detail": "null (hidden)"
+        },
+        {
+          "name": "seal is refused while the joiner can still play (opener's moves stay private)",
+          "pass": true,
+          "detail": "tee tx failed 2oh64vZc9U4P7ov9xMBkH7BoR6WmRBQ4hQCjrqe4QwiryiYAK7ouG9pDzfX6dLfRwZZ6oQofjwCZSUfR3DaCK9u3: {\"InstructionErr"
+        },
+        {
+          "name": "before begin_run p1's own Board holds no Seed",
+          "pass": true,
+          "detail": {
+            "seed": "0"
+          }
+        },
+        {
+          "name": "p1 receives the same Seed at begin_run",
+          "pass": true,
+          "detail": {
+            "p1": "10223678449608242028",
+            "p0": "10223678449608242028"
+          }
+        },
+        {
+          "name": "committed scores equal the TS engine replay of the same moves",
+          "pass": true,
+          "detail": {
+            "onchain": [
+              297,
+              70
+            ],
+            "expected": [
+              297,
+              70
+            ]
+          }
+        },
+        {
+          "name": "moves are public only after commit (log matches)",
+          "pass": true,
+          "detail": [
+            0,
+            65537,
+            196610
+          ]
+        },
+        {
+          "name": "Match settled: higher score wins",
+          "pass": true,
+          "detail": {
+            "settled": true,
+            "result": "opener",
+            "scores": [
+              297,
+              70
+            ],
+            "matchStatus": "settled",
+            "seed": "10223678449608242028",
+            "deadline": 1790806303
+          }
+        },
+        {
+          "name": "winner received the loser's entry minus 100-Gema fees",
+          "pass": true,
+          "detail": {
+            "before": [
+              "75900",
+              "74000"
+            ],
+            "after": [
+              "76800",
+              "73000"
+            ]
+          }
+        },
+        {
+          "name": "no double settlement",
+          "pass": true,
+          "detail": "base tx failed 5ffro6jhfT4fiFAZece4tePuKrKLTLyDZghbMSzhcSc7oCWzADK9L5ZGNMkfNwwgEUiVEpSnbwHpC6NZwJDyhXrt: {\"InstructionError\":[1,{\"Custom\":6015}]}"
+        }
+      ],
+      "matchId": "1790719867058",
+      "match": "GFc5vwF69X1NQ7P6biAKGVmToGqvgpFBPULZmanjt1k1",
+      "session": "7LNUAwcSXxXEuCPWB62EkaLjGeAju5TsZ8JhNjJkC6ym",
+      "vault": "pLPuzLd5c7zmr3qkexbDNMsnMeq2U2fAkifKZMuxYfu",
+      "boards": [
+        "3RPZkPgGrvs1DmoHxC7iKKWRWYhMcnVeaJb7dHBtYje1",
+        "733uEpzK3r3F4nddZc2EGF8Tka47NdEyuDoD4TepMoQV"
+      ],
+      "players": [
+        "5PQmUHSZ9PJSzMymk1kW15eJ9JKXLH4b2B5gemJFMCxY",
+        "E1tzRJSb6qTFE5gJHs5eVUtg2axTgNbUwb9JkSXSxAui"
+      ],
+      "seed": "10223678449608242028",
+      "expectedScores": [
+        297,
+        70
+      ],
+      "openerFinishedAt": "2026-09-29T22:11:22.112Z",
+      "result": {
+        "settled": true,
+        "result": "opener",
+        "scores": [
+          297,
+          70
+        ],
+        "matchStatus": "settled",
+        "seed": "10223678449608242028",
+        "deadline": 1790806303
+      }
     }
   ]
 }
