@@ -10,7 +10,9 @@ export async function simulate(conn: Connection, payer: Keypair, ixs: Transactio
   tx.sign(payer);
   try {
     const res = await conn.simulateTransaction(tx);
-    return res.value.err ? JSON.stringify(res.value.err) : null;
+    if (!res.value.err) return null;
+    const why = res.value.logs?.filter((l) => /Error|failed|custom program error/i.test(l)).pop();
+    return `${JSON.stringify(res.value.err)}${why ? ` ${why.replace("Program log: ", "")}` : ""}`;
   } catch (e) {
     return String((e as Error).message ?? e);
   }
