@@ -42,10 +42,7 @@ impl Send<'_> {
         position.source_chain = params.dst_eid;
         position.position_id = params.position_id;
         position.bump = ctx.bumps.position;
-        let seq = position
-            .last_out_seq
-            .checked_add(1)
-            .ok_or(LzOAppError::SeqOverflow)?;
+        let seq = position.last_out_seq.checked_add(1).ok_or(LzOAppError::SeqOverflow)?;
         position.last_out_seq = seq;
         position.last_out_type = params.msg_type;
         position.last_out_amount = params.amount;

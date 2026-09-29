@@ -38,12 +38,7 @@ impl InitStore<'_> {
 
         let types = &mut ctx.accounts.lz_receive_types_accounts;
         types.store = store.key();
-        types.alt = ctx
-            .accounts
-            .alt
-            .as_ref()
-            .map(|a| a.key())
-            .unwrap_or_default();
+        types.alt = ctx.accounts.alt.as_ref().map(|a| a.key()).unwrap_or_default();
         types.bump = ctx.bumps.lz_receive_types_accounts;
 
         let seeds: &[&[u8]] = &[STORE_SEED, &[store.bump]];
@@ -52,9 +47,7 @@ impl InitStore<'_> {
             store.key(),
             ctx.remaining_accounts,
             seeds,
-            RegisterOAppParams {
-                delegate: store.admin,
-            },
+            RegisterOAppParams { delegate: store.admin },
         )?;
         Ok(())
     }

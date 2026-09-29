@@ -5,6 +5,7 @@
 //   defaults <eid>                    print default send/receive ULN + executor config for the pathway
 //   config <eid>                      print the OApp's effective (resolved) config
 //   set-uln <eid> <dvnBase58> <sendConf> <recvConf>   explicit DVN config (required DVN) for both directions
+//   init-position <eid> <positionId0x>   create the Position record before its first EVM -> Solana message
 //   quote <eid>                       fee for one message
 //   send <eid> <type 3|4> <positionId0x> <amount>
 //   state <eid> <positionId0x>        Position PDA contents
@@ -269,6 +270,22 @@ async function send(eid: number, type: number, posHex: string, amount: bigint) {
     await run('send', [ix], 600_000)
 }
 
+async function initPosition(eid: number, posHex: string) {
+    const id = hex32(posHex)
+    const ix = new TransactionInstruction({
+        programId: PROGRAM_ID,
+        keys: [
+            { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+            { pubkey: peerPda(eid), isSigner: false, isWritable: false },
+            { pubkey: store, isSigner: false, isWritable: false },
+            { pubkey: positionPda(eid, id), isSigner: false, isWritable: true },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: Buffer.concat([disc('init_position'), Buffer.from(new Uint32Array([eid]).buffer), id]),
+    })
+    await run('init_position', [ix])
+}
+
 async function state(eid: number, posHex: string) {
     const id = hex32(posHex)
     const p = positionPda(eid, id)
@@ -298,6 +315,7 @@ async function main() {
         case 'set-uln': return setUln(Number(a[0]), a[1], Number(a[2]), Number(a[3]))
         case 'quote': return void (await quote(Number(a[0])))
         case 'send': return send(Number(a[0]), Number(a[1]), a[2], BigInt(a[3]))
+        case 'init-position': return initPosition(Number(a[0]), a[1])
         case 'state': return state(Number(a[0]), a[1])
         default: throw new Error('unknown command')
     }

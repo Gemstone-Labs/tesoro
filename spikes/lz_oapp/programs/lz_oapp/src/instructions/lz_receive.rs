@@ -1,7 +1,9 @@
 use crate::*;
 use msg_codec::{PositionMessage, MSG_POSITION_LOCKED, MSG_YIELD_ACCRUED};
 use oapp::{
-    endpoint::{cpi::accounts::Clear, instructions::ClearParams, ConstructCPIContext, ID as ENDPOINT_ID},
+    endpoint::{
+        cpi::accounts::Clear, instructions::ClearParams, ConstructCPIContext, ID as ENDPOINT_ID,
+    },
     LzReceiveParams,
 };
 
@@ -22,12 +24,12 @@ pub struct LzReceive<'info> {
         constraint = params.sender == peer.peer_address @ LzOAppError::UnknownPeer
     )]
     pub peer: Account<'info, PeerConfig>,
+    // Must already exist (see `init_position`): the default Executor on Hoodi/HyperEVM caps the
+    // native drop to Solana at 0, so nobody can fund rent for an account created inside lz_receive.
     #[account(
-        init_if_needed,
-        payer = payer,
-        space = 8 + Position::INIT_SPACE,
+        mut,
         seeds = [POSITION_SEED, &params.src_eid.to_be_bytes(), &msg_codec::position_id_or_zero(&params.message)],
-        bump
+        bump = position.bump
     )]
     pub position: Account<'info, Position>,
     pub system_program: Program<'info, System>,
@@ -36,10 +38,7 @@ pub struct LzReceive<'info> {
 impl LzReceive<'_> {
     pub fn apply(ctx: &mut Context<LzReceive>, params: &LzReceiveParams) -> Result<()> {
         let msg = PositionMessage::decode(&params.message)?;
-        require!(
-            msg.source_chain == params.src_eid,
-            LzOAppError::InvalidSourceChain
-        );
+        require!(msg.source_chain == params.src_eid, LzOAppError::InvalidSourceChain);
         require!(
             msg.msg_type == MSG_POSITION_LOCKED || msg.msg_type == MSG_YIELD_ACCRUED,
             LzOAppError::InvalidMessageType
@@ -69,14 +68,11 @@ impl LzReceive<'_> {
         // Application-level idempotency: a duplicate or stale seq is consumed as a no-op.
         let position = &mut ctx.accounts.position;
         require!(
-            position.bump == 0 || position.position_id == msg.position_id,
+            position.position_id == msg.position_id && position.source_chain == msg.source_chain,
             LzOAppError::PositionMismatch
         );
         let applied = msg.seq > position.last_in_seq;
         if applied {
-            position.source_chain = msg.source_chain;
-            position.position_id = msg.position_id;
-            position.bump = ctx.bumps.position;
             position.last_in_seq = msg.seq;
             position.last_in_type = msg.msg_type;
             position.last_in_amount = msg.amount;

@@ -25,11 +25,11 @@ impl SetPeerConfig<'_> {
         match params.config.clone() {
             PeerConfigParam::PeerAddress(peer_address) => {
                 ctx.accounts.peer.peer_address = peer_address;
-            }
+            },
             PeerConfigParam::EnforcedOptions { send } => {
                 oapp::options::assert_type_3(&send)?;
                 ctx.accounts.peer.enforced_send_options = send;
-            }
+            },
         }
         ctx.accounts.peer.bump = ctx.bumps.peer;
         Ok(())

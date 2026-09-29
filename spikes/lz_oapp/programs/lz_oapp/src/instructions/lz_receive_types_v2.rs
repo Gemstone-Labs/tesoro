@@ -2,7 +2,9 @@ use crate::*;
 use anchor_lang::solana_program::system_program;
 use msg_codec::PositionMessage;
 use oapp::{
-    common::{compact_accounts_with_alts, AccountMetaRef, AddressLocator, EXECUTION_CONTEXT_VERSION_1},
+    common::{
+        compact_accounts_with_alts, AccountMetaRef, AddressLocator, EXECUTION_CONTEXT_VERSION_1,
+    },
     endpoint::ID as ENDPOINT_ID,
     lz_receive_types_v2::{get_accounts_for_clear, Instruction, LzReceiveTypesV2Result},
     LzReceiveParams,

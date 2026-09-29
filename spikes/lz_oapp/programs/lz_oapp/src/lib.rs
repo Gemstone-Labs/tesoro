@@ -29,6 +29,10 @@ pub mod lz_oapp {
         InitStore::apply(&mut ctx, &params)
     }
 
+    pub fn init_position(mut ctx: Context<InitPosition>, params: InitPositionParams) -> Result<()> {
+        InitPosition::apply(&mut ctx, &params)
+    }
+
     pub fn set_peer_config(
         mut ctx: Context<SetPeerConfig>,
         params: SetPeerConfigParams,

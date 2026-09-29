@@ -44,13 +44,7 @@ impl PositionMessage {
         let seq = u64::from_be_bytes(read(buf, 37)?);
         let amount = u128::from_be_bytes(read(buf, 45)?);
         require!(seq > 0, LzOAppError::InvalidSeq);
-        Ok(Self {
-            msg_type,
-            source_chain,
-            position_id,
-            seq,
-            amount,
-        })
+        Ok(Self { msg_type, source_chain, position_id, seq, amount })
     }
 }
 
@@ -61,9 +55,7 @@ pub fn position_id_or_zero(buf: &[u8]) -> [u8; 32] {
 }
 
 fn read<const N: usize>(buf: &[u8], offset: usize) -> Result<[u8; N]> {
-    let end = offset
-        .checked_add(N)
-        .ok_or(LzOAppError::InvalidMessageLength)?;
+    let end = offset.checked_add(N).ok_or(LzOAppError::InvalidMessageLength)?;
     buf.get(offset..end)
         .and_then(|s| <[u8; N]>::try_from(s).ok())
         .ok_or_else(|| LzOAppError::InvalidMessageLength.into())

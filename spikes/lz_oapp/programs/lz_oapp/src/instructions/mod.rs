@@ -1,3 +1,4 @@
+pub mod init_position;
 pub mod init_store;
 pub mod lz_receive;
 pub mod lz_receive_types_info;
@@ -6,6 +7,7 @@ pub mod quote_send;
 pub mod send;
 pub mod set_peer_config;
 
+pub use init_position::*;
 pub use init_store::*;
 pub use lz_receive::*;
 pub use lz_receive_types_info::*;
