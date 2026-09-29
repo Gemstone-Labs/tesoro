@@ -22,7 +22,26 @@ import {
   Thumb,
   XIcon,
 } from "@/components/ui";
+import { AccountSheet } from "@/components/shell/AccountSheet";
+import { AuthContext } from "@/lib/auth/context";
+import type { AuthState } from "@/lib/auth/types";
 import type { EntrySize } from "@/lib/mock";
+
+/** Sample data only: lets the Account sheet render here without a Privy session. */
+const SAMPLE_AUTH: AuthState = {
+  status: "signed-in",
+  email: "ana@example.com",
+  addresses: {
+    solana: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+    evm: "0x4Ce2a8b91F0d3E57c1A6d9f2B08E7a3d51c6F9a2",
+  },
+  linked: [{ family: "solana", address: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", client: "phantom" }],
+  signOut: async () => {},
+  linkWallet: () => {},
+  gate: (_r, a) => a(),
+  openSignIn: () => {},
+  openAccount: () => {},
+};
 
 const TOKENS: [string, string][] = [
   ["--shell", "#0C0E10"], ["--raised", "#15181B"], ["--line", "rgba(234,239,236,.10)"],
@@ -49,6 +68,7 @@ export default function Design() {
   const [entry, setEntry] = useState<EntrySize>(1000);
   const [h, setH] = useState(4);
   const [sheet, setSheet] = useState(false);
+  const [accountSheet, setAccountSheet] = useState(false);
 
   return (
     <div className="stack-lg">
@@ -182,6 +202,13 @@ export default function Design() {
           ))}
           <Card large><CrossChainProgress stage={1} failed chain="HYPE" /></Card>
         </div>
+      </Section>
+
+      <Section title="Account sheet" note="Sample addresses; the real one reads the Privy session.">
+        <div><Button onClick={() => setAccountSheet(true)}>Open Account sheet</Button></div>
+        <AuthContext.Provider value={SAMPLE_AUTH}>
+          <AccountSheet open={accountSheet} onClose={() => setAccountSheet(false)} onSignedOut={() => setAccountSheet(false)} />
+        </AuthContext.Provider>
       </Section>
 
       <Section title="Sheet" note="Native dialog: focus trap, Esc, backdrop click.">
