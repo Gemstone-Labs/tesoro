@@ -8,15 +8,15 @@
 use anchor_lang::prelude::Pubkey as APk;
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas};
 use block_puzzle::engine::{self, piece_at, State};
-use block_puzzle::{Board, Session, AUTHORITY_SEED, BOARD_SEED, SESSION_SEED};
+use block_puzzle::{
+    Board, SeedVault, Session, AUTHORITY_SEED, BOARD_SEED, SESSION_SEED, VAULT_SEED,
+};
 use litesvm::LiteSVM;
 use solana_sdk::clock::Clock;
-use solana_sdk::hash::Hash;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey as Pk;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
-use solana_sdk::sysvar::slot_hashes::SlotHashes;
 use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
 use tesoro_core::ledger::{MatchStatus, Outcome, SourceChain};
@@ -57,6 +57,9 @@ fn session_pda(m: APk) -> APk {
 }
 fn board_pda(session: APk, seat: u8) -> APk {
     bp_pda(&[BOARD_SEED, session.as_ref(), &[seat]])
+}
+fn vault_pda(session: APk) -> APk {
+    bp_pda(&[VAULT_SEED, session.as_ref()])
 }
 
 fn to_metas(m: Vec<anchor_lang::prelude::AccountMeta>) -> Vec<AccountMeta> {
@@ -208,9 +211,6 @@ impl Env {
     fn now(&self) -> i64 {
         self.svm.get_sysvar::<Clock>().unix_timestamp
     }
-    fn set_slot_hashes(&mut self, entries: &[(u64, Hash)]) {
-        self.svm.set_sysvar(&SlotHashes::new(entries));
-    }
 
     fn send(&mut self, ixs: &[Instruction], payer: &Keypair, extra: &[&Keypair]) -> Res {
         self.svm.expire_blockhash();
@@ -361,7 +361,7 @@ impl Env {
         metas
     }
 
-    fn open_and_join(&mut self, alice: &Person, bob: &Person) -> u64 {
+    fn open(&mut self, alice: &Person) -> u64 {
         let id = self.next_match;
         self.next_match += 1;
         let open = core_ix(
@@ -380,6 +380,10 @@ impl Env {
             vec![rem(alice.holding)],
         );
         self.send(&[open], &alice.kp, &[]).expect("open match");
+        id
+    }
+
+    fn join(&mut self, bob: &Person, id: u64) -> Res {
         let join = core_ix(
             tesoro_core::accounts::JoinMatch {
                 player_authority: bob.key,
@@ -389,75 +393,93 @@ impl Env {
             tesoro_core::instruction::JoinMatch {},
             vec![rem(bob.holding)],
         );
-        self.send(&[join], &bob.kp, &[]).expect("join match");
-        id
+        self.send(&[join], &bob.kp, &[])
     }
 
-    fn start_session(&mut self, alice: &Person, bob: &Person, id: u64) -> Res {
+    fn open_session(&mut self, alice: &Person, id: u64) -> Res {
         let m = match_pda(id);
         let session = session_pda(m);
         let ix = bp_ix(
-            block_puzzle::accounts::StartSession {
+            block_puzzle::accounts::OpenSession {
                 payer: a(self.stranger.pubkey()),
                 match_state: m,
                 account_a: alice.account,
-                account_b: bob.account,
                 session,
                 board_0: board_pda(session, 0),
-                board_1: board_pda(session, 1),
+                vault: vault_pda(session),
                 system_program: anchor_lang::system_program::ID,
             },
-            block_puzzle::instruction::StartSession {},
+            block_puzzle::instruction::OpenSession {},
             vec![],
         );
         let payer = self.stranger.insecure_clone();
         self.send(&[ix], &payer, &[])
     }
 
-    fn reveal(&mut self, id: u64) -> Res {
+    fn join_session(&mut self, bob: &Person, id: u64) -> Res {
         let m = match_pda(id);
         let session = session_pda(m);
         let ix = bp_ix(
-            block_puzzle::accounts::RevealSeed {
+            block_puzzle::accounts::JoinSession {
                 payer: a(self.stranger.pubkey()),
                 session,
-                board_0: board_pda(session, 0),
+                match_state: m,
+                account_b: bob.account,
                 board_1: board_pda(session, 1),
-                slot_hashes: anchor_lang::solana_program::sysvar::slot_hashes::ID,
                 authority: authority(),
                 config: core_pda(&[CONFIG_SEED]),
-                match_state: m,
                 tesoro_core_program: tesoro_core::ID,
+                system_program: anchor_lang::system_program::ID,
             },
-            block_puzzle::instruction::RevealSeed {},
+            block_puzzle::instruction::JoinSession {},
             vec![],
         );
         let payer = self.stranger.insecure_clone();
         self.send(&[ix], &payer, &[])
     }
 
-    /// Match opened, joined, Session started and Seed revealed. Returns (match id, seed).
+    fn vault(&self, id: u64) -> APk {
+        vault_pda(session_pda(match_pda(id)))
+    }
+
+    /// What the rollup does in `init_vault_permission`, `init_permission` and the VRF callback,
+    /// none of which LiteSVM can run: the Seed lands in the SeedVault and nowhere else.
+    fn prepare_opener(&mut self, id: u64) -> u64 {
+        let seed = block_puzzle::derive_seed(&match_pda(id), &[id as u8; 32]);
+        let vault = self.vault(id);
+        let mut acct = self.svm.get_account(&s(vault)).expect("vault exists");
+        let mut v = SeedVault::try_deserialize(&mut acct.data.as_slice()).expect("deserialize");
+        v.permission_ready = true;
+        v.ready = true;
+        v.seed = seed;
+        let mut buf = Vec::new();
+        v.try_serialize(&mut buf).expect("serialize");
+        acct.data[..buf.len()].copy_from_slice(&buf);
+        self.svm.set_account(s(vault), acct).expect("set account");
+        self.patch_board(self.board(id, 0), |b| b.permission_ready = true);
+        seed
+    }
+
+    /// Match opened and its Session started; the SeedVault holds the Seed. The opener can play.
+    fn opened(&mut self, alice: &Person) -> (u64, u64) {
+        let id = self.open(alice);
+        self.open_session(alice, id).expect("open session");
+        let seed = self.prepare_opener(id);
+        (id, seed)
+    }
+
+    /// The second Player joins the Match and its Session.
+    fn joined(&mut self, bob: &Person, id: u64) {
+        self.join(bob, id).expect("join match");
+        self.join_session(bob, id).expect("join session");
+        self.patch_board(self.board(id, 1), |b| b.permission_ready = true);
+    }
+
+    /// Both Players paired before anyone plays. Returns (match id, seed).
     fn ready(&mut self, alice: &Person, bob: &Person) -> (u64, u64) {
-        let id = self.open_and_join(alice, bob);
-        self.start_session(alice, bob, id).expect("start session");
-        let session: Session = self.load_bp(session_pda(match_pda(id)));
-        let commit = session.commit_slot;
-        self.set_clock(self.now(), commit + 2);
-        self.set_slot_hashes(&[
-            (commit + 1, Hash::new_unique()),
-            (commit, Hash::new_unique()),
-            (commit - 1, Hash::new_unique()),
-        ]);
-        self.reveal(id).expect("reveal seed");
-        let session: Session = self.load_bp(session_pda(match_pda(id)));
-        assert!(session.seed_ready);
-        // Boards are private in the rollup; mimic `init_permission` having run there.
-        for seat in 0..2 {
-            self.patch_board(board_pda(session_pda(match_pda(id)), seat), |b| {
-                b.permission_ready = true
-            });
-        }
-        (id, session.seed)
+        let (id, seed) = self.opened(alice);
+        self.joined(bob, id);
+        (id, seed)
     }
 
     fn board(&self, id: u64, seat: u8) -> APk {
@@ -465,10 +487,12 @@ impl Env {
     }
 
     fn begin(&mut self, p: &Person, board: APk) -> Res {
+        let session = self.load_bp::<Board>(board).session;
         let ix = bp_ix(
-            block_puzzle::accounts::PlayerAction {
+            block_puzzle::accounts::BeginRun {
                 player: p.key,
                 board,
+                vault: vault_pda(session),
             },
             block_puzzle::instruction::BeginRun {},
             vec![],
@@ -610,122 +634,309 @@ fn replay_score(seed: u64, moves: &[engine::Move]) -> u32 {
 }
 
 #[test]
-fn seed_is_derived_from_a_future_slot_hash_nobody_chose() {
+fn a_session_needs_an_open_match_of_this_game_opened_by_the_account_given() {
     let (mut env, alice, bob) = Env::new();
-    let id = env.open_and_join(&alice, &bob);
-    env.start_session(&alice, &bob, id).expect("start");
+    let id = env.open(&alice);
+    // The opener's Account must be the one on the Match.
+    let err = env.open_session(&bob, id).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::InvalidAccount)
+    );
+    env.open_session(&alice, id).expect("open session");
     let session: Session = env.load_bp(session_pda(match_pda(id)));
-    assert!(!session.seed_ready);
+    let m = env.load_core::<MatchState>(match_pda(id)).inner;
+    assert_eq!(session.players[0], alice.key);
+    assert!(!session.joined);
+    assert_eq!(session.opener_deadline, m.deadline);
+    let board: Board = env.load_bp(env.board(id, 0));
+    assert_eq!(board.player, alice.key);
+    assert_eq!(board.deadline, m.deadline);
+    // Once per Match.
+    assert!(env.open_session(&alice, id).is_err());
 
-    // Too early: the committed slot has not passed.
-    let err = env.reveal(id).unwrap_err();
+    // An already Active Match cannot get a Session this way, nor can the Queue window be past.
+    let id2 = env.open(&alice);
+    env.join(&bob, id2).expect("join");
+    let err = env.open_session(&alice, id2).unwrap_err();
     assert_eq!(
         code(&err),
-        bp_err(block_puzzle::BlockPuzzleError::SeedTooEarly)
+        bp_err(block_puzzle::BlockPuzzleError::InvalidMatch)
     );
-    env.set_clock(env.now(), session.commit_slot);
-    let err = env.reveal(id).unwrap_err();
+    let id3 = env.open(&alice);
+    env.set_time(env.now() + tesoro_core::ledger::MATCH_TIMEOUT_SECS);
+    let err = env.open_session(&alice, id3).unwrap_err();
     assert_eq!(
         code(&err),
-        bp_err(block_puzzle::BlockPuzzleError::SeedTooEarly)
+        bp_err(block_puzzle::BlockPuzzleError::DeadlinePassed)
     );
+}
 
-    // Two histories that differ only in the committed slot's hash give different Seeds.
-    let commit = session.commit_slot;
-    env.set_clock(env.now(), commit + 5);
-    let h = Hash::new_unique();
-    env.set_slot_hashes(&[(commit + 4, Hash::new_unique()), (commit, h)]);
-    env.reveal(id).expect("reveal");
-    let seed_a = env.load_bp::<Session>(session_pda(match_pda(id))).seed;
-    let expected = {
-        let d = anchor_lang::solana_program::hash::hashv(&[
-            b"tesoro/block-puzzle/seed",
-            match_pda(id).as_ref(),
-            h.as_ref(),
-            &commit.to_le_bytes(),
-        ])
-        .to_bytes();
-        u64::from_le_bytes(d[..8].try_into().expect("8 bytes"))
-    };
-    assert_eq!(seed_a, expected);
-
-    // Reveal is once.
-    let err = env.reveal(id).unwrap_err();
+#[test]
+fn joining_binds_the_second_player_and_extends_the_match_deadline() {
+    let (mut env, alice, bob) = Env::new();
+    let (id, _) = env.opened(&alice);
+    // Nobody has joined: no second Board yet, and the Match cannot get one.
+    let err = env.join_session(&bob, id).unwrap_err();
     assert_eq!(
         code(&err),
-        bp_err(block_puzzle::BlockPuzzleError::SeedAlreadyRevealed)
+        bp_err(block_puzzle::BlockPuzzleError::InvalidMatch)
     );
+    assert!(env.svm.get_account(&s(env.board(id, 1))).is_none());
 
-    // The Seed is copied to both Boards, and the Match's refund deadline moved past the
-    // submission deadline.
+    env.join(&bob, id).expect("join match");
+    // Only the Account that joined the Match can be bound.
+    let carol = env.staker(3);
+    let err = env.join_session(&carol, id).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::InvalidAccount)
+    );
+    env.join_session(&bob, id).expect("join session");
     let session: Session = env.load_bp(session_pda(match_pda(id)));
-    for seat in 0..2 {
-        let b: Board = env.load_bp(env.board(id, seat));
-        assert_eq!(b.seed, seed_a);
-        assert_eq!(b.deadline, session.deadline);
-    }
+    assert!(session.joined);
+    assert_eq!(session.players[1], bob.key);
+    assert_eq!(session.deadline, env.now() + block_puzzle::SUBMISSION_SECS);
+    let b1: Board = env.load_bp(env.board(id, 1));
+    assert_eq!((b1.player, b1.deadline), (bob.key, session.deadline));
     let m = env.load_core::<MatchState>(match_pda(id)).inner;
     assert_eq!(
         m.deadline,
         session.deadline + block_puzzle::SETTLE_GRACE_SECS
     );
-
-    // Another Match, another slot hash: another Seed.
-    let id2 = env.open_and_join(&alice, &bob);
-    env.start_session(&alice, &bob, id2).expect("start");
-    let commit2 = env
-        .load_bp::<Session>(session_pda(match_pda(id2)))
-        .commit_slot;
-    env.set_clock(env.now(), commit2 + 5);
-    env.set_slot_hashes(&[(commit2, Hash::new_unique())]);
-    env.reveal(id2).expect("reveal");
-    let seed_b = env.load_bp::<Session>(session_pda(match_pda(id2))).seed;
-    assert_ne!(seed_a, seed_b);
+    // Once only: the second Board already exists.
+    assert!(env.join_session(&bob, id).is_err());
 }
 
 #[test]
-fn a_stale_commitment_is_renewed_instead_of_wedging_the_match() {
+fn the_opener_plays_a_full_run_before_anyone_is_paired() {
     let (mut env, alice, bob) = Env::new();
-    let id = env.open_and_join(&alice, &bob);
-    env.start_session(&alice, &bob, id).expect("start");
-    let commit = env
-        .load_bp::<Session>(session_pda(match_pda(id)))
-        .commit_slot;
-    env.set_clock(env.now(), commit + block_puzzle::SEED_EXPIRY_SLOTS + 1);
-    env.set_slot_hashes(&[(env.slot - 1, Hash::new_unique())]);
-    env.reveal(id).expect("renews");
-    let session: Session = env.load_bp(session_pda(match_pda(id)));
-    assert!(!session.seed_ready);
-    assert!(session.commit_slot > commit);
-}
+    let (id, seed) = env.opened(&alice);
+    let ba = env.board(id, 0);
+    env.begin(&alice, ba).expect("begin");
+    let moves = greedy(seed, 30);
+    env.play(&alice, ba, &moves).expect("play");
+    env.finish(&alice, ba).expect("finish");
+    let b: Board = env.load_bp(ba);
+    assert_eq!(b.score, replay_score(seed, &moves));
+    // The Match is still Open and the entry is still escrowed.
+    let m = env.load_core::<MatchState>(match_pda(id)).inner;
+    assert_eq!(m.status, MatchStatus::Open);
+    assert_eq!(env.total(&alice), 75_000 - ENTRY);
 
-#[test]
-fn only_a_real_active_match_of_this_game_starts_a_session() {
-    let (mut env, alice, bob) = Env::new();
-    let id = env.next_match;
-    env.next_match += 1;
-    let open = core_ix(
-        tesoro_core::accounts::OpenMatch {
-            player_authority: alice.key,
-            config: core_pda(&[CONFIG_SEED]),
-            player_account: alice.account,
-            match_state: match_pda(id),
-            system_program: anchor_lang::system_program::ID,
+    // Sealing needs the joiner's Board, which does not exist yet: nothing of the opener's
+    // run can be committed (made public) before a joiner has played too.
+    let payer = env.stranger.insecure_clone();
+    let seal = bp_ix(
+        block_puzzle::accounts::Seal {
+            payer: a(payer.pubkey()),
+            board_0: ba,
+            board_1: env.board(id, 1),
         },
-        tesoro_core::instruction::OpenMatch {
-            match_id: id,
-            game: block_puzzle::ID,
-            entry: ENTRY,
-        },
-        vec![rem(alice.holding)],
+        block_puzzle::instruction::Seal {},
+        vec![],
     );
-    env.send(&[open], &alice.kp, &[]).expect("open");
-    // Nobody has joined yet.
-    let err = env.start_session(&alice, &bob, id).unwrap_err();
+    assert!(env.send(&[seal], &payer, &[]).is_err());
+
+    // The joiner arrives later and plays the same Seed against the opener's stored score.
+    env.set_time(env.now() + 1_800);
+    env.joined(&bob, id);
+    let bb = env.board(id, 1);
+    env.begin(&bob, bb).expect("bob begins");
+    assert_eq!(env.load_bp::<Board>(bb).seed, seed);
+    let weaker = greedy(seed, 8);
+    env.play(&bob, bb, &weaker).expect("bob plays");
+    env.finish(&bob, bb).expect("bob finishes");
+    env.seal(id).expect("seal");
+    env.settle(id, MatchResult::Opener).expect("settle");
+    assert_eq!(env.total(&alice), 75_000 + ENTRY - 100);
+    assert_eq!(env.total(&bob), 75_000 - ENTRY);
+    let session: Session = env.load_bp(session_pda(match_pda(id)));
+    assert_eq!(session.seed, seed);
+    assert_eq!(session.result, 0);
+}
+
+#[test]
+fn the_joiner_can_win_against_the_opener_who_played_first() {
+    let (mut env, alice, bob) = Env::new();
+    let (id, seed) = env.opened(&alice);
+    let ba = env.board(id, 0);
+    env.begin(&alice, ba).expect("begin");
+    env.play(&alice, ba, &greedy(seed, 6)).expect("play");
+    env.finish(&alice, ba).expect("finish");
+    env.joined(&bob, id);
+    let bb = env.board(id, 1);
+    env.begin(&bob, bb).expect("begin");
+    env.play(&bob, bb, &greedy(seed, 28)).expect("play");
+    env.finish(&bob, bb).expect("finish");
+    env.seal(id).expect("seal");
+    env.settle(id, MatchResult::Joiner).expect("settle");
+    assert_eq!(env.total(&bob), 75_000 + ENTRY - 100);
+    assert_eq!(env.total(&alice), 75_000 - ENTRY);
+}
+
+#[test]
+fn the_seed_is_only_in_the_vault_until_a_player_begins() {
+    let (mut env, alice, bob) = Env::new();
+    let (id, seed) = env.opened(&alice);
+    env.joined(&bob, id);
+    let needle = seed.to_le_bytes();
+    let holds_seed = |env: &Env, k: APk| {
+        env.svm
+            .get_account(&s(k))
+            .expect("account exists")
+            .data
+            .windows(8)
+            .any(|w| w == needle)
+    };
+    let session = session_pda(match_pda(id));
+    // Before any run begins, the Seed is in the SeedVault alone: not in the Session, not in
+    // either Board (those are what a Player reads in the rollup, or anyone reads on the base).
+    assert!(holds_seed(&env, env.vault(id)));
+    for k in [session, env.board(id, 0), env.board(id, 1)] {
+        assert!(!holds_seed(&env, k), "seed leaked before begin_run");
+    }
+    assert_eq!(env.load_bp::<Board>(env.board(id, 0)).seed, 0);
+
+    // Nobody can start another Player's run.
+    let err = env.begin(&bob, env.board(id, 0)).unwrap_err();
     assert_eq!(
         code(&err),
-        bp_err(block_puzzle::BlockPuzzleError::InvalidMatch)
+        bp_err(block_puzzle::BlockPuzzleError::NotThePlayer)
     );
+    // Beginning copies the Seed into the beginning Player's own Board only.
+    env.begin(&alice, env.board(id, 0)).expect("begin");
+    assert!(holds_seed(&env, env.board(id, 0)));
+    assert!(!holds_seed(&env, env.board(id, 1)));
+    assert!(!holds_seed(&env, session));
+    env.begin(&bob, env.board(id, 1)).expect("begin");
+    assert!(holds_seed(&env, env.board(id, 1)));
+}
+
+#[test]
+fn a_run_cannot_begin_before_the_seed_is_drawn() {
+    let (mut env, alice, _bob) = Env::new();
+    let id = env.open(&alice);
+    env.open_session(&alice, id).expect("open session");
+    let ba = env.board(id, 0);
+    env.patch_board(ba, |b| b.permission_ready = true);
+    let err = env.begin(&alice, ba).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::SeedNotReady)
+    );
+    let check = bp_ix(
+        block_puzzle::accounts::CheckSeed {
+            payer: alice.key,
+            vault: env.vault(id),
+        },
+        block_puzzle::instruction::CheckSeed {},
+        vec![],
+    );
+    let err = env
+        .send(std::slice::from_ref(&check), &alice.kp, &[])
+        .unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::SeedNotReady)
+    );
+    env.prepare_opener(id);
+    env.send(&[check], &alice.kp, &[]).expect("seed is ready");
+    env.begin(&alice, ba).expect("begin");
+}
+
+#[test]
+fn the_opener_who_never_begins_forfeits_once_their_window_closes() {
+    let (mut env, alice, bob) = Env::new();
+    let (id, seed) = env.opened(&alice);
+    env.joined(&bob, id);
+    let bb = env.board(id, 1);
+    env.begin(&bob, bb).expect("begin");
+    env.play(&bob, bb, &greedy(seed, 3)).expect("play");
+    env.finish(&bob, bb).expect("finish");
+    // Alice still has her Queue window: nobody can seal early.
+    assert!(env.seal(id).is_err());
+    let opener_deadline = env
+        .load_bp::<Session>(session_pda(match_pda(id)))
+        .opener_deadline;
+    env.set_time(opener_deadline);
+    let err = env.begin(&alice, env.board(id, 0)).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::DeadlinePassed)
+    );
+    env.seal(id).expect("seal");
+    env.settle(id, MatchResult::Joiner).expect("settle");
+    assert_eq!(env.total(&bob), 75_000 + ENTRY - 100);
+}
+
+#[test]
+fn a_match_nobody_joins_is_refunded_to_the_opener_after_they_played() {
+    let (mut env, alice, bob) = Env::new();
+    let (id, seed) = env.opened(&alice);
+    let ba = env.board(id, 0);
+    env.begin(&alice, ba).expect("begin");
+    env.play(&alice, ba, &greedy(seed, 10)).expect("play");
+    env.finish(&alice, ba).expect("finish");
+    assert_eq!(env.total(&alice), 75_000 - ENTRY);
+
+    // Not before the Queue window, and not by a stranger.
+    let payer = env.stranger.insecure_clone();
+    let refund = |env: &Env, caller: APk| {
+        let mut metas = to_metas(
+            tesoro_core::accounts::RefundMatch {
+                caller,
+                config: core_pda(&[CONFIG_SEED]),
+                match_state: match_pda(id),
+            }
+            .to_account_metas(None),
+        );
+        metas.push(rem(alice.account));
+        metas.push(rem(alice.holding));
+        let _ = env;
+        Instruction {
+            program_id: s(tesoro_core::ID),
+            accounts: metas,
+            data: tesoro_core::instruction::RefundMatch {}.data(),
+        }
+    };
+    let ix = refund(&env, a(payer.pubkey()));
+    assert!(env.send(std::slice::from_ref(&ix), &payer, &[]).is_err());
+    // Expired means nobody can join either.
+    env.set_time(env.now() + tesoro_core::ledger::MATCH_TIMEOUT_SECS);
+    let err = env.join(&bob, id).unwrap_err();
+    assert_eq!(
+        code(&err),
+        6000 + 100 + tesoro_core::ledger::CoreError::Expired.code()
+    );
+    env.send(&[ix], &payer, &[])
+        .expect("anyone refunds after the window");
+    assert_eq!(env.total(&alice), 75_000);
+    let m = env.load_core::<MatchState>(match_pda(id)).inner;
+    assert_eq!(m.status, MatchStatus::Refunded);
+}
+
+#[test]
+fn the_opener_can_cancel_an_unjoined_match_at_once() {
+    let (mut env, alice, _bob) = Env::new();
+    let (id, _) = env.opened(&alice);
+    let mut metas = to_metas(
+        tesoro_core::accounts::RefundMatch {
+            caller: alice.key,
+            config: core_pda(&[CONFIG_SEED]),
+            match_state: match_pda(id),
+        }
+        .to_account_metas(None),
+    );
+    metas.push(rem(alice.account));
+    metas.push(rem(alice.holding));
+    let ix = Instruction {
+        program_id: s(tesoro_core::ID),
+        accounts: metas,
+        data: tesoro_core::instruction::RefundMatch {}.data(),
+    };
+    env.send(&[ix], &alice.kp, &[]).expect("cancel");
+    assert_eq!(env.total(&alice), 75_000);
 }
 
 #[test]

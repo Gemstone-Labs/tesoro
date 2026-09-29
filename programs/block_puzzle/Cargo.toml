@@ -20,7 +20,7 @@ idl-build = ["anchor-lang/idl-build", "tesoro_core/idl-build"]
 
 [dependencies]
 anchor-lang = "0.31.1"
-ephemeral-rollups-sdk = { version = "=0.16.2", features = ["anchor-compat", "access-control"] }
+ephemeral-rollups-sdk = { version = "=0.16.2", features = ["anchor-compat", "access-control", "vrf"] }
 tesoro_core = { path = "../tesoro_core", features = ["cpi"] }
 
 [dev-dependencies]
