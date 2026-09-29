@@ -1,0 +1,240 @@
+<title>Gema Accent Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: three emerald directions, one per row — a short verdict beside the same two phone screens (Lobby, Wallet). Only shape, surface and treatment change. */
+:root {
+  --page-bg: #F2F4F3; --page-fg: #141816; --page-muted: #59625E; --page-line: #D5DBD8;
+  --f-body: "Schibsted Grotesk", "Hanken Grotesk", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  --em-hi: #8FF5CF; --em: #2DBE8C; --em-deep: #0B6B4E; --em-ink: #03201A;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --page-bg: #090B0A; --page-fg: #EAEFEC; --page-muted: #96A09B; --page-line: #222825; color-scheme: dark } }
+:root[data-theme="dark"] { --page-bg: #090B0A; --page-fg: #EAEFEC; --page-muted: #96A09B; --page-line: #222825; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--page-bg); color: var(--page-fg); font-family: var(--f-body); font-size: 16px; line-height: 1.5; margin: 0; padding-inline: 20px; padding-block: 40px 64px; }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 48px; }
+header.intro { display: grid; gap: 10px; max-width: 68ch; }
+header.intro h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; letter-spacing: -.02em; line-height: 1.1; margin: 0; text-wrap: balance; }
+header.intro p { margin: 0; color: var(--page-muted); }
+.eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--page-muted); }
+
+.dir { display: grid; grid-template-columns: minmax(0, 290px) minmax(0, 1fr); gap: 32px; align-items: start; padding-top: 32px; border-top: 1px solid var(--page-line); }
+.verdict { display: grid; gap: 12px; }
+.verdict h2 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; }
+.verdict h2 svg { width: 30px; height: 30px; flex: none; }
+.tag { font-family: var(--f-mono); font-size: 13px; color: var(--page-muted); }
+.verdict ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--page-muted); font-size: 15px; }
+.verdict li b { color: var(--page-fg); font-weight: 600; }
+.phones { display: flex; flex-wrap: wrap; gap: 20px; }
+
+/* ——— shared phone anatomy ——— */
+.phone { width: 300px; max-width: 100%; background: var(--sh); color: var(--fg); border-radius: 28px; border: 1px solid var(--ln); padding: 14px 14px 0; display: grid; gap: 14px; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.28); overflow: hidden; position: relative; }
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wordmark { font-weight: 900; font-size: 17px; letter-spacing: -.02em; display: inline-flex; align-items: center; gap: 6px; }
+.wordmark svg { width: 18px; height: 18px; }
+.gchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 7px; background: var(--rs); border: 1px solid var(--ln); font-weight: 800; font-variant-numeric: tabular-nums; }
+.gchip svg, .amt-g svg { width: 16px; height: 16px; flex: none; }
+.sim { font-family: var(--f-mono); font-size: 10px; color: var(--fg3); letter-spacing: .02em; text-align: right; }
+.feature { overflow: hidden; background: #171C26; border: 1px solid var(--ln); }
+.art { aspect-ratio: 16 / 10; display: grid; place-items: center; background: radial-gradient(120% 90% at 20% 10%, #2A3350 0%, #141824 70%); }
+.board { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; width: 58%; }
+.board i { aspect-ratio: 1; border-radius: 3px; background: rgba(255,255,255,.06); display: block; }
+.board i.f1 { background: #F2B94B; } .board i.f2 { background: #7FD4F0; } .board i.f3 { background: #E97AA8; } .board i.f4 { background: #9C8CFF; }
+.board i.g { background: linear-gradient(135deg, var(--em-hi), var(--em) 55%, var(--em-deep)); }
+.feature-body { padding: 12px 14px 14px; display: grid; gap: 10px; }
+.feature-body h3 { margin: 0; font-size: 18px; font-weight: 900; letter-spacing: -.01em; }
+.meta { color: var(--fg2); font-size: 12.5px; }
+.entries { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.entry { padding: 8px 0; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; background: var(--rs); border: 1px solid var(--ln); font-size: 13px; display: inline-flex; justify-content: center; align-items: center; gap: 4px; }
+.entry svg { width: 13px; height: 13px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--rs); border: 1px solid var(--ln); }
+.thumb { width: 40px; height: 40px; flex: none; display: grid; place-items: center; font-weight: 800; color: #EDEFF2; }
+.thumb.poker { background: #1D2A22; font-size: 13px; }
+.thumb.dana { background: #2A2238; }
+.row .txt { min-width: 0; display: grid; }
+.row .txt b { font-size: 14px; }
+.row .txt span { font-size: 12px; color: var(--fg2); }
+.row .cta { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--em); white-space: nowrap; }
+.label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--fg3); }
+.bal { display: grid; gap: 4px; padding: 16px; position: relative; overflow: hidden; }
+.bal .big { font-size: 40px; font-weight: 900; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 8px; }
+.bal .big svg { width: 30px; height: 30px; flex: none; }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.split > div { padding: 10px 12px; border: 1px solid var(--ln); background: var(--rs); display: grid; gap: 2px; }
+.split b { font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.split span { font-size: 11.5px; color: var(--fg2); }
+.src { display: grid; gap: 6px; }
+.src .line { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 12.5px; }
+.chain { font-family: var(--f-mono); font-size: 10.5px; padding: 2px 6px; border: 1px solid var(--ln); color: var(--fg2); }
+.src .who { color: var(--fg2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src .amt { font-variant-numeric: tabular-nums; font-weight: 800; }
+.meter { height: 6px; background: rgba(255,255,255,.07); overflow: hidden; }
+.meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--em-deep), var(--em), var(--em-hi)); }
+.btn { padding: 12px 0; text-align: center; font-weight: 900; color: var(--em-ink); background: linear-gradient(135deg, var(--em-hi) 0%, var(--em) 45%, #1FA877 45.5%, var(--em-deep) 100%); display: flex; justify-content: center; align-items: center; gap: 6px; }
+.nav { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--ln); margin: 0 -14px; padding: 10px 0 12px; text-align: center; font-size: 11.5px; color: var(--fg3); font-weight: 700; }
+.nav .here { color: var(--fg); }
+.nav span::before { content: ""; display: block; width: 8px; height: 8px; margin: 0 auto 6px; }
+.nav .here::before { background: var(--em); transform: rotate(45deg); }
+
+/* ——— A · Cut: emerald-cut geometry. Chamfered corners everywhere, facet light on money. ——— */
+.cut { --sh: #0C0E10; --rs: #15181B; --ln: rgba(234,239,236,.10); --fg: #EAEFEC; --fg2: rgba(234,239,236,.62); --fg3: rgba(234,239,236,.40); --c: 10px; }
+.cut .phone { --c: 22px; clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)); border-radius: 0; border: 0; box-shadow: none; }
+.cut .feature, .cut .row, .cut .split > div, .cut .gchip, .cut .entry, .cut .btn, .cut .thumb, .cut .bal { --c: 10px; clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)); }
+.cut .gchip, .cut .entry, .cut .chain, .cut .thumb { --c: 6px; }
+.cut .entry.on { background: linear-gradient(135deg, var(--em-hi) 0%, var(--em) 50%, var(--em-deep) 100%); color: var(--em-ink); border-color: transparent; }
+.cut .bal { background:
+    linear-gradient(120deg, transparent 0 58%, rgba(143,245,207,.10) 58% 64%, transparent 64%),
+    linear-gradient(60deg, transparent 0 70%, rgba(143,245,207,.07) 70% 74%, transparent 74%),
+    var(--rs); }
+.cut .split .now { background: linear-gradient(135deg, rgba(45,190,140,.22), rgba(11,107,78,.18)); border-color: rgba(45,190,140,.35); }
+.cut .meter { clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+
+/* ——— B · Deep: the shell is the inside of the gem. Green-black surfaces, light pooling where Gemas are. ——— */
+.deep { --sh: #06110D; --rs: #0C1D17; --ln: rgba(143,245,207,.10); --fg: #E6F2EC; --fg2: rgba(230,242,236,.62); --fg3: rgba(230,242,236,.40); }
+.deep .phone { background: radial-gradient(140% 60% at 50% -10%, #0F2A20 0%, var(--sh) 60%); border-color: rgba(143,245,207,.14); }
+.deep .feature, .deep .row, .deep .split > div, .deep .bal { border-radius: 18px; }
+.deep .gchip, .deep .entry, .deep .btn { border-radius: 999px; }
+.deep .thumb { border-radius: 12px; } .deep .chain { border-radius: 6px; } .deep .meter { border-radius: 6px; } .deep .meter i { border-radius: 6px; }
+.deep .gchip { box-shadow: 0 0 0 1px rgba(45,190,140,.25), 0 0 18px rgba(45,190,140,.18); }
+.deep .entry.on { background: var(--em); color: var(--em-ink); border-color: transparent; box-shadow: 0 6px 22px rgba(45,190,140,.35); }
+.deep .bal { background: radial-gradient(90% 120% at 85% 0%, rgba(143,245,207,.22) 0%, rgba(45,190,140,.08) 40%, transparent 70%), var(--rs); border: 1px solid rgba(143,245,207,.16); }
+.deep .bal .big { color: #F2FFF9; text-shadow: 0 0 24px rgba(143,245,207,.35); }
+.deep .split .now { background: rgba(45,190,140,.14); border-color: rgba(143,245,207,.22); }
+.deep .btn { box-shadow: 0 8px 26px rgba(45,190,140,.35); }
+.deep .feature { background: #13201C; }
+
+/* ——— C · Slab: emerald as a material, not a highlight. Big solid blocks, heavy type, sticker-flat. ——— */
+.slab { --sh: #101211; --rs: #1A1D1B; --ln: rgba(234,239,236,.10); --fg: #F1F4F2; --fg2: rgba(241,244,242,.64); --fg3: rgba(241,244,242,.42); }
+.slab .feature, .slab .row, .slab .split > div { border-radius: 14px; }
+.slab .gchip { border-radius: 10px; background: var(--em); color: var(--em-ink); border: 0; }
+.slab .entry { border-radius: 10px; border-width: 2px; }
+.slab .entry.on { background: var(--em); color: var(--em-ink); border-color: var(--em); box-shadow: 0 4px 0 var(--em-deep); transform: translateY(-2px); }
+.slab .btn { border-radius: 14px; background: var(--em); box-shadow: 0 5px 0 var(--em-deep); margin-bottom: 4px; }
+.slab .thumb { border-radius: 12px; } .slab .chain { border-radius: 6px; } .slab .meter { border-radius: 6px; height: 8px; } .slab .meter i { background: var(--em); border-radius: 6px; }
+.slab .bal { border-radius: 20px; background: var(--em); color: var(--em-ink); padding: 18px; }
+.slab .bal .label, .slab .bal .meta { color: rgba(3,32,26,.66); }
+.slab .bal .big { font-size: 46px; }
+.slab .bal::after { content: ""; position: absolute; right: -28px; top: -28px; width: 120px; height: 120px; background: var(--em-deep); opacity: .35; transform: rotate(45deg); border-radius: 18px; }
+.slab .split .now { background: #0F3326; border-color: rgba(45,190,140,.4); }
+.slab .split .now b { color: var(--em-hi); }
+.slab .feature-body h3 { font-size: 20px; }
+
+.pulse svg .shine { animation: shine 3.2s ease-in-out infinite; }
+@keyframes shine { 0%, 70%, 100% { opacity: 0; } 80% { opacity: .9; } }
+@media (prefers-reduced-motion: reduce) { .pulse svg .shine { animation: none; } }
+
+footer.note { color: var(--page-muted); font-size: 14px; max-width: 70ch; border-top: 1px solid var(--page-line); padding-top: 24px; }
+@media (max-width: 760px) { .dir { grid-template-columns: minmax(0, 1fr); } .phones { justify-content: center; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="gFace" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8FF5CF"/><stop offset=".5" stop-color="#2DBE8C"/><stop offset="1" stop-color="#0B6B4E"/>
+    </linearGradient>
+    <linearGradient id="gTable" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C9FFE9"/><stop offset="1" stop-color="#3FD69F"/>
+    </linearGradient>
+    <symbol id="gema" viewBox="0 0 24 24">
+      <polygon points="7,3 17,3 22,8 22,16 17,21 7,21 2,16 2,8" fill="url(#gFace)"/>
+      <polygon points="9,7 15,7 18,10 18,14 15,17 9,17 6,14 6,10" fill="url(#gTable)"/>
+      <path d="M7 3 9 7M17 3 15 7M22 8 18 10M22 16 18 14M17 21 15 17M7 21 9 17M2 16 6 14M2 8 6 10" stroke="#063D2C" stroke-opacity=".45" stroke-width=".7" fill="none"/>
+      <polygon class="shine" points="9,7 12,7 7.5,17 6,14" fill="#FFFFFF" opacity="0"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="intro">
+    <span class="eyebrow">Tesoro · lean design system · emerald, round two</span>
+    <h1>Three ways to wear emerald</h1>
+    <p>Same screens, same Schibsted Grotesk, same emerald. What changes is how much of the product the gem gets to shape: its cut, its light, or its mass. In all three, the Gema mark is a small emerald-cut stone rather than a flat diamond glyph.</p>
+  </header>
+
+  <section class="dir cut" data-key="cut"></section>
+  <section class="dir deep" data-key="deep"></section>
+  <section class="dir slab" data-key="slab"></section>
+
+  <footer class="note">Sample screens with example figures: 1 Gema = $0.01 at issuance, and the entry ladder is 500 / 1,000 / 2,500. "Block Puzzle" is a working title. The gem tiles on the board show the idea of a puzzle twist, not a decided mechanic.</footer>
+</div>
+
+<template id="phones">
+  <div class="phones">
+    <div class="phone" aria-label="Lobby screen">
+      <div class="bar"><span class="wordmark"><svg><use href="#gema"/></svg>Tesoro</span><span class="gchip pulse"><svg><use href="#gema"/></svg>15,000</span></div>
+      <div class="feature">
+        <div class="art"><div class="board"></div></div>
+        <div class="feature-body">
+          <h3>Block Puzzle</h3>
+          <span class="meta">Same seed as your opponent · 90 seconds · higher score wins</span>
+          <div class="entries"><span class="entry">500</span><span class="entry on"><svg><use href="#gema"/></svg>1,000</span><span class="entry">2,500</span></div>
+        </div>
+      </div>
+      <div class="row"><div class="thumb poker">A♠K</div><div class="txt"><b>Heads-up Hold'em</b><span>Live · 2 players in queue</span></div><span class="cta">Play</span></div>
+      <span class="label">Back a player</span>
+      <div class="row"><div class="thumb dana">D</div><div class="txt"><b>Dana asks for 1,000</b><span>Block Puzzle · 38 Matches · 61% won</span></div><span class="cta">Offer</span></div>
+      <div class="nav"><span class="here">Lobby</span><span>Play</span><span>Wallet</span></div>
+    </div>
+
+    <div class="phone" aria-label="Wallet screen">
+      <div class="bar"><span class="wordmark">Wallet</span><span class="sim">Simulated yield<br>1 month = 10 min</span></div>
+      <div class="bal"><span class="label">Your Gemas</span><span class="big pulse"><svg><use href="#gema"/></svg>15,000</span><span class="meta">≈ $150 at issuance</span></div>
+      <div class="split">
+        <div class="now"><span>Redeemable now</span><b>1,240</b><span>≈ $12.40 · on 2 chains</span></div>
+        <div><span>Pending</span><b>3,760</b><span>Paid as losers' yield lands</span></div>
+      </div>
+      <div class="src">
+        <span class="label">Pending by Source</span>
+        <div class="line"><span class="chain">HYPE</span><span class="who">Bob's Position</span><span class="amt">2,500</span></div>
+        <div class="meter"><i style="width:34%"></i></div>
+        <div class="line"><span class="chain">ETH</span><span class="who">Carol's Position</span><span class="amt">1,260</span></div>
+        <div class="meter"><i style="width:71%"></i></div>
+      </div>
+      <div class="row"><div class="txt"><b>Your ETH Position · 2.00 ETH</b><span>Debt 0.0412 ETH · unlock estimate Nov 14</span></div></div>
+      <div class="btn">Redeem 1,240</div>
+      <div class="nav"><span>Lobby</span><span>Play</span><span class="here">Wallet</span></div>
+    </div>
+  </div>
+</template>
+
+<script>
+const dirs = {
+  cut: { name: "Cut", tag: "Shape carries the brand", points: [
+    ["Every corner is chamfered", " like an emerald-cut stone, so a screenshot is recognisable from its silhouette alone."],
+    ["Faceted light", " (hard-stop gradients) appears only on money: the balance, the chosen entry, the Redeem button."],
+    ["Risk:", " the octagon cut has to hold up on every component, or the system starts to look inconsistent."] ] },
+  deep: { name: "Deep", tag: "Light carries the brand", points: [
+    ["The whole shell is tinted green-black,", " so the app feels like the inside of the gem."],
+    ["Gemas glow softly", " and light pools behind the balance. It's the most atmospheric of the three."],
+    ["Risk:", " atmosphere is the kind of chrome you've pushed back on, and green-tinted surfaces fight colourful game art."] ] },
+  slab: { name: "Slab", tag: "Mass carries the brand", points: [
+    ["Emerald is a material, not a highlight:", " the balance is a solid emerald card, and buttons are chunky and tactile, with a pressed edge."],
+    ["The most game-like and playful.", " Closest to the Skillz energy while staying its own colour."],
+    ["Risk:", " large emerald surfaces can feel loud, so it needs discipline to keep the slab only on money moments."] ] }
+};
+function paintBoard(el) {
+  let s = 11;
+  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  for (let i = 0; i < 64; i++) {
+    const c = document.createElement("i");
+    const r = rnd();
+    if (i > 23 && r < 0.55) c.className = r < 0.07 ? "g" : "f" + (1 + Math.floor(rnd() * 4));
+    el.appendChild(c);
+  }
+}
+const tpl = document.getElementById("phones");
+document.querySelectorAll(".dir").forEach(sec => {
+  const d = dirs[sec.dataset.key];
+  const v = document.createElement("div");
+  v.className = "verdict";
+  v.innerHTML = `<h2><svg><use href="#gema"/></svg>${d.name}</h2><span class="tag">${d.tag}</span>` +
+    `<ul>${d.points.map(p => `<li><b>${p[0]}</b>${p[1] || ""}</li>`).join("")}</ul>`;
+  sec.appendChild(v);
+  const phones = tpl.content.cloneNode(true);
+  paintBoard(phones.querySelector(".board"));
+  sec.appendChild(phones);
+});
+</script>
