@@ -13,7 +13,11 @@ cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
+custom-heap = []
+custom-panic = []
+anchor-debug = []
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = "0.31.1"
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+ephemeral-rollups-sdk = { version = "=0.16.2", features = ["anchor-compat", "access-control", "vrf"] }
