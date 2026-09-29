@@ -1,6 +1,6 @@
 import "./polyfill";
 import { BN } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain } from "./client";
@@ -346,6 +346,17 @@ async function requireBacking(signer: ChainSigner, address: string, game: GameId
 
 const backerAccountOf = (o: ChainOffer) => new PublicKey(o.backer);
 
+/**
+ * The async Block Puzzle client opens (and joins) its Session in the same transaction as the core
+ * instruction. When the client has those builders, bundle them; the earlier flow starts the
+ * Session after pairing and needs nothing here.
+ */
+type SessionIxs = {
+  openSessionIx?: (payer: PublicKey, id: bigint, opener: PublicKey) => Promise<TransactionInstruction>;
+  joinSessionIx?: (payer: PublicKey, id: bigint, joiner: PublicKey) => Promise<TransactionInstruction>;
+};
+const sessionIxs = (chain: object) => chain as SessionIxs;
+
 async function openBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
   const chain = getChain();
   const a = BlockPuzzleChain.addresses(id);
@@ -363,7 +374,8 @@ async function openBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
     })
     .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
     .instruction();
-  return chain.sendBase(signer, [ix]);
+  const session = offer.game === "block-puzzle" ? await sessionIxs(chain).openSessionIx?.(signer.publicKey, id, signer.publicKey) : undefined;
+  return chain.sendBase(signer, session ? [ix, session] : [ix]);
 }
 
 async function joinBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
@@ -380,7 +392,8 @@ async function joinBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
     })
     .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
     .instruction();
-  return chain.sendBase(signer, [ix]);
+  const session = offer.game === "block-puzzle" ? await sessionIxs(chain).joinSessionIx?.(signer.publicKey, id, signer.publicKey) : undefined;
+  return chain.sendBase(signer, session ? [ix, session] : [ix]);
 }
 
 /** Queue under a Backing: join the oldest open Match at this entry, else open one. The Player is never debited. */
