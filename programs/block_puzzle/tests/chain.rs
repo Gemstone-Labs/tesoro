@@ -947,6 +947,11 @@ fn score_is_the_engine_replay_and_illegal_moves_are_rejected() {
 
     // Cannot play before begin_run, nor can the opponent play this Board.
     let moves = greedy(seed, 30);
+    assert_eq!(
+        moves.len(),
+        30,
+        "the Seed is fixed per Match id, so this is deterministic"
+    );
     let err = env.play(&alice, board, &moves).unwrap_err();
     assert_eq!(code(&err), bp_err(block_puzzle::BlockPuzzleError::NotBegan));
     let err = env.begin(&bob, board).unwrap_err();
@@ -998,6 +1003,10 @@ fn score_is_the_engine_replay_and_illegal_moves_are_rejected() {
     let t = env.now();
     env.set_time(t + 101);
     let more = greedy(seed, 31);
+    assert!(
+        more.len() > 30,
+        "this test needs a Seed whose greedy game lasts 31 moves"
+    );
     let err = env.play(&alice, board, &more[30..]).unwrap_err();
     assert_eq!(
         code(&err),

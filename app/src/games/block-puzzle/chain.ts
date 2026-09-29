@@ -253,7 +253,7 @@ export class BlockPuzzleChain {
       })
       .remainingAccounts(holdings.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })))
       .instruction();
-    const session = await this.joinSessionIx(signer.publicKey, matchId, signer.publicKey);
+    const session = await this.joinSessionIx(signer.publicKey, matchId, BlockPuzzleChain.coreAccount(signer.publicKey));
     return this.sendBase(signer, [ix, session]);
   }
 
@@ -276,8 +276,8 @@ export class BlockPuzzleChain {
       .instruction();
   }
 
-  /** Base layer, anyone. Creates the joiner's Board and extends the Match's refund deadline. */
-  async joinSessionIx(payer: PublicKey, matchId: bigint, joiner: PublicKey) {
+  /** Base layer, anyone (`accountB` is the joiner's TesoroAccount). Creates their Board and extends the Match's refund deadline. */
+  async joinSessionIx(payer: PublicKey, matchId: bigint, accountB: PublicKey) {
     const a = BlockPuzzleChain.addresses(matchId);
     return this.bp.methods
       .joinSession()
@@ -285,7 +285,7 @@ export class BlockPuzzleChain {
         payer,
         session: a.session,
         matchState: a.match,
-        accountB: BlockPuzzleChain.coreAccount(joiner),
+        accountB,
         board1: a.boards[1],
         authority: a.authority,
         config: a.config,

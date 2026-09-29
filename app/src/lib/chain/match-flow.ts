@@ -109,6 +109,17 @@ export async function joinChallenge(signer: ChainSigner, id: bigint, getToken: G
 
 // ---- Match orchestration --------------------------------------------------------------------
 
+/**
+ * A Match joined on `tesoro_core` without a session join (an older client, or a join whose second
+ * step was lost) is bound by anyone before its 1 h refund deadline. Idempotent.
+ */
+export async function ensureJoined(signer: ChainSigner, m: ChainMatch): Promise<void> {
+  if (!m.session || m.session.joined || m.status !== "active" || m.seat === null || !m.opponent) return;
+  const chain = getChain();
+  const accountB = m.seat === 1 ? BlockPuzzleChain.coreAccount(signer.publicKey) : new PublicKey(m.opponent);
+  await chain.sendBase(signer, [await chain.joinSessionIx(signer.publicKey, m.id, accountB)]).catch(() => undefined);
+}
+
 export type RunStage =
   /** Not yet private-rollup ready for this Player (session, delegation, permission or Seed pending). */
   | "needs-prep"
@@ -171,7 +182,7 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
   if (seat === 1 && !(await session()).joined) {
     onStep("Binding you to the Match");
     await tolerate(
-      async () => chain.sendBase(signer, [await chain.joinSessionIx(signer.publicKey, id, signer.publicKey)]),
+      async () => chain.sendBase(signer, [await chain.joinSessionIx(signer.publicKey, id, BlockPuzzleChain.coreAccount(signer.publicKey))]),
       async () => !!(await session())?.joined,
     );
   }

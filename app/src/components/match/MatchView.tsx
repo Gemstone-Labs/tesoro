@@ -7,7 +7,7 @@ import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
 import { getChain } from "@/lib/chain/client";
 import { matchDelta } from "@/lib/chain/ledger";
-import { RunSubmitter, canClaimTimeout, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
+import { RunSubmitter, canClaimTimeout, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 
@@ -90,6 +90,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         return setPhase("result");
       }
 
+      await ensureJoined(signer, m);
       // The opener plays as soon as the Match exists; the joiner plays after joining. Same steps.
       const stage = await probeRun(signer, m, phaseRef.current !== "ready");
       if (stage === "needs-prep") {
