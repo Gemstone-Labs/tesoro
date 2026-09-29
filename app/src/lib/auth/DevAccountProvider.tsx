@@ -33,7 +33,13 @@ function load(slot: string): Keypair {
   return kp;
 }
 
+/** Refuses to render in production builds even if it were ever imported there. */
 export function DevAccountProvider({ children }: { children: ReactNode }) {
+  if (process.env.NODE_ENV === "production") return null;
+  return <DevBridge>{children}</DevBridge>;
+}
+
+function DevBridge({ children }: { children: ReactNode }) {
   const [keypair, setKeypair] = useState<Keypair | null>(null);
   const [slot, setSlot] = useState("1");
   const [accountOpen, setAccountOpen] = useState(false);
@@ -47,8 +53,12 @@ export function DevAccountProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
-    setSlot(s);
-    setKeypair(load(s));
+    // Deferred: the key comes from localStorage, which the server render cannot see.
+    const t = setTimeout(() => {
+      setSlot(s);
+      setKeypair(load(s));
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   const value = useMemo<AuthState>(() => {

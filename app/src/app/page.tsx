@@ -1,22 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BlockBoard } from "@/components/game/BlockBoard";
 import { Button, Card, EntryPicker, Label, Row, Thumb } from "@/components/ui";
 import { useAccount, useBacking } from "@/lib/account";
 import { fmtGemas } from "@/lib/format";
-import { GAME_NAMES, queueDepth } from "@/lib/mock";
+import { GAME_NAMES, queueDepth as mockQueueDepth } from "@/lib/mock";
 import type { EntrySize } from "@/lib/mock";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function Lobby() {
-  const { gemas, auth } = useAccount();
+  const { gemas, auth, onChain, openMatches, loading } = useAccount();
   const router = useRouter();
+  const [waiting, setWaiting] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    import("@/lib/chain/read")
+      .then((m) => m.queueDepth())
+      .then((n) => live && setWaiting(n))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  const queueDepth = { ...mockQueueDepth, "block-puzzle": waiting ?? mockQueueDepth["block-puzzle"] };
   const { requests } = useBacking();
   const [entry, setEntry] = useState<EntrySize>(1000);
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
-  const canEnter = !signedIn || gemas.total >= entry;
+  const canEnter = !signedIn || loading || gemas.total >= entry;
   const enter = (href: string) => auth.gate("Enter a Match", () => router.push(href));
 
   return (
@@ -33,14 +45,43 @@ export default function Lobby() {
             <Button
               variant="money"
               block
-              onClick={() => enter(`/play?game=block-puzzle&entry=${entry}`)}
+              onClick={() => enter(`/play/queue?entry=${entry}`)}
               disabled={!canEnter}
             >
               Enter · {fmtGemas(entry)} Gemas
             </Button>
-            <span className="meta">{queueDepth["block-puzzle"]} in Queue · you may play before an opponent is paired</span>
+            {!canEnter && onChain && (
+              <span className="meta">
+                You need {fmtGemas(entry)} Gemas to enter. <Link href="/wallet">Get Gemas in your Wallet</Link>
+              </span>
+            )}
+            <span className="meta">
+              {queueDepth["block-puzzle"]} waiting in Queue · play starts as soon as an opponent is paired
+            </span>
+            <div className="hstack wrap">
+              <Button size="sm" onClick={() => auth.gate("Challenge a friend", () => router.push(`/play/challenge?entry=${entry}`))}>
+                Challenge a friend
+              </Button>
+              <Button size="sm" href="/play?game=block-puzzle">Practice, no Gemas</Button>
+            </div>
           </div>
         </Card>
+
+        {openMatches.length > 0 && (
+          <section className="stack" aria-label="Your Matches in progress">
+            <Label>Your Matches in progress</Label>
+            {openMatches.map((m) => (
+              <Row
+                key={m.id.toString()}
+                href={`/play/match/${m.id.toString()}`}
+                thumb={<Thumb>{m.entry >= 1000 ? `${m.entry / 1000}K` : m.entry}</Thumb>}
+                title={`Block Puzzle · ${fmtGemas(m.entry)} entry`}
+                meta={m.status === "open" ? (m.challenge ? "Waiting for your Challenge to be opened" : "Waiting for an opponent") : "Opponent found · continue"}
+                cta="Open"
+              />
+            ))}
+          </section>
+        )}
 
         <Row
           onClick={() => enter("/play?game=holdem&entry=500")}

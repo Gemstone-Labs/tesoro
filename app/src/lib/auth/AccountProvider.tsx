@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PrivyProvider, useCreateWallet, usePrivy, type PrivyClientConfig } from "@privy-io/react-auth";
 import {
   toSolanaWalletConnectors,
@@ -17,8 +17,10 @@ import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { DEV_WALLET } from "@/lib/chain/config";
 import { EVM_CHAINS, SOLANA_DEVNET_RPC, SOLANA_DEVNET_WS, hoodi } from "@/lib/chains";
 import { AuthContext, UNCONFIGURED } from "./context";
-import { DevAccountProvider } from "./DevAccountProvider";
 import type { AuthState, LinkedWallet } from "./types";
+
+// Dev-only signer. The condition is a build-time constant, so production builds drop the import entirely.
+const DevAccountProvider = DEV_WALLET ? lazy(() => import("./DevAccountProvider").then((m) => ({ default: m.DevAccountProvider }))) : null;
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 
@@ -52,7 +54,13 @@ const privyConfig: PrivyClientConfig = {
 };
 
 export function AccountProvider({ children }: { children: ReactNode }) {
-  if (DEV_WALLET) return <DevAccountProvider>{children}</DevAccountProvider>;
+  if (DevAccountProvider) {
+    return (
+      <Suspense fallback={null}>
+        <DevAccountProvider>{children}</DevAccountProvider>
+      </Suspense>
+    );
+  }
   if (!PRIVY_APP_ID) return <AuthContext.Provider value={UNCONFIGURED}>{children}</AuthContext.Provider>;
   return (
     <PrivyProvider appId={PRIVY_APP_ID} config={privyConfig}>

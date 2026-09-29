@@ -71,7 +71,19 @@ function PieceArt({ piece, cell }: { piece: Piece; cell: number }) {
   );
 }
 
-export function BlockPuzzleGame() {
+/** Wires a game to an on-chain Match: the Seed comes from the chain and every placement is reported. */
+export interface MatchRun {
+  seed: bigint;
+  /** `performance.now()` taken just before `begin_run` was sent: the 90 s clock counts from here. */
+  startedAt: number;
+  entry: number;
+  onMove: (move: { piece: number; x: number; y: number }) => void;
+  onEnd: (final: { score: number; moves: number; reason: Reason }) => void;
+}
+
+export type { Reason as RunEndReason };
+
+export function BlockPuzzleGame({ run }: { run?: MatchRun }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [reason, setReason] = useState<Reason>("time");
   const [game, setGame] = useState<Game>(() => ({ st: newState(0n), colors: [], lines: 0, gemsCleared: 0 }));
@@ -94,7 +106,14 @@ export function BlockPuzzleGame() {
   const hand = useMemo(() => [0, 1, 2].map((n) => pieceAt(st.seed, base + n)), [st.seed, base]);
   const selPiece = phase === "play" && (st.used >> (sel - base)) & 1 ? null : hand[sel - base] ?? null;
 
+  const runRef = useRef(run);
+  useEffect(() => {
+    runRef.current = run;
+  }, [run]);
+  const scoreRef = useRef({ score: 0, moves: 0 });
   const finish = useCallback((why: Reason, final?: Game) => {
+    const st = final?.st;
+    runRef.current?.onEnd({ score: st?.score ?? scoreRef.current.score, moves: st?.moves ?? scoreRef.current.moves, reason: why });
     setPhase("over");
     setReason(why);
     setPreview(null);
@@ -104,7 +123,7 @@ export function BlockPuzzleGame() {
   }, []);
 
   const start = () => {
-    const seed = randomSeed();
+    const seed = run ? run.seed : randomSeed();
     setGame({ st: newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 });
     setSel(0);
     setGhosts([]);
@@ -113,9 +132,19 @@ export function BlockPuzzleGame() {
     setFocusCell(0);
     setAnnounce("");
     setRemaining(DURATION_MS);
-    endsAt.current = performance.now() + DURATION_MS;
+    endsAt.current = (run ? run.startedAt : performance.now()) + DURATION_MS;
     setPhase("play");
   };
+
+  // A Match run starts as soon as the chain says `begin_run` landed.
+  const started = useRef(false);
+  useEffect(() => {
+    if (run && !started.current) {
+      started.current = true;
+      start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run]);
 
   useEffect(() => {
     if (phase !== "play") return;
@@ -158,6 +187,8 @@ export function BlockPuzzleGame() {
         gemsCleared: game.gemsCleared + next.result.gems,
       };
       setGame(g);
+      scoreRef.current = { score: next.state.score, moves: next.state.moves };
+      runRef.current?.onMove({ piece: idx, x, y });
       setPreview(null);
       if (gone.length) {
         setGhosts(gone);
@@ -310,7 +341,7 @@ export function BlockPuzzleGame() {
     <div className="bp">
       <h1 className="sr-only">Block Puzzle</h1>
       <div className="bp-bar">
-        <Chip tone="strong">Practice · no Gemas</Chip>
+        {run ? <Chip tone="money">Match · {run.entry.toLocaleString("en-US")} Gemas</Chip> : <Chip tone="strong">Practice · no Gemas</Chip>}
         <span className="mono bp-seed" title="Seed">
           {phase === "idle" ? "Seed —" : `Seed 0x${st.seed.toString(16).padStart(16, "0").slice(0, 6)}…`}
         </span>
@@ -326,7 +357,7 @@ export function BlockPuzzleGame() {
 
       <div className="bp-stage">
         {board}
-        {phase === "idle" && (
+        {phase === "idle" && !run && (
           <div className="bp-overlay">
             <div className="stack" style={{ justifyItems: "center", textAlign: "center" }}>
               <h2 className="bp-title">Block Puzzle</h2>
@@ -345,11 +376,17 @@ export function BlockPuzzleGame() {
               <p className="meta tnum">
                 {st.moves} moves · {game.lines} lines · {game.gemsCleared} gems cleared
               </p>
-              <p className="note">Practice: nothing was staked and no Gemas moved.</p>
-              <div className="bp-actions">
-                <Button onClick={start}>Play again</Button>
-                <Button href="/">Lobby</Button>
-              </div>
+              {run ? (
+                <p className="note">Run over. Sending it to the chain…</p>
+              ) : (
+                <>
+                  <p className="note">Practice: nothing was staked and no Gemas moved.</p>
+                  <div className="bp-actions">
+                    <Button onClick={start}>Play again</Button>
+                    <Button href="/">Lobby</Button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
