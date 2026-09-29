@@ -14,6 +14,9 @@ export const UNCONFIGURED: AuthState = {
   gate: (_reason, action) => action(),
   openSignIn: () => {},
   openAccount: () => {},
+  signer: null,
+  getAccessToken: async () => null,
+  devWallet: false,
 };
 
 export const AuthContext = createContext<AuthState>(UNCONFIGURED);

@@ -2,12 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PrivyProvider, useCreateWallet, usePrivy, type PrivyClientConfig } from "@privy-io/react-auth";
-import { toSolanaWalletConnectors, useCreateWallet as useCreateSolanaWallet } from "@privy-io/react-auth/solana";
+import {
+  toSolanaWalletConnectors,
+  useCreateWallet as useCreateSolanaWallet,
+  useSignMessage,
+  useSignTransaction,
+  useWallets as useSolanaWallets,
+} from "@privy-io/react-auth/solana";
+import { PublicKey, Transaction } from "@solana/web3.js";
 import { createSolanaRpc, createSolanaRpcSubscriptions } from "@solana/kit";
 import { AccountSheet } from "@/components/shell/AccountSheet";
 import { SignInSheet } from "@/components/shell/SignInSheet";
+import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { DEV_WALLET } from "@/lib/chain/config";
 import { EVM_CHAINS, SOLANA_DEVNET_RPC, SOLANA_DEVNET_WS, hoodi } from "@/lib/chains";
 import { AuthContext, UNCONFIGURED } from "./context";
+import { DevAccountProvider } from "./DevAccountProvider";
 import type { AuthState, LinkedWallet } from "./types";
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
@@ -21,6 +31,8 @@ const privyConfig: PrivyClientConfig = {
   },
   // Every Account gets one embedded wallet per chain family.
   embeddedWallets: {
+    // Match moves are signed in the background; no confirmation modal per transaction.
+    showWalletUIs: false,
     ethereum: { createOnLogin: "all-users" },
     solana: { createOnLogin: "all-users" },
   },
@@ -40,6 +52,7 @@ const privyConfig: PrivyClientConfig = {
 };
 
 export function AccountProvider({ children }: { children: ReactNode }) {
+  if (DEV_WALLET) return <DevAccountProvider>{children}</DevAccountProvider>;
   if (!PRIVY_APP_ID) return <AuthContext.Provider value={UNCONFIGURED}>{children}</AuthContext.Provider>;
   return (
     <PrivyProvider appId={PRIVY_APP_ID} config={privyConfig}>
@@ -49,7 +62,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 }
 
 function PrivyBridge({ children }: { children: ReactNode }) {
-  const { ready, authenticated, user, logout, linkWallet } = usePrivy();
+  const { ready, authenticated, user, logout, linkWallet, getAccessToken } = usePrivy();
+  const { wallets: solanaWallets } = useSolanaWallets();
+  const { signTransaction } = useSignTransaction();
+  const { signMessage } = useSignMessage();
   const { createWallet: createEvmWallet } = useCreateWallet();
   const { createWallet: createSolanaWallet } = useCreateSolanaWallet();
 
@@ -87,6 +103,25 @@ function PrivyBridge({ children }: { children: ReactNode }) {
     }
   }, [ready, authenticated, user, evm, solana, createEvmWallet, createSolanaWallet]);
 
+  const signer = useMemo<ChainSigner | null>(() => {
+    const wallet = solana ? solanaWallets.find((w) => w.address === solana) : undefined;
+    if (!wallet || !solana) return null;
+    const uiOptions = { showWalletUIs: false };
+    return {
+      publicKey: new PublicKey(solana),
+      signTransaction: async (tx: Transaction) => {
+        const { signedTransaction } = await signTransaction({
+          transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
+          wallet,
+          chain: "solana:devnet",
+          options: { uiOptions },
+        });
+        return Transaction.from(signedTransaction);
+      },
+      signMessage: async (message: Uint8Array) => (await signMessage({ message, wallet, options: { uiOptions } })).signature,
+    };
+  }, [solana, solanaWallets, signTransaction, signMessage]);
+
   const gate = useCallback(
     (why: string, action: () => void) => {
       if (authenticated) return action();
@@ -111,10 +146,13 @@ function PrivyBridge({ children }: { children: ReactNode }) {
         setSignInOpen(true);
       },
       openAccount: () => setAccountOpen(true),
+      signer,
+      getAccessToken,
+      devWallet: false,
     }),
     // `linked` is rebuilt every render from `wallets`; depend on its source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ready, authenticated, user, solana, evm, wallets, logout, linkWallet, gate],
+    [ready, authenticated, user, solana, evm, wallets, logout, linkWallet, gate, signer, getAccessToken],
   );
 
   return (
