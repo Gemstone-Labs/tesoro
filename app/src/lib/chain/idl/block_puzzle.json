@@ -9,7 +9,9 @@
     {
       "name": "begin_run",
       "docs": [
-        "Rollup, the Player. Starts the Player's clock."
+        "Rollup, the Player. Copies the Seed from the SeedVault into the Player's own (private)",
+        "Board and starts the Player's clock: this is the first moment the Player can learn the",
+        "piece sequence."
       ],
       "discriminator": [
         81,
@@ -32,6 +34,74 @@
         {
           "name": "board",
           "writable": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board.session",
+                "account": "Board"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "check_seed",
+      "docs": [
+        "Rollup, anyone. Succeeds once the Seed is drawn and reveals nothing: clients poll it to",
+        "know when a run can begin, because the SeedVault itself cannot be read."
+      ],
+      "discriminator": [
+        171,
+        209,
+        228,
+        10,
+        111,
+        254,
+        202,
+        197
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.session",
+                "account": "SeedVault"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -127,8 +197,8 @@
     {
       "name": "commit_boards",
       "docs": [
-        "Rollup, anyone. Closes both permissions and commits + undelegates the sealed Boards to",
-        "the base layer, where their contents become public."
+        "Rollup, anyone. Closes the permissions and commits + undelegates the sealed Boards to the",
+        "base layer, where their contents become public, and the emptied SeedVault with them."
       ],
       "discriminator": [
         140,
@@ -153,6 +223,29 @@
         {
           "name": "board_1",
           "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_0.session",
+                "account": "Board"
+              }
+            ]
+          }
         },
         {
           "name": "permission_0",
@@ -285,6 +378,71 @@
           }
         },
         {
+          "name": "vault_permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
           "name": "permission_program",
           "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
         },
@@ -306,19 +464,219 @@
       "args": []
     },
     {
-      "name": "delegate_boards",
+      "name": "delegate_joiner",
       "docs": [
-        "Base layer, anyone. Delegates both Boards to the TEE validator (pass its identity)."
+        "Base layer, anyone. Delegates the joiner's Board to the TEE validator."
       ],
       "discriminator": [
-        71,
-        2,
-        222,
-        55,
-        154,
-        179,
-        185,
-        211
+        238,
+        135,
+        7,
+        22,
+        162,
+        84,
+        150,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "session",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.match_state",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_board_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                66,
+                252,
+                204,
+                94,
+                191,
+                185,
+                144,
+                147,
+                75,
+                164,
+                208,
+                73,
+                223,
+                102,
+                247,
+                74,
+                128,
+                91,
+                97,
+                170,
+                137,
+                116,
+                64,
+                193,
+                131,
+                225,
+                30,
+                149,
+                223,
+                224,
+                219,
+                26
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_board_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_1"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_board_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_1"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "board_1",
+          "writable": true
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_opener",
+      "docs": [
+        "Base layer, anyone. Delegates the opener's Board and the SeedVault to the TEE validator",
+        "(pass its identity)."
+      ],
+      "discriminator": [
+        216,
+        77,
+        17,
+        100,
+        196,
+        12,
+        176,
+        159
       ],
       "accounts": [
         {
@@ -486,7 +844,7 @@
           "writable": true
         },
         {
-          "name": "buffer_board_1",
+          "name": "buffer_vault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -503,7 +861,7 @@
               },
               {
                 "kind": "account",
-                "path": "board_1"
+                "path": "vault"
               }
             ],
             "program": {
@@ -546,7 +904,7 @@
           }
         },
         {
-          "name": "delegation_record_board_1",
+          "name": "delegation_record_vault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -567,7 +925,7 @@
               },
               {
                 "kind": "account",
-                "path": "board_1"
+                "path": "vault"
               }
             ],
             "program": {
@@ -577,7 +935,7 @@
           }
         },
         {
-          "name": "delegation_metadata_board_1",
+          "name": "delegation_metadata_vault",
           "writable": true,
           "pda": {
             "seeds": [
@@ -607,7 +965,7 @@
               },
               {
                 "kind": "account",
-                "path": "board_1"
+                "path": "vault"
               }
             ],
             "program": {
@@ -617,8 +975,26 @@
           }
         },
         {
-          "name": "board_1",
-          "writable": true
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ]
+          }
         },
         {
           "name": "validator",
@@ -775,6 +1151,310 @@
       "args": []
     },
     {
+      "name": "init_vault_permission",
+      "docs": [
+        "Rollup, anyone. Creates the SeedVault's permission: private with no member at all, so",
+        "nobody can read the Seed from outside the program."
+      ],
+      "discriminator": [
+        122,
+        99,
+        66,
+        157,
+        247,
+        230,
+        12,
+        14
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.session",
+                "account": "SeedVault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "join_session",
+      "docs": [
+        "Base layer, anyone, right after `tesoro_core::join_match`. Creates the joiner's Board,",
+        "sets their submission deadline and asks `tesoro_core` to push the Match's refund deadline",
+        "out past it."
+      ],
+      "discriminator": [
+        23,
+        92,
+        4,
+        160,
+        155,
+        56,
+        164,
+        253
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.match_state",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "account_b"
+        },
+        {
+          "name": "board_1",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "tesoro_core_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "open_session",
+      "docs": [
+        "Base layer, anyone, right after `tesoro_core::open_match`. Binds a Session, the opener's",
+        "Board and a SeedVault to the still-Open Match. The opener may play before anybody joins."
+      ],
+      "discriminator": [
+        130,
+        54,
+        124,
+        7,
+        236,
+        20,
+        104,
+        104
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "match_state"
+        },
+        {
+          "name": "account_a"
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "board_0",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "play",
       "docs": [
         "Rollup, the Player. Replays `moves` on the Board with the engine. An illegal move",
@@ -922,78 +1602,67 @@
       ]
     },
     {
-      "name": "reveal_seed",
+      "name": "request_seed",
       "docs": [
-        "Base layer, anyone. Once the committed slot is behind us, the Seed is the hash of that",
-        "slot's SlotHashes entry mixed with the Match address. Nobody knew it when the Match was",
-        "joined or when the slot was committed, and nobody can withhold it (anyone may call).",
-        "Also sets the submission deadline and extends the `tesoro_core` refund deadline past it."
+        "Rollup, anyone. Requests VRF randomness from the delegated oracle queue; the oracle calls",
+        "back into `seed_callback` inside the rollup, which writes it only into the SeedVault. May",
+        "be repeated until the output arrives."
       ],
       "discriminator": [
-        196,
-        119,
-        194,
-        112,
-        156,
-        211,
-        239,
-        105
+        162,
+        96,
+        174,
+        50,
+        178,
+        77,
+        115,
+        152
       ],
       "accounts": [
         {
           "name": "payer",
+          "writable": true,
           "signer": true
         },
         {
-          "name": "session",
-          "writable": true,
+          "name": "vault",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  115,
-                  101,
-                  115,
-                  115,
-                  105,
-                  111,
-                  110
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
                 ]
               },
               {
                 "kind": "account",
-                "path": "session.match_state",
-                "account": "Session"
+                "path": "vault.session",
+                "account": "SeedVault"
               }
             ]
           }
         },
         {
-          "name": "board_0",
-          "writable": true
+          "name": "oracle_queue",
+          "writable": true,
+          "address": "5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc"
         },
         {
-          "name": "board_1",
-          "writable": true
-        },
-        {
-          "name": "slot_hashes",
-          "address": "SysvarS1otHashes111111111111111111111111111"
-        },
-        {
-          "name": "authority",
+          "name": "program_identity",
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  97,
-                  117,
+                  105,
+                  100,
+                  101,
+                  110,
                   116,
-                  104,
-                  111,
-                  114,
                   105,
                   116,
                   121
@@ -1003,26 +1672,33 @@
           }
         },
         {
-          "name": "config"
+          "name": "vrf_program",
+          "address": "Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz"
         },
         {
-          "name": "match_state",
-          "writable": true
+          "name": "slot_hashes",
+          "address": "SysvarS1otHashes111111111111111111111111111"
         },
         {
-          "name": "tesoro_core_program",
-          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "client_seed",
+          "type": "u8"
+        }
+      ]
     },
     {
       "name": "seal",
       "docs": [
         "Rollup, anyone. Marks both Boards final: allowed only when both runs are closed",
-        "(finished, game over, or their window elapsed) or the submission deadline passed, so",
-        "nobody's moves are exposed while the other Player can still play. The permissionless",
-        "timeout: a Player who never began simply forfeits."
+        "(finished, game over, or their window elapsed) or their deadlines passed, so nobody's",
+        "moves are exposed while the other Player can still play. Needs both Boards in the rollup,",
+        "so it cannot happen before a second Player has joined. The permissionless timeout: a",
+        "Player who never began simply forfeits."
       ],
       "discriminator": [
         102,
@@ -1049,6 +1725,66 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "seed_callback",
+      "docs": [
+        "Rollup, called by the VRF program only. Stores the Seed in the private SeedVault."
+      ],
+      "discriminator": [
+        232,
+        222,
+        68,
+        43,
+        128,
+        141,
+        0,
+        65
+      ],
+      "accounts": [
+        {
+          "name": "vrf_program_identity",
+          "docs": [
+            "Scoped VRF identity PDA, bound to this program. Its presence as a signer proves",
+            "the callback was issued by the VRF program for this program."
+          ],
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.session",
+                "account": "SeedVault"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "randomness",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "settle",
@@ -1136,76 +1872,6 @@
         }
       ],
       "args": []
-    },
-    {
-      "name": "start_session",
-      "docs": [
-        "Base layer, anyone. Binds a Session and one Board per Player to an Active `tesoro_core`",
-        "Match of this Game, and commits to a future slot for the Seed."
-      ],
-      "discriminator": [
-        23,
-        227,
-        111,
-        142,
-        212,
-        230,
-        3,
-        175
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "match_state"
-        },
-        {
-          "name": "account_a"
-        },
-        {
-          "name": "account_b"
-        },
-        {
-          "name": "session",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  101,
-                  115,
-                  115,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "match_state"
-              }
-            ]
-          }
-        },
-        {
-          "name": "board_0",
-          "writable": true
-        },
-        {
-          "name": "board_1",
-          "writable": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
     }
   ],
   "accounts": [
@@ -1232,6 +1898,19 @@
         235,
         96,
         121,
+        216
+      ]
+    },
+    {
+      "name": "SeedVault",
+      "discriminator": [
+        67,
+        6,
+        159,
+        2,
+        175,
+        55,
+        29,
         216
       ]
     },
@@ -1286,97 +1965,97 @@
     {
       "code": 6001,
       "name": "InvalidMatch",
-      "msg": "match is not an active Block Puzzle match"
+      "msg": "match is not a Block Puzzle match in the right state"
     },
     {
       "code": 6002,
-      "name": "SeedAlreadyRevealed",
-      "msg": "seed is already revealed"
+      "name": "SeedAlreadyDrawn",
+      "msg": "seed is already drawn"
     },
     {
       "code": 6003,
       "name": "SeedNotReady",
-      "msg": "seed is not revealed yet"
+      "msg": "seed is not drawn yet"
     },
     {
       "code": 6004,
-      "name": "SeedTooEarly",
-      "msg": "committed slot has not passed yet"
-    },
-    {
-      "code": 6005,
-      "name": "BadSlotHashes",
-      "msg": "slot hashes are malformed"
-    },
-    {
-      "code": 6006,
       "name": "NotThePlayer",
       "msg": "signer is not this board's player"
     },
     {
-      "code": 6007,
+      "code": 6005,
       "name": "PermissionNotReady",
       "msg": "board permission is not set up"
     },
     {
-      "code": 6008,
+      "code": 6006,
       "name": "AlreadyBegan",
       "msg": "run already began"
     },
     {
-      "code": 6009,
+      "code": 6007,
       "name": "NotBegan",
       "msg": "run has not begun"
     },
     {
-      "code": 6010,
+      "code": 6008,
       "name": "RunClosed",
       "msg": "run is finished"
     },
     {
-      "code": 6011,
+      "code": 6009,
       "name": "PlayWindowClosed",
       "msg": "play window closed"
     },
     {
-      "code": 6012,
+      "code": 6010,
       "name": "DeadlinePassed",
       "msg": "submission deadline passed"
     },
     {
-      "code": 6013,
+      "code": 6011,
       "name": "BadBatch",
       "msg": "submit between 1 and 40 moves"
     },
     {
-      "code": 6014,
+      "code": 6012,
       "name": "IllegalMove",
       "msg": "illegal move"
     },
     {
-      "code": 6015,
+      "code": 6013,
       "name": "NotSealable",
       "msg": "board is not ready to seal yet"
     },
     {
-      "code": 6016,
+      "code": 6014,
       "name": "NotSealed",
       "msg": "boards are not sealed"
     },
     {
-      "code": 6017,
+      "code": 6015,
       "name": "AlreadySettled",
       "msg": "session already settled"
     },
     {
-      "code": 6018,
+      "code": 6016,
       "name": "NotExpired",
       "msg": "deadline not reached"
     },
     {
-      "code": 6019,
+      "code": 6017,
       "name": "Overflow",
       "msg": "arithmetic overflow"
+    },
+    {
+      "code": 6018,
+      "name": "AlreadyJoined",
+      "msg": "a second Player already joined this session"
+    },
+    {
+      "code": 6019,
+      "name": "NotJoined",
+      "msg": "no second Player has joined this session"
     }
   ],
   "types": [
@@ -1414,7 +2093,8 @@
     {
       "name": "Board",
       "docs": [
-        "One Player's run. Private in the rollup; public once committed after both runs close."
+        "One Player's run. Private in the rollup; public once committed after both runs close. The",
+        "Seed is zero until the Player calls `begin_run`."
       ],
       "type": {
         "kind": "struct",
@@ -1686,6 +2366,43 @@
       }
     },
     {
+      "name": "SeedVault",
+      "docs": [
+        "Holds the Seed for a Match inside the rollup. Delegated with a private permission that has no",
+        "member, so no wallet can read it; only `begin_run` moves it, into the beginning Player's own",
+        "Board. Wiped before it is committed back."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "session",
+            "type": "pubkey"
+          },
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "permission_ready",
+            "type": "bool"
+          },
+          {
+            "name": "ready",
+            "type": "bool"
+          },
+          {
+            "name": "seed",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Session",
       "type": {
         "kind": "struct",
@@ -1705,7 +2422,7 @@
           {
             "name": "players",
             "docs": [
-              "Wallets of the seats: 0 opened the `tesoro_core` Match, 1 joined."
+              "Wallets of the seats: 0 opened the `tesoro_core` Match, 1 joined (default until then)."
             ],
             "type": {
               "array": [
@@ -1715,21 +2432,20 @@
             }
           },
           {
-            "name": "commit_slot",
-            "type": "u64"
+            "name": "opener_deadline",
+            "docs": [
+              "The Match's Queue window at open: the opener must begin before it or forfeits."
+            ],
+            "type": "i64"
           },
           {
-            "name": "seed_ready",
+            "name": "joined",
             "type": "bool"
-          },
-          {
-            "name": "seed",
-            "type": "u64"
           },
           {
             "name": "deadline",
             "docs": [
-              "End of the submission window: Players who have not begun by then forfeit."
+              "From the join: Players who have not begun by then forfeit. Zero until a Player joins."
             ],
             "type": "i64"
           },
@@ -1752,6 +2468,13 @@
                 2
               ]
             }
+          },
+          {
+            "name": "seed",
+            "docs": [
+              "Copied from the committed Boards at settlement (public by then); zero before."
+            ],
+            "type": "u64"
           }
         ]
       }

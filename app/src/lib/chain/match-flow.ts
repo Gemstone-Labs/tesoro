@@ -110,9 +110,9 @@ export async function joinChallenge(signer: ChainSigner, id: bigint, getToken: G
 // ---- Match orchestration --------------------------------------------------------------------
 
 export type RunStage =
-  /** Boards are not yet private-rollup ready for this Player. */
+  /** Not yet private-rollup ready for this Player (session, delegation, permission or Seed pending). */
   | "needs-prep"
-  /** Ready: the Player has not begun. */
+  /** Ready: the Player has not begun and the Seed is drawn. */
   | "ready"
   /** Began but the client lost the run (reload). It can only be closed. */
   | "lost-run"
@@ -122,11 +122,17 @@ export type RunStage =
   | "committed";
 
 const boardOwner = async (board: PublicKey) => (await getChain().base.getAccountInfo(board))?.owner ?? null;
+const isDelegated = async (k: PublicKey) => (await boardOwner(k))?.equals(DELEGATION_PROGRAM_ID) === true;
+const isProgramOwned = async (k: PublicKey) => (await boardOwner(k))?.equals(BLOCK_PUZZLE_PROGRAM_ID) === true;
 
-/** Where this Player is in the on-chain flow of an Active Match. */
-export async function probeRun(signer: ChainSigner, m: ChainMatch): Promise<RunStage> {
+/**
+ * Where this Player is in the on-chain flow. Works for an Open Match too: the opener plays before
+ * anyone is paired. `verifySeed` also pings the rollup to check the Seed is drawn (a tiny
+ * transaction), so "ready" is only reported when Start will work.
+ */
+export async function probeRun(signer: ChainSigner, m: ChainMatch, verifySeed = true): Promise<RunStage> {
   const chain = getChain();
-  if (!m.session) return "needs-prep";
+  if (!m.session || m.seat === null) return "needs-prep";
   const a = BlockPuzzleChain.addresses(m.id);
   const seat = m.seat as Seat;
   const info = await chain.base.getAccountInfo(a.boards[seat]);
@@ -139,10 +145,15 @@ export async function probeRun(signer: ChainSigner, m: ChainMatch): Promise<RunS
   if (!own || !own.permissionReady) return "needs-prep";
   if (own.finished || own.over) return "finished";
   if (!own.startedAt.isZero()) return "lost-run";
+  if (verifySeed && !(await chain.seedReady(signer, m.id))) return "needs-prep";
   return "ready";
 }
 
-/** Session, Seed, delegation and the private permission: everything before `begin_run`. Idempotent. */
+/**
+ * Everything before `begin_run`: the Session, delegation, the private permissions and the hidden
+ * Seed (VRF inside the rollup). Idempotent; the other Player's client (or a keeper) may do the same
+ * steps in the same moment.
+ */
 export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, onStep: (s: string) => void): Promise<void> {
   const chain = getChain();
   const a = BlockPuzzleChain.addresses(id);
@@ -150,34 +161,33 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
     try {
       await fn();
     } catch (e) {
-      // The other Player's client may have done this step in the same moment.
       await sleep(1500);
       if (!(await done())) throw e;
     }
   };
-
   const session = () => chain.bp.account.session.fetchNullable(a.session) as Promise<any>;
-  if (!(await session())) {
-    onStep("Starting the Match session");
-    await tolerate(() => chain.startSession(signer, id), async () => !!(await session()));
-  }
-  if (!(await session())?.seedReady) {
-    onStep("Drawing the shared Seed");
-    await tolerate(() => chain.revealSeed(signer, id), async () => !!(await session())?.seedReady);
+
+  if (!(await session())) throw new Error("This Match has no session on chain (it was opened by an older version of the app).");
+  if (seat === 1 && !(await session()).joined) {
+    onStep("Binding you to the Match");
+    await tolerate(
+      async () => chain.sendBase(signer, [await chain.joinSessionIx(signer.publicKey, id, signer.publicKey)]),
+      async () => !!(await session())?.joined,
+    );
   }
 
-  const delegated = async () =>
-    (await boardOwner(a.boards[0]))?.equals(DELEGATION_PROGRAM_ID) === true && (await boardOwner(a.boards[1]))?.equals(DELEGATION_PROGRAM_ID) === true;
-  if (!(await delegated())) {
-    onStep("Moving both Boards to the private rollup");
-    const mine = (await boardOwner(a.boards[seat]))?.equals(BLOCK_PUZZLE_PROGRAM_ID);
-    if (mine) {
-      await tolerate(() => chain.delegateBoards(signer, id), delegated);
-    }
-    for (let i = 0; i < 60 && !(await delegated()); i++) await sleep(1000);
-    if (!(await delegated())) throw new Error("Boards were not delegated to the private rollup");
-    await sleep(3000);
+  if (!(await isDelegated(a.boards[0])) || !(await isDelegated(a.vault))) {
+    onStep("Moving the opener's Board to the private rollup");
+    if (await isProgramOwned(a.boards[0])) await tolerate(() => chain.delegateOpener(signer, id), async () => await isDelegated(a.boards[0]));
+    for (let i = 0; i < 60 && !(await isDelegated(a.boards[0])); i++) await sleep(1000);
   }
+  if (seat === 1 && !(await isDelegated(a.boards[1]))) {
+    onStep("Moving your Board to the private rollup");
+    if (await isProgramOwned(a.boards[1])) await tolerate(() => chain.delegateJoiner(signer, id), async () => await isDelegated(a.boards[1]));
+    for (let i = 0; i < 60 && !(await isDelegated(a.boards[1])); i++) await sleep(1000);
+  }
+  if (!(await isDelegated(a.boards[seat]))) throw new Error("Your Board was not delegated to the private rollup");
+  await sleep(2500);
 
   onStep("Making your Board private");
   let own: any = null;
@@ -198,6 +208,17 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
         if (i === 3) throw e;
       }
     }
+  }
+
+  if (!(await chain.seedReady(signer, id))) {
+    onStep("Drawing the hidden Seed inside the rollup");
+    await tolerate(() => chain.initVaultPermission(signer, id), async () => true);
+    for (let i = 0; i < 30; i++) {
+      if (i % 10 === 0) await chain.requestSeed(signer, id, 7 + (i % 200)).catch(() => undefined);
+      await sleep(1500);
+      if (await chain.seedReady(signer, id)) return;
+    }
+    throw new Error("The rollup did not draw the Seed in time. Try again.");
   }
 }
 
@@ -255,18 +276,43 @@ export class RunSubmitter {
 export type SettleOutcome = "settled" | "waiting-opponent" | "failed";
 
 /**
- * Seal + commit both Boards (only possible once both runs are closed or the deadline passed), then
+ * Once the deadline of a Board's Player has passed, anyone may put an unplayed Board in the rollup
+ * and give it its permission so it can be sealed (its Player forfeits). No-op before that.
+ */
+async function bringForfeitedBoardsIn(signer: ChainSigner, id: bigint, session: NonNullable<ChainMatch["session"]>) {
+  const chain = getChain();
+  const a = BlockPuzzleChain.addresses(id);
+  const now = Date.now() / 1000;
+  const due: Seat[] = [];
+  if (now > session.openerDeadline) due.push(0);
+  if (session.joined && now > session.deadline) due.push(1);
+  for (const seat of due) {
+    if (await isProgramOwned(a.boards[seat])) {
+      if (seat === 0) await chain.delegateOpener(signer, id).catch(() => undefined);
+      else await chain.delegateJoiner(signer, id).catch(() => undefined);
+    }
+    const conn = await chain.tee(signer);
+    const info = await conn.getAccountInfo(a.boards[seat]).catch(() => null);
+    if (info) {
+      const board: any = chain.bp.coder.accounts.decode("board", info.data);
+      if (!board.permissionReady) await chain.initPermission(signer, id, seat).catch(() => undefined);
+    }
+  }
+}
+
+/**
+ * Seal + commit both Boards (only possible once both runs are closed or their deadlines passed), then
  * settle through tesoro_core. Anyone may call it; a failure to seal means the opponent is still playing.
  */
-export async function trySettle(signer: ChainSigner, id: bigint): Promise<{ outcome: SettleOutcome; sig?: string; error?: string }> {
+export async function trySettle(signer: ChainSigner, id: bigint, session?: ChainMatch["session"]): Promise<{ outcome: SettleOutcome; sig?: string; error?: string }> {
   const chain = getChain();
   const a = BlockPuzzleChain.addresses(id);
   const isSettled = async () => !!(await chain.bp.account.session.fetchNullable(a.session) as any)?.settled;
   if (await isSettled()) return { outcome: "settled" };
-  const committed = async () =>
-    (await boardOwner(a.boards[0]))?.equals(BLOCK_PUZZLE_PROGRAM_ID) === true && (await boardOwner(a.boards[1]))?.equals(BLOCK_PUZZLE_PROGRAM_ID) === true;
+  const committed = async () => (await isProgramOwned(a.boards[0])) && (await isProgramOwned(a.boards[1]));
   if (!(await committed())) {
     try {
+      if (session) await bringForfeitedBoardsIn(signer, id, session);
       await chain.sealAndCommit(signer, id);
     } catch {
       if (!(await committed())) return { outcome: "waiting-opponent" };
@@ -281,12 +327,11 @@ export async function trySettle(signer: ChainSigner, id: bigint): Promise<{ outc
   }
 }
 
-/** True when the submission deadline passed and the Boards were never delegated (nothing to replay). */
+/** True when the joiner's deadline passed and neither Board was ever delegated (nothing to replay). */
 export async function canClaimTimeout(m: ChainMatch): Promise<boolean> {
-  if (!m.session || m.session.settled || Date.now() / 1000 <= m.session.deadline) return false;
+  if (!m.session || !m.session.joined || m.session.settled || Date.now() / 1000 <= m.session.deadline) return false;
   const a = BlockPuzzleChain.addresses(m.id);
-  const owner = await boardOwner(a.boards[0]);
-  return owner?.equals(BLOCK_PUZZLE_PROGRAM_ID) === true;
+  return (await isProgramOwned(a.boards[0])) && (await isProgramOwned(a.boards[1]));
 }
 
 export const claimTimeout = (signer: ChainSigner, id: bigint) => getChain().claimTimeout(signer, id);

@@ -42,7 +42,7 @@ export function EnterMatch(props: EnterKind) {
         setStatus("Checking your SOL and Account…");
         if (props.kind === "queue") {
           const r = await enterQueue(signer, props.entry, auth.getAccessToken);
-          setStatus(r.joined ? "Opponent found." : "Entered the Queue.");
+          setStatus(r.joined ? "Opponent found." : "Match opened. You'll be paired while you play.");
           router.replace(`/play/match/${r.id.toString()}`);
         } else if (props.kind === "challenge-new") {
           const id = await createChallenge(signer, props.entry, auth.getAccessToken);
@@ -61,11 +61,12 @@ export function EnterMatch(props: EnterKind) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signer, key]);
 
-  const title = props.kind === "queue" ? "Enter the Queue" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
+  const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
   return (
     <Card large as="section" aria-label={title} style={{ maxWidth: 480, margin: "0 auto" }}>
       <div className="stack">
         <h1 className="page-title">{title}</h1>
+        {props.kind === "queue" && <p className="meta">Play now — you&apos;ll be paired with the next Player. Your run counts against theirs.</p>}
         {props.kind !== "challenge-join" && (
           <span className="hstack">
             <GemaAmount value={props.entry} size="lg" /> <span className="meta">entry · Block Puzzle</span>

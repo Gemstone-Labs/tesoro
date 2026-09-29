@@ -25,7 +25,7 @@ export function MatchHistory() {
             <Link href={`/play/match/${m.id.toString()}`} className="spread">
               <span className="row-body">
                 <span className="row-title">Block Puzzle · in progress</span>
-                <span className="row-meta">Entry {fmtGemas(m.entry)} · {m.status === "open" ? "waiting for an opponent" : "opponent found"}</span>
+                <span className="row-meta">Entry {fmtGemas(m.entry)} · {m.status === "open" ? "waiting to be paired" : "opponent found"}</span>
               </span>
               <Chip tone="strong">Open</Chip>
             </Link>

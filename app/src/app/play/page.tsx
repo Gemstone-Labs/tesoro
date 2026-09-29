@@ -16,7 +16,7 @@ export default async function Play({ searchParams }: PageProps<"/play">) {
           <>
             <BlockPuzzleGame />
             <Button href={`/play/queue?entry=${entry}`} variant="money" block>
-              Enter a Match · {entry.toLocaleString("en-US")} Gemas
+              Play now — you&apos;ll be paired · {entry.toLocaleString("en-US")} Gemas
             </Button>
           </>
         ) : (
