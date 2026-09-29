@@ -8,12 +8,16 @@ import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES, queueDepth } from "@/lib/mock";
 import type { EntrySize } from "@/lib/mock";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function Lobby() {
-  const { gemas } = useAccount();
+  const { gemas, auth } = useAccount();
+  const router = useRouter();
   const { requests } = useBacking();
   const [entry, setEntry] = useState<EntrySize>(1000);
-  const canEnter = gemas.total >= entry;
+  const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
+  const canEnter = !signedIn || gemas.total >= entry;
+  const enter = (href: string) => auth.gate("Enter a Match", () => router.push(href));
 
   return (
     <div className="cols cols-2">
@@ -25,11 +29,11 @@ export default function Lobby() {
               <h2>{GAME_NAMES["block-puzzle"]}</h2>
               <span className="meta">Same Seed as your opponent · 90 seconds · higher score wins</span>
             </div>
-            <EntryPicker value={entry} onChange={setEntry} legend="Entry for Block Puzzle" maxAffordable={gemas.total} />
+            <EntryPicker value={entry} onChange={setEntry} legend="Entry for Block Puzzle" maxAffordable={signedIn ? gemas.total : undefined} />
             <Button
               variant="money"
               block
-              href={canEnter ? `/play?game=block-puzzle&entry=${entry}` : undefined}
+              onClick={() => enter(`/play?game=block-puzzle&entry=${entry}`)}
               disabled={!canEnter}
             >
               Enter · {fmtGemas(entry)} Gemas
@@ -39,7 +43,7 @@ export default function Lobby() {
         </Card>
 
         <Row
-          href="/play?game=holdem&entry=500"
+          onClick={() => enter("/play?game=holdem&entry=500")}
           thumb={<Thumb variant="poker">A♠K</Thumb>}
           title={GAME_NAMES.holdem}
           meta={`Live · ${queueDepth.holdem} in Queue`}

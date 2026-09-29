@@ -1,0 +1,144 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { PrivyProvider, useCreateWallet, usePrivy, type PrivyClientConfig } from "@privy-io/react-auth";
+import { toSolanaWalletConnectors, useCreateWallet as useCreateSolanaWallet } from "@privy-io/react-auth/solana";
+import { createSolanaRpc, createSolanaRpcSubscriptions } from "@solana/kit";
+import { AccountSheet } from "@/components/shell/AccountSheet";
+import { SignInSheet } from "@/components/shell/SignInSheet";
+import { EVM_CHAINS, SOLANA_DEVNET_RPC, SOLANA_DEVNET_WS, hoodi } from "@/lib/chains";
+import { AuthContext, UNCONFIGURED } from "./context";
+import type { AuthState, LinkedWallet } from "./types";
+
+const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
+
+const privyConfig: PrivyClientConfig = {
+  loginMethods: ["email"],
+  appearance: {
+    theme: "dark",
+    accentColor: "#EAEFEC",
+    walletChainType: "ethereum-and-solana",
+  },
+  // Every Account gets one embedded wallet per chain family.
+  embeddedWallets: {
+    ethereum: { createOnLogin: "all-users" },
+    solana: { createOnLogin: "all-users" },
+  },
+  // Phantom / Backpack via wallet-standard.
+  externalWallets: { solana: { connectors: toSolanaWalletConnectors() } },
+  // Hoodi and HyperEVM testnet. The same EVM address is valid on both.
+  supportedChains: [...EVM_CHAINS],
+  defaultChain: hoodi,
+  solana: {
+    rpcs: {
+      "solana:devnet": {
+        rpc: createSolanaRpc(SOLANA_DEVNET_RPC),
+        rpcSubscriptions: createSolanaRpcSubscriptions(SOLANA_DEVNET_WS),
+      },
+    },
+  },
+};
+
+export function AccountProvider({ children }: { children: ReactNode }) {
+  if (!PRIVY_APP_ID) return <AuthContext.Provider value={UNCONFIGURED}>{children}</AuthContext.Provider>;
+  return (
+    <PrivyProvider appId={PRIVY_APP_ID} config={privyConfig}>
+      <PrivyBridge>{children}</PrivyBridge>
+    </PrivyProvider>
+  );
+}
+
+function PrivyBridge({ children }: { children: ReactNode }) {
+  const { ready, authenticated, user, logout, linkWallet } = usePrivy();
+  const { createWallet: createEvmWallet } = useCreateWallet();
+  const { createWallet: createSolanaWallet } = useCreateSolanaWallet();
+
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [reason, setReason] = useState<string | undefined>();
+  const [accountOpen, setAccountOpen] = useState(false);
+  const pending = useRef<(() => void) | null>(null);
+
+  const wallets = useMemo(
+    () => (user?.linkedAccounts ?? []).flatMap((a) => (a.type === "wallet" ? [a] : [])),
+    [user],
+  );
+  const isEmbedded = (client?: string) => client === "privy" || client === "privy-v2";
+  const solana = wallets.find((w) => w.chainType === "solana" && isEmbedded(w.walletClientType))?.address ?? null;
+  const evm = wallets.find((w) => w.chainType === "ethereum" && isEmbedded(w.walletClientType))?.address ?? null;
+  const linked: LinkedWallet[] = wallets
+    .filter((w) => !isEmbedded(w.walletClientType))
+    .flatMap((w) =>
+      w.chainType === "solana" || w.chainType === "ethereum"
+        ? [{ family: w.chainType === "solana" ? ("solana" as const) : ("evm" as const), address: w.address, client: w.walletClientType ?? "wallet" }]
+        : [],
+    );
+
+  // createOnLogin covers new sign-ins; this covers Accounts created before a chain family was enabled.
+  const ensured = useRef({ solana: false, evm: false });
+  useEffect(() => {
+    if (!ready || !authenticated || !user) return;
+    if (!evm && !ensured.current.evm) {
+      ensured.current.evm = true;
+      createEvmWallet().catch(() => (ensured.current.evm = false));
+    }
+    if (!solana && !ensured.current.solana) {
+      ensured.current.solana = true;
+      createSolanaWallet().catch(() => (ensured.current.solana = false));
+    }
+  }, [ready, authenticated, user, evm, solana, createEvmWallet, createSolanaWallet]);
+
+  const gate = useCallback(
+    (why: string, action: () => void) => {
+      if (authenticated) return action();
+      pending.current = action;
+      setReason(why);
+      setSignInOpen(true);
+    },
+    [authenticated],
+  );
+
+  const value = useMemo<AuthState>(
+    () => ({
+      status: !ready ? "loading" : authenticated ? "signed-in" : "signed-out",
+      email: user?.email?.address ?? null,
+      addresses: { solana, evm },
+      linked,
+      signOut: logout,
+      linkWallet: (family) => linkWallet({ walletChainType: family === "solana" ? "solana-only" : "ethereum-only" }),
+      gate,
+      openSignIn: (why) => {
+        setReason(why);
+        setSignInOpen(true);
+      },
+      openAccount: () => setAccountOpen(true),
+    }),
+    // `linked` is rebuilt every render from `wallets`; depend on its source.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ready, authenticated, user, solana, evm, wallets, logout, linkWallet, gate],
+  );
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <SignInSheet
+        open={signInOpen}
+        reason={reason}
+        onClose={() => {
+          pending.current = null;
+          setSignInOpen(false);
+        }}
+        onSignedIn={() => {
+          setSignInOpen(false);
+          const run = pending.current;
+          pending.current = null;
+          run?.();
+        }}
+      />
+      <AccountSheet
+        open={accountOpen}
+        onClose={() => setAccountOpen(false)}
+        onSignedOut={() => setAccountOpen(false)}
+      />
+    </AuthContext.Provider>
+  );
+}

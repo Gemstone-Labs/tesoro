@@ -19,10 +19,22 @@ import { AdvanceSheet } from "./AdvanceSheet";
 import { RedeemSheet, ReturnSheet } from "./MoneySheets";
 
 export default function Wallet() {
-  const { gemas, positions, holdings } = useAccount();
+  const { gemas, positions, holdings, auth } = useAccount();
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
   const [returnFor, setReturnFor] = useState<Position | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
+
+  if (auth.status === "signed-out") {
+    return (
+      <Card large as="section" aria-label="Sign in to see your Wallet">
+        <div className="stack">
+          <h1 className="page-title">Wallet</h1>
+          <p className="meta">Your Positions, Gemas and Advances belong to your Account. Sign in to see them.</p>
+          <Button block onClick={() => auth.openSignIn()}>Sign in</Button>
+        </div>
+      </Card>
+    );
+  }
 
   const redeemable = holdings.filter((h) => redeemableOf(h) > 0);
   const pendingItems = holdings
@@ -41,7 +53,7 @@ export default function Wallet() {
         <div className="stack">
           <BalanceCard total={gemas.total} />
           <BalanceSplit redeemable={gemas.redeemable} pending={gemas.pending} redeemableSources={redeemable.length} />
-          <Button variant="money" block disabled={gemas.redeemable === 0} onClick={() => setRedeemOpen(true)}>
+          <Button variant="money" block disabled={gemas.redeemable === 0} onClick={() => auth.gate("Redeem", () => setRedeemOpen(true))}>
             Redeem {fmtGemas(gemas.redeemable)}
           </Button>
         </div>
@@ -79,12 +91,12 @@ export default function Wallet() {
                 <Button
                   size="sm"
                   icon={<UndoIcon />}
-                  onClick={() => setReturnFor(p)}
+                  onClick={() => auth.gate("return Gemas", () => setReturnFor(p))}
                 >
                   Return unspent Gemas
                 </Button>
               ) : (
-                <Button variant="money" size="sm" onClick={() => setAdvanceFor(p)}>
+                <Button variant="money" size="sm" onClick={() => auth.gate("take an Advance", () => setAdvanceFor(p))}>
                   Take an Advance
                 </Button>
               )}
