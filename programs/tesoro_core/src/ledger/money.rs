@@ -181,10 +181,7 @@ impl Position {
             }
             (Some(_), None) => return Err(CoreError::SourceMismatch),
             (None, _) => {
-                self.free_yield = self
-                    .free_yield
-                    .checked_add(delta)
-                    .ok_or(CoreError::Math)?;
+                self.free_yield = self.free_yield.checked_add(delta).ok_or(CoreError::Math)?;
             }
         }
         self.last_seq = seq;
@@ -268,9 +265,7 @@ impl Source {
             .checked_mul(self.unit_den as u128)
             .and_then(|x| x.checked_div(self.unit_num))
             .unwrap_or(0);
-        u64::try_from(by_yield)
-            .unwrap_or(u64::MAX)
-            .min(self.live())
+        u64::try_from(by_yield).unwrap_or(u64::MAX).min(self.live())
     }
 
     /// Debt, in Gemas: outstanding Gemas not yet repaid by accrued yield.
@@ -461,10 +456,7 @@ pub fn redeem(
         return Err(CoreError::ExceedsRedeemable);
     }
     let units = source.units_for(amount)?;
-    let redeemed = source
-        .redeemed
-        .checked_add(amount)
-        .ok_or(CoreError::Math)?;
+    let redeemed = source.redeemed.checked_add(amount).ok_or(CoreError::Math)?;
     let redeemed_units = source
         .redeemed_units
         .checked_add(units)
@@ -575,15 +567,9 @@ pub fn reserve(
     for (h, t) in holdings.iter_mut().zip(takes) {
         h.reserved = h.reserved.checked_add(t).ok_or(CoreError::Math)?;
         if h.is_own {
-            account.own_reserved = account
-                .own_reserved
-                .checked_add(t)
-                .ok_or(CoreError::Math)?;
+            account.own_reserved = account.own_reserved.checked_add(t).ok_or(CoreError::Math)?;
         } else {
-            account.won_reserved = account
-                .won_reserved
-                .checked_add(t)
-                .ok_or(CoreError::Math)?;
+            account.won_reserved = account.won_reserved.checked_add(t).ok_or(CoreError::Math)?;
         }
         lines.push(ReservedLine {
             source: h.source,

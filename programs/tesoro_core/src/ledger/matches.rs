@@ -122,9 +122,9 @@ fn take_lines(lines: &mut [Line], mut amount: u64) -> Vec<Line> {
 }
 
 fn sum(lines: &[Line]) -> CoreResult<u64> {
-    lines.iter().try_fold(0u64, |a, l| {
-        a.checked_add(l.amount).ok_or(CoreError::Math)
-    })
+    lines
+        .iter()
+        .try_fold(0u64, |a, l| a.checked_add(l.amount).ok_or(CoreError::Math))
 }
 
 fn push(out: &mut Vec<Payout>, recipient: Key, lines: &[Line]) {
