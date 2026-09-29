@@ -1,9 +1,10 @@
 use crate::error::{core_err, TesoroError};
+use crate::instructions::native::{is_native, pay_redeem, release_surplus};
 use crate::ledger::{self, SourceChain};
 use crate::state::*;
 use anchor_lang::prelude::*;
 
-fn chain_byte(chain: SourceChain) -> u8 {
+pub(crate) fn chain_byte(chain: SourceChain) -> u8 {
     match chain {
         SourceChain::Solana => 0,
         SourceChain::Ethereum => 1,
@@ -50,6 +51,10 @@ pub(crate) fn open_position(
     principal: u64,
     rate_bps: u16,
 ) -> Result<()> {
+    require!(
+        !(source_chain == SourceChain::Solana && source_asset == SIM_SOL_MINT),
+        TesoroError::NativePosition
+    );
     let position = &mut ctx.accounts.position;
     position.bump = ctx.bumps.position;
     position.position_id = position_id;
@@ -115,26 +120,49 @@ pub(crate) fn take_advance(
     horizon_months: u8,
     price_micro_usd: u64,
 ) -> Result<()> {
-    let position_key = ctx.accounts.position.key();
-    let source_key = ctx.accounts.source.key();
-    let source = ctx
-        .accounts
-        .position
+    let a = ctx.accounts;
+    issue_advance(
+        &mut a.position,
+        &mut a.source,
+        &mut a.holding,
+        &mut a.owner_account,
+        ctx.bumps.source,
+        ctx.bumps.holding,
+        horizon_months,
+        price_micro_usd,
+    )
+}
+
+/// Opens the Position's Advance and credits its Gemas to the owner's Holding. Shared by
+/// `take_advance` (oracle price) and `take_native_advance` (on-chain price feed).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn issue_advance(
+    position: &mut Account<PositionState>,
+    source: &mut Account<SourceState>,
+    holding: &mut Account<HoldingState>,
+    owner_account: &mut Account<TesoroAccount>,
+    source_bump: u8,
+    holding_bump: u8,
+    horizon_months: u8,
+    price_micro_usd: u64,
+) -> Result<()> {
+    let position_key = position.key();
+    let source_key = source.key();
+    let issued = position
         .inner
         .open_advance(position_key.to_bytes(), horizon_months, price_micro_usd)
         .map_err(core_err)?;
-    let gemas = source.issued;
-    let owner_key = ctx.accounts.owner_account.key();
-    let holding = &mut ctx.accounts.holding;
-    holding.bump = ctx.bumps.holding;
+    let gemas = issued.issued;
+    let owner_key = owner_account.key();
+    holding.bump = holding_bump;
     holding.account = owner_key;
     holding.inner = ledger::Holding::new(source_key.to_bytes(), true);
     holding
         .inner
-        .credit(&mut ctx.accounts.owner_account.inner, gemas)
+        .credit(&mut owner_account.inner, gemas)
         .map_err(core_err)?;
-    ctx.accounts.source.bump = ctx.bumps.source;
-    ctx.accounts.source.inner = source;
+    source.bump = source_bump;
+    source.inner = issued;
     emit!(AdvanceIssued {
         position: position_key,
         source: source_key,
@@ -172,6 +200,10 @@ pub struct ApplyYield<'info> {
 }
 
 pub(crate) fn apply_yield(ctx: Context<ApplyYield>, seq: u64, cumulative: u64) -> Result<()> {
+    require!(
+        !is_native(&ctx.accounts.position.inner),
+        TesoroError::NativePosition
+    );
     let position_key = ctx.accounts.position.key();
     let source = ctx.accounts.source.as_mut().map(|s| &mut s.inner);
     let applied = ctx
@@ -267,7 +299,13 @@ pub struct Redeem<'info> {
     pub holding: Account<'info, HoldingState>,
 }
 
-pub(crate) fn redeem(mut ctx: Context<Redeem>, amount: u64) -> Result<()> {
+/// For a native Position the payout is simSOL out of its vault, and `remaining_accounts` must be
+/// `[custody, vault, holder_token_account, pool, token_program]`.
+pub(crate) fn redeem<'info>(
+    mut ctx: Context<'_, '_, 'info, 'info, Redeem<'info>>,
+    amount: u64,
+) -> Result<()> {
+    let remaining = ctx.remaining_accounts;
     let a = &mut ctx.accounts;
     let units = ledger::redeem(
         &mut a.source.inner,
@@ -283,6 +321,15 @@ pub(crate) fn redeem(mut ctx: Context<Redeem>, amount: u64) -> Result<()> {
         gemas: amount,
         source_units: units,
     });
+    if is_native(&a.position.inner) {
+        pay_redeem(
+            &a.position,
+            &a.position.key(),
+            &a.holder_authority.key(),
+            units,
+            remaining,
+        )?;
+    }
     Ok(())
 }
 
@@ -305,6 +352,11 @@ pub struct ClaimFreeYield<'info> {
 }
 
 pub(crate) fn claim_free_yield(ctx: Context<ClaimFreeYield>, amount: u64) -> Result<()> {
+    // A native Position's free yield stays in its vault and returns to the owner with `unlock`.
+    require!(
+        !is_native(&ctx.accounts.position.inner),
+        TesoroError::NativePosition
+    );
     ctx.accounts
         .position
         .inner
@@ -335,8 +387,20 @@ pub struct Unlock<'info> {
     pub position: Account<'info, PositionState>,
 }
 
-pub(crate) fn unlock(ctx: Context<Unlock>) -> Result<()> {
+/// For a native Position `remaining_accounts` must be
+/// `[custody, vault, owner_token_account, pool, token_program]`: the vault's surplus over the yield
+/// still owed to Gema holders goes to the owner.
+pub(crate) fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -> Result<()> {
     ctx.accounts.position.inner.unlock().map_err(core_err)?;
+    if is_native(&ctx.accounts.position.inner) {
+        release_surplus(
+            &ctx.accounts.position,
+            &ctx.accounts.position.key(),
+            &ctx.accounts.owner_authority.key(),
+            ctx.remaining_accounts,
+            1,
+        )?;
+    }
     emit!(PositionUnlocked {
         position: ctx.accounts.position.key(),
     });

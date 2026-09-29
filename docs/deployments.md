@@ -70,3 +70,22 @@ Deploy status (2026-09-30, via `https://rpc.magicblock.app/devnet`):
 | deploy | `4Ttfse8f3Ktji6tzk4uweLGBcxngSUFx85rhtzdwmiSpwv43oHPPjvUWA4Kj72BSMmh7otza16PYo8zvYogQmgJ3` |
 | init (7% APY, 4,320× speedup, faucet 10 simSOL/h) | `3nVnaaBRmEtm34yTjzrcaYyotuhHpzTaBJqftRkRQBW95LbZppmc3wpFv1TCTgUheB4Bp6xYDp9d3S9YxeLqwRaV` |
 | fund reserve 20 SOL | `4bvoXZ8zfe6LVUPTfzVFTdKpx8Bz2LPQEoXJUj3G2HPTLyHUshm4jmLwRfNr4nzET4mhDrEZkmDe9EnfMKCCvH2r` |
+
+### tesoro_core upgrade: Solana-native Positions (2026-09-30)
+
+Backward-compatible upgrade of `AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh` via `https://rpc.magicblock.app/devnet` (adds `open_native_position`, `take_native_advance`, `accrue_native_yield`, `sweep_native_surplus`, `set_price`; `redeem`/`unlock` pay from the vault for native Positions). See `docs/tesoro-core.md`. SIMULATED yield.
+
+| Step | Signature |
+|---|---|
+| upgrade | `5PSa6jL4QUxVy1iWyrzJ5XBvzaGAxWdyC68MnAHqniBAup253bzp1FqSx9RXvx7kbWuzEoCipdfydstsDiLwf2VZ` |
+| `set_price` ($150, oracle) | `49aXJZc4fBySnmuRQTfsgghVEDsQRM8sq4oz92Zj1ZXSKr5yNQpMQR2vP3Chzf113UDa5QTUpsVrX1VpqRbpPDCy` |
+| sim_lst `faucet` (10 simSOL) | `63RaEhuZkmgJybUCyeXGFRxPZxokjhMncuerw4CmKdqgSgiyVYBSo4XfLkY6z3dJ7YHhKwPmLcHm7C7Pcy8yzori` |
+| `open_native_position` 5 simSOL + `take_native_advance` 1 month (447 Gemas), one tx | `5FnLCAT71P5UQg5vKsbtwoXM9g3fPpFfdLAMUrth7kowZVszJpZWMesThS1gfVWp3TSgRnv8xK3BdZw9zQXo9xrL` |
+| `accrue_native_yield` at ~4 min (Debt 447 -> 264) | `5mfF6GnN93FrtLr8fFoPC9Li2fiXhgNS6JpAzNsN4xyiTrKBrJXoFCX3MrhHCaq8Nir36FCixVupK5Ei6Q12Q2uy` |
+| `accrue_native_yield` at ~10 min (Debt to 19) | `5oqgvsFQ4CevNEEfDCUkv8p89ZiPniwYQUppoZFjwaWAXsLJ3YdtAeHJy79hpWKaF8DPXqQ18JGLnmrbLKU7RyPj` |
+| `redeem` 428 Gemas (simSOL paid from the vault) | `YYXanf8Bzdbmhmoy9W5wAF29aMs77yvxgkfqqS8pkvxTrxynQQkLCVBxHhrQcqKHJEQT3nUkZHaYZUAxjnT23yd` |
+| `accrue_native_yield` (Debt 0) | `4biN5G5P9XzgcbmN9REvxC7fpaxE2rZ6FgNkpziAftvQHF6ae4sZ1rNrjTZBSBG31VEGdpXihKobDapWY1SZ7XpS` |
+| `redeem` last 19 Gemas | `2gw9L6164ismaXA7bFjNTt9tqmkzxyHJMUxwR5vj2PNpmacLhMfHTpkN3XQBVJ4tMM4jyENXbeLjCo5KxoHSsPRg` |
+| `unlock` (Principal simSOL returned; wallet 9.999999999 simSOL) | `HZWYkvfhVTFZWGqNkMJEvUTaKoR2z84kh5MmgD2v48RP8MXENPrQ9k1tLKXVqHPmzdyTK2jzqTxP6Xg4hdjzsGK` |
+
+Position `2QxKeDKJfWvGa6uNwXG6533ZpNTazyoUEXj4ALRj2Zb6` (owner wallet = the deployer, nonce 1). One month of Horizon takes about 10.1 min because sim_lst accrues per 30-day month while the Advance projects 1/12 of a year. Helper: `scripts/native-position` (`RPC_URL=https://rpc.magicblock.app/devnet pnpm cli status`).

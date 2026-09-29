@@ -13,6 +13,15 @@ pub const HOLDING_SEED: &[u8] = b"holding";
 pub const MATCH_SEED: &[u8] = b"match";
 pub const REQUEST_SEED: &[u8] = b"request";
 pub const OFFER_SEED: &[u8] = b"offer";
+pub const NATIVE_SEED: &[u8] = b"native";
+pub const NATIVE_VAULT_SEED: &[u8] = b"native_vault";
+pub const PRICE_SEED: &[u8] = b"price";
+
+/// simSOL mint of `sim_lst` (PDA `["mint"]` of `WgcM5G...`). A Solana Position whose
+/// `source_asset` is this mint is a native Position and is only ever opened by `open_native_position`.
+pub const SIM_SOL_MINT: Pubkey = pubkey!("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ");
+/// How old the issuance price may be when an Advance is taken.
+pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
 
 pub const MAX_GAMES: usize = 8;
 
@@ -154,6 +163,44 @@ impl OfferState {
         + ledger::MAX_ENTRY_SOURCES * 41;
 }
 
+/// Custody of one native Position: the simSOL vault and what is needed to value it.
+#[account]
+pub struct NativeCustody {
+    pub bump: u8,
+    pub vault_bump: u8,
+    pub position: Pubkey,
+    pub owner_authority: Pubkey,
+    /// The `sim_lst` Pool (canonical PDA) whose rate values the vault.
+    pub pool: Pubkey,
+    pub mint: Pubkey,
+    /// Token account (PDA) holding the Position's simSOL, authority = this custody.
+    pub vault: Pubkey,
+    /// sim_lst rate at open (1e9 fixed point, SOL per simSOL).
+    pub rate_at_open: u64,
+    /// simSOL deposited at open, base units. Informational: the vault balance is authoritative.
+    pub deposited_shares: u64,
+    /// SOL base units paid to Gema holders from the vault by `redeem`.
+    pub redeemed_units: u64,
+}
+
+impl NativeCustody {
+    pub const SPACE: usize = 8 + 1 + 1 + 5 * 32 + 3 * 8;
+}
+
+/// SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority
+/// for devnet; the Pyth seam replaces this account's source, not `take_native_advance`.
+#[account]
+pub struct PriceFeed {
+    pub bump: u8,
+    pub asset: Pubkey,
+    pub price_micro_usd: u64,
+    pub updated_ts: i64,
+}
+
+impl PriceFeed {
+    pub const SPACE: usize = 8 + 1 + 32 + 8 + 8;
+}
+
 pub fn key(p: &Pubkey) -> Key {
     p.to_bytes()
 }
@@ -195,6 +242,32 @@ pub struct YieldClaimed {
 #[event]
 pub struct PositionUnlocked {
     pub position: Pubkey,
+}
+
+#[event]
+pub struct NativePositionOpened {
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub shares: u64,
+    pub rate: u64,
+    pub principal_sol: u64,
+}
+
+/// simSOL paid out of a Position's vault.
+#[event]
+pub struct NativePayout {
+    pub position: Pubkey,
+    pub to: Pubkey,
+    pub shares: u64,
+    pub sol_units: u64,
+    /// 0 = redeem, 1 = unlock, 2 = sweep.
+    pub kind: u8,
+}
+
+#[event]
+pub struct PriceSet {
+    pub asset: Pubkey,
+    pub price_micro_usd: u64,
 }
 
 #[event]

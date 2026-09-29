@@ -21,6 +21,16 @@ pub enum TesoroError {
     DuplicateAccount,
     #[msg("account must be writable")]
     NotWritable,
+    #[msg("pool is not the canonical sim_lst pool")]
+    InvalidPool,
+    #[msg("mint is not the sim_lst pool's simSOL mint")]
+    InvalidMint,
+    #[msg("native Positions are opened and driven only by the native instructions")]
+    NativePosition,
+    #[msg("position is not a native Position")]
+    NotNativePosition,
+    #[msg("price is stale or not set")]
+    StalePrice,
 }
 
 pub fn core_err(e: CoreError) -> Error {

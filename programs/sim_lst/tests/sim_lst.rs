@@ -1,8 +1,5 @@
-// TEMPORARILY GATED: port to litesvm 0.11 / solana-sdk 3 (see tesoro_core tests for Pubkey bridging), then remove this gate.
-#![cfg(feature = "legacy-litesvm-tests")]
 use anchor_lang::{
-    solana_program::{instruction::Instruction, system_program},
-    AccountDeserialize, InstructionData, ToAccountMetas,
+    prelude::Pubkey as APk, system_program, AccountDeserialize, InstructionData, ToAccountMetas,
 };
 use anchor_spl::{
     associated_token::{get_associated_token_address, ID as ATA_PROGRAM_ID},
@@ -12,12 +9,39 @@ use litesvm::LiteSVM;
 use sim_lst::{accounts, instruction, Pool, DEFAULT_SPEEDUP, FAUCET_SEED, RATE_SCALE};
 use solana_sdk::{
     clock::Clock,
-    instruction::InstructionError,
-    program_pack::Pack,
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
+    instruction::{AccountMeta, Instruction, InstructionError},
+    pubkey::Pubkey as Pk,
+    signature::Keypair,
+    signer::Signer,
     transaction::{Transaction, TransactionError},
 };
+
+/// litesvm / solana-sdk 3 and Anchor 0.31 use different `Pubkey` types; bridge through bytes.
+fn a(p: Pk) -> APk {
+    APk::new_from_array(p.to_bytes())
+}
+fn s(p: APk) -> Pk {
+    Pk::new_from_array(p.to_bytes())
+}
+fn key(kp: &Keypair) -> APk {
+    a(kp.pubkey())
+}
+
+fn ix(accounts: impl ToAccountMetas, data: impl InstructionData) -> Instruction {
+    Instruction {
+        program_id: s(sim_lst::ID),
+        accounts: accounts
+            .to_account_metas(None)
+            .into_iter()
+            .map(|m| AccountMeta {
+                pubkey: s(m.pubkey),
+                is_signer: m.is_signer,
+                is_writable: m.is_writable,
+            })
+            .collect(),
+        data: data.data(),
+    }
+}
 
 const T0: i64 = 1_000_000;
 const SOL: u64 = 1_000_000_000;
@@ -35,13 +59,13 @@ const ERR_COOLDOWN: u32 = 6007;
 struct Env {
     svm: LiteSVM,
     admin: Keypair,
-    pool: Pubkey,
-    mint: Pubkey,
-    vault: Pubkey,
+    pool: APk,
+    mint: APk,
+    vault: APk,
 }
 
-fn pda(seeds: &[&[u8]]) -> Pubkey {
-    Pubkey::find_program_address(seeds, &sim_lst::ID).0
+fn pda(seeds: &[&[u8]]) -> APk {
+    APk::find_program_address(seeds, &sim_lst::ID).0
 }
 
 fn set_time(svm: &mut LiteSVM, ts: i64) {
@@ -74,7 +98,11 @@ fn send(env: &mut Env, payer: &Keypair, ix: Instruction) -> Result<(), u32> {
 
 fn setup_with(faucet_amount: u64) -> Env {
     let mut svm = LiteSVM::new();
-    svm.add_program_from_file(sim_lst::ID, "../../target/deploy/sim_lst.so")
+    let so = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../target/deploy/sim_lst.so"
+    );
+    svm.add_program_from_file(s(sim_lst::ID), so)
         .expect("run `pnpm build:programs` first");
     set_time(&mut svm, T0);
     let admin = Keypair::new();
@@ -89,26 +117,23 @@ fn setup_with(faucet_amount: u64) -> Env {
         mint,
         vault,
     };
-    let ix = Instruction {
-        program_id: sim_lst::ID,
-        accounts: accounts::Initialize {
-            admin: admin.pubkey(),
+    let init = ix(
+        accounts::Initialize {
+            admin: key(&admin),
             pool,
             mint,
             vault,
             token_program: TOKEN_PROGRAM_ID,
             system_program: system_program::ID,
-        }
-        .to_account_metas(None),
-        data: instruction::Initialize {
+        },
+        instruction::Initialize {
             apy_bps: APY_BPS,
             speedup: DEFAULT_SPEEDUP,
             faucet_amount,
             faucet_cooldown: COOLDOWN,
-        }
-        .data(),
-    };
-    send(&mut env, &admin, ix).unwrap();
+        },
+    );
+    send(&mut env, &admin, init).unwrap();
     env.admin = admin;
     env
 }
@@ -123,91 +148,85 @@ fn user(env: &mut Env) -> Keypair {
     kp
 }
 
+fn ata(env: &Env, who: &Keypair) -> APk {
+    get_associated_token_address(&key(who), &env.mint)
+}
+
 fn deposit(env: &mut Env, who: &Keypair, lamports: u64) -> Result<(), u32> {
-    let ix = Instruction {
-        program_id: sim_lst::ID,
-        accounts: accounts::Deposit {
-            user: who.pubkey(),
+    let deposit = ix(
+        accounts::Deposit {
+            user: key(who),
             pool: env.pool,
             mint: env.mint,
-            user_ata: get_associated_token_address(&who.pubkey(), &env.mint),
+            user_ata: ata(env, who),
             vault: env.vault,
             token_program: TOKEN_PROGRAM_ID,
             associated_token_program: ATA_PROGRAM_ID,
             system_program: system_program::ID,
-        }
-        .to_account_metas(None),
-        data: instruction::Deposit { lamports }.data(),
-    };
-    send(env, who, ix)
+        },
+        instruction::Deposit { lamports },
+    );
+    send(env, who, deposit)
 }
 
 fn withdraw(env: &mut Env, who: &Keypair, shares: u64) -> Result<(), u32> {
-    let ix = Instruction {
-        program_id: sim_lst::ID,
-        accounts: accounts::Withdraw {
-            user: who.pubkey(),
+    let withdraw = ix(
+        accounts::Withdraw {
+            user: key(who),
             pool: env.pool,
             mint: env.mint,
-            user_ata: get_associated_token_address(&who.pubkey(), &env.mint),
+            user_ata: ata(env, who),
             vault: env.vault,
             token_program: TOKEN_PROGRAM_ID,
             system_program: system_program::ID,
-        }
-        .to_account_metas(None),
-        data: instruction::Withdraw { shares }.data(),
-    };
-    send(env, who, ix)
+        },
+        instruction::Withdraw { shares },
+    );
+    send(env, who, withdraw)
 }
 
 fn faucet(env: &mut Env, who: &Keypair) -> Result<(), u32> {
-    let ix = Instruction {
-        program_id: sim_lst::ID,
-        accounts: accounts::Faucet {
-            user: who.pubkey(),
+    let faucet = ix(
+        accounts::Faucet {
+            user: key(who),
             pool: env.pool,
             mint: env.mint,
-            user_ata: get_associated_token_address(&who.pubkey(), &env.mint),
-            claim: pda(&[FAUCET_SEED, who.pubkey().as_ref()]),
+            user_ata: ata(env, who),
+            claim: pda(&[FAUCET_SEED, key(who).as_ref()]),
             token_program: TOKEN_PROGRAM_ID,
             associated_token_program: ATA_PROGRAM_ID,
             system_program: system_program::ID,
-        }
-        .to_account_metas(None),
-        data: instruction::Faucet {}.data(),
-    };
-    send(env, who, ix)
+        },
+        instruction::Faucet {},
+    );
+    send(env, who, faucet)
 }
 
-fn admin_ix(env: &Env, signer: &Pubkey, data: Vec<u8>) -> Instruction {
-    Instruction {
-        program_id: sim_lst::ID,
-        accounts: accounts::AdminOnly {
-            admin: *signer,
+fn admin_ix(env: &Env, signer: &Pk, data: impl InstructionData) -> Instruction {
+    ix(
+        accounts::AdminOnly {
+            admin: a(*signer),
             pool: env.pool,
-        }
-        .to_account_metas(None),
+        },
         data,
-    }
+    )
 }
 
 fn fund_reserve(env: &mut Env, who: &Keypair, lamports: u64) -> Result<(), u32> {
-    let ix = Instruction {
-        program_id: sim_lst::ID,
-        accounts: accounts::FundReserve {
-            admin: who.pubkey(),
+    let fund = ix(
+        accounts::FundReserve {
+            admin: key(who),
             pool: env.pool,
             vault: env.vault,
             system_program: system_program::ID,
-        }
-        .to_account_metas(None),
-        data: instruction::FundReserve { lamports }.data(),
-    };
-    send(env, who, ix)
+        },
+        instruction::FundReserve { lamports },
+    );
+    send(env, who, fund)
 }
 
 fn pool_state(env: &Env) -> Pool {
-    let acc = env.svm.get_account(&env.pool).unwrap();
+    let acc = env.svm.get_account(&s(env.pool)).unwrap();
     Pool::try_deserialize(&mut acc.data.as_slice()).unwrap()
 }
 
@@ -219,10 +238,13 @@ fn rate_now(env: &Env) -> u64 {
     .unwrap()
 }
 
-fn simsol_balance(env: &Env, who: &Pubkey) -> u64 {
-    let ata = get_associated_token_address(who, &env.mint);
-    match env.svm.get_account(&ata) {
-        Some(a) => spl_token::state::Account::unpack(&a.data).unwrap().amount,
+fn simsol_balance(env: &Env, who: &Pk) -> u64 {
+    let ata = get_associated_token_address(&a(*who), &env.mint);
+    match env.svm.get_account(&s(ata)) {
+        Some(acc) => {
+            use anchor_lang::solana_program::program_pack::Pack;
+            spl_token::state::Account::unpack(&acc.data).unwrap().amount
+        }
         None => 0,
     }
 }
@@ -244,14 +266,13 @@ fn get_rate_returns_current_rate_as_return_data() {
     let mut env = setup();
     advance(&mut env, 600);
     env.svm.expire_blockhash();
-    let ix = Instruction {
-        program_id: sim_lst::ID,
-        accounts: accounts::GetRate { pool: env.pool }.to_account_metas(None),
-        data: instruction::GetRate {}.data(),
-    };
+    let get_rate = ix(
+        accounts::GetRate { pool: env.pool },
+        instruction::GetRate {},
+    );
     let payer = env.admin.insecure_clone();
     let tx = Transaction::new_signed_with_payer(
-        &[ix],
+        &[get_rate],
         Some(&payer.pubkey()),
         &[&payer],
         env.svm.latest_blockhash(),
@@ -310,14 +331,13 @@ fn only_admin_can_change_params_pause_or_fund() {
     let set_params = instruction::SetParams {
         apy_bps: Some(1),
         speedup: None,
-    }
-    .data();
+    };
     let ix = admin_ix(&env, &mallory.pubkey(), set_params);
     assert_eq!(send(&mut env, &mallory, ix), Err(ERR_UNAUTHORIZED));
     let ix = admin_ix(
         &env,
         &mallory.pubkey(),
-        instruction::SetPaused { paused: true }.data(),
+        instruction::SetPaused { paused: true },
     );
     assert_eq!(send(&mut env, &mallory, ix), Err(ERR_UNAUTHORIZED));
     let ix = admin_ix(
@@ -326,8 +346,7 @@ fn only_admin_can_change_params_pause_or_fund() {
         instruction::SetFaucet {
             amount: u64::MAX,
             cooldown: 0,
-        }
-        .data(),
+        },
     );
     assert_eq!(send(&mut env, &mallory, ix), Err(ERR_UNAUTHORIZED));
     assert_eq!(fund_reserve(&mut env, &mallory, SOL), Err(ERR_UNAUTHORIZED));
@@ -344,8 +363,7 @@ fn set_params_rebases_and_keeps_accrued_rate() {
         instruction::SetParams {
             apy_bps: Some(1_400),
             speedup: None,
-        }
-        .data(),
+        },
     );
     send(&mut env, &admin, ix).unwrap();
     assert_eq!(rate_now(&env), 1_005_753_424);
@@ -367,8 +385,7 @@ fn invalid_params_are_rejected() {
             instruction::SetParams {
                 apy_bps: apy,
                 speedup,
-            }
-            .data(),
+            },
         );
         assert_eq!(send(&mut env, &admin, ix), Err(ERR_INVALID_PARAMS));
     }
@@ -383,7 +400,7 @@ fn pause_blocks_deposit_withdraw_and_faucet() {
     let ix = admin_ix(
         &env,
         &admin.pubkey(),
-        instruction::SetPaused { paused: true }.data(),
+        instruction::SetPaused { paused: true },
     );
     send(&mut env, &admin, ix).unwrap();
     assert_eq!(deposit(&mut env, &alice, SOL), Err(ERR_PAUSED));

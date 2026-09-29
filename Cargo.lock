@@ -6024,8 +6024,10 @@ name = "tesoro_core"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "anchor-spl",
  "litesvm",
  "proptest",
+ "sim_lst",
  "solana-sdk",
 ]
 
