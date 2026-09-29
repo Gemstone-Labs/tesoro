@@ -30,6 +30,8 @@ Nothing outside this repo about earlier Tesoro work is a source. Do not read or 
 | holdem | `CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE` |
 | sim_lst | `WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F` |
 
+Devnet RPC: the public `api.devnet.solana.com` rate-limits deploys (429). Use `https://rpc.magicblock.app/devnet` for base-layer devnet (same chain). `devnet.magicblock.app` is the ephemeral rollup, not base layer.
+
 Program keypairs live in `~/.config/tesoro/deploy-keys/`; the build script copies them into `target/deploy/`. Never run `anchor keys sync` or generate new program keypairs.
 
 ## Rules
