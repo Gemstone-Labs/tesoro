@@ -242,4 +242,7 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.66); }
 .feature-body { padding: 12px 14px 14px; display: grid; gap: 12px; }
 .feature-body h2 { font-size: 20px; font-weight: 900; letter-spacing: -0.01em; }
 
+/* Schibsted's heavy weights set a very tight space glyph */
+.btn, .row-title, .gema-amount, .kv dd, .xc-title, .page-title, h2 { word-spacing: 0.14em; }
+
 .game-frame { aspect-ratio: 9 / 14; max-height: 70dvh; margin: 0 auto; width: min(100%, 420px); background: #141824; border: 1px solid var(--line); display: grid; place-items: center; text-align: center; padding: 20px; }
