@@ -1752,6 +1752,9 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "ephemeral-rollups-sdk",
+ "litesvm",
+ "solana-sdk",
+ "tesoro_core",
 ]
 
 [[package]]
