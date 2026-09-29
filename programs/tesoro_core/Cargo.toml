@@ -13,7 +13,15 @@ cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
+anchor-debug = []
+custom-heap = []
+custom-panic = []
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang = "0.31.1"
+
+[dev-dependencies]
+litesvm = "=0.11.0"
+proptest = "1.11.0"
+solana-sdk = "3.0.0"

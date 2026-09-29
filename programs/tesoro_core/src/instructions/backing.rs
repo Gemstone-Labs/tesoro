@@ -1,0 +1,302 @@
+use crate::error::{core_err, TesoroError};
+use crate::ledger::{self, OfferKind};
+use crate::state::*;
+use crate::util::*;
+use anchor_lang::prelude::*;
+
+#[derive(Accounts)]
+#[instruction(nonce: u64)]
+pub struct CreateRequest<'info> {
+    #[account(mut)]
+    pub player_authority: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(
+        seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
+        bump = player_account.bump
+    )]
+    pub player_account: Account<'info, TesoroAccount>,
+    #[account(
+        init,
+        payer = player_authority,
+        space = RequestState::SPACE,
+        seeds = [REQUEST_SEED, player_account.key().as_ref(), &nonce.to_le_bytes()],
+        bump
+    )]
+    pub request: Account<'info, RequestState>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn create_request(
+    ctx: Context<CreateRequest>,
+    nonce: u64,
+    game: Pubkey,
+    entry: u64,
+) -> Result<()> {
+    require!(
+        ctx.accounts.config.game(&game).is_some(),
+        TesoroError::GameNotRegistered
+    );
+    let request = &mut ctx.accounts.request;
+    request.bump = ctx.bumps.request;
+    request.nonce = nonce;
+    request.inner = ledger::Request::new(
+        ctx.accounts.player_account.key().to_bytes(),
+        game.to_bytes(),
+        entry,
+        now()?,
+    )
+    .map_err(core_err)?;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct CancelRequest<'info> {
+    pub player_authority: Signer<'info>,
+    #[account(
+        seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
+        bump = player_account.bump
+    )]
+    pub player_account: Account<'info, TesoroAccount>,
+    #[account(
+        mut,
+        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
+        bump = request.bump,
+        constraint = request.inner.player == player_account.key().to_bytes() @ TesoroError::Unauthorized
+    )]
+    pub request: Account<'info, RequestState>,
+}
+
+pub(crate) fn cancel_request(ctx: Context<CancelRequest>) -> Result<()> {
+    ctx.accounts.request.inner.cancel().map_err(core_err)
+}
+
+/// Creates an Offer and reserves the Backer's entry. `remaining_accounts` are the Backer's
+/// Holdings, own-sourced first, then won, each ascending by Source address.
+/// `directed_request` makes it a directed Offer; `None` makes it public.
+#[derive(Accounts)]
+#[instruction(nonce: u64)]
+pub struct CreateOffer<'info> {
+    #[account(mut)]
+    pub backer_authority: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(
+        mut,
+        seeds = [ACCOUNT_SEED, backer_authority.key().as_ref()],
+        bump = backer_account.bump
+    )]
+    pub backer_account: Account<'info, TesoroAccount>,
+    #[account(
+        init,
+        payer = backer_authority,
+        space = OfferState::SPACE,
+        seeds = [OFFER_SEED, backer_account.key().as_ref(), &nonce.to_le_bytes()],
+        bump
+    )]
+    pub offer: Box<Account<'info, OfferState>>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn create_offer<'info>(
+    ctx: Context<'_, '_, 'info, 'info, CreateOffer<'info>>,
+    nonce: u64,
+    game: Pubkey,
+    entry: u64,
+    player_share_bps: u16,
+    directed_request: Option<Pubkey>,
+) -> Result<()> {
+    require!(
+        ctx.accounts.config.game(&game).is_some(),
+        TesoroError::GameNotRegistered
+    );
+    let backer = ctx.accounts.backer_account.key();
+    let mut holdings = load_holdings(&backer, ctx.remaining_accounts)?;
+    let kind = match directed_request {
+        Some(r) => OfferKind::Directed(r.to_bytes()),
+        None => OfferKind::Public,
+    };
+    let now = now()?;
+    let acct = &mut ctx.accounts.backer_account.inner;
+    let created = with_holdings(&mut holdings, |hs| {
+        ledger::Offer::create(
+            backer.to_bytes(),
+            game.to_bytes(),
+            entry,
+            player_share_bps,
+            kind,
+            now,
+            acct,
+            hs,
+        )
+    })?;
+    let offer = &mut ctx.accounts.offer;
+    offer.bump = ctx.bumps.offer;
+    offer.nonce = nonce;
+    offer.inner = created;
+    Ok(())
+}
+
+/// The Player accepts an Offer directed at their Request.
+#[derive(Accounts)]
+pub struct AcceptDirected<'info> {
+    pub player_authority: Signer<'info>,
+    #[account(
+        seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
+        bump = player_account.bump
+    )]
+    pub player_account: Account<'info, TesoroAccount>,
+    #[account(
+        mut,
+        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
+        bump = request.bump,
+        constraint = request.inner.player == player_account.key().to_bytes() @ TesoroError::Unauthorized
+    )]
+    pub request: Account<'info, RequestState>,
+    #[account(
+        mut,
+        seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
+        bump = offer.bump
+    )]
+    pub offer: Box<Account<'info, OfferState>>,
+}
+
+pub(crate) fn accept_directed(ctx: Context<AcceptDirected>) -> Result<()> {
+    let request_key = ctx.accounts.request.key();
+    ctx.accounts
+        .offer
+        .inner
+        .accept_directed(
+            &mut ctx.accounts.request.inner,
+            request_key.to_bytes(),
+            now()?,
+        )
+        .map_err(core_err)
+}
+
+/// A Player applies to a public Offer with their Request.
+#[derive(Accounts)]
+pub struct ApplyOffer<'info> {
+    pub player_authority: Signer<'info>,
+    #[account(
+        seeds = [ACCOUNT_SEED, player_authority.key().as_ref()],
+        bump = player_account.bump
+    )]
+    pub player_account: Account<'info, TesoroAccount>,
+    #[account(
+        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
+        bump = request.bump,
+        constraint = request.inner.player == player_account.key().to_bytes() @ TesoroError::Unauthorized
+    )]
+    pub request: Account<'info, RequestState>,
+    #[account(
+        mut,
+        seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
+        bump = offer.bump
+    )]
+    pub offer: Box<Account<'info, OfferState>>,
+}
+
+pub(crate) fn apply_offer(ctx: Context<ApplyOffer>) -> Result<()> {
+    let request_key = ctx.accounts.request.key();
+    ctx.accounts
+        .offer
+        .inner
+        .apply(&ctx.accounts.request.inner, request_key.to_bytes(), now()?)
+        .map_err(core_err)
+}
+
+/// The Backer accepts one applicant of their public Offer.
+#[derive(Accounts)]
+pub struct AcceptApplicant<'info> {
+    pub backer_authority: Signer<'info>,
+    #[account(
+        seeds = [ACCOUNT_SEED, backer_authority.key().as_ref()],
+        bump = backer_account.bump
+    )]
+    pub backer_account: Account<'info, TesoroAccount>,
+    #[account(
+        mut,
+        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
+        bump = request.bump
+    )]
+    pub request: Account<'info, RequestState>,
+    #[account(
+        mut,
+        seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
+        bump = offer.bump,
+        constraint = offer.inner.backer == backer_account.key().to_bytes() @ TesoroError::Unauthorized
+    )]
+    pub offer: Box<Account<'info, OfferState>>,
+}
+
+pub(crate) fn accept_applicant(ctx: Context<AcceptApplicant>) -> Result<()> {
+    let request_key = ctx.accounts.request.key();
+    ctx.accounts
+        .offer
+        .inner
+        .accept_applicant(
+            &mut ctx.accounts.request.inner,
+            request_key.to_bytes(),
+            now()?,
+        )
+        .map_err(core_err)
+}
+
+/// The Backer withdraws an Offer that has not been used to start a Match. `remaining_accounts`:
+/// the Backer's reserved Holdings in the Offer's line order.
+#[derive(Accounts)]
+pub struct CancelOffer<'info> {
+    pub backer_authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ACCOUNT_SEED, backer_authority.key().as_ref()],
+        bump = backer_account.bump
+    )]
+    pub backer_account: Account<'info, TesoroAccount>,
+    #[account(
+        mut,
+        seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
+        bump = offer.bump,
+        constraint = offer.inner.backer == backer_account.key().to_bytes() @ TesoroError::Unauthorized
+    )]
+    pub offer: Box<Account<'info, OfferState>>,
+}
+
+pub(crate) fn cancel_offer<'info>(
+    ctx: Context<'_, '_, 'info, 'info, CancelOffer<'info>>,
+) -> Result<()> {
+    let mut holdings = load_holdings(&ctx.accounts.backer_account.key(), ctx.remaining_accounts)?;
+    let acct = &mut ctx.accounts.backer_account.inner;
+    let offer = &mut ctx.accounts.offer.inner;
+    with_holdings(&mut holdings, |hs| offer.cancel(acct, hs))
+}
+
+/// Anyone releases the reservation of an Offer nobody accepted, or nobody used, within 24h.
+#[derive(Accounts)]
+pub struct ExpireOffer<'info> {
+    pub caller: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ACCOUNT_SEED, backer_account.authority.as_ref()],
+        bump = backer_account.bump,
+        constraint = backer_account.key().to_bytes() == offer.inner.backer @ TesoroError::InvalidAccount
+    )]
+    pub backer_account: Account<'info, TesoroAccount>,
+    #[account(
+        mut,
+        seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
+        bump = offer.bump
+    )]
+    pub offer: Box<Account<'info, OfferState>>,
+}
+
+pub(crate) fn expire_offer<'info>(
+    ctx: Context<'_, '_, 'info, 'info, ExpireOffer<'info>>,
+) -> Result<()> {
+    let mut holdings = load_holdings(&ctx.accounts.backer_account.key(), ctx.remaining_accounts)?;
+    let now = now()?;
+    let acct = &mut ctx.accounts.backer_account.inner;
+    let offer = &mut ctx.accounts.offer.inner;
+    with_holdings(&mut holdings, |hs| offer.expire(now, acct, hs))
+}
