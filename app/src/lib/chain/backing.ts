@@ -83,15 +83,32 @@ export interface BackingBoard {
 const requestStatus = (o: object) => enumKey(o) as ChainRequest["status"];
 const offerStatus = (o: object) => enumKey(o) as ChainOffer["status"];
 
+/** Fetches and decodes many accounts; one that fails to decode (a Session from an older program layout) is null, not an error. */
+async function decodeAll(keys: PublicKey[], decode: (data: Buffer) => any): Promise<any[]> {
+  const out: any[] = [];
+  for (let i = 0; i < keys.length; i += 100) {
+    const infos = await getChain().base.getMultipleAccountsInfo(keys.slice(i, i + 100));
+    for (const info of infos) {
+      try {
+        out.push(info ? decode(info.data) : null);
+      } catch {
+        out.push(null);
+      }
+    }
+  }
+  return out;
+}
+
 /** Wins and settled count per Player over all Matches, from Block Puzzle Sessions and Hold'em tables. */
 async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerRecord>> {
   const chain = getChain();
   const rows: any[] = await chain.core.account.matchState.all();
   const settled = rows.filter((m) => enumKey(m.account.inner.status) === "settled" && gameOf(pk(m.account.inner.game)) !== null);
   const bp = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "block-puzzle");
-  const sessions: any[] = bp.length
-    ? await chain.bp.account.session.fetchMultiple(bp.map((m) => BlockPuzzleChain.addresses(big(m.account.id)).session))
-    : [];
+  const sessions = await decodeAll(
+    bp.map((m) => BlockPuzzleChain.addresses(big(m.account.id)).session),
+    (data) => chain.bp.coder.accounts.decode("session", data),
+  );
   const winnerSeat = new Map<string, 0 | 1>();
   bp.forEach((m, i) => {
     const r = sessions[i]?.result;
@@ -101,8 +118,8 @@ async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerRec
   if (hd.length) {
     const { getHoldem } = await import("./client");
     const { addresses } = await import("@/games/holdem/chain");
-    const acc = getHoldem().program.account as Record<string, any>;
-    const tables: any[] = await acc.gameMatch.fetchMultiple(hd.map((m) => addresses(big(m.account.id)).gameMatch)).catch(() => []);
+    const program = getHoldem().program;
+    const tables = await decodeAll(hd.map((m) => addresses(big(m.account.id)).gameMatch), (data) => program.coder.accounts.decode("gameMatch", data));
     hd.forEach((m, i) => {
       const w = tables[i]?.winner;
       if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
