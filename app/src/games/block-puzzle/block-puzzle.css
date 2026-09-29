@@ -1,0 +1,82 @@
+/* Block Puzzle: the board and pieces are the colourful game art; chrome around it stays neutral.
+   Emerald appears only on gem cells. */
+.bp { display: grid; gap: 12px; width: min(100%, 440px); margin: 0 auto; position: relative; }
+.bp-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bp-seed { color: var(--fg-2); font-size: 11.5px; margin-right: auto; }
+.bp-clock { font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.bp-clock.low { color: var(--warn); }
+.bp-score { display: flex; align-items: baseline; justify-content: space-between; }
+.bp-score-n { font-size: 40px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+.bp-final { font-size: 64px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+.bp-title { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
+.bp-stage { position: relative; }
+.bp-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+.bp-board {
+  position: relative; display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; aspect-ratio: 1;
+  padding: 6px; background: radial-gradient(120% 90% at 20% 10%, #2a3350 0%, #141824 70%);
+  border: 1px solid var(--line); touch-action: manipulation;
+}
+.bp-cell {
+  appearance: none; border: 0; padding: 0; margin: 0; display: block; aspect-ratio: 1; min-width: 0;
+  border-radius: 3px; background: rgba(255, 255, 255, 0.06); position: relative;
+}
+.bp-board .bp-cell:disabled { cursor: default; }
+.bp-board.live .bp-cell { cursor: pointer; }
+.bp-cell:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; z-index: 2; }
+.bp-cell.k0.on, .bp-cell.k0.pop, .bp-mini .k0 { background: #f2b94b; }
+.bp-cell.k1.on, .bp-cell.k1.pop, .bp-mini .k1 { background: #7fd4f0; }
+.bp-cell.k2.on, .bp-cell.k2.pop, .bp-mini .k2 { background: #e97aa8; }
+.bp-cell.k3.on, .bp-cell.k3.pop, .bp-mini .k3 { background: #9c8cff; }
+.bp-cell.on { box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.28); }
+/* Gem cells: emerald-cut octagon, the only emerald on the board. */
+.bp-cell.gem.on, .bp-cell.gem.pop, .bp-mini .gem {
+  background: var(--facet); border-radius: 0; box-shadow: none;
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+.bp-cell.pv { background: rgba(255, 255, 255, 0.34); }
+.bp-cell.pv.bad { background: rgba(242, 104, 90, 0.35); }
+.bp-cell.on.pv { filter: brightness(1.2); }
+
+.bp-cell.pop { animation: bp-pop 320ms ease-out forwards; z-index: 1; }
+@keyframes bp-pop {
+  0% { transform: scale(1); filter: brightness(1.8); opacity: 1; }
+  60% { transform: scale(1.12); filter: brightness(2.2); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+.bp-popup {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, 0); pointer-events: none; z-index: 3;
+  font-weight: 900; font-size: 26px; letter-spacing: -0.02em; white-space: nowrap; color: var(--fg);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7); animation: bp-rise 800ms ease-out forwards;
+}
+.bp-popup.gem { color: var(--em-hi); }
+@keyframes bp-rise {
+  0% { opacity: 0; transform: translate(-50%, 8px); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -36px); }
+}
+
+.bp-overlay {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 20px;
+  background: rgba(12, 14, 16, 0.92); z-index: 4;
+}
+
+.bp-tray { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bp-slot {
+  appearance: none; height: 92px; display: grid; place-items: center; padding: 0;
+  background: var(--raised); border: 1px solid var(--line); border-radius: 0;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+}
+.bp-slot:not(:disabled) { cursor: grab; }
+.bp-slot.sel { background: #22272c; border-color: var(--fg); }
+.bp-slot.used { border-style: dashed; opacity: 0.5; }
+.bp-slot.stuck { opacity: 0.45; }
+.bp-slot:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
+.bp-mini { display: grid; gap: 2px; }
+.bp-mini .bp-cell { border-radius: 2px; }
+.bp-help { text-align: center; }
+
+.bp-ghost { position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; opacity: 0.9; }
+.bp-ghost .bp-mini { gap: 3px; }
+.bp-ghost .bp-cell { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
