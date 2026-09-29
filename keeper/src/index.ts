@@ -2,6 +2,7 @@ import { Budget, log, type Ctx } from "./act.ts";
 import { backingHygiene } from "./backing.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
 import { matchHygiene } from "./matches.ts";
+import { priceJob } from "./price.ts";
 import { buildRuntime, clusterNow, newConnection, rateLimit } from "./runtime.ts";
 import { yieldJob } from "./yield.ts";
 
@@ -14,6 +15,7 @@ async function pass(ctx: Ctx) {
   const jobs: [string, (c: Ctx) => Promise<number>][] = [
     ["match", matchHygiene],
     ["backing", backingHygiene],
+    ["price", priceJob],
     ["yield", yieldJob],
   ];
   for (const [name, job] of jobs) {
