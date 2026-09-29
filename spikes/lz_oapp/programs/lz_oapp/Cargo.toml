@@ -3,6 +3,7 @@ name = "lz_oapp"
 version = "0.1.0"
 description = "Tesoro spike S2/S3: LayerZero V2 OApp carrying Position messages"
 edition = "2021"
+rust-version = "1.84"
 
 [lib]
 crate-type = ["cdylib", "lib"]
