@@ -111,20 +111,61 @@ export function feeGemas(entry: bigint, platformBps: number, studioBps: number):
   return (pot * BigInt(platformBps)) / 10_000n + (pot * BigInt(studioBps)) / 10_000n;
 }
 
+export interface BackedSplit {
+  fees: number;
+  /** What the loser's entry leaves after Fees: the amount the Offer splits. */
+  surplus: number;
+  playerShare: number;
+  backerEntryBack: number;
+  backerSurplus: number;
+  /** Gemas the Backer gains (+) or loses (-) against before the Backing. */
+  backerNet: number;
+  /** Gemas the backed Player gains. Never negative: a backed Player is never debited. */
+  playerNet: number;
+}
+
+/** The Backing settlement rule (tesoro_core `win_payouts`): Backer's entry back first, then the Offer's split of the surplus. */
+export function backedSplit(a: { entry: number; platformBps: number; studioBps: number; shareBps: number; won: boolean }): BackedSplit {
+  if (!a.won) {
+    return { fees: 0, surplus: 0, playerShare: 0, backerEntryBack: 0, backerSurplus: 0, backerNet: -a.entry, playerNet: 0 };
+  }
+  const fees = Number(feeGemas(BigInt(a.entry), a.platformBps, a.studioBps));
+  const surplus = a.entry - fees;
+  const playerShare = Number((BigInt(surplus) * BigInt(a.shareBps)) / 10_000n);
+  const backerSurplus = surplus - playerShare;
+  return { fees, surplus, playerShare, backerEntryBack: a.entry, backerSurplus, backerNet: backerSurplus, playerNet: playerShare };
+}
+
+type Outcome = { session: { settled: boolean; result: "opener" | "joiner" | "draw" } | null; winner?: "opener" | "joiner" | null };
+const outcomeOf = (m: Outcome) => (m.session ? (m.session.settled ? m.session.result : null) : (m.winner ?? null));
+
 /**
  * Gemas won or lost at settlement, net of Fees. Refunds and draws are 0. Block Puzzle settles from
- * its Session; Hold'em has none, so a settled table's winner comes in as `winner`.
+ * its Session; Hold'em has none, so a settled table's winner comes in as `winner`. A backed Player
+ * (`backing`) only ever gains their share of the surplus and loses nothing.
  */
-export function matchDelta(m: {
-  seat: 0 | 1 | null;
-  entry: number;
-  fees: { platformBps: number; studioBps: number };
-  session: { settled: boolean; result: "opener" | "joiner" | "draw" } | null;
-  winner?: "opener" | "joiner" | null;
-}): number {
-  const result = m.session ? (m.session.settled ? m.session.result : null) : (m.winner ?? null);
+export function matchDelta(
+  m: Outcome & {
+    seat: 0 | 1 | null;
+    entry: number;
+    fees: { platformBps: number; studioBps: number };
+    backing?: { shareBps: number } | null;
+  },
+): number {
+  const result = outcomeOf(m);
   if (!result || m.seat === null || result === "draw") return 0;
   const won = (result === "opener") === (m.seat === 0);
+  if (m.backing) return backedSplit({ entry: m.entry, ...m.fees, shareBps: m.backing.shareBps, won }).playerNet;
   if (!won) return -m.entry;
   return m.entry - Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps));
+}
+
+/** The Backer's result of a Match they funded: the split on a win, the entry on a loss, 0 on a draw or refund. */
+export function backerDelta(
+  m: Outcome & { backerSeat: 0 | 1; entry: number; fees: { platformBps: number; studioBps: number }; shareBps: number },
+): number {
+  const result = outcomeOf(m);
+  if (!result || result === "draw") return 0;
+  const won = (result === "opener") === (m.backerSeat === 0);
+  return backedSplit({ entry: m.entry, ...m.fees, shareBps: m.shareBps, won }).backerNet;
 }

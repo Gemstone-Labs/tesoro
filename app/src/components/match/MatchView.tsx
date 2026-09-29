@@ -6,15 +6,17 @@ import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzle
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
 import { getChain } from "@/lib/chain/client";
-import { matchDelta } from "@/lib/chain/ledger";
+import { backerDelta, matchDelta } from "@/lib/chain/ledger";
 import { RunSubmitter, canClaimTimeout, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
+import { BackingSplit } from "./BackingSplit";
 
 type Phase =
   | "loading"
   | "notfound"
   | "spectator"
+  | "backer-watch"
   | "waiting"
   | "prep"
   | "ready"
@@ -80,8 +82,7 @@ export function MatchView({ matchId }: { matchId: string }) {
       setMatch(m);
       setRefundable(!!m && m.status === "active" && !m.session && Date.now() / 1000 > m.deadline);
       if (!m) return setPhase("notfound");
-      if (m.seat === null) return setPhase("spectator");
-      if (m.status === "open") return setPhase("waiting");
+      if (m.seat === null && m.backerSeat === null) return setPhase("spectator");
       if (m.status === "settled" || m.status === "refunded") {
         if (!settledSeen.current) {
           settledSeen.current = true;
@@ -89,6 +90,9 @@ export function MatchView({ matchId }: { matchId: string }) {
         }
         return setPhase("result");
       }
+      // The Backer funds a side without playing it: they watch until the result.
+      if (m.seat === null) return setPhase("backer-watch");
+      if (m.status === "open") return setPhase("waiting");
 
       const stage = await probeRun(signer, m);
       if (stage === "needs-prep") {
@@ -211,15 +215,17 @@ export function MatchView({ matchId }: { matchId: string }) {
   const m = match;
   const link = typeof window === "undefined" || !m ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
   const session = m?.session;
-  const mineIdx = m?.seat ?? 0;
+  const mineIdx = m?.seat ?? m?.backerSeat ?? 0;
+  const asBacker = !!m && m.seat === null && m.backerSeat !== null;
+  const playerBacked = !!m && m.seat !== null && m.backing !== null;
   const scores = session ? [session.scores[mineIdx], session.scores[1 - mineIdx]] : null;
-  const delta = m ? matchDelta(m) : 0;
+  const delta = !m ? 0 : asBacker && m.backing ? backerDelta({ ...m, backerSeat: m.backing.seat, shareBps: m.backing.shareBps }) : matchDelta(m);
   const outcome = !m || m.status === "open" || m.status === "active" ? null : !session ? "refunded" : session.result === "draw" ? "draw" : delta > 0 ? "won" : "lost";
 
   return (
     <div className="stack-lg" style={{ maxWidth: 480, margin: "0 auto" }}>
       <div className="spread">
-        <h1 className="page-title">Block Puzzle Match</h1>
+        <h1 className="page-title">{asBacker ? "Match you funded" : "Block Puzzle Match"}</h1>
         {m && (
           <Chip tone="money">
             <GemaAmount value={m.entry} size="sm" /> entry
@@ -227,12 +233,28 @@ export function MatchView({ matchId }: { matchId: string }) {
         )}
       </div>
 
+      {phase === "backer-watch" && m && (
+        <Card large>
+          <div className="stack">
+            <Label>{m.status === "open" ? "Your Player is waiting for an opponent" : "Your Player is in the Match"}</Label>
+            <p className="meta">
+              Your {fmtGemas(m.entry)} Gemas are in the Pot. You cannot play or steer this Match; the result settles on chain. If your
+              Player wins, your entry returns first and the surplus is split by your Offer. If they lose, you bear the loss.
+            </p>
+            <p className="status" role="status">Checking every few seconds…</p>
+          </div>
+        </Card>
+      )}
+
       {phase === "waiting" && m && (
         <Card large>
           <div className="stack">
             <Label>Waiting for an opponent</Label>
             <p className="meta">
-              Your entry of {fmtGemas(m.entry)} Gemas is held in escrow. Your run starts the moment an opponent joins: on
+              {playerBacked
+                ? `Your Backer's ${fmtGemas(m.entry)} Gemas are held in escrow as your entry.`
+                : `Your entry of ${fmtGemas(m.entry)} Gemas is held in escrow.`}{" "}
+              Your run starts the moment an opponent joins: on
               chain both Players get the same Seed and their own private Board, so play begins once you are paired. Keep this page open, or come back from the Lobby.
             </p>
             {m.challenge && (
@@ -251,7 +273,7 @@ export function MatchView({ matchId }: { matchId: string }) {
               </div>
             )}
             <Button disabled={busy !== null} onClick={() => act("refund", async () => addSig("refund", await refundMatch(signer, m.id)))}>
-              {busy === "refund" ? "Refunding…" : "Cancel and refund entry"}
+              {busy === "refund" ? "Refunding…" : playerBacked ? "Cancel (Gemas return to your Backer)" : "Cancel and refund entry"}
             </Button>
           </div>
         </Card>
@@ -273,7 +295,9 @@ export function MatchView({ matchId }: { matchId: string }) {
             <Label>Ready</Label>
             <p className="meta">
               You and your opponent play the same Seed, 90 seconds each. The clock starts when you press Start. Higher
-              score wins {fmtGemas(m.entry * 2 - Number(fmtFee(m)))} Gemas.
+              score wins {playerBacked && m.backing
+                ? `: your Backer's entry returns first, then you keep ${m.backing.shareBps / 100}% of the surplus. A loss costs you nothing.`
+                : `${fmtGemas(m.entry * 2 - Number(fmtFee(m)))} Gemas.`}
             </p>
             <Button variant="money" block disabled={phase === "starting"} onClick={begin}>
               {phase === "starting" ? "Starting…" : "Start run · 90 s"}
@@ -344,13 +368,13 @@ export function MatchView({ matchId }: { matchId: string }) {
             </span>
             {scores && (
               <dl className="kv">
-                <dt>Your score</dt>
+                <dt>{asBacker ? "Your Player's score" : "Your score"}</dt>
                 <dd>{scores[0]}</dd>
                 <dt>Opponent</dt>
                 <dd>{scores[1]}</dd>
                 <dt>Entry</dt>
                 <dd>{fmtGemas(m.entry)} Gemas</dd>
-                {outcome === "won" && (
+                {outcome === "won" && !m.backing && (
                   <>
                     <dt>Fees taken from the loser</dt>
                     <dd>{fmtFee(m)} Gemas</dd>
@@ -358,10 +382,15 @@ export function MatchView({ matchId }: { matchId: string }) {
                 )}
               </dl>
             )}
-            {outcome === "refunded" && <p className="meta">The Match ended without a result and your entry was returned.</p>}
-            {outcome === "draw" && <p className="meta">Equal scores: both entries were returned.</p>}
+            {m.backing && <BackingSplit m={m} />}
+            {!m.backing && outcome === "refunded" && <p className="meta">The Match ended without a result and your entry was returned.</p>}
+            {!m.backing && outcome === "draw" && <p className="meta">Equal scores: both entries were returned.</p>}
             <div className="hstack wrap">
-              <Button variant="money" href={`/play/queue?entry=${m.entry}`}>Play again</Button>
+              {asBacker ? (
+                <Button variant="money" href="/backing">Back a Player</Button>
+              ) : (
+                <Button variant="money" href={`/play/queue?entry=${m.entry}`}>Play again</Button>
+              )}
               <Button href="/">Lobby</Button>
               <Button href="/wallet">Wallet</Button>
             </div>

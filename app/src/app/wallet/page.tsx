@@ -54,6 +54,12 @@ export default function Wallet() {
       <div className="stack-lg">
         <div className="stack">
           <BalanceCard total={gemas.total} />
+          {gemas.reserved > 0 && (
+            <p className="note" role="status">
+              {fmtGemas(gemas.reserved)} of these are reserved for your Backing Offers; {fmtGemas(gemas.available)} available.{" "}
+              <a href="/backing">See Backing</a>
+            </p>
+          )}
           <BalanceSplit redeemable={gemas.redeemable} pending={gemas.pending} redeemableSources={redeemable.length} />
           <Button variant="money" block disabled={gemas.redeemable === 0 || onChain} onClick={() => auth.gate("Redeem", () => setRedeemOpen(true))}>
             Redeem {fmtGemas(gemas.redeemable)}

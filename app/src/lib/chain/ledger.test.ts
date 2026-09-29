@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EntryError, covered, debtGemas, feeGemas, matchDelta, planEntry, redeemableFor, unitsToRepay, type SourceMath } from "./ledger";
+import { EntryError, backedSplit, backerDelta, covered, debtGemas, feeGemas, matchDelta, planEntry, redeemableFor, unitsToRepay, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -60,5 +60,35 @@ describe("match outcome", () => {
     expect(matchDelta({ ...m, seat: 1 })).toBe(-1000);
     expect(matchDelta({ ...m, session: { settled: true, result: "draw" } })).toBe(0);
     expect(matchDelta({ ...m, session: { settled: false, result: "opener" } })).toBe(0);
+  });
+});
+
+describe("backed settlement", () => {
+  const fees = { platformBps: 200, studioBps: 300 };
+  const won = { entry: 1000, ...fees, shareBps: 4000, won: true };
+  it("returns the Backer's entry first, then splits the surplus after Fees", () => {
+    // Pot 2,000, Fees 100 from the loser's 1,000, surplus 900: Player 40% = 360, Backer 540.
+    expect(backedSplit(won)).toEqual({
+      fees: 100,
+      surplus: 900,
+      playerShare: 360,
+      backerEntryBack: 1000,
+      backerSurplus: 540,
+      backerNet: 540,
+      playerNet: 360,
+    });
+  });
+  it("on a loss the Backer bears the entry and the Player gains nothing", () => {
+    const s = backedSplit({ ...won, won: false });
+    expect(s.backerNet).toBe(-1000);
+    expect(s.playerNet).toBe(0);
+  });
+  it("derives each party's delta from the settled result", () => {
+    const m = { entry: 1000, fees, shareBps: 4000, session: { settled: true, result: "opener" as const } };
+    expect(matchDelta({ ...m, seat: 0, backing: { shareBps: 4000 } })).toBe(360);
+    expect(matchDelta({ ...m, seat: 1, backing: { shareBps: 4000 } })).toBe(0);
+    expect(backerDelta({ ...m, backerSeat: 0 })).toBe(540);
+    expect(backerDelta({ ...m, backerSeat: 1 })).toBe(-1000);
+    expect(backerDelta({ ...m, backerSeat: 1, session: { settled: true, result: "draw" } })).toBe(0);
   });
 });
