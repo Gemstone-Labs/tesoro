@@ -250,6 +250,9 @@ export async function handleDemoRequest(raw: unknown, authorization: string | nu
   } catch {
     throw new DemoHttpError(400, "bad-request", "Malformed address.");
   }
+  if (body.step !== "fund" && process.env.TESORO_DEMO_ADVANCE !== "1") {
+    throw new DemoHttpError(410, "disabled", "The demo Advance is off. Open a real Position with simSOL instead.");
+  }
   const sub = await authenticate({ step: body.step as Step, address: body.address, ts: body.ts, signature: body.signature }, authorization);
   switch (body.step) {
     case "fund":
