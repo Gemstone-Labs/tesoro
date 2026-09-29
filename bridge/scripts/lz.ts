@@ -1,14 +1,11 @@
-// Spike S2/S3 driver for the Solana OApp (program lz_oapp). Usage:
+// Driver for the tesoro_bridge LayerZero wiring. Usage:
 //   ts-node-transpile-only scripts/lz.ts <cmd> [args]
-//   init                              register the Store PDA as an OApp (delegate = payer)
-//   wire <eid> <peer0x>               peer + enforced options + endpoint nonce/send/receive lib init (+ ULN config init)
-//   defaults <eid>                    print default send/receive ULN + executor config for the pathway
-//   config <eid>                      print the OApp's effective (resolved) config
-//   set-uln <eid> <dvnBase58> <sendConf> <recvConf>   explicit DVN config (required DVN) for both directions
-//   init-position <eid> <positionId0x>   create the Position record before its first EVM -> Solana message
-//   quote <eid>                       fee for one message
-//   send <eid> <type 3|4> <positionId0x> <amount>
-//   state <eid> <positionId0x>        Position PDA contents
+//   init                                   register the Store PDA as an OApp (delegate = payer)
+//   wire <eid> <vault0x> <decimals> <rateBps>   PeerConfig for one EVM vault + endpoint nonce/send/receive lib init (+ ULN config init)
+//   defaults <eid>                         default send/receive ULN + executor config for the pathway
+//   config <eid>                           the OApp's effective (resolved) config
+//   set-uln <eid> <dvnBase58> <sendConf> <recvConf>
+//   quote <eid> <vault0x> <type 3|4>       fee for one outbound message
 import { readFileSync } from 'fs'
 import { homedir } from 'os'
 import { createHash } from 'crypto'
@@ -31,7 +28,7 @@ import { Options } from '@layerzerolabs/lz-v2-utilities'
 
 import { EndpointProgram, UlnProgram } from '@layerzerolabs/lz-solana-sdk-v2/umi'
 
-const PROGRAM_ID = new PublicKey('GA9hzB3RY6jmoPjh58H8V2kU6eg8isDr5h9op7pigJM2')
+const PROGRAM_ID = new PublicKey('5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ')
 const RPC = process.env.SOLANA_RPC ?? 'https://api.devnet.solana.com'
 const connection = new Connection(RPC, 'confirmed')
 const payer = Keypair.fromSecretKey(
@@ -62,7 +59,7 @@ const initConfig = (_p: unknown, a: { admin: any; payer: any }, eid: number) =>
     )
 
 // Enforced options applied when Solana sends to an EVM peer (lzReceive gas on the EVM side).
-const EVM_RECEIVE_GAS = Number(process.env.EVM_RECEIVE_GAS ?? 150_000)
+const EVM_RECEIVE_GAS = Number(process.env.EVM_RECEIVE_GAS ?? 250_000)
 
 const disc = (name: string) => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8)
 const u32be = (n: number) => Buffer.from([(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255])
@@ -78,10 +75,8 @@ const hex32 = (h: string) => {
     if (b.length !== 32) throw new Error('need 32 bytes')
     return b
 }
-const positionPda = (eid: number, id: Buffer) =>
-    PublicKey.findProgramAddressSync([Buffer.from('Position'), u32be(eid), id], PROGRAM_ID)[0]
-const peerPda = (eid: number) =>
-    PublicKey.findProgramAddressSync([Buffer.from('Peer'), store.toBuffer(), u32be(eid)], PROGRAM_ID)[0]
+const peerPda = (eid: number, peer: Buffer) =>
+    PublicKey.findProgramAddressSync([Buffer.from('Peer'), store.toBuffer(), u32be(eid), peer], PROGRAM_ID)[0]
 const um2web = (w: any) => toWeb3JsInstruction(w.instruction ?? w)
 
 async function run(name: string, ixs: TransactionInstruction[], cu = 400_000) {
@@ -118,26 +113,33 @@ async function init() {
     console.log('store PDA (OApp address / peer address on EVM):', store.toBase58(), '0x' + store.toBuffer().toString('hex'))
 }
 
-function setPeerIx(eid: number, config: Buffer) {
+function setPeerIx(eid: number, peer: Buffer, decimals: number, rateBps: number) {
+    const rate = Buffer.alloc(2)
+    rate.writeUInt16LE(rateBps)
     return new TransactionInstruction({
         programId: PROGRAM_ID,
         keys: [
             { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-            { pubkey: peerPda(eid), isSigner: false, isWritable: true },
+            { pubkey: peerPda(eid, peer), isSigner: false, isWritable: true },
             { pubkey: store, isSigner: false, isWritable: false },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
-        data: Buffer.concat([disc('set_peer_config'), Buffer.from(new Uint32Array([eid]).buffer), config]),
+        data: Buffer.concat([
+            disc('set_peer_config'),
+            Buffer.from(new Uint32Array([eid]).buffer),
+            peer,
+            Buffer.from([decimals]),
+            rate,
+            vecU8(evmOptions()),
+        ]),
     })
 }
 
-async function wire(eid: number, peerHex: string) {
-    const peer = hex32(peerHex)
+async function wire(eid: number, vaultHex: string, decimals: number, rateBps: number) {
+    const peer = hex32(vaultHex)
     const oapp = umiKey(store.toBase58())
     const signer = umiSigner
-    const mk = (cfg: Buffer) => setPeerIx(eid, cfg)
-    await run('set_peer_address', [mk(Buffer.concat([Buffer.from([0]), peer]))])
-    await run('set_enforced_options', [mk(Buffer.concat([Buffer.from([1]), vecU8(evmOptions())]))])
+    await run('set_peer_config', [setPeerIx(eid, peer, decimals, rateBps)])
 
     const ixs: TransactionInstruction[] = []
     const nonceInfo = await connection.getAccountInfo(toWeb3JsPublicKey(endpoint.pda.nonce(oapp, eid, peer)[0]))
@@ -203,28 +205,22 @@ async function setUln(eid: number, dvn: string, sendConf: number, recvConf: numb
     await run('set_uln_config', ixs)
 }
 
-async function quoteAccounts(eid: number) {
+async function quote(eid: number, vaultHex: string, type: number) {
+    const peer = hex32(vaultHex)
     const oapp = umiKey(store.toBase58())
-    const rpc = umi.rpc
-    const lib = await endpoint.getSendLibrary(rpc, oapp, eid)
+    const lib = await endpoint.getSendLibrary(umi.rpc, oapp, eid)
     if (!lib.programId) throw new Error('send library not initialized')
-    const receiver = Uint8Array.from((await connection.getAccountInfo(peerPda(eid)))!.data.subarray(8, 40))
-    const path = { dstEid: eid, sender: oapp, receiver }
-    return { path, lib: lib.programId }
-}
-
-async function quote(eid: number) {
-    const { path, lib } = await quoteAccounts(eid)
-    const remaining = await endpoint.getQuoteIXAccountMetaForCPI(umi.rpc, umiSigner.publicKey, { path, msgLibProgram: new UlnProgram.Uln(lib) })
+    const path = { dstEid: eid, sender: oapp, receiver: Uint8Array.from(peer) }
+    const remaining = await endpoint.getQuoteIXAccountMetaForCPI(umi.rpc, umiSigner.publicKey, { path, msgLibProgram: new UlnProgram.Uln(lib.programId) })
     const ix = new TransactionInstruction({
         programId: PROGRAM_ID,
         keys: [
             { pubkey: store, isSigner: false, isWritable: false },
-            { pubkey: peerPda(eid), isSigner: false, isWritable: false },
+            { pubkey: peerPda(eid, peer), isSigner: false, isWritable: false },
             { pubkey: toWeb3JsPublicKey(endpoint.pda.setting()[0]), isSigner: false, isWritable: false },
             ...remaining!.map((m) => ({ pubkey: toWeb3JsPublicKey(m.pubkey), isSigner: m.isSigner, isWritable: m.isWritable })),
         ],
-        data: Buffer.concat([disc('quote_send'), Buffer.from(new Uint32Array([eid]).buffer), vecU8(new Uint8Array(0)), Buffer.from([0])]),
+        data: Buffer.concat([disc('quote_send'), Buffer.from(new Uint32Array([eid]).buffer), peer, Buffer.from([type]), vecU8(new Uint8Array(0)), Buffer.from([0])]),
     })
     const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix)
     tx.feePayer = payer.publicKey
@@ -234,89 +230,18 @@ async function quote(eid: number) {
         throw new Error(`quote failed ${JSON.stringify(sim.value.err)}`)
     }
     const b = Buffer.from(sim.value.returnData.data[0], 'base64')
-    const nativeFee = b.readBigUInt64LE(0)
-    console.log(`quote eid ${eid}: native_fee=${nativeFee} lamports lz_token_fee=${b.readBigUInt64LE(8)}`)
-    return nativeFee
-}
-
-async function send(eid: number, type: number, posHex: string, amount: bigint) {
-    const id = hex32(posHex)
-    const fee = await quote(eid)
-    const { path, lib } = await quoteAccounts(eid)
-    const remaining = await endpoint.getSendIXAccountMetaForCPI(umi.rpc, umiSigner.publicKey, { path, msgLibProgram: new UlnProgram.Uln(lib) })
-    const data = Buffer.concat([
-        disc('send'),
-        Buffer.from(new Uint32Array([eid]).buffer),
-        Buffer.from([type]),
-        id,
-        Buffer.from(amount.toString(16).padStart(32, '0'), 'hex').reverse(), // u128 borsh = little-endian
-        vecU8(new Uint8Array(0)),
-        u64le(fee),
-        u64le(0n),
-    ])
-    const ix = new TransactionInstruction({
-        programId: PROGRAM_ID,
-        keys: [
-            { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-            { pubkey: peerPda(eid), isSigner: false, isWritable: false },
-            { pubkey: store, isSigner: false, isWritable: false },
-            { pubkey: positionPda(eid, id), isSigner: false, isWritable: true },
-            { pubkey: toWeb3JsPublicKey(endpoint.pda.setting()[0]), isSigner: false, isWritable: false },
-            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-            ...remaining!.map((m) => ({ pubkey: toWeb3JsPublicKey(m.pubkey), isSigner: m.isSigner, isWritable: m.isWritable })),
-        ],
-        data,
-    })
-    await run('send', [ix], 600_000)
-}
-
-async function initPosition(eid: number, posHex: string) {
-    const id = hex32(posHex)
-    const ix = new TransactionInstruction({
-        programId: PROGRAM_ID,
-        keys: [
-            { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-            { pubkey: peerPda(eid), isSigner: false, isWritable: false },
-            { pubkey: store, isSigner: false, isWritable: false },
-            { pubkey: positionPda(eid, id), isSigner: false, isWritable: true },
-            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        data: Buffer.concat([disc('init_position'), Buffer.from(new Uint32Array([eid]).buffer), id]),
-    })
-    await run('init_position', [ix])
-}
-
-async function state(eid: number, posHex: string) {
-    const id = hex32(posHex)
-    const p = positionPda(eid, id)
-    const info = await connection.getAccountInfo(p)
-    if (!info) return console.log('position', p.toBase58(), 'not found')
-    const d = info.data
-    let o = 8
-    const rd = (n: number) => ((o += n), d.subarray(o - n, o))
-    const sourceChain = rd(4).readUInt32LE(0)
-    const pid = rd(32).toString('hex')
-    const lastInSeq = rd(8).readBigUInt64LE(0)
-    const lastInType = rd(1)[0]
-    const lastInAmount = Buffer.from(rd(16)).reverse().toString('hex')
-    const lastOutSeq = rd(8).readBigUInt64LE(0)
-    const lastOutType = rd(1)[0]
-    const lastOutAmount = Buffer.from(rd(16)).reverse().toString('hex')
-    console.log(JSON.stringify({ pda: p.toBase58(), sourceChain, positionId: pid, lastInSeq: lastInSeq.toString(), lastInType, lastInAmount: BigInt('0x' + lastInAmount).toString(), lastOutSeq: lastOutSeq.toString(), lastOutType, lastOutAmount: BigInt('0x' + lastOutAmount).toString() }))
+    console.log(`quote eid ${eid} type ${type}: native_fee=${b.readBigUInt64LE(0)} lamports`)
 }
 
 async function main() {
     const [cmd, ...a] = process.argv.slice(2)
     switch (cmd) {
         case 'init': return init()
-        case 'wire': return wire(Number(a[0]), a[1])
+        case 'wire': return wire(Number(a[0]), a[1], Number(a[2]), Number(a[3]))
         case 'defaults': return defaults(Number(a[0]))
         case 'config': return config(Number(a[0]))
         case 'set-uln': return setUln(Number(a[0]), a[1], Number(a[2]), Number(a[3]))
-        case 'quote': return void (await quote(Number(a[0])))
-        case 'send': return send(Number(a[0]), Number(a[1]), a[2], BigInt(a[3]))
-        case 'init-position': return initPosition(Number(a[0]), a[1])
-        case 'state': return state(Number(a[0]), a[1])
+        case 'quote': return quote(Number(a[0]), a[1], Number(a[2]))
         default: throw new Error('unknown command')
     }
 }
