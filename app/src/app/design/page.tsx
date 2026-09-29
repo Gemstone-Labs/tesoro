@@ -41,6 +41,9 @@ const SAMPLE_AUTH: AuthState = {
   gate: (_r, a) => a(),
   openSignIn: () => {},
   openAccount: () => {},
+  signer: null,
+  getAccessToken: async () => null,
+  devWallet: false,
 };
 
 const TOKENS: [string, string][] = [

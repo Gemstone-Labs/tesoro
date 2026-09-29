@@ -82,7 +82,27 @@ Checks (all pass): TEE attestation; refund deadline pushed to submission deadlin
 
 TEE transactions are private (redacted to outsiders), so they have no public explorer link; full signatures are in `evidence.json`.
 
-## What the app still needs
+## Browser run (2026-09-30)
+
+A full Queue Match driven from the app in two real browser sessions at 390 px (dev-only local wallets `dev-alice`, `dev-bob`; each took the simulated demo Advance for 7,500 Gemas first, see `app/docs/demo-funding.md`). Alice pressed Enter (1,000): no open Match, so she opened one; Bob pressed Enter and joined it; each client prepared the Match (session, Seed, delegation, private permission), each played a 90 s run from the Seed with moves streamed to the TEE in batches of 4, and Bob's client settled. Alice 151 vs Bob 42, Alice won: Gemas 7,500 / 7,500 became 8,400 / 6,500 (entry 1,000, fees 100).
+
+Match id `3581434606036`, Match PDA `5pJ7ZZPBseau46mCgLbaawWydMHnZHiXF3Nwy5pzxsc1`, Session `FQj2Yf43wxET5ntwcpSSSaG3LmfMbdk5c1pc5itBLuNV`. Base-layer signatures (TEE transactions are private):
+
+| Step | Signature |
+|---|---|
+| open_match (Alice) | `4Ljpy8banow137KqfjELtcwovaqSXjkR9x4aY39YX1JwoKCFiFs2rUEV8AeqXaDkEBrJvDADh6VQg9dq8YstE5bG` |
+| join_match (Bob) | `C62YLACEmF3NGhwSqPVUvRH9QWAmpkWL9fpWzURdvysm1jM7tVGzMuwcKcyaQTk5zcqer4rTnF7hQ1CZSdo1BqZ` |
+| start_session (both clients raced; both landed in the list) | `2MRf2FKkuN2goUFaAUT5AhNuUDhm93bs4K1Kiop7qeTBV9DDnMCn5rutYmtQMYiJq9Lg6Z5hBbj1znRbKeU5vj33` / `4PMN6YxxHdQPmJdFwFY2SUCuHF2uhWMMBrNwWAbzGohJWD7qhjDQaU4eyvmqYAWABTM1XnL3KEPn5UqDSEQ9NdmS` |
+| reveal_seed + extend deadline | `61YXtDm2j9jeRwvyGsx6MknpsyS2jPDfe9346PtcPYiwA121DYfnDBKWzJFeTkiBWDDRsZUbiVptg3mCD8Wevm78` |
+| delegate_boards | `5R9QoahXju3qNfmF1qcoZh3YFQPeGhSQLbCtEMdx4M6DPyGE6XY5ZvLeELozU4ZLWjJ8fxYFw4dsgAHJgypRDMkw` / `2LkY1f9kE7eZFiyjuifGAM1Qm3qTXWTZWYrX48yzWUBXPz5pm19WKuGbUEhEYyW8ZB4wi5kiXJjFzESBLLAzoxjp` |
+| Boards undelegated (commit) | `3h4FSHrRUHRosYcBZH6o7GRbtSsysxf7M7WnE6c7jNqfrnxq2xtdk86EbDfTRwbMKDdVav4xMdNYZbu9k23dSEJr` |
+| settle (CPI to tesoro_core) | `4qbewWBAi7H3QjrXWyNZFXURzLLS5HG4uxf1e9ZD5mZp3BGvVuL92ncxZUKqeNKarmrsFgmxUuqrBTVrtum1qYhT` |
+
+A Challenge (`/play/challenge?entry=500`, odd id `3581435845959`) was also opened by Alice and joined by opening its link as Bob; both clients prepared it. Screenshots: `app/docs/screens/live-*.png`.
+
+Findings: on chain a run cannot start before an opponent joins (`start_session` needs an Active Match), so "play before an opponent is paired" is not possible yet; the app shows "Waiting for an opponent" and prepares the Match automatically the moment one joins. Queue vs Challenge is not modelled by tesoro_core; the app marks Challenge Matches with an odd Match id.
+
+## What the app still needs (partly done: signer, IDL client, Queue, Challenge and orchestration are in the app; keeper and consolidation remain)
 
 - Add `@coral-xyz/anchor`, `@solana/web3.js`, `@magicblock-labs/ephemeral-rollups-sdk` and `tweetnacl` to `app/package.json`; load `target/idl/block_puzzle.json` and `tesoro_core.json` and construct `new BlockPuzzleChain({ base, blockPuzzleIdl, coreIdl })`.
 - A wallet adapter exposing `signTransaction` and `signMessage` (TEE auth) as a `ChainSigner`.

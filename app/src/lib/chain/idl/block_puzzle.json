@@ -1,0 +1,1880 @@
+{
+  "address": "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj",
+  "metadata": {
+    "name": "block_puzzle",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "begin_run",
+      "docs": [
+        "Rollup, the Player. Starts the Player's clock."
+      ],
+      "discriminator": [
+        81,
+        234,
+        119,
+        96,
+        247,
+        228,
+        29,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true,
+          "relations": [
+            "board"
+          ]
+        },
+        {
+          "name": "board",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_timeout",
+      "docs": [
+        "Base layer, anyone, after the submission deadline. For a Match whose Boards were never",
+        "delegated (nobody played): both Players forfeit, so both entries are refunded. A Board",
+        "that is still delegated cannot be claimed here; `seal` + `commit_boards` come first."
+      ],
+      "discriminator": [
+        130,
+        234,
+        45,
+        53,
+        120,
+        90,
+        86,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.match_state",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "board_0"
+        },
+        {
+          "name": "board_1"
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "tesoro_core_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "commit_boards",
+      "docs": [
+        "Rollup, anyone. Closes both permissions and commits + undelegates the sealed Boards to",
+        "the base layer, where their contents become public."
+      ],
+      "discriminator": [
+        140,
+        83,
+        64,
+        176,
+        213,
+        118,
+        159,
+        124
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "board_0",
+          "writable": true
+        },
+        {
+          "name": "board_1",
+          "writable": true
+        },
+        {
+          "name": "permission_0",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_boards",
+      "docs": [
+        "Base layer, anyone. Delegates both Boards to the TEE validator (pass its identity)."
+      ],
+      "discriminator": [
+        71,
+        2,
+        222,
+        55,
+        154,
+        179,
+        185,
+        211
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "session",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.match_state",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buffer_board_0",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_0"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                66,
+                252,
+                204,
+                94,
+                191,
+                185,
+                144,
+                147,
+                75,
+                164,
+                208,
+                73,
+                223,
+                102,
+                247,
+                74,
+                128,
+                91,
+                97,
+                170,
+                137,
+                116,
+                64,
+                193,
+                131,
+                225,
+                30,
+                149,
+                223,
+                224,
+                219,
+                26
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_board_0",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_0"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_board_0",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_0"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "board_0",
+          "writable": true
+        },
+        {
+          "name": "buffer_board_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_1"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                66,
+                252,
+                204,
+                94,
+                191,
+                185,
+                144,
+                147,
+                75,
+                164,
+                208,
+                73,
+                223,
+                102,
+                247,
+                74,
+                128,
+                91,
+                97,
+                170,
+                137,
+                116,
+                64,
+                193,
+                131,
+                225,
+                30,
+                149,
+                223,
+                224,
+                219,
+                26
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_board_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_1"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_board_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board_1"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "board_1",
+          "writable": true
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "finish",
+      "docs": [
+        "Rollup, the Player. Ends the run early; the score is what has been replayed."
+      ],
+      "discriminator": [
+        67,
+        74,
+        170,
+        132,
+        125,
+        233,
+        182,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true,
+          "relations": [
+            "board"
+          ]
+        },
+        {
+          "name": "board",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_permission",
+      "docs": [
+        "Rollup, anyone. Creates the Board's permission: private, readable only by its Player."
+      ],
+      "discriminator": [
+        66,
+        14,
+        153,
+        250,
+        187,
+        36,
+        179,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "board",
+          "writable": true
+        },
+        {
+          "name": "permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "board"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "play",
+      "docs": [
+        "Rollup, the Player. Replays `moves` on the Board with the engine. An illegal move",
+        "rejects the whole transaction. The run ends when the engine reports game over."
+      ],
+      "discriminator": [
+        213,
+        157,
+        193,
+        142,
+        228,
+        56,
+        248,
+        150
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true,
+          "relations": [
+            "board"
+          ]
+        },
+        {
+          "name": "board",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "moves",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "MoveArg"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  110,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  45,
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_account"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                181,
+                183,
+                0,
+                225,
+                242,
+                87,
+                58,
+                192,
+                204,
+                6,
+                34,
+                1,
+                52,
+                74,
+                207,
+                151,
+                184,
+                53,
+                6,
+                235,
+                140,
+                229,
+                25,
+                152,
+                204,
+                98,
+                126,
+                24,
+                147,
+                128,
+                167,
+                62
+              ]
+            }
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    },
+    {
+      "name": "reveal_seed",
+      "docs": [
+        "Base layer, anyone. Once the committed slot is behind us, the Seed is the hash of that",
+        "slot's SlotHashes entry mixed with the Match address. Nobody knew it when the Match was",
+        "joined or when the slot was committed, and nobody can withhold it (anyone may call).",
+        "Also sets the submission deadline and extends the `tesoro_core` refund deadline past it."
+      ],
+      "discriminator": [
+        196,
+        119,
+        194,
+        112,
+        156,
+        211,
+        239,
+        105
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.match_state",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "board_0",
+          "writable": true
+        },
+        {
+          "name": "board_1",
+          "writable": true
+        },
+        {
+          "name": "slot_hashes",
+          "address": "SysvarS1otHashes111111111111111111111111111"
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "tesoro_core_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "seal",
+      "docs": [
+        "Rollup, anyone. Marks both Boards final: allowed only when both runs are closed",
+        "(finished, game over, or their window elapsed) or the submission deadline passed, so",
+        "nobody's moves are exposed while the other Player can still play. The permissionless",
+        "timeout: a Player who never began simply forfeits."
+      ],
+      "discriminator": [
+        102,
+        202,
+        171,
+        163,
+        27,
+        152,
+        105,
+        242
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "board_0",
+          "writable": true
+        },
+        {
+          "name": "board_1",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "settle",
+      "docs": [
+        "Base layer, anyone. Settles the Pot through `tesoro_core` from the committed Boards.",
+        "`remaining_accounts` are the payout accounts as for `tesoro_core::settle_match`."
+      ],
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "signer": true
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session.match_state",
+                "account": "Session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "board_0"
+        },
+        {
+          "name": "board_1"
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "match_state",
+          "writable": true
+        },
+        {
+          "name": "tesoro_core_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "start_session",
+      "docs": [
+        "Base layer, anyone. Binds a Session and one Board per Player to an Active `tesoro_core`",
+        "Match of this Game, and commits to a future slot for the Seed."
+      ],
+      "discriminator": [
+        23,
+        227,
+        111,
+        142,
+        212,
+        230,
+        3,
+        175
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "match_state"
+        },
+        {
+          "name": "account_a"
+        },
+        {
+          "name": "account_b"
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state"
+              }
+            ]
+          }
+        },
+        {
+          "name": "board_0",
+          "writable": true
+        },
+        {
+          "name": "board_1",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Board",
+      "discriminator": [
+        79,
+        48,
+        160,
+        63,
+        153,
+        132,
+        240,
+        56
+      ]
+    },
+    {
+      "name": "MatchState",
+      "discriminator": [
+        250,
+        209,
+        137,
+        70,
+        235,
+        96,
+        121,
+        216
+      ]
+    },
+    {
+      "name": "Session",
+      "discriminator": [
+        243,
+        81,
+        72,
+        115,
+        214,
+        188,
+        72,
+        144
+      ]
+    },
+    {
+      "name": "TesoroAccount",
+      "discriminator": [
+        50,
+        226,
+        60,
+        36,
+        163,
+        217,
+        197,
+        178
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "SessionSettled",
+      "discriminator": [
+        127,
+        161,
+        59,
+        136,
+        23,
+        168,
+        191,
+        149
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAccount",
+      "msg": "account does not match"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidMatch",
+      "msg": "match is not an active Block Puzzle match"
+    },
+    {
+      "code": 6002,
+      "name": "SeedAlreadyRevealed",
+      "msg": "seed is already revealed"
+    },
+    {
+      "code": 6003,
+      "name": "SeedNotReady",
+      "msg": "seed is not revealed yet"
+    },
+    {
+      "code": 6004,
+      "name": "SeedTooEarly",
+      "msg": "committed slot has not passed yet"
+    },
+    {
+      "code": 6005,
+      "name": "BadSlotHashes",
+      "msg": "slot hashes are malformed"
+    },
+    {
+      "code": 6006,
+      "name": "NotThePlayer",
+      "msg": "signer is not this board's player"
+    },
+    {
+      "code": 6007,
+      "name": "PermissionNotReady",
+      "msg": "board permission is not set up"
+    },
+    {
+      "code": 6008,
+      "name": "AlreadyBegan",
+      "msg": "run already began"
+    },
+    {
+      "code": 6009,
+      "name": "NotBegan",
+      "msg": "run has not begun"
+    },
+    {
+      "code": 6010,
+      "name": "RunClosed",
+      "msg": "run is finished"
+    },
+    {
+      "code": 6011,
+      "name": "PlayWindowClosed",
+      "msg": "play window closed"
+    },
+    {
+      "code": 6012,
+      "name": "DeadlinePassed",
+      "msg": "submission deadline passed"
+    },
+    {
+      "code": 6013,
+      "name": "BadBatch",
+      "msg": "submit between 1 and 40 moves"
+    },
+    {
+      "code": 6014,
+      "name": "IllegalMove",
+      "msg": "illegal move"
+    },
+    {
+      "code": 6015,
+      "name": "NotSealable",
+      "msg": "board is not ready to seal yet"
+    },
+    {
+      "code": 6016,
+      "name": "NotSealed",
+      "msg": "boards are not sealed"
+    },
+    {
+      "code": 6017,
+      "name": "AlreadySettled",
+      "msg": "session already settled"
+    },
+    {
+      "code": 6018,
+      "name": "NotExpired",
+      "msg": "deadline not reached"
+    },
+    {
+      "code": 6019,
+      "name": "Overflow",
+      "msg": "arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "Account",
+      "docs": [
+        "One Account's identity ledger. Balances mirror the sum of its Holdings, split by whether the",
+        "Gemas are own-sourced (Source owned by this Account) or won (any other Source)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "own_total",
+            "type": "u64"
+          },
+          {
+            "name": "won_total",
+            "type": "u64"
+          },
+          {
+            "name": "own_reserved",
+            "docs": [
+              "Reserved for Offers (part of the totals, not free to enter Matches or redeem)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "won_reserved",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Board",
+      "docs": [
+        "One Player's run. Private in the rollup; public once committed after both runs close."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "session",
+            "type": "pubkey"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "seed",
+            "type": "u64"
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "permission_ready",
+            "type": "bool"
+          },
+          {
+            "name": "started_at",
+            "type": "i64"
+          },
+          {
+            "name": "finished",
+            "type": "bool"
+          },
+          {
+            "name": "sealed",
+            "type": "bool"
+          },
+          {
+            "name": "occ",
+            "type": "u64"
+          },
+          {
+            "name": "gems",
+            "type": "u64"
+          },
+          {
+            "name": "score",
+            "type": "u32"
+          },
+          {
+            "name": "moves",
+            "type": "u16"
+          },
+          {
+            "name": "used",
+            "type": "u8"
+          },
+          {
+            "name": "over",
+            "type": "bool"
+          },
+          {
+            "name": "log",
+            "docs": [
+              "Packed moves: `piece | x << 16 | y << 24`. Lets anyone re-verify the score."
+            ],
+            "type": {
+              "array": [
+                "u32",
+                120
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeTerms",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "platform_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "platform_recipient",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "studio_recipient",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Line",
+      "docs": [
+        "A slice of Gemas of one Source moving into a Pot or a reservation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Match",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "entry",
+            "type": "u64"
+          },
+          {
+            "name": "fees",
+            "docs": [
+              "Fee terms snapshotted when the Match opened."
+            ],
+            "type": {
+              "defined": {
+                "name": "FeeTerms"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "MatchStatus"
+              }
+            }
+          },
+          {
+            "name": "a",
+            "type": {
+              "defined": {
+                "name": "Side"
+              }
+            }
+          },
+          {
+            "name": "b",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "Side"
+                }
+              }
+            }
+          },
+          {
+            "name": "deadline",
+            "docs": [
+              "After this time anyone may refund the Match as abandoned / no-show."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "Match"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Refunded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MoveArg",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "piece",
+            "type": "u16"
+          },
+          {
+            "name": "x",
+            "type": "u8"
+          },
+          {
+            "name": "y",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Session",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority_bump",
+            "type": "u8"
+          },
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "players",
+            "docs": [
+              "Wallets of the seats: 0 opened the `tesoro_core` Match, 1 joined."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "commit_slot",
+            "type": "u64"
+          },
+          {
+            "name": "seed_ready",
+            "type": "bool"
+          },
+          {
+            "name": "seed",
+            "type": "u64"
+          },
+          {
+            "name": "deadline",
+            "docs": [
+              "End of the submission window: Players who have not begun by then forfeit."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "settled",
+            "type": "bool"
+          },
+          {
+            "name": "result",
+            "docs": [
+              "0 = opener wins, 1 = joiner wins, 2 = draw."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "scores",
+            "type": {
+              "array": [
+                "u32",
+                2
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_state",
+            "type": "pubkey"
+          },
+          {
+            "name": "result",
+            "docs": [
+              "0 = opener wins, 1 = joiner wins, 2 = draw."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "scores",
+            "type": {
+              "array": [
+                "u32",
+                2
+              ]
+            }
+          },
+          {
+            "name": "forfeited",
+            "type": {
+              "array": [
+                "bool",
+                2
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Side",
+      "docs": [
+        "One entrant. `funder == player` unless the entry is backed; then `share_bps` is the Player's",
+        "share of the surplus from the accepted Offer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "funder",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "share_bps",
+            "type": "u16"
+          },
+          {
+            "name": "lines",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Line"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TesoroAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Solana wallet that controls the Account."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "evm_address",
+            "docs": [
+              "The EVM family address of the Account (zero until set)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "Account"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

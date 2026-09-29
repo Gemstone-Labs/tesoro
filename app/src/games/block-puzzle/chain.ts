@@ -86,10 +86,13 @@ const le8 = (n: bigint | number | BN) => new BN(n.toString()).toArrayLike(Buffer
 const keyCmp = (a: PublicKey, b: PublicKey) => Buffer.compare(a.toBuffer(), b.toBuffer());
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 
+/** An IDL program whose accounts are looked up by name at runtime (the IDLs are loaded as JSON). */
+export type AnyProgram = Omit<Program<any>, "account"> & { account: Record<string, any> };
+
 export class BlockPuzzleChain {
   readonly base: Connection;
-  readonly bp: Program<Idl>;
-  readonly core: Program<Idl>;
+  readonly bp: AnyProgram;
+  readonly core: AnyProgram;
   private readonly teeRpc: string;
   private readonly teeWs: string;
   private readonly teeValidator: PublicKey;
@@ -106,8 +109,8 @@ export class BlockPuzzleChain {
       { publicKey: Keypair.generate().publicKey, signTransaction: async (t: any) => t, signAllTransactions: async (t: any) => t },
       { commitment: "confirmed" },
     );
-    this.bp = new Program(cfg.blockPuzzleIdl, provider);
-    this.core = new Program(cfg.coreIdl, provider);
+    this.bp = new Program(cfg.blockPuzzleIdl, provider) as unknown as AnyProgram;
+    this.core = new Program(cfg.coreIdl, provider) as unknown as AnyProgram;
   }
 
   // ---- addresses ----------------------------------------------------------------------------
@@ -156,7 +159,11 @@ export class BlockPuzzleChain {
     const tx = new Transaction().add(...ixs);
     tx.feePayer = signer.publicKey;
     tx.recentBlockhash = (await this.base.getLatestBlockhash()).blockhash;
-    const signed = await signer.signTransaction(tx);
+    return this.sendSigned(await signer.signTransaction(tx));
+  }
+
+  /** Sends a fully signed base-layer transaction and waits for it to confirm. */
+  async sendSigned(signed: Transaction): Promise<string> {
     const sig = await this.base.sendRawTransaction(signed.serialize(), { skipPreflight: true });
     // Poll instead of websockets: works through any RPC proxy.
     let err: unknown = null;
@@ -418,6 +425,18 @@ export class BlockPuzzleChain {
     return { sig: await this.sendBase(payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]), result };
   }
 
+  /** tesoro_core `refund_match`: the opener of an unjoined Match, anyone after the deadline. Returns the entries. */
+  async refundMatch(caller: ChainSigner, matchId: bigint) {
+    const a = BlockPuzzleChain.addresses(matchId);
+    const remaining = await this.payoutAccounts(caller, matchId, "draw");
+    const ix = await this.core.methods
+      .refundMatch()
+      .accountsPartial({ caller: caller.publicKey, config: a.config, matchState: a.match })
+      .remainingAccounts(remaining)
+      .instruction();
+    return this.sendBase(caller, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
+  }
+
   /** Anyone, after the deadline, for a Match whose Boards were never delegated. Refunds both. */
   async claimTimeout(payer: ChainSigner, matchId: bigint) {
     const a = BlockPuzzleChain.addresses(matchId);
@@ -528,7 +547,7 @@ export function computePayouts(m: any, result: Result): Payout[] {
   const sideB = m.b;
   if (result === "draw") {
     push(pk(sideA.funder), normalize(sideA.lines));
-    push(pk(sideB.funder), normalize(sideB.lines));
+    if (sideB) push(pk(sideB.funder), normalize(sideB.lines));
   } else {
     const [winner, loser] = result === "opener" ? [sideA, sideB] : [sideB, sideA];
     const pot = big(m.entry) * 2n;

@@ -3,6 +3,7 @@ import { IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
 import "./globals.css";
 import "@/components/ui/ui.css";
 import { AccountProvider } from "@/lib/auth/AccountProvider";
+import { ChainDataProvider } from "@/lib/chain/ChainDataProvider";
 import { GemaDefs } from "@/components/ui";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { BottomNav } from "@/components/shell/BottomNav";
@@ -39,9 +40,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body>
         <GemaDefs />
         <AccountProvider>
-          <AppHeader />
-          <main className="app-main">{children}</main>
-          <BottomNav />
+          <ChainDataProvider>
+            <AppHeader />
+            <main className="app-main">{children}</main>
+            <BottomNav />
+          </ChainDataProvider>
         </AccountProvider>
       </body>
     </html>

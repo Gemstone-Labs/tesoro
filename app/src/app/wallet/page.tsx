@@ -16,10 +16,12 @@ import { redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import type { Position } from "@/lib/mock";
 import { AdvanceSheet } from "./AdvanceSheet";
+import { DemoAdvanceSheet } from "./DemoAdvanceSheet";
 import { RedeemSheet, ReturnSheet } from "./MoneySheets";
 
 export default function Wallet() {
-  const { gemas, positions, holdings, auth } = useAccount();
+  const { gemas, positions, holdings, auth, onChain, loading } = useAccount();
+  const [demoOpen, setDemoOpen] = useState(false);
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
   const [returnFor, setReturnFor] = useState<Position | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
@@ -53,9 +55,22 @@ export default function Wallet() {
         <div className="stack">
           <BalanceCard total={gemas.total} />
           <BalanceSplit redeemable={gemas.redeemable} pending={gemas.pending} redeemableSources={redeemable.length} />
-          <Button variant="money" block disabled={gemas.redeemable === 0} onClick={() => auth.gate("Redeem", () => setRedeemOpen(true))}>
+          <Button variant="money" block disabled={gemas.redeemable === 0 || onChain} onClick={() => auth.gate("Redeem", () => setRedeemOpen(true))}>
             Redeem {fmtGemas(gemas.redeemable)}
           </Button>
+          {onChain && <p className="note">Redeem pays out on the Source chain once real Position custody is built. Balances above are read from Solana devnet.</p>}
+          {onChain && (
+            <Card large>
+              <div className="stack">
+                <Label>Get Gemas</Label>
+                <p className="meta">
+                  {loading ? "Reading your Account from Solana devnet…" : "Take a simulated Advance to get Gemas to play with."}
+                </p>
+                <Button variant="money" block onClick={() => setDemoOpen(true)}>Take a demo Advance</Button>
+                <span className="sim">Simulated · demo Advance</span>
+              </div>
+            </Card>
+          )}
         </div>
         <Card large>
           <PendingBySource items={pendingItems} />
@@ -69,6 +84,9 @@ export default function Wallet() {
           </Label>
         </div>
         <SimulatedYieldLabel />
+        {onChain && positions.length === 0 && (
+          <p className="meta">{loading ? "Reading Positions…" : "No Positions yet. Take a demo Advance to open a simulated one."}</p>
+        )}
         {positions.map((p) => (
           <Card key={p.id} large as="article" aria-label={`${p.asset} Position`}>
             <div className="stack">
@@ -85,9 +103,9 @@ export default function Wallet() {
                 <dt>Debt</dt>
                 <dd>{fmtAsset(p.debt, p.asset)}</dd>
                 <dt>Unlock Estimate</dt>
-                <dd>{p.advance ? fmtWhen(p.advance.unlockEstimate) : "No open Advance"}</dd>
+                <dd>{p.advance ? (p.advance.unlockEstimate ? fmtWhen(p.advance.unlockEstimate) : "Once yield accrues") : "No open Advance"}</dd>
               </dl>
-              {p.advance ? (
+              {onChain ? null : p.advance ? (
                 <Button
                   size="sm"
                   icon={<UndoIcon />}
@@ -108,6 +126,7 @@ export default function Wallet() {
         </p>
       </section>
 
+      <DemoAdvanceSheet open={demoOpen} onClose={() => setDemoOpen(false)} />
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
       <ReturnSheet position={returnFor} onClose={() => setReturnFor(null)} />
       <RedeemSheet open={redeemOpen} onClose={() => setRedeemOpen(false)} />

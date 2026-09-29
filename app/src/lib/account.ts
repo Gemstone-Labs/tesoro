@@ -1,5 +1,8 @@
-import { holdings, matches, offers, positions, requests } from "./mock";
+import { holdings as mockHoldings, matches as mockMatches, offers, positions as mockPositions, requests } from "./mock";
 import { useAuth } from "./auth/context";
+import { useChainData } from "./chain/ChainDataProvider";
+import type { AccountSnapshot, ChainMatch } from "./chain/read";
+import { matchDelta } from "./chain/ledger";
 import type { AuthState } from "./auth/types";
 import type { Account, GemaHolding, Match, Offer, Position, Request } from "./mock";
 
@@ -12,18 +15,92 @@ export interface AccountView {
   matches: Match[];
   /** Totals derived from holdings; never stored separately. */
   gemas: { total: number; redeemable: number; pending: number };
+  /**
+   * True when Positions, Gemas and Matches come from tesoro_core on Solana devnet. False means
+   * MOCK data: only when there is no session to read for (signed out, or the app runs without Privy).
+   */
+  onChain: boolean;
+  loading: boolean;
+  /** This Account's Matches that are not finished yet (Open or Active), newest first. Empty when mock. */
+  openMatches: ChainMatch[];
+  /** The raw chain snapshot (null while loading or when mock). */
+  snapshot: AccountSnapshot | null;
+  /** Re-read the Account from chain now. */
+  refresh: () => Promise<void>;
 }
 
 export function redeemableOf(h: GemaHolding): number {
   return Math.round(h.gemas * h.accruedShare);
 }
 
+const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
+
+function fromSnapshot(s: AccountSnapshot) {
+  const holdings: GemaHolding[] = s.holdings
+    .filter((h) => h.amount > 0n)
+    .map((h) => ({
+      source: {
+        positionId: h.position.toBase58(),
+        chain: h.asset,
+        asset: h.asset,
+        owner: h.isOwn ? "Your Position" : `${short(h.sourceOwner)}'s Position`,
+        advanceId: h.source.toBase58(),
+      },
+      gemas: Number(h.amount),
+      accruedShare: Number(h.redeemable) / Number(h.amount),
+      own: h.isOwn,
+    }));
+  const positions: Position[] = s.positions.map((p) => ({
+    id: p.address.toBase58(),
+    chain: p.asset,
+    asset: p.asset,
+    principal: p.principal,
+    apy: p.apy,
+    debt: p.debt,
+    advance: p.advance && {
+      id: p.advance.source.toBase58(),
+      positionId: p.address.toBase58(),
+      horizonMonths: p.advance.horizonMonths,
+      gemasIssued: p.advance.gemasIssued,
+      projectedYield: (p.principal * p.apy * p.advance.horizonMonths) / 12,
+      issuedAt: "",
+      // No accrual clock is on chain yet; the Wallet shows "estimated once yield accrues".
+      unlockEstimate: "",
+    },
+  }));
+  const matches: Match[] = s.matches
+    .filter((m) => m.status === "settled" || m.status === "refunded")
+    .map((m) => {
+      const draw = m.session?.result === "draw";
+      const delta = matchDelta(m);
+      return {
+        id: m.id.toString(),
+        game: "block-puzzle" as const,
+        entry: m.entry as Match["entry"],
+        opponent: m.opponent ? short(m.opponent) : "no opponent",
+        result: !m.session ? "refunded" : draw ? "draw" : delta > 0 ? "won" : "lost",
+        gemasDelta: delta,
+        seed: m.session ? `0x${m.session.seed.toString(16).padStart(16, "0").slice(0, 4)}…${m.session.seed.toString(16).slice(-4)}` : "—",
+        playedAt: new Date(Number(m.id >> 1n)).toISOString(),
+        backed: false,
+      };
+    });
+  const openMatches = s.matches.filter((m) => m.status === "open" || m.status === "active");
+  return { holdings, positions, matches, openMatches };
+}
+
 /**
- * The single seam for Account data. Identity (addresses, sign-in state) comes from the
- * Privy session; Positions, Gemas and Matches are still mock until they are on-chain.
+ * The single seam for Account data. Identity comes from the Privy session (or the dev wallet).
+ * When signed in, Positions, Gemas and Matches are read from tesoro_core on devnet. Mock data is
+ * used only where there is no session to read for.
  */
 export function useAccount(): AccountView {
   const auth = useAuth();
+  const chain = useChainData();
+  const onChain = auth.status === "signed-in";
+
+  const real = chain.snapshot ? fromSnapshot(chain.snapshot) : null;
+  const holdings = onChain ? (real?.holdings ?? []) : mockHoldings;
   const total = holdings.reduce((s, h) => s + h.gemas, 0);
   const redeemable = holdings.reduce((s, h) => s + redeemableOf(h), 0);
   const account: Account = {
@@ -34,10 +111,15 @@ export function useAccount(): AccountView {
   return {
     account,
     auth,
-    positions,
+    positions: onChain ? (real?.positions ?? []) : mockPositions,
     holdings,
-    matches,
+    matches: onChain ? (real?.matches ?? []) : mockMatches,
     gemas: { total, redeemable, pending: total - redeemable },
+    onChain,
+    loading: onChain && chain.loading,
+    openMatches: real?.openMatches ?? [],
+    snapshot: chain.snapshot,
+    refresh: chain.refresh,
   };
 }
 
@@ -46,7 +128,7 @@ export interface BackingView {
   offers: Offer[];
 }
 
-/** Seam for Backing data (Requests and Offers). */
+/** Seam for Backing data (Requests and Offers). MOCK: Backing is not on chain yet. */
 export function useBacking(): BackingView {
   return { requests, offers };
 }

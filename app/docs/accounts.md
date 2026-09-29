@@ -8,7 +8,7 @@ An **Account** is one person's single Tesoro identity: one embedded Solana addre
 |---|---|
 | Provider, Privy config, gate, wallet creation fallback | `src/lib/auth/AccountProvider.tsx` |
 | Auth context (`useAuth`), types | `src/lib/auth/context.ts`, `types.ts` |
-| Session-backed `useAccount()` seam (Gemas/Positions still mock) | `src/lib/account.ts` |
+| Session-backed `useAccount()` seam (Positions, Gemas, Matches read from tesoro_core on devnet; mock only when signed out) | `src/lib/account.ts`, `src/lib/chain/` |
 | Chains (Hoodi 560048, HyperEVM testnet 998, Solana devnet RPC) | `src/lib/chains.ts` |
 | Sign-in sheet / Account sheet | `src/components/shell/SignInSheet.tsx`, `AccountSheet.tsx` |
 
@@ -43,6 +43,10 @@ Code cannot substitute for these; the dashboard is the source of truth for the s
 
 The sign-in sheet renders against the real Privy app (see `docs/screens/accounts-sign-in-390.png`), but the full email-code login, embedded wallet creation and wallet linking need a live inbox and browser wallets, so they were not exercised end to end. Do that once after the dashboard settings above. The Account sheet screenshot (`accounts-account-sheet-390.png`) uses sample addresses from the `/design` page.
 
-## Later
+## Signing on Solana
 
-Sending transactions from the embedded wallets (Solana `useSignAndSendTransaction`, EVM viem client on Hoodi / HyperEVM) is not wired yet; `useAccount().auth` exposes addresses only.
+`useAuth().signer` is a `ChainSigner` over the embedded Solana wallet: `signTransaction` (Privy `useSignTransaction`, `showWalletUIs: false` so Match moves do not open a modal) and `signMessage` (the MagicBlock TEE auth token and the demo route). `getAccessToken` gives the Privy token the demo route verifies. Match flows use it through `src/lib/chain/`. Not verified against a real Privy login here (no inbox); driven with the dev wallet below. EVM sending is still not wired.
+
+## Dev-only wallet (`NEXT_PUBLIC_DEV_WALLET=1`)
+
+For driving the on-chain flow without an inbox. Put `NEXT_PUBLIC_DEV_WALLET=1` in `app/.env.local` and run `pnpm dev`. The app then skips Privy and signs in automatically with a Keypair kept in the browser's `localStorage`; `?dev=<name>` (for example `/?dev=alice`) picks a named wallet, remembered for the tab, so two browser sessions can be two Accounts. The address shows in the Account sheet; Sign out mints a fresh key. It is gated by `NODE_ENV !== "production"` (constant-folded at build), the component also refuses to render in production, and the demo route skips the Privy token only outside production. Never use it with anything of value.

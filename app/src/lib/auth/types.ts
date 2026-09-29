@@ -1,3 +1,5 @@
+import type { ChainSigner } from "@/games/block-puzzle/chain";
+
 /** A wallet the person linked themselves, as opposed to the embedded wallets Tesoro creates for the Account. */
 export interface LinkedWallet {
   family: "solana" | "evm";
@@ -23,4 +25,10 @@ export interface AuthState {
   gate: (reason: string, action: () => void) => void;
   openSignIn: (reason?: string) => void;
   openAccount: () => void;
+  /** Signs Solana transactions and messages with the Account's embedded wallet; null until it exists. */
+  signer: ChainSigner | null;
+  /** Privy access token for server routes (null when signed out or in dev-wallet mode). */
+  getAccessToken: () => Promise<string | null>;
+  /** True when the dev-only local Keypair wallet stands in for Privy (never in production builds). */
+  devWallet: boolean;
 }
