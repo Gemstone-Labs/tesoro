@@ -1,5 +1,5 @@
 /**
- * One full Block Puzzle Match on Solana devnet + the MagicBlock devnet TEE, driven only through
+ * One full async Block Puzzle Match (the opener plays before the joiner exists) on Solana devnet + the MagicBlock devnet TEE, driven only through
  * app/src/games/block-puzzle/chain.ts. Records signatures and checks to evidence.json.
  *
  *   pnpm install --ignore-workspace && pnpm match
@@ -205,52 +205,85 @@ async function main() {
   run.matchId = matchId.toString();
   run.match = A.match.toBase58();
   run.session = A.session.toBase58();
+  run.vault = A.vault.toBase58();
   run.boards = A.boards.map((b) => b.toBase58());
   run.players = [p0.publicKey.toBase58(), p1.publicKey.toBase58()];
+  const tee = new Connection(TEE_RPC, "confirmed");
 
-  rec("open_match (p0, 1,000 Gemas)", await chain.openMatch(S.p0, matchId, 1000, [a0.holding]), "base");
-  rec("join_match (p1)", await chain.joinMatch(S.p1, matchId, [a1.holding]), "base");
-  rec("start_session (commits to a future slot)", await chain.startSession(S.d, matchId), "base");
-  const { sig: revealSig, seed } = await chain.revealSeed(S.d, matchId);
-  rec("reveal_seed (Seed = H(slot hash, match); extends tesoro_core refund deadline)", revealSig, "base");
-  run.seed = seed.toString();
-  const match: any = await core.account.matchState.fetch(A.match);
-  const session = await chain.fetchSession(matchId);
-  check(
-    "tesoro_core refund deadline pushed past the 24h submission deadline",
-    Number(match.inner.deadline.toString()) >= Number(session.deadline.toString()) + 3600,
-    { matchDeadline: match.inner.deadline.toString(), submissionDeadline: session.deadline.toString() },
-  );
-
-  rec("delegate_boards (both Boards to the TEE validator)", await chain.delegateBoards(S.d, matchId), "base");
+  // ---- the opener alone: open, prepare, play a whole run before anyone is paired ----
+  rec("open_match + open_session (p0, 1,000 Gemas; Match stays Open)", await chain.openMatch(S.p0, matchId, 1000, [a0.holding]), "base");
+  rec("delegate_opener (Board 0 + SeedVault to the TEE validator)", await chain.delegateOpener(S.d, matchId), "base");
+  rec("init_vault_permission (private, zero members)", await chain.initVaultPermission(S.p0, matchId), "tee");
   rec("init_permission p0", await chain.initPermission(S.p0, matchId, 0), "tee");
-  rec("init_permission p1", await chain.initPermission(S.p1, matchId, 1), "tee");
-  rec("begin_run p0", await chain.beginRun(S.p0, matchId, 0), "tee");
-  rec("begin_run p1", await chain.beginRun(S.p1, matchId, 1), "tee");
+  const ownBefore = await chain.fetchOwnBoard(S.p0, matchId, 0);
+  check("before begin_run p0's own Board holds no Seed", !!ownBefore && ownBefore.seed.isZero(), ownBefore ? { seed: ownBefore.seed.toString() } : null);
+  rec("request_seed (VRF inside the TEE)", await chain.requestSeed(S.p0, matchId), "tee");
+  let ready = false;
+  for (let i = 0; i < 40 && !ready; i++) {
+    await sleep(1500);
+    ready = await chain.seedReady(S.p0, matchId);
+  }
+  check("VRF callback wrote the Seed into the SeedVault (check_seed succeeds)", ready, ready ? "ready" : "timeout");
+  if (!ready) throw new Error("seed never arrived");
 
+  // Nobody can read the SeedVault: not the opener, not the future joiner, not an anonymous client.
+  const vaultReads = await Promise.all([
+    (await chain.tee(S.p0)).getAccountInfo(A.vault).catch(() => null),
+    (await chain.tee(S.p1)).getAccountInfo(A.vault).catch(() => null),
+    tee.getAccountInfo(A.vault).catch(() => null),
+  ]);
+  check("SeedVault is unreadable by p0, p1 and an anonymous TEE client (zero-member permission)", vaultReads.every((r) => r === null), vaultReads.map((r) => (r ? "READABLE" : "null")));
+  const baseVault: any = chain.bp.coder.accounts.decode("seedVault", (await base.getAccountInfo(A.vault))!.data);
+  check("base-layer copy of the SeedVault holds no Seed while delegated", baseVault.seed.isZero() && !baseVault.ready, { ready: baseVault.ready });
+
+  const begun = await chain.beginRun(S.p0, matchId, 0);
+  rec("begin_run p0 (Seed copied into p0's private Board)", begun.sig, "tee");
+  const seed = begun.seed;
+  run.seed = seed.toString();
   const strong = greedy(seed, 30);
   const weak = greedy(seed, 12);
   const expected = [replay(seed, strong), replay(seed, weak)].map((r) => (r.ok ? r.state.score : -1));
   run.expectedScores = expected;
   (await chain.play(S.p0, matchId, 0, strong)).forEach((s, i) => rec(`play p0 batch ${i}`, s, "tee"));
-
-  // Privacy: p1 (a member of the Match, not of Board 0) must not read p0's moves; p0 can.
-  const own = await chain.fetchOwnBoard(S.p0, matchId, 0);
-  const foreign = await chain.fetchOwnBoard(S.p1, matchId, 0);
-  const anon = await new Connection(TEE_RPC, "confirmed").getAccountInfo(A.boards[0]).catch((e) => `error: ${String(e).slice(0, 120)}`);
-  check("p0 reads own Board in the TEE (score visible)", !!own && own.score === expected[0], own ? { score: own.score, moves: own.moves } : own);
-  check("p1 cannot read p0's Board in the TEE (copying is impossible)", foreign === null, foreign === null ? "null (hidden)" : "READABLE");
-  check("unauthenticated TEE read of p0's Board fails", anon === null || typeof anon === "string", typeof anon === "string" ? anon : "null");
-  const baseCopy: any = chain.bp.coder.accounts.decode("board", (await base.getAccountInfo(A.boards[0]))!.data);
-  check("base-layer copy of p0's Board holds no moves while delegated", baseCopy.moves === 0 && baseCopy.score === 0, { moves: baseCopy.moves, score: baseCopy.score });
-
-  (await chain.play(S.p1, matchId, 1, weak)).forEach((s, i) => rec(`play p1 batch ${i}`, s, "tee"));
   rec("finish p0", await chain.finish(S.p0, matchId, 0), "tee");
+  const openMatchState: any = await core.account.matchState.fetch(A.match);
+  check("opener finished their run while the Match is still Open (no opponent yet)", Object.keys(openMatchState.inner.status)[0] === "open", openMatchState.inner.status);
+  run.openerFinishedAt = new Date().toISOString();
+  const own = await chain.fetchOwnBoard(S.p0, matchId, 0);
+  check("p0 reads own Board in the TEE (score visible)", !!own && own.score === expected[0], own ? { score: own.score, moves: own.moves } : own);
+  const anon = await tee.getAccountInfo(A.boards[0]).catch(() => null);
+  check("unauthenticated TEE read of p0's Board fails", anon === null, anon ? "READABLE" : "null");
+  const baseCopy: any = chain.bp.coder.accounts.decode("board", (await base.getAccountInfo(A.boards[0]))!.data);
+  check("base-layer copy of p0's Board holds no moves and no Seed", baseCopy.moves === 0 && baseCopy.score === 0 && baseCopy.seed.isZero(), { moves: baseCopy.moves, score: baseCopy.score });
+
+  // ---- the joiner arrives later ----
+  console.log("opener is done; joiner arrives in 20 s");
+  await sleep(20_000);
+  rec("join_match + join_session (p1)", await chain.joinMatch(S.p1, matchId, [a1.holding]), "base");
+  const session = await chain.fetchSession(matchId);
+  const match: any = await core.account.matchState.fetch(A.match);
+  check(
+    "join extended the tesoro_core refund deadline past the 24h submission deadline",
+    Number(match.inner.deadline.toString()) >= Number(session.deadline.toString()) + 3600,
+    { matchDeadline: match.inner.deadline.toString(), submissionDeadline: session.deadline.toString() },
+  );
+  const foreign = await chain.fetchOwnBoard(S.p1, matchId, 0);
+  check("joiner p1 cannot read the opener's Board in the TEE", foreign === null, foreign === null ? "null (hidden)" : "READABLE");
+  rec("delegate_joiner (Board 1)", await chain.delegateJoiner(S.d, matchId), "base");
+  rec("init_permission p1", await chain.initPermission(S.p1, matchId, 1), "tee");
+  const preSeal = await chain.sealAndCommit(S.d, matchId).then(() => "SEALED EARLY").catch((e) => String(e.message).split("\n")[0].slice(0, 120));
+  check("seal is refused while the joiner can still play (opener's moves stay private)", preSeal !== "SEALED EARLY", preSeal);
+  const b1Before = await chain.fetchOwnBoard(S.p1, matchId, 1);
+  check("before begin_run p1's own Board holds no Seed", !!b1Before && b1Before.seed.isZero(), b1Before ? { seed: b1Before.seed.toString() } : null);
+  const begun1 = await chain.beginRun(S.p1, matchId, 1);
+  rec("begin_run p1 (same Seed)", begun1.sig, "tee");
+  check("p1 receives the same Seed at begin_run", begun1.seed === seed, { p1: begun1.seed.toString(), p0: seed.toString() });
+  (await chain.play(S.p1, matchId, 1, weak)).forEach((s, i) => rec(`play p1 batch ${i}`, s, "tee"));
   rec("finish p1", await chain.finish(S.p1, matchId, 1), "tee");
 
   const sealed = await chain.sealAndCommit(S.d, matchId);
-  rec("seal + commit_boards (permissions closed, Boards undelegated)", sealed.teeSig, "tee");
-  if (sealed.commitSig) rec("commit of Boards on base layer", sealed.commitSig, "base");
+  rec("seal + commit_boards (permissions closed, Boards + SeedVault undelegated)", sealed.teeSig, "tee");
+  if (sealed.commitSig) rec("commit on base layer", sealed.commitSig, "base");
 
   const b0: any = await chain.bp.account.board.fetch(A.boards[0]);
   const b1: any = await chain.bp.account.board.fetch(A.boards[1]);
