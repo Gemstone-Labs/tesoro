@@ -1,3 +1,71 @@
-export default function Home() {
-  return <main>Tesoro</main>;
+"use client";
+
+import { useState } from "react";
+import { BlockBoard } from "@/components/game/BlockBoard";
+import { Button, Card, EntryPicker, Label, Row, Thumb } from "@/components/ui";
+import { useAccount, useBacking } from "@/lib/account";
+import { fmtGemas } from "@/lib/format";
+import { GAME_NAMES, queueDepth } from "@/lib/mock";
+import type { EntrySize } from "@/lib/mock";
+import Link from "next/link";
+
+export default function Lobby() {
+  const { gemas } = useAccount();
+  const { requests } = useBacking();
+  const [entry, setEntry] = useState<EntrySize>(1000);
+  const canEnter = gemas.total >= entry;
+
+  return (
+    <div className="cols cols-2">
+      <div className="stack-lg">
+        <Card flush as="section" aria-label="Featured game">
+          <BlockBoard />
+          <div className="feature-body">
+            <div className="stack" style={{ gap: 4 }}>
+              <h2>{GAME_NAMES["block-puzzle"]}</h2>
+              <span className="meta">Same Seed as your opponent · 90 seconds · higher score wins</span>
+            </div>
+            <EntryPicker value={entry} onChange={setEntry} legend="Entry for Block Puzzle" maxAffordable={gemas.total} />
+            <Button
+              variant="money"
+              block
+              href={canEnter ? `/play?game=block-puzzle&entry=${entry}` : undefined}
+              disabled={!canEnter}
+            >
+              Enter · {fmtGemas(entry)} Gemas
+            </Button>
+            <span className="meta">{queueDepth["block-puzzle"]} in Queue · you may play before an opponent is paired</span>
+          </div>
+        </Card>
+
+        <Row
+          href="/play?game=holdem&entry=500"
+          thumb={<Thumb variant="poker">A♠K</Thumb>}
+          title={GAME_NAMES.holdem}
+          meta={`Live · ${queueDepth.holdem} in Queue`}
+          cta="Play"
+        />
+      </div>
+
+      <section className="stack" aria-labelledby="req-h">
+        <div className="section-head">
+          <Label>
+            <span id="req-h">Back a Player</span>
+          </Label>
+          <Link href="/backing">See all</Link>
+        </div>
+        {requests.map((r) => (
+          <Row
+            key={r.id}
+            href={`/backing#${r.id}`}
+            thumb={<Thumb>{r.player.name[0]}</Thumb>}
+            title={`${r.player.name} asks for ${fmtGemas(r.entry)}`}
+            meta={`${GAME_NAMES[r.game]} · ${r.player.matches} Matches · ${Math.round(r.player.winRate * 100)}% won`}
+            cta="Offer"
+            ctaTone="money"
+          />
+        ))}
+      </section>
+    </div>
+  );
 }
