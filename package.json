@@ -1,0 +1,13 @@
+{
+  "name": "tesoro",
+  "private": true,
+  "packageManager": "pnpm@10.24.0",
+  "scripts": {
+    "build:programs": "./scripts/build-programs.sh",
+    "test:programs": "cargo test --workspace",
+    "build:contracts": "cd contracts && forge build",
+    "test:contracts": "cd contracts && forge test",
+    "dev": "pnpm --filter @tesoro/app dev",
+    "build:app": "pnpm --filter @tesoro/app build"
+  }
+}

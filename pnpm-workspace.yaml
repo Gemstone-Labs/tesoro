@@ -1,0 +1,6 @@
+packages:
+  - app
+  - keeper
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

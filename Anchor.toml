@@ -1,0 +1,23 @@
+[toolchain]
+anchor_version = "0.31.1"
+package_manager = "pnpm"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+tesoro_core = "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+block_puzzle = "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"
+holdem = "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"
+sim_lst = "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
+
+[programs.devnet]
+tesoro_core = "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+block_puzzle = "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"
+holdem = "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"
+sim_lst = "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"

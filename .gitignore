@@ -6,3 +6,9 @@ target/
 out/
 cache/
 .next/
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/31337/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
