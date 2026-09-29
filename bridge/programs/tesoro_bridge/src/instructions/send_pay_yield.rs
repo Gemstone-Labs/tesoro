@@ -61,8 +61,10 @@ pub struct SendPayYield<'info> {
 impl SendPayYield<'_> {
     pub fn apply(ctx: &mut Context<SendPayYield>, params: &SendParams) -> Result<()> {
         let claim = &mut ctx.accounts.claim;
-        let pending =
-            claim.units_total.checked_sub(claim.units_sent).ok_or(BridgeError::AmountOverflow)?;
+        let pending = claim
+            .units_total
+            .checked_sub(claim.units_sent)
+            .ok_or(BridgeError::AmountOverflow)?;
         require!(pending > 0, BridgeError::NothingToPay);
         let position = &mut ctx.accounts.bridge_position;
         require!(position.opened, BridgeError::NotOpened);

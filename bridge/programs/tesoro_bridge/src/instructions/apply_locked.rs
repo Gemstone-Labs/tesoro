@@ -2,7 +2,9 @@ use crate::*;
 use tesoro_core::{
     cpi::accounts::OpenPositionFromSource,
     program::TesoroCore,
-    state::{SourceAuthority, TesoroAccount, POSITION_SEED as CORE_POSITION_SEED, SOURCE_AUTHORITY_SEED},
+    state::{
+        SourceAuthority, TesoroAccount, POSITION_SEED as CORE_POSITION_SEED, SOURCE_AUTHORITY_SEED,
+    },
 };
 
 // Applies a received `PositionLocked` to tesoro_core: opens the Position for the Account linked

@@ -42,7 +42,9 @@ fn s(p: Pubkey) -> Pk {
     Pk::new_from_array(p.to_bytes())
 }
 fn hex(h: &str) -> Vec<u8> {
-    (0..h.len() / 2).map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap_or(0)).collect()
+    (0..h.len() / 2)
+        .map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap_or(0))
+        .collect()
 }
 fn core_pda(seeds: &[&[u8]]) -> Pubkey {
     Pubkey::find_program_address(seeds, &tesoro_core::ID).0
@@ -100,7 +102,8 @@ impl Env {
     fn new() -> Self {
         let mut svm = LiteSVM::new();
         let core_so = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../target/deploy/tesoro_core.so");
-        let bridge_so = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/tesoro_bridge.so");
+        let bridge_so =
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/tesoro_bridge.so");
         svm.add_program_from_file(s(tesoro_core::ID), core_so)
             .expect("build tesoro_core first: pnpm build:programs");
         svm.add_program_from_file(s(crate::ID), bridge_so)
@@ -223,7 +226,12 @@ impl Env {
             .expect("set account");
     }
 
-    fn send(&mut self, ixs: &[Instruction], payer: &Keypair, extra: &[&Keypair]) -> std::result::Result<(), Failed> {
+    fn send(
+        &mut self,
+        ixs: &[Instruction],
+        payer: &Keypair,
+        extra: &[&Keypair],
+    ) -> std::result::Result<(), Failed> {
         self.svm.expire_blockhash();
         let mut signers: Vec<&Keypair> = vec![payer];
         signers.extend_from_slice(extra);
@@ -326,9 +334,7 @@ impl Env {
                 evm_link: bridge_pda(&[EVM_LINK_SEED, &evm_address]),
                 system_program: anchor_lang::system_program::ID,
             },
-            crate::instruction::LinkEvm {
-                params: LinkEvmParams { evm_address, signature: sig },
-            },
+            crate::instruction::LinkEvm { params: LinkEvmParams { evm_address, signature: sig } },
         );
         self.send(&[link], &owner, &[])
     }
@@ -374,7 +380,10 @@ impl Env {
                 holding: core_pda(&[HOLDING_SEED, self.owner_account.as_ref(), source.as_ref()]),
                 system_program: anchor_lang::system_program::ID,
             },
-            tesoro_core::instruction::TakeAdvance { horizon_months: 3, price_micro_usd: 3_000_000_000 },
+            tesoro_core::instruction::TakeAdvance {
+                horizon_months: 3,
+                price_micro_usd: 3_000_000_000,
+            },
         );
         self.send(&[advance], &oracle, &[&owner]).expect("advance");
     }
@@ -425,7 +434,8 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     env.apply_locked(id).expect_err("no EvmLink");
     env.link(EVM_ADDRESS, &hex(LINK_SIGNATURE)).expect("link");
 
-    env.apply_locked(id).expect("bridge opens the Position through the source authority");
+    env.apply_locked(id)
+        .expect("bridge opens the Position through the source authority");
     let position: PositionState = env.load(env.core_position(id));
     assert_eq!(position.inner.owner, env.owner_account.to_bytes());
     assert_eq!(position.inner.source_chain, SourceChain::Ethereum);

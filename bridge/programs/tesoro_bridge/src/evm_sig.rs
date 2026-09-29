@@ -10,8 +10,12 @@ pub fn link_message(account: &Pubkey) -> String {
 }
 
 pub fn eip191_hash(message: &[u8]) -> [u8; 32] {
-    keccak::hashv(&[b"\x19Ethereum Signed Message:\n", message.len().to_string().as_bytes(), message])
-        .0
+    keccak::hashv(&[
+        b"\x19Ethereum Signed Message:\n",
+        message.len().to_string().as_bytes(),
+        message,
+    ])
+    .0
 }
 
 /// The EVM address that signed `message` (65-byte `r | s | v` signature), if the signature is valid.
@@ -22,7 +26,8 @@ pub fn recover_address(message: &[u8], signature: &[u8; 65]) -> Option<[u8; 20]>
         0 | 1 => v,
         _ => return None,
     };
-    let public_key = secp256k1_recover(&eip191_hash(message), recovery_id, &signature[..64]).ok()?;
+    let public_key =
+        secp256k1_recover(&eip191_hash(message), recovery_id, &signature[..64]).ok()?;
     let digest = keccak::hash(&public_key.to_bytes()).0;
     let mut address = [0u8; 20];
     address.copy_from_slice(&digest[12..]);
@@ -38,7 +43,9 @@ mod tests {
     const ANVIL_0: &str = "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
     fn hex(s: &str) -> Vec<u8> {
-        (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect()
+        (0..s.len() / 2)
+            .map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
+            .collect()
     }
 
     fn signature() -> [u8; 65] {

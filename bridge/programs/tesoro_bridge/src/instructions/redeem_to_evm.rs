@@ -94,8 +94,10 @@ impl RedeemToEvm<'_> {
             claim.position = ctx.accounts.core_position.key();
             claim.bump = ctx.bumps.claim;
         }
-        claim.gemas_total = claim.gemas_total.checked_add(gemas).ok_or(BridgeError::AmountOverflow)?;
-        claim.units_total = claim.units_total.checked_add(units).ok_or(BridgeError::AmountOverflow)?;
+        claim.gemas_total =
+            claim.gemas_total.checked_add(gemas).ok_or(BridgeError::AmountOverflow)?;
+        claim.units_total =
+            claim.units_total.checked_add(units).ok_or(BridgeError::AmountOverflow)?;
         Ok(())
     }
 }

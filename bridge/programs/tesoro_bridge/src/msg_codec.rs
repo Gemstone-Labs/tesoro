@@ -171,7 +171,12 @@ mod tests {
     fn decodes_yield_accrued() {
         let mut buf = Vec::new();
         encode_header(
-            &Header { msg_type: MSG_YIELD_ACCRUED, source_chain: 40362, position_id: [1; 32], seq: 9 },
+            &Header {
+                msg_type: MSG_YIELD_ACCRUED,
+                source_chain: 40362,
+                position_id: [1; 32],
+                seq: 9,
+            },
             &mut buf,
         );
         buf.extend_from_slice(&123_456_789u128.to_be_bytes());

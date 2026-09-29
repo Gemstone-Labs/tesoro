@@ -113,7 +113,12 @@ impl Env {
         self.svm.send_transaction(tx).map(|_| ())
     }
 
-    fn send2(&mut self, ixs: &[Instruction], payer: &Keypair, other: &Keypair) -> Result<(), Failed> {
+    fn send2(
+        &mut self,
+        ixs: &[Instruction],
+        payer: &Keypair,
+        other: &Keypair,
+    ) -> Result<(), Failed> {
         self.svm.expire_blockhash();
         let tx = Transaction::new_signed_with_payer(
             ixs,
