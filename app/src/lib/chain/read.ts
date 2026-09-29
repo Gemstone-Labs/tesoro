@@ -5,6 +5,7 @@ import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/
 import type { GameId } from "@/lib/mock/types";
 import { getChain, getHoldem } from "./client";
 import { debtGemas, debtUnits, redeemableFor, type SourceMath } from "./ledger";
+import { parseEthPositionId } from "./eth";
 import { SIM_SOL_MINT, fetchNativeInfo, fetchNativeMarket, type NativeInfo, type NativeMarket } from "./native";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
@@ -59,6 +60,8 @@ export interface ChainHolding {
   asset: "SOL" | "ETH" | "HYPE";
   /** The Source's Position holds simSOL custody: Redeem pays simSOL on Solana. */
   native: boolean;
+  /** The Source belongs to an Ethereum Position (Redeem pays on Hoodi through the bridge). */
+  eth: { vault: string; id: bigint } | null;
 }
 
 export interface ChainAdvance {
@@ -82,6 +85,8 @@ export interface ChainPosition {
   yieldAccrued: number;
   /** simSOL custody details, for Solana-native Positions. */
   native: NativeInfo | null;
+  /** Ethereum Position: the Hoodi vault and its position id. */
+  eth: { vault: string; id: bigint } | null;
 }
 
 export interface AccountSnapshot {
@@ -308,6 +313,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       redeemable: redeemableFor(sourceMath(src.inner), free),
       sourceOwner: pk(src.inner.owner).toBase58(),
       native: !!nativeInfo.get(pk(src.inner.position).toBase58()),
+      eth: pos && enumKey(pos.inner.sourceChain) === "ethereum" ? parseEthPositionId(Uint8Array.from(pos.positionId)) : null,
       asset: ASSETS[pos ? ["solana", "ethereum", "hyperEvm"].indexOf(enumKey(pos.inner.sourceChain)) : 0] ?? "SOL",
     });
   });
@@ -346,6 +352,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       debt,
       yieldAccrued: Number(big(p.cumulativeYield)) / decimals,
       native: nativeInfo.get((row.publicKey as PublicKey).toBase58()) ?? null,
+      eth: chainIdx === 1 ? parseEthPositionId(Uint8Array.from(row.account.positionId)) : null,
     });
   }
 

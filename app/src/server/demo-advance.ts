@@ -70,14 +70,14 @@ function loadKey(envVar: string, fallback: string): Keypair {
     throw new DemoHttpError(503, "not-configured", "Demo funding is not configured on this server.");
   }
 }
-const oracleKey = () => loadKey("TESORO_ORACLE_KEYPAIR", ".config/tesoro/oracle.json");
-const deployerKey = () => loadKey("TESORO_DEPLOYER_KEYPAIR", ".config/solana/id.json");
+export const oracleKey = () => loadKey("TESORO_ORACLE_KEYPAIR", ".config/tesoro/oracle.json");
+export const deployerKey = () => loadKey("TESORO_DEPLOYER_KEYPAIR", ".config/solana/id.json");
 
 // ---- chain --------------------------------------------------------------------------------------
 
 let conn: Connection | null = null;
 let core: AnyProgram | null = null;
-function chain() {
+export function chain() {
   if (!conn || !core) {
     conn = new Connection(BASE_RPC, "confirmed");
     const provider = new AnchorProvider(
@@ -90,7 +90,7 @@ function chain() {
   return { conn, core };
 }
 
-async function sendAndConfirm(tx: Transaction, signers: Keypair[]): Promise<string> {
+export async function sendAndConfirm(tx: Transaction, signers: Keypair[]): Promise<string> {
   const { conn } = chain();
   tx.feePayer = signers[0].publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
@@ -120,12 +120,12 @@ const jwks = privyAppId ? createRemoteJWKSet(new URL(`https://auth.privy.io/api/
  * Two proofs: the wallet signed a fresh message (it controls `address`), and, when Privy is
  * configured, a valid Privy access token (a signed-in Account). Returns the Privy user id, if any.
  */
-async function authenticate(body: { step: Step; address: string; ts: number; signature: string }, authorization: string | null) {
-  const { step, address, ts, signature } = body;
+export async function authenticateMessage(text: string, body: { address: string; ts: number; signature: string }, authorization: string | null) {
+  const { address, ts, signature } = body;
   if (Math.abs(Date.now() - ts) > 5 * 60 * 1000) throw new DemoHttpError(401, "stale", "Request expired. Try again.");
   let ok = false;
   try {
-    ok = nacl.sign.detached.verify(new TextEncoder().encode(message(step, address, ts)), Buffer.from(signature, "base64"), new PublicKey(address).toBytes());
+    ok = nacl.sign.detached.verify(new TextEncoder().encode(text), Buffer.from(signature, "base64"), new PublicKey(address).toBytes());
   } catch {
     ok = false;
   }
@@ -140,6 +140,9 @@ async function authenticate(body: { step: Step; address: string; ts: number; sig
     throw new DemoHttpError(401, "signed-out", "Sign in to use the demo Advance.");
   }
 }
+
+const authenticate = (body: { step: Step; address: string; ts: number; signature: string }, authorization: string | null) =>
+  authenticateMessage(message(body.step, body.address, body.ts), body, authorization);
 
 // ---- steps --------------------------------------------------------------------------------------
 

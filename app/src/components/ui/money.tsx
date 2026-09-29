@@ -78,44 +78,62 @@ export function PendingBySource({ items }: { items: PendingSourceItem[] }) {
   );
 }
 
-const STEPS = ["Source confirmed", "Message verified", "Gemas available"] as const;
-const NOTES = [
-  "Advance confirmed on the source chain",
-  "Cross-chain message verified on Solana",
-  "Gemas credited to your Account",
-] as const;
+export interface CrossChainStep {
+  title: string;
+  note: string;
+}
+
+const STEPS: CrossChainStep[] = [
+  { title: "Source confirmed", note: "Advance confirmed on the source chain" },
+  { title: "Message verified", note: "Cross-chain message verified on Solana" },
+  { title: "Gemas available", note: "Gemas credited to your Account" },
+];
 
 /**
- * Cross-chain transfer progress. `stage` is the number of steps completed (0..3).
- * Success is only ever shown at stage 3: pending never shows success early.
+ * Cross-chain transfer progress. `stage` is the number of steps completed (0..steps.length).
+ * Success is only ever shown at the last stage: pending never shows success early. `steps` defaults
+ * to the three-step Advance; the last step reads "Available" (Gemas) unless `finalState` says otherwise.
  */
 export function CrossChainProgress({
   stage,
   failed = false,
   chain,
   txHash,
+  steps = STEPS,
+  label,
+  finalState = "Available",
+  doneText = "Gemas available. They are yours to play.",
+  pendingText = "Pending. These Gemas are not available until the last step completes.",
+  failedText = "This step failed. Your Gemas are not available; nothing was spent.",
 }: {
-  stage: 0 | 1 | 2 | 3;
+  stage: number;
   /** The current step failed. */
   failed?: boolean;
   chain?: Chain;
   txHash?: string;
+  steps?: CrossChainStep[];
+  label?: string;
+  finalState?: string;
+  doneText?: string;
+  pendingText?: string;
+  failedText?: string;
 }) {
-  const allDone = stage === 3 && !failed;
+  const last = steps.length;
+  const allDone = stage >= last && !failed;
   return (
     <div className="stack">
       <div className="spread">
-        <Label>{chain ? `${chain} → Gemas` : "Cross-chain"}</Label>
+        <Label>{label ?? (chain ? `${chain} → Gemas` : "Cross-chain")}</Label>
         {txHash && <span className="mono meta">{txHash}</span>}
       </div>
       <ol className="xc" aria-label="Cross-chain progress">
-        {STEPS.map((title, i) => {
-          const isLast = i === STEPS.length - 1;
+        {steps.map(({ title, note }, i) => {
+          const isLast = i === last - 1;
           let state: "done" | "active" | "waiting" | "failed" | "available";
           if (i < stage) state = isLast ? "available" : "done";
           else if (i === stage) state = failed ? "failed" : "active";
           else state = "waiting";
-          const stateText = { done: "Done", available: "Available", active: "In progress", waiting: "Waiting", failed: "Failed" }[state];
+          const stateText = { done: "Done", available: finalState, active: "In progress", waiting: "Waiting", failed: "Failed" }[state];
           const Icon = { done: CheckIcon, available: CheckIcon, active: ClockIcon, waiting: MinusIcon, failed: XIcon }[state];
           return (
             <li key={title} className={state} aria-current={state === "active" ? "step" : undefined}>
@@ -123,7 +141,7 @@ export function CrossChainProgress({
               <span>
                 <span className="xc-title">{title}</span>
                 <br />
-                <span className="xc-note">{NOTES[i]}</span>
+                <span className="xc-note">{note}</span>
               </span>
               <span className="xc-state">{stateText}</span>
             </li>
@@ -131,11 +149,7 @@ export function CrossChainProgress({
         })}
       </ol>
       <p className="note" role="status">
-        {allDone
-          ? "Gemas available. They are yours to play."
-          : failed
-            ? "This step failed. Your Gemas are not available; nothing was spent."
-            : "Pending. These Gemas are not available until the last step completes."}
+        {allDone ? doneText : failed ? failedText : pendingText}
       </p>
     </div>
   );
