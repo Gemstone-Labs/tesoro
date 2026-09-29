@@ -722,7 +722,11 @@ name = "block_puzzle"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "ephemeral-rollups-sdk",
+ "litesvm",
  "proptest",
+ "solana-sdk",
+ "tesoro_core",
 ]
 
 [[package]]

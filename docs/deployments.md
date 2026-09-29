@@ -22,3 +22,24 @@ Verified on chain: `WstETHRateAdapter.underlyingPerShare()` returns wstETH `stEt
 ## HyperEVM testnet (chain 998, eid 40362)
 
 Not deployed: the deployer has no HYPE. The same script handles it (`--rpc-url https://rpc.hyperliquid-testnet.xyz/evm`): SimLST + MockEndpoint + PositionVault (SimLST only). Enable big blocks first (`{"type":"evmUserModify","usingBigBlocks":true}`) if any contract exceeds the 3M small-block gas limit.
+
+## Solana devnet
+
+Deployed 2026-09-30 from the deployer `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` (upgrade authority) via `https://rpc.magicblock.app/devnet`.
+
+| Program | ID | Deploy tx |
+|---|---|---|
+| tesoro_core | `AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh` | `t2kA9H15c7MfyZUR7HvaFDYMHw1FWzTk4DSXjzSVsiJWAJGhwL5zDXEhQPro5S8mfH3tAocmqAuadECuB9w3WWm` |
+| block_puzzle | `5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj` | `5ok3zXTJv3FmBQGMYRjuGVa2gcp6MmAgvGi8NdKouxRT7SeEMBHCR4oPGjbe5xRDwFXCGT6mbHRZWLvrQhjpRYUP` |
+| holdem (S1) | `CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE` | see docs/spikes/S1.md |
+
+tesoro_core setup (idempotent, `programs/block_puzzle/scripts/devnet-match.ts`):
+
+| Step | Signature |
+|---|---|
+| `initialize_config` (admin = deployer, oracle = `~/.config/tesoro/oracle.json`, platform fee 200 bps) | `54xsxnDE8yTvKogmT7n4g2KvJFhe8wedikbtBkhLaAQh67sY9f7ecpza7ocCWJXinaftgf27m7s1g4nPMEt5761B` |
+| `register_game` (block_puzzle, authority = PDA `["authority"]` of block_puzzle, studio fee 300 bps, studio recipient = the deployer's Account) | `4TAsGBsX8j3t3LRKfiecBJThnYsQ25Gx1Hvg7pXS82ybLZis2EAtt3XgLrXfYj3xG4ubW7iU3pkNYK8pbo7nP3FH` |
+
+Block Puzzle end-to-end Match (two test wallets, devnet TEE, settled through tesoro_core by CPI): see `docs/games/block-puzzle.md`; settle tx `221GKqoz6TyUcGQ9CCCxmgRxLsLyWhQwmKGFKnCZMkYDsKxGD6xBujYSRkVecu4kndzQmpPiwFRYh7pjJHmJGsRg`.
+
+The oracle and test-wallet keys are in `~/.config/tesoro/` (`oracle.json`, `block-puzzle-testers.json`), not in the repo. The tesoro_core on devnet includes `extend_match_deadline`.

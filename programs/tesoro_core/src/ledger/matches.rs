@@ -273,6 +273,25 @@ impl Match {
         finish(out)
     }
 
+    /// Pushes the refund deadline of an Active Match out (never in), for Games whose Matches
+    /// outlast `MATCH_TIMEOUT_SECS`. At most `MAX_MATCH_EXTENSION_SECS` from `now`.
+    pub fn extend_deadline(&mut self, now: i64, new_deadline: i64) -> CoreResult<()> {
+        if self.status != MatchStatus::Active {
+            return Err(CoreError::InvalidStatus);
+        }
+        if now >= self.deadline {
+            return Err(CoreError::Expired);
+        }
+        let cap = now
+            .checked_add(MAX_MATCH_EXTENSION_SECS)
+            .ok_or(CoreError::Math)?;
+        if new_deadline < self.deadline || new_deadline > cap {
+            return Err(CoreError::InvalidDeadline);
+        }
+        self.deadline = new_deadline;
+        Ok(())
+    }
+
     /// Refunds both entries (abandonment, no-show, cancellation of an Open Match). `force` is the
     /// authorised path (the Game, or the creator of an Open Match); otherwise the deadline must
     /// have passed. Exactly once, like `settle`.

@@ -1,0 +1,291 @@
+/**
+ * One full Block Puzzle Match on Solana devnet + the MagicBlock devnet TEE, driven only through
+ * app/src/games/block-puzzle/chain.ts. Records signatures and checks to evidence.json.
+ *
+ *   pnpm install --ignore-workspace && pnpm match
+ *
+ * Setup is idempotent: tesoro_core Config + Game registration, the oracle key
+ * (~/.config/tesoro/oracle.json) and the two test wallets (~/.config/tesoro/block-puzzle-testers.json).
+ */
+import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { verifyTeeRpcIntegrity } from "@magicblock-labs/ephemeral-rollups-sdk";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import {
+  BASE_RPC,
+  BLOCK_PUZZLE_PROGRAM_ID,
+  BlockPuzzleChain,
+  TEE_RPC,
+  keypairSigner,
+  type Move,
+} from "../../../app/src/games/block-puzzle/chain";
+import { apply, dims, fitsAt, handBase, newState, pieceAt, replay, SIZE, HAND } from "../../../app/src/games/block-puzzle/engine";
+
+const HERE = __dirname;
+const ROOT = path.join(HERE, "../../..");
+const EVIDENCE = path.join(HERE, "evidence.json");
+const cfgDir = path.join(os.homedir(), ".config/tesoro");
+const readKp = (f: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(f, "utf8"))));
+const loadOrCreate = (f: string) => {
+  if (fs.existsSync(f)) return readKp(f);
+  const kp = Keypair.generate();
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(Array.from(kp.secretKey)), { mode: 0o600 });
+  return kp;
+};
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const bpIdl = JSON.parse(fs.readFileSync(path.join(ROOT, "target/idl/block_puzzle.json"), "utf8"));
+const coreIdl = JSON.parse(fs.readFileSync(path.join(ROOT, "target/idl/tesoro_core.json"), "utf8"));
+
+const base = new Connection(process.env.BASE_RPC ?? BASE_RPC, "confirmed");
+const chain = new BlockPuzzleChain({ base, blockPuzzleIdl: bpIdl, coreIdl });
+const core = chain.core as Program<any>;
+
+const deployer = readKp(path.join(os.homedir(), ".config/solana/id.json"));
+const oracle = loadOrCreate(path.join(cfgDir, "oracle.json"));
+const testers = (() => {
+  const f = path.join(cfgDir, "block-puzzle-testers.json");
+  if (!fs.existsSync(f)) {
+    fs.writeFileSync(f, JSON.stringify([Array.from(Keypair.generate().secretKey), Array.from(Keypair.generate().secretKey)]), { mode: 0o600 });
+  }
+  return (JSON.parse(fs.readFileSync(f, "utf8")) as number[][]).map((k) => Keypair.fromSecretKey(Uint8Array.from(k)));
+})();
+const [p0, p1] = testers;
+const S = { d: keypairSigner(deployer), o: keypairSigner(oracle), p0: keypairSigner(p0), p1: keypairSigner(p1) };
+
+const evidence: any = fs.existsSync(EVIDENCE) ? JSON.parse(fs.readFileSync(EVIDENCE, "utf8")) : { runs: [] };
+const RESUME = process.env.RESUME;
+const run: any = (RESUME && evidence.runs.find((r: any) => r.matchId === RESUME)) || { at: new Date().toISOString(), txs: [], checks: [] };
+if (!evidence.runs.includes(run)) evidence.runs.push(run);
+const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
+const save = () => fs.writeFileSync(EVIDENCE, JSON.stringify(evidence, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2));
+function rec(step: string, sig: string, layer: "base" | "tee") {
+  run.txs.push({ step, layer, sig, link: layer === "base" ? explorer(sig) : undefined });
+  save();
+  console.log(`[${layer}] ${step}: ${sig}`);
+}
+function check(name: string, pass: boolean, detail: unknown) {
+  run.checks = run.checks.filter((c: any) => c.name !== name);
+  run.checks.push({ name, pass, detail });
+  save();
+  console.log(`${pass ? "PASS" : "FAIL"} ${name} :: ${typeof detail === "string" ? detail : JSON.stringify(detail, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
+  if (!pass) process.exitCode = 1;
+}
+
+const exists = async (k: PublicKey) => !!(await base.getAccountInfo(k));
+
+async function ensureAccount(signer: ReturnType<typeof keypairSigner>, label: string) {
+  const account = BlockPuzzleChain.coreAccount(signer.publicKey);
+  if (await exists(account)) return account;
+  const ix = await core.methods
+    .createAccount(Array(20).fill(0))
+    .accountsPartial({ authority: signer.publicKey, account, systemProgram: SystemProgram.programId })
+    .instruction();
+  rec(`create_account ${label}`, await chain.sendBase(signer, [ix]), "base");
+  return account;
+}
+
+async function setupCore() {
+  const { config, authority } = BlockPuzzleChain.addresses(0n);
+  const deployerAccount = await ensureAccount(S.d, "deployer (platform + studio recipient)");
+  if (!(await exists(config))) {
+    const ix = await core.methods
+      .initializeConfig(oracle.publicKey, 200)
+      .accountsPartial({ admin: deployer.publicKey, config, platformRecipient: deployerAccount, systemProgram: SystemProgram.programId })
+      .instruction();
+    rec("initialize_config (admin = deployer, oracle = ~/.config/tesoro/oracle.json)", await chain.sendBase(S.d, [ix]), "base");
+  }
+  const cfg: any = await core.account.config.fetch(config);
+  const registered = cfg.games.some((g: any) => g.game.equals(BLOCK_PUZZLE_PROGRAM_ID) && g.authority.equals(authority));
+  if (!registered) {
+    const ix = await core.methods
+      .registerGame(BLOCK_PUZZLE_PROGRAM_ID, authority, 300)
+      .accountsPartial({ admin: deployer.publicKey, config, studioRecipient: deployerAccount })
+      .instruction();
+    rec("register_game (block_puzzle, authority = [authority] PDA)", await chain.sendBase(S.d, [ix]), "base");
+  }
+}
+
+/** A Player with Gemas: Position + Advance (100 tokens, 10%, 6 months at $150 = 75,000 Gemas). */
+async function stake(signer: ReturnType<typeof keypairSigner>, label: string, id: number) {
+  const account = await ensureAccount(signer, label);
+  const { config } = BlockPuzzleChain.addresses(0n);
+  const positionId = Array(32).fill(id);
+  const position = PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from([0]), Buffer.from(positionId)], core.programId)[0];
+  const source = PublicKey.findProgramAddressSync([Buffer.from("source"), position.toBuffer(), new BN(0).toArrayLike(Buffer, "le", 4)], core.programId)[0];
+  const holding = BlockPuzzleChain.holding(account, source);
+  if (!(await exists(position))) {
+    const ix = await core.methods
+      .openPosition({ solana: {} }, positionId, Keypair.generate().publicKey, 9, new BN(100e9), 1000)
+      .accountsPartial({ oracle: oracle.publicKey, config, ownerAccount: account, position, systemProgram: SystemProgram.programId })
+      .instruction();
+    rec(`open_position ${label}`, await chain.sendBase(S.o, [ix]), "base");
+  }
+  if (!(await exists(holding))) {
+    const ix = await core.methods
+      .takeAdvance(6, new BN(150_000_000))
+      .accountsPartial({ oracle: oracle.publicKey, ownerAuthority: signer.publicKey, config, ownerAccount: account, position, source, holding, systemProgram: SystemProgram.programId })
+      .instruction();
+    const tx = new Transaction().add(ix);
+    tx.feePayer = oracle.publicKey;
+    tx.recentBlockhash = (await base.getLatestBlockhash()).blockhash;
+    tx.partialSign(oracle, label === "p0" ? p0 : p1);
+    const sig = await base.sendRawTransaction(tx.serialize(), { skipPreflight: true });
+    for (let i = 0; i < 60; i++) {
+      const st = (await base.getSignatureStatuses([sig])).value[0];
+      if (st?.confirmationStatus) {
+        if (st.err) throw new Error(`take_advance failed ${JSON.stringify(st.err)}`);
+        break;
+      }
+      await sleep(500);
+    }
+    rec(`take_advance ${label}`, sig, "base");
+  }
+  return { account, holding };
+}
+
+const gemas = async (account: PublicKey) => {
+  const a: any = await core.account.tesoroAccount.fetch(account);
+  return BigInt(a.inner.ownTotal.toString()) + BigInt(a.inner.wonTotal.toString());
+};
+
+/** First fitting placement for the first unused piece, until `n` moves or game over. */
+function greedy(seed: bigint, n: number): Move[] {
+  let st = newState(seed);
+  const out: Move[] = [];
+  while (out.length < n && !st.over) {
+    const base0 = handBase(st);
+    let played = false;
+    for (let slot = 0; slot < HAND && !played; slot++) {
+      if ((st.used >> slot) & 1) continue;
+      const piece = pieceAt(seed, base0 + slot);
+      const [w, h] = dims(piece);
+      for (let y = 0; y <= SIZE - h && !played; y++)
+        for (let x = 0; x <= SIZE - w && !played; x++)
+          if (fitsAt(st, piece, x, y)) {
+            const mv = { piece: base0 + slot, x, y };
+            st = apply(st, mv).state;
+            out.push(mv);
+            played = true;
+          }
+    }
+    if (!played) break;
+  }
+  return out;
+}
+
+async function main() {
+  if (RESUME) {
+    const a = (id: number) => BlockPuzzleChain.coreAccount((id === 0 ? p0 : p1).publicKey);
+    await conclude(BigInt(RESUME), [75000n, 75000n], a(0), a(1));
+    return;
+  }
+  for (const kp of [p0, p1, oracle]) {
+    const bal = await base.getBalance(kp.publicKey);
+    if (bal < 0.15e9) {
+      const ix = SystemProgram.transfer({ fromPubkey: deployer.publicKey, toPubkey: kp.publicKey, lamports: 0.2e9 });
+      rec(`fund ${kp.publicKey.toBase58().slice(0, 6)}`, await chain.sendBase(S.d, [ix]), "base");
+    }
+  }
+  await setupCore();
+  const a0 = await stake(S.p0, "p0", 11);
+  const a1 = await stake(S.p1, "p1", 12);
+  const before = [await gemas(a0.account), await gemas(a1.account)];
+  console.log("gemas before", before);
+
+  let attest: true | string = "";
+  for (let i = 0; i < 4 && attest !== true; i++) attest = await verifyTeeRpcIntegrity(TEE_RPC).then(() => true as const).catch((e) => String(e));
+  check("TEE RPC attestation (verifyTeeRpcIntegrity)", attest === true, attest);
+
+  const matchId = BigInt(Date.now());
+  const A = BlockPuzzleChain.addresses(matchId);
+  run.matchId = matchId.toString();
+  run.match = A.match.toBase58();
+  run.session = A.session.toBase58();
+  run.boards = A.boards.map((b) => b.toBase58());
+  run.players = [p0.publicKey.toBase58(), p1.publicKey.toBase58()];
+
+  rec("open_match (p0, 1,000 Gemas)", await chain.openMatch(S.p0, matchId, 1000, [a0.holding]), "base");
+  rec("join_match (p1)", await chain.joinMatch(S.p1, matchId, [a1.holding]), "base");
+  rec("start_session (commits to a future slot)", await chain.startSession(S.d, matchId), "base");
+  const { sig: revealSig, seed } = await chain.revealSeed(S.d, matchId);
+  rec("reveal_seed (Seed = H(slot hash, match); extends tesoro_core refund deadline)", revealSig, "base");
+  run.seed = seed.toString();
+  const match: any = await core.account.matchState.fetch(A.match);
+  const session = await chain.fetchSession(matchId);
+  check(
+    "tesoro_core refund deadline pushed past the 24h submission deadline",
+    Number(match.inner.deadline.toString()) >= Number(session.deadline.toString()) + 3600,
+    { matchDeadline: match.inner.deadline.toString(), submissionDeadline: session.deadline.toString() },
+  );
+
+  rec("delegate_boards (both Boards to the TEE validator)", await chain.delegateBoards(S.d, matchId), "base");
+  rec("init_permission p0", await chain.initPermission(S.p0, matchId, 0), "tee");
+  rec("init_permission p1", await chain.initPermission(S.p1, matchId, 1), "tee");
+  rec("begin_run p0", await chain.beginRun(S.p0, matchId, 0), "tee");
+  rec("begin_run p1", await chain.beginRun(S.p1, matchId, 1), "tee");
+
+  const strong = greedy(seed, 30);
+  const weak = greedy(seed, 12);
+  const expected = [replay(seed, strong), replay(seed, weak)].map((r) => (r.ok ? r.state.score : -1));
+  run.expectedScores = expected;
+  (await chain.play(S.p0, matchId, 0, strong)).forEach((s, i) => rec(`play p0 batch ${i}`, s, "tee"));
+
+  // Privacy: p1 (a member of the Match, not of Board 0) must not read p0's moves; p0 can.
+  const own = await chain.fetchOwnBoard(S.p0, matchId, 0);
+  const foreign = await chain.fetchOwnBoard(S.p1, matchId, 0);
+  const anon = await new Connection(TEE_RPC, "confirmed").getAccountInfo(A.boards[0]).catch((e) => `error: ${String(e).slice(0, 120)}`);
+  check("p0 reads own Board in the TEE (score visible)", !!own && own.score === expected[0], own ? { score: own.score, moves: own.moves } : own);
+  check("p1 cannot read p0's Board in the TEE (copying is impossible)", foreign === null, foreign === null ? "null (hidden)" : "READABLE");
+  check("unauthenticated TEE read of p0's Board fails", anon === null || typeof anon === "string", typeof anon === "string" ? anon : "null");
+  const baseCopy: any = chain.bp.coder.accounts.decode("board", (await base.getAccountInfo(A.boards[0]))!.data);
+  check("base-layer copy of p0's Board holds no moves while delegated", baseCopy.moves === 0 && baseCopy.score === 0, { moves: baseCopy.moves, score: baseCopy.score });
+
+  (await chain.play(S.p1, matchId, 1, weak)).forEach((s, i) => rec(`play p1 batch ${i}`, s, "tee"));
+  rec("finish p0", await chain.finish(S.p0, matchId, 0), "tee");
+  rec("finish p1", await chain.finish(S.p1, matchId, 1), "tee");
+
+  const sealed = await chain.sealAndCommit(S.d, matchId);
+  rec("seal + commit_boards (permissions closed, Boards undelegated)", sealed.teeSig, "tee");
+  if (sealed.commitSig) rec("commit of Boards on base layer", sealed.commitSig, "base");
+
+  const b0: any = await chain.bp.account.board.fetch(A.boards[0]);
+  const b1: any = await chain.bp.account.board.fetch(A.boards[1]);
+  check("committed scores equal the TS engine replay of the same moves", b0.score === expected[0] && b1.score === expected[1], { onchain: [b0.score, b1.score], expected });
+  check("moves are public only after commit (log matches)", b0.log[0] === (strong[0].piece | (strong[0].x << 16) | (strong[0].y << 24)), b0.log.slice(0, 3));
+
+  await conclude(matchId, before, a0.account, a1.account);
+}
+
+async function conclude(matchId: bigint, before: bigint[], acc0: PublicKey, acc1: PublicKey) {
+  const a0 = { account: acc0 };
+  const a1 = { account: acc1 };
+  if (!(await chain.fetchSession(matchId)).settled) {
+    const { sig: settleSig, result } = await chain.settle(S.d, matchId);
+    rec(`settle via CPI to tesoro_core (result: ${result})`, settleSig, "base");
+  }
+  const res = await chain.fetchResult(matchId);
+  run.result = { ...res, seed: res.seed.toString() };
+  const after = [await gemas(a0.account), await gemas(a1.account)];
+  check("Match settled: higher score wins", res.settled && res.matchStatus === "settled" && res.result === "opener", res);
+  check("winner received the loser's entry minus 100-Gema fees", after[0] === before[0] + 900n && after[1] === before[1] - 1000n, { before: before.map(String), after: after.map(String) });
+
+  let doubleSettle = "";
+  try {
+    await chain.settle(S.d, matchId);
+    doubleSettle = "SECOND SETTLE SUCCEEDED";
+  } catch (e: any) {
+    doubleSettle = String(e.message).split("\n")[0].slice(0, 160);
+  }
+  check("no double settlement", doubleSettle !== "SECOND SETTLE SUCCEEDED", doubleSettle);
+  console.log(JSON.stringify(run.result, null, 1));
+}
+
+main().catch((e) => {
+  console.error(e);
+  save();
+  process.exit(1);
+});

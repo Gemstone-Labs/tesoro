@@ -885,6 +885,52 @@ fn draw_and_no_show_refund_both_entries_once() {
     );
 }
 
+#[test]
+fn only_the_game_authority_extends_a_deadline_forward_and_within_the_cap() {
+    let mut d = duel();
+    let m = d
+        .env
+        .open_match(&d.alice, ENTRY, &[d.a_holding])
+        .expect("open");
+    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    let extend = |d: &mut Duel, signer: &Keypair, deadline: i64| {
+        let i = ix(
+            accounts::ExtendMatchDeadline {
+                game_authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                match_state: match_pda(m),
+            },
+            instruction::ExtendMatchDeadline {
+                new_deadline: deadline,
+            },
+            vec![],
+        );
+        d.env.send(&[i], signer, &[])
+    };
+    let now = d.env.now();
+    let game = d.env.game_auth.insecure_clone();
+    let alice = d.alice.kp.insecure_clone();
+    let err = extend(&mut d, &alice, now + 86_400).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    let err = extend(&mut d, &game, now + 60).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidDeadline));
+    let err = extend(&mut d, &game, now + 8 * 86_400).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidDeadline));
+    extend(&mut d, &game, now + 86_400).expect("extend");
+    assert_eq!(
+        d.env.load::<MatchState>(match_pda(m)).inner.deadline,
+        now + 86_400
+    );
+
+    // Nobody may refund at the old deadline any more.
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    d.env.set_time(now + 3_601);
+    let payouts = d.env.payout_accounts(m, MatchResult::Draw);
+    let err = d.env.refund(&stranger, m, payouts).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::NotExpired));
+}
+
 /// Carol backs Dave (no Position, so no Debt) against Bob.
 struct Backing {
     d: Duel,

@@ -34,6 +34,8 @@ pub const MAX_APPLICANTS: usize = 8;
 pub const BACKING_TTL_SECS: i64 = 24 * 60 * 60;
 /// Time a Match has before anybody may refund it as abandoned / no-show.
 pub const MATCH_TIMEOUT_SECS: i64 = 60 * 60;
+/// Furthest a Game may push an Active Match's refund deadline out, from now (async Games).
+pub const MAX_MATCH_EXTENSION_SECS: i64 = 7 * 24 * 60 * 60;
 /// Upper bound on Platform Fee + Studio Fee together, in basis points of the Pot.
 pub const MAX_TOTAL_FEE_BPS: u16 = 5_000;
 
@@ -85,6 +87,7 @@ core_errors! {
     NotApplicant => "request has not applied to this offer",
     ReservationMismatch => "holdings do not match the offer reservation",
     FeeTooHigh => "fees exceed the cap",
+    InvalidDeadline => "deadline may only move later, within the extension cap",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
