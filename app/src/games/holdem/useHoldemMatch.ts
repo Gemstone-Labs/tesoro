@@ -110,6 +110,15 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     setView((v) => ({ ...v, table: t }));
   }, []);
 
+  // Every confirmed step of this Match, with its layer, for the Transactions list.
+  useEffect(() => {
+    const hd = getHoldem();
+    hd.onTx = (label, layer, sig) => addSig(label, sig, layer);
+    return () => {
+      hd.onTx = undefined;
+    };
+  }, [addSig]);
+
   // -- the driver (sequential; one step per tick) --------------------------------------------
 
   const step = useCallback(async () => {
@@ -154,8 +163,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       const core = (await import("@/lib/chain/client")).getChain().core;
       const opp: any = await core.account.tesoroAccount.fetch(new PublicKey(opponentAccount));
       const [a, b] = seat === 0 ? [signer.publicKey, opp.authority] : [opp.authority, signer.publicKey];
-      const sig = await hd.createTable(p, id, a, b, SPEED_TURBO);
-      addSig("create_match", sig, "base");
+      await hd.createTable(p, id, a, b, SPEED_TURBO);
       return;
     }
 
@@ -175,8 +183,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       const mine = t.status === STATUS.cancelled ? seat === 0 : t.winner === seat;
       if (!mine && now() - closingSince.current < 15_000) return;
       try {
-        const sig = await hd.finalize(p, id);
-        addSig("finalize", sig, "base");
+        await hd.finalize(p, id);
       } catch (e) {
         // The other Player may have settled it in the same moment.
         const again = await fetchMatch(id, me);
@@ -196,7 +203,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       setStage("setup", "Starting the Match");
       if (!late) return;
       try {
-        addSig("init_permissions", await hd.start(p, id), "tee");
+        await hd.start(p, id);
       } catch (e) {
         if ((await hd.readTable(p, id))?.status === STATUS.created) throw e;
       }
@@ -217,9 +224,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     if (now() - lastClose.current < 30_000) return;
     lastClose.current = now();
     try {
-      const r = await hd.closeMatch(p, id);
-      addSig("close_match", r.tee, "tee");
-      addSig("close_match commit", r.commit, "base");
+      await hd.closeMatch(p, id);
     } catch {
       // The other Player closed it first, or the commit is still in flight.
     }
@@ -228,7 +233,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       if (!p || id === null) return;
       if (contributedHand.current !== tb.handNo) {
         try {
-          addSig(`hand ${tb.handNo} entropy`, await hd.contributeEntropy(p, id, false), "tee");
+          await hd.contributeEntropy(p, id, false);
         } catch (e) {
           if (!/AlreadyContributed/.test(String(e))) throw e;
         }
@@ -241,19 +246,19 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       if (s === 0 && now() - contributedAt.current < 6_000) return;
       if (now() - lastVrf.current > 15_000) {
         try {
-          addSig(`hand ${tb.handNo} request_vrf`, await hd.requestVrf(p, id), "tee");
+          await hd.requestVrf(p, id);
           lastVrf.current = now();
         } catch {
           // Refused until both secrets are in.
         }
       }
       try {
-        addSig(`hand ${tb.handNo} deal`, await hd.deal(p, id), "tee");
+        await hd.deal(p, id);
       } catch {
         // Refused until the VRF output has arrived, or the other Player dealt first.
       }
     }
-  }, [p, signer, id, setStage, addSig, applyTable, onSettled]);
+  }, [p, signer, id, setStage, applyTable, onSettled]);
 
   const tick = useCallback(async () => {
     if (working.current) return;
@@ -320,7 +325,8 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       patch({ busy: label, error: null });
       try {
         const sig = await fn();
-        if (sig) addSig(label, sig, "tee");
+        // Rollup steps were logged by the client; this catches base-layer ones (refund).
+        if (sig) addSig(label, sig, "base");
         if (p && id !== null) {
           const t = await getHoldem().readTable(p, id);
           if (t) applyTable(t);

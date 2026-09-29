@@ -97,7 +97,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
             )}
             <Button
               disabled={view.busy !== null}
-              onClick={() => run("refund", async () => void (await refundMatch(signer, m.id)))}
+              onClick={() => run("refund", () => refundMatch(signer, m.id))}
             >
               {view.busy === "refund" ? "Refunding…" : "Cancel and refund entry"}
             </Button>
@@ -174,7 +174,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
       )}
 
       {m && refundable && (stage === "setup" || stage === "closing") && (
-        <Button disabled={view.busy !== null} onClick={() => run("refund", async () => void (await refundMatch(signer, m.id)))}>
+        <Button disabled={view.busy !== null} onClick={() => run("refund", () => refundMatch(signer, m.id))}>
           Refund Match
         </Button>
       )}

@@ -330,7 +330,8 @@ export class HoldemChain {
   private readonly teeRpc: string;
   private readonly teeWs: string;
   private readonly tee = new Map<string, Connection>();
-  private readonly onTx?: HoldemChainOptions["onTx"];
+  /** Step logger; a UI may replace it while it is mounted. */
+  onTx?: HoldemChainOptions["onTx"];
 
   constructor(holdemIdl: any, tesoroIdl: any, opts: HoldemChainOptions = {}) {
     this.base = opts.base ?? new Connection(BASE_RPC, "confirmed");
@@ -339,7 +340,13 @@ export class HoldemChain {
     this.onTx = opts.onTx;
     const provider = new anchor.AnchorProvider(
       this.base,
-      new anchor.Wallet(Keypair.generate()),
+      // Read-only provider (anchor's Node `Wallet` is not in the browser build): transactions are
+      // built here and signed by the caller's signer.
+      {
+        publicKey: Keypair.generate().publicKey,
+        signTransaction: async (t: any) => t,
+        signAllTransactions: async (t: any) => t,
+      },
       { commitment: "confirmed" },
     );
     this.program = new anchor.Program(holdemIdl, provider);

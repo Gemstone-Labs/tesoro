@@ -43,8 +43,7 @@
 .hd-missed { color: var(--warn); }
 .hd-bet { min-width: 44px; text-align: right; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--fg); }
 .hd-bet:not(:empty)::before { content: "Bet "; color: var(--fg-2); font-size: 10.5px; }
-.hd-seat.active .hd-name strong::after { content: " · to act"; color: var(--fg-2); font-weight: 500; font-size: 12px; }
-.hd-seat.active .hd-cards { filter: drop-shadow(0 0 0 transparent); }
+.hd-turn { font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--shell); background: var(--fg); padding: 1px 6px; }
 
 /* board and pot */
 .hd-mid { display: grid; gap: 8px; justify-items: center; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }

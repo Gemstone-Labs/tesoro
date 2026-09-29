@@ -4,33 +4,12 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
 import { NO_CARD, NO_WINNER, PHASE, SPLIT, SPEED_TURBO, STATUS, call, check, fold, raise, type Action, type Table } from "./chain";
 import { PlayingCard } from "./cards";
+import { inPlay, legalMoves } from "./rules";
 import "./holdem.css";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 const short = (k: { toBase58(): string }) => `${k.toBase58().slice(0, 4)}…${k.toBase58().slice(-4)}`;
-const inPlay = (t: Table) => t.status === STATUS.live && t.phase >= PHASE.preflop && t.phase <= PHASE.river;
 const STREET = ["Shuffling", "Preflop", "Flop", "Turn", "River", ""];
-
-export interface Legal {
-  toCall: bigint;
-  canRaise: boolean;
-  minTo: bigint;
-  maxTo: bigint;
-  /** Nothing bet yet this street: the raise is a bet. */
-  isBet: boolean;
-}
-
-/** What the Player to act may do, from the public table (mirrors engine.rs `apply`). */
-export function legalMoves(t: Table, seat: number): Legal {
-  const opp = 1 - seat;
-  const current = t.bets[0] > t.bets[1] ? t.bets[0] : t.bets[1];
-  const maxTo = t.bets[seat] + t.stacks[seat];
-  const need = current - t.bets[seat];
-  const toCall = need > t.stacks[seat] ? t.stacks[seat] : need;
-  const canRaise = t.stacks[opp] > 0n && maxTo > current;
-  const min = current + t.lastRaise;
-  return { toCall, canRaise, minTo: min > maxTo ? maxTo : min, maxTo, isBet: current === 0n };
-}
 
 function useNow(ms = 250) {
   const [now, setNow] = useState(() => Date.now());
@@ -147,6 +126,12 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim 
       </div>
 
       {showLast && <HandResult t={t} seat={seat} ended={ended} />}
+      {!showLast && playing && lh.handNo > 0 && lh.result !== NO_WINNER && (
+        <p className="meta hd-last">
+          Hand {lh.handNo}: {lh.result === SPLIT ? "split pot" : lh.result === seat ? "you won" : "you lost"} · {chips(lh.pot)} Chips
+          {lh.showdown ? " at showdown" : lh.result === seat ? " (opponent folded)" : " (you folded)"}
+        </p>
+      )}
 
       {!ended && t.status === STATUS.live && (
         <div className="hd-clock" role="timer" aria-live="off">
@@ -215,9 +200,10 @@ function Seat({
       <div className="hd-info">
         <div className="hd-name">
           <strong>{who}</strong>
-          <span className="mono hd-addr">{address}</span>
           {dealer && <span className="hd-btn" title="Button, posts the small blind" aria-label="Dealer button">D</span>}
+          {active && <span className="hd-turn">To act</span>}
         </div>
+        <span className="mono hd-addr">{address}</span>
         <div className="hd-stack mono" aria-label={`${who} stack ${chips(stack)} Chips`}>
           {chips(stack)} <span className="hd-unit">Chips</span>
           {allIn && <span className="hd-tag">All-in</span>}
