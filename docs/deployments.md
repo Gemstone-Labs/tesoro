@@ -89,3 +89,18 @@ Backward-compatible upgrade of `AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh` vi
 | `unlock` (Principal simSOL returned; wallet 9.999999999 simSOL) | `HZWYkvfhVTFZWGqNkMJEvUTaKoR2z84kh5MmgD2v48RP8MXENPrQ9k1tLKXVqHPmzdyTK2jzqTxP6Xg4hdjzsGK` |
 
 Position `2QxKeDKJfWvGa6uNwXG6533ZpNTazyoUEXj4ALRj2Zb6` (owner wallet = the deployer, nonce 1). One month of Horizon takes about 10.1 min because sim_lst accrues per 30-day month while the Advance projects 1/12 of a year. Helper: `scripts/native-position` (`RPC_URL=https://rpc.magicblock.app/devnet pnpm cli status`).
+
+### Web app native Position flow (2026-09-30, dev wallet `?dev=nat2`, browser at 390 px)
+
+Driven from the Wallet screen (`app/src/app/wallet/NativePositions.tsx`) on `https://rpc.magicblock.app/devnet`. SIMULATED yield (1 month = ~10 min). Screens: `app/docs/screens/wallet-native-*.png`.
+
+| Step | Signature |
+|---|---|
+| Get test simSOL (sim_lst `faucet`, 10 simSOL) | `3Gsq3WZUBRM7sT8fX6vw1Zx8UXpkMMX8G4rgW2mNo31hTfPUyid4aNfpdRSRevw8sbpoCoXyp4WJ7GqQQapY7nyC` |
+| Open Position 1 simSOL + Advance 1 month (91 Gemas), one tx | `5gjwktyyVu4wYctqNkZRQuypj4SKfcMn3WeQbvnpYE369eWB2dbtiD8vPmCkNkVvG7TyADaDJRq184waPSDobpBz` |
+| Refresh yield (`accrue_native_yield`) at ~6 min: Debt 91 -> 36 | `4eBamEVAi7cCE2bitWhohJD98fohQV4uDwpU8dPNbZE8RUaD1kseJji9bB8Mn8LuGJxq6AyriFzJD8pQbm2q5Xt7` |
+| Redeem 55 Gemas into simSOL | `t6jQBVFxhtPkLxFKsMJQ5iaVurCmNhThcAbxvUQyi1sd6GrnkVDqyF7JMVEmR1uoUTsdWcgxRa1fn2hQYTpJQMj` |
+| Unlock (crank + unlock in one tx, Debt zero) | `3A6xCokh9aXY865yce2e6VySjZFxRgKhfUj4cMUQUwwvfJebgTG6SAAJzJ5T5Ps8nruEpj4LzmrxQaKEhzaLkMBn` |
+| Sweep surplus | `31d4VuHdRfEDrhQhdtwrJkyS9dDX8pzPDJpVxWDcxZcvkWsPLEzzPdT5o8sk7Kf2rdKCcwd7XJN1VnfxPjLEVtQM` |
+
+Keeper (`pnpm --filter @tesoro/keeper once`): `set_price` from Coinbase spot ($119.58, devnet price feed; Pyth Hermes now answers 401 and CoinGecko 403 from this host, so the chain falls through), `3PptTaJC7hNopa2tunYxB5ukXNWBe1pLwEMpEmbKDE195997S4Vg7SwzuuQCrfZ5R58eEV68DytsHU6hoFcWNSmF`; `accrue_native_yield` for both native Positions with Debt, `5k4rDPR62rU3uZsuV9eNfk39835yHiw6ozwJZqqsKUEZEuTWYHoDZUHi9DPqoshuUGpNuq1m9KrJayCTXwMHzmTE` and `5yLS3dT9ZAiz2YPnyEKgKqVSK985sbBUwqWa9eMME4FrgUqmFvAu9DqD51MkGxdz1NLr8xWFhXhMEQRNou1N7Ywh`.
