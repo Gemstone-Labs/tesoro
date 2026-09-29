@@ -1,11 +1,19 @@
-//! S1 spike: hidden deck, private hole cards and settlement round-trip on a MagicBlock
-//! Private Ephemeral Rollup (TEE). No poker rules live here, only the plumbing the real
-//! Hold'em program needs.
+//! Heads-up No-Limit Hold'em as a Tesoro Game.
 //!
-//! Randomness design: the deck seed is `H(entropy || vrf)` where `entropy` folds in one secret
-//! from each Player, submitted inside the TEE, and `vrf` is the MagicBlock VRF output delivered
-//! by callback into the private Deck account. Neither value ever appears on the base layer, and
-//! the Deck account has a private permission with no readable member.
+//! One sit-and-go per tesoro_core Match. The Match, a hidden Deck and two hidden Hole accounts are
+//! delegated to a MagicBlock Private Ephemeral Rollup (TEE). Both Players fold secrets into the
+//! Deck every hand, a VRF output is mixed in inside the rollup, and the Deck sits behind a
+//! permission with no readable member. Hole cards are readable only by their Player; board cards
+//! and showdown cards become public on the `GameMatch`. When one Player holds every Chip the
+//! Match commits back to the base layer, where `finalize` settles the tesoro_core Match by CPI
+//! signed by this program's `authority` PDA (the Game authority registered in tesoro_core).
+//!
+//! Layers: `tesoro_core` open/join on base, then `create_match` + `delegate_match` on base,
+//! everything else in the rollup, `close_match` in the rollup, `finalize` on base.
+
+pub mod engine;
+pub mod eval;
+pub mod state;
 
 use anchor_lang::{prelude::*, solana_program::hash::hashv, system_program};
 use ephemeral_rollups_sdk::{
@@ -25,36 +33,58 @@ use ephemeral_rollups_sdk::{
         types::SerializableAccountMeta,
     },
 };
+use tesoro_core::{
+    instructions::MatchResult,
+    ledger::MatchStatus,
+    state::{Config, MatchState, TesoroAccount, ACCOUNT_SEED, CONFIG_SEED},
+};
+
+pub use state::*;
 
 declare_id!("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 
-pub const MATCH_SEED: &[u8] = b"match";
-pub const DECK_SEED: &[u8] = b"deck";
-pub const HOLE_SEED: &[u8] = b"hole";
-
-const DECK_SIZE: usize = 52;
 const READ_FLAGS: u8 = TX_LOGS_FLAG | TX_MESSAGE_FLAG | TX_BALANCES_FLAG;
 
 #[error_code]
 pub enum HoldemError {
     #[msg("Signer is not a Player of this Match")]
     NotAPlayer,
-    #[msg("Invalid seat")]
-    InvalidSeat,
-    #[msg("Entropy already contributed for this seat")]
+    #[msg("Entropy already contributed for this hand")]
     AlreadyContributed,
-    #[msg("Both Players must contribute entropy first")]
+    #[msg("Both Players must contribute entropy and the VRF output must arrive first")]
     EntropyIncomplete,
     #[msg("Deck already dealt")]
     AlreadyDealt,
-    #[msg("Match already settled")]
-    AlreadySettled,
-    #[msg("Match not settled")]
-    NotSettled,
-    #[msg("Invalid winner")]
-    InvalidWinner,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("Unknown speed")]
+    InvalidSpeed,
+    #[msg("Match already started")]
+    AlreadyStarted,
+    #[msg("Match is not live")]
+    NotLive,
+    #[msg("Not valid in this phase of the hand")]
+    WrongPhase,
+    #[msg("It is not your turn")]
+    NotYourTurn,
+    #[msg("Cannot check facing a bet")]
+    CannotCheck,
+    #[msg("Nothing to call")]
+    NothingToCall,
+    #[msg("The opponent is all-in")]
+    OpponentAllIn,
+    #[msg("Raise below the minimum")]
+    RaiseTooSmall,
+    #[msg("Not enough chips")]
+    NotEnoughChips,
+    #[msg("Deadline has not passed")]
+    NotTimedOut,
+    #[msg("The tesoro_core Match is not an Active Match of this Game")]
+    BadTesoroMatch,
+    #[msg("The Match is not over")]
+    MatchNotOver,
+    #[msg("Already settled or refunded in tesoro_core")]
+    AlreadyFinalized,
 }
 
 #[ephemeral]
@@ -62,13 +92,35 @@ pub enum HoldemError {
 pub mod holdem {
     use super::*;
 
-    /// Base layer. Creates the Match, Deck and both Hole accounts and pre-funds each with the
-    /// rent of its ephemeral permission, which the delegated PDA pays on the rollup.
-    pub fn create_match(ctx: Context<CreateMatch>, match_id: u64, opponent: Pubkey) -> Result<()> {
+    /// Base layer. Binds a new table to an Active tesoro_core Match of this Game and pre-funds
+    /// the ephemeral permission rent of each hidden account. Either Player may create it.
+    pub fn create_match(ctx: Context<CreateMatch>, match_id: u64, speed: u8) -> Result<()> {
+        engine::blinds(speed, 1)?;
+        let tesoro = &ctx.accounts.tesoro_match;
+        require!(tesoro.id == match_id, HoldemError::BadTesoroMatch);
+        require!(
+            tesoro.inner.status == MatchStatus::Active
+                && tesoro.inner.game == ID.to_bytes()
+                && tesoro.inner.a.player == ctx.accounts.account_a.key().to_bytes()
+                && tesoro
+                    .inner
+                    .b
+                    .as_ref()
+                    .is_some_and(|b| b.player == ctx.accounts.account_b.key().to_bytes()),
+            HoldemError::BadTesoroMatch
+        );
+        let players = [
+            ctx.accounts.account_a.authority,
+            ctx.accounts.account_b.authority,
+        ];
+        require!(
+            players.contains(&ctx.accounts.creator.key()),
+            HoldemError::NotAPlayer
+        );
+
         let permission_rent =
             ephemeral_rollups_sdk::ephemeral_accounts::rent(EphemeralPermission::size_of(2) as u32);
         let match_key = ctx.accounts.game_match.key();
-
         for target in [
             ctx.accounts.game_match.to_account_info(),
             ctx.accounts.deck.to_account_info(),
@@ -87,10 +139,20 @@ pub mod holdem {
             )?;
         }
 
+        let now = Clock::get()?.unix_timestamp;
         let game_match = &mut ctx.accounts.game_match;
-        game_match.bump = ctx.bumps.game_match;
-        game_match.match_id = match_id;
-        game_match.players = [ctx.accounts.creator.key(), opponent];
+        **game_match = GameMatch {
+            bump: ctx.bumps.game_match,
+            authority_bump: ctx.bumps.authority,
+            match_id,
+            tesoro_match: ctx.accounts.tesoro_match.key(),
+            players,
+            speed,
+            start_deadline: now
+                .checked_add(START_WINDOW_SECS)
+                .ok_or(HoldemError::Overflow)?,
+            ..GameMatch::default()
+        };
 
         let deck = &mut ctx.accounts.deck;
         deck.bump = ctx.bumps.deck;
@@ -99,16 +161,16 @@ pub mod holdem {
         let hole_0 = &mut ctx.accounts.hole_0;
         hole_0.bump = ctx.bumps.hole_0;
         hole_0.game_match = match_key;
-        hole_0.player = ctx.accounts.creator.key();
+        hole_0.player = players[0];
 
         let hole_1 = &mut ctx.accounts.hole_1;
         hole_1.bump = ctx.bumps.hole_1;
         hole_1.game_match = match_key;
-        hole_1.player = opponent;
+        hole_1.player = players[1];
         Ok(())
     }
 
-    /// Base layer. Delegates all four accounts to the TEE validator.
+    /// Base layer. Delegates the table and its hidden accounts to the TEE validator.
     pub fn delegate_match(ctx: Context<DelegateMatch>, match_id: u64) -> Result<()> {
         let config = || DelegateConfig {
             validator: ctx.accounts.validator.as_ref().map(|v| v.key()),
@@ -138,13 +200,16 @@ pub mod holdem {
         Ok(())
     }
 
-    /// Rollup. Creates the four ephemeral permissions: the Match is visible to both Players,
-    /// each Hole account only to its Player, the Deck to nobody.
+    /// Rollup. Creates the four ephemeral permissions (the table is visible to both Players,
+    /// each Hole account only to its Player, the Deck to nobody) and starts the Match: equal
+    /// Chips, first hand, blinds posted.
     pub fn init_permissions(ctx: Context<InitPermissions>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        ctx.accounts.game_match.start(now)?;
+
         let players = ctx.accounts.game_match.players;
         let match_key = ctx.accounts.game_match.key();
         let match_id = ctx.accounts.game_match.match_id.to_le_bytes();
-
         let player_member = |pubkey: Pubkey| Member {
             flags: READ_FLAGS,
             pubkey,
@@ -203,40 +268,43 @@ pub mod holdem {
         Ok(())
     }
 
-    /// Rollup. A Player folds a secret into the deck entropy. The secret only ever exists in
-    /// this transaction (inside the TEE) and in the private Deck account.
-    pub fn contribute_entropy(
-        ctx: Context<ContributeEntropy>,
-        seat: u8,
-        secret: [u8; 32],
-    ) -> Result<()> {
-        let index = usize::from(seat);
-        require!(index < 2, HoldemError::InvalidSeat);
-        require_keys_eq!(
-            ctx.accounts.player.key(),
-            ctx.accounts.game_match.players[index],
-            HoldemError::NotAPlayer
-        );
+    /// Rollup. A Player folds a fresh secret into this hand's Deck entropy. The secret only ever
+    /// exists in this transaction (inside the TEE) and in the private Deck.
+    pub fn contribute_entropy(ctx: Context<ContributeEntropy>, secret: [u8; 32]) -> Result<()> {
+        let game_match = &ctx.accounts.game_match;
+        require!(game_match.status == STATUS_LIVE, HoldemError::NotLive);
+        require!(game_match.phase == PHASE_SHUFFLE, HoldemError::WrongPhase);
+        let seat = seat_of(game_match, &ctx.accounts.player.key())?;
         let deck = &mut ctx.accounts.deck;
-        require!(!deck.contributed[index], HoldemError::AlreadyContributed);
-        deck.entropy = hashv(&[&deck.entropy, &secret, &[seat]]).to_bytes();
-        deck.contributed[index] = true;
+        if deck.hand_no != game_match.hand_no {
+            deck.reset_for(game_match.hand_no);
+        }
+        require!(!deck.contributed[seat], HoldemError::AlreadyContributed);
+        deck.entropy = hashv(&[&deck.entropy, &secret, &[seat as u8]]).to_bytes();
+        deck.contributed[seat] = true;
         Ok(())
     }
 
     /// Rollup. Requests VRF randomness from the delegated oracle queue; the oracle calls back
-    /// into `vrf_callback_shuffle` inside the rollup.
+    /// into `vrf_callback_shuffle` inside the rollup. May be repeated until the output arrives.
     pub fn request_vrf(ctx: Context<RequestVrf>, client_seed: u8) -> Result<()> {
+        let game_match = &ctx.accounts.game_match;
+        let deck = &ctx.accounts.deck;
+        require!(game_match.status == STATUS_LIVE, HoldemError::NotLive);
+        require!(game_match.phase == PHASE_SHUFFLE, HoldemError::WrongPhase);
         require!(
-            ctx.accounts.deck.contributed.iter().all(|c| *c),
+            deck.hand_no == game_match.hand_no && deck.contributed.iter().all(|c| *c),
             HoldemError::EntropyIncomplete
         );
+        require!(!deck.vrf_seen, HoldemError::AlreadyDealt);
+        let mut caller_seed = [client_seed; 32];
+        caller_seed[..4].copy_from_slice(&game_match.hand_no.to_le_bytes());
         let ix = create_request_scoped_randomness_ix(RequestRandomnessParams {
             payer: ctx.accounts.payer.key(),
             oracle_queue: ctx.accounts.oracle_queue.key(),
             callback_program_id: ID,
             callback_discriminator: instruction::VrfCallbackShuffle::DISCRIMINATOR.to_vec(),
-            caller_seed: [client_seed; 32],
+            caller_seed,
             accounts_metas: Some(vec![SerializableAccountMeta {
                 pubkey: ctx.accounts.deck.key(),
                 is_signer: false,
@@ -249,27 +317,39 @@ pub mod holdem {
         Ok(())
     }
 
-    /// Rollup. VRF callback: the output is written only into the private Deck account.
+    /// Rollup. VRF callback: the output is written only into the private Deck.
     pub fn vrf_callback_shuffle(
         ctx: Context<VrfCallbackShuffle>,
         randomness: [u8; 32],
     ) -> Result<()> {
         let deck = &mut ctx.accounts.deck;
+        require!(
+            deck.contributed.iter().all(|c| *c),
+            HoldemError::EntropyIncomplete
+        );
+        require!(!deck.vrf_seen, HoldemError::AlreadyDealt);
         deck.vrf = randomness;
         deck.vrf_seen = true;
         Ok(())
     }
 
-    /// Rollup. Shuffles from `H(entropy || vrf)` and deals two cards to each Hole account.
+    /// Rollup. Shuffles from `H(entropy || vrf || hand)`, deals two cards to each Hole account
+    /// and opens preflop betting. Anyone may call it once the VRF output is in.
     pub fn deal(ctx: Context<Deal>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let game_match = &mut ctx.accounts.game_match;
         let deck = &mut ctx.accounts.deck;
+        require!(game_match.status == STATUS_LIVE, HoldemError::NotLive);
+        require!(game_match.phase == PHASE_SHUFFLE, HoldemError::WrongPhase);
         require!(
-            deck.contributed.iter().all(|c| *c),
+            deck.hand_no == game_match.hand_no
+                && deck.contributed.iter().all(|c| *c)
+                && deck.vrf_seen,
             HoldemError::EntropyIncomplete
         );
         require!(!deck.dealt, HoldemError::AlreadyDealt);
 
-        let seed = hashv(&[&deck.entropy, &deck.vrf]).to_bytes();
+        let seed = hashv(&[&deck.entropy, &deck.vrf, &game_match.hand_no.to_le_bytes()]).to_bytes();
         let mut cards = [0u8; DECK_SIZE];
         for (i, card) in cards.iter_mut().enumerate() {
             *card = i as u8;
@@ -283,22 +363,56 @@ pub mod holdem {
             cards.swap(i, j);
         }
         deck.cards = cards;
-        deck.next = 4;
         deck.dealt = true;
 
-        ctx.accounts.hole_0.cards = [cards[0], cards[2]];
-        ctx.accounts.hole_1.cards = [cards[1], cards[3]];
-        ctx.accounts.hole_0.dealt = true;
-        ctx.accounts.hole_1.dealt = true;
-
-        ctx.accounts.game_match.vrf_mixed = deck.vrf_seen;
-        ctx.accounts.game_match.dealt = true;
-        Ok(())
+        let hand_no = game_match.hand_no;
+        let holes = [[cards[0], cards[2]], [cards[1], cards[3]]];
+        for (hole, cards) in [&mut ctx.accounts.hole_0, &mut ctx.accounts.hole_1]
+            .into_iter()
+            .zip(holes)
+        {
+            hole.cards = cards;
+            hole.hand_no = hand_no;
+            hole.dealt = true;
+        }
+        game_match.on_dealt(&cards, &holes, now)
     }
 
-    /// Rollup. Wipes the hidden state, closes its permissions and returns the Deck and Hole
-    /// accounts to the base layer so their rent is recoverable.
-    pub fn close_hand(ctx: Context<CloseHand>) -> Result<()> {
+    /// Rollup. A Player acts on their turn.
+    pub fn act(ctx: Context<Act>, action: Action) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let seat = seat_of(&ctx.accounts.game_match, &ctx.accounts.player.key())?;
+        let holes = [ctx.accounts.hole_0.cards, ctx.accounts.hole_1.cards];
+        ctx.accounts
+            .game_match
+            .act(seat, action, &ctx.accounts.deck.cards, &holes, now)
+    }
+
+    /// Rollup, permissionless. Once the current deadline has passed: an idle Player is checked
+    /// (or folded when facing a bet); missing entropy cancels hand one (no-show, both entries
+    /// refunded) or forfeits a later hand; three missed turns in a row forfeit the Match.
+    pub fn claim_timeout(ctx: Context<ClaimTimeout>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let game_match = &mut ctx.accounts.game_match;
+        let deck = &ctx.accounts.deck;
+        let contributed = if deck.hand_no == game_match.hand_no {
+            deck.contributed
+        } else {
+            [false; 2]
+        };
+        let holes = [ctx.accounts.hole_0.cards, ctx.accounts.hole_1.cards];
+        game_match.timeout(contributed, &deck.cards, &holes, now)
+    }
+
+    /// Rollup. After the Match is over (or cancelled): wipes the hidden accounts, closes their
+    /// permissions and commits + undelegates everything back to the base layer. Whatever is in
+    /// state at commit becomes public, hence the wipe.
+    pub fn close_match(ctx: Context<CloseMatch>) -> Result<()> {
+        let status = ctx.accounts.game_match.status;
+        require!(
+            status == STATUS_OVER || status == STATUS_CANCELLED,
+            HoldemError::MatchNotOver
+        );
         let match_key = ctx.accounts.game_match.key();
         ctx.accounts.deck.cards = [0; DECK_SIZE];
         ctx.accounts.deck.entropy = [0; 32];
@@ -344,6 +458,7 @@ pub mod holdem {
             ctx.accounts.magic_program.to_account_info(),
         )
         .commit_and_undelegate(&[
+            ctx.accounts.game_match.to_account_info(),
             ctx.accounts.deck.to_account_info(),
             ctx.accounts.hole_0.to_account_info(),
             ctx.accounts.hole_1.to_account_info(),
@@ -352,38 +467,73 @@ pub mod holdem {
         Ok(())
     }
 
-    /// Rollup. Records the trivial result and commits + undelegates the Match to the base layer.
-    pub fn settle(ctx: Context<Settle>, winner: u8) -> Result<()> {
-        require!(winner <= 2, HoldemError::InvalidWinner);
-        let game_match = &mut ctx.accounts.game_match;
-        require!(!game_match.settled, HoldemError::AlreadySettled);
-        game_match.winner = winner;
-        game_match.settled = true;
-        game_match.exit(&ID)?;
-
-        MagicIntentBundleBuilder::new(
-            ctx.accounts.payer.to_account_info(),
-            ctx.accounts.magic_context.to_account_info(),
-            ctx.accounts.magic_program.to_account_info(),
-        )
-        .commit_and_undelegate(&[ctx.accounts.game_match.to_account_info()])
-        .build_and_invoke()?;
-        Ok(())
-    }
-
-    /// Base layer. Stand-in for what tesoro_core will do: read the committed result.
-    pub fn read_result(ctx: Context<ReadResult>) -> Result<()> {
-        let game_match = &ctx.accounts.game_match;
-        require!(game_match.settled, HoldemError::NotSettled);
-        msg!(
-            "match {} settled on base layer: winner={} vrf_mixed={}",
-            game_match.match_id,
-            game_match.winner,
-            game_match.vrf_mixed
+    /// Base layer, permissionless. Settles the tesoro_core Match from the committed result by CPI,
+    /// signing as this Game's `authority` PDA: the winner takes the Pot minus fees. A cancelled
+    /// Match, or one never started before its start deadline, refunds both entries.
+    /// `remaining_accounts` are the payout accounts tesoro_core expects (recipient
+    /// `TesoroAccount` then its Holding, per payout, sorted by recipient and Source).
+    pub fn finalize<'info>(ctx: Context<'_, '_, 'info, 'info, Finalize<'info>>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let (status, winner, start_deadline, authority_bump) = {
+            let m = &ctx.accounts.game_match;
+            (m.status, m.winner, m.start_deadline, m.authority_bump)
+        };
+        require!(
+            !ctx.accounts.game_match.finalized,
+            HoldemError::AlreadyFinalized
         );
-        anchor_lang::solana_program::program::set_return_data(&[game_match.winner]);
+
+        let bump = [authority_bump];
+        let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &bump]];
+        let remaining = ctx.remaining_accounts.to_vec();
+        match status {
+            STATUS_OVER => {
+                let cpi = CpiContext::new_with_signer(
+                    ctx.accounts.tesoro_program.to_account_info(),
+                    tesoro_core::cpi::accounts::SettleMatch {
+                        game_authority: ctx.accounts.authority.to_account_info(),
+                        config: ctx.accounts.config.to_account_info(),
+                        match_state: ctx.accounts.tesoro_match.to_account_info(),
+                    },
+                    signer_seeds,
+                )
+                .with_remaining_accounts(remaining);
+                let result = if winner == 0 {
+                    MatchResult::Opener
+                } else {
+                    MatchResult::Joiner
+                };
+                tesoro_core::cpi::settle_match(cpi, result)?;
+            }
+            STATUS_CANCELLED | STATUS_CREATED => {
+                if status == STATUS_CREATED {
+                    require!(now > start_deadline, HoldemError::NotTimedOut);
+                }
+                let cpi = CpiContext::new_with_signer(
+                    ctx.accounts.tesoro_program.to_account_info(),
+                    tesoro_core::cpi::accounts::RefundMatch {
+                        caller: ctx.accounts.authority.to_account_info(),
+                        config: ctx.accounts.config.to_account_info(),
+                        match_state: ctx.accounts.tesoro_match.to_account_info(),
+                    },
+                    signer_seeds,
+                )
+                .with_remaining_accounts(remaining);
+                tesoro_core::cpi::refund_match(cpi)?;
+            }
+            _ => return err!(HoldemError::MatchNotOver),
+        }
+        ctx.accounts.game_match.finalized = true;
         Ok(())
     }
+}
+
+fn seat_of(game_match: &GameMatch, key: &Pubkey) -> Result<usize> {
+    game_match
+        .players
+        .iter()
+        .position(|p| p == key)
+        .ok_or_else(|| error!(HoldemError::NotAPlayer))
 }
 
 /// Every permission CPI is signed by the permissioned PDA itself, which also pays the rent.
@@ -452,13 +602,34 @@ macro_rules! impl_permission_accounts {
     };
 }
 impl_permission_accounts!(InitPermissions);
-impl_permission_accounts!(CloseHand);
+impl_permission_accounts!(CloseMatch);
 
 #[derive(Accounts)]
 #[instruction(match_id: u64)]
 pub struct CreateMatch<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
+    #[account(
+        seeds = [MATCH_SEED, &tesoro_match.id.to_le_bytes()],
+        bump = tesoro_match.bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub tesoro_match: Box<Account<'info, MatchState>>,
+    #[account(
+        seeds = [ACCOUNT_SEED, account_a.authority.as_ref()],
+        bump = account_a.bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub account_a: Account<'info, TesoroAccount>,
+    #[account(
+        seeds = [ACCOUNT_SEED, account_b.authority.as_ref()],
+        bump = account_b.bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub account_b: Account<'info, TesoroAccount>,
+    /// CHECK: this Game's settlement authority PDA; only its canonical bump is read here.
+    #[account(seeds = [AUTHORITY_SEED], bump)]
+    pub authority: UncheckedAccount<'info>,
     #[account(
         init, payer = creator, space = 8 + GameMatch::INIT_SPACE,
         seeds = [MATCH_SEED, &match_id.to_le_bytes()], bump
@@ -582,12 +753,38 @@ pub struct Deal<'info> {
     pub hole_1: Account<'info, Hole>,
 }
 
+#[derive(Accounts)]
+pub struct Act<'info> {
+    pub player: Signer<'info>,
+    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    pub game_match: Account<'info, GameMatch>,
+    #[account(seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
+    pub deck: Account<'info, Deck>,
+    #[account(seeds = [HOLE_SEED, game_match.key().as_ref(), &[0]], bump = hole_0.bump)]
+    pub hole_0: Account<'info, Hole>,
+    #[account(seeds = [HOLE_SEED, game_match.key().as_ref(), &[1]], bump = hole_1.bump)]
+    pub hole_1: Account<'info, Hole>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimTimeout<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    pub game_match: Account<'info, GameMatch>,
+    #[account(seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
+    pub deck: Account<'info, Deck>,
+    #[account(seeds = [HOLE_SEED, game_match.key().as_ref(), &[0]], bump = hole_0.bump)]
+    pub hole_0: Account<'info, Hole>,
+    #[account(seeds = [HOLE_SEED, game_match.key().as_ref(), &[1]], bump = hole_1.bump)]
+    pub hole_1: Account<'info, Hole>,
+}
+
 #[commit]
 #[derive(Accounts)]
-pub struct CloseHand<'info> {
+pub struct CloseMatch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
     pub game_match: Account<'info, GameMatch>,
     #[account(mut, seeds = [DECK_SEED, game_match.key().as_ref()], bump = deck.bump)]
     pub deck: Account<'info, Deck>,
@@ -612,58 +809,23 @@ pub struct CloseHand<'info> {
     pub ephemeral_vault: UncheckedAccount<'info>,
 }
 
-#[commit]
 #[derive(Accounts)]
-pub struct Settle<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
+pub struct Finalize<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut, seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
+    pub game_match: Account<'info, GameMatch>,
     #[account(
         mut,
-        seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump,
-        constraint = game_match.players.contains(&payer.key()) @ HoldemError::NotAPlayer
+        address = game_match.tesoro_match,
+        seeds = [MATCH_SEED, &tesoro_match.id.to_le_bytes()],
+        bump = tesoro_match.bump,
+        seeds::program = tesoro_core::ID
     )]
-    pub game_match: Account<'info, GameMatch>,
-}
-
-#[derive(Accounts)]
-pub struct ReadResult<'info> {
-    #[account(seeds = [MATCH_SEED, &game_match.match_id.to_le_bytes()], bump = game_match.bump)]
-    pub game_match: Account<'info, GameMatch>,
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct GameMatch {
-    pub bump: u8,
-    pub match_id: u64,
-    pub players: [Pubkey; 2],
-    pub dealt: bool,
-    pub vrf_mixed: bool,
-    pub settled: bool,
-    /// 0 = player 0, 1 = player 1, 2 = draw
-    pub winner: u8,
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct Deck {
-    pub bump: u8,
-    pub game_match: Pubkey,
-    pub entropy: [u8; 32],
-    pub contributed: [bool; 2],
-    pub vrf_seen: bool,
-    pub vrf: [u8; 32],
-    pub dealt: bool,
-    pub next: u8,
-    pub cards: [u8; DECK_SIZE],
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct Hole {
-    pub bump: u8,
-    pub game_match: Pubkey,
-    pub player: Pubkey,
-    pub dealt: bool,
-    pub cards: [u8; 2],
+    pub tesoro_match: Box<Account<'info, MatchState>>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, seeds::program = tesoro_core::ID)]
+    pub config: Box<Account<'info, Config>>,
+    /// CHECK: the registered Game authority; signs the CPI with its stored canonical bump.
+    #[account(seeds = [AUTHORITY_SEED], bump = game_match.authority_bump)]
+    pub authority: UncheckedAccount<'info>,
+    pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
 }
