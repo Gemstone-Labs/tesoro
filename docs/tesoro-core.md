@@ -31,7 +31,7 @@ Per Source: `issued`, `returned` (cancelled by the owner), `redeemed`, `yield_un
 ## Instructions
 
 Config: `initialize_config`, `update_config`, `register_game`, `remove_game` (admin). Identity: `create_account`, `set_evm_address`, `open_holding` (anyone pays; own-sourced iff the Source belongs to the Account).
-Position: `open_position` (oracle), `take_advance` (owner picks the Horizon, oracle supplies the price, both sign), `apply_yield` (oracle; idempotent by `seq`), `return_own`, `redeem`, `claim_free_yield`, `unlock`.
+Position: `open_position` (oracle), `open_native_position`, `take_native_advance`, `accrue_native_yield`, `sweep_native_surplus`, `set_price` (see Solana-native Positions below), `take_advance` (owner picks the Horizon, oracle supplies the price, both sign), `apply_yield` (oracle; idempotent by `seq`), `return_own`, `redeem`, `claim_free_yield`, `unlock`.
 Match: `open_match`, `join_match`, `open_match_backed`, `join_match_backed`, `settle_match` (registered Game authority only), `extend_match_deadline` (registered Game authority only), `refund_match`.
 Backing: `create_request`, `cancel_request`, `create_offer`, `accept_directed`, `apply_offer`, `accept_applicant`, `cancel_offer`, `expire_offer`.
 
@@ -92,3 +92,35 @@ Conservative readings chosen where CONTEXT.md is silent. Raise before the build 
 ## Left for T1
 
 Cross-chain receiver wiring, Pyth price, Game-program CPI (only the authority key is checked today), a Queue/Challenge layer, consolidation, fuzzing beyond the model-based property tests, CU profiling, and the security audit pass.
+
+## Solana-native Positions (simSOL custody)
+
+Added additively (no existing account layout, seed or instruction signature changed). A native Position holds real `sim_lst` simSOL in a program-controlled vault; no oracle opens it, credits its yield or unlocks it. The yield is SIMULATED (sim_lst runs an accelerated clock, 1 month per ~10 min).
+
+| On chain | Seeds | Notes |
+|---|---|---|
+| `NativeCustody` | `["native", position]` | pool, mint, vault, `rate_at_open`, `deposited_shares`, `redeemed_units` (SOL paid to holders) |
+| Vault (SPL token account) | `["native_vault", position]` | authority = the custody PDA; the only place Principal shares live |
+| `PriceFeed` | `["price", SIM_SOL_MINT]` | SOL/USD in micro-USD, written by `oracle_authority` (`set_price`) |
+
+A Position is native iff `source_chain == Solana` and `source_asset == SIM_SOL_MINT` (`3Q2VRPmd...`, the sim_lst mint PDA). Its id is `sha256("native" || owner || nonce_le)`, so the seeds are `["position", 0, id]`. The oracle's `open_position` refuses that asset, `apply_yield` and `claim_free_yield` refuse native Positions.
+
+Instructions (all new, plus native branches in `redeem` and `unlock`):
+
+- `set_price(price_micro_usd)`: oracle only. **Price seam decision:** the issuance price is an on-chain `PriceFeed` account (max age 24 h) rather than an oracle co-signature, so the owner signs alone and the app needs no server key. Pyth later replaces the feed's source; `take_native_advance` does not change.
+- `open_native_position(nonce, lst_amount)`: owner deposits simSOL into the vault. Validates the pool (sim_lst-owned, canonical `["pool"]` PDA, `pool.mint == SIM_SOL_MINT`) and the mint. Principal is `floor(shares * rate / 1e9)` SOL lamports, `rate_bps` is the pool APY at open. The Horizon is chosen by the follow-up instruction; send both in one transaction.
+- `take_native_advance(horizon_months)`: owner only, priced by the feed. Same ledger rules as `take_advance` (which still works on native Positions with an oracle price).
+- `accrue_native_yield()`: permissionless crank. Cumulative accrued yield in SOL `= floor(V * r / 1e9) + paid - Principal` (V = shares still in the vault, r = current rate, paid = SOL already paid to redeemers); if it exceeds the applied cumulative it is applied exactly like `YieldAccrued` (Debt repaid first, the rest is free yield). Idempotent (same state = byte-identical no-op) and monotonic. Pass the open Advance's Source as the optional account when there is one.
+- `redeem(amount)` on a native Source: `remaining_accounts = [custody (w), vault (w), holder simSOL token account (w), pool, token_program]`. Pays simSOL worth the redeemed units (`floor(units * 1e9 / rate)`) to the holder's own token account. Never more than accrued (the ledger bound), never touching Principal.
+- `unlock()` on a native Position: same remaining accounts (destination = the owner's token account). Requires Debt zero; releases everything beyond the reserve below.
+- `sweep_native_surplus()`: owner, after Unlock; releases whatever the vault holds beyond the reserve at the current rate (the reserve shrinks as the rate grows).
+
+**Vault invariant.** While Locked the vault holds at least `ceil((Principal + owed) * 1e9 / rate)` shares, where `owed = cumulative_yield - free_yield - redeemed_units` is the yield applied to Sources and not yet paid to holders. After Unlock only `owed` is reserved, so yield owed to holders who have not redeemed stays in the vault, valued at the current rate, until they redeem. Every payout re-checks this (`VaultShortfall`). Free yield and un-cranked yield are not reserved: they return to the owner at Unlock. `claim_free_yield` is refused for native Positions for that reason. Rounding leaves at most a share or two of dust reserved.
+
+Errors appended: `InvalidPool` 6007, `InvalidMint` 6008, `NativePosition` 6009, `NotNativePosition` 6010, `StalePrice` 6011; ledger `VaultShortfall`, `ZeroShares`.
+
+Tests: `ledger/native.rs` (model property test over random Time/Advance/Crank/Redeem/ReturnOwn/Unlock sequences), `tests/native.rs` (LiteSVM with the real sim_lst, incl. a randomized on-chain sequence test reading the invariants back: Principal shares leave only via unlock, payouts <= accrued, vault covers Principal + owed, crank idempotent, wrong pool / mint / owner rejected). TS helper: `scripts/native-position`.
+
+### How the app calls it
+
+All with `TESORO_CORE_ID`, discriminators `sha256("global:<name>")[..8]` or the regenerated IDL (`pnpm build:programs`; the IDL gains `NativeCustody`, `PriceFeed` and a `Pool` type from sim_lst). Flow: `create_account` (once) -> sim_lst `faucet` -> one tx of `open_native_position(nonce, lst)` + `take_native_advance(months)` (source index = `advances` = 0) -> anyone calls `accrue_native_yield` (keeper or the app on view) -> `redeem` with the five remaining accounts -> `unlock` with the five remaining accounts -> optionally `sweep_native_surplus`. Keep the price feed fresh (`set_price` from the keeper, < 24 h old). Old IDL clients keep working for oracle Positions; `redeem` and `unlock` for those need no remaining accounts.
