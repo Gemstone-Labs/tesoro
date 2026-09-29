@@ -50,7 +50,8 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, onAct, onClaim 
   const expired = !ended && t.status === STATUS.live && remaining < -1;
 
   const board = playing ? t.board : showLast ? lh.board : t.board;
-  const myCards = hole && (playing ? hole.handNo === t.handNo : hole.handNo === lh.handNo) ? hole.cards : null;
+  const shownMine = showLast && lh.showdown && lh.shown[seat][0] !== NO_CARD ? lh.shown[seat] : null;
+  const myCards = hole && (playing ? hole.handNo === t.handNo : hole.handNo === lh.handNo) ? hole.cards : playing ? null : shownMine;
   const oppCards: [number, number] | null = playing
     ? null
     : showLast && lh.showdown && lh.shown[opp][0] !== NO_CARD
