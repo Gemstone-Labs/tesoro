@@ -11,16 +11,33 @@ pnpm --filter @tesoro/keeper typecheck
 
 Flags / env: `--interval <secs>` (`KEEPER_INTERVAL_SECS`, 20), `--max-sol-per-hour <n>` (`KEEPER_MAX_SOL_PER_HOUR`, 0.5), `--rpc <url>` (`KEEPER_RPC`, default `https://rpc.magicblock.app/devnet`; the public devnet RPC rate-limits), `KEEPER_KEYPAIR` (`~/.config/tesoro/keeper.json`), `KEEPER_FUNDER` (`~/.config/solana/id.json`), `TESORO_IDL_DIR`.
 
+Bridge / Ethereum: `--max-lz-fee-sol` (`KEEPER_MAX_LZ_FEE_SOL`, 0.005: refuse a Solana-side LayerZero send whose quote is higher), `--max-lz-sol-per-hour` (`KEEPER_MAX_LZ_SOL_PER_HOUR`, 0.05: LayerZero fees paid in any rolling hour), `--hoodi-rpc` (`KEEPER_HOODI_RPC`, `https://ethereum-hoodi-rpc.publicnode.com`), `KEEPER_EVM_ENV` (`~/.config/tesoro/evm-deployer.env`, key `EVM_DEPLOYER_PRIVATE_KEY`, read but never logged), `--eth-yield-mins` (`KEEPER_ETH_YIELD_MINS`, 10 = one simulated month), `--max-eth-per-hour` (`KEEPER_MAX_ETH_PER_HOUR`, 0.005: LayerZero fee + gas the EVM key may spend on reports per rolling hour), `KEEPER_STATE_DIR` (`~/.cache/tesoro-keeper`, last-report times).
+
 Payer: `~/.config/tesoro/keeper.json` is created on first run and funded with 2 devnet SOL from the deployer keypair (never in the repo). Fees and rent it spends are tracked in a rolling hour; at the cap, actions are skipped and logged. 429s are retried with exponential backoff inside each RPC call, and the loop doubles its delay (max 5 min) after a rate-limited pass.
 
 ## Jobs
 
-1. **Match hygiene** (every Match in tesoro_core that is not Settled or Refunded)
-   - Block Puzzle: no opponent, no Session or no Seed before the Match deadline: `refund_match`. Boards on the base layer and both sealed: `settle`. Past the submission deadline and nobody played: `claim_timeout`. Boards in the private rollup: past the deadline, or when a free simulation of `seal` says both runs are closed, `seal` + `commit_boards` then `settle`. Otherwise it logs why it waits and until when.
+1. **Match hygiene** (every Match in tesoro_core that is not Settled or Refunded; Block Puzzle in `src/blockpuzzle.ts`, Hold'em in `src/matches.ts`)
+   - Block Puzzle (open_session / join_session flow; the Seed lives in a SeedVault in the TEE, so the keeper never needs it):
+     - Open Match nobody joined, Queue window (1 h) over: `refund_match`. Its opener Board and SeedVault stay delegated (the rollup cannot see the base Match).
+     - Joined on tesoro_core but not bound to the Session (an older client): `join_session`, inside the Match's 1 h window; after it, `refund_match`.
+     - Both Boards in the rollup: a free simulation of `seal` (works from a non-member) says whether both runs are closed. If so, or if both deadlines passed, `seal` + `commit_boards` in the TEE, then `settle` on the base layer (one pass). Otherwise it logs when the deadlines fall.
+     - A Board still on the base layer (its Player never delegated) whose deadline passed (opener: the Queue window, joiner: 24 h): `delegate_opener` / `delegate_joiner` + `init_permission` (+ `init_vault_permission` for the opener), then seal + commit + settle: that Player forfeits, per the program.
+     - Neither Board delegated and the joiner's 24 h deadline passed: `claim_timeout` (both forfeit, both entries refunded). Both committed and sealed but not settled: `settle`.
+     - A Session in the pre-`open_session` layout (cannot be decoded by the current program) or a joined Match with no Session: waits for the Match deadline, then `refund_match`.
+     - Rollup attempts per Match are throttled to one a minute.
    - Hold'em: a finished (over or cancelled) table on the base layer: `finalize`. A delegated table is private to its Players, so the keeper simulates `claim_timeout` (idle Player past deadline) and `close_match` (table finished) in the rollup and sends what would succeed, then `finalize`. A table that never went live, or no table, past the Match deadline: `refund_match`. It never refunds a live delegated table.
 2. **Backing hygiene**: `expire_offer` for Open Offers past `expires_at` and Accepted Offers past `use_by`, releasing the Backer's reservation. Requests have no expiry instruction in tesoro_core (only the Player can `cancel_request`) and hold no reservation, so they are only counted.
 3. **Price feed** (`src/price.ts`): the oracle key (`KEEPER_ORACLE`, `~/.config/tesoro/oracle.json`) publishes SOL/USD with `set_price` whenever the on-chain `PriceFeed` is older than 50 minutes (`KEEPER_PRICE_REFRESH_SECS`; so at least hourly; Advances reject a feed older than 24 h). Price from Pyth Hermes, else CoinGecko, else Coinbase spot, else the last on-chain value (else $150). It is a **devnet price feed**, a stand-in until Pyth is read on chain. The oracle pays that fee, so keep it funded.
-4. **Yield** (`src/yield.ts`): every Solana-native Position (simSOL custody, `source_asset == SIM_SOL_MINT`) that is Locked with Debt > 0 (`open_advance` set) gets `accrue_native_yield` each pass, with the real accounts `[position, custody, vault, pool, open Advance source]` built by `app/src/lib/chain/native.ts` (shared with the app). Simulated yield: 1 month = ~10 min. ETH Positions: `PositionVault.reportYield` on Hoodi is a stub that logs how many Positions are waiting.
+4. **Yield** (`src/yield.ts`): every Solana-native Position (simSOL custody, `source_asset == SIM_SOL_MINT`) that is Locked with Debt > 0 (`open_advance` set) gets `accrue_native_yield` each pass, with the real accounts `[position, custody, vault, pool, open Advance source]` built by `app/src/lib/chain/native.ts` (shared with the app). Simulated yield: 1 month = ~10 min.
+5. **Bridge relays, Solana side** (`src/bridge.ts`, `src/lz.ts`; flow in `docs/cross-chain.md`). Reads every `BridgePosition` and `Claim` of `tesoro_bridge` and moves what is ready, each step guarded by the bridge's own tracking (`opened`, `applied_yield_seq`, `unlock_sent`, `Claim.units_sent`), so a repeated pass is a no-op:
+   - PositionLocked delivered, not applied: `apply_locked` (the keeper pays the core Position's rent; waits, with a log line, while the owner's EVM address is not linked to an Account).
+   - YieldAccrued delivered and newer than the applied one: `apply_yield` (with the Position's open Advance Source, if any).
+   - Position Unlocked in `tesoro_core` with Debt zero: `send_unlock`. Redemption Claim with units not yet sent (`redeem_to_evm`): `send_pay_yield`.
+   - The two sends pay the LayerZero fee in SOL from the keeper payer: the fee is quoted by simulating `quote_send`, refused above `--max-lz-fee-sol`, and counted against `--max-lz-sol-per-hour`. Every base transaction is simulated first, so a step that would fail is logged as `wait: ... would fail (...)` and costs nothing.
+6. **ETH yield** (`src/eth.ts`): each Ethereum (Hoodi) Position that is Locked with Debt gets `PositionVaultOApp.reportYield(id)` every `--eth-yield-mins` (10), paying the vault's `quoteYieldAccrued()` + 20% from the EVM deployer key (the excess is refunded). Skipped: a Position reported inside the window (state file), one whose last message is still in flight (vault `outSeq` above the bridge's `last_in_seq`, unless it has been stuck for 3 windows), an unlocked one, and everything once `--max-eth-per-hour` is used. Delivery to Solana takes about 2 minutes, then the bridge job's `apply_yield` lowers the Debt. HyperEVM has no vault yet, so no Position exists there.
+
+Fixture: `pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts` plays a real devnet Block Puzzle Match up to "both runs closed" (test wallets from `~/.config/tesoro/block-puzzle-testers.json`) and stops, so the keeper does the seal, commit and settle.
 
 ## Sharing
 
@@ -29,4 +46,6 @@ The keeper imports the app's IDL-based clients (`app/src/games/*/chain.ts`) and 
 ## Limits
 
 - Private rollup state (Block Puzzle Boards, Hold'em tables) is unreadable to the keeper; it uses simulations and program-enforced clocks to decide. If the rollup rejects simulation from a non-member, the keeper waits for the deadline paths.
-- Block Puzzle Matches are settled by the Player clients when they can; the keeper is the fallback.
+- Block Puzzle Matches are settled by the Player clients when they can; the keeper is the fallback. The forfeited-Board path (`delegate_*` + permission for a Player who never delegated) needs a 24 h wait (opener: 1 h) and is implemented from the app's `bringForfeitedBoardsIn` and the program, but not yet exercised on devnet.
+- Wallet-signed steps stay with the user: `create_account`, `link_evm`, `take_advance` (owner + oracle), `redeem_to_evm` and `unlock`. Once they exist, the keeper does everything after them.
+- `init_position` (the inbox record that must exist before `openPosition`) is not pre-created by the keeper; the app does it.
