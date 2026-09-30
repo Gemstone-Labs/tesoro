@@ -15,7 +15,7 @@ import { GAME_NAMES } from "@/lib/mock";
 import type { GameId, MatchResult } from "@/lib/mock";
 import { Rail } from "./Rail";
 
-interface Played {
+export interface Played {
   id: string;
   game: GameId;
   entry: number;
@@ -23,10 +23,12 @@ interface Played {
   delta: number;
   /** Block Puzzle only: your score, theirs. */
   scores: [number, number] | null;
+  /** The opponent's key, when there was one. */
+  opp: string | null;
   at: number;
 }
 
-function toPlayed(m: ChainMatch): Played | null {
+export function toPlayed(m: ChainMatch): Played | null {
   if ((m.status !== "settled" && m.status !== "refunded") || m.seat === null) return null;
   const delta = matchDelta(m);
   const draw = m.session?.result === "draw";
@@ -39,6 +41,7 @@ function toPlayed(m: ChainMatch): Played | null {
     result: draw ? "draw" : refunded ? "refunded" : delta > 0 ? "won" : "lost",
     delta,
     scores,
+    opp: m.sides[1 - m.seat]?.player ?? null,
     at: Number(m.id >> 1n),
   };
 }

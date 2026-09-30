@@ -98,7 +98,7 @@ export function MatchResult(p: MatchResultProps) {
   return (
     <div className="stack-lg mr">
       <nav className="mr-crumbs" aria-label="Breadcrumb">
-        <Link href="/play">Play</Link>
+        <Link href={`/play/${p.game}`}>Play</Link>
         <span aria-hidden="true">/</span>
         <span>{GAME_NAMES[p.game]}</span>
         <span aria-hidden="true">/</span>

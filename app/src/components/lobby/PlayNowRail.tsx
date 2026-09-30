@@ -54,7 +54,7 @@ export function PlayNowRail({ category, onClear }: { category: Category | null; 
           </>
         );
         return g.live ? (
-          <Link key={g.key} href={`/play?game=${g.game}`} className="cut cut-card tile">
+          <Link key={g.key} href={`/play/${g.game}`} className="cut cut-card tile">
             {inner}
           </Link>
         ) : (

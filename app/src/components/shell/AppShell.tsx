@@ -10,7 +10,7 @@ import { NAV, SidebarBody, isHere } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
 /** Pages that use the full-width column instead of the centred 1180px one. */
-const BROAD = ["/wallet", "/backing", "/play/match", "/play/block-puzzle", "/play/holdem", "/play/practice", "/design/result"];
+const BROAD = ["/wallet", "/backing", "/play/match", "/play/block-puzzle", "/play/holdem", "/play/practice", "/design"];
 
 /** Desktop: fixed sidebar + top bar. Below 1024px: the sidebar becomes a drawer and a bottom nav appears. */
 export function AppShell({ children }: { children: ReactNode }) {

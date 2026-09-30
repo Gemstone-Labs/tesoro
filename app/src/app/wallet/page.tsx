@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Button, Card, ChainChip, ClockIcon, GemaMark, Label, Meter } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
@@ -29,6 +30,7 @@ export default function Wallet() {
   const [months, setMonths] = useState(3);
   const [now] = useState(() => Date.now());
   const panel = useRef<HTMLDivElement>(null);
+  const router = useRouter();
   useGuideTip({
     id: "wallet-first",
     bust: "himExplain",
@@ -214,7 +216,7 @@ export default function Wallet() {
       <div className="wl-side" ref={panel}>
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
-          {tab === "ETH" && (onChain ? <EthOpenForm onOpened={() => void 0} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
+          {tab === "ETH" && (onChain ? <EthOpenForm onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
           {tab === "HYPE" && (
             <div className="stack">
               <IdleForm unit="HYPE" months={months} onMonths={setMonths} soon />
