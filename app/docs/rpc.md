@@ -6,9 +6,9 @@ Free-tier keys (Alchemy) serve normal RPC but reject `getProgramAccounts`; the p
 |---|---|---|---|
 | `NEXT_PUBLIC_SOLANA_RPC` | browser | single-account reads (`getAccountInfo`, `getMultipleAccounts`), sends, confirmations | `https://rpc.magicblock.app/devnet` |
 | `TESORO_BASE_RPC` | server | reads and sends in API routes | same |
-| `TESORO_GPA_RPC` | server only | list queries (`getProgramAccounts`) | `https://api.devnet.solana.com` (later a Helius key) |
+| `TESORO_GPA_RPC` | server only | list queries (`getProgramAccounts`) | `https://rpc.magicblock.app/devnet` (the public `api.devnet.solana.com` rate-limits under a few tabs) |
 | `KEEPER_RPC` | keeper | sends and reads | `TESORO_BASE_RPC`, then the default above |
-| `KEEPER_GPA_RPC` | keeper | list queries | `https://api.devnet.solana.com` |
+| `KEEPER_GPA_RPC` | keeper | list queries | `https://rpc.magicblock.app/devnet` |
 
 The keeper loads `app/.env.local` for any variable its own environment leaves unset, so keys live in one file. `NEXT_PUBLIC_*` values ship to the browser: restrict that key by domain. Copy `app/.env.example` to `app/.env.local`; never commit it.
 

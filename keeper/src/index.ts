@@ -48,7 +48,13 @@ async function main() {
   let delay = s.intervalMs;
   do {
     rateLimit.hits = 0;
-    await pass(ctx);
+    try {
+      await pass(ctx);
+    } catch (e) {
+      // A dropped connection before any job ran (cluster time, balance) must not end the loop.
+      if (s.once) throw e;
+      log("keeper", "-", `ERROR pass failed, retrying next interval: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
+    }
     if (s.once) break;
     // Back off on 429s (doubling, capped); recover to the base interval on a clean pass.
     delay = rateLimit.hits > 0 ? Math.min(delay * 2, MAX_BACKOFF_MS) : s.intervalMs;

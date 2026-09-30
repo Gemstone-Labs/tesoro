@@ -194,7 +194,7 @@ export const sweepNativeSurplusIx = (owner: PublicKey, position: PublicKey) =>
       meta(owner, false, true),
       meta(accountPda(owner)),
       meta(position),
-      meta(custodyPda(position)),
+      meta(custodyPda(position), true),
       meta(vaultPda(position), true),
       meta(ata(owner), true),
       meta(POOL),

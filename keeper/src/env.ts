@@ -48,7 +48,7 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
   const num = (v: string | undefined, d: number) => (v !== undefined && Number.isFinite(Number(v)) ? Number(v) : d);
   return {
     rpc: value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC || "https://rpc.magicblock.app/devnet",
-    gpaRpc: value("gpa-rpc") || env.KEEPER_GPA_RPC || "https://api.devnet.solana.com",
+    gpaRpc: value("gpa-rpc") || env.KEEPER_GPA_RPC || "https://rpc.magicblock.app/devnet",
     keypairPath: env.KEEPER_KEYPAIR ?? join(homedir(), ".config/tesoro/keeper.json"),
     deployerPath: env.KEEPER_FUNDER ?? join(homedir(), ".config/solana/id.json"),
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,

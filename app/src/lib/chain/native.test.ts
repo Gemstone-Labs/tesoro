@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
+import idl from "./idl/tesoro_core.json";
 import {
   accrueNativeYieldIx,
   faucetIx,
@@ -38,6 +39,27 @@ describe("native instructions", () => {
       [sweepNativeSurplusIx(owner, pos).data, "sweep_native_surplus"],
     ];
     for (const [data, name] of cases) expect(data.subarray(0, 8).toString("hex"), name).toBe(d(name));
+  });
+
+  it("marks accounts writable and signer exactly as the IDL says (a read-only custody made sweep fail with ConstraintMut)", () => {
+    const pos = sourcePda(owner, 0);
+    const cases: [ReturnType<typeof unlockIx>, string][] = [
+      [sweepNativeSurplusIx(owner, pos), "sweep_native_surplus"],
+      [accrueNativeYieldIx(pos, 0), "accrue_native_yield"],
+      [redeemIx(owner, pos, pos, 1n), "redeem"],
+      [unlockIx(owner, pos), "unlock"],
+      [openNativePositionIx(owner, 1, 1n, pos), "open_native_position"],
+      [takeNativeAdvanceIx(owner, pos, 0, 3), "take_native_advance"],
+    ];
+    for (const [ix, name] of cases) {
+      const spec = (idl.instructions as { name: string; accounts: { writable?: boolean; signer?: boolean }[] }[]).find((i) => i.name === name);
+      expect(spec, name).toBeDefined();
+      spec!.accounts.forEach((a, i) => {
+        if (!ix.keys[i]) return;
+        expect(ix.keys[i].isWritable, `${name} account #${i}`).toBe(!!a.writable);
+        expect(ix.keys[i].isSigner, `${name} account #${i} signer`).toBe(!!a.signer);
+      });
+    }
   });
 
   it("redeem and unlock carry the five payout accounts", () => {

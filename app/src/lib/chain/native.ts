@@ -207,7 +207,7 @@ export const sweepNativeSurplusIx = (owner: PublicKey, position: PublicKey) =>
       meta(owner, false, true),
       meta(accountPda(owner)),
       meta(position),
-      meta(custodyPda(position)),
+      meta(custodyPda(position), true),
       meta(vaultPda(position), true),
       meta(simSolAta(owner), true),
       meta(POOL),
@@ -371,6 +371,11 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
   const freeYield = rdU64(d, o + 8);
   // NativeCustody: disc 8, bump, vault_bump, 5 keys (position, owner, pool, mint, vault), rate_at_open, deposited, redeemed
   const redeemedUnits = rdU64(cust.data, 8 + 2 + 5 * 32 + 16);
+  // Since F-05 the program reads yield from `tracked_shares` (after redeemed_units), never from the vault's token balance:
+  // simSOL sent straight to the vault is not yield. Mirror that, or a top-up shows a Debt that is not really repaid.
+  const TRACKED_AT = 8 + 2 + 5 * 32 + 24;
+  const tracked = cust.data.length >= TRACKED_AT + 8 ? rdU64(cust.data, TRACKED_AT) : null;
+  const vaultBalance = rdU64(vault.data, 64);
   let source: NativeInfo["source"] = null;
   if (advances > 0) {
     const key = sourcePda(position, advances - 1);
@@ -387,7 +392,7 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
     openAdvance,
     cumulativeYield,
     freeYield,
-    vaultShares: rdU64(vault.data, 64),
+    vaultShares: tracked !== null && tracked < vaultBalance ? tracked : vaultBalance,
     redeemedUnits,
     source,
   };

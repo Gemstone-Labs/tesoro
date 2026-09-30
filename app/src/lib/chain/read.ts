@@ -257,6 +257,8 @@ export async function findQueueMatch(entry: number, me: PublicKey, game: GameId 
     })
     .map((m: any) => big(m.account.id))
     .sort((x: bigint, y: bigint) => (x < y ? -1 : 1));
+  // Hold'em tables have no Block Puzzle Session: every open Hold'em Match can be joined.
+  if (game !== "block-puzzle") return open[0] ?? null;
   // Only Matches whose opener has a Session (opened by this version of the app) can be joined.
   const sessions = open.length ? await chain.bp.account.session.fetchMultiple(open.map((id: bigint) => BlockPuzzleChain.addresses(id).session)) : [];
   const idx = open.findIndex((_id: bigint, i: number) => sessions[i]);
