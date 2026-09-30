@@ -2,6 +2,40 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Security remediation redeploy (2026-09-30)
+
+All from the deployer `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` via `https://rpc.magicblock.app/devnet`. Findings: `docs/security/audit-2026-09-30.md`.
+
+| Step | Signature / tx |
+|---|---|
+| tesoro_core upgrade (F-05, F-07, F-12; extended by 40,000 bytes first) | `fduJkqPr9Z9X7qhioKS751ec4Hijd3jJ4mLyLPM38VypvzavJg4boVDju6bVh4vLasRbUt1MJzuRwiwtLYjCfy2` |
+| `migrate_native_custody` x3 (existing native Positions `EyAHqa5j...`, `4bf37rTh...`, `2QxKeDKJ...`; `keeper/scripts/migrate-custody.ts`) | `4uX2R8BBYf92cdFy7Zp8RKcXXb6Gk8dczQh4vjrZ8Tkta2gs3A6ybzeeUnJujNTptEWtAvHwbkNzfKMwNo1iJua9`, `3A3ANsEGaXkGsgzQkX3QjsFbzZGqq5YNGbyYSVi6Wa9hT2edA7xF1BNQtqoQj7TAHZ6ydUHPZeqmKiAqoEoT3NTy`, `3hmyr3ErKFbfXGpQJrXs7Vh6uGL9faeJqBcVd58oVXg8rfRv7o1di8VkhfDiA3qHf7s1jhKKDvXu54XeeWgLgwmG` |
+| block_puzzle upgrade (F-01, F-02, F-06, F-09; extended by 20,000 bytes first) | `32dytQEvMcmH5ubvCwNe7oND9HfSYL89ocT8divxgEFCNpkEXKKyK2BA5kdX4WWNHmE4XYJCqX2BsQuQVyzNrLtw` |
+| holdem upgrade (F-01, F-02, F-03) | `4qxWDa6wpiPja8ESAA2fkfced9trcuNPt32Dg9Yha6d5vDv2xVEeHVemHZXXyLfdW1mBJwe3G8jTcagyAnKGrifB` |
+| tesoro_bridge upgrade (F-07: `redeem_to_evm` signs `redeem_from_source`) | `2YKqDbwKDEtZ8tYXCRVq6Lqrnr6aUpzG4mBZwL6eh4PNZR9i2wJbEN5L7uLeAny6cYfPDCkDXjcyDS68qesPh3Rh` |
+| F-01 whitelist: only the TEE validator `MTEWGuqx...` approved for block_puzzle (`keeper/scripts/whitelist-tee.ts`) | `4D4NCmU4ZN54inag7P7U6QAbCYSPuzGkYeauzkCKodmyokbWrdKN86dFrC9ofr68vBZuMJnD75wRSEKrXmk6FmGQ` |
+| F-01 whitelist for holdem (ProgramConfig `CVBjwJ8LaJS37zokHDjgkWASNPW9X5oWxmCHT2DvVKL3`) | `2vrazH11i4L1PKx9AdvdkwLqntnCTEhfDm4GetY36cS8JMbziFd3oHjzzR3S53N8VkjNV9t1h4Q3gYMcrJinw1VC` |
+
+The delegation program keeps a per-program `ProgramConfig` (`["p-conf", program]`); once it exists, only its `approved_validators` may receive that program's delegations. Both configs read back `[MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo]`. The Game programs also pin the validator themselves. Proof on devnet: `delegate_opener` naming a random validator fails with `InvalidValidator` (custom 6020) and leaves the Board owned by block_puzzle (checks in `programs/block_puzzle/scripts/evidence.json`); the DLP-level refusal cannot be reached separately because the Game refuses first.
+
+### Smoke run (2026-09-30, after the redeploy)
+
+| Step | Signature |
+|---|---|
+| Native Positions for both test wallets (10 simSOL, 3-month Advance, 3,415 Gemas each; `open+advance` p0 / p1) | `FyVcD8R9JsM2j2bUkh5ydWd7iCA1fhQMr3k8HG9j93rLP97aPHEQZMMNu2DZadHWUk4hdXmYcNSC1Ec7P48QJAo`, `5jqWFRRHSM2jKJwxm7G7zeBPBcL8ARQnfn2ftAAGFtRD3X23Ypxkw8JuzhKpwGPVoU2girwMN5xQmyrgr5qdbvRD` |
+| Block Puzzle Match `1790749508250` (`NATIVE=1 pnpm match`): open_match + open_session | `7pz29gLARKPV67FJaxtBsDxLC3rfFJqhXvH67YfkhKSdzDTpMU5pLhbjQiLtfcTaUamYLTfFimigxyuEDxdSgxA` |
+| non-TEE `delegate_opener` refused (6020) | `2RbP7waLWj6jp9yKU8ZtN4VG3rwaHoPvdDp4vzRSH2rtJJHNnhtzpzyiWhTAP17PRfUme74kaLC4tZojdWHFW3vV` (failed tx) |
+| join_match + join_session | `4zGn8q2XE6Vm3z5igiukqVRhwRvZaVH21dbecpbo5u1D7i3w6hBhrtLzqz7aay4qmFvq1qqtCwmTWHya39dj124F` |
+| commit on base layer | `2awAddd61o2N1P8ZR9xUx3eLJcubveArLM84UAe3vMomce3Hu9mS4ou8XsoRdTMVN823x9hemJc7Fy6D6upX6FxF` |
+| settle (scores 178 to 53, opener wins 900 net) | `2r5t8JbmA7XURh1HFTjWfG62hsiQAwt6QjJh8ewRmkDSJmXe4pQT18SvLAX99gSJHcQsB5b7tpA5cyxVHUmywv2g` |
+| Hold'em Match `1790749624337` (3 hands, 500 entry; oracle-signed stand-in Positions): create_match | `3qzo33nzGj99sSASCrSTWagsrD3hwo2NRcKA5kiRAnXGxwUTySvP4tiPFE2Fq9YsNY8v9cxwHQBd25sM66xV4LW` |
+| Hold'em finalize (settled through tesoro_core by CPI, winner 950) | `5NUhPsUv5oq8iQrCe9X8S8LvP6ipcWqovdzYzotqLPThwE7YY8soqNbor957ySFmujMfHj797xYRuRw622UVCsSx` |
+| ETH: `init_position` (Solana, new vault id 1) | `qjM8xsWmJFwK4D1yFqSXWEaoHMYNNwaR3AWG3owRZjacTHagWEeuiW9wrEEtpu2Yo8LA9m6d9Nx4wSN5d8hRhSQ` |
+| ETH: `openPosition` 1 simETH on the new vault (Hoodi) | [`0x0b5ee0c63e3e8e0328660f7108218146dc611acf8b7cda96ae06e97ac22d2671`](https://testnet.layerzeroscan.com/tx/0x0b5ee0c63e3e8e0328660f7108218146dc611acf8b7cda96ae06e97ac22d2671): DELIVERED, `lz_receive` `2tMfASvBzwUDTapJ7jH8Ec4GW5QL8qRFEfNX1iVZvwDZ5N6mS2dLsJThoDxqZnz7CzG32ZohxRw7SbzmakkwfB6A` |
+| ETH: `apply_locked` on Solana (Position `CUg7tLkma7UcjKmgvx7535RpGW4izxXbrtzXdmp93PMu` exists, principal 1.2659 ETH) | `4Xb58Szqcya3QfwUTShLuoc2Bdq1nvhsvnsvZYg4ACJ4CA6cSUyys3EFED5xF78jwuRv68SrPF7Y73uTomB7H9pU` |
+| ETH: `take_advance`, `reportYield` (DELIVERED), `apply_yield` | `5qAnsrgwt6CNFnj1rLMxi5PVHrUzsuEVCKtzbhHthK73AwqNA7ubD1zA6xPrGyk1ygWNm12XwdJiJcES7DuHE7WQ`, Hoodi `0xf5af84b679a8d6f561ae05b90b533442ab12af6b6d1b69c3626e527c61055dd4`, `2F3ByKXwS6iA2cACN2BnGaLJ89Nniriiaw56uWQHuqvHfXfeWEwyEe9aKqdv48Z5euwDkj1GCbaUTp2dFKXxq4eC` |
+| ETH: `redeem_to_evm` 100 Gemas through the changed bridge instruction (F-07) | `tXeFQ19rHTeB3ZSed45Rxh3xccMbNjcBoiWLVnaXZ4CTS6yGgRcFC489Myb2nF1BLtDHJsmp9ujvw59dRuzqSNm` |
+
 ## Ethereum Hoodi (chain 560048, Tesoro chain tag / LayerZero eid 40449)
 
 Deployed 2026-09-30 by the deployer in `~/.config/tesoro/evm-deployer.env` via `contracts/script/Deploy.s.sol`.
@@ -100,12 +134,24 @@ Details, flow and every proof tx with LayerZero Scan links: `docs/cross-chain.md
 | OApp address (Store PDA, EVM peer) | `7WQLHW8EuyV1V8tWNh8DQGu7mVRgaHGgLU7fi8G91rVw` = `0x60ae58df1215bf45cc054e633b49c92a3b1309f76075bac72b26e0c6e1c0c792`; `init_store` `3bHFM3Rh6KrU98UQGsovRc7Ht6xnoEUV45TcXiWmAxpwDrRTkMmhzTrZY1aFe7nH9pZAqnX564fSLWmbRHaiK2kb` |
 | Bridge authority PDA (`["authority"]`, tesoro_core source authority for Ethereum and HyperEVM) | `FEgxs5f7zavRaR7tZJBNZzrYeCMGegMpMWFiHjvyvaLg`, `set_source_authority` `3JUc3Vd7CZ27rgAFcrbNi35k9nRbPsvpmWW29iMRB81cU1MhDqJQiqGMrEbfqXyku3DoQLqCeHP5mQLm3k7qkNkb` |
 | tesoro_core upgrade (adds source authorities; includes the native-Position instructions already on devnet) | `bpyct2A3AuopZvJUtW3RiQVjqtKp4ZJKTXtNeUtV1D97DFYzpNi927ZSFUYa8cRNN1p9hia2W9s1dWXSmpkgFsG` (extended by 60,000 bytes first; built from `integ/core-source-native-30-09-2026` = native branch + the source-authority commits) |
-| Hoodi `PositionVaultOApp` (SimLST, simETH, SIMULATED) | `0x8289fa2e5A7a57618A93B93fc720B85eF3E87b7c`, deploy `0x1abcc8cdbe7c185655ee163bde3316ddbc5bc839c607f6881c6b3cfb69e9c0f9`, `setPeer` `0xff68a61d706539d72ee6faeabc2ae9568d9b9530d55c3f18a894500b2427a1e6` |
-| Hoodi `PositionVaultOApp` (real Lido wstETH) | `0x214A695C1F9F0136D87c459fa542878da1128DeD`, `setPeer` `0x0f9531f634fab3c48c66b3f7c9706aaecb6fe85a7a53dd74d4227876080e53f6`; wired on Solana with 300 bps, not exercised end to end |
+| **RETIRED (F-04, replaced 2026-09-30, see below)** Hoodi `PositionVaultOApp` (SimLST, simETH, SIMULATED) | `0x8289fa2e5A7a57618A93B93fc720B85eF3E87b7c`, deploy `0x1abcc8cdbe7c185655ee163bde3316ddbc5bc839c607f6881c6b3cfb69e9c0f9`, `setPeer` `0xff68a61d706539d72ee6faeabc2ae9568d9b9530d55c3f18a894500b2427a1e6` |
+| **RETIRED (F-04)** Hoodi `PositionVaultOApp` (real Lido wstETH) | `0x214A695C1F9F0136D87c459fa542878da1128DeD`, `setPeer` `0x0f9531f634fab3c48c66b3f7c9706aaecb6fe85a7a53dd74d4227876080e53f6`; wired on Solana with 300 bps, not exercised end to end |
 | Solana `set_peer_config` + pathway init | SimLST vault: `5aGWx8kEJVmsjbwHkUxbBv1qPVEh1qrTHE8Q7a1EehomDP1T8eiHdqKuS7AojouSMCE5GXcnz7iL7HEBwiFH4mV8`; wstETH vault: `3avujqcnk7d9ZdsRTRabKc8c28AN4tWK7fmkcAUbkzTpqTGPb5JLp1UWTPqsn43k9doi25RAwV6diveMecEREbrz` |
 | HyperEVM | not deployed (no HYPE); Solana pathway for 40362 wired. See `docs/cross-chain.md` |
 
 The vaults deployed earlier with `MockEndpoint` (table above) are superseded by these.
+
+### F-04 replacement vaults (2026-09-30)
+
+The fixed `PositionVault` (per-seq idempotency) is not upgradeable, so the two LayerZero vaults were redeployed with the same constructor arguments (`contracts/script/deploy-oapp.sh hoodi sim|wsteth`). The old vaults stay on chain but are retired: the app, keeper and scripts point at the new ones, and the old ones keep the old ordering bug, so nothing new should be opened there. Test Positions stranded on the old SimLST vault (owner deployer / dev wallets, ids 1 to 4 in `docs/cross-chain.md`, all unlocked or test-only) are not migrated; the Solana `PeerConfig`s for the old vaults are left registered but unused.
+
+| Item | Value |
+|---|---|
+| Hoodi `PositionVaultOApp` (SimLST, simETH, SIMULATED) | `0x6c836b96464B5D1b55536d5a34D023528eaEe4bD`, deploy `0xa43b133c433e7a19093f3f5d708cf727d2aaa53dafe9ba67990bc70b3a6ec334`, `setPeer` `0x6e56407fe0823262b6aaa54b27ec566c057aecb269279e412903a702904e664a` |
+| Hoodi `PositionVaultOApp` (real Lido wstETH, not exercised end to end) | `0x50f5f66994554ca582136b5C00B9Ce0951B314BF`, deploy `0x453dfe52bc0a945e4f10293da1f83f5d16bf6f3a736332d30fb38e3a066524d9`, `setPeer` `0x39becb431fdeb48859cbd146d58381aaa64a92b154df91dd737a2cf10f01bed1` |
+| Solana `set_peer_config` + pathway init, SimLST vault (500 bps) | `dVMHkD46hwqQtwyyTgwuwpmkK77yuNQ3WiY43ZixFxsPtDSLx4WiGRWS7SSoa9U3riBuj8gWUNofEgciMRCMg1u`, `5LmAiyaJt9eKvc2FHK8sdsdQxJ7aGTXcD1nuXopVMS8FzE3vCc7z74PXQcJEwKuh2GaZF5qpC2KAicijKgvwvfYX` |
+| Solana `set_peer_config` + pathway init, wstETH vault (300 bps) | `2YgxL9cmcLKhhQrssLW3SxyCcZNmshRyKDpNsZrPHah2fAZgRQUMnVKwaEoVAeVjYNd5TXVh4vAvFWTtCQbc3BCW`, `213Yyc7BvtzVGAnhgVg64Y5gW2TXAm86iwfbo5xmE8JYzd1t1ZjbgRuRT24zEBpUoEB5DacRSdkgdKG7Aohng2TT` |
+| HyperEVM | prepared only (no HYPE): same two commands with `hyperevm`, then `setPeer` and `pnpm lz wire 40362 <vault> 18 500` |
 
 ### Web app native Position flow (2026-09-30, dev wallet `?dev=nat2`, browser at 390 px)
 

@@ -12,3 +12,5 @@ Gemas from three chains share one table, so we had to decide what a won unit is 
 ## Consequences
 
 A winner may hold a basket of claims redeemable on several chains at different speeds; the UI must show redeemable-now versus pending per Source. A Source whose yield collapses leaves its Gema holders waiting without limit — accepted.
+
+Enforcement (2026-09-30): a Solana-native Position's custody counts its own shares, so simSOL sent straight to its vault is not yield and cannot repay Debt (security review F-05).

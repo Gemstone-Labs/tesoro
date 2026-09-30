@@ -10,6 +10,7 @@
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { verifyTeeRpcIntegrity } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { createHash } from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -109,8 +110,24 @@ async function setupCore() {
   }
 }
 
+/**
+ * NATIVE=1: the Player's Gemas come from a Solana-native Position (simSOL custody + Advance, opened with
+ * scripts/native-position `cli open`, nonce 1) instead of the oracle-signed stand-in.
+ */
+async function stakeNative(signer: ReturnType<typeof keypairSigner>, label: string) {
+  const account = await ensureAccount(signer, label);
+  const id = createHash("sha256")
+    .update(Buffer.concat([Buffer.from("native"), signer.publicKey.toBuffer(), new BN(1).toArrayLike(Buffer, "le", 8)]))
+    .digest();
+  const position = PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from([0]), id], core.programId)[0];
+  const source = PublicKey.findProgramAddressSync([Buffer.from("source"), position.toBuffer(), new BN(0).toArrayLike(Buffer, "le", 4)], core.programId)[0];
+  if (!(await exists(source))) throw new Error(`${label}: open a native Position first (scripts/native-position: KEYPAIR=... pnpm cli open 10 3)`);
+  return { account, holding: BlockPuzzleChain.holding(account, source) };
+}
+
 /** A Player with Gemas: Position + Advance (100 tokens, 10%, 6 months at $150 = 75,000 Gemas). */
 async function stake(signer: ReturnType<typeof keypairSigner>, label: string, id: number) {
+  if (process.env.NATIVE) return stakeNative(signer, label);
   const account = await ensureAccount(signer, label);
   const { config } = BlockPuzzleChain.addresses(0n);
   const positionId = Array(32).fill(id);
@@ -212,6 +229,16 @@ async function main() {
 
   // ---- the opener alone: open, prepare, play a whole run before anyone is paired ----
   rec("open_match + open_session (p0, 1,000 Gemas; Match stays Open)", await chain.openMatch(S.p0, matchId, 1000, [a0.holding]), "base");
+  // F-01: a delegation naming any validator but the TEE is refused by the Game before it reaches the delegation program.
+  const rogue = Keypair.generate().publicKey;
+  const rogueIx = await chain.bp.methods
+    .delegateOpener()
+    .accountsPartial({ payer: S.d.publicKey, session: A.session, board0: A.boards[0], vault: A.vault, validator: rogue })
+    .instruction();
+  const rogueErr = await chain.sendBase(S.d, [rogueIx]).then(() => "ACCEPTED", (e) => String(e.message ?? e).replace(/\s+/g, " ").slice(0, 300));
+  check("F-01: delegate_opener naming a non-TEE validator is refused", rogueErr !== "ACCEPTED" && /InvalidValidator|6020|0x1784/.test(rogueErr), rogueErr);
+  const stillBase = (await base.getAccountInfo(A.boards[0]))!.owner.equals(BLOCK_PUZZLE_PROGRAM_ID);
+  check("F-01: Board 0 is still owned by the Game (not delegated) after the refused attempt", stillBase, stillBase);
   rec("delegate_opener (Board 0 + SeedVault to the TEE validator)", await chain.delegateOpener(S.d, matchId), "base");
   rec("init_vault_permission (private, zero members)", await chain.initVaultPermission(S.p0, matchId), "tee");
   rec("init_permission p0", await chain.initPermission(S.p0, matchId, 0), "tee");

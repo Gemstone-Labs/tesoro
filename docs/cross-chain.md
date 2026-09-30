@@ -31,7 +31,11 @@ Replays and reordering: `Endpoint::clear` burns the nonce; `PositionLocked` appl
 
 New `SourceAuthority` PDA (`["source_auth", chain_byte]`, `chain`, `authority`) and instructions `set_source_authority(chain, authority)` / `remove_source_authority(chain)` (admin), `open_position_from_source(...)` and `apply_yield_from_source(seq, cumulative)`: the same bodies as `open_position` / `apply_yield` but signed by the registered authority of the Position's chain (an Ethereum authority cannot touch a HyperEVM Position). `oracle_authority` and every existing instruction, account layout and signature are unchanged; the oracle still supplies the issuance price in `take_advance`. Tests: `programs/tesoro_core/tests/source_authority.rs`.
 
-## Proven on testnets (2026-09-30)
+## Vault redeploy (2026-09-30, security review F-04)
+
+The Hoodi vaults were redeployed with per-seq idempotency: SimLST vault `0x6c836b96464B5D1b55536d5a34D023528eaEe4bD`, wstETH vault `0x50f5f66994554ca582136b5C00B9Ce0951B314BF` (addresses, txs and Solana wiring in `docs/deployments.md`). The vault addresses in the "Proven" tables below are the RETIRED ones (`0x8289...87b7c`, `0x214A...8DeD`); the flow was repeated on the new SimLST vault (Position id 1: `openPosition`, `apply_locked`, `take_advance`, `reportYield`, `apply_yield`, `redeem_to_evm`; signatures in `docs/deployments.md`). `redeem_to_evm` now takes `store`, `authority` and `core_source_authority` and signs `tesoro_core::redeem_from_source` as the bridge authority, because plain `redeem` refuses EVM-sourced Sources (F-07).
+
+## Proven on testnets (2026-09-30, on the retired vault)
 
 Position: SimLST vault `0x8289fa2e5A7a57618A93B93fc720B85eF3E87b7c`, id 1, owner `0x96137cB99Fe2878299b672Ac967e88279f479d1C`, Solana Account `5LL7EmptMRWSroaQuK8CxzQpSeBwC1EQEnmc4cRhho8k`, principal 1.0749 ETH (1 simETH share at the accrued rate), Advance 1 month at $3,000/ETH = 1,343 Gemas.
 
