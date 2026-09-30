@@ -1,34 +1,40 @@
 import Image from "next/image";
 import { art } from "@/lib/art";
 
-export type CharacterName = keyof typeof art.characters;
+export type BustName = keyof typeof art.busts;
 
 /**
- * A guide character. Decorative (empty alt). `desktopOnly` hides it below 1024px; otherwise size it
- * with `width` (px). Wide art (duo) is 2:1.
+ * A guide character, torso up. Decorative (empty alt). Never full-body: only the bust crops exist in
+ * the app. `width` is the CSS pixel width; the height follows the crop's aspect. Use inside bust
+ * cards, the corner Guide and moment overlays only (DESIGN.md, Character placement).
  */
-export function Character({
-  name,
-  width,
-  desktopOnly = false,
+export function Bust({ name, width, className = "", priority = false }: { name: BustName; width: number; className?: string; priority?: boolean }) {
+  const b = art.busts[name];
+  return <Image className={`bust ${className}`} src={b.src} alt="" width={width} height={Math.round((width * b.h) / b.w)} priority={priority} />;
+}
+
+/**
+ * An explainer / tip / empty-state card with a bust flush to its bottom edge (the crop ends at the
+ * waist, so the card's edge is the cut). `flip` puts the bust on the right.
+ */
+export function BustCard({
+  bust,
+  size = 120,
+  flip = false,
   className = "",
-  priority = false,
+  children,
 }: {
-  name: CharacterName;
-  width: number;
-  desktopOnly?: boolean;
+  bust: BustName;
+  /** Bust width in px. */
+  size?: number;
+  flip?: boolean;
   className?: string;
-  priority?: boolean;
+  children: React.ReactNode;
 }) {
-  const wide = name === "duoWin" || name === "duoHero";
   return (
-    <Image
-      className={`character${desktopOnly ? " desktop-only" : ""} ${className}`}
-      src={art.characters[name]}
-      alt=""
-      width={width}
-      height={wide ? width / 2 : width}
-      priority={priority}
-    />
+    <div className={`cut cut-card bust-card${flip ? " flip" : ""} ${className}`} style={{ ["--bust-w" as string]: `${size}px` }}>
+      <Bust name={bust} width={size} className="bust-card-img" />
+      <div className="bust-card-body">{children}</div>
+    </div>
   );
 }

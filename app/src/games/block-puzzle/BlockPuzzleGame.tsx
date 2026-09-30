@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Chip, Label } from "@/components/ui";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useGuideHidden } from "@/components/guide/Guide";
+import { Button, Label } from "@/components/ui";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAt, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
 import "./block-puzzle.css";
@@ -83,8 +84,28 @@ export interface MatchRun {
 
 export type { Reason as RunEndReason };
 
-export function BlockPuzzleGame({ run }: { run?: MatchRun }) {
+interface Clear {
+  id: number;
+  lines: number;
+  gained: number;
+  /** Clock time left (ms) when it happened; "ago" is this minus the clock now. */
+  at: number;
+}
+
+const fmtN = (n: number) => n.toLocaleString("en-US");
+const RING_R = 54;
+const RING_C = 2 * Math.PI * RING_R;
+
+/**
+ * The Block Puzzle play screen: MATCH panel left, score + 90 s ring + board + tray centre, combo,
+ * lines and recent clears right. No character anywhere on it. `matchPanel` is the Match status the
+ * caller owns (who we wait for); without a `run` this is practice.
+ */
+export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPanel?: ReactNode }) {
   const [phase, setPhase] = useState<Phase>("idle");
+  const [combo, setCombo] = useState(0);
+  const [recent, setRecent] = useState<Clear[]>([]);
+  useGuideHidden(phase === "play");
   const [reason, setReason] = useState<Reason>("time");
   const [game, setGame] = useState<Game>(() => ({ st: newState(0n), colors: [], lines: 0, gemsCleared: 0 }));
   const [sel, setSel] = useState(0);
@@ -131,6 +152,8 @@ export function BlockPuzzleGame({ run }: { run?: MatchRun }) {
     setPreview(null);
     setFocusCell(0);
     setAnnounce("");
+    setCombo(0);
+    setRecent([]);
     setRemaining(DURATION_MS);
     endsAt.current = (run ? run.startedAt : performance.now()) + DURATION_MS;
     setPhase("play");
@@ -196,10 +219,13 @@ export function BlockPuzzleGame({ run }: { run?: MatchRun }) {
       }
       if (next.result.lines > 0) {
         popupId.current += 1;
+        setCombo((c) => c + 1);
+        setRecent((r) => [{ id: popupId.current, lines: next.result.lines, gained: next.result.gained, at: endsAt.current - performance.now() }, ...r].slice(0, 3));
         const gem = next.result.gems > 0;
         setPopup({ id: popupId.current, text: `+${next.result.gained}${gem ? ` · gem x${1 + next.result.gems}` : ""}`, gem });
         setAnnounce(`Cleared ${next.result.lines} ${next.result.lines === 1 ? "line" : "lines"}, plus ${next.result.gained}`);
       } else {
+        setCombo(0);
         setAnnounce(`Placed, plus ${next.result.gained}`);
       }
       if (next.state.over) {
@@ -338,22 +364,55 @@ export function BlockPuzzleGame({ run }: { run?: MatchRun }) {
   );
 
   return (
-    <div className="bp">
-      <h1 className="sr-only">Block Puzzle</h1>
-      <div className="bp-bar">
-        {run ? <Chip tone="money">Match · {run.entry.toLocaleString("en-US")} Gemas</Chip> : <Chip tone="strong">Practice · no Gemas</Chip>}
-        <span className="mono bp-seed" title="Seed">
+    <div className="bpx">
+      <aside className="cut cut-frame bpx-panel bpx-left" aria-label={run ? "Match" : "Practice"}>
+        <h2 className="h-section">{run ? "Match" : "Practice"}</h2>
+        {run ? (
+          <>
+            <div className="bpx-kv">
+              <span>Entry</span>
+              <b>{fmtN(run.entry)} <small>Gemas</small></b>
+            </div>
+            <div className="bpx-kv">
+              <span>Pot</span>
+              <b>{fmtN(run.entry * 2)} <small>Gemas</small></b>
+            </div>
+          </>
+        ) : (
+          <p className="bpx-status">No Gemas are staked in practice. Same rules, a random Seed.</p>
+        )}
+        {matchPanel}
+        <span className="mono bpx-seed" title="Seed">
           {phase === "idle" ? "Seed —" : `Seed 0x${st.seed.toString(16).padStart(16, "0").slice(0, 6)}…`}
         </span>
-        <span className={`mono bp-clock${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
-          {fmtClock(phase === "idle" ? DURATION_MS : remaining)}
-        </span>
-      </div>
+      </aside>
 
-      <div className="bp-score">
-        <Label>Score</Label>
-        <span className="bp-score-n tnum" aria-live="off">{st.score}</span>
-      </div>
+      <section className="cut cut-frame bpx-panel bpx-mid" aria-label="Board">
+        <h1 className="bpx-title h-section">Block Puzzle</h1>
+        <div className="bpx-head">
+          <div className="bpx-score">
+            <Label>Score</Label>
+            <span className="bp-score-n tnum" aria-live="off">{st.score}</span>
+          </div>
+          <div className="bpx-timer">
+            <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
+              <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+                <circle cx="60" cy="60" r={RING_R} className="bpx-ring-bg" />
+                <circle
+                  cx="60"
+                  cy="60"
+                  r={RING_R}
+                  className="bpx-ring-fg"
+                  strokeDasharray={RING_C}
+                  strokeDashoffset={RING_C * (1 - Math.max(0, Math.min(1, (phase === "idle" ? DURATION_MS : remaining) / DURATION_MS)))}
+                  transform="rotate(-90 60 60)"
+                />
+              </svg>
+              <span className="mono">{fmtClock(phase === "idle" ? DURATION_MS : remaining)}</span>
+            </div>
+            <span className="bpx-secs">90 seconds</span>
+          </div>
+        </div>
 
       <div className="bp-stage">
         {board}
@@ -427,6 +486,31 @@ export function BlockPuzzleGame({ run }: { run?: MatchRun }) {
         })}
       </div>
       <p className="note bp-help">Drag a piece onto the board, or tap a piece then a cell.</p>
+      </section>
+
+      <aside className="cut cut-frame bpx-panel bpx-right" aria-label="Run">
+        <div className="bpx-combo">
+          <span className="h-section">Combo</span>
+          <b className="h-section tnum">×{combo}</b>
+        </div>
+        <div className="bpx-lines">
+          <span>Lines cleared</span>
+          <b className="tnum">{game.lines}</b>
+        </div>
+        <div className="bpx-recent">
+          <h2 className="h-section">Recent</h2>
+          {recent.length === 0 && <p className="meta">Clear a full row or column to see it here.</p>}
+          {recent.map((c) => (
+            <div key={c.id} className="cut cut-card bpx-clear">
+              <span>
+                <b>{c.lines} {c.lines === 1 ? "line" : "lines"} cleared</b>
+                <small>{Math.max(0, Math.round((c.at - remaining) / 1000))}s ago</small>
+              </span>
+              <b className="tnum">+{c.gained}</b>
+            </div>
+          ))}
+        </div>
+      </aside>
 
       {drag && (
         <div className="bp-ghost" style={{ transform: `translate(${drag.px}px, ${drag.py}px) translate(-50%, -50%)` }} aria-hidden="true">

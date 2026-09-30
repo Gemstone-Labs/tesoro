@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { GuideProvider } from "@/components/guide/Guide";
 import { SearchProvider } from "./SearchContext";
 import { NAV, SidebarBody, isHere } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
 /** Pages that use the full-width column instead of the centred 1180px one. */
-const BROAD = ["/wallet", "/backing", "/play/match", "/design/result"];
+const BROAD = ["/wallet", "/backing", "/play/match", "/play/block-puzzle", "/play/holdem", "/play/practice", "/design"];
 
 /** Desktop: fixed sidebar + top bar. Below 1024px: the sidebar becomes a drawer and a bottom nav appears. */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -26,6 +27,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <SearchProvider>
+      <GuideProvider>
       <div className="shell">
         <aside className="sidebar" aria-label="Sidebar">
           <SidebarBody />
@@ -65,6 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
       </div>
+      </GuideProvider>
     </SearchProvider>
   );
 }

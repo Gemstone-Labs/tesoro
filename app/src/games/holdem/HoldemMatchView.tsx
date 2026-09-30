@@ -61,6 +61,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   const outcome = !m || stage !== "settled" ? null : refunded ? "refunded" : delta > 0 ? "won" : "lost";
   const tableOver = !!t && t.status !== STATUS.live;
   const refundable = view.refundable;
+  const showTable = !!t && seat !== null && (stage === "live" || stage === "closing" || stage === "settled");
 
   if (stage === "settled" && m && outcome) {
     return (
@@ -73,6 +74,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         role="player"
         backed={!!m.backing}
         scores={outcome === "refunded" ? null : [outcome === "won" ? "Won" : "Lost", outcome === "won" ? "Lost" : "Won"]}
+        momentKey={m.id.toString()}
         playAgainHref={`/play/queue?game=holdem&entry=${m.entry}`}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
@@ -99,15 +101,17 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   }
 
   return (
-    <div className="stack-lg" style={{ maxWidth: 480, margin: "0 auto" }}>
-      <div className="spread">
-        <h1 className="page-title">Hold&apos;em Match</h1>
-        {m && (
-          <Chip tone="money">
-            <GemaAmount value={m.entry} size="sm" /> entry
-          </Chip>
-        )}
-      </div>
+    <div className="stack-lg" style={showTable ? undefined : { maxWidth: 480, margin: "0 auto" }}>
+      {!showTable && (
+        <div className="spread">
+          <h1 className="page-title">Hold&apos;em Match</h1>
+          {m && (
+            <Chip tone="money">
+              <GemaAmount value={m.entry} size="sm" /> entry
+            </Chip>
+          )}
+        </div>
+      )}
 
       {stage === "waiting" && m && (
         <Card large>
@@ -155,8 +159,8 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         </Card>
       )}
 
-      {t && seat !== null && (stage === "live" || stage === "closing" || stage === "settled") && (
-        <HoldemTable table={t} seat={seat} hole={view.hole} busy={view.busy} ended={tableOver || stage === "settled"} onAct={(a, label) => void act(a, label)} onClaim={() => void claimTimeout()} />
+      {showTable && t && seat !== null && (
+        <HoldemTable table={t} seat={seat} hole={view.hole} busy={view.busy} ended={tableOver || stage === "settled"} entry={m?.entry} onAct={(a, label) => void act(a, label)} onClaim={() => void claimTimeout()} />
       )}
 
       {stage === "closing" && (

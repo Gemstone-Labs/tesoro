@@ -210,7 +210,19 @@ export function MatchView({ matchId }: { matchId: string }) {
   if (phase === "playing" && run) {
     return (
       <div className="stack">
-        <BlockPuzzleGame run={run} />
+        <BlockPuzzleGame
+          run={run}
+          matchPanel={
+            <div className="bpx-status" role="status">
+              <p>{match?.status === "open" ? "Opponent plays the same Seed · waiting to be paired" : "Opponent plays the same Seed · higher score wins"}</p>
+              {match?.status === "open" && (
+                <span className="bpx-finding">
+                  <i className="bpx-spin" aria-hidden="true" /> Finding opponent…
+                </span>
+              )}
+            </div>
+          }
+        />
         {error && <p className="status err" role="alert">{error}</p>}
       </div>
     );
@@ -237,6 +249,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         role={asBacker ? "backer" : "player"}
         backed={!!m.backing}
         scores={scores && outcome !== "refunded" ? [String(scores[0]), String(scores[1])] : null}
+        momentKey={m.id.toString()}
         playAgainHref={`/play/queue?entry=${m.entry}`}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >

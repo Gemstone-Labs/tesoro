@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { Button, Character, GemaAmount, Slider } from "@/components/ui";
+import { BustCard, Button, GemaAmount, Slider } from "@/components/ui";
 import type { Chain } from "@/lib/mock/types";
 import "./wallet.css";
 
@@ -10,15 +10,12 @@ export const CHAINS: Chain[] = ["SOL", "ETH", "HYPE"];
 /** him-explain with the one-line model. Never says "protected": the Principal is locked and never played. */
 export function HowGemasWork() {
   return (
-    <div className="cut cut-card wl-how">
-      <Character name="himExplain" width={170} className="wl-how-img" />
-      <div>
-        <b>How Gemas work</b>
-        <p>Lock a Position.</p>
-        <p>Take an Advance in Gemas.</p>
-        <p>Your Principal is never played.</p>
-      </div>
-    </div>
+    <BustCard bust="himExplain" size={132} className="wl-how">
+      <b>How Gemas work</b>
+      <p>Lock a Position.</p>
+      <p>Take an Advance in Gemas.</p>
+      <p>Your Principal is never played.</p>
+    </BustCard>
   );
 }
 

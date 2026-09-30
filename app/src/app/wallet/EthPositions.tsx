@@ -198,7 +198,7 @@ const OPEN_STEP_TEXT: Record<OpenStep, string> = {
 };
 
 /** The ETH tab of OPEN A POSITION: link, approve and open on Hoodi; the Advance follows once LayerZero delivers. */
-export function EthOpenForm({ onOpened }: { onOpened: () => void }) {
+export function EthOpenForm({ onOpened }: { onOpened: (opKey: string) => void }) {
   const ctx = useEthCtx();
   const { market } = useEthMarket(ctx?.evm.address ?? null);
   const a = useBusy();
@@ -271,9 +271,9 @@ export function EthOpenForm({ onOpened }: { onOpened: () => void }) {
         ctx &&
         void a.run("open", async () => {
           const opened = await openEthPosition(ctx, VAULT, shares, months, setStep);
-          addOp(ctx.signer.publicKey.toBase58(), { kind: "open", vault: opened.vault, id: opened.id.toString(), months, hash: opened.hash });
+          const op = addOp(ctx.signer.publicKey.toBase58(), { kind: "open", vault: opened.vault, id: opened.id.toString(), months, hash: opened.hash });
           setText("");
-          onOpened();
+          onOpened(op.key);
         })
       }
     />
@@ -313,11 +313,13 @@ export function EthOps() {
 const POLL_MS = 9000;
 const RETRY_MS = 20_000;
 
-function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<void> }) {
+/** Drives one operation from chain state (and performs the relayed steps): shared by the Wallet card and the opening page. */
+export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress: () => Promise<void>) {
   const [stage, setStage] = useState(1);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanStatus | null>(null);
+  const [snap, setSnap] = useState<EthState | null>(null);
   const busy = useRef(false);
   const lastTry = useRef(0);
   const opRef = useRef(op);
@@ -325,7 +327,6 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
     opRef.current = op;
   });
   const steps = OP_STEPS[op.kind];
-  const copy = OP_COPY[op.kind];
   const holder = ctx.signer.publicKey;
 
   useEffect(() => {
@@ -342,6 +343,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
           cur.kind === "redeem" || cur.kind === "unlock" ? fetchVaultPosition(cur.vault, id) : Promise.resolve(null),
         ]);
         let progress = opProgress(cur, state, vp);
+        setSnap(state);
         setStage(progress.stage);
         if (!progress.next) setError(null);
         const scanKey = cur.kind === "open" || cur.kind === "yield" ? cur.hash : cur.sendSig;
@@ -358,6 +360,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
           setNote(null);
           const after = await fetchEthState(getChain().base, cur.vault, id, holder);
           progress = opProgress(cur, after, vp);
+          setSnap(after);
           setStage(progress.stage);
         }
         if (progress.stage >= steps.length) {
@@ -380,7 +383,12 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [op.key, op.done]);
 
-  const finished = op.done || stage >= steps.length;
+  return { stage, note, error, scan, state: snap, finished: !!op.done || stage >= steps.length };
+}
+
+function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<void> }) {
+  const { stage, note, error, scan, finished } = useOpTracker(op, ctx, address, onProgress);  const steps = OP_STEPS[op.kind];
+  const copy = OP_COPY[op.kind];
   const scanText = scan ? `LayerZero: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "LayerZero: waiting for Scan" : null;
 
   return (

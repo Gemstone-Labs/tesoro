@@ -1,0 +1,48 @@
+/* ——— Opening an ETH Position (take-1: wallet-crosschain): a four-step tracker, then the summary ——— */
+.op { display: grid; gap: 18px; max-width: 1240px; }
+.op-track { --edge: var(--line-2); background: var(--shell); padding: 14px 16px 18px; display: grid; gap: 14px; }
+.op-status { --edge: var(--line-2); background: var(--raised); display: inline-flex; align-items: center; gap: 12px; width: fit-content; padding: 10px 18px; font-family: var(--f-display); font-weight: 800; font-size: 22px; letter-spacing: 0.02em; }
+.op-status.ok { --edge: rgba(45, 190, 140, 0.6); color: var(--em-hi); }
+.op-status svg { width: 22px; height: 22px; }
+.op-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+.op-step { --edge: var(--line); background: var(--raised); display: grid; justify-items: center; gap: 4px; text-align: center; padding: 18px 12px; min-height: 150px; align-content: center; position: relative; color: var(--fg-2); }
+.op-step b { font-size: clamp(17px, 1.5vw, 24px); font-weight: 800; color: var(--fg-2); }
+.op-step span:last-child { font-size: 16px; }
+.op-step.done b, .op-step.active b { color: var(--fg); }
+.op-step.done { --edge: var(--line-2); }
+.op-step.active { --edge: var(--fg); --t: 2px; background: var(--raised-2); color: var(--fg); }
+.op-mark { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 6px; border-radius: 50%; border: 2px solid var(--line-2); font-size: 22px; font-weight: 700; }
+.op-mark svg { width: 28px; height: 28px; }
+.op-step.done .op-mark { background: #dfe6e2; color: #090d0f; border-color: transparent; }
+.op-step.active .op-mark { border: 0; }
+.op-step.active .op-mark svg { width: 48px; height: 48px; stroke-width: 1.6; }
+.op-spin { animation: op-spin 1.4s linear infinite; }
+@keyframes op-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .op-spin { animation-duration: 4s; } }
+
+.op-summary { --edge: var(--line-2); background: var(--shell); padding: 16px; display: grid; gap: 14px; max-width: 980px; }
+.op-summary .h-section { font-size: clamp(30px, 2.6vw, 46px); color: #fff; }
+.op-kv { margin: 0; display: grid; border: 1px solid var(--line); }
+.op-kv > div { display: grid; grid-template-columns: minmax(120px, 0.6fr) 1fr; gap: 12px; align-items: center; padding: 14px 18px; font-size: 18px; }
+.op-kv > div + div { border-top: 1px solid var(--line); }
+.op-kv dt { color: var(--fg); }
+.op-kv dd { margin: 0; font-weight: 700; }
+.op-note { --edge: var(--line); background: var(--raised); display: grid; grid-template-columns: 48px 1fr; gap: 14px; align-items: center; padding: 14px 18px; }
+.op-note b { font-size: 20px; }
+.op-note p { color: var(--fg-2); font-size: 16px; margin-top: 2px; }
+.op-note-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--raised-2); border: 1px solid var(--line-2); }
+.op-note-icon svg { width: 26px; height: 26px; }
+.op-note.ok .op-note-icon { background: #dfe6e2; color: #090d0f; border-color: transparent; }
+.op-err { color: var(--danger) !important; }
+.op-actions { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.op-actions .btn { min-height: 60px; font-size: 20px; }
+.op-actions .btn svg { width: 22px; height: 22px; }
+
+@media (min-width: 720px) { .op-actions { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1024px) {
+  .op-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+  .op-step { margin: 0 14px; }
+  .op-step + .op-step::before { content: ""; position: absolute; left: -28px; top: 50%; width: 28px; height: 4px; background: var(--line-2); }
+  .op-step.done + .op-step::before { background: var(--fg); }
+  .op-track { padding: 18px 20px 26px; }
+}

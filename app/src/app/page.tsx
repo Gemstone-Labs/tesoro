@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChartColumn, Clock, LayoutGrid, Spade, Users, type LucideIcon } from "lucide-react";
+import { useGuideTip } from "@/components/guide/Guide";
 import { BackPlayerRail } from "@/components/lobby/BackPlayerRail";
 import { HeroCarousel } from "@/components/lobby/HeroCarousel";
 import { LobbyFooter } from "@/components/lobby/LobbyFooter";
@@ -25,6 +26,13 @@ const CHIP_ICON: Record<Category, LucideIcon> = {
 export default function Lobby() {
   const { openMatches } = useAccount();
   const [category, setCategory] = useState<Category | null>(null);
+  useGuideTip({
+    id: "lobby-first",
+    bust: "himWelcome",
+    title: "Welcome to Tesoro",
+    text: "Pick a game, choose an entry and press Play now. Your Gemas come from a Position in your Wallet.",
+    link: { href: "/wallet", label: "Open the Wallet" },
+  });
 
   const pick = (id: Category) => {
     if (id === "backing") {
