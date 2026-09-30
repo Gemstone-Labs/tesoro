@@ -1,5 +1,5 @@
 import sharp from "sharp";
-const img = sharp("/home/ailton/Work/gemstone-labs/tesoro/art-source/ui-redesign/lobby-desktop/take-1.png");
+const img = sharp(new URL("../../art-source/ui-redesign/lobby-desktop/take-1.png", import.meta.url).pathname);
 const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
 const at = (x, y) => {
   const i = (y * info.width + x) * info.channels;
