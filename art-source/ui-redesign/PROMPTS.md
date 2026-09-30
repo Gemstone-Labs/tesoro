@@ -57,8 +57,8 @@ Everything is in `art-source/ui-redesign/attach/`.
 | 7 | `07-today-result.png` | Match result today |
 | 8 | `08-today-cross-chain.png` | Cross-chain progress today |
 | 9 | `09-brand-emerald-study.html` | The approved "Cut" brand direction (screenshot the "Cut" row) |
-| 10 | `10-ref-skillz-*.png` | **Ailton adds:** Skillz lobby screenshots, desktop and mobile |
-| 11 | `11-ref-chumba-*.png` | **Ailton adds:** Chumba lobby screenshots |
+| 10 | `10-ref-skillz-desktop.jpg` | **Main reference.** Skillz web lobby: fixed left sidebar (logo, badge, Lobby / Recommended / Categories / Play Games Now, then Support / Legal / Help), centred hero card with a GO button and carousel dots, a row of category chips with icons, many rails of square game tiles with bold condensed all-caps section headers, "VIEW ALL" links and ← → arrows, footer. Take its structure and rhythm; not its purple, logos or art |
+| 11 | `11-ref-chumba-desktop.jpg` | Secondary reference. Chumba: balance pill centred in the top bar, top category tabs, a full-bleed cinematic hero banner with a stat pill ("Jackpot") and one strong CTA, then a "Play Again" rail of large landscape tiles with a heart. Take the hero drama and the landscape tiles; not its red, gold, casino content or logos |
 
 ---
 
@@ -66,16 +66,17 @@ Everything is in `art-source/ui-redesign/attach/`.
 
 Screen folder: `lobby-desktop/`. Make **take-1 (A), take-2 (B) and take-3 (C)** from the same layout brief, varying only the direction.
 
-**Layout brief (all three):**
-- **Left navigation rail:** Lobby, Play, Backing, Wallet, with the Tesoro wordmark and small gem mark at the top.
-- **Top bar:** search, the Gema balance chip (gem mark + "15,000"), and an Account avatar.
+**Layout brief (all three). The skeleton is Skillz (reference 10); the hero drama is Chumba (reference 11):**
+- **Left sidebar, fixed, like Skillz:** the Tesoro wordmark and gem mark, a small "Fair play · on-chain" badge, then Lobby, Play, Backing, Wallet, and below a divider Docs, Help. Below that sits the "Your Positions" mini-card: SOL 40 · Debt 0.550 · Unlock Estimate, plus Redeemable now / Pending.
+- **Top bar:** search on the left; on the right the Gema balance pill (gem mark + "15,000") centred like Chumba's balance pill, then the Account avatar.
+- **Category chips row, like Skillz:** Puzzle, Cards, Head-to-head, Async, Backing, each with a small icon.
 - **Hero carousel:**
   - The big slide is "Block Puzzle": dramatic key art of glowing coloured blocks and emerald gem blocks on a dark board, with "Same Seed · 90 seconds · higher score wins", an entry picker (500 / 1,000 / 2,500) and an emerald **Play now** button.
   - A second slide peeks in: "Heads-up Hold'em".
-- **"Play now" rail:** large game tiles with key art. Block Puzzle and Hold'em are live. Two tiles are "Coming soon" (invented skill games, dimmed and labelled).
+- **Game rails, like Skillz:** bold condensed all-caps headers with "VIEW ALL" and ← → arrows. The "Play now" rail uses large square key-art tiles. Block Puzzle and Hold'em are live; four "Coming soon" tiles (invented skill games: a word duel, a bubble shooter, a pool game, a trivia sprint) are dimmed and labelled. A "Play again" rail uses Chumba-style landscape tiles of your last Matches.
 - **"Live now" strip:** a ticker of settled Matches ("Dana won 1,900 Gemas · Block Puzzle · 171–55").
 - **"Back a Player" rail:** player cards with avatar, win rate and sample ("38 Matches · 61% won"), the requested entry, and an emerald **Offer** button.
-- **Right column (desktop only):** "Your Positions" mini-card showing SOL 40 · Debt 0.550 · Unlock Estimate, and the balance split "Redeemable now / Pending".
+- **Footer, like Skillz:** Players / Studios / Company columns, and the small "Simulated yield · 1 month = 10 min · devnet" line.
 
 **Direction A, "Cut, lit":** the approved Cut system taken further. Near-black shell, chamfered everything, and faceted emerald light only on money surfaces. The richness comes from big lit game art and precise, premium typography (Schibsted Grotesk). Calm, expensive, fintech-grade.
 
@@ -85,7 +86,7 @@ Screen folder: `lobby-desktop/`. Make **take-1 (A), take-2 (B) and take-3 (C)** 
 
 **Prompt (fill in the direction line):**
 
-> A desktop web app lobby for "Tesoro", a premium skill-gaming platform, painted as a crisp UI mockup at 1920×1200. **Direction: [A / B / C paragraph above].** Layout: [layout brief above]. Brand: near-black neutral shell `#0C0E10`, raised panels `#15181B`, off-white text, a single emerald accent (`#2DBE8C` / `#8FF5CF` / `#0B6B4E`) used only on the Gema balance, entry buttons and Offer/Play buttons, chamfered octagonal "emerald-cut" corners on every card, button and chip like reference 9, and a small faceted emerald gem as the currency mark. The game key art is vivid and lit and carries most of the colour. Real copy: "15,000" Gemas, entries 500 / 1,000 / 2,500, "Simulated yield · 1 month = 10 min" in small mono text. Energy and shelf structure like references 10 and 11 but not copied; no casino red or gold, no neon, no logos. Sharp, legible UI, high fidelity, flat front-on screen, no device frame.
+> A desktop web app lobby for "Tesoro", a premium skill-gaming platform, painted as a crisp UI mockup at 1920×1200. **Direction: [A / B / C paragraph above].** Layout: [layout brief above]. Brand: near-black neutral shell `#0C0E10`, raised panels `#15181B`, off-white text, a single emerald accent (`#2DBE8C` / `#8FF5CF` / `#0B6B4E`) used only on the Gema balance, entry buttons and Offer/Play buttons, chamfered octagonal "emerald-cut" corners on every card, button and chip like reference 9, and a small faceted emerald gem as the currency mark. The game key art is vivid and lit and carries most of the colour. Real copy: "15,000" Gemas, entries 500 / 1,000 / 2,500, "Simulated yield · 1 month = 10 min" in small mono text. Page structure and rail rhythm closely follow reference 10 (Skillz: left sidebar, centred hero card, category chips, many square-tile rails with bold condensed headers), with the hero's cinematic drama from reference 11 (Chumba), but nothing copied; no casino red or gold, no neon, no logos. Sharp, legible UI, high fidelity, flat front-on screen, no device frame.
 
 Self-check: the result reads as a desktop web app, not a phone. Games dominate. Emerald appears only on Gema and money actions. Corners are chamfered, not rounded. It has no casino look.
 
