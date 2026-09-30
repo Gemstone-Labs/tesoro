@@ -101,7 +101,7 @@ a.side-link:hover { background: var(--raised); color: var(--fg); }
 .acct-mail { font-size: 12px !important; color: var(--fg-2) !important; font-weight: 500 !important; padding-bottom: 8px !important; border-bottom: 1px solid var(--line); margin-bottom: 4px; overflow-wrap: anywhere; }
 
 /* ——— Main ——— */
-.app-main { max-width: 1180px; margin: 0 auto; padding: 8px 14px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom)); display: grid; gap: 20px; align-content: start; }
+.app-main { grid-template-columns: minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 8px 14px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom)); display: grid; gap: 20px; align-content: start; }
 .app-main.wide { max-width: none; padding: 0; display: block; min-height: calc(100dvh - 130px); }
 
 /* ——— Bottom nav (below 1024px) ——— */

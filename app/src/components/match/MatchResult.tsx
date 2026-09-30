@@ -105,7 +105,7 @@ export function MatchResult(p: MatchResultProps) {
       <section className={`cut cut-frame mr-frame${won ? " won" : ""}`} aria-label={`Match result: ${status}`}>
         <div className="mr-left">
           <div className="cut cut-card mr-tile">
-            <Image src={art.thumb[p.game]} alt="" width={260} height={260} />
+            <Image src={art.thumb[p.game]} alt="" width={260} height={260} priority />
             <span className="mr-tile-name">{GAME_NAMES[p.game]}</span>
           </div>
           <span className="cut cut-card mr-rule-chip">{rules.chip}</span>

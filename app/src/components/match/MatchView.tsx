@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Card, CheckIcon, Chip, GemaAmount, Label, MinusIcon, XIcon } from "@/components/ui";
+import { Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
 import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzleGame";
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";

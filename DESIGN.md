@@ -95,3 +95,29 @@ All game art, hero art and avatars come from one map, `app/src/lib/art.ts`. Unti
 - Simulated Unlock Estimates show an absolute time (the yield clock runs 1 month = 10 min); "–" until one exists.
 - Names are not on chain: Players show as short keys with a stable placeholder avatar (`avatarFor`).
 - Dev only: `?dev=out` previews the signed-out UI and `?dev=demo` a populated fake Account (with `NEXT_PUBLIC_DEV_WALLET=1`); used for screenshots in `app/docs/screens/redesign-*.png`.
+
+## Characters and the three product screens (p2)
+
+Approved mockups: `art-source/ui-redesign/{result-won,wallet,backing}-desktop/take-1.png`. Character art: `art.characters` in `app/src/lib/art.ts`, rendered by `<Character>` (`components/ui/Character.tsx`); screenshots and side-by-side comparisons are in `app/docs/screens/p2-*.png` (`app/scripts/screenshot-p2.mjs`, `compare-p2.mjs`).
+
+**Character placement rules.** him = the Player / guide, her = the Backer. Characters are decorative (empty alt), never carry information, never overlap text or controls, and never appear on money surfaces except where listed. Below 1024px they hide (`desktopOnly`) or shrink to a cropped bust.
+
+| Where | Character |
+|---|---|
+| Match result, Player won | `him-win`, right column |
+| Match result, Player lost | `him-lose`, right column (never for a Backer) |
+| Match result, Backer, backed win | `duo-win` |
+| Match result, Draw / Refunded | none (neutral) |
+| Wallet, Open a Position | `him-explain` cropped, in the "How Gemas work" tile |
+| Backing, Make an Offer drawer | `her-backing` (shown from 1500px) |
+| Backing, empty states | `her-empty` |
+
+**Match result.** Frame: game tile + rules left, outcome centre, character right. Won shows the faceted emerald burst behind "+N Gemas" and always the line "Pending · redeemable as their yield lands" linking to the Wallet: won Gemas are claims on the loser's Source, never cash in hand. Loss is neutral-white with a danger icon; no burst. Backed Matches show the split (BackingSplit); the backed Player is told they never owe anything. Hold'em shows a Chips-free result (Won / Lost tiles).
+
+**Wallet.** `wl-*` classes. Total Balance and Redeemable now are faceted emerald panels (`.facet-panel`, money only); Pending is neutral with a clock. Position tiles are one column per chain (SOL, ETH, HYPE); a chain with no Position shows a single call to action ("Open an ETH Position"), HYPE is "HyperEVM coming soon" (disabled). The Debt chart is a projection from the live yield rate and is labelled projected. The right column is the inline Open a Position panel (chain tabs, Amount, Horizon, Gemas issued and Unlock Estimate from the real quote). Copy rule: "Your Principal is never played", never "protected". The sidebar's Your Positions card is hidden on `/wallet`.
+
+**Backing.** Tabs Requests / Public Offers / My Backings, sort and grid/list toggle; Request cards (avatar, handle, game, "N Matches · X% won", game art strip, Requested entry, Make an Offer). The MAKE AN OFFER drawer sits in the right column on desktop and becomes a bottom sheet below 1024px.
+
+**Layout.** `/wallet`, `/backing` and `/play/match` use the broad column (`.app-main.broad`, up to 1680px) instead of the centred 1180px one. Big display figures use proportional numerals (no `.tnum`).
+
+Dev only: `/design/result?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost` renders every result variant from fixtures (`NEXT_PUBLIC_DEV_WALLET=1`).

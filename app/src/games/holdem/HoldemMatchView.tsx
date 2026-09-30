@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card, CheckIcon, Chip, GemaAmount, Label, MinusIcon, XIcon } from "@/components/ui";
+import { Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { matchDelta } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -14,7 +14,6 @@ import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
-const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 
 function fmtFee(m: ChainMatch): string {
   const pot = m.entry * 2;

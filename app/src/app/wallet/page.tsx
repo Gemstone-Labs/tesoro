@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Button, Card, ClockIcon, GemaAmount, GemaMark, Label, Meter, ChainChip } from "@/components/ui";
+import { Button, Card, ChainChip, ClockIcon, GemaMark, Label, Meter } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
@@ -26,6 +26,7 @@ export default function Wallet() {
   const [returnFor, setReturnFor] = useState<Position | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [months, setMonths] = useState(3);
+  const [now] = useState(() => Date.now());
   const panel = useRef<HTMLDivElement>(null);
 
   if (auth.status === "signed-out") {
@@ -66,7 +67,6 @@ export default function Wallet() {
   const genericTile = (p: Position) => {
     const yearly = p.principal * p.apy;
     const monthsToZero = yearly > 0 ? p.debt / (yearly / 12) : null;
-    const now = Date.now();
     const zeroAt = p.debt > 0 && monthsToZero !== null ? now + monthsToZero * 10 * 60_000 : null;
     const canRedeem = holdings.some((h) => h.source.positionId === p.id && redeemableOf(h) > 0);
     return (
