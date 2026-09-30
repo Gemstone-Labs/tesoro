@@ -33,7 +33,8 @@ async function pass(ctx: Ctx) {
 
 async function main() {
   const s = settings();
-  const conn = newConnection(s.rpc);
+  const hostOf = (u: string) => new URL(u).host;
+  const conn = newConnection(s.rpc, s.gpaRpc);
   const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m));
   const ctx: Ctx = {
     ...buildRuntime(s, conn, payer),
@@ -42,7 +43,7 @@ async function main() {
     eth: new Budget(Math.round(s.ethHourlyCapEth * 1e9)),
   };
   const balance = await conn.getBalance(payer.publicKey);
-  log("keeper", "-", `start rpc=${s.rpc} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);
+  log("keeper", "-", `start rpc=${hostOf(s.rpc)} gpa=${hostOf(s.gpaRpc)} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);
 
   let delay = s.intervalMs;
   do {

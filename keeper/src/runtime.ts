@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain, keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
 import { HoldemChain, keypairSigner as holdemSigner } from "../../app/src/games/holdem/chain.ts";
+import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
 import type { Settings } from "./env.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,7 +54,23 @@ export interface Runtime {
   now: number;
 }
 
-export const newConnection = (rpc: string) => new Connection(rpc, { commitment: "confirmed", fetch: fetchWithBackoff as typeof fetch, disableRetryOnRateLimit: true });
+const connConfig = { commitment: "confirmed", fetch: fetchWithBackoff as typeof fetch, disableRetryOnRateLimit: true } as const;
+
+/** Sends and single reads on `rpc`; getProgramAccounts on `gpaRpc`, shared for 5s (one loop asks for the same list many times). */
+export function newConnection(rpc: string, gpaRpc: string = rpc): Connection {
+  const gpaConn = new Connection(gpaRpc, connConfig);
+  const seen = new Map<string, { at: number; p: Promise<any> }>();
+  const gpa: GpaFn = (programId, config) => {
+    const key = `${programId.toBase58()}:${JSON.stringify(config ?? {})}`;
+    const hit = seen.get(key);
+    if (hit && Date.now() - hit.at < 5000) return hit.p;
+    const p = gpaConn.getProgramAccounts(programId, config as any) as Promise<any>;
+    seen.set(key, { at: Date.now(), p });
+    p.catch(() => seen.delete(key));
+    return p;
+  };
+  return new SplitConnection(rpc, gpa, connConfig);
+}
 
 export function buildRuntime(settings: Settings, conn: Connection, payer: Keypair): Runtime {
   const coreIdl = loadIdl("tesoro_core");

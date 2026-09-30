@@ -1,10 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 
+/** Fill unset env vars from app/.env.local so RPC keys live in one place (never overrides the real env). */
+export function loadAppEnv(env: NodeJS.ProcessEnv = process.env, file = fileURLToPath(new URL("../../app/.env.local", import.meta.url))) {
+  if (!existsSync(file)) return;
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!m || m[1].startsWith("#") || env[m[1]]) continue;
+    env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, "$2");
+  }
+}
+
 export interface Settings {
+  /** Sends and single-account reads. */
   rpc: string;
+  /** List queries (getProgramAccounts): the public devnet RPC allows them, most free tiers do not. */
+  gpaRpc: string;
   keypairPath: string;
   deployerPath: string;
   intervalMs: number;
@@ -25,6 +39,7 @@ export interface Settings {
 }
 
 export function settings(argv = process.argv.slice(2), env = process.env): Settings {
+  if (env === process.env) loadAppEnv(env);
   const flag = (name: string) => argv.includes(`--${name}`);
   const value = (name: string) => {
     const i = argv.indexOf(`--${name}`);
@@ -32,7 +47,8 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
   };
   const num = (v: string | undefined, d: number) => (v !== undefined && Number.isFinite(Number(v)) ? Number(v) : d);
   return {
-    rpc: value("rpc") ?? env.KEEPER_RPC ?? "https://rpc.magicblock.app/devnet",
+    rpc: value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC || "https://rpc.magicblock.app/devnet",
+    gpaRpc: value("gpa-rpc") || env.KEEPER_GPA_RPC || "https://api.devnet.solana.com",
     keypairPath: env.KEEPER_KEYPAIR ?? join(homedir(), ".config/tesoro/keeper.json"),
     deployerPath: env.KEEPER_FUNDER ?? join(homedir(), ".config/solana/id.json"),
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
