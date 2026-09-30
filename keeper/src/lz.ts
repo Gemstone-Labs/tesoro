@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { ComputeBudgetProgram, PublicKey, SystemProgram, Transaction, TransactionInstruction, type AccountMeta, type Keypair } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey, SystemProgram, TransactionInstruction, type AccountMeta, type Keypair } from "@solana/web3.js";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { createSignerFromKeypair, publicKey as umiKey, signerIdentity } from "@metaplex-foundation/umi";
 import { fromWeb3JsKeypair, toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
 import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi";
 import type { Ctx } from "./act.ts";
+import { simulateIxs } from "./tee.ts";
 
 /** tesoro_bridge on Solana devnet and the tesoro_core it feeds. */
 export const BRIDGE = new PublicKey("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ");
@@ -117,13 +118,9 @@ export async function quoteFee(ctx: Ctx, eid: number, positionId: Uint8Array, ms
     keys: [meta(STORE), meta(peerPda(eid, positionId)), meta(ENDPOINT_SETTINGS), ...quoteMetas],
     data: Buffer.concat([disc("quote_send"), u32le(eid), vaultWord(positionId), Buffer.from([msgType]), u32le(0), Buffer.from([0])]),
   });
-  const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix);
-  tx.feePayer = ctx.payer.publicKey;
-  tx.recentBlockhash = (await ctx.conn.getLatestBlockhash()).blockhash;
-  tx.sign(ctx.payer);
-  const sim = await ctx.conn.simulateTransaction(tx);
-  if (sim.value.err || !sim.value.returnData) throw new Error(`quote failed ${JSON.stringify(sim.value.err)}`);
-  return Buffer.from(sim.value.returnData.data[0], "base64").readBigUInt64LE(0);
+  const sim = await simulateIxs(ctx.conn, ctx.payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
+  if (sim.err || !sim.returnData) throw new Error(`quote failed ${JSON.stringify(sim.err)}`);
+  return Buffer.from(sim.returnData.data[0], "base64").readBigUInt64LE(0);
 }
 
 /** `send_unlock` / `send_pay_yield` share the trailing `SendParams`: eid, position id, options (empty), fee, lz token fee. */
