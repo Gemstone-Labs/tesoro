@@ -71,7 +71,8 @@ export default function Backing() {
   const offers = board?.offers ?? [];
   const requestByAddress = new Map(requests.map((r) => [r.address.toBase58(), r]));
 
-  const myRequests = requests.filter((r) => r.player === me && (r.live || r.status === "accepted"));
+  const pending = (r: ChainRequest) => offers.some((o) => o.status === "accepted" && o.request === r.address.toBase58());
+  const myRequests = requests.filter((r) => r.player === me && (r.live || (r.status === "accepted" && pending(r))));
   const liveMine = myRequests.filter((r) => r.live);
   const others = requests.filter((r) => r.live && r.player !== me);
   const backings = offers.filter((o) => o.status === "accepted" && o.player === me && nowSecs < o.useBy);
