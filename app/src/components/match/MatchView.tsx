@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Card, CheckIcon, Chip, GemaAmount, Label, MinusIcon, XIcon } from "@/components/ui";
+import { Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
 import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzleGame";
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
@@ -11,6 +11,7 @@ import { RunSubmitter, canClaimTimeout, ensureJoined, claimTimeout, prepareRun, 
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "./BackingSplit";
+import { MatchResult } from "./MatchResult";
 
 type Phase =
   | "loading"
@@ -225,6 +226,36 @@ export function MatchView({ matchId }: { matchId: string }) {
   const delta = !m ? 0 : asBacker && m.backing ? backerDelta({ ...m, backerSeat: m.backing.seat, shareBps: m.backing.shareBps }) : matchDelta(m);
   const outcome = !m || m.status === "open" || m.status === "active" ? null : !session || !session.settled ? "refunded" : session.result === "draw" ? "draw" : delta > 0 ? "won" : "lost";
 
+  if (phase === "result" && m && outcome) {
+    return (
+      <MatchResult
+        game="block-puzzle"
+        outcome={outcome}
+        delta={delta}
+        entry={m.entry}
+        fee={Number(fmtFee(m))}
+        role={asBacker ? "backer" : "player"}
+        backed={!!m.backing}
+        scores={scores && outcome !== "refunded" ? [String(scores[0]), String(scores[1])] : null}
+        playAgainHref={`/play/queue?entry=${m.entry}`}
+        split={m.backing ? <BackingSplit m={m} /> : undefined}
+      >
+        {error && <p className="status err" role="alert">{error}</p>}
+        {sigs.length > 0 && (
+          <div className="stack">
+            <Label>Transactions</Label>
+            {sigs.map((s) => (
+              <a key={s.sig} className="meta mono" href={explorer(s.sig)} target="_blank" rel="noreferrer">
+                {s.label} · {s.sig.slice(0, 10)}…
+              </a>
+            ))}
+          </div>
+        )}
+        <p className="note">Solana devnet · testnet Gemas from a simulated Position.</p>
+      </MatchResult>
+    );
+  }
+
   return (
     <div className="stack-lg" style={{ maxWidth: 480, margin: "0 auto" }}>
       <div className="spread">
@@ -356,53 +387,6 @@ export function MatchView({ matchId }: { matchId: string }) {
                 </Button>
               </div>
             )}
-          </div>
-        </Card>
-      )}
-
-      {phase === "result" && m && outcome && (
-        <Card large>
-          <div className="stack">
-            <span className="hstack">
-              {outcome === "won" ? (
-                <Chip tone="money" icon={<CheckIcon />}>Won</Chip>
-              ) : outcome === "lost" ? (
-                <Chip tone="danger" icon={<XIcon />}>Lost</Chip>
-              ) : outcome === "draw" ? (
-                <Chip icon={<MinusIcon />}>Draw</Chip>
-              ) : (
-                <Chip icon={<MinusIcon />}>Refunded</Chip>
-              )}
-              <GemaAmount value={delta} size="lg" sign />
-            </span>
-            {scores && (
-              <dl className="kv">
-                <dt>{asBacker ? "Your Player's score" : "Your score"}</dt>
-                <dd>{scores[0]}</dd>
-                <dt>Opponent</dt>
-                <dd>{scores[1]}</dd>
-                <dt>Entry</dt>
-                <dd>{fmtGemas(m.entry)} Gemas</dd>
-                {outcome === "won" && !m.backing && (
-                  <>
-                    <dt>Fees taken from the loser</dt>
-                    <dd>{fmtFee(m)} Gemas</dd>
-                  </>
-                )}
-              </dl>
-            )}
-            {m.backing && <BackingSplit m={m} />}
-            {!m.backing && outcome === "refunded" && <p className="meta">The Match ended without a result and your entry was returned.</p>}
-            {!m.backing && outcome === "draw" && <p className="meta">Equal scores: both entries were returned.</p>}
-            <div className="hstack wrap">
-              {asBacker ? (
-                <Button variant="money" href="/backing">Back a Player</Button>
-              ) : (
-                <Button variant="money" href={`/play/queue?entry=${m.entry}`}>Play again</Button>
-              )}
-              <Button href="/">Lobby</Button>
-              <Button href="/wallet">Wallet</Button>
-            </div>
           </div>
         </Card>
       )}

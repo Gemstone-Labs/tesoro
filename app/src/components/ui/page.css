@@ -1,0 +1,22 @@
+/* ——— Characters (him = Player/guide, her = Backer): decorative, never carry information ——— */
+.character { display: block; max-width: 100%; height: auto; object-fit: contain; pointer-events: none; user-select: none; }
+@media (max-width: 1023px) { .character.desktop-only { display: none; } }
+
+/* ——— Broad pages (Wallet, Backing, Match result): full-width column ——— */
+.app-main.broad { max-width: 1680px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 24px; flex-wrap: wrap; }
+.page-head h1 { font-size: clamp(40px, 4.2vw, 76px); line-height: 0.95; }
+.page-sub { color: var(--fg); font-size: clamp(14px, 1.2vw, 18px); margin-top: 6px; }
+.page-head-side { text-align: right; color: var(--fg-2); font-size: 15px; display: grid; gap: 2px; }
+.page-head-side b { color: var(--fg); font-size: 20px; font-weight: 700; }
+.page-head-side .sim { font-size: 12px; }
+@media (max-width: 639px) { .page-head-side { text-align: left; } }
+
+/* ——— Facet panel: hard-stop light on a dark emerald ground (money surfaces only) ——— */
+.facet-panel {
+  background:
+    linear-gradient(118deg, transparent 0 56%, rgba(99, 247, 211, 0.1) 56% 62%, transparent 62%),
+    linear-gradient(62deg, transparent 0 68%, rgba(99, 247, 211, 0.07) 68% 73%, transparent 73%),
+    linear-gradient(160deg, #0d3b31, #0a2823);
+  --edge: rgba(45, 190, 140, 0.55);
+}

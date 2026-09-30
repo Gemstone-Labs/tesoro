@@ -75,7 +75,13 @@ export function recordFromMatches(matches: ChainMatch[]): PlayerRecord {
   return { matches: n, wins };
 }
 
-export const shortKey = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
+/** "38 Matches · 61% won": the win rate always carries its sample size. */
+export function recordShort(r: PlayerRecord): string {
+  if (r.matches === 0) return "New Player · no settled Matches";
+  return `${r.matches} ${r.matches === 1 ? "Match" : "Matches"} · ${Math.round((r.wins / r.matches) * 100)}% won`;
+}
+
+export const shortKey =(k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
 /** "23h 41m left" / "12m left" / "Expired". */
 export function timeLeft(unixSecs: number, nowMs = Date.now()): string {

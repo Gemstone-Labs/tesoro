@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, CheckIcon, Card, Chip, ClockIcon, GemaAmount, Label, Sheet, SimulatedYieldLabel, Slider } from "@/components/ui";
+import { Button, CheckIcon, Chip, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { fmtGemas, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { covered, live } from "@/lib/chain/ledger";
@@ -21,6 +21,8 @@ import {
 import { friendlyError, getTestSimSol, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, unlockNative } from "@/lib/chain/native-flow";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { OpenFormView } from "./OpenPanel";
+import { PositionTile, sampledSeries } from "./PositionTile";
 
 const fmtSol = (lamports: bigint | number, digits = 4) => (Number(lamports) / LAMPORTS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
@@ -72,66 +74,47 @@ function useAction(refresh: () => Promise<void>) {
 
 // ---- Get simSOL + Open a Position ---------------------------------------------------------------
 
-export function NativeGetGemas({ market, loading, onOpen }: { market: NativeMarket | null; loading: boolean; onOpen: () => void }) {
+/** The simSOL faucet, shown above the SOL open form: balance, a Get test simSOL button, the Simulated label. */
+export function NativeFaucet({ market, loading }: { market: NativeMarket | null; loading: boolean }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const signer = auth.signer;
   return (
-    <Card large>
-      <div className="stack">
-        <Label>Get Gemas</Label>
-        <p className="meta">
-          {loading
-            ? "Reading your Account from Solana devnet…"
-            : "Lock simSOL in a Position and take an Advance of its projected yield as Gemas to play with."}
-        </p>
-        <dl className="kv">
-          <dt>Your simSOL</dt>
-          <dd className="tnum">{market ? fmtSol(market.simSol, 3) : "—"} simSOL</dd>
-        </dl>
-        <div className="hstack wrap">
-          <Button block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken))}>
-            {a.busy === "faucet" ? "Getting simSOL…" : "Get test simSOL"}
-          </Button>
-          <Chip tone="warn">Simulated</Chip>
-        </div>
-        <Button variant="money" block disabled={!signer || !market || market.simSol === 0n} onClick={() => auth.gate("open a Position", onOpen)}>
-          Open a Position
-        </Button>
-        {a.done && <Sig label="simSOL faucet" sig={a.done.sig} />}
-        {a.error && <p className="status err" role="alert">{a.error}</p>}
-        <span className="sim">Simulated · simSOL is a test token from the sim_lst pool, its yield runs 1 month = {SIM_MONTH_MIN} min</span>
+    <div className="wl-faucet">
+      <div className="spread">
+        <span className="meta">
+          {loading ? "Reading your Account from Solana devnet…" : <>Your simSOL <b className="tnum">{market ? fmtSol(market.simSol, 3) : "—"}</b></>}
+        </span>
+        <Chip tone="warn">Simulated</Chip>
       </div>
-    </Card>
+      <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken))}>
+        {a.busy === "faucet" ? "Getting simSOL…" : "Get test simSOL"}
+      </Button>
+      {a.done && <Sig label="simSOL faucet" sig={a.done.sig} />}
+      {a.error && <p className="status err" role="alert">{a.error}</p>}
+    </div>
   );
 }
 
-export function OpenPositionSheet({ open, onClose, market }: { open: boolean; onClose: () => void; market: NativeMarket | null }) {
-  return (
-    <Sheet open={open} onClose={onClose} title="Open a Position">
-      {open && market && <OpenForm market={market} onClose={onClose} />}
-    </Sheet>
-  );
-}
-
-function OpenForm({ market, onClose }: { market: NativeMarket; onClose: () => void }) {
+/** The SOL tab of OPEN A POSITION: lock simSOL and take the Advance in one transaction. `market` null = not read yet. */
+export function NativeOpenForm({ market, loading }: { market: NativeMarket | null; loading: boolean }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
-  const balance = Number(market.simSol) / LAMPORTS;
-  const [text, setText] = useState(() => String(Math.max(0.1, Math.min(balance, 1))));
+  const balance = market ? Number(market.simSol) / LAMPORTS : 0;
+  const [text, setText] = useState("");
   const [months, setMonths] = useState(3);
   const now = useNow(5000);
 
   const amount = Number(text);
-  const shares = Number.isFinite(amount) && amount > 0 ? BigInt(Math.round(amount * LAMPORTS)) : 0n;
-  const rate = rateAt(market.pool, now / 1000);
-  const principal = sharesValue(shares, rate);
-  const priceAge = market.price ? now / 1000 - market.price.updatedTs : Infinity;
-  const priceOk = !!market.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
-  const quote = priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd) : null;
+  const shares = market && Number.isFinite(amount) && amount > 0 ? BigInt(Math.round(amount * LAMPORTS)) : 0n;
+  const rate = market ? rateAt(market.pool, now / 1000) : 0n;
+  const principal = market ? sharesValue(shares, rate) : 0n;
+  const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
+  const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
+  const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   // A fresh Position's Debt is the whole Advance: the Estimate is when the vault's yield covers it.
-  const estimate = quote && shares > 0n && gemas > 0
+  const estimate = market && quote && shares > 0n && gemas > 0
     ? unlockEstimateMs({
         source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: market.price!.microUsd },
         vaultShares: shares,
@@ -141,87 +124,68 @@ function OpenForm({ market, onClose }: { market: NativeMarket; onClose: () => vo
         nowMs: now,
       })
     : null;
-  const tooMuch = shares > market.simSol;
-  const valid = shares > 0n && !tooMuch && gemas > 0;
+  const tooMuch = !!market && shares > market.simSol;
+  const valid = !!market && shares > 0n && !tooMuch && gemas > 0;
 
   if (a.done) {
     return (
-      <>
+      <div className="stack">
         <div className="status ok" role="status">
           <CheckIcon /> Position opened · <GemaAmount value={gemas} size="md" /> issued
         </div>
         <Sig label="open_native_position + take_native_advance" sig={a.done.sig} />
-        <Button block onClick={onClose}>Done</Button>
-      </>
+        <Button block onClick={() => { a.clear(); setText(""); }}>Done</Button>
+      </div>
     );
   }
 
   return (
-    <>
-      <Chip tone="warn">Simulated yield · 1 month = {SIM_MONTH_MIN} min</Chip>
-      <div className="field">
-        <label className="label" htmlFor="simsol-amount">simSOL to lock as Principal</label>
-        <input
-          id="simsol-amount"
-          className="cut input tnum"
-          inputMode="decimal"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          aria-invalid={tooMuch}
-        />
-        <span className="meta">You have {balance.toLocaleString("en-US", { maximumFractionDigits: 3 })} simSOL. Principal is locked, never played with.</span>
-      </div>
-      <Slider
-        label="Horizon"
-        value={months}
-        min={1}
-        max={12}
-        onChange={setMonths}
-        display={`${months} ${months === 1 ? "month" : "months"}`}
-        minLabel="1 month"
-        maxLabel="12 months"
-      />
-      <dl className="kv">
-        <dt>Gemas issued</dt>
-        <dd><GemaAmount value={gemas} size="lg" /></dd>
-        <dt>Worth at issuance</dt>
-        <dd>{fmtUsd(gemasToUsd(gemas))}</dd>
-        <dt>Principal</dt>
-        <dd className="tnum">{fmtSol(principal)} SOL</dd>
-        <dt>Projected yield</dt>
-        <dd className="tnum">{quote ? fmtSol(quote.projectedUnits) : "—"} SOL</dd>
-        <dt>Unlock Estimate</dt>
-        <dd>{estimate ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})` : "—"}</dd>
-      </dl>
-      <p className="meta mono">
-        {market.price
-          ? `Devnet price feed · SOL $${(Number(market.price.microUsd) / 1e6).toFixed(2)} · updated ${Math.max(0, Math.round(priceAge / 60))} min ago`
-          : "Devnet price feed · not published yet"}
-      </p>
-      {!priceOk && <p className="status err" role="alert">The devnet price feed is stale or missing. The keeper refreshes it hourly; try again shortly.</p>}
-      {tooMuch && <p className="status err" role="alert">That is more simSOL than you have.</p>}
-      <p className="note">
-        One transaction opens the Position and takes the Advance. The Unlock Estimate is an estimate, not a promise: it
-        moves with the pool&apos;s actual yield.
-      </p>
-      {a.error && <p className="status err" role="alert">{a.error}</p>}
-      <Button
-        variant="money"
-        block
-        disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
-        onClick={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months)).signature)}
-      >
-        {a.busy ? "Signing…" : `Open Position · ${fmtGemas(gemas)} Gemas`}
-      </Button>
-    </>
+    <OpenFormView
+      unit="SOL"
+      inert={!market}
+      head={<NativeFaucet market={market} loading={loading} />}
+      amountText={text}
+      onAmount={setText}
+      amountInvalid={tooMuch}
+      amountHint={market ? <>You have {balance.toLocaleString("en-US", { maximumFractionDigits: 3 })} simSOL. Principal is locked, never played with.</> : undefined}
+      months={months}
+      onMonths={setMonths}
+      gemas={gemas}
+      estimate={estimate ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})` : "—"}
+      details={[
+        ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
+        ["Principal", `${fmtSol(principal)} SOL`],
+        ["Projected yield", `${quote ? fmtSol(quote.projectedUnits) : "—"} SOL`],
+        [
+          "Price feed",
+          market?.price ? `SOL $${(Number(market.price.microUsd) / 1e6).toFixed(2)} · ${Math.max(0, Math.round(priceAge / 60))} min ago` : "not published yet",
+        ],
+      ]}
+      alerts={
+        <>
+          {market && !priceOk && <p className="status err" role="alert">The devnet price feed is stale or missing. The keeper refreshes it hourly; try again shortly.</p>}
+          {tooMuch && <p className="status err" role="alert">That is more simSOL than you have.</p>}
+          {a.error && <p className="status err" role="alert">{a.error}</p>}
+        </>
+      }
+      note={
+        <>
+          One transaction opens the Position and takes the Advance. The Unlock Estimate is an estimate, not a promise: it moves with the
+          pool&apos;s actual yield. <span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span>
+        </>
+      }
+      buttonLabel={a.busy ? "Signing…" : gemas > 0 ? `Open a Position · ${fmtGemas(gemas)} Gemas` : "Open a Position"}
+      disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
+      onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months)).signature)}
+    />
   );
 }
 
 // ---- Position card ------------------------------------------------------------------------------
 
-export function NativePositionCard({ position, market }: { position: ChainPosition; market: NativeMarket | null }) {
+export function NativePositionCard({ position, market, onRedeem }: { position: ChainPosition; market: NativeMarket | null; onRedeem: () => void }) {
   const info = position.native as NativeInfo;
-  const { auth, refresh } = useAccount();
+  const { auth, snapshot, refresh } = useAccount();
   const a = useAction(refresh);
   const now = useNow(5000);
   const signer = auth.signer;
@@ -240,66 +204,63 @@ export function NativePositionCard({ position, market }: { position: ChainPositi
       : null;
   const locked = info.status === "locked";
   const canUnlock = locked && projected === 0n;
+  const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);
+  const series =
+    pool && src && locked && onChainDebt > 0n
+      ? sampledSeries((at) => Number(projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, at)), now, estimate ? estimate - now : 10 * 60_000)
+      : null;
 
   return (
-    <Card large as="article" aria-label="SOL Position">
-      <div className="stack">
-        <div className="spread">
-          <span className="hstack">
-            <Chip tone="neutral">SOL · simSOL</Chip>
-            <strong>{fmtSol(info.principalLamports, 3)} SOL Position</strong>
-          </span>
-          <span className="meta tnum">{(info.rateBps / 100).toFixed(1)}% APY</span>
-        </div>
-        <dl className="kv">
-          <dt>Principal</dt>
-          <dd className="tnum">{fmtSol(info.principalLamports)} SOL · {locked ? "locked" : "returned"}</dd>
-          <dt>Debt</dt>
-          <dd className="tnum">
-            {fmtGemas(Number(onChainDebt))} Gemas{onChainDebt > 0n ? ` · ${fmtSol(debtSol)} SOL` : ""}
-          </dd>
-          <dt>Accrued yield</dt>
-          <dd className="tnum">{fmtSol(accruedYield, 5)} SOL</dd>
-          <dt>Unlock Estimate</dt>
-          <dd>
-            {!locked
-              ? "Unlocked"
-              : !src
-                ? "No open Advance"
-                : onChainDebt === 0n
-                  ? "Debt is zero"
-                  : estimate
-                    ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})`
-                    : "Once yield accrues"}
-          </dd>
-        </dl>
-        {unapplied > 0n && locked && (
-          <p className="meta">
-            <ClockIcon width={14} height={14} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh
-            (the keeper does it every ~20 s, or press Refresh yield).
-          </p>
-        )}
-        <SimulatedYieldLabel />
-        {locked && (
-          <div className="hstack wrap">
-            <Button size="sm" disabled={!signer || a.busy !== null} onClick={() => signer && a.run("refresh", () => refreshYield(signer, info))}>
-              {a.busy === "refresh" ? "Refreshing…" : "Refresh yield"}
-            </Button>
+    <PositionTile
+      chain="SOL"
+      label="SOL Position"
+      status={locked ? "active" : "unlocked"}
+      rows={{
+        principal: `${fmtSol(info.principalLamports, 3)} SOL`,
+        debt: onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas · ${fmtSol(debtSol, 3)} SOL` : "0",
+        apy: `${(info.rateBps / 100).toFixed(1)}%`,
+        unlock: !locked
+          ? "Unlocked"
+          : !src
+            ? "No open Advance"
+            : onChainDebt === 0n
+              ? "Debt is zero"
+              : estimate
+                ? `${fmtWhen(new Date(estimate).toISOString()).replace(" UTC", "")} (${inMinutes(estimate, now)})`
+                : "Once yield accrues",
+      }}
+      chartTitle="Debt (Gemas)"
+      series={series}
+      fmt={(n) => fmtGemas(n)}
+    >
+      {locked && (
+        <>
+          <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("refresh", () => refreshYield(signer, info))}>
+            {a.busy === "refresh" ? "Refreshing…" : "Refresh yield"}
+          </Button>
+          <div className="wl-actions-row">
+            <Button variant="money" size="sm" disabled={!signer || a.busy !== null || !redeemable} onClick={onRedeem}>Redeem</Button>
             <Button size="sm" disabled={!signer || a.busy !== null || !canUnlock} onClick={() => signer && a.run("unlock", () => unlockNative(signer, info))}>
               {a.busy === "unlock" ? "Unlocking…" : "Unlock"}
             </Button>
           </div>
-        )}
-        {locked && !canUnlock && <p className="note">Unlock returns the Principal once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
-        {!locked && (
-          <Button size="sm" disabled={!signer || a.busy !== null} onClick={() => signer && a.run("sweep", () => sweepNative(signer, info))}>
-            {a.busy === "sweep" ? "Sweeping…" : "Sweep surplus"}
-          </Button>
-        )}
-        {a.done && <Sig label={a.done.label} sig={a.done.sig} />}
-        {a.error && <p className="status err" role="alert">{a.error}</p>}
-      </div>
-    </Card>
+        </>
+      )}
+      {!locked && (
+        <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("sweep", () => sweepNative(signer, info))}>
+          {a.busy === "sweep" ? "Sweeping…" : "Sweep surplus"}
+        </Button>
+      )}
+      <p className="note wl-tile-note">Accrued yield {fmtSol(accruedYield, 5)} SOL. <span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span></p>
+      {unapplied > 0n && locked && (
+        <p className="note wl-tile-note">
+          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (the keeper does it every ~20 s).
+        </p>
+      )}
+      {locked && !canUnlock && <p className="note wl-tile-note">Unlock returns the Principal once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
+      {a.done && <Sig label={a.done.label} sig={a.done.sig} />}
+      {a.error && <p className="status err" role="alert">{a.error}</p>}
+    </PositionTile>
   );
 }
 
