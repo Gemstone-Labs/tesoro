@@ -57,7 +57,7 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           Help
         </span>
       </div>
-      <PositionsCard onNavigate={onNavigate} />
+      {!path.startsWith("/wallet") && <PositionsCard onNavigate={onNavigate} />}
     </>
   );
 }

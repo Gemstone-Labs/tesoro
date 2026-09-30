@@ -7,6 +7,8 @@ import { matchDelta } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
+import { BackingSplit } from "@/components/match/BackingSplit";
+import { MatchResult } from "@/components/match/MatchResult";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
@@ -60,6 +62,42 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   const outcome = !m || stage !== "settled" ? null : refunded ? "refunded" : delta > 0 ? "won" : "lost";
   const tableOver = !!t && t.status !== STATUS.live;
   const refundable = view.refundable;
+
+  if (stage === "settled" && m && outcome) {
+    return (
+      <MatchResult
+        game="holdem"
+        outcome={outcome}
+        delta={delta}
+        entry={m.entry}
+        fee={Number(fmtFee(m))}
+        role="player"
+        backed={!!m.backing}
+        scores={outcome === "refunded" ? null : [outcome === "won" ? "Won" : "Lost", outcome === "won" ? "Lost" : "Won"]}
+        playAgainHref={`/play/queue?game=holdem&entry=${m.entry}`}
+        split={m.backing ? <BackingSplit m={m} /> : undefined}
+      >
+        {view.error && <p className="status err" role="alert">{view.error}</p>}
+        {view.sigs.length > 0 && (
+          <details className="stack hd-sigs">
+            <summary className="label">Transactions ({view.sigs.length})</summary>
+            {view.sigs.map((s) =>
+              s.layer === "base" ? (
+                <a key={s.sig} className="meta mono" href={explorer(s.sig)} target="_blank" rel="noreferrer">
+                  {s.label} · {s.sig.slice(0, 10)}…
+                </a>
+              ) : (
+                <span key={s.sig} className="meta mono" title={`${s.sig} (private rollup, no public explorer page)`}>
+                  {s.label} · {s.sig.slice(0, 10)}… (TEE)
+                </span>
+              ),
+            )}
+          </details>
+        )}
+        <p className="note">Solana devnet + MagicBlock private rollup · testnet Gemas from a simulated Position.</p>
+      </MatchResult>
+    );
+  }
 
   return (
     <div className="stack-lg" style={{ maxWidth: 480, margin: "0 auto" }}>
@@ -132,46 +170,6 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         </Card>
       )}
 
-      {stage === "settled" && m && outcome && (
-        <Card large>
-          <div className="stack">
-            <span className="hstack">
-              {outcome === "won" ? (
-                <Chip tone="money" icon={<CheckIcon />}>Won</Chip>
-              ) : outcome === "lost" ? (
-                <Chip tone="danger" icon={<XIcon />}>Lost</Chip>
-              ) : (
-                <Chip icon={<MinusIcon />}>Refunded</Chip>
-              )}
-              <GemaAmount value={delta} size="lg" sign />
-            </span>
-            <dl className="kv">
-              <dt>Entry</dt>
-              <dd>{fmtGemas(m.entry)} Gemas</dd>
-              {t && seat !== null && (
-                <>
-                  <dt>Your Chips at the end</dt>
-                  <dd>{chips(t.stacks[seat])}</dd>
-                  <dt>Opponent&apos;s Chips</dt>
-                  <dd>{chips(t.stacks[1 - seat])}</dd>
-                </>
-              )}
-              {outcome === "won" && (
-                <>
-                  <dt>Fees taken from the loser</dt>
-                  <dd>{fmtFee(m)} Gemas</dd>
-                </>
-              )}
-            </dl>
-            {outcome === "refunded" && <p className="meta">The Match ended without a result (no-show) and your entry was returned.</p>}
-            <div className="hstack wrap">
-              <Button variant="money" href={`/play/queue?game=holdem&entry=${m.entry}`}>Play again</Button>
-              <Button href="/">Lobby</Button>
-              <Button href="/wallet">Wallet</Button>
-            </div>
-          </div>
-        </Card>
-      )}
 
       {m && refundable && (stage === "setup" || stage === "closing") && (
         <Button disabled={view.busy !== null} onClick={() => run("refund", () => refundMatch(signer, m.id))}>

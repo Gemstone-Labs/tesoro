@@ -5,6 +5,8 @@
  */
 const f = (name: string) => `/art/final/${name}.webp`;
 
+const c = (name: string) => `/art/final/characters/${name}.webp`;
+
 export const art = {
   /** Wide hero art (2400x1000), left 40% dark and empty for the title. */
   blockPuzzleHero: f("block-puzzle-hero"),
@@ -22,6 +24,22 @@ export const art = {
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),
     holdem: f("holdem-tile"),
+  },
+  /**
+   * Guide characters. him = the Player / guide; her = the Backer. Full-body, transparent, 640x640
+   * (duo 1200x600). Placement rules are in DESIGN.md.
+   */
+  characters: {
+    himWelcome: c("him-welcome"),
+    himExplain: c("him-explain"),
+    himWin: c("him-win"),
+    himLose: c("him-lose"),
+    himWaiting: c("him-waiting"),
+    herBacking: c("her-backing"),
+    herEmpty: c("her-empty"),
+    herWaitingCrosschain: c("her-waiting-crosschain"),
+    duoHero: c("duo-hero"),
+    duoWin: c("duo-win"),
   },
   /** Demo/seed avatars. */
   avatars: [1, 2, 3, 4, 5, 6].map((n) => f(`avatar-${n}`)),

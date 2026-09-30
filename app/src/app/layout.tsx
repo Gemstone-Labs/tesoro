@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Barlow_Condensed, IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
 import "./globals.css";
 import "@/components/ui/ui.css";
+import "@/components/ui/page.css";
 import "@/components/shell/shell.css";
 import "@/components/lobby/lobby.css";
 import { AccountProvider } from "@/lib/auth/AccountProvider";

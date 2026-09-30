@@ -22,7 +22,7 @@ const key = (seed: number) => PublicKey.findProgramAddressSync([Buffer.from(`dem
 const ago = (mins: number) => Date.now() - mins * 60_000;
 const idAt = (ms: number) => BigInt(ms) << 1n;
 
-function match(game: "block-puzzle" | "holdem", entry: number, win: boolean, mins: number, scores: [number, number]): ChainMatch {
+export function match(game: "block-puzzle" | "holdem", entry: number, win: boolean, mins: number, scores: [number, number]): ChainMatch {
   const id = idAt(ago(mins));
   const me = key(1).toBase58();
   const them = key(2 + mins).toBase58();

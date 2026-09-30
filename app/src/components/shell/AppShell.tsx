@@ -8,6 +8,9 @@ import { SearchProvider } from "./SearchContext";
 import { NAV, SidebarBody, isHere } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
+/** Pages that use the full-width column instead of the centred 1180px one. */
+const BROAD = ["/wallet", "/backing", "/play/match", "/design/result"];
+
 /** Desktop: fixed sidebar + top bar. Below 1024px: the sidebar becomes a drawer and a bottom nav appears. */
 export function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
@@ -47,7 +50,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="content">
           <TopBar onMenu={() => setDrawer(true)} />
-          <main className={`app-main${path === "/" ? " wide" : ""}`}>{children}</main>
+          <main className={`app-main${path === "/" ? " wide" : ""}${BROAD.some((b) => path.startsWith(b)) ? " broad" : ""}`}>{children}</main>
         </div>
 
         <nav className="bottom-nav" aria-label="Main">
