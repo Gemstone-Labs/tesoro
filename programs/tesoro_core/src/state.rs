@@ -195,10 +195,20 @@ pub struct NativeCustody {
     pub deposited_shares: u64,
     /// SOL base units paid to Gema holders from the vault by `redeem`.
     pub redeemed_units: u64,
+    /// Shares this custody accounts for: deposited at open minus paid out. Yield and cover are read
+    /// from this, never from the vault's token balance, so simSOL sent straight to the vault is not
+    /// yield (ADR 0001: Principal never pays Debt, not even by top-up). Appended after the original
+    /// layout; custodies opened before it are extended by `migrate_native_custody`.
+    pub tracked_shares: u64,
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = 8 + 1 + 1 + 5 * 32 + 3 * 8;
+    pub const SPACE: usize = Self::LEGACY_SPACE + 8;
+    /// The layout before `tracked_shares`.
+    pub const LEGACY_SPACE: usize = 8 + 1 + 1 + 5 * 32 + 3 * 8;
+    /// Offsets inside the account data, after the 8-byte discriminator.
+    pub const VAULT_OFFSET: usize = 8 + 2 + 4 * 32;
+    pub const DEPOSITED_OFFSET: usize = 8 + 2 + 5 * 32 + 8;
 }
 
 /// SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority
@@ -276,6 +286,13 @@ pub struct NativePayout {
     pub sol_units: u64,
     /// 0 = redeem, 1 = unlock, 2 = sweep.
     pub kind: u8,
+}
+
+#[event]
+pub struct NativeCustodyMigrated {
+    pub position: Pubkey,
+    pub deposited_shares: u64,
+    pub tracked_shares: u64,
 }
 
 #[event]

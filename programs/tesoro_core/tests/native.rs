@@ -514,8 +514,19 @@ impl Env {
         let vault = self.token_balance(pos.vault);
         let rate = self.rate();
         assert!(
-            native::check_cover(vault, &position, custody.redeemed_units, rate).is_ok(),
-            "vault {vault} does not cover principal + owed yield"
+            custody.tracked_shares <= vault,
+            "tracked shares exceed the vault balance"
+        );
+        assert!(
+            native::check_cover(
+                custody.tracked_shares,
+                &position,
+                custody.redeemed_units,
+                rate
+            )
+            .is_ok(),
+            "tracked shares {} do not cover principal + owed yield",
+            custody.tracked_shares
         );
         assert!(
             custody.redeemed_units <= position.cumulative_yield,
@@ -523,7 +534,7 @@ impl Env {
         );
         if position.status == PositionStatus::Locked {
             assert!(
-                native::shares_value(vault, rate).unwrap() >= position.principal,
+                native::shares_value(custody.tracked_shares, rate).unwrap() >= position.principal,
                 "principal shares left before unlock"
             );
         }
@@ -616,21 +627,13 @@ fn only_the_owner_takes_an_advance() {
     assert_eq!(code(&err), 6000);
 }
 
-/// F-05 (open, needs a decision). The vault's SPL balance is the yield source, so anybody can add
-/// simSOL to it directly. The crank then reads that as accrued yield and repays Debt, which is a
-/// top-up paying Debt (ADR 0001 says Principal never does). This test pins the CURRENT behaviour;
-/// when custody tracks its own share count, flip the assertion to `debt == 874`.
-#[test]
-fn f05_known_issue_donating_simsol_to_the_vault_repays_debt() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let source = env.advance_native(&alice, pos, 1).unwrap();
-    assert_eq!(env.debt(source), 874);
-    let donor = env.staker();
+/// F-05. The vault's SPL balance used to be the yield source, so anybody could add simSOL to it and
+/// the crank counted that as accrued yield and repaid Debt: a top-up paying Debt, which ADR 0001
+/// forbids. Custody now counts its own shares (`tracked_shares`), so a direct transfer is not yield.
+fn donate(env: &mut Env, donor: &Person, pos: Pos, amount: u64) {
     // Plain SPL Token transfer (instruction 3) straight into the vault.
     let mut data = vec![3u8];
-    data.extend_from_slice(&SOL.to_le_bytes());
+    data.extend_from_slice(&amount.to_le_bytes());
     let donate = Instruction {
         program_id: s(TOKEN_PROGRAM_ID),
         accounts: vec![
@@ -641,8 +644,122 @@ fn f05_known_issue_donating_simsol_to_the_vault_repays_debt() {
         data,
     };
     env.send(&[donate], &donor.kp, &[]).expect("donate");
+}
+
+#[test]
+fn f05_donating_simsol_to_the_vault_does_not_repay_debt() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    assert_eq!(env.debt(source), 874);
+    let donor = env.staker();
+    donate(&mut env, &donor, pos, SOL);
     env.crank(&donor.kp, pos).expect("crank");
-    assert_eq!(env.debt(source), 0, "no time passed, yet Debt was repaid");
+    assert_eq!(env.debt(source), 874, "a top-up must not repay Debt");
+    assert_eq!(env.position(pos).cumulative_yield, 0);
+    assert_eq!(env.custody(pos).tracked_shares, 10 * SOL);
+    assert_eq!(env.token_balance(pos.vault), 11 * SOL);
+
+    // Real yield still counts, and only on the tracked shares.
+    env.advance(300);
+    env.crank(&donor.kp, pos).expect("crank");
+    let expected =
+        native::accrued_yield(10 * SOL, env.rate(), 0, env.position(pos).principal).unwrap();
+    assert_eq!(env.position(pos).cumulative_yield, expected);
+    env.check_invariants(pos);
+}
+
+#[test]
+fn f05_a_donation_is_not_redeemable_and_returns_to_the_owner_at_unlock() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    let donor = env.staker();
+    donate(&mut env, &donor, pos, SOL);
+    env.advance(MONTH);
+    env.crank(&donor.kp, pos).unwrap();
+    assert_eq!(env.debt(source), 0);
+    // Redeeming everything accrued never touches the donated shares, and the cover check ignores them.
+    env.redeem(&alice, pos, source, 874).expect("redeem");
+    env.check_invariants(pos);
+    env.unlock(&alice, pos).expect("unlock");
+    let custody = env.custody(pos);
+    assert_eq!(
+        custody.tracked_shares,
+        env.token_balance(pos.vault),
+        "the donation left with the surplus"
+    );
+    env.check_invariants(pos);
+}
+
+fn migrate_ix(env: &Env, payer: &Person, pos: Pos) -> Instruction {
+    let _ = env;
+    tix(
+        accounts::MigrateNativeCustody {
+            payer: payer.key,
+            position: pos.position,
+            custody: pos.custody,
+            vault: pos.vault,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::MigrateNativeCustody {},
+        vec![],
+    )
+}
+
+/// Rewrites the custody as it looked before the upgrade (no `tracked_shares`).
+fn make_legacy(env: &mut Env, pos: Pos) {
+    let mut acct = env.svm.get_account(&s(pos.custody)).expect("custody");
+    acct.data.truncate(NativeCustody::LEGACY_SPACE);
+    env.svm.set_account(s(pos.custody), acct).expect("set");
+}
+
+/// Custodies opened before `tracked_shares` have the old, shorter layout: they cannot be read until
+/// `migrate_native_custody` extends them, which anybody can call.
+#[test]
+fn f05_migration_extends_a_legacy_custody() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    make_legacy(&mut env, pos);
+    let cranker = env.person();
+    assert!(
+        env.crank(&cranker.kp, pos).is_err(),
+        "legacy layout is unreadable until migrated"
+    );
+
+    let ix = migrate_ix(&env, &cranker, pos);
+    env.send(&[ix], &cranker.kp, &[]).expect("migrate");
+    assert_eq!(env.custody(pos).tracked_shares, 10 * SOL);
+    assert_eq!(
+        env.svm.get_account(&s(pos.custody)).unwrap().data.len(),
+        NativeCustody::SPACE
+    );
+    // Once migrated it is a normal custody, and migrating twice is refused.
+    let ix = migrate_ix(&env, &cranker, pos);
+    assert!(env.send(&[ix], &cranker.kp, &[]).is_err());
+    env.advance(300);
+    env.crank(&cranker.kp, pos).expect("crank");
+    assert!(env.debt(source) < 874);
+    env.check_invariants(pos);
+}
+
+/// The migration cannot be used to launder a top-up made before it: the count is capped by what was
+/// deposited at open.
+#[test]
+fn f05_migration_caps_the_count_at_the_deposit() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let donor = env.staker();
+    donate(&mut env, &donor, pos, 5 * SOL);
+    make_legacy(&mut env, pos);
+    let ix = migrate_ix(&env, &donor, pos);
+    env.send(&[ix], &donor.kp, &[]).expect("migrate");
+    assert_eq!(env.custody(pos).tracked_shares, 10 * SOL);
 }
 
 // --- Yield crank ----------------------------------------------------------------------------

@@ -186,6 +186,7 @@ pub(crate) fn open_native_position(
     a.custody.rate_at_open = rate;
     a.custody.deposited_shares = lst_amount;
     a.custody.redeemed_units = 0;
+    a.custody.tracked_shares = lst_amount;
 
     emit!(NativePositionOpened {
         position: position_key,
@@ -303,7 +304,7 @@ pub(crate) fn accrue_native_yield(mut ctx: Context<AccrueNativeYield>) -> Result
     let a = &mut ctx.accounts;
     let rate = sim_lst::current_rate(&a.pool, now()?)?;
     let cumulative = native::accrued_yield(
-        a.vault.amount,
+        a.custody.tracked_shares,
         rate,
         a.custody.redeemed_units,
         a.position.inner.principal,
@@ -415,7 +416,7 @@ pub(crate) fn pay_redeem<'info>(
     if shares == 0 {
         return Err(core_err(CoreError::ZeroShares));
     }
-    if c.vault.amount < shares {
+    if c.custody.tracked_shares < shares {
         return Err(core_err(CoreError::VaultShortfall));
     }
     c.custody.redeemed_units = c
@@ -423,10 +424,15 @@ pub(crate) fn pay_redeem<'info>(
         .redeemed_units
         .checked_add(units)
         .ok_or(TesoroError::InvalidAccount)?;
+    c.custody.tracked_shares = c
+        .custody
+        .tracked_shares
+        .checked_sub(shares)
+        .ok_or(TesoroError::InvalidAccount)?;
     pay_shares(&c, shares)?;
     c.vault.reload()?;
     native::check_cover(
-        c.vault.amount,
+        c.custody.tracked_shares,
         &position.inner,
         c.custody.redeemed_units,
         rate,
@@ -479,13 +485,16 @@ pub(crate) fn release<'info>(
         pay_shares(c, surplus)?;
         c.vault.reload()?;
     }
+    // Whatever was not tracked (simSOL sent straight to the vault) leaves with the surplus.
+    c.custody.tracked_shares = c.custody.tracked_shares.min(c.vault.amount);
     native::check_cover(
-        c.vault.amount,
+        c.custody.tracked_shares,
         &position.inner,
         c.custody.redeemed_units,
         rate,
     )
     .map_err(core_err)?;
+    c.custody.exit(&crate::ID)?;
     emit!(NativePayout {
         position: *position_key,
         to: c.destination.key(),
@@ -514,6 +523,7 @@ pub struct SweepNativeSurplus<'info> {
     )]
     pub position: Account<'info, PositionState>,
     #[account(
+        mut,
         seeds = [NATIVE_SEED, position.key().as_ref()],
         bump = custody.bump,
         constraint = custody.position == position.key() @ TesoroError::InvalidAccount,
@@ -533,8 +543,8 @@ pub struct SweepNativeSurplus<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-pub(crate) fn sweep_native_surplus(ctx: Context<SweepNativeSurplus>) -> Result<()> {
-    let a = &ctx.accounts;
+pub(crate) fn sweep_native_surplus(mut ctx: Context<SweepNativeSurplus>) -> Result<()> {
+    let a = &mut ctx.accounts;
     let mut c = Custody {
         custody: a.custody.clone(),
         vault: a.vault.clone(),
@@ -542,5 +552,89 @@ pub(crate) fn sweep_native_surplus(ctx: Context<SweepNativeSurplus>) -> Result<(
         pool: a.pool.clone(),
         token_program: a.token_program.to_account_info(),
     };
-    release(&mut c, &a.position, &a.position.key(), 2)
+    release(&mut c, &a.position, &a.position.key(), 2)?;
+    a.custody.tracked_shares = c.custody.tracked_shares;
+    Ok(())
+}
+
+// --- Migration -------------------------------------------------------------------------------
+
+/// Extends a custody opened before `tracked_shares` existed. Permissionless; the payer covers the
+/// extra rent. The count starts at `min(vault balance, deposited at open)`: shares paid out since
+/// open only lower the balance, and the deposit caps anything added to the vault directly.
+#[derive(Accounts)]
+pub struct MigrateNativeCustody<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
+        bump = position.bump,
+        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
+    )]
+    pub position: Account<'info, PositionState>,
+    /// CHECK: the custody PDA of `position`, read and resized by hand because its old layout no
+    /// longer deserializes; owner, seeds, discriminator and length are checked below.
+    #[account(
+        mut,
+        seeds = [NATIVE_SEED, position.key().as_ref()],
+        bump,
+        owner = crate::ID @ TesoroError::InvalidAccount
+    )]
+    pub custody: UncheckedAccount<'info>,
+    #[account(
+        seeds = [NATIVE_VAULT_SEED, position.key().as_ref()],
+        bump
+    )]
+    pub vault: Account<'info, TokenAccount>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Result<()> {
+    let a = &ctx.accounts;
+    let info = a.custody.to_account_info();
+    let (deposited, tracked) = {
+        let data = info.try_borrow_data()?;
+        require_eq!(
+            data.len(),
+            NativeCustody::LEGACY_SPACE,
+            TesoroError::InvalidAccount
+        );
+        require!(
+            data[..8] == *NativeCustody::DISCRIMINATOR,
+            TesoroError::InvalidAccount
+        );
+        let vault_key =
+            Pubkey::try_from(&data[NativeCustody::VAULT_OFFSET..NativeCustody::VAULT_OFFSET + 32])
+                .map_err(|_| error!(TesoroError::InvalidAccount))?;
+        require_keys_eq!(vault_key, a.vault.key(), TesoroError::InvalidAccount);
+        let deposited = u64::from_le_bytes(
+            data[NativeCustody::DEPOSITED_OFFSET..NativeCustody::DEPOSITED_OFFSET + 8]
+                .try_into()
+                .map_err(|_| error!(TesoroError::InvalidAccount))?,
+        );
+        (deposited, deposited.min(a.vault.amount))
+    };
+    let rent = Rent::get()?.minimum_balance(NativeCustody::SPACE);
+    let missing = rent.saturating_sub(info.lamports());
+    if missing > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                a.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: a.payer.to_account_info(),
+                    to: info.clone(),
+                },
+            ),
+            missing,
+        )?;
+    }
+    info.resize(NativeCustody::SPACE)?;
+    let mut data = info.try_borrow_mut_data()?;
+    data[NativeCustody::LEGACY_SPACE..].copy_from_slice(&tracked.to_le_bytes());
+    emit!(NativeCustodyMigrated {
+        position: a.position.key(),
+        deposited_shares: deposited,
+        tracked_shares: tracked,
+    });
+    Ok(())
 }
