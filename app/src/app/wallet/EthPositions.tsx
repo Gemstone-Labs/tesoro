@@ -324,7 +324,7 @@ export function EthOps() {
   );
 }
 
-const POLL_MS = 6000;
+const POLL_MS = 9000;
 const RETRY_MS = 20_000;
 
 function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<void> }) {
@@ -357,6 +357,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
         ]);
         let progress = opProgress(cur, state, vp);
         setStage(progress.stage);
+        if (!progress.next) setError(null);
         const scanKey = cur.kind === "open" || cur.kind === "yield" ? cur.hash : cur.sendSig;
         if (scanKey) fetchScanStatus(scanKey).then((s) => !stopped && setScan(s));
         if (progress.next && Date.now() - lastTry.current > RETRY_MS) {
@@ -483,7 +484,7 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
   }, [ctx, ref.vault, ref.id, market]);
   useEffect(() => {
     const first = setTimeout(() => void load(), 0);
-    const t = setInterval(() => document.visibilityState === "visible" && void load(), 8000);
+    const t = setInterval(() => document.visibilityState === "visible" && void load(), 14_000);
     return () => {
       clearTimeout(first);
       clearInterval(t);

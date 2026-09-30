@@ -53,6 +53,29 @@ Position: SimLST vault `0x8289fa2e5A7a57618A93B93fc720B85eF3E87b7c`, id 1, owner
 
 Fees seen: about 0.000115 ETH per Hoodi send (quote), 295,626 lamports per Solana send. Latency: Hoodi to Solana about 2 minutes, Solana to Hoodi about 4 to 5 minutes.
 
+## Driven from the web app (2026-09-30, dev-wallet Account, browser at 390 px)
+
+The Wallet's "Ethereum Positions · Hoodi" flow (`app/src/app/wallet/EthPositions.tsx`, app side in `app/docs/eth-positions.md`) run end to end with a dev-wallet Account: Solana `FKXAFiKnHnMiy7G8yx4Afid1fVnJbRSMLSdw6phE49EE`, Account `AwTngQ6nqDUUugthtZzmEgpEyCPPfCXuhhQs4vbTubn8`, EVM `0x8a83fe86e4236d79e1fdcf83384708242f496a14`, SimLST vault `0x8289...87b7c` Position id 4, principal 1.1078 ETH (1 simETH share), Advance 1 month at the oracle's $2,678/ETH = 1,235 Gemas. Screens: `app/docs/screens/eth-*.png`.
+
+| Step | Tx | LayerZero Scan |
+|---|---|---|
+| Hoodi ETH top-up (server, from the deployer) and simETH faucet (Simulated) | faucet `0x06b0ba0568528ccf05f82ffd9652ac843140d32dddc680b5b323136826e83360` | |
+| `create_account` | `66UFffe1j4x1CPnVsX4oQTR5XK9tCA6tm4LgLrgYUHkin3Yi1aFSBKnkDKuKi5fr8x9q2exb6iw3BDpHFCsRS5Nyu` | |
+| `set_evm_address` + `link_evm` (EIP-191 signature by the EVM wallet, one Solana tx) | `Qu6qrbm1D9atXNiGjwGQ5o4vJHPkPptyi1y94gqgFdyy2kc5sWahHRaXYxSaXorG3mg8kDDp7VMphehP82HwNQB` | |
+| `init_position` (server, deployer pays), approve, `openPosition` (Hoodi) | open `0xe84648cc15a8138e9a81d126330b1478a540c3f469348e43994a3a60a05549ce` | [scan](https://testnet.layerzeroscan.com/tx/0xe84648cc15a8138e9a81d126330b1478a540c3f469348e43994a3a60a05549ce): DELIVERED, `lz_receive` `3amG3cFtsyuaKo9YWvNbKqCko8tYh5fuMLRFh7N3VNjpA21g79rzHQbApVrA2yvUSjdjfH6tURSC7P8WY7paMkLc` |
+| `apply_locked` (the app, via the relay) | `5Q39kQMW149KgsryLAvLv31H6yKfVftMvZ5xWjVoHyfZargDM5iBxCpoyQyNGP5NkovnrEowyJsfiWFRfKnLyAKa` | |
+| `take_advance` (oracle-signed, Account co-signs): 1,235 Gemas | `83y2cDxe3UeftshRX2mWBnFTJcVMi6Sw4o23RaZDndrGzrxTBnoEMGAZZv3odb5yv7mMMTuTWcn2FvHWXQz8YGz` | |
+| Report yield #1 (Hoodi) | `0xaf9b052f8e3043d0bc5ab344283ed41518f6126e7477c69e2e5dfc9724178333` | [scan](https://testnet.layerzeroscan.com/tx/0xaf9b052f8e3043d0bc5ab344283ed41518f6126e7477c69e2e5dfc9724178333): DELIVERED, `lz_receive` `5UYNGy8ohe8mq3q4MuppehhS6CUaWfSrnhCnnMDkpYtnLGQYfyAVPdcFXLdEuu63AVdojQdQ7C3LXKB8jBjRrzK8` |
+| `apply_yield`: Debt 1,235 to 400 | `2RyQoszZ7zVpDQ6wvxvVis91CQFEtDf6zykPi9VJ6wAtiPHALFCbiiMwVj4xmHmmXh9zSRrKMFRcePUdbPRhDGPL` | |
+| `redeem_to_evm` 835 Gemas | `4tUayEAURNquJmK5bcyYFggGmQM1EomWDcvRgprHs4FmRpfGkjmoNBccbAannfXt8kkYBEqj5SizJkhWaKn6Pn8w` | |
+| `send_pay_yield` (the app, via the relay): 0.00312 simETH to Hoodi | `4CXz1RfNMFLyGEy1hLKYjSQu5e7SDFvLPtgRSr8PzZV6msFtDzzaqNFVFWijhV5qUQB3cQFw7yj9wDxFFxny9uzg` | [scan](https://testnet.layerzeroscan.com/tx/4CXz1RfNMFLyGEy1hLKYjSQu5e7SDFvLPtgRSr8PzZV6msFtDzzaqNFVFWijhV5qUQB3cQFw7yj9wDxFFxny9uzg): DELIVERED, Hoodi `0xddcc27be8adeda59b1e159b1a64e20c0aad6bde6cc4fd22673948188ec2dbf32` |
+| Report yield #2 (Hoodi) | `0xbf1e6835732eff7acfb91ffb7e0c0d384845fc9390c4c510ffb4ab014a361863` | [scan](https://testnet.layerzeroscan.com/tx/0xbf1e6835732eff7acfb91ffb7e0c0d384845fc9390c4c510ffb4ab014a361863): DELIVERED |
+| `apply_yield`: Debt 400 to 0 | `2u1oRwfycPeb6cNVP8d4RFAa8kR6JC16fQFua4SS8qVcpt66aJCHm6tstjriJFk9RYY48gfi8ZQLfAnhGZsonD8T` | |
+| `redeem_to_evm` 400 Gemas (through the Wallet Redeem sheet), then `send_pay_yield` | `2uvhDMycdkAorUv53jsf2ya2qdW6UABHBkmBVJAj5x1VwjLAp5z7Rsk34UGViTb2p5VVoNE1Poss1hheWGgUXXpj`, `5nqH76Xa9QhJhExq9faerhMb5kCoBDWUstLJraqv1sRW3t7rUi1QmoCpKbcXV1rFVH4xubWNhkHLFVDNE5eH4RM3` | [scan](https://testnet.layerzeroscan.com/tx/5nqH76Xa9QhJhExq9faerhMb5kCoBDWUstLJraqv1sRW3t7rUi1QmoCpKbcXV1rFVH4xubWNhkHLFVDNE5eH4RM3): DELIVERED, Hoodi `0x851b2b41850056060c88713b66fe826606cec6db64c39ba93105eb96eb959d7e` |
+| `tesoro_core::unlock` (owner), then `send_unlock` | `2r9Vs7yvR3MemZVezmUi4yHWyzPnE5PumsNEsmyFgdnn9QsvkJaT2g4erWrXm5Dj8a2GACdCwVT9W4dnbSpGpmJV`, `5n236wgBW8k57CyRFncco9TE8p3QX1MqTQBAUQPB6CmwvAwPeb7Smd2i6NH45ghunXsrSpt5b1vy9g9qTykge7Tt` | [scan](https://testnet.layerzeroscan.com/tx/5n236wgBW8k57CyRFncco9TE8p3QX1MqTQBAUQPB6CmwvAwPeb7Smd2i6NH45ghunXsrSpt5b1vy9g9qTykge7Tt): still INFLIGHT in Scan's index when the vault already showed `unlocked = true` (Principal shares released to the owner); the app tracks the vault, not Scan |
+
+Observed: the Advance appears about 2 to 3 minutes after `openPosition` (delivery, then the app's `apply_locked` and Advance); redeem and unlock deliveries to Hoodi took about 4 to 5 minutes each. The app sent `send_pay_yield` and `send_unlock` more than a minute apart, as required by the vault's strictly increasing seq.
+
 ## Driving it (scripts)
 
 - `bridge/scripts/flow.ts` (`pnpm flow <cmd>` in `bridge/`, `SOLANA_RPC=https://rpc.magicblock.app/devnet`): `create-account`, `link-message`, `link`, `init-position`, `state`, `apply-locked`, `advance`, `apply-yield`, `unlock`, `send-unlock`, `redeem`, `send-pay-yield`. Owner key `~/.config/tesoro/bridge-demo-owner.json`, oracle `~/.config/tesoro/oracle.json`, payer `~/.config/solana/id.json`.

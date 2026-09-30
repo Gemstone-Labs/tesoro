@@ -449,7 +449,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
       case "apply-locked":
         return await applyLocked(ref.vault, ref.pid);
       case "apply-yield":
-        return await applyYield(ref.pid);
+        return await applyYield(ref.pid).then((r) => (console.info("eth-bridge apply-yield", JSON.stringify(r)), r));
       case "send-unlock":
         return await sendUnlock(ref.vault, ref.pid);
       default:

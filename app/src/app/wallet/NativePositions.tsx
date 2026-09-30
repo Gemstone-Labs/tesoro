@@ -360,7 +360,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     <>
       <p className="meta">
         Each Gema redeems for its Source asset, only as far as that Source Position&apos;s yield has actually accrued.
-        Winning Gemas never shorten your own lock. Paid in simSOL (Simulated) to your wallet.
+        Winning Gemas never shorten your own lock. Paid in simSOL (Simulated) to your wallet, or simETH (Simulated) on Hoodi for ETH Positions.
       </p>
       <dl className="kv">
         {rows.map((h) => {
