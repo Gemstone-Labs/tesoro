@@ -151,6 +151,26 @@ pub mod holdem {
 
         let now = Clock::get()?.unix_timestamp;
 
+        // tesoro_core lets anyone refund an Active Match one hour after it started. A table lives
+        // in the rollup for longer than that, and a Player who is losing could stall past the hour
+        // and refund the Pot mid-Match. Push the refund deadline out; `finalize` refunds a
+        // cancelled table through the Game authority, which needs no deadline.
+        let authority_bump = [ctx.bumps.authority];
+        let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &authority_bump]];
+        tesoro_core::cpi::extend_match_deadline(
+            CpiContext::new_with_signer(
+                ctx.accounts.tesoro_program.to_account_info(),
+                tesoro_core::cpi::accounts::ExtendMatchDeadline {
+                    game_authority: ctx.accounts.authority.to_account_info(),
+                    config: ctx.accounts.config.to_account_info(),
+                    match_state: ctx.accounts.tesoro_match.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            now.checked_add(TABLE_WINDOW_SECS)
+                .ok_or(HoldemError::Overflow)?,
+        )?;
+
         let game_match = &mut ctx.accounts.game_match;
         **game_match = GameMatch {
             bump: ctx.bumps.game_match,
@@ -654,11 +674,14 @@ pub struct CreateMatch<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
     #[account(
+        mut,
         seeds = [MATCH_SEED, &tesoro_match.id.to_le_bytes()],
         bump = tesoro_match.bump,
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, seeds::program = tesoro_core::ID)]
+    pub config: Box<Account<'info, Config>>,
     #[account(
         seeds = [ACCOUNT_SEED, account_a.authority.as_ref()],
         bump = account_a.bump,
@@ -694,6 +717,7 @@ pub struct CreateMatch<'info> {
         seeds = [HOLE_SEED, game_match.key().as_ref(), &[1]], bump
     )]
     pub hole_1: Account<'info, Hole>,
+    pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
 }
 

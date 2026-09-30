@@ -17,6 +17,10 @@ pub const SPLIT: u8 = 2;
 pub const STARTING_CHIPS: u64 = 1_500;
 /// Seconds after creation within which both Players must have delegated and started the Match.
 pub const START_WINDOW_SECS: i64 = 300;
+/// How long after the table is created tesoro_core keeps refunds closed to everyone but this Game.
+/// Generously above the longest sit-and-go with every clock running out (blinds top out after 40
+/// hands, at most a few minutes of clocks each).
+pub const TABLE_WINDOW_SECS: i64 = 24 * 60 * 60;
 /// Seconds each Player has to contribute entropy at the start of a hand.
 pub const ENTROPY_SECS: i64 = 60;
 /// Consecutive missed turns after which a Player forfeits the Match.
