@@ -38,7 +38,13 @@ export async function backingHygiene(ctx: Ctx): Promise<number> {
     const r = await act(ctx, "backing", subject, `expire_offer (${st} offer lapsed ${now - due}s ago, release ${o.lines.length} reserved line(s))`, async () => {
       const ix = await ctx.core.methods
         .expireOffer()
-        .accountsPartial({ caller: ctx.payer.publicKey, backerAccount: backer, offer: publicKey })
+        .accountsPartial({
+          caller: ctx.payer.publicKey,
+          backerAccount: backer,
+          offer: publicKey,
+          // An accepted Offer hands its Request back to Open, so the Request comes with the call.
+          request: st === "accepted" && o.request ? pk(o.request) : null,
+        })
         .remainingAccounts(holdings)
         .instruction();
       return ctx.bp.sendBase(ctx.signer, [ix]);
