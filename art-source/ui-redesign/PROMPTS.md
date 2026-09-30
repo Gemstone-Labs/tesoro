@@ -92,9 +92,52 @@ Self-check: the result reads as a desktop web app, not a phone. Games dominate. 
 
 ---
 
+## Phase 1 result
+
+**Picked: `lobby-desktop/take-1.png`, Direction A "Cut, lit"** (Ailton, Sep 30). It is reference 0 for everything below.
+
+## Phase 1b: the Tesoro character, a treasure hunter
+
+Ailton wants a character for the product: a **treasure hunter**, stylised "kinda chibi but not really". Explicitly **not a pirate**: no tricorn hat, no eyepatch, no sword, no gold coins, no treasure chest overflowing with gold. The character is an explorer who finds Gemas, not a looter.
+
+Folder: `character/`. Attach reference 0 (take-1), so the rendering matches its lit, premium game-art quality.
+
+**Design:**
+- **Proportions:** stylised and semi-chibi. About 3.5–4 heads tall, with a slightly large head and expressive eyes, but real limbs and hands. Not super-deformed and not a baby.
+- **Outfit:** field explorer. A short weathered jacket in deep teal or charcoal, rolled sleeves, a scarf, sturdy boots, and a canvas satchel with a few faceted emerald Gemas peeking out. On the belt: a brass-free, steel-and-emerald compass and a rolled map. A small lantern that glows emerald. A wide-brim explorer hat (not a tricorn) with an emerald-cut gem pin, or goggles pushed up on the forehead. Pick whichever reads better.
+- **Palette:** the take-1 palette. Dark neutrals, off-white, emerald (`#2DBE8C`, `#8FF5CF`, `#0B6B4E`), one warm skin tone, and muted leather browns kept desaturated. No gold, no red, no yellow.
+- **Rendering:** clean, lit, slightly 3D-painted like take-1's game art, not flat vector and not hand-inked. Readable at 96 px tall.
+- **Gender and age:** a young adult, deliberately friendly and not tied to any real person. Offer two takes that vary the face and hair.
+
+**Deliverables:**
+1. `character/sheet-take-N.png` (2048×2048): a turnaround (front, three-quarter, back) plus a colour palette strip. Two takes.
+2. After Ailton picks a take, `character/poses/<pose>.png` (1024×1024, transparent background, same character exactly):
+   - `welcome`: waving, used on onboarding and an empty Lobby.
+   - `explain`: pointing at something to the side, used on "how Gemas work" and Advance explainers.
+   - `win`: holding a big glowing Gema over their head, used on the win screen.
+   - `lose`: rueful shrug, dusting off the hat, used on the loss screen (kind, never mocking).
+   - `waiting`: checking the compass, used on "waiting for an opponent" and cross-chain progress.
+   - `empty`: peering through a spyglass at nothing, used on empty Backing and empty history.
+   - `backing`: handing a Gema to someone off-frame, used on Backing and Offer screens.
+
+Prompt for the sheet:
+
+> A character design sheet for "Tesoro", a premium skill-gaming platform whose currency is faceted emerald gems called Gemas. The character is a friendly young treasure hunter and explorer, stylised semi-chibi (about 3.5 to 4 heads tall, slightly large head, expressive eyes, real hands and limbs, not super-deformed). Outfit: weathered short field jacket in deep teal or charcoal, scarf, sturdy boots, a canvas satchel with a few glowing faceted emerald gems peeking out, a steel-and-emerald compass and a rolled map on the belt, a small lantern with an emerald glow, and a wide-brim explorer hat with an emerald-cut gem pin (or goggles on the forehead). Explicitly NOT a pirate: no tricorn, no eyepatch, no sword, no gold coins, no gold treasure chest. Palette: dark neutrals, off-white, emerald `#2DBE8C` / `#8FF5CF` / `#0B6B4E`, desaturated leather browns, no gold, red or yellow. Rendering: clean, lit, slightly 3D-painted game art matching reference 0's quality. Front, three-quarter and back views on a plain dark `#0C0E10` background, plus a small palette strip. No text other than tiny view labels.
+
+Self-check: nothing about it says pirate or casino. The Gema it carries matches the faceted emerald-cut gem mark. It still reads at small size.
+
+## Phase 1c: key art assets for code
+
+The code needs clean art, not screenshots. Folder: `assets/`. Everything is based on take-1's art, with no UI text baked in.
+- `block-puzzle-hero.png` (2400×1000): take-1's hero art (the glowing blocks on the dark board, with floating emerald gem blocks) with the left 40% kept dark and empty for the title and controls.
+- `block-puzzle-tile.png` and `holdem-tile.png` (1024×1024, square key art as in take-1's Play Now row, no titles).
+- `holdem-hero.png` (2400×1000): take-1's Hold'em slide art (white aces, blue chips, navy scene), left 40% dark and empty.
+- `coming-soon-word-duel.png`, `coming-soon-bubble-burst.png`, `coming-soon-pocket-pool.png`, `coming-soon-trivia-sprint.png` (1024×1024, full colour; code dims them).
+- `avatar-1..6.png` (512×512): stylised player avatars in take-1's style (for demo and seed data only), with varied people.
+
 ## Phase 2: every screen in the chosen direction
 
-Run after Ailton picks. Attach the chosen `lobby-desktop/take-N.png` as reference 0 for all of them, and keep its exact chrome (nav rail, top bar, type, corner style).
+Attach take-1 as reference 0 for all of them, and keep its exact chrome (sidebar, top bar, type, clipped-corner style, emerald only on money). Once the character sheet is picked, attach it too, and put the character in the moments listed in Phase 1b (win, lose, waiting, empty, onboarding) as a supporting figure. The character never covers the game.
 
 1. **`lobby-mobile/`** (1170×2532): the same Lobby on a phone. Top bar with balance, the hero card, the game tile rail (horizontal scroll), "Back a Player" cards, and a bottom navigation of Lobby / Play / Backing / Wallet.
 2. **`game-block-puzzle-desktop/`**: the Block Puzzle game page before play.
