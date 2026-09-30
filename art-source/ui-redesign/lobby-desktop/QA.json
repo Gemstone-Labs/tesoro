@@ -1,0 +1,47 @@
+[
+  {
+    "file": "take-1.png",
+    "native_file": "native/take-1.png",
+    "native_size": [
+      1586,
+      992
+    ],
+    "export_size": [
+      1920,
+      1200
+    ],
+    "mode": "RGB",
+    "export": "Lanczos resampling; no content retouching",
+    "sha256": "76c162da934cd1bf366b1349072548832757669f64aaaae019145967b3038af3"
+  },
+  {
+    "file": "take-2.png",
+    "native_file": "native/take-2.png",
+    "native_size": [
+      1586,
+      992
+    ],
+    "export_size": [
+      1920,
+      1200
+    ],
+    "mode": "RGB",
+    "export": "Lanczos resampling; no content retouching",
+    "sha256": "c6801930b6801fba158aaed7c2a5f40d4768386b13bde95d701e7692bd7105de"
+  },
+  {
+    "file": "take-3.png",
+    "native_file": "native/take-3.png",
+    "native_size": [
+      1586,
+      992
+    ],
+    "export_size": [
+      1920,
+      1200
+    ],
+    "mode": "RGB",
+    "export": "Lanczos resampling; no content retouching",
+    "sha256": "c93daa8d6cfa0393b50b3b5ff1d50ff962210ab43238d62431e27b269f8bbb32"
+  }
+]
