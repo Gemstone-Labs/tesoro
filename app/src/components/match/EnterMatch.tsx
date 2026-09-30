@@ -4,15 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, GemaAmount } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, createChallenge, enterQueue, joinChallenge } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 
 export type EnterKind =
-  | { kind: "queue"; entry: number; game?: GameId }
-  | { kind: "challenge-new"; entry: number; game?: GameId }
-  | { kind: "challenge-join"; id: string };
+  | { kind: "queue"; entry: number; game?: GameId; backing?: string }
+  | { kind: "challenge-new"; entry: number; game?: GameId; backing?: string }
+  | { kind: "challenge-join"; id: string; backing?: string };
 
 function explain(e: unknown): { text: string; wallet?: boolean } {
   if (e instanceof EntryError) {
@@ -20,7 +21,7 @@ function explain(e: unknown): { text: string; wallet?: boolean } {
       ? { text: "You do not have enough Gemas for this entry. Take a demo Advance in your Wallet to get some.", wallet: true }
       : { text: "This entry would draw on more than two Sources. Play a smaller entry first to consolidate." };
   }
-  if (e instanceof ChallengeError) return { text: e.message };
+  if (e instanceof ChallengeError || e instanceof BackingError) return { text: e.message };
   if (e instanceof DemoError) return { text: e.message };
   return { text: e instanceof Error ? e.message.split("\n")[0] : String(e) };
 }
@@ -45,7 +46,20 @@ export function EnterMatch(props: EnterKind) {
     void (async () => {
       try {
         setStatus("Checking your SOL and Account…");
-        if (props.kind === "queue") {
+        const game = props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle");
+        if (props.kind === "queue" && props.backing) {
+          setStatus("Using your Backing…");
+          const r = await enterQueueBacked(signer, props.backing, game, props.entry, auth.getAccessToken);
+          setStatus(r.joined ? "Opponent found." : "Entered the Queue.");
+          router.replace(`/play/match/${r.id.toString()}`);
+        } else if (props.kind === "challenge-new" && props.backing) {
+          const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken);
+          router.replace(`/play/match/${r.id.toString()}`);
+        } else if (props.kind === "challenge-join" && props.backing) {
+          setStatus("Joining the Challenge with your Backing…");
+          await joinChallengeBacked(signer, props.backing, BigInt(props.id), auth.getAccessToken);
+          router.replace(`/play/match/${props.id}`);
+        } else if (props.kind === "queue") {
           const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game);
           setStatus(r.joined ? "Opponent found." : props.game === "holdem" ? "Entered the Queue." : "Match opened. You'll be paired while you play.");
           router.replace(`/play/match/${r.id.toString()}`);
@@ -74,7 +88,11 @@ export function EnterMatch(props: EnterKind) {
         {props.kind === "queue" && <p className="meta">Play now — you&apos;ll be paired with the next Player. Your run counts against theirs.</p>}
         {props.kind !== "challenge-join" && (
           <span className="hstack">
-            <GemaAmount value={props.entry} size="lg" /> <span className="meta">entry · {GAME_NAMES[props.game ?? "block-puzzle"]}</span>
+            <GemaAmount value={props.entry} size="lg" />{" "}
+            <span className="meta">
+              entry · {GAME_NAMES[props.game ?? "block-puzzle"]}
+              {props.backing ? " · funded by your Backer" : ""}
+            </span>
           </span>
         )}
         {signedOut ? (

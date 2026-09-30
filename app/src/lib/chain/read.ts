@@ -27,6 +27,12 @@ export interface ChainMatch {
   deadline: number;
   /** Challenge Matches have an odd id (see match-flow.ts). */
   challenge: boolean;
+  /** Who plays and who funds each entry; they differ on a backed side. */
+  sides: [MatchSide, MatchSide | null];
+  /** Seat this Account funds without playing (it is the Backer), else null. */
+  backerSeat: 0 | 1 | null;
+  /** The Backing this Account is part of in this Match (as the backed Player or as the Backer), else null. */
+  backing: { seat: 0 | 1; player: string; funder: string; shareBps: number } | null;
   fees: { platformBps: number; studioBps: number };
   /** Hold'em: the winning seat of a settled table (null for a refund or while unsettled). */
   winner: "opener" | "joiner" | null;
@@ -42,6 +48,15 @@ export interface ChainMatch {
     openerDeadline: number;
     deadline: number;
   } | null;
+}
+
+export interface MatchSide {
+  /** TesoroAccount key of whoever plays. */
+  player: string;
+  /** TesoroAccount key of whoever put the Gemas in the Pot. */
+  funder: string;
+  /** The Player's share of the surplus in bps (0 unless backed). */
+  shareBps: number;
 }
 
 export interface ChainHolding {
@@ -96,6 +111,8 @@ export interface AccountSnapshot {
   matches: ChainMatch[];
   /** sim_lst pool, price feed and simSOL balance (SIMULATED yield). Null until read. */
   market: NativeMarket | null;
+  /** Matches this Account funded as a Backer without playing them. */
+  funded: ChainMatch[];
   fetchedAt: number;
 }
 
@@ -129,6 +146,11 @@ export function toChainMatch(state: any, me: PublicKey | null, session: any | nu
   const seat = mine === a ? 0 : mine && mine === b ? 1 : null;
   const id = big(state.id);
   const status = enumKey(m.status).toLowerCase() as MatchStatus;
+  const side = (s: any): MatchSide => ({ player: pk(s.player).toBase58(), funder: pk(s.funder).toBase58(), shareBps: s.shareBps });
+  const sides: [MatchSide, MatchSide | null] = [side(m.a), m.b ? side(m.b) : null];
+  const backerSeat = mine ? ([0, 1] as const).find((i) => sides[i] && sides[i].funder === mine && sides[i].player !== mine) ?? null : null;
+  const backedSeat = seat !== null && sides[seat]?.funder !== sides[seat]?.player ? seat : backerSeat;
+  const backedSide = backedSeat === null ? null : sides[backedSeat];
   return {
     id,
     game: gameOf(pk(m.game)) ?? "block-puzzle",
@@ -139,6 +161,12 @@ export function toChainMatch(state: any, me: PublicKey | null, session: any | nu
     opponent: seat === 0 ? b : seat === 1 ? a : null,
     deadline: Number(m.deadline.toString()),
     challenge: isChallengeId(id),
+    sides,
+    backerSeat,
+    backing:
+      backedSeat !== null && backedSide
+        ? { seat: backedSeat, player: backedSide.player, funder: backedSide.funder, shareBps: backedSide.shareBps }
+        : null,
     fees: { platformBps: m.fees.platformBps, studioBps: m.fees.studioBps },
     winner: status === "settled" && table ? (table.winner === 0 ? "opener" : table.winner === 1 ? "joiner" : null) : null,
     session: session
@@ -175,13 +203,15 @@ async function holdemTable(id: bigint): Promise<any | null> {
   return (await acc.gameMatch.fetchNullable(holdemAddresses(id).gameMatch).catch(() => null)) ?? null;
 }
 
-/** Every Match this Account is in, newest first. */
-async function fetchMyMatches(me: PublicKey): Promise<ChainMatch[]> {
+/** Every Match this Account plays, and every Match it funds as a Backer, newest first. */
+async function fetchMyMatches(me: PublicKey): Promise<{ played: ChainMatch[]; funded: ChainMatch[] }> {
   const chain = getChain();
   const all = await chain.core.account.matchState.all();
   const mine = all.filter((m: any) => {
     const inner = m.account.inner;
-    return gameOf(pk(inner.game)) !== null && (pk(inner.a.player).equals(me) || (inner.b && pk(inner.b.player).equals(me)));
+    const sides = [inner.a, inner.b].filter(Boolean);
+    const involved = sides.some((s: any) => pk(s.player).equals(me) || (pk(s.funder).equals(me) && !pk(s.player).equals(me)));
+    return gameOf(pk(inner.game)) !== null && involved;
   });
   const isHoldem = (m: any) => gameOf(pk(m.account.inner.game)) === "holdem";
   const bpRows = mine.filter((m: any) => !isHoldem(m));
@@ -194,12 +224,13 @@ async function fetchMyMatches(me: PublicKey): Promise<ChainMatch[]> {
       .filter((m: any) => isHoldem(m) && enumKey(m.account.inner.status) === "settled")
       .map(async (m: any) => tables.set(big(m.account.id).toString(), await holdemTable(big(m.account.id)))),
   );
-  return mine
+  const all_ = mine
     .map((m: any) => {
       const key = big(m.account.id).toString();
       return toChainMatch(m.account, me, sessionOf.get(key) ?? null, tables.get(key) ?? null);
     })
     .sort((x: ChainMatch, y: ChainMatch) => (x.id < y.id ? 1 : -1));
+  return { played: all_.filter((m: ChainMatch) => m.seat !== null), funded: all_.filter((m: ChainMatch) => m.seat === null && m.backerSeat !== null) };
 }
 
 /** The oldest Open Queue Match at this entry from another Account, if any (Challenges are excluded). */
@@ -255,6 +286,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
     positions: [],
     matches: [],
     market: null,
+    funded: [],
     fetchedAt: Date.now(),
   };
   const market = await fetchNativeMarket(chain.base, authority).catch((e) => {
@@ -264,7 +296,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
   empty.market = market;
   if (!acct) return empty;
 
-  const [holdingRows, positionRows, matches] = await Promise.all([
+  const [holdingRows, positionRows, { played: matches, funded }] = await Promise.all([
     chain.core.account.holdingState.all([{ memcmp: { offset: 9, bytes: accountKey.toBase58() } }]),
     // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
     chain.core.account.positionState.all([{ memcmp: { offset: 41, bytes: accountKey.toBase58() } }]),
@@ -359,6 +391,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
     positions,
     matches,
     market,
+    funded,
     fetchedAt: Date.now(),
   };
 }

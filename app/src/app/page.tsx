@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { BlockBoard } from "@/components/game/BlockBoard";
 import { Button, Card, EntryPicker, Label, Row, Thumb } from "@/components/ui";
-import { useAccount, useBacking } from "@/lib/account";
+import { useAccount } from "@/lib/account";
+import { recordText, shortKey, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES, queueDepth as mockQueueDepth } from "@/lib/mock";
 import type { EntrySize } from "@/lib/mock";
@@ -30,12 +31,13 @@ export default function Lobby() {
     };
   }, []);
   const queueDepth = { ...mockQueueDepth, "block-puzzle": waiting ?? mockQueueDepth["block-puzzle"], holdem: waitingHoldem ?? mockQueueDepth.holdem };
-  const { requests } = useBacking();
+  const { board, loading: requestsLoading } = useBackingBoard();
+  const requests = (board?.requests ?? []).filter((r) => r.live).slice(0, 4);
   const [entry, setEntry] = useState<EntrySize>(1000);
   const [holdemEntry, setHoldemEntry] = useState<EntrySize>(500);
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
-  const canEnter = !signedIn || loading || gemas.total >= entry;
-  const canEnterHoldem = !signedIn || loading || gemas.total >= holdemEntry;
+  const canEnter = !signedIn || loading || gemas.available >= entry;
+  const canEnterHoldem = !signedIn || loading || gemas.available >= holdemEntry;
   const enter = (href: string) => auth.gate("Enter a Match", () => router.push(href));
 
   return (
@@ -48,7 +50,7 @@ export default function Lobby() {
               <h2>{GAME_NAMES["block-puzzle"]}</h2>
               <span className="meta">Same Seed as your opponent · 90 seconds · higher score wins</span>
             </div>
-            <EntryPicker value={entry} onChange={setEntry} legend="Entry for Block Puzzle" maxAffordable={signedIn ? gemas.total : undefined} />
+            <EntryPicker value={entry} onChange={setEntry} legend="Entry for Block Puzzle" maxAffordable={signedIn ? gemas.available : undefined} />
             <Button
               variant="money"
               block
@@ -99,7 +101,7 @@ export default function Lobby() {
                 <span className="row-meta">Live · 30 s per action · Turbo blinds</span>
               </span>
             </div>
-            <EntryPicker value={holdemEntry} onChange={setHoldemEntry} legend="Entry for Hold'em" name="holdem-entry" maxAffordable={signedIn ? gemas.total : undefined} />
+            <EntryPicker value={holdemEntry} onChange={setHoldemEntry} legend="Entry for Hold'em" name="holdem-entry" maxAffordable={signedIn ? gemas.available : undefined} />
             <Button variant="money" block onClick={() => enter(`/play/queue?game=holdem&entry=${holdemEntry}`)} disabled={!canEnterHoldem}>
               Enter · {fmtGemas(holdemEntry)} Gemas
             </Button>
@@ -125,13 +127,17 @@ export default function Lobby() {
           </Label>
           <Link href="/backing">See all</Link>
         </div>
+        {requestsLoading && !board && <p className="meta">Reading Requests from Solana devnet…</p>}
+        {board && requests.length === 0 && (
+          <p className="meta">No Players are asking to be backed right now. <Link href="/backing">Post a Request</Link> or check back soon.</p>
+        )}
         {requests.map((r) => (
           <Row
-            key={r.id}
-            href={`/backing#${r.id}`}
-            thumb={<Thumb>{r.player.name[0]}</Thumb>}
-            title={`${r.player.name} asks for ${fmtGemas(r.entry)}`}
-            meta={`${GAME_NAMES[r.game]} · ${r.player.matches} Matches · ${Math.round(r.player.winRate * 100)}% won`}
+            key={r.address.toBase58()}
+            href={`/backing#${r.address.toBase58()}`}
+            thumb={<Thumb>{r.player[0]}</Thumb>}
+            title={`${shortKey(r.player)} asks for ${fmtGemas(r.entry)}`}
+            meta={`${GAME_NAMES[r.game]} · ${recordText(r.record)}`}
             cta="Offer"
             ctaTone="money"
           />

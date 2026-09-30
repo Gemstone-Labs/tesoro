@@ -3,10 +3,7 @@ import type {
   GameId,
   GemaHolding,
   Match,
-  Offer,
-  PlayerRecord,
   Position,
-  Request,
 } from "./types";
 
 /** Fixed clock so server and client render identically. */
@@ -99,23 +96,6 @@ export const matches: Match[] = [
   { id: "m3", game: "holdem", entry: 500, opponent: "Carol", result: "won", gemasDelta: 950, seed: "0x51b0…7d04", playedAt: "2026-10-01T11:12:00Z", backed: false },
   { id: "m2", game: "block-puzzle", entry: 1000, opponent: "Mika", result: "lost", gemasDelta: -1000, seed: "0xa7c4…19be", playedAt: "2026-10-01T10:44:00Z", backed: false },
   { id: "m1", game: "block-puzzle", entry: 500, opponent: "Ines", result: "refunded", gemasDelta: 0, seed: "0x02de…88f1", playedAt: "2026-09-30T18:20:00Z", backed: false },
-];
-
-const dana: PlayerRecord = { id: "p_dana", name: "Dana", matches: 38, winRate: 0.61 };
-const marco: PlayerRecord = { id: "p_marco", name: "Marco", matches: 12, winRate: 0.5 };
-const ines: PlayerRecord = { id: "p_ines", name: "Ines", matches: 71, winRate: 0.58 };
-const tomas: PlayerRecord = { id: "p_tomas", name: "Tomás", matches: 24, winRate: 0.54 };
-
-export const requests: Request[] = [
-  { id: "req_dana", player: dana, game: "block-puzzle", entry: 1000, postedAt: "2026-10-01T11:40:00Z" },
-  { id: "req_ines", player: ines, game: "block-puzzle", entry: 2500, postedAt: "2026-10-01T11:05:00Z" },
-  { id: "req_marco", player: marco, game: "holdem", entry: 500, postedAt: "2026-10-01T09:50:00Z" },
-];
-
-export const offers: Offer[] = [
-  { id: "off_lumen", backer: "Lumen", game: "block-puzzle", entry: 1000, playerShare: 40, requestId: null, applicants: [] },
-  { id: "off_kestrel", backer: "Kestrel", game: "holdem", entry: 500, playerShare: 50, requestId: null, applicants: [] },
-  { id: "off_you", backer: "You", game: "block-puzzle", entry: 2500, playerShare: 35, requestId: null, applicants: [ines, tomas] },
 ];
 
 export const GAME_NAMES: Record<GameId, string> = {

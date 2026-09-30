@@ -13,7 +13,7 @@ import { fetchMatch, fetchSnapshot, findQueueMatch, type AccountSnapshot, type C
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** The program id a Match of each Game is opened with. */
-const GAME_IDS: Record<GameId, PublicKey> = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID };
+export const GAME_IDS: Record<GameId, PublicKey> = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID };
 
 /**
  * Match ids are chosen by the opener (ms clock, doubled). tesoro_core has no Queue/Challenge

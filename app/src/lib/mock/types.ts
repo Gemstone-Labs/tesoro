@@ -74,31 +74,3 @@ export interface Match {
   playedAt: string;
   backed: boolean;
 }
-
-export interface PlayerRecord {
-  id: string;
-  name: string;
-  matches: number;
-  /** Share of Matches won (0..1). */
-  winRate: number;
-}
-
-export interface Request {
-  id: string;
-  player: PlayerRecord;
-  game: GameId;
-  entry: EntrySize;
-  postedAt: string;
-}
-
-export interface Offer {
-  id: string;
-  backer: string;
-  game: GameId;
-  entry: EntrySize;
-  /** Player's share of the surplus, in percent. */
-  playerShare: number;
-  /** Set when the Offer answers a Request; otherwise it is public. */
-  requestId: string | null;
-  applicants: PlayerRecord[];
-}
