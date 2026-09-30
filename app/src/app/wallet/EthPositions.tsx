@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress, GemaAmount, Label, Sheet, SimulatedYieldLabel, Slider } from "@/components/ui";
+import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress } from "@/components/ui";
+import { OpenFormView } from "./OpenPanel";
+import { PositionTile, linearSeries } from "./PositionTile";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth/context";
 import { getChain } from "@/lib/chain/client";
@@ -139,7 +141,8 @@ function Links({ hoodi, scan, solana }: { hoodi?: string; scan?: string; solana?
 
 // ---- Get simETH + Open an ETH Position ------------------------------------------------------------------
 
-export function EthGetGemas({ onOpen }: { onOpen: () => void }) {
+/** The simETH faucet, shown above the ETH open form: EVM address, gas and simETH balances, Get test simETH. */
+export function EthFaucet() {
   const auth = useAuth();
   const ctx = useEthCtx();
   const { market, error: readError, refresh } = useEthMarket(auth.evm?.address ?? null);
@@ -149,46 +152,40 @@ export function EthGetGemas({ onOpen }: { onOpen: () => void }) {
   const cooling = market && market.faucetAvailableAt * 1000 > now;
 
   return (
-    <Card large>
-      <div className="stack">
-        <div className="hstack">
+    <div className="wl-faucet">
+      <div className="spread">
+        <span className="hstack">
           <ChainChip chain="ETH" />
-          <Label>Ethereum Positions · Hoodi</Label>
-        </div>
-        <p className="meta">Lock simETH on Hoodi. LayerZero carries it to Solana, where you take an Advance of its projected yield as Gemas.</p>
-        <dl className="kv">
-          <dt>Your EVM address</dt>
-          <dd className="mono">{auth.evm ? shortHex(auth.evm.address) : "Creating your wallet…"}</dd>
-          <dt>Hoodi ETH (gas)</dt>
-          <dd className="tnum">{market ? fmtEth(market.ethBalance, 4) : "—"} ETH</dd>
-          <dt>Your simETH</dt>
-          <dd className="tnum">{market ? fmtEth(market.simEth, 3) : "—"} simETH</dd>
-        </dl>
-        <div className="hstack wrap">
-          <Button
-            block
-            disabled={!ctx || a.busy !== null || !!cooling}
-            onClick={() =>
-              ctx &&
-              void a.run("faucet", async () => {
-                const hash = await getTestSimEth(ctx);
-                setDone(hash);
-                await refresh();
-              })
-            }
-          >
-            {a.busy === "faucet" ? "Getting simETH…" : cooling ? "Faucet cooling down" : "Get test simETH"}
-          </Button>
-          <Chip tone="warn">Simulated</Chip>
-        </div>
-        <Button variant="money" block disabled={!ctx || !market || market.simEth === 0n} onClick={() => auth.gate("open an ETH Position", onOpen)}>
-          Open an ETH Position
-        </Button>
-        {done && <Links hoodi={done} />}
-        {(a.error || readError) && <p className="status err" role="alert">{a.error ?? readError}</p>}
-        <span className="sim">Simulated · simETH is a test token on Hoodi, its yield runs 1 month = {ETH_SIM_MONTH_MIN} min</span>
+          <span className="meta">Hoodi testnet</span>
+        </span>
+        <Chip tone="warn">Simulated</Chip>
       </div>
-    </Card>
+      <dl className="kv">
+        <dt>Your EVM address</dt>
+        <dd className="mono">{auth.evm ? shortHex(auth.evm.address) : "Creating your wallet…"}</dd>
+        <dt>Hoodi ETH (gas)</dt>
+        <dd className="tnum">{market ? fmtEth(market.ethBalance, 4) : "—"} ETH</dd>
+        <dt>Your simETH</dt>
+        <dd className="tnum">{market ? fmtEth(market.simEth, 3) : "—"} simETH</dd>
+      </dl>
+      <Button
+        size="sm"
+        block
+        disabled={!ctx || a.busy !== null || !!cooling}
+        onClick={() =>
+          ctx &&
+          void a.run("faucet", async () => {
+            const hash = await getTestSimEth(ctx);
+            setDone(hash);
+            await refresh();
+          })
+        }
+      >
+        {a.busy === "faucet" ? "Getting simETH…" : cooling ? "Faucet cooling down" : "Get test simETH"}
+      </Button>
+      {done && <Links hoodi={done} />}
+      {(a.error || readError) && <p className="status err" role="alert">{a.error ?? readError}</p>}
+    </div>
   );
 }
 
@@ -200,20 +197,13 @@ const OPEN_STEP_TEXT: Record<OpenStep, string> = {
   open: "Opening the Position on Hoodi…",
 };
 
-export function OpenEthSheet({ open, onClose, onOpened }: { open: boolean; onClose: () => void; onOpened: () => void }) {
-  return (
-    <Sheet open={open} onClose={onClose} title="Open an ETH Position">
-      {open && <OpenEthForm onClose={onClose} onOpened={onOpened} />}
-    </Sheet>
-  );
-}
-
-function OpenEthForm({ onClose, onOpened }: { onClose: () => void; onOpened: () => void }) {
+/** The ETH tab of OPEN A POSITION: link, approve and open on Hoodi; the Advance follows once LayerZero delivers. */
+export function EthOpenForm({ onOpened }: { onOpened: () => void }) {
   const ctx = useEthCtx();
   const { market } = useEthMarket(ctx?.evm.address ?? null);
   const a = useBusy();
   const [step, setStep] = useState<OpenStep | null>(null);
-  const [text, setText] = useState("1");
+  const [text, setText] = useState("");
   const [months, setMonths] = useState(1);
   const [price, setPrice] = useState<{ microUsd: bigint; live: boolean } | null>(null);
   const now = useNow(5000);
@@ -241,56 +231,52 @@ function OpenEthForm({ onClose, onOpened }: { onClose: () => void; onOpened: () 
   const fee = market ? withHeadroom(market.quoteOpen) : 0n;
 
   return (
-    <>
-      <Chip tone="warn">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</Chip>
-      <div className="field">
-        <label className="label" htmlFor="simeth-amount">simETH to lock as Principal</label>
-        <input id="simeth-amount" className="cut input tnum" inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} aria-invalid={tooMuch || tooBig} />
-        <span className="meta">You have {market ? fmtEth(market.simEth, 3) : "—"} simETH. Principal is locked, never played with.</span>
-      </div>
-      <Slider label="Horizon" value={months} min={1} max={12} onChange={setMonths} display={`${months} ${months === 1 ? "month" : "months"}`} minLabel="1 month" maxLabel="12 months" />
-      <dl className="kv">
-        <dt>Gemas issued</dt>
-        <dd><GemaAmount value={gemas} size="lg" /></dd>
-        <dt>Worth at issuance</dt>
-        <dd>{fmtUsd(gemasToUsd(gemas))}</dd>
-        <dt>Principal</dt>
-        <dd className="tnum">{fmtEth(principal)} ETH</dd>
-        <dt>Projected yield</dt>
-        <dd className="tnum">{quote ? fmtEth(quote.projectedUnits, 5) : "—"} ETH</dd>
-        <dt>Unlock Estimate</dt>
-        <dd>{estimate ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})` : "—"}</dd>
-        <dt>LayerZero fee</dt>
-        <dd className="tnum">≤ {fmtEth(fee, 5)} ETH</dd>
-      </dl>
-      <p className="meta mono">
-        {price ? `Devnet price feed · ETH $${(Number(price.microUsd) / 1e6).toFixed(2)}${price.live ? "" : " (fallback)"}` : "Devnet price feed · unavailable"}
-      </p>
-      {tooMuch && <p className="status err" role="alert">That is more simETH than you have.</p>}
-      {tooBig && <p className="status err" role="alert">The Solana ledger holds Principal up to about 18 ETH. Lock less.</p>}
-      <p className="note">
-        You sign once to link your EVM address, then approve and open on Hoodi. The Advance follows automatically once the message
-        reaches Solana, in about 2 to 5 minutes. The Unlock Estimate is an estimate, not a promise.
-      </p>
-      {step && a.busy && <p className="status" role="status"><ClockIcon width={14} height={14} /> {OPEN_STEP_TEXT[step]}</p>}
-      {a.error && <p className="status err" role="alert">{a.error}</p>}
-      <Button
-        variant="money"
-        block
-        disabled={!valid || a.busy !== null}
-        onClick={() =>
-          ctx &&
-          void a.run("open", async () => {
-            const opened = await openEthPosition(ctx, VAULT, shares, months, setStep);
-            addOp(ctx.signer.publicKey.toBase58(), { kind: "open", vault: opened.vault, id: opened.id.toString(), months, hash: opened.hash });
-            onOpened();
-            onClose();
-          })
-        }
-      >
-        {a.busy ? "Working…" : `Open Position · ${fmtGemas(gemas)} Gemas`}
-      </Button>
-    </>
+    <OpenFormView
+      unit="ETH"
+      inert={!market}
+      head={<EthFaucet />}
+      amountText={text}
+      onAmount={setText}
+      amountInvalid={tooMuch || tooBig}
+      amountHint={market ? <>You have {fmtEth(market.simEth, 3)} simETH. Principal is locked, never played with.</> : undefined}
+      months={months}
+      onMonths={setMonths}
+      gemas={gemas}
+      estimate={estimate ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})` : "—"}
+      details={[
+        ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
+        ["Principal", `${fmtEth(principal)} ETH`],
+        ["Projected yield", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ETH`],
+        ["LayerZero fee", `≤ ${fmtEth(fee, 5)} ETH`],
+        ["Price feed", price ? `ETH $${(Number(price.microUsd) / 1e6).toFixed(2)}${price.live ? "" : " (fallback)"}` : "unavailable"],
+      ]}
+      alerts={
+        <>
+          {tooMuch && <p className="status err" role="alert">That is more simETH than you have.</p>}
+          {tooBig && <p className="status err" role="alert">The Solana ledger holds Principal up to about 18 ETH. Lock less.</p>}
+          {step && a.busy && <p className="status" role="status"><ClockIcon width={14} height={14} /> {OPEN_STEP_TEXT[step]}</p>}
+          {a.error && <p className="status err" role="alert">{a.error}</p>}
+        </>
+      }
+      note={
+        <>
+          You sign once to link your EVM address, then approve and open on Hoodi. The Advance follows automatically once the message
+          reaches Solana, in about 2 to 5 minutes. The Unlock Estimate is an estimate, not a promise.{" "}
+          <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
+        </>
+      }
+      buttonLabel={a.busy ? "Working…" : gemas > 0 ? `Open an ETH Position · ${fmtGemas(gemas)} Gemas` : "Open an ETH Position"}
+      disabled={!valid || a.busy !== null}
+      onSubmit={() =>
+        ctx &&
+        void a.run("open", async () => {
+          const opened = await openEthPosition(ctx, VAULT, shares, months, setStep);
+          addOp(ctx.signer.publicKey.toBase58(), { kind: "open", vault: opened.vault, id: opened.id.toString(), months, hash: opened.hash });
+          setText("");
+          onOpened();
+        })
+      }
+    />
   );
 }
 
@@ -534,62 +520,56 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
       await refresh();
     });
 
+  const series = rate && vp && src && onChainDebt > 0n && estimate ? linearSeries(Number(projected), now, estimate) : null;
+
   return (
-    <Card large as="article" aria-label="ETH Position">
-      <div className="stack">
-        <div className="spread">
-          <span className="hstack">
-            <ChainChip chain="ETH" />
-            <strong>{fmtEth(position.principal * 1e18, 3)} ETH Position</strong>
-          </span>
-          <span className="meta tnum">{(position.apy * 100).toFixed(1)}% APY</span>
-        </div>
-        <dl className="kv">
-          <dt>Principal</dt>
-          <dd className="tnum">{fmtEth(position.principal * 1e18, 4)} ETH · {locked ? "locked on Hoodi" : "returned"}</dd>
-          <dt>Debt</dt>
-          <dd className="tnum">{fmtGemas(Number(onChainDebt))} Gemas{onChainDebt > 0n ? ` · ${fmtEth(debtWei, 5)} ETH` : ""}</dd>
-          <dt>Accrued on Hoodi</dt>
-          <dd className="tnum">{fmtEth(accrued, 5)} ETH</dd>
-          <dt>Unlock Estimate</dt>
-          <dd>
-            {!locked
-              ? "Unlocked"
-              : !src
-                ? "No open Advance"
-                : onChainDebt === 0n
-                  ? "Debt is zero"
-                  : estimate
-                    ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})`
-                    : "Once yield accrues"}
-          </dd>
-        </dl>
-        {unreported > 0n && locked && (
-          <p className="meta">
-            <ClockIcon width={14} height={14} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on Hoodi. Report yield to bring it to Solana.
-          </p>
-        )}
-        <SimulatedYieldLabel />
-        {locked && (
-          <div className="hstack wrap">
-            <Button size="sm" disabled={!ctx || a.busy !== null || !src} onClick={report}>
-              {a.busy === "report" ? "Reporting…" : "Report yield"}
+    <PositionTile
+      chain="ETH"
+      label="ETH Position"
+      status={locked ? "active" : "unlocked"}
+      rows={{
+        principal: `${fmtEth(position.principal * 1e18, 4)} ETH`,
+        debt: onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas · ${fmtEth(debtWei, 4)} ETH` : "0",
+        apy: `${(position.apy * 100).toFixed(1)}%`,
+        unlock: !locked
+          ? "Unlocked"
+          : !src
+            ? "No open Advance"
+            : onChainDebt === 0n
+              ? "Debt is zero"
+              : estimate
+                ? `${fmtWhen(new Date(estimate).toISOString()).replace(" UTC", "")} (${inMinutes(estimate, now)})`
+                : "Once yield accrues",
+      }}
+      chartTitle="Debt (Gemas)"
+      series={series}
+      fmt={(n) => fmtGemas(n)}
+    >
+      {locked && (
+        <>
+          <Button size="sm" block disabled={!ctx || a.busy !== null || !src} onClick={report}>
+            {a.busy === "report" ? "Reporting…" : "Report yield"}
+          </Button>
+          <div className="wl-actions-row">
+            <Button variant="money" size="sm" disabled={!ctx || a.busy !== null || redeemable === 0n} onClick={redeem}>
+              {a.busy === "redeem" ? "Redeeming…" : "Redeem"}
             </Button>
             <Button size="sm" disabled={!ctx || a.busy !== null || !canUnlock || inFlight} onClick={unlock}>
               {a.busy === "unlock" ? "Unlocking…" : "Unlock"}
             </Button>
           </div>
-        )}
-        {redeemable > 0n && (
-          <Button variant="money" block disabled={!ctx || a.busy !== null} onClick={redeem}>
-            {a.busy === "redeem" ? "Redeeming…" : `Redeem ${fmtGemas(Number(redeemable))} ETH-Sourced Gemas → ${fmtEth(payout, 5)} simETH`}
-          </Button>
-        )}
-        {locked && !canUnlock && <p className="note">Unlock returns the Principal on Hoodi once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
-        {a.error && <p className="status err" role="alert">{a.error}</p>}
-        <p className="note">Report yield is a Hoodi transaction that pays a small LayerZero fee. Redeem pays simETH (Simulated) to your EVM address on Hoodi.</p>
-      </div>
-    </Card>
+        </>
+      )}
+      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} ETH-Sourced Gemas → {fmtEth(payout, 5)} simETH (Simulated) to your EVM address on Hoodi.</p>}
+      <p className="note wl-tile-note">Accrued on Hoodi {fmtEth(accrued, 5)} ETH. <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span></p>
+      {unreported > 0n && locked && (
+        <p className="note wl-tile-note">
+          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on Hoodi. Report yield to bring it to Solana (a small LayerZero fee).
+        </p>
+      )}
+      {locked && !canUnlock && <p className="note wl-tile-note">Unlock returns the Principal on Hoodi once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
+      {a.error && <p className="status err" role="alert">{a.error}</p>}
+    </PositionTile>
   );
 }
 
