@@ -1,12 +1,69 @@
 /* Block Puzzle: the board and pieces are the colourful game art; chrome around it stays neutral.
    Emerald appears only on gem cells. */
-.bp { display: grid; gap: 12px; width: min(100%, 440px); margin: 0 auto; position: relative; }
-.bp-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.bp-seed { color: var(--fg-2); font-size: 11.5px; margin-right: auto; }
-.bp-clock { font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.bp-clock.low { color: var(--warn); }
-.bp-score { display: flex; align-items: baseline; justify-content: space-between; }
-.bp-score-n { font-size: 40px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+.bp-score-n { font-size: 56px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+
+/* ——— Play screen (take-1: play-block-puzzle): MATCH | score, ring, board, tray | combo, lines, recent ——— */
+.bpx { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); position: relative; align-items: start; }
+.bpx-panel { --edge: var(--line-2); background: var(--shell); padding: 16px 16px 18px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.bpx-mid { order: 1; justify-items: center; }
+.bpx-right { order: 2; }
+.bpx-left { order: 3; }
+.bpx-title { font-size: 34px; justify-self: start; }
+.bpx-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; max-width: 600px; }
+.bpx-score { display: grid; gap: 0; }
+.bpx-timer { display: flex; align-items: center; gap: 14px; }
+.bpx-secs { font-size: 15px; color: var(--fg-2); }
+.bpx-ring { position: relative; width: 84px; height: 84px; display: grid; place-items: center; }
+.bpx-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bpx-ring circle { fill: none; stroke-width: 9; }
+.bpx-ring-bg { stroke: rgba(234, 239, 236, 0.14); }
+.bpx-ring-fg { stroke: var(--fg); stroke-linecap: butt; transition: stroke-dashoffset 120ms linear; }
+.bpx-ring.low .bpx-ring-fg { stroke: var(--warn); }
+.bpx-ring span { position: relative; font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.bpx-mid .bp-stage, .bpx-mid .bp-tray, .bpx-mid .bp-help { width: 100%; max-width: 600px; }
+.bpx-kv { display: grid; gap: 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.bpx-kv span { font-size: 15px; color: var(--fg-2); }
+.bpx-kv b { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; }
+.bpx-kv small { font-size: 18px; font-weight: 500; color: var(--fg-2); }
+.bpx-status { font-size: 15px; color: var(--fg-2); padding-top: 10px; border-top: 1px solid var(--line); }
+.bpx-status p { font-size: 15px; color: var(--fg-2); }
+.bpx-finding { display: inline-flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--fg-2); }
+.bpx-spin { width: 28px; height: 28px; border: 3px solid rgba(234, 239, 236, 0.16); border-top-color: var(--fg); border-radius: 50%; animation: bpx-spin 1s linear infinite; }
+@keyframes bpx-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .bpx-spin { animation-duration: 3s; } }
+.bpx-seed { color: var(--fg-2); font-size: 11.5px; }
+.bpx-combo { display: flex; align-items: baseline; gap: 10px; }
+.bpx-combo .h-section { font-size: clamp(34px, 3.4vw, 60px); line-height: 1; color: #fff; }
+.bpx-lines { display: grid; gap: 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.bpx-lines span { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: 22px; color: var(--fg-2); letter-spacing: 0.01em; }
+.bpx-lines b { font-size: 56px; font-weight: 900; line-height: 1; }
+.bpx-recent { display: none; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.bpx-recent .h-section { font-size: 26px; }
+.bpx-clear { --edge: var(--line); background: var(--raised); display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; }
+.bpx-clear span { display: grid; }
+.bpx-clear b { font-size: 16px; font-weight: 800; }
+.bpx-clear small { font-size: 13px; color: var(--fg-2); }
+.bpx-right { grid-template-columns: 1fr 1fr; align-items: end; }
+.bpx-right .bpx-lines { border-top: 0; padding-top: 0; justify-items: end; text-align: right; }
+.bpx-right .bpx-lines b { font-size: 40px; }
+.bpx-right .bpx-lines span { font-size: 18px; }
+.bpx-right .bpx-combo .h-section { font-size: 30px; }
+
+@media (min-width: 1024px) {
+  .bpx { grid-template-columns: minmax(230px, 0.85fr) minmax(0, 1.9fr) minmax(230px, 0.95fr); gap: 16px; }
+  .bpx-mid { order: 2; padding: 18px 20px 20px; }
+  .bpx-left { order: 1; min-height: 100%; }
+  .bpx-right { order: 3; grid-template-columns: 1fr; align-items: start; min-height: 100%; }
+  .bpx-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .bpx-recent { display: grid; }
+  .bpx-right .bpx-lines { justify-items: start; text-align: left; }
+  .bpx-right .bpx-lines b { font-size: 64px; }
+  .bpx-right .bpx-lines span { font-size: 24px; }
+  .bpx-right .bpx-combo .h-section { font-size: clamp(40px, 3.6vw, 64px); }
+  .bpx-ring { width: 112px; height: 112px; }
+  .bpx-ring span { font-size: 24px; }
+  .bp-score-n { font-size: clamp(64px, 6vw, 104px); }
+}
 .bp-final { font-size: 64px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 .bp-title { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
 .bp-stage { position: relative; }
@@ -28,10 +85,14 @@
 .bp-cell.k1.on, .bp-cell.k1.pop, .bp-mini .k1 { background: #7fd4f0; }
 .bp-cell.k2.on, .bp-cell.k2.pop, .bp-mini .k2 { background: #e97aa8; }
 .bp-cell.k3.on, .bp-cell.k3.pop, .bp-mini .k3 { background: #9c8cff; }
-.bp-cell.on { box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.28); }
+.bp-cell.on { box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.28), 0 0 10px -2px currentColor; background-image: linear-gradient(150deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 55%); }
+.bp-cell.k0.on { color: rgba(242, 185, 75, 0.55); }
+.bp-cell.k1.on { color: rgba(127, 212, 240, 0.55); }
+.bp-cell.k2.on { color: rgba(233, 122, 168, 0.55); }
+.bp-cell.k3.on { color: rgba(156, 140, 255, 0.55); }
 /* Gem cells: emerald-cut octagon, the only emerald on the board. */
 .bp-cell.gem.on, .bp-cell.gem.pop, .bp-mini .gem {
-  background: var(--facet); border-radius: 0; box-shadow: none;
+  background: var(--facet); background-image: var(--facet); border-radius: 0; box-shadow: none;
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
 }
 .bp-cell.pv { background: rgba(255, 255, 255, 0.34); }

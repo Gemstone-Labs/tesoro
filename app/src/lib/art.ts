@@ -5,7 +5,7 @@
  */
 const f = (name: string) => `/art/final/${name}.webp`;
 
-const c = (name: string) => `/art/final/characters/${name}.webp`;
+const b = (name: string, w: number, h: number) => ({ src: `/art/final/characters/bust/${name}.webp`, w, h });
 
 export const art = {
   /** Wide hero art (2400x1000), left 40% dark and empty for the title. */
@@ -26,20 +26,21 @@ export const art = {
     holdem: f("holdem-tile"),
   },
   /**
-   * Guide characters. him = the Player / guide; her = the Backer. Full-body, transparent, 640x640
-   * (duo 1200x600). Placement rules are in DESIGN.md.
+   * Guide characters, torso-up crops only (made by scripts/make-busts.mjs from the full-body poses,
+   * which are never shown). him = the Player / guide; her = the Backer. w/h are the crop's pixels.
+   * Placement rules are in DESIGN.md.
    */
-  characters: {
-    himWelcome: c("him-welcome"),
-    himExplain: c("him-explain"),
-    himWin: c("him-win"),
-    himLose: c("him-lose"),
-    himWaiting: c("him-waiting"),
-    herBacking: c("her-backing"),
-    herEmpty: c("her-empty"),
-    herWaitingCrosschain: c("her-waiting-crosschain"),
-    duoHero: c("duo-hero"),
-    duoWin: c("duo-win"),
+  busts: {
+    himWelcome: b("him-welcome", 302, 310),
+    himExplain: b("him-explain", 391, 318),
+    himWin: b("him-win", 278, 319),
+    himLose: b("him-lose", 256, 300),
+    himWaiting: b("him-waiting", 240, 297),
+    herBacking: b("her-backing", 346, 334),
+    herEmpty: b("her-empty", 284, 275),
+    herWaitingCrosschain: b("her-waiting-crosschain", 294, 308),
+    duoHero: b("duo-hero", 558, 322),
+    duoWin: b("duo-win", 687, 318),
   },
   /** Demo/seed avatars. */
   avatars: [1, 2, 3, 4, 5, 6].map((n) => f(`avatar-${n}`)),

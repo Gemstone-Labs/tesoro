@@ -92,11 +92,4 @@
 .wl-faucet { display: grid; gap: 8px; padding: 10px 12px; background: var(--raised); border: 1px solid var(--line); }
 .wl-faucet b { color: var(--fg); }
 
-.wl-how { --edge: var(--line); background: var(--raised); display: grid; grid-template-columns: 96px 1fr; gap: 10px; align-items: center; padding: 8px 12px 8px 0; overflow: hidden; min-height: 116px; }
-.wl-how .character { width: 150px; max-width: none; height: 150px; object-fit: cover; object-position: 30% 4%; margin: -6px 0 -26px -18px; }
-.wl-how b { font-size: 16px; }
-.wl-how p { font-size: 13.5px; color: var(--fg-2); margin-top: 2px; }
-@media (min-width: 1200px) {
-  .wl-how { grid-template-columns: 130px 1fr; min-height: 132px; }
-  .wl-how .character { width: 190px; height: 190px; margin: -10px 0 -60px -24px; }
-}
+.wl-how { min-height: 116px; }

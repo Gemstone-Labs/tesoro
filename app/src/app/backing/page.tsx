@@ -9,7 +9,7 @@ import {
   Button,
   Card,
   CheckIcon,
-  Character,
+  BustCard,
   Chip,
   EntryPicker,
   GemaAmount,
@@ -17,6 +17,7 @@ import {
   Label,
   Slider,
 } from "@/components/ui";
+import { useGuideTip } from "@/components/guide/Guide";
 import { useAccount } from "@/lib/account";
 import { art, avatarFor } from "@/lib/art";
 import {
@@ -70,6 +71,12 @@ function useNow(everyMs = 30_000) {
 export default function Backing() {
   const { board, loading, error: loadError, refresh } = useBackingBoard();
   const { auth, snapshot, gemas, onChain, refresh: refreshAccount } = useAccount();
+  useGuideTip({
+    id: "backing-first",
+    bust: "herBacking",
+    title: "What Backing means",
+    text: "A Backer funds a Player's whole entry. On a win the entry returns first and the surplus is split by the Offer. Only the Backer bears a loss.",
+  });
   const nowMs = useNow();
   const nowSecs = Math.floor(nowMs / 1000);
   const me = snapshot?.accountKey.toBase58() ?? null;
@@ -395,13 +402,10 @@ export default function Backing() {
 
 function Empty({ title, body }: { title: string; body: string }) {
   return (
-    <div className="cut cut-card bk-empty bk-span">
-      <Character name="herEmpty" width={180} />
-      <div>
-        <b>{title}</b>
-        <p>{body}</p>
-      </div>
-    </div>
+    <BustCard bust="herEmpty" size={130} className="bk-empty bk-span">
+      <b>{title}</b>
+      <p>{body}</p>
+    </BustCard>
   );
 }
 
@@ -735,6 +739,11 @@ function OfferDrawer({
               </div>
             </div>
 
+            <BustCard bust="herBacking" size={104} className="bk-tip">
+              <b>You fund it, they play</b>
+              <p>Only you bear the loss. Their Position keeps repaying its own Debt as usual.</p>
+            </BustCard>
+
             {short && (
               <p className="status err" role="alert">
                 You have {fmtGemas(available)} Gemas available. <Link href="/wallet">Get Gemas in your Wallet</Link>
@@ -747,9 +756,6 @@ function OfferDrawer({
                 {isPublic ? "Post Offer" : "Make an Offer"}
               </Button>
             </div>
-          </div>
-          <div className="bk-drawer-char">
-            <Character name="herBacking" width={300} />
           </div>
         </div>
       </aside>

@@ -5,6 +5,7 @@ import { Button, Card, ChainChip, ClockIcon, GemaMark, Label, Meter } from "@/co
 import { redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
+import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
 import { DEMO_ADVANCE } from "@/lib/chain/config";
 import { DemoAdvanceSheet } from "./DemoAdvanceSheet";
@@ -28,6 +29,12 @@ export default function Wallet() {
   const [months, setMonths] = useState(3);
   const [now] = useState(() => Date.now());
   const panel = useRef<HTMLDivElement>(null);
+  useGuideTip({
+    id: "wallet-first",
+    bust: "himExplain",
+    title: "Pending is not lost",
+    text: "Gemas you win stay Pending until the yield of their Source lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
+  });
 
   if (auth.status === "signed-out") {
     return (

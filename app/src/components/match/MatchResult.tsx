@@ -1,7 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Button, Character, CheckIcon, GemaMark, MinusIcon, XIcon, type CharacterName } from "@/components/ui";
+import { Button, CheckIcon, GemaMark, MinusIcon, XIcon, type BustName } from "@/components/ui";
+import { MomentOverlay } from "./MomentOverlay";
 import { art } from "@/lib/art";
 import { fmtGemas } from "@/lib/format";
 import type { GameId } from "@/lib/mock";
@@ -24,6 +25,8 @@ export interface MatchResultProps {
   scores: [string, string] | null;
   scoreNote?: string;
   playAgainHref: string;
+  /** Show the win overlay once per key (the Match id); without one it shows on every mount. */
+  momentKey?: string;
   /** How a Backing paid out (BackingSplit), for backed Matches. */
   split?: ReactNode;
   /** Extra footer content (transactions, notes). */
@@ -66,15 +69,16 @@ function GemaBurst() {
   );
 }
 
-function character(p: MatchResultProps): { name: CharacterName; width: number } | null {
-  if (p.outcome === "won") return p.role === "backer" && p.backed ? { name: "duoWin", width: 460 } : p.role === "player" ? { name: "himWin", width: 400 } : null;
-  if (p.outcome === "lost" && p.role === "player") return { name: "himLose", width: 380 };
-  return null;
+/** The moment overlay's bust: only for wins (a Player's, or a Backer's backed win). Nothing else has a character. */
+function momentBust(p: MatchResultProps): { bust: BustName; title: string } | null {
+  if (p.outcome !== "won") return null;
+  if (p.role === "backer" && p.backed) return { bust: "duoWin", title: "Backed win" };
+  return p.role === "player" ? { bust: "himWin", title: "You won" } : null;
 }
 
 /**
- * The Match result, both games. Game tile and rules left, the outcome and amount centre, the
- * character right (hidden below 1024px). Won Gemas are claims on the loser's Source, so a win always
+ * The Match result, both games. Game tile and rules left, the outcome and amount centre. No
+ * character on the screen itself: a win gets a short overlay (MomentOverlay). Won Gemas are claims on the loser's Source, so a win always
  * says so and links to the Wallet: never implies cash in hand.
  */
 export function MatchResult(p: MatchResultProps) {
@@ -82,7 +86,7 @@ export function MatchResult(p: MatchResultProps) {
   const won = outcome === "won";
   const lost = outcome === "lost";
   const neutral = outcome === "draw" || outcome === "refunded";
-  const char = character(p);
+  const moment = momentBust(p);
   const rules = RULES[p.game];
   const mag = fmtGemas(Math.abs(delta));
   const sign = delta > 0 ? "+" : delta < 0 ? "−" : "";
@@ -185,8 +189,8 @@ export function MatchResult(p: MatchResultProps) {
           {p.split && <div className="mr-split">{p.split}</div>}
         </div>
 
-        <div className="mr-right">{char && <Character name={char.name} width={char.width} desktopOnly priority />}</div>
       </section>
+      {moment && <MomentOverlay bust={moment.bust} title={moment.title} amount={Math.abs(delta)} momentKey={p.momentKey} />}
 
       <div className="mr-actions">
         {role === "backer" ? (
