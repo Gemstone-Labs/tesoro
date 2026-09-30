@@ -92,7 +92,7 @@ export function ChainChip({ chain }: { chain: Chain }) {
 /* ——— Button ——— */
 type ButtonProps = {
   variant?: "money" | "neutral";
-  size?: "md" | "sm";
+  size?: "md" | "sm" | "lg";
   block?: boolean;
   href?: string;
   icon?: ReactNode;
@@ -100,9 +100,9 @@ type ButtonProps = {
 
 /** `money` (facet gradient) is for actions where Gemas move: Enter, Offer, Redeem, Advance. */
 export function Button({ variant = "neutral", size = "md", block, href, icon, children, ...rest }: ButtonProps) {
-  const cls = cx("cut cut-card btn", variant, size === "sm" && "sm", block && "block");
+  const cls = cx("cut cut-btn btn", variant, size !== "md" && size, block && "block");
   if (href && !rest.disabled) {
-    return <Link href={href} className={cls}>{icon}{children}</Link>;
+    return <Link href={href} className={cls} onClick={rest.onClick as React.MouseEventHandler<HTMLAnchorElement> | undefined}>{icon}{children}</Link>;
   }
   return (
     <button type="button" className={cls} {...rest}>

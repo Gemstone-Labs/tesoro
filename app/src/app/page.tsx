@@ -1,84 +1,62 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { BlockBoard } from "@/components/game/BlockBoard";
-import { Button, Card, EntryPicker, Label, Row, Thumb } from "@/components/ui";
+import { useState } from "react";
+import { ChartColumn, Clock, LayoutGrid, Spade, Users, type LucideIcon } from "lucide-react";
+import { BackPlayerRail } from "@/components/lobby/BackPlayerRail";
+import { HeroCarousel } from "@/components/lobby/HeroCarousel";
+import { LobbyFooter } from "@/components/lobby/LobbyFooter";
+import { PlayAgainRail } from "@/components/lobby/PlayAgainRail";
+import { PlayNowRail } from "@/components/lobby/PlayNowRail";
+import { Ticker } from "@/components/lobby/Ticker";
+import { Row, Thumb } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { recordText, shortKey, useBackingBoard } from "@/lib/chain/useBackingBoard";
+import { CATEGORIES, type Category } from "@/lib/catalogue";
 import { fmtGemas } from "@/lib/format";
-import { GAME_NAMES, queueDepth as mockQueueDepth } from "@/lib/mock";
-import type { EntrySize } from "@/lib/mock";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { GAME_NAMES } from "@/lib/mock";
+
+const CHIP_ICON: Record<Category, LucideIcon> = {
+  puzzle: LayoutGrid,
+  cards: Spade,
+  "head-to-head": Users,
+  async: Clock,
+  backing: ChartColumn,
+};
 
 export default function Lobby() {
-  const { gemas, auth, onChain, openMatches, loading } = useAccount();
-  const router = useRouter();
-  const [waiting, setWaiting] = useState<number | null>(null);
-  const [waitingHoldem, setWaitingHoldem] = useState<number | null>(null);
-  useEffect(() => {
-    let live = true;
-    import("@/lib/chain/read")
-      .then(async (m) => [await m.queueDepth("block-puzzle"), await m.queueDepth("holdem")] as const)
-      .then(([bp, hd]) => {
-        if (!live) return;
-        setWaiting(bp);
-        setWaitingHoldem(hd);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, []);
-  const queueDepth = { ...mockQueueDepth, "block-puzzle": waiting ?? mockQueueDepth["block-puzzle"], holdem: waitingHoldem ?? mockQueueDepth.holdem };
-  const { board, loading: requestsLoading } = useBackingBoard();
-  const requests = (board?.requests ?? []).filter((r) => r.live).slice(0, 4);
-  const [entry, setEntry] = useState<EntrySize>(1000);
-  const [holdemEntry, setHoldemEntry] = useState<EntrySize>(500);
-  const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
-  const canEnter = !signedIn || loading || gemas.available >= entry;
-  const canEnterHoldem = !signedIn || loading || gemas.available >= holdemEntry;
-  const enter = (href: string) => auth.gate("Enter a Match", () => router.push(href));
+  const { openMatches } = useAccount();
+  const [category, setCategory] = useState<Category | null>(null);
+
+  const pick = (id: Category) => {
+    if (id === "backing") {
+      document.getElementById("back-a-player")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+      return;
+    }
+    setCategory((cur) => (cur === id ? null : id));
+    document.getElementById("play-now")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
 
   return (
-    <div className="cols cols-2">
-      <div className="stack-lg">
-        <Card flush as="section" aria-label="Featured game">
-          <BlockBoard />
-          <div className="feature-body">
-            <div className="stack" style={{ gap: 4 }}>
-              <h2>{GAME_NAMES["block-puzzle"]}</h2>
-              <span className="meta">Same Seed as your opponent · 90 seconds · higher score wins</span>
-            </div>
-            <EntryPicker value={entry} onChange={setEntry} legend="Entry for Block Puzzle" maxAffordable={signedIn ? gemas.available : undefined} />
-            <Button
-              variant="money"
-              block
-              onClick={() => enter(`/play/queue?entry=${entry}`)}
-              disabled={!canEnter}
-            >
-              Play now · {fmtGemas(entry)} Gemas
-            </Button>
-            {!canEnter && onChain && (
-              <span className="meta">
-                You need {fmtGemas(entry)} Gemas to enter. <Link href="/wallet">Get Gemas in your Wallet</Link>
-              </span>
-            )}
-            <span className="meta">
-              {queueDepth["block-puzzle"]} waiting in Queue · play now, you&apos;ll be paired
-            </span>
-            <div className="hstack wrap">
-              <Button size="sm" onClick={() => auth.gate("Challenge a friend", () => router.push(`/play/challenge?entry=${entry}`))}>
-                Challenge a friend
-              </Button>
-              <Button size="sm" href="/play?game=block-puzzle">Practice, no Gemas</Button>
-            </div>
-          </div>
-        </Card>
+    <div className="lobby">
+      <nav className="cats" aria-label="Game categories">
+        {CATEGORIES.map(({ id, label }) => {
+          const Icon = CHIP_ICON[id];
+          return (
+            <button key={id} type="button" className={`cut cut-card cat${category === id ? " on" : ""}`} aria-pressed={id === "backing" ? undefined : category === id} onClick={() => pick(id)}>
+              <Icon aria-hidden="true" />
+              {label}
+            </button>
+          );
+        })}
+      </nav>
 
-        {openMatches.length > 0 && (
-          <section className="stack" aria-label="Your Matches in progress">
-            <Label>Your Matches in progress</Label>
+      <HeroCarousel />
+
+      {openMatches.length > 0 && (
+        <section className="rail" aria-labelledby="live-h">
+          <header className="rail-head">
+            <h2 id="live-h" className="h-section">Continue</h2>
+          </header>
+          <div className="live-grid">
             {openMatches.map((m) => (
               <Row
                 key={m.id.toString()}
@@ -89,60 +67,15 @@ export default function Lobby() {
                 cta="Open"
               />
             ))}
-          </section>
-        )}
-
-        <Card as="section" aria-label="Heads-up Hold'em">
-          <div className="stack">
-            <div className="hstack">
-              <Thumb variant="poker">A♠K</Thumb>
-              <span className="row-body">
-                <h2 className="row-title">{GAME_NAMES.holdem}</h2>
-                <span className="row-meta">Live · 30 s per action · Turbo blinds</span>
-              </span>
-            </div>
-            <EntryPicker value={holdemEntry} onChange={setHoldemEntry} legend="Entry for Hold'em" name="holdem-entry" maxAffordable={signedIn ? gemas.available : undefined} />
-            <Button variant="money" block onClick={() => enter(`/play/queue?game=holdem&entry=${holdemEntry}`)} disabled={!canEnterHoldem}>
-              Enter · {fmtGemas(holdemEntry)} Gemas
-            </Button>
-            {!canEnterHoldem && onChain && (
-              <span className="meta">
-                You need {fmtGemas(holdemEntry)} Gemas to enter. <Link href="/wallet">Get Gemas in your Wallet</Link>
-              </span>
-            )}
-            <span className="meta">{queueDepth.holdem} waiting in Queue · play starts when an opponent sits down</span>
-            <div className="hstack wrap">
-              <Button size="sm" onClick={() => auth.gate("Challenge a friend", () => router.push(`/play/challenge?game=holdem&entry=${holdemEntry}`))}>
-                Challenge a friend
-              </Button>
-            </div>
           </div>
-        </Card>
-      </div>
+        </section>
+      )}
 
-      <section className="stack" aria-labelledby="req-h">
-        <div className="section-head">
-          <Label>
-            <span id="req-h">Back a Player</span>
-          </Label>
-          <Link href="/backing">See all</Link>
-        </div>
-        {requestsLoading && !board && <p className="meta">Reading Requests from Solana devnet…</p>}
-        {board && requests.length === 0 && (
-          <p className="meta">No Players are asking to be backed right now. <Link href="/backing">Post a Request</Link> or check back soon.</p>
-        )}
-        {requests.map((r) => (
-          <Row
-            key={r.address.toBase58()}
-            href={`/backing#${r.address.toBase58()}`}
-            thumb={<Thumb>{r.player[0]}</Thumb>}
-            title={`${shortKey(r.player)} asks for ${fmtGemas(r.entry)}`}
-            meta={`${GAME_NAMES[r.game]} · ${recordText(r.record)}`}
-            cta="Offer"
-            ctaTone="money"
-          />
-        ))}
-      </section>
+      <PlayNowRail category={category} onClear={() => setCategory(null)} />
+      <PlayAgainRail />
+      <Ticker />
+      <BackPlayerRail />
+      <LobbyFooter />
     </div>
   );
 }

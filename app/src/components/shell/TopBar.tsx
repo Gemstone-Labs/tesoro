@@ -1,0 +1,70 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { Menu, Search, X } from "lucide-react";
+import { Button, GemaMark } from "@/components/ui";
+import { useAccount } from "@/lib/account";
+import { fmtGemas } from "@/lib/format";
+import { AccountMenu } from "./AccountMenu";
+import { useSearch } from "./SearchContext";
+import { Wordmark } from "./Sidebar";
+
+export function TopBar({ onMenu }: { onMenu: () => void }) {
+  const { gemas, auth } = useAccount();
+  const { query, setQuery } = useSearch();
+  const path = usePathname();
+  const router = useRouter();
+  const signedIn = auth.status === "signed-in";
+  const signedOut = auth.status === "signed-out";
+  const onLobby = path === "/";
+
+  return (
+    <header className={`topbar${onLobby ? " on-lobby" : ""}`}>
+      <button type="button" className="cut icon-btn menu-btn" aria-label="Open menu" onClick={onMenu}>
+        <Menu aria-hidden="true" />
+      </button>
+      <span className="top-word"><Wordmark /></span>
+      <form
+        className="cut cut-card search"
+        role="search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!onLobby) router.push("/");
+        }}
+      >
+        <Search aria-hidden="true" />
+        <input
+          type="search"
+          name="q"
+          aria-label="Search games"
+          placeholder="Search games"
+          autoComplete="off"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (!onLobby && e.target.value) router.push("/");
+          }}
+        />
+        {query && (
+          <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery("")}>
+            <X aria-hidden="true" />
+          </button>
+        )}
+      </form>
+      <div className="top-right">
+        {auth.status !== "signed-out" && auth.status !== "loading" && (
+          <Link href="/wallet" className="cut cut-card gpill" aria-label="Your Gemas, open Wallet">
+            <GemaMark size={30} glint />
+            <b className="tnum">{fmtGemas(gemas.total)}</b>
+            <span>Gemas</span>
+          </Link>
+        )}
+        {signedIn && <AccountMenu />}
+        {signedOut && (
+          <Button size="sm" onClick={() => auth.openSignIn()}>Sign in</Button>
+        )}
+      </div>
+    </header>
+  );
+}

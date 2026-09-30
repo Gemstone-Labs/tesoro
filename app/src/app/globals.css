@@ -1,32 +1,39 @@
-/* Tokens from DESIGN.md (direction "Cut"). Component styles live in components/ui/ui.css. */
+/* Tokens from DESIGN.md (direction "Cut"). Component styles live in components/ui/ui.css, shell in components/shell/shell.css. */
 :root {
-  /* shell */
-  --shell: #0c0e10;
-  --raised: #15181b;
-  --line: rgba(234, 239, 236, 0.1);
+  /* shell: near-black neutrals (sampled from the approved Lobby mockup) */
+  --shell: #090d0f;
+  --side: #0c1215;
+  --raised: #11161a;
+  --raised-2: #171e25;
+  --line: rgba(234, 239, 236, 0.13);
+  --line-2: rgba(234, 239, 236, 0.22);
   --fg: #eaefec;
-  --fg-2: rgba(234, 239, 236, 0.62);
+  --fg-2: rgba(234, 239, 236, 0.68);
   --fg-3: rgba(234, 239, 236, 0.4); /* decorative / disabled only: below AA for text */
   /* emerald: money only */
-  --em-hi: #8ff5cf;
-  --em: #2dbe8c;
-  --em-deep: #0b6b4e;
+  --em-hi: #6af8d6;
+  --em: #24d8a8;
+  --em-deep: #0a7d5c;
   --em-ink: #03201a;
-  --facet: linear-gradient(135deg, var(--em-hi) 0%, var(--em) 45%, #1fa877 45.5%, var(--em-deep) 100%);
+  --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%);
   /* semantic (never the accent) */
   --danger: #f2685a;
   --warn: #f2b94b;
   /* type */
   --f-body: var(--font-schibsted), "Hanken Grotesk", system-ui, sans-serif;
+  --f-display: var(--font-display), "Oswald", "Arial Narrow", Impact, sans-serif;
   --f-mono: var(--font-plex-mono), ui-monospace, monospace;
   /* cut sizes */
   --cut-frame: 22px;
-  --cut-card: 10px;
-  --cut-chip: 6px;
+  --cut-card: 12px;
+  --cut-btn: 10px;
+  --cut-chip: 8px;
 
   --nav-h: 64px;
+  --side-w: 244px;
   color-scheme: dark;
 }
+@media (min-width: 1440px) { :root { --side-w: 268px; } }
 
 * { box-sizing: border-box; }
 html { background: var(--shell); }

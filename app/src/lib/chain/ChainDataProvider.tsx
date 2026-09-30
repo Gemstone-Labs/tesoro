@@ -31,6 +31,11 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
     if (!address || inflight.current) return;
     inflight.current = true;
     try {
+      const { demoMode, demoSnapshot } = await import("./fixture");
+      if (demoMode()) {
+        setState({ address, snapshot: demoSnapshot(address), error: null });
+        return;
+      }
       const [{ PublicKey }, { fetchSnapshot }] = await Promise.all([import("@solana/web3.js"), import("./read")]);
       const snapshot = await fetchSnapshot(new PublicKey(address));
       setState({ address, snapshot, error: null });
