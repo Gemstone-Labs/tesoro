@@ -11,13 +11,10 @@ const status = (o: object) => Object.keys(o)[0];
  * 1 month = ~10 min) to its Debt. A Position has Debt exactly while `open_advance` is set: the
  * ledger clears it when Debt reaches zero. Accounts come from the real instruction: [position (w),
  * custody, vault, pool, open Advance's source (w, optional)], built by app/src/lib/chain/native.ts.
- * ETH Positions need `reportYield` on the Hoodi PositionVault: a later job, stubbed here.
+ * ETH Positions are handled by src/eth.ts (`reportYield` on Hoodi) and src/bridge.ts (`apply_yield`).
  */
 export async function yieldJob(ctx: Ctx): Promise<number> {
   const positions: any[] = await ctx.core.account.positionState.all();
-  const evm = positions.filter((p) => status(p.account.inner.sourceChain) !== "solana" && status(p.account.inner.status) === "locked");
-  if (evm.length) log("yield", "-", `STUB ${evm.length} ETH/HyperEVM Position(s): Hoodi PositionVault.reportYield job not implemented yet`);
-
   const native = positions.filter((p) => {
     const i = p.account.inner;
     return status(i.sourceChain) === "solana" && pk(i.sourceAsset).equals(SIM_SOL_MINT);

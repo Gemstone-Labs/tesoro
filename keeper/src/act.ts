@@ -19,6 +19,10 @@ export class Budget {
   exhausted() {
     return this.spentLastHour() >= this.capLamports;
   }
+  /** Records a known spend (e.g. a LayerZero fee) in the same units as the cap. */
+  record(amount: number) {
+    this.spends.push({ at: Date.now(), lamports: amount });
+  }
   /** Records a balance observation; a drop since the last one counts as spend. */
   observe(balance: number) {
     if (this.last !== null && balance < this.last) this.spends.push({ at: Date.now(), lamports: this.last - balance });
@@ -35,7 +39,7 @@ export interface Outcome {
  * Runs one on-chain action, logging exactly one line. Refuses when the hourly cap is reached or in
  * dry-run mode; failures are logged and returned, never thrown, so one bad Match cannot stop a pass.
  */
-export async function act(rt: Runtime & { budget: Budget }, job: string, subject: string, what: string, fn: () => Promise<string | void>): Promise<Outcome> {
+export async function act(rt: Ctx, job: string, subject: string, what: string, fn: () => Promise<string | void>): Promise<Outcome> {
   if (rt.settings.dryRun) {
     log(job, subject, `DRY-RUN would ${what}`);
     return { ok: true, detail: "dry-run" };
@@ -56,4 +60,5 @@ export async function act(rt: Runtime & { budget: Budget }, job: string, subject
   }
 }
 
-export type Ctx = Runtime & { budget: Budget };
+/** `lz`: rolling cap on LayerZero fees paid on Solana; `eth`: rolling cap on the fees paid on Hoodi, in gwei. */
+export type Ctx = Runtime & { budget: Budget; lz: Budget; eth: Budget };

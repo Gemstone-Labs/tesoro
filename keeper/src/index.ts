@@ -1,5 +1,7 @@
 import { Budget, log, type Ctx } from "./act.ts";
 import { backingHygiene } from "./backing.ts";
+import { bridgeJob } from "./bridge.ts";
+import { ethYieldJob } from "./eth.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
 import { matchHygiene } from "./matches.ts";
 import { priceJob } from "./price.ts";
@@ -17,6 +19,8 @@ async function pass(ctx: Ctx) {
     ["backing", backingHygiene],
     ["price", priceJob],
     ["yield", yieldJob],
+    ["bridge", bridgeJob],
+    ["eth", ethYieldJob],
   ];
   for (const [name, job] of jobs) {
     try {
@@ -31,7 +35,12 @@ async function main() {
   const s = settings();
   const conn = newConnection(s.rpc);
   const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m));
-  const ctx: Ctx = { ...buildRuntime(s, conn, payer), budget: new Budget(s.hourlyCapLamports) };
+  const ctx: Ctx = {
+    ...buildRuntime(s, conn, payer),
+    budget: new Budget(s.hourlyCapLamports),
+    lz: new Budget(s.lzHourlyCapLamports),
+    eth: new Budget(Math.round(s.ethHourlyCapEth * 1e9)),
+  };
   const balance = await conn.getBalance(payer.publicKey);
   log("keeper", "-", `start rpc=${s.rpc} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);
 

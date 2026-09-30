@@ -11,6 +11,15 @@ export interface Settings {
   once: boolean;
   /** Max lamports the keeper payer may spend (fees + rent) in any rolling hour. */
   hourlyCapLamports: number;
+  /** Max LayerZero fee of one Solana-side send, and the max the keeper pays for them in any rolling hour. */
+  maxLzFeeLamports: number;
+  lzHourlyCapLamports: number;
+  hoodiRpc: string;
+  evmEnvPath: string;
+  /** Minutes between `reportYield` calls for one Position (one simulated month). */
+  ethYieldMins: number;
+  /** Max ETH the EVM deployer key may spend on `reportYield` fees in any rolling hour. */
+  ethHourlyCapEth: number;
   /** Simulated: report what would be done, send nothing. */
   dryRun: boolean;
 }
@@ -29,6 +38,12 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
     once: flag("once"),
     hourlyCapLamports: Math.round(num(value("max-sol-per-hour") ?? env.KEEPER_MAX_SOL_PER_HOUR, 0.5) * LAMPORTS_PER_SOL),
+    maxLzFeeLamports: Math.round(num(value("max-lz-fee-sol") ?? env.KEEPER_MAX_LZ_FEE_SOL, 0.005) * LAMPORTS_PER_SOL),
+    lzHourlyCapLamports: Math.round(num(value("max-lz-sol-per-hour") ?? env.KEEPER_MAX_LZ_SOL_PER_HOUR, 0.05) * LAMPORTS_PER_SOL),
+    hoodiRpc: value("hoodi-rpc") ?? env.KEEPER_HOODI_RPC ?? "https://ethereum-hoodi-rpc.publicnode.com",
+    evmEnvPath: env.KEEPER_EVM_ENV ?? join(homedir(), ".config/tesoro/evm-deployer.env"),
+    ethYieldMins: num(value("eth-yield-mins") ?? env.KEEPER_ETH_YIELD_MINS, 10),
+    ethHourlyCapEth: num(value("max-eth-per-hour") ?? env.KEEPER_MAX_ETH_PER_HOUR, 0.005),
     dryRun: flag("dry-run"),
   };
 }
