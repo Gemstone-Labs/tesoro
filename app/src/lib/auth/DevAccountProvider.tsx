@@ -79,6 +79,8 @@ function DevBridge({ children }: { children: ReactNode }) {
     // Deferred: the key comes from localStorage, which the server render cannot see.
     const t = setTimeout(() => {
       setSlot(s);
+      // `?dev=out` previews the signed-out UI.
+      if (s === "out") return;
       setKeypair(load(s));
       setEvmKey(loadEvm(s));
     }, 0);
@@ -102,7 +104,7 @@ function DevBridge({ children }: { children: ReactNode }) {
       source: "dev",
     };
     return {
-      status: keypair ? "signed-in" : "loading",
+      status: slot === "out" ? "signed-out" : keypair ? "signed-in" : "loading",
       email: `dev-${slot}@local`,
       addresses: { solana: keypair?.publicKey.toBase58() ?? null, evm: evm?.address ?? null },
       linked: [],
@@ -117,7 +119,9 @@ function DevBridge({ children }: { children: ReactNode }) {
         setEvmKey(loadEvm(slot));
       },
       linkWallet: () => {},
-      gate: (_reason, action) => action(),
+      gate: (_reason, action) => {
+        if (slot !== "out") action();
+      },
       openSignIn: () => {},
       openAccount: () => setAccountOpen(true),
       signer,

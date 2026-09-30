@@ -24,6 +24,12 @@ export function useBackingBoard(): BackingData {
     if (inflight.current) return;
     inflight.current = true;
     try {
+      const { demoMode, demoBoard } = await import("./fixture");
+      if (demoMode()) {
+        setBoard(demoBoard());
+        setError(null);
+        return;
+      }
       const { fetchBackingBoard } = await import("./backing");
       setBoard(await fetchBackingBoard());
       setError(null);

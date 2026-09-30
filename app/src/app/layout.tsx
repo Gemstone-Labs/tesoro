@@ -1,17 +1,25 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
+import { Barlow_Condensed, IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
 import "./globals.css";
 import "@/components/ui/ui.css";
+import "@/components/shell/shell.css";
+import "@/components/lobby/lobby.css";
 import { AccountProvider } from "@/lib/auth/AccountProvider";
 import { ChainDataProvider } from "@/lib/chain/ChainDataProvider";
 import { GemaDefs } from "@/components/ui";
-import { AppHeader } from "@/components/shell/AppHeader";
-import { BottomNav } from "@/components/shell/BottomNav";
+import { AppShell } from "@/components/shell/AppShell";
 
 const schibsted = Schibsted_Grotesk({
   subsets: ["latin"],
   weight: ["400", "700", "800", "900"],
   variable: "--font-schibsted",
+  display: "swap",
+});
+
+const barlow = Barlow_Condensed({
+  subsets: ["latin"],
+  weight: ["700", "800"],
+  variable: "--font-display",
   display: "swap",
 });
 
@@ -36,14 +44,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${schibsted.variable} ${plexMono.variable}`}>
+    <html lang="en" className={`${schibsted.variable} ${barlow.variable} ${plexMono.variable}`}>
       <body>
         <GemaDefs />
         <AccountProvider>
           <ChainDataProvider>
-            <AppHeader />
-            <main className="app-main">{children}</main>
-            <BottomNav />
+            <AppShell>{children}</AppShell>
           </ChainDataProvider>
         </AccountProvider>
       </body>
