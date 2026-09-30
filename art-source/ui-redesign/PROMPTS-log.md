@@ -1,5 +1,9 @@
 # Tesoro UI redesign — generation log
 
+## Character sheet handoff status
+
+Both initial candidate sheets were generated successfully (take 1 after one network-failed attempt), preserved under `character/native/`, and exported to `character/sheet-take-1.png` and `character/sheet-take-2.png` at 2048×2048 from 1254×1254 natives. All four proportion-correction attempts (two per candidate) failed with network errors and returned no corrected images. The two exported sheets are explicitly DRAFTS: proportions are taller than the requested 3.5–4 heads. No CLI fallback used. No pose generation performed. See `character/README.md` and `character/QA.json`.
+
 ## character/sheet-take-2.png — correction retry
 
 The first proportion-correction call failed with a network error; no corrected image returned. Retry attachment: same original sheet `exec-56e5368d-c5aa-4461-8d2a-1b44f28775c0.png`.

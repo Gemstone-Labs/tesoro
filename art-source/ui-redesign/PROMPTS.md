@@ -126,6 +126,19 @@ Prompt for the sheet:
 
 Self-check: nothing about it says pirate or casino. The Gema it carries matches the faceted emerald-cut gem mark. It still reads at small size.
 
+### Phase 1b result (Ailton, Sep 30)
+
+- **Both characters are kept, as a duo:** the man from `sheet-take-1.png` and the woman from `sheet-take-2.png`.
+- **Proportions stay as drawn.** Not chibi; the current stylised proportions are approved.
+- **One correction for him:** he must read clearly as an adult in his mid-20s, not a teenager. Give him a stronger jaw, a slightly older face, light stubble, and a little more height and shoulder breadth than her. Everything else is kept (outfit, hat pin, lantern, satchel, palette).
+- **Roles, so each pose is drawn once rather than twice:**
+  - **She is the guide and the Player.** Poses: `welcome`, `explain`, `win`, `lose`, `waiting`.
+  - **He is the Backer and partner.** Poses: `backing` (handing her a Gema), `empty` (spyglass), `waiting-crosschain` (checking the compass while a Position crosses chains).
+  - **Together:** `duo-hero` (both side by side, she holds up a glowing Gema, he has the map; for onboarding and the Lobby when signed out) and `duo-win` (they celebrate together; for a backed win).
+- **Deliverables:**
+  - `character/him-sheet-v2.png`, with the age correction.
+  - The poses as `character/poses/<her|him|duo>-<pose>.png`, 1024×1024 (duo 2048×1024), on transparent backgrounds.
+
 ## Phase 1c: key art assets for code
 
 The code needs clean art, not screenshots. Folder: `assets/`. Everything is based on take-1's art, with no UI text baked in.
