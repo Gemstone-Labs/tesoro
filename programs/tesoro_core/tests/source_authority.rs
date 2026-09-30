@@ -126,7 +126,15 @@ impl Env {
             &[payer, other],
             self.svm.latest_blockhash(),
         );
-        self.svm.send_transaction(tx).map(|_| ())
+        let r = self.svm.send_transaction(tx);
+        LAST_CU.store(
+            match &r {
+                Ok(m) => m.compute_units_consumed,
+                Err(e) => e.meta.compute_units_consumed,
+            },
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        r.map(|_| ())
     }
 
     fn create_account(&mut self, kp: &Keypair) -> APk {
@@ -239,6 +247,8 @@ fn chain_byte(chain: SourceChain) -> u8 {
 }
 
 const ID: [u8; 32] = [7; 32];
+
+static LAST_CU: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[test]
 fn only_the_admin_registers_a_source_authority_and_never_for_solana() {
@@ -361,4 +371,60 @@ fn the_oracle_path_still_works_and_a_removed_authority_is_refused() {
     env.send(&[remove], &admin).expect("admin removes");
     env.open(&bridge, SourceChain::Ethereum, ID, SourceChain::Ethereum)
         .expect_err("removed authority is refused");
+}
+
+/// CU readings for `apply_yield_from_source` (run with `--nocapture`; docs/security/audit-2026-09-30.md).
+#[test]
+fn cu_profile_apply_yield_from_source() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let bridge = env.bridge.insecure_clone();
+    env.set_authority(&admin, SourceChain::Ethereum, a(bridge.pubkey()))
+        .expect("register");
+    env.open(&bridge, SourceChain::Ethereum, ID, SourceChain::Ethereum)
+        .expect("open");
+    let position = pda(&[POSITION_SEED, &[1], &ID]);
+    env.yield_from(&bridge, position, 1, 1_000)
+        .expect("free yield");
+    let no_advance = LAST_CU.load(Relaxed);
+
+    let oracle = env.oracle.insecure_clone();
+    let owner = env.owner.insecure_clone();
+    let source = pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
+    let advance = ix(
+        accounts::TakeAdvance {
+            oracle: a(oracle.pubkey()),
+            owner_authority: a(owner.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            owner_account: env.owner_account,
+            position,
+            source,
+            holding: pda(&[HOLDING_SEED, env.owner_account.as_ref(), source.as_ref()]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::TakeAdvance {
+            horizon_months: 3,
+            price_micro_usd: 1_000_000_000_000_000,
+        },
+    );
+    env.send2(&[advance], &oracle, &owner).expect("advance");
+    let payer = env.owner.insecure_clone();
+    let apply = ix(
+        accounts::ApplyYieldFromSource {
+            source_signer: a(bridge.pubkey()),
+            source_authority: pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            position,
+            source: Some(source),
+        },
+        instruction::ApplyYieldFromSource {
+            seq: 2,
+            cumulative: 30_000_000_000,
+        },
+    );
+    env.send2(&[apply], &payer, &bridge).expect("repay debt");
+    println!(
+        "CU apply_yield_from_source: no open Advance {no_advance}; with open Advance {}",
+        LAST_CU.load(Relaxed)
+    );
 }

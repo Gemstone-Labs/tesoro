@@ -43,6 +43,12 @@ pub use state::*;
 
 declare_id!("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 
+/// Identity of MagicBlock's TEE validator (devnet). Delegation is pinned to it: the validator a
+/// delegation names is the only key that can commit state back, so a caller-chosen validator (or
+/// none, which the delegation program reads as the public default validator) would let a Player
+/// commit a table they won, or leave the Deck outside the TEE.
+pub const TEE_VALIDATOR: Pubkey = pubkey!("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
+
 const READ_FLAGS: u8 = TX_LOGS_FLAG | TX_MESSAGE_FLAG | TX_BALANCES_FLAG;
 
 #[error_code]
@@ -85,6 +91,10 @@ pub enum HoldemError {
     MatchNotOver,
     #[msg("Already settled or refunded in tesoro_core")]
     AlreadyFinalized,
+    #[msg("Delegation must name the TEE validator")]
+    InvalidValidator,
+    #[msg("A permission for this account is missing or is not a real permission")]
+    PermissionNotReady,
 }
 
 #[ephemeral]
@@ -140,6 +150,27 @@ pub mod holdem {
         }
 
         let now = Clock::get()?.unix_timestamp;
+
+        // tesoro_core lets anyone refund an Active Match one hour after it started. A table lives
+        // in the rollup for longer than that, and a Player who is losing could stall past the hour
+        // and refund the Pot mid-Match. Push the refund deadline out; `finalize` refunds a
+        // cancelled table through the Game authority, which needs no deadline.
+        let authority_bump = [ctx.bumps.authority];
+        let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &authority_bump]];
+        tesoro_core::cpi::extend_match_deadline(
+            CpiContext::new_with_signer(
+                ctx.accounts.tesoro_program.to_account_info(),
+                tesoro_core::cpi::accounts::ExtendMatchDeadline {
+                    game_authority: ctx.accounts.authority.to_account_info(),
+                    config: ctx.accounts.config.to_account_info(),
+                    match_state: ctx.accounts.tesoro_match.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            now.checked_add(TABLE_WINDOW_SECS)
+                .ok_or(HoldemError::Overflow)?,
+        )?;
+
         let game_match = &mut ctx.accounts.game_match;
         **game_match = GameMatch {
             bump: ctx.bumps.game_match,
@@ -172,30 +203,27 @@ pub mod holdem {
 
     /// Base layer. Delegates the table and its hidden accounts to the TEE validator.
     pub fn delegate_match(ctx: Context<DelegateMatch>, match_id: u64) -> Result<()> {
-        let config = || DelegateConfig {
-            validator: ctx.accounts.validator.as_ref().map(|v| v.key()),
-            ..Default::default()
-        };
+        let config = || tee_config(&ctx.accounts.validator);
         let match_key = ctx.accounts.game_match.key();
         ctx.accounts.delegate_game_match(
             &ctx.accounts.payer,
             &[MATCH_SEED, &match_id.to_le_bytes()],
-            config(),
+            config()?,
         )?;
         ctx.accounts.delegate_deck(
             &ctx.accounts.payer,
             &[DECK_SEED, match_key.as_ref()],
-            config(),
+            config()?,
         )?;
         ctx.accounts.delegate_hole_0(
             &ctx.accounts.payer,
             &[HOLE_SEED, match_key.as_ref(), &[0]],
-            config(),
+            config()?,
         )?;
         ctx.accounts.delegate_hole_1(
             &ctx.accounts.payer,
             &[HOLE_SEED, match_key.as_ref(), &[1]],
-            config(),
+            config()?,
         )?;
         Ok(())
     }
@@ -528,6 +556,19 @@ pub mod holdem {
     }
 }
 
+/// The only delegation config the Game accepts: the TEE validator, and no automatic commits (an
+/// automatic commit would publish the hidden accounts to the base layer mid-Match).
+fn tee_config(validator: &Option<AccountInfo>) -> Result<DelegateConfig> {
+    require!(
+        validator.as_ref().is_some_and(|v| v.key() == TEE_VALIDATOR),
+        HoldemError::InvalidValidator
+    );
+    Ok(DelegateConfig {
+        validator: Some(TEE_VALIDATOR),
+        commit_frequency_ms: u32::MAX,
+    })
+}
+
 fn seat_of(game_match: &GameMatch, key: &Pubkey) -> Result<usize> {
     game_match
         .players
@@ -545,7 +586,11 @@ fn create_permission<'info, T: PermissionAccounts<'info>>(
     seeds: &[&[u8]],
 ) -> Result<()> {
     if permission.lamports() > 0 {
-        return Ok(());
+        return require_real_permission(
+            permission,
+            data.key,
+            error!(HoldemError::PermissionNotReady),
+        );
     }
     CreateEphemeralPermissionCpi {
         payer: data.clone(),
@@ -558,6 +603,25 @@ fn create_permission<'info, T: PermissionAccounts<'info>>(
     }
     .invoke_signed(&[seeds])?;
     Ok(())
+}
+
+/// A permission address that already holds lamports is only accepted as "created" if it really is
+/// a private permission of `permissioned` owned by the permission program. Lamports alone prove
+/// nothing: anyone can send some to the (predictable) address before the Game creates the
+/// permission, which would mark a hidden account ready without ever making it private.
+fn require_real_permission(
+    permission: &AccountInfo,
+    permissioned: &Pubkey,
+    err: Error,
+) -> Result<()> {
+    if permission.owner != &PERMISSION_PROGRAM_ID {
+        return Err(err);
+    }
+    let data = permission.try_borrow_data()?;
+    match EphemeralPermission::from_bytes(&data) {
+        Ok(p) if p.permissioned_account == *permissioned && p.private => Ok(()),
+        _ => Err(err),
+    }
 }
 
 fn close_permission<'info, T: PermissionAccounts<'info>>(
@@ -610,11 +674,14 @@ pub struct CreateMatch<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
     #[account(
+        mut,
         seeds = [MATCH_SEED, &tesoro_match.id.to_le_bytes()],
         bump = tesoro_match.bump,
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, seeds::program = tesoro_core::ID)]
+    pub config: Box<Account<'info, Config>>,
     #[account(
         seeds = [ACCOUNT_SEED, account_a.authority.as_ref()],
         bump = account_a.bump,
@@ -650,6 +717,7 @@ pub struct CreateMatch<'info> {
         seeds = [HOLE_SEED, game_match.key().as_ref(), &[1]], bump
     )]
     pub hole_1: Account<'info, Hole>,
+    pub tesoro_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
 }
 

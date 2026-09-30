@@ -11,7 +11,7 @@ The opener plays before an opponent is paired (Queue: "Play now, you'll be paire
 | # | Where | Instruction | Who |
 |---|---|---|---|
 | 1 | base | `tesoro_core::open_match` (`game = block_puzzle`, entry 500 / 1,000 / 2,500) + `open_session` (same transaction) | seat 0 (`open_session`: anyone) |
-| 2 | base | `delegate_opener`: opener's `Board` and the `SeedVault` to the TEE validator `MTEWGuqx...` | anyone |
+| 2 | base | `delegate_opener`: opener's `Board` and the `SeedVault` to the TEE validator `MTEWGuqx...` (any other validator, or none, is refused: audit F-01) | anyone |
 | 3 | TEE | `init_vault_permission` (private, **zero members**), `init_permission` (Board private, member = its Player) | anyone |
 | 4 | TEE | `request_seed(client_seed)`: VRF request; the oracle's callback `seed_callback` writes the Seed only into the SeedVault. `check_seed` succeeds once it is there | anyone |
 | 5 | TEE | `begin_run`: copies the Seed into the beginning Player's own Board and starts their 90 s clock; `play(moves)` (batches of at most 40); `finish` | the Player |

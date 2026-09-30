@@ -1258,3 +1258,229 @@ fn only_the_registered_authority_settles() {
     );
     env.settle(id, MatchResult::Opener).expect("real settle");
 }
+
+// --- Security audit 2026-09-30: proof tests ------------------------------------------------------
+// See docs/security/audit-2026-09-30.md (findings F-01, F-02, F-06, F-09).
+
+use ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED;
+use ephemeral_rollups_sdk::consts::{EPHEMERAL_VAULT_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID};
+
+fn sdk_key(p: ephemeral_rollups_sdk::compat::Pubkey) -> APk {
+    APk::new_from_array(p.to_bytes())
+}
+
+fn permission_pda(target: APk) -> APk {
+    APk::find_program_address(
+        &[PERMISSION_SEED, target.as_ref()],
+        &sdk_key(PERMISSION_PROGRAM_ID),
+    )
+    .0
+}
+
+fn logs_mention(e: &litesvm::types::FailedTransactionMetadata, needle: &str) -> bool {
+    e.meta.logs.iter().any(|l| l.contains(needle))
+}
+
+/// F-01. `delegate_opener` / `delegate_joiner` are callable by anyone and used to pass whatever
+/// validator the caller named (or none, which the delegation program reads as the public default
+/// validator). The validator a delegation names is the only key that can commit state back, so
+/// this let a Player forge a Board. Delegation is pinned to the TEE validator.
+#[test]
+fn f01_delegation_is_pinned_to_the_tee_validator() {
+    let (mut env, alice, bob) = Env::new();
+    let id = env.open(&alice);
+    env.open_session(&alice, id).expect("open session");
+    let session = session_pda(match_pda(id));
+    let dlp = sdk_key(ephemeral_rollups_sdk::id());
+    let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
+    let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &block_puzzle::ID);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+
+    let attacker = Keypair::new();
+    env.svm
+        .airdrop(&attacker.pubkey(), 10 * SOL)
+        .expect("airdrop");
+    let (board_0, vault) = (board_pda(session, 0), vault_pda(session));
+    for validator in [Some(a(attacker.pubkey())), None] {
+        let ix = bp_ix(
+            block_puzzle::accounts::DelegateOpener {
+                payer: a(attacker.pubkey()),
+                session,
+                buffer_board_0: buffer(board_0),
+                delegation_record_board_0: record(board_0),
+                delegation_metadata_board_0: meta(board_0),
+                board_0,
+                buffer_vault: buffer(vault),
+                delegation_record_vault: record(vault),
+                delegation_metadata_vault: meta(vault),
+                vault,
+                validator,
+                owner_program: block_puzzle::ID,
+                delegation_program: dlp,
+                system_program: anchor_lang::system_program::ID,
+            },
+            block_puzzle::instruction::DelegateOpener {},
+            vec![],
+        );
+        let err = env.send(&[ix], &attacker, &[]).unwrap_err();
+        assert!(
+            logs_mention(&err, "InvalidValidator"),
+            "validator {validator:?} must be refused, got {:?}",
+            err.meta.logs
+        );
+    }
+
+    // The joiner's Board is pinned the same way.
+    env.join(&bob, id).expect("join");
+    env.join_session(&bob, id).expect("join session");
+    let board_1 = board_pda(session, 1);
+    let ix = bp_ix(
+        block_puzzle::accounts::DelegateJoiner {
+            payer: a(attacker.pubkey()),
+            session,
+            buffer_board_1: buffer(board_1),
+            delegation_record_board_1: record(board_1),
+            delegation_metadata_board_1: meta(board_1),
+            board_1,
+            validator: Some(a(attacker.pubkey())),
+            owner_program: block_puzzle::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        block_puzzle::instruction::DelegateJoiner {},
+        vec![],
+    );
+    let err = env.send(&[ix], &attacker, &[]).unwrap_err();
+    assert!(
+        logs_mention(&err, "InvalidValidator"),
+        "{:?}",
+        err.meta.logs
+    );
+}
+
+/// F-02. `init_permission` treated "the permission address holds lamports" as "the permission
+/// exists". Anyone can put lamports on that address first, after which the Board (and the
+/// SeedVault) is marked ready without ever being made private.
+#[test]
+fn f02_a_prefunded_permission_address_is_not_a_permission() {
+    let (mut env, alice, _bob) = Env::new();
+    let id = env.open(&alice);
+    env.open_session(&alice, id).expect("open session");
+    let session = session_pda(match_pda(id));
+    let (board, vault) = (board_pda(session, 0), vault_pda(session));
+    let attacker = Keypair::new();
+    env.svm
+        .airdrop(&attacker.pubkey(), 10 * SOL)
+        .expect("airdrop");
+    env.svm
+        .airdrop(&s(permission_pda(board)), 1_000_000)
+        .expect("dust");
+    env.svm
+        .airdrop(&s(permission_pda(vault)), 1_000_000)
+        .expect("dust");
+
+    let init_board = bp_ix(
+        block_puzzle::accounts::InitPermission {
+            payer: a(attacker.pubkey()),
+            board,
+            permission: permission_pda(board),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        },
+        block_puzzle::instruction::InitPermission {},
+        vec![],
+    );
+    assert!(env.send(&[init_board], &attacker, &[]).is_err());
+    assert!(!env.load_bp::<Board>(board).permission_ready);
+
+    let init_vault = bp_ix(
+        block_puzzle::accounts::InitVaultPermission {
+            payer: a(attacker.pubkey()),
+            vault,
+            permission: permission_pda(vault),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        },
+        block_puzzle::instruction::InitVaultPermission {},
+        vec![],
+    );
+    assert!(env.send(&[init_vault], &attacker, &[]).is_err());
+    assert!(!env.load_bp::<SeedVault>(vault).permission_ready);
+}
+
+/// F-06. The opener's Board deadline is fixed when the session opens (the Match's Queue window);
+/// joining the Match one second before it leaves an opener who has not begun no time at all, so
+/// the joiner wins by forfeit. Documents the behaviour; needs a design decision.
+#[test]
+fn f06_joining_in_the_last_second_forfeits_an_opener_who_has_not_begun() {
+    let (mut env, alice, bob) = Env::new();
+    let id = env.open(&alice);
+    env.open_session(&alice, id).expect("open session");
+    let seed = env.prepare_opener(id);
+    let deadline = env
+        .load_bp::<Session>(session_pda(match_pda(id)))
+        .opener_deadline;
+    env.set_time(deadline - 1);
+    env.joined(&bob, id);
+    let bb = env.board(id, 1);
+    env.begin(&bob, bb).expect("begin");
+    env.play(&bob, bb, &greedy(seed, 2)).expect("play");
+    env.finish(&bob, bb).expect("finish");
+    env.set_time(deadline);
+    let err = env.begin(&alice, env.board(id, 0)).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::DeadlinePassed)
+    );
+    env.seal(id).expect("seal");
+    env.settle(id, MatchResult::Joiner).expect("settle");
+}
+
+/// F-09. `join_match` does not require a Session, so anyone can join an Open Block Puzzle Match
+/// before `open_session` runs; the Match then can never get a Session and only a refund is left.
+#[test]
+fn f09_joining_before_the_session_exists_strands_the_match_until_refund() {
+    let (mut env, alice, bob) = Env::new();
+    let id = env.open(&alice);
+    env.join(&bob, id).expect("join before the session");
+    let err = env.open_session(&alice, id).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::InvalidMatch)
+    );
+}
+
+/// CU readings (run with `--nocapture`; docs/security/audit-2026-09-30.md).
+#[test]
+fn cu_profile_block_puzzle() {
+    let (mut env, alice, bob) = Env::new();
+    let (id, seed) = env.ready(&alice, &bob);
+    let (ba, bb) = (env.board(id, 0), env.board(id, 1));
+    let begin = env.begin(&alice, ba).expect("begin").compute_units_consumed;
+    let moves = greedy(seed, 41);
+    let one = env
+        .play(&alice, ba, &moves[..1])
+        .expect("one move")
+        .compute_units_consumed;
+    let batch = env
+        .play(&alice, ba, &moves[1..21])
+        .expect("20 moves")
+        .compute_units_consumed;
+    env.finish(&alice, ba).expect("finish");
+    env.begin(&bob, bb).expect("begin b");
+    env.play(&bob, bb, &greedy(seed, 2)).expect("bob");
+    env.finish(&bob, bb).expect("finish b");
+    let seal = env.seal(id).expect("seal").compute_units_consumed;
+    let settle = env
+        .settle(id, MatchResult::Opener)
+        .expect("settle")
+        .compute_units_consumed;
+    println!(
+        "CU begin_run {begin}; play 1 move {one}; play 20 moves {batch} ({} per move); seal {seal}; settle (with tesoro_core CPI) {settle}",
+        batch / 20
+    );
+    assert!(batch < 1_400_000);
+}

@@ -553,6 +553,7 @@
         },
         {
           "name": "tesoro_match",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -569,6 +570,61 @@
                 "kind": "account",
                 "path": "tesoro_match.id",
                 "account": "MatchState"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                139,
+                232,
+                217,
+                200,
+                195,
+                196,
+                42,
+                210,
+                40,
+                249,
+                196,
+                130,
+                26,
+                66,
+                171,
+                32,
+                36,
+                239,
+                175,
+                140,
+                108,
+                61,
+                148,
+                110,
+                71,
+                7,
+                159,
+                115,
+                202,
+                186,
+                136,
+                218
+              ]
+            }
+          }
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
               }
             ],
             "program": {
@@ -803,6 +859,10 @@
         {
           "name": "hole_1",
           "writable": true
+        },
+        {
+          "name": "tesoro_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
         },
         {
           "name": "system_program",
@@ -2506,6 +2566,16 @@
       "code": 6018,
       "name": "AlreadyFinalized",
       "msg": "Already settled or refunded in tesoro_core"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidValidator",
+      "msg": "Delegation must name the TEE validator"
+    },
+    {
+      "code": 6020,
+      "name": "PermissionNotReady",
+      "msg": "A permission for this account is missing or is not a real permission"
     }
   ],
   "types": [

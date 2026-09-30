@@ -125,6 +125,7 @@ struct Env {
     pool: APk,
     mint: APk,
     next_nonce: u64,
+    last_cu: u64,
 }
 
 impl Env {
@@ -154,6 +155,7 @@ impl Env {
             pool,
             mint,
             next_nonce: 1,
+            last_cu: 0,
         };
         let init_pool = ix(
             sim_lst::ID,
@@ -210,7 +212,16 @@ impl Env {
             &signers,
             self.svm.latest_blockhash(),
         );
-        self.svm.send_transaction(tx).map(|_| ())
+        match self.svm.send_transaction(tx) {
+            Ok(meta) => {
+                self.last_cu = meta.compute_units_consumed;
+                Ok(())
+            }
+            Err(e) => {
+                self.last_cu = e.meta.compute_units_consumed;
+                Err(e)
+            }
+        }
     }
 
     fn load<T: AccountDeserialize>(&self, k: APk) -> T {
@@ -603,6 +614,35 @@ fn only_the_owner_takes_an_advance() {
     );
     let err = env.send(&[advance], &mallory.kp, &[]).unwrap_err();
     assert_eq!(code(&err), 6000);
+}
+
+/// F-05 (open, needs a decision). The vault's SPL balance is the yield source, so anybody can add
+/// simSOL to it directly. The crank then reads that as accrued yield and repays Debt, which is a
+/// top-up paying Debt (ADR 0001 says Principal never does). This test pins the CURRENT behaviour;
+/// when custody tracks its own share count, flip the assertion to `debt == 874`.
+#[test]
+fn f05_known_issue_donating_simsol_to_the_vault_repays_debt() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    assert_eq!(env.debt(source), 874);
+    let donor = env.staker();
+    // Plain SPL Token transfer (instruction 3) straight into the vault.
+    let mut data = vec![3u8];
+    data.extend_from_slice(&SOL.to_le_bytes());
+    let donate = Instruction {
+        program_id: s(TOKEN_PROGRAM_ID),
+        accounts: vec![
+            AccountMeta::new(s(donor.token), false),
+            AccountMeta::new(s(pos.vault), false),
+            AccountMeta::new_readonly(s(donor.key), true),
+        ],
+        data,
+    };
+    env.send(&[donate], &donor.kp, &[]).expect("donate");
+    env.crank(&donor.kp, pos).expect("crank");
+    assert_eq!(env.debt(source), 0, "no time passed, yet Debt was repaid");
 }
 
 // --- Yield crank ----------------------------------------------------------------------------
@@ -1179,4 +1219,25 @@ proptest! {
             env.check_invariants(pos);
         }
     }
+}
+
+/// CU reading for the crank (run with `--nocapture`; recorded in docs/security/audit-2026-09-30.md).
+#[test]
+fn cu_profile_accrue_native_yield() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    let _ = source;
+    env.advance(300);
+    let cranker = env.person();
+    env.crank(&cranker.kp, pos).unwrap();
+    let with_debt = env.last_cu;
+    env.advance(MONTH);
+    env.crank(&cranker.kp, pos).unwrap();
+    println!(
+        "CU accrue_native_yield partial repay: {with_debt}; final repay: {}",
+        env.last_cu
+    );
+    assert!(with_debt < 100_000 && env.last_cu < 100_000);
 }

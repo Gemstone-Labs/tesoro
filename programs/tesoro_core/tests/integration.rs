@@ -93,6 +93,7 @@ struct Env {
     platform: Person,
     studio: Person,
     next_match: u64,
+    last_cu: u64,
 }
 
 fn custom_code(err: &litesvm::types::FailedTransactionMetadata) -> u32 {
@@ -140,6 +141,7 @@ impl Env {
             platform: placeholder(Keypair::new()),
             studio: placeholder(Keypair::new()),
             next_match: 1,
+            last_cu: 0,
         };
         env.platform = env.person();
         env.studio = env.person();
@@ -193,7 +195,16 @@ impl Env {
             &signers,
             self.svm.latest_blockhash(),
         );
-        self.svm.send_transaction(tx).map(|_| ())
+        match self.svm.send_transaction(tx) {
+            Ok(meta) => {
+                self.last_cu = meta.compute_units_consumed;
+                Ok(())
+            }
+            Err(e) => {
+                self.last_cu = e.meta.compute_units_consumed;
+                Err(e)
+            }
+        }
     }
 
     fn person(&mut self) -> Person {
@@ -1240,4 +1251,52 @@ fn reserved_gemas_cannot_enter_other_matches() {
     );
     let h = b.d.env.load::<HoldingState>(b.c_holding).inner;
     assert_eq!(h.free(), 72_500);
+}
+
+/// CU readings for the matching hot path (run with `--nocapture`; see docs/security/audit-2026-09-30.md).
+#[test]
+fn cu_profile_matching() {
+    let mut d = duel();
+    let game = d.env.game_auth.insecure_clone();
+    let m = d.env.open_match(&d.alice, ENTRY, &[d.a_holding]).unwrap();
+    let open1 = d.env.last_cu;
+    d.env.join_match(&d.bob, m, &[d.b_holding]).unwrap();
+    let join1 = d.env.last_cu;
+    let payouts = d.env.payout_accounts(m, MatchResult::Joiner);
+    d.env
+        .settle(&game, m, MatchResult::Joiner, payouts)
+        .unwrap();
+    let settle = d.env.last_cu;
+
+    // Bob (Position owner) returns most of his own Gemas, leaving own < entry and won > 0, so the
+    // next entry draws from two Holdings (own first, then won).
+    let bob = d.bob.kp.insecure_clone();
+    let b_position = position_pda(2);
+    let ret = ix(
+        accounts::ReturnOwn {
+            owner_authority: d.bob.key,
+            owner_account: d.bob.account,
+            position: b_position,
+            source: d.b_source,
+            holding: d.b_holding,
+        },
+        instruction::ReturnOwn { amount: 74_800 },
+        vec![],
+    );
+    d.env.send(&[ret], &bob, &[]).expect("return own");
+    let won = holding_pda(d.bob.account, d.a_source);
+    let m2 = d.env.open_match(&d.bob, 500, &[d.b_holding, won]).unwrap();
+    let open2 = d.env.last_cu;
+    d.env.join_match(&d.alice, m2, &[d.a_holding]).unwrap();
+    let payouts = d.env.payout_accounts(m2, MatchResult::Opener);
+    let n = payouts.len() / 2;
+    d.env
+        .settle(&game, m2, MatchResult::Opener, payouts)
+        .unwrap();
+    let settle2 = d.env.last_cu;
+    println!(
+        "CU open_match(1 holding) {open1}; join_match(1 holding) {join1}; settle_match({} payouts) {settle}; open_match(2 holdings) {open2}; settle_match({n} payouts) {settle2}",
+        4
+    );
+    assert!(open2 < 200_000 && settle < 200_000 && settle2 < 200_000);
 }

@@ -137,6 +137,7 @@ struct Env {
     b_source: APk,
     id: u64,
     now: i64,
+    last_cu: u64,
 }
 
 impl Env {
@@ -155,7 +156,16 @@ impl Env {
             &signers,
             self.svm.latest_blockhash(),
         );
-        self.svm.send_transaction(tx).map(|_| ())
+        match self.svm.send_transaction(tx) {
+            Ok(meta) => {
+                self.last_cu = meta.compute_units_consumed;
+                Ok(())
+            }
+            Err(e) => {
+                self.last_cu = e.meta.compute_units_consumed;
+                Err(e)
+            }
+        }
     }
 
     fn person(&mut self) -> Person {
@@ -346,6 +356,7 @@ impl Env {
             b_source: APk::default(),
             id: 1,
             now: T0,
+            last_cu: 0,
         };
         for k in [&env.admin, &env.oracle] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
@@ -433,6 +444,7 @@ impl Env {
             holdem::accounts::CreateMatch {
                 creator,
                 tesoro_match: tmatch_pda(self.id),
+                config: tpda(&[CONFIG_SEED]),
                 account_a: self.alice.account,
                 account_b: self.bob.account,
                 authority: authority_pda(),
@@ -440,6 +452,7 @@ impl Env {
                 deck: ad.deck,
                 hole_0: ad.hole_0,
                 hole_1: ad.hole_1,
+                tesoro_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
             },
             holdem::instruction::CreateMatch {
@@ -582,6 +595,140 @@ fn ready(speed: u8) -> Env {
     env.open_and_join(1_000);
     env.create(speed).expect("create match");
     env
+}
+
+// --- Security audit 2026-09-30: proof tests ------------------------------------------------------
+// See docs/security/audit-2026-09-30.md (findings F-01, F-02, F-03).
+
+use ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED;
+use ephemeral_rollups_sdk::consts::{EPHEMERAL_VAULT_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID};
+
+fn sdk_key(p: ephemeral_rollups_sdk::compat::Pubkey) -> APk {
+    APk::new_from_array(p.to_bytes())
+}
+
+fn permission_pda(target: APk) -> APk {
+    APk::find_program_address(
+        &[PERMISSION_SEED, target.as_ref()],
+        &sdk_key(PERMISSION_PROGRAM_ID),
+    )
+    .0
+}
+
+/// F-01. `delegate_match` is callable by anyone and used to pass whatever validator the caller
+/// named (or none, which the delegation program reads as the public default validator). The
+/// validator named at delegation is the only key that can commit state back, so a Player could
+/// commit a table they had won. Delegation is pinned to the TEE validator.
+#[test]
+fn f01_delegation_is_pinned_to_the_tee_validator() {
+    let mut env = ready(0);
+    let ad = addrs(env.id);
+    let dlp = sdk_key(ephemeral_rollups_sdk::id());
+    let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
+    let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &holdem::ID);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+    let attacker = env.bob.kp.insecure_clone();
+    for validator in [Some(a(attacker.pubkey())), None] {
+        let delegate = ix(
+            holdem::ID,
+            holdem::accounts::DelegateMatch {
+                payer: a(attacker.pubkey()),
+                buffer_game_match: buffer(ad.game_match),
+                delegation_record_game_match: record(ad.game_match),
+                delegation_metadata_game_match: meta(ad.game_match),
+                game_match: ad.game_match,
+                buffer_deck: buffer(ad.deck),
+                delegation_record_deck: record(ad.deck),
+                delegation_metadata_deck: meta(ad.deck),
+                deck: ad.deck,
+                buffer_hole_0: buffer(ad.hole_0),
+                delegation_record_hole_0: record(ad.hole_0),
+                delegation_metadata_hole_0: meta(ad.hole_0),
+                hole_0: ad.hole_0,
+                buffer_hole_1: buffer(ad.hole_1),
+                delegation_record_hole_1: record(ad.hole_1),
+                delegation_metadata_hole_1: meta(ad.hole_1),
+                hole_1: ad.hole_1,
+                validator,
+                owner_program: holdem::ID,
+                delegation_program: dlp,
+                system_program: anchor_lang::system_program::ID,
+            },
+            holdem::instruction::DelegateMatch { match_id: env.id },
+            vec![],
+        );
+        let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
+        assert!(
+            err.meta.logs.iter().any(|l| l.contains("InvalidValidator")),
+            "validator {validator:?} must be refused, got {:?}",
+            err.meta.logs
+        );
+    }
+}
+
+/// F-02. `init_permissions` treated "the permission address holds lamports" as "the permission
+/// exists". Anyone can put lamports on those addresses first, after which the table starts with
+/// the Deck and the Hole cards never made private.
+#[test]
+fn f02_a_prefunded_permission_address_is_not_a_permission() {
+    let mut env = ready(0);
+    let ad = addrs(env.id);
+    for target in [ad.game_match, ad.deck, ad.hole_0, ad.hole_1] {
+        env.svm
+            .airdrop(&s(permission_pda(target)), 1_000_000)
+            .expect("dust");
+    }
+    let payer = env.bob.kp.insecure_clone();
+    let init = ix(
+        holdem::ID,
+        holdem::accounts::InitPermissions {
+            payer: a(payer.pubkey()),
+            game_match: ad.game_match,
+            deck: ad.deck,
+            hole_0: ad.hole_0,
+            hole_1: ad.hole_1,
+            match_permission: permission_pda(ad.game_match),
+            deck_permission: permission_pda(ad.deck),
+            hole_0_permission: permission_pda(ad.hole_0),
+            hole_1_permission: permission_pda(ad.hole_1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+        },
+        holdem::instruction::InitPermissions {},
+        vec![],
+    );
+    assert!(env.send(&[init], &payer, &[]).is_err());
+    assert_eq!(env.game_match().status, holdem::STATUS_CREATED);
+}
+
+/// F-03. A tesoro_core Match becomes refundable by anyone one hour after it turns Active. The
+/// table never extended that timer, so a Player who is losing could stall past the hour and
+/// refund the Pot mid-Match. `create_match` now pushes the refund deadline out; only the Game's
+/// own `finalize` refunds a live table.
+#[test]
+fn f03_a_live_table_cannot_be_refunded_from_tesoro_core_after_an_hour() {
+    let mut env = ready(0);
+    env.set_time(T0 + tesoro_core::ledger::MATCH_TIMEOUT_SECS + 1);
+    let remaining = env.payout_metas(true);
+    let caller = env.bob.kp.insecure_clone();
+    let refund = ix(
+        tesoro_core::ID,
+        tesoro_core::accounts::RefundMatch {
+            caller: a(caller.pubkey()),
+            config: tpda(&[CONFIG_SEED]),
+            match_state: tmatch_pda(env.id),
+        },
+        tesoro_core::instruction::RefundMatch {},
+        remaining,
+    );
+    let err = env.send(&[refund], &caller, &[]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        tesoro_core::error::CORE_ERROR_OFFSET + tesoro_core::ledger::CoreError::NotExpired.code()
+    );
+    assert_eq!(env.tesoro_status(), MatchStatus::Active);
 }
 
 #[test]
@@ -990,4 +1137,51 @@ fn a_whole_match_of_short_hands_conserves_chips_and_settles_once() {
     assert_eq!(env.game_match().status, holdem::STATUS_OVER);
     env.finalize(false).expect("finalize");
     assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+}
+
+/// CU readings (run with `--nocapture`; docs/security/audit-2026-09-30.md).
+#[test]
+fn cu_profile_holdem() {
+    let mut env = ready(0);
+    env.start_in_rollup();
+    env.deal().expect("deal");
+    let deal = env.last_cu;
+    // Hand 1: call, check, then check down to a showdown.
+    env.act(0, Action::Call).expect("call");
+    let call = env.last_cu;
+    env.act(1, Action::Check).expect("check");
+    let mut streets = 0;
+    let mut showdown = 0;
+    while env.game_match().phase != holdem::PHASE_SHUFFLE {
+        let seat = usize::from(env.game_match().to_act);
+        env.act(seat, Action::Check).expect("check down");
+        streets += 1;
+        showdown = env.last_cu;
+    }
+    env.ready_deck();
+    // Following hands: shove and call until the Match ends.
+    let (mut shove, mut all_in_call) = (0, 0);
+    while env.game_match().status == holdem::STATUS_LIVE {
+        env.deal().expect("deal next");
+        let dealer = usize::from(env.game_match().to_act);
+        let m = env.game_match();
+        env.act(
+            dealer,
+            Action::Raise {
+                to: m.bets[dealer] + m.stacks[dealer],
+            },
+        )
+        .expect("shove");
+        shove = env.last_cu;
+        env.act(1 - dealer, Action::Call).expect("call");
+        all_in_call = env.last_cu;
+        if env.game_match().status == holdem::STATUS_LIVE {
+            env.ready_deck();
+        }
+    }
+    env.finalize(false).expect("finalize");
+    let finalize = env.last_cu;
+    println!(
+        "CU deal {deal}; act call {call}; act shove {shove}; last check to showdown ({streets} checks) {showdown}; call to all-in showdown {all_in_call}; finalize {finalize}"
+    );
 }
