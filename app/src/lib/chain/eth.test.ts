@@ -39,13 +39,23 @@ describe("SimLST clock", () => {
 
   it("estimates the unlock time from the Debt and the rate", () => {
     const source = { issued: 1000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 15n, unitDen: 1n };
-    const position = { principalShares: 10n ** 18n, openRate: rate.baseRate, accrued: 0n };
+    const position = { heldShares: 10n ** 18n, principalUnderlying: 10n ** 18n, paidUnderlying: 0n, accrued: 0n };
     const at = ethUnlockEstimateMs({ source, position, rate, nowMs: 1_000_000 });
     // 1e18 wei of yield needed on 1 share: rate must reach baseRate + 1e18 * 1e18 / 1e18 shares... one full unit
     expect(at).not.toBeNull();
     expect(at!).toBeGreaterThan(1_000_000);
     const done = ethUnlockEstimateMs({ source, position: { ...position, accrued: 10n ** 30n }, rate, nowMs: 5 });
     expect(done).toBe(5);
+  });
+
+  it("counts only the shares still held after a payout (SP-01)", () => {
+    const source = { issued: 2000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 15n, unitDen: 1n };
+    const fresh = { heldShares: 10n ** 19n, principalUnderlying: 10n ** 19n, paidUnderlying: 0n, accrued: 0n };
+    // 0.5 paid out at rate 1.1: about 0.4545 shares left the vault and no longer earn
+    const paidOut = { ...fresh, heldShares: 10n ** 19n - 454_545_454_545_454_545n, paidUnderlying: 5n * 10n ** 17n };
+    const a = ethUnlockEstimateMs({ source, position: fresh, rate, nowMs: 0 })!;
+    const b = ethUnlockEstimateMs({ source, position: paidOut, rate, nowMs: 0 })!;
+    expect(b).toBeGreaterThan(a);
   });
 
   it("projects the Debt a report would leave", () => {

@@ -182,12 +182,12 @@ contract PositionVaultSimTest is VaultBase {
         uint256 accrued = vault.accruedYield(id);
         _deliver(_payMsg(id, 3, redeemer, accrued / 4));
         _deliver(_payMsg(id, 2, redeemer, accrued / 4)); // older seq, arrives second
-        assertEq(vault.getPosition(id).paidUnderlying, accrued / 2, "older PayYield was dropped");
+        assertEq(vault.getPosition(id).paidUnderlying, 2 * (accrued / 4), "older PayYield was dropped");
         uint256 bal = lst.balanceOf(redeemer);
         _deliver(_payMsg(id, 2, redeemer, accrued / 4)); // replay
         _deliver(_payMsg(id, 3, redeemer, accrued / 4)); // replay
         assertEq(lst.balanceOf(redeemer), bal);
-        assertEq(vault.getPosition(id).paidUnderlying, accrued / 2);
+        assertEq(vault.getPosition(id).paidUnderlying, 2 * (accrued / 4));
     }
 
     function test_payYieldOnlyUpToAccrued() public {
@@ -289,9 +289,9 @@ contract PositionVaultWstETHTest is VaultBase {
         uint64 id = vault.openPosition(10 ether, 6);
         assertEq(vault.accruedYield(id), 0);
         wst.setRate(1.0403e18);
-        assertEq(vault.accruedYield(id), 0.103 ether); // 10 * (1.0403 - 1.03)
+        assertApproxEqAbs(vault.accruedYield(id), 0.103 ether, 2); // 10 * (1.0403 - 1.03), rounded down
         wst.setRate(1.0506e18);
-        assertEq(vault.accruedYield(id), 0.206 ether);
+        assertApproxEqAbs(vault.accruedYield(id), 0.206 ether, 2);
     }
 
     function test_rateDropGivesZeroYieldNotUnderflow() public {
@@ -312,6 +312,99 @@ contract PositionVaultWstETHTest is VaultBase {
         uint256 worth = wst.balanceOf(redeemer) * 1.0403e18 / 1e18;
         assertGe(worth, 0.05 ether - 1);
         assertLe(worth, 0.05 ether + 2);
+    }
+
+    function _openAtParRate() internal returns (uint64 id) {
+        wst.setRate(1e18);
+        vm.prank(alice);
+        id = vault.openPosition(10 ether, 12);
+    }
+
+    /// Paid shares are rounded down, so a claim is short by less than one share-wei of value.
+    function _assertPaidInFull(uint256 before, uint256 rate, uint256 claim) internal view {
+        uint256 worth = (wst.balanceOf(redeemer) - before) * rate / 1e18;
+        assertGe(worth + rate / 1e18 + 1, claim, "claim paid in full");
+    }
+
+    /// SP-01. Shares paid out for a claim stop earning in the vault, so accrued yield counts only the shares
+    /// still held, and a claim within it is paid in full.
+    function test_sp01_yieldAfterAPayoutCountsOnlyHeldShares() public {
+        uint64 id = _openAtParRate();
+        wst.setRate(1.1e18);
+        _deliver(_payMsg(id, 1, redeemer, 0.5 ether));
+        wst.setRate(1.2e18);
+        // 0.5 paid + (10 - 0.5/1.1 - 10/1.2) shares at 1.2; counting the paid-out shares would give 2
+        assertApproxEqAbs(vault.accruedYield(id), 1.954545454545454545 ether, 3);
+
+        uint256 claim = vault.payableYield(id);
+        uint256 before = wst.balanceOf(redeemer);
+        _deliver(_payMsg(id, 2, redeemer, claim));
+        _assertPaidInFull(before, 1.2e18, claim);
+        PositionVault.Position memory p = vault.getPosition(id);
+        assertGe(p.heldShares * 1.2e18 / 1e18, p.principalUnderlying, "Principal intact");
+    }
+
+    /// SP-01. A claim the held shares cannot cover reverts (retryable) instead of paying less and recording
+    /// the whole claim as paid.
+    function test_sp01_claimAboveBackedYieldRevertsThenPaysInFull() public {
+        uint64 id = _openAtParRate();
+        wst.setRate(1.1e18);
+        _deliver(_payMsg(id, 1, redeemer, 0.5 ether));
+        wst.setRate(1.2e18);
+        vm.expectPartialRevert(PositionVault.ExceedsAccruedYield.selector); // about 1.4545 is backed
+        _deliver(_payMsg(id, 2, redeemer, 1.5 ether));
+        assertEq(vault.getPosition(id).paidUnderlying, 0.5 ether);
+
+        wst.setRate(1.4e18);
+        uint256 before = wst.balanceOf(redeemer);
+        _deliver(_payMsg(id, 2, redeemer, 1.5 ether));
+        _assertPaidInFull(before, 1.4e18, 1.5 ether);
+        assertEq(vault.getPosition(id).paidUnderlying, 2 ether);
+    }
+
+    /// After Unlock, a fallen rate can leave too few shares for a claim; it reverts rather than underpays.
+    function test_sp01_claimAfterUnlockWithFallenRateRevertsUntilRecovered() public {
+        uint64 id = _openAtParRate();
+        wst.setRate(1.2e18);
+        _deliver(_unlockMsg(id, 1));
+        uint256 claim = vault.payableYield(id);
+        wst.setRate(1e18);
+        vm.expectPartialRevert(PositionVault.InsufficientShares.selector);
+        _deliver(_payMsg(id, 2, redeemer, claim));
+
+        wst.setRate(1.2e18);
+        uint256 before = wst.balanceOf(redeemer);
+        _deliver(_payMsg(id, 2, redeemer, claim));
+        _assertPaidInFull(before, 1.2e18, claim);
+    }
+
+    function testFuzz_sp01_claimsWithinPayableArePaidInFull(uint256 r1, uint256 r2, uint256 f1, uint256 f2) public {
+        uint64 id = _openAtParRate();
+        r1 = bound(r1, 1e18, 2e18);
+        r2 = bound(r2, r1, 3e18);
+        wst.setRate(r1);
+        uint256 a1 = vault.payableYield(id) * bound(f1, 0, 100) / 100;
+        uint256 before = wst.balanceOf(redeemer);
+        _deliver(_payMsg(id, 1, redeemer, a1));
+        _assertPaidInFull(before, r1, a1);
+
+        wst.setRate(r2);
+        uint256 a2 = vault.payableYield(id) * bound(f2, 0, 100) / 100;
+        before = wst.balanceOf(redeemer);
+        _deliver(_payMsg(id, 2, redeemer, a2));
+        _assertPaidInFull(before, r2, a2);
+        PositionVault.Position memory p = vault.getPosition(id);
+        assertGe(p.heldShares * r2 / 1e18 + 1, p.principalUnderlying);
+        assertEq(p.paidUnderlying, a1 + a2);
+    }
+
+    /// Paying a claim never lowers the cumulative the vault reports: tesoro_core rejects a decrease.
+    function testFuzz_sp01_reportedYieldNeverDropsAfterAPayout(uint256 r, uint256 f) public {
+        uint64 id = _openAtParRate();
+        wst.setRate(bound(r, 1e18, 3e18));
+        uint256 before = vault.accruedYield(id);
+        _deliver(_payMsg(id, 1, redeemer, vault.payableYield(id) * bound(f, 0, 100) / 100));
+        assertGe(vault.accruedYield(id), before);
     }
 
     /// PR-01. tesoro_core stores Principal as u64; a larger Position could never open on Solana and its
