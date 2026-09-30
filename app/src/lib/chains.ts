@@ -3,7 +3,7 @@ import { hoodi } from "viem/chains";
 
 export { hoodi };
 
-/** HyperEVM testnet (chain id 998). Defined here so the RPC is pinned to the one in docs/BUILD.md. */
+/** HyperEVM testnet (chain id 998). Defined here so the RPC is pinned to the one in the build brief. */
 export const hyperEvmTestnet = defineChain({
   id: 998,
   name: "HyperEVM Testnet",

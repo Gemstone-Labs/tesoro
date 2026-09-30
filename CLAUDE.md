@@ -6,7 +6,7 @@ Colosseum Crypto World's Fair MVP (deadline Oct 12, 2026). Testnets only: Solana
 
 1. `CONTEXT.md` — the domain language. Use its terms verbatim in code, UI and copy (Gema, not credit/ORO/token). If a concept has no term, stop and raise it.
 2. `docs/adr/` — decisions that bind the build.
-3. `docs/BUILD.md` — tracks, acceptance criteria, day plan, cut order.
+3. `~/Work/gemstone-labs/tesoro/docs/BUILD.md` (outside the repo, in the workspace) — tracks, acceptance criteria, day plan, cut order.
 4. `DESIGN.md` — UI direction (Cut) and tokens.
 
 Nothing outside this repo about earlier Tesoro work is a source. Do not read or reuse `~/Archive/tesoro-pre-2026-09-30/` or the Obsidian `Archive/Tesoro pre-2026-09-30/` folder.

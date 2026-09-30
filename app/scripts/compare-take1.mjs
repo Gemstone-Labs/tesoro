@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const take1 = process.env.TAKE1 ?? resolve(here, "../../art-source/ui-redesign/lobby-desktop/take-1.png");
+const take1 = process.env.TAKE1 ?? resolve(here, "../../../art-source/ui-redesign/lobby-desktop/take-1.png");
 const mine = resolve(here, "../docs/screens/redesign-lobby-1920-signedin.png");
 await sharp({ create: { width: 3860, height: 1200, channels: 3, background: "#ffffff" } })
   .composite([

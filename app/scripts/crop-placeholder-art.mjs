@@ -1,6 +1,6 @@
 /**
  * PLACEHOLDER ART. Crops game art out of the approved mockup (take-1.png) until the real assets
- * land in art-source/ui-redesign/assets/. Output: app/public/art/placeholder/*.png, referenced only
+ * land in the workspace's art-source/ui-redesign/assets/ (outside the repo). Output: app/public/art/placeholder/*.png, referenced only
  * through src/lib/art.ts, so swapping to final art is one line per image.
  *
  *   TAKE1=/path/to/take-1.png node scripts/crop-placeholder-art.mjs
@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = process.env.TAKE1 ?? resolve(here, "../../art-source/ui-redesign/lobby-desktop/take-1.png");
+const SRC = process.env.TAKE1 ?? resolve(here, "../../../art-source/ui-redesign/lobby-desktop/take-1.png");
 if (!existsSync(SRC)) throw new Error(`take-1.png not found at ${SRC}; set TAKE1=`);
 const OUT = resolve(here, "../public/art/placeholder");
 mkdirSync(OUT, { recursive: true });

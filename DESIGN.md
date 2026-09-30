@@ -1,6 +1,6 @@
 # Tesoro Design
 
-**Direction: Cut, lit.** The game is the star; the platform is quiet, neutral chrome. Tesoro's signature is its *shape* — the emerald cut — and emerald appears only where Gemas move. Reference 0 is the approved Lobby mockup `art-source/ui-redesign/lobby-desktop/take-1.png` (1920×1200); structure follows Skillz (`attach/10-ref-skillz-desktop.jpg`), hero drama follows `attach/11-ref-chumba-desktop.jpg`. Original study: `docs/design/emerald-directions-study.html` (the "Cut" row).
+**Direction: Cut, lit.** The game is the star; the platform is quiet, neutral chrome. Tesoro's signature is its *shape* — the emerald cut — and emerald appears only where Gemas move. Reference 0 is the approved Lobby mockup `~/Work/gemstone-labs/tesoro/art-source/ui-redesign/lobby-desktop/take-1.png` (workspace, outside the repo) (1920×1200); structure follows Skillz (`attach/10-ref-skillz-desktop.jpg`), hero drama follows `attach/11-ref-chumba-desktop.jpg`. Original study: `~/Work/gemstone-labs/tesoro/docs/design/emerald-directions-study.html` (the "Cut" row).
 
 Tesoro is a **desktop web app first** (sidebar, top bar, rails); phone and tablet are the same app collapsed, never a different product.
 
@@ -84,7 +84,7 @@ Live in `app/src/components/ui` (primitives, money, inputs, icons, `ui.css`), th
 
 ## Art
 
-All game art, hero art and avatars come from one map, `app/src/lib/art.ts`. Until the final assets land (`art-source/ui-redesign/assets/`), they are **placeholder crops of take-1** produced by `app/scripts/crop-placeholder-art.mjs` into `app/public/art/placeholder/`; swapping to final art is one line per image. Hero art keeps its left 40% dark for the title. Art carries no UI text (titles, chips and prices are real text).
+All game art, hero art and avatars come from one map, `app/src/lib/art.ts`. Until the final assets land (`~/Work/gemstone-labs/tesoro/art-source/ui-redesign/assets/`), they are **placeholder crops of take-1** produced by `app/scripts/crop-placeholder-art.mjs` into `app/public/art/placeholder/`; swapping to final art is one line per image. Hero art keeps its left 40% dark for the title. Art carries no UI text (titles, chips and prices are real text).
 
 ## Implementation decisions
 

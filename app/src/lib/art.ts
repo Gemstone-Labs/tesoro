@@ -1,7 +1,7 @@
 /**
  * Every piece of game art and avatar the UI shows, in one map. Today these are PLACEHOLDER crops of
  * the approved mockup (`app/scripts/crop-placeholder-art.mjs`, `public/art/placeholder/`). When the
- * real assets land (art-source/ui-redesign/assets/), copy them to `public/art/` and change the
+ * real assets land (~/Work/gemstone-labs/tesoro/art-source/ui-redesign/assets/, outside the repo), copy them to `public/art/` and change the
  * one line for each image here.
  */
 const p = (name: string) => `/art/placeholder/${name}.png`;
