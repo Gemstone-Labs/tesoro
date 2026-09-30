@@ -499,6 +499,11 @@ export class HoldemChain {
   }
 
   /** The tesoro_core Match state (base layer), decoded. */
+  /** A tesoro_core Match that can still be settled (Active); false once settled, refunded or gone. */
+  private isLive(tesoroMatch: any | null): boolean {
+    return !!tesoroMatch && "active" in tesoroMatch.inner.status;
+  }
+
   async readTesoroMatch(matchId: bigint | number): Promise<any | null> {
     const info = await this.base.getAccountInfo(tesoroMatchPda(matchId));
     return info ? this.tesoro.coder.accounts.decode("matchState", info.data) : null;
@@ -507,7 +512,9 @@ export class HoldemChain {
   /**
    * Base layer, permissionless. After the rollup committed the result (`closeMatch`, then wait
    * for the table to be owned by holdem again), settles or refunds the tesoro_core Match by CPI as
-   * the Game authority PDA. Creates missing Holdings for the recipients first.
+   * the Game authority PDA. Creates missing Holdings for the recipients first. Returns "" without
+   * sending when the Match is already settled or refunded (the other Player, or the keeper, got
+   * there first), so a lost race costs no fee.
    */
   async finalize(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
     const ad = addresses(matchId);
@@ -517,21 +524,27 @@ export class HoldemChain {
     const info = await this.base.getAccountInfo(ad.gameMatch);
     const table = decodeTable(ad.gameMatch, this.program.coder.accounts.decode("gameMatch", info!.data));
     const tesoroMatch = await this.readTesoroMatch(matchId);
+    if (!this.isLive(tesoroMatch)) return "";
     const winner = table.status === STATUS.over ? (table.winner as 0 | 1) : null;
     const payouts = computePayouts(tesoroMatch.inner, winner);
-    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    for (const p of payouts) {
-      const holding = tesoroHoldingPda(p.recipient, p.source);
-      if (!(await this.base.getAccountInfo(holding))) {
-        const open = await this.tesoro.methods
+    const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
+    const existing = await this.base.getMultipleAccountsInfo(holdings);
+    const missing: TransactionInstruction[] = [];
+    for (let i = 0; i < payouts.length; i++) {
+      if (existing[i]) continue;
+      missing.push(
+        await this.tesoro.methods
           .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: p.recipient, source: p.source, holding } as any)
-          .instruction();
-        await this.sendBase("open_holding", [open], [payer]);
-      }
-      remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true });
-      remaining.push({ pubkey: holding, isSigner: false, isWritable: true });
+          .accountsPartial({ payer: payer.publicKey, account: payouts[i].recipient, source: payouts[i].source, holding: holdings[i] } as any)
+          .instruction(),
+      );
     }
+    // Up to 18 Holdings can be paid: open the missing ones a few per transaction.
+    for (let i = 0; i < missing.length; i += 5) await this.sendBase("open_holding", missing.slice(i, i + 5), [payer]);
+    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
+    payouts.forEach((p, i) => remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
+    // Opening Holdings takes a few seconds: look again before paying for a transaction that would fail.
+    if (!this.isLive(await this.readTesoroMatch(matchId))) return "";
     const ix = await this.program.methods
       .finalize()
       .accountsPartial({

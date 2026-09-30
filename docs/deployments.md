@@ -2,6 +2,18 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Entry cap 8 (2026-09-30)
+
+Deployer `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` via `https://rpc.magicblock.app/devnet`. `MAX_ENTRY_SOURCES` 2 to 8 in tesoro_core only (no CPI account change, so block_puzzle and holdem are not redeployed; program data already large enough, no extend). Layouts unchanged.
+
+| Step | Signature |
+|---|---|
+| tesoro_core upgrade (buffer `3Nuy5y6u...`, own failed buffer `8aNweMCG...` closed) | `4LCYAMBaADDui2USBsfHAMLYRLoUJizxS6VddVuJmFN9kQvXNjP7h5MseEYZdNK83WTorfn7ewydQMvfG3o3JJh7` |
+| Proof (`FRAGMENT=8 ENTRY=500 pnpm match` in `programs/block_puzzle/scripts`; two Accounts each with 8 Sources of 63 Gemas, entry 500 draws on all 8 Holdings per side, client `planEntry`): Match `1790759763687`, `open_match + open_session` (78,679 CU) | `3L2awzaMhvSPoE7t8m3DnTG7XMG5MJKrpDWaxbCoizi3mvLSA8o9o5RkrfmgUTrRXrxWkWykKk8NTNGsnr1LJLpa` |
+| `join_match + join_session` (74,747 CU) | `4NFr82RdLGFdtP2MDcsdYBtg8F4kSShgWNSfPznr47kVZU5jCrSVcXQs6cuycexhiujbxFGePikxRugaLwaRXTCE` |
+| `seal + commit_boards` (TEE), commit on base layer | `2XVcsjq3KRwjSWmxNao7MdxFU1hhRJR1kxDy4cAaHcXbLkxkycwg5B1HwjUw9nKbdo5yJjdHirkXtk6At6VKh2nQ`, `t4QD2wLBBUgQYZZd978NuGXrgbnVj5KacsPRhqeHRwXqchv8Z9sfbE4PvzX3tqvUoNJnAJbgiUyRikW6a8kJJPq` |
+| `settle` via CPI, 18 payout lines, 135,734 CU, 1,091 bytes (504 to 954 Gemas for the winner, 504 to 4 for the loser: entry 500, fees 50) | `3gH52EYACCW5n8q8LdKLjzGrnV9WLN3gL41FZKHC6v9K2QpTZKi3JvT3Y5YByouXMG9oqQ3JeUYrwPXjU5yHLiHn` |
+
 ## Security remediation redeploy (2026-09-30)
 
 All from the deployer `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` via `https://rpc.magicblock.app/devnet`. Findings: `docs/security/audit-2026-09-30.md`.

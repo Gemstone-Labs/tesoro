@@ -29,7 +29,7 @@ import {
   type ChainOffer,
   type ChainRequest,
 } from "@/lib/chain/backing";
-import { EntryError } from "@/lib/chain/ledger";
+import { EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { recordFromMatches, recordText, shortKey, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
@@ -41,7 +41,7 @@ function explain(e: unknown): string {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
       ? "Not enough available Gemas. Gemas reserved for your other Offers cannot be reserved again."
-      : "This entry would draw on more than two Sources.";
+      : `This entry would draw on more than ${MAX_ENTRY_SOURCES} Sources. Redeem a few small balances in your Wallet first.`;
   }
   const first = e instanceof Error ? e.message.split("\n")[0] : String(e);
   return first.length > 160 ? `${first.slice(0, 160)}…` : first;

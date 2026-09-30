@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, GemaAmount } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, createChallenge, enterQueue, joinChallenge } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
@@ -19,7 +20,7 @@ function explain(e: unknown): { text: string; wallet?: boolean } {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
       ? { text: "You do not have enough Gemas for this entry. Open a Position in your Wallet to get some (Simulated simSOL works).", wallet: true }
-      : { text: "This entry would draw on more than two Sources. Redeem a few small balances in your Wallet to consolidate, then try again." };
+      : { text: `Your Gemas are spread over more than ${MAX_ENTRY_SOURCES} Sources, and this entry cannot draw on that many. Redeem a few small balances in your Wallet to consolidate, then try again.` };
   }
   if (e instanceof ChallengeError || e instanceof BackingError) return { text: e.message };
   if (e instanceof DemoError) return { text: e.message };

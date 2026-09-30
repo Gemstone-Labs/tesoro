@@ -56,10 +56,26 @@ Deterministic and bounded.
 1. **Entry draw** (join, open, and Offer reservations): `own = min(entry, own_free)` comes from own-sourced Gemas, the rest from won Gemas.
 2. The caller supplies the Holdings: own class first, then won, each **strictly ascending by Source address**.
 3. Each class is drained in that order: every Holding except the last used is fully drained; a Holding that would contribute nothing, out of order, or of another Account, is rejected (`NonCanonicalDraw`, `InvalidAccount`).
-4. At most `MAX_ENTRY_SOURCES = 2` Holdings per entry, which bounds accounts per instruction.
+4. At most `MAX_ENTRY_SOURCES = 8` Holdings per entry (raised from 2 on 2026-09-30, because winners accumulate many small Sources), which bounds accounts per instruction and the payout lines at settlement. The supplied Holdings need not be every Holding: any strictly ascending subset that satisfies rule 3 is accepted, so a client skips small Holdings and sends the smallest set that covers the entry (`planEntry` in `app/src/lib/chain/ledger.ts`). When the own class must be drained completely (own Gemas < entry) every own Holding with Gemas is needed. Match and Offer accounts created before the change were sized for 2 lines per side; they keep working, but joining one with more than 2 Holdings fails at serialization and the transaction reverts (nothing is lost).
+   Settlement stays bounded: each side has at most 8 lines; the loser's lines are cut at most twice by the two fees, so a settlement pays at most `2 * 8 + 2 = 18` `(recipient, source)` lines (19 for a backed win), i.e. 36-38 remaining accounts.
 5. **Take N Gemas from a Pot** (fees, the Player's share): lines are merged by Source, sorted ascending by Source address, and drained in that order. Platform Fee first, then Studio Fee, then (for a backed win) the Player's share from what remains.
 6. **Payout order** for `settle_match` / `refund_match`: payouts are merged by `(recipient, source)` and sorted by that pair. `remaining_accounts` carry, per payout, the recipient's `TesoroAccount` then its Holding of that Source.
 7. **Redeem** pays a holder `held * redeemable / outstanding` at most (pro rata to holders, including escrowed and reserved Gemas in the denominator), so redemption never exceeds what the Source has accrued.
+
+## Compute and size (8 Holdings per side, devnet, 2026-09-30)
+
+Worst case: both entrants draw on 8 Holdings of distinct Sources, opener wins (18 payout lines). Legacy transactions, no Address Lookup Table needed: the largest (settle) is 1,091 bytes of the 1,232 limit, so a lookup table is not built; if the cap is raised again, settle moves to a v0 transaction with a lookup table for the payout Holdings.
+
+| Instruction | 1 Holding | 2 | 5 | 8 | Measured on |
+|---|---|---|---|---|---|
+| `open_match` (core) | 16,110 | 19,036 | 27,835 | 36,688 | LiteSVM |
+| `join_match` (core) | 10,247 | 13,329 | 22,596 | 31,918 | LiteSVM |
+| `settle_match` (core, payouts) | 29,589 (4) | 40,497 (6) | 74,091 (12) | 107,496 (18) | LiteSVM |
+| Block Puzzle `open_match + open_session` tx | | | | 78,679 | devnet |
+| Block Puzzle `join_match + join_session` tx | | | | 74,747 | devnet |
+| Block Puzzle `settle` tx (CPI, 18 payouts; core part 100,506) | | | | 135,734 (1,091 bytes) | devnet |
+
+Settlement is the binding number: 136k of the 150k target and well under 200k, so 8 is the cap. Proof: `docs/deployments.md`.
 
 ## Money rules as built
 
@@ -83,7 +99,7 @@ Conservative readings chosen where CONTEXT.md is silent. Raise before the build 
 
 1. **Surplus base.** "The remainder is split by the Offer" is read as the remainder after Platform and Studio Fees. Alternative: split before fees.
 2. **Who pays fees.** Fees come out of the loser's lines, so a winner always receives their own entry whole. Alternative: pro rata from the whole Pot.
-3. **Two-Source entry cap.** An entry draws from at most 2 Holdings. A player holding many small Sources cannot enter until they consolidate by playing; a consolidation instruction may be needed.
+3. **Entry cap.** An entry draws from at most 8 Holdings (was 2, which stranded Accounts spread over 3+ Sources). Beyond 8 the Player redeems small balances; a consolidation instruction is still not built.
 4. **Fee rounding.** Fees are floored, so the winner gets the dust.
 5. **Debt in source units.** Debt is stored in Gemas and derived in source units, so it is stable against price; the rounding of partial yield (floor when crediting, ceil when repaying) can leave sub-Gema dust on a Source.
 6. **Backed Player's Match timeout.** The 1h no-show timer, the 24h Request/Offer TTL and the 24h use-by window after acceptance are placeholders.

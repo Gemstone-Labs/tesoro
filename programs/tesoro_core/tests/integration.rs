@@ -94,6 +94,8 @@ struct Env {
     studio: Person,
     next_match: u64,
     last_cu: u64,
+    /// Serialized size in bytes of the last transaction as a legacy transaction.
+    last_size: usize,
 }
 
 fn custom_code(err: &litesvm::types::FailedTransactionMetadata) -> u32 {
@@ -142,6 +144,7 @@ impl Env {
             studio: placeholder(Keypair::new()),
             next_match: 1,
             last_cu: 0,
+            last_size: 0,
         };
         env.platform = env.person();
         env.studio = env.person();
@@ -195,6 +198,7 @@ impl Env {
             &signers,
             self.svm.latest_blockhash(),
         );
+        self.last_size = tx.message.serialize().len() + 1 + 64 * tx.signatures.len();
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
@@ -246,6 +250,12 @@ impl Env {
 
     /// Position + first Advance (6 months at $150): 100 tokens at 10% => 5 tokens => 75_000 Gemas.
     fn stake(&mut self, p: &Person, id: u8) -> (APk, APk, APk) {
+        self.stake_principal(p, id, 100 * SOL)
+    }
+
+    /// Opens a Position of `principal` lamports and takes a 6-month Advance at $150: 750 Gemas
+    /// per SOL of principal at the 10% rate used here.
+    fn stake_principal(&mut self, p: &Person, id: u8, principal: u64) -> (APk, APk, APk) {
         let position = position_pda(id);
         let config = pda(&[CONFIG_SEED]);
         let open = ix(
@@ -261,7 +271,7 @@ impl Env {
                 position_id: [id; 32],
                 source_asset: APk::new_unique(),
                 decimals: 9,
-                principal: 100 * SOL,
+                principal,
                 rate_bps: 1_000,
             },
             vec![],
@@ -1478,4 +1488,107 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
             assert_eq!(request_status(&b, request), RequestStatus::Open);
         }
     }
+}
+
+// --- Entry fragmentation: up to MAX_ENTRY_SOURCES Holdings per entry -----------------------------
+
+/// `n` Positions for `p`, each worth `gemas_each` Gemas of its own Source, returned as Holdings in
+/// the canonical (ascending Source) order. `first_id` keeps Position ids unique across people.
+fn fragment(env: &mut Env, p: &Person, first_id: u8, n: u8, gemas_each: u64) -> Vec<APk> {
+    // 750 Gemas per SOL of principal (see `stake_principal`).
+    let principal = gemas_each * SOL / 750;
+    let mut sources: Vec<(APk, APk)> = (0..n)
+        .map(|i| {
+            let (_, source, holding) = env.stake_principal(p, first_id + i, principal);
+            assert_eq!(env.holding_amount(p, source), gemas_each);
+            (source, holding)
+        })
+        .collect();
+    sources.sort_by_key(|(source, _)| source.to_bytes());
+    sources.into_iter().map(|(_, holding)| holding).collect()
+}
+
+struct Fragmented {
+    open_cu: u64,
+    join_cu: u64,
+    settle_cu: u64,
+    settle_size: usize,
+    payouts: usize,
+}
+
+/// Both Players hold `k` own Sources and enter a 500 Match drawing on all of them; the opener
+/// wins. Checks conservation per Source and returns the CU and size readings.
+fn fragmented_match(k: u8) -> Fragmented {
+    // Every Holding is needed: the first k - 1 hold less than 500 together, all k at least 500.
+    let gemas_each = if k == 8 { 63 } else { 600 / k as u64 };
+    let held = gemas_each * k as u64;
+    let mut env = Env::new();
+    let alice = env.person();
+    let bob = env.person();
+    let a_holdings = fragment(&mut env, &alice, 10, k, gemas_each);
+    let b_holdings = fragment(&mut env, &bob, 100, k, gemas_each);
+    let game = env.game_auth.insecure_clone();
+
+    let m = env.open_match(&alice, 500, &a_holdings).expect("open");
+    let open_cu = env.last_cu;
+    env.join_match(&bob, m, &b_holdings).expect("join");
+    let join_cu = env.last_cu;
+    let mm = env.load::<MatchState>(match_pda(m)).inner;
+    assert_eq!(mm.a.lines.len(), k as usize);
+    assert_eq!(mm.b.as_ref().expect("joined").lines.len(), k as usize);
+
+    let payouts = env.payout_accounts(m, MatchResult::Opener);
+    let n = payouts.len() / 2;
+    env.settle(&game, m, MatchResult::Opener, payouts)
+        .expect("settle");
+    let (settle_cu, settle_size) = (env.last_cu, env.last_size);
+
+    // Pot 1_000: platform 20 + studio 30 are taken from Bob's lines; Alice gets 500 back + 450.
+    assert_eq!(env.total_gemas(&env.platform), 20);
+    assert_eq!(env.total_gemas(&env.studio), 30);
+    assert_eq!(env.total_gemas(&alice), held + 450);
+    assert_eq!(env.total_gemas(&bob), held - 500);
+    assert_eq!(
+        env.load::<MatchState>(match_pda(m)).inner.status,
+        MatchStatus::Settled
+    );
+    // Per-Source conservation across every Holding, for every Source involved.
+    for i in 0..k {
+        for first_id in [10u8, 100u8] {
+            let source = source_pda(position_pda(first_id + i), 0);
+            let total: u64 = [&alice, &bob, &env.platform, &env.studio]
+                .iter()
+                .map(|p| env.holding_amount(p, source))
+                .sum();
+            assert_eq!(total, env.load::<SourceState>(source).inner.outstanding());
+        }
+    }
+    Fragmented {
+        open_cu,
+        join_cu,
+        settle_cu,
+        settle_size,
+        payouts: n,
+    }
+}
+
+#[test]
+fn entries_draw_from_one_two_five_and_eight_holdings() {
+    for k in [1u8, 2, 5, 8] {
+        let f = fragmented_match(k);
+        println!(
+            "CU holdings={k}: open_match {} join_match {} settle_match({} payouts) {}; settle tx {} bytes",
+            f.open_cu, f.join_cu, f.payouts, f.settle_cu, f.settle_size
+        );
+        assert!(f.settle_cu < 150_000, "settle stays under the CU target");
+    }
+}
+
+#[test]
+fn a_ninth_holding_is_refused() {
+    let mut env = Env::new();
+    let alice = env.person();
+    let holdings = fragment(&mut env, &alice, 10, 9, 60);
+    let err = env.open_match(&alice, 500, &holdings).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::TooManySources));
 }

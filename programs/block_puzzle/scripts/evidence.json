@@ -866,6 +866,432 @@
         "seed": "10349935073463630789",
         "deadline": 1790835952
       }
+    },
+    {
+      "at": "2026-09-30T09:14:30.429Z",
+      "txs": [
+        {
+          "step": "fund 9e4B5R",
+          "layer": "base",
+          "sig": "2y8n5DuvA7zYC6GVLiXyh88tFcB9khT3dbRBxRweaNEFQgzYJ2EJj2r1pt5uoDwpPTi9eWAr1iTr7fuUP5CW1mKQ",
+          "link": "https://explorer.solana.com/tx/2y8n5DuvA7zYC6GVLiXyh88tFcB9khT3dbRBxRweaNEFQgzYJ2EJj2r1pt5uoDwpPTi9eWAr1iTr7fuUP5CW1mKQ?cluster=devnet"
+        },
+        {
+          "step": "fund Fh9HaS",
+          "layer": "base",
+          "sig": "mh9eJxErt447zikHiiNEm9XSgEGaDq6ikimc8RffmrCBbEzbpc1z6SuLig5K9LS4pLsbjSvqd5r2YBuPMYFPkhz",
+          "link": "https://explorer.solana.com/tx/mh9eJxErt447zikHiiNEm9XSgEGaDq6ikimc8RffmrCBbEzbpc1z6SuLig5K9LS4pLsbjSvqd5r2YBuPMYFPkhz?cluster=devnet"
+        },
+        {
+          "step": "create_account p0",
+          "layer": "base",
+          "sig": "5KNevUd4eaAkqq6uuktxbHtb1RSfKEx4gxFUEvyfrTRCNuTSejNJimFGajBvPhBQAQMcMAX8EvqZRQMgXsmVteYU",
+          "link": "https://explorer.solana.com/tx/5KNevUd4eaAkqq6uuktxbHtb1RSfKEx4gxFUEvyfrTRCNuTSejNJimFGajBvPhBQAQMcMAX8EvqZRQMgXsmVteYU?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p0 #0 (63 Gemas)",
+          "layer": "base",
+          "sig": "3aNUtjDbUek1k9UappUamn8JKGjedFTEYMRYNeV9bStVFGKg8Q5HsSo46nxyVVcN7p1BJfeTe5mVp9VVKgoK7NCD",
+          "link": "https://explorer.solana.com/tx/3aNUtjDbUek1k9UappUamn8JKGjedFTEYMRYNeV9bStVFGKg8Q5HsSo46nxyVVcN7p1BJfeTe5mVp9VVKgoK7NCD?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p0 #1 (63 Gemas)",
+          "layer": "base",
+          "sig": "5s2EEWZVaQMwouREFEnrXLm6Qc3WcjC7Y6QX8pSXWEYsKErfCM3D2EX7x1MJBrhLHEcRzK56r9faGb6VLoz7PsxN",
+          "link": "https://explorer.solana.com/tx/5s2EEWZVaQMwouREFEnrXLm6Qc3WcjC7Y6QX8pSXWEYsKErfCM3D2EX7x1MJBrhLHEcRzK56r9faGb6VLoz7PsxN?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p0 #2 (63 Gemas)",
+          "layer": "base",
+          "sig": "KcCcDGGEccq6QPCUJ9PzpoC5zeqXYDLvsTKQkb9r9dCKtkMRPHTDpdBYwzPHGcDkbY5KKqkxijrrx9vqpef3Sz7",
+          "link": "https://explorer.solana.com/tx/KcCcDGGEccq6QPCUJ9PzpoC5zeqXYDLvsTKQkb9r9dCKtkMRPHTDpdBYwzPHGcDkbY5KKqkxijrrx9vqpef3Sz7?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p0 #3 (63 Gemas)",
+          "layer": "base",
+          "sig": "21RQjsPbBMYcD4ixTgn8vKSXnB8R1rHUo9eL6PNAEVFzy8GSsR6xVSRMmAVsUwH8KCS1VMEskPSQ7jcZcUwFJTDR",
+          "link": "https://explorer.solana.com/tx/21RQjsPbBMYcD4ixTgn8vKSXnB8R1rHUo9eL6PNAEVFzy8GSsR6xVSRMmAVsUwH8KCS1VMEskPSQ7jcZcUwFJTDR?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p0 #4 (63 Gemas)",
+          "layer": "base",
+          "sig": "2dbm65k5oXzQ14irnxpvK6vfLzvjyu7znS87Vq1S9dZ83idywWz9YDG7CsURNdshwZVhoHgeW6ELfhk4bHAhaiXn",
+          "link": "https://explorer.solana.com/tx/2dbm65k5oXzQ14irnxpvK6vfLzvjyu7znS87Vq1S9dZ83idywWz9YDG7CsURNdshwZVhoHgeW6ELfhk4bHAhaiXn?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p0 #5 (63 Gemas)",
+          "layer": "base",
+          "sig": "5byen8utTRnWPt8pGgyn8Y1BVuxFTCBY6vPHQVBZvQXc5tNdt4xgUcyZcN29767tdRPwyBFc6WkQ2U1QogFb3S7u",
+          "link": "https://explorer.solana.com/tx/5byen8utTRnWPt8pGgyn8Y1BVuxFTCBY6vPHQVBZvQXc5tNdt4xgUcyZcN29767tdRPwyBFc6WkQ2U1QogFb3S7u?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p0 #6 (63 Gemas)",
+          "layer": "base",
+          "sig": "j1HKbHDguhewqLmCFW1Ms4YUST3SsarNLGWMDjY1EhaZ4MKvkyFfJM5g6Gyfvc87CSzhN91ujY6Bde3UjLEFWTw",
+          "link": "https://explorer.solana.com/tx/j1HKbHDguhewqLmCFW1Ms4YUST3SsarNLGWMDjY1EhaZ4MKvkyFfJM5g6Gyfvc87CSzhN91ujY6Bde3UjLEFWTw?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p0 #7 (63 Gemas)",
+          "layer": "base",
+          "sig": "2WXp7jBsronZn6XM6rJjbN7dNwHyUqDAgMDPUXSY55E9xfGeoPDPvNu9yYHaKGZMA39iMgA2CLeAyvXMamtcgNZh",
+          "link": "https://explorer.solana.com/tx/2WXp7jBsronZn6XM6rJjbN7dNwHyUqDAgMDPUXSY55E9xfGeoPDPvNu9yYHaKGZMA39iMgA2CLeAyvXMamtcgNZh?cluster=devnet"
+        }
+      ],
+      "checks": []
+    },
+    {
+      "at": "2026-09-30T09:14:54.064Z",
+      "txs": [
+        {
+          "step": "create_account p1",
+          "layer": "base",
+          "sig": "ToZb43mKAyhYrbxhLJqa6kbhrCorFrBVjQVRGhnY4idUk1w88ptEbc6KnBdwhKqEDJQVLvaeHupeasPvMGwDrmE",
+          "link": "https://explorer.solana.com/tx/ToZb43mKAyhYrbxhLJqa6kbhrCorFrBVjQVRGhnY4idUk1w88ptEbc6KnBdwhKqEDJQVLvaeHupeasPvMGwDrmE?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p1 #0 (63 Gemas)",
+          "layer": "base",
+          "sig": "5tYoPk5ivfYAM1tGiPvcsso8jhNtNu4kYw4dojhAtKZpUoWVZuQNoTYWWkU59QSYbZAVWLFfHzH2TSwkLqnYwTe6",
+          "link": "https://explorer.solana.com/tx/5tYoPk5ivfYAM1tGiPvcsso8jhNtNu4kYw4dojhAtKZpUoWVZuQNoTYWWkU59QSYbZAVWLFfHzH2TSwkLqnYwTe6?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p1 #1 (63 Gemas)",
+          "layer": "base",
+          "sig": "5HsvjyyEJRxhUgiAPiodKPAprS9APmeUtnrHS9AVu3mSMyxeigVWhMtht8nsdrZhJZaqReTbrjzPbQSbjJUFgQCz",
+          "link": "https://explorer.solana.com/tx/5HsvjyyEJRxhUgiAPiodKPAprS9APmeUtnrHS9AVu3mSMyxeigVWhMtht8nsdrZhJZaqReTbrjzPbQSbjJUFgQCz?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p1 #2 (63 Gemas)",
+          "layer": "base",
+          "sig": "28RMphxynmrphkoAa6NeGLg2FPLAsdn1TF9Uy91sGF5KYwjDwrnszNtNgRUH8Prk8PXQoFGtQpWXBvTXrJMCWY6Q",
+          "link": "https://explorer.solana.com/tx/28RMphxynmrphkoAa6NeGLg2FPLAsdn1TF9Uy91sGF5KYwjDwrnszNtNgRUH8Prk8PXQoFGtQpWXBvTXrJMCWY6Q?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p1 #3 (63 Gemas)",
+          "layer": "base",
+          "sig": "2n1dJLjiUK5UnZ3aDbs3NcWC98LNLPNgv7kYfT4Jv8mnh3hrDAir35sJC58BR4VVVURut3EDPAiiHXZWb42Naw7y",
+          "link": "https://explorer.solana.com/tx/2n1dJLjiUK5UnZ3aDbs3NcWC98LNLPNgv7kYfT4Jv8mnh3hrDAir35sJC58BR4VVVURut3EDPAiiHXZWb42Naw7y?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p1 #4 (63 Gemas)",
+          "layer": "base",
+          "sig": "77gkqbGHUv3BzM6d2GV37c82xGyyCFYnrYxjavT85Lb3eWWmNLHkX2rY8CLSAjuud4jBPYkXX3t8v4LEEGsX1mZ",
+          "link": "https://explorer.solana.com/tx/77gkqbGHUv3BzM6d2GV37c82xGyyCFYnrYxjavT85Lb3eWWmNLHkX2rY8CLSAjuud4jBPYkXX3t8v4LEEGsX1mZ?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p1 #5 (63 Gemas)",
+          "layer": "base",
+          "sig": "2i8a5C2953CkykkzMQMRKXzb7iPHurzAPzZ8CBhqgfJuup7CDrU9wf9YaNKqqre3mye5LBAGzd19MTAGqf1119G5",
+          "link": "https://explorer.solana.com/tx/2i8a5C2953CkykkzMQMRKXzb7iPHurzAPzZ8CBhqgfJuup7CDrU9wf9YaNKqqre3mye5LBAGzd19MTAGqf1119G5?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p1 #6 (63 Gemas)",
+          "layer": "base",
+          "sig": "3jne1hitpw3uCYc179sj4vzKap3VMnd2SA7yRcLpoV4tJFt5P1HDBUHz6EPYDvrmmSRo6RUCPGEkXuMjvNxzMcwB",
+          "link": "https://explorer.solana.com/tx/3jne1hitpw3uCYc179sj4vzKap3VMnd2SA7yRcLpoV4tJFt5P1HDBUHz6EPYDvrmmSRo6RUCPGEkXuMjvNxzMcwB?cluster=devnet"
+        },
+        {
+          "step": "open_position + take_advance p1 #7 (63 Gemas)",
+          "layer": "base",
+          "sig": "4fjqa6GKpaodnwZVmPwfcNx6z1PSv52n3kRggrLGffjjhJniGhRFoKU2mwhSevDLunCVADNn6dvQdZRhmnsozH7Y",
+          "link": "https://explorer.solana.com/tx/4fjqa6GKpaodnwZVmPwfcNx6z1PSv52n3kRggrLGffjjhJniGhRFoKU2mwhSevDLunCVADNn6dvQdZRhmnsozH7Y?cluster=devnet"
+        }
+      ],
+      "checks": []
+    },
+    {
+      "at": "2026-09-30T09:15:53.457Z",
+      "txs": [
+        {
+          "step": "open_position + take_advance p1 #0 (63 Gemas)",
+          "layer": "base",
+          "sig": "4iUWLo8N8e7RrPZSsRV8bkKz9z4EsKCjE9dwbec2ekPq7bce1d6pnmfzxYLXfo9TFH4iSae3th85m76PJJL3oPEK",
+          "link": "https://explorer.solana.com/tx/4iUWLo8N8e7RrPZSsRV8bkKz9z4EsKCjE9dwbec2ekPq7bce1d6pnmfzxYLXfo9TFH4iSae3th85m76PJJL3oPEK?cluster=devnet"
+        },
+        {
+          "step": "open_match + open_session (p0, ENTRY Gemas; Match stays Open)",
+          "layer": "base",
+          "sig": "3L2awzaMhvSPoE7t8m3DnTG7XMG5MJKrpDWaxbCoizi3mvLSA8o9o5RkrfmgUTrRXrxWkWykKk8NTNGsnr1LJLpa",
+          "link": "https://explorer.solana.com/tx/3L2awzaMhvSPoE7t8m3DnTG7XMG5MJKrpDWaxbCoizi3mvLSA8o9o5RkrfmgUTrRXrxWkWykKk8NTNGsnr1LJLpa?cluster=devnet"
+        },
+        {
+          "step": "delegate_opener (Board 0 + SeedVault to the TEE validator)",
+          "layer": "base",
+          "sig": "55GAiCTo7UXho2kiks2ym83uzGyt4R6XJGE2tHrU91HPe993Lmc9hvNygCdb9wqkT3B4mayaCpFMytD814spwaW",
+          "link": "https://explorer.solana.com/tx/55GAiCTo7UXho2kiks2ym83uzGyt4R6XJGE2tHrU91HPe993Lmc9hvNygCdb9wqkT3B4mayaCpFMytD814spwaW?cluster=devnet"
+        },
+        {
+          "step": "init_vault_permission (private, zero members)",
+          "layer": "tee",
+          "sig": "4o6q6eToETKhvKkgTYKsBWL68x5ECChZcmNoEyxxQiqiajmgWBQGdw3Tt5y2pL2Sp6URmLnmGU2AsNjPy1eUnZxz"
+        },
+        {
+          "step": "init_permission p0",
+          "layer": "tee",
+          "sig": "28nxanmVGCX7wdsaCa1YXnB3Nu93fzi4hjWji6cPKyK2s3yQhBjQhhBpkBsZT5dKfeXAG3mVDL7N5daNDSbrmpJZ"
+        },
+        {
+          "step": "request_seed (VRF inside the TEE)",
+          "layer": "tee",
+          "sig": "cUj4gtvR1vPUmNc7PaQSiTRG6faJB9YXCm4yM4Too4di7TdRTw8y1w8i8vXwosNkZQv3mstULU6VoLsoTSMP6aA"
+        },
+        {
+          "step": "begin_run p0 (Seed copied into p0's private Board)",
+          "layer": "tee",
+          "sig": "mXc8gJVT4iMeCg6UYi6Joy16N1fcCFPPztWhkpZc5tSffBtuw3kwKgp6DUauXBD4jro35oUeg4DwVp3yrDfJcLD"
+        },
+        {
+          "step": "play p0 batch 0",
+          "layer": "tee",
+          "sig": "vM78THvnQwroVCh3D5bzH4umoHJdJebVkzLGGEMACNzaJU4jtKDnwyCgs2SmUykXPP4f91fZxSvHW4vPEYgTdJ6"
+        },
+        {
+          "step": "finish p0",
+          "layer": "tee",
+          "sig": "5fTYDDZ7dVfmyHPR5dvXtBRsvWMxCMQpHHME9rU6bRnPxTp1oTUfy8FKJ5uzK8csYuhi6oLU3Bj5ZseKiaGeieJV"
+        },
+        {
+          "step": "join_match + join_session (p1)",
+          "layer": "base",
+          "sig": "4NFr82RdLGFdtP2MDcsdYBtg8F4kSShgWNSfPznr47kVZU5jCrSVcXQs6cuycexhiujbxFGePikxRugaLwaRXTCE",
+          "link": "https://explorer.solana.com/tx/4NFr82RdLGFdtP2MDcsdYBtg8F4kSShgWNSfPznr47kVZU5jCrSVcXQs6cuycexhiujbxFGePikxRugaLwaRXTCE?cluster=devnet"
+        },
+        {
+          "step": "delegate_joiner (Board 1)",
+          "layer": "base",
+          "sig": "2VGK4pyedVKm3gMRdgaUt2KysAobZ2jWSsBQQm59tVvBnRiABob24FLTa11jjBccBuySKPBYmK9qg29A5byw26BF",
+          "link": "https://explorer.solana.com/tx/2VGK4pyedVKm3gMRdgaUt2KysAobZ2jWSsBQQm59tVvBnRiABob24FLTa11jjBccBuySKPBYmK9qg29A5byw26BF?cluster=devnet"
+        },
+        {
+          "step": "init_permission p1",
+          "layer": "tee",
+          "sig": "Ug7nTS5CS99sM5HRHLDATMYxTDuLxE982pNiiE5jttpa9N3KFrfNHE4r3J9WkRm5eQUTS2zsz1uebzA11NBB9or"
+        },
+        {
+          "step": "begin_run p1 (same Seed)",
+          "layer": "tee",
+          "sig": "5eRgQCoY5ZbE8fCjmLJMtggGT1ux8VpasxxVzR4zumQnRTgRmMzsQJWsHcKJHW7sZkscDkLGVDW8LbB6Y2c2TQEM"
+        },
+        {
+          "step": "play p1 batch 0",
+          "layer": "tee",
+          "sig": "3WybcGifRuSh1J2Aq9r5yTPPxCtguMSXQhj6czAG9mEQ1nmHSX1nEi3BYwqZrkA6sEAEreu7DcAmHdkLrbPx1QMJ"
+        },
+        {
+          "step": "finish p1",
+          "layer": "tee",
+          "sig": "LAx59DbBYjthrdsRRNwT5tarYjr83MLEw1855cUe8fChNiST77Lmjsq4Qo46WYze3SYhxgfqa8UsA8XKLx3tUPF"
+        },
+        {
+          "step": "seal + commit_boards (permissions closed, Boards + SeedVault undelegated)",
+          "layer": "tee",
+          "sig": "2XVcsjq3KRwjSWmxNao7MdxFU1hhRJR1kxDy4cAaHcXbLkxkycwg5B1HwjUw9nKbdo5yJjdHirkXtk6At6VKh2nQ"
+        },
+        {
+          "step": "commit on base layer",
+          "layer": "base",
+          "sig": "t4QD2wLBBUgQYZZd978NuGXrgbnVj5KacsPRhqeHRwXqchv8Z9sfbE4PvzX3tqvUoNJnAJbgiUyRikW6a8kJJPq",
+          "link": "https://explorer.solana.com/tx/t4QD2wLBBUgQYZZd978NuGXrgbnVj5KacsPRhqeHRwXqchv8Z9sfbE4PvzX3tqvUoNJnAJbgiUyRikW6a8kJJPq?cluster=devnet"
+        },
+        {
+          "step": "settle via CPI to tesoro_core (result: opener)",
+          "layer": "base",
+          "sig": "3gH52EYACCW5n8q8LdKLjzGrnV9WLN3gL41FZKHC6v9K2QpTZKi3JvT3Y5YByouXMG9oqQ3JeUYrwPXjU5yHLiHn",
+          "link": "https://explorer.solana.com/tx/3gH52EYACCW5n8q8LdKLjzGrnV9WLN3gL41FZKHC6v9K2QpTZKi3JvT3Y5YByouXMG9oqQ3JeUYrwPXjU5yHLiHn?cluster=devnet"
+        }
+      ],
+      "checks": [
+        {
+          "name": "TEE RPC attestation (verifyTeeRpcIntegrity)",
+          "pass": true,
+          "detail": true
+        },
+        {
+          "name": "F-01: delegate_opener naming a non-TEE validator is refused",
+          "pass": true,
+          "detail": "base tx failed w2pvohEHa8aueEMuvEFeeQVArzyknVufXWzJkUopKqszzkPcjTVd3k8NE9YmFp2vFLKGfmubX9NmAqmxxYzwjsn: {\"InstructionError\":[0,{\"Custom\":6020}]} Program 5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj invoke [1] Program log: Instruction: DelegateOpener Program log: AnchorError thrown in programs/block_"
+        },
+        {
+          "name": "F-01: Board 0 is still owned by the Game (not delegated) after the refused attempt",
+          "pass": true,
+          "detail": true
+        },
+        {
+          "name": "before begin_run p0's own Board holds no Seed",
+          "pass": true,
+          "detail": {
+            "seed": "0"
+          }
+        },
+        {
+          "name": "VRF callback wrote the Seed into the SeedVault (check_seed succeeds)",
+          "pass": true,
+          "detail": "ready"
+        },
+        {
+          "name": "SeedVault is unreadable by p0, p1 and an anonymous TEE client (zero-member permission)",
+          "pass": true,
+          "detail": [
+            "null",
+            "null",
+            "null"
+          ]
+        },
+        {
+          "name": "base-layer copy of the SeedVault holds no Seed while delegated",
+          "pass": true,
+          "detail": {
+            "ready": false
+          }
+        },
+        {
+          "name": "opener finished their run while the Match is still Open (no opponent yet)",
+          "pass": true,
+          "detail": {
+            "open": {}
+          }
+        },
+        {
+          "name": "p0 reads own Board in the TEE (score visible)",
+          "pass": true,
+          "detail": {
+            "score": 190,
+            "moves": 28
+          }
+        },
+        {
+          "name": "unauthenticated TEE read of p0's Board fails",
+          "pass": true,
+          "detail": "null"
+        },
+        {
+          "name": "base-layer copy of p0's Board holds no moves and no Seed",
+          "pass": true,
+          "detail": {
+            "moves": 0,
+            "score": 0
+          }
+        },
+        {
+          "name": "join extended the tesoro_core refund deadline past the 24h submission deadline",
+          "pass": true,
+          "detail": {
+            "matchDeadline": "1790853364",
+            "submissionDeadline": "1790846201"
+          }
+        },
+        {
+          "name": "joiner p1 cannot read the opener's Board in the TEE",
+          "pass": true,
+          "detail": "null (hidden)"
+        },
+        {
+          "name": "seal is refused while the joiner can still play (opener's moves stay private)",
+          "pass": true,
+          "detail": "tee tx failed 4MkM9jX9u5WTJ3X3id87Rhx8353kFud31AGsHYZWuaSFoqcfyNxTshFzryFzK9tdY3MtH6AeDZ5StzHjpQoVKu1h: {\"InstructionErr"
+        },
+        {
+          "name": "before begin_run p1's own Board holds no Seed",
+          "pass": true,
+          "detail": {
+            "seed": "0"
+          }
+        },
+        {
+          "name": "p1 receives the same Seed at begin_run",
+          "pass": true,
+          "detail": {
+            "p1": "14209888725825876543",
+            "p0": "14209888725825876543"
+          }
+        },
+        {
+          "name": "committed scores equal the TS engine replay of the same moves",
+          "pass": true,
+          "detail": {
+            "onchain": [
+              190,
+              66
+            ],
+            "expected": [
+              190,
+              66
+            ]
+          }
+        },
+        {
+          "name": "moves are public only after commit (log matches)",
+          "pass": true,
+          "detail": [
+            0,
+            131073,
+            196610
+          ]
+        },
+        {
+          "name": "Match settled: higher score wins",
+          "pass": true,
+          "detail": {
+            "settled": true,
+            "result": "opener",
+            "scores": [
+              190,
+              66
+            ],
+            "matchStatus": "settled",
+            "seed": "14209888725825876543",
+            "deadline": 1790846201
+          }
+        },
+        {
+          "name": "winner received the loser's entry minus 10% of the entry in fees",
+          "pass": true,
+          "detail": {
+            "before": [
+              "504",
+              "504"
+            ],
+            "after": [
+              "954",
+              "4"
+            ]
+          }
+        },
+        {
+          "name": "no double settlement",
+          "pass": true,
+          "detail": "base tx failed 5jbVsJMMWTjWLdu1RQhpeQJjNDf2MDzxHfxNyCzUbJBwydyNjVvtrvctXobAqxoYDSDHnnonzWbfTqv1g6G896Gd: {\"InstructionError\":[1,{\"Custom\":6015}]}"
+        }
+      ],
+      "matchId": "1790759763687",
+      "match": "zFwLEzPTnK7RcnbtCPKLgaknHRJmzHwVnjxCi2Ey1om",
+      "session": "5gUtXXxD7fwojZga3HSH3AhdeFSc1VzM4M5rkEEq5eRf",
+      "vault": "Qmt6iYHxApCBMg2FkpDePfMTTLQBAnyDjUDouJTu2Jm",
+      "boards": [
+        "HGCcmFzLakJARXE4arv7GdDiLQgkfTncA89oDcsX5rSU",
+        "Cfxqo9WQUoVts3QGcCPwbRNifzfo6DC7ARtC1WTuMCKk"
+      ],
+      "players": [
+        "9e4B5Ryma6jKuG6iArDZPjKFHdgKAUKbv3yqHqo3Z1GK",
+        "Fh9HaStTDHnRwiVN5oefcPL3v3y1t3SzpjZq6fezPYeQ"
+      ],
+      "seed": "14209888725825876543",
+      "expectedScores": [
+        190,
+        66
+      ],
+      "openerFinishedAt": "2026-09-30T09:16:19.835Z",
+      "result": {
+        "settled": true,
+        "result": "opener",
+        "scores": [
+          190,
+          66
+        ],
+        "matchStatus": "settled",
+        "seed": "14209888725825876543",
+        "deadline": 1790846201
+      }
     }
   ]
 }
