@@ -53,6 +53,12 @@ pub const BOARD_SEED: &[u8] = b"board";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const AUTHORITY_SEED: &[u8] = b"authority";
 
+/// Identity of MagicBlock's TEE validator (devnet). Delegation is pinned to it: the validator a
+/// delegation names is the only key that can commit state back, so a caller-chosen validator (or
+/// none, which the delegation program reads as the public default validator) would let a Player
+/// forge a Board or read the SeedVault outside the TEE.
+pub const TEE_VALIDATOR: Pubkey = pubkey!("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
+
 /// Seconds of play from `begin_run`.
 pub const PLAY_SECS: i64 = 90;
 /// Extra seconds accepted for the last `play` transaction to land.
@@ -110,6 +116,8 @@ pub enum BlockPuzzleError {
     AlreadyJoined,
     #[msg("no second Player has joined this session")]
     NotJoined,
+    #[msg("delegation must name the TEE validator")]
+    InvalidValidator,
 }
 
 #[derive(Clone, Copy, AnchorSerialize, AnchorDeserialize)]
@@ -272,30 +280,24 @@ pub mod block_puzzle {
     /// Base layer, anyone. Delegates the opener's Board and the SeedVault to the TEE validator
     /// (pass its identity).
     pub fn delegate_opener(ctx: Context<DelegateOpener>) -> Result<()> {
-        let config = || DelegateConfig {
-            validator: ctx.accounts.validator.as_ref().map(|v| v.key()),
-            ..Default::default()
-        };
+        let config = || tee_config(&ctx.accounts.validator);
         let session_key = ctx.accounts.session.key();
         ctx.accounts.delegate_board_0(
             &ctx.accounts.payer,
             &[BOARD_SEED, session_key.as_ref(), &[0]],
-            config(),
+            config()?,
         )?;
         ctx.accounts.delegate_vault(
             &ctx.accounts.payer,
             &[VAULT_SEED, session_key.as_ref()],
-            config(),
+            config()?,
         )?;
         Ok(())
     }
 
     /// Base layer, anyone. Delegates the joiner's Board to the TEE validator.
     pub fn delegate_joiner(ctx: Context<DelegateJoiner>) -> Result<()> {
-        let config = DelegateConfig {
-            validator: ctx.accounts.validator.as_ref().map(|v| v.key()),
-            ..Default::default()
-        };
+        let config = tee_config(&ctx.accounts.validator)?;
         let session_key = ctx.accounts.session.key();
         ctx.accounts.delegate_board_1(
             &ctx.accounts.payer,
@@ -312,7 +314,13 @@ pub mod block_puzzle {
         let bump = [ctx.accounts.board.bump];
         let session = ctx.accounts.board.session;
         let player = ctx.accounts.board.player;
-        if ctx.accounts.permission.lamports() == 0 {
+        if ctx.accounts.permission.lamports() > 0 {
+            require_real_permission(
+                &ctx.accounts.permission,
+                &board_info.key(),
+                error!(BlockPuzzleError::PermissionNotReady),
+            )?;
+        } else {
             CreateEphemeralPermissionCpi {
                 payer: board_info.clone(),
                 permissioned_account: board_info,
@@ -340,7 +348,13 @@ pub mod block_puzzle {
         let vault_info = ctx.accounts.vault.to_account_info();
         let bump = [ctx.accounts.vault.bump];
         let session = ctx.accounts.vault.session;
-        if ctx.accounts.permission.lamports() == 0 {
+        if ctx.accounts.permission.lamports() > 0 {
+            require_real_permission(
+                &ctx.accounts.permission,
+                &vault_info.key(),
+                error!(BlockPuzzleError::PermissionNotReady),
+            )?;
+        } else {
             CreateEphemeralPermissionCpi {
                 payer: vault_info.clone(),
                 permissioned_account: vault_info,
@@ -579,6 +593,38 @@ pub mod block_puzzle {
             BlockPuzzleError::NotExpired
         );
         finalize(ctx, MatchResult::Draw, [0, 0], [true, true])
+    }
+}
+
+/// The only delegation config the Game accepts: the TEE validator, and no automatic commits (an
+/// automatic commit would publish a private Board to the base layer mid-run).
+fn tee_config(validator: &Option<AccountInfo>) -> Result<DelegateConfig> {
+    require!(
+        validator.as_ref().is_some_and(|v| v.key() == TEE_VALIDATOR),
+        BlockPuzzleError::InvalidValidator
+    );
+    Ok(DelegateConfig {
+        validator: Some(TEE_VALIDATOR),
+        commit_frequency_ms: u32::MAX,
+    })
+}
+
+/// A permission address that already holds lamports is only accepted as "created" if it really is
+/// a private permission of `permissioned` owned by the permission program. Lamports alone prove
+/// nothing: anyone can send some to the (predictable) address before the Game creates the
+/// permission, which would mark a hidden account ready without ever making it private.
+fn require_real_permission(
+    permission: &AccountInfo,
+    permissioned: &Pubkey,
+    err: Error,
+) -> Result<()> {
+    if permission.owner != &PERMISSION_PROGRAM_ID {
+        return Err(err);
+    }
+    let data = permission.try_borrow_data()?;
+    match EphemeralPermission::from_bytes(&data) {
+        Ok(p) if p.permissioned_account == *permissioned && p.private => Ok(()),
+        _ => Err(err),
     }
 }
 

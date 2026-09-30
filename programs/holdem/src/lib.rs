@@ -43,6 +43,12 @@ pub use state::*;
 
 declare_id!("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 
+/// Identity of MagicBlock's TEE validator (devnet). Delegation is pinned to it: the validator a
+/// delegation names is the only key that can commit state back, so a caller-chosen validator (or
+/// none, which the delegation program reads as the public default validator) would let a Player
+/// commit a table they won, or leave the Deck outside the TEE.
+pub const TEE_VALIDATOR: Pubkey = pubkey!("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
+
 const READ_FLAGS: u8 = TX_LOGS_FLAG | TX_MESSAGE_FLAG | TX_BALANCES_FLAG;
 
 #[error_code]
@@ -85,6 +91,10 @@ pub enum HoldemError {
     MatchNotOver,
     #[msg("Already settled or refunded in tesoro_core")]
     AlreadyFinalized,
+    #[msg("Delegation must name the TEE validator")]
+    InvalidValidator,
+    #[msg("A permission for this account is missing or is not a real permission")]
+    PermissionNotReady,
 }
 
 #[ephemeral]
@@ -140,6 +150,7 @@ pub mod holdem {
         }
 
         let now = Clock::get()?.unix_timestamp;
+
         let game_match = &mut ctx.accounts.game_match;
         **game_match = GameMatch {
             bump: ctx.bumps.game_match,
@@ -172,30 +183,27 @@ pub mod holdem {
 
     /// Base layer. Delegates the table and its hidden accounts to the TEE validator.
     pub fn delegate_match(ctx: Context<DelegateMatch>, match_id: u64) -> Result<()> {
-        let config = || DelegateConfig {
-            validator: ctx.accounts.validator.as_ref().map(|v| v.key()),
-            ..Default::default()
-        };
+        let config = || tee_config(&ctx.accounts.validator);
         let match_key = ctx.accounts.game_match.key();
         ctx.accounts.delegate_game_match(
             &ctx.accounts.payer,
             &[MATCH_SEED, &match_id.to_le_bytes()],
-            config(),
+            config()?,
         )?;
         ctx.accounts.delegate_deck(
             &ctx.accounts.payer,
             &[DECK_SEED, match_key.as_ref()],
-            config(),
+            config()?,
         )?;
         ctx.accounts.delegate_hole_0(
             &ctx.accounts.payer,
             &[HOLE_SEED, match_key.as_ref(), &[0]],
-            config(),
+            config()?,
         )?;
         ctx.accounts.delegate_hole_1(
             &ctx.accounts.payer,
             &[HOLE_SEED, match_key.as_ref(), &[1]],
-            config(),
+            config()?,
         )?;
         Ok(())
     }
@@ -528,6 +536,19 @@ pub mod holdem {
     }
 }
 
+/// The only delegation config the Game accepts: the TEE validator, and no automatic commits (an
+/// automatic commit would publish the hidden accounts to the base layer mid-Match).
+fn tee_config(validator: &Option<AccountInfo>) -> Result<DelegateConfig> {
+    require!(
+        validator.as_ref().is_some_and(|v| v.key() == TEE_VALIDATOR),
+        HoldemError::InvalidValidator
+    );
+    Ok(DelegateConfig {
+        validator: Some(TEE_VALIDATOR),
+        commit_frequency_ms: u32::MAX,
+    })
+}
+
 fn seat_of(game_match: &GameMatch, key: &Pubkey) -> Result<usize> {
     game_match
         .players
@@ -545,7 +566,11 @@ fn create_permission<'info, T: PermissionAccounts<'info>>(
     seeds: &[&[u8]],
 ) -> Result<()> {
     if permission.lamports() > 0 {
-        return Ok(());
+        return require_real_permission(
+            permission,
+            data.key,
+            error!(HoldemError::PermissionNotReady),
+        );
     }
     CreateEphemeralPermissionCpi {
         payer: data.clone(),
@@ -558,6 +583,25 @@ fn create_permission<'info, T: PermissionAccounts<'info>>(
     }
     .invoke_signed(&[seeds])?;
     Ok(())
+}
+
+/// A permission address that already holds lamports is only accepted as "created" if it really is
+/// a private permission of `permissioned` owned by the permission program. Lamports alone prove
+/// nothing: anyone can send some to the (predictable) address before the Game creates the
+/// permission, which would mark a hidden account ready without ever making it private.
+fn require_real_permission(
+    permission: &AccountInfo,
+    permissioned: &Pubkey,
+    err: Error,
+) -> Result<()> {
+    if permission.owner != &PERMISSION_PROGRAM_ID {
+        return Err(err);
+    }
+    let data = permission.try_borrow_data()?;
+    match EphemeralPermission::from_bytes(&data) {
+        Ok(p) if p.permissioned_account == *permissioned && p.private => Ok(()),
+        _ => Err(err),
+    }
 }
 
 fn close_permission<'info, T: PermissionAccounts<'info>>(
