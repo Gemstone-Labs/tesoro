@@ -648,21 +648,15 @@ fn a_session_needs_an_open_match_of_this_game_opened_by_the_account_given() {
     let m = env.load_core::<MatchState>(match_pda(id)).inner;
     assert_eq!(session.players[0], alice.key);
     assert!(!session.joined);
-    assert_eq!(session.opener_deadline, m.deadline);
+    let opener_deadline = m.deadline + block_puzzle::SUBMISSION_SECS;
+    assert_eq!(session.opener_deadline, opener_deadline);
     let board: Board = env.load_bp(env.board(id, 0));
     assert_eq!(board.player, alice.key);
-    assert_eq!(board.deadline, m.deadline);
+    assert_eq!(board.deadline, opener_deadline);
     // Once per Match.
     assert!(env.open_session(&alice, id).is_err());
 
-    // An already Active Match cannot get a Session this way, nor can the Queue window be past.
-    let id2 = env.open(&alice);
-    env.join(&bob, id2).expect("join");
-    let err = env.open_session(&alice, id2).unwrap_err();
-    assert_eq!(
-        code(&err),
-        bp_err(block_puzzle::BlockPuzzleError::InvalidMatch)
-    );
+    // The Queue window cannot be past.
     let id3 = env.open(&alice);
     env.set_time(env.now() + tesoro_core::ledger::MATCH_TIMEOUT_SECS);
     let err = env.open_session(&alice, id3).unwrap_err();
@@ -700,9 +694,10 @@ fn joining_binds_the_second_player_and_extends_the_match_deadline() {
     let b1: Board = env.load_bp(env.board(id, 1));
     assert_eq!((b1.player, b1.deadline), (bob.key, session.deadline));
     let m = env.load_core::<MatchState>(match_pda(id)).inner;
+    // The refund window closes after both Boards' deadlines, the opener's included.
     assert_eq!(
         m.deadline,
-        session.deadline + block_puzzle::SETTLE_GRACE_SECS
+        session.deadline.max(session.opener_deadline) + block_puzzle::SETTLE_GRACE_SECS
     );
     // Once only: the second Board already exists.
     assert!(env.join_session(&bob, id).is_err());
@@ -1411,46 +1406,73 @@ fn f02_a_prefunded_permission_address_is_not_a_permission() {
     assert!(!env.load_bp::<SeedVault>(vault).permission_ready);
 }
 
-/// F-06. The opener's Board deadline is fixed when the session opens (the Match's Queue window);
-/// joining the Match one second before it leaves an opener who has not begun no time at all, so
-/// the joiner wins by forfeit. Documents the behaviour; needs a design decision.
+/// F-06. The opener's Board deadline was the Queue window's end, so joining the Match one second
+/// before it left an opener who had not begun no time at all and the joiner won by forfeit. The
+/// opener now has `SUBMISSION_SECS` past the window, never less than the joiner's own window.
 #[test]
-fn f06_joining_in_the_last_second_forfeits_an_opener_who_has_not_begun() {
+fn f06_joining_in_the_last_second_does_not_forfeit_an_opener_who_has_not_begun() {
     let (mut env, alice, bob) = Env::new();
     let id = env.open(&alice);
     env.open_session(&alice, id).expect("open session");
     let seed = env.prepare_opener(id);
-    let deadline = env
-        .load_bp::<Session>(session_pda(match_pda(id)))
-        .opener_deadline;
-    env.set_time(deadline - 1);
+    let queue_end = env.load_core::<MatchState>(match_pda(id)).inner.deadline;
+    env.set_time(queue_end - 1);
     env.joined(&bob, id);
+    let session: Session = env.load_bp(session_pda(match_pda(id)));
+    assert!(
+        session.opener_deadline >= session.deadline,
+        "the opener never has less time than the joiner"
+    );
     let bb = env.board(id, 1);
     env.begin(&bob, bb).expect("begin");
     env.play(&bob, bb, &greedy(seed, 2)).expect("play");
     env.finish(&bob, bb).expect("finish");
-    env.set_time(deadline);
-    let err = env.begin(&alice, env.board(id, 0)).unwrap_err();
-    assert_eq!(
-        code(&err),
-        bp_err(block_puzzle::BlockPuzzleError::DeadlinePassed)
-    );
+    // The Queue window has passed, and the opener still begins and plays.
+    env.set_time(queue_end + 60);
+    let ba = env.board(id, 0);
+    env.begin(&alice, ba).expect("the opener can still begin");
+    env.play(&alice, ba, &greedy(seed, 10)).expect("play");
+    env.finish(&alice, ba).expect("finish");
     env.seal(id).expect("seal");
-    env.settle(id, MatchResult::Joiner).expect("settle");
+    env.settle(id, MatchResult::Opener).expect("settle");
+    // Settlement always wins the race against a plain refund.
+    let m = env.load_core::<MatchState>(match_pda(id)).inner;
+    assert!(m.deadline >= session.opener_deadline + block_puzzle::SETTLE_GRACE_SECS);
 }
 
-/// F-09. `join_match` does not require a Session, so anyone can join an Open Block Puzzle Match
-/// before `open_session` runs; the Match then can never get a Session and only a refund is left.
+/// F-09. `join_match` cannot require a Session, so anyone could join an Open Block Puzzle Match
+/// before `open_session` ran and the Match could never get a Session (only the refund was left).
+/// `open_session` now also binds a Match that was joined first, and `join_session` follows.
 #[test]
-fn f09_joining_before_the_session_exists_strands_the_match_until_refund() {
+fn f09_joining_before_the_session_exists_does_not_strand_the_match() {
     let (mut env, alice, bob) = Env::new();
     let id = env.open(&alice);
     env.join(&bob, id).expect("join before the session");
-    let err = env.open_session(&alice, id).unwrap_err();
+    // Still only the opener's own Account can open the Session.
+    let err = env.open_session(&bob, id).unwrap_err();
     assert_eq!(
         code(&err),
-        bp_err(block_puzzle::BlockPuzzleError::InvalidMatch)
+        bp_err(block_puzzle::BlockPuzzleError::InvalidAccount)
     );
+    env.open_session(&alice, id)
+        .expect("session after the join");
+    env.join_session(&bob, id).expect("join session");
+    let session: Session = env.load_bp(session_pda(match_pda(id)));
+    assert!(session.joined);
+    assert_eq!(session.players, [alice.key, bob.key]);
+    // Both can play it through.
+    env.patch_board(env.board(id, 0), |b| b.permission_ready = true);
+    env.patch_board(env.board(id, 1), |b| b.permission_ready = true);
+    let seed = env.prepare_opener(id);
+    let (ba, bb) = (env.board(id, 0), env.board(id, 1));
+    env.begin(&alice, ba).expect("begin a");
+    env.play(&alice, ba, &greedy(seed, 8)).expect("play a");
+    env.finish(&alice, ba).expect("finish a");
+    env.begin(&bob, bb).expect("begin b");
+    env.play(&bob, bb, &greedy(seed, 2)).expect("play b");
+    env.finish(&bob, bb).expect("finish b");
+    env.seal(id).expect("seal");
+    env.settle(id, MatchResult::Opener).expect("settle");
 }
 
 /// CU readings (run with `--nocapture`; docs/security/audit-2026-09-30.md).
