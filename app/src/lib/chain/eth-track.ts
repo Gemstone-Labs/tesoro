@@ -1,0 +1,180 @@
+import type { CrossChainStep } from "@/components/ui/money";
+import { LZ_SCAN_API, type EthState, type VaultPosition } from "./eth";
+
+/**
+ * Cross-chain operations on an ETH Position that take minutes: open (Hoodi to Solana), report yield
+ * (Hoodi to Solana), redeem and unlock (Solana to Hoodi). Each is tracked from chain state, never from
+ * a timer, so pending never shows success early and a reload picks up where it was.
+ */
+export type EthOpKind = "open" | "yield" | "redeem" | "unlock";
+
+export interface EthOp {
+  key: string;
+  kind: EthOpKind;
+  vault: string;
+  /** The vault's uint64 position id, as a decimal string. */
+  id: string;
+  createdAt: number;
+  /** Months of the Advance an `open` takes once the Position exists. */
+  months?: number;
+  /** Hoodi tx hash (open, yield) or Solana signature (redeem, unlock) that started it. */
+  hash?: string;
+  /** Solana signature of the relayed send (redeem, unlock) or of the last relay step. */
+  sendSig?: string;
+  /** `yield`: the bridge's last received yield seq before the report. `redeem`: vault paidUnderlying after the payout, decimal. */
+  baseline?: string;
+  done?: boolean;
+}
+
+export type OpAction = "apply-locked" | "advance" | "apply-yield" | "send-pay-yield" | "send-unlock";
+
+export const OP_STEPS: Record<EthOpKind, CrossChainStep[]> = {
+  open: [
+    { title: "Hoodi confirmed", note: "openPosition confirmed on Hoodi" },
+    { title: "LayerZero delivered", note: "Message delivered to Solana" },
+    { title: "Position opened", note: "apply_locked opened it for your Account" },
+    { title: "Advance taken", note: "At the oracle price for your Horizon" },
+    { title: "Gemas available", note: "Gemas credited to your Account" },
+  ],
+  yield: [
+    { title: "Hoodi confirmed", note: "reportYield confirmed on Hoodi" },
+    { title: "LayerZero delivered", note: "Yield message delivered to Solana" },
+    { title: "Debt updated", note: "apply_yield lowered the Debt" },
+  ],
+  redeem: [
+    { title: "Redeemed on Solana", note: "redeem_to_evm burned the Gemas and recorded the claim" },
+    { title: "LayerZero message sent", note: "send_pay_yield is on its way to Hoodi" },
+    { title: "simETH on Hoodi", note: "The vault paid your EVM address" },
+  ],
+  unlock: [
+    { title: "Unlocked on Solana", note: "Debt is zero; the Position is unlocked" },
+    { title: "LayerZero message sent", note: "send_unlock is on its way to Hoodi" },
+    { title: "Principal on Hoodi", note: "The vault released your Principal" },
+  ],
+};
+
+/** Copy per kind; Gemas only "become available" on open. */
+export const OP_COPY: Record<EthOpKind, { label: string; finalState: string; done: string; pending: string; failed: string }> = {
+  open: {
+    label: "ETH → Gemas",
+    finalState: "Available",
+    done: "Gemas available. They are yours to play.",
+    pending: "Pending. These Gemas are not available until the last step completes.",
+    failed: "This step failed. Your Gemas are not available; nothing was spent.",
+  },
+  yield: {
+    label: "Report yield",
+    finalState: "Updated",
+    done: "Debt updated from the yield accrued on Hoodi.",
+    pending: "Pending. Debt only falls once the report reaches Solana.",
+    failed: "This step failed. Debt is unchanged.",
+  },
+  redeem: {
+    label: "Redeem → Hoodi",
+    finalState: "Paid",
+    done: "simETH arrived on Hoodi.",
+    pending: "Pending. The simETH is not in your wallet until the last step completes.",
+    failed: "This step failed. Your redemption is recorded and can be retried.",
+  },
+  unlock: {
+    label: "Unlock → Hoodi",
+    finalState: "Returned",
+    done: "Principal is back on Hoodi.",
+    pending: "Pending. The Principal is not back until the last step completes.",
+    failed: "This step failed. The Position is unlocked on Solana and the send can be retried.",
+  },
+};
+
+export interface OpProgress {
+  /** Steps completed. */
+  stage: number;
+  /** The relayed step the app should perform now (a keeper may have done it already). */
+  next: OpAction | null;
+}
+
+/** Where an operation stands, from what is on chain. Pure. */
+export function opProgress(op: EthOp, s: EthState | null, vp: VaultPosition | null): OpProgress {
+  const bridge = s?.bridge ?? null;
+  const core = s?.core ?? null;
+  switch (op.kind) {
+    case "open": {
+      if (core && core.advances >= 1) return { stage: 5, next: null };
+      if (core) return { stage: 3, next: "advance" };
+      if (bridge && bridge.lastInSeq > 0n) return { stage: 2, next: "apply-locked" };
+      return { stage: 1, next: null };
+    }
+    case "yield": {
+      const base = BigInt(op.baseline ?? "0");
+      if (!bridge || bridge.lastYieldSeq <= base) return { stage: 1, next: null };
+      if (bridge.appliedYieldSeq >= bridge.lastYieldSeq) return { stage: 3, next: null };
+      return { stage: 2, next: "apply-yield" };
+    }
+    case "redeem": {
+      const paid = vp && op.baseline !== undefined && vp.paidUnderlying >= BigInt(op.baseline);
+      if (paid) return { stage: 3, next: null };
+      const c = s?.claim ?? null;
+      if (c && c.unitsSent >= c.unitsTotal && c.unitsTotal > 0n) return { stage: 2, next: null };
+      return { stage: 1, next: "send-pay-yield" };
+    }
+    case "unlock": {
+      if (vp?.unlocked) return { stage: 3, next: null };
+      if (bridge?.unlockSent) return { stage: 2, next: null };
+      return { stage: 1, next: "send-unlock" };
+    }
+  }
+}
+
+export interface ScanStatus {
+  name: string;
+  destinationTx: string | null;
+}
+
+/** LayerZero Scan status of a message by its source tx (Hoodi hash or Solana signature). Null while Scan has not indexed it. */
+export async function fetchScanStatus(txHash: string): Promise<ScanStatus | null> {
+  try {
+    const res = await fetch(`${LZ_SCAN_API}/messages/tx/${txHash}`);
+    if (!res.ok) return null;
+    const m = ((await res.json()) as { data?: { status?: { name?: string }; destination?: { tx?: { txHash?: string } } }[] }).data?.[0];
+    if (!m?.status?.name) return null;
+    return { name: m.status.name, destinationTx: m.destination?.tx?.txHash ?? null };
+  } catch {
+    return null;
+  }
+}
+
+// ---- persistence (per Solana address, in this browser) ------------------------------------------------
+
+const KEY = (address: string) => `tesoro-eth-ops:${address}`;
+export const OPS_EVENT = "tesoro-eth-ops";
+
+export function loadOps(address: string): EthOp[] {
+  try {
+    const raw = localStorage.getItem(KEY(address));
+    return raw ? (JSON.parse(raw) as EthOp[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOps(address: string, ops: EthOp[]) {
+  try {
+    localStorage.setItem(KEY(address), JSON.stringify(ops));
+  } catch {
+    // private mode: the tracker works for this page load only
+  }
+  window.dispatchEvent(new Event(OPS_EVENT));
+}
+
+export function addOp(address: string, op: Omit<EthOp, "key" | "createdAt">): EthOp {
+  const full: EthOp = { ...op, key: `${op.kind}-${op.vault}-${op.id}-${Date.now()}`, createdAt: Date.now() };
+  saveOps(address, [full, ...loadOps(address)].slice(0, 20));
+  return full;
+}
+
+export function patchOp(address: string, key: string, patch: Partial<EthOp>) {
+  saveOps(address, loadOps(address).map((o) => (o.key === key ? { ...o, ...patch } : o)));
+}
+
+export function removeOp(address: string, key: string) {
+  saveOps(address, loadOps(address).filter((o) => o.key !== key));
+}

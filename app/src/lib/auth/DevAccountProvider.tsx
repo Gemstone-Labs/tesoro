@@ -96,6 +96,7 @@ function DevBridge({ children }: { children: ReactNode }) {
     };
     const evm: EvmSigner | null = evmKey && {
       address: privateKeyToAccount(evmKey).address,
+      account: privateKeyToAccount(evmKey),
       client: createWalletClient({ account: privateKeyToAccount(evmKey), chain: hoodi, transport: http(HOODI_RPC) }),
       prepare: async () => {},
       source: "dev",

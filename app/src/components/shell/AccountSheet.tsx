@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, ChainChip, CheckIcon, CopyIcon, Label, Sheet } from "@/components/ui";
 import { useAuth } from "@/lib/auth/context";
+import { getChain } from "@/lib/chain/client";
+import { fetchLinkState } from "@/lib/chain/eth";
 import type { Chain } from "@/lib/mock";
 
 export function AccountSheet({
@@ -14,7 +16,8 @@ export function AccountSheet({
   onClose: () => void;
   onSignedOut: () => void;
 }) {
-  const { email, addresses, linked, linkWallet, signOut } = useAuth();
+  const { email, addresses, linked, linkWallet, signOut, evm, signer } = useAuth();
+  const link = useEvmLink(open, signer?.publicKey.toBase58() ?? null, evm?.address ?? null);
   const solanaLinked = linked.filter((w) => w.family === "solana");
   const evmLinked = linked.filter((w) => w.family === "evm");
   return (
@@ -22,7 +25,16 @@ export function AccountSheet({
       <div className="stack">
         <span className="meta">{email ?? "Signed in"}</span>
         <AddressCard title="Solana address" chains={["SOL"]} address={addresses.solana} />
-        <AddressCard title="EVM address" chains={["ETH", "HYPE"]} address={addresses.evm} />
+        <AddressCard title="EVM address" chains={["ETH", "HYPE"]} address={evm?.address ?? addresses.evm} />
+        {evm && (
+          <p className="meta">
+            {link === "linked"
+              ? "Linked to your Account on Solana: Ethereum Positions and payouts route here."
+              : link === "unlinked"
+                ? "Not linked yet. It links (one signature) the first time you open an ETH Position."
+                : "Checking link…"}
+          </p>
+        )}
         <p className="note">One EVM address works on Ethereum Hoodi and HyperEVM testnet. Testnets only.</p>
       </div>
 
@@ -98,4 +110,23 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       {copied ? <CheckIcon /> : <CopyIcon />}
     </button>
   );
+}
+
+/** Whether the EVM address is proven to the bridge (an `EvmLink` for this Account exists). */
+function useEvmLink(open: boolean, solana: string | null, evm: string | null): "linked" | "unlinked" | "unknown" {
+  const [state, setState] = useState<{ key: string; value: "linked" | "unlinked" } | null>(null);
+  const key = `${solana}:${evm}`;
+  useEffect(() => {
+    if (!open || !solana || !evm) return;
+    let live = true;
+    void import("@solana/web3.js").then(({ PublicKey }) =>
+      fetchLinkState(getChain().base, new PublicKey(solana), evm)
+        .then((s) => live && setState({ key, value: s.linked && s.addressSet ? "linked" : "unlinked" }))
+        .catch(() => undefined),
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, solana, evm, key]);
+  return state?.key === key ? state.value : "unknown";
 }

@@ -20,11 +20,13 @@ import { DEMO_ADVANCE } from "@/lib/chain/config";
 import { DemoAdvanceSheet } from "./DemoAdvanceSheet";
 import { RedeemSheet, ReturnSheet } from "./MoneySheets";
 import { NativeGetGemas, NativePositionCard, NativeRedeemSheet, OpenPositionSheet, nativeRedeemables } from "./NativePositions";
+import { EthGetGemas, EthOps, EthPositionCard, OpenEthSheet, ethRedeemables } from "./EthPositions";
 
 export default function Wallet() {
   const { gemas, positions, holdings, auth, onChain, loading, snapshot } = useAccount();
   const [demoOpen, setDemoOpen] = useState(false);
   const [openPos, setOpenPos] = useState(false);
+  const [openEth, setOpenEth] = useState(false);
   const [nativeRedeemOpen, setNativeRedeemOpen] = useState(false);
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
   const [returnFor, setReturnFor] = useState<Position | null>(null);
@@ -44,7 +46,10 @@ export default function Wallet() {
 
   const market = snapshot?.market ?? null;
   const nativeIds = new Set((snapshot?.positions ?? []).filter((p) => p.native).map((p) => p.address.toBase58()));
-  const nativeRedeemable = nativeRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0);
+  const nativeRedeemable =
+    nativeRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0) +
+    ethRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0);
+  const ethIds = new Set((snapshot?.positions ?? []).filter((p) => p.eth).map((p) => p.address.toBase58()));
   const redeemable = holdings.filter((h) => redeemableOf(h) > 0);
   const pendingItems = holdings
     .filter((h) => h.gemas - redeemableOf(h) > 0)
@@ -72,6 +77,7 @@ export default function Wallet() {
           </Button>
           {onChain && <p className="note">Redeem pays simSOL (Simulated) from the Source Position&apos;s accrued yield. Balances above are read from Solana devnet.</p>}
           {onChain && <NativeGetGemas market={market} loading={loading} onOpen={() => setOpenPos(true)} />}
+          {onChain && <EthGetGemas onOpen={() => setOpenEth(true)} />}
           {onChain && DEMO_ADVANCE && (
             <Card large>
               <div className="stack">
@@ -100,7 +106,11 @@ export default function Wallet() {
         {onChain && (snapshot?.positions ?? []).filter((p) => p.native).map((p) => (
           <NativePositionCard key={p.address.toBase58()} position={p} market={market} />
         ))}
-        {positions.filter((p) => !nativeIds.has(p.id)).map((p) => (
+        {onChain && <EthOps />}
+        {onChain && (snapshot?.positions ?? []).filter((p) => p.eth).map((p) => (
+          <EthPositionCard key={p.address.toBase58()} position={p} market={null} />
+        ))}
+        {positions.filter((p) => !nativeIds.has(p.id) && !ethIds.has(p.id)).map((p) => (
           <Card key={p.id} large as="article" aria-label={`${p.asset} Position`}>
             <div className="stack">
               <div className="spread">
@@ -140,6 +150,7 @@ export default function Wallet() {
       </section>
 
       <OpenPositionSheet open={openPos} onClose={() => setOpenPos(false)} market={market} />
+      <OpenEthSheet open={openEth} onClose={() => setOpenEth(false)} onOpened={() => void 0} />
       <NativeRedeemSheet open={nativeRedeemOpen} onClose={() => setNativeRedeemOpen(false)} />
       {DEMO_ADVANCE && <DemoAdvanceSheet open={demoOpen} onClose={() => setDemoOpen(false)} />}
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />

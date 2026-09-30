@@ -92,7 +92,7 @@ export async function ensureEvmLinked(ctx: EthCtx): Promise<string | null> {
   if (state.linked && state.addressSet) return null;
   await ctx.evm.prepare();
   const signature = await ctx.evm.client.signMessage({
-    account: ctx.evm.address,
+    account: ctx.evm.account,
     message: linkMessage(coreAccountPda(ctx.signer.publicKey)),
   });
   const ixs = [];
@@ -125,7 +125,7 @@ export async function getTestSimEth(ctx: EthCtx, vault: EthVault = ETH_VAULTS[0]
   await ensureGas(ctx);
   await ctx.evm.prepare();
   const hash = await ctx.evm.client.writeContract({
-    account: ctx.evm.address,
+    account: ctx.evm.account,
     chain: undefined,
     address: vault.lst,
     abi: lstAbi,
@@ -167,7 +167,7 @@ export async function openEthPosition(
   if (market.allowance < amountWei) {
     onStep("approve");
     const approveHash = await ctx.evm.client.writeContract({
-      account: ctx.evm.address,
+      account: ctx.evm.account,
       chain: undefined,
       address: vault.lst,
       abi: lstAbi,
@@ -183,7 +183,7 @@ export async function openEthPosition(
   await ethCall("init-position", ctx, { vault: vault.address, id: predicted.toString() });
   onStep("open");
   const hash = await ctx.evm.client.writeContract({
-    account: ctx.evm.address,
+    account: ctx.evm.account,
     chain: undefined,
     address: vault.address,
     abi: vaultAbi,
@@ -206,7 +206,7 @@ export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): 
   const market = await fetchEthMarket(vault, ctx.evm.address);
   await ctx.evm.prepare();
   const hash = await ctx.evm.client.writeContract({
-    account: ctx.evm.address,
+    account: ctx.evm.account,
     chain: undefined,
     address: vault.address,
     abi: vaultAbi,
