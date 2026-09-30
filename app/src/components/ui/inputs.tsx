@@ -16,6 +16,7 @@ export function EntryPicker({
   legend = "Entry",
   name,
   maxAffordable,
+  isDisabled,
 }: {
   value: EntrySize;
   onChange: (v: EntrySize) => void;
@@ -23,6 +24,8 @@ export function EntryPicker({
   name?: string;
   /** Entries above this many Gemas are disabled. */
   maxAffordable?: number;
+  /** Extra rule for an entry that `maxAffordable` cannot express (e.g. Gemas spread over too many Sources). */
+  isDisabled?: (size: EntrySize) => boolean;
 }) {
   const auto = useId();
   const group = name ?? auto;
@@ -30,7 +33,7 @@ export function EntryPicker({
     <fieldset className="entries">
       <legend className="sr-only">{legend}</legend>
       {ENTRY_SIZES.map((size) => {
-        const disabled = maxAffordable !== undefined && size > maxAffordable;
+        const disabled = (maxAffordable !== undefined && size > maxAffordable) || (isDisabled?.(size) ?? false);
         return (
           <label key={size} className="entry">
             <input

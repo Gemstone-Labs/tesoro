@@ -2,7 +2,7 @@ import { holdings as mockHoldings, matches as mockMatches, positions as mockPosi
 import { useAuth } from "./auth/context";
 import { useChainData } from "./chain/ChainDataProvider";
 import type { AccountSnapshot, ChainMatch } from "./chain/read";
-import { backerDelta, matchDelta } from "./chain/ledger";
+import { backerDelta, entryProblem, matchDelta, type EntryError } from "./chain/ledger";
 import type { AuthState } from "./auth/types";
 import type { Account, GemaHolding, Match, Position } from "./mock";
 
@@ -35,6 +35,12 @@ export interface AccountView {
   snapshot: AccountSnapshot | null;
   /** Re-read the Account from chain now. */
   refresh: () => Promise<void>;
+  /**
+   * Why an entry of this size cannot be made from the Account's Holdings under tesoro_core's draw
+   * rule (not enough Gemas, or more than 8 Sources needed), or null when it can. Always null when
+   * the data is mock.
+   */
+  entryProblem: (entry: number) => EntryError["code"] | null;
 }
 
 export function redeemableOf(h: GemaHolding): number {
@@ -146,5 +152,12 @@ export function useAccount(): AccountView {
     openMatches: real?.openMatches ?? [],
     snapshot: chain.snapshot,
     refresh: chain.refresh,
+    entryProblem: (entry) =>
+      onChain && chain.snapshot
+        ? entryProblem(
+            BigInt(entry),
+            chain.snapshot.holdings.map((h) => ({ source: h.source.toBytes(), isOwn: h.isOwn, free: h.free })),
+          )
+        : null,
   };
 }

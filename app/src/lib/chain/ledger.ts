@@ -61,13 +61,18 @@ export interface EntryHolding {
   free: bigint;
 }
 
+/** tesoro_core `MAX_ENTRY_SOURCES`: Holdings (Sources) one entry may draw on. */
+export const MAX_ENTRY_SOURCES = 8;
+
 export class EntryError extends Error {
   constructor(readonly code: "insufficient" | "too-many-sources") {
-    super(code === "insufficient" ? "Not enough Gemas for this entry" : "Entry would draw on more than 2 Sources");
+    super(
+      code === "insufficient"
+        ? "Not enough Gemas for this entry"
+        : `This entry would draw on more than ${MAX_ENTRY_SOURCES} Sources`,
+    );
   }
 }
-
-export const MAX_ENTRY_SOURCES = 2;
 
 export function compareKeys(a: Uint8Array, b: Uint8Array): number {
   for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
@@ -75,9 +80,14 @@ export function compareKeys(a: Uint8Array, b: Uint8Array): number {
 }
 
 /**
- * Picks the Holdings an entry draws on, in the order tesoro_core requires: own-sourced class
- * first, then won, each strictly ascending by Source, each class drained in that order.
- * Returns indices into `holdings`.
+ * Picks the smallest set of Holdings an entry can draw on, in the order tesoro_core requires:
+ * own-sourced class first, then won, each ascending by Source. Returns indices into `holdings`.
+ *
+ * The program takes `min(entry, own free)` from the own class, the rest from won Gemas. Within a
+ * class it accepts any strictly ascending subset in which every Holding but the last is drained
+ * and the last contributes something. So when the class must be drained completely every Holding
+ * with Gemas is needed; otherwise a minimum cover (largest balances first) always satisfies that
+ * rule, because dropping the last Holding of a minimum cover would leave it short.
  */
 export function planEntry(entry: bigint, holdings: EntryHolding[]): number[] {
   const ownFree = holdings.filter((h) => h.isOwn).reduce((s, h) => s + h.free, 0n);
@@ -86,23 +96,39 @@ export function planEntry(entry: bigint, holdings: EntryHolding[]): number[] {
   const wonNeed = entry - ownNeed;
   if (wonNeed > wonFree) throw new EntryError("insufficient");
   const picked: number[] = [];
-  for (const [isOwn, need] of [
-    [true, ownNeed],
-    [false, wonNeed],
+  for (const [isOwn, need, classFree] of [
+    [true, ownNeed, ownFree],
+    [false, wonNeed, wonFree],
   ] as const) {
-    let left = need;
-    const idx = holdings
-      .map((h, i) => [h, i] as const)
-      .filter(([h]) => h.isOwn === isOwn && h.free > 0n)
-      .sort(([a], [b]) => compareKeys(a.source, b.source));
-    for (const [h, i] of idx) {
-      if (left === 0n) break;
-      picked.push(i);
-      left -= min(left, h.free);
+    if (need === 0n) continue;
+    const candidates = holdings.map((h, i) => [h, i] as const).filter(([h]) => h.isOwn === isOwn && h.free > 0n);
+    let chosen = candidates;
+    if (need < classFree) {
+      const byBalance = [...candidates].sort(([a], [b]) => (a.free === b.free ? compareKeys(a.source, b.source) : a.free > b.free ? -1 : 1));
+      chosen = [];
+      let left = need;
+      for (const c of byBalance) {
+        if (left === 0n) break;
+        chosen.push(c);
+        left -= min(left, c[0].free);
+      }
     }
+    chosen.sort(([a], [b]) => compareKeys(a.source, b.source));
+    picked.push(...chosen.map(([, i]) => i));
   }
   if (picked.length > MAX_ENTRY_SOURCES) throw new EntryError("too-many-sources");
   return picked;
+}
+
+/** Why an entry cannot be made from these Holdings, or null when it can. */
+export function entryProblem(entry: bigint, holdings: EntryHolding[]): EntryError["code"] | null {
+  try {
+    planEntry(entry, holdings);
+    return null;
+  } catch (e) {
+    if (e instanceof EntryError) return e.code;
+    throw e;
+  }
 }
 
 /** Fee taken from the Pot at settlement, in Gemas (each share floored, as in the ledger). */

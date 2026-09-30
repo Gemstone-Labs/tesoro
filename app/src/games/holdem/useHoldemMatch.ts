@@ -54,6 +54,9 @@ function tableKey(t: Table): string {
   return [t.status, t.handNo, t.phase, t.toAct, t.deadline, t.stacks, t.bets, t.committed, t.board, t.lastHand.handNo, t.winner, t.missed].join("|");
 }
 
+/** How long the Player who does not settle at once waits before settling a still-open Match. */
+const FINALIZE_GRACE_MS = 20_000;
+
 /**
  * Drives one Hold'em Match for one Player: reads the table from the private rollup, and does
  * every step that is not a betting decision (create and delegate the table, start it, per-hand
@@ -180,8 +183,10 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       setView((v) => ({ ...v, table: t }));
       setStage("closing", "Settling on Solana devnet");
       if (!closingSince.current) closingSince.current = now();
+      // One Player settles at once (the winner; seat 0 for a cancelled table). The other waits and
+      // settles only if the Match is still open then, so the loser of a race does not burn a fee.
       const mine = t.status === STATUS.cancelled ? seat === 0 : t.winner === seat;
-      if (!mine && now() - closingSince.current < 15_000) return;
+      if (!mine && now() - closingSince.current < FINALIZE_GRACE_MS) return;
       try {
         await hd.finalize(p, id);
       } catch (e) {

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Pause, Play } from "lucide-react";
 import { Button, EntryPicker } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { art } from "@/lib/art";
 import { fmtGemas } from "@/lib/format";
 import type { EntrySize, GameId } from "@/lib/mock";
@@ -143,10 +144,11 @@ function HeroSlide({
   waiting: number;
   onSelect: () => void;
 }) {
-  const { gemas, auth, onChain, loading } = useAccount();
+  const { gemas, auth, onChain, loading, entryProblem } = useAccount();
   const router = useRouter();
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
-  const canEnter = !signedIn || loading || gemas.available >= entry;
+  const problem = signedIn && onChain ? entryProblem(entry) : null;
+  const canEnter = !signedIn || loading || (onChain ? problem === null : gemas.available >= entry);
   const go = (href: string, reason: string) => auth.gate(reason, () => router.push(href));
 
   return (
@@ -165,7 +167,7 @@ function HeroSlide({
         <h2 className="slide-title">{slide.title}</h2>
         <p className="slide-sub">{slide.sub}</p>
         <div className="slide-entry">
-          <EntryPicker value={entry} onChange={onEntry} legend={`Entry for ${slide.title}`} name={`hero-${slide.game}`} maxAffordable={signedIn && onChain ? gemas.available : undefined} />
+          <EntryPicker value={entry} onChange={onEntry} legend={`Entry for ${slide.title}`} name={`hero-${slide.game}`} maxAffordable={signedIn && onChain ? gemas.available : undefined} isDisabled={signedIn && onChain ? (size) => entryProblem(size) !== null : undefined} />
         </div>
         <Button variant="money" size="lg" block onClick={() => go(hrefFor("queue", slide.game, entry), "Enter a Match")} disabled={!canEnter}>
           Play now
@@ -180,7 +182,13 @@ function HeroSlide({
             </>
           ) : (
             <>
-              You need {fmtGemas(entry)} Gemas to enter. <Link href="/wallet">Get Gemas in your Wallet</Link>
+              {problem === "too-many-sources" ? (
+                <>Your Gemas are spread over more than {MAX_ENTRY_SOURCES} Sources. <Link href="/wallet">Redeem a few small balances in your Wallet</Link></>
+              ) : (
+                <>
+                  You need {fmtGemas(entry)} Gemas to enter. <Link href="/wallet">Get Gemas in your Wallet</Link>
+                </>
+              )}
             </>
           )}
         </p>

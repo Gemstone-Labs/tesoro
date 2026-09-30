@@ -499,6 +499,11 @@ export class HoldemChain {
   }
 
   /** The tesoro_core Match state (base layer), decoded. */
+  /** A tesoro_core Match that can still be settled (Active); false once settled, refunded or gone. */
+  private isLive(tesoroMatch: any | null): boolean {
+    return !!tesoroMatch && "active" in tesoroMatch.inner.status;
+  }
+
   async readTesoroMatch(matchId: bigint | number): Promise<any | null> {
     const info = await this.base.getAccountInfo(tesoroMatchPda(matchId));
     return info ? this.tesoro.coder.accounts.decode("matchState", info.data) : null;
@@ -507,7 +512,9 @@ export class HoldemChain {
   /**
    * Base layer, permissionless. After the rollup committed the result (`closeMatch`, then wait
    * for the table to be owned by holdem again), settles or refunds the tesoro_core Match by CPI as
-   * the Game authority PDA. Creates missing Holdings for the recipients first.
+   * the Game authority PDA. Creates missing Holdings for the recipients first. Returns "" without
+   * sending when the Match is already settled or refunded (the other Player, or the keeper, got
+   * there first), so a lost race costs no fee.
    */
   async finalize(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
     const ad = addresses(matchId);
@@ -517,6 +524,7 @@ export class HoldemChain {
     const info = await this.base.getAccountInfo(ad.gameMatch);
     const table = decodeTable(ad.gameMatch, this.program.coder.accounts.decode("gameMatch", info!.data));
     const tesoroMatch = await this.readTesoroMatch(matchId);
+    if (!this.isLive(tesoroMatch)) return "";
     const winner = table.status === STATUS.over ? (table.winner as 0 | 1) : null;
     const payouts = computePayouts(tesoroMatch.inner, winner);
     const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
@@ -532,6 +540,8 @@ export class HoldemChain {
       remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true });
       remaining.push({ pubkey: holding, isSigner: false, isWritable: true });
     }
+    // Opening Holdings takes a few seconds: look again before paying for a transaction that would fail.
+    if (!this.isLive(await this.readTesoroMatch(matchId))) return "";
     const ix = await this.program.methods
       .finalize()
       .accountsPartial({
