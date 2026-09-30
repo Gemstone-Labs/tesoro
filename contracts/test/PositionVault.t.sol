@@ -313,4 +313,15 @@ contract PositionVaultWstETHTest is VaultBase {
         assertGe(worth, 0.05 ether - 1);
         assertLe(worth, 0.05 ether + 2);
     }
+
+    /// PR-01. tesoro_core stores Principal as u64; a larger Position could never open on Solana and its
+    /// Principal could never unlock, so the vault refuses it.
+    function test_pr01_principalAboveU64IsRefused() public {
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.PrincipalTooLarge.selector);
+        vault.openPosition(20 ether, 6); // 20.6e18 underlying at 1.03 > u64 max (~18.45e18)
+        vm.prank(alice);
+        uint64 id = vault.openPosition(17 ether, 6);
+        assertLe(vault.getPosition(id).principalUnderlying, type(uint64).max);
+    }
 }

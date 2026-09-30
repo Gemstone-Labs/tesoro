@@ -67,6 +67,7 @@ contract PositionVault {
     error UnknownMessage();
     error TransferFailed();
     error ExceedsAccruedYield(uint256 requested, uint256 available);
+    error PrincipalTooLarge();
 
     constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_) {
         lst = IERC20Minimal(lst_);
@@ -103,6 +104,8 @@ contract PositionVault {
         p.owner = msg.sender;
         p.principalShares = lstAmount;
         p.principalUnderlying = (lstAmount * rate) / RATE_SCALE;
+        // tesoro_core keeps Principal as u64; a larger Position could never open on Solana and never unlock.
+        if (p.principalUnderlying > type(uint64).max) revert PrincipalTooLarge();
         p.openRate = rate;
         p.heldShares = lstAmount;
         p.openTime = uint64(block.timestamp);

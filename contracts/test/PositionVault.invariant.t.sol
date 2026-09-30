@@ -34,7 +34,7 @@ contract VaultHandler is Test {
     }
 
     function open(uint256 amount, uint8 horizon) external {
-        amount = bound(amount, 1e6, 1_000 ether);
+        amount = bound(amount, 1e6, 18 ether); // Principal must fit u64
         horizon = uint8(bound(horizon, 1, 12));
         deal(address(lst), user, amount + lst.balanceOf(user)); // faucet-equivalent, simple mint via storage
         vm.prank(user);
