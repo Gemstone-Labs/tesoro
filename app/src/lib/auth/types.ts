@@ -1,3 +1,4 @@
+import type { Account, Address, WalletClient } from "viem";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 
 /** A wallet the person linked themselves, as opposed to the embedded wallets Tesoro creates for the Account. */
@@ -6,6 +7,18 @@ export interface LinkedWallet {
   address: string;
   /** Wallet app name as Privy reports it, e.g. "phantom", "metamask". */
   client: string;
+}
+
+/** The Account's EVM wallet (the embedded one, or a linked external wallet when there is none), as a viem client on Hoodi. */
+export interface EvmSigner {
+  address: Address;
+  /** Signs `personal_sign` and sends transactions with `account` set to `address`. */
+  client: WalletClient;
+  /** The local account (dev key) or the address of a JSON-RPC wallet; pass it as `account` on every call. */
+  account: Account | Address;
+  /** Switches the wallet to Hoodi before a transaction (a no-op for the dev key). */
+  prepare: () => Promise<void>;
+  source: "embedded" | "linked" | "dev";
 }
 
 export type AuthStatus = "unconfigured" | "loading" | "signed-out" | "signed-in";
@@ -27,6 +40,8 @@ export interface AuthState {
   openAccount: () => void;
   /** Signs Solana transactions and messages with the Account's embedded wallet; null until it exists. */
   signer: ChainSigner | null;
+  /** Signs and sends on Hoodi with the Account's EVM wallet; null until it exists. */
+  evm: EvmSigner | null;
   /** Privy access token for server routes (null when signed out or in dev-wallet mode). */
   getAccessToken: () => Promise<string | null>;
   /** True when the dev-only local Keypair wallet stands in for Privy (never in production builds). */

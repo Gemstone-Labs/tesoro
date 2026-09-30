@@ -15,6 +15,7 @@ export const UNCONFIGURED: AuthState = {
   openSignIn: () => {},
   openAccount: () => {},
   signer: null,
+  evm: null,
   getAccessToken: async () => null,
   devWallet: false,
 };

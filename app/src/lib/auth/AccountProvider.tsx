@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { PrivyProvider, useCreateWallet, usePrivy, type PrivyClientConfig } from "@privy-io/react-auth";
+import { PrivyProvider, useCreateWallet, usePrivy, useWallets, type PrivyClientConfig } from "@privy-io/react-auth";
+import { createWalletClient, custom, type Address } from "viem";
 import {
   toSolanaWalletConnectors,
   useCreateWallet as useCreateSolanaWallet,
@@ -17,7 +18,7 @@ import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { DEV_WALLET } from "@/lib/chain/config";
 import { EVM_CHAINS, SOLANA_DEVNET_RPC, SOLANA_DEVNET_WS, hoodi } from "@/lib/chains";
 import { AuthContext, UNCONFIGURED } from "./context";
-import type { AuthState, LinkedWallet } from "./types";
+import type { AuthState, EvmSigner, LinkedWallet } from "./types";
 
 // Dev-only signer. The condition is a build-time constant, so production builds drop the import entirely.
 const DevAccountProvider = DEV_WALLET ? lazy(() => import("./DevAccountProvider").then((m) => ({ default: m.DevAccountProvider }))) : null;
@@ -72,6 +73,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 function PrivyBridge({ children }: { children: ReactNode }) {
   const { ready, authenticated, user, logout, linkWallet, getAccessToken } = usePrivy();
   const { wallets: solanaWallets } = useSolanaWallets();
+  const { wallets: evmWallets } = useWallets();
   const { signTransaction } = useSignTransaction();
   const { signMessage } = useSignMessage();
   const { createWallet: createEvmWallet } = useCreateWallet();
@@ -130,6 +132,32 @@ function PrivyBridge({ children }: { children: ReactNode }) {
     };
   }, [solana, solanaWallets, signTransaction, signMessage]);
 
+  // The embedded EVM wallet signs on Hoodi; a linked external EVM wallet stands in when there is none.
+  const evmSigner = useMemo<EvmSigner | null>(() => {
+    const embedded = evm ? evmWallets.find((w) => w.address.toLowerCase() === evm.toLowerCase()) : undefined;
+    const external = linked.find((l) => l.family === "evm");
+    const wallet = embedded ?? (external ? evmWallets.find((w) => w.address.toLowerCase() === external.address.toLowerCase()) : undefined);
+    if (!wallet) return null;
+    const address = wallet.address as Address;
+    const transport = custom({
+      request: async (args: { method: string; params?: unknown }) => {
+        const provider = await wallet.getEthereumProvider();
+        return provider.request(args as Parameters<typeof provider.request>[0]);
+      },
+    });
+    return {
+      address,
+      account: address,
+      client: createWalletClient({ account: address, chain: hoodi, transport }),
+      prepare: async () => {
+        await wallet.switchChain(hoodi.id);
+      },
+      source: embedded ? "embedded" : "linked",
+    };
+    // `linked` is rebuilt every render from `wallets`; depend on its source.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evm, evmWallets, wallets]);
+
   const gate = useCallback(
     (why: string, action: () => void) => {
       if (authenticated) return action();
@@ -155,12 +183,13 @@ function PrivyBridge({ children }: { children: ReactNode }) {
       },
       openAccount: () => setAccountOpen(true),
       signer,
+      evm: evmSigner,
       getAccessToken,
       devWallet: false,
     }),
     // `linked` is rebuilt every render from `wallets`; depend on its source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ready, authenticated, user, solana, evm, wallets, logout, linkWallet, gate, signer, getAccessToken],
+    [ready, authenticated, user, solana, evm, wallets, logout, linkWallet, gate, signer, evmSigner, getAccessToken],
   );
 
   return (

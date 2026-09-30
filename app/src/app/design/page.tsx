@@ -42,6 +42,7 @@ const SAMPLE_AUTH: AuthState = {
   openSignIn: () => {},
   openAccount: () => {},
   signer: null,
+  evm: null,
   getAccessToken: async () => null,
   devWallet: false,
 };

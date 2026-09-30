@@ -27,15 +27,15 @@ export const SIM_MONTH_MIN = 10;
 /** The feed is only accepted by `take_native_advance` for this long. */
 export const MAX_PRICE_AGE_SECS = 24 * 60 * 60;
 
-const pda = (seeds: (Buffer | Uint8Array)[], program = TESORO_CORE_ID) => PublicKey.findProgramAddressSync(seeds, program)[0];
-const s = (x: string) => Buffer.from(x);
+export const pda = (seeds: (Buffer | Uint8Array)[], program = TESORO_CORE_ID) => PublicKey.findProgramAddressSync(seeds, program)[0];
+export const s = (x: string) => Buffer.from(x);
 // The browser Buffer polyfill has no bigint accessors: read and write through DataView.
 const view = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset, d.byteLength);
-const rdU64 = (d: Uint8Array, o: number) => view(d).getBigUint64(o, true);
+export const rdU64 = (d: Uint8Array, o: number) => view(d).getBigUint64(o, true);
 const rdI64 = (d: Uint8Array, o: number) => view(d).getBigInt64(o, true);
-const rdU32 = (d: Uint8Array, o: number) => view(d).getUint32(o, true);
+export const rdU32 = (d: Uint8Array, o: number) => view(d).getUint32(o, true);
 const rdU16 = (d: Uint8Array, o: number) => view(d).getUint16(o, true);
-const u64 = (n: bigint | number) => {
+export const u64 = (n: bigint | number) => {
   const b = Buffer.alloc(8);
   view(b).setBigUint64(0, BigInt(n), true);
   return b;
@@ -78,7 +78,7 @@ export const holdingPda = (account: PublicKey, source: PublicKey) => pda([s("hol
 export const simSolAta = (owner: PublicKey) =>
   PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), SIM_SOL_MINT.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
 
-const meta = (pubkey: PublicKey, isWritable = false, isSigner = false): AccountMeta => ({ pubkey, isSigner, isWritable });
+export const meta = (pubkey: PublicKey, isWritable = false, isSigner = false): AccountMeta => ({ pubkey, isSigner, isWritable });
 const core = (keys: AccountMeta[], name: keyof typeof DISC, ...args: Buffer[]) =>
   new TransactionInstruction({ programId: TESORO_CORE_ID, keys, data: Buffer.concat([disc(name), ...args]) });
 
@@ -332,7 +332,7 @@ export async function fetchNativeMarket(c: Connection, wallet: PublicKey): Promi
   };
 }
 
-function parseSource(key: PublicKey, data: Buffer) {
+export function parseSource(key: PublicKey, data: Buffer) {
   let o = 8 + 1 + 32 + 32; // disc, bump, position, owner
   const index = rdU32(data, o);
   const horizonMonths = data[o + 4];

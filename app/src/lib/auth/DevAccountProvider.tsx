@@ -12,10 +12,32 @@ import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { AccountSheet } from "@/components/shell/AccountSheet";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { createWalletClient, http } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { hoodi } from "viem/chains";
+import { HOODI_RPC } from "@/lib/chain/eth";
 import { AuthContext } from "./context";
-import type { AuthState } from "./types";
+import type { AuthState, EvmSigner } from "./types";
 
 const KEY = (slot: string) => `tesoro-dev-wallet:${slot}`;
+const EVM_KEY = (slot: string) => `tesoro-dev-evm:${slot}`;
+
+/** The dev EVM key, kept beside the Solana one. Same rules: local, never with anything of value. */
+function loadEvm(slot: string): `0x${string}` {
+  try {
+    const raw = localStorage.getItem(EVM_KEY(slot));
+    if (raw && /^0x[0-9a-f]{64}$/.test(raw)) return raw as `0x${string}`;
+  } catch {
+    // fall through to a fresh key
+  }
+  const k = generatePrivateKey();
+  try {
+    localStorage.setItem(EVM_KEY(slot), k);
+  } catch {
+    // private mode: the key lives for this page load only
+  }
+  return k;
+}
 
 function load(slot: string): Keypair {
   try {
@@ -41,6 +63,7 @@ export function DevAccountProvider({ children }: { children: ReactNode }) {
 
 function DevBridge({ children }: { children: ReactNode }) {
   const [keypair, setKeypair] = useState<Keypair | null>(null);
+  const [evmKey, setEvmKey] = useState<`0x${string}` | null>(null);
   const [slot, setSlot] = useState("1");
   const [accountOpen, setAccountOpen] = useState(false);
 
@@ -57,6 +80,7 @@ function DevBridge({ children }: { children: ReactNode }) {
     const t = setTimeout(() => {
       setSlot(s);
       setKeypair(load(s));
+      setEvmKey(loadEvm(s));
     }, 0);
     return () => clearTimeout(t);
   }, []);
@@ -70,28 +94,38 @@ function DevBridge({ children }: { children: ReactNode }) {
       },
       signMessage: async (m) => nacl.sign.detached(m, keypair.secretKey),
     };
+    const evm: EvmSigner | null = evmKey && {
+      address: privateKeyToAccount(evmKey).address,
+      account: privateKeyToAccount(evmKey),
+      client: createWalletClient({ account: privateKeyToAccount(evmKey), chain: hoodi, transport: http(HOODI_RPC) }),
+      prepare: async () => {},
+      source: "dev",
+    };
     return {
       status: keypair ? "signed-in" : "loading",
       email: `dev-${slot}@local`,
-      addresses: { solana: keypair?.publicKey.toBase58() ?? null, evm: null },
+      addresses: { solana: keypair?.publicKey.toBase58() ?? null, evm: evm?.address ?? null },
       linked: [],
       signOut: async () => {
         try {
           localStorage.removeItem(KEY(slot));
+          localStorage.removeItem(EVM_KEY(slot));
         } catch {
           // ignore
         }
         setKeypair(load(slot));
+        setEvmKey(loadEvm(slot));
       },
       linkWallet: () => {},
       gate: (_reason, action) => action(),
       openSignIn: () => {},
       openAccount: () => setAccountOpen(true),
       signer,
+      evm,
       getAccessToken: async () => null,
       devWallet: true,
     };
-  }, [keypair, slot]);
+  }, [keypair, evmKey, slot]);
 
   return (
     <AuthContext.Provider value={value}>

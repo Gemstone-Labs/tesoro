@@ -45,7 +45,7 @@ The sign-in sheet renders against the real Privy app (see `docs/screens/accounts
 
 ## Signing on Solana
 
-`useAuth().signer` is a `ChainSigner` over the embedded Solana wallet: `signTransaction` (Privy `useSignTransaction`, `showWalletUIs: false` so Match moves do not open a modal) and `signMessage` (the MagicBlock TEE auth token and the demo route). `getAccessToken` gives the Privy token the demo route verifies. Match flows use it through `src/lib/chain/`. Not verified against a real Privy login here (no inbox); driven with the dev wallet below. EVM sending is still not wired.
+`useAuth().signer` is a `ChainSigner` over the embedded Solana wallet: `signTransaction` (Privy `useSignTransaction`, `showWalletUIs: false` so Match moves do not open a modal) and `signMessage` (the MagicBlock TEE auth token and the demo route). `getAccessToken` gives the Privy token the demo route verifies. Match flows use it through `src/lib/chain/`. Not verified against a real Privy login here (no inbox); driven with the dev wallet below. EVM signing (`useAuth().evm`, a viem client on Hoodi) and the Ethereum Position flow are in `eth-positions.md`; the dev wallet also holds a local EVM key (`tesoro-dev-evm:<name>`).
 
 ## Dev-only wallet (`NEXT_PUBLIC_DEV_WALLET=1`)
 

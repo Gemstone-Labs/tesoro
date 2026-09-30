@@ -20,6 +20,7 @@ import {
 } from "@/lib/chain/native";
 import { friendlyError, getTestSimSol, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, unlockNative } from "@/lib/chain/native-flow";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
+import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
 
 const fmtSol = (lamports: bigint | number, digits = 4) => (Number(lamports) / LAMPORTS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
@@ -323,6 +324,8 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
   const [sigs, setSigs] = useState<string[]>([]);
   const now = useNow(5000);
   const rows = nativeRedeemables(snapshot?.holdings ?? []);
+  const ethRows = ethRedeemables(snapshot?.holdings ?? []);
+  const ethCtx = useEthCtx();
   const pool = snapshot?.market?.pool ?? null;
   const infoOf = (h: ChainHolding) => snapshot?.positions.find((p) => p.address.equals(h.position))?.native ?? null;
   const payout = (h: ChainHolding) => {
@@ -330,7 +333,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     if (!pool || !src || !src.key.equals(h.source)) return null;
     return redeemPayoutShares(src.math, h.redeemable, rateAt(pool, now / 1000));
   };
-  const total = rows.reduce((s, h) => s + Number(h.redeemable), 0);
+  const total = [...rows, ...ethRows].reduce((s, h) => s + Number(h.redeemable), 0);
 
   const redeem = async () => {
     if (!auth.signer) return;
@@ -340,6 +343,10 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
       for (const h of rows) {
         const sig = await redeemNative(auth.signer, h.position, h.source, h.redeemable);
         setSigs((s) => [...s, sig]);
+      }
+      if (ethRows.length > 0 && ethCtx) {
+        await redeemEthHoldings(ethCtx, snapshot?.holdings ?? []);
+        if (rows.length === 0) onClose();
       }
       await refresh();
     } catch (e) {
@@ -353,7 +360,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     <>
       <p className="meta">
         Each Gema redeems for its Source asset, only as far as that Source Position&apos;s yield has actually accrued.
-        Winning Gemas never shorten your own lock. Paid in simSOL (Simulated) to your wallet.
+        Winning Gemas never shorten your own lock. Paid in simSOL (Simulated) to your wallet, or simETH (Simulated) on Hoodi for ETH Positions.
       </p>
       <dl className="kv">
         {rows.map((h) => {
@@ -367,8 +374,15 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
             </div>
           );
         })}
+        {ethRows.map((h) => (
+          <div key={h.holding.toBase58()} style={{ display: "contents" }}>
+            <dt>{h.isOwn ? "Your ETH Position" : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`}</dt>
+            <dd>{fmtGemas(Number(h.redeemable))} → simETH on Hoodi</dd>
+          </div>
+        ))}
       </dl>
-      {rows.length === 0 && sigs.length === 0 && <p className="meta">Nothing is redeemable yet. Yield accrues on the Source Position over time.</p>}
+      {ethRows.length > 0 && <p className="meta">ETH-Sourced Gemas redeem through the bridge: the simETH arrives on Hoodi a few minutes later, with progress shown on the Wallet.</p>}
+      {rows.length + ethRows.length === 0 && sigs.length === 0 && <p className="meta">Nothing is redeemable yet. Yield accrues on the Source Position over time.</p>}
       {sigs.length > 0 && (
         <div className="status ok" role="status">
           <CheckIcon /> Redeemed {sigs.length} {sigs.length === 1 ? "Source" : "Sources"} into simSOL
@@ -376,7 +390,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
       )}
       {sigs.map((s) => <Sig key={s} label="redeem" sig={s} />)}
       {error && <p className="status err" role="alert">{error}</p>}
-      {rows.length > 0 ? (
+      {rows.length + ethRows.length > 0 ? (
         <Button variant="money" block disabled={busy || !auth.signer} onClick={redeem}>
           {busy ? "Redeeming…" : `Redeem ${fmtGemas(total)}`}
         </Button>
