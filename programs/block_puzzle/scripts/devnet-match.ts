@@ -4,6 +4,9 @@
  *
  *   pnpm install --ignore-workspace && pnpm match
  *
+ * FRAGMENT=8 ENTRY=500: each Player's Gemas are spread over 8 stand-in Positions (63 Gemas each), so the
+ * 500 entry draws on all 8 Holdings on both sides (tesoro_core MAX_ENTRY_SOURCES) and the settlement pays 18 lines.
+ *
  * Setup is idempotent: tesoro_core Config + Game registration, the oracle key
  * (~/.config/tesoro/oracle.json) and the two test wallets (~/.config/tesoro/block-puzzle-testers.json).
  */
@@ -22,6 +25,7 @@ import {
   keypairSigner,
   type Move,
 } from "../../../app/src/games/block-puzzle/chain";
+import { planEntry } from "../../../app/src/lib/chain/ledger";
 import { apply, dims, fitsAt, handBase, newState, pieceAt, replay, SIZE, HAND } from "../../../app/src/games/block-puzzle/engine";
 
 const HERE = __dirname;
@@ -36,6 +40,8 @@ const loadOrCreate = (f: string) => {
   fs.writeFileSync(f, JSON.stringify(Array.from(kp.secretKey)), { mode: 0o600 });
   return kp;
 };
+const FRAG = Number(process.env.FRAGMENT ?? 0);
+const ENTRY = Number(process.env.ENTRY ?? 1000);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const bpIdl = JSON.parse(fs.readFileSync(path.join(ROOT, "target/idl/block_puzzle.json"), "utf8"));
@@ -48,7 +54,7 @@ const core = chain.core as Program<any>;
 const deployer = readKp(path.join(os.homedir(), ".config/solana/id.json"));
 const oracle = loadOrCreate(path.join(cfgDir, "oracle.json"));
 const testers = (() => {
-  const f = path.join(cfgDir, "block-puzzle-testers.json");
+  const f = path.join(cfgDir, FRAG ? "block-puzzle-fragment-testers.json" : "block-puzzle-testers.json");
   if (!fs.existsSync(f)) {
     fs.writeFileSync(f, JSON.stringify([Array.from(Keypair.generate().secretKey), Array.from(Keypair.generate().secretKey)]), { mode: 0o600 });
   }
@@ -126,8 +132,54 @@ async function stakeNative(signer: ReturnType<typeof keypairSigner>, label: stri
 }
 
 /** A Player with Gemas: Position + Advance (100 tokens, 10%, 6 months at $150 = 75,000 Gemas). */
-async function stake(signer: ReturnType<typeof keypairSigner>, label: string, id: number) {
-  if (process.env.NATIVE) return stakeNative(signer, label);
+async function stake(signer: ReturnType<typeof keypairSigner>, label: string, id: number): Promise<{ account: PublicKey; holdings: PublicKey[] }> {
+  if (FRAG) return stakeFragmented(signer, label);
+  const r = process.env.NATIVE ? await stakeNative(signer, label) : await stakeOne(signer, label, id);
+  return { account: r.account, holdings: [r.holding] };
+}
+
+/** FRAGMENT=n: n stand-in Positions of 63 Gemas each; returns the Holdings the client's planEntry picks for ENTRY. */
+async function stakeFragmented(signer: ReturnType<typeof keypairSigner>, label: string) {
+  const account = await ensureAccount(signer, label);
+  const { config } = BlockPuzzleChain.addresses(0n);
+  const owner = label === "p0" ? p0 : p1;
+  for (let i = 0; i < FRAG; i++) {
+    const positionId = [...createHash("sha256").update(`fragment/${signer.publicKey.toBase58()}/${i}`).digest()];
+    const position = PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from([0]), Buffer.from(positionId)], core.programId)[0];
+    const source = PublicKey.findProgramAddressSync([Buffer.from("source"), position.toBuffer(), new BN(0).toArrayLike(Buffer, "le", 4)], core.programId)[0];
+    const holding = BlockPuzzleChain.holding(account, source);
+    if (await exists(holding)) continue;
+    const open = await core.methods
+      .openPosition({ solana: {} }, positionId, Keypair.generate().publicKey, 9, new BN(84_000_000), 1000)
+      .accountsPartial({ oracle: oracle.publicKey, config, ownerAccount: account, position, systemProgram: SystemProgram.programId })
+      .instruction();
+    const advance = await core.methods
+      .takeAdvance(6, new BN(150_000_000))
+      .accountsPartial({ oracle: oracle.publicKey, ownerAuthority: signer.publicKey, config, ownerAccount: account, position, source, holding, systemProgram: SystemProgram.programId })
+      .instruction();
+    const tx = new Transaction().add(open, advance);
+    tx.feePayer = oracle.publicKey;
+    tx.recentBlockhash = (await base.getLatestBlockhash()).blockhash;
+    tx.partialSign(oracle, owner);
+    const sig = await base.sendRawTransaction(tx.serialize(), { skipPreflight: true });
+    for (let k = 0; k < 60; k++) {
+      const st = (await base.getSignatureStatuses([sig])).value[0];
+      if (st?.confirmationStatus) {
+        if (st.err) throw new Error(`open_position + take_advance failed ${JSON.stringify(st.err)}`);
+        break;
+      }
+      await sleep(500);
+    }
+    rec(`open_position + take_advance ${label} #${i} (63 Gemas)`, sig, "base");
+  }
+  const rows: any[] = await core.account.holdingState.all([{ memcmp: { offset: 9, bytes: account.toBase58() } }]);
+  const hs = rows.map((r) => ({ key: r.publicKey as PublicKey, source: Uint8Array.from(r.account.inner.source as number[]), isOwn: r.account.inner.isOwn as boolean, free: BigInt(r.account.inner.amount.toString()) - BigInt(r.account.inner.reserved.toString()) }));
+  const picked = planEntry(BigInt(ENTRY), hs).map((i) => hs[i].key);
+  console.log(`${label}: ${hs.length} Holdings, entry ${ENTRY} draws on ${picked.length}`);
+  return { account, holdings: picked };
+}
+
+async function stakeOne(signer: ReturnType<typeof keypairSigner>, label: string, id: number) {
   const account = await ensureAccount(signer, label);
   const { config } = BlockPuzzleChain.addresses(0n);
   const positionId = Array(32).fill(id);
@@ -228,7 +280,7 @@ async function main() {
   const tee = new Connection(TEE_RPC, "confirmed");
 
   // ---- the opener alone: open, prepare, play a whole run before anyone is paired ----
-  rec("open_match + open_session (p0, 1,000 Gemas; Match stays Open)", await chain.openMatch(S.p0, matchId, 1000, [a0.holding]), "base");
+  rec("open_match + open_session (p0, ENTRY Gemas; Match stays Open)", await chain.openMatch(S.p0, matchId, ENTRY, a0.holdings), "base");
   // F-01: a delegation naming any validator but the TEE is refused by the Game before it reaches the delegation program.
   const rogue = Keypair.generate().publicKey;
   const rogueIx = await chain.bp.methods
@@ -286,7 +338,7 @@ async function main() {
   // ---- the joiner arrives later ----
   console.log("opener is done; joiner arrives in 20 s");
   await sleep(20_000);
-  rec("join_match + join_session (p1)", await chain.joinMatch(S.p1, matchId, [a1.holding]), "base");
+  rec("join_match + join_session (p1)", await chain.joinMatch(S.p1, matchId, a1.holdings), "base");
   const session = await chain.fetchSession(matchId);
   const match: any = await core.account.matchState.fetch(A.match);
   check(
@@ -331,7 +383,7 @@ async function conclude(matchId: bigint, before: bigint[], acc0: PublicKey, acc1
   run.result = { ...res, seed: res.seed.toString() };
   const after = [await gemas(a0.account), await gemas(a1.account)];
   check("Match settled: higher score wins", res.settled && res.matchStatus === "settled" && res.result === "opener", res);
-  check("winner received the loser's entry minus 100-Gema fees", after[0] === before[0] + 900n && after[1] === before[1] - 1000n, { before: before.map(String), after: after.map(String) });
+  check("winner received the loser's entry minus 10% of the entry in fees", after[0] === before[0] + BigInt(ENTRY * 0.9) && after[1] === before[1] - BigInt(ENTRY), { before: before.map(String), after: after.map(String) });
 
   let doubleSettle = "";
   try {

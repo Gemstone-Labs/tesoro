@@ -53,6 +53,9 @@ export const MAX_PLAY_BATCH = 40;
 
 export type Move = { piece: number; x: number; y: number };
 export type Seat = 0 | 1;
+/** `open_holding` instructions per transaction (each is ~130 bytes; a legacy transaction holds 1232). */
+export const OPEN_HOLDINGS_PER_TX = 5;
+
 export type Result = "opener" | "joiner" | "draw";
 
 export interface ChainSigner {
@@ -521,18 +524,23 @@ export class BlockPuzzleChain {
   private async payoutAccounts(payer: ChainSigner, matchId: bigint, result: Result) {
     const m: any = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
     const payouts = computePayouts(m.inner, result);
-    const metas: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    for (const p of payouts) {
-      const holding = BlockPuzzleChain.holding(p.recipient, p.source);
-      if (!(await this.base.getAccountInfo(holding))) {
-        const ix = await this.core.methods
+    const holdings = payouts.map((p) => BlockPuzzleChain.holding(p.recipient, p.source));
+    const existing = await this.base.getMultipleAccountsInfo(holdings);
+    const missing: TransactionInstruction[] = [];
+    for (let i = 0; i < payouts.length; i++) {
+      if (existing[i]) continue;
+      const p = payouts[i];
+      missing.push(
+        await this.core.methods
           .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: p.recipient, source: p.source, holding, systemProgram: SystemProgram.programId })
-          .instruction();
-        await this.sendBase(payer, [ix]);
-      }
-      metas.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holding, isSigner: false, isWritable: true });
+          .accountsPartial({ payer: payer.publicKey, account: p.recipient, source: p.source, holding: holdings[i], systemProgram: SystemProgram.programId })
+          .instruction(),
+      );
     }
+    // A settlement can pay up to 18 Holdings: open the missing ones a few per transaction.
+    for (let i = 0; i < missing.length; i += OPEN_HOLDINGS_PER_TX) await this.sendBase(payer, missing.slice(i, i + OPEN_HOLDINGS_PER_TX));
+    const metas: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
+    payouts.forEach((p, i) => metas.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
     return metas;
   }
 

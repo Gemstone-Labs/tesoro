@@ -527,19 +527,22 @@ export class HoldemChain {
     if (!this.isLive(tesoroMatch)) return "";
     const winner = table.status === STATUS.over ? (table.winner as 0 | 1) : null;
     const payouts = computePayouts(tesoroMatch.inner, winner);
-    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    for (const p of payouts) {
-      const holding = tesoroHoldingPda(p.recipient, p.source);
-      if (!(await this.base.getAccountInfo(holding))) {
-        const open = await this.tesoro.methods
+    const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
+    const existing = await this.base.getMultipleAccountsInfo(holdings);
+    const missing: TransactionInstruction[] = [];
+    for (let i = 0; i < payouts.length; i++) {
+      if (existing[i]) continue;
+      missing.push(
+        await this.tesoro.methods
           .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: p.recipient, source: p.source, holding } as any)
-          .instruction();
-        await this.sendBase("open_holding", [open], [payer]);
-      }
-      remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true });
-      remaining.push({ pubkey: holding, isSigner: false, isWritable: true });
+          .accountsPartial({ payer: payer.publicKey, account: payouts[i].recipient, source: payouts[i].source, holding: holdings[i] } as any)
+          .instruction(),
+      );
     }
+    // Up to 18 Holdings can be paid: open the missing ones a few per transaction.
+    for (let i = 0; i < missing.length; i += 5) await this.sendBase("open_holding", missing.slice(i, i + 5), [payer]);
+    const remaining: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
+    payouts.forEach((p, i) => remaining.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
     // Opening Holdings takes a few seconds: look again before paying for a transaction that would fail.
     if (!this.isLive(await this.readTesoroMatch(matchId))) return "";
     const ix = await this.program.methods
