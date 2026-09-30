@@ -209,6 +209,86 @@
       "args": []
     },
     {
+      "name": "accrue_native_yield",
+      "discriminator": [
+        188,
+        239,
+        112,
+        133,
+        115,
+        249,
+        127,
+        63
+      ],
+      "accounts": [
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "custody",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "source",
+          "docs": [
+            "The Position's open Advance, when it has one."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "apply_offer",
       "discriminator": [
         196,
@@ -392,6 +472,74 @@
       ]
     },
     {
+      "name": "apply_yield_from_source",
+      "discriminator": [
+        80,
+        64,
+        152,
+        190,
+        141,
+        200,
+        215,
+        86
+      ],
+      "accounts": [
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "source",
+          "docs": [
+            "The Position's open Advance, when it has one."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "seq",
+          "type": "u64"
+        },
+        {
+          "name": "cumulative",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "cancel_offer",
       "discriminator": [
         92,
@@ -456,6 +604,40 @@
                 "kind": "account",
                 "path": "offer.nonce",
                 "account": "OfferState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "request",
+          "docs": [
+            "The Request the Offer had accepted, required exactly when it had one: it is listed again."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.inner.player",
+                "account": "RequestState"
+              },
+              {
+                "kind": "account",
+                "path": "request.nonce",
+                "account": "RequestState"
               }
             ]
           }
@@ -939,6 +1121,40 @@
               }
             ]
           }
+        },
+        {
+          "name": "request",
+          "docs": [
+            "The Request the Offer had accepted, required exactly when it had one: it is listed again."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.inner.player",
+                "account": "RequestState"
+              },
+              {
+                "kind": "account",
+                "path": "request.nonce",
+                "account": "RequestState"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -1268,6 +1484,91 @@
               }
             ]
           }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "migrate_native_custody",
+      "docs": [
+        "Extends a custody opened before `tracked_shares` existed. Permissionless."
+      ],
+      "discriminator": [
+        124,
+        242,
+        127,
+        237,
+        151,
+        47,
+        181,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "position"
+        },
+        {
+          "name": "custody",
+          "docs": [
+            "longer deserializes; owner, seeds, discriminator and length are checked below."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -1634,6 +1935,186 @@
       ]
     },
     {
+      "name": "open_native_position",
+      "discriminator": [
+        183,
+        217,
+        57,
+        107,
+        106,
+        80,
+        72,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool",
+          "docs": [
+            "The canonical sim_lst Pool: owned by the sim_lst program and at its `[\"pool\"]` PDA."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "owner_token",
+          "writable": true
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "lst_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "open_position",
       "discriminator": [
         135,
@@ -1739,6 +2220,100 @@
       ]
     },
     {
+      "name": "open_position_from_source",
+      "discriminator": [
+        55,
+        32,
+        115,
+        253,
+        100,
+        189,
+        101,
+        125
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "source_chain",
+          "type": {
+            "defined": {
+              "name": "SourceChain"
+            }
+          }
+        },
+        {
+          "name": "position_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "source_asset",
+          "type": "pubkey"
+        },
+        {
+          "name": "decimals",
+          "type": "u8"
+        },
+        {
+          "name": "principal",
+          "type": "u64"
+        },
+        {
+          "name": "rate_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "redeem",
       "discriminator": [
         184,
@@ -1754,6 +2329,121 @@
         {
           "name": "holder_authority",
           "signer": true
+        },
+        {
+          "name": "holder_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position"
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "redeem_from_source",
+      "discriminator": [
+        124,
+        61,
+        163,
+        102,
+        248,
+        122,
+        151,
+        179
+      ],
+      "accounts": [
+        {
+          "name": "holder_authority",
+          "signer": true
+        },
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
         },
         {
           "name": "holder_account",
@@ -2034,6 +2724,61 @@
       ]
     },
     {
+      "name": "remove_source_authority",
+      "discriminator": [
+        209,
+        171,
+        48,
+        198,
+        241,
+        142,
+        231,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "source_authority",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "chain",
+          "type": {
+            "defined": {
+              "name": "SourceChain"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "return_own",
       "discriminator": [
         220,
@@ -2197,6 +2942,172 @@
       ]
     },
     {
+      "name": "set_price",
+      "discriminator": [
+        16,
+        19,
+        182,
+        8,
+        149,
+        83,
+        72,
+        181
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_feed",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  35,
+                  157,
+                  106,
+                  206,
+                  250,
+                  168,
+                  141,
+                  111,
+                  63,
+                  255,
+                  166,
+                  173,
+                  253,
+                  158,
+                  121,
+                  120,
+                  0,
+                  19,
+                  215,
+                  247,
+                  105,
+                  111,
+                  139,
+                  199,
+                  36,
+                  7,
+                  197,
+                  30,
+                  126,
+                  15,
+                  209,
+                  93
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "price_micro_usd",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_source_authority",
+      "discriminator": [
+        80,
+        46,
+        13,
+        107,
+        86,
+        80,
+        89,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "source_authority",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "chain",
+          "type": {
+            "defined": {
+              "name": "SourceChain"
+            }
+          }
+        },
+        {
+          "name": "authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "settle_match",
       "discriminator": [
         71,
@@ -2265,6 +3176,90 @@
           }
         }
       ]
+    },
+    {
+      "name": "sweep_native_surplus",
+      "discriminator": [
+        1,
+        21,
+        13,
+        55,
+        235,
+        98,
+        38,
+        112
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position"
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "owner_token",
+          "writable": true
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
     },
     {
       "name": "take_advance",
@@ -2403,6 +3398,174 @@
         {
           "name": "price_micro_usd",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "take_native_advance",
+      "discriminator": [
+        219,
+        79,
+        178,
+        213,
+        102,
+        186,
+        244,
+        112
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "price_feed",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  35,
+                  157,
+                  106,
+                  206,
+                  250,
+                  168,
+                  141,
+                  111,
+                  63,
+                  255,
+                  166,
+                  173,
+                  253,
+                  158,
+                  121,
+                  120,
+                  0,
+                  19,
+                  215,
+                  247,
+                  105,
+                  111,
+                  139,
+                  199,
+                  36,
+                  7,
+                  197,
+                  30,
+                  126,
+                  15,
+                  209,
+                  93
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.advances",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "horizon_months",
+          "type": "u8"
         }
       ]
     },
@@ -2570,6 +3733,19 @@
       ]
     },
     {
+      "name": "NativeCustody",
+      "discriminator": [
+        122,
+        126,
+        30,
+        184,
+        254,
+        26,
+        140,
+        41
+      ]
+    },
+    {
       "name": "OfferState",
       "discriminator": [
         143,
@@ -2580,6 +3756,19 @@
         231,
         16,
         37
+      ]
+    },
+    {
+      "name": "Pool",
+      "discriminator": [
+        241,
+        154,
+        109,
+        4,
+        17,
+        177,
+        109,
+        188
       ]
     },
     {
@@ -2596,6 +3785,19 @@
       ]
     },
     {
+      "name": "PriceFeed",
+      "discriminator": [
+        189,
+        103,
+        252,
+        23,
+        152,
+        35,
+        243,
+        156
+      ]
+    },
+    {
       "name": "RequestState",
       "discriminator": [
         106,
@@ -2606,6 +3808,19 @@
         187,
         109,
         5
+      ]
+    },
+    {
+      "name": "SourceAuthority",
+      "discriminator": [
+        115,
+        116,
+        119,
+        123,
+        131,
+        93,
+        24,
+        221
       ]
     },
     {
@@ -2663,6 +3878,45 @@
       ]
     },
     {
+      "name": "NativeCustodyMigrated",
+      "discriminator": [
+        19,
+        110,
+        52,
+        150,
+        97,
+        60,
+        69,
+        83
+      ]
+    },
+    {
+      "name": "NativePayout",
+      "discriminator": [
+        118,
+        242,
+        107,
+        169,
+        210,
+        4,
+        200,
+        251
+      ]
+    },
+    {
+      "name": "NativePositionOpened",
+      "discriminator": [
+        219,
+        132,
+        119,
+        251,
+        180,
+        244,
+        20,
+        229
+      ]
+    },
+    {
       "name": "PositionUnlocked",
       "discriminator": [
         174,
@@ -2673,6 +3927,19 @@
         123,
         143,
         184
+      ]
+    },
+    {
+      "name": "PriceSet",
+      "discriminator": [
+        152,
+        186,
+        196,
+        72,
+        117,
+        210,
+        36,
+        160
       ]
     },
     {
@@ -2750,6 +4017,36 @@
       "code": 6006,
       "name": "NotWritable",
       "msg": "account must be writable"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidPool",
+      "msg": "pool is not the canonical sim_lst pool"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidMint",
+      "msg": "mint is not the sim_lst pool's simSOL mint"
+    },
+    {
+      "code": 6009,
+      "name": "NativePosition",
+      "msg": "native Positions are opened and driven only by the native instructions"
+    },
+    {
+      "code": 6010,
+      "name": "NotNativePosition",
+      "msg": "position is not a native Position"
+    },
+    {
+      "code": 6011,
+      "name": "StalePrice",
+      "msg": "price is stale or not set"
+    },
+    {
+      "code": 6012,
+      "name": "BridgedSource",
+      "msg": "Gemas of an EVM-sourced Advance are redeemed through the bridge"
     }
   ],
   "types": [
@@ -3147,6 +4444,164 @@
       }
     },
     {
+      "name": "NativeCustody",
+      "docs": [
+        "Custody of one native Position: the simSOL vault and what is needed to value it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "docs": [
+              "The `sim_lst` Pool (canonical PDA) whose rate values the vault."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "Token account (PDA) holding the Position's simSOL, authority = this custody."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "rate_at_open",
+            "docs": [
+              "sim_lst rate at open (1e9 fixed point, SOL per simSOL)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "deposited_shares",
+            "docs": [
+              "simSOL deposited at open, base units. Informational: the vault balance is authoritative."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "redeemed_units",
+            "docs": [
+              "SOL base units paid to Gema holders from the vault by `redeem`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "tracked_shares",
+            "docs": [
+              "Shares this custody accounts for: deposited at open minus paid out. Yield and cover are read",
+              "from this, never from the vault's token balance, so simSOL sent straight to the vault is not",
+              "yield (ADR 0001: Principal never pays Debt, not even by top-up). Appended after the original",
+              "layout; custodies opened before it are extended by `migrate_native_custody`."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NativeCustodyMigrated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposited_shares",
+            "type": "u64"
+          },
+          {
+            "name": "tracked_shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NativePayout",
+      "docs": [
+        "simSOL paid out of a Position's vault."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "to",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "sol_units",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "0 = redeem, 1 = unlock, 2 = sweep."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NativePositionOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "rate",
+            "type": "u64"
+          },
+          {
+            "name": "principal_sol",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Offer",
       "type": {
         "kind": "struct",
@@ -3332,6 +4787,68 @@
       }
     },
     {
+      "name": "Pool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_rate",
+            "docs": [
+              "Rate at `base_ts`, 1e9 fixed point (SOL per simSOL)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "base_ts",
+            "type": "i64"
+          },
+          {
+            "name": "apy_bps",
+            "type": "u32"
+          },
+          {
+            "name": "speedup",
+            "docs": [
+              "Yield-clock multiplier; 4,320 = 1 month of yield per 10 minutes."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "faucet_amount",
+            "type": "u64"
+          },
+          {
+            "name": "faucet_cooldown",
+            "type": "i64"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "mint_bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "Position",
       "docs": [
         "A staker's locked, yield-bearing stake. `principal` is recorded but no function of this core",
@@ -3493,6 +5010,50 @@
           {
             "name": "position",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceFeed",
+      "docs": [
+        "SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority",
+        "for devnet; the Pyth seam replaces this account's source, not `take_native_advance`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "price_micro_usd",
+            "type": "u64"
+          },
+          {
+            "name": "updated_ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "price_micro_usd",
+            "type": "u64"
           }
         ]
       }
@@ -3759,6 +5320,34 @@
               "Source-asset units already paid out by Redeem."
             ],
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SourceAuthority",
+      "docs": [
+        "The signer allowed to report `PositionLocked` / `YieldAccrued` for Positions of one source",
+        "chain (the cross-chain bridge PDA). Registered by the admin; seeds `[\"source_auth\", chain_byte]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "chain",
+            "type": {
+              "defined": {
+                "name": "SourceChain"
+              }
+            }
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
           }
         ]
       }
