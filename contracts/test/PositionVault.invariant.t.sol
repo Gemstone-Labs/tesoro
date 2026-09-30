@@ -20,6 +20,7 @@ contract VaultHandler is Test {
     uint256 public ghostSharesToRedeemer;
     uint256 public ghostOwnerReleasedTotal;
     bool public seqWentBackwards;
+    bool public claimUnderpaid;
 
     constructor() {
         lst = new SimLST(address(this));
@@ -34,7 +35,7 @@ contract VaultHandler is Test {
     }
 
     function open(uint256 amount, uint8 horizon) external {
-        amount = bound(amount, 1e6, 1_000 ether);
+        amount = bound(amount, 1e6, 18 ether); // Principal must fit u64
         horizon = uint8(bound(horizon, 1, 12));
         deal(address(lst), user, amount + lst.balanceOf(user)); // faucet-equivalent, simple mint via storage
         vm.prank(user);
@@ -58,12 +59,17 @@ contract VaultHandler is Test {
         seq = uint64(bound(seq, 0, maxSeqSeen[id] + 3));
         uint64 before = vault.getPosition(id).inSeq;
         uint256 bal = lst.balanceOf(redeemer);
+        uint256 paidBefore = vault.getPosition(id).paidUnderlying;
         try ep.deliver(
             address(vault), abi.encode(uint8(4), CHAIN, id, seq, bytes32(uint256(uint160(redeemer))), amount)
         ) {}
             catch {}
         _track(id, before);
-        ghostSharesToRedeemer += lst.balanceOf(redeemer) - bal;
+        uint256 got = lst.balanceOf(redeemer) - bal;
+        ghostSharesToRedeemer += got;
+        uint256 recorded = vault.getPosition(id).paidUnderlying - paidBefore;
+        uint256 rate = lst.underlyingPerShare();
+        if (got * rate / 1e18 + rate / 1e18 + 1 < recorded) claimUnderpaid = true;
     }
 
     function unlock(uint256 idx, uint64 seq) external {
@@ -132,6 +138,11 @@ contract PositionVaultInvariantTest is Test {
             if (!p.unlocked) assertEq(h.ghostUnlockReleased(id), 0);
             assertLe(h.ghostUnlockReleased(id), p.principalShares);
         }
+    }
+
+    /// Every claim recorded as paid was paid in shares worth the claim (less than one share-wei of rounding).
+    function invariant_claimsPaidInFull() public view {
+        assertFalse(h.claimUnderpaid());
     }
 
     /// Highest inbound seq per position never decreases (each seq is processed at most once, in any order).

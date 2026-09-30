@@ -220,7 +220,7 @@ export function EthOpenForm({ onOpened }: { onOpened: (opKey: string) => void })
     quote && market && gemas > 0
       ? ethUnlockEstimateMs({
           source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 22n, unitDen: price!.microUsd },
-          position: { principalShares: shares, openRate: rate, accrued: 0n },
+          position: { heldShares: shares, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n },
           rate: market.rate,
           nowMs: now,
         })

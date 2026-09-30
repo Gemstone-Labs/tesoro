@@ -432,19 +432,22 @@ export function projectedEthDebt(source: SourceMath | null, accruedUnits: bigint
  */
 export function ethUnlockEstimateMs(args: {
   source: SourceMath | null;
-  position: Pick<VaultPosition, "principalShares" | "openRate" | "accrued">;
+  position: Pick<VaultPosition, "heldShares" | "principalUnderlying" | "paidUnderlying" | "accrued">;
   rate: SimRate;
   nowMs: number;
 }): number | null {
   const { source, position, rate, nowMs } = args;
-  if (!source || position.principalShares === 0n) return null;
+  if (!source || position.heldShares === 0n) return null;
   const needed = unitsToRepay(source) + source.yieldUnits;
   const have = position.accrued > source.yieldUnits ? position.accrued : source.yieldUnits;
   if (have >= needed) return nowMs;
   const growth = rate.baseRate * rate.apyBps * rate.speedup;
   if (growth === 0n) return null;
-  // accrued(t) = shares * (rate(t) - openRate) / 1e18 >= needed  <=>  rate(t) >= openRate + needed * 1e18 / shares
-  const targetRate = position.openRate + (needed * WEI + position.principalShares - 1n) / position.principalShares;
+  // As PositionVault: accrued(t) = paid + held * rate(t) / 1e18 - principal, so
+  // accrued(t) >= needed  <=>  rate(t) >= (needed + principal - paid) * 1e18 / held
+  const target = needed + position.principalUnderlying - position.paidUnderlying;
+  if (target <= 0n) return nowMs;
+  const targetRate = (target * WEI + position.heldShares - 1n) / position.heldShares;
   if (targetRate <= rate.baseRate) return nowMs;
   const seconds = ((targetRate - rate.baseRate) * 10_000n * YEAR + growth - 1n) / growth;
   return Number(rate.baseTime + seconds) * 1000;

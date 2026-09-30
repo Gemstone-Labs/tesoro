@@ -42,7 +42,7 @@ import {
   parseBridgePosition,
   sourceAuthPda,
 } from "@/lib/chain/eth";
-import { WindowLimiter } from "./rate-limit";
+import { WindowLimiter, takeAll } from "./rate-limit";
 import { DemoHttpError, authenticateMessage, chain, deployerKey, oracleKey, sendAndConfirm } from "./demo-advance";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -91,18 +91,8 @@ async function fundEvm(address: string, evm: string) {
   const balance = await client.getBalance({ address: evm as Address });
   if (balance >= FUND_BELOW) return { funded: false, balance: balance.toString() };
   const cost = Number(FUND_AMOUNT);
-  const keys = [evm.toLowerCase(), address];
-  if (!limits.ethPerEvm.take(keys[0], cost) || !limits.ethPerAccount.take(keys[1], cost) || !limits.ethGlobal.take("all", cost)) {
-    limits.ethPerEvm.refund(keys[0], cost);
-    limits.ethPerAccount.refund(keys[1], cost);
-    limits.ethGlobal.refund("all", cost);
-    throw new DemoHttpError(429, "rate-limited", "Hoodi ETH limit reached for this Account. Try again tomorrow.");
-  }
-  const refund = () => {
-    limits.ethPerEvm.refund(keys[0], cost);
-    limits.ethPerAccount.refund(keys[1], cost);
-    limits.ethGlobal.refund("all", cost);
-  };
+  const refund = takeAll([[limits.ethPerEvm, evm.toLowerCase()], [limits.ethPerAccount, address], [limits.ethGlobal, "all"]], cost);
+  if (!refund) throw new DemoHttpError(429, "rate-limited", "Hoodi ETH limit reached for this Account. Try again tomorrow.");
   const account = privateKeyToAccount(evmDeployerKey());
   try {
     if ((await client.getBalance({ address: account.address })) < DEPLOYER_MIN_ETH + FUND_AMOUNT) {
@@ -438,10 +428,8 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
   if (body.step === "fund-evm") return fundEvm(body.address, body.evm ?? "");
   const ref = parseRef(body);
   if (body.step === "advance") return advance(address, ref.pid, Number(body.months));
-  if (!limits.relayPerAccount.take(body.address) || !limits.relayGlobal.take("all")) {
-    limits.relayPerAccount.refund(body.address);
-    throw new DemoHttpError(429, "rate-limited", "Relay limit reached for this Account. Try again tomorrow.");
-  }
+  const refund = takeAll([[limits.relayPerAccount, body.address], [limits.relayGlobal, "all"]]);
+  if (!refund) throw new DemoHttpError(429, "rate-limited", "Relay limit reached for this Account. Try again tomorrow.");
   try {
     switch (body.step) {
       case "init-position":
@@ -456,8 +444,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
         return await sendPayYield(ref.vault, ref.pid, address);
     }
   } catch (e) {
-    limits.relayPerAccount.refund(body.address);
-    limits.relayGlobal.refund("all");
+    refund();
     throw e;
   }
 }

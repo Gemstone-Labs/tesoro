@@ -8,9 +8,11 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint} from "./IRateSource.sol";
 ///
 /// Accounting (rate = underlying per share, 1e18-scaled):
 ///  - principalShares (P) and principalUnderlying (Pu = P * openRate) are fixed at open.
-///  - cumulative accrued yield = P * (rate - openRate), frozen at Unlock. Paid yield is tracked in underlying.
 ///  - held shares back both the Principal (worth Pu at the current rate) and unpaid yield. Yield is paid out of
 ///    the held shares above the Principal reserve, so Principal shares leave the vault only through Unlock.
+///  - cumulative accrued yield = paid + value of the held shares above the Principal reserve, frozen at Unlock.
+///    Shares already paid out stop earning here, so every unpaid unit of accrued yield is backed by held shares
+///    and a PayYield within it is paid in full.
 ///
 /// Messaging seam: outbound goes through `_send(bytes)`; inbound enters through `receiveMessage(bytes)`, which is
 /// authorised to the endpoint and forwards to `_receive(bytes)`. A LayerZero OApp subclass overrides `_send` and
@@ -67,6 +69,8 @@ contract PositionVault {
     error UnknownMessage();
     error TransferFailed();
     error ExceedsAccruedYield(uint256 requested, uint256 available);
+    error InsufficientShares(uint256 needed, uint256 spendable);
+    error PrincipalTooLarge();
 
     constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_) {
         lst = IERC20Minimal(lst_);
@@ -103,6 +107,8 @@ contract PositionVault {
         p.owner = msg.sender;
         p.principalShares = lstAmount;
         p.principalUnderlying = (lstAmount * rate) / RATE_SCALE;
+        // tesoro_core keeps Principal as u64; a larger Position could never open on Solana and never unlock.
+        if (p.principalUnderlying > type(uint64).max) revert PrincipalTooLarge();
         p.openRate = rate;
         p.heldShares = lstAmount;
         p.openTime = uint64(block.timestamp);
@@ -190,8 +196,12 @@ contract PositionVault {
 
         uint256 reserve = p.unlocked ? 0 : _principalReserve(p, rate);
         uint256 spendable = p.heldShares > reserve ? p.heldShares - reserve : 0;
-        uint256 shares = (amount * RATE_SCALE + rate - 1) / rate; // round up in the vault's favour
-        if (shares > spendable) shares = spendable; // dust; Principal is never touched
+        // Rounded down (less than one share-wei of value): paying never lowers the reported cumulative, which
+        // tesoro_core refuses (CumulativeDecreased).
+        uint256 shares = (amount * RATE_SCALE) / rate;
+        // Only reachable after Unlock with a fallen rate. Reverting keeps the message retryable (see F-13)
+        // instead of paying less than the claim and recording it as paid.
+        if (shares > spendable) revert InsufficientShares(shares, spendable);
 
         p.paidUnderlying += amount;
         p.heldShares -= shares;
@@ -207,8 +217,8 @@ contract PositionVault {
 
     function _accrued(Position storage p, uint256 rate) internal view returns (uint256) {
         if (p.unlocked) return p.frozenAccrued;
-        if (rate <= p.openRate) return 0;
-        return (p.principalShares * (rate - p.openRate)) / RATE_SCALE;
+        uint256 spare = p.heldShares - _principalReserve(p, rate);
+        return p.paidUnderlying + (spare * rate) / RATE_SCALE;
     }
 
     /// @dev Shares worth principalUnderlying at `rate`, capped by what is held.

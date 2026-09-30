@@ -18,7 +18,7 @@ import nacl from "tweetnacl";
 import { TESORO_CORE_PROGRAM_ID, BlockPuzzleChain, type AnyProgram } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { unitsToRepay, type SourceMath } from "@/lib/chain/ledger";
-import { WindowLimiter } from "./rate-limit";
+import { WindowLimiter, takeAll } from "./rate-limit";
 
 const BASE_RPC = process.env.TESORO_BASE_RPC ?? "https://rpc.magicblock.app/devnet";
 const DAY = 24 * 60 * 60 * 1000;
@@ -151,12 +151,11 @@ async function fund(address: PublicKey) {
   const balance = await conn.getBalance(address);
   if (balance >= FUND_BELOW) return { funded: false, lamports: balance };
   const key = address.toBase58();
-  if (!limits.solPerAccount.take(key, FUND_AMOUNT) || !limits.solGlobal.take("all", FUND_AMOUNT)) {
-    throw new DemoHttpError(429, "rate-limited", "Demo SOL limit reached for this Account. Try again tomorrow.");
-  }
+  const refund = takeAll([[limits.solPerAccount, key], [limits.solGlobal, "all"]], FUND_AMOUNT);
+  if (!refund) throw new DemoHttpError(429, "rate-limited", "Demo SOL limit reached for this Account. Try again tomorrow.");
   const deployer = deployerKey();
   if ((await conn.getBalance(deployer.publicKey)) < 1 * LAMPORTS_PER_SOL) {
-    limits.solPerAccount.refund(key, FUND_AMOUNT);
+    refund();
     throw new DemoHttpError(503, "faucet-empty", "The demo faucet is empty.");
   }
   const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: deployer.publicKey, toPubkey: address, lamports: FUND_AMOUNT }));
@@ -172,8 +171,7 @@ async function advance(address: PublicKey, sub: string | null) {
     throw new DemoHttpError(409, "account-missing", "Create your Account first.");
   }
   const key = address.toBase58();
-  if (!limits.advancePerAccount.take(key) || (sub && !limits.advancePerUser.take(sub)) || !limits.advanceGlobal.take("all")) {
-    limits.advancePerAccount.refund(key);
+  if (!takeAll([[limits.advancePerAccount, key], ...(sub ? ([[limits.advancePerUser, sub]] as const) : []), [limits.advanceGlobal, "all"]])) {
     throw new DemoHttpError(429, "rate-limited", "Demo Advance limit reached for this Account. Try again tomorrow.");
   }
 
