@@ -6,7 +6,7 @@
   min-width: 0;
   display: flex; flex-direction: column; min-height: inherit;
 }
-.lobby > .rail:last-of-type { margin-bottom: 16px; }
+.lobby > .rail:last-of-type { margin-bottom: 12px; }
 .lobby > .lobby-foot { margin-top: auto; }
 @media (min-width: 640px) { .lobby { --pad-l: 20px; --pad-r: 20px; } }
 @media (min-width: 1024px) { .lobby { --pad-l: 24px; --pad-r: 18px; } }
@@ -40,12 +40,12 @@
 .slide-art img { object-fit: cover; object-position: left center; }
 .slide-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, #0a1322 0%, rgba(10, 19, 34, 0.55) 22%, transparent 55%); }
 .slide-body {
-  position: relative; z-index: 1; display: grid; align-content: start; width: min(100%, 412px); height: 100%;
+  position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; width: min(100%, 412px); height: 100%;
   padding: 42px 26px 0;
 }
 .slide-title { font-size: clamp(38px, 3.65vw, 70px); font-weight: 800; letter-spacing: -0.025em; line-height: 1.02; word-spacing: 0.05em; white-space: nowrap; }
 .slide.long .slide-title { font-size: clamp(30px, 2.3vw, 44px); white-space: normal; max-width: 7em; line-height: 1; text-wrap: balance; }
-.slide-sub { margin-top: 9px; font-size: clamp(15px, 1.15vw, 22px); font-weight: 500; color: var(--fg); white-space: nowrap; }
+.slide-sub { margin-top: 9px; font-size: clamp(15px, 1.15vw, 22px); font-weight: 500; color: var(--fg); }
 .slide-entry { margin-top: 12px; }
 .slide-entry .entry span { min-height: 54px; font-size: 18px; --c: 11px; }
 .slide-body .btn.lg { margin-top: 10px; --c: 14px; }
@@ -217,3 +217,15 @@ a.tile:hover img { transform: scale(1.04); }
 
 /* amounts in big type read better with proportional figures */
 .player-entry b, .tile-label strong { font-variant-numeric: normal; }
+
+@container (max-width: 700px) {
+  .slide-body { padding: 26px 20px 0; }
+  .slide-title { white-space: normal; }
+  .slide-sub { font-size: 14px; margin-top: 6px; }
+  .slide-entry { margin-top: 12px; }
+  .slide-entry .entry span { min-height: 46px; font-size: 16px; }
+  .slide-body .btn.lg { min-height: 54px; font-size: 18px; }
+  .slide-art { width: 100%; opacity: 0.55; }
+  .hero-next { display: none; }
+}
+@container (min-width: 700px) { .slide-sub { white-space: nowrap; } }

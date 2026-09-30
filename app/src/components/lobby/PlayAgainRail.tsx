@@ -48,12 +48,16 @@ const PINS = "tesoro-pinned-matches";
 function usePins(): [Set<string>, (id: string) => void] {
   const [pins, setPins] = useState<Set<string>>(new Set());
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PINS);
-      if (raw) setPins(new Set(JSON.parse(raw) as string[]));
-    } catch {
-      // no storage: pins last for this page view
-    }
+    // Deferred: storage is not readable during the server render.
+    const t = setTimeout(() => {
+      try {
+        const raw = localStorage.getItem(PINS);
+        if (raw) setPins(new Set(JSON.parse(raw) as string[]));
+      } catch {
+        // no storage: pins last for this page view
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
   const toggle = (id: string) =>
     setPins((cur) => {
