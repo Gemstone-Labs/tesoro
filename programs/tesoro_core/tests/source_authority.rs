@@ -405,7 +405,7 @@ fn cu_profile_apply_yield_from_source() {
         },
         instruction::TakeAdvance {
             horizon_months: 3,
-            price_micro_usd: 3_000_000_000,
+            price_micro_usd: 1_000_000_000_000_000,
         },
     );
     env.send2(&[advance], &oracle, &owner).expect("advance");
@@ -419,7 +419,7 @@ fn cu_profile_apply_yield_from_source() {
         },
         instruction::ApplyYieldFromSource {
             seq: 2,
-            cumulative: 2_000,
+            cumulative: 30_000_000_000,
         },
     );
     env.send2(&[apply], &payer, &bridge).expect("repay debt");

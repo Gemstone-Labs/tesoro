@@ -1159,25 +1159,28 @@ fn cu_profile_holdem() {
         showdown = env.last_cu;
     }
     env.ready_deck();
-    env.deal().expect("deal 2");
-    // Hand 2: shove and call, an all-in showdown that usually ends the Match.
-    let dealer = usize::from(env.game_match().to_act);
-    let m = env.game_match();
-    env.act(
-        dealer,
-        Action::Raise {
-            to: m.bets[dealer] + m.stacks[dealer],
-        },
-    )
-    .expect("shove");
-    let shove = env.last_cu;
-    env.act(1 - dealer, Action::Call).expect("call");
-    let all_in_call = env.last_cu;
-    let mut finalize = 0;
-    if env.game_match().status == holdem::STATUS_OVER {
-        env.finalize(false).expect("finalize");
-        finalize = env.last_cu;
+    // Following hands: shove and call until the Match ends.
+    let (mut shove, mut all_in_call) = (0, 0);
+    while env.game_match().status == holdem::STATUS_LIVE {
+        env.deal().expect("deal next");
+        let dealer = usize::from(env.game_match().to_act);
+        let m = env.game_match();
+        env.act(
+            dealer,
+            Action::Raise {
+                to: m.bets[dealer] + m.stacks[dealer],
+            },
+        )
+        .expect("shove");
+        shove = env.last_cu;
+        env.act(1 - dealer, Action::Call).expect("call");
+        all_in_call = env.last_cu;
+        if env.game_match().status == holdem::STATUS_LIVE {
+            env.ready_deck();
+        }
     }
+    env.finalize(false).expect("finalize");
+    let finalize = env.last_cu;
     println!(
         "CU deal {deal}; act call {call}; act shove {shove}; last check to showdown ({streets} checks) {showdown}; call to all-in showdown {all_in_call}; finalize {finalize}"
     );
