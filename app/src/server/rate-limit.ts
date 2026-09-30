@@ -29,3 +29,20 @@ export class WindowLimiter {
     if (entry) entry.used = Math.max(0, entry.used - cost);
   }
 }
+
+/**
+ * Takes `cost` from every limiter or from none: a rejection gives back only what this call took.
+ * Returns the refund for a later failure, or null when any limiter rejected.
+ */
+export function takeAll(claims: ReadonlyArray<readonly [WindowLimiter, string]>, cost = 1): (() => void) | null {
+  const taken: (readonly [WindowLimiter, string])[] = [];
+  const refund = () => taken.forEach(([limiter, key]) => limiter.refund(key, cost));
+  for (const claim of claims) {
+    if (!claim[0].take(claim[1], cost)) {
+      refund();
+      return null;
+    }
+    taken.push(claim);
+  }
+  return refund;
+}
