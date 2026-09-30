@@ -188,6 +188,10 @@ pub mod tesoro_core {
         instructions::source_auth::apply_yield_from_source(ctx, seq, cumulative)
     }
 
+    pub fn redeem_from_source(ctx: Context<RedeemFromSource>, amount: u64) -> Result<()> {
+        instructions::source_auth::redeem_from_source(ctx, amount)
+    }
+
     // --- Matches ----------------------------------------------------------------------------
 
     pub fn open_match<'info>(

@@ -305,6 +305,12 @@ pub(crate) fn redeem<'info>(
     mut ctx: Context<'_, '_, 'info, 'info, Redeem<'info>>,
     amount: u64,
 ) -> Result<()> {
+    // Gemas of an EVM-sourced Advance are paid on their source chain, which only the bridge can
+    // record (`redeem_from_source`); burning them here would destroy the claim without a payout.
+    require!(
+        ctx.accounts.position.inner.source_chain == SourceChain::Solana,
+        TesoroError::BridgedSource
+    );
     let remaining = ctx.remaining_accounts;
     let a = &mut ctx.accounts;
     let units = ledger::redeem(

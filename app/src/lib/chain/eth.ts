@@ -174,6 +174,9 @@ export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: Pu
     programId: BRIDGE_ID,
     keys: [
       meta(holder, true, true),
+      meta(BRIDGE_STORE),
+      meta(pda([s("authority")], BRIDGE_ID)),
+      meta(sourceAuthPda()),
       meta(account, true),
       meta(position),
       meta(source, true),

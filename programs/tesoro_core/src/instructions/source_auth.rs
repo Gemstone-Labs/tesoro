@@ -186,3 +186,62 @@ pub(crate) fn apply_yield_from_source(
     }
     Ok(())
 }
+
+/// `redeem` for Gemas of an EVM-sourced Advance, signed by the holder and by the registered source
+/// authority of the Position's chain (the bridge), which records the payout owed on that chain in
+/// the same transaction. Plain `redeem` refuses these Sources.
+#[derive(Accounts)]
+pub struct RedeemFromSource<'info> {
+    pub holder_authority: Signer<'info>,
+    pub source_signer: Signer<'info>,
+    #[account(
+        seeds = [SOURCE_AUTHORITY_SEED, &[chain_byte(position.inner.source_chain)]],
+        bump = source_authority.bump,
+        constraint = source_authority.chain == position.inner.source_chain
+            && source_authority.authority == source_signer.key() @ TesoroError::Unauthorized
+    )]
+    pub source_authority: Account<'info, SourceAuthority>,
+    #[account(
+        mut,
+        seeds = [ACCOUNT_SEED, holder_authority.key().as_ref()],
+        bump = holder_account.bump
+    )]
+    pub holder_account: Account<'info, TesoroAccount>,
+    #[account(
+        seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
+        bump = position.bump
+    )]
+    pub position: Account<'info, PositionState>,
+    #[account(
+        mut,
+        seeds = [SOURCE_SEED, position.key().as_ref(), &source.inner.index.to_le_bytes()],
+        bump = source.bump,
+        constraint = source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
+    )]
+    pub source: Account<'info, SourceState>,
+    #[account(
+        mut,
+        seeds = [HOLDING_SEED, holder_account.key().as_ref(), source.key().as_ref()],
+        bump = holding.bump
+    )]
+    pub holding: Account<'info, HoldingState>,
+}
+
+pub(crate) fn redeem_from_source(ctx: Context<RedeemFromSource>, amount: u64) -> Result<()> {
+    let a = ctx.accounts;
+    let units = ledger::redeem(
+        &mut a.source.inner,
+        &mut a.holder_account.inner,
+        &mut a.holding.inner,
+        amount,
+    )
+    .map_err(core_err)?;
+    emit!(Redeemed {
+        position: a.position.key(),
+        source: a.source.key(),
+        account: a.holder_account.key(),
+        gemas: amount,
+        source_units: units,
+    });
+    Ok(())
+}
