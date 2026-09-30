@@ -162,6 +162,34 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(lst.balanceOf(alice), aliceBal);
     }
 
+    /// F-04. LayerZero V2 executes verified messages in any order (and a reverted one is retried later),
+    /// but the vault used a strictly increasing seq as its idempotency guard, so a later message that
+    /// lands first turned the earlier one into a silent no-op.
+    function test_f04_unlockDeliveredAfterALaterPayYieldStillReleasesPrincipal() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        uint256 accrued = vault.accruedYield(id);
+        _deliver(_payMsg(id, 2, redeemer, accrued / 2)); // sent after the Unlock, delivered first
+        uint256 before = lst.balanceOf(alice);
+        _deliver(_unlockMsg(id, 1));
+        assertTrue(vault.getPosition(id).unlocked, "Unlock was dropped as stale");
+        assertGt(lst.balanceOf(alice), before, "Principal was never released");
+    }
+
+    function test_f04_payYieldDeliveredAfterALaterMessageIsStillPaidOnce() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        uint256 accrued = vault.accruedYield(id);
+        _deliver(_payMsg(id, 3, redeemer, accrued / 4));
+        _deliver(_payMsg(id, 2, redeemer, accrued / 4)); // older seq, arrives second
+        assertEq(vault.getPosition(id).paidUnderlying, accrued / 2, "older PayYield was dropped");
+        uint256 bal = lst.balanceOf(redeemer);
+        _deliver(_payMsg(id, 2, redeemer, accrued / 4)); // replay
+        _deliver(_payMsg(id, 3, redeemer, accrued / 4)); // replay
+        assertEq(lst.balanceOf(redeemer), bal);
+        assertEq(vault.getPosition(id).paidUnderlying, accrued / 2);
+    }
+
     function test_payYieldOnlyUpToAccrued() public {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 10 minutes);

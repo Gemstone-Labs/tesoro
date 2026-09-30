@@ -134,7 +134,7 @@ contract PositionVaultInvariantTest is Test {
         }
     }
 
-    /// Inbound seq per position never decreases (replays / stale deliveries are no-ops).
+    /// Highest inbound seq per position never decreases (each seq is processed at most once, in any order).
     function invariant_inboundSeqMonotonic() public view {
         assertFalse(h.seqWentBackwards());
     }

@@ -45,6 +45,10 @@ contract PositionVault {
 
     uint64 public nextPositionId;
     mapping(uint64 => Position) internal _positions;
+    /// @dev Inbound seqs already processed, per position. Delivery order is not guaranteed by the transport
+    ///      (LayerZero executes verified messages in any order and retries reverted ones), so idempotency is
+    ///      per seq, not "strictly increasing".
+    mapping(uint64 => mapping(uint64 => bool)) internal _handled;
 
     event PositionLocked(
         uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq
@@ -151,9 +155,10 @@ contract PositionVault {
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
         if (chain != sourceChain) return _ignore(id, msgType, seq, "wrong chain");
-        // Strictly increasing per position: replays and out-of-order deliveries are no-ops.
-        if (seq <= p.inSeq) return _ignore(id, msgType, seq, "stale seq");
-        p.inSeq = seq;
+        // Each seq is processed once; a later seq arriving first must not cancel an earlier one.
+        if (_handled[id][seq]) return _ignore(id, msgType, seq, "duplicate seq");
+        _handled[id][seq] = true;
+        if (seq > p.inSeq) p.inSeq = seq; // highest seq seen, informational
 
         if (msgType == MSG_UNLOCK) {
             _onUnlock(id, p, seq);
