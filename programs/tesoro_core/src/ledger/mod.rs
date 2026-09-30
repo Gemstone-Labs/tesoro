@@ -31,8 +31,9 @@ pub const MIN_HORIZON_MONTHS: u8 = 1;
 pub const MAX_HORIZON_MONTHS: u8 = 12;
 /// The entry ladder, in Gemas.
 pub const LADDER: [u64; 3] = [500, 1_000, 2_500];
-/// Maximum distinct Sources one entry may be drawn from. Bounds account counts per instruction.
-pub const MAX_ENTRY_SOURCES: usize = 2;
+/// Maximum Holdings (distinct Sources) one entry may be drawn from. Bounds accounts per
+/// instruction, and with it the payout lines at settlement (see docs/tesoro-core.md).
+pub const MAX_ENTRY_SOURCES: usize = 8;
 /// Maximum applicants on a public Offer.
 pub const MAX_APPLICANTS: usize = 8;
 /// Request and Offer lifetime, and the window an accepted Backing has to be used.

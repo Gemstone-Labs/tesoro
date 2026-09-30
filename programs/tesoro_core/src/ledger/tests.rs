@@ -1078,3 +1078,212 @@ fn offers_expire_and_cannot_be_revoked_after_match_start() {
         Err(CoreError::InvalidStatus)
     );
 }
+
+// --- Many-Source entries -------------------------------------------------------------------
+
+/// A holder with the given own and won balances, one Holding per Source (distinct keys from
+/// `base`; won Sources sort after own ones within one holder).
+fn holder(own: &[u64], won: &[u64], base: u8) -> (Account, Vec<Holding>) {
+    let mut acct = Account::default();
+    let mut hs = Vec::new();
+    for (i, n) in own.iter().enumerate() {
+        let mut h = Holding::new([base + i as u8; 32], true);
+        h.credit(&mut acct, *n).unwrap();
+        hs.push(h);
+    }
+    for (i, n) in won.iter().enumerate() {
+        let mut h = Holding::new([base + 20 + i as u8; 32], false);
+        h.credit(&mut acct, *n).unwrap();
+        hs.push(h);
+    }
+    (acct, hs)
+}
+
+/// The smallest canonical set of Holdings covering `entry` (what the client picks): own class
+/// first (all of it when the entry needs every own Gema), then a minimal cover of the won class,
+/// each class ascending by Source. `None` if the Account cannot cover the entry.
+fn minimal_set(acct: &Account, hs: &[Holding], entry: u64) -> Option<Vec<usize>> {
+    let own_need = entry.min(acct.own_free());
+    let won_need = entry - own_need;
+    if won_need > acct.won_free() {
+        return None;
+    }
+    let mut picked = Vec::new();
+    for (is_own, need) in [(true, own_need), (false, won_need)] {
+        let mut class: Vec<usize> = (0..hs.len())
+            .filter(|i| hs[*i].is_own == is_own && hs[*i].free() > 0)
+            .collect();
+        let class_free: u64 = class.iter().map(|i| hs[*i].free()).sum();
+        let mut chosen: Vec<usize> = if need == class_free {
+            class.clone()
+        } else {
+            class.sort_by(|x, y| hs[*y].free().cmp(&hs[*x].free()));
+            let mut left = need;
+            let mut out = Vec::new();
+            for i in class {
+                if left == 0 {
+                    break;
+                }
+                out.push(i);
+                left -= left.min(hs[i].free());
+            }
+            out
+        };
+        chosen.sort_by_key(|i| hs[*i].source);
+        picked.extend(chosen);
+    }
+    Some(picked)
+}
+
+fn draw_picked(
+    acct: &mut Account,
+    hs: &[Holding],
+    pick: &[usize],
+    entry: u64,
+) -> (CoreResult<Vec<Line>>, Vec<Holding>) {
+    let mut chosen: Vec<Holding> = pick.iter().map(|i| hs[*i].clone()).collect();
+    let r = draw_entry(acct, &mut chosen, entry);
+    (r, chosen)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 400, ..ProptestConfig::default() })]
+
+    /// An Account spread over many Sources enters with the minimal canonical set whenever that set
+    /// fits the cap; the Pot conserves, and settlement stays bounded and deterministic.
+    #[test]
+    fn many_source_entries_conserve_and_settle_bounded(
+        a_own in prop::collection::vec(1u64..400, 0..9),
+        a_won in prop::collection::vec(1u64..400, 0..9),
+        b_own in prop::collection::vec(1u64..400, 0..9),
+        b_won in prop::collection::vec(1u64..400, 0..9),
+        entry_ix in 0usize..3,
+        opener_wins in any::<bool>(),
+    ) {
+        let entry = LADDER[entry_ix];
+        let (mut a_acct, mut a_hs) = holder(&a_own, &a_won, 1);
+        let (mut b_acct, mut b_hs) = holder(&b_own, &b_won, 60);
+        let a_total = a_acct.own_total + a_acct.won_total;
+        let b_total = b_acct.own_total + b_acct.won_total;
+        let (Some(a_pick), Some(b_pick)) = (
+            minimal_set(&a_acct, &a_hs, entry),
+            minimal_set(&b_acct, &b_hs, entry),
+        ) else {
+            // Not enough Gemas: any set is refused.
+            let (acct, hs) = if minimal_set(&a_acct, &a_hs, entry).is_none() { (&mut a_acct, &mut a_hs) } else { (&mut b_acct, &mut b_hs) };
+            let r = draw_entry(acct, hs, entry);
+            prop_assert!(r.is_err());
+            return Ok(());
+        };
+        let (a_lines, a_chosen) = draw_picked(&mut a_acct, &a_hs, &a_pick, entry);
+        if a_pick.len() > MAX_ENTRY_SOURCES {
+            prop_assert_eq!(a_lines, Err(CoreError::TooManySources));
+            return Ok(());
+        }
+        let a_lines = a_lines.expect("minimal canonical set is accepted");
+        let (b_lines, b_chosen) = draw_picked(&mut b_acct, &b_hs, &b_pick, entry);
+        if b_pick.len() > MAX_ENTRY_SOURCES {
+            prop_assert_eq!(b_lines, Err(CoreError::TooManySources));
+            return Ok(());
+        }
+        let b_lines = b_lines.expect("minimal canonical set is accepted");
+
+        // The entry left the Holdings exactly, line by line.
+        for (lines, chosen) in [(&a_lines, &a_chosen), (&b_lines, &b_chosen)] {
+            prop_assert_eq!(lines.iter().map(|l| l.amount).sum::<u64>(), entry);
+            prop_assert!(lines.len() <= MAX_ENTRY_SOURCES);
+            prop_assert_eq!(chosen.len(), lines.len());
+        }
+        prop_assert_eq!(a_acct.own_total + a_acct.won_total, a_total - entry);
+        prop_assert_eq!(b_acct.own_total + b_acct.won_total, b_total - entry);
+
+        let a_side = Side { player: akey(0), funder: akey(0), share_bps: 0, lines: a_lines };
+        let b_side = Side { player: akey(1), funder: akey(1), share_bps: 0, lines: b_lines };
+        let mut m = Match::open(GAME, entry, fees(), a_side.clone(), 0).unwrap();
+        m.join(b_side.clone(), 1).unwrap();
+        let outcome = if opener_wins { Outcome::Winner(0) } else { Outcome::Winner(1) };
+        let payouts = m.settle(outcome).unwrap();
+        // Everything in the Pot is paid out, none invented, per Source too.
+        prop_assert_eq!(payouts.iter().map(|p| p.amount).sum::<u64>(), entry * 2);
+        let mut per_source: BTreeMap<Key, u64> = BTreeMap::new();
+        for l in a_side.lines.iter().chain(b_side.lines.iter()) {
+            *per_source.entry(l.source).or_default() += l.amount;
+        }
+        let mut paid: BTreeMap<Key, u64> = BTreeMap::new();
+        for p in &payouts {
+            *paid.entry(p.source).or_default() += p.amount;
+        }
+        prop_assert_eq!(per_source, paid);
+        // Deterministic order, merged, and bounded: winner's lines plus the loser's lines cut at
+        // most twice by the two fees.
+        prop_assert!(payouts.windows(2).all(|w| (w[0].recipient, w[0].source) < (w[1].recipient, w[1].source)));
+        prop_assert!(payouts.len() <= 2 * MAX_ENTRY_SOURCES + 2);
+    }
+}
+
+#[test]
+fn eight_holdings_enter_and_a_ninth_is_refused() {
+    let own = [70u64; 9];
+    let (mut acct, hs) = holder(&own, &[], 1);
+    let mut nine = hs.clone();
+    assert_eq!(
+        draw_entry(&mut acct.clone(), &mut nine, 500),
+        Err(CoreError::TooManySources)
+    );
+    // 8 x 70 = 560 covers 500: seven drained, the eighth partly.
+    let mut eight = hs[..8].to_vec();
+    let lines = draw_entry(&mut acct, &mut eight, 500).unwrap();
+    assert_eq!(lines.len(), 8);
+    assert_eq!(lines[7].amount, 10);
+    assert_eq!(acct.own_total, 9 * 70 - 500);
+    // Skipping a Holding is allowed when the rest covers the entry (the client's minimal set).
+    let (mut acct, hs) = holder(&[10, 300, 10, 300], &[], 1);
+    let mut pick = vec![hs[1].clone(), hs[3].clone()];
+    // own_free = 620 > 500, so 300 + 200 from the two big ones; the small ones stay.
+    let lines = draw_entry(&mut acct, &mut pick, 500).unwrap();
+    assert_eq!(lines.iter().map(|l| l.amount).sum::<u64>(), 500);
+}
+
+#[test]
+fn a_backed_entry_over_eight_sources_settles_with_bounded_payouts() {
+    let (mut acct, mut hs) = holder(&[63; 8], &[], 1);
+    let mut offer = Offer::create(
+        akey(2),
+        GAME,
+        500,
+        4_000,
+        OfferKind::Public,
+        0,
+        &mut acct,
+        &mut hs,
+    )
+    .unwrap();
+    assert_eq!(hs.iter().filter(|h| h.reserved > 0).count(), 8);
+    let mut req = Request::new(akey(0), GAME, 500, 0).unwrap();
+    offer.apply(&req, rkey(0), 10).unwrap();
+    offer.accept_applicant(&mut req, rkey(0), 20).unwrap();
+    let a_side = offer
+        .consume(akey(0), GAME, 500, 30, &mut acct, &mut hs)
+        .unwrap();
+    assert_eq!(a_side.lines.len(), 8);
+    let mut m = Match::open(GAME, 500, fees(), a_side, 30).unwrap();
+    let b = side(
+        akey(1),
+        akey(1),
+        0,
+        &[
+            (80, 60),
+            (81, 60),
+            (82, 60),
+            (83, 60),
+            (84, 60),
+            (85, 60),
+            (86, 60),
+            (87, 80),
+        ],
+    );
+    m.join(b, 31).unwrap();
+    let payouts = m.settle(Outcome::Winner(0)).unwrap();
+    assert_eq!(payouts.iter().map(|p| p.amount).sum::<u64>(), 1_000);
+    assert!(payouts.len() <= 2 * MAX_ENTRY_SOURCES + 3);
+}
