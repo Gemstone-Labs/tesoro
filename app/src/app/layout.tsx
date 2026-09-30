@@ -31,9 +31,17 @@ const plexMono = IBM_Plex_Mono({
   display: "swap",
 });
 
+const DESCRIPTION = "Play now with yield you haven't earned yet. Skill games on Solana; your staking Principal is never played.";
+const SITE =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE),
   title: "Tesoro",
-  description: "Play now with the staking yield you haven't earned yet.",
+  description: DESCRIPTION,
+  openGraph: { title: "Tesoro", description: DESCRIPTION, siteName: "Tesoro", type: "website" },
+  twitter: { card: "summary_large_image", title: "Tesoro", description: DESCRIPTION },
 };
 
 export const viewport: Viewport = {

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpen, CircleHelp, Gamepad2, HandCoins, House, Wallet, type LucideIcon } from "lucide-react";
-import { GemaMark } from "@/components/ui";
+import { TesoroLogo } from "@/components/brand";
 import { PositionsCard } from "./PositionsCard";
 
 export const NAV: { href: string; label: string; Icon: LucideIcon }[] = [
@@ -19,9 +19,8 @@ export function isHere(path: string, href: string): boolean {
 
 export function Wordmark({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <Link href="/" className="wordmark" onClick={onNavigate}>
-      <GemaMark size={34} />
-      Tesoro
+    <Link href="/" className="wordmark" aria-label="Tesoro, home" onClick={onNavigate}>
+      <TesoroLogo height={34} />
     </Link>
   );
 }

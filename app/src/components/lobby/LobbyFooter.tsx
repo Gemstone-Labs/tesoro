@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { GemaMark } from "@/components/ui";
+import { TesoroLogo } from "@/components/brand";
 
 const Soon = ({ children }: { children: string }) => (
   <span aria-disabled="true" title="Coming soon">
@@ -10,9 +10,8 @@ const Soon = ({ children }: { children: string }) => (
 export function LobbyFooter() {
   return (
     <footer className="lobby-foot">
-      <Link href="/" className="wordmark foot-word">
-        <GemaMark size={28} />
-        Tesoro
+      <Link href="/" className="wordmark foot-word" aria-label="Tesoro, home">
+        <TesoroLogo height={28} />
       </Link>
       <nav className="foot-cols" aria-label="Footer">
         <div>
