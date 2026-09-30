@@ -201,6 +201,25 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(vault.getPosition(id).paidUnderlying, accrued / 2);
     }
 
+    /// F-13. A PayYield for more than the vault's current yield reverts, which also undoes the seq mark,
+    /// so the same message is delivered later (LayerZero keeps a reverted message for retry) once the
+    /// yield has caught up. Nothing is paid, and nothing is lost, in between.
+    function test_f13_payYieldAboveAccruedIsRetriableOnceYieldGrows() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 10 minutes);
+        uint256 amount = vault.accruedYield(id) + 1 ether;
+        vm.expectRevert();
+        _deliver(_payMsg(id, 1, redeemer, amount));
+        assertEq(lst.balanceOf(redeemer), 0);
+        vm.warp(block.timestamp + 20 days);
+        assertGe(vault.payableYield(id), amount, "yield caught up");
+        _deliver(_payMsg(id, 1, redeemer, amount));
+        assertEq(vault.getPosition(id).paidUnderlying, amount);
+        assertGt(lst.balanceOf(redeemer), 0);
+        _deliver(_payMsg(id, 1, redeemer, amount)); // a second delivery pays nothing
+        assertEq(vault.getPosition(id).paidUnderlying, amount);
+    }
+
     function test_payYieldReplayPaysOnce() public {
         uint64 id = _open(10 ether);
         vm.warp(block.timestamp + 10 minutes);
