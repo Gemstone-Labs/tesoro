@@ -1,5 +1,4 @@
 import "./polyfill";
-import { Connection } from "@solana/web3.js";
 import type { Idl } from "@coral-xyz/anchor";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { HoldemChain } from "@/games/holdem/chain";
@@ -7,6 +6,7 @@ import blockPuzzleIdl from "./idl/block_puzzle.json";
 import holdemIdl from "./idl/holdem.json";
 import coreIdl from "./idl/tesoro_core.json";
 import { BASE_RPC_URL } from "./config";
+import { SplitConnection, routeGpa } from "./split-connection";
 
 let chain: BlockPuzzleChain | null = null;
 let holdem: HoldemChain | null = null;
@@ -15,7 +15,7 @@ let holdem: HoldemChain | null = null;
 export function getChain(): BlockPuzzleChain {
   if (!chain) {
     chain = new BlockPuzzleChain({
-      base: new Connection(BASE_RPC_URL, "confirmed"),
+      base: new SplitConnection(BASE_RPC_URL, routeGpa, "confirmed"),
       blockPuzzleIdl: blockPuzzleIdl as Idl,
       coreIdl: coreIdl as Idl,
     });
