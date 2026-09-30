@@ -45,7 +45,7 @@ describe("native instructions", () => {
     const pos = sourcePda(owner, 0);
     const cases: [ReturnType<typeof unlockIx>, string][] = [
       [sweepNativeSurplusIx(owner, pos), "sweep_native_surplus"],
-      [accrueNativeYieldIx(pos, pos), "accrue_native_yield"],
+      [accrueNativeYieldIx(pos, 0), "accrue_native_yield"],
       [redeemIx(owner, pos, pos, 1n), "redeem"],
       [unlockIx(owner, pos), "unlock"],
       [openNativePositionIx(owner, 1, 1n, pos), "open_native_position"],
