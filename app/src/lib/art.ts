@@ -1,34 +1,31 @@
 /**
- * Every piece of game art and avatar the UI shows, in one map. Today these are PLACEHOLDER crops of
- * the approved mockup (`app/scripts/crop-placeholder-art.mjs`, `public/art/placeholder/`). When the
- * real assets land (~/Work/gemstone-labs/tesoro/art-source/ui-redesign/assets/, outside the repo), copy them to `public/art/` and change the
- * one line for each image here.
+ * Every piece of game art and avatar the UI shows, in one map. Final art comes from Astra
+ * (~/Work/gemstone-labs/tesoro/art-source/ui-redesign/assets/, outside the repo), imported as WebP
+ * into `public/art/final/` by `app/scripts/import-final-art.mjs`.
  */
-const p = (name: string) => `/art/placeholder/${name}.png`;
+const f = (name: string) => `/art/final/${name}.webp`;
 
 export const art = {
-  /** Wide hero art, left 40% dark and empty for the title. PLACEHOLDER: crop of take-1. */
-  blockPuzzleHero: p("block-puzzle-hero"),
-  /** PLACEHOLDER: crop of take-1 (final is 2400x1000 with the left 40% dark). */
-  holdemHero: p("holdem-hero"),
-  /** Square key art. PLACEHOLDER. */
-  blockPuzzleTile: p("block-puzzle-tile"),
-  holdemTile: p("holdem-tile"),
+  /** Wide hero art (2400x1000), left 40% dark and empty for the title. */
+  blockPuzzleHero: f("block-puzzle-hero"),
+  holdemHero: f("holdem-hero"),
+  /** Square key art. */
+  blockPuzzleTile: f("block-puzzle-tile"),
+  holdemTile: f("holdem-tile"),
   comingSoon: {
-    "word-duel": p("coming-soon-word-duel"),
-    "bubble-burst": p("coming-soon-bubble-burst"),
-    "pocket-pool": p("coming-soon-pocket-pool"),
-    "trivia-sprint": p("coming-soon-trivia-sprint"),
+    "word-duel": f("coming-soon-word-duel"),
+    "bubble-burst": f("coming-soon-bubble-burst"),
+    "pocket-pool": f("coming-soon-pocket-pool"),
+    "trivia-sprint": f("coming-soon-trivia-sprint"),
   },
-  /** Landscape thumbs for Play Again. PLACEHOLDER: crops of take-1 (final: reuse the tiles). */
+  /** Play Again thumbs reuse the square tiles (cropped by CSS). */
   thumb: {
-    "block-puzzle": p("block-puzzle-thumb"),
-    holdem: p("holdem-thumb"),
+    "block-puzzle": f("block-puzzle-tile"),
+    holdem: f("holdem-tile"),
   },
-  /** Demo/seed avatars. PLACEHOLDER: three crops of take-1 (final art ships avatar-1..6). */
-  avatars: [p("avatar-1"), p("avatar-2"), p("avatar-3")],
+  /** Demo/seed avatars. */
+  avatars: [1, 2, 3, 4, 5, 6].map((n) => f(`avatar-${n}`)),
 } as const;
-
 /** A stable avatar for a Player key, so the same Player always shows the same face. */
 export function avatarFor(key: string): string {
   let h = 0;

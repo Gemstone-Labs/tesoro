@@ -36,9 +36,9 @@
   background: #0a1322; --edge: var(--line-2); cursor: default;
 }
 .slide:not(.active) { cursor: pointer; }
-.slide-art { position: absolute; inset: 0 0 0 auto; width: 62%; }
-.slide-art img { object-fit: cover; object-position: left center; }
-.slide-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, #0a1322 0%, rgba(10, 19, 34, 0.55) 22%, transparent 55%); }
+.slide-art { position: absolute; inset: 0; }
+.slide-art img { object-fit: cover; object-position: right center; }
+.slide-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(10, 19, 34, 0.85) 0%, rgba(10, 19, 34, 0.45) 30%, transparent 50%); }
 .slide-body {
   position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; width: min(100%, 412px); height: 100%;
   padding: 42px 26px 0;
@@ -229,3 +229,7 @@ a.tile:hover img { transform: scale(1.04); }
   .hero-next { display: none; }
 }
 @container (min-width: 700px) { .slide-sub { white-space: nowrap; } }
+/* A peeking (inactive) slide shows only its left strip; show the art there, not its dark title area. */
+.slide:not(.active) .slide-art { right: auto; width: 32%; }
+.slide:not(.active) .slide-art img { object-position: 72% center; }
+.slide:not(.active) .slide-art::after { background: linear-gradient(0deg, rgba(10, 19, 34, 0.7) 0%, transparent 60%); }
