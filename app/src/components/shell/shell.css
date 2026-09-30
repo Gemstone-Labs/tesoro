@@ -57,8 +57,7 @@ a.side-link:hover { background: var(--raised); color: var(--fg); }
 }
 .topbar .menu-btn { grid-column: 1; }
 .top-word { grid-column: 2; }
-.top-word .wordmark { font-size: 22px; gap: 8px; }
-.top-word .gema-mark { width: 26px; height: 26px; }
+.top-word .wordmark svg { height: 26px; width: auto; }
 .top-right { grid-column: 4; display: flex; align-items: center; gap: 12px; justify-self: end; }
 .search {
   grid-column: 1 / -1; grid-row: 2; display: none; align-items: center; gap: 12px; height: 46px; padding: 0 16px;
@@ -125,7 +124,7 @@ dialog.drawer::backdrop { background: rgba(0, 0, 0, 0.66); }
 
 @media (max-width: 639px) {
   .topbar { gap: 8px 8px; padding-left: 12px; padding-right: 12px; }
-  .top-word .wordmark { font-size: 20px; }
+  .top-word .wordmark svg { height: 24px; }
   .top-right { gap: 8px; }
   .gpill { height: 38px; padding: 0 12px 0 8px; gap: 8px; --c: 10px; }
   .gpill b { font-size: 18px; }

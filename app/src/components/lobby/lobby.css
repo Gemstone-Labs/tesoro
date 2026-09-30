@@ -197,7 +197,6 @@ a.tile:hover img { transform: scale(1.04); }
   background: #080d0f; border-top: 1px solid var(--line);
   display: grid; gap: 22px 40px; grid-template-columns: 1fr 1fr; align-items: start;
 }
-.foot-word { font-size: 28px; }
 .foot-cols { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 24px 48px; }
 .foot-cols h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
 .foot-cols a, .foot-cols span { display: block; font-family: var(--f-mono); font-size: 13px; line-height: 1.55; color: var(--fg-2); }
