@@ -31,6 +31,8 @@ pub enum TesoroError {
     NotNativePosition,
     #[msg("price is stale or not set")]
     StalePrice,
+    #[msg("Gemas of an EVM-sourced Advance are redeemed through the bridge")]
+    BridgedSource,
 }
 
 pub fn core_err(e: CoreError) -> Error {

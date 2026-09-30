@@ -467,6 +467,27 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     let err = env.apply_yield(id, true).expect_err("applied once");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::NothingToApply)));
 
+    // F-07: plain `redeem` on tesoro_core would burn the Gemas with no payout recorded; it is refused.
+    {
+        let holding = core_pda(&[HOLDING_SEED, env.owner_account.as_ref(), source_key.as_ref()]);
+        let plain = ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::Redeem {
+                holder_authority: a(env.owner.pubkey()),
+                holder_account: env.owner_account,
+                position: env.core_position(id),
+                source: source_key,
+                holding,
+            },
+            tesoro_core::instruction::Redeem { amount: 1_000 },
+        );
+        let owner = env.owner.insecure_clone();
+        let err = env.send(&[plain], &owner, &[]).expect_err("plain redeem is refused");
+        assert_eq!(custom_code(&err), Some(6012), "BridgedSource");
+        let holding: HoldingState = env.load(holding);
+        assert_eq!(holding.inner.amount, 3_750, "nothing was burned");
+    }
+
     // Redeem 1,000 Gemas through the bridge: recorded as a claim of source units.
     let owner = env.owner.insecure_clone();
     let redeem = |env: &mut Env, gemas: u64| {
@@ -477,6 +498,9 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
             crate::ID,
             crate::accounts::RedeemToEvm {
                 holder_authority: a(owner.pubkey()),
+                store: env.store,
+                authority: env.authority,
+                core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
                 holder_account: env.owner_account,
                 core_position: position,
                 core_source: source_key,

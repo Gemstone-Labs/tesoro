@@ -305,7 +305,8 @@ async function main() {
             const ix = new TransactionInstruction({
                 programId: BRIDGE,
                 keys: [
-                    meta(owner.publicKey, true, true), meta(ownerAccount, false, true), meta(cp), meta(source, false, true),
+                    meta(owner.publicKey, true, true), meta(store), meta(authority), meta(sourceAuthPda(eid)),
+                    meta(ownerAccount, false, true), meta(cp), meta(source, false, true),
                     meta(holdingPda(ownerAccount, source), false, true), meta(claimPda(ownerAccount, source), false, true), meta(CORE), meta(SystemProgram.programId),
                 ],
                 data: Buffer.concat([disc('redeem_to_evm'), u64le(BigInt(a[3]))]),

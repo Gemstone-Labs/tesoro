@@ -1,5 +1,5 @@
 use crate::error::{core_err, TesoroError};
-use crate::ledger::{self, OfferKind};
+use crate::ledger::{self, OfferKind, OfferStatus};
 use crate::state::*;
 use crate::util::*;
 use anchor_lang::prelude::*;
@@ -261,6 +261,33 @@ pub struct CancelOffer<'info> {
         constraint = offer.inner.backer == backer_account.key().to_bytes() @ TesoroError::Unauthorized
     )]
     pub offer: Box<Account<'info, OfferState>>,
+    /// The Request the Offer had accepted, required exactly when it had one: it is listed again.
+    #[account(
+        mut,
+        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
+        bump = request.bump
+    )]
+    pub request: Option<Account<'info, RequestState>>,
+}
+
+/// An Accepted Offer that ends unused hands its Request back: the Player would otherwise be left
+/// with a Request that can never be answered again.
+fn reopen_accepted_request(
+    accepted: Option<ledger::Key>,
+    request: &mut Option<Account<RequestState>>,
+) -> Result<()> {
+    let Some(expected) = accepted else {
+        return Ok(());
+    };
+    let request = request
+        .as_mut()
+        .ok_or_else(|| error!(TesoroError::InvalidAccount))?;
+    require!(
+        request.key().to_bytes() == expected,
+        TesoroError::InvalidAccount
+    );
+    request.inner.reopen();
+    Ok(())
 }
 
 pub(crate) fn cancel_offer<'info>(
@@ -269,7 +296,11 @@ pub(crate) fn cancel_offer<'info>(
     let mut holdings = load_holdings(&ctx.accounts.backer_account.key(), ctx.remaining_accounts)?;
     let acct = &mut ctx.accounts.backer_account.inner;
     let offer = &mut ctx.accounts.offer.inner;
-    with_holdings(&mut holdings, |hs| offer.cancel(acct, hs))
+    let accepted = (offer.status == OfferStatus::Accepted)
+        .then_some(offer.request)
+        .flatten();
+    with_holdings(&mut holdings, |hs| offer.cancel(acct, hs))?;
+    reopen_accepted_request(accepted, &mut ctx.accounts.request)
 }
 
 /// Anyone releases the reservation of an Offer nobody accepted, or nobody used, within 24h.
@@ -289,6 +320,13 @@ pub struct ExpireOffer<'info> {
         bump = offer.bump
     )]
     pub offer: Box<Account<'info, OfferState>>,
+    /// The Request the Offer had accepted, required exactly when it had one: it is listed again.
+    #[account(
+        mut,
+        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
+        bump = request.bump
+    )]
+    pub request: Option<Account<'info, RequestState>>,
 }
 
 pub(crate) fn expire_offer<'info>(
@@ -298,5 +336,9 @@ pub(crate) fn expire_offer<'info>(
     let now = now()?;
     let acct = &mut ctx.accounts.backer_account.inner;
     let offer = &mut ctx.accounts.offer.inner;
-    with_holdings(&mut holdings, |hs| offer.expire(now, acct, hs))
+    let accepted = (offer.status == OfferStatus::Accepted)
+        .then_some(offer.request)
+        .flatten();
+    with_holdings(&mut holdings, |hs| offer.expire(now, acct, hs))?;
+    reopen_accepted_request(accepted, &mut ctx.accounts.request)
 }

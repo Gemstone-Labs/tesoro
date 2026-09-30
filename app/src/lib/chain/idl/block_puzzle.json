@@ -1373,7 +1373,14 @@
       "name": "open_session",
       "docs": [
         "Base layer, anyone, right after `tesoro_core::open_match`. Binds a Session, the opener's",
-        "Board and a SeedVault to the still-Open Match. The opener may play before anybody joins."
+        "Board and a SeedVault to the Match. The opener may play before anybody joins. A Match that",
+        "somebody joined before its Session existed (`tesoro_core::join_match` cannot require one)",
+        "is still bound while its refund window is open, and `join_session` follows.",
+        "",
+        "The opener's Board deadline is the Queue window's end plus `SUBMISSION_SECS`, which is never",
+        "earlier than the joiner's (`join + SUBMISSION_SECS`, joins happen inside the window). Joining",
+        "in the last second of the window therefore cannot forfeit an opener who has not begun: the",
+        "opener keeps the same time to play as the joiner."
       ],
       "discriminator": [
         130,
@@ -2056,6 +2063,11 @@
       "code": 6019,
       "name": "NotJoined",
       "msg": "no second Player has joined this session"
+    },
+    {
+      "code": 6020,
+      "name": "InvalidValidator",
+      "msg": "delegation must name the TEE validator"
     }
   ],
   "types": [
@@ -2434,7 +2446,8 @@
           {
             "name": "opener_deadline",
             "docs": [
-              "The Match's Queue window at open: the opener must begin before it or forfeits."
+              "The opener must begin before this or forfeits: the Queue window's end plus",
+              "`SUBMISSION_SECS`, so never earlier than the joiner's deadline."
             ],
             "type": "i64"
           },

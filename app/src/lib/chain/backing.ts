@@ -315,7 +315,13 @@ export async function cancelOffer(signer: ChainSigner, offer: ChainOffer) {
   const backerAccount = BlockPuzzleChain.coreAccount(signer.publicKey);
   const ix = await chain.core.methods
     .cancelOffer()
-    .accountsPartial({ backerAuthority: signer.publicKey, backerAccount, offer: offer.address })
+    .accountsPartial({
+      backerAuthority: signer.publicKey,
+      backerAccount,
+      offer: offer.address,
+      // An accepted Offer hands its Request back to Open, so the Request comes with the call.
+      request: offer.status === "accepted" && offer.request ? new PublicKey(offer.request) : null,
+    })
     .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
     .instruction();
   return chain.sendBase(signer, [ix]);
@@ -327,7 +333,12 @@ export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
   const backerAccount = new PublicKey(offer.backer);
   const ix = await chain.core.methods
     .expireOffer()
-    .accountsPartial({ caller: signer.publicKey, backerAccount, offer: offer.address })
+    .accountsPartial({
+      caller: signer.publicKey,
+      backerAccount,
+      offer: offer.address,
+      request: offer.status === "accepted" && offer.request ? new PublicKey(offer.request) : null,
+    })
     .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
     .instruction();
   return chain.sendBase(signer, [ix]);

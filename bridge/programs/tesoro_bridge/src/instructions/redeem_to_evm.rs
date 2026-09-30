@@ -1,22 +1,34 @@
 use crate::*;
 use tesoro_core::{
-    cpi::accounts::Redeem,
+    cpi::accounts::RedeemFromSource,
     ledger::SourceChain,
     program::TesoroCore,
     state::{
-        HoldingState, PositionState, SourceState, TesoroAccount, ACCOUNT_SEED, HOLDING_SEED,
-        POSITION_SEED as CORE_POSITION_SEED, SOURCE_SEED,
+        HoldingState, PositionState, SourceAuthority, SourceState, TesoroAccount, ACCOUNT_SEED,
+        HOLDING_SEED, POSITION_SEED as CORE_POSITION_SEED, SOURCE_AUTHORITY_SEED, SOURCE_SEED,
     },
 };
 
-// Redeems Gemas of an ETH- or HyperEVM-Sourced Advance through tesoro_core (`redeem`, signed by
-// the holder) and records the payout owed on the source chain in a `Claim`. `send_pay_yield`
-// then delivers it. Redeeming these Gemas with tesoro_core's plain `redeem` would burn the claim
-// without recording a payout, so the app must route non-Solana Sources through here.
+// Redeems Gemas of an ETH- or HyperEVM-Sourced Advance through tesoro_core (`redeem_from_source`,
+// signed by the holder and by this program's authority PDA, the registered source authority of the
+// chain) and records the payout owed on the source chain in a `Claim`. `send_pay_yield` then
+// delivers it. tesoro_core's plain `redeem` refuses these Sources, because it would burn the claim
+// without recording a payout.
 #[derive(Accounts)]
 pub struct RedeemToEvm<'info> {
     #[account(mut)]
     pub holder_authority: Signer<'info>,
+    #[account(seeds = [STORE_SEED], bump = store.bump)]
+    pub store: Account<'info, Store>,
+    /// CHECK: PDA that signs into tesoro_core; address fixed by seeds and the stored bump.
+    #[account(seeds = [AUTHORITY_SEED], bump = store.authority_bump)]
+    pub authority: UncheckedAccount<'info>,
+    #[account(
+        seeds = [SOURCE_AUTHORITY_SEED, &[chain_byte(core_position.inner.source_chain)]],
+        bump = core_source_authority.bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub core_source_authority: Account<'info, SourceAuthority>,
     #[account(
         mut,
         seeds = [ACCOUNT_SEED, holder_authority.key().as_ref()],
@@ -65,16 +77,20 @@ impl RedeemToEvm<'_> {
         );
         let units_before = ctx.accounts.core_source.inner.redeemed_units;
 
-        tesoro_core::cpi::redeem(
-            CpiContext::new(
+        let signer_seeds: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &[ctx.accounts.store.authority_bump]]];
+        tesoro_core::cpi::redeem_from_source(
+            CpiContext::new_with_signer(
                 ctx.accounts.core_program.to_account_info(),
-                Redeem {
+                RedeemFromSource {
                     holder_authority: ctx.accounts.holder_authority.to_account_info(),
+                    source_signer: ctx.accounts.authority.to_account_info(),
+                    source_authority: ctx.accounts.core_source_authority.to_account_info(),
                     holder_account: ctx.accounts.holder_account.to_account_info(),
                     position: ctx.accounts.core_position.to_account_info(),
                     source: ctx.accounts.core_source.to_account_info(),
                     holding: ctx.accounts.core_holding.to_account_info(),
                 },
+                signer_seeds,
             ),
             gemas,
         )?;

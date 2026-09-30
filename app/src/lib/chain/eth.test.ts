@@ -12,7 +12,7 @@ import {
 } from "./eth";
 import { opProgress, type EthOp } from "./eth-track";
 
-const VAULT = "0x8289fa2e5A7a57618A93B93fc720B85eF3E87b7c";
+const VAULT = "0x6c836b96464B5D1b55536d5a34D023528eaEe4bD";
 const rate: SimRate = { baseRate: 10n ** 18n, baseTime: 1_000n, apyBps: 500n, speedup: 4320n };
 
 describe("position id", () => {

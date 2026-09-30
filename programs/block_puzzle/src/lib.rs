@@ -155,23 +155,32 @@ pub mod block_puzzle {
     use super::*;
 
     /// Base layer, anyone, right after `tesoro_core::open_match`. Binds a Session, the opener's
-    /// Board and a SeedVault to the still-Open Match. The opener may play before anybody joins.
+    /// Board and a SeedVault to the Match. The opener may play before anybody joins. A Match that
+    /// somebody joined before its Session existed (`tesoro_core::join_match` cannot require one)
+    /// is still bound while its refund window is open, and `join_session` follows.
+    ///
+    /// The opener's Board deadline is the Queue window's end plus `SUBMISSION_SECS`, which is never
+    /// earlier than the joiner's (`join + SUBMISSION_SECS`, joins happen inside the window). Joining
+    /// in the last second of the window therefore cannot forfeit an opener who has not begun: the
+    /// opener keeps the same time to play as the joiner.
     pub fn open_session(ctx: Context<OpenSession>) -> Result<()> {
-        let match_deadline = {
+        let now = Clock::get()?.unix_timestamp;
+        let opener_deadline = {
             let m = &ctx.accounts.match_state.inner;
             require!(
-                m.game == crate::ID.to_bytes() && m.status == MatchStatus::Open,
+                m.game == crate::ID.to_bytes()
+                    && matches!(m.status, MatchStatus::Open | MatchStatus::Active),
                 BlockPuzzleError::InvalidMatch
             );
             require!(
                 ctx.accounts.account_a.key().to_bytes() == m.a.player,
                 BlockPuzzleError::InvalidAccount
             );
-            require!(
-                Clock::get()?.unix_timestamp < m.deadline,
-                BlockPuzzleError::DeadlinePassed
-            );
+            require!(now < m.deadline, BlockPuzzleError::DeadlinePassed);
             m.deadline
+                .max(now)
+                .checked_add(SUBMISSION_SECS)
+                .ok_or(BlockPuzzleError::Overflow)?
         };
 
         // Each delegated account pays the rent of its ephemeral permission from its own balance.
@@ -196,14 +205,14 @@ pub mod block_puzzle {
         session.authority_bump = authority_bump;
         session.match_state = ctx.accounts.match_state.key();
         session.players = [player, Pubkey::default()];
-        session.opener_deadline = match_deadline;
+        session.opener_deadline = opener_deadline;
 
         let board_0 = &mut ctx.accounts.board_0;
         board_0.bump = ctx.bumps.board_0;
         board_0.session = session_key;
         board_0.seat = 0;
         board_0.player = player;
-        board_0.deadline = match_deadline;
+        board_0.deadline = opener_deadline;
 
         let vault = &mut ctx.accounts.vault;
         vault.bump = ctx.bumps.vault;
@@ -259,6 +268,7 @@ pub mod block_puzzle {
         board_1.deadline = deadline;
 
         let refund_after = deadline
+            .max(ctx.accounts.session.opener_deadline)
             .checked_add(SETTLE_GRACE_SECS)
             .ok_or(BlockPuzzleError::Overflow)?;
         let authority_seeds: &[&[u8]] = &[AUTHORITY_SEED, &[authority_bump]];
@@ -981,7 +991,8 @@ pub struct Session {
     pub match_state: Pubkey,
     /// Wallets of the seats: 0 opened the `tesoro_core` Match, 1 joined (default until then).
     pub players: [Pubkey; 2],
-    /// The Match's Queue window at open: the opener must begin before it or forfeits.
+    /// The opener must begin before this or forfeits: the Queue window's end plus
+    /// `SUBMISSION_SECS`, so never earlier than the joiner's deadline.
     pub opener_deadline: i64,
     pub joined: bool,
     /// From the join: Players who have not begun by then forfeit. Zero until a Player joins.

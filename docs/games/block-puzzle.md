@@ -56,7 +56,7 @@ A `Board` holds a Player's whole run. In the TEE it has a private permission who
 ### Clock
 
 - Play window: 90 s from `begin_run` plus 10 s grace for the last transaction.
-- Opener: must `begin_run` before the Match's Queue window ends (`Session.opener_deadline`, the `tesoro_core` Open deadline, 1 h), else forfeits.
+- Opener: must `begin_run` before `Session.opener_deadline` = the Match's Queue window end (1 h) plus 24 h, else forfeits. That is never earlier than the joiner's deadline (join + 24 h), so a late join cannot forfeit an opener who has not begun. `open_session` also accepts a Match that was joined before its Session existed.
 - Joiner: 24 h from `join_session` (`Session.deadline`); the `tesoro_core` refund deadline is pushed to that plus 1 h. `join_session` must land within the 1 h `tesoro_core` gives an Active Match: the app sends it in the same transaction as `join_match`, and any client binds a Match joined without it (`ensureJoined`).
 - Enforcement is lazy and permissionless: `seal`, `commit_boards`, `settle` and `claim_timeout` can be sent by anyone. If a Player never delegated their Board, anyone can delegate it (`delegate_opener` / `delegate_joiner`) and create its permission, then seal (that Player forfeits); this path is in the app (`bringForfeitedBoardsIn`) but was not run on devnet (it needs a 1 h or 24 h wait).
 

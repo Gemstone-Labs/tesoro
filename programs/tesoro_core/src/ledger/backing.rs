@@ -48,6 +48,13 @@ impl Request {
         self.status = RequestStatus::Cancelled;
         Ok(())
     }
+
+    /// The Offer this Request accepted was cancelled or expired unused: the Request is listed again.
+    pub fn reopen(&mut self) {
+        if self.status == RequestStatus::Accepted {
+            self.status = RequestStatus::Open;
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]

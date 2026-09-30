@@ -1178,6 +1178,7 @@ fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_ge
             backer_authority: b.carol.key,
             backer_account: b.carol.account,
             offer,
+            request: None,
         },
         instruction::CancelOffer {},
         vec![rem(b.c_holding)],
@@ -1208,6 +1209,7 @@ fn offers_and_requests_expire_after_24_hours() {
                 caller: a(b.d.env.admin.pubkey()),
                 backer_account: b.carol.account,
                 offer,
+                request: None,
             },
             instruction::ExpireOffer {},
             vec![rem(b.c_holding)],
@@ -1299,4 +1301,181 @@ fn cu_profile_matching() {
         4
     );
     assert!(open2 < 200_000 && settle < 200_000 && settle2 < 200_000);
+}
+
+// --- F-07 -----------------------------------------------------------------------------------
+
+const ERR_BRIDGED_SOURCE: u32 = 6012;
+
+/// F-07. Plain `redeem` of an EVM-sourced Gema only burned it: the payout is recorded by the
+/// bridge, so a wallet calling `redeem` destroyed the claim. Plain `redeem` now refuses these
+/// Sources; `redeem_from_source` needs the chain's registered source authority as a co-signer.
+#[test]
+fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
+    let mut env = Env::new();
+    let alice = env.person();
+    let bridge = Keypair::new();
+    env.svm.airdrop(&bridge.pubkey(), SOL).expect("airdrop");
+    let position = pda(&[POSITION_SEED, &[1], &[9u8; 32]]);
+    let open = ix(
+        accounts::OpenPosition {
+            oracle: a(env.oracle.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            owner_account: alice.account,
+            position,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::OpenPosition {
+            source_chain: SourceChain::Ethereum,
+            position_id: [9u8; 32],
+            source_asset: APk::new_unique(),
+            decimals: 9,
+            principal: 100 * SOL,
+            rate_bps: 1_000,
+        },
+        vec![],
+    );
+    let oracle = env.oracle.insecure_clone();
+    env.send(&[open], &oracle, &[]).expect("open position");
+    env.take_advance(&alice, position, 0, 6, 150_000_000)
+        .expect("advance");
+    let source = source_pda(position, 0);
+    let holding = holding_pda(alice.account, source);
+    env.yield_to(&oracle, position, Some(source), 1, 5 * SOL / 2)
+        .expect("yield");
+
+    let redeem = ix(
+        accounts::Redeem {
+            holder_authority: alice.key,
+            holder_account: alice.account,
+            position,
+            source,
+            holding,
+        },
+        instruction::Redeem { amount: 100 },
+        vec![],
+    );
+    let err = env.send(&[redeem], &alice.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), ERR_BRIDGED_SOURCE);
+    assert_eq!(env.holding_amount(&alice, source), 75_000, "nothing burned");
+
+    let register = ix(
+        accounts::SetSourceAuthority {
+            admin: a(env.admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            source_authority: pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::SetSourceAuthority {
+            chain: SourceChain::Ethereum,
+            authority: a(bridge.pubkey()),
+        },
+        vec![],
+    );
+    let admin = env.admin.insecure_clone();
+    env.send(&[register], &admin, &[]).expect("register");
+    let via_bridge = |signer: &Keypair| {
+        ix(
+            accounts::RedeemFromSource {
+                holder_authority: alice.key,
+                source_signer: a(signer.pubkey()),
+                source_authority: pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+                holder_account: alice.account,
+                position,
+                source,
+                holding,
+            },
+            instruction::RedeemFromSource { amount: 100 },
+            vec![],
+        )
+    };
+    // Alice cannot stand in for the bridge.
+    let err = env
+        .send(&[via_bridge(&alice.kp)], &alice.kp, &[])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    env.send(&[via_bridge(&bridge)], &alice.kp, &[&bridge])
+        .expect("redeem through the bridge authority");
+    assert_eq!(env.holding_amount(&alice, source), 74_900);
+    assert_eq!(
+        env.load::<SourceState>(source).inner.redeemed_units,
+        6_666_666
+    );
+}
+
+// --- F-12 -----------------------------------------------------------------------------------
+
+/// F-12. A Request stayed `Accepted` for ever after its Offer was cancelled or expired unused, so
+/// the Player had to create a new one. It now returns to Open, and can be answered again.
+#[test]
+fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
+    use tesoro_core::ledger::RequestStatus;
+    let request_status =
+        |b: &Backing, request: APk| b.d.env.load::<RequestState>(request).inner.status;
+    for expire in [false, true] {
+        let mut b = backing_setup();
+        let request = b.request(1, 500);
+        let offer = b.offer(1, 500, 5_000, None);
+        b.accept_public(offer, request);
+        assert_eq!(request_status(&b, request), RequestStatus::Accepted);
+
+        let end = |b: &mut Backing, request: Option<APk>| {
+            let (ixn, signer) = if expire {
+                let now = b.d.env.now();
+                b.d.env.set_time(now + 2 * 24 * 3_600);
+                (
+                    ix(
+                        accounts::ExpireOffer {
+                            caller: a(b.d.env.admin.pubkey()),
+                            backer_account: b.carol.account,
+                            offer,
+                            request,
+                        },
+                        instruction::ExpireOffer {},
+                        vec![rem(b.c_holding)],
+                    ),
+                    b.d.env.admin.insecure_clone(),
+                )
+            } else {
+                (
+                    ix(
+                        accounts::CancelOffer {
+                            backer_authority: b.carol.key,
+                            backer_account: b.carol.account,
+                            offer,
+                            request,
+                        },
+                        instruction::CancelOffer {},
+                        vec![rem(b.c_holding)],
+                    ),
+                    b.carol.kp.insecure_clone(),
+                )
+            };
+            b.d.env.send(&[ixn], &signer, &[])
+        };
+        // The accepted Request has to come with the call.
+        let err = end(&mut b, None).unwrap_err();
+        assert_eq!(custom_code(&err), 6003);
+        assert_eq!(request_status(&b, request), RequestStatus::Accepted);
+        end(&mut b, Some(request)).expect("end the offer");
+        if !expire {
+            // Cancelling does not move time; the Request is live for a second Offer.
+            assert_eq!(request_status(&b, request), RequestStatus::Open);
+            let offer2 = b.offer(2, 500, 5_000, Some(request));
+            let accept = ix(
+                accounts::AcceptDirected {
+                    player_authority: b.dave.key,
+                    player_account: b.dave.account,
+                    request,
+                    offer: offer2,
+                },
+                instruction::AcceptDirected {},
+                vec![],
+            );
+            let dave = b.dave.kp.insecure_clone();
+            b.d.env.send(&[accept], &dave, &[]).expect("answered again");
+        } else {
+            assert_eq!(request_status(&b, request), RequestStatus::Open);
+        }
+    }
 }

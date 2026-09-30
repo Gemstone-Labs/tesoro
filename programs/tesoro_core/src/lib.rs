@@ -138,6 +138,11 @@ pub mod tesoro_core {
         instructions::native::sweep_native_surplus(ctx)
     }
 
+    /// Extends a custody opened before `tracked_shares` existed. Permissionless.
+    pub fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Result<()> {
+        instructions::native::migrate_native_custody(ctx)
+    }
+
     // --- Source authorities (cross-chain bridge) --------------------------------------------
 
     pub fn set_source_authority(
@@ -181,6 +186,10 @@ pub mod tesoro_core {
         cumulative: u64,
     ) -> Result<()> {
         instructions::source_auth::apply_yield_from_source(ctx, seq, cumulative)
+    }
+
+    pub fn redeem_from_source(ctx: Context<RedeemFromSource>, amount: u64) -> Result<()> {
+        instructions::source_auth::redeem_from_source(ctx, amount)
     }
 
     // --- Matches ----------------------------------------------------------------------------
