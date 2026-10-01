@@ -70,6 +70,8 @@ export interface ChainHolding {
   free: bigint;
   /** Free Gemas of this holding that Redeem would pay now. */
   redeemable: bigint;
+  /** The Source's Debt in Gemas: what `return_own` can still cancel. */
+  sourceDebt: bigint;
   /** Owner Account key of the Source's Position. */
   sourceOwner: string;
   asset: "SOL" | "ETH" | "HYPE";
@@ -345,6 +347,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       reserved,
       free,
       redeemable: redeemableFor(sourceMath(src.inner), free),
+      sourceDebt: debtGemas(sourceMath(src.inner)),
       sourceOwner: pk(src.inner.owner).toBase58(),
       native: !!nativeInfo.get(pk(src.inner.position).toBase58()),
       eth: pos && enumKey(pos.inner.sourceChain) === "ethereum" ? parseEthPositionId(Uint8Array.from(pos.positionId)) : null,

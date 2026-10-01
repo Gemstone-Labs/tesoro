@@ -61,6 +61,7 @@ export function demoSnapshot(address: string): AccountSnapshot {
     reserved: 0n,
     free: amount,
     redeemable,
+    sourceDebt: 0n,
     sourceOwner: isOwn ? address : key(500 + n).toBase58(),
     asset,
     native: false,

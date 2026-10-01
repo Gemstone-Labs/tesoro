@@ -21,6 +21,7 @@ import {
 import { friendlyError, getTestSimSol, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, unlockNative } from "@/lib/chain/native-flow";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, sampledSeries } from "./PositionTile";
 
@@ -189,6 +190,8 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
   const a = useAction(refresh);
   const now = useNow(5000);
   const signer = auth.signer;
+  const returnable = useReturnable(position);
+  const [returning, setReturning] = useState(false);
 
   const src = info.source?.math ?? null;
   const onChainDebt = src ? live(src) - covered(src) : 0n;
@@ -244,6 +247,10 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
               {a.busy === "unlock" ? "Unlocking…" : "Unlock"}
             </Button>
           </div>
+          {returnable > 0n && (
+            <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => setReturning(true)}>Return Gemas</Button>
+          )}
+          <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} />
         </>
       )}
       {!locked && (

@@ -4,6 +4,9 @@ import { useState } from "react";
 import { Button, CheckIcon, ChainChip, GemaAmount, Sheet, Slider } from "@/components/ui";
 import { gemasToAsset } from "@/lib/advance";
 import { redeemableOf, useAccount } from "@/lib/account";
+import { friendlyError } from "@/lib/chain/native-flow";
+import type { ChainPosition } from "@/lib/chain/read";
+import { returnOwn, returnRows } from "@/lib/chain/return-own";
 import { fmtAsset, fmtGemas } from "@/lib/format";
 import type { Position } from "@/lib/mock";
 
@@ -97,6 +100,113 @@ function ReturnForm({ position, onClose }: { position: Position; onClose: () => 
           Return {fmtGemas(amount)} Gemas
         </Button>
       )}
+    </>
+  );
+}
+
+/** The Gemas this Account can return to `position`'s Sources, 0 when none. */
+export function useReturnable(position: ChainPosition): bigint {
+  const { snapshot } = useAccount();
+  if (!snapshot) return 0n;
+  return returnRows(snapshot.holdings, position.address, snapshot.accountKey).reduce((s, r) => s + r.max, 0n);
+}
+
+/** `return_own` on a live Position: the owner's own-Sourced, unspent Gemas cancel that much Debt, per Source. */
+export function ReturnOwnSheet({ position, open, onClose, onReturned }: { position: ChainPosition; open: boolean; onClose: () => void; onReturned?: () => Promise<void> | void }) {
+  return (
+    <Sheet open={open} onClose={onClose} title="Return unspent Gemas">
+      {open && <ReturnOwnForm position={position} onClose={onClose} onReturned={onReturned} />}
+    </Sheet>
+  );
+}
+
+function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosition; onClose: () => void; onReturned?: () => Promise<void> | void }) {
+  const { auth, snapshot, refresh } = useAccount();
+  const rows = snapshot ? returnRows(snapshot.holdings, position.address, snapshot.accountKey) : [];
+  const [pick, setPick] = useState(0);
+  const row = rows[Math.min(pick, rows.length - 1)] ?? null;
+  const [amount, setAmount] = useState(() => Number(row?.max ?? 0n));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ sig: string; amount: number } | null>(null);
+
+  if (done) {
+    return (
+      <>
+        <div className="status ok" role="status">
+          <CheckIcon /> Returned {fmtGemas(done.amount)} Gemas · Debt lowered
+        </div>
+        <a className="meta mono" href={`https://explorer.solana.com/tx/${done.sig}?cluster=devnet`} target="_blank" rel="noreferrer">
+          return_own · {done.sig.slice(0, 10)}…
+        </a>
+        <Button block onClick={onClose}>Done</Button>
+      </>
+    );
+  }
+
+  if (!row) {
+    return (
+      <>
+        <p className="meta">You hold no unspent Gemas Sourced from this Position. Won Gemas and Gemas reserved for Offers cannot be returned.</p>
+        <Button block onClick={onClose}>Close</Button>
+      </>
+    );
+  }
+
+  const max = Number(row.max);
+  const value = Math.min(amount, max);
+  const debt = Number(row.holding.sourceDebt);
+  const submit = async () => {
+    if (!auth.signer || value <= 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const sig = await returnOwn(auth.signer, position.address, row.holding.source, BigInt(value));
+      setDone({ sig, amount: value });
+      await Promise.all([refresh(), onReturned?.()]);
+    } catch (e) {
+      setError(friendlyError(e));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <p className="meta">
+        Returning Gemas Sourced from this {position.asset} Position cancels that much of its Debt. Only your own unspent Gemas count:
+        won Gemas and Gemas reserved for Offers cannot be returned. The Position stays locked until Debt reaches zero.
+      </p>
+      {rows.length > 1 && (
+        <div className="wl-actions-row" role="group" aria-label="Advance to return to">
+          {rows.map((r, i) => (
+            <Button key={r.holding.source.toBase58()} size="sm" aria-pressed={i === pick} onClick={() => { setPick(i); setAmount(Number(r.max)); }}>
+              Advance {r.holding.source.toBase58().slice(0, 4)}… · {fmtGemas(Number(r.max))}
+            </Button>
+          ))}
+        </div>
+      )}
+      <Slider
+        label="Gemas to return"
+        value={value}
+        min={0}
+        max={max}
+        onChange={setAmount}
+        display={<GemaAmount value={value} size="md" />}
+        minLabel="0"
+        maxLabel={fmtGemas(max)}
+      />
+      <dl className="kv">
+        <dt>Debt now</dt>
+        <dd className="tnum">{fmtGemas(debt)} Gemas</dd>
+        <dt>Debt after</dt>
+        <dd className="tnum">{fmtGemas(debt - value)} Gemas</dd>
+      </dl>
+      {error && <p className="status err" role="alert">{error}</p>}
+      <Button variant="money" block disabled={busy || value === 0 || !auth.signer} onClick={submit}>
+        {busy ? "Returning…" : `Return ${fmtGemas(value)} Gemas`}
+      </Button>
     </>
   );
 }

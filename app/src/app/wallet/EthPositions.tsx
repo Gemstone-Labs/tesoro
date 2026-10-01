@@ -3,6 +3,7 @@
 import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress } from "@/components/ui";
+import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import { useAccount } from "@/lib/account";
@@ -474,6 +475,8 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
   const [state, setState] = useState<EthState | null>(null);
   const [vp, setVp] = useState<VaultPosition | null>(null);
   const [rateMarket, setRateMarket] = useState<EthMarket | null>(market);
+  const returnable = useReturnable(position);
+  const [returning, setReturning] = useState(false);
 
   const load = useCallback(async () => {
     if (!ctx) return;
@@ -574,6 +577,10 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
               {a.busy === "unlock" ? "Unlocking…" : "Unlock"}
             </Button>
           </div>
+          {returnable > 0n && (
+            <Button size="sm" block disabled={!ctx || a.busy !== null} onClick={() => setReturning(true)}>Return Gemas</Button>
+          )}
+          <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} onReturned={load} />
         </>
       )}
       {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} ETH-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} simETH` : "simETH"} (Simulated) to your EVM address on Hoodi.</p>}

@@ -195,3 +195,24 @@ export function backerDelta(
   const won = (result === "opener") === (m.backerSeat === 0);
   return backedSplit({ entry: m.entry, ...m.fees, shareBps: m.shareBps, won }).backerNet;
 }
+
+export interface ReturnCandidate {
+  isOwn: boolean;
+  /** Owner Account key of the holding's Source. */
+  sourceOwner: string;
+  amount: bigint;
+  /** Reserved for Backing Offers: not free to return. */
+  reserved: bigint;
+  /** The Source's Debt in Gemas. */
+  sourceDebt: bigint;
+}
+
+/**
+ * Gemas `account` may hand back to one Source with `return_own`: only its own-Sourced, unspent Gemas,
+ * at most that Source's Debt. Won and foreign-Sourced Gemas never count, and reserved Gemas (Offers)
+ * or Gemas in a Pot are not free.
+ */
+export function returnableGemas(h: ReturnCandidate, account: string): bigint {
+  if (!h.isOwn || h.sourceOwner !== account) return 0n;
+  return min(sat(h.amount, h.reserved), h.sourceDebt);
+}

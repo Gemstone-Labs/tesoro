@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EntryError, MAX_ENTRY_SOURCES, backedSplit, backerDelta, covered, debtGemas, feeGemas, entryProblem, matchDelta, planEntry, redeemableFor, unitsToRepay, type SourceMath } from "./ledger";
+import { EntryError, MAX_ENTRY_SOURCES, backedSplit, backerDelta, covered, debtGemas, feeGemas, entryProblem, matchDelta, planEntry, redeemableFor, returnableGemas, unitsToRepay, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -146,5 +146,32 @@ describe("backed settlement", () => {
     expect(backerDelta({ ...m, backerSeat: 0 })).toBe(540);
     expect(backerDelta({ ...m, backerSeat: 1 })).toBe(-1000);
     expect(backerDelta({ ...m, backerSeat: 1, session: { settled: true, result: "draw" } })).toBe(0);
+  });
+});
+
+describe("returnableGemas", () => {
+  const me = "Me111";
+  const row = (over: Partial<Parameters<typeof returnableGemas>[0]> = {}) => ({ isOwn: true, sourceOwner: me, amount: 3000n, reserved: 0n, sourceDebt: 7500n, ...over });
+
+  it("allows the owner's free own-Sourced Gemas", () => {
+    expect(returnableGemas(row(), me)).toBe(3000n);
+  });
+
+  it("caps at the Source's Debt", () => {
+    expect(returnableGemas(row({ sourceDebt: 1200n }), me)).toBe(1200n);
+    expect(returnableGemas(row({ sourceDebt: 0n }), me)).toBe(0n);
+  });
+
+  it("excludes won Gemas", () => {
+    expect(returnableGemas(row({ isOwn: false, sourceOwner: "Them1" }), me)).toBe(0n);
+  });
+
+  it("excludes foreign-Sourced Gemas even if flagged own", () => {
+    expect(returnableGemas(row({ sourceOwner: "Them1" }), me)).toBe(0n);
+  });
+
+  it("excludes reserved Gemas", () => {
+    expect(returnableGemas(row({ reserved: 1000n }), me)).toBe(2000n);
+    expect(returnableGemas(row({ reserved: 3000n }), me)).toBe(0n);
   });
 });
