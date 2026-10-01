@@ -1,9 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Button, CheckIcon, GemaMark, MinusIcon, XIcon, type BustName } from "@/components/ui";
 import { MomentOverlay } from "./MomentOverlay";
-import { art } from "@/lib/art";
 import { fmtGemas } from "@/lib/format";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
@@ -77,7 +75,7 @@ function momentBust(p: MatchResultProps): { bust: BustName; title: string } | nu
 }
 
 /**
- * The Match result, both games. Game tile and rules left, the outcome and amount centre. No
+ * The Match result, both games: one focused card (outcome, amount, scores, entry and fee) and the actions. No
  * character on the screen itself: a win gets a short overlay (MomentOverlay). Won Gemas are claims on the loser's Source, so a win always
  * says so and links to the Wallet: never implies cash in hand.
  */
@@ -97,27 +95,11 @@ export function MatchResult(p: MatchResultProps) {
 
   return (
     <div className="stack-lg mr">
-      <nav className="mr-crumbs" aria-label="Breadcrumb">
-        <Link href={`/play/${p.game}`}>Play</Link>
-        <span aria-hidden="true">/</span>
-        <span>{GAME_NAMES[p.game]}</span>
-        <span aria-hidden="true">/</span>
-        <span aria-current="page">Match result</span>
-      </nav>
-      <h1 className="page-title mr-title">Match result</h1>
+      <h1 className="sr-only">Match result</h1>
 
       <section className={`cut cut-frame mr-frame${won ? " won" : ""}`} aria-label={`Match result: ${status}`}>
-        <div className="mr-left">
-          <div className="cut cut-card mr-tile">
-            <Image src={art.thumb[p.game]} alt="" width={260} height={260} priority />
-            <span className="mr-tile-name">{GAME_NAMES[p.game]}</span>
-          </div>
-          <span className="cut cut-card mr-rule-chip">{rules.chip}</span>
-          <p className="mr-rule">{rules.line}</p>
-          {p.game === "holdem" && <p className="mr-rule">Chips are in-match scorekeeping, not Gemas.</p>}
-        </div>
-
         <div className="mr-mid">
+          <p className="mr-game">{GAME_NAMES[p.game]} · {rules.chip}</p>
           <div className={`mr-status ${status.toLowerCase()}`}>
             <span className="mr-status-icon"><Icon /></span>
             {status}

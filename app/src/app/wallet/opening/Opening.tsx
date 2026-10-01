@@ -73,10 +73,6 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
           <h1 className="page-title">{finished ? "Your ETH Position is open" : "Opening your ETH Position"}</h1>
           <p className="page-sub">{finished ? "Your Gemas are available." : "Your Position is crossing chains. Gemas become available after confirmation."}</p>
         </div>
-        <div className="page-head-side">
-          <b>1 Gema = $0.01</b>
-          <span className="sim">Simulated yield · 1 month = 10 min</span>
-        </div>
       </header>
 
       <section className="cut cut-frame op-track" aria-label="Cross-chain progress">
@@ -102,25 +98,13 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
       </section>
 
       <section className="cut cut-frame op-summary" aria-labelledby="op-sum">
-        <h2 id="op-sum" className="h-section">Position summary</h2>
-        <dl className="op-kv">
-          <div>
-            <dt>Chain</dt>
-            <dd><ChainChip chain="ETH" /></dd>
-          </div>
-          <div>
-            <dt>Position amount</dt>
-            <dd>{core ? `${fmtEth(core.principalWei)} ETH` : "—"}</dd>
-          </div>
-          <div>
-            <dt>Advance</dt>
-            <dd>{issued !== null ? `${fmtGemas(Number(issued))} Gemas` : "— Gemas"}</dd>
-          </div>
-          <div>
-            <dt>Unlock Estimate</dt>
-            <dd>{finished ? "In your Wallet" : "—"}</dd>
-          </div>
-        </dl>
+        <h2 id="op-sum" className="sr-only">Position summary</h2>
+        <p className="op-line">
+          <ChainChip chain="ETH" />
+          <span>{core ? `${fmtEth(core.principalWei)} ETH Position` : "Position amount pending"}</span>
+          <span>{issued !== null ? `${fmtGemas(Number(issued))} Gemas Advance` : "Advance pending"}</span>
+          {finished && <span>Unlock Estimate in your Wallet</span>}
+        </p>
         <div className={`cut cut-card op-note${finished ? " ok" : ""}`} role="status">
           <span className="op-note-icon" aria-hidden="true">{finished ? <Check /> : <Clock />}</span>
           <div>

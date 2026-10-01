@@ -1,21 +1,10 @@
 /* ——— Match result (take-1: result-won-desktop) ——— */
-.mr-crumbs { display: flex; gap: 10px; color: var(--fg-2); font-size: 15px; }
-.mr-crumbs a:hover { color: var(--fg); }
-.mr-crumbs [aria-current] { color: var(--fg); }
-.mr-title { font-size: clamp(44px, 5.2vw, 96px); line-height: 0.92; margin-top: -8px; color: #fff; }
-
 .mr-frame {
-  --edge: var(--line-2); background: var(--shell);
-  display: grid; grid-template-columns: 1fr; gap: 20px; padding: 18px 16px 20px; justify-items: center; overflow: hidden;
+  --edge: var(--line-2); background: var(--shell); width: 100%; max-width: 760px; margin: 0 auto;
+  display: grid; padding: 40px 24px 36px; justify-items: center; overflow: hidden;
 }
-.mr-left { display: grid; gap: 10px; justify-items: center; width: min(100%, 200px); align-content: start; }
-.mr-tile { --edge: var(--line-2); position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--raised); }
-.mr-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.mr-tile-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 12px 10px; font-weight: 800; font-size: 22px; background: linear-gradient(0deg, rgba(0, 0, 0, 0.75), transparent); }
-.mr-rule-chip { --edge: var(--line-2); width: 100%; text-align: center; padding: 9px 0; font-size: 18px; background: var(--raised); }
-.mr-rule { font-size: 13px; color: var(--fg-2); text-align: center; }
-
-.mr-mid { display: grid; gap: 14px; width: 100%; max-width: 760px; justify-items: center; align-content: start; }
+.mr-game { font-size: 15px; color: var(--fg-2); }
+.mr-mid { display: grid; gap: 24px; width: 100%; max-width: 640px; justify-items: center; align-content: start; }
 .mr-status { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 12px; font-size: clamp(30px, 3vw, 48px); font-weight: 800; letter-spacing: -0.01em; }
 .mr-status-icon { display: grid; place-items: center; width: 1.15em; height: 1.15em; background: #eaefec; color: #090d0f; clip-path: polygon(22% 0, 78% 0, 100% 22%, 100% 78%, 78% 100%, 22% 100%, 0 78%, 0 22%); }
 .mr-status-icon svg { width: 68%; height: 68%; }
@@ -52,14 +41,11 @@
 .mr-split { width: 100%; padding: 4px 2px 0; }
 
 .mr-right { display: none; }
-.mr-actions { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.mr-actions { display: grid; grid-template-columns: 1fr; gap: 12px; width: 100%; max-width: 760px; margin: 0 auto; }
 .mr-actions .btn { min-height: 56px; }
 
 @media (min-width: 1024px) {
-  .mr-left { width: min(100%, 260px); }
-  .mr-frame { grid-template-columns: 260px minmax(0, 1fr); align-items: center; justify-items: stretch; padding: 32px 34px; gap: 28px; min-height: 620px; }
-  .mr-left { align-self: start; margin-top: 18px; }
-  .mr-mid { justify-self: center; grid-column: 2; }
+  .mr-frame { padding: 56px 48px 48px; }
   .mr-actions { grid-template-columns: 1.65fr 1fr 1fr; }
 }
 

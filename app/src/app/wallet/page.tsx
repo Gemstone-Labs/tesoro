@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet } from "@/components/ui";
 import { redeemableOf, useAccount } from "@/lib/account";
-import { fmtAsset, fmtGemas, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
+import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
@@ -14,7 +14,7 @@ import { RedeemSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { OpenPanel, OpenFormView, HowGemasWork } from "./OpenPanel";
-import { PositionTile, emptyRows, linearSeries } from "./PositionTile";
+import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
 
 const CHAIN_NAME: Record<Chain, string> = { SOL: "SOL", ETH: "ETH", HYPE: "HYPE" };
