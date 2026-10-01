@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { matchDelta } from "@/lib/chain/ledger";
+import { matchDelta, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
@@ -58,7 +58,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   const link = typeof window === "undefined" || !m ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
   const delta = m ? matchDelta(m) : 0;
   const refunded = m?.status === "refunded";
-  const outcome = !m || stage !== "settled" ? null : refunded ? "refunded" : delta > 0 ? "won" : "lost";
+  const outcome = !m || stage !== "settled" ? null : refunded ? "refunded" : m.seat !== null && seatResult(m, m.seat) === "won" ? "won" : "lost";
   const tableOver = !!t && t.status !== STATUS.live;
   const refundable = view.refundable;
   const showTable = !!t && seat !== null && (stage === "live" || stage === "closing" || stage === "settled");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EntryError, MAX_ENTRY_SOURCES, backedSplit, backerDelta, covered, debtGemas, feeGemas, entryProblem, matchDelta, planEntry, redeemableFor, unitsToRepay, type SourceMath } from "./ledger";
+import { EntryError, MAX_ENTRY_SOURCES, backedSplit, backerDelta, covered, debtGemas, feeGemas, entryProblem, matchDelta, planEntry, redeemableFor, seatResult, unitsToRepay, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -146,5 +146,25 @@ describe("backed settlement", () => {
     expect(backerDelta({ ...m, backerSeat: 0 })).toBe(540);
     expect(backerDelta({ ...m, backerSeat: 1 })).toBe(-1000);
     expect(backerDelta({ ...m, backerSeat: 1, session: { settled: true, result: "draw" } })).toBe(0);
+  });
+});
+
+describe("backed Player's result", () => {
+  const fees = { platformBps: 200, studioBps: 300 };
+  const lost = { seat: 1 as const, entry: 1000, fees, backing: { shareBps: 4000 }, session: { settled: true, result: "opener" as const } };
+  it("a backed loss is a loss that costs the Player 0 Gemas", () => {
+    expect(seatResult(lost, 1)).toBe("lost");
+    expect(matchDelta(lost)).toBe(0);
+  });
+  it("a backed win at a 0% share is still a win", () => {
+    const m = { ...lost, seat: 0 as const, backing: { shareBps: 0 } };
+    expect(seatResult(m, 0)).toBe("won");
+    expect(matchDelta(m)).toBe(0);
+  });
+  it("has no result before settlement, and a draw for either seat", () => {
+    expect(seatResult({ session: { settled: false, result: "opener" } }, 0)).toBeNull();
+    expect(seatResult({ session: null, winner: null }, 0)).toBeNull();
+    expect(seatResult({ session: null, winner: "joiner" }, 1)).toBe("won");
+    expect(seatResult({ session: { settled: true, result: "draw" } }, 1)).toBe("draw");
   });
 });
