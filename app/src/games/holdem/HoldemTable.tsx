@@ -146,7 +146,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
             </Seat>
 
             <div className="hdx-mid">
-              <div className="hdx-pot mono" aria-label={`Pot ${chips(t.pot)} Chips`}>
+              <div className="cut hdx-pot mono" aria-label={`Pot ${chips(t.pot)} Chips`}>
                 Pot <b>{chips(t.pot)}</b> Chips
               </div>
               <div className="hdx-board" aria-label="Board">

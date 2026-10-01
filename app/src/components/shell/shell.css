@@ -16,8 +16,10 @@
   font-size: 17px; font-weight: 500; color: var(--fg-2); --edge: transparent;
 }
 .side-link svg { width: 22px; height: 22px; flex: none; stroke-width: 1.7; color: var(--fg); }
-a.side-link:hover { background: var(--raised); color: var(--fg); }
-.side-link.here { background: var(--raised-2); color: var(--fg); font-weight: 700; --edge: var(--line-2); }
+a.side-link:hover { background: var(--surface); color: var(--fg); }
+.side-link.here { background: var(--surface-2); color: var(--fg); font-weight: 700; --edge: var(--edge-2); }
+/* the active item carries a short lit bar on its left chamfer */
+.side-link.here::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; background: var(--fg); clip-path: polygon(0 0, 100% 3px, 100% calc(100% - 3px), 0 100%); }
 .side-link.soon { opacity: 0.7; cursor: default; }
 .side-rule { border: 0; height: 1px; background: var(--line-2); margin: 19px 10px 19px; }
 .side-nav.docs { gap: 0; }
@@ -27,6 +29,7 @@ a.side-link:hover { background: var(--raised); color: var(--fg); }
 /* ——— Top bar ——— */
 .topbar {
   position: sticky; top: 0; z-index: 20; background: var(--shell);
+  border-bottom: 1px solid transparent;
   display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 10px 12px;
   padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
 }
@@ -36,7 +39,7 @@ a.side-link:hover { background: var(--raised); color: var(--fg); }
 .top-right { grid-column: 4; display: flex; align-items: center; gap: 12px; justify-self: end; }
 .search {
   grid-column: 1 / -1; grid-row: 2; display: none; align-items: center; gap: 12px; height: 46px; padding: 0 16px;
-  background: var(--raised); --edge: var(--line-2); min-width: 0;
+  background: var(--surface); --edge: var(--edge-2); min-width: 0;
 }
 .topbar.on-lobby .search { display: flex; }
 .search svg { width: 20px; height: 20px; flex: none; color: var(--fg); }
@@ -51,20 +54,22 @@ a.side-link:hover { background: var(--raised); color: var(--fg); }
 
 .gpill {
   --c: 12px; display: inline-flex; align-items: center; gap: 12px; height: 46px; padding: 0 18px 0 12px;
-  background: linear-gradient(180deg, #0f3029, #0a2320); --edge: rgba(45, 190, 140, 0.6); white-space: nowrap;
+  background: linear-gradient(180deg, #123a31 0, #0d2a24 46%, #0a211d 100%); --edge: var(--edge-em); white-space: nowrap;
+  transition: filter 0.15s ease;
 }
+.gpill:hover { filter: brightness(1.12); }
 .gpill b { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: normal; }
 .gpill span { font-size: 14px; color: var(--fg-2); }
 .gpill .gema-mark { width: 28px; height: 28px; }
 
 .acct { position: relative; }
 .acct-btn { display: flex; align-items: center; gap: 8px; background: transparent; border: 0; padding: 0; color: var(--fg); }
-.avatar { --c: 12px; display: block; width: 46px; height: 46px; overflow: hidden; background: var(--raised); --edge: var(--line-2); }
+.avatar { --c: 12px; display: block; width: 46px; height: 46px; overflow: hidden; background: var(--surface); --edge: var(--edge-2); }
 .avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .acct-chev { width: 20px; height: 20px; color: var(--fg); }
 .acct-menu {
   position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; min-width: 220px; padding: 8px;
-  background: var(--raised-2); --edge: var(--line-2); display: grid; gap: 2px;
+  background: var(--raised-2); --edge: var(--edge-2); display: grid; gap: 2px;
 }
 .acct-menu > * {
   display: flex; align-items: center; gap: 10px; padding: 11px 12px; background: transparent; border: 0; text-align: left;
@@ -141,4 +146,12 @@ dialog.drawer::backdrop { background: rgba(0, 0, 0, 0.66); }
   .gpill .gema-mark { width: 30px; height: 30px; }
   .avatar { width: 48px; height: 48px; }
   .app-main { --section-gap: 80px; padding: 24px 32px 96px; }
+}
+
+/* the top bar gains a hairline and a frosted ground once the page scrolls under it */
+@supports (animation-timeline: scroll()) {
+  .topbar { animation: topbar-lift linear both; animation-timeline: scroll(root); animation-range: 0 64px; }
+  @keyframes topbar-lift {
+    to { background: rgba(9, 13, 15, 0.82); border-bottom-color: var(--line); backdrop-filter: blur(14px) saturate(1.2); }
+  }
 }

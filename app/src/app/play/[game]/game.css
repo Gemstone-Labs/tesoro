@@ -1,10 +1,10 @@
 /* ——— Game detail page (take-1: game-block-puzzle) ——— */
 .gp { display: grid; gap: var(--section-gap); }
-.gp-hero { --edge: var(--line-2); position: relative; overflow: hidden; background: #060a10; min-height: 520px; display: grid; align-items: center; }
+.gp-hero { --edge: var(--edge-2); position: relative; overflow: hidden; background: #060a10; min-height: 520px; display: grid; align-items: center; }
 .gp-hero-art { object-fit: cover; object-position: 70% 50%; }
 .gp-hero::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, rgba(6, 10, 16, 0.94) 0 32%, rgba(6, 10, 16, 0.55) 55%, transparent 80%); }
 .gp-hero-body { position: relative; z-index: 2; display: grid; gap: 22px; justify-items: start; padding: 40px 18px; max-width: 760px; }
-.gp-tag { --edge: var(--line-2); background: rgba(9, 13, 15, 0.8); display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: 15px; color: var(--fg-2); }
+.gp-tag { --edge: var(--edge-2); background: rgba(9, 13, 15, 0.8); display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: 15px; color: var(--fg-2); }
 .gp-tag svg { width: 20px; height: 20px; color: var(--fg); }
 .gp-title { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(52px, 6.4vw, 120px); font-weight: 800; line-height: 0.9; color: #fff; }
 .gp-sub { font-size: clamp(16px, 1.5vw, 24px); color: var(--fg); line-height: 1.35; }
@@ -25,7 +25,7 @@
 
 .gp-av { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }
 
-.gp-top { --edge: var(--line); background: var(--raised); display: grid; grid-template-columns: 40px 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 16px; min-height: 60px; }
+.gp-top { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: 40px 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 16px; min-height: 60px; }
 .gp-rank { font-size: 24px; font-weight: 800; }
 .gp-topname { font-size: 17px; font-weight: 700; }
 .gp-score { font-size: 22px; font-weight: 800; }
@@ -53,3 +53,12 @@
 .gp-panel::after { display: none; }
 .gp-top-wrap { display: grid; gap: 10px; margin-top: 24px; }
 .gp-sub-h { font-size: 18px; font-weight: 700; }
+
+/* phones: Play now spans the row; the secondary actions share the next one */
+@media (max-width: 639px) {
+  .gp-cta { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; gap: 10px; }
+  .gp-cta .btn { min-height: 54px; font-size: 16px; padding: 0 12px; }
+  .gp-cta .btn.money { grid-column: 1 / -1; font-size: 20px; min-height: 60px; }
+  .gp-cta .btn:nth-child(2):last-child { grid-column: 1 / -1; }
+  .gp-hero .entries { width: 100%; }
+}

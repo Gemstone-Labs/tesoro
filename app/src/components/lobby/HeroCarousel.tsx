@@ -77,7 +77,8 @@ export function HeroCarousel() {
       onMouseLeave={() => setHover(false)}
       onFocusCapture={() => setHover(true)}
       onBlurCapture={() => setHover(false)}
-      style={{ ["--i" as string]: index }}
+      style={{ ["--i" as string]: index, ["--advance" as string]: `${ADVANCE_MS}ms` }}
+      data-running={running || undefined}
     >
       <div
         className={`hero-track${jump ? " jump" : ""}`}
@@ -112,7 +113,9 @@ export function HeroCarousel() {
       <div className="hero-dots">
         <div role="group" aria-label="Choose a slide" className="dots">
           {SLIDES.map((s, i) => (
-            <button key={s.game} type="button" className={i === active ? "on" : undefined} aria-label={`${s.title}, slide ${i + 1} of ${SLIDES.length}`} aria-current={i === active} onClick={() => setIndex(i)} />
+            <button key={s.game} type="button" className={i === active ? "on" : undefined} aria-label={`${s.title}, slide ${i + 1} of ${SLIDES.length}`} aria-current={i === active} onClick={() => setIndex(i)}>
+              {i === active && <i key={index} aria-hidden="true" />}
+            </button>
           ))}
         </div>
         {!reduced && (

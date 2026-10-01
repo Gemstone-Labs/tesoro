@@ -308,7 +308,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const previewInfo = useMemo(() => {
     if (!preview || !selPiece) return null;
     const cells = new Set(pieceCells(selPiece).map((c) => (preview.y + c.dy) * SIZE + preview.x + c.dx));
-    return { cells, valid: fitsAt(st, selPiece, preview.x, preview.y) };
+    return { cells, valid: fitsAt(st, selPiece, preview.x, preview.y), color: colorOf(selPiece) };
   }, [preview, selPiece, st]);
 
   const ghostAt = useMemo(() => new Map(ghosts.map((g) => [g.i, g])), [ghosts]);
@@ -334,7 +334,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         if (filled) cls.push(`k${color}`, "on");
         if (filled && isGem) cls.push("gem");
         if (gh) cls.push(`k${gh.color}`, "pop", ...(gh.gem ? ["gem"] : []));
-        if (pv) cls.push(previewInfo?.valid ? "pv" : "pv bad");
+        if (pv) cls.push(previewInfo?.valid ? `pv pk${previewInfo.color}` : "pv bad");
         return (
           <button
             key={i}
@@ -457,7 +457,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             <button
               key={n}
               type="button"
-              className={`bp-slot${isSel ? " sel" : ""}${used ? " used" : ""}${stuck ? " stuck" : ""}`}
+              className={`cut cut-btn bp-slot${isSel ? " sel" : ""}${used ? " used" : ""}${stuck ? " stuck" : ""}`}
               disabled={phase !== "play" || used}
               aria-pressed={isSel}
               aria-label={`Piece ${n + 1}${piece.gem !== null ? ", has a gem" : ""}${stuck ? ", does not fit" : ""}`}

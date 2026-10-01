@@ -38,9 +38,9 @@
 .wl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 20px; align-items: start; }
 .wl-col { display: grid; gap: 14px; align-content: start; }
 
-.wl-tile { --edge: var(--line-2); background: var(--raised); padding: 20px 20px 20px; display: grid; gap: 14px; align-content: start; }
+.wl-tile { --edge: var(--edge-2); background: var(--surface); padding: 20px 20px 20px; display: grid; gap: 14px; align-content: start; }
 .wl-tile header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.wl-chain { --edge: var(--line-2); padding: 6px 16px; font-size: 18px; font-weight: 700; background: var(--shell); }
+.wl-chain { --edge: var(--edge-2); padding: 6px 16px; font-size: 18px; font-weight: 700; background: var(--shell); }
 .wl-status { display: inline-flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: 14px; }
 .wl-status i { width: 12px; height: 12px; border-radius: 50%; background: rgba(234, 239, 236, 0.85); }
 .wl-tile.none .wl-status i, .wl-tile.soon .wl-status i { background: rgba(234, 239, 236, 0.85); }
@@ -71,22 +71,22 @@
 .wl-open { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
 .wl-open .h-section { font-size: clamp(32px, 2.6vw, 44px); }
 .wl-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.wl-tabs button { --edge: var(--line-2); background: var(--raised); border: 0; height: 44px; font-weight: 700; font-size: 16px; color: var(--fg); }
+.wl-tabs button { --edge: var(--edge-2); background: var(--surface); border: 0; height: 44px; font-weight: 700; font-size: 16px; color: var(--fg); }
 .wl-tabs button.on { background: var(--fg); color: var(--shell); --edge: transparent; }
 .wl-open-form { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; }
-.wl-amount { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 14px; background: var(--raised); border: 1px solid var(--line-2); }
+.wl-amount { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 14px; background: var(--surface); border: 1px solid var(--line-2); }
 .wl-open .field { grid-template-columns: minmax(0, 1fr); }
 .wl-amount input { flex: 1; width: 100%; min-width: 0; background: transparent; border: 0; outline: 0; font-size: 20px; color: var(--fg); }
 .wl-amount span { color: var(--fg); font-weight: 700; }
 .wl-amount:focus-within { border-color: var(--fg); }
 .wl-amount.bad { border-color: var(--danger); }
-.wl-quote { --edge: var(--line-2); margin: 0; padding: 12px 14px; background: var(--raised); display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; font-size: 15px; }
+.wl-quote { --edge: var(--edge-2); margin: 0; padding: 12px 14px; background: var(--surface); display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; font-size: 15px; }
 .wl-quote dt { color: var(--fg); }
 .wl-quote dd { margin: 0; text-align: right; font-weight: 700; }
 .wl-details { font-size: 13px; }
 .wl-details summary { cursor: pointer; color: var(--fg-2); padding: 2px 0; }
 .wl-details .kv { margin-top: 6px; }
-.wl-faucet { display: grid; gap: 8px; padding: 10px 12px; background: var(--raised); border: 1px solid var(--line); }
+.wl-faucet { display: grid; gap: 8px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); }
 .wl-faucet b { color: var(--fg); }
 
 .wl-how { min-height: 116px; max-width: 560px; }
@@ -96,3 +96,13 @@
 .wl-more dt, .wl-more dd { margin: 0; padding: 8px 2px; border-top: 1px solid var(--line); font-size: 15px; }
 .wl-more dt { color: var(--fg-2); }
 .wl-more dd { text-align: right; font-weight: 700; }
+
+/* no Positions yet: an invitation, not a footnote */
+.wl-empty { --edge: var(--edge-1); background: var(--surface); display: flex; align-items: center; gap: 18px; padding: 22px 24px; max-width: 560px; }
+.wl-empty .gema-mark { opacity: 0.85; }
+.wl-empty b { display: block; font-size: 17px; }
+.wl-empty p { color: var(--fg-2); font-size: 14.5px; margin-top: 2px; }
+.wl-soon { display: flex; align-items: center; gap: 10px; }
+.wl-soon .chain { --edge: var(--edge-2); font-size: 12px; padding: 3px 8px; }
+.wl-actions .btn { min-height: 44px; }
+.wl-tile.skel { min-height: 236px; align-content: start; }

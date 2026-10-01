@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel } from "@/components/ui";
+import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
@@ -181,7 +181,11 @@ export default function Wallet() {
 
       <section className="wl-positions" aria-labelledby="pos-h">
         <h2 id="pos-h" className="h-section">Your positions</h2>
-        {onChain && loading && positions.length === 0 && <p className="meta">Reading Positions from Solana devnet…</p>}
+        {onChain && loading && positions.length === 0 && (
+          <div className="wl-grid">
+            <SkeletonCards count={2} avatar={false} className="wl-tile" label="Reading Positions from Solana devnet…" />
+          </div>
+        )}
         {gemas.reserved > 0 && (
           <p className="note" role="status">
             {fmtGemas(gemas.reserved)} of your Gemas are reserved for your Backing Offers; {fmtGemas(gemas.available)} available. <a href="/backing">See Backing</a>
@@ -190,9 +194,17 @@ export default function Wallet() {
         {positionTiles.length > 0 ? (
           <div className="wl-grid">{positionTiles}</div>
         ) : (
-          !loading && <p className="meta">No Positions yet. Open one to get Gemas to play with.</p>
+          !loading && (
+            <div className="cut cut-card wl-empty">
+              <GemaMark size={40} />
+              <div>
+                <b>No Positions yet</b>
+                <p>Open a Position to get Gemas to play with.</p>
+              </div>
+            </div>
+          )
         )}
-        <p className="wl-soon">HYPE · HyperEVM Positions are coming soon.</p>
+        <p className="wl-soon"><span className="cut cut-chip chain">HYPE</span> HyperEVM Positions are coming soon.</p>
         {onChain && <EthOps />}
       </section>
 

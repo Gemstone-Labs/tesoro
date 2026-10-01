@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140" width="100" height="140">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b3567"/>
+      <stop offset="1" stop-color="#0c1836"/>
+    </linearGradient>
+    <pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45 50 70)">
+      <path d="M0 0H10M0 0V10" stroke="#9db0c4" stroke-opacity=".16" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="s" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfe8f2"/>
+      <stop offset="1" stop-color="#8fa2b7"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="140" fill="url(#g)"/>
+  <rect x="7" y="7" width="86" height="126" fill="url(#p)"/>
+  <rect x="7" y="7" width="86" height="126" fill="none" stroke="#9db0c4" stroke-opacity=".45" stroke-width="1.2"/>
+  <rect x="10.5" y="10.5" width="79" height="119" fill="none" stroke="#9db0c4" stroke-opacity=".2" stroke-width=".8"/>
+  <!-- the T-gem, in steel: cards never carry the emerald -->
+  <g transform="translate(50 70)">
+    <polygon points="-11,-19 11,-19 19,-11 19,11 11,19 -11,19 -19,11 -19,-11" fill="#0c1836" stroke="url(#s)" stroke-width="2"/>
+    <path d="M-10 -9H10V-3H3V11H-3V-3H-10Z" fill="url(#s)"/>
+  </g>
+</svg>
