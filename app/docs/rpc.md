@@ -14,11 +14,12 @@ The keeper loads `app/.env.local` for any variable its own environment leaves un
 
 ## List route
 
-`GET /api/chain/accounts?program=<id>&filter=s:<dataSize>&filter=m:<offset>:<base58>&slice=<offset>:<length>`
+`GET /api/chain/accounts?program=<tesoro_core>&filter=m:0:<discriminator>[&filter=m:<offset>:<owner>]`
 
-- `program` must be one of our programs (addresses come from the IDLs, `SIM_LST_ID`, and the bridge). At most 4 filters. Anything else is a 400.
-- The server calls `getProgramAccounts` on `TESORO_GPA_RPC` and returns the raw `[{ pubkey, account: { data: [base64, "base64"], ... } }]`.
-- One in-process cache per query: fresh for 4s, then stale-while-revalidate for 2 min, a single in-flight upstream call per query, and exponential backoff (4s to 64s) after an upstream 429 (stale data keeps being served; 503 with `Retry-After` when there is none). So upstream load is at most about 15 calls per minute per distinct query, however many tabs are open. Each upstream call logs `[gpa] upstream #n`.
+- Only the queries the app makes are accepted (Anchor `.all()` in `src/lib/chain/read.ts`, `recent.ts`, `backing.ts`): `MatchState`, `RequestState` and `OfferState` by discriminator, `HoldingState` by owner at offset 9 and `PositionState` by owner at offset 41. Anything else (other programs, `dataSize`, `slice`, other offsets) is a 400. Add the shape to `LISTS` in `src/server/gpa.ts` when the app needs a new list.
+- The server calls `getProgramAccounts` on `TESORO_GPA_RPC` with the discriminator filter only and returns the raw `[{ pubkey, account: { data: [base64, "base64"], ... } }]`. Owner-filtered queries are cut from that list in-process, so the upstream sees at most one query per account type, whatever the owner.
+- One in-process cache per list: fresh for 4s, then stale-while-revalidate for 2 min, and a single in-flight upstream call that every concurrent request shares. After an upstream 429 the server backs off (4s to 64s). During the backoff, or when a refresh fails, cached rows are served however old; a list never fetched answers 503 with `Retry-After`. Each upstream call logs `[gpa] upstream #n`.
+- 600 requests per minute per client IP (`x-forwarded-for`, set by the host), then 429.
 - The cache is per server instance. On serverless hosting each instance has its own; run a single instance for the demo.
 
 Browser code does not call the route by hand: `getChain().base` is a `SplitConnection` (`src/lib/chain/split-connection.ts`) whose `getProgramAccounts` calls it, so Anchor's `program.account.x.all()` works unchanged. Identical queries within 1.5s share one fetch.
