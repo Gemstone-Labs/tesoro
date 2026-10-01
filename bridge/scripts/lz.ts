@@ -32,7 +32,7 @@ const PROGRAM_ID = new PublicKey('5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ')
 const RPC = process.env.SOLANA_RPC ?? 'https://api.devnet.solana.com'
 const connection = new Connection(RPC, 'confirmed')
 const payer = Keypair.fromSecretKey(
-    Uint8Array.from(JSON.parse(readFileSync(process.env.SOLANA_KEYPAIR ?? `${homedir()}/.config/solana/id.json`, 'utf8')))
+    Uint8Array.from(JSON.parse(readFileSync(process.env.SOLANA_KEYPAIR ?? `${homedir()}/.config/solana/dev-2026-10.json`, 'utf8')))
 )
 
 const umi = createUmi(RPC)

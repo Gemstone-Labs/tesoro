@@ -13,7 +13,7 @@ import { Connection, Keypair, PublicKey, SystemProgram, Transaction, Transaction
 const CORE = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
 const LEGACY_SIZE = 194;
 const rpc = process.env.RPC_URL ?? "https://rpc.magicblock.app/devnet";
-const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(homedir(), ".config/solana/id.json"), "utf8"))));
+const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(homedir(), ".config/solana/dev-2026-10.json"), "utf8"))));
 const c = new Connection(rpc, "confirmed");
 const disc = createHash("sha256").update("global:migrate_native_custody").digest().subarray(0, 8);
 

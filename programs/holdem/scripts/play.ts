@@ -45,7 +45,7 @@ const holdemIdl = JSON.parse(fs.readFileSync(path.join(ROOT, "target/idl/holdem.
 const tesoroIdl = JSON.parse(fs.readFileSync(path.join(ROOT, "target/idl/tesoro_core.json"), "utf8"));
 
 const readKey = (p: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(p, "utf8"))));
-const deployer = readKey(path.join(os.homedir(), ".config/solana/id.json"));
+const deployer = readKey(path.join(os.homedir(), ".config/solana/dev-2026-10.json"));
 const oracle = readKey(path.join(os.homedir(), ".config/tesoro/oracle.json"));
 const load = (f: string, d: any) => (fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : d);
 const save = (f: string, v: any) => fs.writeFileSync(f, JSON.stringify(v, null, 2));

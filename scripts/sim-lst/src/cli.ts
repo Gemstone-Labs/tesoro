@@ -1,4 +1,4 @@
-// Usage: tsx src/cli.ts rate | faucet | init | fund <sol>   (env: RPC_URL, KEYPAIR=~/.config/solana/id.json)
+// Usage: tsx src/cli.ts rate | faucet | init | fund <sol>   (env: RPC_URL, KEYPAIR=~/.config/solana/dev-2026-10.json)
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { Connection, Keypair } from "@solana/web3.js";
@@ -9,7 +9,7 @@ const connection = new Connection(process.env.RPC_URL ?? "https://api.devnet.sol
 const cmd = process.argv[2];
 
 function loadKeypair(): Keypair {
-  const path = (process.env.KEYPAIR ?? "~/.config/solana/id.json").replace("~", homedir());
+  const path = (process.env.KEYPAIR ?? "~/.config/solana/dev-2026-10.json").replace("~", homedir());
   return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
 }
 

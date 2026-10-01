@@ -18,7 +18,7 @@ import { settings } from "../src/env.ts";
 
 const kp = (p: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(p, "utf8"))));
 const testers = (JSON.parse(readFileSync(join(homedir(), ".config/tesoro/block-puzzle-testers.json"), "utf8")) as number[][]).map((k) => Keypair.fromSecretKey(Uint8Array.from(k)));
-const deployer = kp(join(homedir(), ".config/solana/id.json"));
+const deployer = kp(join(homedir(), ".config/solana/dev-2026-10.json"));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function greedy(seed: bigint, n: number): Move[] {

@@ -18,7 +18,7 @@ const key = (p: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(read
 async function main() {
     const [soPath, bufPath] = process.argv.slice(2)
     const so = readFileSync(soPath)
-    const payer = key(process.env.SOLANA_KEYPAIR ?? '~/.config/solana/id.json')
+    const payer = key(process.env.SOLANA_KEYPAIR ?? '~/.config/solana/dev-2026-10.json')
     const buffer = key(bufPath).publicKey
     const conns = RPCS.map((u) => new Connection(u, 'confirmed'))
     let ci = 0

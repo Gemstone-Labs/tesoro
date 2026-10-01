@@ -20,4 +20,4 @@ sim_lst = "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
 
 [provider]
 cluster = "devnet"
-wallet = "~/.config/solana/id.json"
+wallet = "~/.config/solana/dev-2026-10.json"

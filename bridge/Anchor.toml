@@ -14,4 +14,4 @@ tesoro_bridge = "5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ"
 
 [provider]
 cluster = "devnet"
-wallet = "~/.config/solana/id.json"
+wallet = "~/.config/solana/dev-2026-10.json"

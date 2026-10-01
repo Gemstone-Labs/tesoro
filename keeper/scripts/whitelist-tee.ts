@@ -20,7 +20,7 @@ const [programArg, flag, other] = process.argv.slice(2);
 const program = new PublicKey(programArg);
 const validator = flag === "--remove" ? new PublicKey(other) : TEE;
 const insert = flag !== "--remove";
-const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(homedir(), ".config/solana/id.json"), "utf8"))));
+const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(homedir(), ".config/solana/dev-2026-10.json"), "utf8"))));
 const c = new Connection(rpc, "confirmed");
 
 const programData = PublicKey.findProgramAddressSync([program.toBuffer()], LOADER)[0];

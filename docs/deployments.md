@@ -193,3 +193,17 @@ Driven from the Wallet screen (`app/src/app/wallet/NativePositions.tsx`) on `htt
 | Sweep surplus | `31d4VuHdRfEDrhQhdtwrJkyS9dDX8pzPDJpVxWDcxZcvkWsPLEzzPdT5o8sk7Kf2rdKCcwd7XJN1VnfxPjLEVtQM` |
 
 Keeper (`pnpm --filter @tesoro/keeper once`): `set_price` from Coinbase spot ($119.58, devnet price feed; Pyth Hermes now answers 401 and CoinGecko 403 from this host, so the chain falls through), `3PptTaJC7hNopa2tunYxB5ukXNWBe1pLwEMpEmbKDE195997S4Vg7SwzuuQCrfZ5R58eEV68DytsHU6hoFcWNSmF`; `accrue_native_yield` for both native Positions with Debt, `5k4rDPR62rU3uZsuV9eNfk39835yHiw6ozwJZqqsKUEZEuTWYHoDZUHi9DPqoshuUGpNuq1m9KrJayCTXwMHzmTE` and `5yLS3dT9ZAiz2YPnyEKgKqVSK985sbBUwqWa9eMME4FrgUqmFvAu9DqD51MkGxdz1NLr8xWFhXhMEQRNou1N7Ywh`.
+
+## Key compromise response (2026-10-01)
+
+The Solana key `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` (`~/.config/solana/id.json`; upgrade authority, `tesoro_core` / `tesoro_bridge` / `sim_lst` admin, LayerZero OApp delegate, owner of the fee-recipient Account) was compromised: its 24.63 SOL were swept at 05:26 UTC (`2WbwBf9X…FgYqiMWR`). Everything it controlled now belongs to `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` (`~/.config/solana/dev-2026-10.json`), the default key path in this repo's scripts and `Anchor.toml`.
+
+| Step | Value |
+|---|---|
+| Upgrade authority of all 5 Tesoro programs (and the founder's other 43 devnet programs) | `7zr1...qh7M`; 4 deploy buffers closed to it (8.09 SOL recovered) |
+| `set_admin`, gated on the upgrade authority, added by upgrade (tesoro_core +60,000 bytes extend, sim_lst +70,000) | tesoro_core `4yrLnfVc…iQGeidxk`, sim_lst `66NvN38u…dm5S6KtU`, tesoro_bridge `FmpLYriy…zxuBrKC2` |
+| `set_admin` tesoro_core Config / sim_lst Pool / tesoro_bridge Store + LayerZero delegate | `2oxRxRfp…WQKzQixe`, `2uPwCUCH…cH2n56bQ`, `5Mgm7mhW…c2J6PWHu` |
+| Platform and Studio Fee recipient moved from `CbyA8Pk3...NnDA` (owned by the compromised key) to `GXQse6RG4hqY57fhRJX3W7yzhkwmaqZUHxaJArJWrMGK` (oracle and fee rates unchanged) | `create_account` `4m37su2j...`, `update_config` `acUHJjy3...`, `register_game` `2sndMr7y...`, `3HaoAfku...` |
+
+Gemas the old fee Account already held stay under the compromised key. The web routes use relayer keys (`~/.config/tesoro/relayer.json`, `relayer-evm.env`); the oracle, keeper and EVM deployer keys are unchanged.
+

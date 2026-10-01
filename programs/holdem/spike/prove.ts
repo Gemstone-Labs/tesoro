@@ -66,7 +66,7 @@ function check(name: string, pass: boolean, detail: unknown) {
 }
 
 const deployer = Keypair.fromSecretKey(
-  Uint8Array.from(JSON.parse(fs.readFileSync(path.join(os.homedir(), ".config/solana/id.json"), "utf8"))),
+  Uint8Array.from(JSON.parse(fs.readFileSync(path.join(os.homedir(), ".config/solana/dev-2026-10.json"), "utf8"))),
 );
 const keys = load(KEYS_FILE, null) ?? (() => {
   const k = { p0: Array.from(Keypair.generate().secretKey), p1: Array.from(Keypair.generate().secretKey) };

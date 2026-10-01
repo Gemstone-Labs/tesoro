@@ -32,7 +32,7 @@ const CORE = new PublicKey('AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh')
 const RPC = process.env.SOLANA_RPC ?? 'https://rpc.magicblock.app/devnet'
 const connection = new Connection(RPC, 'confirmed')
 const key = (p: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(p.replace('~', homedir()), 'utf8'))))
-const deployer = key(process.env.SOLANA_KEYPAIR ?? '~/.config/solana/id.json')
+const deployer = key(process.env.SOLANA_KEYPAIR ?? '~/.config/solana/dev-2026-10.json')
 const owner = key(process.env.OWNER_KEYPAIR ?? '~/.config/tesoro/bridge-demo-owner.json')
 const oracle = key(process.env.ORACLE_KEYPAIR ?? '~/.config/tesoro/oracle.json')
 

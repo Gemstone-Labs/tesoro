@@ -51,7 +51,7 @@ const base = new Connection(process.env.BASE_RPC ?? BASE_RPC, "confirmed");
 const chain = new BlockPuzzleChain({ base, blockPuzzleIdl: bpIdl, coreIdl });
 const core = chain.core as Program<any>;
 
-const deployer = readKp(path.join(os.homedir(), ".config/solana/id.json"));
+const deployer = readKp(path.join(os.homedir(), ".config/solana/dev-2026-10.json"));
 const oracle = loadOrCreate(path.join(cfgDir, "oracle.json"));
 const testers = (() => {
   const f = path.join(cfgDir, FRAG ? "block-puzzle-fragment-testers.json" : "block-puzzle-testers.json");
