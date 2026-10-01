@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PositionTile } from "@/app/wallet/PositionTile";
+import { PositionTile } from "@/app/(app)/wallet/PositionTile";
 import { MatchResult } from "@/components/match/MatchResult";
 
 const LABEL = "Simulated yield · 1 month = 10 min";

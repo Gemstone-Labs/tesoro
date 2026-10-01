@@ -1,14 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow_Condensed, IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
 import "./globals.css";
-import "@/components/ui/ui.css";
-import "@/components/ui/page.css";
-import "@/components/shell/shell.css";
-import "@/components/lobby/lobby.css";
-import { AccountProvider } from "@/lib/auth/AccountProvider";
-import { ChainDataProvider } from "@/lib/chain/ChainDataProvider";
-import { GemaDefs } from "@/components/ui";
-import { AppShell } from "@/components/shell/AppShell";
+import { GemaDefs } from "@/components/ui/gema";
 
 const schibsted = Schibsted_Grotesk({
   subsets: ["latin"],
@@ -56,11 +49,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${schibsted.variable} ${barlow.variable} ${plexMono.variable}`}>
       <body>
         <GemaDefs />
-        <AccountProvider>
-          <ChainDataProvider>
-            <AppShell>{children}</AppShell>
-          </ChainDataProvider>
-        </AccountProvider>
+        {children}
       </body>
     </html>
   );
