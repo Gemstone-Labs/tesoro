@@ -1,4 +1,4 @@
-import { Budget, log, type Ctx } from "./act.ts";
+import { Budget, log, runJob, type Ctx } from "./act.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
 import { ethYieldJob } from "./eth.ts";
@@ -14,21 +14,16 @@ const MAX_BACKOFF_MS = 5 * 60_000;
 async function pass(ctx: Ctx) {
   ctx.now = await clusterNow(ctx.conn);
   ctx.budget.observe(await ctx.conn.getBalance(ctx.payer.publicKey));
+  // Price first: Advances stop 24 h after the last set_price, so it must not wait behind slower jobs.
   const jobs: [string, (c: Ctx) => Promise<number>][] = [
+    ["price", priceJob],
     ["match", matchHygiene],
     ["backing", backingHygiene],
-    ["price", priceJob],
     ["yield", yieldJob],
     ["bridge", bridgeJob],
     ["eth", ethYieldJob],
   ];
-  for (const [name, job] of jobs) {
-    try {
-      await job(ctx);
-    } catch (e) {
-      log(name, "-", `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 300)}`);
-    }
-  }
+  for (const [name, job] of jobs) await runJob(name, job, ctx);
 }
 
 async function main() {

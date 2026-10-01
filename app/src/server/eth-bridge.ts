@@ -382,10 +382,11 @@ async function advance(address: PublicKey, pid: Buffer, months: number) {
   const base = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1;
   const advances = info.data.readUInt32LE(base);
   if (info.data[base + 4] === 1) throw new DemoHttpError(409, "advance-open", "This Position already has an open Advance.");
+  const price = await ethPrice();
+  if (!price.live) throw new DemoHttpError(503, "no-price", "The ETH price is unavailable right now. Try again in a minute.");
   if (!limits.advancePerAccount.take(address.toBase58())) throw new DemoHttpError(429, "rate-limited", "Advance limit reached for this Account. Try again tomorrow.");
   const oracle = oracleKey();
   const source = sourcePda(cp, advances);
-  const price = await ethPrice();
   const ix = new TransactionInstruction({
     programId: TESORO_CORE_ID,
     keys: [

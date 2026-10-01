@@ -3,6 +3,24 @@ import type { Runtime } from "./runtime.ts";
 export const log = (job: string, subject: string, msg: string) =>
   console.log(`${new Date().toISOString()} ${job.padEnd(7)} ${subject} ${msg}`);
 
+/** A job still running after this no longer holds up the others; it is skipped until it finishes. */
+const JOB_LIMIT_MS = Number(process.env.KEEPER_JOB_LIMIT_SECS ?? 120) * 1000;
+const running = new Map<string, Promise<void>>();
+
+/** Runs a job unless its previous run is still going; waits at most `limitMs` for it. */
+export async function runJob<C>(name: string, job: (c: C) => Promise<number>, ctx: C, limitMs = JOB_LIMIT_MS) {
+  if (running.has(name)) return log(name, "-", "SKIP: previous run still going");
+  const run = job(ctx)
+    .then(() => undefined)
+    .catch((e) => log(name, "-", `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 300)}`))
+    .finally(() => running.delete(name));
+  running.set(name, run);
+  let timer: NodeJS.Timeout | undefined;
+  const limit = new Promise<"limit">((r) => (timer = setTimeout(() => r("limit"), limitMs)));
+  if ((await Promise.race([run, limit])) === "limit") log(name, "-", `WARN still running after ${limitMs / 1000}s, moving on`);
+  clearTimeout(timer);
+}
+
 /** Rolling one-hour spend of the keeper payer (fees and rent), so a bug cannot drain it. */
 export class Budget {
   private spends: { at: number; lamports: number }[] = [];

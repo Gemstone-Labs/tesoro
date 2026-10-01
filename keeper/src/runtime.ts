@@ -30,10 +30,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Set when any RPC call saw a 429 since the last reset; the loop reads it to back off. */
 export const rateLimit = { hits: 0 };
 
-/** fetch that retries 429s with exponential backoff (web3.js only retries a few times, quickly). */
-async function fetchWithBackoff(input: any, init?: any): Promise<Response> {
+/** Each RPC request gives up after this, so a hung endpoint cannot stall a pass. */
+const RPC_TIMEOUT_MS = Number(process.env.KEEPER_RPC_TIMEOUT_MS ?? 30_000);
+
+/** fetch with a per-request timeout that retries 429s with exponential backoff (web3.js only retries a few times, quickly). */
+export async function fetchWithBackoff(input: any, init?: any): Promise<Response> {
   for (let i = 0; ; i++) {
-    const res = await fetch(input, init);
+    const timeout = AbortSignal.timeout(RPC_TIMEOUT_MS);
+    const res = await fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout });
     if (res.status !== 429 || i >= 5) return res;
     rateLimit.hits++;
     await sleep(1000 * 2 ** i);

@@ -7,7 +7,7 @@ import type { PublicKey } from "@solana/web3.js";
 import { log, type Ctx } from "./act.ts";
 import { fetchBridgePositions } from "./bridge.ts";
 import { EID_HOODI, bridgePositionPda } from "./lz.ts";
-import { rateLimit } from "./runtime.ts";
+import { fetchWithBackoff } from "./runtime.ts";
 
 const status = (o: object) => Object.keys(o)[0];
 const GWEI = 1_000_000_000n;
@@ -34,16 +34,6 @@ function readEnvFile(path: string): Record<string, string> {
     if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
   }
   return out;
-}
-
-/** fetch that retries 429s with exponential backoff, like the Solana connection. */
-async function fetchWithBackoff(input: any, init?: any): Promise<Response> {
-  for (let i = 0; ; i++) {
-    const res = await fetch(input, init);
-    if (res.status !== 429 || i >= 5) return res;
-    rateLimit.hits++;
-    await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
-  }
 }
 
 /** When each Position last had a `reportYield` sent, so a restart does not re-report inside the window. */
