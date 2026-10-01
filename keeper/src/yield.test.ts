@@ -25,7 +25,8 @@ describe("native yield cranks (OC-06)", () => {
     assert.equal(crankReason({ gain: 3n, clears: false }, now - 20_000, now), null, "the old job cranked this every 20 s pass");
     assert.equal(crankReason({ gain: 0n, clears: false }, undefined, now), null);
     assert.match(crankReason({ gain: 3n, clears: false }, now - 600_000, now)!, /periodic/);
-    assert.match(crankReason({ gain: 10n, clears: false }, now - 20_000, now)!, /repays 10 Gemas/);
+    assert.equal(crankReason({ gain: 14n, clears: false }, now - 20_000, now), null, "a fast-growing Position still waits its interval");
+    assert.match(crankReason({ gain: 10n, clears: false }, now - 120_000, now)!, /repays 10 Gemas/);
     assert.match(crankReason({ gain: 1n, clears: true }, now - 20_000, now)!, /repays the Debt/);
   });
 

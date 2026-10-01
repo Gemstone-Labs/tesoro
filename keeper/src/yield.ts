@@ -11,6 +11,8 @@ const status = (o: object) => Object.keys(o)[0];
 const MIN_GEMAS = BigInt(process.env.KEEPER_YIELD_MIN_GEMAS ?? 10);
 /** Smaller gains are still applied when the Position was last cranked longer ago than this (one simulated month). */
 const MAX_AGE_MS = Number(process.env.KEEPER_YIELD_MAX_AGE_SECS ?? 600) * 1000;
+/** A Position is cranked at most this often, unless the crank repays the rest of its Debt. */
+const MIN_INTERVAL_MS = Number(process.env.KEEPER_YIELD_MIN_INTERVAL_SECS ?? 120) * 1000;
 /** Positions per transaction, and transactions per pass, so the job stays short and the others get their turn. */
 const PER_TX = 4;
 const MAX_TX_PER_PASS = Number(process.env.KEEPER_YIELD_MAX_TX ?? 3);
@@ -52,9 +54,11 @@ export function crankGain(r: Reading, rate: bigint): { gain: bigint; clears: boo
 
 /** Why a Position is worth a crank now, or null to leave it for a later pass. */
 export function crankReason(g: { gain: bigint; clears: boolean } | null, lastAt: number | undefined, nowMs: number): string | null {
-  const stale = nowMs - (lastAt ?? 0) >= MAX_AGE_MS;
+  const age = nowMs - (lastAt ?? 0);
+  const stale = age >= MAX_AGE_MS;
   if (g === null) return stale ? "periodic (gain unknown)" : null;
   if (g.clears) return "repays the Debt";
+  if (age < MIN_INTERVAL_MS) return null;
   if (g.gain >= MIN_GEMAS) return `repays ${g.gain} Gemas`;
   if (g.gain > 0n && stale) return `periodic, repays ${g.gain} Gemas`;
   return null;
@@ -84,7 +88,7 @@ export function batches<T extends { key: string; gain: bigint }>(due: T[], soloK
 /**
  * Job 3: yield. A Solana-native Position (simSOL custody) with Debt gets the permissionless `accrue_native_yield`,
  * which applies the vault's SIMULATED yield (sim_lst runs 1 month = ~10 min) to its Debt, only when it is worth a
- * transaction: see `crankReason`. Several Positions share a transaction, a pass sends at most `MAX_TX_PER_PASS`, and
+ * transaction (see `crankReason`): at most every `MIN_INTERVAL_MS` per Position unless it repays the rest of the Debt. Several Positions share a transaction, a pass sends at most `MAX_TX_PER_PASS`, and
  * the job spends at most its share of the hourly cap (`KEEPER_YIELD_BUDGET_SHARE`). A Position has Debt exactly
  * while `open_advance` is set. ETH Positions are handled by src/eth.ts and src/bridge.ts.
  */
