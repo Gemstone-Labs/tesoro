@@ -112,27 +112,21 @@ export const PALETTE = ${JSON.stringify(PAL, null, 2)} as const;
 fs.writeFileSync(out("src/components/brand/paths.ts"), ts);
 
 // ---- rasters ----
-// Site and app icons are the Gema itself (founder, Oct 1), cut from the approved Astra art: the octagon is masked out
-// of its frame so the rays behind it drop away.
-const GEMA_ART = process.env.GEMA_SRC ?? path.join(SRC, "../../pitch/flow-steps/step-4-match/native/take-1.png");
-const GEMA_CROP = { left: 524, top: 543, width: 204, height: 175 };
-const GEMA_OUTLINE = "48,2 156,2 202,49 201.5,127 156,173.5 46.5,173 1.5,127.5 1.5,49";
-const gemaMask = `<svg xmlns="http://www.w3.org/2000/svg" width="${GEMA_CROP.width}" height="${GEMA_CROP.height}"><polygon points="${GEMA_OUTLINE}" fill="#fff"/></svg>`;
-const gemaCut = await sharp(GEMA_ART).extract(GEMA_CROP).ensureAlpha()
-  .composite([{ input: Buffer.from(gemaMask), blend: "dest-in" }]).png().toBuffer();
+// Site and app icons are the approved T-gem art itself (founder, Oct 2), not the vector mark: the transparent
+// mark-take-2 for the tab icon and the maskable icon, the glowing app-icon tile for Apple and install icons.
 const clear = { r: 0, g: 0, b: 0, alpha: 0 };
-const gema = await sharp(gemaCut).extend({ top: 18, bottom: 19, left: 4, right: 4, background: clear }).png().toBuffer();
-const gemaAt = (s) => sharp(gema).resize(s, s, { fit: "contain", background: clear, kernel: "lanczos3" }).png().toBuffer();
-const onBg = async (size, inner) => sharp({ create: { width: size, height: size, channels: 4, background: "#0C0E10" } })
-  .composite([{ input: await gemaAt(inner), gravity: "center" }]).png({ compressionLevel: 9 }).toBuffer();
-fs.writeFileSync(out("src/app/icon.png"), await gemaAt(192));
-fs.writeFileSync(out("src/app/apple-icon.png"), await onBg(180, 132));
-fs.writeFileSync(out("public/icons/icon-192.png"), await onBg(192, 150));
-fs.writeFileSync(out("public/icons/icon-512.png"), await onBg(512, 400));
-fs.writeFileSync(out("public/icons/maskable-512.png"), await onBg(512, 300));
+const mark = await sharp(path.join(SRC, "mark-take-2.png")).trim().png().toBuffer();
+const markAt = (s) => sharp(mark).resize(s, s, { fit: "contain", background: clear, kernel: "lanczos3" }).png().toBuffer();
+const icon = path.join(SRC, "app-icon.png");
+fs.writeFileSync(out("src/app/icon.png"), await markAt(192));
+await sharp(icon).resize(180, 180).png({ compressionLevel: 9 }).toFile(out("src/app/apple-icon.png"));
+for (const s of [192, 512]) await sharp(icon).resize(s, s).png({ compressionLevel: 9 }).toFile(out(`public/icons/icon-${s}.png`));
+const mask = await sharp({ create: { width: 512, height: 512, channels: 4, background: "#0C0E10" } })
+  .composite([{ input: await markAt(300), gravity: "center" }]).png({ compressionLevel: 9 }).toBuffer();
+fs.writeFileSync(out("public/icons/maskable-512.png"), mask);
 // favicon.ico: PNG-in-ICO, 16 + 32 + 48
 const sizes = [16, 32, 48];
-const imgs = await Promise.all(sizes.map(gemaAt));
+const imgs = await Promise.all(sizes.map(markAt));
 const head = Buffer.alloc(6 + 16 * imgs.length);
 head.writeUInt16LE(1, 2);
 head.writeUInt16LE(imgs.length, 4);
