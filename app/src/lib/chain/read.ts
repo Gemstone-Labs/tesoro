@@ -238,12 +238,15 @@ async function fetchMyMatches(me: PublicKey): Promise<{ played: ChainMatch[]; fu
   return { played: all_.filter((m: ChainMatch) => m.seat !== null), funded: all_.filter((m: ChainMatch) => m.seat === null && m.backerSeat !== null) };
 }
 
-/** The oldest Open Queue Match at this entry from another Account, if any (Challenges are excluded). */
-export async function findQueueMatch(entry: number, me: PublicKey, game: GameId = "block-puzzle"): Promise<bigint | null> {
+/**
+ * Open Queue Matches at this entry from other Accounts, oldest first (Challenges are excluded).
+ * A list read that may lag the chain: re-read a Match before acting on it.
+ */
+export async function listQueueMatchIds(entry: number, me: PublicKey, game: GameId = "block-puzzle"): Promise<bigint[]> {
   const chain = getChain();
   const now = Math.floor(Date.now() / 1000);
   const all = await chain.core.account.matchState.all();
-  const open = all
+  return all
     .filter((m: any) => {
       const inner = m.account.inner;
       return (
@@ -257,12 +260,23 @@ export async function findQueueMatch(entry: number, me: PublicKey, game: GameId 
     })
     .map((m: any) => big(m.account.id))
     .sort((x: bigint, y: bigint) => (x < y ? -1 : 1));
-  // Hold'em tables have no Block Puzzle Session: every open Hold'em Match can be joined.
-  if (game !== "block-puzzle") return open[0] ?? null;
-  // Only Matches whose opener has a Session (opened by this version of the app) can be joined.
-  const sessions = open.length ? await chain.bp.account.session.fetchMultiple(open.map((id: bigint) => BlockPuzzleChain.addresses(id).session)) : [];
-  const idx = open.findIndex((_id: bigint, i: number) => sessions[i]);
-  return idx >= 0 ? open[idx] : null;
+}
+
+/** Open or Active Matches of one Game this Account plays, newest first. A list read that may lag the chain. */
+export async function listLiveMatchIds(me: PublicKey, game: GameId): Promise<bigint[]> {
+  const all = await getChain().core.account.matchState.all();
+  return all
+    .filter((m: any) => {
+      const inner = m.account.inner;
+      const status = enumKey(inner.status);
+      return (
+        (status === "open" || status === "active") &&
+        gameOf(pk(inner.game)) === game &&
+        [inner.a, inner.b].some((s: any) => s && pk(s.player).equals(me))
+      );
+    })
+    .map((m: any) => big(m.account.id))
+    .sort((x: bigint, y: bigint) => (x < y ? 1 : -1));
 }
 
 /** Number of Open Queue Matches for one Game (for the Lobby). */

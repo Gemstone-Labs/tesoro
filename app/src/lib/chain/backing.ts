@@ -6,8 +6,9 @@ import type { GameId } from "@/lib/mock/types";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import { EntryError } from "./ledger";
-import { ChallengeError, GAME_IDS, ensureReady, entryHoldings, isChallengeId, newMatchId } from "./match-flow";
-import { fetchMatch, findQueueMatch, gameOf } from "./read";
+import { ChallengeError, GAME_IDS, ensureReady, entryHoldings, isChallengeId, newMatchId, queueDeps } from "./match-flow";
+import { fetchMatch, gameOf } from "./read";
+import { queueEntry, type Entered } from "./queue";
 
 /**
  * Backing on chain (tesoro_core Requests and Offers). Reads are public; writes are signed by the
@@ -18,7 +19,6 @@ import { fetchMatch, findQueueMatch, gameOf } from "./read";
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
 const enumKey = (o: object) => Object.keys(o)[0];
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const now = () => Math.floor(Date.now() / 1000);
 
 export const BACKING_TTL_SECS = 24 * 60 * 60;
@@ -425,23 +425,17 @@ async function joinBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
 }
 
 /** Queue under a Backing: join the oldest open Match at this entry, else open one. The Player is never debited. */
-export async function enterQueueBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken) {
+export async function enterQueueBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken, onStep?: (s: string) => void): Promise<Entered> {
   const snap = await ensureReady(signer, getToken);
   const offer = await requireBacking(signer, backing, game, entry);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const id = await findQueueMatch(entry, snap.accountKey, game);
-    if (id === null) break;
-    try {
-      const sig = await joinBacked(signer, id, offer);
-      return { id, joined: true, sig };
-    } catch (e) {
-      // Another Player joined first, or the Offer was used: only retry if the Offer is still ours to use.
-      if ((await fetchOffer(offer.address))?.status !== "accepted") throw e;
-      await sleep(400);
-    }
-  }
-  const id = newMatchId(false);
-  return { id, joined: false, sig: await openBacked(signer, id, offer) };
+  return queueEntry({
+    ...queueDeps(signer, snap.accountKey, game, entry),
+    join: (id) => joinBacked(signer, id, offer),
+    open: (id) => openBacked(signer, id, offer),
+    // Another Player joined first: only move on while the Offer is still ours to use.
+    canRetry: async () => (await fetchOffer(offer.address))?.status === "accepted",
+    onStep,
+  });
 }
 
 /** Challenge under a Backing: open a Match only reachable through its link. */

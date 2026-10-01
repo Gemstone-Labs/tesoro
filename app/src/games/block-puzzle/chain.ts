@@ -35,6 +35,9 @@ import {
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
+import { TxFailedError, TxUnconfirmedError, txOutcome, type TxOutcome } from "./tx";
+
+export { TxFailedError, TxUnconfirmedError, type TxOutcome };
 
 export const BLOCK_PUZZLE_PROGRAM_ID = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
@@ -166,32 +169,46 @@ export class BlockPuzzleChain {
   async sendBase(signer: ChainSigner, ixs: TransactionInstruction[]): Promise<string> {
     const tx = new Transaction().add(...ixs);
     tx.feePayer = signer.publicKey;
-    tx.recentBlockhash = (await this.base.getLatestBlockhash()).blockhash;
-    return this.sendSigned(await signer.signTransaction(tx));
+    const { blockhash, lastValidBlockHeight } = await this.base.getLatestBlockhash();
+    tx.recentBlockhash = blockhash;
+    return this.sendSigned(await signer.signTransaction(tx), lastValidBlockHeight);
   }
 
-  /** Sends a fully signed base-layer transaction and waits for it to confirm. */
-  async sendSigned(signed: Transaction): Promise<string> {
-    const sig = await this.base.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+  /**
+   * Sends a fully signed base-layer transaction and waits for it to confirm. Once sent, it throws
+   * only `TxFailedError` (landed and failed) or `TxUnconfirmedError` (may still land: see `txOutcome`).
+   */
+  async sendSigned(signed: Transaction, lastValidBlockHeight?: number): Promise<string> {
+    const raw = signed.serialize();
+    const sig = await this.base.sendRawTransaction(raw, { skipPreflight: true });
     // Poll instead of websockets: works through any RPC proxy.
     let err: unknown = null;
     let landed = false;
     for (let i = 0; i < 90 && !landed; i++) {
-      const st = (await this.base.getSignatureStatuses([sig])).value[0];
-      if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) {
-        landed = true;
-        err = st.err;
-      } else {
-        await sleep(500);
-        if (i % 10 === 9) await this.base.sendRawTransaction(signed.serialize(), { skipPreflight: true }).catch(() => undefined);
+      try {
+        if (i % 10 === 9) await this.base.sendRawTransaction(raw, { skipPreflight: true }).catch(() => undefined);
+        const st = (await this.base.getSignatureStatuses([sig])).value[0];
+        if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) {
+          landed = true;
+          err = st.err;
+          continue;
+        }
+      } catch {
+        // A failed status read says nothing about the transaction: keep waiting.
       }
+      await sleep(500);
     }
-    if (!landed) throw new Error(`base tx not confirmed ${sig}`);
+    if (!landed) throw new TxUnconfirmedError(sig, lastValidBlockHeight);
     if (err) {
-      const t = await this.base.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" });
-      throw new Error(`base tx failed ${sig}: ${JSON.stringify(err)}\n${t?.meta?.logMessages?.join("\n") ?? ""}`);
+      const t = await this.base.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }).catch(() => null);
+      throw new TxFailedError(sig, err, t?.meta?.logMessages ?? []);
     }
     return sig;
+  }
+
+  /** What became of a base-layer transaction that threw `TxUnconfirmedError`. */
+  txOutcome(e: TxUnconfirmedError): Promise<TxOutcome> {
+    return txOutcome(this.base, e.sig, e.lastValidBlockHeight);
   }
 
   async sendTee(signer: ChainSigner, ixs: TransactionInstruction[]): Promise<string> {
