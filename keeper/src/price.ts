@@ -5,6 +5,7 @@ import { Keypair } from "@solana/web3.js";
 import { keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
 import { PRICE_FEED, setPriceIx } from "../../app/src/lib/chain/native.ts";
 import { act, log, type Ctx } from "./act.ts";
+import { keypairFromEnv } from "./keys.ts";
 
 /** Refresh when the on-chain feed is older than this. `take_native_advance` rejects prices older than 24 h. */
 const REFRESH_AFTER_SECS = Number(process.env.KEEPER_PRICE_REFRESH_SECS ?? 50 * 60);
@@ -71,6 +72,8 @@ export async function fetchSolUsd(lastUsd: number | null): Promise<{ usd: number
 let oracle: Keypair | null = null;
 function oracleKey(): Keypair | null {
   if (oracle) return oracle;
+  const secret = keypairFromEnv("KEEPER_ORACLE_SECRET_KEY");
+  if (secret) return (oracle = secret);
   const path = process.env.KEEPER_ORACLE ?? join(homedir(), ".config/tesoro/oracle.json");
   if (!existsSync(path)) return null;
   oracle = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
@@ -98,7 +101,7 @@ export async function priceJob(ctx: Ctx): Promise<number> {
   }
   const key = oracleKey();
   if (!key) {
-    log("price", "-", "SKIP set_price: oracle keypair not found (KEEPER_ORACLE / ~/.config/tesoro/oracle.json)");
+    log("price", "-", "SKIP set_price: oracle keypair not found (KEEPER_ORACLE_SECRET_KEY / KEEPER_ORACLE / ~/.config/tesoro/oracle.json)");
     return 0;
   }
   let quote: { usd: number; source: string };

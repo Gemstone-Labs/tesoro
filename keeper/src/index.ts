@@ -3,6 +3,7 @@ import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
 import { ethYieldJob } from "./eth.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
+import { Health, startHealthServer, startWatchdog } from "./health.ts";
 import { matchHygiene } from "./matches.ts";
 import { priceJob } from "./price.ts";
 import { buildRuntime, clusterNow, newConnection, rateLimit } from "./runtime.ts";
@@ -10,6 +11,8 @@ import { yieldJob } from "./yield.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const MAX_BACKOFF_MS = 5 * 60_000;
+/** A pass is at most ~6 jobs x KEEPER_JOB_LIMIT_SECS plus a backoff sleep; no pass finished in this long means the loop is stuck. */
+const WATCHDOG_MS = Number(process.env.KEEPER_WATCHDOG_SECS ?? 20 * 60) * 1000;
 
 async function pass(ctx: Ctx) {
   ctx.now = await clusterNow(ctx.conn);
@@ -40,17 +43,28 @@ async function main() {
   const balance = await conn.getBalance(payer.publicKey);
   log("keeper", "-", `start rpc=${hostOf(s.rpc)} gpa=${hostOf(s.gpaRpc)} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);
 
+  const health = new Health(WATCHDOG_MS);
+  if (!s.once) {
+    startWatchdog(health, (m) => log("keeper", "-", m));
+    if (process.env.KEEPER_HEALTH_PORT) startHealthServer(health, Number(process.env.KEEPER_HEALTH_PORT), (m) => log("keeper", "-", m));
+  }
+
   let delay = s.intervalMs;
   do {
     rateLimit.hits = 0;
+    const started = Date.now();
+    let ok = true;
     try {
       await pass(ctx);
     } catch (e) {
       // A dropped connection before any job ran (cluster time, balance) must not end the loop.
       if (s.once) throw e;
+      ok = false;
       log("keeper", "-", `ERROR pass failed, retrying next interval: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);
     }
     if (s.once) break;
+    health.beat(ok);
+    log("keeper", "-", `alive pass=${health.passes} took=${((Date.now() - started) / 1000).toFixed(1)}s${ok ? "" : ` failed-in-a-row=${health.failedInARow}`} spent=${(ctx.budget.spentLastHour() / 1e9).toFixed(5)} SOL/h`);
     // Back off on 429s (doubling, capped); recover to the base interval on a clean pass.
     delay = rateLimit.hits > 0 ? Math.min(delay * 2, MAX_BACKOFF_MS) : s.intervalMs;
     if (rateLimit.hits > 0) log("keeper", "-", `rate limited ${rateLimit.hits}x, next pass in ${delay / 1000}s`);

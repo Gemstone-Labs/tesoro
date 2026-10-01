@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { keypairFromEnv } from "./keys.ts";
 
 /** Fill unset env vars from app/.env.local so RPC keys live in one place (never overrides the real env). */
 export function loadAppEnv(env: NodeJS.ProcessEnv = process.env, file = fileURLToPath(new URL("../../app/.env.local", import.meta.url))) {
@@ -66,10 +67,18 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
 
 const readKeypair = (path: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
 
-/** The keeper's payer: created on first run and funded with 2 devnet SOL from the deployer. Never committed. */
+/**
+ * The keeper's payer: `KEEPER_SECRET_KEY` when set, else the key file (created on first run and funded with 2 devnet
+ * SOL from the deployer). With `KEEPER_KEYS_FROM_ENV=1` (hosted) a missing secret is fatal instead. Never committed.
+ */
 export async function loadPayer(conn: Connection, s: Settings, log: (m: string) => void): Promise<Keypair> {
   let payer: Keypair;
-  if (existsSync(s.keypairPath)) {
+  const secret = keypairFromEnv("KEEPER_SECRET_KEY");
+  if (secret) {
+    payer = secret;
+  } else if (process.env.KEEPER_KEYS_FROM_ENV === "1") {
+    throw new Error("KEEPER_SECRET_KEY is not set (KEEPER_KEYS_FROM_ENV=1: no key files on this host)");
+  } else if (existsSync(s.keypairPath)) {
     payer = readKeypair(s.keypairPath);
   } else {
     mkdirSync(dirname(s.keypairPath), { recursive: true });
