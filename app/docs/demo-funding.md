@@ -4,9 +4,21 @@
 
 ## The one server route that stays: fee top-up
 
-`POST /api/demo-advance` with `step: "fund"` gives the embedded wallet devnet SOL for fees and rent (nothing else in the native flow needs a server key). If the wallet has under 0.05 SOL, the relayer sends 0.1 SOL. Cap 0.3 SOL per address per 24 h, 20 SOL total per 24 h; refuses if the relayer would drop under 0.5 SOL.
+`POST /api/demo-advance` with `step: "fund"` gives the embedded wallet devnet SOL for fees and rent (nothing else in the native flow needs a server key). If the wallet has under 0.05 SOL, the relayer sends 0.1 SOL. Cap 0.3 SOL per address and per Privy user per 24 h, 20 SOL total per 24 h; refuses if the relayer would drop under 0.5 SOL.
 
-Authentication: the wallet signs `tesoro-demo|<step>|<address>|<timestamp>` (5 minute window; ed25519). With Privy configured a Privy access token is also required (verified against the app's public JWKS with `jose`). Limits are in memory, per server process.
+### Authentication
+
+The wallet signs (ed25519) `tesoro-demo|<step>|<address>|<ts>|<nonce>|<fields>`, where `<nonce>` is 16 random bytes in hex and `<fields>` is the JSON array of `evm`, `vault`, `id`, `months`, `position`, `sourceIndex` (null when absent); `/api/eth-bridge` uses `tesoro-eth`. Client and server build it with `signedMessage` (`src/lib/chain/signed-request.ts`), and the server checks it in `src/server/request-auth.ts`:
+
+- a body field outside that list is a 400, so the signature covers the whole request;
+- the timestamp must be within 5 minutes and each nonce is accepted once in that window;
+- with Privy configured a Privy access token is required (verified against the app's public JWKS with `jose`), and its `sub` gets its own quota next to the wallet's. In production the routes answer `503 not-configured` when `NEXT_PUBLIC_PRIVY_APP_ID` is unset. Only the local dev wallet (`NEXT_PUBLIC_DEV_WALLET=1`, never in production) skips the token.
+
+Nonces and limits are in memory, per server process.
+
+### Devnet only
+
+At server start (`src/instrumentation.ts`) the server checks that `TESORO_BASE_RPC` has the devnet genesis hash and that the Hoodi RPC is chain 560048, and logs `[cluster] …`. Every request to `/api/demo-advance` and `/api/eth-bridge` waits on the same check (`src/server/cluster.ts`) and answers `503 wrong-cluster` on any other cluster; an unreachable RPC is refused and checked again on the next request.
 
 ## Dev-only: the old demo Advance
 

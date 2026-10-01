@@ -23,6 +23,7 @@ import {
   type EthVault,
 } from "./eth";
 import { ensureReady } from "./match-flow";
+import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 
 /** What the ETH flows need: the Account's Solana signer, its EVM wallet, and the Privy token for server routes. */
 export interface EthCtx {
@@ -34,19 +35,20 @@ export interface EthCtx {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 
-/** `tesoro-eth|<step>|<address>|<ts>`, signed by the Solana wallet (ed25519) like the SOL top-up. */
-const ethMessage = (step: string, address: string, ts: number) => `tesoro-eth|${step}|${address}|${ts}`;
-
-/** Calls the server relay (`/api/eth-bridge`): Hoodi top-up, permissionless bridge steps, the oracle-priced Advance. */
-export async function ethCall<T = Record<string, unknown>>(step: string, ctx: Pick<EthCtx, "signer" | "getToken">, body: Record<string, unknown> = {}): Promise<T> {
+/**
+ * Calls the server relay (`/api/eth-bridge`): Hoodi top-up, permissionless bridge steps, the oracle-priced Advance.
+ * The Solana wallet signs the whole request with a single-use nonce (src/lib/chain/signed-request.ts).
+ */
+export async function ethCall<T = Record<string, unknown>>(step: string, ctx: Pick<EthCtx, "signer" | "getToken">, body: SignedFields = {}): Promise<T> {
   const address = ctx.signer.publicKey.toBase58();
   const ts = Date.now();
-  const signature = await ctx.signer.signMessage(new TextEncoder().encode(ethMessage(step, address, ts)));
+  const nonce = newNonce();
+  const signature = await ctx.signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-eth", step, address, ts, nonce, body)));
   const token = await ctx.getToken().catch(() => null);
   const res = await fetch("/api/eth-bridge", {
     method: "POST",
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ step, address, ts, signature: b64(signature), ...body }),
+    body: JSON.stringify({ step, address, ts, nonce, signature: b64(signature), ...body }),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new DemoError(json.error ?? `Request failed (${res.status})`, json.code ?? "error", res.status);

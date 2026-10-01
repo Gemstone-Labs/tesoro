@@ -1,6 +1,7 @@
 import { PublicKey, Transaction } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
+import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 
 /**
  * Client side of the temporary demo funding route (app/src/app/api/demo-advance/route.ts).
@@ -8,8 +9,6 @@ import { getChain } from "./client";
  */
 export type DemoStep = "fund" | "advance" | "accrue";
 export type GetToken = () => Promise<string | null>;
-
-export const DEMO_MESSAGE = (step: DemoStep, address: string, ts: number) => `tesoro-demo|${step}|${address}|${ts}`;
 
 const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 
@@ -27,16 +26,17 @@ export async function demoCall<T = Record<string, unknown>>(
   step: DemoStep,
   signer: ChainSigner,
   getToken: GetToken,
-  body: Record<string, unknown> = {},
+  body: SignedFields = {},
 ): Promise<T> {
   const address = signer.publicKey.toBase58();
   const ts = Date.now();
-  const signature = await signer.signMessage(new TextEncoder().encode(DEMO_MESSAGE(step, address, ts)));
+  const nonce = newNonce();
+  const signature = await signer.signMessage(new TextEncoder().encode(signedMessage("tesoro-demo", step, address, ts, nonce, body)));
   const token = await getToken().catch(() => null);
   const res = await fetch("/api/demo-advance", {
     method: "POST",
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ step, address, ts, signature: b64(signature), ...body }),
+    body: JSON.stringify({ step, address, ts, nonce, signature: b64(signature), ...body }),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new DemoError(json.error ?? `Demo route failed (${res.status})`, json.code ?? "error", res.status);

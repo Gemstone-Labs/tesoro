@@ -106,6 +106,13 @@ export function ethPositionId(vault: string, id: bigint | number): Buffer {
   new DataView(b.buffer, b.byteOffset, b.byteLength).setBigUint64(20, BigInt(id), false);
   return b;
 }
+/**
+ * Ids the relay creates a bridge inbox record for: Positions the vault has opened (`nextPositionId` is
+ * the last one) and the next INIT_AHEAD, which the app creates before its `openPosition` lands.
+ */
+export const INIT_AHEAD = 3n;
+export const initPositionIdAllowed = (id: bigint, lastId: bigint) => id >= 1n && id <= lastId + INIT_AHEAD;
+
 /** Inverse of `ethPositionId`; null when the bytes are not in that shape. */
 export function parseEthPositionId(id: Uint8Array): { vault: Address; id: bigint } | null {
   if (id.length !== 32 || id.slice(28).some((x) => x !== 0)) return null;
