@@ -139,17 +139,16 @@ html.lenis, html.lenis body { height: auto; }
   :root[data-theme="light"] .lp-hero .btn.neutral { background: var(--raised); color: var(--fg); --edge: var(--line-2); }
 }
 @media (max-width: 767px) {
-  .lp-hero { flex-direction: column; align-items: stretch; min-height: 0; background: var(--shell); color: var(--fg); --hero-fg: var(--fg); }
-  .lp-hero-art { position: relative; height: 64svh; min-height: 420px; background: var(--surface-art); }
-  .lp-hero-art::after { background: linear-gradient(180deg, rgba(9, 13, 15, 0.5) 0, transparent 30%, transparent 70%, var(--shell) 100%); }
+  /* The phone art keeps its top 45% dark for the copy, which sits over it. */
+  .lp-hero { --hero-fg: #eaefec; align-items: flex-start; min-height: max(680px, 100svh); }
+  .lp-hero-art::after { background: linear-gradient(180deg, rgba(9, 13, 15, 0.6) 0, transparent 40%); }
   .lp-hero .layer.mid, .lp-hero .layer.front { display: none; }
   .lp-hero .layer, .lp-hero .layer img { object-position: 50% 100%; }
-  .lp-hero-copy { padding-top: 0; margin-top: -48px; padding-bottom: 72px; }
+  .lp-hero-copy { padding-top: 96px; }
   .lp-hero-copy > * { max-width: none; }
-  .lp-ctas { flex-direction: column; }
-  .lp-ctas .btn { width: 100%; }
-  .lp-hero .btn.neutral { background: var(--raised); color: var(--fg); --edge: var(--line-2); }
-  :root:not([data-theme="light"]) .lp-hero { --hero-fg: #eaefec; }
+  .lp-hero .lp-lede { margin: 16px 0 24px; }
+  .lp-ctas .btn { min-width: 0; flex: 1; padding: 0 12px; font-size: 17px; white-space: nowrap; min-height: 54px; }
+  :root[data-theme="light"] .lp-hero { --hero-fg: #eaefec; background: var(--surface-art); }
 }
 
 /* 2. How it works */
@@ -316,6 +315,9 @@ html.lenis, html.lenis body { height: auto; }
 .lp-final-art .stand-in img { transform: scaleX(-1); filter: brightness(0.8); }
 .lp-final-duo { position: absolute; right: 8%; bottom: 0; width: min(36vw, 560px); z-index: 1; }
 .lp-final-duo img { width: 100%; height: auto; display: block; }
+/* Astra's climbing duo: the rope runs the full height of the frame and beyond. */
+.lp-final-duo.rope { top: -8%; bottom: -8%; right: 14%; width: auto; }
+.lp-final-duo.rope picture, .lp-final-duo.rope img { height: 100%; width: auto; }
 .lp-final-copy { position: relative; z-index: 2; }
 .lp-final-title { max-width: 13ch; margin-bottom: 36px; }
 :root[data-theme="light"] .lp-final { padding: 0 var(--g) var(--g); }
@@ -328,6 +330,7 @@ html.lenis, html.lenis body { height: auto; }
   .lp-final-frame { align-items: flex-start; padding-top: 96px; }
   .lp-final-art::after { background: linear-gradient(180deg, rgba(9, 13, 15, 0.85) 0, transparent 50%); }
   .lp-final-duo { right: -6%; width: 78vw; }
+  .lp-final-duo.rope { display: none; }
 }
 
 /* Footer */
@@ -341,4 +344,10 @@ html.lenis, html.lenis body { height: auto; }
 @media (max-width: 767px) {
   .lp-chains { position: static; display: flex; gap: 8px; margin-bottom: 12px; }
   .lp-chains li { position: static; transform: none; }
+}
+/* Phone, light theme: the hero is still the dark cave, so the nav over it stays light. */
+@media (max-width: 767px) {
+  :root[data-theme="light"] .lp-nav[data-scrolled="false"] { --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.72); --line-2: rgba(234, 239, 236, 0.22); }
+  :root[data-theme="light"] .lp-nav[data-scrolled="false"] .on-dark { display: revert; }
+  :root[data-theme="light"] .lp-nav[data-scrolled="false"] .on-light { display: none; }
 }

@@ -36,5 +36,46 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
       828,
       1242
     ]
+  },
+  "himGuide": {
+    "w": 1041,
+    "h": 1638,
+    "widths": [
+      640,
+      1024
+    ]
+  },
+  "herBacker": {
+    "w": 1030,
+    "h": 1638,
+    "widths": [
+      640,
+      1024
+    ]
+  },
+  "finalBack": {
+    "w": 3200,
+    "h": 1800,
+    "widths": [
+      1280,
+      1920,
+      2560
+    ]
+  },
+  "finalDuo": {
+    "w": 857,
+    "h": 2560,
+    "widths": [
+      640,
+      857
+    ]
+  },
+  "finalMobile": {
+    "w": 1242,
+    "h": 1660,
+    "widths": [
+      828,
+      1242
+    ]
   }
 };

@@ -15,9 +15,9 @@ export function FinalCta() {
           ) : (
             <Picture k="heroBack" sizes="100vw" className="layer back stand-in" />
           )}
-          <div className="lp-final-duo" data-climb>
+          <div className={duo ? "lp-final-duo rope" : "lp-final-duo"} data-climb>
             {duo ? (
-              <Picture k="finalDuo" sizes="(max-width: 767px) 60vw, 34vw" />
+              <Picture k="finalDuo" sizes="420px" />
             ) : (
               <picture>
                 <img src={art.busts.duoHero.src.replace("/bust/", "/")} alt="" loading="lazy" width={1200} height={600} />

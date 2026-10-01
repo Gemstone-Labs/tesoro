@@ -22,10 +22,10 @@ const ASSETS = [
   { key: "heroMid", files: [`hero/take-${TAKE.hero}-mid.png`], widths: SCENE, alpha: true },
   { key: "heroFront", files: [`hero/take-${TAKE.hero}-front.png`], widths: SCENE, alpha: true },
   { key: "heroMobile", files: [`hero/take-${TAKE.hero}-mobile.png`], widths: [828, 1242] },
-  { key: "himGuide", files: [`him-guide/take-${TAKE["him-guide"]}.png`], widths: [640, 1024], alpha: true },
-  { key: "herBacker", files: [`her-backer/take-${TAKE["her-backer"]}.png`], widths: [640, 1024], alpha: true },
+  { key: "himGuide", files: [`him-guide/take-${TAKE["him-guide"]}.png`], widths: [640, 1024], alpha: true, trim: true },
+  { key: "herBacker", files: [`her-backer/take-${TAKE["her-backer"]}.png`], widths: [640, 1024], alpha: true, trim: true },
   { key: "finalBack", files: [`final-cta/take-${TAKE["final-cta"]}-back.png`], widths: SCENE },
-  { key: "finalDuo", files: [`final-cta/take-${TAKE["final-cta"]}-duo.png`], widths: [640, 1024], alpha: true },
+  { key: "finalDuo", files: [`final-cta/take-${TAKE["final-cta"]}-duo.png`], widths: [640, 1024], alpha: true, trim: true },
   { key: "finalMobile", files: [`final-cta/take-${TAKE["final-cta"]}-mobile.png`], widths: [828, 1242] },
   ...["position", "advance", "gemas", "match", "redeem"].map((s, i) => ({
     key: `step${i + 1}`,
@@ -47,11 +47,13 @@ for (const a of ASSETS) {
     console.log(`skip ${a.key} (not delivered)`);
     continue;
   }
-  const { width, height } = await sharp(file).metadata();
+  // Characters keep the edge they are cut by; the empty transparent margins go.
+  const src = a.trim ? await sharp(file).trim({ threshold: 1 }).png().toBuffer() : file;
+  const { width, height } = await sharp(src).metadata();
   const widths = a.widths.filter((w) => w <= width);
-  if (widths.length === 0) widths.push(width);
+  if (a.widths.some((w) => w > width)) widths.push(width);
   for (const w of widths) {
-    const img = sharp(file).resize({ width: w });
+    const img = sharp(src).resize({ width: w });
     await img.clone().avif({ quality: a.alpha ? 62 : 55, effort: 6 }).toFile(resolve(OUT, `${a.key}-${w}.avif`));
     await img.clone().webp({ quality: 82, alphaQuality: 90 }).toFile(resolve(OUT, `${a.key}-${w}.webp`));
   }
