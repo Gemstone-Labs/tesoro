@@ -8,7 +8,8 @@ import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
 import { ensureSol, type GetToken } from "./demo-client";
 import { EntryError, planEntry } from "./ledger";
-import { fetchMatch, fetchSnapshot, findQueueMatch, type AccountSnapshot, type ChainMatch } from "./read";
+import { queueEntry, type Entered, type QueueDeps } from "./queue";
+import { fetchMatch, fetchSnapshot, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -36,6 +37,7 @@ export function entryHoldings(snapshot: AccountSnapshot, entry: number): PublicK
 }
 
 export { EntryError };
+export { QueueUnconfirmedError, type Entered } from "./queue";
 
 /** SOL for fees and rent (demo faucet if needed) and the TesoroAccount itself. */
 export async function ensureReady(signer: ChainSigner, getToken: GetToken): Promise<AccountSnapshot> {
@@ -53,31 +55,53 @@ export async function ensureReady(signer: ChainSigner, getToken: GetToken): Prom
   return snap;
 }
 
-export interface Entered {
-  id: bigint;
-  /** True when this Account joined a waiting Match; false when it opened a new one. */
-  joined: boolean;
+/**
+ * Matches of this Game the Player still has to play: a Hold'em table that is not over, or a Block
+ * Puzzle run not begun while it still can be. Fresh account reads; an unreadable run counts.
+ */
+export async function unfinishedMatches(signer: ChainSigner, me: PublicKey, game: GameId): Promise<ChainMatch[]> {
+  const now = Date.now() / 1000;
+  const out: ChainMatch[] = [];
+  for (const id of await listLiveMatchIds(me, game)) {
+    const m = await fetchMatch(id, me);
+    if (!m || m.seat === null || (m.status !== "open" && m.status !== "active") || now > m.deadline) continue;
+    if (m.game === "block-puzzle") {
+      if (!m.session || m.session.settled) continue;
+      const beginBy = m.seat === 0 ? m.session.openerDeadline : m.session.joined ? m.session.deadline : m.deadline;
+      if (now > beginBy) continue;
+      const stage = await probeRun(signer, m, false).catch((): RunStage => "needs-prep");
+      if (stage !== "needs-prep" && stage !== "ready") continue;
+    }
+    out.push(m);
+  }
+  return out;
+}
+
+/** The parts of a Queue entry that do not depend on how the entry is funded. */
+export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entry: number): Omit<QueueDeps, "join" | "open"> {
+  const chain = getChain();
+  return {
+    game,
+    entry,
+    listCandidates: () => listQueueMatchIds(entry, me, game),
+    readMatch: (id) => fetchMatch(id, me),
+    settle: (e) => chain.txOutcome(e),
+    unfinished: () => unfinishedMatches(signer, me, game),
+    newId: () => newMatchId(false),
+  };
 }
 
 /** Queue: join the oldest open Match at this entry from another Account, else open one. */
-export async function enterQueue(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle"): Promise<Entered> {
+export async function enterQueue(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", onStep?: (s: string) => void): Promise<Entered> {
   const chain = getChain();
   const snap = await ensureReady(signer, getToken);
   const holdings = entryHoldings(snap, entry);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const id = await findQueueMatch(entry, snap.accountKey, game);
-    if (id === null) break;
-    try {
-      await chain.joinMatch(signer, id, holdings, GAME_IDS[game]);
-      return { id, joined: true };
-    } catch {
-      // Another Player joined first (or the Match expired): look again.
-      await sleep(400);
-    }
-  }
-  const id = newMatchId(false);
-  await chain.openMatch(signer, id, entry, holdings, GAME_IDS[game]);
-  return { id, joined: false };
+  return queueEntry({
+    ...queueDeps(signer, snap.accountKey, game, entry),
+    join: (id) => chain.joinMatch(signer, id, holdings, GAME_IDS[game]),
+    open: (id) => chain.openMatch(signer, id, entry, holdings, GAME_IDS[game]),
+    onStep,
+  });
 }
 
 /** Challenge: open a Match only reachable through its link. */
