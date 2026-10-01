@@ -3,6 +3,7 @@
 import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress } from "@/components/ui";
+import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import { useAccount } from "@/lib/account";
@@ -60,6 +61,7 @@ import {
   opProgress,
   patchOp,
   removeOp,
+  untrackedOpens,
   type EthOp,
   type ScanStatus,
 } from "@/lib/chain/eth-track";
@@ -264,8 +266,8 @@ export function EthOpenForm({ onOpened }: { onOpened: (opKey: string) => void })
       }
       note={
         <>
-          You sign once to link your EVM address, then approve and open on Hoodi. The Advance follows automatically once the message
-          reaches Solana, in about 2 to 5 minutes. The Unlock Estimate is an estimate, not a promise.{" "}
+          You sign once to link your EVM address, then approve and open on Hoodi. Once the message reaches Solana, in about 2 to 5
+          minutes, your Advance is taken while this page or your Wallet is open. The Unlock Estimate is an estimate, not a promise.{" "}
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
       }
@@ -298,12 +300,31 @@ function useOps(address: string | null) {
   return address ? ops : [];
 }
 
-/** Every ETH operation in flight (or just finished) for this Account, each driven from chain state. */
+/**
+ * Every ETH operation in flight (or just finished) for this Account, each driven from chain state. An ETH
+ * Position recorded without its Advance is picked up here too, so the Advance continues on any Wallet visit.
+ */
 export function EthOps() {
   const ctx = useEthCtx();
-  const { refresh } = useAccount();
+  const { refresh, snapshot } = useAccount();
   const address = ctx?.signer.publicKey.toBase58() ?? null;
   const ops = useOps(address);
+  useEffect(() => {
+    if (!ctx || !address || !snapshot) return;
+    let stopped = false;
+    void (async () => {
+      for (const p of untrackedOpens(snapshot.positions, loadOps(address))) {
+        const s = await fetchEthState(getChain().base, p.vault, p.id, ctx.signer.publicKey).catch(() => null);
+        const months = s?.bridge?.horizonMonths ?? 0;
+        // Re-checked after the read: another pass may have started tracking it meanwhile.
+        if (stopped || months === 0 || untrackedOpens([{ eth: p, status: "locked", advances: 0 }], loadOps(address)).length === 0) continue;
+        addOp(address, { kind: "open", vault: p.vault, id: p.id.toString(), months });
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+  }, [ctx, address, snapshot]);
   if (!ctx || !address || ops.length === 0) return null;
   return (
     <>
@@ -397,7 +418,8 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
 }
 
 function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<void> }) {
-  const { stage, note, error, scan, finished } = useOpTracker(op, ctx, address, onProgress);  const steps = OP_STEPS[op.kind];
+  const { stage, note, error, scan, finished } = useOpTracker(op, ctx, address, onProgress);
+  const steps = OP_STEPS[op.kind];
   const copy = OP_COPY[op.kind];
   const scanText = scan ? `LayerZero: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "LayerZero: waiting for Scan" : null;
 
@@ -474,6 +496,8 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
   const [state, setState] = useState<EthState | null>(null);
   const [vp, setVp] = useState<VaultPosition | null>(null);
   const [rateMarket, setRateMarket] = useState<EthMarket | null>(market);
+  const returnable = useReturnable(position);
+  const [returning, setReturning] = useState(false);
 
   const load = useCallback(async () => {
     if (!ctx) return;
@@ -574,6 +598,10 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
               {a.busy === "unlock" ? "Unlocking…" : "Unlock"}
             </Button>
           </div>
+          {returnable > 0n && (
+            <Button size="sm" block disabled={!ctx || a.busy !== null} onClick={() => setReturning(true)}>Return Gemas</Button>
+          )}
+          <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} onReturned={load} />
         </>
       )}
       {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} ETH-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} simETH` : "simETH"} (Simulated) to your EVM address on Hoodi.</p>}

@@ -58,7 +58,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
   const { refresh } = useAccount();
   const ctx = useEthCtx()!;
   const { stage, note, error, scan, state, finished } = useOpTracker(op, ctx, address, refresh);
-  useGuideTip({ id: "xc-open", bust: "herWaitingCrosschain", title: "Crossing chains", text: "LayerZero usually takes 2–5 minutes. You can leave this page: the Position keeps opening and your Wallet shows it." }, !finished);
+  useGuideTip({ id: "xc-open", bust: "herWaitingCrosschain", title: "Crossing chains", text: "LayerZero usually takes 2–5 minutes. You can leave this page. Taking your Advance is the last step and needs your signature: it continues when you come back to your Wallet." }, !finished);
 
   const done = STEPS.map((_, i) => finished || stage >= NEEDS[i]);
   const active = done.findIndex((d) => !d);
@@ -112,7 +112,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
             <p>
               {finished
                 ? "They are in your balance and ready to play. Your Principal stays locked and is never played."
-                : note ?? "Your Position is crossing chains. You can view the progress or return to your Wallet."}
+                : note ?? "Your Position is crossing chains. Stay here or go to your Wallet: your Advance is taken while one of them is open."}
             </p>
             {error && !finished && <p className="op-err" role="alert">{error} · retrying</p>}
           </div>

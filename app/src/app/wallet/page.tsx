@@ -10,7 +10,9 @@ import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
 import { DEMO_ADVANCE } from "@/lib/chain/config";
 import { DemoAdvanceSheet } from "./DemoAdvanceSheet";
-import { RedeemSheet, ReturnSheet } from "./MoneySheets";
+import type { ChainPosition } from "@/lib/chain/read";
+import { returnRows } from "@/lib/chain/return-own";
+import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { OpenPanel, OpenFormView, HowGemasWork } from "./OpenPanel";
@@ -26,6 +28,7 @@ export default function Wallet() {
   const [nativeRedeemOpen, setNativeRedeemOpen] = useState(false);
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
   const [returnFor, setReturnFor] = useState<Position | null>(null);
+  const [chainReturnFor, setChainReturnFor] = useState<ChainPosition | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [months, setMonths] = useState(3);
   const [now] = useState(() => Date.now());
@@ -78,6 +81,8 @@ export default function Wallet() {
     const monthsToZero = yearly > 0 ? p.debt / (yearly / 12) : null;
     const zeroAt = p.debt > 0 && monthsToZero !== null ? now + monthsToZero * 10 * 60_000 : null;
     const canRedeem = holdings.some((h) => h.source.positionId === p.id && redeemableOf(h) > 0);
+    const chainPos = snapshot?.positions.find((x) => x.address.toBase58() === p.id) ?? null;
+    const canReturn = !!chainPos && !!snapshot && returnRows(snapshot.holdings, chainPos.address, snapshot.accountKey).length > 0;
     return (
       <PositionTile
         key={p.id}
@@ -102,6 +107,7 @@ export default function Wallet() {
             {!onChain && p.advance && (
               <Button size="sm" onClick={() => auth.gate("return Gemas", () => setReturnFor(p))}>Return Gemas</Button>
             )}
+            {onChain && canReturn && <Button size="sm" onClick={() => setChainReturnFor(chainPos)}>Return Gemas</Button>}
           </div>
         )}
       </PositionTile>
@@ -220,6 +226,7 @@ export default function Wallet() {
       {DEMO_ADVANCE && <DemoAdvanceSheet open={demoOpen} onClose={() => setDemoOpen(false)} />}
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
       <ReturnSheet position={returnFor} onClose={() => setReturnFor(null)} />
+      {chainReturnFor && <ReturnOwnSheet position={chainReturnFor} open onClose={() => setChainReturnFor(null)} />}
       <RedeemSheet open={redeemOpen} onClose={() => setRedeemOpen(false)} />
     </div>
   );
