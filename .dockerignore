@@ -1,0 +1,12 @@
+# Allowlist for keeper/Dockerfile: no keys, env files, build output or node_modules reach the image.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!app/package.json
+!app/src
+!keeper/package.json
+!keeper/src
+**/*.test.ts
+**/*.test.tsx
+**/.env*
