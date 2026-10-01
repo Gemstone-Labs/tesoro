@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowRight, Check, Clock, LoaderCircle } from "lucide-react";
 import { useGuideTip } from "@/components/guide/Guide";
-import { Button, ChainChip } from "@/components/ui";
+import { Button, ChainChip, SimulatedYieldLabel } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { fmtEth, lzScanUrl } from "@/lib/chain/eth";
 import { OPS_EVENT, loadOps, type EthOp } from "@/lib/chain/eth-track";
@@ -105,6 +105,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
           <span>{issued !== null ? `${fmtGemas(Number(issued))} Gemas Advance` : "Advance pending"}</span>
           {finished && <span>Unlock Estimate in your Wallet</span>}
         </p>
+        <SimulatedYieldLabel />
         <div className={`cut cut-card op-note${finished ? " ok" : ""}`} role="status">
           <span className="op-note-icon" aria-hidden="true">{finished ? <Check /> : <Clock />}</span>
           <div>

@@ -54,7 +54,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
       </form>
       <div className="top-right">
         {auth.status !== "signed-out" && auth.status !== "loading" && (
-          <Link href="/wallet" className="cut cut-card gpill" aria-label="Your Gemas, open Wallet">
+          <Link href="/wallet" className="cut cut-card gpill" aria-label="Your Gemas, open Wallet" title="Simulated yield · 1 month = 10 min">
             <GemaMark size={30} glint />
             <b className="tnum">{fmtGemas(gemas.total)}</b>
             <span>Gemas</span>

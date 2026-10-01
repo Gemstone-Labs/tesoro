@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, CheckIcon, Chip, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
+import { Button, CheckIcon, Chip, ClockIcon, GemaAmount, Sheet, SimulatedYieldLabel } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { fmtGemas, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { covered, live } from "@/lib/chain/ledger";
@@ -251,7 +251,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
           {a.busy === "sweep" ? "Sweeping…" : "Sweep surplus"}
         </Button>
       )}
-      <p className="note wl-tile-note">Accrued yield {fmtSol(accruedYield, 5)} SOL. <span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span></p>
+      <p className="note wl-tile-note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated).</p>
       {unapplied > 0n && locked && (
         <p className="note wl-tile-note">
           <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (the keeper does it every ~20 s).
@@ -342,6 +342,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
           </div>
         ))}
       </dl>
+      {rows.length + ethRows.length > 0 && <SimulatedYieldLabel />}
       {ethRows.length > 0 && <p className="meta">ETH-Sourced Gemas redeem through the bridge: the simETH arrives on Hoodi a few minutes later, with progress shown on the Wallet.</p>}
       {rows.length + ethRows.length === 0 && sigs.length === 0 && <p className="meta">Nothing is redeemable yet. Yield accrues on the Source Position over time.</p>}
       {sigs.length > 0 && (
