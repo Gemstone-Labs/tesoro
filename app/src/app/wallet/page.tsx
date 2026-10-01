@@ -2,8 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet } from "@/components/ui";
-import { redeemableOf, useAccount } from "@/lib/account";
+import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel } from "@/components/ui";
+import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
@@ -17,7 +17,7 @@ import { OpenPanel, OpenFormView, HowGemasWork } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
 
-const CHAIN_NAME: Record<Chain, string> = { SOL: "SOL", ETH: "ETH", HYPE: "HYPE" };
+const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
 
 export default function Wallet() {
   const { gemas, positions, holdings, auth, onChain, loading, snapshot } = useAccount();
@@ -59,13 +59,7 @@ export default function Wallet() {
   const redeemAmount = onChain ? nativeRedeemable : gemas.redeemable;
   const openRedeem = () => auth.gate("Redeem", () => (onChain ? setNativeRedeemOpen(true) : setRedeemOpen(true)));
 
-  // Pending by Source: each Source's unredeemable Gemas, grouped by its chain.
-  const byChain = new Map<Chain, number>();
-  for (const h of holdings) {
-    const pend = h.gemas - redeemableOf(h);
-    if (pend > 0) byChain.set(h.source.chain, (byChain.get(h.source.chain) ?? 0) + pend);
-  }
-  const pendingRows = [...byChain.entries()].sort((a, b) => b[1] - a[1]);
+  const pendingRows = pendingBySource(holdings);
 
   const generic = positions.filter((p) => !nativeIds.has(p.id) && !ethIds.has(p.id));
   const openTab = (c: Chain) => {
@@ -131,7 +125,7 @@ export default function Wallet() {
       <header className="page-head wl-head">
         <div>
           <h1 className="page-title">Wallet</h1>
-          <p className="page-sub">1 Gema = $0.01 · <span className="sim">Simulated yield · 1 month = 10 min</span></p>
+          <p className="page-sub">1 Gema = $0.01</p>
         </div>
         <Button variant="money" size="lg" onClick={() => auth.gate("open a Position", () => openTab(tab))}>Open a Position</Button>
       </header>
@@ -156,18 +150,23 @@ export default function Wallet() {
             <b>{fmtGemas(gemas.pending)}</b>
           </div>
         </div>
+        <SimulatedYieldLabel className="wl-hero-sim" />
         <details className="wl-pbs">
           <summary>Pending by Source</summary>
-          <p className="meta">Share of {fmtGemas(gemas.pending)} pending · redeemable as each Source&apos;s yield lands</p>
+          <p className="meta">Each Source becomes redeemable as its Position&apos;s yield lands.</p>
           {pendingRows.length === 0 && <p className="meta">Nothing pending.</p>}
-          {pendingRows.map(([chain, amt]) => {
-            const share = gemas.pending > 0 ? amt / gemas.pending : 0;
+          {pendingRows.map((s) => {
+            const accrued = Math.round(s.accruedShare * 100);
             return (
-              <div className="wl-pbs-row" key={chain}>
-                <ChainChip chain={chain} />
-                <b className="tnum">{fmtGemas(amt)}</b>
-                <Meter value={share} label={`${CHAIN_NAME[chain]} share of pending`} />
-                <span className="tnum">{Math.round(share * 100)}%</span>
+              <div className="wl-pbs-row" key={s.key}>
+                <ChainChip chain={s.chain} />
+                <span className="wl-pbs-src">
+                  {s.owner}
+                  <small>{shortId(s.positionId)}</small>
+                </span>
+                <b className="tnum">{fmtGemas(s.pending)}</b>
+                <Meter value={s.accruedShare} label={`${s.asset} Source of ${s.owner}: yield accrued`} />
+                <span className="tnum">{accrued}% of yield accrued</span>
               </div>
             );
           })}

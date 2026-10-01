@@ -47,6 +47,41 @@ export function redeemableOf(h: GemaHolding): number {
   return Math.round(h.gemas * h.accruedShare);
 }
 
+export interface PendingSource {
+  /** The Source (Advance) id. */
+  key: string;
+  chain: GemaHolding["source"]["chain"];
+  asset: GemaHolding["source"]["asset"];
+  positionId: string;
+  /** Whose Position, e.g. "Your Position". */
+  owner: string;
+  pending: number;
+  /** Share of the Source's yield accrued so far (0..1). */
+  accruedShare: number;
+}
+
+/** Pending Gemas per Source (asset + Position), largest first. Sources with nothing pending are left out. */
+export function pendingBySource(holdings: GemaHolding[]): PendingSource[] {
+  const bySource = new Map<string, PendingSource>();
+  for (const h of holdings) {
+    const pending = h.gemas - redeemableOf(h);
+    if (pending <= 0) continue;
+    const cur = bySource.get(h.source.advanceId);
+    if (cur) cur.pending += pending;
+    else
+      bySource.set(h.source.advanceId, {
+        key: h.source.advanceId,
+        chain: h.source.chain,
+        asset: h.source.asset,
+        positionId: h.source.positionId,
+        owner: h.source.owner,
+        pending,
+        accruedShare: h.accruedShare,
+      });
+  }
+  return [...bySource.values()].sort((a, b) => b.pending - a.pending);
+}
+
 const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
 function fromSnapshot(s: AccountSnapshot) {
