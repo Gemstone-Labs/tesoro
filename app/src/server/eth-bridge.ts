@@ -10,9 +10,6 @@
  * Server only: keys are read from disk here and never leave this module. See app/docs/demo-funding.md.
  */
 import "server-only";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -43,6 +40,7 @@ import {
   sourceAuthPda,
 } from "@/lib/chain/eth";
 import { WindowLimiter, takeAll } from "./rate-limit";
+import { evmPrivateKey } from "./keys";
 import { DemoHttpError, RELAYER_MIN_LAMPORTS, authenticateMessage, chain, oracleKey, relayerKey, sendAndConfirm } from "./demo-advance";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -71,14 +69,12 @@ let evmKey: Hex | null = null;
 /** Hoodi faucet key of the web routes: low balance, owns no contract (the deployer key stays off this server). */
 function evmRelayerKey(): Hex {
   if (evmKey) return evmKey;
-  const file = process.env.TESORO_RELAYER_EVM_ENV ?? path.join(os.homedir(), ".config/tesoro/relayer-evm.env");
   try {
-    const m = /^RELAYER_EVM_PRIVATE_KEY=(0x[0-9a-fA-F]{64})\s*$/m.exec(fs.readFileSync(file, "utf8"));
-    if (m) return (evmKey = m[1] as Hex);
-  } catch {
-    // fall through
+    return (evmKey = evmPrivateKey("TESORO_RELAYER_EVM_PRIVATE_KEY", "TESORO_RELAYER_EVM_ENV", ".config/tesoro/relayer-evm.env", "RELAYER_EVM_PRIVATE_KEY"));
+  } catch (e) {
+    console.error(`[keys] TESORO_RELAYER_EVM_PRIVATE_KEY: ${(e as Error).message}`);
+    throw new DemoHttpError(503, "not-configured", "Hoodi funding is not configured on this server.");
   }
-  throw new DemoHttpError(503, "not-configured", "Hoodi funding is not configured on this server.");
 }
 
 const hoodiPublic = () => createPublicClient({ chain: hoodi, transport: http(HOODI_RPC) });
