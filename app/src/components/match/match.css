@@ -57,6 +57,10 @@
 .mo-text { display: grid; justify-items: center; gap: 6px; text-align: center; }
 .mo-text b { font-size: clamp(30px, 4vw, 52px); font-weight: 900; letter-spacing: -0.02em; }
 .mo-text span { display: inline-flex; align-items: center; gap: 10px; font-size: clamp(22px, 2.6vw, 34px); font-weight: 800; color: var(--em-hi); }
+.mo-close { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: 0; color: var(--fg-2); font-size: 15px; font-weight: 600; }
+.mo-close:hover, .mo-close:focus-visible { color: var(--fg); }
+.mo-close:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.mo-close kbd { font-family: var(--f-mono); font-size: 12px; padding: 1px 6px; border: 1px solid var(--line-2); }
 @keyframes mo-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mo-out { to { opacity: 0; visibility: hidden; } }
 @keyframes mo-pop { from { transform: translateY(24px) scale(0.92); } to { transform: none; } }

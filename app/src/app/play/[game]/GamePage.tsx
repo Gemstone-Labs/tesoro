@@ -4,14 +4,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ChevronRight, Clock, Link2 } from "lucide-react";
-import { toPlayed, type Played } from "@/components/lobby/PlayAgainRail";
-import { BustCard, Button, CheckIcon, EntryPicker, GemaMark, MinusIcon, XIcon } from "@/components/ui";
+import { ArrowRight, Clock, Link2 } from "lucide-react";
+import { MatchRow } from "@/components/match/MatchRow";
+import { BustCard, Button, EntryPicker } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art, avatarFor } from "@/lib/art";
-import { ago } from "@/lib/catalogue";
-import { useRecentSettled } from "@/lib/chain/useRecentSettled";
-import { fmtGemas } from "@/lib/format";
+import { accountHistory } from "@/lib/chain/history";
+import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import "./game.css";
@@ -34,72 +33,19 @@ const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: str
 };
 
 const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
-const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Icon: XIcon }, draw: { text: "Draw", Icon: MinusIcon }, refunded: { text: "Refunded", Icon: MinusIcon } } as const;
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function Recent({ p }: { p: Played }) {
-  const r = RESULT[p.result];
-  return (
-    <Link href={`/play/match/${p.id}`} className="cut cut-card gp-match">
-      <span className="gp-thumb">
-        <Image src={art.thumb[p.game]} alt="" fill sizes="110px" />
-      </span>
-      <span className={`gp-res ${p.result}`}>
-        <r.Icon aria-hidden="true" /> {r.text}
-      </span>
-      <span className="gp-opp">
-        {p.opp && <Image className="gp-av" src={avatarFor(p.opp)} alt="" width={44} height={44} />}
-        <span>
-          <b>{p.opp ? short(p.opp) : "No opponent"}</b>
-          <small className="tnum">{p.scores ? `${p.scores[0]} – ${p.scores[1]}` : `Entry ${fmtGemas(p.entry)}`}</small>
-        </span>
-      </span>
-      <span className="gp-amt">
-        {p.result === "won" ? (
-          <b className="won">
-            <GemaMark size={20} /> +{fmtGemas(p.delta)} Gemas
-          </b>
-        ) : p.result === "lost" ? (
-          <b>−{fmtGemas(p.entry)} Gemas</b>
-        ) : (
-          <b>Entry returned</b>
-        )}
-        <small>{ago(p.at)}</small>
-      </span>
-      <ChevronRight aria-hidden="true" className="gp-go" />
-    </Link>
-  );
-}
 
 export function GamePage({ game }: { game: GameId }) {
   const { snapshot, onChain, auth } = useAccount();
   const router = useRouter();
   const [entry, setEntry] = useState<EntrySize>(game === "holdem" ? 500 : 1000);
-  const { matches: settled } = useRecentSettled(40);
+  const top = useTopScoresToday(game === "block-puzzle");
   const [now] = useState(() => Date.now());
   const copy = COPY[game];
   const name = GAME_NAMES[game];
 
-  const mine = useMemo(
-    () =>
-      (onChain ? (snapshot?.matches ?? []) : [])
-        .map(toPlayed)
-        .filter((p): p is Played => p !== null && p.game === game)
-        .sort((a, b) => b.at - a.at)
-        .slice(0, 3),
-    [onChain, snapshot, game],
-  );
-
-  // Top scores today: the best winning score per Player among the last 24 h of settled Matches, from chain history.
-  const top = useMemo(() => {
-    if (game !== "block-puzzle") return [];
-    const best = new Map<string, number>();
-    for (const m of settled) {
-      if (m.game !== "block-puzzle" || !m.scores || m.at < now - DAY_MS) continue;
-      best.set(m.winner, Math.max(best.get(m.winner) ?? 0, m.scores[0]));
-    }
-    return [...best.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
-  }, [settled, game, now]);
+  const history = useMemo(() => (onChain && snapshot ? accountHistory(snapshot.matches, snapshot.funded).filter((r) => r.game === game) : []), [onChain, snapshot, game]);
+  const mine = history.slice(0, 3);
+  const scores = top.data ?? [];
 
   const query = (kind: "queue" | "challenge") => `/play/${kind}?${game === "holdem" ? "game=holdem&" : ""}entry=${entry}`;
 
@@ -133,20 +79,34 @@ export function GamePage({ game }: { game: GameId }) {
         <section className="cut cut-frame gp-panel" aria-labelledby="gp-recent">
           <header className="gp-head">
             <h2 id="gp-recent" className="h-section">Recent Matches</h2>
+            {history.length > 0 && (
+              <Link href={`/matches?game=${game}`} className="gp-all">
+                See all {history.length} <ArrowRight aria-hidden="true" />
+              </Link>
+            )}
           </header>
           {mine.length === 0 ? (
             <p className="meta gp-empty">
               {onChain ? `No finished ${name} Matches yet. Yours appear here as they settle on Solana devnet.` : "Sign in to see your Matches on Solana devnet."}
             </p>
           ) : (
-            mine.map((p) => <Recent key={p.id} p={p} />)
+            <div className="mh-list">
+              {mine.map((r) => (
+                <MatchRow key={r.id} r={r} now={now} />
+              ))}
+            </div>
           )}
-          {top.length > 0 && (
+          {top.error && scores.length === 0 && (
+            <p className="meta gp-empty" role="status">
+              Top scores today could not be read from Solana devnet. Retrying every 30 seconds.
+            </p>
+          )}
+          {scores.length > 0 && (
             <div className="gp-top-wrap" role="group" aria-labelledby="gp-top">
               <header>
                 <h3 id="gp-top" className="gp-sub-h">Top scores today</h3>
               </header>
-              {top.map(([key, score], i) => (
+              {scores.map(([key, score], i) => (
                 <div key={key} className="cut cut-card gp-top">
                   <b className="gp-rank">{i + 1}</b>
                   <Image className="gp-av" src={avatarFor(key)} alt="" width={44} height={44} />
@@ -154,7 +114,10 @@ export function GamePage({ game }: { game: GameId }) {
                   <b className="tnum gp-score">{score}</b>
                 </div>
               ))}
-              <p className="note">Best winning score per Player in the last 24 hours, from settled Matches on Solana devnet.</p>
+              <p className="note">
+                {top.error ? "Could not refresh from Solana devnet; showing the last read. " : ""}Best winning score per Player in the last 24 hours, from settled
+                Matches on Solana devnet.
+              </p>
             </div>
           )}
 

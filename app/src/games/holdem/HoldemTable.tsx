@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, GemaMark } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { fmtGemas } from "@/lib/format";
 import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, call, check, fold, raise, type Action, type Table } from "./chain";
+import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
 import { PlayingCard } from "./cards";
 import { inPlay, legalMoves } from "./rules";
 import "./holdem.css";
@@ -12,7 +13,6 @@ import "./holdem.css";
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 const short = (k: { toBase58(): string }) => `${k.toBase58().slice(0, 4)}…${k.toBase58().slice(-4)}`;
 const STREET = ["Shuffling", "Preflop", "Flop", "Turn", "River", ""];
-const STREET_LOG = ["", "Pre-flop", "Flop", "Turn", "River", ""];
 
 function useNow(ms = 250) {
   const [now, setNow] = useState(() => Date.now());
@@ -25,84 +25,13 @@ function useNow(ms = 250) {
 
 const clock = (secs: number) => `${Math.floor(Math.max(0, secs) / 60)}:${String(Math.max(0, secs) % 60).padStart(2, "0")}`;
 
-interface LogRow {
-  who: string;
-  text: string;
-}
-interface LogStreet {
-  name: string;
-  rows: LogRow[];
-}
-interface HandLog {
-  hand: number;
-  done: boolean;
-  streets: LogStreet[];
-}
-
-/**
- * The hand log, as this client saw it. The table only publishes its current state, so actions are
- * inferred from how bets and stacks moved between two reads (a poll can merge two actions).
- */
+/** The hand log, inferred by this client from table reads (handlog.ts). */
 function useHandLog(t: Table, seat: 0 | 1): LogStreet[] {
-  const [log, setLog] = useState<HandLog>({ hand: 0, done: false, streets: [] });
-  const prev = useRef<{ hand: number; phase: number; bets: [bigint, bigint]; stacks: [bigint, bigint] } | null>(null);
-  const { handNo, phase, dealer, smallBlind, bigBlind, lastHand } = t;
-  const b0 = t.bets[0];
-  const b1 = t.bets[1];
-  const s0 = t.stacks[0];
-  const s1 = t.stacks[1];
-
+  const [log, setLog] = useState<HandLog>(EMPTY_LOG);
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const who = (i: number) => (i === seat ? "You" : "Opponent");
-      const live = phase >= PHASE.preflop && phase <= PHASE.river;
-      const p = prev.current;
-      prev.current = { hand: handNo, phase, bets: [b0, b1], stacks: [s0, s1] };
-      setLog((cur) => {
-        let L: HandLog = { hand: cur.hand, done: cur.done, streets: cur.streets.map((s) => ({ ...s, rows: [...s.rows] })) };
-        // The hand that just ended: record how.
-        if (!L.done && L.hand > 0 && lastHand.handNo === L.hand && lastHand.result !== NO_WINNER) {
-          const last = L.streets[L.streets.length - 1];
-          if (last) {
-            if (lastHand.showdown) last.rows.push({ who: "Both", text: "Showdown" });
-            else if (lastHand.result !== SPLIT) last.rows.push({ who: who(1 - lastHand.result), text: "Fold" });
-          }
-          L.done = true;
-        }
-        if (!live) return L;
-        if (L.hand !== handNo) {
-          L = { hand: handNo, done: false, streets: [{ name: STREET_LOG[phase], rows: [] }] };
-          if (phase === PHASE.preflop) {
-            L.streets[0].rows.push({ who: who(dealer), text: `Small blind ${chips(smallBlind)}` }, { who: who(1 - dealer), text: `Big blind ${chips(bigBlind)}` });
-          }
-          return L;
-        }
-        if (!p || p.hand !== handNo) return L;
-        const cur0 = L.streets[L.streets.length - 1];
-        const maxPrev = p.bets[0] > p.bets[1] ? p.bets[0] : p.bets[1];
-        if (p.phase !== phase) {
-          // The street closed between two reads: whoever put chips in called; nobody else acted, so they checked.
-          for (const i of [0, 1] as const) {
-            const put = p.stacks[i] - [s0, s1][i];
-            if (put > 0n && p.bets[i] < maxPrev) cur0.rows.push({ who: who(i), text: `Call ${chips(maxPrev - p.bets[i] < put ? maxPrev - p.bets[i] : put)}` });
-            else if (p.phase >= PHASE.flop && !cur0.rows.some((r) => r.who === who(i))) cur0.rows.push({ who: who(i), text: "Check" });
-          }
-          L.streets.push({ name: STREET_LOG[phase], rows: [] });
-          return L;
-        }
-        for (const i of [0, 1] as const) {
-          const nb = [b0, b1][i];
-          if (nb <= p.bets[i]) continue;
-          const allIn = [s0, s1][i] === 0n;
-          const text = nb <= maxPrev ? `Call ${chips(nb)}` : maxPrev === 0n ? `Bet ${chips(nb)}` : `Raise to ${chips(nb)}`;
-          cur0.rows.push({ who: who(i), text: allIn ? `${text} · all-in` : text });
-        }
-        return L;
-      });
-    }, 0);
+    const timer = setTimeout(() => setLog((cur) => stepHandLog(cur, t, seat)), 0);
     return () => clearTimeout(timer);
-  }, [handNo, phase, dealer, smallBlind, bigBlind, lastHand, b0, b1, s0, s1, seat]);
-
+  }, [t, seat]);
   return log.streets;
 }
 
@@ -256,7 +185,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
         <ActionBar key={`${t.handNo}-${t.phase}`} table={t} seat={seat} enabled={myTurn && busy === null} busy={busy} onAct={onAct} />
       )}
       <details className="hdx-log">
-        <summary>Hand log</summary>
+        <summary>Hand log · inferred</summary>
         <div className="hdx-log-body">
           {log.length === 0 && <p className="meta">The hand log fills as the hand is played.</p>}
           {log.map((s, i) => (
@@ -276,7 +205,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
               ))}
             </div>
           ))}
-          <p className="note">As seen from this table.</p>
+          <p className="note">Inferred by this client from table reads, not a record from the table: a slow read can merge two actions into one.</p>
         </div>
       </details>
 

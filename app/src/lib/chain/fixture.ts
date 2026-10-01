@@ -51,6 +51,20 @@ export function match(game: "block-puzzle" | "holdem", entry: number, win: boole
   };
 }
 
+/** The same Match played under a Backing (or, with `asBacker`, funded by this Account for another Player). */
+export function backed(m: ChainMatch, other: string, shareBps = 4000, asBacker = false): ChainMatch {
+  const me = m.sides[0].player;
+  const player = asBacker ? other : me;
+  const funder = asBacker ? me : other;
+  return {
+    ...m,
+    seat: asBacker ? null : 0,
+    backerSeat: asBacker ? 0 : null,
+    sides: [{ player, funder, shareBps }, m.sides[1]],
+    backing: { seat: 0, player, funder, shareBps },
+  };
+}
+
 export function demoSnapshot(address: string): AccountSnapshot {
   const holding = (n: number, isOwn: boolean, amount: bigint, redeemable: bigint, asset: "SOL" | "HYPE"): ChainHolding => ({
     holding: key(200 + n),
@@ -90,12 +104,17 @@ export function demoSnapshot(address: string): AccountSnapshot {
     positions: [position],
     matches: [
       match("block-puzzle", 1000, true, 2, [171, 55]),
+      backed(match("block-puzzle", 1000, false, 7, [96, 140]), key(801).toBase58()),
       match("holdem", 2500, true, 12, [2, 0]),
       match("block-puzzle", 1000, false, 240, [102, 133]),
       match("holdem", 1000, false, 1440, [1, 2]),
+      // Older history, enough for a second page of All Matches.
+      ...Array.from({ length: 18 }, (_, i) =>
+        match(i % 3 === 0 ? "holdem" : "block-puzzle", [500, 1000, 2500][i % 3], i % 4 !== 1, 1500 + i * 97, [120 + ((i * 7) % 40), 80 + ((i * 11) % 50)]),
+      ),
     ],
     market: null,
-    funded: [],
+    funded: [backed(match("block-puzzle", 2500, true, 30, [150, 88]), key(802).toBase58(), 4000, true)],
     fetchedAt: Date.now(),
   };
 }

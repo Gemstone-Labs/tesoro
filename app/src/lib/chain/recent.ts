@@ -1,33 +1,21 @@
 import "./polyfill";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
-import type { GameId } from "@/lib/mock/types";
 import { getChain } from "./client";
 import { feeGemas } from "./ledger";
 import { gameOf } from "./read";
+import { pickSettled, topScores, type SettledMatch, type SettledQuery } from "./settled";
 
-/** A settled Match anyone may see: the Lobby ticker. Winners are shown by short key (no names on chain). */
-export interface SettledMatch {
-  id: bigint;
-  game: GameId;
-  entry: number;
-  /** TesoroAccount key of the winning Player. */
-  winner: string;
-  /** Gemas the winning side received: the Pot minus Fees. */
-  payout: number;
-  /** Block Puzzle only: [winner score, loser score]. */
-  scores: [number, number] | null;
-  /** Milliseconds since the epoch (Match ids embed their creation time). */
-  at: number;
-}
+export type { SettledMatch } from "./settled";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
 const enumKey = (o: object) => Object.keys(o)[0];
 
 async function decodeAll(keys: PublicKey[], decode: (data: Buffer) => any): Promise<any[]> {
-  if (keys.length === 0) return [];
-  const infos = await getChain().base.getMultipleAccountsInfo(keys);
+  const infos: (AccountInfo<Buffer> | null)[] = [];
+  // getMultipleAccounts takes at most 100 keys per request.
+  for (let i = 0; i < keys.length; i += 100) infos.push(...(await getChain().base.getMultipleAccountsInfo(keys.slice(i, i + 100))));
   return infos.map((info) => {
     try {
       return info ? decode(info.data) : null;
@@ -37,14 +25,36 @@ async function decodeAll(keys: PublicKey[], decode: (data: Buffer) => any): Prom
   });
 }
 
-/** The newest `limit` settled Matches with a winner (draws and refunds are skipped), newest first. */
-export async function fetchRecentSettled(limit = 8): Promise<SettledMatch[]> {
+const SCAN_TTL_MS = 20_000;
+let scan: { at: number; rows: Promise<any[]> } | null = null;
+
+/** Every tesoro_core Match. One list request serves every caller within SCAN_TTL_MS; a failure is not cached. */
+function allMatches(): Promise<any[]> {
+  if (scan && Date.now() - scan.at < SCAN_TTL_MS) return scan.rows;
+  const rows: Promise<any[]> = getChain().core.account.matchState.all();
+  const entry = { at: Date.now(), rows };
+  scan = entry;
+  rows.catch(() => {
+    if (scan === entry) scan = null;
+  });
+  return rows;
+}
+
+/** Settled Matches with a winner (draws and refunds are skipped), newest first. */
+export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
   const chain = getChain();
-  const rows: any[] = await chain.core.account.matchState.all();
-  const settled = rows
-    .filter((m) => enumKey(m.account.inner.status) === "settled" && gameOf(pk(m.account.inner.game)) !== null && m.account.inner.b)
-    .sort((x, y) => (big(x.account.id) < big(y.account.id) ? 1 : -1))
-    .slice(0, limit * 2);
+  const rows = await allMatches();
+  // Draws are only known once the Session is read: take some slack so `limit` winners usually remain.
+  const settled = pickSettled(
+    rows.map((m) => ({
+      row: m,
+      id: big(m.account.id),
+      game: gameOf(pk(m.account.inner.game)),
+      settled: enumKey(m.account.inner.status) === "settled",
+      joined: !!m.account.inner.b,
+    })),
+    { ...q, limit: q.limit * 2 },
+  ).map((c) => c.row);
 
   const bp = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "block-puzzle");
   const hd = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "holdem");
@@ -87,5 +97,16 @@ export async function fetchRecentSettled(limit = 8): Promise<SettledMatch[]> {
     const w = tables[i]?.winner;
     if (w === 0 || w === 1) push(m, w, null);
   });
-  return out.sort((x, y) => (x.id < y.id ? 1 : -1)).slice(0, limit);
+  return out.sort((x, y) => (x.id < y.id ? 1 : -1)).slice(0, q.limit);
+}
+
+/** The newest `limit` settled Matches with a winner, any game (the Lobby ticker). */
+export const fetchRecentSettled = (limit = 8) => fetchSettled({ limit });
+
+/** Most Block Puzzle Matches read for one day's top scores. */
+export const TOP_SCAN_LIMIT = 150;
+
+/** The best winning Block Puzzle scores of the last 24 hours. */
+export async function fetchTopScoresToday(now = Date.now()): Promise<[string, number][]> {
+  return topScores(await fetchSettled({ game: "block-puzzle", since: now - 24 * 60 * 60 * 1000, limit: TOP_SCAN_LIMIT }));
 }

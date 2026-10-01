@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bust, GemaMark, type BustName } from "@/components/ui";
 import { fmtGemas } from "@/lib/format";
+import { scheduleMoment } from "./moment";
 
 const SHOW_MS = 3000;
 
@@ -32,41 +33,58 @@ function Burst() {
   );
 }
 
+const sessionStore = () => {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+};
+
 /**
- * A short celebration over the result: the bust and the Gema burst for ~3 s, or until clicked. The
- * result underneath has no character. Shown once per `momentKey` per browser tab.
+ * A short celebration over the result: the bust and the Gema burst for ~3 s, or until clicked or
+ * dismissed with Escape or Enter. The result underneath has no character. Shown once per
+ * `momentKey` per browser tab; focus moves to it while it shows and goes back afterwards.
  */
 export function MomentOverlay({ bust, title, amount, momentKey }: { bust: BustName; title: string; amount: number; momentKey?: string }) {
   const [show, setShow] = useState(false);
+  const close = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => scheduleMoment(momentKey, sessionStore(), () => setShow(true)), [momentKey]);
 
   useEffect(() => {
-    const k = momentKey ? `tesoro-moment:${momentKey}` : null;
-    try {
-      if (k && sessionStorage.getItem(k)) return;
-      if (k) sessionStorage.setItem(k, "1");
-    } catch {
-      // no storage: it shows once per page load
-    }
-    const open = setTimeout(() => setShow(true), 0);
-    const close = setTimeout(() => setShow(false), SHOW_MS);
-    return () => {
-      clearTimeout(open);
-      clearTimeout(close);
+    if (!show) return;
+    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    close.current?.focus({ preventScroll: true });
+    const timer = setTimeout(() => setShow(false), SHOW_MS);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" && e.key !== "Enter") return;
+      e.preventDefault();
+      setShow(false);
     };
-  }, [momentKey]);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("keydown", onKey);
+      if (back?.isConnected) back.focus({ preventScroll: true });
+    };
+  }, [show]);
 
   if (!show) return null;
   return (
-    <div className="mo" role="status" aria-label={`${title}. ${fmtGemas(amount)} Gemas. Click to dismiss.`} onClick={() => setShow(false)}>
+    <div className="mo" role="dialog" aria-modal="true" aria-labelledby="mo-title" aria-describedby="mo-amount" onClick={() => setShow(false)}>
       <div className="mo-stage">
         <Burst />
         <Bust name={bust} width={bust === "duoWin" ? 520 : 300} className="mo-bust" priority />
       </div>
       <div className="mo-text">
-        <b>{title}</b>
-        <span>
+        <b id="mo-title">{title}</b>
+        <span id="mo-amount">
           <GemaMark size={30} /> +{fmtGemas(amount)} Gemas
         </span>
+        <button ref={close} type="button" className="mo-close" onClick={() => setShow(false)}>
+          Continue <kbd>Esc</kbd>
+        </button>
       </div>
     </div>
   );

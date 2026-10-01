@@ -166,6 +166,17 @@ type Outcome = { session: { settled: boolean; result: "opener" | "joiner" | "dra
 const outcomeOf = (m: Outcome) => (m.session ? (m.session.settled ? m.session.result : null) : (m.winner ?? null));
 
 /**
+ * How one seat fared at settlement, from the result alone (never from the Gema change: a backed
+ * Player's loss and a 0% share win both move 0 Gemas). Null until there is a result.
+ */
+export function seatResult(m: Outcome, seat: 0 | 1): "won" | "lost" | "draw" | null {
+  const result = outcomeOf(m);
+  if (!result) return null;
+  if (result === "draw") return "draw";
+  return (result === "opener") === (seat === 0) ? "won" : "lost";
+}
+
+/**
  * Gemas won or lost at settlement, net of Fees. Refunds and draws are 0. Block Puzzle settles from
  * its Session; Hold'em has none, so a settled table's winner comes in as `winner`. A backed Player
  * (`backing`) only ever gains their share of the surplus and loses nothing.
@@ -178,9 +189,9 @@ export function matchDelta(
     backing?: { shareBps: number } | null;
   },
 ): number {
-  const result = outcomeOf(m);
-  if (!result || m.seat === null || result === "draw") return 0;
-  const won = (result === "opener") === (m.seat === 0);
+  const result = m.seat === null ? null : seatResult(m, m.seat);
+  if (result === null || result === "draw") return 0;
+  const won = result === "won";
   if (m.backing) return backedSplit({ entry: m.entry, ...m.fees, shareBps: m.backing.shareBps, won }).playerNet;
   if (!won) return -m.entry;
   return m.entry - Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps));
@@ -190,10 +201,9 @@ export function matchDelta(
 export function backerDelta(
   m: Outcome & { backerSeat: 0 | 1; entry: number; fees: { platformBps: number; studioBps: number }; shareBps: number },
 ): number {
-  const result = outcomeOf(m);
-  if (!result || result === "draw") return 0;
-  const won = (result === "opener") === (m.backerSeat === 0);
-  return backedSplit({ entry: m.entry, ...m.fees, shareBps: m.shareBps, won }).backerNet;
+  const result = seatResult(m, m.backerSeat);
+  if (result === null || result === "draw") return 0;
+  return backedSplit({ entry: m.entry, ...m.fees, shareBps: m.shareBps, won: result === "won" }).backerNet;
 }
 
 export interface ReturnCandidate {

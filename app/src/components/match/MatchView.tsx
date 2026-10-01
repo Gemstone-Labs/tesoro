@@ -6,7 +6,7 @@ import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzle
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
 import { getChain } from "@/lib/chain/client";
-import { backerDelta, matchDelta } from "@/lib/chain/ledger";
+import { backerDelta, matchDelta, seatResult } from "@/lib/chain/ledger";
 import { RunSubmitter, canClaimTimeout, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
@@ -236,7 +236,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   const playerBacked = !!m && m.seat !== null && m.backing !== null;
   const scores = session ? [session.scores[mineIdx], session.scores[1 - mineIdx]] : null;
   const delta = !m ? 0 : asBacker && m.backing ? backerDelta({ ...m, backerSeat: m.backing.seat, shareBps: m.backing.shareBps }) : matchDelta(m);
-  const outcome = !m || m.status === "open" || m.status === "active" ? null : !session || !session.settled ? "refunded" : session.result === "draw" ? "draw" : delta > 0 ? "won" : "lost";
+  const outcome = !m || m.status === "open" || m.status === "active" ? null : !session || !session.settled ? "refunded" : session.result === "draw" ? "draw" : seatResult(m, mineIdx) === "won" ? "won" : "lost";
 
   if (phase === "result" && m && outcome) {
     return (

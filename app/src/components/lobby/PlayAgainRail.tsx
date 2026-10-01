@@ -7,43 +7,10 @@ import { Check, Heart, Minus, X } from "lucide-react";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
-import { matchDelta } from "@/lib/chain/ledger";
-import type { ChainMatch } from "@/lib/chain/read";
+import { backingText, historyRow, type HistoryRow } from "@/lib/chain/history";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
-import type { GameId, MatchResult } from "@/lib/mock";
 import { Rail } from "./Rail";
-
-export interface Played {
-  id: string;
-  game: GameId;
-  entry: number;
-  result: MatchResult;
-  delta: number;
-  /** Block Puzzle only: your score, theirs. */
-  scores: [number, number] | null;
-  /** The opponent's key, when there was one. */
-  opp: string | null;
-  at: number;
-}
-
-export function toPlayed(m: ChainMatch): Played | null {
-  if ((m.status !== "settled" && m.status !== "refunded") || m.seat === null) return null;
-  const delta = matchDelta(m);
-  const draw = m.session?.result === "draw";
-  const refunded = m.status === "refunded" || (m.game === "block-puzzle" && !m.session);
-  const scores = m.session && m.session.settled ? (m.seat === 0 ? m.session.scores : ([m.session.scores[1], m.session.scores[0]] as [number, number])) : null;
-  return {
-    id: m.id.toString(),
-    game: m.game,
-    entry: m.entry,
-    result: draw ? "draw" : refunded ? "refunded" : delta > 0 ? "won" : "lost",
-    delta,
-    scores,
-    opp: m.sides[1 - m.seat]?.player ?? null,
-    at: Number(m.id >> 1n),
-  };
-}
 
 const PINS = "tesoro-pinned-matches";
 
@@ -84,29 +51,29 @@ export function PlayAgainRail() {
   const router = useRouter();
   const [pins, togglePin] = usePins();
 
-  const played = useMemo(
+  const all = useMemo(
     () =>
       (onChain ? (snapshot?.matches ?? []) : [])
-        .map(toPlayed)
-        .filter((p): p is Played => p !== null)
-        .sort((a, b) => Number(pins.has(b.id)) - Number(pins.has(a.id)) || b.at - a.at)
-        .slice(0, 3),
-    [onChain, snapshot, pins],
+        .map(historyRow)
+        .filter((p): p is HistoryRow => p !== null),
+    [onChain, snapshot],
   );
+  const played = [...all].sort((a, b) => Number(pins.has(b.id)) - Number(pins.has(a.id)) || b.at - a.at).slice(0, 3);
   const shown = played.filter((p) => !query.trim() || matchesQuery(GAME_NAMES[p.game], query));
   if (played.length === 0) return null;
 
   return (
-    <Rail id="play-again" title="Play again" cols={3}>
+    <Rail id="play-again" title="Play again" cols={3} viewAll="/matches">
       {shown.length === 0 && <p className="rail-empty">No earlier Matches match your search.</p>}
       {shown.map((p) => {
         const Icon = RESULT_ICON[p.result];
         const headline =
-          p.result === "won" ? `You won ${fmtGemas(p.delta)}` : p.result === "lost" ? `You lost ${fmtGemas(p.entry)}` : p.result === "draw" ? "Draw · entry refunded" : "Refunded";
+          p.result === "won" ? `You won ${fmtGemas(p.delta)}` : p.result === "lost" ? (p.backing ? "You lost · 0 Gemas" : `You lost ${fmtGemas(-p.delta)}`) : p.result === "draw" ? "Draw · entry refunded" : "Refunded";
+        const backing = backingText(p);
         const href = `/play/queue?${p.game === "holdem" ? "game=holdem&" : ""}entry=${p.entry}`;
         return (
           <div key={p.id} className="cut cut-card again">
-            <button type="button" className="again-main" onClick={() => auth.gate("Enter a Match", () => router.push(href))} aria-label={`Play ${GAME_NAMES[p.game]} again for ${fmtGemas(p.entry)} Gemas. Last Match: ${headline}`}>
+            <button type="button" className="again-main" onClick={() => auth.gate("Enter a Match", () => router.push(href))} aria-label={`Play ${GAME_NAMES[p.game]} again for ${fmtGemas(p.entry)} Gemas. Last Match: ${headline}${backing ? `. ${backing}` : ""}`}>
               <span className="again-art">
                 <Image src={art.thumb[p.game]} alt="" fill sizes="140px" />
               </span>
@@ -115,6 +82,7 @@ export function PlayAgainRail() {
                 <span className="again-result">
                   <Icon aria-hidden="true" /> {headline}
                 </span>
+                {backing && <span className="again-backing">{backing}</span>}
               </span>
             </button>
             <button type="button" className="again-pin" aria-pressed={pins.has(p.id)} aria-label={pins.has(p.id) ? "Unpin this Match" : "Pin this Match first"} onClick={() => togglePin(p.id)}>

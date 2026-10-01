@@ -2,7 +2,8 @@ import { holdings as mockHoldings, matches as mockMatches, positions as mockPosi
 import { useAuth } from "./auth/context";
 import { useChainData } from "./chain/ChainDataProvider";
 import type { AccountSnapshot, ChainMatch } from "./chain/read";
-import { backerDelta, entryProblem, matchDelta, type EntryError } from "./chain/ledger";
+import { accountHistory } from "./chain/history";
+import { entryProblem, type EntryError } from "./chain/ledger";
 import type { AuthState } from "./auth/types";
 import type { Account, GemaHolding, Match, Position } from "./mock";
 
@@ -82,40 +83,22 @@ function fromSnapshot(s: AccountSnapshot) {
       unlockEstimate: "",
     },
   }));
-  const settled = (m: ChainMatch) => m.status === "settled" || m.status === "refunded";
-  const played: Match[] = s.matches.filter(settled).map((m) => {
-      const draw = m.session?.result === "draw";
-      const delta = matchDelta(m);
-      return {
-        id: m.id.toString(),
-        game: m.game,
-        entry: m.entry as Match["entry"],
-        opponent: m.opponent ? short(m.opponent) : "no opponent",
-        result: draw ? "draw" : m.status === "refunded" || (m.game === "block-puzzle" && !m.session) ? "refunded" : delta > 0 ? "won" : "lost",
-        gemasDelta: delta,
-        seed: m.session ? `0x${m.session.seed.toString(16).padStart(16, "0").slice(0, 4)}…${m.session.seed.toString(16).slice(-4)}` : "—",
-        playedAt: new Date(Number(m.id >> 1n)).toISOString(),
-        backed: m.backing !== null,
-      };
-    });
-  // Matches this Account funded as a Backer: the entry was theirs, the result is the split (or the loss).
-  const funded: Match[] = s.funded.filter(settled).map((m) => {
-    const b = m.backing;
-    const delta = b ? backerDelta({ ...m, backerSeat: b.seat, shareBps: b.shareBps }) : 0;
-    const result = m.session ? (m.session.result === "draw" ? "draw" : delta > 0 ? "won" : "lost") : m.game === "holdem" && m.winner ? (delta > 0 ? "won" : "lost") : "refunded";
+  const byId = new Map([...s.matches, ...s.funded].map((m) => [m.id.toString(), m]));
+  const matches: Match[] = accountHistory(s.matches, s.funded).map((r) => {
+    const m = byId.get(r.id);
+    const seed = m?.session && r.role === "player" ? m.session.seed.toString(16).padStart(16, "0") : null;
     return {
-      id: m.id.toString(),
-      game: m.game,
-      entry: m.entry as Match["entry"],
-      opponent: b ? `${short(b.player)} (you backed)` : "backed Player",
-      result,
-      gemasDelta: delta,
-      seed: "—",
-      playedAt: new Date(Number(m.id >> 1n)).toISOString(),
-      backed: true,
+      id: r.id,
+      game: r.game,
+      entry: r.entry as Match["entry"],
+      opponent: r.role === "backer" && r.backing ? `${short(r.backing.other)} (you backed)` : r.opp ? short(r.opp) : "no opponent",
+      result: r.result,
+      gemasDelta: r.delta,
+      seed: seed ? `0x${seed.slice(0, 4)}…${seed.slice(-4)}` : "—",
+      playedAt: new Date(r.at).toISOString(),
+      backed: r.backing !== null,
     } satisfies Match;
   });
-  const matches = [...played, ...funded].sort((x, y) => (x.playedAt < y.playedAt ? 1 : -1));
   const openMatches = s.matches.filter((m) => m.status === "open" || m.status === "active");
   return { holdings, positions, matches, openMatches };
 }
