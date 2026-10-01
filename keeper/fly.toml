@@ -5,10 +5,7 @@
 app = "tesoro-keeper"
 primary_region = "iad"
 
-[env]
-  KEEPER_RPC = "https://rpc.magicblock.app/devnet"
-  KEEPER_GPA_RPC = "https://rpc.magicblock.app/devnet"
-  KEEPER_HOODI_RPC = "https://ethereum-hoodi-rpc.publicnode.com"
+# RPCs default to rpc.magicblock.app/devnet and publicnode Hoodi; a keyed RPC goes in as a secret (KEEPER_RPC).
 
 # The keeper's watchdog exits the process when no pass finishes in KEEPER_WATCHDOG_SECS (20 min); this brings it back.
 [[restart]]
