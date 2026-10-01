@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { LayoutGrid, List, Trophy, X as XMark } from "lucide-react";
+import { Trophy, X as XMark } from "lucide-react";
 import {
   Button,
   Card,
@@ -15,6 +15,7 @@ import {
   GemaAmount,
   GemaMark,
   Label,
+  Sheet,
   Slider,
 } from "@/components/ui";
 import { useGuideTip } from "@/components/guide/Guide";
@@ -44,7 +45,6 @@ const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster
 
 type Tab = "requests" | "public" | "mine";
 type Sort = "recent" | "entry" | "record";
-type View = "grid" | "list";
 
 const winRate = (r: PlayerRecord) => (r.matches === 0 ? 0 : r.wins / r.matches);
 
@@ -86,7 +86,7 @@ export default function Backing() {
   const [done, setDone] = useState<{ text: string; sig?: string } | null>(null);
   const [tab, setTab] = useState<Tab>("requests");
   const [sort, setSort] = useState<Sort>("recent");
-  const [view, setView] = useState<View>("grid");
+  const [postOpen, setPostOpen] = useState(false);
 
   const requests = board?.requests ?? [];
   const offers = board?.offers ?? [];
@@ -158,15 +158,17 @@ export default function Backing() {
       <header className="page-head">
         <div>
           <h1 className="page-title">Back a player</h1>
-          <p className="page-sub">Support skilled players and share their success.</p>
+          <p className="page-sub">
+            Support skilled players and share their success.
+            {onChain && me && (
+              <>
+                {" "}
+                <span className="bk-avail">Available to back <GemaAmount value={gemas.available} size="sm" />{gemas.reserved > 0 ? ` · ${fmtGemas(gemas.reserved)} reserved` : ""}</span>
+              </>
+            )}
+          </p>
         </div>
-        {onChain && me && (
-          <div className="page-head-side">
-            <span>Available to back</span>
-            <b><GemaAmount value={gemas.available} size="md" /></b>
-            <span className="sim">{fmtGemas(gemas.reserved)} reserved for your Offers · they stay yours</span>
-          </div>
-        )}
+        <Button onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
       </header>
 
       {error && <p className="status err" role="alert">{error}</p>}
@@ -267,22 +269,14 @@ export default function Backing() {
                   <option value="record">Win rate</option>
                 </select>
               </label>
-              <div className="cut cut-card bk-view" role="group" aria-label="View">
-                <button type="button" className={view === "grid" ? "on" : ""} aria-pressed={view === "grid"} aria-label="Grid view" onClick={() => setView("grid")}>
-                  <LayoutGrid aria-hidden="true" />
-                </button>
-                <button type="button" className={view === "list" ? "on" : ""} aria-pressed={view === "list"} aria-label="List view" onClick={() => setView("list")}>
-                  <List aria-hidden="true" />
-                </button>
-              </div>
             </div>
           </div>
 
           {tab === "requests" && (
-            <section aria-label="Requests" className={`bk-cards ${view}`}>
+            <section aria-label="Requests" className="bk-cards">
               {loading && !board && <p className="meta bk-span">Reading Requests from Solana devnet…</p>}
               {board && others.length === 0 && (
-                <Empty title="No open Requests" body="Nobody is asking to be backed right now. Post yours below, or check back soon." />
+                <Empty title="No open Requests" body="Nobody is asking to be backed right now. Post yours, or check back soon." />
               )}
               {others.map((r) => (
                 <RequestCard
@@ -302,22 +296,11 @@ export default function Backing() {
                   />
                 </div>
               ))}
-              <div className="bk-span">
-                <PostRequest
-                  record={recordFromMatches(snapshot?.matches ?? [])}
-                  signedIn={onChain}
-                  busy={busy === "post-request"}
-                  disabled={busy !== null}
-                  onPost={(game, entry) =>
-                    act("post a Request", "post-request", "Request posted. Backers can answer it with Offers.", async (s) => (await postRequest(s, game, entry, auth.getAccessToken)).sig)
-                  }
-                />
-              </div>
             </section>
           )}
 
           {tab === "public" && (
-            <section aria-label="Public Offers" className={`bk-cards ${view}`}>
+            <section aria-label="Public Offers" className="bk-cards">
               {board && publicOffers.length === 0 && (
                 <Empty title="No public Offers" body="No Backer has a public Offer open right now. Post a Request and Backers can answer it." />
               )}
@@ -395,7 +378,18 @@ export default function Backing() {
           />
         )}
       </div>
-      <p className="note">Solana devnet · Gemas come from a simulated Position · Requests and Offers expire after 24 hours.</p>
+      <Sheet open={postOpen} onClose={() => setPostOpen(false)} title="Post a Request">
+        <PostRequest
+          record={recordFromMatches(snapshot?.matches ?? [])}
+          signedIn={onChain}
+          busy={busy === "post-request"}
+          disabled={busy !== null}
+          onPost={(game, entry) => {
+            setPostOpen(false);
+            act("post a Request", "post-request", "Request posted. Backers can answer it with Offers.", async (s) => (await postRequest(s, game, entry, auth.getAccessToken)).sig);
+          }}
+        />
+      </Sheet>
     </div>
   );
 }
@@ -440,9 +434,6 @@ function ArtCard({
         <strong>{name}</strong>
         <span>{GAME_NAMES[game]}</span>
         <span className="bk-rec">{line}</span>
-      </div>
-      <div className="bk-art" aria-hidden="true">
-        <Image src={art.thumb[game]} alt="" width={220} height={220} />
       </div>
       <div className="bk-foot">
         <div>
@@ -489,9 +480,8 @@ function PostRequest({
   const [game, setGame] = useState<GameId>("block-puzzle");
   const [entry, setEntry] = useState<EntrySize>(1000);
   return (
-    <Card large as="section" aria-label="Post a Request">
+    <section aria-label="Post a Request">
       <div className="stack">
-        <Label>Post a Request</Label>
         <p className="meta">
           Ask to be backed for one Match. Backers see your real record{signedIn ? `: ${recordText(record)}` : ""}. A Request carries no
           split: Backers answer with Offers and you accept one.
@@ -507,8 +497,9 @@ function PostRequest({
         <Button block disabled={disabled} onClick={() => onPost(game, entry)}>
           {busy ? "Posting…" : "Post Request"}
         </Button>
+        <p className="note">Requests expire after 24 hours.</p>
       </div>
-    </Card>
+    </section>
   );
 }
 
@@ -738,11 +729,6 @@ function OfferDrawer({
                 </p>
               </div>
             </div>
-
-            <BustCard bust="herBacking" size={104} className="bk-tip">
-              <b>You fund it, they play</b>
-              <p>Only you bear the loss. Their Position keeps repaying its own Debt as usual.</p>
-            </BustCard>
 
             {short && (
               <p className="status err" role="alert">
