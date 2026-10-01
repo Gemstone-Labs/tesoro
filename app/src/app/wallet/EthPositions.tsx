@@ -61,6 +61,7 @@ import {
   opProgress,
   patchOp,
   removeOp,
+  untrackedOpens,
   type EthOp,
   type ScanStatus,
 } from "@/lib/chain/eth-track";
@@ -265,8 +266,8 @@ export function EthOpenForm({ onOpened }: { onOpened: (opKey: string) => void })
       }
       note={
         <>
-          You sign once to link your EVM address, then approve and open on Hoodi. The Advance follows automatically once the message
-          reaches Solana, in about 2 to 5 minutes. The Unlock Estimate is an estimate, not a promise.{" "}
+          You sign once to link your EVM address, then approve and open on Hoodi. Once the message reaches Solana, in about 2 to 5
+          minutes, your Advance is taken while this page or your Wallet is open. The Unlock Estimate is an estimate, not a promise.{" "}
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
       }
@@ -299,12 +300,31 @@ function useOps(address: string | null) {
   return address ? ops : [];
 }
 
-/** Every ETH operation in flight (or just finished) for this Account, each driven from chain state. */
+/**
+ * Every ETH operation in flight (or just finished) for this Account, each driven from chain state. An ETH
+ * Position recorded without its Advance is picked up here too, so the Advance continues on any Wallet visit.
+ */
 export function EthOps() {
   const ctx = useEthCtx();
-  const { refresh } = useAccount();
+  const { refresh, snapshot } = useAccount();
   const address = ctx?.signer.publicKey.toBase58() ?? null;
   const ops = useOps(address);
+  useEffect(() => {
+    if (!ctx || !address || !snapshot) return;
+    let stopped = false;
+    void (async () => {
+      for (const p of untrackedOpens(snapshot.positions, loadOps(address))) {
+        const s = await fetchEthState(getChain().base, p.vault, p.id, ctx.signer.publicKey).catch(() => null);
+        const months = s?.bridge?.horizonMonths ?? 0;
+        // Re-checked after the read: another pass may have started tracking it meanwhile.
+        if (stopped || months === 0 || untrackedOpens([{ eth: p, status: "locked", advances: 0 }], loadOps(address)).length === 0) continue;
+        addOp(address, { kind: "open", vault: p.vault, id: p.id.toString(), months });
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+  }, [ctx, address, snapshot]);
   if (!ctx || !address || ops.length === 0) return null;
   return (
     <>

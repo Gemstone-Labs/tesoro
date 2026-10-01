@@ -96,6 +96,8 @@ export interface ChainPosition {
   principal: number;
   apy: number;
   status: "locked" | "unlocked";
+  /** Advances ever taken on this Position. */
+  advances: number;
   advance: ChainAdvance | null;
   /** Debt in asset units. */
   debt: number;
@@ -385,6 +387,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       principal: Number(big(p.principal)) / decimals,
       apy: p.rateBps / 10_000,
       status: enumKey(p.status) as "locked" | "unlocked",
+      advances: p.advances,
       advance,
       debt,
       yieldAccrued: Number(big(p.cumulativeYield)) / decimals,

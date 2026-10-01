@@ -152,6 +152,20 @@ export async function fetchScanStatus(txHash: string): Promise<ScanStatus | null
   }
 }
 
+/**
+ * ETH Positions recorded on Solana with no Advance yet and no unfinished `open` operation in this browser
+ * (opened elsewhere, storage cleared). Taking the Advance needs the owner's signature, so the Wallet starts
+ * tracking these and the Advance continues there.
+ */
+export function untrackedOpens(positions: { eth: { vault: string; id: bigint } | null; status: string; advances: number }[], ops: EthOp[]) {
+  return positions.flatMap((p) => {
+    if (!p.eth || p.status !== "locked" || p.advances > 0) return [];
+    const { vault, id } = p.eth;
+    const tracked = ops.some((o) => o.kind === "open" && !o.done && o.vault.toLowerCase() === vault.toLowerCase() && o.id === id.toString());
+    return tracked ? [] : [{ vault, id }];
+  });
+}
+
 // ---- persistence (per Solana address, in this browser) ------------------------------------------------
 
 const KEY = (address: string) => `tesoro-eth-ops:${address}`;

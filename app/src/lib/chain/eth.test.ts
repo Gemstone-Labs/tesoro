@@ -16,7 +16,7 @@ import {
   type EthState,
   type SimRate,
 } from "./eth";
-import { opProgress, type EthOp } from "./eth-track";
+import { opProgress, untrackedOpens, type EthOp } from "./eth-track";
 
 const VAULT = "0x6c836b96464B5D1b55536d5a34D023528eaEe4bD";
 const rate: SimRate = { baseRate: 10n ** 18n, baseTime: 1_000n, apyBps: 500n, speedup: 4320n };
@@ -192,5 +192,29 @@ describe("fetchEthState reads the Claim of the redeemed Source (SP-02)", () => {
   it("finds a Source's index among the Advances", () => {
     expect(ethSourceIndex(corePk, sourcePda(corePk, 1), 2)).toBe(1);
     expect(ethSourceIndex(corePk, sourcePda(corePk, 2), 2)).toBeNull();
+  });
+});
+
+describe("untrackedOpens", () => {
+  const pos = (over: Partial<{ eth: { vault: string; id: bigint } | null; status: string; advances: number }> = {}) => ({
+    eth: { vault: VAULT, id: 7n },
+    status: "locked",
+    advances: 0,
+    ...over,
+  });
+  const open = (over: Partial<EthOp> = {}): EthOp => ({ key: "k", kind: "open", vault: VAULT.toLowerCase(), id: "7", createdAt: 0, months: 1, ...over });
+
+  it("resumes a recorded ETH Position with no Advance and no op in this browser", () => {
+    expect(untrackedOpens([pos()], [])).toEqual([{ vault: VAULT, id: 7n }]);
+  });
+
+  it("leaves a Position an unfinished open op already tracks", () => {
+    expect(untrackedOpens([pos()], [open()])).toEqual([]);
+    expect(untrackedOpens([pos()], [open({ done: true })])).toHaveLength(1);
+    expect(untrackedOpens([pos()], [open({ id: "8" })])).toHaveLength(1);
+  });
+
+  it("skips Positions with an Advance, unlocked or non-ETH Positions", () => {
+    expect(untrackedOpens([pos({ advances: 1 }), pos({ status: "unlocked" }), pos({ eth: null })], [])).toEqual([]);
   });
 });

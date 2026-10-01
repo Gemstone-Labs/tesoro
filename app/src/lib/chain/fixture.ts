@@ -73,6 +73,7 @@ export function demoSnapshot(address: string): AccountSnapshot {
     principal: 40,
     apy: 0.07,
     status: "locked",
+    advances: 1,
     advance: { source: key(300 + 1), gemasIssued: 10500, horizonMonths: 3, debtGemas: 5500 },
     debt: 0.55,
     yieldAccrued: 0.15,
