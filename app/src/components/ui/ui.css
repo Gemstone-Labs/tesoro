@@ -230,11 +230,16 @@ dialog.sheet {
   padding: 0; border: 0; background: var(--surface); color: var(--fg);
   width: 100%; max-width: 480px; max-height: 90dvh; margin: auto auto 0; overflow: auto;
 }
-dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.66); }
+dialog.sheet::backdrop { background: rgba(4, 7, 9, 0.62); backdrop-filter: blur(6px); }
+/* sheets rise into place when opened */
+dialog.sheet[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; } }
 .sheet-in { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
 .sheet-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .sheet-head h2 { font-size: 20px; font-weight: 900; letter-spacing: -0.01em; }
-@media (min-width: 640px) { dialog.sheet { margin: auto; } }
+@media (min-width: 640px) { dialog.sheet { margin: auto; } .sheet-in { padding: 24px 24px 26px; gap: 16px; } }
 
 /* ——— Form controls ——— */
 .field { display: grid; gap: 6px; }

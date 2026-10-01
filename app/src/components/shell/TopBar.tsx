@@ -62,7 +62,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         )}
         {signedIn && <AccountMenu />}
         {signedOut && (
-          <Button size="sm" onClick={() => auth.openSignIn()}>Sign in</Button>
+          <Button onClick={() => auth.openSignIn()}>Sign in</Button>
         )}
       </div>
     </header>

@@ -20,9 +20,9 @@
 /* ——— Facet panel: hard-stop light on a dark emerald ground (money surfaces only) ——— */
 .facet-panel {
   background:
-    url("/brand/facet-crown.svg") no-repeat right -70px top 62% / auto 150%,
+    url("/brand/facet-crown.svg") no-repeat right 40px bottom -300px / auto 400px,
     radial-gradient(90% 70% at 30% 0%, rgba(126, 250, 218, 0.1), transparent 70%),
     linear-gradient(170deg, #0f3d33 0%, #0b2c26 55%, #08211c 100%);
   --edge: var(--edge-em);
 }
-@media (max-width: 639px) { .facet-panel { background-position: right -170px bottom -120px, 0 0, 0 0; background-size: auto 70%, auto, auto; } }
+@media (max-width: 639px) { .facet-panel { background-position: right -60px bottom -300px, 0 0, 0 0; background-size: auto 380px, auto, auto; } }

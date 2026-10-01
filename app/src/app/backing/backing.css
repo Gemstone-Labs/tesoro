@@ -73,3 +73,10 @@
   .bk-drawer { inset: 0 0 0 auto; left: auto; width: min(520px, 100vw); max-height: none; padding: 28px 28px 32px; clip-path: none; }
   .bk-drawer::after { display: none; }
 }
+
+/* the Offer drawer arrives from where it docks */
+.bk-drawer { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@media (min-width: 1024px) {
+  .bk-drawer { animation-name: bk-drawer-in; box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45); border-left: 1px solid var(--line-2); }
+  @keyframes bk-drawer-in { from { transform: translateX(32px); opacity: 0; } }
+}

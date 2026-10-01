@@ -26,7 +26,7 @@
 .gp-av { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }
 
 .gp-top { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: 40px 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 16px; min-height: 60px; }
-.gp-rank { font-size: 24px; font-weight: 800; }
+.gp-rank { font-family: var(--f-display); font-size: 30px; font-weight: 800; }
 .gp-topname { font-size: 17px; font-weight: 700; }
 .gp-score { font-size: 22px; font-weight: 800; }
 
@@ -57,7 +57,8 @@
 /* phones: Play now spans the row; the secondary actions share the next one */
 @media (max-width: 639px) {
   .gp-cta { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; gap: 10px; }
-  .gp-cta .btn { min-height: 54px; font-size: 16px; padding: 0 12px; }
+  .gp-cta .btn { min-height: 54px; font-size: 16px; padding: 0 12px; white-space: nowrap; }
+  .gp-cta .btn:not(.money) svg { display: none; }
   .gp-cta .btn.money { grid-column: 1 / -1; font-size: 20px; min-height: 60px; }
   .gp-cta .btn:nth-child(2):last-child { grid-column: 1 / -1; }
   .gp-hero .entries { width: 100%; }
