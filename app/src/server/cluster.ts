@@ -50,20 +50,20 @@ export function createClusterGuard(doFetch: typeof fetch = (...a) => fetch(...a)
       return id === HOODI_CHAIN_ID ? { ok: true } : { ok: false, reason: `chain id ${id} is not Hoodi` };
     });
 
-  return {
-    solana,
-    hoodi,
-    async requireDevnet(url: string) {
-      const c = await solana(url);
-      if (!c.ok) throw new DemoHttpError(503, "wrong-cluster", "This server only funds devnet.");
-    },
-    async requireHoodi(url: string) {
-      const c = await hoodi(url);
-      if (!c.ok) throw new DemoHttpError(503, "wrong-cluster", "This server only funds Hoodi.");
-    },
-  };
+  return { solana, hoodi };
 }
 
-/** One guard per process, shared by the instrumentation hook and the route bundles. */
-const g = globalThis as { __tesoroClusterGuard?: ReturnType<typeof createClusterGuard> };
+type Guard = ReturnType<typeof createClusterGuard>;
+
+/**
+ * One guard per process, shared by the instrumentation hook and the route bundles. It returns plain
+ * results: the error is thrown below, so routes see their own bundle's DemoHttpError.
+ */
+const g = globalThis as { __tesoroClusterGuard?: Guard };
 export const clusterGuard = (g.__tesoroClusterGuard ??= createClusterGuard());
+
+async function refuseUnless(check: Promise<Check>, cluster: string) {
+  if (!(await check).ok) throw new DemoHttpError(503, "wrong-cluster", `This server only funds ${cluster}.`);
+}
+export const requireDevnet = (url: string, guard: Guard = clusterGuard) => refuseUnless(guard.solana(url), "devnet");
+export const requireHoodi = (url: string, guard: Guard = clusterGuard) => refuseUnless(guard.hoodi(url), "Hoodi");

@@ -45,7 +45,7 @@ import {
   vaultAbi,
 } from "@/lib/chain/eth";
 import type { SignedFields } from "@/lib/chain/signed-request";
-import { clusterGuard } from "./cluster";
+import { requireDevnet, requireHoodi } from "./cluster";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
 import { verifySignedRequest } from "./request-auth";
@@ -94,7 +94,7 @@ const hoodiPublic = () => createPublicClient({ chain: hoodi, transport: http(HOO
 
 async function fundEvm(address: string, evm: string, sub: string | null) {
   if (!/^0x[0-9a-fA-F]{40}$/.test(evm)) throw new DemoHttpError(400, "bad-request", "Malformed EVM address.");
-  await clusterGuard.requireHoodi(HOODI_RPC);
+  await requireHoodi(HOODI_RPC);
   const client = hoodiPublic();
   const balance = await client.getBalance({ address: evm as Address });
   if (balance >= FUND_BELOW) return { funded: false, balance: balance.toString() };
@@ -427,7 +427,7 @@ export async function handleEthPrice() {
 }
 
 export async function handleEthRequest(raw: unknown, authorization: string | null): Promise<unknown> {
-  await clusterGuard.requireDevnet(BASE_RPC);
+  await requireDevnet(BASE_RPC);
   const { step, address, fields, sub } = await verifySignedRequest("tesoro-eth", STEPS, raw, authorization, { nonces });
   const wallet = address.toBase58();
 
