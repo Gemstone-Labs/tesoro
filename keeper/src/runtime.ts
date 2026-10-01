@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, TransactionExpiredBlockheightExceededError } from "@solana/web3.js";
 import { BlockPuzzleChain, keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
 import { HoldemChain, keypairSigner as holdemSigner } from "../../app/src/games/holdem/chain.ts";
 import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
@@ -60,6 +60,28 @@ export interface Runtime {
 
 const connConfig = { commitment: "confirmed", fetch: fetchWithBackoff as typeof fetch, disableRetryOnRateLimit: true } as const;
 
+type Statuses = Pick<Connection, "getSignatureStatuses" | "getBlockHeight">;
+type Strategy = string | { signature: string; lastValidBlockHeight?: number };
+
+/**
+ * `confirmTransaction` by polling the signature status. web3.js waits on a websocket `signatureSubscribe`, which some
+ * RPCs (Alchemy devnet) do not serve: a transaction that landed is then reported as expired and the caller sends it
+ * again. Throws the same expiry error only once the blockhash really expired and the signature is still unknown.
+ */
+export async function pollConfirm(conn: Statuses, strategy: Strategy, pollMs = 1000, maxMs = 120_000) {
+  const sig = typeof strategy === "string" ? strategy : strategy.signature;
+  const lastValid = typeof strategy === "string" ? undefined : strategy.lastValidBlockHeight;
+  const started = Date.now();
+  for (;;) {
+    const { context, value } = await conn.getSignatureStatuses([sig], { searchTransactionHistory: true });
+    const st = value[0];
+    if (st && (st.err || st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return { context, value: { err: st.err } };
+    const expired = lastValid !== undefined ? (await conn.getBlockHeight("confirmed")) > lastValid : Date.now() - started > maxMs;
+    if (expired && !st) throw new TransactionExpiredBlockheightExceededError(sig);
+    await sleep(pollMs);
+  }
+}
+
 /** Sends and single reads on `rpc`; getProgramAccounts on `gpaRpc`, shared for 5s (one loop asks for the same list many times). */
 export function newConnection(rpc: string, gpaRpc: string = rpc): Connection {
   const gpaConn = new Connection(gpaRpc, connConfig);
@@ -73,7 +95,9 @@ export function newConnection(rpc: string, gpaRpc: string = rpc): Connection {
     p.catch(() => seen.delete(key));
     return p;
   };
-  return new SplitConnection(rpc, gpa, connConfig);
+  const conn = new SplitConnection(rpc, gpa, connConfig);
+  conn.confirmTransaction = ((strategy: Strategy) => pollConfirm(conn, strategy)) as Connection["confirmTransaction"];
+  return conn;
 }
 
 export function buildRuntime(settings: Settings, conn: Connection, payer: Keypair): Runtime {
