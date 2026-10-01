@@ -308,7 +308,7 @@ async function sendUnlock(vault: string, pid: Buffer) {
   return { skipped: false, signature: await relaySend([ix], 600_000), fee: fee.toString() };
 }
 
-async function sendPayYield(vault: string, pid: Buffer, holderAuthority: PublicKey) {
+async function sendPayYield(vault: string, pid: Buffer, holderAuthority: PublicKey, sourceIndex: unknown) {
   const { conn } = chain();
   const cp = corePositionPda(pid);
   const holder = coreAccountPda(holderAuthority);
@@ -316,10 +316,13 @@ async function sendPayYield(vault: string, pid: Buffer, holderAuthority: PublicK
   if (!core) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
   const advances = core.data.readUInt32LE(8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1);
   if (advances === 0) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Position.");
-  const source = sourcePda(cp, advances - 1);
+  const index = sourceIndex === undefined ? advances - 1 : sourceIndex;
+  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= advances) throw new DemoHttpError(400, "bad-request", "Unknown Source for this Position.");
+  const source = sourcePda(cp, index);
   const claimKey = claimPda(holder, source);
   const [claim, account] = await conn.getMultipleAccountsInfo([claimKey, holder]);
-  if (!claim || !account) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Position.");
+  if (!claim || !account) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Source.");
+  if (!new PublicKey(claim.data.subarray(8, 40)).equals(holder) || !new PublicKey(claim.data.subarray(40, 72)).equals(source) || !new PublicKey(claim.data.subarray(72, 104)).equals(cp)) throw new DemoHttpError(409, "no-claim", "That Claim does not belong to this Account.");
   if (claim.data.readBigUInt64LE(112) <= claim.data.readBigUInt64LE(120)) return { skipped: true };
   const evm = `0x${Buffer.from(account.data.subarray(41, 61)).toString("hex")}`;
   const acc = await sendAccounts(vault);
@@ -413,7 +416,7 @@ export async function handleEthPrice() {
 }
 
 export async function handleEthRequest(raw: unknown, authorization: string | null): Promise<unknown> {
-  const body = raw as { step?: EthStep; address?: string; ts?: number; signature?: string; vault?: string; id?: string; evm?: string; months?: number };
+  const body = raw as { step?: EthStep; address?: string; ts?: number; signature?: string; vault?: string; id?: string; evm?: string; months?: number; sourceIndex?: number };
   if (!body || !STEPS.includes(body.step as EthStep) || !body.address || typeof body.ts !== "number" || !body.signature) {
     throw new DemoHttpError(400, "bad-request", "Malformed request.");
   }
@@ -441,7 +444,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
       case "send-unlock":
         return await sendUnlock(ref.vault, ref.pid);
       default:
-        return await sendPayYield(ref.vault, ref.pid, address);
+        return await sendPayYield(ref.vault, ref.pid, address, body.sourceIndex);
     }
   } catch (e) {
     refund();

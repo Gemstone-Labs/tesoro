@@ -21,8 +21,14 @@ export interface EthOp {
   hash?: string;
   /** Solana signature of the relayed send (redeem, unlock) or of the last relay step. */
   sendSig?: string;
-  /** `yield`: the bridge's last received yield seq before the report. `redeem`: vault paidUnderlying after the payout, decimal. */
+  /** `yield`: the bridge's last received yield seq before the report. `redeem`: the Claim's `units_total` after redeem_to_evm (units that must be sent), decimal. */
   baseline?: string;
+  /** `redeem`: the Advance index of the redeemed Source; the Claim read, relayed and tracked is the one for it. */
+  sourceIndex?: number;
+  /** `redeem`: Source units this redemption added to the Claim, decimal. */
+  units?: string;
+  /** `redeem`: Hoodi block before the redemption; the payout is searched from here. Decimal. */
+  fromBlock?: string;
   done?: boolean;
 }
 
@@ -92,8 +98,12 @@ export interface OpProgress {
   next: OpAction | null;
 }
 
-/** Where an operation stands, from what is on chain. Pure. */
-export function opProgress(op: EthOp, s: EthState | null, vp: VaultPosition | null): OpProgress {
+/**
+ * Where an operation stands, from what is on chain. Pure. A redeem is sent when this holder's Claim on the
+ * redeemed Source has been sent in full, and paid when `paidToHolder` (`YieldPaid` to this holder's EVM address
+ * since the operation began) covers the operation's units: a Position-wide total says nothing about this holder.
+ */
+export function opProgress(op: EthOp, s: EthState | null, vp: VaultPosition | null, paidToHolder: bigint | null = null): OpProgress {
   const bridge = s?.bridge ?? null;
   const core = s?.core ?? null;
   switch (op.kind) {
@@ -110,11 +120,11 @@ export function opProgress(op: EthOp, s: EthState | null, vp: VaultPosition | nu
       return { stage: 2, next: "apply-yield" };
     }
     case "redeem": {
-      const paid = vp && op.baseline !== undefined && vp.paidUnderlying >= BigInt(op.baseline);
-      if (paid) return { stage: 3, next: null };
       const c = s?.claim ?? null;
-      if (c && c.unitsSent >= c.unitsTotal && c.unitsTotal > 0n) return { stage: 2, next: null };
-      return { stage: 1, next: "send-pay-yield" };
+      const target = op.sourceIndex !== undefined && op.baseline !== undefined ? BigInt(op.baseline) : (c?.unitsTotal ?? 0n);
+      if (!c || target === 0n || c.unitsSent < target) return { stage: 1, next: "send-pay-yield" };
+      if (paidToHolder !== null && op.units !== undefined && paidToHolder >= BigInt(op.units)) return { stage: 3, next: null };
+      return { stage: 2, next: null };
     }
     case "unlock": {
       if (vp?.unlocked) return { stage: 3, next: null };
