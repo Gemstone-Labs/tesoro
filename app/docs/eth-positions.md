@@ -23,7 +23,7 @@ Wallet: **Ethereum Positions · Hoodi** card, ETH Position cards, and one cross-
 
 ## What the server does (`/api/eth-bridge`)
 
-Requests are authenticated like the SOL top-up (see [demo-funding.md](demo-funding.md#authentication)): the Solana wallet signs the whole request with a single-use nonce, and a Privy access token is required whenever Privy is configured (always in production). Every cap below applies per Account and, separately, per Privy user. Keys are read from disk inside `src/server/eth-bridge.ts` and never reach the client.
+Requests are authenticated like the SOL top-up (see [demo-funding.md](demo-funding.md#authentication)): the Solana wallet signs the whole request with a single-use nonce, and a Privy access token is required whenever Privy is configured (always in production). Every cap below applies per Account and, separately, per Privy user. The routes run only when `TESORO_BASE_RPC` is Solana devnet (and, for `fund-evm`, the Hoodi RPC is chain 560048). Keys are read from disk inside `src/server/eth-bridge.ts` and never reach the client.
 
 | Step | What | Paid by | Cap |
 |---|---|---|---|

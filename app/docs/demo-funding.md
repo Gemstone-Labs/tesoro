@@ -16,6 +16,9 @@ The wallet signs (ed25519) `tesoro-demo|<step>|<address>|<ts>|<nonce>|<fields>`,
 
 Nonces and limits are in memory, per server process.
 
+### Devnet only
+
+At server start (`src/instrumentation.ts`) the server checks that `TESORO_BASE_RPC` has the devnet genesis hash and that the Hoodi RPC is chain 560048, and logs `[cluster] …`. Every request to `/api/demo-advance` and `/api/eth-bridge` waits on the same check (`src/server/cluster.ts`) and answers `503 wrong-cluster` on any other cluster; an unreachable RPC is refused and checked again on the next request.
 
 ## Dev-only: the old demo Advance
 

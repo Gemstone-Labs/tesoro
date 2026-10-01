@@ -17,6 +17,7 @@ import { TESORO_CORE_PROGRAM_ID, BlockPuzzleChain, type AnyProgram } from "@/gam
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { unitsToRepay, type SourceMath } from "@/lib/chain/ledger";
 import { DEFAULT_BASE_RPC } from "@/lib/chain/rpc-config";
+import { clusterGuard } from "./cluster";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { DemoHttpError, NonceStore, verifySignedRequest } from "./request-auth";
 
@@ -212,6 +213,7 @@ export async function handleDemoRequest(raw: unknown, authorization: string | nu
   if ((step === "advance" || step === "accrue") && process.env.TESORO_DEMO_ADVANCE !== "1") {
     throw new DemoHttpError(410, "disabled", "The demo Advance is off. Open a real Position with simSOL instead.");
   }
+  await clusterGuard.requireDevnet(BASE_RPC);
   const req = await verifySignedRequest("tesoro-demo", ["fund", "advance", "accrue"] as const, raw, authorization, { nonces });
   switch (req.step) {
     case "fund":
