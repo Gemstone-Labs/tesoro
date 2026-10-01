@@ -9,7 +9,7 @@ pnpm --filter @tesoro/keeper start --once --dry-run   # say what it would do, se
 pnpm --filter @tesoro/keeper typecheck
 ```
 
-Flags / env: `--interval <secs>` (`KEEPER_INTERVAL_SECS`, 20), `--max-sol-per-hour <n>` (`KEEPER_MAX_SOL_PER_HOUR`, 0.5), `--rpc <url>` (`KEEPER_RPC`, default `https://rpc.magicblock.app/devnet`; the public devnet RPC rate-limits), `KEEPER_KEYPAIR` (`~/.config/tesoro/keeper.json`), `KEEPER_FUNDER` (`~/.config/solana/id.json`), `TESORO_IDL_DIR`.
+Flags / env: `--interval <secs>` (`KEEPER_INTERVAL_SECS`, 20), `--max-sol-per-hour <n>` (`KEEPER_MAX_SOL_PER_HOUR`, 0.5), `--rpc <url>` (`KEEPER_RPC`, default `https://rpc.magicblock.app/devnet`; the public devnet RPC rate-limits), `KEEPER_KEYPAIR` (`~/.config/tesoro/keeper.json`), `KEEPER_FUNDER` (`~/.config/solana/id.json`), `TESORO_IDL_DIR`, `KEEPER_RPC_TIMEOUT_MS` (30000: each RPC request gives up after this), `KEEPER_JOB_LIMIT_SECS` (120: a job still running after this no longer holds up the others and is skipped until it finishes).
 
 Bridge / Ethereum: `--max-lz-fee-sol` (`KEEPER_MAX_LZ_FEE_SOL`, 0.005: refuse a Solana-side LayerZero send whose quote is higher), `--max-lz-sol-per-hour` (`KEEPER_MAX_LZ_SOL_PER_HOUR`, 0.05: LayerZero fees paid in any rolling hour), `--hoodi-rpc` (`KEEPER_HOODI_RPC`, `https://ethereum-hoodi-rpc.publicnode.com`), `KEEPER_EVM_ENV` (`~/.config/tesoro/evm-deployer.env`, key `EVM_DEPLOYER_PRIVATE_KEY`, read but never logged), `--eth-yield-mins` (`KEEPER_ETH_YIELD_MINS`, 10 = one simulated month), `--max-eth-per-hour` (`KEEPER_MAX_ETH_PER_HOUR`, 0.005: LayerZero fee + gas the EVM key may spend on reports per rolling hour), `KEEPER_STATE_DIR` (`~/.cache/tesoro-keeper`, last-report times).
 
