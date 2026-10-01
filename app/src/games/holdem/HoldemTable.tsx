@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, GemaMark } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { fmtGemas } from "@/lib/format";
-import { NO_CARD, NO_WINNER, PHASE, SPLIT, SPEED_TURBO, STATUS, call, check, fold, raise, type Action, type Table } from "./chain";
+import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, call, check, fold, raise, type Action, type Table } from "./chain";
 import { PlayingCard } from "./cards";
 import { inPlay, legalMoves } from "./rules";
 import "./holdem.css";
@@ -150,39 +150,45 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
 
   const level = `${chips(t.smallBlind)} / ${chips(t.bigBlind)}`;
   const sbSeat = t.dealer;
-  const turbo = t.speed === SPEED_TURBO;
 
   return (
     <section className="hdx" aria-label="Hold'em table">
-      <aside className="cut cut-frame hdx-panel hdx-info" aria-label="Table">
-        <h1 className="h-section">Heads-up Hold&apos;em</h1>
-        <p className="mono hdx-level">
-          {level.replace(" / ", "/")} · {turbo ? "Turbo" : "Standard"}
-        </p>
-        {entry !== undefined && (
-          <span className="cut cut-btn hdx-entry">
-            <GemaMark size={22} /> {fmtGemas(entry)} entry
-          </span>
+      <header className="hdx-head" aria-label="Table">
+        <div className="hdx-head-l">
+          <h1 className="hdx-title">Heads-up Hold&apos;em</h1>
+          <p className="mono hdx-level" aria-label={`Blinds ${level}`}>
+            Blinds {level.replace(" / ", "/")} · Hand #{t.handNo}
+          </p>
+          {entry !== undefined && (
+            <span className="cut cut-btn hdx-entry">
+              <GemaMark size={18} /> {fmtGemas(entry)} entry
+            </span>
+          )}
+        </div>
+        {!ended && t.status === STATUS.live && (
+          <div className="hdx-clock" role="timer" aria-live="off">
+            <div className="hdx-clock-top">
+              <span className="hdx-who">
+                {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
+                {playing ? ` · ${STREET[t.phase]}` : ""}
+              </span>
+              <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
+            </div>
+            <div className="hd-clock-bar" aria-hidden="true">
+              <i style={{ width: `${Math.min(100, Math.max(0, (remaining / total) * 100))}%` }} className={remaining <= 10 ? "low" : ""} />
+            </div>
+            {expired && !myTurn && (
+              <div className="hd-claim">
+                <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
+                <Button size="sm" onClick={onClaim} disabled={busy !== null}>
+                  {busy === "claim_timeout" ? "Claiming…" : "Claim timeout"}
+                </Button>
+              </div>
+            )}
+            {expired && myTurn && <span className="meta">Your clock ran out: act now, or your opponent can claim a timeout.</span>}
+          </div>
         )}
-        <dl className="hdx-kv">
-          <div>
-            <dt>Hand</dt>
-            <dd className="mono">#{t.handNo}</dd>
-          </div>
-          <div>
-            <dt>Blinds</dt>
-            <dd className="mono" aria-label={`Blinds ${level}`}>{level}</dd>
-          </div>
-          <div>
-            <dt>Players</dt>
-            <dd className="mono">2</dd>
-          </div>
-          <div>
-            <dt>Table</dt>
-            <dd className="mono">{turbo ? "Turbo" : "Standard"}</dd>
-          </div>
-        </dl>
-      </aside>
+      </header>
 
       <div className="hdx-stage">
         <div className="hdx-table">
@@ -246,33 +252,12 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
         )}
       </div>
 
-      <aside className="hdx-side" aria-label="Turn and hand log">
-        {!ended && t.status === STATUS.live && (
-          <div className="cut cut-frame hdx-panel hdx-clock" role="timer" aria-live="off">
-            <div className="hdx-clock-top">
-              <span className="hdx-who">
-                {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
-                {playing ? ` · ${STREET[t.phase]}` : ""}
-              </span>
-              <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
-            </div>
-            <div className="hd-clock-bar" aria-hidden="true">
-              <i style={{ width: `${Math.min(100, Math.max(0, (remaining / total) * 100))}%` }} className={remaining <= 10 ? "low" : ""} />
-            </div>
-            {expired && !myTurn && (
-              <div className="hd-claim">
-                <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
-                <Button size="sm" onClick={onClaim} disabled={busy !== null}>
-                  {busy === "claim_timeout" ? "Claiming…" : "Claim timeout"}
-                </Button>
-              </div>
-            )}
-            {expired && myTurn && <span className="meta">Your clock ran out: act now, or your opponent can claim a timeout.</span>}
-          </div>
-        )}
-
-        <div className="cut cut-frame hdx-panel hdx-log">
-          <h2 className="h-section">Hand log</h2>
+      {!ended && (
+        <ActionBar key={`${t.handNo}-${t.phase}`} table={t} seat={seat} enabled={myTurn && busy === null} busy={busy} onAct={onAct} />
+      )}
+      <details className="hdx-log">
+        <summary>Hand log</summary>
+        <div className="hdx-log-body">
           {log.length === 0 && <p className="meta">The hand log fills as the hand is played.</p>}
           {log.map((s, i) => (
             <div key={`${s.name}-${i}`} className="hdx-street">
@@ -293,11 +278,8 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           ))}
           <p className="note">As seen from this table.</p>
         </div>
-      </aside>
+      </details>
 
-      {!ended && (
-        <ActionBar key={`${t.handNo}-${t.phase}`} table={t} seat={seat} enabled={myTurn && busy === null} busy={busy} onAct={onAct} />
-      )}
     </section>
   );
 }

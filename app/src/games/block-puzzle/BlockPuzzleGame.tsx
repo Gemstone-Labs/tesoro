@@ -97,8 +97,8 @@ const RING_R = 54;
 const RING_C = 2 * Math.PI * RING_R;
 
 /**
- * The Block Puzzle play screen: MATCH panel left, score + 90 s ring + board + tray centre, combo,
- * lines and recent clears right. No character anywhere on it. `matchPanel` is the Match status the
+ * The Block Puzzle play screen: a slim bar (score, 90 s ring, combo and lines, entry and pot) over the
+ * centred board and tray; recent clears show on the game-over card. No character anywhere on it. `matchPanel` is the Match status the
  * caller owns (who we wait for); without a `run` this is practice.
  */
 export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPanel?: ReactNode }) {
@@ -365,55 +365,41 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   return (
     <div className="bpx">
-      <aside className="cut cut-frame bpx-panel bpx-left" aria-label={run ? "Match" : "Practice"}>
-        <h2 className="h-section">{run ? "Match" : "Practice"}</h2>
-        {run ? (
-          <>
-            <div className="bpx-kv">
-              <span>Entry</span>
-              <b>{fmtN(run.entry)} <small>Gemas</small></b>
-            </div>
-            <div className="bpx-kv">
-              <span>Pot</span>
-              <b>{fmtN(run.entry * 2)} <small>Gemas</small></b>
-            </div>
-          </>
-        ) : (
-          <p className="bpx-status">No Gemas are staked in practice. Same rules, a random Seed.</p>
-        )}
-        {matchPanel}
-        <span className="mono bpx-seed" title="Seed">
-          {phase === "idle" ? "Seed —" : `Seed 0x${st.seed.toString(16).padStart(16, "0").slice(0, 6)}…`}
-        </span>
-      </aside>
-
-      <section className="cut cut-frame bpx-panel bpx-mid" aria-label="Board">
-        <h1 className="bpx-title h-section">Block Puzzle</h1>
-        <div className="bpx-head">
-          <div className="bpx-score">
-            <Label>Score</Label>
-            <span className="bp-score-n tnum" aria-live="off">{st.score}</span>
-          </div>
-          <div className="bpx-timer">
-            <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
-              <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
-                <circle cx="60" cy="60" r={RING_R} className="bpx-ring-bg" />
-                <circle
-                  cx="60"
-                  cy="60"
-                  r={RING_R}
-                  className="bpx-ring-fg"
-                  strokeDasharray={RING_C}
-                  strokeDashoffset={RING_C * (1 - Math.max(0, Math.min(1, (phase === "idle" ? DURATION_MS : remaining) / DURATION_MS)))}
-                  transform="rotate(-90 60 60)"
-                />
-              </svg>
-              <span className="mono">{fmtClock(phase === "idle" ? DURATION_MS : remaining)}</span>
-            </div>
-            <span className="bpx-secs">90 seconds</span>
-          </div>
+      <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
+        <div className="bpx-score">
+          <Label>Score</Label>
+          <span className="bp-score-n tnum" aria-live="off">{st.score}</span>
         </div>
+        <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
+          <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+            <circle cx="60" cy="60" r={RING_R} className="bpx-ring-bg" />
+            <circle
+              cx="60"
+              cy="60"
+              r={RING_R}
+              className="bpx-ring-fg"
+              strokeDasharray={RING_C}
+              strokeDashoffset={RING_C * (1 - Math.max(0, Math.min(1, (phase === "idle" ? DURATION_MS : remaining) / DURATION_MS)))}
+              transform="rotate(-90 60 60)"
+            />
+          </svg>
+          <span className="mono">{fmtClock(phase === "idle" ? DURATION_MS : remaining)}</span>
+        </div>
+        <div className="bpx-run" aria-label="Run">
+          <span>Combo <b className="tnum">×{combo}</b></span>
+          <span>Lines <b className="tnum">{game.lines}</b></span>
+        </div>
+        <div className="bpx-stake">
+          {run ? (
+            <span>Entry <b className="tnum">{fmtN(run.entry)}</b> · Pot <b className="tnum">{fmtN(run.entry * 2)}</b></span>
+          ) : (
+            <span>Practice · nothing staked</span>
+          )}
+        </div>
+      </header>
 
+      <section className="bpx-mid" aria-label="Board">
+        <h1 className="sr-only">Block Puzzle</h1>
       <div className="bp-stage">
         {board}
         {phase === "idle" && !run && (
@@ -435,6 +421,15 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
               <p className="meta tnum">
                 {st.moves} moves · {game.lines} lines · {game.gemsCleared} gems cleared
               </p>
+              {recent.length > 0 && (
+                <ul className="bpx-clears" aria-label="Recent clears">
+                  {recent.slice(0, 3).map((c) => (
+                    <li key={c.id}>
+                      {c.lines} {c.lines === 1 ? "line" : "lines"} cleared <b className="tnum">+{c.gained}</b>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {run ? (
                 <p className="note">Run over. Sending it to the chain…</p>
               ) : (
@@ -488,29 +483,14 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       <p className="note bp-help">Drag a piece onto the board, or tap a piece then a cell.</p>
       </section>
 
-      <aside className="cut cut-frame bpx-panel bpx-right" aria-label="Run">
-        <div className="bpx-combo">
-          <span className="h-section">Combo</span>
-          <b className="h-section tnum">×{combo}</b>
+      {(matchPanel || run) && (
+        <div className="bpx-foot">
+          {matchPanel}
+          <span className="mono bpx-seed" title="Seed">
+            {phase === "idle" ? "Seed —" : `Seed 0x${st.seed.toString(16).padStart(16, "0").slice(0, 6)}…`}
+          </span>
         </div>
-        <div className="bpx-lines">
-          <span>Lines cleared</span>
-          <b className="tnum">{game.lines}</b>
-        </div>
-        <div className="bpx-recent">
-          <h2 className="h-section">Recent</h2>
-          {recent.length === 0 && <p className="meta">Clear a full row or column to see it here.</p>}
-          {recent.map((c) => (
-            <div key={c.id} className="cut cut-card bpx-clear">
-              <span>
-                <b>{c.lines} {c.lines === 1 ? "line" : "lines"} cleared</b>
-                <small>{Math.max(0, Math.round((c.at - remaining) / 1000))}s ago</small>
-              </span>
-              <b className="tnum">+{c.gained}</b>
-            </div>
-          ))}
-        </div>
-      </aside>
+      )}
 
       {drag && (
         <div className="bp-ghost" style={{ transform: `translate(${drag.px}px, ${drag.py}px) translate(-50%, -50%)` }} aria-hidden="true">

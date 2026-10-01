@@ -18,22 +18,14 @@
 }
 .hd-card.empty { border: 1px dashed rgba(234, 239, 236, 0.18); background: rgba(255, 255, 255, 0.03); }
 
-/* layout: info | table | turn + log, then the action bar */
-.hdx { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
-.hdx-panel { --edge: var(--line-2); background: var(--shell); padding: 16px 16px 18px; display: grid; gap: 12px; align-content: start; min-width: 0; }
-.hdx-info { order: 1; }
-.hdx-stage { order: 2; display: grid; gap: 12px; min-width: 0; }
-.hdx-side { display: contents; }
-.hdx-clock { order: 3; }
-.hdx-actions { order: 4; }
-.hdx-log { order: 5; }
-.hdx-info h1 { font-size: clamp(32px, 3vw, 46px); line-height: 0.95; color: #fff; }
-.hdx-level { color: var(--fg-2); font-size: 15px; }
-.hdx-entry { --edge: rgba(45, 190, 140, 0.6); display: inline-flex; align-items: center; gap: 10px; width: fit-content; padding: 10px 16px; background: linear-gradient(180deg, #0f3029, #0a2320); font-weight: 800; font-size: 18px; color: var(--em-hi); }
-.hdx-kv { display: grid; margin: 0; }
-.hdx-kv > div { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 15px; }
-.hdx-kv dt { color: var(--fg-2); }
-.hdx-kv dd { margin: 0; }
+/* layout: slim header, the table, the action bar, a collapsible hand log */
+.hdx { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; width: 100%; }
+.hdx-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 0 4px; }
+.hdx-head-l { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.hdx-title { font-size: 20px; font-weight: 800; }
+.hdx-level { color: var(--fg-2); font-size: 14px; }
+.hdx-entry { --edge: rgba(45, 190, 140, 0.6); display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 6px 12px; background: linear-gradient(180deg, #0f3029, #0a2320); font-weight: 800; font-size: 14px; color: var(--em-hi); }
+.hdx-stage { display: grid; gap: 12px; min-width: 0; }
 
 /* the octagonal table: steel rim, dark navy surface */
 .hdx-table {
@@ -87,18 +79,21 @@
 .hd-show-l:not(:first-child) { margin-left: 8px; }
 
 /* turn timer */
-.hdx-clock { gap: 10px; }
+.hdx-clock { display: grid; gap: 6px; min-width: 220px; }
 .hdx-clock-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.hdx-who { font-weight: 800; font-size: 20px; }
-.hdx-secs { font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.hdx-who { font-weight: 700; font-size: 15px; }
+.hdx-secs { font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .hdx-secs.low { color: var(--warn); }
 .hd-clock-bar { height: 5px; background: rgba(255, 255, 255, 0.08); }
 .hd-clock-bar i { display: block; height: 100%; background: var(--fg); transition: width 250ms linear; }
 .hd-clock-bar i.low { background: var(--warn); }
 .hd-claim { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
-/* hand log */
-.hdx-log h2 { font-size: 32px; color: #fff; }
+/* hand log: a quiet drawer under the action bar */
+.hdx-log { border-top: 1px solid var(--line); padding-top: 12px; }
+.hdx-log summary { cursor: pointer; font-size: 15px; font-weight: 600; color: var(--fg-2); padding: 8px 0; }
+.hdx-log[open] summary { color: var(--fg); }
+.hdx-log-body { display: grid; gap: 4px; padding-top: 8px; }
 .hdx-street { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
 .hdx-street > b { font-size: 16px; }
 .hdx-row { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; font-size: 14px; }
@@ -106,7 +101,7 @@
 .hdx-row .mono { color: var(--fg-2); font-size: 13px; }
 
 /* action bar */
-.hdx-actions { --edge: var(--line-2); background: var(--shell); padding: 14px; display: grid; gap: 14px; }
+.hdx-actions { --edge: var(--line-2); background: var(--shell); padding: 16px; display: grid; gap: 14px; }
 .hdx-btns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .hdx-btn {
   --c: 10px; --edge: var(--line-2); min-height: 64px; display: grid; place-content: center; gap: 0; background: #141a20; border: 0; color: var(--fg); font-size: 20px; font-weight: 800;
@@ -142,6 +137,7 @@
 
 .hd-sigs summary { cursor: pointer; }
 .hd-sigs { gap: 6px; }
+.hd-sigs, .hd-note { width: 100%; max-width: 1100px; margin-inline: auto; }
 
 /* phones: the table shrinks, the info panel becomes a one-line strip */
 @media (max-width: 719px) {
@@ -151,20 +147,13 @@
   .hdx-board { gap: 4px; }
   .hdx-plaque { min-width: 150px; padding: 6px 16px 7px; }
   .hd-bet { left: calc(50% + 86px); }
-  .hdx-info { grid-template-columns: 1fr auto; align-items: center; }
-  .hdx-info .hdx-kv { grid-column: 1 / -1; grid-template-columns: repeat(2, 1fr); column-gap: 16px; }
 }
 @media (min-width: 720px) {
   .hd-card { --w: 52px; }
   .hd-card.lg { --w: 66px; }
 }
 @media (min-width: 1024px) {
-  .hdx { grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(250px, 330px); }
-  .hdx-info { order: 1; }
-  .hdx-stage { order: 2; }
-  .hdx-side { display: grid; gap: 14px; min-width: 0; order: 3; align-content: start; }
-  .hdx-clock, .hdx-log { order: 0; }
-  .hdx-actions { order: 4; grid-column: 1 / -1; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
+  .hdx-actions { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
   .hdx-raise { grid-template-columns: 150px minmax(0, 1fr); }
   .hdx-raise-in { display: grid; gap: 6px; justify-content: stretch; }
   .hdx-raise-in input { width: 100%; }

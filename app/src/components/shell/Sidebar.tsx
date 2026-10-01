@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpen, CircleHelp, Gamepad2, HandCoins, House, Wallet, type LucideIcon } from "lucide-react";
 import { TesoroLogo } from "@/components/brand";
-import { PositionsCard } from "./PositionsCard";
 
 export const NAV: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/", label: "Lobby", Icon: House },
@@ -32,7 +31,6 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
     <>
       <div className="side-top">
         <Wordmark onNavigate={onNavigate} />
-        <span className="cut cut-chip fair">Fair play · on-chain</span>
       </div>
       <nav aria-label="Main" className="side-nav">
         {NAV.map(({ href, label, Icon }) => {
@@ -56,7 +54,6 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           Help
         </span>
       </div>
-      {!path.startsWith("/wallet") && <PositionsCard onNavigate={onNavigate} />}
     </>
   );
 }

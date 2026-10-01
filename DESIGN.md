@@ -1,8 +1,8 @@
 # Tesoro Design
 
-**Direction: Cut, lit.** The game is the star; the platform is quiet, neutral chrome. Tesoro's signature is its *shape* — the emerald cut — and emerald appears only where Gemas move. Reference 0 is the approved Lobby mockup `~/Work/gemstone-labs/tesoro/art-source/ui-redesign/lobby-desktop/take-1.png` (workspace, outside the repo) (1920×1200); structure follows Skillz (`attach/10-ref-skillz-desktop.jpg`), hero drama follows `attach/11-ref-chumba-desktop.jpg`. Original study: `~/Work/gemstone-labs/tesoro/docs/design/emerald-directions-study.html` (the "Cut" row).
+**Direction: Cut, lit.** The game is the star; the platform is quiet, neutral chrome. Tesoro's signature is its *shape* — the emerald cut — and emerald appears only where Gemas move. The mockups are **style references** (look, components, hierarchy), not page layouts: they are vertical images and tuck everything together to fit. Layout and density follow the section "Layout and density" below. Reference 0 is the approved Lobby mockup `~/Work/gemstone-labs/tesoro/art-source/ui-redesign/lobby-desktop/take-1.png` (workspace, outside the repo) (1920×1200); structure follows Skillz (`attach/10-ref-skillz-desktop.jpg`), hero drama follows `attach/11-ref-chumba-desktop.jpg`. Original study: `~/Work/gemstone-labs/tesoro/docs/design/emerald-directions-study.html` (the "Cut" row).
 
-Tesoro is a **desktop web app first** (sidebar, top bar, rails); phone and tablet are the same app collapsed, never a different product.
+Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); phone and tablet are the same app collapsed, never a different product.
 
 ## Principles
 
@@ -75,12 +75,12 @@ A small emerald-cut stone (octagon with table facet and facet lines, emerald gra
 ## Shell and layout
 
 - **Desktop (≥1024px):** fixed left sidebar (`--side-w`), then a sticky top bar over the content.
-  - Sidebar, top to bottom: wordmark with gem, "Fair play · on-chain" chip, Lobby / Play / Backing / Wallet (active item raised and outlined), divider, Docs / Help (not built yet: shown dimmed, not clickable), the **Your Positions** card. The card shows each Position (chain chip, principal, a 10-segment bar of Debt repaid by yield, Debt), the Unlock Estimate, the emerald **Redeemable now** panel and the **Pending** panel; real data when signed in, a sign-in prompt when not.
-  - Top bar: search (filters games on the Lobby; typing elsewhere goes to the Lobby), the Gema balance pill (emerald, links to Wallet) and the Account avatar menu (Account, Wallet, Sign out). Signed out: a Sign in button instead.
-  - The Lobby content is full width up to the viewport edge; every other page is a centred column (max 1180px).
-- **Below 1024px:** the sidebar becomes a left drawer (menu button in the top bar), a four-item bottom navigation appears, the search box drops to its own row on the Lobby, and rails show a peeking next tile (horizontal scroll).
-- **Lobby order:** category chips (Puzzle, Cards, Head-to-head, Async filter Play Now; Backing scrolls to Back a Player) → hero carousel (active slide plus the next slide peeking, dots, next arrow, auto-advance that pauses on hover, focus and a Pause button, and stops under `prefers-reduced-motion`) → Continue (only with Matches in progress) → Play Now → Play Again (only with settled Matches) → live ticker → Back a Player → footer.
-- **Rails:** a bold condensed header, `VIEW ALL →`, and ← → cut arrow buttons that scroll the track. Tiles per screen follow the container width, not the viewport (6 / 5 / 4 / 3 / peeking).
+  - Sidebar is navigation only, top to bottom: wordmark with gem, Lobby / Play / Backing / Wallet (active item raised and outlined), divider, Docs / Help (not built yet: shown dimmed, not clickable). No Positions card, no chips: balances live in the top bar pill and the Wallet.
+  - Top bar: the Gema balance pill (emerald, links to Wallet) and the Account avatar menu (Account, Wallet, Sign out); signed out: a Sign in button. The search box shows on the Lobby only and filters its games.
+  - Content is one centred column, max 1320px, with 32px side padding; wider screens get margins, not more content. The footer is one line ("Fair play · on-chain", the simulated-yield label) plus links.
+- **Below 1024px:** the sidebar becomes a left drawer (menu button in the top bar), a four-item bottom navigation appears, the search box drops to its own row on the Lobby, and grids collapse to one column.
+- **Lobby order:** hero carousel (one big slide, dots, next arrow, auto-advance that pauses on hover, focus and a Pause button, and stops under `prefers-reduced-motion`) → Continue (only with Matches in progress) → Play now (category filter chips above; the two live Games as large tiles; Coming soon as one quiet strip) → Play again (only with settled Matches, max 3) → Back a player (max 3 Requests, "See all") → footer. The settled-Matches ticker is not in the Lobby.
+- **Sections:** a bold condensed header, an optional "See all →" link, then a calm grid (no scroll arrows, no horizontal rails).
 
 ## Components
 
@@ -91,7 +91,7 @@ Live in `app/src/components/ui` (primitives, money, inputs, icons, `ui.css`), th
 - **Entry picker** — 500 / 1,000 / 2,500; the chosen entry is facet-filled with the Gema mark.
 - **Tile** — Play Now key art with a bottom label; coming-soon variant dimmed with a "Coming soon" chip.
 - **Player card** — avatar, name, Game, "N Matches · X% won", Entry, emerald **Offer**.
-- **Ticker**, **Balance pill**, **Positions card**, **Category chip**, **Search**, **Account menu** — see the shell and Lobby.
+- **Ticker**, **Balance pill**, **Category chip**, **Search**, **Account menu** — see the shell and Lobby.
 - Icons: neutral `lucide-react` line icons (1.7–1.8 stroke) in the shell; the original square-cap glyphs in `ui/icons.tsx` remain for status marks (check, cross, clock).
 
 ## Art
@@ -101,7 +101,7 @@ All game art, hero art and avatars come from one map, `app/src/lib/art.ts`. Unti
 ## Implementation decisions
 
 - `--fg-3` (40%) fails AA for text: decoration only; all text uses `--fg` or `--fg-2`.
-- Only Gema actions (Play now, Enter, Offer, Redeem, Take an Advance, sliders that set Gema amounts) and the balance are emerald. The Debt-repaid segments in the Positions card are emerald because they are Debt paid by yield.
+- Only Gema actions (Play now, Enter, Offer, Redeem, Take an Advance, sliders that set Gema amounts) and the balance are emerald.
 - Money buttons use `--em-ink` for text and focus rings.
 - Match results always pair an icon with words: ✓ Won · ✕ Lost · − Draw / Refunded (Play Again tiles too).
 - Simulated Unlock Estimates show an absolute time (the yield clock runs 1 month = 10 min); "–" until one exists.
@@ -130,23 +130,32 @@ Never full-body inside a page layout, and never during play: no character in the
 | Wallet, Opening an ETH Position | guide tip: `her-waiting-crosschain` ("LayerZero usually takes 2–5 minutes") |
 | Lobby, first visit | guide tip: `him-welcome` |
 | Backing, first visit | guide tip: `her-backing` ("What Backing means") |
-| Backing, Make an Offer drawer | small bust card: `her-backing` |
 | Backing, empty states | bust card: `her-empty` |
 | Game page (`/play/<game>`) | bust card "How to play": `him-explain` |
 
-**Match result.** Frame: game tile + rules left, outcome centre. Won shows the faceted emerald burst behind "+N Gemas" and always the line "Pending · redeemable as their yield lands" linking to the Wallet: won Gemas are claims on the loser's Source, never cash in hand. Loss is neutral-white with a danger icon; no burst. Backed Matches show the split (BackingSplit); the backed Player is told they never owe anything. Hold'em shows a Chips-free result (Won / Lost tiles).
+**Match result.** One focused card (max 760px): game and rule line, outcome, amount, scores, entry and fee; the actions sit under it, nothing else competes. Won shows the faceted emerald burst behind "+N Gemas" and always the line "Pending · redeemable as their yield lands" linking to the Wallet: won Gemas are claims on the loser's Source, never cash in hand. Loss is neutral-white with a danger icon; no burst. Backed Matches show the split (BackingSplit); the backed Player is told they never owe anything. Hold'em shows a Chips-free result (Won / Lost tiles).
 
-**Wallet.** `wl-*` classes. Total Balance and Redeemable now are faceted emerald panels (`.facet-panel`, money only); Pending is neutral with a clock. Position tiles are one column per chain (SOL, ETH, HYPE); a chain with no Position shows a single call to action ("Open an ETH Position"), HYPE is "HyperEVM coming soon" (disabled). The Debt chart is a projection from the live yield rate and is labelled projected. The right column is the inline Open a Position panel (chain tabs, Amount, Horizon, Gemas issued and Unlock Estimate from the real quote). Copy rule: "Your Principal is never played", never "protected". The sidebar's Your Positions card is hidden on `/wallet`.
+**Wallet.** `wl-*` classes. One balance hero (`.facet-panel`, money only): Total Balance big, Redeemable now (with the Redeem action) and Pending as two secondary figures, Pending by Source behind a toggle. "Open a Position" is a header button that opens a sheet (chain tabs, Amount, Horizon, Gemas issued and Unlock Estimate from the real quote). Positions are a grid of cards showing only Principal, Debt and Unlock Estimate; APY and the Debt chart (a projection from the live yield rate, labelled projected) sit behind "Details". Only chains with a Position get a card; HYPE is a muted line ("coming soon"). The "How Gemas work" bust card appears once, below the Positions. Copy rule: "Your Principal is never played", never "protected".
 
 **Game page, play screens, cross-chain tracker (p2b).** Mockups `{game-block-puzzle,play-block-puzzle,play-holdem,wallet-crosschain}-desktop/take-1.png`; screenshots `app/docs/screens/p2b-*.png` and `p2b-compare-*.png` (`app/scripts/screenshot-p2b.mjs`).
-- `/play/<game>` (`block-puzzle`, `holdem`) is the Game's detail page, linked from the Lobby tile: hero with entry picker, Play now, Challenge a friend (and Practice for Block Puzzle), Your recent matches, Top scores today (Block Puzzle winners' scores of the last 24 h from settled Matches on chain; hidden when there are none) and the How to play bust card. The Lobby hero keeps its own Play now. `/play` redirects to Block Puzzle.
-- Block Puzzle play: three columns, MATCH (Entry, Pot, opponent status) | score, 90 s ring, board, tray | Combo ×n (consecutive clearing moves), Lines cleared, Recent clears. Practice (`/play/practice`) is the same screen with nothing staked. Below 1024px it stacks (board first).
-- Hold'em play: info panel | octagonal navy table with a steel rim (the emerald cut as a shape, no green felt) | turn timer and Hand log; action bar below (Fold, Check, Call, Raise, Raise to, slider, presets, All-in). The Hand log is inferred by this client from table reads (a poll can merge two actions) and says so.
-- `/wallet/opening`: OPENING YOUR ETH POSITION, four steps (Hoodi confirmed, LayerZero delivered, Position recorded, Gemas available). Only the last step means Gemas exist; pending never shows a check. Shown right after "Open an ETH Position"; the Wallet's in-page trackers remain.
+- `/play/<game>` (`block-puzzle`, `holdem`) is the Game's detail page, linked from the Lobby tile: a hero with the entry picker, Play now, Challenge a friend (and Practice for Block Puzzle); below it two sections only: Recent Matches (with Top scores today inside it when Block Puzzle has winners from the last 24 h on chain) and the How to play bust card. `/play` redirects to Block Puzzle.
+- Block Puzzle play: the board is the centre. A slim bar above it carries the score, the 90 s ring, Combo ×n and Lines, and Entry · Pot; the opponent status and Seed sit in one line under the tray. No Recent list during play (the last clears show on the game-over card). Practice (`/play/practice`) is the same screen with nothing staked.
+- Hold'em play: a slim header (title, blinds, hand #, entry, turn clock), the octagonal navy table with a steel rim centred and large (no green felt), the action bar (Fold, Check, Call, Raise, Raise to, slider, presets, All-in), and the Hand log in a collapsed drawer (inferred by this client from table reads; a poll can merge two actions, and it says so).
+- `/wallet/opening`: OPENING YOUR ETH POSITION, four steps (Hoodi confirmed, LayerZero delivered, Position recorded, Gemas available). Only the last step means Gemas exist; pending never shows a check. Shown right after "Open an ETH Position": the four-step tracker plus one summary line and one note; the corner guide explains the wait. The Wallet's in-page trackers remain.
 - Dev only: `/design/play` (Block Puzzle Match screen, local Seed) and `/design/table` (Hold'em table on a fixed hand, `?facing=1`).
 
-**Backing.** Tabs Requests / Public Offers / My Backings, sort and grid/list toggle; Request cards (avatar, handle, game, "N Matches · X% won", game art strip, Requested entry, Make an Offer). The MAKE AN OFFER drawer sits in the right column on desktop and becomes a bottom sheet below 1024px.
+**Backing.** Page header with a "Post a Request" button (opens a sheet) and tabs Requests / Public Offers / My Backings with one Sort select. Request cards sit in a calm grid (avatar, handle, game, "N Matches · X% won", Requested entry, Make an Offer); no game art strip. The MAKE AN OFFER drawer opens on demand over the page from the right (a bottom sheet below 1024px). Banners show only when actionable (a funded Backing, an Offer for you, an error or confirmation).
 
-**Layout.** `/wallet`, `/backing` and `/play/match` use the broad column (`.app-main.broad`, up to 1680px) instead of the centred 1180px one. Big display figures use proportional numerals (no `.tnum`).
+## Layout and density
+
+The founder's rule (Oct 1): the website must not copy the mockups' density. Mockups are vertical images that tuck everything together; the app scrolls.
+
+- **Pages scroll.** Do not fit everything into one viewport. Each section has one job, with 64–96px between sections on desktop (`--section-gap`: 56px, 80px from 1024px) and a capped, centred column (max 1320px); 1920px screens get margins, not more stuff.
+- **One primary action per screen**, obvious. Secondary information goes behind progressive disclosure: `<details>` toggles ("Details", "Pending by Source", the Hand log), hover and tooltips, and sheets or drawers that open on demand (Open a Position, Post a Request, Make an Offer, Redeem).
+- **Fewer simultaneous panels**, fewer labels and meta lines, fewer type sizes, more line-height. A number appears once per screen.
+- **Global chrome is minimal**: the sidebar is navigation only, the top bar holds the balance pill and the Account (search on the Lobby only), the footer is one line plus links. Category chips belong to the Lobby's Play now section only.
+- **Play screens** centre the game (board or table) with a slim bar above; side columns do not exist. Info that is not needed mid-play moves to the result.
+- **Mobile (390px)** applies the same simplifications; secondary content goes in sheets; nothing crowds horizontally.
+- Screenshots for this pass: `app/docs/screens/declutter-*-before.png` and `-after.png` (`app/scripts/screenshot-declutter.mjs`); live proof by `app/scripts/live-declutter.mjs`.
 
 Dev only: `/design/result?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost` renders every result variant from fixtures (`NEXT_PUBLIC_DEV_WALLET=1`).

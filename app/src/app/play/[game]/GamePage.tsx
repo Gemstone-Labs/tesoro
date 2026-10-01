@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ChevronRight, Clock, Link2, Users } from "lucide-react";
+import { ChevronRight, Clock, Link2 } from "lucide-react";
 import { toPlayed, type Played } from "@/components/lobby/PlayAgainRail";
 import { BustCard, Button, CheckIcon, EntryPicker, GemaMark, MinusIcon, XIcon } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -108,14 +108,9 @@ export function GamePage({ game }: { game: GameId }) {
       <section className="cut cut-frame gp-hero" aria-label={name}>
         <Image className="gp-hero-art" src={copy.hero} alt="" fill sizes="(min-width: 1024px) 1400px, 100vw" priority />
         <div className="gp-hero-body">
-          <span className="cut cut-chip gp-tag">
-            <Users aria-hidden="true" /> {copy.tag}
-          </span>
           <h1 className="gp-title">{name}</h1>
           <p className="gp-sub">
             {copy.sub[0]}
-            <br />
-            {copy.sub[1]}
           </p>
           <EntryPicker value={entry} onChange={setEntry} name={`gp-entry-${game}`} />
           <div className="gp-cta">
@@ -134,13 +129,10 @@ export function GamePage({ game }: { game: GameId }) {
         </div>
       </section>
 
-      <div className={`gp-grid${top.length === 0 ? " solo" : ""}`}>
+      <div className="gp-grid">
         <section className="cut cut-frame gp-panel" aria-labelledby="gp-recent">
           <header className="gp-head">
-            <h2 id="gp-recent" className="h-section">Your recent matches</h2>
-            <Link href="/" className="gp-all">
-              VIEW ALL <ChevronRight aria-hidden="true" />
-            </Link>
+            <h2 id="gp-recent" className="h-section">Recent Matches</h2>
           </header>
           {mine.length === 0 ? (
             <p className="meta gp-empty">
@@ -149,13 +141,10 @@ export function GamePage({ game }: { game: GameId }) {
           ) : (
             mine.map((p) => <Recent key={p.id} p={p} />)
           )}
-        </section>
-
-        <div className="gp-right">
           {top.length > 0 && (
-            <section className="cut cut-frame gp-panel" aria-labelledby="gp-top">
-              <header className="gp-head">
-                <h2 id="gp-top" className="h-section">Top scores today</h2>
+            <div className="gp-top-wrap" role="group" aria-labelledby="gp-top">
+              <header>
+                <h3 id="gp-top" className="gp-sub-h">Top scores today</h3>
               </header>
               {top.map(([key, score], i) => (
                 <div key={key} className="cut cut-card gp-top">
@@ -166,9 +155,12 @@ export function GamePage({ game }: { game: GameId }) {
                 </div>
               ))}
               <p className="note">Best winning score per Player in the last 24 hours, from settled Matches on Solana devnet.</p>
-            </section>
+            </div>
           )}
 
+        </section>
+
+        <div className="gp-right">
           <BustCard bust="himExplain" size={190} className="gp-how">
             <h2 className="h-section">How to play</h2>
             <b>{copy.how}</b>

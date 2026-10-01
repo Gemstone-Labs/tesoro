@@ -8,8 +8,7 @@
 .bust-card-body p { font-size: 13.5px; color: var(--fg-2); margin-top: 2px; }
 @media (max-width: 639px) { .bust-card-img { width: min(var(--bust-w, 120px), 96px); } }
 
-/* ——— Broad pages (Wallet, Backing, Match result): full-width column ——— */
-.app-main.broad { max-width: 1680px; }
+/* ——— Page header ——— */
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 24px; flex-wrap: wrap; }
 .page-head h1 { font-size: clamp(40px, 4.2vw, 76px); line-height: 0.95; }
 .page-sub { color: var(--fg); font-size: clamp(14px, 1.2vw, 18px); margin-top: 6px; }
