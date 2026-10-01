@@ -13,14 +13,16 @@ import os from "node:os";
 import path from "node:path";
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { createRemoteJWKSet, jwtVerify } from "jose";
-import nacl from "tweetnacl";
 import { TESORO_CORE_PROGRAM_ID, BlockPuzzleChain, type AnyProgram } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { unitsToRepay, type SourceMath } from "@/lib/chain/ledger";
+import { DEFAULT_BASE_RPC } from "@/lib/chain/rpc-config";
 import { WindowLimiter, takeAll } from "./rate-limit";
+import { DemoHttpError, NonceStore, verifySignedRequest } from "./request-auth";
 
-const BASE_RPC = process.env.TESORO_BASE_RPC ?? "https://rpc.magicblock.app/devnet";
+export { DemoHttpError };
+
+export const BASE_RPC = process.env.TESORO_BASE_RPC || DEFAULT_BASE_RPC;
 const DAY = 24 * 60 * 60 * 1000;
 
 /** The simulated Position: 10 SOL at 10% APY, 6-month Horizon, SOL at $150 = 7,500 Gemas. */
@@ -42,18 +44,9 @@ const limits = {
   advancePerUser: new WindowLimiter(5, DAY),
   advanceGlobal: new WindowLimiter(300, DAY),
   solPerAccount: new WindowLimiter(0.3 * LAMPORTS_PER_SOL, DAY),
+  solPerUser: new WindowLimiter(0.3 * LAMPORTS_PER_SOL, DAY),
   solGlobal: new WindowLimiter(20 * LAMPORTS_PER_SOL, DAY),
 };
-
-export class DemoHttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
 
 // ---- keys ---------------------------------------------------------------------------------------
 
@@ -112,49 +105,20 @@ export async function sendAndConfirm(tx: Transaction, signers: Keypair[]): Promi
 
 // ---- request authentication -----------------------------------------------------------------------
 
-export type Step = "fund" | "advance" | "accrue";
-export const message = (step: Step, address: string, ts: number) => `tesoro-demo|${step}|${address}|${ts}`;
+/** Single-use nonces of /api/demo-advance and /api/eth-bridge (one store: both share the 5-min window). */
+export const nonces = new NonceStore();
 
-const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
-const devWallet = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_DEV_WALLET === "1";
-const jwks = privyAppId ? createRemoteJWKSet(new URL(`https://auth.privy.io/api/v1/apps/${privyAppId}/jwks.json`)) : null;
-
-/**
- * Two proofs: the wallet signed a fresh message (it controls `address`), and, when Privy is
- * configured, a valid Privy access token (a signed-in Account). Returns the Privy user id, if any.
- */
-export async function authenticateMessage(text: string, body: { address: string; ts: number; signature: string }, authorization: string | null) {
-  const { address, ts, signature } = body;
-  if (Math.abs(Date.now() - ts) > 5 * 60 * 1000) throw new DemoHttpError(401, "stale", "Request expired. Try again.");
-  let ok = false;
-  try {
-    ok = nacl.sign.detached.verify(new TextEncoder().encode(text), Buffer.from(signature, "base64"), new PublicKey(address).toBytes());
-  } catch {
-    ok = false;
-  }
-  if (!ok) throw new DemoHttpError(401, "bad-signature", "Wallet signature did not verify.");
-  if (!jwks || devWallet) return null;
-  const token = authorization?.replace(/^Bearer\s+/i, "");
-  if (!token) throw new DemoHttpError(401, "signed-out", "Sign in to use the demo Advance.");
-  try {
-    const { payload } = await jwtVerify(token, jwks, { issuer: "privy.io", audience: privyAppId });
-    return payload.sub ?? null;
-  } catch {
-    throw new DemoHttpError(401, "signed-out", "Sign in to use the demo Advance.");
-  }
-}
-
-const authenticate = (body: { step: Step; address: string; ts: number; signature: string }, authorization: string | null) =>
-  authenticateMessage(message(body.step, body.address, body.ts), body, authorization);
+/** Per-user quota claim: the verified Privy user id, when there is one (always in production). */
+export const perUser = (limiter: WindowLimiter, sub: string | null) => (sub ? ([[limiter, sub]] as const) : []);
 
 // ---- steps --------------------------------------------------------------------------------------
 
-async function fund(address: PublicKey) {
+async function fund(address: PublicKey, sub: string | null) {
   const { conn } = chain();
   const balance = await conn.getBalance(address);
   if (balance >= FUND_BELOW) return { funded: false, lamports: balance };
   const key = address.toBase58();
-  const refund = takeAll([[limits.solPerAccount, key], [limits.solGlobal, "all"]], FUND_AMOUNT);
+  const refund = takeAll([[limits.solPerAccount, key], ...perUser(limits.solPerUser, sub), [limits.solGlobal, "all"]], FUND_AMOUNT);
   if (!refund) throw new DemoHttpError(429, "rate-limited", "Demo SOL limit reached for this Account. Try again tomorrow.");
   const relayer = relayerKey();
   if ((await conn.getBalance(relayer.publicKey)) < RELAYER_MIN_LAMPORTS + FUND_AMOUNT) {
@@ -174,7 +138,7 @@ async function advance(address: PublicKey, sub: string | null) {
     throw new DemoHttpError(409, "account-missing", "Create your Account first.");
   }
   const key = address.toBase58();
-  if (!takeAll([[limits.advancePerAccount, key], ...(sub ? ([[limits.advancePerUser, sub]] as const) : []), [limits.advanceGlobal, "all"]])) {
+  if (!takeAll([[limits.advancePerAccount, key], ...perUser(limits.advancePerUser, sub), [limits.advanceGlobal, "all"]])) {
     throw new DemoHttpError(429, "rate-limited", "Demo Advance limit reached for this Account. Try again tomorrow.");
   }
 
@@ -244,28 +208,19 @@ async function accrue(address: PublicKey, positionKey: PublicKey) {
 // ---- entry point --------------------------------------------------------------------------------
 
 export async function handleDemoRequest(raw: unknown, authorization: string | null): Promise<unknown> {
-  const body = raw as { step?: Step; address?: string; ts?: number; signature?: string; position?: string };
-  if (!body || !["fund", "advance", "accrue"].includes(body.step ?? "") || !body.address || typeof body.ts !== "number" || !body.signature) {
-    throw new DemoHttpError(400, "bad-request", "Malformed request.");
-  }
-  let address: PublicKey;
-  try {
-    address = new PublicKey(body.address);
-  } catch {
-    throw new DemoHttpError(400, "bad-request", "Malformed address.");
-  }
-  if (body.step !== "fund" && process.env.TESORO_DEMO_ADVANCE !== "1") {
+  const step = (raw as { step?: unknown } | null)?.step;
+  if ((step === "advance" || step === "accrue") && process.env.TESORO_DEMO_ADVANCE !== "1") {
     throw new DemoHttpError(410, "disabled", "The demo Advance is off. Open a real Position with simSOL instead.");
   }
-  const sub = await authenticate({ step: body.step as Step, address: body.address, ts: body.ts, signature: body.signature }, authorization);
-  switch (body.step) {
+  const req = await verifySignedRequest("tesoro-demo", ["fund", "advance", "accrue"] as const, raw, authorization, { nonces });
+  switch (req.step) {
     case "fund":
-      return fund(address);
+      return fund(req.address, req.sub);
     case "advance":
-      return advance(address, sub);
+      return advance(req.address, req.sub);
     default:
       try {
-        return await accrue(address, new PublicKey(body.position ?? ""));
+        return await accrue(req.address, new PublicKey(String(req.fields.position ?? "")));
       } catch (e) {
         if (e instanceof DemoHttpError) throw e;
         throw new DemoHttpError(400, "bad-request", "Malformed Position.");

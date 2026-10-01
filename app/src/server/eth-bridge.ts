@@ -38,12 +38,16 @@ import {
   ethPositionId,
   evmLinkPda,
   holdingPda,
+  initPositionIdAllowed,
   isKnownVault,
   parseBridgePosition,
   sourceAuthPda,
+  vaultAbi,
 } from "@/lib/chain/eth";
+import type { SignedFields } from "@/lib/chain/signed-request";
 import { WindowLimiter, takeAll } from "./rate-limit";
-import { DemoHttpError, RELAYER_MIN_LAMPORTS, authenticateMessage, chain, oracleKey, relayerKey, sendAndConfirm } from "./demo-advance";
+import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
+import { verifySignedRequest } from "./request-auth";
 
 const DAY = 24 * 60 * 60 * 1000;
 const FUND_BELOW = parseEther("0.004");
@@ -51,19 +55,21 @@ const FUND_AMOUNT = parseEther("0.006");
 /** The relayer keeps at least this much Hoodi ETH. */
 const RELAYER_MIN_ETH = parseEther("0.01");
 
-/** Hoodi ETH is scarce: cap per EVM address, per Account and in total. */
+/** Hoodi ETH is scarce: cap per EVM address, per Account, per signed-in user and in total. */
 const limits = {
   ethPerEvm: new WindowLimiter(Number(parseEther("0.02")), DAY),
   ethPerAccount: new WindowLimiter(Number(parseEther("0.02")), DAY),
+  ethPerUser: new WindowLimiter(Number(parseEther("0.02")), DAY),
   ethGlobal: new WindowLimiter(Number(parseEther("0.3")), DAY),
   relayPerAccount: new WindowLimiter(60, DAY),
+  relayPerUser: new WindowLimiter(60, DAY),
   relayGlobal: new WindowLimiter(600, DAY),
   advancePerAccount: new WindowLimiter(10, DAY),
+  advancePerUser: new WindowLimiter(10, DAY),
 };
 
 export type EthStep = "fund-evm" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "advance";
 const STEPS: EthStep[] = ["fund-evm", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "advance"];
-export const ethMessage = (step: string, address: string, ts: number) => `tesoro-eth|${step}|${address}|${ts}`;
 
 // ---- keys and clients ----------------------------------------------------------------------------
 
@@ -85,13 +91,13 @@ const hoodiPublic = () => createPublicClient({ chain: hoodi, transport: http(HOO
 
 // ---- Hoodi ETH top-up ----------------------------------------------------------------------------
 
-async function fundEvm(address: string, evm: string) {
+async function fundEvm(address: string, evm: string, sub: string | null) {
   if (!/^0x[0-9a-fA-F]{40}$/.test(evm)) throw new DemoHttpError(400, "bad-request", "Malformed EVM address.");
   const client = hoodiPublic();
   const balance = await client.getBalance({ address: evm as Address });
   if (balance >= FUND_BELOW) return { funded: false, balance: balance.toString() };
   const cost = Number(FUND_AMOUNT);
-  const refund = takeAll([[limits.ethPerEvm, evm.toLowerCase()], [limits.ethPerAccount, address], [limits.ethGlobal, "all"]], cost);
+  const refund = takeAll([[limits.ethPerEvm, evm.toLowerCase()], [limits.ethPerAccount, address], ...perUser(limits.ethPerUser, sub), [limits.ethGlobal, "all"]], cost);
   if (!refund) throw new DemoHttpError(429, "rate-limited", "Hoodi ETH limit reached for this Account. Try again tomorrow.");
   const account = privateKeyToAccount(evmRelayerKey());
   try {
@@ -125,16 +131,13 @@ const u64le = (n: bigint) => {
 const vecU8 = (b: Uint8Array) => Buffer.concat([u32le(b.length), Buffer.from(b)]);
 const key = (pubkey: PublicKey, isSigner = false, isWritable = false) => ({ pubkey, isSigner, isWritable });
 
-function parseRef(body: { vault?: string; id?: string }) {
-  if (!body.vault || !isKnownVault(body.vault)) throw new DemoHttpError(400, "bad-request", "Unknown vault.");
-  let id: bigint;
-  try {
-    id = BigInt(body.id ?? "");
-  } catch {
-    throw new DemoHttpError(400, "bad-request", "Malformed Position id.");
-  }
-  if (id <= 0n || id >= 1n << 63n) throw new DemoHttpError(400, "bad-request", "Malformed Position id.");
-  return { vault: body.vault, id, pid: ethPositionId(body.vault, id) };
+function parseRef(fields: SignedFields) {
+  const vault = typeof fields.vault === "string" ? fields.vault : "";
+  if (!isKnownVault(vault)) throw new DemoHttpError(400, "bad-request", "Unknown vault.");
+  if (typeof fields.id !== "string" || !/^[1-9]\d{0,18}$/.test(fields.id)) throw new DemoHttpError(400, "bad-request", "Malformed Position id.");
+  const id = BigInt(fields.id);
+  if (id >= 1n << 63n) throw new DemoHttpError(400, "bad-request", "Malformed Position id.");
+  return { vault, id, pid: ethPositionId(vault, id) };
 }
 
 /** Sends as the relayer after a simulation, so a step that cannot succeed costs nothing. */
@@ -154,9 +157,12 @@ async function relaySend(ixs: TransactionInstruction[], cu = 400_000): Promise<s
   return sendAndConfirm(new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: cu }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }), ...ixs), [relayer]);
 }
 
-async function initPosition(vault: string, pid: Buffer) {
+/** Inbox record for an id `initPositionIdAllowed` accepts (src/lib/chain/eth.ts). */
+async function initPosition(vault: string, id: bigint, pid: Buffer) {
   const { conn } = chain();
   if (await conn.getAccountInfo(bridgePositionPda(pid))) return { skipped: true };
+  const last = await hoodiPublic().readContract({ address: vault as Address, abi: vaultAbi, functionName: "nextPositionId" });
+  if (!initPositionIdAllowed(id, last)) throw new DemoHttpError(400, "bad-request", "Unknown Position id.");
   const relayer = relayerKey();
   const ix = new TransactionInstruction({
     programId: BRIDGE_ID,
@@ -234,7 +240,7 @@ let umiCache: { umi: ReturnType<typeof createUmi>; endpoint: EndpointProgram.End
 function lz() {
   if (!umiCache) {
     const relayer = relayerKey();
-    const umi = createUmi(process.env.TESORO_BASE_RPC ?? "https://rpc.magicblock.app/devnet");
+    const umi = createUmi(BASE_RPC);
     umi.use(signerIdentity(createSignerFromKeypair(umi, fromWeb3JsKeypair(relayer as Keypair))));
     umiCache = { umi, endpoint: new EndpointProgram.Endpoint(EndpointProgram.ENDPOINT_PROGRAM_ID) };
   }
@@ -371,7 +377,7 @@ export async function ethPrice(): Promise<{ microUsd: bigint; live: boolean }> {
   return priceCache;
 }
 
-async function advance(address: PublicKey, pid: Buffer, months: number) {
+async function advance(address: PublicKey, pid: Buffer, months: number, sub: string | null) {
   const { conn } = chain();
   if (!Number.isInteger(months) || months < 1 || months > 12) throw new DemoHttpError(400, "bad-request", "Horizon must be 1 to 12 months.");
   const cp = corePositionPda(pid);
@@ -384,7 +390,9 @@ async function advance(address: PublicKey, pid: Buffer, months: number) {
   if (info.data[base + 4] === 1) throw new DemoHttpError(409, "advance-open", "This Position already has an open Advance.");
   const price = await ethPrice();
   if (!price.live) throw new DemoHttpError(503, "no-price", "The ETH price is unavailable right now. Try again in a minute.");
-  if (!limits.advancePerAccount.take(address.toBase58())) throw new DemoHttpError(429, "rate-limited", "Advance limit reached for this Account. Try again tomorrow.");
+  if (!takeAll([[limits.advancePerAccount, address.toBase58()], ...perUser(limits.advancePerUser, sub)])) {
+    throw new DemoHttpError(429, "rate-limited", "Advance limit reached for this Account. Try again tomorrow.");
+  }
   const oracle = oracleKey();
   const source = sourcePda(cp, advances);
   const ix = new TransactionInstruction({
@@ -417,27 +425,18 @@ export async function handleEthPrice() {
 }
 
 export async function handleEthRequest(raw: unknown, authorization: string | null): Promise<unknown> {
-  const body = raw as { step?: EthStep; address?: string; ts?: number; signature?: string; vault?: string; id?: string; evm?: string; months?: number; sourceIndex?: number };
-  if (!body || !STEPS.includes(body.step as EthStep) || !body.address || typeof body.ts !== "number" || !body.signature) {
-    throw new DemoHttpError(400, "bad-request", "Malformed request.");
-  }
-  let address: PublicKey;
-  try {
-    address = new PublicKey(body.address);
-  } catch {
-    throw new DemoHttpError(400, "bad-request", "Malformed address.");
-  }
-  await authenticateMessage(ethMessage(body.step as string, body.address, body.ts), { address: body.address, ts: body.ts, signature: body.signature }, authorization);
+  const { step, address, fields, sub } = await verifySignedRequest("tesoro-eth", STEPS, raw, authorization, { nonces });
+  const wallet = address.toBase58();
 
-  if (body.step === "fund-evm") return fundEvm(body.address, body.evm ?? "");
-  const ref = parseRef(body);
-  if (body.step === "advance") return advance(address, ref.pid, Number(body.months));
-  const refund = takeAll([[limits.relayPerAccount, body.address], [limits.relayGlobal, "all"]]);
+  if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
+  const ref = parseRef(fields);
+  if (step === "advance") return advance(address, ref.pid, Number(fields.months), sub);
+  const refund = takeAll([[limits.relayPerAccount, wallet], ...perUser(limits.relayPerUser, sub), [limits.relayGlobal, "all"]]);
   if (!refund) throw new DemoHttpError(429, "rate-limited", "Relay limit reached for this Account. Try again tomorrow.");
   try {
-    switch (body.step) {
+    switch (step) {
       case "init-position":
-        return await initPosition(ref.vault, ref.pid);
+        return await initPosition(ref.vault, ref.id, ref.pid);
       case "apply-locked":
         return await applyLocked(ref.vault, ref.pid);
       case "apply-yield":
@@ -445,11 +444,10 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
       case "send-unlock":
         return await sendUnlock(ref.vault, ref.pid);
       default:
-        return await sendPayYield(ref.vault, ref.pid, address, body.sourceIndex);
+        return await sendPayYield(ref.vault, ref.pid, address, fields.sourceIndex);
     }
   } catch (e) {
     refund();
     throw e;
   }
 }
-

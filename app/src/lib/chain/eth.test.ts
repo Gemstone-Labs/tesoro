@@ -9,6 +9,7 @@ import {
   ethSourceIndex,
   fetchEthState,
   ethUnlockEstimateMs,
+  initPositionIdAllowed,
   parseEthPositionId,
   projectedEthDebt,
   quoteEthAdvance,
@@ -192,5 +193,17 @@ describe("fetchEthState reads the Claim of the redeemed Source (SP-02)", () => {
   it("finds a Source's index among the Advances", () => {
     expect(ethSourceIndex(corePk, sourcePda(corePk, 1), 2)).toBe(1);
     expect(ethSourceIndex(corePk, sourcePda(corePk, 2), 2)).toBeNull();
+  });
+});
+
+describe("init-position ids (OC-08)", () => {
+  it("allows opened Positions and the next three ids only", () => {
+    expect(initPositionIdAllowed(1n, 41n)).toBe(true);
+    expect(initPositionIdAllowed(41n, 41n)).toBe(true);
+    expect(initPositionIdAllowed(44n, 41n)).toBe(true);
+    expect(initPositionIdAllowed(45n, 41n)).toBe(false);
+    expect(initPositionIdAllowed((1n << 63n) - 1n, 41n)).toBe(false);
+    expect(initPositionIdAllowed(0n, 41n)).toBe(false);
+    expect(initPositionIdAllowed(1n, 0n)).toBe(true);
   });
 });

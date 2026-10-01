@@ -23,14 +23,14 @@ Wallet: **Ethereum Positions · Hoodi** card, ETH Position cards, and one cross-
 
 ## What the server does (`/api/eth-bridge`)
 
-Requests are authenticated like the SOL top-up: the Solana wallet signs `tesoro-eth|<step>|<address>|<ts>` (5 minute window) and, with Privy configured, a Privy access token is required. Keys are read from disk inside `src/server/eth-bridge.ts` and never reach the client.
+Requests are authenticated like the SOL top-up (see [demo-funding.md](demo-funding.md#authentication)): the Solana wallet signs the whole request with a single-use nonce, and a Privy access token is required whenever Privy is configured (always in production). Every cap below applies per Account and, separately, per Privy user. Keys are read from disk inside `src/server/eth-bridge.ts` and never reach the client.
 
 | Step | What | Paid by | Cap |
 |---|---|---|---|
-| `fund-evm` | Hoodi ETH top-up (0.006 ETH when the wallet has under 0.004) from the relayer key `~/.config/tesoro/relayer-evm.env` (override `TESORO_RELAYER_EVM_ENV`) | Relayer | 0.02 ETH per EVM address and per Account per 24 h, 0.3 ETH total per 24 h; refuses if the relayer would drop under 0.01 ETH |
-| `init-position` | inbox record for the vault position id, before `openPosition` | Relayer (about 0.003 SOL) | relay cap below |
-| `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield` | the permissionless bridge steps; each is simulated first and skipped when a keeper already did it | Relayer (`~/.config/tesoro/relayer.json`, `TESORO_RELAYER_KEYPAIR`) | 60 per Account, 600 total per 24 h |
-| `advance` | `take_advance` signed by the oracle at the ETH price (Coinbase ETH-USD spot, a devnet price feed; refused while no live price is available), returned for the Account to co-sign; only for the Position's owner, only with no open Advance | Oracle | 10 per Account per 24 h |
+| `fund-evm` | Hoodi ETH top-up (0.006 ETH when the wallet has under 0.004) from the relayer key `~/.config/tesoro/relayer-evm.env` (override `TESORO_RELAYER_EVM_ENV`) | Relayer | 0.02 ETH per EVM address, per Account and per Privy user per 24 h, 0.3 ETH total per 24 h; refuses if the relayer would drop under 0.01 ETH |
+| `init-position` | inbox record for the vault position id, before `openPosition`. Only ids the vault has opened or the next three (`initPositionIdAllowed`, `src/lib/chain/eth.ts`) | Relayer (about 0.003 SOL) | relay cap below |
+| `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield` | the permissionless bridge steps; each is simulated first and skipped when a keeper already did it | Relayer (`~/.config/tesoro/relayer.json`, `TESORO_RELAYER_KEYPAIR`) | 60 per Account and per Privy user, 600 total per 24 h |
+| `advance` | `take_advance` signed by the oracle at the ETH price (Coinbase ETH-USD spot, a devnet price feed; refused while no live price is available), returned for the Account to co-sign; only for the Position's owner, only with no open Advance | Oracle | 10 per Account and per Privy user per 24 h |
 
 `GET /api/eth-bridge` returns the Advance price for the open form. Limits are in memory, per server process.
 
