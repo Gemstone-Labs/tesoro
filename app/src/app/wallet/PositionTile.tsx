@@ -123,13 +123,18 @@ export function PositionTile({
         <dd className="tnum">{rows.principal}</dd>
         <dt>Debt</dt>
         <dd className="tnum">{rows.debt}</dd>
-        <dt>APY</dt>
-        <dd className="tnum">{rows.apy}</dd>
         <dt>Unlock Estimate</dt>
         <dd>{rows.unlock}</dd>
       </dl>
-      <DebtChart title={chartTitle} series={series} fmt={fmt} />
       <div className="wl-actions">{children}</div>
+      <details className="wl-more">
+        <summary>Details</summary>
+        <dl>
+          <dt>APY</dt>
+          <dd className="tnum">{rows.apy}</dd>
+        </dl>
+        <DebtChart title={chartTitle} series={series} fmt={fmt} />
+      </details>
     </article>
   );
 }

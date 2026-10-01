@@ -100,7 +100,6 @@ export function OpenFormView({
         </details>
       )}
       {alerts}
-      <HowGemasWork />
       {note && <p className="note">{note}</p>}
       <Button variant="money" size="lg" block disabled={disabled} onClick={onSubmit}>
         {buttonLabel}
@@ -112,8 +111,7 @@ export function OpenFormView({
 /** Chain tabs + the active chain's form. HYPE is not open yet. */
 export function OpenPanel({ tab, onTab, children }: { tab: Chain; onTab: (c: Chain) => void; children: ReactNode }) {
   return (
-    <section className="cut cut-frame wl-open" id="open-position" aria-labelledby="open-h">
-      <h2 id="open-h" className="h-section">Open a position</h2>
+    <section className="wl-open" id="open-position" aria-label="Open a Position">
       <div className="wl-tabs" role="tablist" aria-label="Chain">
         {CHAINS.map((c) => (
           <button key={c} type="button" role="tab" aria-selected={tab === c} className={`cut cut-card${tab === c ? " on" : ""}`} onClick={() => onTab(c)}>

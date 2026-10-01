@@ -97,7 +97,7 @@ export function NativeFaucet({ market, loading }: { market: NativeMarket | null;
 }
 
 /** The SOL tab of OPEN A POSITION: lock simSOL and take the Advance in one transaction. `market` null = not read yet. */
-export function NativeOpenForm({ market, loading }: { market: NativeMarket | null; loading: boolean }) {
+export function NativeOpenForm({ market, loading, onDone }: { market: NativeMarket | null; loading: boolean; onDone?: () => void }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const balance = market ? Number(market.simSol) / LAMPORTS : 0;
@@ -134,7 +134,7 @@ export function NativeOpenForm({ market, loading }: { market: NativeMarket | nul
           <CheckIcon /> Position opened · <GemaAmount value={gemas} size="md" /> issued
         </div>
         <Sig label="open_native_position + take_native_advance" sig={a.done.sig} />
-        <Button block onClick={() => { a.clear(); setText(""); }}>Done</Button>
+        <Button block onClick={() => { a.clear(); setText(""); onDone?.(); }}>Done</Button>
       </div>
     );
   }
