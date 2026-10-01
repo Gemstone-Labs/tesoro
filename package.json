@@ -8,6 +8,7 @@
     "build:contracts": "cd contracts && forge build",
     "test:contracts": "cd contracts && forge test",
     "dev": "pnpm --filter @tesoro/app dev",
-    "build:app": "pnpm --filter @tesoro/app build"
+    "build:app": "pnpm --filter @tesoro/app build",
+    "prepare": "git config core.hooksPath .githooks || true"
   }
 }

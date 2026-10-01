@@ -14,3 +14,14 @@ next-env.d.ts
 .vercel
 .claude/worktrees/
 CLAUDE.local.md
+# Keys and secrets: never commit (see .githooks/pre-commit)
+id.json
+*keypair*.json
+*-key.json
+*.key
+*.pem
+*.p12
+deploy-keys/
+.keys/
+*secret*
+!**/*secret*.md

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Blocks commits that contain private keys or secrets. Bypass only with an explicit human decision.
+set -euo pipefail
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# 1. Files that look like key material or env files.
+while IFS= read -r f; do
+  case "$f" in
+    *.env|*.env.*|*/.env|.env) [[ "$f" == *.env.example ]] || { echo "pre-commit: refusing env file: $f"; fail=1; } ;;
+    *id.json|*keypair*.json|*-key.json|*.key|*.pem|*.p12|*/deploy-keys/*|*/.keys/*) echo "pre-commit: refusing key file: $f"; fail=1 ;;
+  esac
+done <<< "$staged"
+
+# 2. Secret-shaped content in the staged diff (added lines only), skipping vendored code.
+diff=$(git diff --cached -U0 --diff-filter=ACMR -- . ':(exclude)contracts/lib/**' ':(exclude).githooks/**' ':(exclude)**/node_modules/**' ':(exclude)pnpm-lock.yaml' ':(exclude)**/Cargo.lock' | grep -E '^\+[^+]' || true)
+check() { if printf '%s\n' "$diff" | grep -qE -- "$1"; then echo "pre-commit: possible $2 in staged changes"; printf '%s\n' "$diff" | grep -nE -- "$1" | cut -c1-120 | head -3; fail=1; fi; }
+check '\[([0-9]{1,3}, ?){63}[0-9]{1,3}\]' 'Solana keypair byte array'
+check '(PRIVATE_KEY|private_?key|secret_?key|mnemonic|seed_?phrase)["'"'"' ]*[=:] *["'"'"']?(0x)?[0-9a-fA-F]{64}' 'hex private key'
+check '-----BEGIN [A-Z ]*PRIVATE KEY-----' 'PEM private key'
+check '\b[1-9A-HJ-NP-Za-km-z]{87,88}\b' 'base58 secret key'
+check '(sk_live_|sk_test_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|xox[baprs]-)' 'API token'
+check '(alchemy\.com/v2/|helius-rpc\.com/\?api-key=)[A-Za-z0-9_-]{20,}' 'RPC API key'
+
+if [ "$fail" -ne 0 ]; then
+  echo "pre-commit: commit blocked. Remove the secret (keys live in ~/.config, never in the repo)."
+  exit 1
+fi
