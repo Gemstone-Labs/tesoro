@@ -316,7 +316,13 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
 
   const heldSources = holdingRows.map((h: any) => pk(h.account.inner.source));
   const ownedPositions = positionRows.map((p: any) => p.publicKey as PublicKey);
-  const sources = heldSources.length ? await chain.core.account.sourceState.fetchMultiple(heldSources) : [];
+  // The list route may answer from its cache (up to 2 min old): re-read each Holding so amounts are current after a return, entry or redeem.
+  const [sources, freshHoldings] = heldSources.length
+    ? await Promise.all([
+        chain.core.account.sourceState.fetchMultiple(heldSources),
+        chain.core.account.holdingState.fetchMultiple(holdingRows.map((r: any) => r.publicKey)),
+      ])
+    : [[], []];
   const positionKeys = new Map<string, PublicKey>();
   for (const s of sources) if (s) positionKeys.set(pk((s as any).inner.position).toBase58(), pk((s as any).inner.position));
   for (const p of ownedPositions) positionKeys.set(p.toBase58(), p);
@@ -335,7 +341,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
   holdingRows.forEach((row: any, i: number) => {
     const src: any = sources[i];
     if (!src) return;
-    const h = row.account.inner;
+    const h = ((freshHoldings[i] as any) ?? row.account).inner;
     const amount = big(h.amount);
     const reserved = big(h.reserved);
     const free = amount - reserved;
