@@ -7,10 +7,8 @@ import { X } from "lucide-react";
 import { GuideProvider } from "@/components/guide/Guide";
 import { SearchProvider } from "./SearchContext";
 import { NAV, SidebarBody, isHere } from "./Sidebar";
+import { SiteFooter } from "./SiteFooter";
 import { TopBar } from "./TopBar";
-
-/** Pages that use the full-width column instead of the centred 1180px one. */
-const BROAD = ["/wallet", "/backing", "/play/match", "/play/block-puzzle", "/play/holdem", "/play/practice", "/design"];
 
 /** Desktop: fixed sidebar + top bar. Below 1024px: the sidebar becomes a drawer and a bottom nav appears. */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -52,7 +50,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="content">
           <TopBar onMenu={() => setDrawer(true)} />
-          <main className={`app-main${path === "/" ? " wide" : ""}${BROAD.some((b) => path.startsWith(b)) ? " broad" : ""}`}>{children}</main>
+          <main className="app-main">{children}</main>
+          <SiteFooter />
         </div>
 
         <nav className="bottom-nav" aria-label="Main">

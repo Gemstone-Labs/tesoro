@@ -1,31 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { ChartColumn, Clock, LayoutGrid, Spade, Users, type LucideIcon } from "lucide-react";
 import { useGuideTip } from "@/components/guide/Guide";
 import { BackPlayerRail } from "@/components/lobby/BackPlayerRail";
 import { HeroCarousel } from "@/components/lobby/HeroCarousel";
-import { LobbyFooter } from "@/components/lobby/LobbyFooter";
 import { PlayAgainRail } from "@/components/lobby/PlayAgainRail";
 import { PlayNowRail } from "@/components/lobby/PlayNowRail";
-import { Ticker } from "@/components/lobby/Ticker";
 import { Row, Thumb } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { CATEGORIES, type Category } from "@/lib/catalogue";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 
-const CHIP_ICON: Record<Category, LucideIcon> = {
-  puzzle: LayoutGrid,
-  cards: Spade,
-  "head-to-head": Users,
-  async: Clock,
-  backing: ChartColumn,
-};
-
 export default function Lobby() {
   const { openMatches } = useAccount();
-  const [category, setCategory] = useState<Category | null>(null);
   useGuideTip({
     id: "lobby-first",
     bust: "himWelcome",
@@ -34,29 +20,8 @@ export default function Lobby() {
     link: { href: "/wallet", label: "Open the Wallet" },
   });
 
-  const pick = (id: Category) => {
-    if (id === "backing") {
-      document.getElementById("back-a-player")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-      return;
-    }
-    setCategory((cur) => (cur === id ? null : id));
-    document.getElementById("play-now")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  };
-
   return (
     <div className="lobby">
-      <nav className="cats" aria-label="Game categories">
-        {CATEGORIES.map(({ id, label }) => {
-          const Icon = CHIP_ICON[id];
-          return (
-            <button key={id} type="button" className={`cut cut-card cat${category === id ? " on" : ""}`} aria-pressed={id === "backing" ? undefined : category === id} onClick={() => pick(id)}>
-              <Icon aria-hidden="true" />
-              {label}
-            </button>
-          );
-        })}
-      </nav>
-
       <HeroCarousel />
 
       {openMatches.length > 0 && (
@@ -79,11 +44,9 @@ export default function Lobby() {
         </section>
       )}
 
-      <PlayNowRail category={category} onClear={() => setCategory(null)} />
+      <PlayNowRail />
       <PlayAgainRail />
-      <Ticker />
       <BackPlayerRail />
-      <LobbyFooter />
     </div>
   );
 }

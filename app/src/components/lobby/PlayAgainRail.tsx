@@ -7,7 +7,6 @@ import { Check, Heart, Minus, X } from "lucide-react";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
-import { ago } from "@/lib/catalogue";
 import { matchDelta } from "@/lib/chain/ledger";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
@@ -91,14 +90,14 @@ export function PlayAgainRail() {
         .map(toPlayed)
         .filter((p): p is Played => p !== null)
         .sort((a, b) => Number(pins.has(b.id)) - Number(pins.has(a.id)) || b.at - a.at)
-        .slice(0, 10),
+        .slice(0, 3),
     [onChain, snapshot, pins],
   );
   const shown = played.filter((p) => !query.trim() || matchesQuery(GAME_NAMES[p.game], query));
   if (played.length === 0) return null;
 
   return (
-    <Rail id="play-again" title="Play again" viewAll="/play" cols={4}>
+    <Rail id="play-again" title="Play again" cols={3}>
       {shown.length === 0 && <p className="rail-empty">No earlier Matches match your search.</p>}
       {shown.map((p) => {
         const Icon = RESULT_ICON[p.result];
@@ -115,9 +114,6 @@ export function PlayAgainRail() {
                 <strong>{GAME_NAMES[p.game]}</strong>
                 <span className="again-result">
                   <Icon aria-hidden="true" /> {headline}
-                </span>
-                <span className="again-meta">
-                  {p.scores ? `${p.scores[0]} – ${p.scores[1]}` : `Entry ${fmtGemas(p.entry)}`} · {ago(p.at)}
                 </span>
               </span>
             </button>

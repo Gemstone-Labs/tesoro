@@ -2,32 +2,56 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Clock, X } from "lucide-react";
+import { useState } from "react";
+import { ChartColumn, Clock, LayoutGrid, Spade, Users, X, type LucideIcon } from "lucide-react";
 import { CATALOGUE, CATEGORIES, type Category } from "@/lib/catalogue";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
 
-/** PLAY NOW: two live Games bright, the announced ones dimmed and not clickable. Search and the category chips filter it. */
-export function PlayNowRail({ category, onClear }: { category: Category | null; onClear: () => void }) {
+const CHIP_ICON: Record<Category, LucideIcon> = {
+  puzzle: LayoutGrid,
+  cards: Spade,
+  "head-to-head": Users,
+  async: Clock,
+  backing: ChartColumn,
+};
+
+const GAME_LINE: Record<string, string> = {
+  "block-puzzle": "Async · same Seed · higher score wins",
+  holdem: "Real-time · 2 players",
+};
+
+/** PLAY NOW: the live Games as large tiles, the announced ones as one quiet strip. The category chips and search filter it. */
+export function PlayNowRail() {
   const { query, setQuery } = useSearch();
-  const filtered = CATALOGUE.filter((g) => (!category || g.tags.includes(category)) && (!query.trim() || matchesQuery(g.name, query)));
-  const label = category ? CATEGORIES.find((c) => c.id === category)?.label : null;
+  const [category, setCategory] = useState<Category | null>(null);
+  const matches = CATALOGUE.filter((g) => (!category || g.tags.includes(category)) && (!query.trim() || matchesQuery(g.name, query)));
+  const live = matches.filter((g) => g.live);
+  const soon = matches.filter((g) => !g.live);
+  const filtering = Boolean(category) || Boolean(query.trim());
+
+  const pick = (id: Category) => {
+    if (id === "backing") {
+      document.getElementById("back-a-player")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+      return;
+    }
+    setCategory((cur) => (cur === id ? null : id));
+  };
 
   return (
     <Rail
       id="play-now"
       title="Play now"
-      viewAll="/play"
-      cols={6}
+      cols={2}
       aside={
-        (label || query.trim()) && (
+        filtering && (
           <span className="filter-note">
-            {[label, query.trim() && `“${query.trim()}”`].filter(Boolean).join(" · ")}
+            {[category && CATEGORIES.find((c) => c.id === category)?.label, query.trim() && `“${query.trim()}”`].filter(Boolean).join(" · ")}
             <button
               type="button"
               aria-label="Clear filters"
               onClick={() => {
-                onClear();
+                setCategory(null);
                 setQuery("");
               }}
             >
@@ -36,33 +60,46 @@ export function PlayNowRail({ category, onClear }: { category: Category | null; 
           </span>
         )
       }
+      lead={
+        <nav className="cats" aria-label="Game categories">
+          {CATEGORIES.map(({ id, label }) => {
+            const Icon = CHIP_ICON[id];
+            return (
+              <button key={id} type="button" className={`cut cut-card cat${category === id ? " on" : ""}`} aria-pressed={id === "backing" ? undefined : category === id} onClick={() => pick(id)}>
+                <Icon aria-hidden="true" />
+                {label}
+              </button>
+            );
+          })}
+        </nav>
+      }
     >
-      {filtered.length === 0 && <p className="rail-empty">No games match. Clear the filter to see every game.</p>}
-      {filtered.map((g) => {
-        const inner = (
-          <>
-            <Image src={g.tile} alt="" fill sizes="(min-width: 1440px) 16vw, 30vw" />
-            <span className="tile-shade" aria-hidden="true" />
-            <span className="tile-label">
-              {!g.live && (
-                <span className="cut cut-chip soon-chip">
-                  <Clock aria-hidden="true" /> Coming soon
-                </span>
-              )}
-              <strong>{g.name}</strong>
+      {matches.length === 0 && <p className="rail-empty">No games match. Clear the filter to see every game.</p>}
+      {live.map((g) => (
+        <Link key={g.key} href={`/play/${g.game}`} className="cut cut-frame tile">
+          <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" />
+          <span className="tile-shade" aria-hidden="true" />
+          <span className="tile-label">
+            <strong>{g.name}</strong>
+            <span>{GAME_LINE[g.key]}</span>
+          </span>
+        </Link>
+      ))}
+      {soon.length > 0 && (
+        <div className="soon-strip" style={{ gridColumn: "1 / -1" }}>
+          <b>
+            <Clock aria-hidden="true" /> Coming soon
+          </b>
+          {soon.map((g) => (
+            <span key={g.key} className="soon-item" aria-disabled="true">
+              <span className="cut soon-thumb" aria-hidden="true">
+                <Image src={g.tile} alt="" fill sizes="36px" />
+              </span>
+              {g.name}
             </span>
-          </>
-        );
-        return g.live ? (
-          <Link key={g.key} href={`/play/${g.game}`} className="cut cut-card tile">
-            {inner}
-          </Link>
-        ) : (
-          <div key={g.key} className="cut cut-card tile soon" aria-disabled="true" aria-label={`${g.name}, coming soon`}>
-            {inner}
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      )}
     </Rail>
   );
 }

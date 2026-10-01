@@ -24,7 +24,7 @@ export function BackPlayerRail() {
   const { snapshot } = useAccount();
   const { query } = useSearch();
   const me = snapshot?.accountKey.toBase58();
-  const requests = (board?.requests ?? []).filter((r) => r.live && (!query.trim() || matchesQuery(GAME_NAMES[r.game], query)));
+  const requests = (board?.requests ?? []).filter((r) => r.live && (!query.trim() || matchesQuery(GAME_NAMES[r.game], query))).slice(0, 3);
 
   return (
     <Rail id="back-a-player" title="Back a player" viewAll="/backing" cols={3}>
@@ -44,25 +44,23 @@ export function BackPlayerRail() {
             </span>
             <div className="player-info">
               <strong>{shortKey(r.player)}</strong>
-              <span>{GAME_NAMES[r.game]}</span>
-              <span className="player-rec">{recordShort(r.record)}</span>
+              <span>{GAME_NAMES[r.game]} · {recordShort(r.record)}</span>
             </div>
-            <div className="player-entry">
-              <span>Entry</span>
+            <div className="player-side">
               <b className="tnum">
-                <GemaMark size={20} />
+                <GemaMark size={18} />
                 {fmtGemas(r.entry)}
               </b>
+              {mine ? (
+                <Link href={`/backing#${key}`} className="cut cut-btn btn neutral player-offer" aria-label="Your Request">
+                  Yours
+                </Link>
+              ) : (
+                <Link href={`/backing#${key}`} className="cut cut-btn btn money player-offer" aria-label={`Offer to back ${shortKey(r.player)} in ${GAME_NAMES[r.game]} for ${fmtGemas(r.entry)} Gemas`}>
+                  Offer
+                </Link>
+              )}
             </div>
-            {mine ? (
-              <Link href={`/backing#${key}`} className="cut cut-btn btn neutral player-offer" aria-label="Your Request">
-                Yours
-              </Link>
-            ) : (
-              <Link href={`/backing#${key}`} className="cut cut-btn btn money player-offer" aria-label={`Offer to back ${shortKey(r.player)} in ${GAME_NAMES[r.game]} for ${fmtGemas(r.entry)} Gemas`}>
-                Offer
-              </Link>
-            )}
           </article>
         );
       })}
