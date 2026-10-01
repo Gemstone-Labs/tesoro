@@ -41,10 +41,12 @@ export class Budget {
   record(amount: number) {
     this.spends.push({ at: Date.now(), lamports: amount });
   }
-  /** Records a balance observation; a drop since the last one counts as spend. */
-  observe(balance: number) {
-    if (this.last !== null && balance < this.last) this.spends.push({ at: Date.now(), lamports: this.last - balance });
+  /** Records a balance observation; a drop since the last one counts as spend and is returned. */
+  observe(balance: number): number {
+    const spent = this.last !== null && balance < this.last ? this.last - balance : 0;
+    if (spent) this.spends.push({ at: Date.now(), lamports: spent });
     this.last = balance;
+    return spent;
   }
 }
 
@@ -54,10 +56,10 @@ export interface Outcome {
 }
 
 /**
- * Runs one on-chain action, logging exactly one line. Refuses when the hourly cap is reached or in
- * dry-run mode; failures are logged and returned, never thrown, so one bad Match cannot stop a pass.
+ * Runs one on-chain action, logging exactly one line. Refuses when the hourly cap (or the job's `share` of it) is
+ * reached or in dry-run mode; failures are logged and returned, never thrown, so one bad Match cannot stop a pass.
  */
-export async function act(rt: Ctx, job: string, subject: string, what: string, fn: () => Promise<string | void>): Promise<Outcome> {
+export async function act(rt: ActCtx, job: string, subject: string, what: string, fn: () => Promise<string | void>, share?: Budget): Promise<Outcome> {
   if (rt.settings.dryRun) {
     log(job, subject, `DRY-RUN would ${what}`);
     return { ok: true, detail: "dry-run" };
@@ -66,9 +68,13 @@ export async function act(rt: Ctx, job: string, subject: string, what: string, f
     log(job, subject, `SKIP ${what}: hourly spend cap reached (${(rt.budget.spentLastHour() / 1e9).toFixed(4)} SOL)`);
     return { ok: false, detail: "budget" };
   }
+  if (share?.exhausted()) {
+    log(job, subject, `SKIP ${what}: this job's share of the hourly cap is used (${(share.spentLastHour() / 1e9).toFixed(4)} SOL)`);
+    return { ok: false, detail: "budget" };
+  }
   try {
     const sig = await fn();
-    rt.budget.observe(await rt.conn.getBalance(rt.payer.publicKey));
+    share?.record(rt.budget.observe(await rt.conn.getBalance(rt.payer.publicKey)));
     log(job, subject, `DONE ${what}${sig ? ` sig=${sig}` : ""}`);
     return { ok: true, detail: sig ?? "" };
   } catch (e) {
@@ -78,5 +84,10 @@ export async function act(rt: Ctx, job: string, subject: string, what: string, f
   }
 }
 
-/** `lz`: rolling cap on LayerZero fees paid on Solana; `eth`: rolling cap on the fees paid on Hoodi, in gwei. */
-export type Ctx = Runtime & { budget: Budget; lz: Budget; eth: Budget };
+/**
+ * `lz`: rolling cap on LayerZero fees paid on Solana; `eth`: rolling cap on the fees paid on Hoodi, in gwei;
+ * `yieldShare`: the part of `budget` the yield cranks may use, so refunds, settles and bridge steps keep the rest.
+ */
+export type Ctx = Runtime & { budget: Budget; lz: Budget; eth: Budget; yieldShare: Budget };
+/** What `act` needs: lets tests drive it without a full runtime. */
+export type ActCtx = Pick<Ctx, "settings" | "budget" | "conn" | "payer">;

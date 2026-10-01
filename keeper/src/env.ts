@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { assertDevnet } from "./cluster.ts";
 
 /** Fill unset env vars from app/.env.local so RPC keys live in one place (never overrides the real env). */
 export function loadAppEnv(env: NodeJS.ProcessEnv = process.env, file = fileURLToPath(new URL("../../app/.env.local", import.meta.url))) {
@@ -20,11 +21,12 @@ export interface Settings {
   /** List queries (getProgramAccounts): the public devnet RPC allows them, most free tiers do not. */
   gpaRpc: string;
   keypairPath: string;
-  deployerPath: string;
   intervalMs: number;
   once: boolean;
   /** Max lamports the keeper payer may spend (fees + rent) in any rolling hour. */
   hourlyCapLamports: number;
+  /** Share of that cap the yield cranks may use. */
+  yieldShare: number;
   /** Max LayerZero fee of one Solana-side send, and the max the keeper pays for them in any rolling hour. */
   maxLzFeeLamports: number;
   lzHourlyCapLamports: number;
@@ -50,10 +52,10 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     rpc: value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC || "https://rpc.magicblock.app/devnet",
     gpaRpc: value("gpa-rpc") || env.KEEPER_GPA_RPC || "https://rpc.magicblock.app/devnet",
     keypairPath: env.KEEPER_KEYPAIR ?? join(homedir(), ".config/tesoro/keeper.json"),
-    deployerPath: env.KEEPER_FUNDER ?? "",
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
     once: flag("once"),
     hourlyCapLamports: Math.round(num(value("max-sol-per-hour") ?? env.KEEPER_MAX_SOL_PER_HOUR, 0.5) * LAMPORTS_PER_SOL),
+    yieldShare: Math.min(1, Math.max(0, num(env.KEEPER_YIELD_BUDGET_SHARE, 0.2))),
     maxLzFeeLamports: Math.round(num(value("max-lz-fee-sol") ?? env.KEEPER_MAX_LZ_FEE_SOL, 0.005) * LAMPORTS_PER_SOL),
     lzHourlyCapLamports: Math.round(num(value("max-lz-sol-per-hour") ?? env.KEEPER_MAX_LZ_SOL_PER_HOUR, 0.05) * LAMPORTS_PER_SOL),
     hoodiRpc: value("hoodi-rpc") ?? env.KEEPER_HOODI_RPC ?? "https://ethereum-hoodi-rpc.publicnode.com",
@@ -64,10 +66,22 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
   };
 }
 
-const readKeypair = (path: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
+/** Swept on 2026-10-01 (`~/.config/solana/id.json`): never sign with it. */
+const COMPROMISED = "AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV";
 
-/** The keeper's payer: created on first run and funded with 2 devnet SOL from the deployer. Never committed. */
-export async function loadPayer(conn: Connection, s: Settings, log: (m: string) => void): Promise<Keypair> {
+export function readKeypair(path: string): Keypair {
+  const kp = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
+  if (kp.publicKey.toBase58() === COMPROMISED) throw new Error(`${path} is the compromised key ${COMPROMISED}; refusing to sign with it`);
+  return kp;
+}
+
+/**
+ * Refuses to start unless both RPCs serve Solana devnet, then loads the keeper's payer (created on first run). The
+ * keeper never funds itself: an empty payer is reported and topped up by hand.
+ */
+export async function loadPayer(conn: Connection, s: Settings, log: (m: string) => void, gpa: Connection = conn): Promise<Keypair> {
+  await assertDevnet(conn, "KEEPER_RPC");
+  if (s.gpaRpc !== s.rpc) await assertDevnet(gpa, "KEEPER_GPA_RPC");
   let payer: Keypair;
   if (existsSync(s.keypairPath)) {
     payer = readKeypair(s.keypairPath);
@@ -78,14 +92,7 @@ export async function loadPayer(conn: Connection, s: Settings, log: (m: string) 
     log(`wallet created ${payer.publicKey.toBase58()} at ${s.keypairPath}`);
   }
   const balance = await conn.getBalance(payer.publicKey);
-  if (balance === 0 && existsSync(s.deployerPath) && !s.dryRun) {
-    const funder = readKeypair(s.deployerPath);
-    const tx = new Transaction().add(
-      SystemProgram.transfer({ fromPubkey: funder.publicKey, toPubkey: payer.publicKey, lamports: 2 * LAMPORTS_PER_SOL }),
-    );
-    const sig = await sendAndConfirmTransaction(conn, tx, [funder], { commitment: "confirmed" });
-    log(`wallet funded 2 SOL from ${funder.publicKey.toBase58()} ${sig}`);
-  }
+  if (balance < 0.1 * LAMPORTS_PER_SOL) log(`WARN payer ${payer.publicKey.toBase58()} holds ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL; fund it by hand`);
   return payer;
 }
 

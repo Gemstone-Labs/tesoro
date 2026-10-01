@@ -53,11 +53,10 @@ async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string)
 
   if (info.owner.equals(HOLDEM_PROGRAM_ID)) {
     const t = decodeTable(ad.gameMatch, ctx.holdem.program.coder.accounts.decode("gameMatch", info.data));
-    if ((t.status === STATUS.over || t.status === STATUS.cancelled) && !t.finalized) {
-      return +(await act(ctx, "match", subject, `finalize (table ${t.status === STATUS.over ? "over" : "cancelled"})`, () => ctx.holdem.finalize(ctx.hsigner, id))).ok;
-    }
-    if (now >= deadline) return +(await refund(ctx, id, subject, "table never went live before deadline")).ok;
-    log("match", subject, `${tag} wait: table on base layer (status ${t.status}), refundable ${when(deadline, now)}`);
+    const step = baseTableStep(t, now, deadline);
+    if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.holdem.finalize(ctx.hsigner, id))).ok;
+    if (step.do === "refund") return +(await refund(ctx, id, subject, step.why)).ok;
+    log("match", subject, `${tag} wait: ${step.why}`);
     return 0;
   }
 
@@ -104,4 +103,24 @@ async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string)
   }
   log("match", subject, `${tag} wait: table live in the rollup (private), no timeout due`);
   return 0;
+}
+
+type TableStep = { do: "finalize" | "refund" | "wait"; why: string };
+
+/**
+ * A table still owned by the Game on the base layer. A finished table is finalized. A table left in Created (its
+ * client exited before `delegate_match`) is finalized once its 5-minute start deadline passes, which refunds both
+ * entries; tesoro_core's own deadline was pushed out 24 h at `create_match`, so waiting for it would hold the entries
+ * that long. `finalize` requires `now > start_deadline`.
+ */
+export function baseTableStep(t: { status: number; finalized: boolean; startDeadline: number }, now: number, deadline: number): TableStep {
+  if (!t.finalized && (t.status === STATUS.over || t.status === STATUS.cancelled)) {
+    return { do: "finalize", why: `table ${t.status === STATUS.over ? "over" : "cancelled"}` };
+  }
+  if (!t.finalized && t.status === STATUS.created) {
+    if (now > t.startDeadline) return { do: "finalize", why: "no-show: table never delegated before its start deadline, refunds both entries" };
+    return { do: "wait", why: `table created but not delegated; finalize refunds ${when(t.startDeadline + 1, now)}` };
+  }
+  if (now >= deadline) return { do: "refund", why: "table never went live before deadline" };
+  return { do: "wait", why: `table on base layer (status ${t.status}), refundable ${when(deadline, now)}` };
 }

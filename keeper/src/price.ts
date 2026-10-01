@@ -1,10 +1,11 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Keypair } from "@solana/web3.js";
 import { keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
 import { PRICE_FEED, setPriceIx } from "../../app/src/lib/chain/native.ts";
 import { act, log, type Ctx } from "./act.ts";
+import { readKeypair } from "./env.ts";
 
 /** Refresh when the on-chain feed is older than this. `take_native_advance` rejects prices older than 24 h. */
 const REFRESH_AFTER_SECS = Number(process.env.KEEPER_PRICE_REFRESH_SECS ?? 50 * 60);
@@ -73,7 +74,7 @@ function oracleKey(): Keypair | null {
   if (oracle) return oracle;
   const path = process.env.KEEPER_ORACLE ?? join(homedir(), ".config/tesoro/oracle.json");
   if (!existsSync(path)) return null;
-  oracle = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
+  oracle = readKeypair(path);
   return oracle;
 }
 

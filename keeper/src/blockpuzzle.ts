@@ -1,5 +1,5 @@
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
-import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { DELEGATION_PROGRAM_ID, PERMISSION_PROGRAM_ID, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type Seat } from "../../app/src/games/block-puzzle/chain.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { simulate, when } from "./tee.ts";
@@ -116,14 +116,9 @@ export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subj
       log("match", subject, `${tag} wait: seat ${seat} Board never delegated; that Player forfeits ${when(boardDeadlines[seat], now)}, only then can seal run`);
       return actions;
     }
-    const r = await act(ctx, "match", subject, `bring seat ${seat} Board into the rollup (delegate + permission; that Player forfeited)`, async () => {
-      if (seat === 0) await ctx.bp.delegateOpener(ctx.signer, id);
-      else await ctx.bp.delegateJoiner(ctx.signer, id);
-      const sigs = [await ctx.bp.initPermission(ctx.signer, id, seat)];
-      // The SeedVault travelled with the opener's Board; commit_boards closes its permission too.
-      if (seat === 0) sigs.push(await ctx.bp.initVaultPermission(ctx.signer, id).catch(() => "vault-permission-exists"));
-      return sigs[0];
-    });
+    const r = await act(ctx, "match", subject, `delegate seat ${seat} Board into the rollup (that Player forfeited)`, () =>
+      seat === 0 ? ctx.bp.delegateOpener(ctx.signer, id) : ctx.bp.delegateJoiner(ctx.signer, id),
+    );
     if (!r.ok) return actions;
     actions++;
   }
@@ -149,6 +144,13 @@ export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subj
     }
     reason = "both runs closed";
   }
+  // commit_boards closes all three permissions in the same transaction as seal, so a missing one fails both.
+  const perms = await ensurePermissions(ctx, id, subject);
+  actions += perms.sent;
+  if (!perms.ready) {
+    backoff(key);
+    return actions;
+  }
   const sealed = await act(ctx, "match", subject, `seal + commit_boards (${reason})`, async () => (await ctx.bp.sealAndCommit(ctx.signer, id)).teeSig);
   if (!sealed.ok) {
     backoff(key);
@@ -156,4 +158,27 @@ export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subj
   }
   const settled = await act(ctx, "match", subject, "settle (after commit)", async () => (await ctx.bp.settle(ctx.signer, id)).sig);
   return actions + 1 + +settled.ok;
+}
+
+/**
+ * Creates whichever of the two Board permissions and the SeedVault permission is missing in the rollup. Each is its own
+ * step, retried on every pass until it exists: delegation and permission used to share one action, so a permission that
+ * failed after a successful delegate was never retried. `init_permission` / `init_vault_permission` accept an existing
+ * real permission, so a repeat is harmless.
+ */
+export async function ensurePermissions(ctx: Ctx, id: bigint, subject: string): Promise<{ ready: boolean; sent: number }> {
+  const a = BlockPuzzleChain.addresses(id);
+  const tee = await ctx.bp.tee(ctx.signer);
+  const targets = [a.boards[0], a.boards[1], a.vault];
+  const infos = await tee.getMultipleAccountsInfo(targets.map((t) => permissionPdaFromAccount(t)));
+  let ready = true;
+  let sent = 0;
+  for (let i = 0; i < targets.length; i++) {
+    if (infos[i]?.owner.equals(PERMISSION_PROGRAM_ID)) continue;
+    const what = i < 2 ? `init_permission seat ${i} (missing)` : "init_vault_permission (missing)";
+    const r = await act(ctx, "match", subject, what, () => (i < 2 ? ctx.bp.initPermission(ctx.signer, id, i as Seat) : ctx.bp.initVaultPermission(ctx.signer, id)));
+    if (r.ok) sent++;
+    else ready = false;
+  }
+  return { ready, sent };
 }
