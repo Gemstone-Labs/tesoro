@@ -26,12 +26,17 @@ The oracle-signed "Simulated · demo Advance" (a fake 10 SOL Position, 7,500 Gem
 
 ## Configuration (server env only)
 
+Each key is read from its secret variable when set (the hosted path, `app/docs/hosting.md`), else from the file variable, else from the default file (`src/server/keys.ts`).
+
+| Secret variable | File variable | Default file |
+|---|---|---|
+| `TESORO_ORACLE_SECRET_KEY` | `TESORO_ORACLE_KEYPAIR` | `~/.config/tesoro/oracle.json` (ETH Advance and the dev demo Advance) |
+| `TESORO_RELAYER_SECRET_KEY` | `TESORO_RELAYER_KEYPAIR` | `~/.config/tesoro/relayer.json` (fee top-up and the ETH relay's fee payer; a low-balance key with no program authority) |
+| `TESORO_RELAYER_EVM_PRIVATE_KEY` | `TESORO_RELAYER_EVM_ENV` | `~/.config/tesoro/relayer-evm.env` (`RELAYER_EVM_PRIVATE_KEY`; Hoodi ETH top-up; owns no contract) |
+
 | Variable | Default |
 |---|---|
-| `TESORO_ORACLE_KEYPAIR` | `~/.config/tesoro/oracle.json` (dev demo Advance only) |
-| `TESORO_RELAYER_KEYPAIR` | `~/.config/tesoro/relayer.json` (fee top-up and the ETH relay's fee payer; a low-balance key with no program authority) |
-| `TESORO_RELAYER_EVM_ENV` | `~/.config/tesoro/relayer-evm.env` (`RELAYER_EVM_PRIVATE_KEY`; Hoodi ETH top-up; owns no contract) |
 | `TESORO_BASE_RPC` | `https://rpc.magicblock.app/devnet` |
 | `TESORO_DEMO_ADVANCE` | unset (dev-only demo Advance off) |
 
-The web server never loads the deployer key (program upgrade authority, `tesoro_core` admin) or the EVM deployer key (contract owner): a server compromise can spend only the relayer balances. The oracle key is still loaded for the Advance routes. Keys are read from disk inside `src/server/demo-advance.ts` and never leave the server: nothing in `src/lib` or a client component imports it. Do not commit keypairs or `.env` files. On a host without those files (for example Vercel), mount the keys and set the variables or the route answers `503 not-configured`.
+The web server never loads the deployer key (program upgrade authority, `tesoro_core` admin) or the EVM deployer key (contract owner): a server compromise can spend only the relayer balances. The oracle key is still loaded for the Advance routes. Keys are read inside `src/server/` and never leave the server: nothing in `src/lib` or a client component imports it. Do not commit keypairs or `.env` files. On a host without those files (for example Vercel), set the secret variables or the route answers `503 not-configured`.

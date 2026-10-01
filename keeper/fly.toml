@@ -1,0 +1,28 @@
+# Keeper on Fly.io: one always-on Machine, no public services (unreachable from the internet).
+# Deploy from the repo root (build context = repo root):
+#   fly deploy . -c keeper/fly.toml --dockerfile keeper/Dockerfile --ha=false
+# Exactly one Machine: two keepers would double-send cranks. Secrets: app/docs/hosting.md.
+app = "tesoro-keeper"
+primary_region = "iad"
+
+# RPCs default to rpc.magicblock.app/devnet and publicnode Hoodi; a keyed RPC goes in as a secret (KEEPER_RPC).
+
+# The keeper's watchdog exits the process when no pass finishes in KEEPER_WATCHDOG_SECS (20 min); this brings it back.
+[[restart]]
+  policy = "always"
+  retries = 10
+
+# Visibility only (fly checks list); Fly does not restart on a failing check, the watchdog does.
+[checks]
+  [checks.alive]
+    type = "http"
+    port = 8080
+    method = "get"
+    path = "/healthz"
+    interval = "60s"
+    timeout = "10s"
+    grace_period = "120s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

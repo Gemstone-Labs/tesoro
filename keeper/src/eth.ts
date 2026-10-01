@@ -10,6 +10,7 @@ import { fetchBridgePositions } from "./bridge.ts";
 import { EID_HOODI, bridgePositionPda } from "./lz.ts";
 import type { Settings } from "./env.ts";
 import { fetchWithBackoff } from "./runtime.ts";
+import { evmKeyFromEnv } from "./keys.ts";
 
 const status = (o: object) => Object.keys(o)[0];
 const GWEI = 1_000_000_000n;
@@ -222,14 +223,17 @@ export async function ethYieldJob(ctx: Ctx): Promise<number> {
     log("eth", "-", `no Ethereum Position with Debt (${all.filter((p) => status(p.account.inner.sourceChain) !== "solana").length} non-Solana Position(s) in total)`);
     return 0;
   }
-  if (!existsSync(s.evmEnvPath)) {
-    log("eth", "-", `SKIP ${owing.length} Position(s) with Debt: no EVM key at ${s.evmEnvPath}`);
-    return 0;
-  }
-  const key = readEnvFile(s.evmEnvPath).EVM_DEPLOYER_PRIVATE_KEY;
+  let key: string | undefined = evmKeyFromEnv("KEEPER_EVM_PRIVATE_KEY");
   if (!key) {
-    log("eth", "-", "SKIP: EVM_DEPLOYER_PRIVATE_KEY missing in the env file");
-    return 0;
+    if (!existsSync(s.evmEnvPath)) {
+      log("eth", "-", `SKIP ${owing.length} Position(s) with Debt: no EVM key (KEEPER_EVM_PRIVATE_KEY or ${s.evmEnvPath})`);
+      return 0;
+    }
+    key = readEnvFile(s.evmEnvPath).EVM_DEPLOYER_PRIVATE_KEY;
+    if (!key) {
+      log("eth", "-", "SKIP: EVM_DEPLOYER_PRIVATE_KEY missing in the env file");
+      return 0;
+    }
   }
   const account = privateKeyToAccount((key.startsWith("0x") ? key : `0x${key}`) as Hex);
   const chain = hoodi(s.hoodiRpc);
