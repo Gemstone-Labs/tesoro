@@ -27,10 +27,10 @@ Requests are authenticated like the SOL top-up: the Solana wallet signs `tesoro-
 
 | Step | What | Paid by | Cap |
 |---|---|---|---|
-| `fund-evm` | Hoodi ETH top-up (0.006 ETH when the wallet has under 0.004) from `~/.config/tesoro/evm-deployer.env` (override `TESORO_EVM_DEPLOYER_ENV`) | Deployer | 0.02 ETH per EVM address and per Account per 24 h, 0.3 ETH total per 24 h; refuses if the deployer would drop under 0.05 ETH |
-| `init-position` | inbox record for the vault position id, before `openPosition` | Deployer (about 0.003 SOL) | relay cap below |
-| `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield` | the permissionless bridge steps; each is simulated first and skipped when a keeper already did it | Deployer | 60 per Account, 600 total per 24 h |
-| `advance` | `take_advance` signed by the oracle at the ETH price (Coinbase ETH-USD spot, fallback $3,000, a devnet price feed), returned for the Account to co-sign; only for the Position's owner, only with no open Advance | Oracle | 10 per Account per 24 h |
+| `fund-evm` | Hoodi ETH top-up (0.006 ETH when the wallet has under 0.004) from the relayer key `~/.config/tesoro/relayer-evm.env` (override `TESORO_RELAYER_EVM_ENV`) | Relayer | 0.02 ETH per EVM address and per Account per 24 h, 0.3 ETH total per 24 h; refuses if the relayer would drop under 0.01 ETH |
+| `init-position` | inbox record for the vault position id, before `openPosition` | Relayer (about 0.003 SOL) | relay cap below |
+| `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield` | the permissionless bridge steps; each is simulated first and skipped when a keeper already did it | Relayer (`~/.config/tesoro/relayer.json`, `TESORO_RELAYER_KEYPAIR`) | 60 per Account, 600 total per 24 h |
+| `advance` | `take_advance` signed by the oracle at the ETH price (Coinbase ETH-USD spot, a devnet price feed; refused while no live price is available), returned for the Account to co-sign; only for the Position's owner, only with no open Advance | Oracle | 10 per Account per 24 h |
 
 `GET /api/eth-bridge` returns the Advance price for the open form. Limits are in memory, per server process.
 
@@ -42,7 +42,7 @@ Requests are authenticated like the SOL top-up: the Solana wallet signs `tesoro-
 |---|---|---|
 | Open | Hoodi confirmed, LayerZero delivered, Position opened (`apply_locked`), Advance taken, Gemas available | the app calls `apply-locked` once the inbox shows the message, then the Advance |
 | Report yield | Hoodi confirmed, LayerZero delivered, Debt updated (`apply_yield`) | the app calls `apply-yield` |
-| Redeem | Redeemed on Solana (`redeem_to_evm`), LayerZero message sent (`send_pay_yield`), simETH on Hoodi | the app calls `send-pay-yield`; done when the vault's `paidUnderlying` reaches the claim |
+| Redeem | Redeemed on Solana (`redeem_to_evm`), LayerZero message sent (`send_pay_yield`), simETH on Hoodi | the app calls `send-pay-yield` for the redeemed Source; done when `YieldPaid` events to the holder's EVM address cover the redemption |
 | Unlock | Unlocked on Solana, message sent (`send_unlock`), Principal on Hoodi | the app calls `send-unlock`; done when the vault position is `unlocked` |
 
 Each card shows the Hoodi tx, LayerZero Scan link and the Scan status.

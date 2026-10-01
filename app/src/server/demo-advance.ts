@@ -4,7 +4,7 @@
  * For a signed-in Account this opens a SIMULATED Position with the oracle key and returns the
  * `take_advance` transaction (oracle-signed) for the Account to co-sign, so the Account receives
  * real on-chain Gemas. It can also send a little devnet SOL for fees. Server only: the oracle and
- * deployer keys are read from disk here and never leave this module. See app/docs/demo-funding.md.
+ * relayer keys are read from disk here and never leave this module. See app/docs/demo-funding.md.
  */
 import "server-only";
 import { randomBytes } from "node:crypto";
@@ -71,7 +71,10 @@ function loadKey(envVar: string, fallback: string): Keypair {
   }
 }
 export const oracleKey = () => loadKey("TESORO_ORACLE_KEYPAIR", ".config/tesoro/oracle.json");
-export const deployerKey = () => loadKey("TESORO_DEPLOYER_KEYPAIR", ".config/solana/id.json");
+/** Fee payer and SOL faucet of the web routes: a low-balance key with no authority over any program or contract. */
+export const relayerKey = () => loadKey("TESORO_RELAYER_KEYPAIR", ".config/tesoro/relayer.json");
+/** The relayer keeps at least this much SOL. */
+export const RELAYER_MIN_LAMPORTS = 0.5 * LAMPORTS_PER_SOL;
 
 // ---- chain --------------------------------------------------------------------------------------
 
@@ -153,13 +156,13 @@ async function fund(address: PublicKey) {
   const key = address.toBase58();
   const refund = takeAll([[limits.solPerAccount, key], [limits.solGlobal, "all"]], FUND_AMOUNT);
   if (!refund) throw new DemoHttpError(429, "rate-limited", "Demo SOL limit reached for this Account. Try again tomorrow.");
-  const deployer = deployerKey();
-  if ((await conn.getBalance(deployer.publicKey)) < 1 * LAMPORTS_PER_SOL) {
+  const relayer = relayerKey();
+  if ((await conn.getBalance(relayer.publicKey)) < RELAYER_MIN_LAMPORTS + FUND_AMOUNT) {
     refund();
     throw new DemoHttpError(503, "faucet-empty", "The demo faucet is empty.");
   }
-  const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: deployer.publicKey, toPubkey: address, lamports: FUND_AMOUNT }));
-  const signature = await sendAndConfirm(tx, [deployer]);
+  const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: relayer.publicKey, toPubkey: address, lamports: FUND_AMOUNT }));
+  const signature = await sendAndConfirm(tx, [relayer]);
   return { funded: true, lamports: balance + FUND_AMOUNT, signature };
 }
 
