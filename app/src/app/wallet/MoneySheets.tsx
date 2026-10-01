@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, CheckIcon, ChainChip, GemaAmount, Sheet, Slider } from "@/components/ui";
+import { Button, CheckIcon, ChainChip, GemaAmount, Sheet, SimulatedYieldLabel, Slider } from "@/components/ui";
 import { gemasToAsset } from "@/lib/advance";
 import { redeemableOf, useAccount } from "@/lib/account";
 import { friendlyError } from "@/lib/chain/native-flow";
@@ -30,6 +30,7 @@ export function RedeemSheet({ open, onClose }: { open: boolean; onClose: () => v
           </div>
         ))}
       </dl>
+      <SimulatedYieldLabel />
       {done ? (
         <div className="status ok" role="status">
           <CheckIcon /> Redeemed {fmtGemas(gemas.redeemable)} Gemas (simulated)
@@ -91,6 +92,7 @@ function ReturnForm({ position, onClose }: { position: Position; onClose: () => 
         <dt>Debt after</dt>
         <dd>{fmtAsset(newDebt, position.asset)}</dd>
       </dl>
+      <SimulatedYieldLabel />
       {done ? (
         <div className="status ok" role="status">
           <CheckIcon /> Returned {fmtGemas(amount)} Gemas (simulated)

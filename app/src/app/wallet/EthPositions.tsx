@@ -605,7 +605,7 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
         </>
       )}
       {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} ETH-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} simETH` : "simETH"} (Simulated) to your EVM address on Hoodi.</p>}
-      <p className="note wl-tile-note">Accrued on Hoodi {fmtEth(accrued, 5)} ETH. <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span></p>
+      <p className="note wl-tile-note">Accrued on Hoodi {fmtEth(accrued, 5)} ETH (simulated).</p>
       {unreported > 0n && locked && (
         <p className="note wl-tile-note">
           <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on Hoodi. Report yield to bring it to Solana (a small LayerZero fee).

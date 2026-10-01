@@ -76,9 +76,9 @@ export function GemaAmount({
   );
 }
 
-export function SimulatedYieldLabel({ align = "left" }: { align?: "left" | "right" }) {
+export function SimulatedYieldLabel({ align = "left", className }: { align?: "left" | "center" | "right"; className?: string }) {
   return (
-    <span className="sim" style={{ textAlign: align, display: "block" }}>
+    <span className={className ? `sim ${className}` : "sim"} style={{ textAlign: align, display: "block" }}>
       Simulated yield · 1 month = 10 min
     </span>
   );

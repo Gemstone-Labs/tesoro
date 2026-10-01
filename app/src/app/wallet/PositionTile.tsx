@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { SimulatedYieldLabel } from "@/components/ui";
 import type { Chain } from "@/lib/mock/types";
 import "./wallet.css";
 
@@ -126,6 +127,7 @@ export function PositionTile({
         <dt>Unlock Estimate</dt>
         <dd>{rows.unlock}</dd>
       </dl>
+      <SimulatedYieldLabel />
       <div className="wl-actions">{children}</div>
       <details className="wl-more">
         <summary>Details</summary>

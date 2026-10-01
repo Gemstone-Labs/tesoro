@@ -22,7 +22,16 @@ interface GuideApi {
   hide: (delta: 1 | -1) => void;
 }
 
+interface GuideView {
+  /** The tip to show now, or null (none registered, all dismissed, or a game is running). */
+  tip: GuideTip | null;
+  open: boolean;
+  setOpen: (open: boolean | ((o: boolean) => boolean)) => void;
+  dismiss: () => void;
+}
+
 const Ctx = createContext<GuideApi | null>(null);
+const ViewCtx = createContext<GuideView | null>(null);
 const STORE = "tesoro-guide-dismissed";
 
 function readDismissed(): string[] {
@@ -44,11 +53,9 @@ function writeDismissed(ids: string[]) {
 }
 
 /**
- * The corner Guide: a small bust bottom-left with a speech bubble for contextual tips. Pages
- * register a tip with `useGuideTip`; one shows at a time (the earliest registered that is not
- * dismissed). Dismissal is remembered per tip in localStorage. Hidden while a game is running
- * (`useGuideHidden`), a tappable chip below 1024px. Decorative: the tip text is real text, never the
- * only place its information lives.
+ * The corner Guide's state: pages register a tip with `useGuideTip`; one shows at a time (the
+ * earliest registered that is not dismissed). Dismissal is remembered per tip in localStorage.
+ * Hidden while a game is running (`useGuideHidden`). `GuideCorner` renders it.
  */
 export function GuideProvider({ children }: { children: ReactNode }) {
   const [tips, setTips] = useState<GuideTip[]>([]);
@@ -68,43 +75,79 @@ export function GuideProvider({ children }: { children: ReactNode }) {
   const hide = useCallback((d: 1 | -1) => setHidden((h) => Math.max(0, h + d)), []);
   const api = useMemo(() => ({ register, unregister, hide }), [register, unregister, hide]);
 
-  const tip = tips.find((t) => !dismissed.includes(t.id)) ?? null;
-  const dismiss = () => {
-    if (!tip) return;
-    const next = [...dismissed, tip.id];
-    setDismissed(next);
-    writeDismissed(next);
-    setOpen(false);
-  };
+  const tip = hidden === 0 ? (tips.find((t) => !dismissed.includes(t.id)) ?? null) : null;
+  const view = useMemo<GuideView>(
+    () => ({
+      tip,
+      open,
+      setOpen,
+      dismiss: () => {
+        if (!tip) return;
+        const next = [...dismissed, tip.id];
+        setDismissed(next);
+        writeDismissed(next);
+        setOpen(false);
+      },
+    }),
+    [tip, open, dismissed],
+  );
 
   return (
     <Ctx.Provider value={api}>
-      {children}
-      {tip && hidden === 0 && (
-        <aside className={`guide${open ? " open" : ""}`} aria-label="Tip">
-          <button type="button" className="cut cut-btn guide-chip" aria-expanded={open} aria-label={`Tip: ${tip.title ?? tip.text}`} onClick={() => setOpen((o) => !o)}>
-            <Bust name={tip.bust} width={44} />
-          </button>
-          <div className="guide-full">
-            <Bust name={tip.bust} width={112} className="guide-bust" />
-            <div className="cut cut-card guide-bubble" role="status">
-              {tip.title && <b>{tip.title}</b>}
-              <p>{tip.text}</p>
-              <div className="guide-actions">
-                {tip.link && (
-                  <Link href={tip.link.href} className="guide-link" onClick={dismiss}>
-                    {tip.link.label}
-                  </Link>
-                )}
-                <button type="button" className="guide-x" onClick={dismiss} aria-label="Dismiss tip">
-                  <X aria-hidden="true" /> Got it
-                </button>
-              </div>
-            </div>
-          </div>
-        </aside>
-      )}
+      <ViewCtx.Provider value={view}>{children}</ViewCtx.Provider>
     </Ctx.Provider>
+  );
+}
+
+/**
+ * The Guide: a small bust with a speech bubble for the current tip. It lives in chrome, never over
+ * the content: `dock="side"` sits at the bottom of the desktop sidebar (1024px and up), `dock="nav"`
+ * is a tappable chip at the left end of the bottom nav below 1024px whose bubble opens on demand.
+ * Decorative: the tip text is real text, never the only place its information lives.
+ */
+export function GuideCorner({ dock }: { dock: "side" | "nav" }) {
+  const v = useContext(ViewCtx);
+  const { tip, open, setOpen } = v ?? { tip: null, open: false, setOpen: () => undefined };
+  useEffect(() => {
+    if (!open || dock !== "nav") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, dock, setOpen]);
+  if (!v || !tip) return null;
+  const bubble = (
+    <div className="cut cut-card guide-bubble" role="status">
+      {tip.title && <b>{tip.title}</b>}
+      <p>{tip.text}</p>
+      <div className="guide-actions">
+        {tip.link && (
+          <Link href={tip.link.href} className="guide-link" onClick={v.dismiss}>
+            {tip.link.label}
+          </Link>
+        )}
+        <button type="button" className="guide-x" onClick={v.dismiss} aria-label="Dismiss tip">
+          <X aria-hidden="true" /> Got it
+        </button>
+      </div>
+    </div>
+  );
+  if (dock === "side") {
+    return (
+      <aside className="guide guide-side" aria-label="Tip">
+        {bubble}
+        <Bust name={tip.bust} width={96} className="guide-bust" />
+      </aside>
+    );
+  }
+  return (
+    <aside className={`guide guide-nav${open ? " open" : ""}`} aria-label="Tip">
+      <button type="button" className="guide-chip" aria-expanded={open} aria-label={`Tip: ${tip.title ?? tip.text}`} onClick={() => setOpen((o) => !o)}>
+        <Bust name={tip.bust} width={44} />
+      </button>
+      {open && <div className="guide-pop">{bubble}</div>}
+    </aside>
   );
 }
 

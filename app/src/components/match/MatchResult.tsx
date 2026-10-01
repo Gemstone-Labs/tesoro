@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Button, CheckIcon, GemaMark, MinusIcon, XIcon, type BustName } from "@/components/ui";
+import { Button, CheckIcon, GemaMark, MinusIcon, SimulatedYieldLabel, XIcon, type BustName } from "@/components/ui";
 import { MomentOverlay } from "./MomentOverlay";
 import { fmtGemas } from "@/lib/format";
 import type { GameId } from "@/lib/mock";
@@ -126,9 +126,12 @@ export function MatchResult(p: MatchResultProps) {
           </div>
 
           {won && (
-            <Link className="mr-pending" href="/wallet">
-              Pending · redeemable as their yield lands <span aria-hidden="true">→</span>
-            </Link>
+            <>
+              <Link className="mr-pending" href="/wallet">
+                Pending · redeemable as their yield lands <span aria-hidden="true">→</span>
+              </Link>
+              <SimulatedYieldLabel align="center" />
+            </>
           )}
           {lost && role === "player" && !backed && (
             <p className="mr-copy">Tough one. Your entry went to the winner, and your Principal was never in play. The next Match is one tap away.</p>

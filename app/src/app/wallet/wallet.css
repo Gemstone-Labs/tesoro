@@ -18,8 +18,12 @@
 .wl-pbs { grid-column: 1 / -1; border-top: 1px solid rgba(45, 190, 140, 0.25); padding-top: 14px; display: grid; gap: 10px; }
 .wl-pbs summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--fg-2); }
 .wl-pbs[open] summary { color: var(--fg); }
-.wl-pbs-row { display: grid; grid-template-columns: 56px 64px minmax(0, 1fr) 40px; align-items: center; gap: 12px; padding: 8px 12px; background: rgba(255, 255, 255, 0.03); font-size: 15px; }
+.wl-hero-sim { grid-column: 1 / -1; margin-top: -12px; }
+.wl-pbs-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; padding: 10px 12px; background: rgba(255, 255, 255, 0.03); font-size: 15px; }
 .wl-pbs-row b { text-align: right; font-weight: 700; }
+.wl-pbs-src { min-width: 0; overflow-wrap: anywhere; }
+.wl-pbs-src small { display: block; font-family: var(--f-mono); font-size: 12px; color: var(--fg-2); }
+.wl-pbs-row .meter { grid-column: 1 / 3; }
 .wl-pbs-row > span:last-child { text-align: right; color: var(--fg-2); font-size: 13px; }
 .wl-pbs-row .chain { justify-self: start; font-size: 13px; padding: 3px 9px; }
 @media (min-width: 960px) { .wl-hero { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); padding: 40px 44px 28px; } }
