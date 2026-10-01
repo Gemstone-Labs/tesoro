@@ -95,7 +95,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
             )}
           </details>
         )}
-        <p className="note">Solana devnet + MagicBlock private rollup · testnet Gemas from a simulated Position.</p>
+        <p className="note hd-note">Solana devnet + MagicBlock private rollup · testnet Gemas from a simulated Position.</p>
       </MatchResult>
     );
   }
@@ -198,7 +198,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
           )}
         </details>
       )}
-      <p className="note">Solana devnet + MagicBlock private rollup · Chips are in-match scorekeeping, not Gemas · testnet Gemas from a simulated Position.</p>
+      <p className="note hd-note">Solana devnet + MagicBlock private rollup · Chips are in-match scorekeeping, not Gemas · testnet Gemas from a simulated Position.</p>
     </div>
   );
 }

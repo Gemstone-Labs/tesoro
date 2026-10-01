@@ -137,6 +137,7 @@
 
 .hd-sigs summary { cursor: pointer; }
 .hd-sigs { gap: 6px; }
+.hd-sigs, .hd-note { width: 100%; max-width: 1100px; margin-inline: auto; }
 
 /* phones: the table shrinks, the info panel becomes a one-line strip */
 @media (max-width: 719px) {
