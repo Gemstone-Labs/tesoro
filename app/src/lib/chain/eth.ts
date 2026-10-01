@@ -30,14 +30,14 @@ export interface EthVault {
 }
 
 /**
- * The Hoodi vaults the app opens Positions in. The real-Lido wstETH vault (0x50f5...14BF) is wired
+ * The Hoodi vaults the app opens Positions in. The real-Lido wstETH vault (0x61B4...57b5) is wired
  * on Solana but is not listed: there is no wstETH faucet (docs/cross-chain.md).
  */
 export const ETH_VAULTS: EthVault[] = [
   {
     key: "sim",
     label: "Simulated ETH (simETH)",
-    address: "0x6c836b96464B5D1b55536d5a34D023528eaEe4bD",
+    address: "0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a",
     lst: "0x23B17A4c55867406E7CD5602c664E1447400c4a3",
     symbol: "simETH",
     simulated: true,

@@ -165,6 +165,20 @@ The fixed `PositionVault` (per-seq idempotency) is not upgradeable, so the two L
 | Solana `set_peer_config` + pathway init, wstETH vault (300 bps) | `2YgxL9cmcLKhhQrssLW3SxyCcZNmshRyKDpNsZrPHah2fAZgRQUMnVKwaEoVAeVjYNd5TXVh4vAvFWTtCQbc3BCW`, `213Yyc7BvtzVGAnhgVg64Y5gW2TXAm86iwfbo5xmE8JYzd1t1ZjbgRuRT24zEBpUoEB5DacRSdkgdKG7Aohng2TT` |
 | HyperEVM | prepared only (no HYPE): same two commands with `hyperevm`, then `setPeer` and `pnpm lz wire 40362 <vault> 18 500` |
 
+### SP-01 / PR-01 replacement vaults (2026-10-01)
+
+The implementation review found that `PositionVault` kept accruing yield on shares it had already paid out, so a later PayYield silently paid less than the claim (SP-01), and that it accepted a Principal too large for `u64`, which could never open on Solana or unlock (PR-01). Fixed in `3197c8a`; the vaults are not upgradeable, so both were redeployed from it with the same constructor arguments (`contracts/script/deploy-oapp.sh hoodi sim|wsteth`, then `oapp.sh peer` and `pnpm lz wire 40449 <vault> 18 <bps>` in `bridge/`). The F-04 vaults above are retired: the app points at the new SimLST vault, and Positions on the old vaults are not migrated (they keep SP-01).
+
+| Item | Value |
+|---|---|
+| Hoodi `PositionVaultOApp` (SimLST, simETH, SIMULATED) | `0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a`, deploy `0x0d45cdf7fbe8ecc1cd82155e72d33aed6206544fb48947b80fbedf600a1b8cee`, `setPeer` `0x9d352078192aa312f274bb9732a5d8066377f3945021e11484c5b59f2417464f` |
+| Hoodi `PositionVaultOApp` (real Lido wstETH, not exercised end to end) | `0x61B46f64CDB75930a87955487aAb8A7711F757b5`, deploy `0x502a8297eade0c53b12ae39ef78b3fd1ea40b69185fc598796f9331a4f3dff5f`, `setPeer` `0x70a76b37918f2fe42508fe5c8fc50623dfc5299b8bb6e6281502a8595d19596e` |
+| Solana `set_peer_config` + pathway init, SimLST vault (500 bps) | `5sGQ9UzBX4iesH7pWCvDnmewQRHRP3rCVgS9eHYMKmUTLKe8RSAMXSb1CXKfg1KdyDQ9bRNXf8diHByN2akL3YoY`, `2EjWCc2upn5gMKXFnp7CkHysTh2NURxvjmv6D5BhausCc11xXceV3husvNn3qnbFFpFEe8h1Rurjr53771GRbkNE` |
+| Solana `set_peer_config` + pathway init, wstETH vault (300 bps) | `vFB47JQR3SEinqL68tCj59qBxTC3NjQtGs3ziCSadctbJdGoGhJiNRMvEF8FUUfPjKxWPmWvJzxWkoy5ieQCjtB`, `Ao364P963c7HaFdEDJq8D13ZhmGQjPyzznU8gWdSsj3oJUJC7DjvXcxJAbvDN3s2VcgNSNHriht6wQejaX3PPwf` |
+| Smoke: `init_position` id 1 (Solana) | `yYape2rmxfz2cheg7W1WtZZ6nYKeegvM7ZXn9i2cvHWoMfNV9ZCjzdqTLGgxLSjfC8oYumwskcFNQVzK11EFQkN` |
+| Smoke: `openPosition` 0.01 simETH, 1 month (Hoodi) | `0x1c886400dd75ccb703abf18fc92a3f9abbf4180a3d42711d084d455bfc90df62`: delivered in about 80 s; `apply_locked` by the keeper (tesoro_core Position `En4vexXm5uWeyT3WroGnGR6rcToHb3Mee4ED4C4A7UbQ` Locked, principal 17,120,273,972,602,739 wei) |
+| Smoke: `reportYield` id 1 (Hoodi) | `0x36b25666d10e4c8558836fa5d2a16f9628105bfc1a6f800dcbfb2c1af5dd3de3`: SUCCEEDED in about 90 s, `lz_receive` `2xeKYZwGWD38QPa7bHBgs7edRAaoZivScqihTnttbCmQsmTT82YZyTtv11FRb4k2ZBHtJZH1RxGqFjnA5wf5XaQ5`; applied (tesoro_core cumulative 8,219,178,082,191 wei, seq 2) |
+
 ### Web app native Position flow (2026-09-30, dev wallet `?dev=nat2`, browser at 390 px)
 
 Driven from the Wallet screen (`app/src/app/wallet/NativePositions.tsx`) on `https://rpc.magicblock.app/devnet`. SIMULATED yield (1 month = ~10 min). Screens: `app/docs/screens/wallet-native-*.png`.

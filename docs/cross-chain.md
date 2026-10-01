@@ -31,6 +31,10 @@ Replays and reordering: `Endpoint::clear` burns the nonce; `PositionLocked` appl
 
 New `SourceAuthority` PDA (`["source_auth", chain_byte]`, `chain`, `authority`) and instructions `set_source_authority(chain, authority)` / `remove_source_authority(chain)` (admin), `open_position_from_source(...)` and `apply_yield_from_source(seq, cumulative)`: the same bodies as `open_position` / `apply_yield` but signed by the registered authority of the Position's chain (an Ethereum authority cannot touch a HyperEVM Position). `oracle_authority` and every existing instruction, account layout and signature are unchanged; the oracle still supplies the issuance price in `take_advance`. Tests: `programs/tesoro_core/tests/source_authority.rs`.
 
+## Vault redeploy (2026-10-01, implementation review SP-01 and PR-01)
+
+The Hoodi vaults were redeployed again so accrued yield counts only the shares still held (a later PayYield could silently underpay) and `openPosition` refuses a Principal above `u64`: SimLST vault `0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a`, wstETH vault `0x61B46f64CDB75930a87955487aAb8A7711F757b5` (txs and Solana wiring in `docs/deployments.md`). The F-04 vaults below are retired the same way.
+
 ## Vault redeploy (2026-09-30, security review F-04)
 
 The Hoodi vaults were redeployed with per-seq idempotency: SimLST vault `0x6c836b96464B5D1b55536d5a34D023528eaEe4bD`, wstETH vault `0x50f5f66994554ca582136b5C00B9Ce0951B314BF` (addresses, txs and Solana wiring in `docs/deployments.md`). The vault addresses in the "Proven" tables below are the RETIRED ones (`0x8289...87b7c`, `0x214A...8DeD`); the flow was repeated on the new SimLST vault (Position id 1: `openPosition`, `apply_locked`, `take_advance`, `reportYield`, `apply_yield`, `redeem_to_evm`; signatures in `docs/deployments.md`). `redeem_to_evm` now takes `store`, `authority` and `core_source_authority` and signs `tesoro_core::redeem_from_source` as the bridge authority, because plain `redeem` refuses EVM-sourced Sources (F-07).
