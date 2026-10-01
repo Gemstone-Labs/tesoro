@@ -1,9 +1,9 @@
 /**
  * Ethereum Positions (Hoodi) server side: the pieces that need a key or the LayerZero SDK.
  *
- *  - `fund-evm`: a capped Hoodi ETH top-up from the deployer (gas + the LayerZero fee).
+ *  - `fund-evm`: a capped Hoodi ETH top-up from the relayer (gas + the LayerZero fee).
  *  - `init-position`, `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield`: the permissionless
- *    bridge steps (docs/cross-chain.md), paid by the deployer so the Account only needs a little SOL. A keeper
+ *    bridge steps (docs/cross-chain.md), paid by the relayer so the Account only needs a little SOL. A keeper
  *    may run them first; each step skips when there is nothing left to do.
  *  - `advance`: `take_advance` at the oracle price, oracle-signed, for the Account to co-sign.
  *
@@ -43,14 +43,13 @@ import {
   sourceAuthPda,
 } from "@/lib/chain/eth";
 import { WindowLimiter, takeAll } from "./rate-limit";
-import { DemoHttpError, authenticateMessage, chain, deployerKey, oracleKey, sendAndConfirm } from "./demo-advance";
+import { DemoHttpError, RELAYER_MIN_LAMPORTS, authenticateMessage, chain, oracleKey, relayerKey, sendAndConfirm } from "./demo-advance";
 
 const DAY = 24 * 60 * 60 * 1000;
-const SOL = 1_000_000_000;
 const FUND_BELOW = parseEther("0.004");
 const FUND_AMOUNT = parseEther("0.006");
-/** The deployer keeps at least this much Hoodi ETH (it pays for contract admin and the demo Positions). */
-const DEPLOYER_MIN_ETH = parseEther("0.05");
+/** The relayer keeps at least this much Hoodi ETH. */
+const RELAYER_MIN_ETH = parseEther("0.01");
 
 /** Hoodi ETH is scarce: cap per EVM address, per Account and in total. */
 const limits = {
@@ -69,11 +68,12 @@ export const ethMessage = (step: string, address: string, ts: number) => `tesoro
 // ---- keys and clients ----------------------------------------------------------------------------
 
 let evmKey: Hex | null = null;
-function evmDeployerKey(): Hex {
+/** Hoodi faucet key of the web routes: low balance, owns no contract (the deployer key stays off this server). */
+function evmRelayerKey(): Hex {
   if (evmKey) return evmKey;
-  const file = process.env.TESORO_EVM_DEPLOYER_ENV ?? path.join(os.homedir(), ".config/tesoro/evm-deployer.env");
+  const file = process.env.TESORO_RELAYER_EVM_ENV ?? path.join(os.homedir(), ".config/tesoro/relayer-evm.env");
   try {
-    const m = /^EVM_DEPLOYER_PRIVATE_KEY=(0x[0-9a-fA-F]{64})\s*$/m.exec(fs.readFileSync(file, "utf8"));
+    const m = /^RELAYER_EVM_PRIVATE_KEY=(0x[0-9a-fA-F]{64})\s*$/m.exec(fs.readFileSync(file, "utf8"));
     if (m) return (evmKey = m[1] as Hex);
   } catch {
     // fall through
@@ -93,9 +93,9 @@ async function fundEvm(address: string, evm: string) {
   const cost = Number(FUND_AMOUNT);
   const refund = takeAll([[limits.ethPerEvm, evm.toLowerCase()], [limits.ethPerAccount, address], [limits.ethGlobal, "all"]], cost);
   if (!refund) throw new DemoHttpError(429, "rate-limited", "Hoodi ETH limit reached for this Account. Try again tomorrow.");
-  const account = privateKeyToAccount(evmDeployerKey());
+  const account = privateKeyToAccount(evmRelayerKey());
   try {
-    if ((await client.getBalance({ address: account.address })) < DEPLOYER_MIN_ETH + FUND_AMOUNT) {
+    if ((await client.getBalance({ address: account.address })) < RELAYER_MIN_ETH + FUND_AMOUNT) {
       refund();
       throw new DemoHttpError(503, "faucet-empty", "The Hoodi ETH faucet is empty.");
     }
@@ -137,31 +137,31 @@ function parseRef(body: { vault?: string; id?: string }) {
   return { vault: body.vault, id, pid: ethPositionId(body.vault, id) };
 }
 
-/** Sends as the deployer after a simulation, so a step that cannot succeed costs nothing. */
+/** Sends as the relayer after a simulation, so a step that cannot succeed costs nothing. */
 async function relaySend(ixs: TransactionInstruction[], cu = 400_000): Promise<string> {
   const { conn } = chain();
-  const deployer = deployerKey();
-  if ((await conn.getBalance(deployer.publicKey)) < 1 * SOL) throw new DemoHttpError(503, "faucet-empty", "The relay wallet is empty.");
+  const relayer = relayerKey();
+  if ((await conn.getBalance(relayer.publicKey)) < RELAYER_MIN_LAMPORTS) throw new DemoHttpError(503, "faucet-empty", "The relay wallet is empty.");
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: cu }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }), ...ixs);
-  tx.feePayer = deployer.publicKey;
+  tx.feePayer = relayer.publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
-  const sim = await conn.simulateTransaction(tx, [deployer]);
+  const sim = await conn.simulateTransaction(tx, [relayer]);
   if (sim.value.err) {
     const logs = sim.value.logs ?? [];
     const msg = /Error Message: ([^\n]+)/.exec(logs.join("\n"))?.[1] ?? JSON.stringify(sim.value.err);
     throw new DemoHttpError(409, "step-failed", msg.replace(/\.$/, ""));
   }
-  return sendAndConfirm(new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: cu }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }), ...ixs), [deployer]);
+  return sendAndConfirm(new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: cu }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }), ...ixs), [relayer]);
 }
 
 async function initPosition(vault: string, pid: Buffer) {
   const { conn } = chain();
   if (await conn.getAccountInfo(bridgePositionPda(pid))) return { skipped: true };
-  const deployer = deployerKey();
+  const relayer = relayerKey();
   const ix = new TransactionInstruction({
     programId: BRIDGE_ID,
     keys: [
-      key(deployer.publicKey, true, true),
+      key(relayer.publicKey, true, true),
       key(bridgePeerPda(vault)),
       key(bridgeStore()),
       key(bridgePositionPda(pid), false, true),
@@ -182,11 +182,11 @@ async function applyLocked(vault: string, pid: Buffer) {
   const linkInfo = await conn.getAccountInfo(link);
   if (!linkInfo) throw new DemoHttpError(409, "not-linked", "The Position owner's EVM address is not linked to an Account.");
   const account = new PublicKey(linkInfo.data.subarray(8 + 20, 8 + 52));
-  const deployer = deployerKey();
+  const relayer = relayerKey();
   const ix = new TransactionInstruction({
     programId: BRIDGE_ID,
     keys: [
-      key(deployer.publicKey, true, true),
+      key(relayer.publicKey, true, true),
       key(bridgeStore()),
       key(bridgePeerPda(vault)),
       key(bridgePositionPda(pid), false, true),
@@ -233,9 +233,9 @@ async function applyYield(pid: Buffer) {
 let umiCache: { umi: ReturnType<typeof createUmi>; endpoint: EndpointProgram.Endpoint } | null = null;
 function lz() {
   if (!umiCache) {
-    const deployer = deployerKey();
+    const relayer = relayerKey();
     const umi = createUmi(process.env.TESORO_BASE_RPC ?? "https://rpc.magicblock.app/devnet");
-    umi.use(signerIdentity(createSignerFromKeypair(umi, fromWeb3JsKeypair(deployer as Keypair))));
+    umi.use(signerIdentity(createSignerFromKeypair(umi, fromWeb3JsKeypair(relayer as Keypair))));
     umiCache = { umi, endpoint: new EndpointProgram.Endpoint(EndpointProgram.ENDPOINT_PROGRAM_ID) };
   }
   return umiCache;
@@ -258,7 +258,7 @@ async function sendAccounts(vault: string) {
 
 async function quoteFee(vault: string, type: number, quoteMetas: ReturnType<typeof key>[]): Promise<bigint> {
   const { conn } = chain();
-  const deployer = deployerKey();
+  const relayer = relayerKey();
   const { endpointSettings } = endpointPdas();
   const ix = new TransactionInstruction({
     programId: BRIDGE_ID,
@@ -266,9 +266,9 @@ async function quoteFee(vault: string, type: number, quoteMetas: ReturnType<type
     data: Buffer.concat([disc("quote_send"), u32le(HOODI_EID), Buffer.from(vault.replace(/^0x/, "").padStart(64, "0"), "hex"), Buffer.from([type]), vecU8(new Uint8Array(0)), Buffer.from([0])]),
   });
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix);
-  tx.feePayer = deployer.publicKey;
+  tx.feePayer = relayer.publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
-  const sim = await conn.simulateTransaction(tx, [deployer]);
+  const sim = await conn.simulateTransaction(tx, [relayer]);
   if (sim.value.err || !sim.value.returnData) throw new DemoHttpError(502, "chain", "Could not quote the LayerZero fee.");
   return Buffer.from(sim.value.returnData.data[0], "base64").readBigUInt64LE(0);
 }
@@ -289,12 +289,12 @@ async function sendUnlock(vault: string, pid: Buffer) {
   if (core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2] !== 1) throw new DemoHttpError(409, "not-unlocked", "Unlock the Position on Solana first.");
   const acc = await sendAccounts(vault);
   const fee = await quoteFee(vault, 3, acc.quote);
-  const deployer = deployerKey();
+  const relayer = relayerKey();
   const { endpointSettings } = endpointPdas();
   const ix = new TransactionInstruction({
     programId: BRIDGE_ID,
     keys: [
-      key(deployer.publicKey, true, true),
+      key(relayer.publicKey, true, true),
       key(bridgePeerPda(vault)),
       key(bridgeStore()),
       key(bridgePositionPda(pid), false, true),
@@ -327,12 +327,12 @@ async function sendPayYield(vault: string, pid: Buffer, holderAuthority: PublicK
   const evm = `0x${Buffer.from(account.data.subarray(41, 61)).toString("hex")}`;
   const acc = await sendAccounts(vault);
   const fee = await quoteFee(vault, 4, acc.quote);
-  const deployer = deployerKey();
+  const relayer = relayerKey();
   const { endpointSettings } = endpointPdas();
   const ix = new TransactionInstruction({
     programId: BRIDGE_ID,
     keys: [
-      key(deployer.publicKey, true, true),
+      key(relayer.publicKey, true, true),
       key(bridgePeerPda(vault)),
       key(bridgeStore()),
       key(bridgePositionPda(pid), false, true),
