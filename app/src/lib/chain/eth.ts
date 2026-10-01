@@ -67,6 +67,7 @@ export const vaultAbi = parseAbi([
   "function openPosition(uint256 lstAmount, uint8 horizonMonths) payable returns (uint64 id)",
   "function reportYield(uint64 id) payable",
   "event PositionLocked(uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq)",
+  "event YieldPaid(uint64 indexed positionId, address indexed to, uint256 amountUnderlying, uint256 shares, uint64 seq)",
 ]);
 
 export const lstAbi = parseAbi([
@@ -265,31 +266,49 @@ export interface EthClaim {
 export interface EthState {
   bridge: BridgePositionView | null;
   core: EthCoreView | null;
-  /** The latest Advance's Source (kept after Debt reaches zero). */
+  /** The requested Advance's Source (the latest by default; kept after Debt reaches zero). */
   source: { key: PublicKey; index: number; horizonMonths: number; math: SourceMath } | null;
+  /** The holder's Claim on `source` (the redemption owed to the holder for that Source). */
   claim: EthClaim | null;
+  /** The EVM address stored on the holder's Account: where redemptions are paid. */
+  holderEvm: string | null;
   fetchedAt: number;
 }
 
-/** One read of an ETH Position on Solana: the bridge's inbox record, the tesoro_core Position, its latest Source and the holder's Claim. */
-export async function fetchEthState(c: Connection, vault: string, id: bigint, holder: PublicKey): Promise<EthState> {
+/** The index of `source` among the Position's Advances, or null when it is not one of them. */
+export function ethSourceIndex(position: PublicKey, source: PublicKey, advances: number): number | null {
+  for (let i = 0; i < advances; i++) if (sourcePda(position, i).equals(source)) return i;
+  return null;
+}
+
+/** One read of an ETH Position on Solana: the bridge's inbox record, the tesoro_core Position, one Advance's Source (the latest unless `sourceIndex` is given) and the holder's Claim on it. */
+export async function fetchEthState(c: Connection, vault: string, id: bigint, holder: PublicKey, sourceIndex?: number): Promise<EthState> {
   const pid = ethPositionId(vault, id);
   const corePk = corePositionPda(pid);
-  const [bp, cp] = await c.getMultipleAccountsInfo([bridgePositionPda(pid), corePk], "confirmed");
+  const holderAccount = coreAccountPda(holder);
+  const [bp, cp, acct] = await c.getMultipleAccountsInfo([bridgePositionPda(pid), corePk, holderAccount], "confirmed");
   const bridge = bp ? parseBridgePosition(Buffer.from(bp.data)) : null;
   const core = cp ? parseCorePosition(corePk, Buffer.from(cp.data)) : null;
+  const holderEvm = acct && acct.data.length >= 61 ? `0x${Buffer.from(acct.data.subarray(41, 61)).toString("hex")}` : null;
   let source: EthState["source"] = null;
   let claim: EthClaim | null = null;
-  if (core && core.advances > 0) {
-    const key = sourcePda(corePk, core.advances - 1);
-    const [src, cl] = await c.getMultipleAccountsInfo([key, claimPda(coreAccountPda(holder), key)], "confirmed");
+  const index = sourceIndex ?? (core ? core.advances - 1 : -1);
+  if (core && Number.isInteger(index) && index >= 0 && index < core.advances) {
+    const key = sourcePda(corePk, index);
+    const [src, cl] = await c.getMultipleAccountsInfo([key, claimPda(holderAccount, key)], "confirmed");
     if (src) source = parseSource(key, Buffer.from(src.data));
     if (cl) {
       const d = Buffer.from(cl.data);
       claim = { gemasTotal: rdU64(d, 104), unitsTotal: rdU64(d, 112), unitsSent: rdU64(d, 120) };
     }
   }
-  return { bridge, core, source, claim, fetchedAt: Date.now() };
+  return { bridge, core, source, claim, holderEvm, fetchedAt: Date.now() };
+}
+
+/** Underlying wei the vault paid `to` for this Position since Hoodi block `fromBlock` (`YieldPaid` events: per recipient, unlike the Position-wide `paidUnderlying`). */
+export async function fetchPaidTo(vault: string, id: bigint, to: string, fromBlock: bigint): Promise<bigint> {
+  const logs = await hoodiClient().getContractEvents({ address: vault as Address, abi: vaultAbi, eventName: "YieldPaid", args: { positionId: id, to: to as Address }, fromBlock, toBlock: "latest" });
+  return logs.reduce((sum, l) => sum + (l.args.amountUnderlying ?? 0n), 0n);
 }
 
 /** Whether the Account's EVM address is set and proven (an `EvmLink` pointing at the Account exists). */

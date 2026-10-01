@@ -1,5 +1,6 @@
 "use client";
 
+import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress } from "@/components/ui";
 import { OpenFormView } from "./OpenPanel";
@@ -15,7 +16,10 @@ import {
   WEI,
   ethUnlockEstimateMs,
   fetchEthMarket,
+  ethSourceIndex,
   fetchEthState,
+  fetchPaidTo,
+  hoodiClient,
   fetchVaultPosition,
   fmtEth,
   hoodiTx,
@@ -338,11 +342,17 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
       try {
         const cur = opRef.current;
         const id = BigInt(cur.id);
-        const [state, vp] = await Promise.all([
-          fetchEthState(getChain().base, cur.vault, id, holder),
-          cur.kind === "redeem" || cur.kind === "unlock" ? fetchVaultPosition(cur.vault, id) : Promise.resolve(null),
-        ]);
-        let progress = opProgress(cur, state, vp);
+        const read = async () => {
+          const [state, vp] = await Promise.all([
+            fetchEthState(getChain().base, cur.vault, id, holder, cur.kind === "redeem" ? cur.sourceIndex : undefined),
+            cur.kind === "redeem" || cur.kind === "unlock" ? fetchVaultPosition(cur.vault, id) : Promise.resolve(null),
+          ]);
+          const paidTo = cur.kind === "redeem" && state.holderEvm && cur.fromBlock !== undefined ? await fetchPaidTo(cur.vault, id, state.holderEvm, BigInt(cur.fromBlock)).catch(() => null) : null;
+          return { state, progress: opProgress(cur, state, vp, paidTo) };
+        };
+        const first = await read();
+        const state = first.state;
+        let progress = first.progress;
         setSnap(state);
         setStage(progress.stage);
         if (!progress.next) setError(null);
@@ -358,9 +368,9 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
             setError(ethError(e));
           }
           setNote(null);
-          const after = await fetchEthState(getChain().base, cur.vault, id, holder);
-          progress = opProgress(cur, after, vp);
-          setSnap(after);
+          const after = await read();
+          progress = after.progress;
+          setSnap(after.state);
           setStage(progress.stage);
         }
         if (progress.stage >= steps.length) {
@@ -445,7 +455,7 @@ async function perform(next: NonNullable<ReturnType<typeof opProgress>["next"]>,
     await takeEthAdvance(ctx, op.vault, BigInt(op.id), op.months ?? 1);
     return;
   }
-  const r = await ethCall<{ signature?: string }>(next, ctx, ref);
+  const r = await ethCall<{ signature?: string }>(next, ctx, next === "send-pay-yield" && op.sourceIndex !== undefined ? { ...ref, sourceIndex: op.sourceIndex } : ref);
   if (r.signature && (next === "send-pay-yield" || next === "send-unlock")) patchOp(address, op.key, { sendSig: r.signature });
   void state;
 }
@@ -494,9 +504,10 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
   const unreported = onChainDebt - projected;
   const locked = (state?.core?.status ?? position.status) === "locked";
   const estimate = rate && vp && src && onChainDebt > 0n ? ethUnlockEstimateMs({ source: src, position: vp, rate, nowMs: now }) : null;
-  const holding = (snapshot?.holdings ?? []).find((h) => h.position.equals(position.address) && state?.source && h.source.equals(state.source.key));
+  const mine = (snapshot?.holdings ?? []).filter((h) => h.position.equals(position.address));
+  const holding = mine.find((h) => h.redeemable > 0n && state?.source && h.source.equals(state.source.key)) ?? mine.find((h) => h.redeemable > 0n);
   const redeemable = holding?.redeemable ?? 0n;
-  const payout = src && redeemable > 0n ? redeemPayoutWei(src, redeemable) : 0n;
+  const payout = src && state?.source && holding?.source.equals(state.source.key) && redeemable > 0n ? redeemPayoutWei(src, redeemable) : 0n;
   const canUnlock = locked && !!src && onChainDebt === 0n;
   const pendingOps = useOps(ctx?.signer.publicKey.toBase58() ?? null).filter((o) => !o.done && o.vault === ref.vault && o.id === ref.id.toString());
   const inFlight = pendingOps.length > 0;
@@ -512,12 +523,9 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
     });
   const redeem = () =>
     ctx &&
-    state?.source &&
+    holding &&
     a.run("redeem", async () => {
-      const sig = await redeemToEvm(ctx.signer, position.address, state.source!.key, redeemable);
-      const [after, v] = await Promise.all([fetchEthState(getChain().base, ref.vault, ref.id, ctx.signer.publicKey), fetchVaultPosition(ref.vault, ref.id)]);
-      const pending = after.claim ? after.claim.unitsTotal - after.claim.unitsSent : 0n;
-      addOp(address, { kind: "redeem", vault: ref.vault, id: ref.id.toString(), hash: sig, baseline: ((v?.paidUnderlying ?? 0n) + pending).toString() });
+      await redeemEthSource(ctx, address, ref, holding.source, redeemable);
       await refresh();
     });
   const unlock = () =>
@@ -568,7 +576,7 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
           </div>
         </>
       )}
-      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} ETH-Sourced Gemas → {fmtEth(payout, 5)} simETH (Simulated) to your EVM address on Hoodi.</p>}
+      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} ETH-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} simETH` : "simETH"} (Simulated) to your EVM address on Hoodi.</p>}
       <p className="note wl-tile-note">Accrued on Hoodi {fmtEth(accrued, 5)} ETH. <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span></p>
       {unreported > 0n && locked && (
         <p className="note wl-tile-note">
@@ -583,17 +591,25 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
 
 // ---- Redeem rows (Wallet Redeem sheet) --------------------------------------------------------------------------
 
+/** `redeem_to_evm` for one Source of an ETH Position, then a tracker keyed to that Source's Claim and to this redemption's units. */
+async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: string; id: bigint }, source: PublicKey, gemas: bigint) {
+  const base = getChain().base;
+  const holder = ctx.signer.publicKey;
+  const head = await fetchEthState(base, ref.vault, ref.id, holder);
+  const sourceIndex = head.core ? ethSourceIndex(head.core.position, source, head.core.advances) : null;
+  if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Position.");
+  const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), hoodiClient().getBlockNumber()]);
+  const sig = await redeemToEvm(ctx.signer, head.core!.position, source, gemas);
+  const after = await fetchEthState(base, ref.vault, ref.id, holder, sourceIndex);
+  const total = after.claim?.unitsTotal ?? 0n;
+  addOp(address, { kind: "redeem", vault: ref.vault, id: ref.id.toString(), hash: sig, sourceIndex, baseline: total.toString(), units: (total - (before.claim?.unitsTotal ?? 0n)).toString(), fromBlock: fromBlock.toString() });
+}
+
 /** Redeems every ETH-Sourced holding the Account has redeemable: `redeem_to_evm`, then a tracker per Position. */
 export async function redeemEthHoldings(ctx: EthCtx, holdings: ChainHolding[]): Promise<number> {
   const rows = ethRedeemables(holdings);
-  const base = getChain().base;
   const address = ctx.signer.publicKey.toBase58();
-  for (const h of rows) {
-    const sig = await redeemToEvm(ctx.signer, h.position, h.source, h.redeemable);
-    const [after, v] = await Promise.all([fetchEthState(base, h.eth!.vault, h.eth!.id, ctx.signer.publicKey), fetchVaultPosition(h.eth!.vault, h.eth!.id)]);
-    const pending = after.claim ? after.claim.unitsTotal - after.claim.unitsSent : 0n;
-    addOp(address, { kind: "redeem", vault: h.eth!.vault, id: h.eth!.id.toString(), hash: sig, baseline: ((v?.paidUnderlying ?? 0n) + pending).toString() });
-  }
+  for (const h of rows) await redeemEthSource(ctx, address, { vault: h.eth!.vault, id: h.eth!.id }, h.source, h.redeemable);
   return rows.length;
 }
 
