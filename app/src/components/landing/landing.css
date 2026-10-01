@@ -183,8 +183,9 @@ html.lenis, html.lenis body { height: auto; }
 .lp-beat-dots { display: none; gap: 8px; }
 .lp-beat-dots span { width: 28px; height: 3px; background: var(--line-2); transition: background 0.4s; }
 .is-stepped .lp-beat-dots { display: flex; }
-.is-stepped .lp-beat { opacity: 0.25; transition: opacity 0.5s; }
-.is-stepped[data-beat="0"] [data-beat-i="0"], .is-stepped[data-beat="1"] [data-beat-i="1"], .is-stepped[data-beat="2"] [data-beat-i="2"] { opacity: 1; }
+/* !important: the beats also carry the reveal tween's inline opacity. */
+.is-stepped .lp-beat { opacity: 0.25 !important; transition: opacity 0.5s; }
+.is-stepped[data-beat="0"] [data-beat-i="0"], .is-stepped[data-beat="1"] [data-beat-i="1"], .is-stepped[data-beat="2"] [data-beat-i="2"] { opacity: 1 !important; }
 .is-stepped[data-beat="0"] [data-dot="0"], .is-stepped[data-beat="1"] [data-dot="1"], .is-stepped[data-beat="2"] [data-dot="2"] { background: var(--fg); }
 
 .lp-gem { position: relative; width: 100%; max-width: 640px; aspect-ratio: 1; justify-self: center; }
