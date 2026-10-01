@@ -398,7 +398,8 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
 }
 
 function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<void> }) {
-  const { stage, note, error, scan, finished } = useOpTracker(op, ctx, address, onProgress);  const steps = OP_STEPS[op.kind];
+  const { stage, note, error, scan, finished } = useOpTracker(op, ctx, address, onProgress);
+  const steps = OP_STEPS[op.kind];
   const copy = OP_COPY[op.kind];
   const scanText = scan ? `LayerZero: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "LayerZero: waiting for Scan" : null;
 
