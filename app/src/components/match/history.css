@@ -24,10 +24,10 @@
 @media (max-width: 639px) {
   /* The result word stays (results pair an icon with words); it moves under the opponent. */
   .mh-row { grid-template-columns: 56px minmax(0, 1fr) auto; grid-template-areas: "thumb opp amt" "thumb res amt"; row-gap: 2px; padding: 10px 12px 10px 0; column-gap: 10px; }
-  .mh-res { font-size: 14px; gap: 6px; padding-left: 54px; }
+  .mh-res { font-size: 14px; gap: 6px; }
   .mh-res svg { width: 16px; height: 16px; }
-  .mh-av { width: 40px; height: 40px; }
-  .mh-opp b { font-size: 15px; }
+  .mh-av { display: none; }
+  .mh-opp b { font-size: 15px; white-space: nowrap; }
   .mh-opp small { font-size: 13px; }
   .mh-amt small { max-width: 132px; }
   .mh-go { display: none; }

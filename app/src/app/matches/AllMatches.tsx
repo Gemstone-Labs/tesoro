@@ -15,7 +15,7 @@ import type { GameId } from "@/lib/mock";
 const FILTERS: [GameId | null, string][] = [
   [null, "All"],
   ["block-puzzle", GAME_NAMES["block-puzzle"]],
-  ["holdem", GAME_NAMES.holdem],
+  ["holdem", "Hold'em"],
 ];
 
 const href = (game: GameId | null, page: number) => {
