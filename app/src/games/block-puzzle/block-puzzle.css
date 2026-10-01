@@ -1,68 +1,40 @@
 /* Block Puzzle: the board and pieces are the colourful game art; chrome around it stays neutral.
    Emerald appears only on gem cells. */
-.bp-score-n { font-size: 56px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 
-/* ——— Play screen (take-1: play-block-puzzle): MATCH | score, ring, board, tray | combo, lines, recent ——— */
-.bpx { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); position: relative; align-items: start; }
-.bpx-panel { --edge: var(--line-2); background: var(--shell); padding: 16px 16px 18px; display: grid; gap: 12px; align-content: start; min-width: 0; }
-.bpx-mid { order: 1; justify-items: center; }
-.bpx-right { order: 2; }
-.bpx-left { order: 3; }
-.bpx-title { font-size: 34px; justify-self: start; }
-.bpx-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; max-width: 600px; }
-.bpx-score { display: grid; gap: 0; }
-.bpx-timer { display: flex; align-items: center; gap: 14px; }
-.bpx-secs { font-size: 15px; color: var(--fg-2); }
-.bpx-ring { position: relative; width: 84px; height: 84px; display: grid; place-items: center; }
+/* ——— Play screen: a slim bar (score, timer ring, run, stake) over a centred board ——— */
+.bpx { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); justify-items: center; position: relative; }
+.bpx-bar {
+  --edge: var(--line); background: var(--raised); width: 100%; max-width: 760px; padding: 12px 20px;
+  display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: "score ring run" "stake stake stake"; align-items: center; gap: 8px 20px;
+}
+.bpx-score { grid-area: score; display: grid; gap: 0; }
+.bpx-ring { grid-area: ring; position: relative; width: 68px; height: 68px; display: grid; place-items: center; }
 .bpx-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.bpx-ring circle { fill: none; stroke-width: 9; }
+.bpx-ring circle { fill: none; stroke-width: 10; }
 .bpx-ring-bg { stroke: rgba(234, 239, 236, 0.14); }
 .bpx-ring-fg { stroke: var(--fg); stroke-linecap: butt; transition: stroke-dashoffset 120ms linear; }
 .bpx-ring.low .bpx-ring-fg { stroke: var(--warn); }
-.bpx-ring span { position: relative; font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.bpx-mid .bp-stage, .bpx-mid .bp-tray, .bpx-mid .bp-help { width: 100%; max-width: 600px; }
-.bpx-kv { display: grid; gap: 0; padding-top: 10px; border-top: 1px solid var(--line); }
-.bpx-kv span { font-size: 15px; color: var(--fg-2); }
-.bpx-kv b { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; }
-.bpx-kv small { font-size: 18px; font-weight: 500; color: var(--fg-2); }
-.bpx-status { font-size: 15px; color: var(--fg-2); padding-top: 10px; border-top: 1px solid var(--line); }
+.bpx-ring span { position: relative; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.bpx-run { grid-area: run; display: flex; justify-content: flex-end; gap: 20px; font-size: 14px; color: var(--fg-2); }
+.bpx-run b { color: var(--fg); font-size: 18px; font-weight: 800; margin-left: 4px; }
+.bpx-stake { grid-area: stake; font-size: 13.5px; color: var(--fg-2); padding-top: 8px; border-top: 1px solid var(--line); }
+.bpx-stake b { color: var(--fg); font-weight: 700; }
+.bp-score-n { font-size: 36px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: 640px; }
+.bpx-mid .bp-stage, .bpx-mid .bp-tray, .bpx-mid .bp-help { width: 100%; }
+.bpx-foot { display: grid; gap: 6px; justify-items: center; width: 100%; max-width: 640px; font-size: 14px; color: var(--fg-2); text-align: center; }
+.bpx-status { font-size: 15px; color: var(--fg-2); }
 .bpx-status p { font-size: 15px; color: var(--fg-2); }
 .bpx-finding { display: inline-flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--fg-2); }
 .bpx-spin { width: 28px; height: 28px; border: 3px solid rgba(234, 239, 236, 0.16); border-top-color: var(--fg); border-radius: 50%; animation: bpx-spin 1s linear infinite; }
 @keyframes bpx-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .bpx-spin { animation-duration: 3s; } }
 .bpx-seed { color: var(--fg-2); font-size: 11.5px; }
-.bpx-combo { display: flex; align-items: baseline; gap: 10px; }
-.bpx-combo .h-section { font-size: clamp(34px, 3.4vw, 60px); line-height: 1; color: #fff; }
-.bpx-lines { display: grid; gap: 0; padding-top: 10px; border-top: 1px solid var(--line); }
-.bpx-lines span { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: 22px; color: var(--fg-2); letter-spacing: 0.01em; }
-.bpx-lines b { font-size: 56px; font-weight: 900; line-height: 1; }
-.bpx-recent { display: none; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
-.bpx-recent .h-section { font-size: 26px; }
-.bpx-clear { --edge: var(--line); background: var(--raised); display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; }
-.bpx-clear span { display: grid; }
-.bpx-clear b { font-size: 16px; font-weight: 800; }
-.bpx-clear small { font-size: 13px; color: var(--fg-2); }
-.bpx-right { grid-template-columns: 1fr 1fr; align-items: end; }
-.bpx-right .bpx-lines { border-top: 0; padding-top: 0; justify-items: end; text-align: right; }
-.bpx-right .bpx-lines b { font-size: 40px; }
-.bpx-right .bpx-lines span { font-size: 18px; }
-.bpx-right .bpx-combo .h-section { font-size: 30px; }
-
-@media (min-width: 1024px) {
-  .bpx { grid-template-columns: minmax(230px, 0.85fr) minmax(0, 1.9fr) minmax(230px, 0.95fr); gap: 16px; }
-  .bpx-mid { order: 2; padding: 18px 20px 20px; }
-  .bpx-left { order: 1; min-height: 100%; }
-  .bpx-right { order: 3; grid-template-columns: 1fr; align-items: start; min-height: 100%; }
-  .bpx-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .bpx-recent { display: grid; }
-  .bpx-right .bpx-lines { justify-items: start; text-align: left; }
-  .bpx-right .bpx-lines b { font-size: 64px; }
-  .bpx-right .bpx-lines span { font-size: 24px; }
-  .bpx-right .bpx-combo .h-section { font-size: clamp(40px, 3.6vw, 64px); }
-  .bpx-ring { width: 112px; height: 112px; }
-  .bpx-ring span { font-size: 24px; }
-  .bp-score-n { font-size: clamp(64px, 6vw, 104px); }
+.bpx-clears { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; color: var(--fg-2); }
+.bpx-clears b { color: var(--fg); margin-left: 6px; }
+@media (min-width: 640px) {
+  .bpx-bar { grid-template-columns: auto auto 1fr auto; grid-template-areas: "score ring run stake"; }
+  .bpx-stake { border-top: 0; padding-top: 0; text-align: right; }
 }
 .bp-final { font-size: 64px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 .bp-title { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
