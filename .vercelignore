@@ -1,0 +1,21 @@
+# Allowlist for `vercel deploy` from the repo root (Root Directory = app): only the pnpm workspace files and the app.
+/*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!app
+!keeper
+# app/src/games/block-puzzle/engine.test.ts imports it, and next build typechecks tests.
+!programs
+programs/*
+!programs/block_puzzle
+programs/block_puzzle/*
+!programs/block_puzzle/tests
+programs/block_puzzle/tests/*
+!programs/block_puzzle/tests/vectors.json
+**/node_modules
+**/.next
+**/.env*
+!app/.env.example
+*.tsbuildinfo
+keeper/src
