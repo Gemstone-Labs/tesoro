@@ -11,6 +11,7 @@ pub mod redeem_to_evm;
 pub mod send_common;
 pub mod send_pay_yield;
 pub mod send_unlock;
+pub mod set_admin;
 pub mod set_peer_config;
 
 pub use apply_locked::*;
@@ -26,4 +27,5 @@ pub use redeem_to_evm::*;
 pub use send_common::*;
 pub use send_pay_yield::*;
 pub use send_unlock::*;
+pub use set_admin::*;
 pub use set_peer_config::*;

@@ -25,4 +25,5 @@ pub enum BridgeError {
     EvmAddressMismatch,
     InvalidEvmSignature,
     InvalidAccount,
+    Unauthorized,
 }
