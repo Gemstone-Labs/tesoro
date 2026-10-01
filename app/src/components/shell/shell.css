@@ -128,7 +128,8 @@ dialog.drawer::backdrop { background: rgba(0, 0, 0, 0.66); }
 }
 
 @media (min-width: 1024px) {
-  .sidebar { display: block; }
+  .sidebar { display: flex; flex-direction: column; }
+  .sidebar > * { flex-shrink: 0; }
   .content { margin-left: var(--side-w); }
   .menu-btn, .top-word, .bottom-nav { display: none !important; }
   .topbar { grid-template-columns: minmax(0, 655px) 1fr auto; padding: 16px 18px 12px 24px; gap: 0 16px; }

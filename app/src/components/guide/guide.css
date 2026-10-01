@@ -1,10 +1,5 @@
-/* ——— Corner Guide: a small bust bottom-left with a speech bubble; a tappable chip below 1024px ——— */
-.guide { position: fixed; z-index: 25; left: 12px; bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom)); }
-.guide-chip { --c: 10px; width: 52px; height: 52px; display: grid; place-items: end center; overflow: hidden; background: var(--raised-2); --edge: var(--line-2); padding: 4px 0 0; border: 0; }
-.guide-chip .bust { width: 44px; height: auto; }
-.guide-full { display: none; }
-.guide.open .guide-full { display: flex; position: absolute; left: 0; bottom: 60px; width: min(320px, calc(100vw - 24px)); align-items: flex-end; }
-.guide.open .guide-bust { display: none; }
+/* ——— Guide: a small bust with a speech bubble, docked in chrome so it never covers content ———
+   1024px and up: the bottom of the sidebar. Below: a chip at the left end of the bottom nav. */
 .guide-bubble { --edge: var(--line-2); background: var(--raised-2); padding: 12px 14px; display: grid; gap: 6px; width: 100%; }
 .guide-bubble b { font-size: 15px; }
 .guide-bubble p { font-size: 14px; color: var(--fg); line-height: 1.4; }
@@ -14,10 +9,22 @@
 .guide-x:hover { color: var(--fg); }
 .guide-x svg { width: 14px; height: 14px; }
 
+/* sidebar dock: below Docs / Help, pushed to the bottom; the sidebar scrolls if the window is short */
+.guide-side { display: none; margin-top: auto; padding-top: 24px; }
+.guide-side .guide-bubble { padding: 12px; }
+.guide-side .guide-bubble p { font-size: 13.5px; }
+.guide-side .guide-bust { display: block; margin: 6px 0 -20px 4px; }
+
+/* bottom-nav dock: the chip takes the nav's left end; the bubble opens above it on demand */
+.guide-nav { position: fixed; z-index: 31; left: 0; bottom: 0; width: 56px; height: calc(var(--nav-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); border-right: 1px solid var(--line); }
+.guide-chip { width: 100%; height: var(--nav-h); display: grid; place-items: end center; overflow: hidden; background: transparent; border: 0; padding: 0; cursor: pointer; }
+.guide-chip .bust { width: 44px; height: auto; }
+.guide-chip:focus-visible { outline-offset: -4px; }
+.guide-nav.open .guide-chip { background: var(--raised-2); }
+.guide-pop { position: fixed; left: 12px; bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom)); width: min(320px, calc(100vw - 24px)); filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.55)); }
+.shell:has(.guide-nav) .bottom-nav { padding-left: 56px; }
+
 @media (min-width: 1024px) {
-  .guide { left: calc(var(--side-w) + 16px); bottom: 16px; }
-  .guide-chip { display: none; }
-  .guide-full, .guide.open .guide-full { display: flex; position: static; width: 460px; align-items: flex-end; gap: 6px; }
-  .guide.open .guide-bust, .guide-bust { display: block; flex: none; margin-bottom: -2px; filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5)); }
-  .guide-bubble { width: 320px; margin-bottom: 26px; position: relative; }
+  .guide-side { display: block; }
+  .guide-nav { display: none; }
 }
