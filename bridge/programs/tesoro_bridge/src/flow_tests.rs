@@ -96,6 +96,8 @@ struct Env {
     owner_account: Pubkey,
     store: Pubkey,
     authority: Pubkey,
+    upgrade_authority: Keypair,
+    programdata: Pubkey,
 }
 
 impl Env {
@@ -108,6 +110,17 @@ impl Env {
             .expect("build tesoro_core first: pnpm build:programs");
         svm.add_program_from_file(s(crate::ID), bridge_so)
             .expect("build the bridge first: cargo build-sbf");
+        // `add_program` deploys with no upgrade authority; record one for the `set_admin` gate.
+        let upgrade_authority = Keypair::new();
+        let programdata = Pubkey::find_program_address(
+            &[crate::ID.as_ref()],
+            &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+        )
+        .0;
+        let mut pd = svm.get_account(&s(programdata)).expect("programdata");
+        pd.data[12] = 1;
+        pd.data[13..45].copy_from_slice(upgrade_authority.pubkey().as_ref());
+        svm.set_account(s(programdata), pd).expect("set programdata");
         let owner = Keypair::new_from_array([42u8; 32]);
         let store = bridge_pda(&[STORE_SEED]);
         let authority = bridge_pda(&[AUTHORITY_SEED]);
@@ -119,8 +132,10 @@ impl Env {
             owner,
             store,
             authority,
+            upgrade_authority,
+            programdata,
         };
-        for k in [&env.admin, &env.oracle, &env.owner] {
+        for k in [&env.admin, &env.oracle, &env.owner, &env.upgrade_authority] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
         }
         let (_, authority_bump) = Pubkey::find_program_address(&[AUTHORITY_SEED], &crate::ID);
@@ -544,4 +559,129 @@ fn a_position_too_large_for_tesoro_core_is_refused_not_truncated() {
     env.link(EVM_ADDRESS, &hex(LINK_SIGNATURE)).expect("link");
     let err = env.apply_locked(2).expect_err("principal exceeds u64");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::AmountOverflow)));
+}
+
+fn set_admin_ix(env: &Env, signer: &Keypair, new_admin: Pubkey) -> Instruction {
+    ix(
+        crate::ID,
+        crate::accounts::SetAdmin {
+            authority: a(signer.pubkey()),
+            store: env.store,
+            program: crate::ID,
+            program_data: env.programdata,
+        },
+        crate::instruction::SetAdmin { new_admin },
+    )
+}
+
+fn store_admin(env: &Env) -> Pubkey {
+    let acct = env.svm.get_account(&s(env.store)).expect("store");
+    Store::try_deserialize(&mut acct.data.as_slice()).expect("deserialize").admin
+}
+
+// Registers a second vault, so the PeerConfig PDA is created with the real account size.
+fn peer_ix(env: &Env, admin: &Keypair) -> Instruction {
+    let vault = msg_codec::pad_address(&[0x6c; 20]);
+    let peer = bridge_pda(&[PEER_SEED, env.store.as_ref(), &EID_HOODI.to_be_bytes(), &vault]);
+    ix(
+        crate::ID,
+        crate::accounts::SetPeerConfig {
+            admin: a(admin.pubkey()),
+            peer,
+            store: env.store,
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::SetPeerConfig {
+            params: SetPeerConfigParams {
+                remote_eid: EID_HOODI,
+                peer_address: vault,
+                decimals: 18,
+                rate_bps: 500,
+                enforced_send_options: vec![0, 3],
+            },
+        },
+    )
+}
+
+#[test]
+fn only_the_upgrade_authority_may_rotate_the_bridge_admin() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let err = env
+        .send(&[set_admin_ix(&env, &admin, a(admin.pubkey()))], &admin, &[])
+        .expect_err("the admin is not the upgrade authority");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::Unauthorized)));
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let err = env
+        .send(&[set_admin_ix(&env, &stranger, a(stranger.pubkey()))], &stranger, &[])
+        .expect_err("a stranger");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::Unauthorized)));
+    assert_eq!(store_admin(&env), a(admin.pubkey()));
+}
+
+// Needs the LayerZero endpoint binary (`solana program dump 76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6
+// endpoint.so`); set LZ_ENDPOINT_SO to its path.
+#[test]
+fn rotation_moves_the_store_admin_and_the_endpoint_delegate() {
+    let Ok(endpoint_so) = std::env::var("LZ_ENDPOINT_SO") else {
+        eprintln!("skipped: LZ_ENDPOINT_SO not set");
+        return;
+    };
+    let mut env = Env::new();
+    let endpoint = oapp::endpoint::ID;
+    env.svm
+        .add_program_from_file(s(endpoint), endpoint_so)
+        .expect("load the endpoint");
+    let (_, store_bump) = Pubkey::find_program_address(&[STORE_SEED], &crate::ID);
+    let (_, authority_bump) = Pubkey::find_program_address(&[AUTHORITY_SEED], &crate::ID);
+    let old_admin = a(env.admin.pubkey());
+    env.put(
+        env.store,
+        crate::ID,
+        &Store { admin: old_admin, endpoint_program: endpoint, bump: store_bump, authority_bump },
+    );
+    // The OApp registry `register_oapp` created at init_store: [delegate, bump] after the
+    // Anchor discriminator.
+    let (registry, registry_bump) =
+        Pubkey::find_program_address(&[b"OApp", env.store.as_ref()], &endpoint);
+    let mut data =
+        anchor_lang::solana_program::hash::hash(b"account:OAppRegistry").to_bytes()[..8].to_vec();
+    data.extend_from_slice(old_admin.as_ref());
+    data.push(registry_bump);
+    env.svm
+        .set_account(
+            s(registry),
+            solana_sdk::account::Account {
+                lamports: 10_000_000,
+                data,
+                owner: s(endpoint),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("set registry");
+    let (event_authority, _) = Pubkey::find_program_address(&[b"__event_authority"], &endpoint);
+
+    let new_admin = Keypair::new();
+    env.svm.airdrop(&new_admin.pubkey(), SOL).expect("airdrop");
+    let authority = env.upgrade_authority.insecure_clone();
+    let mut rotate = set_admin_ix(&env, &authority, a(new_admin.pubkey()));
+    rotate.accounts.extend([
+        AccountMeta::new_readonly(s(endpoint), false),
+        AccountMeta::new_readonly(s(env.store), false),
+        AccountMeta::new(s(registry), false),
+        AccountMeta::new_readonly(s(event_authority), false),
+        AccountMeta::new_readonly(s(endpoint), false),
+    ]);
+    env.send(&[rotate], &authority, &[]).expect("rotate");
+
+    assert_eq!(store_admin(&env), a(new_admin.pubkey()));
+    let reg = env.svm.get_account(&s(registry)).expect("registry");
+    assert_eq!(&reg.data[8..40], a(new_admin.pubkey()).as_ref());
+
+    let old = env.admin.insecure_clone();
+    assert!(env.send(&[peer_ix(&env, &old)], &old, &[]).is_err());
+    env.send(&[peer_ix(&env, &new_admin)], &new_admin, &[])
+        .expect("the new admin acts");
 }

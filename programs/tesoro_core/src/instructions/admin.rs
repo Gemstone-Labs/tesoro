@@ -90,6 +90,28 @@ pub(crate) fn update_config(
     Ok(())
 }
 
+/// Rotates `Config.admin`. Gated on the program's upgrade authority rather than the current
+/// admin, so a compromised admin key cannot call it (or block its own replacement).
+#[derive(Accounts)]
+pub struct SetAdmin<'info> {
+    pub authority: Signer<'info>,
+    #[account(mut, seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(
+        constraint = program.programdata_address()? == Some(program_data.key())
+            @ TesoroError::Unauthorized
+    )]
+    pub program: Program<'info, crate::program::TesoroCore>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(authority.key())
+        @ TesoroError::Unauthorized)]
+    pub program_data: Account<'info, ProgramData>,
+}
+
+pub(crate) fn set_admin(ctx: Context<SetAdmin>, new_admin: Pubkey) -> Result<()> {
+    ctx.accounts.config.admin = new_admin;
+    Ok(())
+}
+
 #[derive(Accounts)]
 pub struct RegisterGame<'info> {
     pub admin: Signer<'info>,

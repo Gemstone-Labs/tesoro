@@ -32,6 +32,10 @@ pub mod tesoro_core {
         instructions::admin::update_config(ctx, oracle_authority, platform_bps)
     }
 
+    pub fn set_admin(ctx: Context<SetAdmin>, new_admin: Pubkey) -> Result<()> {
+        instructions::admin::set_admin(ctx, new_admin)
+    }
+
     pub fn register_game(
         ctx: Context<RegisterGame>,
         game: Pubkey,

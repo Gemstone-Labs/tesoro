@@ -71,6 +71,10 @@ pub mod tesoro_bridge {
         InitStore::apply(&mut ctx, &params)
     }
 
+    pub fn set_admin(mut ctx: Context<SetAdmin>, new_admin: Pubkey) -> Result<()> {
+        SetAdmin::apply(&mut ctx, new_admin)
+    }
+
     pub fn set_peer_config(
         mut ctx: Context<SetPeerConfig>,
         params: SetPeerConfigParams,

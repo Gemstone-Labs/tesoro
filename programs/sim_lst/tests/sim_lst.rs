@@ -62,6 +62,8 @@ struct Env {
     pool: APk,
     mint: APk,
     vault: APk,
+    upgrade_authority: Keypair,
+    programdata: Pk,
 }
 
 fn pda(seeds: &[&[u8]]) -> APk {
@@ -104,6 +106,20 @@ fn setup_with(faucet_amount: u64) -> Env {
     );
     svm.add_program_from_file(s(sim_lst::ID), so)
         .expect("run `pnpm build:programs` first");
+    // `add_program` deploys with no upgrade authority; record one for the `set_admin` gate.
+    let upgrade_authority = Keypair::new();
+    let programdata = Pk::find_program_address(
+        &[sim_lst::ID.as_ref()],
+        &"BPFLoaderUpgradeab1e11111111111111111111111"
+            .parse()
+            .expect("loader id"),
+    )
+    .0;
+    let mut pd = svm.get_account(&programdata).expect("programdata");
+    pd.data[12] = 1;
+    pd.data[13..45].copy_from_slice(upgrade_authority.pubkey().as_ref());
+    svm.set_account(programdata, pd).expect("set programdata");
+    svm.airdrop(&upgrade_authority.pubkey(), 10 * SOL).unwrap();
     set_time(&mut svm, T0);
     let admin = Keypair::new();
     svm.airdrop(&admin.pubkey(), 100 * SOL).unwrap();
@@ -116,6 +132,8 @@ fn setup_with(faucet_amount: u64) -> Env {
         pool,
         mint,
         vault,
+        upgrade_authority,
+        programdata,
     };
     let init = ix(
         accounts::Initialize {
@@ -431,4 +449,66 @@ fn faucet_disabled_when_amount_is_zero() {
     let mut env = setup_with(0);
     let alice = user(&mut env);
     assert_eq!(faucet(&mut env, &alice), Err(ERR_FAUCET_DISABLED));
+}
+
+fn set_admin(env: &mut Env, signer: &Keypair, new_admin: APk) -> Result<(), u32> {
+    let ix = ix(
+        accounts::SetAdmin {
+            authority: key(signer),
+            pool: env.pool,
+            program: sim_lst::ID,
+            program_data: a(env.programdata),
+        },
+        instruction::SetAdmin { new_admin },
+    );
+    send(env, signer, ix)
+}
+
+fn pool_admin(env: &Env) -> APk {
+    let acct = env.svm.get_account(&s(env.pool)).expect("pool");
+    Pool::try_deserialize(&mut acct.data.as_slice())
+        .expect("deserialize")
+        .admin
+}
+
+#[test]
+fn upgrade_authority_rotates_the_admin_and_the_new_admin_acts() {
+    let mut env = setup();
+    let new_admin = Keypair::new();
+    env.svm.airdrop(&new_admin.pubkey(), 10 * SOL).unwrap();
+    let authority = env.upgrade_authority.insecure_clone();
+    set_admin(&mut env, &authority, key(&new_admin)).unwrap();
+    assert_eq!(pool_admin(&env), key(&new_admin));
+    let old = env.admin.insecure_clone();
+    let paused = admin_ix(&env, &old.pubkey(), instruction::SetPaused { paused: true });
+    assert_eq!(send(&mut env, &old, paused), Err(ERR_UNAUTHORIZED));
+    let paused = admin_ix(
+        &env,
+        &new_admin.pubkey(),
+        instruction::SetPaused { paused: true },
+    );
+    send(&mut env, &new_admin, paused).unwrap();
+}
+
+#[test]
+fn the_current_admin_cannot_rotate_unless_it_is_the_upgrade_authority() {
+    let mut env = setup();
+    let admin = env.admin.insecure_clone();
+    assert_eq!(
+        set_admin(&mut env, &admin, APk::new_unique()),
+        Err(ERR_UNAUTHORIZED)
+    );
+    assert_eq!(pool_admin(&env), key(&admin));
+}
+
+#[test]
+fn a_random_signer_cannot_rotate() {
+    let mut env = setup();
+    let stranger = Keypair::new();
+    env.svm.airdrop(&stranger.pubkey(), SOL).unwrap();
+    assert_eq!(
+        set_admin(&mut env, &stranger, key(&stranger)),
+        Err(ERR_UNAUTHORIZED)
+    );
+    assert_eq!(pool_admin(&env), key(&env.admin));
 }

@@ -187,6 +187,13 @@ pub mod sim_lst {
         Ok(())
     }
 
+    /// Upgrade authority: rotates the pool admin. Gated on the program's upgrade authority so a
+    /// compromised admin key cannot call it.
+    pub fn set_admin(ctx: Context<SetAdmin>, new_admin: Pubkey) -> Result<()> {
+        ctx.accounts.pool.admin = new_admin;
+        Ok(())
+    }
+
     /// Admin: configures the faucet payout and per-user cooldown (seconds). Amount 0 disables it.
     pub fn set_faucet(ctx: Context<AdminOnly>, amount: u64, cooldown: i64) -> Result<()> {
         require!(cooldown >= 0, SimLstError::InvalidParams);
@@ -422,6 +429,21 @@ pub struct AdminOnly<'info> {
     pub admin: Signer<'info>,
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump, has_one = admin @ SimLstError::Unauthorized)]
     pub pool: Account<'info, Pool>,
+}
+
+#[derive(Accounts)]
+pub struct SetAdmin<'info> {
+    pub authority: Signer<'info>,
+    #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
+    pub pool: Account<'info, Pool>,
+    #[account(
+        constraint = program.programdata_address()? == Some(program_data.key())
+            @ SimLstError::Unauthorized
+    )]
+    pub program: Program<'info, crate::program::SimLst>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(authority.key())
+        @ SimLstError::Unauthorized)]
+    pub program_data: Account<'info, ProgramData>,
 }
 
 #[derive(Accounts)]
