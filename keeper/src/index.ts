@@ -1,11 +1,12 @@
 import { Budget, log, runJob, type Ctx } from "./act.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
-import { ethYieldJob } from "./eth.ts";
+import { checkHoodiAtStart, ethYieldJob } from "./eth.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
 import { matchHygiene } from "./matches.ts";
 import { priceJob } from "./price.ts";
-import { buildRuntime, clusterNow, newConnection, rateLimit } from "./runtime.ts";
+import { Connection } from "@solana/web3.js";
+import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
 import { yieldJob } from "./yield.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -30,15 +31,17 @@ async function main() {
   const s = settings();
   const hostOf = (u: string) => new URL(u).host;
   const conn = newConnection(s.rpc, s.gpaRpc);
-  const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m));
+  const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: fetchWithBackoff as typeof fetch }));
+  await checkHoodiAtStart(s.hoodiRpc, (m) => log("keeper", "-", m));
   const ctx: Ctx = {
     ...buildRuntime(s, conn, payer),
     budget: new Budget(s.hourlyCapLamports),
     lz: new Budget(s.lzHourlyCapLamports),
     eth: new Budget(Math.round(s.ethHourlyCapEth * 1e9)),
+    yieldShare: new Budget(Math.round(s.hourlyCapLamports * s.yieldShare)),
   };
   const balance = await conn.getBalance(payer.publicKey);
-  log("keeper", "-", `start rpc=${hostOf(s.rpc)} gpa=${hostOf(s.gpaRpc)} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);
+  log("keeper", "-", `start cluster=devnet rpc=${hostOf(s.rpc)} gpa=${hostOf(s.gpaRpc)} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);
 
   let delay = s.intervalMs;
   do {
