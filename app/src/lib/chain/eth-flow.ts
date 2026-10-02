@@ -71,6 +71,7 @@ export function ethError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e);
   const err = e as { shortMessage?: string; code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001) return "Wallet request was rejected.";
+  if (/exceeds defined limit|rate limited|took too long to respond/i.test(`${err?.shortMessage ?? ""} ${text}`)) return "The network is busy right now. Wait a few seconds and try again.";
   if (err?.shortMessage) return err.shortMessage.split("\n")[0].slice(0, 200);
   const m = /Error Message: ([^\n]+)/.exec(text);
   if (m) return m[1].replace(/\.$/, "");
