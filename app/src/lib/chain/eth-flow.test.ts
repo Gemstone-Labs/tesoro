@@ -7,6 +7,7 @@ describe("ethError", () => {
     expect(ethError(Object.assign(new Error("x"), { shortMessage: "Request exceeds defined limit." }))).toBe(busy);
     expect(ethError(new Error("The request took too long to respond."))).toBe(busy);
     expect(ethError(new Error("HTTP request failed: rate limited"))).toBe(busy);
+    expect(ethError(new Error("An unknown RPC error occurred."))).toBe(busy);
   });
   it("keeps other messages", () => {
     expect(ethError(Object.assign(new Error("x"), { shortMessage: "Execution reverted" }))).toBe("Execution reverted");
