@@ -12,10 +12,10 @@ import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { AccountSheet } from "@/components/shell/AccountSheet";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
-import { createWalletClient, http } from "viem";
+import { createWalletClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { hoodi } from "viem/chains";
-import { HOODI_RPC } from "@/lib/chain/eth";
+import { HOODI_RPC, evmTransport } from "@/lib/chain/eth";
 import { AuthContext } from "./context";
 import type { AuthState, EvmSigner } from "./types";
 
@@ -99,9 +99,9 @@ function DevBridge({ children }: { children: ReactNode }) {
     const evm: EvmSigner | null = evmKey && {
       address: privateKeyToAccount(evmKey).address,
       account: privateKeyToAccount(evmKey),
-      client: createWalletClient({ account: privateKeyToAccount(evmKey), chain: hoodi, transport: http(HOODI_RPC) }),
+      client: createWalletClient({ account: privateKeyToAccount(evmKey), chain: hoodi, transport: evmTransport(HOODI_RPC) }),
       // The dev key signs locally and sends through the chain's own RPC.
-      clientFor: (chain) => createWalletClient({ account: privateKeyToAccount(evmKey), chain, transport: http(chain.id === hoodi.id ? HOODI_RPC : undefined) }),
+      clientFor: (chain) => createWalletClient({ account: privateKeyToAccount(evmKey), chain, transport: evmTransport(chain.id === hoodi.id ? HOODI_RPC : undefined) }),
       prepare: async () => {},
       source: "dev",
     };

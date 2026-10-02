@@ -127,10 +127,17 @@ export const lstAbi = parseAbi([
   "function speedup() view returns (uint256)",
 ]);
 
+/**
+ * Public EVM RPCs rate-limit per request ("Request exceeds defined limit" on HyperEVM) and answer slowly under load
+ * (about 3 s a call), so reads are batched into one HTTP request per tick and a call gets 30 s and a slow retry
+ * instead of viem's 10 s and 150 ms.
+ */
+export const evmTransport = (rpc?: string) => http(rpc, { batch: true, timeout: 30_000, retryCount: 4, retryDelay: 800 });
+
 const clients = new Map<NetKey, PublicClient>();
 export function evmClient(net: EvmNet): PublicClient {
   let c = clients.get(net.key);
-  if (!c) clients.set(net.key, (c = createPublicClient({ chain: net.chain, transport: http(net.rpc) }) as PublicClient));
+  if (!c) clients.set(net.key, (c = createPublicClient({ chain: net.chain, transport: evmTransport(net.rpc) }) as PublicClient));
   return c;
 }
 
