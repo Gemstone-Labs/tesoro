@@ -620,3 +620,13 @@ html.lenis, html.lenis body { height: auto; }
   :root[data-theme="light"] .lp-hero:not(.has-light-art) { margin-top: 64px; min-height: max(600px, calc(100svh - 64px - var(--g))); }
   :root[data-theme="light"] .lp-hero:not(.has-light-art) .lp-hero-copy { padding-top: 40px; }
 }
+/* With the daylight hero, the hero and the unscrolled nav sit on light art: use the light money set (money.css). */
+:root[data-theme="light"] .lp-hero.has-light-art,
+:root[data-theme="light"]:has(.lp-hero.has-light-art) .lp-nav[data-scrolled="false"] {
+  --em-ink: #ffffff;
+  --money-fill: linear-gradient(180deg, #13a079 0%, #0b8462 55%, #076e51 100%);
+  --money-rim: linear-gradient(180deg, rgba(190, 255, 232, 0.7), rgba(190, 255, 232, 0) 55%);
+  --money-base: rgba(0, 30, 20, 0.3);
+  --gem-ink-line: rgba(4, 60, 44, 0.6);
+}
+:root[data-theme="light"] .lp-hero.has-light-art .btn.money { color: #ffffff; }

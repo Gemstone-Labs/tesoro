@@ -13,7 +13,7 @@ const OUT = resolve(here, "../public/art/landing");
 const GEN = resolve(here, "../src/lib/landing/art.generated.ts");
 
 /** The chosen take per folder (Ailton's picks; see art-source/landing/PROMPTS.md). */
-const TAKE = { hero: 1, "hero-light": 1, "him-guide": 1, "her-backer": 1, "final-cta": 1, "how-it-works": 1 };
+const TAKE = { hero: 1, "hero-light": 2, "him-guide": 1, "her-backer": 1, "final-cta": 1, "how-it-works": 1 };
 // Astra's multichain art (multichain/) is not imported: the section is a live 3D scene now.
 // Astra's facet textures (texture/) are not used: they repeat visibly behind text; the page keeps its coded SVG texture.
 

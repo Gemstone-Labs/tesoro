@@ -34,6 +34,14 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
       1242
     ]
   },
+  "heroLight": {
+    "w": 3200,
+    "h": 1800,
+    "widths": [
+      1280,
+      1920
+    ]
+  },
   "himGuide": {
     "w": 1041,
     "h": 1638,
