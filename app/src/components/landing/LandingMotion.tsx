@@ -62,10 +62,6 @@ export function LandingMotion() {
           });
         }
 
-        for (const el of gsap.utils.toArray<HTMLElement>("[data-flow]").filter(below)) {
-          el.classList.add("is-armed");
-          ScrollTrigger.create({ trigger: el, start: "top 75%", once: true, onEnter: () => el.classList.add("is-live") });
-        }
 
         for (const el of gsap.utils.toArray<HTMLElement>("[data-slide]").filter(below)) {
           gsap.fromTo(el, { autoAlpha: 0, x: 24 }, { autoAlpha: 1, x: 0, duration: 0.8, ease: "power2.out", scrollTrigger: { trigger: el, start: "top 80%", once: true } });
@@ -87,11 +83,9 @@ export function LandingMotion() {
           gsap.fromTo(el, { yPercent: -v }, { yPercent: v, ease: "none", scrollTrigger: { trigger: el.closest("section"), start: "top bottom", end: "bottom top", scrub: true } });
         }
 
-        const rail = document.querySelector<HTMLElement>("[data-rail]");
-        if (rail) gsap.fromTo(rail, { "--rail": 0 }, { "--rail": 1, ease: "none", scrollTrigger: { trigger: rail, start: "top 75%", end: "bottom 65%", scrub: true } });
 
         const gemas = document.querySelector<HTMLElement>("[data-gemas]");
-        if (gemas && innerHeight >= 640) {
+        if (gemas && innerHeight >= 760) {
           gemas.classList.add("is-stepped");
           ScrollTrigger.create({
             trigger: gemas,
@@ -108,9 +102,6 @@ export function LandingMotion() {
           });
         }
 
-        for (const el of gsap.utils.toArray<HTMLElement>("[data-wipe]")) {
-          gsap.fromTo(el, { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", ease: "none", scrollTrigger: { trigger: el, start: "top 85%", end: "center 55%", scrub: true } });
-        }
 
         const final = document.querySelector<HTMLElement>(".lp-final");
         if (final) {

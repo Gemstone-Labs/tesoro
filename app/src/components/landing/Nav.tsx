@@ -47,7 +47,7 @@ export function Nav() {
           <TesoroLogo height={30} tone="dark" className="on-dark" />
           <TesoroLogo height={30} tone="light" className="on-light" />
         </a>
-        <nav className="lp-links" aria-label="Sections">
+        <nav className="lp-links cut" aria-label="Sections">
           {LINKS.map(([label, href]) => (
             <a key={href} href={href}>
               {label}

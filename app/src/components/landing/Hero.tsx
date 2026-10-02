@@ -8,6 +8,11 @@ export function Hero() {
         <Picture k="heroBack" mobile="heroMobile" sizes="(max-width: 767px) 100vw, (max-width: 1023px) 100vw, 100vw" className="layer back" priority />
         <Picture k="heroMid" sizes="100vw" className="layer mid" />
         <Picture k="heroFront" sizes="100vw" className="layer front" />
+        {/* Mirrors the art's object-fit: cover so the glow stays on the lantern glass at any viewport. */}
+        <span className="lp-lantern-box">
+          <span className="lp-lantern wide" />
+          <span className="lp-lantern" />
+        </span>
       </div>
       <div className="lp-wrap lp-hero-copy" data-hero-copy>
         <h1 id="hero-title" className="lp-h1">

@@ -16,37 +16,58 @@ const BEATS = [
   },
   {
     line: "The Advance is repaid from yield.",
-    support:
-      "Your Position’s yield pays down its Debt. When Debt reaches zero, the Position unlocks; the Unlock Estimate moves with the provider’s actual yield.",
+    support: "Your Position’s yield pays down its Debt. When Debt reaches zero, the Position unlocks.",
   },
 ];
+
+/** Concentric stepped octagons, like an emerald cut seen from above: the frame the Gema stands in. */
+function Vitrine() {
+  const ring = (inset: number) => {
+    const [w, h, c] = [400 - inset * 2, 500 - inset * 2, 70 - inset * 0.55];
+    const [x, y] = [inset, inset];
+    return `M${x + c} ${y}H${x + w - c}L${x + w} ${y + c}V${y + h - c}L${x + w - c} ${y + h}H${x + c}L${x} ${y + h - c}V${y + c}Z`;
+  };
+  return (
+    <svg className="lp-vitrine" viewBox="0 0 400 500" aria-hidden>
+      {[0, 22, 44].map((i) => (
+        <path key={i} d={ring(i)} className={i === 0 ? "outer" : "inner"} />
+      ))}
+    </svg>
+  );
+}
 
 export function Gemas() {
   return (
     <section id="gemas" className="lp-section lp-gemas" aria-labelledby="gemas-title" data-gemas data-beat="0">
-      <div className="lp-wrap lp-gemas-grid">
-        <div className="lp-gemas-copy">
+      <div className="lp-wrap">
+        <header className="lp-gemas-head">
           <p className="lp-eyebrow mono">
             <GemaMark size={14} /> Gemas
           </p>
           <h2 id="gemas-title" className="lp-h2" data-reveal>
             Play now, your yield pays later
           </h2>
+        </header>
+        <div className="lp-gemas-stage">
           <ol className="lp-beats">
             {BEATS.map((b, i) => (
-              <li key={i} className="lp-beat" data-beat-i={i} data-reveal>
+              <li key={i} className="lp-beat cut cut-card" data-beat-i={i} data-reveal>
+                <span className="lp-beat-n mono">0{i + 1}</span>
                 <p className="lp-beat-line">{b.line}</p>
                 <p className="lp-body">{b.support}</p>
               </li>
             ))}
           </ol>
-          <div className="lp-beat-dots" aria-hidden>
-            {BEATS.map((_, i) => (
-              <span key={i} data-dot={i} />
-            ))}
+          <div className="lp-showcase">
+            <Vitrine />
+            <span className="lp-sparkles" aria-hidden>
+              {Array.from({ length: 9 }, (_, i) => (
+                <i key={i} style={{ ["--i" as string]: i }} />
+              ))}
+            </span>
+            <GemStage />
           </div>
         </div>
-        <GemStage />
       </div>
     </section>
   );

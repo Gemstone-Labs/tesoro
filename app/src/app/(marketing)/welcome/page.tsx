@@ -10,9 +10,7 @@ import { LandingMotion } from "@/components/landing/LandingMotion";
 import { Multichain } from "@/components/landing/Multichain";
 import { Nav } from "@/components/landing/Nav";
 import { Principal } from "@/components/landing/Principal";
-import { StatusBand } from "@/components/landing/StatusBand";
 import { Studios } from "@/components/landing/Studios";
-import { LAUNCH_STAGE } from "@/lib/landing/config";
 
 export const metadata: Metadata = {
   title: "Tesoro · Play now with yield you haven't earned yet",
@@ -35,7 +33,6 @@ export default function Welcome() {
         <Backing />
         <Multichain />
         <Studios />
-        {LAUNCH_STAGE === "testnet" && <StatusBand />}
         <FinalCta />
       </main>
       <Footer />

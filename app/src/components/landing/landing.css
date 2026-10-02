@@ -72,18 +72,23 @@ html.lenis, html.lenis body { height: auto; }
 .lp-dim { opacity: 0.55; cursor: default; }
 [data-count] { display: inline-block; }
 
-/* Nav */
+/* Nav: over the hero it is always on the dark cave (both themes), with a scrim above the art and the links on frosted glass. */
 .lp-nav { position: fixed; inset: 0 0 auto; z-index: 50; height: 72px; transition: background 0.25s, border-color 0.25s; border-bottom: 1px solid transparent; }
 .lp-nav[data-scrolled="true"] { background: color-mix(in srgb, var(--side) 92%, transparent); backdrop-filter: blur(10px); border-color: var(--line); }
-.lp-nav-in { height: 100%; max-width: calc(1240px + 2 * var(--g)); margin-inline: auto; padding-inline: var(--g); display: flex; align-items: center; gap: 28px; }
+.lp-nav-in { height: 100%; max-width: calc(1240px + 2 * var(--g)); margin-inline: auto; padding-inline: var(--g); display: flex; align-items: center; gap: 20px; }
 .lp-logo { display: inline-flex; color: var(--fg); }
-.lp-nav[data-scrolled="false"] .lp-logo { color: var(--hero-fg, var(--fg)); }
-.lp-links { display: flex; gap: 28px; margin-left: auto; font-weight: 700; font-size: 14.5px; }
+.lp-links { --c: 10px; display: flex; gap: 26px; margin-left: auto; padding: 9px 20px; font-weight: 700; font-size: 14.5px; transition: background 0.25s; }
 .lp-links a { color: var(--fg-2); }
 .lp-links a:hover { color: var(--fg); }
 .lp-theme { color: var(--fg); }
 .lp-launch { min-height: 40px; padding: 8px 16px; }
-:root:not([data-theme="light"]) .lp-nav[data-scrolled="false"] { --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.72); --line-2: rgba(234, 239, 236, 0.22); }
+.lp-nav[data-scrolled="false"] {
+  --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.78); --line-2: rgba(234, 239, 236, 0.22);
+  --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%); --em-ink: #03201a;
+}
+.lp-nav[data-scrolled="false"] .lp-links { background: rgba(9, 13, 15, 0.5); backdrop-filter: blur(12px); }
+.lp-nav[data-scrolled="false"] .on-dark { display: revert; }
+.lp-nav[data-scrolled="false"] .on-light { display: none; }
 @media (max-width: 1023px) {
   .lp-links { display: none; }
   .lp-theme { margin-left: auto; }
@@ -94,18 +99,41 @@ html.lenis, html.lenis body { height: auto; }
   .lp-logo svg { height: 24px; width: auto; }
 }
 
-/* 1. Hero */
-.lp-hero { --hero-fg: #eaefec; position: relative; min-height: max(720px, 100svh); display: flex; align-items: center; overflow: hidden; background: var(--surface-art); color: var(--hero-fg); }
+/* 1. Hero: the dark cave, full bleed, in both themes (the light theme starts below it). */
+.lp-hero {
+  --hero-fg: #eaefec;
+  --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%); --em-ink: #03201a; --sweep: #ffffff;
+  position: relative; min-height: max(720px, 100svh); display: flex; align-items: center; overflow: hidden; background: var(--surface-art); color: var(--hero-fg);
+}
+.lp-hero::before { content: ""; position: absolute; inset: 0 0 auto; height: 240px; z-index: 1; pointer-events: none; background: linear-gradient(180deg, rgba(9, 13, 15, 0.85), rgba(9, 13, 15, 0)); }
 .lp-hero-art { position: absolute; inset: 0; }
 .lp-hero-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.85) 0, rgba(9, 13, 15, 0.45) 36%, transparent 56%); }
+.lp-hero-art { container-type: size; }
+.lp-lantern-box {
+  position: absolute; z-index: 1; pointer-events: none;
+  width: max(100cqw, 100cqh * 1.7778); height: max(100cqh, 100cqw * 0.5625);
+  left: calc((100cqw - max(100cqw, 100cqh * 1.7778)) * 0.72); top: calc((100cqh - max(100cqh, 100cqw * 0.5625)) * 0.5);
+}
+.lp-lantern {
+  position: absolute; left: 90.9%; top: 66.2%; width: 15%; aspect-ratio: 1; translate: -50% -50%; mix-blend-mode: screen;
+  background: radial-gradient(closest-side, rgba(150, 255, 222, 0.75), rgba(54, 240, 190, 0.38) 35%, rgba(36, 216, 168, 0.1) 65%, transparent);
+}
+.lp-lantern.wide { width: 42%; opacity: 0.55; background: radial-gradient(closest-side, rgba(36, 216, 168, 0.32), rgba(36, 216, 168, 0.08) 55%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .lp-lantern { animation: lp-flicker 2.8s ease-in-out infinite; }
+  .lp-lantern.wide { animation: lp-flicker-wide 4.6s ease-in-out infinite; }
+}
+@keyframes lp-flicker { 0%, 100% { opacity: 0.85; scale: 1; } 18% { opacity: 1; scale: 1.06; } 32% { opacity: 0.72; scale: 0.97; } 46% { opacity: 0.95; scale: 1.03; } 70% { opacity: 0.8; scale: 0.99; } }
+@keyframes lp-flicker-wide { 0%, 100% { opacity: 0.45; } 40% { opacity: 0.65; } 65% { opacity: 0.5; } }
 .layer, .layer img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 72% 50%; display: block; }
 .lp-hero-copy { position: relative; z-index: 2; padding-top: 72px; }
 .lp-hero-copy > * { max-width: min(46%, 620px); }
 .lp-hero .lp-h1 { max-width: 11ch; }
-.lp-hero .lp-lede { color: color-mix(in srgb, var(--hero-fg) 74%, transparent); margin: 24px 0 36px; max-width: 34ch; }
+.lp-hero .lp-lede { color: rgba(234, 239, 236, 0.76); margin: 24px 0 36px; max-width: 34ch; }
 .lp-ctas { display: flex; flex-wrap: wrap; gap: 14px; }
 .lp-ctas .btn { min-width: 180px; }
 .lp-hero .btn.neutral { background: rgba(17, 22, 26, 0.6); color: #eaefec; --edge: rgba(234, 239, 236, 0.28); }
+.lp-hero .btn.money:focus-visible { outline-color: #03201a; }
 
 .sweep { color: var(--hero-fg); }
 @media (prefers-reduced-motion: no-preference) {
@@ -123,82 +151,109 @@ html.lenis, html.lenis body { height: auto; }
 @keyframes lp-settle { from { transform: scale(1.045); filter: brightness(0.7); } }
 @keyframes lp-sweep { from { background-position: 100% 0; } }
 @media (forced-colors: active) { .sweep { color: CanvasText; background: none; } }
-
-:root[data-theme="light"] .lp-hero { --hero-fg: var(--fg); background: var(--shell); }
-@media (min-width: 768px) {
-  :root[data-theme="light"] .lp-hero-art {
-    --c: var(--cut-frame);
-    left: auto; right: var(--g); top: 104px; bottom: 48px; width: calc(50% - var(--g));
-    clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
-    background: var(--surface-art);
-  }
-  :root[data-theme="light"] .lp-hero-art::after { display: none; }
-  :root[data-theme="light"] .lp-hero .layer, :root[data-theme="light"] .lp-hero .layer img { object-position: 80% 50%; }
-  :root[data-theme="light"] .lp-hero-copy > * { max-width: min(44%, 600px); }
-  :root[data-theme="light"] .lp-hero .lp-h1 { font-size: clamp(40px, 4.6vw, 84px); }
-  :root[data-theme="light"] .lp-hero .btn.neutral { background: var(--raised); color: var(--fg); --edge: var(--line-2); }
-}
 @media (max-width: 767px) {
   /* The phone art keeps its top 45% dark for the copy, which sits over it. */
-  .lp-hero { --hero-fg: #eaefec; align-items: flex-start; min-height: max(680px, 100svh); }
+  .lp-hero { align-items: flex-start; min-height: max(680px, 100svh); }
   .lp-hero-art::after { background: linear-gradient(180deg, rgba(9, 13, 15, 0.6) 0, transparent 40%); }
   .lp-hero .layer.mid, .lp-hero .layer.front { display: none; }
+  .lp-lantern-box {
+    width: max(100cqw, 100cqh * 0.7482); height: max(100cqh, 100cqw * 1.3365);
+    left: calc((100cqw - max(100cqw, 100cqh * 0.7482)) * 0.5); top: calc(100cqh - max(100cqh, 100cqw * 1.3365));
+  }
+  .lp-lantern { left: 59.8%; top: 80.2%; width: 26%; }
+  .lp-lantern.wide { width: 70%; }
   .lp-hero .layer, .lp-hero .layer img { object-position: 50% 100%; }
   .lp-hero-copy { padding-top: 96px; }
   .lp-hero-copy > * { max-width: none; }
   .lp-hero .lp-lede { margin: 16px 0 24px; }
   .lp-ctas .btn { min-width: 0; flex: 1; padding: 0 12px; font-size: 17px; white-space: nowrap; min-height: 54px; }
-  :root[data-theme="light"] .lp-hero { --hero-fg: #eaefec; background: var(--surface-art); }
 }
 
-/* 2. How it works */
-.lp-how-grid { display: grid; grid-template-columns: minmax(220px, 30%) 1fr; gap: clamp(32px, 5vw, 80px); align-items: end; }
-.lp-how-guide { align-self: end; margin-bottom: calc(-1 * var(--sec)); }
+/* 2. How it works: the loop as a diagram. Five nodes left to right, a pulse travelling along them, and the
+   return arc: yield repays the Debt. The guide is a small figure beside the heading. */
+.lp-how-head { display: grid; grid-template-columns: auto 1fr; gap: clamp(20px, 3vw, 40px); align-items: end; margin-bottom: 40px; }
+.lp-how-guide { width: clamp(130px, 13vw, 190px); margin-bottom: -40px; position: relative; z-index: 1; }
 .lp-how-guide img { width: 100%; height: auto; display: block; }
-.lp-steps { --rail: 1; list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 36px; position: relative; }
-.lp-steps::before { content: ""; position: absolute; left: 59px; top: 60px; bottom: 60px; width: 1px; background: var(--line-2); transform: scaleY(var(--rail)); transform-origin: top; }
-.lp-step { display: grid; grid-template-columns: 120px 1fr; gap: 28px; align-items: center; }
-.lp-step-art { width: 120px; height: 120px; background: var(--raised); display: grid; place-items: center; z-index: 1; }
-.lp-step-art picture, .lp-step-art img { width: 100%; height: 100%; object-fit: contain; }
+.lp-how-head .lp-h2 { margin-bottom: 12px; }
+.lp-cycle { --tile: 112px; position: relative; background: var(--raised); padding: 48px clamp(20px, 3vw, 44px) 40px; }
+.lp-cycle-steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: clamp(14px, 2vw, 28px); position: relative; z-index: 1; }
+.lp-node { display: grid; justify-items: center; text-align: center; align-content: start; }
+.lp-node-art { width: var(--tile); height: var(--tile); background: var(--shell); display: grid; place-items: center; margin-bottom: 14px; --edge: var(--line-2); }
+.lp-node-art picture, .lp-node-art img { width: 100%; height: 100%; object-fit: contain; }
+.lp-node .lp-h3 { font-size: 18px; margin: 2px 0 6px; }
+.lp-node .lp-body { font-size: 14.5px; max-width: 24ch; }
 .lp-step-icon { display: grid; place-items: center; color: var(--fg-2); }
 .lp-step-icon svg { width: 34px; height: 34px; }
-.lp-step-n { font-size: 12px; color: var(--fg-2); letter-spacing: 0.1em; margin-bottom: 2px; }
-.lp-step .lp-body { margin-top: 4px; max-width: 54ch; }
+.lp-step-n { font-size: 12px; color: var(--fg-2); letter-spacing: 0.1em; }
+.lp-cycle-line { position: absolute; left: 10%; right: 10%; top: calc(48px + var(--tile) / 2); height: 2px; background: repeating-linear-gradient(90deg, var(--line-2) 0 6px, transparent 6px 12px); }
+.lp-pulse { position: absolute; top: -4px; left: 0; width: 10px; height: 10px; background: var(--em); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); box-shadow: 0 0 14px var(--em); opacity: 0; }
+@media (prefers-reduced-motion: no-preference) { .lp-pulse { animation: lp-travel 5s cubic-bezier(0.5, 0, 0.5, 1) infinite; } }
+@keyframes lp-travel { 0% { left: 0; opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { left: calc(100% - 10px); opacity: 0; } }
+.lp-cycle-return { margin: 18px 10% 0; height: 54px; }
+.lp-cycle-return svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.lp-cycle-return path { fill: none; stroke: var(--em); stroke-width: 1.5; stroke-dasharray: 6 8; opacity: 0.8; }
+@media (prefers-reduced-motion: no-preference) { .lp-cycle-return path { animation: lp-dash-back 1.6s linear infinite; } }
+@keyframes lp-dash-back { to { stroke-dashoffset: 28; } }
+.lp-cycle-label { text-align: center; font-size: 13px; color: var(--fg-2); margin-top: 6px; }
 @media (max-width: 1023px) {
-  .lp-how-grid { grid-template-columns: 1fr; }
-  .lp-how-guide { order: -1; width: 180px; margin-bottom: -8px; }
-}
-@media (max-width: 767px) {
-  .lp-step { grid-template-columns: 72px 1fr; gap: 18px; align-items: start; }
-  .lp-step-art { width: 72px; height: 72px; }
-  .lp-steps::before { left: 35px; }
+  .lp-cycle { --tile: 72px; padding: 28px 20px; }
+  .lp-cycle-steps { grid-template-columns: 1fr; gap: 22px; }
+  .lp-node { grid-template-columns: var(--tile) 1fr; justify-items: start; text-align: left; column-gap: 18px; }
+  .lp-node-art { grid-row: 1 / 4; margin: 0; }
+  .lp-cycle-line { left: calc(20px + var(--tile) / 2); right: auto; top: 28px; bottom: 28px; width: 2px; height: auto; background: repeating-linear-gradient(180deg, var(--line-2) 0 6px, transparent 6px 12px); }
+  .lp-pulse { display: none; }
+  .lp-cycle-return { display: none; }
+  .lp-cycle-label { text-align: left; margin-top: 18px; }
+  .lp-how-guide { width: 110px; margin-bottom: -10px; }
 }
 
-/* 3. Gemas */
-.lp-gemas { min-height: 100svh; display: flex; align-items: center; padding-block: 96px; }
-.lp-gemas-grid { display: grid; grid-template-columns: 1fr minmax(320px, 46%); gap: 48px; align-items: center; }
-.lp-beats { list-style: none; padding: 0; margin: 28px 0; display: grid; gap: 28px; }
-.lp-beat-line { font-size: clamp(22px, 2vw, 30px); font-weight: 800; word-spacing: 0.14em; line-height: 1.2; margin-bottom: 6px; }
-.lp-beat .lp-body { max-width: 52ch; }
-.lp-beat-dots { display: none; gap: 8px; }
-.lp-beat-dots span { width: 28px; height: 3px; background: var(--line-2); transition: background 0.4s; }
-.is-stepped .lp-beat-dots { display: flex; }
-/* !important: the beats also carry the reveal tween's inline opacity. */
-.is-stepped .lp-beat { opacity: 0.25 !important; transition: opacity 0.5s; }
+/* 3. Gemas: the Gema stands centre stage in a stepped octagon frame; the three points are callouts around it. */
+.lp-gemas { min-height: 100svh; display: flex; align-items: center; padding-block: 96px; overflow: hidden; }
+.lp-gemas-head { text-align: center; margin-bottom: 24px; }
+.lp-gemas-head .lp-eyebrow { justify-content: center; }
+.lp-gemas-stage { display: grid; grid-template-columns: 1fr minmax(340px, 420px) 1fr; grid-template-rows: 1fr auto 1fr; column-gap: clamp(28px, 4vw, 64px); row-gap: 20px; align-items: center; }
+.lp-beats { display: contents; list-style: none; }
+.lp-beat { position: relative; background: color-mix(in srgb, var(--raised) 88%, transparent); padding: 22px 24px; max-width: 380px; transition: opacity 0.5s; }
+.lp-beat[data-beat-i="0"] { grid-column: 1; grid-row: 1; justify-self: end; }
+.lp-beat[data-beat-i="1"] { grid-column: 3; grid-row: 2; justify-self: start; }
+.lp-beat[data-beat-i="2"] { grid-column: 1; grid-row: 3; justify-self: end; }
+.lp-beat-n { display: block; font-size: 12px; color: var(--fg-2); letter-spacing: 0.1em; margin-bottom: 6px; }
+.lp-beat-line { font-size: clamp(20px, 1.6vw, 26px); font-weight: 800; word-spacing: 0.14em; line-height: 1.2; margin-bottom: 8px; }
+.lp-beat .lp-body { font-size: 15px; }
+/* leader lines towards the Gema */
+.lp-beat::before { content: ""; position: absolute; top: 50%; width: clamp(28px, 4vw, 64px); height: 1px; background: var(--line-2); transition: background 0.4s; }
+.lp-beat[data-beat-i="0"]::before, .lp-beat[data-beat-i="2"]::before { left: 100%; }
+.lp-beat[data-beat-i="1"]::before { right: 100%; }
+.lp-showcase { grid-column: 2; grid-row: 1 / 4; position: relative; aspect-ratio: 4 / 5; width: 100%; }
+.lp-vitrine { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.lp-vitrine path { fill: none; stroke: var(--line-2); stroke-width: 1; }
+.lp-vitrine .outer { stroke: color-mix(in srgb, var(--em) 55%, transparent); fill: color-mix(in srgb, var(--raised) 60%, transparent); }
+.lp-gem { position: absolute; inset: 4% 0 2%; }
+.lp-gem-glow { position: absolute; inset: 14% 10% 22%; background: radial-gradient(closest-side, rgba(36, 216, 168, 0.3), transparent 72%); }
+:root[data-theme="light"] .lp-gem-glow { background: radial-gradient(closest-side, rgba(10, 125, 92, 0.18), transparent 72%); }
+/* Stage3D: poster underneath, the live canvas fading in over it. */
+.lp-stage-poster, .lp-stage-poster picture, .lp-stage-poster img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; transition: opacity 0.4s; }
+.lp-stage-canvas { position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s; }
+[data-ready="true"] > .lp-stage-canvas { opacity: 1; }
+[data-ready="true"] > .lp-stage-poster { opacity: 0; }
+.lp-sparkles { position: absolute; inset: 0; pointer-events: none; }
+.lp-sparkles i {
+  position: absolute; width: 4px; height: 4px; background: var(--em-hi); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  left: calc(8% + var(--i) * 10%); top: calc(18% + mod(var(--i) * 37, 64) * 1%); opacity: 0.6;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lp-sparkles i { animation: lp-twinkle 3.6s calc(var(--i) * -0.45s) ease-in-out infinite; }
+}
+@keyframes lp-twinkle { 0%, 100% { opacity: 0; transform: translateY(6px) scale(0.6); } 50% { opacity: 0.85; transform: translateY(-6px) scale(1); } }
+.is-stepped .lp-beat { opacity: 0.32 !important; }
 .is-stepped[data-beat="0"] [data-beat-i="0"], .is-stepped[data-beat="1"] [data-beat-i="1"], .is-stepped[data-beat="2"] [data-beat-i="2"] { opacity: 1 !important; }
-.is-stepped[data-beat="0"] [data-dot="0"], .is-stepped[data-beat="1"] [data-dot="1"], .is-stepped[data-beat="2"] [data-dot="2"] { background: var(--fg); }
-
-.lp-gem { position: relative; width: 100%; max-width: 640px; aspect-ratio: 1; justify-self: center; }
-.lp-gem-glow { position: absolute; inset: 12%; background: radial-gradient(closest-side, rgba(36, 216, 168, 0.24), transparent 72%); }
-:root[data-theme="light"] .lp-gem-glow { background: radial-gradient(closest-side, rgba(10, 125, 92, 0.16), transparent 72%); }
-.lp-gem-poster img, .lp-gem-poster { position: absolute; inset: 0; width: 100%; height: 100%; display: block; transition: opacity 0.4s; }
-.lp-gem-canvas { position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s; }
-.lp-gem[data-ready="true"] .lp-gem-canvas { opacity: 1; }
-.lp-gem[data-ready="true"] .lp-gem-poster { opacity: 0; }
+.is-stepped[data-beat="0"] [data-beat-i="0"]::before, .is-stepped[data-beat="1"] [data-beat-i="1"]::before, .is-stepped[data-beat="2"] [data-beat-i="2"]::before { background: var(--em); }
 @media (max-width: 1023px) {
   .lp-gemas { min-height: 0; padding-block: var(--sec); }
-  .lp-gemas-grid { grid-template-columns: 1fr; }
-  .lp-gem { order: -1; max-width: 380px; }
+  .lp-gemas-stage { grid-template-columns: 1fr; grid-template-rows: none; }
+  .lp-showcase { grid-column: 1; grid-row: 1; max-width: 340px; justify-self: center; }
+  .lp-beat[data-beat-i] { grid-column: 1; grid-row: auto; justify-self: stretch; max-width: none; }
+  .lp-beat::before { display: none; }
 }
 @supports (animation-timeline: view()) {
   @media (max-width: 1023px) and (prefers-reduced-motion: no-preference) {
@@ -213,36 +268,43 @@ html.lenis, html.lenis body { height: auto; }
 }
 @keyframes lp-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
-/* 4. Your Principal */
+/* 4. Your Principal: facts beside a Position drawn as a vault. Yield rises out of the crystal into the Debt meter;
+   at zero Debt the clasp opens. */
 .lp-principal, .lp-studios { background-image: var(--lp-texture); }
-.lp-flow { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto 48px auto; align-items: center; gap: 16px; margin: 48px 0 32px; }
-.lp-flow-box { background: var(--raised); padding: 20px 22px; display: flex; gap: 14px; align-items: center; }
-.lp-flow-box > svg { width: 22px; height: 22px; color: var(--fg-2); flex: none; }
-.lp-flow-box b { display: block; font-size: 18px; }
-.lp-flow-box .lp-body { font-size: 14px; }
-.lp-flow-stream { position: relative; height: 2px; background: repeating-linear-gradient(90deg, var(--em) 0 10px, transparent 10px 18px); }
-.lp-flow-stream .label { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); }
-.lp-flow.is-live .lp-flow-stream { animation: lp-flow 0.9s linear infinite; }
-@keyframes lp-flow { to { background-position: 18px 0; } }
-.lp-flow-meter { display: flex; gap: 3px; margin: 8px 0 6px; }
-.lp-flow-meter i { width: 12px; height: 8px; background: var(--line-2); }
-.lp-flow-meter i:nth-child(-n + 6) { background: var(--em); }
-.lp-flow.is-armed .lp-flow-meter i { background: var(--line-2); }
-.lp-flow.is-armed.is-live .lp-flow-meter i:nth-child(-n + 6) { background: var(--em); animation: lp-fill 0.3s calc(var(--i) * 0.16s + 0.3s) backwards; }
-@keyframes lp-fill { from { background: var(--line-2); } }
-.lp-flow-arrow { height: 2px; background: var(--line-2); position: relative; }
-.lp-flow-arrow::after { content: ""; position: absolute; right: -1px; top: -4px; border: 5px solid transparent; border-left-color: var(--line-2); border-right: 0; }
-.lp-note { display: flex; gap: 10px; color: var(--fg-2); max-width: 70ch; }
+.lp-principal-grid { display: grid; grid-template-columns: 1.1fr minmax(320px, 440px); gap: clamp(40px, 6vw, 96px); align-items: center; }
+.lp-facts-list { list-style: none; padding: 0; margin: 32px 0 28px; display: grid; gap: 18px; }
+.lp-facts-list li { display: grid; grid-template-columns: 44px 1fr; gap: 16px; align-items: start; }
+.lp-facts-list b { display: block; font-size: 18px; margin-bottom: 2px; }
+.lp-fact-icon { width: 44px; height: 44px; display: grid; place-items: center; background: var(--raised); --edge: var(--line-2); color: var(--em); }
+.lp-fact-icon svg { width: 20px; height: 20px; }
+.lp-note { display: flex; gap: 10px; color: var(--fg-2); max-width: 62ch; font-size: 14.5px; }
 .lp-note svg { width: 18px; height: 18px; flex: none; margin-top: 3px; }
+
+.lp-vault { background: var(--raised); padding: 22px 24px 26px; display: grid; gap: 14px; }
+.lp-vault-head { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--fg-2); letter-spacing: 0.06em; text-transform: uppercase; }
+.lp-vault-state { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
+.lp-vault-state svg { width: 14px; height: 14px; }
+.lp-vault[data-unlocked="true"] .lp-vault-state { color: var(--em); }
+.lp-vault-art { position: relative; aspect-ratio: 1; background: radial-gradient(closest-side, color-mix(in srgb, var(--em) 16%, transparent), transparent 75%), var(--shell); }
+.lp-vault-art picture { position: absolute; inset: 6%; transition: opacity 0.6s; }
+.lp-vault-art img { width: 100%; height: 100%; object-fit: contain; }
+.lp-vault-art .open { opacity: 0; }
+.lp-vault[data-unlocked="true"] .lp-vault-art .open { opacity: 1; }
+.lp-vault[data-unlocked="true"] .lp-vault-art .closed { opacity: 0; }
+.lp-vault-rise { position: absolute; inset: 0; pointer-events: none; }
+.lp-vault-rise i { position: absolute; left: calc(36% + var(--i) * 4%); bottom: 34%; width: 5px; height: 5px; background: var(--em-hi); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); opacity: 0; }
+@media (prefers-reduced-motion: no-preference) { .lp-vault-rise i { animation: lp-rise 2.6s calc(var(--i) * 0.37s) ease-out infinite; } }
+@keyframes lp-rise { 0% { opacity: 0; transform: translateY(0); } 20% { opacity: 0.9; } 100% { opacity: 0; transform: translateY(-120px); } }
+.lp-vault[data-unlocked="true"] .lp-vault-rise i { animation: none; }
+.lp-vault-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.lp-vault-tag { font-size: 12.5px; color: var(--fg); }
+.lp-meter { display: flex; gap: 4px; }
+.lp-meter i { width: 14px; height: 10px; background: var(--line-2); transition: background 0.3s; }
+.lp-meter i.on { background: var(--em); }
 @media (max-width: 1023px) {
-  .lp-flow { grid-template-columns: 1fr; justify-items: start; gap: 10px; }
-  .lp-flow-stream { width: 2px; height: 44px; margin-left: 32px; background: repeating-linear-gradient(180deg, var(--em) 0 10px, transparent 10px 18px); }
-  .lp-flow.is-live .lp-flow-stream { animation-name: lp-flow-v; }
-  .lp-flow-stream .label { left: 16px; bottom: auto; top: 50%; transform: translateY(-50%); }
-  .lp-flow-arrow { width: 2px; height: 28px; margin-left: 32px; }
-  .lp-flow-arrow::after { right: auto; left: -4px; top: auto; bottom: -1px; border: 5px solid transparent; border-top-color: var(--line-2); border-bottom: 0; }
+  .lp-principal-grid { grid-template-columns: 1fr; }
+  .lp-vault { max-width: 420px; }
 }
-@keyframes lp-flow-v { to { background-position: 0 18px; } }
 
 /* 5. Games */
 .lp-games-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 16px; }
@@ -260,67 +322,94 @@ html.lenis, html.lenis body { height: auto; }
 .lp-per { margin-top: 48px; color: var(--fg-2); font-size: 14px; }
 @media (max-width: 767px) { .lp-games-grid { grid-template-columns: 1fr; gap: 56px; } }
 
-/* 6. Backing */
-.lp-backing-grid { display: grid; grid-template-columns: 1fr minmax(240px, 32%); gap: clamp(32px, 5vw, 80px); align-items: end; }
-.lp-backing-her { margin-bottom: calc(-1 * var(--sec)); }
+/* 6. Backing: copy, then a live Offer card with her beside it, offering the Gema towards it. */
+.lp-backing-grid { display: grid; grid-template-columns: minmax(280px, 0.7fr) 1.3fr; gap: clamp(32px, 5vw, 72px); align-items: center; }
+.lp-backing-stage { display: grid; grid-template-columns: minmax(320px, 440px) minmax(220px, 1fr); align-items: end; gap: 8px; }
+.lp-backing-her { margin-bottom: calc(-1 * var(--sec)); align-self: end; }
 .lp-backing-her img { width: 100%; height: auto; display: block; }
-.lp-outcomes { list-style: none; padding: 0; margin: 28px 0 8px; display: grid; gap: 12px; }
-.lp-outcomes li { display: flex; gap: 12px; align-items: flex-start; color: var(--fg-2); }
-.lp-outcomes b { color: var(--fg); }
-.lp-outcomes svg { width: 20px; height: 20px; flex: none; margin-top: 2px; color: var(--fg); }
+.lp-offer { background: var(--raised); padding: 24px; display: grid; gap: 18px; }
+.lp-offer-title { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: 24px; }
+.lp-offer-field { display: grid; gap: 8px; }
+.lp-offer-field .label { display: flex; justify-content: space-between; align-items: baseline; }
+.lp-offer-pct { color: var(--em); font-size: 15px; letter-spacing: 0; }
+.lp-entries { display: flex; gap: 8px; }
+.lp-entry { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; border: 0; background: var(--shell); color: var(--fg); font-weight: 800; --edge: var(--line-2); }
+.lp-entry.on { background: var(--facet); color: var(--em-ink); --edge: transparent; }
+.lp-range { width: 100%; accent-color: var(--em); height: 24px; }
+.lp-outcome-list { list-style: none; padding: 0; margin: 4px 0 0; display: grid; gap: 14px; border-top: 1px solid var(--line); padding-top: 16px; }
+.lp-outcome-list li { display: grid; gap: 6px; }
+.lp-outcome-head { display: inline-flex; align-items: center; gap: 8px; }
+.lp-outcome-head svg { width: 18px; height: 18px; }
+.lp-outcome-list .lp-body { font-size: 14px; }
+.lp-split { display: flex; height: 28px; gap: 3px; font-size: 12px; font-weight: 700; }
+.lp-split > span { display: grid; place-items: center; white-space: nowrap; overflow: hidden; padding: 0 6px; transition: flex 0.35s; }
+.lp-split .entry { background: var(--raised-2); color: var(--fg); }
+.lp-split .you { background: var(--em); color: var(--em-ink); }
+.lp-split .them { background: color-mix(in srgb, var(--em) 35%, var(--raised-2)); color: var(--fg); }
 @media (max-width: 1023px) {
   .lp-backing-grid { grid-template-columns: 1fr; }
+  .lp-backing-stage { grid-template-columns: 1fr; }
   .lp-backing-her { order: -1; width: 180px; margin-bottom: -8px; }
 }
 
-/* 7. Multichain (an art window: dark in both themes) */
-.lp-window { background: var(--surface-art); padding: clamp(28px, 5vw, 72px); --edge: var(--line); }
-.lp-window { --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.72); --line: rgba(234, 239, 236, 0.13); --line-2: rgba(234, 239, 236, 0.22); color: var(--fg); }
-.lp-multichain-art { position: relative; margin-top: 24px; }
-.lp-multichain-art picture, .lp-multichain-art img, .lp-paths { width: 100%; height: auto; display: block; }
-.lp-path { stroke-dasharray: 6 10; }
-@media (prefers-reduced-motion: no-preference) { .lp-path { animation: lp-dash 1.8s linear infinite; } }
-@keyframes lp-dash { to { stroke-dashoffset: -32; } }
-.lp-crystal { fill: rgba(106, 248, 214, 0.8); }
-.lp-ledger { fill: #24d8a8; }
-.lp-ledger-table { fill: #6af8d6; opacity: 0.85; }
-.lp-chains { list-style: none; padding: 0; margin: 0; position: absolute; inset: 0 auto 0 0; }
-.lp-chains li { position: absolute; left: 0; transform: translateY(-50%); background: rgba(9, 13, 15, 0.7); font-size: 12px; }
-.lp-chains li:nth-child(1) { top: 21.4%; }
-.lp-chains li:nth-child(2) { top: 50%; }
-.lp-chains li:nth-child(3) { top: 78.6%; }
-/* Over Astra's art: beside its three raw crystals. */
-.lp-chains.on-art li:nth-child(1) { top: 45.7%; }
-.lp-chains.on-art li:nth-child(2) { top: 67.4%; }
-.lp-chains.on-art li:nth-child(3) { top: 82.3%; }
-.lp-window-status { margin-top: 24px; font-size: 13px; color: var(--fg-2); }
-/* Astra's art keeps its top third dark: the copy sits in it. */
-.lp-window-copy { position: relative; z-index: 1; }
-@media (min-width: 768px) { .lp-window.has-art .lp-multichain-art { margin-top: -12%; } }
-/* Fade the art's edges into the window, whose dark differs slightly from the painting's. */
-.lp-window.has-art .lp-multichain-art picture {
-  -webkit-mask: linear-gradient(90deg, transparent, #000 8% 92%, transparent), linear-gradient(180deg, transparent, #000 12% 88%, transparent);
-  -webkit-mask-composite: source-in;
-  mask: linear-gradient(90deg, transparent, #000 8% 92%, transparent), linear-gradient(180deg, transparent, #000 12% 88%, transparent);
-  mask-composite: intersect;
+/* 7. Multichain: a 3D scene on the page itself (no window): three raw crystals stream light into one cut ledger. */
+.lp-center-head { text-align: center; max-width: 760px; margin: 0 auto 8px; }
+.lp-center-head .lp-lede { margin-inline: auto; max-width: 56ch; }
+.lp-chains-stage { position: relative; }
+.lp-chains-aspect { display: block; width: 100%; }
+.lp-chains-stage.tall { display: none; max-width: 460px; margin: 28px auto 0; }
+@media (max-width: 767px) {
+  .lp-chains-stage.wide { display: none; }
+  .lp-chains-stage.tall { display: block; }
 }
+.lp-chain-labels { list-style: none; padding: 0; margin: 0; position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.lp-chain-labels li { position: absolute; translate: -50% -50%; background: var(--raised); font-size: 12px; }
+.lp-chains-status { text-align: center; font-size: 13px; color: var(--fg-2); margin-top: 8px; }
 
-/* 8. Studios */
-.lp-cards { list-style: none; padding: 0; margin: 16px 0 32px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.lp-card { background: var(--raised); padding: 28px; font-size: 20px; font-weight: 700; line-height: 1.35; min-height: 160px; }
-.lp-studios-foot { display: flex; gap: 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-@media (max-width: 1023px) { .lp-cards { grid-template-columns: 1fr; } .lp-card { min-height: 0; } }
-
-/* 9. Status band (testnet only) */
-.lp-status { border-block: 1px solid var(--line); background: var(--side); padding-block: 28px; font-size: 12.5px; }
-.lp-status-head { color: var(--fg); letter-spacing: 0.04em; }
-.lp-status-head span { text-transform: uppercase; font-weight: 500; }
-.lp-status-list { display: flex; flex-wrap: wrap; gap: 10px 48px; margin: 14px 0; }
-.lp-status-list dt { color: var(--fg-2); margin-bottom: 4px; }
-.lp-status-list dd { display: inline-block; margin: 0 18px 4px 0; color: var(--fg); }
-.lp-status-list a { color: var(--fg-2); border-bottom: 1px solid var(--line-2); }
-.lp-status-list a:hover { color: var(--fg); }
-.lp-status-note { color: var(--fg-2); }
+/* 8. Studios: a bento. The catalogue with a slot for your game, the Pot split, and Players arriving with Gemas. */
+.lp-studios-head { margin-bottom: 28px; }
+.lp-bento { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: auto auto; gap: 20px; }
+.lp-tile { background: var(--raised); padding: 26px; display: grid; gap: 10px; align-content: start; }
+.lp-tile-list, .lp-tile-players { align-content: space-between; }
+.lp-tile .lp-h3 { font-size: 22px; }
+.lp-tile-list { grid-column: 1 / 3; }
+.lp-tile-fee { grid-column: 3; grid-row: 1 / 3; }
+.lp-tile-players { grid-column: 1 / 3; }
+.lp-catalogue { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.lp-catalogue li { position: relative; aspect-ratio: 1; background: var(--surface-art); overflow: hidden; }
+.lp-catalogue picture, .lp-catalogue img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.lp-catalogue li > span { position: absolute; left: 8px; right: 8px; bottom: 8px; font-size: 12.5px; font-weight: 800; color: #eaefec; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); }
+.lp-catalogue li.soon img { filter: grayscale(0.7) brightness(0.55); }
+.lp-catalogue .lp-slot { background: transparent; display: grid; place-items: center; align-content: center; gap: 6px; color: var(--em); --edge: color-mix(in srgb, var(--em) 55%, transparent); }
+.lp-catalogue .lp-slot > span { position: static; color: var(--em); text-shadow: none; }
+.lp-catalogue .lp-slot svg { width: 26px; height: 26px; }
+@media (prefers-reduced-motion: no-preference) { .lp-slot { animation: lp-breathe 2.8s ease-in-out infinite; } }
+@keyframes lp-breathe { 50% { background: color-mix(in srgb, var(--em) 10%, transparent); } }
+.lp-pot { display: grid; gap: 14px; margin-top: 16px; }
+.lp-pot-bar { display: flex; flex-direction: column; height: 220px; gap: 4px; }
+.lp-pot-bar i, .lp-pot-legend i { display: block; }
+.lp-pot-bar .win { flex: 84; background: color-mix(in srgb, var(--em) 30%, var(--raised-2)); }
+.lp-pot-bar .studio { flex: 9; background: var(--em); }
+.lp-pot-bar .platform { flex: 7; background: var(--fg-2); }
+.lp-pot-legend { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; font-size: 14px; color: var(--fg-2); }
+.lp-pot-legend li { display: flex; align-items: center; gap: 10px; }
+.lp-pot-legend b { color: var(--fg); }
+.lp-pot-legend i { width: 12px; height: 12px; flex: none; }
+.lp-pot-legend .win { background: color-mix(in srgb, var(--em) 30%, var(--raised-2)); }
+.lp-pot-legend .studio { background: var(--em); }
+.lp-pot-legend .platform { background: var(--fg-2); }
+.lp-pot-note { font-size: 12px; color: var(--fg-2); }
+.lp-arrive { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; color: var(--fg-2); }
+.lp-arrive > svg { width: 18px; height: 18px; }
+.lp-pill { display: inline-flex; align-items: center; gap: 8px; padding: 14px 22px; font-size: 17px; background: var(--shell); color: var(--fg); font-weight: 800; --edge: var(--line-2); }
+.lp-pill.strong { --edge: color-mix(in srgb, var(--em) 55%, transparent); }
+.lp-studios-foot { display: flex; gap: 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 28px; }
+@media (max-width: 1023px) {
+  .lp-bento { grid-template-columns: 1fr; }
+  .lp-tile-list, .lp-tile-fee, .lp-tile-players { grid-column: 1; grid-row: auto; }
+  .lp-catalogue { grid-template-columns: repeat(3, 1fr); }
+  .lp-pot-bar { flex-direction: row; height: 28px; }
+}
 
 /* 10. Final CTA */
 .lp-final-frame { position: relative; min-height: max(640px, 100svh); display: flex; align-items: center; overflow: hidden; background: var(--surface-art); }
@@ -359,10 +448,4 @@ html.lenis, html.lenis body { height: auto; }
 @media (max-width: 767px) {
   .lp-chains { position: static; display: flex; gap: 8px; margin-bottom: 12px; }
   .lp-chains li { position: static; transform: none; }
-}
-/* Phone, light theme: the hero is still the dark cave, so the nav over it stays light. */
-@media (max-width: 767px) {
-  :root[data-theme="light"] .lp-nav[data-scrolled="false"] { --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.72); --line-2: rgba(234, 239, 236, 0.22); }
-  :root[data-theme="light"] .lp-nav[data-scrolled="false"] .on-dark { display: revert; }
-  :root[data-theme="light"] .lp-nav[data-scrolled="false"] .on-light { display: none; }
 }
