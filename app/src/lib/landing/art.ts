@@ -6,8 +6,7 @@ export type LandingKey =
   | "heroBack" | "heroMid" | "heroFront" | "heroMobile"
   | "himGuide" | "herBacker"
   | "finalBack" | "finalDuo" | "finalMobile"
-  | "step1" | "step2" | "step3" | "step4" | "step5"
-  | "multichain" | "multichainMobile";
+  | "step1" | "step2" | "step3" | "step4" | "step5";
 
 /** Astra's art for the landing page, or undefined until it is delivered and imported. */
 export const landingArt = (key: LandingKey): LandingAsset | undefined => LANDING_ART[key];

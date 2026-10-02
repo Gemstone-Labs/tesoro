@@ -113,20 +113,5 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
       160,
       320
     ]
-  },
-  "multichain": {
-    "w": 3200,
-    "h": 1400,
-    "widths": [
-      1280,
-      1920
-    ]
-  },
-  "multichainMobile": {
-    "w": 1200,
-    "h": 1800,
-    "widths": [
-      828
-    ]
   }
 };

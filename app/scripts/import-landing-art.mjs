@@ -13,7 +13,8 @@ const OUT = resolve(here, "../public/art/landing");
 const GEN = resolve(here, "../src/lib/landing/art.generated.ts");
 
 /** The chosen take per folder (Ailton's picks; see art-source/landing/PROMPTS.md). */
-const TAKE = { hero: 1, "him-guide": 1, "her-backer": 1, "final-cta": 1, "how-it-works": 1, multichain: 1 };
+const TAKE = { hero: 1, "him-guide": 1, "her-backer": 1, "final-cta": 1, "how-it-works": 1 };
+// Astra's multichain art (multichain/) is not imported: the section is a live 3D scene now.
 // Astra's facet textures (texture/) are not used: they repeat visibly behind text; the page keeps its coded SVG texture.
 
 // No 2560: the scenes are upscaled from ~1700 px natives (see each QA.json), so a larger file adds bytes, not detail.
@@ -35,8 +36,6 @@ const ASSETS = [
     widths: [160, 320],
     alpha: true,
   })),
-  { key: "multichain", files: [`multichain/take-${TAKE.multichain}.png`], widths: [1280, 1920] },
-  { key: "multichainMobile", files: [`multichain/take-${TAKE.multichain}-mobile.png`], widths: [828] },
 ];
 
 mkdirSync(OUT, { recursive: true });

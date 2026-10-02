@@ -39,16 +39,6 @@ html.lenis, html.lenis body { height: auto; }
 .lenis.lenis-stopped { overflow: hidden; }
 @media (prefers-reduced-motion: no-preference) { html:has(.lp) { scroll-behavior: smooth; } }
 
-/* A dark island inside either theme (art windows): DESIGN.md's dark text tokens. */
-.lp-dark {
-  --fg: #eaefec;
-  --fg-2: rgba(234, 239, 236, 0.72);
-  --line: rgba(234, 239, 236, 0.13);
-  --line-2: rgba(234, 239, 236, 0.22);
-  --sweep: #ffffff;
-  color: var(--fg);
-}
-
 .lp { background: var(--shell); color: var(--fg); font-size: 16px; line-height: 1.55; overflow-x: clip; }
 .lp img { max-width: 100%; }
 .lp-wrap { width: 100%; max-width: calc(1240px + 2 * var(--g)); margin-inline: auto; padding-inline: var(--g); }
