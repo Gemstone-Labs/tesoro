@@ -157,7 +157,13 @@
   .hdx-raise { grid-template-columns: 150px minmax(0, 1fr); }
   .hdx-raise-in { display: grid; gap: 6px; justify-content: stretch; }
   .hdx-raise-in input { width: 100%; }
-  .hdx-felt { min-height: 500px; }
-  .hd-card { --w: 62px; }
-  .hd-card.lg { --w: 78px; }
+  /* Sized by viewport height too, so header, table and action bar fit one desktop screen. */
+  .hdx { gap: clamp(12px, 2vh, 24px); }
+  .hdx-felt { min-height: clamp(380px, 50vh, 500px); }
+  .hd-card { --w: clamp(44px, 5.4vh, 62px); }
+  .hd-card.lg { --w: clamp(54px, 6.8vh, 78px); }
 }
+
+/* practice: end-of-Match panel under the table */
+.hd-practice-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 14px 20px; max-width: 1100px; margin: 0 auto; width: 100%; }
+.hd-practice-end .bp-actions { display: flex; gap: 8px; }
