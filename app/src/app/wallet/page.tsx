@@ -16,7 +16,7 @@ import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { vaultsOn } from "@/lib/chain/eth";
-import { OpenPanel, OpenFormView, HowGemasWork } from "./OpenPanel";
+import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
 
@@ -126,6 +126,9 @@ export default function Wallet() {
   };
 
   const positionTiles = (["SOL", "ETH", "HYPE"] as Chain[]).flatMap((c) => chainTiles(c));
+  const hasPositions = positionTiles.length > 0;
+  const noPositions = !hasPositions && !loading;
+  const openPosition = () => auth.gate("open a Position", () => openTab(tab));
 
   return (
     <div className="wl">
@@ -134,7 +137,7 @@ export default function Wallet() {
           <h1 className="page-title">Wallet</h1>
           <p className="page-sub">1 Gema = $0.01</p>
         </div>
-        <Button variant="money" size="lg" onClick={() => auth.gate("open a Position", () => openTab(tab))}>Open a Position</Button>
+        <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>
       </header>
 
       <section className="cut cut-frame facet-panel wl-hero" aria-label="Balance">
@@ -182,40 +185,30 @@ export default function Wallet() {
         </details>
       </section>
 
-      <div className="wl-lower">
       <section className="wl-positions" aria-labelledby="pos-h">
         <h2 id="pos-h" className="h-section">Your positions</h2>
-        {onChain && loading && positions.length === 0 && (
-          <div className="wl-grid">
-            <SkeletonCards count={2} avatar={false} className="wl-tile" label="Reading Positions from Solana devnet…" />
-          </div>
-        )}
-        {gemas.reserved > 0 && (
-          <p className="note" role="status">
-            {fmtGemas(gemas.reserved)} of your Gemas are reserved for your Backing Offers; {fmtGemas(gemas.available)} available. <a href="/backing">See Backing</a>
-          </p>
-        )}
-        {positionTiles.length > 0 ? (
-          <div className="wl-grid">{positionTiles}</div>
-        ) : (
-          !loading && (
-            <div className="cut cut-card wl-empty">
-              <GemaMark size={40} />
-              <div>
-                <b>No Positions yet</b>
-                <p>Open a Position to get Gemas to play with.</p>
+        <div className="wl-lower">
+          <div className="wl-list">
+            {onChain && loading && positions.length === 0 && (
+              <div className="wl-grid">
+                <SkeletonCards count={2} avatar={false} className="wl-tile" label="Reading Positions from Solana devnet…" />
               </div>
-            </div>
-          )
-        )}
-        {onChain && <EthOps />}
+            )}
+            {gemas.reserved > 0 && (
+              <p className="note" role="status">
+                {fmtGemas(gemas.reserved)} of your Gemas are reserved for your Backing Offers; {fmtGemas(gemas.available)} available. <a href="/backing">See Backing</a>
+              </p>
+            )}
+            {hasPositions && <div className="wl-grid">{positionTiles}</div>}
+            {noPositions && <NoPositions onOpen={openPosition} />}
+            {onChain && <EthOps />}
+          </div>
+          {!noPositions && <HowGemasWork />}
+        </div>
       </section>
 
-      <HowGemasWork />
-      </div>
-
       <footer className="wl-foot">
-        <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>
+        {hasPositions && <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>}
         {onChain && <p className="note">Redeem pays simSOL (Simulated) from the Source Position&apos;s accrued yield. Balances are read from Solana devnet.</p>}
         {onChain && DEMO_ADVANCE && (
           <div className="wl-dev">

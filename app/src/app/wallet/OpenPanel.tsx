@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { BustCard, Button, GemaAmount, Slider } from "@/components/ui";
+import { Bust, BustCard, Button, GemaAmount, Slider } from "@/components/ui";
 import type { Chain } from "@/lib/mock/types";
 import "./wallet.css";
 
@@ -16,6 +16,37 @@ export function HowGemasWork() {
       <p>Take an Advance in Gemas.</p>
       <p>Your Principal is never played.</p>
     </BustCard>
+  );
+}
+
+const HOW_STEPS: [string, string][] = [
+  ["Lock a Position", "Your Principal is locked, never played."],
+  ["Take an Advance", "Its projected yield for 1 to 12 months, upfront as Gemas."],
+  ["Yield repays it", "The Position unlocks when its Debt reaches zero."],
+];
+
+/** No Positions yet: the invitation, the explainer and the action in one card (it replaces HowGemasWork). */
+export function NoPositions({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="cut cut-card wl-empty">
+      <Bust name="himExplain" width={200} className="wl-empty-bust" />
+      <div className="wl-empty-lead">
+        <b>No Positions yet</b>
+        <p>Open a Position to get Gemas to play with.</p>
+      </div>
+      <Button variant="money" onClick={onOpen}>Open a Position</Button>
+      <ol className="wl-steps" aria-label="How Gemas work">
+        {HOW_STEPS.map(([title, text], i) => (
+          <li key={title}>
+            <span aria-hidden="true">{i + 1}</span>
+            <div>
+              <b>{title}</b>
+              <p>{text}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
