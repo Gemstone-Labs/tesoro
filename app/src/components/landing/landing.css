@@ -4,7 +4,7 @@
   --surface-art: #090d0f;
   --sweep: #ffffff;
   --g: 64px;
-  --sec: clamp(96px, 12vw, 176px);
+  --sec: clamp(64px, 8vw, 120px);
   --lp-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360' fill='none' stroke='%23eaefec' stroke-opacity='.045'%3E%3Cpath d='M70 40h180l40 40v120l-40 40H70l-40-40V80z'/%3E%3Cpath d='M98 68h124l28 28v88l-28 28H98l-28-28V96z'/%3E%3Cpath d='M250 40l60-40M290 200l70 40M70 240l-70 60M30 80L0 60'/%3E%3C/svg%3E");
 }
 :root[data-theme="light"] {
