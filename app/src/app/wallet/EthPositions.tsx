@@ -47,6 +47,8 @@ import {
   reportEthYield,
   takeEthAdvance,
   ethCall,
+  requestGas,
+  MIN_HYPE_WEI,
   unlockEth,
   type EthCtx,
   type OpenStep,
@@ -158,6 +160,7 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
   const [done, setDone] = useState<string | null>(null);
   const now = useNow(15_000);
   const cooling = market && market.faucetAvailableAt * 1000 > now;
+  const lowGas = net.key === "hyperevm" && !!market && market.ethBalance < MIN_HYPE_WEI;
 
   return (
     <div className="wl-faucet">
@@ -191,6 +194,14 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
       >
         {a.busy === "faucet" ? `Getting ${vault.symbol}…` : cooling ? "Faucet cooling down" : `Get test ${vault.symbol}`}
       </Button>
+      {lowGas && (
+        <>
+          <p className="meta">Simulated test HYPE for gas and the LayerZero fee, once a day per wallet.</p>
+          <Button size="sm" block disabled={!ctx || a.busy !== null} onClick={() => ctx && void a.run("gas", async () => { await requestGas(ctx, net); await refresh(); })}>
+            {a.busy === "gas" ? "Getting test HYPE…" : "Get test HYPE"}
+          </Button>
+        </>
+      )}
       {done && <Links evm={done} vault={vault.address} />}
       {(a.error || readError) && <p className="status err" role="alert">{a.error ?? readError}</p>}
     </div>

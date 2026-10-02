@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEVNET_GENESIS, createClusterGuard, requireDevnet, requireHoodi } from "./cluster";
+import { DEVNET_GENESIS, createClusterGuard, requireDevnet, requireHoodi, requireHyperEvm } from "./cluster";
 import { DemoHttpError } from "./request-auth";
 
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -41,5 +41,12 @@ describe("cluster guard (OC-10)", () => {
     down = false;
     await requireDevnet("x", guard);
     expect(up.calls()).toBe(2);
+  });
+});
+
+describe("HyperEVM guard", () => {
+  it("allows chain 998 only", async () => {
+    await requireHyperEvm("ok", createClusterGuard(rpc(() => "0x3e6").fetch));
+    await expect(requireHyperEvm("main", createClusterGuard(rpc(() => "0x3e7").fetch))).rejects.toMatchObject({ code: "wrong-cluster", status: 503 });
   });
 });
