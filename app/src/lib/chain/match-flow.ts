@@ -1,5 +1,5 @@
 import "./polyfill";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type ChainSigner, type Move, type Seat } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID } from "@/games/holdem/chain";
@@ -39,17 +39,19 @@ export function entryHoldings(snapshot: AccountSnapshot, entry: number): PublicK
 export { EntryError };
 export { QueueUnconfirmedError, type Entered } from "./queue";
 
+/** `create_account`: the wallet's TesoroAccount. */
+export const createAccountIx = (authority: PublicKey): Promise<TransactionInstruction> =>
+  getChain()
+    .core.methods.createAccount(Array(20).fill(0))
+    .accountsPartial({ authority, account: BlockPuzzleChain.coreAccount(authority), systemProgram: SystemProgram.programId })
+    .instruction();
+
 /** SOL for fees and rent (demo faucet if needed) and the TesoroAccount itself. */
 export async function ensureReady(signer: ChainSigner, getToken: GetToken): Promise<AccountSnapshot> {
-  const chain = getChain();
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
   let snap = await fetchSnapshot(signer.publicKey);
   if (!snap.exists) {
-    const ix = await chain.core.methods
-      .createAccount(Array(20).fill(0))
-      .accountsPartial({ authority: signer.publicKey, account: snap.accountKey, systemProgram: SystemProgram.programId })
-      .instruction();
-    await chain.sendBase(signer, [ix]);
+    await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
     snap = await fetchSnapshot(signer.publicKey);
   }
   return snap;

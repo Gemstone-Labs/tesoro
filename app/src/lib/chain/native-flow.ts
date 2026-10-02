@@ -1,9 +1,10 @@
 import "./polyfill";
 import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import type { ChainSigner } from "@/games/block-puzzle/chain";
+import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
-import { ensureReady } from "./match-flow";
-import type { GetToken } from "./demo-client";
+import { MIN_SOL_LAMPORTS } from "./config";
+import { createAccountIx, ensureReady } from "./match-flow";
+import { ensureSol, type GetToken } from "./demo-client";
 import {
   accrueNativeYieldIx,
   createSimSolAtaIx,
@@ -27,10 +28,18 @@ export function friendlyError(e: unknown): string {
 
 const send = (signer: ChainSigner, ixs: TransactionInstruction[]) => getChain().sendBase(signer, ixs);
 
-/** SIMULATED faucet: 10 simSOL per hour. Needs SOL for fees and the Account first. */
-export async function getTestSimSol(signer: ChainSigner, getToken: GetToken): Promise<string> {
-  await ensureReady(signer, getToken);
-  return send(signer, [faucetIx(signer.publicKey)]);
+/**
+ * SIMULATED faucet: 10 simSOL per hour. Tops up SOL for fees first when the wallet is nearly empty, and
+ * creates the Account in the same transaction when there is none, so a new wallet signs once.
+ */
+export async function getTestSimSol(signer: ChainSigner, getToken: GetToken, onStep: (s: string) => void = () => undefined): Promise<string> {
+  const [account] = await Promise.all([
+    getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
+    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for fees")),
+  ]);
+  onStep("Getting simSOL");
+  const faucet = faucetIx(signer.publicKey);
+  return send(signer, account ? [faucet] : [await createAccountIx(signer.publicKey), faucet]);
 }
 
 /** One transaction: `open_native_position` (deposits simSOL) + `take_native_advance` (the Horizon). */

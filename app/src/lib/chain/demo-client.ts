@@ -43,10 +43,11 @@ export async function demoCall<T = Record<string, unknown>>(
   return json as T;
 }
 
-/** Tops up devnet SOL for fees and rent when the wallet is nearly empty. Capped server-side. */
-export async function ensureSol(signer: ChainSigner, getToken: GetToken, minLamports: number): Promise<void> {
+/** Tops up devnet SOL for fees and rent when the wallet is nearly empty (`onFund` fires first). Capped server-side. */
+export async function ensureSol(signer: ChainSigner, getToken: GetToken, minLamports: number, onFund?: () => void): Promise<void> {
   const balance = await getChain().base.getBalance(signer.publicKey);
   if (balance >= minLamports) return;
+  onFund?.();
   await demoCall("fund", signer, getToken);
   for (let i = 0; i < 20; i++) {
     if ((await getChain().base.getBalance(signer.publicKey)) >= minLamports) return;

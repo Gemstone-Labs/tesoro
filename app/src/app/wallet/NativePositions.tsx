@@ -79,6 +79,7 @@ function useAction(refresh: () => Promise<void>) {
 export function NativeFaucet({ market, loading }: { market: NativeMarket | null; loading: boolean }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
+  const [step, setStep] = useState("Getting simSOL");
   const signer = auth.signer;
   return (
     <div className="wl-faucet">
@@ -88,8 +89,8 @@ export function NativeFaucet({ market, loading }: { market: NativeMarket | null;
         </span>
         <Chip tone="warn">Simulated</Chip>
       </div>
-      <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken))}>
-        {a.busy === "faucet" ? "Getting simSOL…" : "Get test simSOL"}
+      <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken, setStep))}>
+        {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
       </Button>
       {a.done && <Sig label="simSOL faucet" sig={a.done.sig} />}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
