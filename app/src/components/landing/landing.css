@@ -384,7 +384,6 @@ html.lenis, html.lenis body { height: auto; }
 }
 .lp-chain-labels { list-style: none; padding: 0; margin: 0; position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .lp-chain-labels li { position: absolute; translate: -50% -50%; background: var(--raised); font-size: 12px; }
-.lp-chains-status { text-align: center; font-size: 13px; color: var(--fg-2); margin-top: 8px; }
 
 /* 8. Studios: a bento. The catalogue with a slot for your game, the Pot split, and Players arriving with Gemas. */
 .lp-studios-head { margin-bottom: 28px; }

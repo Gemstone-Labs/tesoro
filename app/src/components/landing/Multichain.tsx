@@ -1,4 +1,3 @@
-import { LAUNCH_STAGE } from "@/lib/landing/config";
 import { ChainsStage } from "./chains/ChainsStage";
 
 export function Multichain() {
@@ -16,7 +15,6 @@ export function Multichain() {
         <div data-reveal>
           <ChainsStage />
         </div>
-        {LAUNCH_STAGE === "testnet" && <p className="lp-chains-status mono">Solana and Ethereum (Hoodi) are live on testnet; HyperEVM is prepared.</p>}
       </div>
     </section>
   );
