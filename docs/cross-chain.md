@@ -98,4 +98,6 @@ Deployed with `contracts/script/deploy-oapp.sh hyperevm sim <SimLST>` after `for
 
 Proven on testnets with Position id 1 (transactions and Scan links in `docs/deployments.md`): `init_position`, `openPosition` (delivered in 38 s), `apply_locked`, `take_advance`, `reportYield` (37 s), `apply_yield` (Debt 10 to 4 Gemas), `redeem_to_evm`, `send_pay_yield` to HyperEVM (78 s, vault tx status 1). Every message DELIVERED. The unlock path (`send_unlock`) was not run on HyperEVM because the test Position still has Debt; it shares the Solana to EVM send code with `send_pay_yield`. The earlier risk (no live executor and DVN traffic on 40362, spike S2) did not materialize.
 
+Unlock on HyperEVM (2026-10-02): Position 5, Debt 38 to 0 after two `apply_yield`, `tesoro_core::unlock`, `send_unlock` DELIVERED in 65 s, vault `unlocked = true`; a Backing Offer funded with HYPE-Sourced Gemas settled with a winner whose Wallet lists the HYPE Source as pending; HYPE-Sourced Redeem and the server HYPE top-up are proven too. Transactions: `docs/deployments.md` (HyperEVM: top-up, Unlock and Backing).
+
 The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH Positions (`app/docs/eth-positions.md`); the keeper reports yield for them with its own HYPE budget (`keeper/README.md`).
