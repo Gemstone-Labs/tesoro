@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import type { Theme } from "./theme";
 
-export type LiveCanvasProps = { active: boolean; still?: boolean; onReady?: () => void; layout?: "wide" | "tall" };
+/** `theme` pins the scene's palette (poster capture); without it the canvas follows the page. */
+export type LiveCanvasProps = { active: boolean; still?: boolean; onReady?: () => void; layout?: "wide" | "tall"; theme?: Theme };
 
 /** Live 3D only where it can run well and motion is allowed; everyone else keeps the poster (a render of the same scene). */
 export function canRunLive(minWidth = 1024) {

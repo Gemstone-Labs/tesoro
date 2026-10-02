@@ -7,7 +7,7 @@ import { gemState } from "./store";
 
 const GemCanvas = dynamic(() => import("./GemCanvas"), { ssr: false });
 
-/** The Gemas section's gem: our own render as the poster, with the live canvas fading in over it. */
+/** The Gemas section's gem: our own render as the poster (one per theme), with the live canvas fading in over it. */
 export function GemStage() {
   useEffect(() => {
     const move = (e: PointerEvent) => {
@@ -21,12 +21,12 @@ export function GemStage() {
     <Stage3D
       Canvas={GemCanvas}
       className="lp-gem"
-      poster={
-        <picture>
-          <source type="image/avif" srcSet="/art/landing/gem-poster.avif" />
-          <img src="/art/landing/gem-poster.webp" width={960} height={1200} alt="" loading="lazy" decoding="async" />
+      poster={(["", "-light"] as const).map((t) => (
+        <picture key={t} className={t ? "on-light" : "on-dark"}>
+          <source type="image/avif" srcSet={`/art/landing/gem-poster${t}.avif`} />
+          <img src={`/art/landing/gem-poster${t}.webp`} width={960} height={1200} alt="" loading="lazy" decoding="async" />
         </picture>
-      }
+      ))}
     >
       <div className="lp-gem-glow" />
     </Stage3D>

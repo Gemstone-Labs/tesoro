@@ -1,10 +1,11 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { TesoroLogo } from "@/components/brand";
 import { appHref } from "@/lib/landing/config";
 import { THEME_KEY, type Theme } from "./theme";
+import { useTheme } from "./useTheme";
 
 const LINKS = [
   ["How it works", "#how-it-works"],
@@ -14,16 +15,9 @@ const LINKS = [
 ] as const;
 
 
-const readTheme = (): Theme => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
-const subscribeTheme = (onChange: () => void) => {
-  const mo = new MutationObserver(onChange);
-  mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-  return () => mo.disconnect();
-};
-
 export function Nav() {
   const [scrolled, setScrolled] = useState(false);
-  const theme = useSyncExternalStore(subscribeTheme, readTheme, () => "dark" as Theme);
+  const theme = useTheme();
 
   useEffect(() => {
     const onScroll = () => setScrolled(scrollY > 24);

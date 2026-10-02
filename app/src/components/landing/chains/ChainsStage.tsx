@@ -32,12 +32,12 @@ export function ChainsStage() {
           Canvas={ChainsCanvas}
           layout={layout}
           className={`lp-chains-stage ${layout}`}
-          poster={
-            <picture>
-              <source type="image/avif" srcSet={`/art/landing/chains-${layout}.avif`} />
-              <img src={`/art/landing/chains-${layout}.webp`} alt="" loading="lazy" decoding="async" />
+          poster={(["", "-light"] as const).map((t) => (
+            <picture key={t} className={t ? "on-light" : "on-dark"}>
+              <source type="image/avif" srcSet={`/art/landing/chains-${layout}${t}.avif`} />
+              <img src={`/art/landing/chains-${layout}${t}.webp`} alt="" loading="lazy" decoding="async" />
             </picture>
-          }
+          ))}
         >
           <Labels layout={layout} />
           <span className="lp-chains-aspect" style={{ aspectRatio: String(ASPECT[layout]) }} />

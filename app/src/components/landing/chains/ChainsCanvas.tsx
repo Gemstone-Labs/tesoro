@@ -8,6 +8,8 @@ import { studioEnvironment } from "../gem/envTexture";
 import { GemMesh, glowTexture } from "../gem/GemMesh";
 import { gemState } from "../gem/store";
 import type { LiveCanvasProps } from "../Stage3D";
+import type { Theme } from "../theme";
+import { useTheme } from "../useTheme";
 import { CAMERA, CHAINS, LEDGER, type ChainLabel, type ChainsLayout } from "./layout";
 import { chainLogo } from "./logos";
 
@@ -97,7 +99,7 @@ function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: 
   );
 }
 
-function Scene({ layout, animate }: { layout: ChainsLayout; animate: boolean }) {
+function Scene({ layout, animate, theme }: { layout: ChainsLayout; animate: boolean; theme: Theme }) {
   const root = useRef<THREE.Group>(null);
   const ledger = useRef<THREE.Group>(null);
   const halo = useMemo(() => glowTexture("54,240,190", 0.45), []);
@@ -120,14 +122,17 @@ function Scene({ layout, animate }: { layout: ChainsLayout; animate: boolean }) 
     ledgerAt.clone().add(layout === "wide" ? new THREE.Vector3(-0.85, (s.y - ledgerAt.y) * 0.1, 0.1) : new THREE.Vector3(s.x * 0.22, 0.38, 0.1));
   return (
     <group ref={root}>
-      {CHAINS.map((c, i) => (
-        <group key={c.label}>
-          <group position={sources[i]}>
-            <Logo label={c.label} color={c.color} pace={0.22 + i * 0.03} animate={animate} />
+      {CHAINS.map((c, i) => {
+        const color = (theme === "light" && c.onLight) || c.color;
+        return (
+          <group key={c.label}>
+            <group position={sources[i]}>
+              <Logo label={c.label} color={color} pace={0.22 + i * 0.03} animate={animate} />
+            </group>
+            <Stream from={sources[i].clone().add(outlet)} to={inlet(sources[i])} color={color} phase={i * 0.21} animate={animate} />
           </group>
-          <Stream from={sources[i].clone().add(outlet)} to={inlet(sources[i])} color={c.color} phase={i * 0.21} animate={animate} />
-        </group>
-      ))}
+        );
+      })}
       <group position={ledgerAt}>
         <mesh position={[0, 0, -0.6]}>
           <planeGeometry args={[4, 4]} />
@@ -146,7 +151,8 @@ function Scene({ layout, animate }: { layout: ChainsLayout; animate: boolean }) 
   );
 }
 
-export default function ChainsCanvas({ active, still = false, onReady, layout = "wide" }: LiveCanvasProps) {
+export default function ChainsCanvas({ active, still = false, onReady, layout = "wide", theme }: LiveCanvasProps) {
+  const page = useTheme();
   const [dpr, setDpr] = useState(1.5);
   const frames = useRef(0);
   return (
@@ -159,7 +165,7 @@ export default function ChainsCanvas({ active, still = false, onReady, layout = 
       aria-hidden
     >
       <PerformanceMonitor onDecline={() => setDpr(1)} />
-      <Scene layout={layout} animate={!still} />
+      <Scene layout={layout} animate={!still} theme={theme ?? page} />
       <FirstFrame onFrame={() => frames.current++ === (still ? 0 : 1) && onReady?.()} />
     </Canvas>
   );
