@@ -12,19 +12,19 @@ import { getChain } from "@/lib/chain/client";
 import { debtGemas, debtUnits } from "@/lib/chain/ledger";
 import {
   ETH_SIM_MONTH_MIN,
-  ETH_VAULTS,
   MAX_PRINCIPAL_WEI,
+  NETS,
   WEI,
   ethUnlockEstimateMs,
   fetchEthMarket,
   ethSourceIndex,
   fetchEthState,
   fetchPaidTo,
-  hoodiClient,
+  evmClient,
   fetchVaultPosition,
   fmtEth,
-  hoodiTx,
   lzScanUrl,
+  netOfVault,
   projectedEthDebt,
   quoteEthAdvance,
   redeemPayoutWei,
@@ -53,12 +53,13 @@ import {
 } from "@/lib/chain/eth-flow";
 import {
   OPS_EVENT,
-  OP_COPY,
-  OP_STEPS,
   addOp,
   fetchScanStatus,
   loadOps,
+  opCopy,
   opProgress,
+  opSteps,
+  opWords,
   patchOp,
   removeOp,
   untrackedOpens,
@@ -69,7 +70,6 @@ import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { fmtGemas, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 
 const solscan = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
-const VAULT = ETH_VAULTS[0];
 
 function useNow(ms: number) {
   const [now, setNow] = useState(() => Date.now());
@@ -111,18 +111,18 @@ function useBusy() {
   return { busy, error, run, clear: () => setError(null) };
 }
 
-function useEthMarket(evm: string | null) {
+function useEthMarket(vault: EthVault, evm: string | null) {
   const [market, setMarket] = useState<EthMarket | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     if (!evm) return;
     try {
-      setMarket(await fetchEthMarket(VAULT, evm as `0x${string}`));
+      setMarket(await fetchEthMarket(vault, evm as `0x${string}`));
       setError(null);
     } catch (e) {
       setError(ethError(e));
     }
-  }, [evm]);
+  }, [vault, evm]);
   useEffect(() => {
     if (!evm) return;
     const first = setTimeout(() => void refresh(), 0);
@@ -135,23 +135,25 @@ function useEthMarket(evm: string | null) {
   return { market: evm ? market : null, error, refresh };
 }
 
-function Links({ hoodi, scan, solana }: { hoodi?: string; scan?: string; solana?: string }) {
+function Links({ evm, vault, scan, solana }: { evm?: string; vault: string; scan?: string; solana?: string }) {
+  const net = netOfVault(vault);
   return (
     <div className="stack">
-      {hoodi && <a className="meta mono" href={hoodiTx(hoodi)} target="_blank" rel="noreferrer">Hoodi tx · {shortHex(hoodi)}</a>}
+      {evm && <a className="meta mono" href={net.tx(evm)} target="_blank" rel="noreferrer">{net.label} tx · {shortHex(evm)}</a>}
       {scan && <a className="meta mono" href={lzScanUrl(scan)} target="_blank" rel="noreferrer">LayerZero Scan · {shortHex(scan)}</a>}
       {solana && <a className="meta mono" href={solscan(solana)} target="_blank" rel="noreferrer">Solana tx · {solana.slice(0, 10)}…</a>}
     </div>
   );
 }
 
-// ---- Get simETH + Open an ETH Position ------------------------------------------------------------------
+// ---- Get simETH / simHYPE + Open an ETH or HYPE Position ------------------------------------------------------------------
 
-/** The simETH faucet, shown above the ETH open form: EVM address, gas and simETH balances, Get test simETH. */
-export function EthFaucet() {
+/** The simETH / simHYPE faucet, shown above the open form: EVM address, gas and simulated-token balances, Get test token. */
+export function EthFaucet({ vault }: { vault: EthVault }) {
   const auth = useAuth();
   const ctx = useEthCtx();
-  const { market, error: readError, refresh } = useEthMarket(auth.evm?.address ?? null);
+  const net = NETS[vault.net];
+  const { market, error: readError, refresh } = useEthMarket(vault, auth.evm?.address ?? null);
   const a = useBusy();
   const [done, setDone] = useState<string | null>(null);
   const now = useNow(15_000);
@@ -161,18 +163,18 @@ export function EthFaucet() {
     <div className="wl-faucet">
       <div className="spread">
         <span className="hstack">
-          <ChainChip chain="ETH" />
-          <span className="meta">Hoodi testnet</span>
+          <ChainChip chain={net.native} />
+          <span className="meta">{net.label} testnet</span>
         </span>
         <Chip tone="warn">Simulated</Chip>
       </div>
       <dl className="kv">
         <dt>Your EVM address</dt>
         <dd className="mono">{auth.evm ? shortHex(auth.evm.address) : "Creating your wallet…"}</dd>
-        <dt>Hoodi ETH (gas)</dt>
-        <dd className="tnum">{market ? fmtEth(market.ethBalance, 4) : "—"} ETH</dd>
-        <dt>Your simETH</dt>
-        <dd className="tnum">{market ? fmtEth(market.simEth, 3) : "—"} simETH</dd>
+        <dt>{net.label} {net.native} (gas)</dt>
+        <dd className="tnum">{market ? fmtEth(market.ethBalance, 4) : "—"} {net.native}</dd>
+        <dt>Your {vault.symbol}</dt>
+        <dd className="tnum">{market ? fmtEth(market.simEth, 3) : "—"} {vault.symbol}</dd>
       </dl>
       <Button
         size="sm"
@@ -181,32 +183,34 @@ export function EthFaucet() {
         onClick={() =>
           ctx &&
           void a.run("faucet", async () => {
-            const hash = await getTestSimEth(ctx);
+            const hash = await getTestSimEth(ctx, vault);
             setDone(hash);
             await refresh();
           })
         }
       >
-        {a.busy === "faucet" ? "Getting simETH…" : cooling ? "Faucet cooling down" : "Get test simETH"}
+        {a.busy === "faucet" ? `Getting ${vault.symbol}…` : cooling ? "Faucet cooling down" : `Get test ${vault.symbol}`}
       </Button>
-      {done && <Links hoodi={done} />}
+      {done && <Links evm={done} vault={vault.address} />}
       {(a.error || readError) && <p className="status err" role="alert">{a.error ?? readError}</p>}
     </div>
   );
 }
 
-const OPEN_STEP_TEXT: Record<OpenStep, string> = {
+const openStepText = (vault: EthVault): Record<OpenStep, string> => ({
   link: "Linking your EVM address to your Account…",
-  gas: "Checking Hoodi gas…",
-  approve: "Approving simETH…",
+  gas: `Checking ${NETS[vault.net].label} gas…`,
+  approve: `Approving ${vault.symbol}…`,
   inbox: "Preparing the Solana inbox for your Position…",
-  open: "Opening the Position on Hoodi…",
-};
+  open: `Opening the Position on ${NETS[vault.net].label}…`,
+});
 
-/** The ETH tab of OPEN A POSITION: link, approve and open on Hoodi; the Advance follows once LayerZero delivers. */
-export function EthOpenForm({ onOpened }: { onOpened: (opKey: string) => void }) {
+/** The ETH and HYPE tabs of OPEN A POSITION: link, approve and open on the vault's chain; the Advance follows once LayerZero delivers. */
+export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (opKey: string) => void }) {
   const ctx = useEthCtx();
-  const { market } = useEthMarket(ctx?.evm.address ?? null);
+  const net = NETS[vault.net];
+  const unit = net.native;
+  const { market } = useEthMarket(vault, ctx?.evm.address ?? null);
   const a = useBusy();
   const [step, setStep] = useState<OpenStep | null>(null);
   const [text, setText] = useState("");
@@ -214,8 +218,8 @@ export function EthOpenForm({ onOpened }: { onOpened: (opKey: string) => void })
   const [price, setPrice] = useState<{ microUsd: bigint; live: boolean } | null>(null);
   const now = useNow(5000);
   useEffect(() => {
-    fetchEthPrice().then((p) => setPrice({ microUsd: p.priceMicroUsd, live: p.live })).catch(() => setPrice(null));
-  }, []);
+    fetchEthPrice(unit).then((p) => setPrice({ microUsd: p.priceMicroUsd, live: p.live })).catch(() => setPrice(null));
+  }, [unit]);
 
   const shares = /^\d*\.?\d{0,18}$/.test(text) && Number(text) > 0 ? BigInt(Math.round(Number(text) * 1e9)) * 10n ** 9n : 0n;
   const rate = market ? simRateAt(market.rate, now / 1000) : WEI;
@@ -238,45 +242,45 @@ export function EthOpenForm({ onOpened }: { onOpened: (opKey: string) => void })
 
   return (
     <OpenFormView
-      unit="ETH"
+      unit={unit}
       inert={!market}
-      head={<EthFaucet />}
+      head={<EthFaucet vault={vault} />}
       amountText={text}
       onAmount={setText}
       amountInvalid={tooMuch || tooBig}
-      amountHint={market ? <>You have {fmtEth(market.simEth, 3)} simETH. Principal is locked, never played with.</> : undefined}
+      amountHint={market ? <>You have {fmtEth(market.simEth, 3)} {vault.symbol}. Principal is locked, never played with.</> : undefined}
       months={months}
       onMonths={setMonths}
       gemas={gemas}
       estimate={estimate ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
-        ["Principal", `${fmtEth(principal)} ETH`],
-        ["Projected yield", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ETH`],
-        ["LayerZero fee", `≤ ${fmtEth(fee, 5)} ETH`],
-        ["Price feed", price ? `ETH $${(Number(price.microUsd) / 1e6).toFixed(2)}${price.live ? "" : " (fallback)"}` : "unavailable"],
+        ["Principal", `${fmtEth(principal)} ${unit}`],
+        ["Projected yield", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ${unit}`],
+        ["LayerZero fee", `≤ ${fmtEth(fee, 5)} ${unit}`],
+        ["Price feed", price ? `${unit} $${(Number(price.microUsd) / 1e6).toFixed(2)}${price.live ? "" : " (fallback)"}` : "unavailable"],
       ]}
       alerts={
         <>
-          {tooMuch && <p className="status err" role="alert">That is more simETH than you have.</p>}
-          {tooBig && <p className="status err" role="alert">The Solana ledger holds Principal up to about 18 ETH. Lock less.</p>}
-          {step && a.busy && <p className="status" role="status"><ClockIcon width={14} height={14} /> {OPEN_STEP_TEXT[step]}</p>}
+          {tooMuch && <p className="status err" role="alert">That is more {vault.symbol} than you have.</p>}
+          {tooBig && <p className="status err" role="alert">The Solana ledger holds Principal up to about 18 {unit}. Lock less.</p>}
+          {step && a.busy && <p className="status" role="status"><ClockIcon width={14} height={14} /> {openStepText(vault)[step]}</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
       note={
         <>
-          You sign once to link your EVM address, then approve and open on Hoodi. Once the message reaches Solana, in about 2 to 5
+          You sign once to link your EVM address, then approve and open on {net.label}. Once the message reaches Solana, in about 2 to 5
           minutes, your Advance is taken while this page or your Wallet is open. The Unlock Estimate is an estimate, not a promise.{" "}
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
       }
-      buttonLabel={a.busy ? "Working…" : gemas > 0 ? `Open an ETH Position · ${fmtGemas(gemas)} Gemas` : "Open an ETH Position"}
+      buttonLabel={a.busy ? "Working…" : gemas > 0 ? `Open ${unit === "ETH" ? "an" : "a"} ${unit} Position · ${fmtGemas(gemas)} Gemas` : `Open ${unit === "ETH" ? "an" : "a"} ${unit} Position`}
       disabled={!valid || a.busy !== null}
       onSubmit={() =>
         ctx &&
         void a.run("open", async () => {
-          const opened = await openEthPosition(ctx, VAULT, shares, months, setStep);
+          const opened = await openEthPosition(ctx, vault, shares, months, setStep);
           const op = addOp(ctx.signer.publicKey.toBase58(), { kind: "open", vault: opened.vault, id: opened.id.toString(), months, hash: opened.hash });
           setText("");
           onOpened(op.key);
@@ -351,7 +355,7 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
   useEffect(() => {
     opRef.current = op;
   });
-  const steps = OP_STEPS[op.kind];
+  const steps = opSteps(op.kind, op.vault);
   const holder = ctx.signer.publicKey;
 
   useEffect(() => {
@@ -381,7 +385,7 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
         if (scanKey) fetchScanStatus(scanKey).then((s) => !stopped && setScan(s));
         if (progress.next && Date.now() - lastTry.current > RETRY_MS) {
           lastTry.current = Date.now();
-          setNote(NEXT_NOTE[progress.next]);
+          setNote(NEXT_NOTE(netOfVault(cur.vault).label)[progress.next]);
           try {
             await perform(progress.next, cur, ctx, state, address);
             setError(null);
@@ -419,8 +423,9 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
 
 function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<void> }) {
   const { stage, note, error, scan, finished } = useOpTracker(op, ctx, address, onProgress);
-  const steps = OP_STEPS[op.kind];
-  const copy = OP_COPY[op.kind];
+  const steps = opSteps(op.kind, op.vault);
+  const copy = opCopy(op.kind, op.vault);
+  const net = netOfVault(op.vault);
   const scanText = scan ? `LayerZero: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "LayerZero: waiting for Scan" : null;
 
   return (
@@ -428,7 +433,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
       <div className="stack">
         <div className="spread">
           <span className="hstack">
-            <ChainChip chain="ETH" />
+            <ChainChip chain={net.native} />
             <strong>{titleOf(op)}</strong>
           </span>
           {finished && (
@@ -448,26 +453,30 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
         {!finished && !note && scanText && <p className="meta mono">{scanText}</p>}
         {error && !finished && <p className="status err" role="alert">{error} · retrying</p>}
         <Links
-          hoodi={op.kind === "open" || op.kind === "yield" ? op.hash : (scan?.destinationTx ?? undefined)}
+          vault={op.vault}
+          evm={op.kind === "open" || op.kind === "yield" ? op.hash : (scan?.destinationTx ?? undefined)}
           scan={op.kind === "open" || op.kind === "yield" ? op.hash : op.sendSig}
           solana={op.kind === "redeem" || op.kind === "unlock" ? op.hash : undefined}
         />
-        <span className="sim">Simulated · simETH yield runs 1 month = {ETH_SIM_MONTH_MIN} min. Testnets only.</span>
+        <span className="sim">Simulated · {opWords(op.vault).symbol} yield runs 1 month = {ETH_SIM_MONTH_MIN} min. Testnets only.</span>
       </div>
     </Card>
   );
 }
 
-const NEXT_NOTE = {
-  "apply-locked": "Opening your Position on Solana (apply_locked)…",
-  advance: "Taking your Advance at the oracle price…",
-  "apply-yield": "Applying the yield on Solana (apply_yield)…",
-  "send-pay-yield": "Sending the payout to Hoodi (send_pay_yield)…",
-  "send-unlock": "Sending the unlock to Hoodi (send_unlock)…",
-} as const;
+const NEXT_NOTE = (label: string) =>
+  ({
+    "apply-locked": "Opening your Position on Solana (apply_locked)…",
+    advance: "Taking your Advance at the oracle price…",
+    "apply-yield": "Applying the yield on Solana (apply_yield)…",
+    "send-pay-yield": `Sending the payout to ${label} (send_pay_yield)…`,
+    "send-unlock": `Sending the unlock to ${label} (send_unlock)…`,
+  }) as const;
 
 function titleOf(op: EthOp) {
-  return { open: "Opening an ETH Position", yield: "Reporting yield", redeem: "Redeeming ETH-Sourced Gemas", unlock: "Unlocking the Principal" }[op.kind];
+  const { native } = opWords(op.vault);
+  const a = native === "ETH" ? "an" : "a";
+  return { open: `Opening ${a} ${native} Position`, yield: "Reporting yield", redeem: `Redeeming ${native}-Sourced Gemas`, unlock: "Unlocking the Principal" }[op.kind];
 }
 
 /** One relayed step. The server skips a step that is already done (a keeper may have run it). */
@@ -493,6 +502,8 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
   const now = useNow(5000);
   const ref = position.eth!;
   const vault = vaultByAddress(ref.vault) as EthVault | null;
+  const net = netOfVault(ref.vault);
+  const symbol = vault?.symbol ?? (net.native === "HYPE" ? "simHYPE" : "simETH");
   const [state, setState] = useState<EthState | null>(null);
   const [vp, setVp] = useState<VaultPosition | null>(null);
   const [rateMarket, setRateMarket] = useState<EthMarket | null>(market);
@@ -505,11 +516,11 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
       const [s, v] = await Promise.all([fetchEthState(getChain().base, ref.vault, ref.id, ctx.signer.publicKey), fetchVaultPosition(ref.vault, ref.id)]);
       setState(s);
       setVp(v);
-      if (!market && ctx.evm) setRateMarket(await fetchEthMarket(VAULT, ctx.evm.address));
+      if (!market && ctx.evm && vault) setRateMarket(await fetchEthMarket(vault, ctx.evm.address));
     } catch {
       // keep the last good read
     }
-  }, [ctx, ref.vault, ref.id, market]);
+  }, [ctx, ref.vault, ref.id, market, vault]);
   useEffect(() => {
     const first = setTimeout(() => void load(), 0);
     const t = setInterval(() => document.visibilityState === "visible" && void load(), 14_000);
@@ -564,12 +575,12 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
 
   return (
     <PositionTile
-      chain="ETH"
-      label="ETH Position"
+      chain={net.native}
+      label={`${net.native} Position`}
       status={locked ? "active" : "unlocked"}
       rows={{
-        principal: `${fmtEth(position.principal * 1e18, 4)} ETH`,
-        debt: onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas · ${fmtEth(debtWei, 4)} ETH` : "0",
+        principal: `${fmtEth(position.principal * 1e18, 4)} ${net.native}`,
+        debt: onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas · ${fmtEth(debtWei, 4)} ${net.native}` : "0",
         apy: `${(position.apy * 100).toFixed(1)}%`,
         unlock: !locked
           ? "Unlocked"
@@ -604,14 +615,14 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} onReturned={load} />
         </>
       )}
-      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} ETH-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} simETH` : "simETH"} (Simulated) to your EVM address on Hoodi.</p>}
-      <p className="note wl-tile-note">Accrued on Hoodi {fmtEth(accrued, 5)} ETH (simulated).</p>
+      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} ${symbol}` : symbol} (Simulated) to your EVM address on {net.label}.</p>}
+      <p className="note wl-tile-note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated).</p>
       {unreported > 0n && locked && (
         <p className="note wl-tile-note">
-          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on Hoodi. Report yield to bring it to Solana (a small LayerZero fee).
+          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to bring it to Solana (a small LayerZero fee).
         </p>
       )}
-      {locked && !canUnlock && <p className="note wl-tile-note">Unlock returns the Principal on Hoodi once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
+      {locked && !canUnlock && <p className="note wl-tile-note">Unlock returns the Principal on {net.label} once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
     </PositionTile>
   );
@@ -619,21 +630,21 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
 
 // ---- Redeem rows (Wallet Redeem sheet) --------------------------------------------------------------------------
 
-/** `redeem_to_evm` for one Source of an ETH Position, then a tracker keyed to that Source's Claim and to this redemption's units. */
+/** `redeem_to_evm` for one Source of an ETH or HYPE Position, then a tracker keyed to that Source's Claim and to this redemption's units. */
 async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: string; id: bigint }, source: PublicKey, gemas: bigint) {
   const base = getChain().base;
   const holder = ctx.signer.publicKey;
   const head = await fetchEthState(base, ref.vault, ref.id, holder);
   const sourceIndex = head.core ? ethSourceIndex(head.core.position, source, head.core.advances) : null;
   if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Position.");
-  const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), hoodiClient().getBlockNumber()]);
-  const sig = await redeemToEvm(ctx.signer, head.core!.position, source, gemas);
+  const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), evmClient(netOfVault(ref.vault)).getBlockNumber()]);
+  const sig = await redeemToEvm(ctx.signer, head.core!.position, source, gemas, ref.vault);
   const after = await fetchEthState(base, ref.vault, ref.id, holder, sourceIndex);
   const total = after.claim?.unitsTotal ?? 0n;
   addOp(address, { kind: "redeem", vault: ref.vault, id: ref.id.toString(), hash: sig, sourceIndex, baseline: total.toString(), units: (total - (before.claim?.unitsTotal ?? 0n)).toString(), fromBlock: fromBlock.toString() });
 }
 
-/** Redeems every ETH-Sourced holding the Account has redeemable: `redeem_to_evm`, then a tracker per Position. */
+/** Redeems every ETH- and HYPE-Sourced holding the Account has redeemable: `redeem_to_evm`, then a tracker per Position. */
 export async function redeemEthHoldings(ctx: EthCtx, holdings: ChainHolding[]): Promise<number> {
   const rows = ethRedeemables(holdings);
   const address = ctx.signer.publicKey.toBase58();
