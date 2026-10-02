@@ -8,7 +8,7 @@ import type { ChainRequest } from "@/lib/chain/backing";
 import { shortKey, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
-import { GemaMark } from "@/components/ui";
+import { GemaMark, SkeletonCards } from "@/components/ui";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
 
@@ -28,7 +28,7 @@ export function BackPlayerRail() {
 
   return (
     <Rail id="back-a-player" title="Back a player" viewAll="/backing" cols={3}>
-      {loading && !board && <p className="rail-empty">Reading Requests from Solana devnet…</p>}
+      {loading && !board && <SkeletonCards className="player" label="Reading Requests from Solana devnet…" />}
       {board && requests.length === 0 && (
         <p className="rail-empty">
           {query.trim() ? "No Requests match your search." : "No Players are asking to be backed right now."} <Link href="/backing">Post a Request</Link> or check back soon.

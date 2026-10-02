@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel } from "@/components/ui";
+import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
@@ -15,6 +15,7 @@ import { returnRows } from "@/lib/chain/return-own";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
+import { vaultsOn } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
@@ -115,8 +116,8 @@ export default function Wallet() {
         tiles.push(<NativePositionCard key={p.address.toBase58()} position={p} market={market} onRedeem={openRedeem} />);
       }
     }
-    if (chain === "ETH") {
-      for (const p of (snapshot?.positions ?? []).filter((x) => x.eth)) {
+    if (chain === "ETH" || chain === "HYPE") {
+      for (const p of (snapshot?.positions ?? []).filter((x) => x.eth && x.asset === chain)) {
         tiles.push(<EthPositionCard key={p.address.toBase58()} position={p} market={null} />);
       }
     }
@@ -141,7 +142,9 @@ export default function Wallet() {
           <h2>Total Balance</h2>
           <div className="wl-total-fig">
             <GemaMark size={72} glint />
-            <b>{fmtGemas(gemas.total)}</b>
+            <b>
+              <CountUp value={gemas.total} />
+            </b>
             <span>Gemas</span>
           </div>
         </div>
@@ -179,9 +182,14 @@ export default function Wallet() {
         </details>
       </section>
 
+      <div className="wl-lower">
       <section className="wl-positions" aria-labelledby="pos-h">
         <h2 id="pos-h" className="h-section">Your positions</h2>
-        {onChain && loading && positions.length === 0 && <p className="meta">Reading Positions from Solana devnet…</p>}
+        {onChain && loading && positions.length === 0 && (
+          <div className="wl-grid">
+            <SkeletonCards count={2} avatar={false} className="wl-tile" label="Reading Positions from Solana devnet…" />
+          </div>
+        )}
         {gemas.reserved > 0 && (
           <p className="note" role="status">
             {fmtGemas(gemas.reserved)} of your Gemas are reserved for your Backing Offers; {fmtGemas(gemas.available)} available. <a href="/backing">See Backing</a>
@@ -190,13 +198,21 @@ export default function Wallet() {
         {positionTiles.length > 0 ? (
           <div className="wl-grid">{positionTiles}</div>
         ) : (
-          !loading && <p className="meta">No Positions yet. Open one to get Gemas to play with.</p>
+          !loading && (
+            <div className="cut cut-card wl-empty">
+              <GemaMark size={40} />
+              <div>
+                <b>No Positions yet</b>
+                <p>Open a Position to get Gemas to play with.</p>
+              </div>
+            </div>
+          )
         )}
-        <p className="wl-soon">HYPE · HyperEVM Positions are coming soon.</p>
         {onChain && <EthOps />}
       </section>
 
       <HowGemasWork />
+      </div>
 
       <footer className="wl-foot">
         <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>
@@ -213,12 +229,8 @@ export default function Wallet() {
       <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
-          {tab === "ETH" && (onChain ? <EthOpenForm onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
-          {tab === "HYPE" && (
-            <div className="stack">
-              <IdleForm unit="HYPE" months={months} onMonths={setMonths} soon />
-            </div>
-          )}
+          {tab === "ETH" && (onChain ? <EthOpenForm vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
+          {tab === "HYPE" && (onChain ? <EthOpenForm vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>
       </Sheet>
       <NativeRedeemSheet open={nativeRedeemOpen} onClose={() => setNativeRedeemOpen(false)} />
@@ -231,8 +243,8 @@ export default function Wallet() {
   );
 }
 
-/** The open form's shape before there is a market to quote from (or for a chain that is not open). */
-function IdleForm({ unit, months, onMonths, soon = false }: { unit: string; months: number; onMonths: (m: number) => void; soon?: boolean }) {
+/** The open form's shape before there is a market to quote from. */
+function IdleForm({ unit, months, onMonths }: { unit: string; months: number; onMonths: (m: number) => void }) {
   return (
     <OpenFormView
       unit={unit}
@@ -243,8 +255,8 @@ function IdleForm({ unit, months, onMonths, soon = false }: { unit: string; mont
       onMonths={onMonths}
       gemas={null}
       estimate="—"
-      note={soon ? "HyperEVM Positions are not open yet." : "Sign in to see your balance and a real quote."}
-      buttonLabel={soon ? "HyperEVM coming soon" : "Open a Position"}
+      note="Sign in to see your balance and a real quote."
+      buttonLabel="Open a Position"
       disabled
       onSubmit={() => undefined}
     />

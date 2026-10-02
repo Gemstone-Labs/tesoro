@@ -12,7 +12,7 @@
 /* border drawn as an evenodd ring so the diagonals get an outline too (clip-path clips real borders) */
 .cut:not(input, select, textarea, img)::after {
   content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
-  background: var(--edge, var(--line));
+  background: var(--edge, var(--edge-1));
   clip-path: polygon(
     evenodd,
     var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)),
@@ -49,14 +49,14 @@
 .page-title { font-size: clamp(32px, 3vw, 44px); }
 
 /* ——— Card ——— */
-.card { background: var(--raised); padding: 14px; }
+.card { background: var(--surface); padding: 14px; }
 .card.flush { padding: 0; overflow: hidden; }
 .card.lg { padding: 16px; }
 
 /* ——— Row ——— */
 .row {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; width: 100%;
-  background: var(--raised); text-align: left;
+  background: var(--surface); text-align: left;
 }
 a.row:hover, button.row:hover { background: var(--raised-2); }
 .row-body { min-width: 0; display: grid; flex: 1; }
@@ -95,18 +95,26 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .btn.block { display: flex; width: 100%; }
 .btn.sm { padding: 7px 12px; min-height: 34px; font-size: 13px; }
 .btn.lg { min-height: 60px; font-size: 20px; padding: 0 24px; }
-.btn.money { color: var(--em-ink); background: var(--facet); --edge: transparent; }
-.btn.money:hover:not(:disabled) { filter: brightness(1.06); }
+.btn { transition: filter 0.15s ease, background-color 0.15s ease, transform 0.08s ease; }
+.btn.lg { --c: 9px; }
+.btn.money {
+  color: var(--em-ink); --edge: var(--money-rim);
+  background: linear-gradient(0deg, var(--money-base) 0 3px, transparent 3px), var(--money-fill);
+}
+.btn.money.lg { padding-bottom: 3px; }
+.btn.money:hover:not(:disabled) { filter: brightness(1.07) saturate(1.05); }
+.btn.money:active:not(:disabled) { filter: brightness(0.95); }
+.btn:active:not(:disabled, [aria-disabled="true"]) { transform: translateY(1px); }
 .btn.money:focus-visible { outline-color: var(--em-ink); }
-.btn.neutral { background: var(--raised); color: var(--fg); --edge: var(--line-2); }
-.btn.neutral:hover { background: var(--raised-2); }
+.btn.neutral { background: var(--surface); color: var(--fg); --edge: var(--edge-2); }
+.btn.neutral:hover { background: var(--surface-2); }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; }
-.btn.money:disabled { background: #17241f; color: var(--fg-2); --edge: var(--line); }
+.btn.money:disabled { background: var(--money-off); color: rgba(234, 239, 236, 0.5); --edge: var(--edge-1); }
 .btn.neutral:disabled { color: var(--fg-2); }
 .btn svg { width: 16px; height: 16px; flex: none; }
 
 /* square icon / arrow button (rail arrows, drawer toggles, copy) */
-.icon-btn { --c: 8px; width: 40px; height: 40px; display: grid; place-items: center; background: transparent; border: 0; flex: none; --edge: var(--line-2); }
+.icon-btn { --c: 8px; width: 40px; height: 40px; display: grid; place-items: center; background: transparent; border: 0; flex: none; --edge: var(--edge-2); }
 .icon-btn:hover { background: var(--raised-2); }
 .icon-btn svg { width: 18px; height: 18px; }
 .icon-btn:disabled { opacity: 0.4; cursor: default; }
@@ -114,6 +122,12 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 /* ——— Gema mark & amount ——— */
 .gema-mark { display: inline-block; flex: none; vertical-align: middle; }
 .gema-mark .shine { opacity: 0; }
+/* on a money fill the full-colour mark blends in: draw it in ink instead */
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-body,
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-table { fill: currentColor; }
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-table { stroke: var(--gem-ink-line); stroke-width: 1; }
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-cuts { stroke: var(--gem-ink-line); stroke-opacity: 1; stroke-width: 0.8; }
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .shine { display: none; }
 .gema-mark.glint .shine { animation: glint 3.2s ease-in-out infinite; }
 @keyframes glint { 0%, 70%, 100% { opacity: 0; } 80% { opacity: 0.9; } }
 .gema-amount { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
@@ -122,7 +136,7 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .gema-amount.xl { font-size: 40px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; gap: 8px; }
 .gema-amount.sm { font-size: 13px; gap: 5px; }
 
-.gchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 7px; background: var(--raised); }
+.gchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 7px; background: var(--surface); }
 
 .sim { font-family: var(--f-mono); font-size: 10.5px; color: var(--fg-2); letter-spacing: 0.02em; }
 
@@ -135,7 +149,7 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
     var(--raised);
 }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.split > div { padding: 10px 12px; background: var(--raised); display: grid; gap: 2px; align-content: start; }
+.split > div { padding: 10px 12px; background: var(--surface); display: grid; gap: 2px; align-content: start; }
 .split .now { background: linear-gradient(135deg, rgba(45, 190, 140, 0.22), rgba(11, 107, 78, 0.18)); --edge: rgba(45, 190, 140, 0.4); }
 .split b { font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; }
 .split span { font-size: 11.5px; color: var(--fg-2); }
@@ -158,11 +172,14 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .entry input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
 .entry span {
   display: flex; justify-content: center; align-items: center; gap: 6px; padding: 10px 0; min-height: 44px;
-  background: var(--shell); font-weight: 800; font-size: 14px; --edge: var(--line-2);
+  background: var(--shell); font-weight: 800; font-size: 14px; --edge: var(--edge-2);
 }
 .entry input:hover:not(:disabled, :checked) + span { background: var(--raised-2); }
-.entry input:checked + span { background: var(--facet); color: var(--em-ink); --edge: transparent; }
-.entry input:disabled + span { color: var(--fg-2); text-decoration: line-through; }
+.entry input:checked + span { background: var(--money-fill); color: var(--em-ink); --edge: var(--money-rim); }
+.entry span { transition: background-color 0.15s ease; }
+/* an entry the balance cannot cover: dimmed, never struck through */
+.entry input:disabled + span { color: rgba(234, 239, 236, 0.42); background: rgba(9, 13, 15, 0.6); --edge: var(--edge-1); }
+.entry input:disabled:checked + span { background: linear-gradient(180deg, #16302a, #10221e); color: rgba(234, 239, 236, 0.62); --edge: rgba(45, 190, 140, 0.4); }
 .entry input:disabled { cursor: not-allowed; }
 .entry input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: -4px; }
 .entry input:checked:focus-visible + span { outline-color: var(--em-ink); }
@@ -199,12 +216,12 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .xc li:last-child { padding-bottom: 0; }
 .xc li:not(:last-child)::before { content: ""; position: absolute; left: 13px; top: 26px; bottom: 2px; width: 2px; background: var(--line); }
 .xc li.done:not(:last-child)::before { background: var(--fg-3); }
-.xc-icon { --c: 6px; width: 28px; height: 28px; display: grid; place-items: center; background: var(--raised); color: var(--fg-2); }
+.xc-icon { --c: 6px; width: 28px; height: 28px; display: grid; place-items: center; background: var(--surface); color: var(--fg-2); }
 .xc-icon svg { width: 16px; height: 16px; }
 .xc li.done .xc-icon { color: var(--fg); --edge: var(--fg-3); }
 .xc li.active .xc-icon { color: var(--warn); --edge: rgba(242, 185, 75, 0.5); }
 .xc li.failed .xc-icon { color: var(--danger); --edge: rgba(242, 104, 90, 0.5); }
-.xc li.available .xc-icon { background: var(--facet); color: var(--em-ink); --edge: transparent; }
+.xc li.available .xc-icon { background: var(--money-fill); color: var(--em-ink); --edge: var(--money-rim); }
 .xc-title { font-weight: 700; font-size: 14px; }
 .xc-note { font-size: 12px; color: var(--fg-2); }
 .xc-state { font-size: 12px; font-weight: 700; color: var(--fg-2); white-space: nowrap; padding-top: 4px; }
@@ -216,14 +233,19 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 /* ——— Sheet (native dialog) ——— */
 dialog.sheet {
   --c: var(--cut-frame); position: fixed;
-  padding: 0; border: 0; background: var(--raised); color: var(--fg);
+  padding: 0; border: 0; background: var(--surface); color: var(--fg);
   width: 100%; max-width: 480px; max-height: 90dvh; margin: auto auto 0; overflow: auto;
 }
-dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.66); }
+dialog.sheet::backdrop { background: rgba(4, 7, 9, 0.62); backdrop-filter: blur(6px); }
+/* sheets rise into place when opened */
+dialog.sheet[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; } }
 .sheet-in { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
 .sheet-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .sheet-head h2 { font-size: 20px; font-weight: 900; letter-spacing: -0.01em; }
-@media (min-width: 640px) { dialog.sheet { margin: auto; } }
+@media (min-width: 640px) { dialog.sheet { margin: auto; } .sheet-in { padding: 24px 24px 26px; gap: 16px; } }
 
 /* ——— Form controls ——— */
 .field { display: grid; gap: 6px; }
@@ -267,3 +289,33 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.66); }
 .addr-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .addr code { font-family: var(--f-mono); font-size: 12px; overflow-wrap: anywhere; color: var(--fg); }
 .hstack.wrap { flex-wrap: wrap; }
+
+/* ——— Skeleton: loading is shaped like what is coming, not narrated ——— */
+.skel { background: var(--surface); position: relative; overflow: hidden; }
+.skel::before {
+  content: ""; position: absolute; inset: 0; z-index: 1;
+  background: linear-gradient(100deg, transparent 30%, rgba(234, 239, 236, 0.05) 50%, transparent 70%);
+  background-size: 220% 100%; animation: skel 1.6s ease-in-out infinite;
+}
+.skel-line { display: block; height: 12px; background: rgba(234, 239, 236, 0.07); clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
+.skel-line.lg { height: 18px; }
+.skel-av { width: 64px; height: 64px; flex: none; background: rgba(234, 239, 236, 0.07); --edge: transparent; }
+.skel-lines { display: grid; gap: 10px; flex: 1; min-width: 0; }
+.skel.player, .skel.bk-card { display: flex; align-items: center; gap: 16px; }
+@keyframes skel { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+/* the big money action catches a passing light every few seconds */
+.btn.money.lg:not(:disabled)::before {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.5) 50%, transparent 62%);
+  translate: -110% 0; animation: btn-sweep 6s ease-in-out 1.6s infinite;
+}
+@keyframes btn-sweep { 0% { translate: -110% 0; } 20%, 100% { translate: 110% 0; } }
+
+/* lists and grids rise in as they scroll into view */
+@supports (animation-timeline: view()) {
+  .rail-track > *, .bk-cards > *, .wl-grid > *, .mh-list > *, .gp-grid > * {
+    animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 30%;
+  }
+  @keyframes reveal { from { opacity: 0; translate: 0 32px; } }
+}

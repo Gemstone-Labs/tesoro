@@ -12,7 +12,7 @@ import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
 ///   forge script script/Deploy.s.sol --rpc-url $HOODI_RPC_URL --broadcast
 ///
 /// Ethereum Hoodi (560048): SimLST + vault on it, plus a vault on real Lido wstETH via the rate adapter.
-/// HyperEVM testnet (998): SimLST + vault only (no wstETH). Prepared, not deployed (no HYPE for gas).
+/// HyperEVM testnet (998): SimLST (simHYPE) + vault only (no wstETH). The live deployment used `forge create` + deploy-oapp.sh instead.
 ///   Contracts larger than the 3M small-block gas limit need big blocks enabled first
 ///   ({"type":"evmUserModify","usingBigBlocks":true}).
 /// MockEndpoint stands in for LayerZero until the OApp lands.
@@ -44,7 +44,7 @@ contract Deploy is Script {
         address deployer = vm.addr(pk);
         vm.startBroadcast(pk);
 
-        SimLST sim = new SimLST(deployer);
+        SimLST sim = new SimLST(deployer, hasWstETH ? "Simulated Staked ETH" : "Simulated Staked HYPE", hasWstETH ? "simETH" : "simHYPE");
         MockEndpoint endpoint = new MockEndpoint();
         PositionVault simVault = new PositionVault(address(sim), address(sim), address(endpoint), chainTag);
         if (reserveEth > 0) {

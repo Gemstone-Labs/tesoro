@@ -68,7 +68,6 @@ write("tesoro-mark.svg", svg(W, H, `<defs>${defs(PAL.dark, "g")}</defs>${fullBod
 write("tesoro-mark-mono.svg", svg(W, H, monoBody, "Tesoro"));
 const markSimple = svg(W, H, `<defs>${grad("gm", PAL.dark.mid)}</defs><path fill="url(#gm)" d="${octD}"/><path fill="#06231B" d="${tD}"/>`, "Tesoro");
 write("tesoro-mark-simple.svg", markSimple);
-fs.writeFileSync(out("src/app/icon.svg"), markSimple);
 
 // ---- wordmark outlines ----
 const fb = fs.readFileSync(fontFile);
@@ -113,21 +112,27 @@ export const PALETTE = ${JSON.stringify(PAL, null, 2)} as const;
 fs.writeFileSync(out("src/components/brand/paths.ts"), ts);
 
 // ---- rasters ----
+// Site and app icons are the approved T-gem art itself (founder, Oct 2), not the vector mark: the transparent
+// mark-take-2 for the tab icon and the maskable icon, the glowing app-icon tile for Apple and install icons.
+const clear = { r: 0, g: 0, b: 0, alpha: 0 };
+const mark = await sharp(path.join(SRC, "mark-take-2.png")).trim().png().toBuffer();
+const markAt = (s) => sharp(mark).resize(s, s, { fit: "contain", background: clear, kernel: "lanczos3" }).png().toBuffer();
 const icon = path.join(SRC, "app-icon.png");
+fs.writeFileSync(out("src/app/icon.png"), await markAt(192));
 await sharp(icon).resize(180, 180).png({ compressionLevel: 9 }).toFile(out("src/app/apple-icon.png"));
 for (const s of [192, 512]) await sharp(icon).resize(s, s).png({ compressionLevel: 9 }).toFile(out(`public/icons/icon-${s}.png`));
-const fav = (s) => sharp(Buffer.from(markSimple), { density: 600 }).resize(s, s, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
 const mask = await sharp({ create: { width: 512, height: 512, channels: 4, background: "#0C0E10" } })
-  .composite([{ input: await fav(300), gravity: "center" }]).png({ compressionLevel: 9 }).toBuffer();
+  .composite([{ input: await markAt(300), gravity: "center" }]).png({ compressionLevel: 9 }).toBuffer();
 fs.writeFileSync(out("public/icons/maskable-512.png"), mask);
-// favicon.ico: PNG-in-ICO, 16 + 32
-const imgs = [await fav(16), await fav(32)];
+// favicon.ico: PNG-in-ICO, 16 + 32 + 48
+const sizes = [16, 32, 48];
+const imgs = await Promise.all(sizes.map(markAt));
 const head = Buffer.alloc(6 + 16 * imgs.length);
 head.writeUInt16LE(1, 2);
 head.writeUInt16LE(imgs.length, 4);
 let off = head.length;
 imgs.forEach((b, i) => {
-  const s = i ? 32 : 16, o = 6 + 16 * i;
+  const s = sizes[i], o = 6 + 16 * i;
   head[o] = s; head[o + 1] = s;
   head.writeUInt16LE(1, o + 4); head.writeUInt16LE(32, o + 6);
   head.writeUInt32LE(b.length, o + 8); head.writeUInt32LE(off, o + 12);

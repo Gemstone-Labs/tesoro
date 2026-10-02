@@ -125,3 +125,28 @@ export function Meter({ value, label }: { value: number; label: string }) {
 export function Label({ children }: { children: ReactNode }) {
   return <span className="label">{children}</span>;
 }
+
+/* ——— Skeleton ——— */
+/**
+ * Loading placeholders shaped like the cards that are coming. `label` is announced to screen
+ * readers in place of the visible shapes.
+ */
+export function SkeletonCards({ count = 3, label, className, avatar = true }: { count?: number; label: string; className?: string; avatar?: boolean }) {
+  return (
+    <>
+      <span className="sr-only" role="status">
+        {label}
+      </span>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className={cx("cut cut-card skel", className)} aria-hidden="true">
+          {avatar && <span className="cut cut-btn skel-av" />}
+          <span className="skel-lines">
+            <span className="skel-line lg" style={{ width: "58%" }} />
+            <span className="skel-line" style={{ width: "82%" }} />
+            <span className="skel-line" style={{ width: "40%" }} />
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}

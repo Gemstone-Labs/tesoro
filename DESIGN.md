@@ -7,6 +7,7 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
 ## Principles
 
 - **Chrome stays out of the way.** Near-black neutral shell; game art supplies the colour. No atmosphere, glow, texture or ornament on platform surfaces.
+- **Light from above.** Like a cut stone, every cut surface catches light on its top edge and chamfers and fades downward: outlines are vertical gradients (`--edge-1`, `--edge-2`, `--edge-em`) and raised fills are a touch brighter at the top (`--surface`, `--surface-2`). This is the only depth device: no drop shadows on chrome (`clip-path` clips them anyway), no glass.
 - **The cut is the brand.** Chamfered (octagonal) corners on every card, chip, button, search box, balance pill, arrow button, avatar and tile — never rounded rectangles or pills. One corner size per component class, and the 1px outline follows the chamfer.
 - **Emerald means Gemas move.** Emerald and faceted light (hard-stop gradients) are reserved for the balance pill, the chosen entry, redeemable amounts and money actions (Play now, Enter, Offer, Redeem). If it's emerald, Gemas move. Navigation, chips, arrows and Docs/Help are neutral.
 - **Money is plain, big and honest.** Every balance separates *redeemable now* from *pending*, and pending shows its Sources (one row per Source: asset + Position). Simulated yield is labelled wherever amounts are shown, on-chain amounts included: the Wallet balance, every Position card, the Redeem and Return sheets, the ETH Opening summary and a won Match's pending line (`SimulatedYieldLabel`).
@@ -22,11 +23,23 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
   --side: #0c1215;           /* sidebar, bottom nav, drawer */
   --raised: #11161a;         /* cards, chips, search */
   --raised-2: #171e25;       /* hover, active nav, ticker, menus */
-  --line: rgba(234,239,236,.13); --line-2: rgba(234,239,236,.22);
+  --line: rgba(234,239,236,.13); --line-2: rgba(234,239,236,.22);   /* real borders, rules */
+  /* lit cut outlines (for --edge) and lit fills */
+  --edge-1: linear-gradient(180deg, rgba(234,239,236,.24), rgba(234,239,236,.1) 32%, rgba(234,239,236,.06));  /* cards */
+  --edge-2: linear-gradient(180deg, rgba(234,239,236,.4), rgba(234,239,236,.16) 36%, rgba(234,239,236,.1));   /* controls */
+  --edge-em: linear-gradient(180deg, rgba(126,250,218,.85), rgba(45,190,140,.42) 40%, rgba(45,190,140,.24)); /* money */
+  --surface: linear-gradient(180deg, #161d22, #11171b 44%, #0f1418);   /* raised fill */
+  --surface-2: linear-gradient(180deg, #1d252c, #171e25 50%, #151b21); /* hover, active nav */
   --fg: #eaefec; --fg-2: rgba(234,239,236,.68); --fg-3: rgba(234,239,236,.40);
   /* emerald — money only */
   --em-hi: #6af8d6; --em: #24d8a8; --em-deep: #0a7d5c; --em-ink: #03201a;
   --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%);
+  /* money fills (buttons, chosen entry): lit from above, bright top rim, dark pavilion band at the base */
+  --money-fill: linear-gradient(180deg, #5ef3cd 0%, #2fdcac 55%, #1cc699 100%);
+  --money-rim: linear-gradient(180deg, rgba(225,255,246,.95), rgba(225,255,246,0) 55%);
+  --money-base: rgba(3,32,26,.28);
+  --money-off: linear-gradient(180deg, #15201d, #101816);
+  --gem-ink-line: rgba(122,240,201,.5);
   /* semantic (never the accent) */
   --danger: #f2685a; --warn: #f2b94b;
   /* type */
@@ -34,7 +47,7 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
   --f-display: "Barlow Condensed", "Oswald", "Arial Narrow", Impact, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, monospace;
   /* cut sizes */
-  --cut-frame: 22px; --cut-card: 12px; --cut-btn: 10px; --cut-chip: 8px;
+  --cut-frame: 22px; --cut-card: 12px; --cut-btn: 7px; --cut-chip: 8px;
   --side-w: 244px;           /* 268px from 1440px up */
 }
 ```
@@ -46,11 +59,11 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
 .cut::after { /* evenodd ring: the outline follows the chamfer */ background: var(--edge, var(--line)); }
 ```
 
-`clip-path` clips real borders, so cut shapes draw their outline as an `::after` evenodd ring coloured by `--edge` (never `border`). Neutral cards use `--line`, controls `--line-2`, the balance pill a translucent emerald, money surfaces `transparent`. Inputs keep a real border (they cannot have pseudo-elements). Classes: `cut-frame` (heroes, sheets), `cut-card` (cards, nav items, chips-as-buttons, tiles), `cut-btn` (buttons, avatars), `cut-chip` (small chips, entry buttons, ticker). Focus rings sit inside the shape (`outline-offset: -4px`).
+`clip-path` clips real borders, so cut shapes draw their outline as an `::after` evenodd ring coloured by `--edge` (never `border`). Neutral cards use `--edge-1`, controls `--edge-2`, the balance pill and money panels `--edge-em`; money buttons and the chosen entry carry a crown highlight (a white-to-clear edge) plus an inset pavilion shade, and press down 1px. Inputs keep a real border (they cannot have pseudo-elements). Classes: `cut-frame` (heroes, sheets), `cut-card` (cards, nav items, chips-as-buttons, tiles), `cut-btn` (buttons, avatars), `cut-chip` (small chips, entry buttons, ticker). Focus rings sit inside the shape (`outline-offset: -4px`).
 
 ## Type
 
-- **Display**: Barlow Condensed 800, all caps, for section headers (PLAY NOW, PLAY AGAIN, BACK A PLAYER) and page titles: `.h-section` (about 48px at 1920, fluid from 30px), `.page-title`. Nothing else uses it.
+- **Display**: Barlow Condensed 800, all caps, for section headers (PLAY NOW, PLAY AGAIN, BACK A PLAYER), page titles (`.h-section`, `.page-title`) and **game titles wherever a Game is presented as a poster**: the Lobby hero, Play now tiles and the game page hero. Also playing-card ranks and leaderboard ranks. List rows (Play again, Match history) keep Schibsted.
 - **UI text and figures**: Schibsted Grotesk (weights 400/700/800/900), including hero titles, buttons and every amount. `tabular-nums` on amounts in lists and tables (`.tnum`); big display figures (balance pill, sidebar panels, entry amounts) use proportional figures.
 - **Verifiable data**: IBM Plex Mono only: chain chips, hashes, Seeds, timers, footer links, the simulated-yield label.
 
@@ -60,35 +73,43 @@ Heavy Schibsted (800–900) gets `word-spacing: .14em` (Barlow does not need it)
 
 The Tesoro logo is the **T-gem**: an emerald-cut octagon whose facets form a "T" (approved take 2), with the wordmark "Tesoro" (Schibsted Grotesk 800, outlined). Vectors are generated by `app/scripts/build-brand.mjs` into `app/public/brand/`; the React components are `TesoroMark` (`variant="full|mono|simple"`, `tone="dark|light"`) and `TesoroLogo` in `components/brand`. Marketing copies live in `~/Work/gemstone-labs/tesoro/art-source/ui-redesign/brand/export/`.
 
-- **Variants.** `full` (faceted, 48 px and up), `simple` (octagon + bold T, under 48 px: favicon `icon.svg`, `favicon.ico`), `mono` (currentColor, three opacity tiers). Lockups: horizontal (sidebar, mobile header, footer) and stacked, each in a dark-background version (off-white #F5F3EE wordmark) and a light-background version (#0C0E10 wordmark, deeper emerald). Never use one on the other's background.
+- **Variants.** `full` (faceted, 48 px and up), `simple` (octagon + bold T, under 48 px), `mono` (currentColor, three opacity tiers). Lockups: horizontal (sidebar, mobile header, footer) and stacked, each in a dark-background version (off-white #F5F3EE wordmark) and a light-background version (#0C0E10 wordmark, deeper emerald). Never use one on the other's background.
 - **Clear space** = twice the T's stem width on every side (about 35% of the mark's height).
 - **Minimum sizes.** Full mark 48 px, simple mark 16 px, horizontal lockup 120 px wide, stacked lockup 72 px wide.
 - **Never recolour**, restyle, stretch, rotate, add effects, or retype the wordmark.
 - **T-gem = brand; faceted Gema gem = currency.** Never use the T-gem for currency (balance pill, entry chips, amounts) and never use the plain gem as the logo.
 - Contrast (checked): the wordmark is 17.4:1 on both backgrounds; the mid emerald is 7.6:1 on #0C0E10, and the deeper light-version emerald 3.0 to 3.7:1 on #F5F3EE. The lightest highlight facets on the light version are about 2:1 and are decoration only.
-- Also generated: `apple-icon.png` (180), `manifest.ts` icons (192, 512, 512 maskable: simple mark centred on #0C0E10), `opengraph-image.png` and `twitter-image.png` (1200×630).
+- **Site and app icons = the T-gem art, not the vector** (founder, Oct 2). From `art-source/ui-redesign/brand/`: `mark-take-2.png` (transparent) for `favicon.ico` (16/32/48), `icon.png` (192) and the maskable 512 (centred on #0C0E10 in the safe zone); `app-icon.png` (glowing tile) for `apple-icon.png` (180) and the `manifest.ts` 192/512 icons.
+- Also generated by `build-brand.mjs`: `opengraph-image.png` and `twitter-image.png` (1200×630).
+
+## Money art: the facet crown
+
+`public/brand/facet-crown.svg` (generated by `app/scripts/build-facet-crown.mjs`) is an emerald step cut seen from above, its top facets brightest. It sits low in the Wallet balance panel (`.facet-panel`), showing only its lit upper facets, clear of every figure. Money surfaces only.
 
 ## The Gema mark
 
-A small emerald-cut stone (octagon with table facet and facet lines, emerald gradient) — never a flat ◆ glyph, never gold. It precedes Gema amounts of consequence (balance pill, entry chips); it is **not** the logo (see Logo). A brief glint animation is allowed on the balance only, and is off under `prefers-reduced-motion`.
+A small emerald-cut stone (octagon with table facet and facet lines, emerald gradient) — never a flat ◆ glyph, never gold. It precedes Gema amounts of consequence (balance pill, entry chips); it is **not** the logo (see Logo). A brief glint animation is allowed on the balance only, and is off under `prefers-reduced-motion`. On a money fill (money button, chosen entry) the full-colour mark blends in, so it is drawn in **ink**: body in the text colour (`--em-ink`), table and facet lines in `--gem-ink-line`. Disabled money buttons keep the full-colour mark.
 
 ## Shell and layout
 
 - **Desktop (≥1024px):** fixed left sidebar (`--side-w`), then a sticky top bar over the content.
-  - Sidebar is navigation only, top to bottom: wordmark with gem, Lobby / Play / Backing / Wallet (active item raised and outlined), divider, Docs / Help (not built yet: shown dimmed, not clickable). No Positions card, no chips: balances live in the top bar pill and the Wallet. The corner guide, when it has a tip, sits at the sidebar's bottom.
+  - Sidebar is navigation only, top to bottom: wordmark with gem, Lobby / Play / Backing / Wallet (active item raised and outlined), divider, Docs (not built yet: shown dimmed, not clickable) / Help (`/help`: a four-step Start here, topic jump chips, then one collapsible `<details>` per question, grouped by topic; static, no account needed). No Positions card, no chips: balances live in the top bar pill and the Wallet. The corner guide, when it has a tip, sits at the sidebar's bottom.
   - Top bar: the Gema balance pill (emerald, links to Wallet) and the Account avatar menu (Account, Wallet, Sign out); signed out: a Sign in button. The search box shows on the Lobby only and filters its games.
   - Content is one centred column, max 1320px, with 32px side padding; wider screens get margins, not more content. The footer is one line ("Fair play · on-chain", the simulated-yield label) plus links.
 - **Below 1024px:** the sidebar becomes a left drawer (menu button in the top bar), a four-item bottom navigation appears, the search box drops to its own row on the Lobby, and grids collapse to one column.
-- **Lobby order:** hero carousel (one big slide, dots, next arrow, auto-advance that pauses on hover, focus and a Pause button, and stops under `prefers-reduced-motion`) → Continue (only with Matches in progress) → Play now (category filter chips above; the two live Games as large tiles; Coming soon as one quiet strip) → Play again (only with settled Matches, max 3) → Back a player (max 3 Requests, "See all") → footer. The settled-Matches ticker is not in the Lobby.
+- **Lobby order:** hero carousel (one big slide, slide markers inside its bottom edge, next arrow, auto-advance that pauses on hover, focus and a Pause button, and stops under `prefers-reduced-motion`) → **Live wins** (a slow strip of recent settled wins from devnet, linking to each Match; pauses on hover and focus; a plain scrollable row under reduced motion) → Continue (only with Matches in progress) → Play now (category filter chips above; the two live Games as large tiles; Coming soon as one quiet strip) → Play again (only with settled Matches, max 3) → Back a player (max 3 Requests, "See all") → footer. The settled-Matches ticker is not in the Lobby.
 - **Sections:** a bold condensed header, an optional "See all →" link, then a calm grid (no scroll arrows, no horizontal rails).
 
 ## Components
 
 Live in `app/src/components/ui` (primitives, money, inputs, icons, `ui.css`), the shell in `components/shell`, Lobby pieces in `components/lobby`. `/design` renders every ui component and state.
 
-- **Button** — `money` (facet gradient) only where Gemas move; `neutral` otherwise; sizes `sm`, `md`, `lg` (Play now).
+- **Button** — `money` (polished table: `--money-fill` with the `--money-rim` edge and a 3px `--money-base` band; `lg` cuts 9px) only where Gemas move; `neutral` otherwise; sizes `sm`, `md`, `lg` (Play now).
 - **Icon button** (`.icon-btn`) — square cut button for arrows, menu, close, copy.
-- **Entry picker** — 500 / 1,000 / 2,500; the chosen entry is facet-filled with the Gema mark.
+- **Entry picker** — 500 / 1,000 / 2,500; the chosen entry is filled with `--money-fill` and carries the ink Gema mark. An entry the balance cannot cover is dimmed (never struck through).
+- **Skeleton** (`SkeletonCards`) — loading is shaped like the cards that are coming (cut cards with a faint sweep), with the old status line kept for screen readers. Used for Requests, Positions and Match history.
+- **Living surfaces** (founder, Oct 2: "too static") — the hero art settles in (slow zoom) and its copy rises in order on each slide; a few sparkles twinkle over the art; the big money action catches a passing light every few seconds; Play now tiles lean toward the pointer with a moving glare and carry a live Queue badge; balances count up to new values (`CountUp`), and a won amount counts up from zero; the Block Puzzle score pops on change; grids rise in as they scroll into view (scroll-driven, no JS); each page arrives with a short rise. The red pulsing dot means *live* and always sits beside the word.
+- **Motion that answers an action** — sheets rise in over a blurred page, the drawer and the Offer drawer slide from where they dock, the Account menu drops in, the top bar frosts once the page scrolls under it, and the Lobby hero's slide markers fill while auto-advance runs. All off under `prefers-reduced-motion`.
 - **Tile** — Play Now key art with a bottom label; coming-soon variant dimmed with a "Coming soon" chip.
 - **Player card** — avatar, name, Game, "N Matches · X% won", Entry, emerald **Offer**.
 - **Ticker**, **Balance pill**, **Category chip**, **Search**, **Account menu** — see the shell and Lobby.
@@ -140,6 +161,8 @@ Never full-body inside a page layout, and never during play: no character in the
 **Game page, play screens, cross-chain tracker (p2b).** Mockups `{game-block-puzzle,play-block-puzzle,play-holdem,wallet-crosschain}-desktop/take-1.png`; screenshots `app/docs/screens/p2b-*.png` and `p2b-compare-*.png` (`app/scripts/screenshot-p2b.mjs`).
 - `/play/<game>` (`block-puzzle`, `holdem`) is the Game's detail page, linked from the Lobby tile: a hero with the entry picker, Play now, Challenge a friend (and Practice for Block Puzzle); below it two sections only: Recent Matches (the last 3, "See all" → `/matches?game=<game>`; Top scores today inside it when Block Puzzle has winners from the last 24 h on chain, or a one-line error when the read fails) and the How to play bust card. `/play` redirects to Block Puzzle.
 - Block Puzzle play: the board is the centre. A slim bar above it carries the score, the 90 s ring, Combo ×n and Lines, and Entry · Pot; the opponent status and Seed sit in one line under the tray. No Recent list during play (the last clears show on the game-over card). Practice (`/play/practice`) is the same screen with nothing staked.
+- Block Puzzle blocks are cut jewels like the key art: a table facet with four bevels lit from above (mitred borders in `color-mix` tints of the block colour, width scaled to the board by container units). Empty cells are shallow wells. The landing preview shows the held piece's colour; an invalid spot shows danger red. Gem cells stay the emerald octagon.
+- Hold'em cards: paper faces with condensed ranks; the back (`public/art/card-back.svg`) is navy with a steel lattice and the T-gem in steel — never emerald. The felt has a soft centre light; the pot is a cut plaque.
 - Hold'em play: a slim header (title, blinds, hand #, entry, turn clock), the octagonal navy table with a steel rim centred and large (no green felt), the action bar (Fold, Check, Call, Raise, Raise to, slider, presets, All-in), and the Hand log in a collapsed drawer (inferred by this client from table reads; a poll can merge two actions, and it says so).
 - `/matches` (All Matches, the Account's Match history): every finished Match it played or backed, both games, newest first, 20 per page, game tabs All / Block Puzzle / Hold'em in the URL. Rows pair the result icon with its word; a backed Player's loss is "Lost · 0 Gemas" with the Backer named ("Backer … bore the loss"), as in BackingSplit. Lobby Play again and the game pages link here.
 - `/wallet/opening`: OPENING YOUR ETH POSITION, four steps (Hoodi confirmed, LayerZero delivered, Position recorded, Gemas available). Only the last step means Gemas exist; pending never shows a check. Shown right after "Open an ETH Position": the four-step tracker plus one summary line and one note; the corner guide explains the wait. The Wallet's in-page trackers remain.
@@ -151,12 +174,13 @@ Never full-body inside a page layout, and never during play: no character in the
 
 The founder's rule (Oct 1): the website must not copy the mockups' density. Mockups are vertical images that tuck everything together; the app scrolls.
 
-- **Pages scroll.** Do not fit everything into one viewport. Each section has one job, with 64–96px between sections on desktop (`--section-gap`: 56px, 80px from 1024px) and a capped, centred column (max 1320px); 1920px screens get margins, not more stuff.
+- **Pages scroll, without dead bands.** Do not fit everything into one viewport, but do not leave empty rows either (founder, Oct 2: "too much empty space"). Each section has one job, with `--section-gap` 36px (52px from 1024px) between sections and a capped, centred column (max 1320px); 1920px screens get margins, not more stuff. Wide screens put an explainer beside its list rather than under it (Wallet: Positions | How Gemas work).
 - **One primary action per screen**, obvious. Secondary information goes behind progressive disclosure: `<details>` toggles ("Details", "Pending by Source", the Hand log), hover and tooltips, and sheets or drawers that open on demand (Open a Position, Post a Request, Make an Offer, Redeem).
 - **Fewer simultaneous panels**, fewer labels and meta lines, fewer type sizes, more line-height. A number appears once per screen.
 - **Global chrome is minimal**: the sidebar is navigation only, the top bar holds the balance pill and the Account (search on the Lobby only), the footer is one line plus links. Category chips belong to the Lobby's Play now section only.
 - **Play screens** centre the game (board or table) with a slim bar above; side columns do not exist. Info that is not needed mid-play moves to the result.
 - **Mobile (390px)** applies the same simplifications; secondary content goes in sheets; nothing crowds horizontally.
+- Premium pass (Oct 2): before/after in `app/docs/screens/premium-*.png`.
 - Screenshots for this pass: `app/docs/screens/declutter-*-before.png` and `-after.png` (`app/scripts/screenshot-declutter.mjs`); live proof by `app/scripts/live-declutter.mjs`.
 
 Dev only: `/design/result?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost` renders every result variant from fixtures (`NEXT_PUBLIC_DEV_WALLET=1`).

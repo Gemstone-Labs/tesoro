@@ -4,7 +4,7 @@
 /* ——— Play screen: a slim bar (score, timer ring, run, stake) over a centred board ——— */
 .bpx { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); justify-items: center; position: relative; }
 .bpx-bar {
-  --edge: var(--line); background: var(--raised); width: 100%; max-width: 760px; padding: 12px 20px;
+  --edge: var(--edge-1); background: var(--surface); width: 100%; max-width: 760px; padding: 12px 20px;
   display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: "score ring run" "stake stake stake"; align-items: center; gap: 8px 20px;
 }
 .bpx-score { grid-area: score; display: grid; gap: 0; }
@@ -20,7 +20,9 @@
 .bpx-stake { grid-area: stake; font-size: 13.5px; color: var(--fg-2); padding-top: 8px; border-top: 1px solid var(--line); }
 .bpx-stake b { color: var(--fg); font-weight: 700; }
 .bp-score-n { font-size: 36px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
-.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: 640px; }
+/* The board is square and as wide as .bpx-mid, so cap that width by the viewport height left after the
+   top bar, score bar, tray and hint (~380px): the whole play screen fits without scrolling. */
+.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: clamp(300px, calc(100dvh - 380px), 640px); }
 .bpx-mid .bp-stage, .bpx-mid .bp-tray, .bpx-mid .bp-help { width: 100%; }
 .bpx-foot { display: grid; gap: 6px; justify-items: center; width: 100%; max-width: 640px; font-size: 14px; color: var(--fg-2); text-align: center; }
 .bpx-status { font-size: 15px; color: var(--fg-2); }
@@ -36,40 +38,66 @@
   .bpx-bar { grid-template-columns: auto auto 1fr auto; grid-template-areas: "score ring run stake"; }
   .bpx-stake { border-top: 0; padding-top: 0; text-align: right; }
 }
+/* Short screens (laptops, zoomed browsers): slimmer bar and tray so the board keeps more of the height. */
+@media (max-height: 860px) {
+  .bpx { gap: 12px; }
+  .bpx-bar { padding: 8px 16px; }
+  .bpx-ring { width: 56px; height: 56px; }
+  .bp-score-n { font-size: 30px; }
+  .bpx-mid { gap: 10px; max-width: clamp(300px, calc(100dvh - 320px), 640px); }
+  .bp-slot { height: 72px; }
+  .bp-overlay .bp-final { font-size: 48px; }
+}
 .bp-final { font-size: 64px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 .bp-title { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
 .bp-stage { position: relative; }
 .bp-actions { display: flex; gap: 8px; margin-top: 4px; }
 
 .bp-board {
-  position: relative; display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; aspect-ratio: 1;
-  padding: 6px; background: radial-gradient(120% 90% at 20% 10%, #2a3350 0%, #141824 70%);
-  border: 1px solid var(--line); touch-action: manipulation;
+  container-type: inline-size;
+  position: relative; display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; aspect-ratio: 1;
+  padding: 8px; touch-action: manipulation;
+  background: radial-gradient(120% 75% at 50% 0%, #27304c 0%, #141a2c 58%, #0d111d 100%);
+  border: 1px solid rgba(160, 180, 230, 0.16);
+  box-shadow: inset 0 1px 0 rgba(200, 215, 255, 0.12), inset 0 0 40px rgba(0, 0, 0, 0.35);
 }
+/* empty cells are shallow wells in the tray */
 .bp-cell {
+  --bev: max(3px, 1.1cqi);
   appearance: none; border: 0; padding: 0; margin: 0; display: block; aspect-ratio: 1; min-width: 0;
-  border-radius: 3px; background: rgba(255, 255, 255, 0.06); position: relative;
+  border-radius: 3px; background: rgba(150, 170, 230, 0.05); position: relative;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(200, 215, 255, 0.06);
 }
 .bp-board .bp-cell:disabled { cursor: default; }
 .bp-board.live .bp-cell { cursor: pointer; }
 .bp-cell:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; z-index: 2; }
-.bp-cell.k0.on, .bp-cell.k0.pop, .bp-mini .k0 { background: #f2b94b; }
-.bp-cell.k1.on, .bp-cell.k1.pop, .bp-mini .k1 { background: #7fd4f0; }
-.bp-cell.k2.on, .bp-cell.k2.pop, .bp-mini .k2 { background: #e97aa8; }
-.bp-cell.k3.on, .bp-cell.k3.pop, .bp-mini .k3 { background: #9c8cff; }
-.bp-cell.on { box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.28), 0 0 10px -2px currentColor; background-image: linear-gradient(150deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 55%); }
-.bp-cell.k0.on { color: rgba(242, 185, 75, 0.55); }
-.bp-cell.k1.on { color: rgba(127, 212, 240, 0.55); }
-.bp-cell.k2.on { color: rgba(233, 122, 168, 0.55); }
-.bp-cell.k3.on { color: rgba(156, 140, 255, 0.55); }
+
+/* blocks are cut jewels like the key art: a table facet and four bevels lit from above */
+.k0, .pk0 { --k: #ffb43a; }
+.k1, .pk1 { --k: #3fc6ff; }
+.k2, .pk2 { --k: #ff4d9b; }
+.k3, .pk3 { --k: #9d74ff; }
+.bp-cell.on, .bp-cell.pop, .bp-mini .bp-cell {
+  border: var(--bev) solid;
+  border-color:
+    color-mix(in oklab, var(--k) 48%, white)
+    color-mix(in oklab, var(--k) 72%, black)
+    color-mix(in oklab, var(--k) 52%, black)
+    color-mix(in oklab, var(--k) 74%, white);
+  border-radius: 2px;
+  background: linear-gradient(150deg, color-mix(in oklab, var(--k) 70%, white) 0%, var(--k) 42%, color-mix(in oklab, var(--k) 84%, black) 100%);
+  box-shadow: 0 0 16px -5px var(--k), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.bp-mini .bp-cell { --bev: 3px; }
 /* Gem cells: emerald-cut octagon, the only emerald on the board. */
 .bp-cell.gem.on, .bp-cell.gem.pop, .bp-mini .gem {
-  background: var(--facet); background-image: var(--facet); border-radius: 0; box-shadow: none;
+  border: 0; background: var(--facet); border-radius: 0; box-shadow: none;
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
 }
-.bp-cell.pv { background: rgba(255, 255, 255, 0.34); }
-.bp-cell.pv.bad { background: rgba(242, 104, 90, 0.35); }
-.bp-cell.on.pv { filter: brightness(1.2); }
+/* where the held piece will land: its colour, faint */
+.bp-cell.pv { background: color-mix(in oklab, var(--k, #eaefec) 34%, transparent); box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--k, #eaefec) 70%, transparent); }
+.bp-cell.pv.bad:not(.on) { background: rgba(242, 104, 90, 0.28); box-shadow: inset 0 0 0 2px rgba(242, 104, 90, 0.6); }
+.bp-cell.on.pv.bad { filter: brightness(0.55); outline: 2px solid var(--danger); outline-offset: -2px; }
 
 .bp-cell.pop { animation: bp-pop 320ms ease-out forwards; z-index: 1; }
 @keyframes bp-pop {
@@ -96,20 +124,23 @@
 
 .bp-tray { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .bp-slot {
-  appearance: none; height: 92px; display: grid; place-items: center; padding: 0;
-  background: var(--raised); border: 1px solid var(--line); border-radius: 0;
+  appearance: none; height: 92px; display: grid; place-items: center; padding: 0; border: 0;
+  background: var(--surface); --edge: var(--edge-1); transition: background-color 0.15s ease;
   touch-action: none; user-select: none; -webkit-user-select: none;
-  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
 }
 .bp-slot:not(:disabled) { cursor: grab; }
-.bp-slot.sel { background: #22272c; border-color: var(--fg); }
-.bp-slot.used { border-style: dashed; opacity: 0.5; }
+.bp-slot:not(:disabled):hover { background: var(--surface-2); }
+.bp-slot.sel { background: var(--surface-2); --edge: var(--fg); --t: 2px; }
+.bp-slot.used { background: transparent; opacity: 0.5; }
 .bp-slot.stuck { opacity: 0.45; }
-.bp-slot:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
 .bp-mini { display: grid; gap: 2px; }
-.bp-mini .bp-cell { border-radius: 2px; }
+
 .bp-help { text-align: center; }
 
 .bp-ghost { position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; opacity: 0.9; }
 .bp-ghost .bp-mini { gap: 3px; }
-.bp-ghost .bp-cell { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
+.bp-ghost .bp-cell { --bev: 5px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5), 0 0 18px -4px var(--k); }
+
+/* the score pops each time it changes */
+.bp-score-n.bump { display: inline-block; animation: score-bump 0.32s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes score-bump { from { transform: scale(1.28); color: #fff; text-shadow: 0 0 18px rgba(234, 239, 236, 0.6); } }

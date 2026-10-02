@@ -1,6 +1,6 @@
 /* ——— Characters (him = Player/guide, her = Backer): torso-up busts only, decorative, never carry information ——— */
 .bust { display: block; max-width: none; height: auto; pointer-events: none; user-select: none; }
-.bust-card { --edge: var(--line); background: var(--raised); display: flex; align-items: flex-end; gap: 14px; padding: 12px 16px 0 10px; overflow: hidden; min-height: 108px; }
+.bust-card { --edge: var(--edge-1); background: var(--surface); display: flex; align-items: flex-end; gap: 14px; padding: 12px 16px 0 10px; overflow: hidden; min-height: 108px; }
 .bust-card.flip { flex-direction: row-reverse; padding: 12px 10px 0 16px; }
 .bust-card-img { flex: none; width: var(--bust-w, 120px); height: auto; margin-bottom: -1px; }
 .bust-card-body { flex: 1; min-width: 0; align-self: center; padding-bottom: 12px; }
@@ -20,8 +20,9 @@
 /* ——— Facet panel: hard-stop light on a dark emerald ground (money surfaces only) ——— */
 .facet-panel {
   background:
-    linear-gradient(118deg, transparent 0 56%, rgba(99, 247, 211, 0.1) 56% 62%, transparent 62%),
-    linear-gradient(62deg, transparent 0 68%, rgba(99, 247, 211, 0.07) 68% 73%, transparent 73%),
-    linear-gradient(160deg, #0d3b31, #0a2823);
-  --edge: rgba(45, 190, 140, 0.55);
+    url("/brand/facet-crown.svg") no-repeat right 40px bottom -300px / auto 400px,
+    radial-gradient(90% 70% at 30% 0%, rgba(126, 250, 218, 0.1), transparent 70%),
+    linear-gradient(170deg, #0f3d33 0%, #0b2c26 55%, #08211c 100%);
+  --edge: var(--edge-em);
 }
+@media (max-width: 639px) { .facet-panel { background-position: right -90px bottom -320px, 0 0, 0 0; background-size: auto 380px, auto, auto; } }

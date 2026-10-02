@@ -67,7 +67,57 @@ Verified on chain: `WstETHRateAdapter.underlyingPerShare()` returns wstETH `stEt
 
 ## HyperEVM testnet (chain 998, eid 40362)
 
-Not deployed: the deployer has no HYPE. The same script handles it (`--rpc-url https://rpc.hyperliquid-testnet.xyz/evm`): SimLST + MockEndpoint + PositionVault (SimLST only). Enable big blocks first (`{"type":"evmUserModify","usingBigBlocks":true}`) if any contract exceeds the 3M small-block gas limit.
+Deployed 2026-10-02 from the EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f479d1C` (the same key as Hoodi) through `https://rpc.hyperliquid-testnet.xyz/evm`, at 0.1 gwei. Small blocks were enough: no big-block switch was needed (SimLST and the vault each deploy well under the 3,000,000 gas small-block limit). Explorer: `https://testnet.purrsec.com`. Wired on Solana with 500 bps like the Hoodi SimLST vault. **Simulated yield** (simHYPE, 1 month = 10 min, unbacked faucet), the same `SimLST` contract as Hoodi with a configurable name and symbol (`"Simulated Staked HYPE"`, `simHYPE`).
+
+| Item | Value |
+|---|---|
+| SimLST (simHYPE, **Simulated**, 5% APY) | `0x4FF730663d88457990eAF47b23E19737E39BB238`, deploy `0x31fab59a369662592dd30722fbdc85337f1f2958dcc8f4d9c3d9180375483f1f` |
+| SimLST reserve funding (0.1 HYPE sent to the contract, backs accrued yield) | `0x9a21481390e9fa6cb7cde245528e74eaf2a52d4e725ec72babb6235cde644c32` |
+| `PositionVaultOApp` (SimLST, simHYPE, **SIMULATED**) | `0x23B17A4c55867406E7CD5602c664E1447400c4a3`, deploy `0x3cf932210cf1bb06cac6469061c6356159c778f716a3c15ffcae68ba05944620`, endpoint `0xf9e1815f151024bde4b7c10bac10e8ba9f6b53e1`, delegate and owner = the deployer |
+| `setPeer(40168, 0x60ae58df…c792)` (Store PDA) | `0x04e7ce9768e7e1a9363e49f0a7aa83c1f9e3ddc7e6281374eb38ae437d82574c` |
+| Solana `set_peer_config` (eid 40362, decimals 18, 500 bps) | `2Q9TDYySiJ…TMpJQfp4` |
+| Solana `endpoint_init_oapp_pathway` (eid 40362) | `3rPDZnMRVZ…DU2MaAqY` |
+
+The SimLST address equals the one the spike OApp would have used (deployer nonce 0 on HyperEVM); the vault equals the address of the Hoodi SimLST (nonce 1). The Solana peer registered by the spike for that old address is inert.
+
+Solana signatures below are abbreviated (first 10 and last 8 characters; the repo's pre-commit scanner treats a full 88-character signature as a possible secret key). The full values are in the branch report.
+
+Smoke test, 2026-10-02, Position id 1 (owner = the deployer's EVM address, linked to the bridge demo Account `5LL7EmptMRWSroaQuK8CxzQpSeBwC1EQEnmc4cRhho8k`): every LayerZero message was DELIVERED, in both directions. The open S2 risk (a live executor and DVN on 40362) is closed.
+
+| Step | Tx | LayerZero Scan |
+|---|---|---|
+| `init_position` (Solana, id 1) | `oA4LENWWEx…H9EPtiyZ` | |
+| simHYPE `faucet` (10), `approve` (HyperEVM) | `0xf9cdb25f052fe58c6702ec270d7f4ff897388bda52caf124b4fcad1a6a641fb2`, `0x7fa086c6bb83947253c8ae611f172df2a27ec12c854e9fffa9048f209f5a2000` | |
+| `openPosition` 1 simHYPE, 1 month (HyperEVM to Solana) | `0x3ef381ea4e1b16dec2ea719db2b7d0dbaf900eec568ff5b0192f96fdea36a797` | [scan](https://testnet.layerzeroscan.com/tx/0x3ef381ea4e1b16dec2ea719db2b7d0dbaf900eec568ff5b0192f96fdea36a797): DELIVERED, GUID `0x886fac03e42a1b4311b443e03a2a04f122750f90c39fe9e700fd682eb573fe91`, `lz_receive` `52j4BBioRz…xbDJrjkc` |
+| `apply_locked` (principal 1.001178 HYPE, tesoro_core Position `BHVeYiAZxNzsFj5PrSSTHaCmFZehyKJtwofqEwZFtNZY`, chain byte 2) | `3W7MLK4ZuF…SiWUgFQk` | |
+| `take_advance` (oracle price $25, 1 month): 10 Gemas | `4Utxa6gh8x…3PsjFJqt` | |
+| `reportYield` (HyperEVM, 0.00239 HYPE accrued) | `0x9034cb00fa265504bbb7dd5628b659c231e935696b7f4a4d8a0b26410f0fa324` | [scan](https://testnet.layerzeroscan.com/tx/0x9034cb00fa265504bbb7dd5628b659c231e935696b7f4a4d8a0b26410f0fa324): DELIVERED, GUID `0xa112cd50811d3575a48ed8b72fe7c190c0ccd6e409887caa9b2877162a31bc89`, `lz_receive` `GjwsF5K4qj…7321nGfZ` |
+| `apply_yield`: Debt 10 to 4 Gemas | `3Dh7F6QhZY…Bge7Q5MQ` | |
+| `redeem_to_evm` 6 Gemas | `4FsXmoeWRf…4MHSNBhs` | |
+| `send_pay_yield` (Solana to HyperEVM) | `wQnnoSEzND…EiqRii82` (fee 312,102 lamports) | [scan](https://testnet.layerzeroscan.com/tx/wQnnoSEzND…EiqRii82): DELIVERED, GUID `0xd6f9c67be43c9eec0dd1062db4b2d8fa04979620c8c3f6eff2811ee65b0ce7b3`, HyperEVM tx `0xad3c7dfbc25a18dbb833d93e1d99bc55cd822d13d4d3496618339b5fe4ddf3a5` (status 1) |
+
+Driven from the web app (2026-10-02, dev wallet `?dev=hype1` on `next dev`, 390 px, Wallet HYPE tab; EVM `0x6446CB65Af52036EE31e65f14A49104b74d22160` funded with 0.05 HYPE by the deployer, `0xb8ddf6c8d47a8eb2b1fb57d9a4532a1fbb40f19226f199372782ef1dbefc30d4`): simHYPE faucet, link, approve, `init_position`, `openPosition` (Position id 2, 1.0118 HYPE, Advance 37 Gemas at Coinbase HYPE-USD), `apply_locked` and the Advance by the app, Report yield (`reportYield` `0x250532e5a1cde1f1d98c2f3e55be386ee842cfaaef5a6c23eff805670b79d947`, then `apply_yield`), Redeem 8 Gemas (`redeem_to_evm` `9X9pCrsi7A…sddtwCnm`, `send_pay_yield` `3s8ZUbZo83…acEdgE37`, "simHYPE arrived on HyperEVM"; Scan DELIVERED, HyperEVM tx `0x6ab42dab0cd86ca1f6ff8f26952a1df31bcbfefd319370f509b80464976dad11`, vault `paidUnderlying` 9.006e14). Open tx `0x23c866a74bcce9ce193e41554228ca92673b9347f85510e77ba4e9deb3b088be`. Screen: `app/docs/screens/hype-wallet.png`.
+
+Latency (source block time to destination block time, from Scan): `openPosition` 38 s, `reportYield` 37 s, `send_pay_yield` 78 s. Fees: `quotePositionLocked` 0.0074039 HYPE and `quoteYieldAccrued` 0.0074011 HYPE (the caller pays quote + 20%, excess refunded); gas is negligible at 0.1 gwei. `send_unlock` is proven below.
+
+### HyperEVM: top-up, Unlock and Backing (2026-10-02, dev wallets on `next dev`, Solana devnet + chain 998)
+
+**HYPE top-up.** The server relayer EVM key `0x0aa6F8bB9c163730951f457b5B210bAe8b4997f8` was funded with 0.4 HYPE by the deployer (`0x6792089e896c1bcc03387e1efdb9fe456a6aa324b405f563b8db63ecd1fa7180`). `POST /api/eth-bridge` step `fund-hype` (0.03 HYPE to a wallet under 0.02, once a day per EVM address / Account / Privy user, `TESORO_HYPE_TOPUP_MAX_PER_HOUR` = 5 an hour in total, refuses when the relayer would drop under 0.05 HYPE) dripped to six fresh dev wallets from the Wallet HYPE tab "Get test HYPE" button; each arrived in 10 to 25 s. Guards are unit tested (`app/src/server/hype-topup.test.ts`).
+
+**Unlock.** Dev wallet `hypeA` (Solana `2z2Z...BUFd`, EVM `0x0597E1c2D721Ac3499ffe143225Ff3482Dbca788`), vault Position 5: 1 simHYPE, 1 month, Principal 1.0415 HYPE, Advance 38 Gemas, opened 04:16 UTC.
+
+| Step | Tx | LayerZero Scan |
+|---|---|---|
+| `reportYield` (keeper, seq 2) then manual `reportYield` (seq 3, deployer, accrued 0.0093 HYPE) | `0x70dcb59361fe10eff2e222fe15ccd5c410bd4ca0ec71f7d661697b0ed5a5e736` | [scan](https://testnet.layerzeroscan.com/tx/0x70dcb59361fe10eff2e222fe15ccd5c410bd4ca0ec71f7d661697b0ed5a5e736): DELIVERED, GUID `0x840e42c268c0198c80ff80de9cf1f005785e9a532e602754799d31d27caf9f40` |
+| `apply_yield` seq 2 and seq 3 (keeper): Debt 38 to 0 | `2CF3wxJF...wEFNob4H`, `2MfgQ6v4...Byk3yjQi` | |
+| `tesoro_core::unlock` (the app, Wallet "Unlock") | `2Mv7J7oq8h...bRRaZBaP` | |
+| `send_unlock` (the app via the relay, 04:44:25 UTC) | `UUpeGz425j...NR6cUcvG` | [scan](https://testnet.layerzeroscan.com/tx/UUpeGz425j…NR6cUcvG): DELIVERED in 65 s, GUID `0xe12aaaae4f87008172fabd6cf648ff43335a726cb3222e83c2b4d75790930e84`, HyperEVM tx `0xbebc93139f75c6a5240d1ba922c184f7449149984de85ffbca0df59c000e11c9`; vault Position 5 `unlocked = true` |
+
+**Backing with HYPE-Sourced Gemas.** Backer `hypeB3` (EVM `0x88b961c49D11e3b9A781FD6ABD948B53C80511C7`): 10 simHYPE, 3 months, 1,156 Gemas, all HYPE-Sourced. Player `hypeP` (a SOL-Sourced Account) posted a 500 Request; the Backer answered with a 40% Offer (500 reserved from the HYPE Gemas); the Player accepted and entered the Queue; opponent `hypeH` (its own HYPE Position, 1,190 Gemas) queued at 500. Block Puzzle Match `3581836887530`: Player 366, opponent 0 (the opponent's run idles), `settle` `5CbCE8SQqV...6gRopKmJ`. Result: entry 500 back to the Backer first, fee 50, surplus 450 split 180 Player / 270 Backer. The Player's Wallet then lists the winnings under "Pending by Source" as `HYPE · D3jj...Exb9's Position` (154 Gemas pending at 14% of that Position's yield accrued, the rest redeemable), the Backer's as the same Source (231 pending); both are paid in simHYPE on HyperEVM by `redeem_to_evm` + `send_pay_yield` as soon as the yield lands. With a SOL-Sourced opponent (Match `3581835206452`, settle `4RWNQiC3Ss...LzaMaLCJ`) the same +180 shows under the loser's SOL Source instead, so the Source follows whose Gemas were lost, not the Backer's. Two Matches in which the run was missed ended 0 to 0: the Match settled as a Draw and the entry returned to the Backer (nothing owed by the Player). Screens: `app/docs/screens/hype-backing2-*.png`, `hype-backing-*-wallet-390.png`.
+
+**Redeem (Backer's HYPE Gemas).** `hypeB3` redeemed 1,158 HYPE-Sourced Gemas through the Wallet Redeem sheet: `redeem_to_evm` `5eXyXXfvHR...`, `send_pay_yield` `23oN4gstiL...gxF4SJsy`, Scan DELIVERED, GUID `0xaac813187c453ca631a27d9384c79c1a150b0170058378b0c025f0d93773cf7e`, HyperEVM tx `0x135610de92135a993842008c07a61f44f0600b3999f53b49dbb49dc5d4172ea8`.
+
+Keeper note: its `KEEPER_MAX_HYPE_PER_HOUR` of 0.03 was exhausted by two Positions an hour; the Unlock run reported seq 3 by hand from the deployer (Debt reached 0 after about 2.2 simulated months, 22 min).
 
 ## Solana devnet
 
@@ -149,7 +199,7 @@ Details, flow and every proof tx with LayerZero Scan links: `docs/cross-chain.md
 | **RETIRED (F-04, replaced 2026-09-30, see below)** Hoodi `PositionVaultOApp` (SimLST, simETH, SIMULATED) | `0x8289fa2e5A7a57618A93B93fc720B85eF3E87b7c`, deploy `0x1abcc8cdbe7c185655ee163bde3316ddbc5bc839c607f6881c6b3cfb69e9c0f9`, `setPeer` `0xff68a61d706539d72ee6faeabc2ae9568d9b9530d55c3f18a894500b2427a1e6` |
 | **RETIRED (F-04)** Hoodi `PositionVaultOApp` (real Lido wstETH) | `0x214A695C1F9F0136D87c459fa542878da1128DeD`, `setPeer` `0x0f9531f634fab3c48c66b3f7c9706aaecb6fe85a7a53dd74d4227876080e53f6`; wired on Solana with 300 bps, not exercised end to end |
 | Solana `set_peer_config` + pathway init | SimLST vault: `5aGWx8kEJVmsjbwHkUxbBv1qPVEh1qrTHE8Q7a1EehomDP1T8eiHdqKuS7AojouSMCE5GXcnz7iL7HEBwiFH4mV8`; wstETH vault: `3avujqcnk7d9ZdsRTRabKc8c28AN4tWK7fmkcAUbkzTpqTGPb5JLp1UWTPqsn43k9doi25RAwV6diveMecEREbrz` |
-| HyperEVM | not deployed (no HYPE); Solana pathway for 40362 wired. See `docs/cross-chain.md` |
+| HyperEVM | deployed 2026-10-02: see the HyperEVM testnet section above |
 
 The vaults deployed earlier with `MockEndpoint` (table above) are superseded by these.
 
@@ -163,7 +213,7 @@ The fixed `PositionVault` (per-seq idempotency) is not upgradeable, so the two L
 | Hoodi `PositionVaultOApp` (real Lido wstETH, not exercised end to end) | `0x50f5f66994554ca582136b5C00B9Ce0951B314BF`, deploy `0x453dfe52bc0a945e4f10293da1f83f5d16bf6f3a736332d30fb38e3a066524d9`, `setPeer` `0x39becb431fdeb48859cbd146d58381aaa64a92b154df91dd737a2cf10f01bed1` |
 | Solana `set_peer_config` + pathway init, SimLST vault (500 bps) | `dVMHkD46hwqQtwyyTgwuwpmkK77yuNQ3WiY43ZixFxsPtDSLx4WiGRWS7SSoa9U3riBuj8gWUNofEgciMRCMg1u`, `5LmAiyaJt9eKvc2FHK8sdsdQxJ7aGTXcD1nuXopVMS8FzE3vCc7z74PXQcJEwKuh2GaZF5qpC2KAicijKgvwvfYX` |
 | Solana `set_peer_config` + pathway init, wstETH vault (300 bps) | `2YgxL9cmcLKhhQrssLW3SxyCcZNmshRyKDpNsZrPHah2fAZgRQUMnVKwaEoVAeVjYNd5TXVh4vAvFWTtCQbc3BCW`, `213Yyc7BvtzVGAnhgVg64Y5gW2TXAm86iwfbo5xmE8JYzd1t1ZjbgRuRT24zEBpUoEB5DacRSdkgdKG7Aohng2TT` |
-| HyperEVM | prepared only (no HYPE): same two commands with `hyperevm`, then `setPeer` and `pnpm lz wire 40362 <vault> 18 500` |
+| HyperEVM | deployed 2026-10-02 (the same commands with `hyperevm`): see the HyperEVM testnet section |
 
 ### SP-01 / PR-01 replacement vaults (2026-10-01)
 

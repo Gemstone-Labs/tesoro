@@ -1,7 +1,7 @@
 /**
- * Ethereum Positions (Hoodi) server side: the pieces that need a key or the LayerZero SDK.
+ * Ethereum (Hoodi) and HyperEVM Positions, server side: the pieces that need a key or the LayerZero SDK.
  *
- *  - `fund-evm`: a capped Hoodi ETH top-up from the relayer (gas + the LayerZero fee).
+ *  - `fund-evm`, `fund-hype`: capped Hoodi ETH / HyperEVM HYPE top-ups from the relayer (gas + the LayerZero fee).
  *  - `init-position`, `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield`: the permissionless
  *    bridge steps (docs/cross-chain.md), paid by the relayer so the Account only needs a little SOL. A keeper
  *    may run them first; each step skips when there is nothing left to do.
@@ -22,8 +22,9 @@ import { TESORO_CORE_ID, sourcePda } from "@/lib/chain/native";
 import {
   BRIDGE_AUTHORITY,
   BRIDGE_ID,
-  HOODI_EID,
   HOODI_RPC,
+  HYPEREVM_RPC,
+  NETS,
   bridgePeerPda,
   bridgePositionPda,
   bridgeStore,
@@ -36,13 +37,17 @@ import {
   evmLinkPda,
   holdingPda,
   initPositionIdAllowed,
+  evmClient,
   isKnownVault,
+  netOfVault,
   parseBridgePosition,
   sourceAuthPda,
   vaultAbi,
+  type EvmNet,
 } from "@/lib/chain/eth";
 import type { SignedFields } from "@/lib/chain/signed-request";
-import { requireDevnet, requireHoodi } from "./cluster";
+import { requireDevnet, requireHoodi, requireHyperEvm } from "./cluster";
+import { HYPE_DEFAULT_MAX_PER_HOUR, createHypeTopup } from "./hype-topup";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
@@ -67,8 +72,8 @@ const limits = {
   advancePerUser: new WindowLimiter(10, DAY),
 };
 
-export type EthStep = "fund-evm" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "advance";
-const STEPS: EthStep[] = ["fund-evm", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "advance"];
+export type EthStep = "fund-evm" | "fund-hype" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "advance";
+const STEPS: EthStep[] = ["fund-evm", "fund-hype", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "advance"];
 
 // ---- keys and clients ----------------------------------------------------------------------------
 
@@ -113,6 +118,24 @@ async function fundEvm(address: string, evm: string, sub: string | null) {
     throw new DemoHttpError(502, "chain", "Hoodi top-up failed. Try again.");
   }
 }
+
+// ---- HyperEVM HYPE top-up ------------------------------------------------------------------------
+
+const hyperPublic = () => createPublicClient({ chain: NETS.hyperevm.chain, transport: http(HYPEREVM_RPC) });
+const maxHypePerHour = Number(process.env.TESORO_HYPE_TOPUP_MAX_PER_HOUR) || HYPE_DEFAULT_MAX_PER_HOUR;
+const fundHype = createHypeTopup({
+  requireChain: () => requireHyperEvm(HYPEREVM_RPC),
+  balanceOf: (address) => hyperPublic().getBalance({ address: address as Address }),
+  relayerBalance: () => hyperPublic().getBalance({ address: privateKeyToAccount(evmRelayerKey()).address }),
+  send: async (to, value) => {
+    const client = hyperPublic();
+    const wallet = createWalletClient({ account: privateKeyToAccount(evmRelayerKey()), chain: NETS.hyperevm.chain, transport: http(HYPEREVM_RPC) });
+    const hash = await wallet.sendTransaction({ to: to as Address, value });
+    await client.waitForTransactionReceipt({ hash, timeout: 60_000 });
+    return hash;
+  },
+  maxPerHour: maxHypePerHour,
+});
 
 // ---- Solana relay --------------------------------------------------------------------------------
 
@@ -159,7 +182,7 @@ async function relaySend(ixs: TransactionInstruction[], cu = 400_000): Promise<s
 async function initPosition(vault: string, id: bigint, pid: Buffer) {
   const { conn } = chain();
   if (await conn.getAccountInfo(bridgePositionPda(pid))) return { skipped: true };
-  const last = await hoodiPublic().readContract({ address: vault as Address, abi: vaultAbi, functionName: "nextPositionId" });
+  const last = await evmClient(netOfVault(vault)).readContract({ address: vault as Address, abi: vaultAbi, functionName: "nextPositionId" });
   if (!initPositionIdAllowed(id, last)) throw new DemoHttpError(400, "bad-request", "Unknown Position id.");
   const relayer = relayerKey();
   const ix = new TransactionInstruction({
@@ -171,13 +194,14 @@ async function initPosition(vault: string, id: bigint, pid: Buffer) {
       key(bridgePositionPda(pid), false, true),
       key(SystemProgram.programId),
     ],
-    data: Buffer.concat([disc("init_position"), u32le(HOODI_EID), pid]),
+    data: Buffer.concat([disc("init_position"), u32le(netOfVault(vault).eid), pid]),
   });
   return { skipped: false, signature: await relaySend([ix]) };
 }
 
 async function applyLocked(vault: string, pid: Buffer) {
   const { conn } = chain();
+  const net = netOfVault(vault);
   if (await conn.getAccountInfo(corePositionPda(pid))) return { skipped: true };
   const bp = await conn.getAccountInfo(bridgePositionPda(pid));
   const view = bp ? parseBridgePosition(bp.data) : null;
@@ -197,18 +221,19 @@ async function applyLocked(vault: string, pid: Buffer) {
       key(BRIDGE_AUTHORITY),
       key(link),
       key(account),
-      key(sourceAuthPda()),
+      key(sourceAuthPda(net)),
       key(corePositionPda(pid), false, true),
       key(TESORO_CORE_ID),
       key(SystemProgram.programId),
     ],
-    data: Buffer.concat([disc("apply_locked"), u32le(HOODI_EID), pid]),
+    data: Buffer.concat([disc("apply_locked"), u32le(net.eid), pid]),
   });
   return { skipped: false, signature: await relaySend([ix]) };
 }
 
-async function applyYield(pid: Buffer) {
+async function applyYield(vault: string, pid: Buffer) {
   const { conn } = chain();
+  const net = netOfVault(vault);
   const cp = corePositionPda(pid);
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
   if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
@@ -221,13 +246,13 @@ async function applyYield(pid: Buffer) {
       key(bridgeStore()),
       key(bridgePositionPda(pid), false, true),
       key(BRIDGE_AUTHORITY),
-      key(sourceAuthPda()),
+      key(sourceAuthPda(net)),
       key(cp, false, true),
       // Optional account: the program id stands for `None`.
       openAdvance === null ? key(BRIDGE_ID) : key(sourcePda(cp, openAdvance), false, true),
       key(TESORO_CORE_ID),
     ],
-    data: Buffer.concat([disc("apply_yield"), u32le(HOODI_EID), pid]),
+    data: Buffer.concat([disc("apply_yield"), u32le(net.eid), pid]),
   });
   return { skipped: false, signature: await relaySend([ix]) };
 }
@@ -248,10 +273,11 @@ function lz() {
 async function sendAccounts(vault: string) {
   const { umi, endpoint } = lz();
   const oapp = umiKey(bridgeStore().toBase58());
-  const lib = await endpoint.getSendLibrary(umi.rpc, oapp, HOODI_EID);
+  const eid = netOfVault(vault).eid;
+  const lib = await endpoint.getSendLibrary(umi.rpc, oapp, eid);
   if (!lib.programId) throw new DemoHttpError(503, "not-configured", "The LayerZero send library is not initialized.");
   const receiver = Uint8Array.from(Buffer.from(vault.replace(/^0x/, "").padStart(64, "0"), "hex"));
-  const path = { dstEid: HOODI_EID, sender: oapp, receiver };
+  const path = { dstEid: eid, sender: oapp, receiver };
   const msgLibProgram = new UlnProgram.Uln(lib.programId);
   const quoteMetas = await endpoint.getQuoteIXAccountMetaForCPI(umi.rpc, umi.identity.publicKey, { path, msgLibProgram });
   const sendMetas = await endpoint.getSendIXAccountMetaForCPI(umi.rpc, umi.identity.publicKey, { path, msgLibProgram });
@@ -267,7 +293,7 @@ async function quoteFee(vault: string, type: number, quoteMetas: ReturnType<type
   const ix = new TransactionInstruction({
     programId: BRIDGE_ID,
     keys: [key(bridgeStore()), key(bridgePeerPda(vault)), key(endpointSettings), ...quoteMetas],
-    data: Buffer.concat([disc("quote_send"), u32le(HOODI_EID), Buffer.from(vault.replace(/^0x/, "").padStart(64, "0"), "hex"), Buffer.from([type]), vecU8(new Uint8Array(0)), Buffer.from([0])]),
+    data: Buffer.concat([disc("quote_send"), u32le(netOfVault(vault).eid), Buffer.from(vault.replace(/^0x/, "").padStart(64, "0"), "hex"), Buffer.from([type]), vecU8(new Uint8Array(0)), Buffer.from([0])]),
   });
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix);
   tx.feePayer = relayer.publicKey;
@@ -282,7 +308,7 @@ function endpointPdas() {
   return { endpointSettings: toWeb3JsPublicKey(endpoint.pda.setting()[0]) };
 }
 
-const sendParams = (pid: Buffer, fee: bigint) => Buffer.concat([u32le(HOODI_EID), pid, vecU8(new Uint8Array(0)), u64le(fee), u64le(0n)]);
+const sendParams = (vault: string, pid: Buffer, fee: bigint) => Buffer.concat([u32le(netOfVault(vault).eid), pid, vecU8(new Uint8Array(0)), u64le(fee), u64le(0n)]);
 
 async function sendUnlock(vault: string, pid: Buffer) {
   const { conn } = chain();
@@ -307,7 +333,7 @@ async function sendUnlock(vault: string, pid: Buffer) {
       key(SystemProgram.programId),
       ...acc.send,
     ],
-    data: Buffer.concat([disc("send_unlock"), sendParams(pid, fee)]),
+    data: Buffer.concat([disc("send_unlock"), sendParams(vault, pid, fee)]),
   });
   return { skipped: false, signature: await relaySend([ix], 600_000), fee: fee.toString() };
 }
@@ -348,34 +374,43 @@ async function sendPayYield(vault: string, pid: Buffer, holderAuthority: PublicK
       key(SystemProgram.programId),
       ...acc.send,
     ],
-    data: Buffer.concat([disc("send_pay_yield"), sendParams(pid, fee)]),
+    data: Buffer.concat([disc("send_pay_yield"), sendParams(vault, pid, fee)]),
   });
   return { skipped: false, signature: await relaySend([ix], 600_000), fee: fee.toString() };
 }
 
 // ---- Advance (oracle price) ------------------------------------------------------------------------
 
-/** Devnet price feed for the Advance: Coinbase ETH-USD spot, refreshed at most every 60 s; falls back to the $3,000 of docs/cross-chain.md. */
-let priceCache: { microUsd: bigint; at: number; live: boolean } | null = null;
-export async function ethPrice(): Promise<{ microUsd: bigint; live: boolean }> {
-  if (priceCache && Date.now() - priceCache.at < 60_000) return priceCache;
-  let microUsd = 3_000_000_000n;
+/**
+ * Devnet price feed for the Advance: Coinbase spot (ETH-USD or HYPE-USD), refreshed at most every 60 s per asset. ETH falls
+ * back to the $3,000 of docs/cross-chain.md for display; the Advance itself is refused while the price is not live.
+ */
+type Asset = EvmNet["native"];
+const FALLBACK_MICRO_USD: Record<Asset, bigint> = { ETH: 3_000_000_000n, HYPE: 40_000_000n };
+const PRICE_BOUNDS: Record<Asset, [number, number]> = { ETH: [100, 100_000], HYPE: [1, 10_000] };
+const priceCache = new Map<Asset, { microUsd: bigint; at: number; live: boolean }>();
+export async function assetPrice(asset: Asset): Promise<{ microUsd: bigint; live: boolean }> {
+  const hit = priceCache.get(asset);
+  if (hit && Date.now() - hit.at < 60_000) return hit;
+  let microUsd = FALLBACK_MICRO_USD[asset];
   let live = false;
   try {
-    const res = await fetch("https://api.coinbase.com/v2/prices/ETH-USD/spot", { signal: AbortSignal.timeout(4000) });
+    const res = await fetch(`https://api.coinbase.com/v2/prices/${asset}-USD/spot`, { signal: AbortSignal.timeout(4000) });
     const amount = Number(((await res.json()) as { data?: { amount?: string } }).data?.amount);
-    if (Number.isFinite(amount) && amount > 100 && amount < 100_000) {
+    const [lo, hi] = PRICE_BOUNDS[asset];
+    if (Number.isFinite(amount) && amount > lo && amount < hi) {
       microUsd = BigInt(Math.round(amount * 1e6));
       live = true;
     }
   } catch {
     // keep the fallback
   }
-  priceCache = { microUsd, at: Date.now(), live };
-  return priceCache;
+  const fresh = { microUsd, at: Date.now(), live };
+  priceCache.set(asset, fresh);
+  return fresh;
 }
 
-async function advance(address: PublicKey, pid: Buffer, months: number, sub: string | null) {
+async function advance(address: PublicKey, vault: string, pid: Buffer, months: number, sub: string | null) {
   const { conn } = chain();
   if (!Number.isInteger(months) || months < 1 || months > 12) throw new DemoHttpError(400, "bad-request", "Horizon must be 1 to 12 months.");
   const cp = corePositionPda(pid);
@@ -386,8 +421,9 @@ async function advance(address: PublicKey, pid: Buffer, months: number, sub: str
   const base = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1;
   const advances = info.data.readUInt32LE(base);
   if (info.data[base + 4] === 1) throw new DemoHttpError(409, "advance-open", "This Position already has an open Advance.");
-  const price = await ethPrice();
-  if (!price.live) throw new DemoHttpError(503, "no-price", "The ETH price is unavailable right now. Try again in a minute.");
+  const asset = netOfVault(vault).native;
+  const price = await assetPrice(asset);
+  if (!price.live) throw new DemoHttpError(503, "no-price", `The ${asset} price is unavailable right now. Try again in a minute.`);
   if (!takeAll([[limits.advancePerAccount, address.toBase58()], ...perUser(limits.advancePerUser, sub)])) {
     throw new DemoHttpError(429, "rate-limited", "Advance limit reached for this Account. Try again tomorrow.");
   }
@@ -416,9 +452,9 @@ async function advance(address: PublicKey, pid: Buffer, months: number, sub: str
 
 // ---- entry points ----------------------------------------------------------------------------------
 
-/** Public: the price the Advance would be issued at. */
-export async function handleEthPrice() {
-  const p = await ethPrice();
+/** Public: the price the Advance would be issued at, for `asset` (ETH by default). */
+export async function handleEthPrice(asset: string | null = null) {
+  const p = await assetPrice(asset === "HYPE" ? "HYPE" : "ETH");
   return { priceMicroUsd: p.microUsd.toString(), live: p.live };
 }
 
@@ -428,8 +464,9 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
   const wallet = address.toBase58();
 
   if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
+  if (step === "fund-hype") return fundHype(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   const ref = parseRef(fields);
-  if (step === "advance") return advance(address, ref.pid, Number(fields.months), sub);
+  if (step === "advance") return advance(address, ref.vault, ref.pid, Number(fields.months), sub);
   const refund = takeAll([[limits.relayPerAccount, wallet], ...perUser(limits.relayPerUser, sub), [limits.relayGlobal, "all"]]);
   if (!refund) throw new DemoHttpError(429, "rate-limited", "Relay limit reached for this Account. Try again tomorrow.");
   try {
@@ -439,7 +476,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
       case "apply-locked":
         return await applyLocked(ref.vault, ref.pid);
       case "apply-yield":
-        return await applyYield(ref.pid).then((r) => (console.info("eth-bridge apply-yield", JSON.stringify(r)), r));
+        return await applyYield(ref.vault, ref.pid).then((r) => (console.info("eth-bridge apply-yield", JSON.stringify(r)), r));
       case "send-unlock":
         return await sendUnlock(ref.vault, ref.pid);
       default:

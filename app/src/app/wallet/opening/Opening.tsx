@@ -7,13 +7,13 @@ import { ArrowRight, Check, Clock, LoaderCircle } from "lucide-react";
 import { useGuideTip } from "@/components/guide/Guide";
 import { Button, ChainChip, SimulatedYieldLabel } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { fmtEth, lzScanUrl } from "@/lib/chain/eth";
+import { fmtEth, lzScanUrl, netOfVault } from "@/lib/chain/eth";
 import { OPS_EVENT, loadOps, type EthOp } from "@/lib/chain/eth-track";
 import { fmtGemas } from "@/lib/format";
 import { useEthCtx, useOpTracker } from "../EthPositions";
 import "./opening.css";
 
-const STEPS = ["Hoodi confirmed", "LayerZero delivered", "Position recorded", "Gemas available"];
+const stepsFor = (label: string) => [`${label} confirmed`, "LayerZero delivered", "Position recorded", "Gemas available"];
 /** Steps of the five-step `open` op that must be done for each of the four shown steps. */
 const NEEDS = [1, 2, 3, 5];
 const ACTIVE = ["Confirming…", "Delivering…", "Recording…", "Taking your Advance…"];
@@ -45,8 +45,8 @@ export function Opening() {
 function Empty({ signedIn }: { signedIn: boolean }) {
   return (
     <div className="op">
-      <h1 className="page-title">Opening your ETH Position</h1>
-      <p className="page-sub">{signedIn ? "No ETH Position is opening in this browser." : "Sign in to see an ETH Position that is opening."}</p>
+      <h1 className="page-title">Opening your Position</h1>
+      <p className="page-sub">{signedIn ? "No ETH or HYPE Position is opening in this browser." : "Sign in to see a Position that is opening."}</p>
       <div className="op-actions">
         <Button href="/wallet">Back to Wallet</Button>
       </div>
@@ -55,6 +55,9 @@ function Empty({ signedIn }: { signedIn: boolean }) {
 }
 
 function Tracker({ op, address }: { op: EthOp; address: string }) {
+  const net = netOfVault(op.vault);
+  const STEPS = stepsFor(net.label);
+  const noun = `${net.native} Position`;
   const { refresh } = useAccount();
   const ctx = useEthCtx()!;
   const { stage, note, error, scan, state, finished } = useOpTracker(op, ctx, address, refresh);
@@ -70,7 +73,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
     <div className="op">
       <header className="page-head">
         <div>
-          <h1 className="page-title">{finished ? "Your ETH Position is open" : "Opening your ETH Position"}</h1>
+          <h1 className="page-title">{finished ? `Your ${noun} is open` : `Opening your ${noun}`}</h1>
           <p className="page-sub">{finished ? "Your Gemas are available." : "Your Position is crossing chains. Gemas become available after confirmation."}</p>
         </div>
       </header>
@@ -100,8 +103,8 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
       <section className="cut cut-frame op-summary" aria-labelledby="op-sum">
         <h2 id="op-sum" className="sr-only">Position summary</h2>
         <p className="op-line">
-          <ChainChip chain="ETH" />
-          <span>{core ? `${fmtEth(core.principalWei)} ETH Position` : "Position amount pending"}</span>
+          <ChainChip chain={net.native} />
+          <span>{core ? `${fmtEth(core.principalWei)} ${noun}` : "Position amount pending"}</span>
           <span>{issued !== null ? `${fmtGemas(Number(issued))} Gemas Advance` : "Advance pending"}</span>
           {finished && <span>Unlock Estimate in your Wallet</span>}
         </p>

@@ -1,6 +1,6 @@
 /* ——— Guide: a small bust with a speech bubble, docked in chrome so it never covers content ———
    1024px and up: the bottom of the sidebar. Below: a chip at the left end of the bottom nav. */
-.guide-bubble { --edge: var(--line-2); background: var(--raised-2); padding: 12px 14px; display: grid; gap: 6px; width: 100%; }
+.guide-bubble { --edge: var(--edge-2); background: var(--raised-2); padding: 12px 14px; display: grid; gap: 6px; width: 100%; }
 .guide-bubble b { font-size: 15px; }
 .guide-bubble p { font-size: 14px; color: var(--fg); line-height: 1.4; }
 .guide-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }

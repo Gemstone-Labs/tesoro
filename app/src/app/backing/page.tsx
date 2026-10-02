@@ -16,6 +16,7 @@ import {
   GemaMark,
   Label,
   Sheet,
+  SkeletonCards,
   Slider,
 } from "@/components/ui";
 import { useGuideTip } from "@/components/guide/Guide";
@@ -274,7 +275,7 @@ export default function Backing() {
 
           {tab === "requests" && (
             <section aria-label="Requests" className="bk-cards">
-              {loading && !board && <p className="meta bk-span">Reading Requests from Solana devnet…</p>}
+              {loading && !board && <SkeletonCards className="bk-card" label="Reading Requests from Solana devnet…" />}
               {board && others.length === 0 && (
                 <Empty title="No open Requests" body="Nobody is asking to be backed right now. Post yours, or check back soon." />
               )}

@@ -53,6 +53,11 @@ export function GamePage({ game }: { game: GameId }) {
     <div className="gp">
       <section className="cut cut-frame gp-hero" aria-label={name}>
         <Image className="gp-hero-art" src={copy.hero} alt="" fill sizes="(min-width: 1024px) 1400px, 100vw" priority />
+        <span className="sparkles" aria-hidden="true">
+          {Array.from({ length: 10 }, (_, i) => (
+            <i key={i} />
+          ))}
+        </span>
         <div className="gp-hero-body">
           <h1 className="gp-title">{name}</h1>
           <p className="gp-sub">
@@ -66,11 +71,9 @@ export function GamePage({ game }: { game: GameId }) {
             <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
               Challenge a friend <Link2 aria-hidden="true" />
             </Button>
-            {game === "block-puzzle" && (
-              <Button size="lg" href="/play/practice">
-                Practice <Clock aria-hidden="true" />
-              </Button>
-            )}
+            <Button size="lg" href={game === "holdem" ? "/play/practice?game=holdem" : "/play/practice"}>
+              Practice <Clock aria-hidden="true" />
+            </Button>
           </div>
         </div>
       </section>

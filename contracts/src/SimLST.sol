@@ -3,13 +3,13 @@ pragma solidity ^0.8.28;
 
 import {IRateSource} from "./IRateSource.sol";
 
-/// @title SimLST ("simETH")
+/// @title SimLST ("simETH" on Ethereum, "simHYPE" on HyperEVM)
 /// @notice SIMULATED wstETH-like token for demos. Non-rebasing; its exchange rate against ETH
 ///         grows on an accelerated clock (default: 1 month of yield per 10 real minutes).
 ///         Not a real staking product. Withdrawals are paid from an admin-funded ETH reserve.
 contract SimLST is IRateSource {
-    string public constant name = "Simulated Staked ETH";
-    string public constant symbol = "simETH";
+    string public name;
+    string public symbol;
     uint8 public constant decimals = 18;
 
     uint256 public constant RATE_SCALE = 1e18;
@@ -61,8 +61,10 @@ contract SimLST is IRateSource {
         _;
     }
 
-    constructor(address owner_) {
+    constructor(address owner_, string memory name_, string memory symbol_) {
         owner = owner_;
+        name = name_;
+        symbol = symbol_;
         baseTime = block.timestamp;
     }
 

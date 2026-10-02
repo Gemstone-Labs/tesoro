@@ -17,6 +17,8 @@ Keys never go into the repo or the image. Each server key is read from an env se
    solana balance "$(solana-keygen pubkey ~/.config/tesoro/oracle.json)"  --url $RPC   # set_price and ETH Advance fees
    cast balance "$(cast wallet address --private-key "$(sed -n 's/^RELAYER_EVM_PRIVATE_KEY=//p' ~/.config/tesoro/relayer-evm.env)")" \
      --rpc-url https://ethereum-hoodi-rpc.publicnode.com --ether                    # Hoodi ETH top-ups
+   cast balance "$(cast wallet address --private-key "$(sed -n 's/^RELAYER_EVM_PRIVATE_KEY=//p' ~/.config/tesoro/relayer-evm.env)")" \
+     --rpc-url https://rpc.hyperliquid-testnet.xyz/evm --ether                      # HyperEVM HYPE top-ups: at least 0.2, refuses under 0.08
    ```
 
 4. Optional: a keyed devnet RPC (Helius). The public endpoints rate-limit under load. `rpc.magicblock.app/devnet` is the default for every role and served `getProgramAccounts` in QA.
@@ -36,8 +38,9 @@ Keys never go into the repo or the image. Each server key is read from an env se
 | `TESORO_BASE_RPC` | secret if keyed | no | Server reads and sends. Default `https://rpc.magicblock.app/devnet`. The server refuses to spend unless this RPC is devnet. |
 | `TESORO_GPA_RPC` | secret if keyed | no | Server `getProgramAccounts`. Default `https://rpc.magicblock.app/devnet`. The RPC must allow `getProgramAccounts` (most free tiers do not). |
 | `TESORO_RELAYER_SECRET_KEY` | **secret** | **yes** | Contents of `~/.config/tesoro/relayer.json`. Pays the fee top-up (`/api/demo-advance` `fund`) and the ETH relay steps. It is low-balance and has no program authority. |
-| `TESORO_RELAYER_EVM_PRIVATE_KEY` | **secret** | for ETH | The `RELAYER_EVM_PRIVATE_KEY` value from `~/.config/tesoro/relayer-evm.env`. Funds the Hoodi ETH top-up and owns no contract. |
+| `TESORO_RELAYER_EVM_PRIVATE_KEY` | **secret** | for ETH | The `RELAYER_EVM_PRIVATE_KEY` value from `~/.config/tesoro/relayer-evm.env`. Funds the Hoodi ETH top-up and the HyperEVM HYPE top-up (it needs HYPE on chain 998 too: `fund-hype` refuses under 0.08 HYPE) and owns no contract. |
 | `TESORO_ORACLE_SECRET_KEY` | **secret** | for ETH | Contents of `~/.config/tesoro/oracle.json`. Co-signs the ETH Advance (`/api/eth-bridge` `advance`). Without it the ETH Advance answers 503 and native Positions still work. **This is the price oracle key**, so read *Known limits*. |
+| `TESORO_HYPE_TOPUP_MAX_PER_HOUR` | plain | no | Global cap on HYPE top-ups (0.03 HYPE each) per rolling hour. Default 5 (0.15 HYPE/h). Per wallet, per Account and per Privy user the cap is one top-up per 24 h, fixed. |
 
 **Never set these in production:**
 
@@ -154,9 +157,11 @@ Run it in a fresh browser profile against the production URL.
 3. **Open a native Position.** On the Wallet, use "Get test simSOL", then "Open a Position" (any amount, Horizon 1–12), and sign. The Position appears with Principal, Debt and Gemas, labelled simulated. The first action also tops up devnet SOL for fees through `/api/demo-advance`. If it answers `503 not-configured`, `TESORO_RELAYER_SECRET_KEY` is missing or malformed: check `vercel logs` for `[keys] …`.
 4. **Queue a Match.** In the Lobby, Enter Block Puzzle. The Match opens and the Gemas entry leaves the balance. From a second profile (a second Account), Enter the same game; both land in the same Match. Play it out, or leave it for the keeper.
 5. **Keeper.** `fly logs -a tesoro-keeper` shows `alive` lines every ~20 s, `price … ok devnet price feed` (or a `set_price` DONE), and `yield …` cranks once a Position has Debt.
-6. **ETH path (if configured).** Wallet > Ethereum: the Hoodi ETH top-up and an ETH Position open, then the Advance step completes. A 503 here points at `TESORO_RELAYER_EVM_PRIVATE_KEY` / `TESORO_ORACLE_SECRET_KEY`.
+6. **ETH path (if configured).** Wallet > Ethereum: the Hoodi ETH top-up and an ETH Position open, then the Advance step completes. A 503 here points at `TESORO_RELAYER_EVM_PRIVATE_KEY` / `TESORO_ORACLE_SECRET_KEY`. The HYPE tab needs no extra secret: a tester under 0.02 HYPE gets **Get test HYPE** (0.03 HYPE from the relayer's EVM key, once a day per wallet; a 503 `faucet-empty` means the relayer is under 0.08 HYPE on 998, refill it from the deployer); the keeper reports HYPE yield with `KEEPER_HYPEREVM_RPC` (default public) and `KEEPER_MAX_HYPE_PER_HOUR`.
 
 ## Known limits
+
+- **HYPE is scarce.** Testnet HYPE needs a mainnet balance, so the whole supply is what the deployer and the relayer hold. The keeper pays `reportYield` (about 0.0074 HYPE per message) from the deployer key, and its default `KEEPER_MAX_HYPE_PER_HOUR` of 0.03 allows only about four reports an hour across all HYPE Positions, so with two or more Positions with Debt some wait for the next hour. Raise it (0.1) while testers are active, and keep at least 0.3 HYPE on the deployer. Each tester drip is 0.03 HYPE: an open plus a couple of Report yield sends.
 
 - **Serverless state is per instance.** Rate limits, request nonces (single-use within 5 min) and the `getProgramAccounts` cache live in memory, one copy per Vercel instance. With the light traffic of a judges' demo, Fluid compute mostly reuses one instance. Under load, though, the quotas multiply and a nonce could be replayed once on another instance. A shared store (Upstash/Vercel KV) would fix this. It is not done.
 - **The oracle key is on two hosts.** The oracle publishes the devnet price feed (`set_price`) and co-signs Advances. On Vercel it is only needed for the ETH Advance. Leave `TESORO_ORACLE_SECRET_KEY` unset to keep it only on the keeper, at the cost of the ETH Advance.
