@@ -46,6 +46,8 @@ interface Props {
   entry?: number;
   onAct: (a: Action, label: string) => void;
   onClaim: () => void;
+  /** Local practice against the bot: no turn clock, no addresses. */
+  practice?: boolean;
 }
 
 /**
@@ -53,7 +55,7 @@ interface Props {
  * the centre, the turn timer and hand log right, the action bar below. Chips are plain numbers in
  * mono: they are scorekeeping, not Gemas. No character anywhere.
  */
-export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim }: Props) {
+export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim, practice }: Props) {
   const opp = 1 - seat;
   const now = useNow();
   const playing = inPlay(t);
@@ -63,7 +65,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const showLast = (between || ended || t.phase === PHASE.none) && lh.handNo > 0;
   const remaining = Math.ceil(t.deadline - now / 1000);
   const total = t.phase === PHASE.shuffle ? 60 : 30;
-  const expired = !ended && t.status === STATUS.live && remaining < -1;
+  const expired = !practice && !ended && t.status === STATUS.live && remaining < -1;
   const log = useHandLog(t, seat);
   useGuideHidden(!ended);
 
@@ -101,11 +103,15 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
                 {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
                 {playing ? ` · ${STREET[t.phase]}` : ""}
               </span>
-              <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
+              {!practice && (
+                <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
+              )}
             </div>
-            <div className="hd-clock-bar" aria-hidden="true">
-              <i style={{ width: `${Math.min(100, Math.max(0, (remaining / total) * 100))}%` }} className={remaining <= 10 ? "low" : ""} />
-            </div>
+            {!practice && (
+              <div className="hd-clock-bar" aria-hidden="true">
+                <i style={{ width: `${Math.min(100, Math.max(0, (remaining / total) * 100))}%` }} className={remaining <= 10 ? "low" : ""} />
+              </div>
+            )}
             {expired && !myTurn && (
               <div className="hd-claim">
                 <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
@@ -124,7 +130,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           <div className="hdx-felt">
             <Seat
               who="Opponent"
-              address={short(t.players[opp])}
+              address={practice ? "Bot" : short(t.players[opp])}
               stack={t.stacks[opp]}
               bet={t.bets[opp]}
               dealer={sbSeat === opp}
@@ -158,7 +164,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
 
             <Seat
               who="You"
-              address={short(t.players[seat])}
+              address={practice ? "" : short(t.players[seat])}
               stack={t.stacks[seat]}
               bet={t.bets[seat]}
               dealer={sbSeat === seat}
