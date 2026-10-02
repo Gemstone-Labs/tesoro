@@ -82,7 +82,7 @@ A small emerald-cut stone (octagon with table facet and facet lines, emerald gra
 ## Shell and layout
 
 - **Desktop (≥1024px):** fixed left sidebar (`--side-w`), then a sticky top bar over the content.
-  - Sidebar is navigation only, top to bottom: wordmark with gem, Lobby / Play / Backing / Wallet (active item raised and outlined), divider, Docs / Help (not built yet: shown dimmed, not clickable). No Positions card, no chips: balances live in the top bar pill and the Wallet. The corner guide, when it has a tip, sits at the sidebar's bottom.
+  - Sidebar is navigation only, top to bottom: wordmark with gem, Lobby / Play / Backing / Wallet (active item raised and outlined), divider, Docs (not built yet: shown dimmed, not clickable) / Help (`/help`: a four-step Start here, topic jump chips, then one collapsible `<details>` per question, grouped by topic; static, no account needed). No Positions card, no chips: balances live in the top bar pill and the Wallet. The corner guide, when it has a tip, sits at the sidebar's bottom.
   - Top bar: the Gema balance pill (emerald, links to Wallet) and the Account avatar menu (Account, Wallet, Sign out); signed out: a Sign in button. The search box shows on the Lobby only and filters its games.
   - Content is one centred column, max 1320px, with 32px side padding; wider screens get margins, not more content. The footer is one line ("Fair play · on-chain", the simulated-yield label) plus links.
 - **Below 1024px:** the sidebar becomes a left drawer (menu button in the top bar), a four-item bottom navigation appears, the search box drops to its own row on the Lobby, and grids collapse to one column.
