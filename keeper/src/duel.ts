@@ -1,4 +1,4 @@
-import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID, permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { PublicKey } from "@solana/web3.js";
 import { ASSETS, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel } from "../../app/src/games/trading-duel/chain.ts";
 import { act, log, type Ctx } from "./act.ts";
@@ -6,8 +6,6 @@ import { refund } from "./blockpuzzle.ts";
 import { shortKey } from "./env.ts";
 import { simulate, when } from "./tee.ts";
 
-const EPHEMERAL_VAULT = new PublicKey("MagicVau1t999999999999999999999999999999999");
-const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 
 /** Seconds past `ends_at` before the keeper ends a Match itself, so the Players' clients get the first try. */
 export const END_GRACE_SECS = Number(process.env.KEEPER_DUEL_END_GRACE_SECS ?? 15);
@@ -108,27 +106,6 @@ export async function tradingDuel(ctx: Ctx, id: bigint, m: any, st: string, subj
     return +(await act(ctx, "match", subject, `end_match (${step.why})`, () => ctx.duel.end(ctx.hsigner, id, asset))).ok;
   }
   if (step.do === "close_match") {
-    const closeIx = await ctx.duel.program.methods
-      .closeMatch()
-      .accountsPartial({
-        payer: ctx.payer.publicKey,
-        duel: ad.duel,
-        book0: ad.book0,
-        book1: ad.book1,
-        duelPermission: permissionPdaFromAccount(ad.duel),
-        book0Permission: permissionPdaFromAccount(ad.book0),
-        book1Permission: permissionPdaFromAccount(ad.book1),
-        permissionProgram: PERMISSION_PROGRAM_ID,
-        ephemeralVault: EPHEMERAL_VAULT,
-        magicProgram: MAGIC_PROGRAM_ID,
-        magicContext: MAGIC_CONTEXT,
-      } as any)
-      .instruction();
-    const why = await simulate(tee, ctx.payer, [closeIx]);
-    if (why) {
-      log("match", subject, `${tag} wait: close_match not possible (${why.slice(0, 120)})`);
-      return 0;
-    }
     return +(
       await act(ctx, "match", subject, `close_match (${step.why}) then finalize`, async () => {
         await ctx.duel.closeMatch(ctx.hsigner, id);
