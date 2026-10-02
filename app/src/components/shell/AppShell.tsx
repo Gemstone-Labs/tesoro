@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
-import { GuideCorner, GuideProvider } from "@/components/guide/Guide";
+import { GuideOverlay, GuideProvider } from "@/components/guide/Guide";
 import { SearchProvider } from "./SearchContext";
 import { NAV, SidebarBody, isHere } from "./Sidebar";
 import { SiteFooter } from "./SiteFooter";
@@ -29,7 +29,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="shell">
         <aside className="sidebar" aria-label="Sidebar">
           <SidebarBody />
-          <GuideCorner dock="side" />
         </aside>
 
         <dialog
@@ -66,7 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <GuideCorner dock="nav" />
+        <GuideOverlay />
       </div>
       </GuideProvider>
     </SearchProvider>

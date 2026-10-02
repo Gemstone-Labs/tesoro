@@ -37,7 +37,7 @@ export default function Wallet() {
   const router = useRouter();
   useGuideTip({
     id: "wallet-first",
-    bust: "himExplain",
+    pose: "himExplain",
     title: "Pending is not lost",
     text: "Gemas you win stay Pending until the yield of their Source lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
   });

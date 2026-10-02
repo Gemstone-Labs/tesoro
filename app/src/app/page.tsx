@@ -15,7 +15,7 @@ export default function Lobby() {
   const { openMatches } = useAccount();
   useGuideTip({
     id: "lobby-first",
-    bust: "himWelcome",
+    pose: "himWelcome",
     title: "Welcome to Tesoro",
     text: "Pick a game, choose an entry and press Play now. Your Gemas come from a Position in your Wallet.",
     link: { href: "/wallet", label: "Open the Wallet" },

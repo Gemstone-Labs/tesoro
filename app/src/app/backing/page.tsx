@@ -74,7 +74,7 @@ export default function Backing() {
   const { auth, snapshot, gemas, onChain, refresh: refreshAccount } = useAccount();
   useGuideTip({
     id: "backing-first",
-    bust: "herBacking",
+    pose: "herBacking",
     title: "What Backing means",
     text: "A Backer funds a Player's whole entry. On a win the entry returns first and the surplus is split by the Offer. Only the Backer bears a loss.",
   });

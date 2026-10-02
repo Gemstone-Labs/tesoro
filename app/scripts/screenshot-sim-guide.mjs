@@ -36,7 +36,6 @@ for (const s of shots) {
     // the Next dev-tools badge sits bottom-left too; it is not part of the app
     await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
     if (s.openPending) await page.locator("details.wl-pbs > summary").click().catch(() => undefined);
-    if (s.openGuide && w < 1024) await page.locator(".guide-chip").click().catch(() => undefined);
     if (s.bottom) await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForTimeout(600);
     await page.evaluate(() => document.fonts.ready);
