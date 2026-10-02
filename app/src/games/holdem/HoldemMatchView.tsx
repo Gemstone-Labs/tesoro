@@ -9,6 +9,7 @@ import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
+import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
@@ -39,21 +40,11 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   const { stage, match: m, table: t, seat } = view;
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
-  if (auth.status === "signed-out") {
-    return (
-      <Card large as="section" aria-label="Sign in to see this Match">
-        <div className="stack">
-          <h1 className="page-title">Hold&apos;em</h1>
-          <p className="meta">Sign in to play this Match.</p>
-          <Button block onClick={() => auth.openSignIn("Enter a Match")}>Sign in</Button>
-        </div>
-      </Card>
-    );
-  }
+  if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
   if (!signer) return <Notice title="Hold'em" body="Getting your wallet ready…" />;
   if (stage === "loading") return <Notice title="Hold'em" body="Reading the Match from Solana devnet…" />;
   if (stage === "notfound") return <Notice title="Match not found" body="No Match with that id on devnet." />;
-  if (stage === "spectator") return <Notice title="Not your Match" body="You are not one of the two Players of this Match." />;
+  if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
 
   const link = typeof window === "undefined" || !m ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
   const delta = m ? matchDelta(m) : 0;

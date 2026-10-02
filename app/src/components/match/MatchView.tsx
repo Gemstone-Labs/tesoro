@@ -12,6 +12,7 @@ import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "./BackingSplit";
 import { MatchResult } from "./MatchResult";
+import { MatchSpectate } from "./MatchSpectate";
 
 type Phase =
   | "loading"
@@ -189,23 +190,11 @@ export function MatchView({ matchId }: { matchId: string }) {
   };
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
-  if (auth.status === "signed-out") {
-    return (
-      <Card large as="section" aria-label="Sign in to see this Match">
-        <div className="stack">
-          <h1 className="page-title">Match</h1>
-          <p className="meta">Sign in to play this Match.</p>
-          <Button block onClick={() => auth.openSignIn("Enter a Match")}>Sign in</Button>
-        </div>
-      </Card>
-    );
-  }
+  if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
   if (!signer) return <Notice title="Match" body="Getting your wallet ready…" />;
   if (phase === "loading") return <Notice title="Match" body="Reading the Match from Solana devnet…" />;
   if (phase === "notfound") return <Notice title="Match not found" body="No Match with that id on devnet." />;
-  if (phase === "spectator") {
-    return <Notice title="Not your Match" body="You are not one of the two Players of this Match." />;
-  }
+  if (phase === "spectator") return <MatchSpectate matchId={matchId} />;
 
   if (phase === "playing" && run) {
     return (
