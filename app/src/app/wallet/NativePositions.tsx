@@ -313,7 +313,8 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
         const sig = await redeemNative(auth.signer, h.position, h.source, h.redeemable);
         setSigs((s) => [...s, sig]);
       }
-      if (ethRows.length > 0 && ethCtx) {
+      if (ethRows.length > 0) {
+        if (!ethCtx) throw new Error("Your EVM wallet is not ready yet. Try again in a moment.");
         await redeemEthHoldings(ethCtx, snapshot?.holdings ?? []);
         if (rows.length === 0) onClose();
       }
