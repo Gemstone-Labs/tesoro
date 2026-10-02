@@ -12,6 +12,7 @@ export function SiteFooter() {
       <nav aria-label="Footer">
         <Link href="/wallet">Wallet</Link>
         <Link href="/backing">Backing</Link>
+        <Link href="/help">Help</Link>
         <span aria-disabled="true" title="Coming soon">Docs</span>
         <span aria-disabled="true" title="Coming soon">Legal</span>
       </nav>
