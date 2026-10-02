@@ -660,11 +660,9 @@ async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: strin
 export async function redeemEthHoldings(ctx: EthCtx, holdings: ChainHolding[]): Promise<number> {
   const rows = ethRedeemables(holdings);
   if (rows.length === 0) return 0;
-  // A holder who won ETH-Sourced Gemas may never have opened an ETH Position: the bridge pays to the linked EVM address.
+  // A holder who won ETH- or HYPE-Sourced Gemas may never have opened an ETH Position: the bridge pays to the linked EVM address.
   await ensureEvmLinked(ctx);
   const address = ctx.signer.publicKey.toBase58();
-  // A Player who only won ETH/HYPE Gemas has no linked EVM address yet; without one `redeem_to_evm` fails with NoEvmAddress.
-  if (rows.length > 0) await ensureEvmLinked(ctx);
   for (const h of rows) await redeemEthSource(ctx, address, { vault: h.eth!.vault, id: h.eth!.id }, h.source, h.redeemable);
   return rows.length;
 }
