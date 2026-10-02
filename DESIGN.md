@@ -27,6 +27,12 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
   /* emerald — money only */
   --em-hi: #6af8d6; --em: #24d8a8; --em-deep: #0a7d5c; --em-ink: #03201a;
   --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%);
+  /* money fills (buttons, chosen entry): lit from above, bright top rim, dark pavilion band at the base */
+  --money-fill: linear-gradient(180deg, #5ef3cd 0%, #2fdcac 55%, #1cc699 100%);
+  --money-rim: linear-gradient(180deg, rgba(225,255,246,.95), rgba(225,255,246,0) 55%);
+  --money-base: rgba(3,32,26,.28);
+  --money-off: linear-gradient(180deg, #15201d, #101816);
+  --gem-ink-line: rgba(122,240,201,.5);
   /* semantic (never the accent) */
   --danger: #f2685a; --warn: #f2b94b;
   /* type */
@@ -34,7 +40,7 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
   --f-display: "Barlow Condensed", "Oswald", "Arial Narrow", Impact, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, monospace;
   /* cut sizes */
-  --cut-frame: 22px; --cut-card: 12px; --cut-btn: 10px; --cut-chip: 8px;
+  --cut-frame: 22px; --cut-card: 12px; --cut-btn: 7px; --cut-chip: 8px;
   --side-w: 244px;           /* 268px from 1440px up */
 }
 ```
@@ -71,7 +77,7 @@ The Tesoro logo is the **T-gem**: an emerald-cut octagon whose facets form a "T"
 
 ## The Gema mark
 
-A small emerald-cut stone (octagon with table facet and facet lines, emerald gradient) — never a flat ◆ glyph, never gold. It precedes Gema amounts of consequence (balance pill, entry chips); it is **not** the logo (see Logo). A brief glint animation is allowed on the balance only, and is off under `prefers-reduced-motion`.
+A small emerald-cut stone (octagon with table facet and facet lines, emerald gradient) — never a flat ◆ glyph, never gold. It precedes Gema amounts of consequence (balance pill, entry chips); it is **not** the logo (see Logo). A brief glint animation is allowed on the balance only, and is off under `prefers-reduced-motion`. On a money fill (money button, chosen entry) the full-colour mark blends in, so it is drawn in **ink**: body in the text colour (`--em-ink`), table and facet lines in `--gem-ink-line`. Disabled money buttons keep the full-colour mark.
 
 ## Shell and layout
 
@@ -87,9 +93,9 @@ A small emerald-cut stone (octagon with table facet and facet lines, emerald gra
 
 Live in `app/src/components/ui` (primitives, money, inputs, icons, `ui.css`), the shell in `components/shell`, Lobby pieces in `components/lobby`. `/design` renders every ui component and state.
 
-- **Button** — `money` (facet gradient) only where Gemas move; `neutral` otherwise; sizes `sm`, `md`, `lg` (Play now).
+- **Button** — `money` (polished table: `--money-fill` with the `--money-rim` edge and a 3px `--money-base` band; `lg` cuts 9px) only where Gemas move; `neutral` otherwise; sizes `sm`, `md`, `lg` (Play now).
 - **Icon button** (`.icon-btn`) — square cut button for arrows, menu, close, copy.
-- **Entry picker** — 500 / 1,000 / 2,500; the chosen entry is facet-filled with the Gema mark.
+- **Entry picker** — 500 / 1,000 / 2,500; the chosen entry is filled with `--money-fill` and carries the ink Gema mark.
 - **Tile** — Play Now key art with a bottom label; coming-soon variant dimmed with a "Coming soon" chip.
 - **Player card** — avatar, name, Game, "N Matches · X% won", Entry, emerald **Offer**.
 - **Ticker**, **Balance pill**, **Category chip**, **Search**, **Account menu** — see the shell and Lobby.
