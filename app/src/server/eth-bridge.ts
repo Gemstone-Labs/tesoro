@@ -405,6 +405,12 @@ export async function assetPrice(asset: Asset): Promise<{ microUsd: bigint; live
   } catch {
     // keep the fallback
   }
+  // A failed refresh keeps the last live price for up to 10 minutes instead of dropping to the display fallback.
+  if (!live && hit?.live && Date.now() - hit.at < 10 * 60_000) {
+    const kept = { ...hit, at: Date.now() - 50_000 };
+    priceCache.set(asset, kept);
+    return kept;
+  }
   const fresh = { microUsd, at: Date.now(), live };
   priceCache.set(asset, fresh);
   return fresh;
