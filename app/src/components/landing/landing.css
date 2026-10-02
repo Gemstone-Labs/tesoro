@@ -56,6 +56,13 @@ html.lenis, html.lenis body { height: auto; }
 .lp-body b { color: var(--fg); }
 .lp-measure { max-width: 58ch; }
 .lp-money { color: var(--em); }
+/* The four terms the pitch rests on (yield, Play now, pays later, Principal): faceted in headings, plain emerald in running text. */
+.lp { --hl: var(--em); --hl-facet: var(--facet); }
+.lp-hero, .lp-final-frame { --hl: #24d8a8; --hl-facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%); }
+.lp-hl { font-style: normal; color: var(--hl); }
+.lp-lede .lp-hl, .lp-flow-foot .lp-hl { font-weight: 700; }
+.lp-h1 .lp-hl, .lp-h2 .lp-hl { color: transparent; background: var(--hl-facet); -webkit-background-clip: text; background-clip: text; white-space: nowrap; }
+@media (forced-colors: active) { .lp-hl.lp-hl { color: Highlight; background: none; } }
 .lp-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); margin-bottom: 14px; }
 .lp-link { display: inline-block; font-weight: 700; color: var(--fg); padding-bottom: 2px; border-bottom: 1px solid var(--line-2); margin-top: 14px; }
 .lp-link:hover { border-color: var(--fg); }
@@ -583,7 +590,7 @@ html.lenis, html.lenis body { height: auto; }
 
 /* Light theme's own hero entrance (when delivered): light art, dark copy, light nav over it. */
 .lp-hero-light { display: none; }
-:root[data-theme="light"] .lp-hero.has-light-art { --hero-fg: #111816; background: var(--shell); }
+:root[data-theme="light"] .lp-hero.has-light-art { --hero-fg: #111816; --hl: #086b4f; --hl-facet: linear-gradient(160deg, #0f8f6a 0%, #0a7d5c 46%, #086b4f 46.5%, #065a42 100%); background: var(--shell); }
 :root[data-theme="light"] .lp-hero.has-light-art .lp-hero-light { display: block; z-index: 0; }
 :root[data-theme="light"] .lp-hero.has-light-art .lp-hero-art:not(.lp-hero-light) { display: none; }
 :root[data-theme="light"] .lp-hero.has-light-art .lp-hero-light::after { background: linear-gradient(90deg, rgba(245, 243, 238, 0.9) 0, rgba(245, 243, 238, 0.4) 36%, transparent 56%); }

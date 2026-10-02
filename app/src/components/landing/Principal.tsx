@@ -15,10 +15,10 @@ export function Principal() {
       <div className="lp-wrap lp-principal-grid">
         <div>
           <h2 id="principal-title" className="lp-h2" data-reveal>
-            Your Principal is never played
+            Your <em className="lp-hl">Principal</em> is never played
           </h2>
           <p className="lp-lede lp-measure" data-reveal>
-            You play with the yield your stake will earn, never with the stake itself.
+            You play with the <em className="lp-hl">yield</em> your stake will earn, never with the stake itself.
           </p>
           <ul className="lp-facts-list">
             {FACTS.map((f) => (

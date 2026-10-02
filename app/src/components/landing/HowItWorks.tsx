@@ -76,7 +76,7 @@ export function HowItWorks() {
               How it works
             </h2>
             <p className="lp-lede lp-measure" data-reveal>
-              Your stake earns yield. Tesoro hands you that yield now, as Gemas, and the yield pays it back while you play.
+              Your stake earns <em className="lp-hl">yield</em>. Tesoro hands you that yield now, as Gemas, and the yield pays it back while you play.
             </p>
           </div>
         </header>
@@ -123,7 +123,10 @@ export function HowItWorks() {
           <Outcome title="Lose">Your Position stays locked until its yield repays the Advance.</Outcome>
         </figure>
         <p className="lp-flow-foot" data-reveal>
-          <b>Your Principal is never played.</b> Only future yield moves.
+          <b>
+            Your <em className="lp-hl">Principal</em> is never played.
+          </b>{" "}
+          Only future <em className="lp-hl">yield</em> moves.
         </p>
       </div>
     </section>

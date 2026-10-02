@@ -46,7 +46,7 @@ export function Gemas() {
             <GemaMark size={14} /> Gemas
           </p>
           <h2 id="gemas-title" className="lp-h2" data-reveal>
-            Play now, your yield pays later
+            <em className="lp-hl">Play now</em>, your <em className="lp-hl">yield</em> <em className="lp-hl">pays later</em>
           </h2>
         </header>
         <div className="lp-gemas-stage">
