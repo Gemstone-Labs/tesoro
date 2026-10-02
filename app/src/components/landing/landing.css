@@ -333,17 +333,7 @@ html.lenis, html.lenis body { height: auto; }
   .lp-vault { max-width: 420px; }
 }
 
-/* 5. Games */
-.lp-games-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 16px; }
-.lp-game-frame { position: relative; aspect-ratio: 16 / 10; background: var(--surface-art); overflow: hidden; margin-bottom: 22px; }
-/* The loop is the whole game screen, centred on the frame: the recording's own background is the art surface, so it has no edge. */
-.lp-loop { position: absolute; inset: 0; margin: auto; width: auto; height: 88%; object-fit: cover; object-position: top; }
-/* The tall recording ends mid-way through the hint line under the tray: crop that line off. */
-.lp-loop[data-tall] { height: 92%; aspect-ratio: 638 / 722; }
-.lp-facts { font-size: 13px; color: var(--fg-2); margin: 6px 0 10px; }
-.lp-game .lp-body { max-width: 48ch; }
-.lp-per { margin-top: 48px; color: var(--fg-2); font-size: 14px; }
-@media (max-width: 767px) { .lp-games-grid { grid-template-columns: 1fr; gap: 56px; } }
+/* 5. Games: games.css */
 
 /* 6. Backing: copy, then a live Offer card with her beside it, offering the Gema towards it. */
 .lp-backing-grid { display: grid; grid-template-columns: minmax(280px, 0.7fr) 1.3fr; gap: clamp(32px, 5vw, 72px); align-items: center; }
