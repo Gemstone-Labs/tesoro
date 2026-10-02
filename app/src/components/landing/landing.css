@@ -283,6 +283,9 @@ html.lenis, html.lenis body { height: auto; }
 .lp-stage-poster .on-light, :root[data-theme="light"] .lp-stage-poster .on-dark { display: none; }
 :root[data-theme="light"] .lp-stage-poster .on-light { display: block; }
 .lp-stage-canvas { position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s; }
+/* The scenes take no input (tilt reads the window's pointer), so touches and wheels pass through to the page:
+   swiping over a 3D scene scrolls instead of being captured by the canvas. */
+.lp-stage-canvas, .lp-stage-canvas * { pointer-events: none !important; touch-action: pan-y !important; }
 [data-ready="true"] > .lp-stage-canvas { opacity: 1; }
 [data-ready="true"] > .lp-stage-poster { opacity: 0; }
 .lp-sparkles { position: absolute; inset: 0; pointer-events: none; }
@@ -489,8 +492,8 @@ html.lenis, html.lenis body { height: auto; }
 }
 @media (max-width: 767px) {
   /* the phone art's dark top is taller than the copy needs: lift the art so the climbers sit right under the button */
-  .lp-final-frame { align-items: flex-start; padding-top: 80px; min-height: max(560px, 86svh); }
-  .lp-final-art { top: -14%; }
+  .lp-final-frame { align-items: flex-start; padding-top: 80px; min-height: max(520px, 80svh); }
+  .lp-final-art { top: -22%; }
   .lp-final-art .layer img { object-position: 50% 0; }
   .lp-final-art::after { background: linear-gradient(180deg, rgba(9, 13, 15, 0.85) 0, transparent 42%); }
   .lp-final-duo { right: -6%; width: 78vw; }
@@ -677,3 +680,13 @@ html.lenis, html.lenis body { height: auto; }
   .lp-crystal-glow.sm { width: 16%; }
   @keyframes lp-mote { 0% { opacity: 0; transform: translate(0, 0); } 15% { opacity: 0.8; } 85% { opacity: 0.6; } 100% { opacity: 0; transform: translate(var(--dx), -90px); } }
 }
+
+/* Phones: Gemas → Entry → Your game runs top to bottom, the Gema travelling down it. */
+@media (max-width: 767px) {
+  .lp-arrive { flex-direction: column; align-items: center; gap: 8px; width: 100%; margin-top: 16px; }
+  .lp-arrive > svg { rotate: 90deg; }
+  .lp-arrive .lp-pill { width: min(100%, 220px); justify-content: center; }
+  .lp-arrive-token { left: calc(50% - 142px); top: 0; translate: 0 0; }
+  @media (prefers-reduced-motion: no-preference) { .lp-arrive-token { animation-name: lp-arrive-v; } }
+}
+@keyframes lp-arrive-v { 0% { top: 0; opacity: 0; } 10% { opacity: 1; } 80% { top: calc(100% - 26px); opacity: 1; } 100% { top: calc(100% - 26px); opacity: 0; } }
