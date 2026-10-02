@@ -44,10 +44,10 @@ describe("pushPoint", () => {
 });
 
 describe("isStale", () => {
-  it("is stale past the program's window", () => {
+  it("is stale a second past the program window (2 s plus one for the client clock)", () => {
     const tick = { mid: 1n, publishedAt: 1, receivedAt: 1000 };
-    expect(isStale(tick, 5000)).toBe(false);
-    expect(isStale(tick, 6001)).toBe(true);
+    expect(isStale(tick, 4000)).toBe(false);
+    expect(isStale(tick, 4001)).toBe(true);
     expect(isStale(null, 0)).toBe(true);
   });
 });

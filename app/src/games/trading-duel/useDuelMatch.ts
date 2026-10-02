@@ -216,15 +216,15 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       setStage("live");
       const nowS = Date.now() / 1000;
       if (nowS >= d.endsAt) {
-        // The window is over: end it on the first oracle price published after the close. Seat 1 first, seat 0 a few seconds later.
+        // The window is over: end it on a price published within a few seconds after the close (a later call settles at the last mid recorded in the window). Seat 1 right away, seat 0 a few seconds later.
         if (!closingSince.current) closingSince.current = now();
         const wait = seat === 1 ? 0 : END_GRACE_MS;
-        if (nowS * 1000 - d.endsAt * 1000 < wait || now() - lastEnd.current < 2_500) return;
+        if (nowS * 1000 - d.endsAt * 1000 < wait || now() - lastEnd.current < 1_000) return;
         lastEnd.current = now();
         try {
           await td.end(p, id, d.asset);
         } catch {
-          // Refused until a price published after the close arrives, or the other Player ended it first.
+          // Refused until a price published after the close arrives (retried every second), or the other Player ended it first.
         }
       } else if (nowS >= d.startsAt && now() - lastTick.current >= TICK_EVERY_MS) {
         lastTick.current = now();

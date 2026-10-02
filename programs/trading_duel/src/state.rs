@@ -27,7 +27,10 @@ pub const MAINTENANCE_BPS: u64 = 50;
 pub const SPREAD_BPS: u64 = 5;
 /// Oldest accepted oracle publish time, seconds before the rollup clock. The feed's timestamp has
 /// one-second resolution.
-pub const MAX_STALE_SECS: i64 = 5;
+pub const MAX_STALE_SECS: i64 = 2;
+/// `end_match` accepts only a price published within this many seconds after the window closes.
+/// A later call settles at the last price recorded during the window (`Duel.final_price`).
+pub const END_GRACE_SECS: i64 = 4;
 /// A feed timestamp may run at most this far ahead of the rollup clock.
 pub const MAX_FUTURE_SECS: i64 = 10;
 /// A lead smaller than this many Chips reads as "level".
@@ -103,7 +106,8 @@ pub struct Duel {
     pub trades: [u32; 2],
     pub lead: u8,
     pub last_tick: i64,
-    /// Oracle price the Match ended on, 1e-8 USD.
+    /// 1e-8 USD. During the Match: the last mid recorded by a trade or tick (taken at `last_tick`).
+    /// After it: the price the Match ended on.
     pub final_price: u64,
     pub final_equity: [u64; 2],
 }

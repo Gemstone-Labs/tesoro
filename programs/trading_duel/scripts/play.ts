@@ -5,6 +5,7 @@
  *   NODE_PATH=$PWD/../../../app/node_modules npx tsx play.ts [full|draw|noshow] [asset 0|1|2]
  *
  * full: both trade, positions hidden from the other, Match ends, settles, winner paid.
+ * late: like full, but end_match is called after the end grace window (last-mid fallback).
  * draw: nobody trades, equal equity, both entries refunded.
  * noshow: created and delegated but never started; claim_timeout after the start deadline, refund.
  */
@@ -226,7 +227,7 @@ async function main() {
   check("a Player reads their own Book", !!own0 && own0.cash === 10000n, own0);
 
   await waitUntil(duel.startsAt + 1);
-  if (MODE === "full") {
+  if (MODE === "full" || MODE === "late") {
     await chain.open(p0, id, asset, 1, 2000, 10);
     await chain.open(p1, id, asset, 2, 2000, 5);
     await sleep(3000);
@@ -239,7 +240,8 @@ async function main() {
     await chain.close(p0, id, asset);
     await chain.flip(p1, id, asset, 1, 1000, 3).catch((e) => console.log("flip", String(e).split("\n")[0]));
   }
-  await waitUntil(duel.endsAt + 1);
+  // late: nobody ends it inside the grace window, so the first call settles at the last recorded mid.
+  await waitUntil(duel.endsAt + (MODE === "late" ? 8 : 1));
   const final = await endAndSettle(id);
   const after = [await totals(tesoroAccountPda(k0.publicKey)), await totals(tesoroAccountPda(k1.publicKey))];
   if (final.winner === DRAW) check("draw refunds both entries", after[0] === before[0] && after[1] === before[1], { before, after });
@@ -248,7 +250,7 @@ async function main() {
     check("the winner's Gemas moved", after[w] > before[w] && after[1 - w] === before[1 - w] - 500n, { before, after, winner: w });
   }
   const books = await chain.readBooksOnBase(id);
-  check("both Books are public after commit (with fill history when traded)", !!books && (MODE !== "full" || books[0].fills.length >= 1), books?.map((b) => ({ fills: b.fills.length, cash: b.cash })));
+  check("both Books are public after commit (with fill history when traded)", !!books && (MODE === "draw" || books[0].fills.length >= 1), books?.map((b) => ({ fills: b.fills.length, cash: b.cash })));
 }
 
 main()

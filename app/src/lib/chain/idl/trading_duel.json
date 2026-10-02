@@ -1239,7 +1239,8 @@
       "name": "end_match",
       "docs": [
         "Rollup, permissionless. Once the window has closed: marks both Books at the first oracle",
-        "price published at or after the end, closes any open position with a final fill, and",
+        "price published within `END_GRACE_SECS` after the end (or, if called later, at the last mid",
+        "recorded during the window), closes any open position with a final fill, and",
         "decides the Match: the higher equity wins, equal equity is a draw."
       ],
       "discriminator": [
@@ -2107,46 +2108,51 @@
     },
     {
       "code": 6012,
+      "name": "EndPriceOutOfWindow",
+      "msg": "The oracle price is outside the end-of-window grace"
+    },
+    {
+      "code": 6013,
       "name": "BadPriceFeed",
       "msg": "Not the price feed of this Match's asset"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "StalePrice",
       "msg": "The oracle price is stale or in the future"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "BadPrice",
       "msg": "The oracle price is unusable"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "NotTimedOut",
       "msg": "Deadline has not passed"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "BadTesoroMatch",
       "msg": "The tesoro_core Match is not an Active Match of this Game"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "MatchNotOver",
       "msg": "The Match is not over"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "AlreadyFinalized",
       "msg": "Already settled or refunded in tesoro_core"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "InvalidValidator",
       "msg": "Delegation must name the TEE validator"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "PermissionNotReady",
       "msg": "A permission for this account is missing or is not a real permission"
     }
@@ -2403,7 +2409,8 @@
           {
             "name": "final_price",
             "docs": [
-              "Oracle price the Match ended on, 1e-8 USD."
+              "1e-8 USD. During the Match: the last mid recorded by a trade or tick (taken at `last_tick`).",
+              "After it: the price the Match ended on."
             ],
             "type": "u64"
           },

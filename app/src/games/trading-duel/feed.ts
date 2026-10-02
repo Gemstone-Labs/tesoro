@@ -44,7 +44,7 @@ export function pushPoint(series: Point[], pt: Point, max = 1200, maxAgeMs = 12 
 }
 
 /** A tick older than the program's staleness window would be refused on chain. */
-export const isStale = (tick: Tick | null, now: number): boolean => !tick || now - tick.receivedAt > RULES.maxStaleSecs * 1000;
+export const isStale = (tick: Tick | null, now: number): boolean => !tick || now - tick.receivedAt > (RULES.maxStaleSecs + 1) * 1000;
 
 export interface PriceFeed {
   tick: Tick | null;

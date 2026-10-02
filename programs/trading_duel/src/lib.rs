@@ -78,6 +78,8 @@ pub enum DuelError {
     InvalidSide,
     #[msg("Unknown asset")]
     InvalidAsset,
+    #[msg("The oracle price is outside the end-of-window grace")]
+    EndPriceOutOfWindow,
     #[msg("Not the price feed of this Match's asset")]
     BadPriceFeed,
     #[msg("The oracle price is stale or in the future")]
@@ -197,6 +199,7 @@ fn mark(duel: &mut Duel, books: [&mut Book; 2], mid: u64, now: i64) -> Result<[u
     }
     duel.lead = engine::lead(equity);
     duel.last_tick = now;
+    duel.final_price = mid;
     Ok(equity)
 }
 
@@ -454,18 +457,29 @@ pub mod trading_duel {
     }
 
     /// Rollup, permissionless. Once the window has closed: marks both Books at the first oracle
-    /// price published at or after the end, closes any open position with a final fill, and
+    /// price published within `END_GRACE_SECS` after the end (or, if called later, at the last mid
+    /// recorded during the window), closes any open position with a final fill, and
     /// decides the Match: the higher equity wins, equal equity is a draw.
     pub fn end_match(ctx: Context<Trade>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let duel = &mut ctx.accounts.duel;
         require!(duel.status == STATUS_LIVE, DuelError::NotLive);
         require!(now >= duel.ends_at, DuelError::NotEnded);
-        let mid = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
-        require!(
-            published_at(&ctx.accounts.price_feed)? >= duel.ends_at,
-            DuelError::NotEnded
-        );
+        let grace_end = duel
+            .ends_at
+            .checked_add(END_GRACE_SECS)
+            .ok_or(DuelError::Overflow)?;
+        // On time: the first price published inside [ends_at, ends_at + grace]. Late: the last
+        // mid recorded during the window, so waiting for a better tick cannot change the result.
+        let mid = if now > grace_end {
+            duel.final_price
+        } else {
+            let mid = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
+            let published = published_at(&ctx.accounts.price_feed)?;
+            require!(published >= duel.ends_at, DuelError::NotEnded);
+            require!(published <= grace_end, DuelError::EndPriceOutOfWindow);
+            mid
+        };
         let t = since_start(duel, duel.ends_at);
         let mut equity = [0u64; 2];
         for (i, book) in [&mut ctx.accounts.book_0, &mut ctx.accounts.book_1]

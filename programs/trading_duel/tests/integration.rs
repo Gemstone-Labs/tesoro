@@ -1228,3 +1228,66 @@ fn a_prefunded_permission_address_is_not_a_permission() {
         err.meta.logs
     );
 }
+
+#[test]
+fn an_on_time_end_uses_a_price_published_inside_the_grace_window() {
+    let mut env = live();
+    env.open(0, trading_duel::SIDE_LONG, 2_000, 5).unwrap();
+    let ends = env.duel().ends_at;
+    env.set_time(ends + 2);
+    env.feed(0, 104 * PRICE / 100, ends + 1);
+    env.end().expect("price published inside the window");
+    let d = env.duel();
+    assert_eq!(d.final_price, (104 * PRICE / 100) as u64);
+    assert_eq!(d.winner, 0);
+}
+
+#[test]
+fn a_price_after_the_grace_window_is_not_an_end_price() {
+    use trading_duel::DuelError::*;
+    let mut env = live();
+    let ends = env.duel().ends_at;
+    env.set_time(ends + 1);
+    env.feed(0, PRICE, ends + trading_duel::END_GRACE_SECS + 1);
+    assert_eq!(
+        custom_code(&env.end().unwrap_err()),
+        dcode(EndPriceOutOfWindow)
+    );
+}
+
+#[test]
+fn a_late_end_settles_at_the_last_recorded_mid_whatever_the_feed_says() {
+    // Two identical Matches: one ended late while the feed shows a huge rise, one while it shows
+    // a crash. Both settle at the last mid recorded during the window.
+    let run = |feed_usd: f64| {
+        let mut env = live();
+        env.open(0, trading_duel::SIDE_LONG, 2_000, 5).unwrap();
+        env.open(1, trading_duel::SIDE_SHORT, 2_000, 5).unwrap();
+        env.set_time(env.now + 20);
+        env.price(101.0);
+        env.tick().unwrap();
+        assert_eq!(env.duel().final_price, 101_00000000);
+        let ends = env.duel().ends_at;
+        env.set_time(ends + trading_duel::END_GRACE_SECS + 30);
+        env.price(feed_usd);
+        env.end().expect("a late call settles");
+        let d = env.duel();
+        (d.final_price, d.final_equity, d.winner)
+    };
+    let up = run(150.0);
+    let down = run(50.0);
+    assert_eq!(up, down, "the late feed price changes nothing");
+    assert_eq!(up.0, 101_00000000);
+    assert_eq!(up.2, 0, "the long is ahead at the last recorded mid");
+}
+
+#[test]
+fn a_late_end_needs_no_feed_when_nobody_traded() {
+    let mut env = live();
+    let ends = env.duel().ends_at;
+    env.set_time(ends + 100);
+    // a stale feed that would fail an on-time end
+    env.feed(0, PRICE, ends - 500);
+    env.end().expect("late and flat");
+    assert_eq!(env.duel().winner, trading_duel::DRAW);
+}

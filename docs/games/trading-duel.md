@@ -16,7 +16,7 @@ Code: `programs/trading_duel/src/{lib,state,engine}.rs`. Client: `app/src/games/
 
 ### Anti-latency rule
 
-A client can see public prices a moment before the rollup feed updates. Chosen: **a spread of 5 bps on every fill** (buys pay the price up, sells receive it down, entry and exit alike) **plus rejection of any oracle price older than 5 seconds** (and more than 10 seconds ahead of the rollup clock). Fills at the next oracle update would need a pending-order account and a crank; the spread is deterministic, atomic and testable, and one second of price movement rarely exceeds 5 bps. The feed timestamp has one-second resolution, hence the 5 s limit. Also rejected: a confidence interval wider than 1% of the price, a wrong owner or address, an exponent other than 8.
+A client can see public prices a moment before the rollup feed updates. Chosen: **a spread of 5 bps on every fill** (buys pay the price up, sells receive it down, entry and exit alike) **plus rejection of any oracle price older than 2 seconds** (and more than 10 seconds ahead of the rollup clock). Fills at the next oracle update would need a pending-order account and a crank; the spread is deterministic, atomic and testable, and one second of price movement rarely exceeds 5 bps. The feed timestamp has one-second resolution, hence integer ages: measured on the TEE over 60 s the feed was 0.4 to 1.8 s old (median 1.0, p95 1.5) for SOL, ETH and HYPE, so 2 s rarely refuses a trade in normal conditions (a refused trade costs nothing, the client retries) and shortens the window in which someone watching a faster feed trades on a stale price, which at 20x matters more than at 5 s. Also rejected: a confidence interval wider than 1% of the price, a wrong owner or address, an exponent other than 8.
 
 ### Liquidation
 
@@ -24,7 +24,7 @@ Maintenance margin is 50 bps of the position's notional. On every price read (`o
 
 ### Final marking (known gap)
 
-`end_match` is permissionless, valid once the window closed, and uses the first oracle price published at or after the end time (so a price from before the end is refused). Open positions are closed with a final fill (spread included). Whoever calls first fixes the tick: with one-second feed resolution the choice is small, and both clients and the keeper call as soon as the window ends.
+`end_match` is permissionless and valid once the window closed. **Pinned price:** called within `END_GRACE_SECS` (4 s) after the end it needs a fresh oracle price published inside `[ends_at, ends_at + 4 s]` (a price from before the end, or from after the grace, is refused); called later it ignores the feed and settles at the last mid recorded during the window (`Duel.final_price` holds the last mid of every trade or tick, then the final price), so waiting for a better move cannot change the result and a late keeper is deterministic. Open positions are closed with a final fill (spread included). Inside the grace the first caller still picks among about four one-second ticks; the clients call right at the end (seat 1 immediately, seat 0 after 6 s, retrying every second) and the keeper after 6 s. The last mid is as old as the last trade or tick (clients tick every 4 s).
 
 ## Oracle
 
@@ -66,7 +66,7 @@ Trades are signed by the Account's wallet signer without a prompt (embedded or d
 
 ## Known gaps
 
-- The first caller of `end_match` picks the final tick (above).
+- Inside the 4 s end grace the first caller of `end_match` picks among a few ticks; later calls use the last recorded mid (above).
 - Liquidation is at the next price read, not at the trigger price.
 - The fill log keeps the last 64 fills per Player; the trade count is exact.
 - The Lead is public and reveals who is ahead by 50 Chips or more, by design.
@@ -97,7 +97,7 @@ Screens in `app/docs/screens/trading-duel-live-*.png` (position, closed, result 
 
 **What this showed about the rollup**
 
-- The feed accounts update about once a second on both the devnet rollup and the TEE, and a program in the TEE reads them natively; the ER clock matched the oracle's publish time (a `5 s` staleness bound never fired).
+- The feed accounts update about once a second on both the devnet rollup and the TEE, and a program in the TEE reads them natively; the ER clock matched the oracle's publish time (a `5 s` staleness bound never fired; later tightened to 2 s, see above).
 - The public Duel can be read without a token (its permission is not private); a Book reads as null for anyone but its Player. A Player's token read of the opponent's Book also returns null.
 - `close_match` on a Duel that never started failed ("illegally used as writable": its permission accounts do not exist), so a cancelled Duel is committed by `close_unstarted` instead. The program was upgraded in place for it (slot 506736837).
 - `close_match` uses about 150,000 CU (the default limit is 200,000); the client sends 400,000. `GetCommitmentSignature` can race the commit, so the client does not depend on it.

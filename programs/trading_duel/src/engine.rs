@@ -45,10 +45,11 @@ pub fn pnl(side: u8, notional: u64, entry: u64, exit: u64) -> Result<i64> {
         return Err(EngineError::BadPrice);
     }
     let diff = match side {
-        SIDE_LONG => i128::from(exit) - i128::from(entry),
-        SIDE_SHORT => i128::from(entry) - i128::from(exit),
+        SIDE_LONG => i128::from(exit).checked_sub(i128::from(entry)),
+        SIDE_SHORT => i128::from(entry).checked_sub(i128::from(exit)),
         _ => return Err(EngineError::InvalidSide),
-    };
+    }
+    .ok_or(EngineError::Overflow)?;
     let num = i128::from(notional)
         .checked_mul(diff)
         .ok_or(EngineError::Overflow)?;
@@ -62,7 +63,9 @@ fn position_value(book: &Book, mid: u64) -> Result<u64> {
     }
     let exit = fill_price(mid, book.side == SIDE_SHORT)?;
     let p = pnl(book.side, book.notional, book.entry, exit)?;
-    let value = i128::from(book.margin) + i128::from(p);
+    let value = i128::from(book.margin)
+        .checked_add(i128::from(p))
+        .ok_or(EngineError::Overflow)?;
     u64::try_from(value.max(0)).map_err(|_| EngineError::Overflow)
 }
 
@@ -104,7 +107,10 @@ pub fn open(book: &mut Book, side: u8, margin: u64, leverage: u8, mid: u64, t: u
     let notional = margin
         .checked_mul(u64::from(leverage))
         .ok_or(EngineError::Overflow)?;
-    book.cash -= margin;
+    book.cash = book
+        .cash
+        .checked_sub(margin)
+        .ok_or(EngineError::NotEnoughChips)?;
     book.side = side;
     book.margin = margin;
     book.notional = notional;
@@ -135,8 +141,10 @@ pub fn close(book: &mut Book, mid: u64, t: u32, kind: u8) -> Result<i64> {
     let side = book.side;
     let price = fill_price(mid, side == SIDE_SHORT)?;
     let p = pnl(side, book.notional, book.entry, price)?;
-    let value = u64::try_from((i128::from(book.margin) + i128::from(p)).max(0))
-        .map_err(|_| EngineError::Overflow)?;
+    let value = i128::from(book.margin)
+        .checked_add(i128::from(p))
+        .ok_or(EngineError::Overflow)?;
+    let value = u64::try_from(value.max(0)).map_err(|_| EngineError::Overflow)?;
     let (notional, margin) = (book.notional, book.margin);
     book.cash = book.cash.checked_add(value).ok_or(EngineError::Overflow)?;
     book.side = SIDE_FLAT;
@@ -211,15 +219,19 @@ pub fn winner(equity: [u64; 2]) -> u8 {
 /// Liquidation price of the open position in oracle (mid) terms, for display and tests. `None`
 /// when flat or when the position cannot be liquidated by price alone.
 pub fn liquidation_mid(book: &Book) -> Option<u64> {
-    if book.side == SIDE_FLAT {
+    if book.side == SIDE_FLAT || book.notional == 0 {
         return None;
     }
     // value(p) = margin + notional*(exit-entry)/entry (long) <= maintenance
     // => exit moves by (margin - maintenance) / notional of entry.
-    let maintenance = u128::from(book.notional) * u128::from(MAINTENANCE_BPS) / BPS;
+    let maintenance = u128::from(book.notional)
+        .checked_mul(u128::from(MAINTENANCE_BPS))?
+        .checked_div(BPS)?;
     let room = u128::from(book.margin).checked_sub(maintenance)?;
     let entry = u128::from(book.entry);
-    let delta = room * entry / u128::from(book.notional);
+    let delta = room
+        .checked_mul(entry)?
+        .checked_div(u128::from(book.notional))?;
     let exit = if book.side == SIDE_LONG {
         entry.checked_sub(delta)?
     } else {
@@ -228,9 +240,9 @@ pub fn liquidation_mid(book: &Book) -> Option<u64> {
     // Undo the closing spread.
     let spread = u128::from(SPREAD_BPS);
     let mid = if book.side == SIDE_LONG {
-        exit * BPS / (BPS - spread)
+        exit.checked_mul(BPS)?.checked_div(BPS - spread)?
     } else {
-        exit * BPS / (BPS + spread)
+        exit.checked_mul(BPS)?.checked_div(BPS + spread)?
     };
     u64::try_from(mid).ok()
 }

@@ -131,7 +131,7 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
               neither of you trading, is a draw and refunds both entries.
             </p>
             <p>
-              Every fill pays a small spread (0.05%) and an oracle price older than 5 seconds is refused, so a faster feed on your screen does not
+              Every fill pays a small spread (0.05%) and an oracle price older than 2 seconds is refused, so a faster feed on your screen does not
               beat the chain. A position is liquidated, on the next price read, when its margin plus profit falls to 0.5% of its size: you lose that
               margin and nothing more. Your position and fills stay hidden from your opponent until the Match ends; the opponent sees only who is ahead
               and how many trades were made. Afterwards both Players&apos; full fill histories are public on the Match page. Chips are scorekeeping inside

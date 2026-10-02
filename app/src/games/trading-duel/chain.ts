@@ -61,7 +61,9 @@ export const RULES = {
   minMargin: 100,
   maintenanceBps: 50,
   spreadBps: 5,
-  maxStaleSecs: 5,
+  maxStaleSecs: 2,
+  /** An end-of-window price must be published within this many seconds after the window closes. */
+  endGraceSecs: 4,
   levelBand: 50,
   fillLog: 64,
 } as const;
