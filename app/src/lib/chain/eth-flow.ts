@@ -8,24 +8,27 @@ import { DemoError, type GetToken } from "./demo-client";
 import {
   ETH_VAULTS,
   coreAccountPda,
+  NETS,
   coreUnlockIx,
+  evmClient,
   fetchEthMarket,
   fetchLinkState,
-  hoodiClient,
   linkEvmIx,
   linkMessage,
   lstAbi,
+  netOfVault,
   redeemToEvmIx,
   setEvmAddressIx,
   vaultAbi,
   withHeadroom,
   type EthMarket,
   type EthVault,
+  type EvmNet,
 } from "./eth";
 import { ensureReady } from "./match-flow";
 import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 
-/** What the ETH flows need: the Account's Solana signer, its EVM wallet, and the Privy token for server routes. */
+/** What the ETH and HYPE flows need: the Account's Solana signer, its EVM wallet, and the Privy token for server routes. */
 export interface EthCtx {
   signer: ChainSigner;
   evm: EvmSigner;
@@ -55,9 +58,9 @@ export async function ethCall<T = Record<string, unknown>>(step: string, ctx: Pi
   return json as T;
 }
 
-/** The price an Advance on an ETH Position is issued at (public route). */
-export async function fetchEthPrice(): Promise<{ priceMicroUsd: bigint; live: boolean }> {
-  const res = await fetch("/api/eth-bridge");
+/** The price an Advance on an ETH or HYPE Position is issued at (public route). */
+export async function fetchEthPrice(asset: EvmNet["native"] = "ETH"): Promise<{ priceMicroUsd: bigint; live: boolean }> {
+  const res = await fetch(`/api/eth-bridge?asset=${asset}`);
   if (!res.ok) throw new Error("price unavailable");
   const j = (await res.json()) as { priceMicroUsd: string; live: boolean };
   return { priceMicroUsd: BigInt(j.priceMicroUsd), live: j.live };
@@ -74,9 +77,9 @@ export function ethError(e: unknown): string {
   return text.split("\n")[0].replace(/^base tx failed \S+: /, "").slice(0, 200);
 }
 
-async function waitEvm(hash: Hex) {
-  const receipt = await hoodiClient().waitForTransactionReceipt({ hash, timeout: 120_000 });
-  if (receipt.status !== "success") throw new Error("The Hoodi transaction reverted.");
+async function waitEvm(hash: Hex, net: EvmNet) {
+  const receipt = await evmClient(net).waitForTransactionReceipt({ hash, timeout: 120_000 });
+  if (receipt.status !== "success") throw new Error(`The ${net.label} transaction reverted.`);
   return receipt;
 }
 
@@ -103,15 +106,23 @@ export async function ensureEvmLinked(ctx: EthCtx): Promise<string | null> {
   return getChain().sendBase(ctx.signer, ixs);
 }
 
-// ---- Hoodi gas ------------------------------------------------------------------------------------
+// ---- Gas ------------------------------------------------------------------------------------------
 
-/** Below this the server tops the wallet up (gas for approve + openPosition, plus the LayerZero fee). */
+/** Below this the server tops a Hoodi wallet up (gas for approve + openPosition, plus the LayerZero fee). */
 export const MIN_HOODI_WEI = 4_000_000_000_000_000n;
+/** HyperEVM: gas is cheap (0.1 gwei); the LayerZero message is about 0.0075 HYPE (plus 20% headroom, refunded). */
+export const MIN_HYPE_WEI = 20_000_000_000_000_000n;
 
-/** Capped server-side top-up of Hoodi ETH from the deployer. The key never reaches the client. */
-export async function ensureGas(ctx: EthCtx, minWei = MIN_HOODI_WEI): Promise<void> {
-  const client = hoodiClient();
+/**
+ * Hoodi: capped server-side top-up of ETH from the relayer (the key never reaches the client). HyperEVM: there is no
+ * faucet to relay (testnet HYPE needs a mainnet balance), so the wallet must already hold HYPE.
+ */
+export async function ensureGas(ctx: EthCtx, net: EvmNet, minWei = net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI): Promise<void> {
+  const client = evmClient(net);
   if ((await client.getBalance({ address: ctx.evm.address })) >= minWei) return;
+  if (net.key !== "hoodi") {
+    throw new Error(`Your EVM address needs a little ${net.native} on ${net.label} testnet for gas and the LayerZero fee (about 0.02 ${net.native}). Send some to ${ctx.evm.address}.`);
+  }
   await ethCall("fund-evm", ctx, { evm: ctx.evm.address });
   for (let i = 0; i < 40; i++) {
     if ((await client.getBalance({ address: ctx.evm.address })) >= minWei) return;
@@ -120,13 +131,14 @@ export async function ensureGas(ctx: EthCtx, minWei = MIN_HOODI_WEI): Promise<vo
   throw new Error("Hoodi ETH has not arrived yet. Try again in a moment.");
 }
 
-// ---- simETH and the Position -----------------------------------------------------------------------
+// ---- simETH / simHYPE and the Position -----------------------------------------------------------------------
 
-/** SIMULATED faucet: simETH is a test token (10 per hour per address). Needs a little Hoodi ETH for gas. */
+/** SIMULATED faucet: simETH / simHYPE is a test token (10 per hour per address). Needs a little native token for gas. */
 export async function getTestSimEth(ctx: EthCtx, vault: EthVault = ETH_VAULTS[0]): Promise<Hex> {
-  await ensureGas(ctx);
-  await ctx.evm.prepare();
-  const hash = await ctx.evm.client.writeContract({
+  const net = NETS[vault.net];
+  await ensureGas(ctx, net);
+  await ctx.evm.prepare(net.chain);
+  const hash = await ctx.evm.clientFor(net.chain).writeContract({
     account: ctx.evm.account,
     chain: undefined,
     address: vault.lst,
@@ -134,7 +146,7 @@ export async function getTestSimEth(ctx: EthCtx, vault: EthVault = ETH_VAULTS[0]
     functionName: "faucet",
     args: [ctx.evm.address],
   });
-  await waitEvm(hash);
+  await waitEvm(hash, net);
   return hash;
 }
 
@@ -150,7 +162,7 @@ export interface OpenedEth {
 /**
  * Link (first time), gas, approve, create the inbox record for the next Position id, then
  * `openPosition(amount, Horizon)` paying the LayerZero fee (quote + 20%, the excess is refunded).
- * Resolves once the Hoodi transaction is confirmed; the caller tracks delivery from there.
+ * Resolves once the EVM transaction is confirmed; the caller tracks delivery from there.
  */
 export async function openEthPosition(
   ctx: EthCtx,
@@ -159,16 +171,18 @@ export async function openEthPosition(
   months: number,
   onStep: (s: OpenStep) => void = () => {},
 ): Promise<OpenedEth> {
+  const net = NETS[vault.net];
   onStep("link");
   const linkSig = await ensureEvmLinked(ctx);
   onStep("gas");
-  await ensureGas(ctx);
+  await ensureGas(ctx, net);
   let market: EthMarket = await fetchEthMarket(vault, ctx.evm.address);
-  if (market.simEth < amountWei) throw new Error("That is more simETH than you have.");
-  await ctx.evm.prepare();
+  if (market.simEth < amountWei) throw new Error(`That is more ${vault.symbol} than you have.`);
+  await ctx.evm.prepare(net.chain);
+  const wallet = ctx.evm.clientFor(net.chain);
   if (market.allowance < amountWei) {
     onStep("approve");
-    const approveHash = await ctx.evm.client.writeContract({
+    const approveHash = await wallet.writeContract({
       account: ctx.evm.account,
       chain: undefined,
       address: vault.lst,
@@ -176,7 +190,7 @@ export async function openEthPosition(
       functionName: "approve",
       args: [vault.address, maxUint256],
     });
-    await waitEvm(approveHash);
+    await waitEvm(approveHash, net);
     market = await fetchEthMarket(vault, ctx.evm.address);
   }
   // The inbox record has to exist before the message arrives: create it for the id this transaction should get.
@@ -184,7 +198,7 @@ export async function openEthPosition(
   const predicted = market.nextPositionId + 1n;
   await ethCall("init-position", ctx, { vault: vault.address, id: predicted.toString() });
   onStep("open");
-  const hash = await ctx.evm.client.writeContract({
+  const hash = await wallet.writeContract({
     account: ctx.evm.account,
     chain: undefined,
     address: vault.address,
@@ -193,7 +207,7 @@ export async function openEthPosition(
     args: [amountWei, months],
     value: withHeadroom(market.quoteOpen),
   });
-  const receipt = await waitEvm(hash);
+  const receipt = await waitEvm(hash, net);
   const logs = parseEventLogs({ abi: vaultAbi, eventName: "PositionLocked", logs: receipt.logs });
   const id = logs.find((l) => l.address.toLowerCase() === vault.address.toLowerCase())?.args.positionId;
   if (id === undefined) throw new Error("Position opened, but its id was not in the receipt.");
@@ -202,12 +216,13 @@ export async function openEthPosition(
   return { vault: vault.address, id, hash, linkSig };
 }
 
-/** Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on Hoodi. */
+/** Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on the vault's chain. */
 export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): Promise<Hex> {
-  await ensureGas(ctx);
+  const net = NETS[vault.net];
+  await ensureGas(ctx, net);
   const market = await fetchEthMarket(vault, ctx.evm.address);
-  await ctx.evm.prepare();
-  const hash = await ctx.evm.client.writeContract({
+  await ctx.evm.prepare(net.chain);
+  const hash = await ctx.evm.clientFor(net.chain).writeContract({
     account: ctx.evm.account,
     chain: undefined,
     address: vault.address,
@@ -216,22 +231,22 @@ export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): 
     args: [id],
     value: withHeadroom(market.quoteYield),
   });
-  await waitEvm(hash);
+  await waitEvm(hash, net);
   return hash;
 }
 
 // ---- Solana side ------------------------------------------------------------------------------------
 
-/** The Advance for an ETH Position: the server signs `take_advance` at the oracle price, the Account co-signs. */
+/** The Advance for an ETH or HYPE Position: the server signs `take_advance` at the oracle price, the Account co-signs. */
 export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, vault: string, id: bigint, months: number): Promise<string> {
   const r = await ethCall<{ transaction: string }>("advance", ctx, { vault, id: id.toString(), months });
   const tx = Transaction.from(Uint8Array.from(atob(r.transaction), (c) => c.charCodeAt(0)));
   return getChain().sendSigned(await ctx.signer.signTransaction(tx));
 }
 
-/** `redeem_to_evm`: redeems Gemas of an ETH Source and records the payout owed on Hoodi. Then `send_pay_yield` delivers it. */
-export const redeemToEvm = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint) =>
-  getChain().sendBase(signer, [redeemToEvmIx(signer.publicKey, position, source, gemas)]);
+/** `redeem_to_evm`: redeems Gemas of an ETH or HYPE Source and records the payout owed on its EVM chain. Then `send_pay_yield` delivers it. */
+export const redeemToEvm = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, vault: string) =>
+  getChain().sendBase(signer, [redeemToEvmIx(signer.publicKey, position, source, gemas, netOfVault(vault))]);
 
-/** Debt must be zero on chain. Then `send_unlock` releases the Principal on Hoodi. */
+/** Debt must be zero on chain. Then `send_unlock` releases the Principal on the vault's chain. */
 export const unlockEth = (signer: ChainSigner, position: PublicKey) => getChain().sendBase(signer, [coreUnlockIx(signer.publicKey, position)]);

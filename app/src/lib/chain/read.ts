@@ -77,7 +77,7 @@ export interface ChainHolding {
   asset: "SOL" | "ETH" | "HYPE";
   /** The Source's Position holds simSOL custody: Redeem pays simSOL on Solana. */
   native: boolean;
-  /** The Source belongs to an Ethereum Position (Redeem pays on Hoodi through the bridge). */
+  /** The Source belongs to an Ethereum or HyperEVM Position (Redeem pays on that chain through the bridge). */
   eth: { vault: string; id: bigint } | null;
 }
 
@@ -104,7 +104,7 @@ export interface ChainPosition {
   yieldAccrued: number;
   /** simSOL custody details, for Solana-native Positions. */
   native: NativeInfo | null;
-  /** Ethereum Position: the Hoodi vault and its position id. */
+  /** Ethereum or HyperEVM Position: the vault and its position id. */
   eth: { vault: string; id: bigint } | null;
 }
 
@@ -372,7 +372,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       sourceDebt: debtGemas(sourceMath(src.inner)),
       sourceOwner: pk(src.inner.owner).toBase58(),
       native: !!nativeInfo.get(pk(src.inner.position).toBase58()),
-      eth: pos && enumKey(pos.inner.sourceChain) === "ethereum" ? parseEthPositionId(Uint8Array.from(pos.positionId)) : null,
+      eth: pos && ["ethereum", "hyperEvm"].includes(enumKey(pos.inner.sourceChain)) ? parseEthPositionId(Uint8Array.from(pos.positionId)) : null,
       asset: ASSETS[pos ? ["solana", "ethereum", "hyperEvm"].indexOf(enumKey(pos.inner.sourceChain)) : 0] ?? "SOL",
     });
   });
@@ -412,7 +412,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       debt,
       yieldAccrued: Number(big(p.cumulativeYield)) / decimals,
       native: nativeInfo.get((row.publicKey as PublicKey).toBase58()) ?? null,
-      eth: chainIdx === 1 ? parseEthPositionId(Uint8Array.from(row.account.positionId)) : null,
+      eth: chainIdx >= 1 ? parseEthPositionId(Uint8Array.from(row.account.positionId)) : null,
     });
   }
 

@@ -2,6 +2,9 @@ import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { sourcePda } from "./native";
 import {
+  NETS,
+  bridgePeerPda,
+  bridgePositionPda,
   claimPda,
   coreAccountPda,
   corePositionPda,
@@ -10,6 +13,9 @@ import {
   fetchEthState,
   ethUnlockEstimateMs,
   initPositionIdAllowed,
+  netOfVault,
+  sourceAuthPda,
+  vaultsOn,
   parseEthPositionId,
   projectedEthDebt,
   quoteEthAdvance,
@@ -17,7 +23,7 @@ import {
   type EthState,
   type SimRate,
 } from "./eth";
-import { opProgress, untrackedOpens, type EthOp } from "./eth-track";
+import { opCopy, opProgress, opSteps, untrackedOpens, type EthOp } from "./eth-track";
 
 const VAULT = "0x6c836b96464B5D1b55536d5a34D023528eaEe4bD";
 const rate: SimRate = { baseRate: 10n ** 18n, baseTime: 1_000n, apyBps: 500n, speedup: 4320n };
@@ -229,5 +235,33 @@ describe("untrackedOpens", () => {
 
   it("skips Positions with an Advance, unlocked or non-ETH Positions", () => {
     expect(untrackedOpens([pos({ advances: 1 }), pos({ status: "unlocked" }), pos({ eth: null })], [])).toEqual([]);
+  });
+});
+
+describe("HyperEVM vault (smoke Position 1, devnet)", () => {
+  const HYPE_VAULT = "0x23B17A4c55867406E7CD5602c664E1447400c4a3";
+
+  it("is listed on its own network and told apart from the Hoodi vault", () => {
+    expect(vaultsOn("hyperevm").map((v) => v.symbol)).toEqual(["simHYPE"]);
+    expect(vaultsOn("hoodi").map((v) => v.symbol)).toEqual(["simETH"]);
+    expect([netOfVault(HYPE_VAULT).eid, netOfVault(HYPE_VAULT).chainByte, netOfVault(HYPE_VAULT).native]).toEqual([40362, 2, "HYPE"]);
+    expect([netOfVault(VAULT).eid, netOfVault(VAULT).chainByte]).toEqual([40449, 1]);
+    expect(netOfVault("0x000000000000000000000000000000000000dEaD")).toBe(NETS.hoodi);
+  });
+
+  it("derives the bridge and tesoro_core accounts the smoke test created on devnet", () => {
+    const pid = ethPositionId(HYPE_VAULT, 1n);
+    expect(bridgePositionPda(pid).toBase58()).toBe("FykBLi3veGVm7pDLwos6JfQ8wXmvs3j5WMTPYm47MwBx");
+    expect(corePositionPda(pid).toBase58()).toBe("BHVeYiAZxNzsFj5PrSSTHaCmFZehyKJtwofqEwZFtNZY");
+    expect(bridgePeerPda(HYPE_VAULT).equals(bridgePeerPda(VAULT))).toBe(false);
+    expect(sourceAuthPda(NETS.hyperevm).equals(sourceAuthPda(NETS.hoodi))).toBe(false);
+  });
+
+  it("words trackers for the vault's own chain", () => {
+    expect(opSteps("open", HYPE_VAULT)[0].title).toBe("HyperEVM confirmed");
+    expect(opSteps("redeem", HYPE_VAULT)[2].title).toBe("simHYPE on HyperEVM");
+    expect(opSteps("open", VAULT)[0].title).toBe("Hoodi confirmed");
+    expect(opCopy("open", HYPE_VAULT).label).toBe("HYPE → Gemas");
+    expect(opCopy("unlock", HYPE_VAULT).done).toBe("Principal is back on HyperEVM.");
   });
 });

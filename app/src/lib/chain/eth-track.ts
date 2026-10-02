@@ -1,9 +1,9 @@
 import type { CrossChainStep } from "@/components/ui/money";
-import { LZ_SCAN_API, type EthState, type VaultPosition } from "./eth";
+import { LZ_SCAN_API, netOfVault, vaultByAddress, type EthState, type VaultPosition } from "./eth";
 
 /**
- * Cross-chain operations on an ETH Position that take minutes: open (Hoodi to Solana), report yield
- * (Hoodi to Solana), redeem and unlock (Solana to Hoodi). Each is tracked from chain state, never from
+ * Cross-chain operations on an ETH or HYPE Position that take minutes: open (EVM chain to Solana), report yield
+ * (EVM chain to Solana), redeem and unlock (Solana to the EVM chain). Each is tracked from chain state, never from
  * a timer, so pending never shows success early and a reload picks up where it was.
  */
 export type EthOpKind = "open" | "yield" | "redeem" | "unlock";
@@ -17,7 +17,7 @@ export interface EthOp {
   createdAt: number;
   /** Months of the Advance an `open` takes once the Position exists. */
   months?: number;
-  /** Hoodi tx hash (open, yield) or Solana signature (redeem, unlock) that started it. */
+  /** EVM tx hash (open, yield) or Solana signature (redeem, unlock) that started it. */
   hash?: string;
   /** Solana signature of the relayed send (redeem, unlock) or of the last relay step. */
   sendSig?: string;
@@ -27,68 +27,81 @@ export interface EthOp {
   sourceIndex?: number;
   /** `redeem`: Source units this redemption added to the Claim, decimal. */
   units?: string;
-  /** `redeem`: Hoodi block before the redemption; the payout is searched from here. Decimal. */
+  /** `redeem`: EVM block before the redemption; the payout is searched from here. Decimal. */
   fromBlock?: string;
   done?: boolean;
 }
 
 export type OpAction = "apply-locked" | "advance" | "apply-yield" | "send-pay-yield" | "send-unlock";
 
-export const OP_STEPS: Record<EthOpKind, CrossChainStep[]> = {
-  open: [
-    { title: "Hoodi confirmed", note: "openPosition confirmed on Hoodi" },
-    { title: "LayerZero delivered", note: "Message delivered to Solana" },
-    { title: "Position opened", note: "apply_locked opened it for your Account" },
-    { title: "Advance taken", note: "At the oracle price for your Horizon" },
-    { title: "Gemas available", note: "Gemas credited to your Account" },
-  ],
-  yield: [
-    { title: "Hoodi confirmed", note: "reportYield confirmed on Hoodi" },
-    { title: "LayerZero delivered", note: "Yield message delivered to Solana" },
-    { title: "Debt updated", note: "apply_yield lowered the Debt" },
-  ],
-  redeem: [
-    { title: "Redeemed on Solana", note: "redeem_to_evm burned the Gemas and recorded the claim" },
-    { title: "LayerZero message sent", note: "send_pay_yield is on its way to Hoodi" },
-    { title: "simETH on Hoodi", note: "The vault paid your EVM address" },
-  ],
-  unlock: [
-    { title: "Unlocked on Solana", note: "Debt is zero; the Position is unlocked" },
-    { title: "LayerZero message sent", note: "send_unlock is on its way to Hoodi" },
-    { title: "Principal on Hoodi", note: "The vault released your Principal" },
-  ],
+/** The chain-specific words of a tracker: the vault's network, its native token and its simulated token. */
+export function opWords(vault: string) {
+  const net = netOfVault(vault);
+  const symbol = vaultByAddress(vault)?.symbol ?? (net.native === "HYPE" ? "simHYPE" : "simETH");
+  return { net: net.label, native: net.native, symbol };
+}
+
+export const opSteps = (kind: EthOpKind, vault: string): CrossChainStep[] => {
+  const w = opWords(vault);
+  return {
+    open: [
+      { title: `${w.net} confirmed`, note: `openPosition confirmed on ${w.net}` },
+      { title: "LayerZero delivered", note: "Message delivered to Solana" },
+      { title: "Position opened", note: "apply_locked opened it for your Account" },
+      { title: "Advance taken", note: "At the oracle price for your Horizon" },
+      { title: "Gemas available", note: "Gemas credited to your Account" },
+    ],
+    yield: [
+      { title: `${w.net} confirmed`, note: `reportYield confirmed on ${w.net}` },
+      { title: "LayerZero delivered", note: "Yield message delivered to Solana" },
+      { title: "Debt updated", note: "apply_yield lowered the Debt" },
+    ],
+    redeem: [
+      { title: "Redeemed on Solana", note: "redeem_to_evm burned the Gemas and recorded the claim" },
+      { title: "LayerZero message sent", note: `send_pay_yield is on its way to ${w.net}` },
+      { title: `${w.symbol} on ${w.net}`, note: "The vault paid your EVM address" },
+    ],
+    unlock: [
+      { title: "Unlocked on Solana", note: "Debt is zero; the Position is unlocked" },
+      { title: "LayerZero message sent", note: `send_unlock is on its way to ${w.net}` },
+      { title: `Principal on ${w.net}`, note: "The vault released your Principal" },
+    ],
+  }[kind];
 };
 
 /** Copy per kind; Gemas only "become available" on open. */
-export const OP_COPY: Record<EthOpKind, { label: string; finalState: string; done: string; pending: string; failed: string }> = {
-  open: {
-    label: "ETH → Gemas",
-    finalState: "Available",
-    done: "Gemas available. They are yours to play.",
-    pending: "Pending. These Gemas are not available until the last step completes.",
-    failed: "This step failed. Your Gemas are not available; nothing was spent.",
-  },
-  yield: {
-    label: "Report yield",
-    finalState: "Updated",
-    done: "Debt updated from the yield accrued on Hoodi.",
-    pending: "Pending. Debt only falls once the report reaches Solana.",
-    failed: "This step failed. Debt is unchanged.",
-  },
-  redeem: {
-    label: "Redeem → Hoodi",
-    finalState: "Paid",
-    done: "simETH arrived on Hoodi.",
-    pending: "Pending. The simETH is not in your wallet until the last step completes.",
-    failed: "This step failed. Your redemption is recorded and can be retried.",
-  },
-  unlock: {
-    label: "Unlock → Hoodi",
-    finalState: "Returned",
-    done: "Principal is back on Hoodi.",
-    pending: "Pending. The Principal is not back until the last step completes.",
-    failed: "This step failed. The Position is unlocked on Solana and the send can be retried.",
-  },
+export const opCopy = (kind: EthOpKind, vault: string): { label: string; finalState: string; done: string; pending: string; failed: string } => {
+  const w = opWords(vault);
+  return {
+    open: {
+      label: `${w.native} → Gemas`,
+      finalState: "Available",
+      done: "Gemas available. They are yours to play.",
+      pending: "Pending. These Gemas are not available until the last step completes.",
+      failed: "This step failed. Your Gemas are not available; nothing was spent.",
+    },
+    yield: {
+      label: "Report yield",
+      finalState: "Updated",
+      done: `Debt updated from the yield accrued on ${w.net}.`,
+      pending: "Pending. Debt only falls once the report reaches Solana.",
+      failed: "This step failed. Debt is unchanged.",
+    },
+    redeem: {
+      label: `Redeem → ${w.net}`,
+      finalState: "Paid",
+      done: `${w.symbol} arrived on ${w.net}.`,
+      pending: `Pending. The ${w.symbol} is not in your wallet until the last step completes.`,
+      failed: "This step failed. Your redemption is recorded and can be retried.",
+    },
+    unlock: {
+      label: `Unlock → ${w.net}`,
+      finalState: "Returned",
+      done: `Principal is back on ${w.net}.`,
+      pending: "Pending. The Principal is not back until the last step completes.",
+      failed: "This step failed. The Position is unlocked on Solana and the send can be retried.",
+    },
+  }[kind];
 };
 
 export interface OpProgress {
@@ -139,7 +152,7 @@ export interface ScanStatus {
   destinationTx: string | null;
 }
 
-/** LayerZero Scan status of a message by its source tx (Hoodi hash or Solana signature). Null while Scan has not indexed it. */
+/** LayerZero Scan status of a message by its source tx (EVM hash or Solana signature). Null while Scan has not indexed it. */
 export async function fetchScanStatus(txHash: string): Promise<ScanStatus | null> {
   try {
     const res = await fetch(`${LZ_SCAN_API}/messages/tx/${txHash}`);

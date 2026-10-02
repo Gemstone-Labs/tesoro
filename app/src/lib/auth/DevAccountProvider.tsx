@@ -100,6 +100,8 @@ function DevBridge({ children }: { children: ReactNode }) {
       address: privateKeyToAccount(evmKey).address,
       account: privateKeyToAccount(evmKey),
       client: createWalletClient({ account: privateKeyToAccount(evmKey), chain: hoodi, transport: http(HOODI_RPC) }),
+      // The dev key signs locally and sends through the chain's own RPC.
+      clientFor: (chain) => createWalletClient({ account: privateKeyToAccount(evmKey), chain, transport: http(chain.id === hoodi.id ? HOODI_RPC : undefined) }),
       prepare: async () => {},
       source: "dev",
     };

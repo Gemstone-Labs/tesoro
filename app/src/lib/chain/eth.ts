@@ -1,13 +1,13 @@
 import "./polyfill";
 import { PublicKey, SystemProgram, TransactionInstruction, type Connection } from "@solana/web3.js";
-import { createPublicClient, http, parseAbi, type Address, type Hex, type PublicClient } from "viem";
-import { hoodi } from "viem/chains";
+import { createPublicClient, http, parseAbi, type Address, type Chain, type Hex, type PublicClient } from "viem";
+import { hoodi, hyperEvmTestnet } from "@/lib/chains";
 import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, u64 } from "./native";
 import { unitsToRepay, type SourceMath } from "./ledger";
 
 /**
- * Ethereum Positions (Hoodi) on the Solana ledger, over LayerZero V2. Accounts and wire format follow
- * bridge/scripts/flow.ts and docs/cross-chain.md. Simulated yield: SimLST, 1 month = 10 min.
+ * EVM Positions (Ethereum Hoodi and HyperEVM testnet) on the Solana ledger, over LayerZero V2. Accounts and wire
+ * format follow bridge/scripts/flow.ts and docs/cross-chain.md. Simulated yield: SimLST, 1 month = 10 min.
  * Client-safe (web3.js + viem only): the server relay in src/server/eth-bridge.ts imports the same helpers.
  */
 
@@ -16,12 +16,41 @@ export const BRIDGE_ID = new PublicKey("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfd
 export const HOODI_EID = 40449;
 export const HOODI_CHAIN_BYTE = 1;
 export const HOODI_RPC = process.env.NEXT_PUBLIC_HOODI_RPC ?? "https://ethereum-hoodi-rpc.publicnode.com";
+/** HyperEVM testnet (chain 998, LayerZero eid 40362). */
+export const HYPEREVM_EID = 40362;
+export const HYPEREVM_CHAIN_BYTE = 2;
+export const HYPEREVM_RPC = process.env.NEXT_PUBLIC_HYPEREVM_RPC ?? "https://rpc.hyperliquid-testnet.xyz/evm";
 export const LZ_SCAN_API = "https://scan-testnet.layerzero-api.com/v1";
 export const lzScanUrl = (txHash: string) => `https://testnet.layerzeroscan.com/tx/${txHash}`;
 export const hoodiTx = (hash: string) => `https://hoodi.etherscan.io/tx/${hash}`;
+export const hyperEvmTx = (hash: string) => `https://testnet.purrsec.com/tx/${hash}`;
+
+export type NetKey = "hoodi" | "hyperevm";
+
+/** An EVM network a vault can live on: its LayerZero id, the tesoro_core chain byte, RPC and native token. */
+export interface EvmNet {
+  key: NetKey;
+  chain: Chain;
+  /** LayerZero endpoint id, also the Tesoro chain tag in payloads. */
+  eid: number;
+  /** tesoro_core `SourceChain` byte (Ethereum 1, HyperEVM 2). */
+  chainByte: number;
+  rpc: string;
+  /** Short name for copy. */
+  label: string;
+  /** Native token (gas and the LayerZero fee) and the Wallet's chain tab. */
+  native: "ETH" | "HYPE";
+  tx: (hash: string) => string;
+}
+
+export const NETS: Record<NetKey, EvmNet> = {
+  hoodi: { key: "hoodi", chain: hoodi, eid: HOODI_EID, chainByte: HOODI_CHAIN_BYTE, rpc: HOODI_RPC, label: "Hoodi", native: "ETH", tx: hoodiTx },
+  hyperevm: { key: "hyperevm", chain: hyperEvmTestnet, eid: HYPEREVM_EID, chainByte: HYPEREVM_CHAIN_BYTE, rpc: HYPEREVM_RPC, label: "HyperEVM", native: "HYPE", tx: hyperEvmTx },
+};
 
 export interface EthVault {
-  key: "sim";
+  key: "sim" | "sim-hype";
+  net: NetKey;
   label: string;
   address: Address;
   lst: Address;
@@ -30,21 +59,34 @@ export interface EthVault {
 }
 
 /**
- * The Hoodi vaults the app opens Positions in. The real-Lido wstETH vault (0x61B4...57b5) is wired
+ * The vaults the app opens Positions in. The real-Lido wstETH vault on Hoodi (0x61B4...57b5) is wired
  * on Solana but is not listed: there is no wstETH faucet (docs/cross-chain.md).
  */
 export const ETH_VAULTS: EthVault[] = [
   {
     key: "sim",
+    net: "hoodi",
     label: "Simulated ETH (simETH)",
     address: "0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a",
     lst: "0x23B17A4c55867406E7CD5602c664E1447400c4a3",
     symbol: "simETH",
     simulated: true,
   },
+  {
+    key: "sim-hype",
+    net: "hyperevm",
+    label: "Simulated HYPE (simHYPE)",
+    address: "0x23B17A4c55867406E7CD5602c664E1447400c4a3",
+    lst: "0x4FF730663d88457990eAF47b23E19737E39BB238",
+    symbol: "simHYPE",
+    simulated: true,
+  },
 ];
 export const isKnownVault = (v: string) => ETH_VAULTS.some((x) => x.address.toLowerCase() === v.toLowerCase());
 export const vaultByAddress = (v: string) => ETH_VAULTS.find((x) => x.address.toLowerCase() === v.toLowerCase()) ?? null;
+export const vaultsOn = (net: NetKey) => ETH_VAULTS.filter((v) => v.net === net);
+/** The network a vault lives on. Vaults the app no longer lists (retired Hoodi redeploys) are Hoodi. */
+export const netOfVault = (v: string): EvmNet => NETS[vaultByAddress(v)?.net ?? "hoodi"];
 
 export const WEI = 10n ** 18n;
 export const ETH_DECIMALS = 18;
@@ -85,10 +127,20 @@ export const lstAbi = parseAbi([
   "function speedup() view returns (uint256)",
 ]);
 
-let pub: PublicClient | null = null;
-export function hoodiClient(): PublicClient {
-  if (!pub) pub = createPublicClient({ chain: hoodi, transport: http(HOODI_RPC) }) as PublicClient;
-  return pub;
+const clients = new Map<NetKey, PublicClient>();
+export function evmClient(net: EvmNet): PublicClient {
+  let c = clients.get(net.key);
+  if (!c) clients.set(net.key, (c = createPublicClient({ chain: net.chain, transport: http(net.rpc) }) as PublicClient));
+  return c;
+}
+
+/**
+ * Several reads at once: one `multicall` where the chain has Multicall3 (Hoodi), parallel calls where it does not
+ * (HyperEVM testnet has none, and viem refuses to batch there).
+ */
+async function readMany(c: PublicClient, contracts: readonly { address: Address; abi: any; functionName: string; args?: readonly unknown[] }[]): Promise<unknown[]> {
+  if (c.chain?.contracts?.multicall3) return c.multicall({ allowFailure: false, contracts: contracts as never }) as Promise<unknown[]>;
+  return Promise.all(contracts.map((x) => c.readContract(x as never)));
 }
 
 // ---- Position ids and PDAs ----------------------------------------------------------------------
@@ -128,13 +180,15 @@ const u32be = (n: number) => {
 const BRIDGE_STORE = pda([s("Store")], BRIDGE_ID);
 export const BRIDGE_AUTHORITY = pda([s("authority")], BRIDGE_ID);
 export const bridgeStore = () => BRIDGE_STORE;
-export const bridgePeerPda = (vault: string) => pda([s("Peer"), BRIDGE_STORE.toBuffer(), u32be(HOODI_EID), hexBytes(vault, 32)], BRIDGE_ID);
-export const bridgePositionPda = (pid: Buffer) => pda([s("Position"), u32be(HOODI_EID), pid], BRIDGE_ID);
-export const corePositionPda = (pid: Buffer) => pda([s("position"), Buffer.from([HOODI_CHAIN_BYTE]), pid]);
+/** The network a Position id belongs to: its first 20 bytes are the vault. */
+const netOfPid = (pid: Uint8Array) => netOfVault(`0x${Buffer.from(pid.subarray(0, 20)).toString("hex")}`);
+export const bridgePeerPda = (vault: string) => pda([s("Peer"), BRIDGE_STORE.toBuffer(), u32be(netOfVault(vault).eid), hexBytes(vault, 32)], BRIDGE_ID);
+export const bridgePositionPda = (pid: Buffer) => pda([s("Position"), u32be(netOfPid(pid).eid), pid], BRIDGE_ID);
+export const corePositionPda = (pid: Buffer) => pda([s("position"), Buffer.from([netOfPid(pid).chainByte]), pid]);
 export const coreAccountPda = (authority: PublicKey) => pda([s("account"), authority.toBuffer()]);
 export const evmLinkPda = (evm: string) => pda([s("evm"), hexBytes(evm, 20)], BRIDGE_ID);
 export const claimPda = (account: PublicKey, source: PublicKey) => pda([s("claim"), account.toBuffer(), source.toBuffer()], BRIDGE_ID);
-export const sourceAuthPda = () => pda([s("source_auth"), Buffer.from([HOODI_CHAIN_BYTE])]);
+export const sourceAuthPda = (net: EvmNet) => pda([s("source_auth"), Buffer.from([net.chainByte])]);
 export const holdingPda = (account: PublicKey, source: PublicKey) => pda([s("holding"), account.toBuffer(), source.toBuffer()]);
 export const configPda = () => pda([s("config")]);
 
@@ -175,8 +229,8 @@ export const linkEvmIx = (authority: PublicKey, evm: string, signature: Hex) =>
     data: Buffer.concat([disc("link_evm"), hexBytes(evm, 20), hexBytes(signature, 65)]),
   });
 
-/** Redeems Gemas of an ETH Source and records the payout owed on Hoodi (never `tesoro_core::redeem`, which would burn them unrecorded). */
-export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint) => {
+/** Redeems Gemas of an ETH or HYPE Source and records the payout owed on its EVM chain (never `tesoro_core::redeem`, which would burn them unrecorded). */
+export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, net: EvmNet) => {
   const account = coreAccountPda(holder);
   return new TransactionInstruction({
     programId: BRIDGE_ID,
@@ -184,7 +238,7 @@ export const redeemToEvmIx = (holder: PublicKey, position: PublicKey, source: Pu
       meta(holder, true, true),
       meta(BRIDGE_STORE),
       meta(pda([s("authority")], BRIDGE_ID)),
-      meta(sourceAuthPda()),
+      meta(sourceAuthPda(net)),
       meta(account, true),
       meta(position),
       meta(source, true),
@@ -314,7 +368,7 @@ export async function fetchEthState(c: Connection, vault: string, id: bigint, ho
 
 /** Underlying wei the vault paid `to` for this Position since Hoodi block `fromBlock` (`YieldPaid` events: per recipient, unlike the Position-wide `paidUnderlying`). */
 export async function fetchPaidTo(vault: string, id: bigint, to: string, fromBlock: bigint): Promise<bigint> {
-  const logs = await hoodiClient().getContractEvents({ address: vault as Address, abi: vaultAbi, eventName: "YieldPaid", args: { positionId: id, to: to as Address }, fromBlock, toBlock: "latest" });
+  const logs = await evmClient(netOfVault(vault)).getContractEvents({ address: vault as Address, abi: vaultAbi, eventName: "YieldPaid", args: { positionId: id, to: to as Address }, fromBlock, toBlock: "latest" });
   return logs.reduce((sum, l) => sum + (l.args.amountUnderlying ?? 0n), 0n);
 }
 
@@ -359,27 +413,24 @@ export interface EthMarket {
 }
 
 export async function fetchEthMarket(vault: EthVault, owner: Address): Promise<EthMarket> {
-  const c = hoodiClient();
+  const c = evmClient(NETS[vault.net]);
   const lst = { address: vault.lst, abi: lstAbi } as const;
   const v = { address: vault.address, abi: vaultAbi } as const;
   const [r, ethBalance] = await Promise.all([
-    c.multicall({
-      allowFailure: false,
-      contracts: [
-        { ...lst, functionName: "balanceOf", args: [owner] },
-        { ...lst, functionName: "allowance", args: [owner, vault.address] },
-        { ...v, functionName: "quotePositionLocked" },
-        { ...v, functionName: "quoteYieldAccrued" },
-        { ...v, functionName: "nextPositionId" },
-        { ...lst, functionName: "baseRate" },
-        { ...lst, functionName: "baseTime" },
-        { ...lst, functionName: "apyBps" },
-        { ...lst, functionName: "speedup" },
-        { ...lst, functionName: "faucetAmount" },
-        { ...lst, functionName: "faucetCooldown" },
-        { ...lst, functionName: "lastFaucet", args: [owner] },
-      ],
-    }),
+    readMany(c, [
+      { ...lst, functionName: "balanceOf", args: [owner] },
+      { ...lst, functionName: "allowance", args: [owner, vault.address] },
+      { ...v, functionName: "quotePositionLocked" },
+      { ...v, functionName: "quoteYieldAccrued" },
+      { ...v, functionName: "nextPositionId" },
+      { ...lst, functionName: "baseRate" },
+      { ...lst, functionName: "baseTime" },
+      { ...lst, functionName: "apyBps" },
+      { ...lst, functionName: "speedup" },
+      { ...lst, functionName: "faucetAmount" },
+      { ...lst, functionName: "faucetCooldown" },
+      { ...lst, functionName: "lastFaucet", args: [owner] },
+    ]),
     c.getBalance({ address: owner }),
   ]);
   const last = r[11] as bigint;
@@ -412,15 +463,12 @@ export interface VaultPosition {
 }
 
 export async function fetchVaultPosition(vault: string, id: bigint): Promise<VaultPosition | null> {
-  const c = hoodiClient();
+  const c = evmClient(netOfVault(vault));
   const v = { address: vault as Address, abi: vaultAbi } as const;
-  const [p, accrued] = await c.multicall({
-    allowFailure: false,
-    contracts: [
-      { ...v, functionName: "getPosition", args: [id] },
-      { ...v, functionName: "accruedYield", args: [id] },
-    ],
-  });
+  const [p, accrued] = (await readMany(c, [
+    { ...v, functionName: "getPosition", args: [id] },
+    { ...v, functionName: "accruedYield", args: [id] },
+  ])) as [Omit<VaultPosition, "accrued">, bigint];
   if (/^0x0+$/.test(p.owner)) return null;
   return { ...p, accrued };
 }

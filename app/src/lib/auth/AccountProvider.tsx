@@ -149,8 +149,9 @@ function PrivyBridge({ children }: { children: ReactNode }) {
       address,
       account: address,
       client: createWalletClient({ account: address, chain: hoodi, transport }),
-      prepare: async () => {
-        await wallet.switchChain(hoodi.id);
+      clientFor: (chain) => createWalletClient({ account: address, chain, transport }),
+      prepare: async (chain = hoodi) => {
+        await wallet.switchChain(chain.id);
       },
       source: embedded ? "embedded" : "linked",
     };
