@@ -66,6 +66,14 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
       857
     ]
   },
+  "finalRope": {
+    "w": 857,
+    "h": 680,
+    "widths": [
+      640,
+      857
+    ]
+  },
   "finalMobile": {
     "w": 1242,
     "h": 1660,
