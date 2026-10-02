@@ -25,4 +25,4 @@
     linear-gradient(170deg, #0f3d33 0%, #0b2c26 55%, #08211c 100%);
   --edge: var(--edge-em);
 }
-@media (max-width: 639px) { .facet-panel { background-position: right -60px bottom -300px, 0 0, 0 0; background-size: auto 380px, auto, auto; } }
+@media (max-width: 639px) { .facet-panel { background-position: right -90px bottom -320px, 0 0, 0 0; background-size: auto 380px, auto, auto; } }

@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, Search, X } from "lucide-react";
-import { Button, GemaMark } from "@/components/ui";
+import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { fmtGemas } from "@/lib/format";
 import { AccountMenu } from "./AccountMenu";
 import { useSearch } from "./SearchContext";
 import { Wordmark } from "./Sidebar";
@@ -56,7 +55,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         {auth.status !== "signed-out" && auth.status !== "loading" && (
           <Link href="/wallet" className="cut cut-card gpill" aria-label="Your Gemas, open Wallet" title="Simulated yield · 1 month = 10 min">
             <GemaMark size={30} glint />
-            <b className="tnum">{fmtGemas(gemas.total)}</b>
+            <b className="tnum"><CountUp value={gemas.total} /></b>
             <span>Gemas</span>
           </Link>
         )}

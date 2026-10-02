@@ -3,6 +3,7 @@
 import { useGuideTip } from "@/components/guide/Guide";
 import { BackPlayerRail } from "@/components/lobby/BackPlayerRail";
 import { HeroCarousel } from "@/components/lobby/HeroCarousel";
+import { LiveWins } from "@/components/lobby/LiveWins";
 import { PlayAgainRail } from "@/components/lobby/PlayAgainRail";
 import { PlayNowRail } from "@/components/lobby/PlayNowRail";
 import { Row, Thumb } from "@/components/ui";
@@ -22,7 +23,10 @@ export default function Lobby() {
 
   return (
     <div className="lobby">
-      <HeroCarousel />
+      <div className="lobby-top">
+        <HeroCarousel />
+        <LiveWins />
+      </div>
 
       {openMatches.length > 0 && (
         <section className="rail" aria-labelledby="live-h">

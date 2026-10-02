@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Button, CheckIcon, GemaMark, MinusIcon, SimulatedYieldLabel, XIcon, type BustName } from "@/components/ui";
+import { Button, CheckIcon, CountUp, GemaMark, MinusIcon, SimulatedYieldLabel, XIcon, type BustName } from "@/components/ui";
 import { MomentOverlay } from "./MomentOverlay";
 import { fmtGemas } from "@/lib/format";
 import type { GameId } from "@/lib/mock";
@@ -118,7 +118,7 @@ export function MatchResult(p: MatchResultProps) {
                 {won && <GemaMark size={150} />}
                 <span className="mr-figure">
                   {sign}
-                  {mag}
+                  {won ? <CountUp value={Math.abs(delta)} from={0} duration={1200} /> : mag}
                 </span>
                 <span className="mr-unit">Gemas</span>
               </div>

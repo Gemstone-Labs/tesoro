@@ -297,3 +297,19 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .skel-lines { display: grid; gap: 10px; flex: 1; min-width: 0; }
 .skel.player, .skel.bk-card { display: flex; align-items: center; gap: 16px; }
 @keyframes skel { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+/* the big money action catches a passing light every few seconds */
+.btn.money.lg:not(:disabled)::before {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.5) 50%, transparent 62%);
+  translate: -110% 0; animation: btn-sweep 6s ease-in-out 1.6s infinite;
+}
+@keyframes btn-sweep { 0% { translate: -110% 0; } 20%, 100% { translate: 110% 0; } }
+
+/* lists and grids rise in as they scroll into view */
+@supports (animation-timeline: view()) {
+  .rail-track > *, .bk-cards > *, .wl-grid > *, .mh-list > *, .gp-grid > * {
+    animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 30%;
+  }
+  @keyframes reveal { from { opacity: 0; translate: 0 32px; } }
+}

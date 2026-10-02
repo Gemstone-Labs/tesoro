@@ -77,3 +77,10 @@
   .mr-fees b .gema-mark { width: 20px; height: 20px; }
   .mr-pending { font-size: 14px; padding: 6px 4px; }
 }
+
+/* a won amount counts up while its light breathes */
+.mr-burst { transform-origin: center; }
+.mr-burst { animation: burst-breathe 4.5s ease-in-out infinite; }
+@keyframes burst-breathe { 0%, 100% { opacity: 0.85; transform: scale(1); } 50% { opacity: 1; transform: scale(1.05); } }
+.mr-amount.won .gema-mark { animation: gema-land 0.7s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes gema-land { from { transform: scale(0.4) rotate(-25deg); opacity: 0; } }

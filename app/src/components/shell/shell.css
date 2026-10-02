@@ -81,7 +81,7 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 .acct-mail { font-size: 12px !important; color: var(--fg-2) !important; font-weight: 500 !important; padding-bottom: 8px !important; border-bottom: 1px solid var(--line); margin-bottom: 4px; overflow-wrap: anywhere; }
 
 /* ——— Main ——— */
-.app-main { --section-gap: 56px; flex: 1; width: 100%; max-width: 1320px; margin: 0 auto; padding: 16px 16px 56px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--section-gap); align-content: start; }
+.app-main { --section-gap: 36px; flex: 1; width: 100%; max-width: 1320px; margin: 0 auto; padding: 12px 16px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--section-gap); align-content: start; }
 .app-main > * { min-width: 0; }
 
 /* ——— Footer: one line plus links ——— */
@@ -149,7 +149,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .gpill span { font-size: 15px; }
   .gpill .gema-mark { width: 30px; height: 30px; }
   .avatar { width: 48px; height: 48px; }
-  .app-main { --section-gap: 80px; padding: 24px 32px 96px; }
+  .app-main { --section-gap: 52px; padding: 16px 32px 72px; }
 }
 
 /* the top bar gains a hairline and a frosted ground once the page scrolls under it */
@@ -164,3 +164,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .top-right > .btn { min-height: 38px; padding: 0 16px; font-size: 14px; }
 @media (min-width: 640px) { .top-right > .btn { min-height: 46px; padding: 0 22px; font-size: 15px; } }
 @media (min-width: 1024px) { .top-right > .btn { min-height: 52px; padding: 0 28px; font-size: 16px; } }
+
+/* each page arrives with a short rise; the Lobby hero then plays its own entrance */
+.app-main { animation: page-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes page-in { from { opacity: 0; translate: 0 10px; } }

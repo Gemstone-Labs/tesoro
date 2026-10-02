@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards } from "@/components/ui";
+import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
@@ -141,7 +141,9 @@ export default function Wallet() {
           <h2>Total Balance</h2>
           <div className="wl-total-fig">
             <GemaMark size={72} glint />
-            <b>{fmtGemas(gemas.total)}</b>
+            <b>
+              <CountUp value={gemas.total} />
+            </b>
             <span>Gemas</span>
           </div>
         </div>
@@ -179,6 +181,7 @@ export default function Wallet() {
         </details>
       </section>
 
+      <div className="wl-lower">
       <section className="wl-positions" aria-labelledby="pos-h">
         <h2 id="pos-h" className="h-section">Your positions</h2>
         {onChain && loading && positions.length === 0 && (
@@ -209,6 +212,7 @@ export default function Wallet() {
       </section>
 
       <HowGemasWork />
+      </div>
 
       <footer className="wl-foot">
         <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>

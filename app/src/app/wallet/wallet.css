@@ -106,3 +106,10 @@
 .wl-soon .chain { --edge: var(--edge-2); font-size: 12px; padding: 3px 8px; }
 .wl-actions .btn { min-height: 44px; }
 .wl-tile.skel { min-height: 236px; align-content: start; }
+
+/* Positions and the explainer share the row on wide screens */
+.wl-lower { display: grid; gap: var(--section-gap); grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1180px) {
+  .wl-lower { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); }
+  .wl-lower .wl-how { margin-top: 62px; max-width: none; }
+}

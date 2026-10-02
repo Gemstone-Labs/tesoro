@@ -1,6 +1,6 @@
 /* ——— Game detail page (take-1: game-block-puzzle) ——— */
 .gp { display: grid; gap: var(--section-gap); }
-.gp-hero { --edge: var(--edge-2); position: relative; overflow: hidden; background: #060a10; min-height: 520px; display: grid; align-items: center; }
+.gp-hero { --edge: var(--edge-2); position: relative; overflow: hidden; background: #060a10; min-height: 460px; display: grid; align-items: center; }
 .gp-hero-art { object-fit: cover; object-position: 70% 50%; }
 .gp-hero::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, rgba(6, 10, 16, 0.94) 0 32%, rgba(6, 10, 16, 0.55) 55%, transparent 80%); }
 .gp-hero-body { position: relative; z-index: 2; display: grid; gap: 22px; justify-items: start; padding: 40px 18px; max-width: 760px; }
@@ -63,3 +63,12 @@
   .gp-cta .btn:nth-child(2):last-child { grid-column: 1 / -1; }
   .gp-hero .entries { width: 100%; }
 }
+
+/* the game page hero shares the Lobby hero's entrance */
+.gp-hero-art { animation: hero-settle 9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.gp-hero .sparkles { z-index: 1; }
+.gp-hero-body > * { animation: hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.gp-hero-body > :nth-child(2) { animation-delay: 70ms; }
+.gp-hero-body > :nth-child(3) { animation-delay: 140ms; }
+.gp-hero-body > :nth-child(4) { animation-delay: 210ms; }
+@media (min-width: 640px) { .gp-cta .btn.money { min-width: 220px; font-size: 22px; } }

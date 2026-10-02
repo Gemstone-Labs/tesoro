@@ -368,7 +368,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className="bpx-score">
           <Label>Score</Label>
-          <span className="bp-score-n tnum" aria-live="off">{st.score}</span>
+          <span key={st.score} className="bp-score-n tnum bump" aria-live="off">{st.score}</span>
         </div>
         <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
           <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">

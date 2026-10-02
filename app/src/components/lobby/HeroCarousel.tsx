@@ -165,6 +165,11 @@ function HeroSlide({
     >
       <div className="slide-art" aria-hidden="true">
         <Image src={slide.image} alt="" fill priority={active && !clone} sizes="(min-width: 1024px) 60vw, 100vw" />
+        <span className="sparkles">
+          {Array.from({ length: 10 }, (_, i) => (
+            <i key={i} />
+          ))}
+        </span>
       </div>
       <div className="slide-body" {...(active ? {} : { inert: true })}>
         <h2 className="slide-title">{slide.title}</h2>
