@@ -3,9 +3,8 @@ import * as THREE from "three";
 const SIZE = 256;
 
 /**
- * A glow that follows a mark's outline: the geometry's front silhouette, blurred, on a plane `width` x `height`
- * centred on the origin. The plane sits in the mark's mid-plane, so the stone hides it and only the light past
- * its edges shows, from the front and the back alike.
+ * A soft light in a mark's shape: the geometry's front silhouette, blurred, on a plane `width` x `height`
+ * centred on the origin.
  */
 export function outlineGlow(geometry: THREE.BufferGeometry, reach: number) {
   geometry.computeBoundingBox();
@@ -45,9 +44,8 @@ export function outlineGlow(geometry: THREE.BufferGeometry, reach: number) {
   }
   for (let i = 0; i < alpha.length; i++) {
     image.data[i * 4] = image.data[i * 4 + 1] = image.data[i * 4 + 2] = 255;
-    // Eased so the light lingers near the edge and fades out slowly, dithered against banding in the dark tail.
-    const a = 1 - (1 - alpha[i]) ** 2;
-    image.data[i * 4 + 3] = a > 0.002 ? a * 255 + Math.random() - 0.5 : 0;
+    // Dithered against banding in the dark tail.
+    image.data[i * 4 + 3] = alpha[i] > 0.002 ? alpha[i] * 255 + Math.random() - 0.5 : 0;
   }
   g.putImageData(image, 0, 0);
 

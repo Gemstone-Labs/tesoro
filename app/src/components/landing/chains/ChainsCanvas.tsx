@@ -19,30 +19,31 @@ const PARTICLES = 16;
 /** Where a mark starts its spin: almost square to the camera, so it reads, with its depth just showing. The poster is rendered at this angle. */
 const REST = 0.12;
 
-/** How strong a mark's outline glow is at a turn: full face-on, gone well before edge-on. */
-const facing = (turn: number) => THREE.MathUtils.smoothstep(Math.abs(Math.cos(turn)), 0.25, 0.8);
+const GLOW = 0.38;
 
-/** A chain's mark cut as a stone: refractive and flat-faceted in the chain's own colours, with bright facet edges and its light around its outline. */
+/** A chain's mark cut as a stone: refractive and flat-faceted in the chain's own colours, with bright facet edges and a soft light behind in the mark's shape. */
 function Logo({ label, color, pace, animate }: { label: ChainLabel; color: string; pace: number; animate: boolean }) {
   const geometry = useMemo(() => chainLogo[label](), [label]);
   const edges = useMemo(() => new THREE.EdgesGeometry(geometry, 20), [geometry]);
   const env = useMemo(() => studioEnvironment("neutral"), []);
-  const glow = useMemo(() => outlineGlow(geometry, 0.22), [geometry]);
+  const glow = useMemo(() => outlineGlow(geometry, 0.3), [geometry]);
   useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose(), glow.texture.dispose()), [geometry, edges, env, glow]);
   const graded = geometry.hasAttribute("color");
   const spin = useRef<THREE.Group>(null);
-  const glowMaterial = useRef<THREE.MeshBasicMaterial>(null);
   const t = useRef(0);
   useFrame((_, delta) => {
     if (!animate || !spin.current) return;
     t.current += delta;
     spin.current.rotation.y += delta * pace;
     spin.current.position.y = Math.sin(t.current * 0.9) * 0.04;
-    // The glow is cut to the mark's face: it fades as the mark turns edge-on, where the outline no longer matches.
-    if (glowMaterial.current) glowMaterial.current.opacity = facing(spin.current.rotation.y);
   });
   return (
     <group>
+      {/* The light stays put while the mark turns in front of it. */}
+      <mesh position={[0, 0, -0.15]}>
+        <planeGeometry args={[glow.width, glow.height]} />
+        <meshBasicMaterial map={glow.texture} color={color} transparent opacity={GLOW} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      </mesh>
       <group ref={spin} rotation={[0, REST, 0]}>
         <mesh geometry={geometry}>
           <MeshRefractionMaterial
@@ -55,10 +56,6 @@ function Logo({ label, color, pace, animate }: { label: ChainLabel; color: strin
             aberrationStrength={0}
             toneMapped={false}
           />
-        </mesh>
-        <mesh renderOrder={1}>
-          <planeGeometry args={[glow.width, glow.height]} />
-          <meshBasicMaterial ref={glowMaterial} map={glow.texture} color={color} transparent opacity={facing(REST)} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} />
         </mesh>
         <lineSegments geometry={edges}>
           <lineBasicMaterial color="#ffffff" transparent opacity={0.45} depthWrite={false} toneMapped={false} />
