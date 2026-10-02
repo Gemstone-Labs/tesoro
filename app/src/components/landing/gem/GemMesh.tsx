@@ -44,3 +44,32 @@ export function glowTexture(rgb: string, alpha: number): THREE.Texture {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+/**
+ * A glow with no visible edge: (1 - r²)³ falls off smoothly and reaches zero with zero slope at the rim,
+ * dithered so the long dark tail does not band. Linear alpha, for additive or normal blending.
+ */
+export function softGlowTexture(rgb: string, alpha: number, size = 256): THREE.Texture {
+  const [cr, cg, cb] = rgb.split(",").map(Number);
+  const data = new Uint8ClampedArray(size * size * 4);
+  const half = size / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x + 0.5 - half) / half;
+      const dy = (y + 0.5 - half) / half;
+      const r2 = dx * dx + dy * dy;
+      const w = r2 < 1 ? (1 - r2) ** 3 : 0;
+      const i = (y * size + x) * 4;
+      data[i] = cr;
+      data[i + 1] = cg;
+      data[i + 2] = cb;
+      data[i + 3] = w > 0 ? alpha * w * 255 + Math.random() - 0.5 : 0;
+    }
+  }
+  const t = new THREE.DataTexture(data, size, size);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}

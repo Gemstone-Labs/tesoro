@@ -5,7 +5,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { studioEnvironment } from "../gem/envTexture";
-import { GemMesh, glowTexture } from "../gem/GemMesh";
+import { GemMesh, softGlowTexture } from "../gem/GemMesh";
 import { gemState } from "../gem/store";
 import type { LiveCanvasProps } from "../Stage3D";
 import type { Theme } from "../theme";
@@ -23,7 +23,7 @@ function Logo({ label, color, pace, animate }: { label: ChainLabel; color: strin
   const geometry = useMemo(() => chainLogo[label](), [label]);
   const edges = useMemo(() => new THREE.EdgesGeometry(geometry, 20), [geometry]);
   const env = useMemo(() => studioEnvironment("neutral"), []);
-  const light = useMemo(() => glowTexture("255,255,255", 0.5), []);
+  const light = useMemo(() => softGlowTexture("255,255,255", 0.36), []);
   useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose(), light.dispose()), [geometry, edges, env, light]);
   const graded = geometry.hasAttribute("color");
   const spin = useRef<THREE.Group>(null);
@@ -36,7 +36,7 @@ function Logo({ label, color, pace, animate }: { label: ChainLabel; color: strin
   });
   return (
     <group>
-      <sprite scale={[1.9, 1.9, 1]} position={[0, 0, -0.3]}>
+      <sprite scale={[2.1, 2.1, 1]} position={[0, 0, -0.3]}>
         <spriteMaterial map={light} color={color} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
       </sprite>
       <group ref={spin} rotation={[0, REST, 0]}>
@@ -102,7 +102,7 @@ function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: 
 function Scene({ layout, animate, theme }: { layout: ChainsLayout; animate: boolean; theme: Theme }) {
   const root = useRef<THREE.Group>(null);
   const ledger = useRef<THREE.Group>(null);
-  const halo = useMemo(() => glowTexture("54,240,190", 0.45), []);
+  const halo = useMemo(() => softGlowTexture("54,240,190", 0.34), []);
   useEffect(() => () => halo.dispose(), [halo]);
   const ledgerAt = useMemo(() => new THREE.Vector3(...LEDGER[layout]), [layout]);
   const sources = useMemo(() => CHAINS.map((c) => new THREE.Vector3(...c.at[layout])), [layout]);
