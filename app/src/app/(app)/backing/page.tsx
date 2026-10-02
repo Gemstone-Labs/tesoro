@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { PublicKey } from "@solana/web3.js";
 import { Trophy, X as XMark } from "lucide-react";
 import {
+  AssetPicker,
   Button,
   Card,
   CheckIcon,
@@ -39,6 +40,7 @@ import {
 import { EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { recordFromMatches, recordShort, recordText, shortKey, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
+import { gameQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import "./backing.css";
@@ -226,14 +228,7 @@ export default function Backing() {
                   Their Gemas fund your entry. If you lose, they bear it and you owe nothing. If you win, their entry returns first, then you
                   keep {o.shareBps / 100}% of what remains.
                 </p>
-                <div className="hstack wrap">
-                  <Button variant="money" size="sm" href={`/play/queue?game=${o.game}&entry=${o.entry}&backing=${o.address.toBase58()}`}>
-                    Enter the Queue
-                  </Button>
-                  <Button size="sm" href={`/play/challenge?game=${o.game}&entry=${o.entry}&backing=${o.address.toBase58()}`}>
-                    Challenge a friend
-                  </Button>
-                </div>
+                <BackingEnter game={o.game} entry={o.entry} offer={o.address.toBase58()} />
               </div>
             </Card>
           ))}
@@ -414,6 +409,25 @@ export default function Backing() {
   );
 }
 
+/** Enter the Queue or Challenge under a Backing. A Trading Duel Backing asks which asset to trade first. */
+function BackingEnter({ game, entry, offer }: { game: GameId; entry: number; offer: string }) {
+  const [asset, setAsset] = useState<0 | 1 | 2>(0);
+  const q = `${gameQuery(game, asset)}entry=${entry}&backing=${offer}`;
+  return (
+    <>
+      {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name={`bk-asset-${offer}`} />}
+      <div className="hstack wrap">
+        <Button variant="money" size="sm" href={`/play/queue?${q}`}>
+          Enter the Queue
+        </Button>
+        <Button size="sm" href={`/play/challenge?${q}`}>
+          Challenge a friend
+        </Button>
+      </div>
+    </>
+  );
+}
+
 function Empty({ title, body }: { title: string; body: string }) {
   return (
     <BustCard bust="herEmpty" size={130} className="bk-empty bk-span">
@@ -520,6 +534,7 @@ function PostRequest({
           <select id="req-game" className="cut cut-chip select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
             <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
             <option value="holdem">{GAME_NAMES.holdem}</option>
+            <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
           </select>
         </div>
         <EntryPicker value={entry} onChange={setEntry} legend="Entry to be backed" name="req-entry" />
@@ -709,6 +724,8 @@ function OfferDrawer({
                   <select id="off-game" className="cut cut-chip select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
                     <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
                     <option value="holdem">{GAME_NAMES.holdem}</option>
+                    <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
+            <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
                   </select>
                 </div>
                 <EntryPicker value={entry} onChange={setEntry} legend="Entry you fund" name="off-entry" />

@@ -7,7 +7,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Check, Copy, Link2 } from "lucide-react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
-import { Bust, Button, Card, EntryPicker, GemaMark, Label, Sheet, SkeletonCards } from "@/components/ui";
+import { AssetPicker, Bust, Button, Card, EntryPicker, GemaMark, Label, Sheet, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { avatarFor } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
@@ -17,6 +17,7 @@ import { backingLine, playedRows, playerSummary, runningTotal, signed, type Play
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
+import { gameQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import { RunningTotalChart } from "./RunningTotalChart";
@@ -365,7 +366,7 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
   );
 }
 
-const GAMES: GameId[] = ["block-puzzle", "holdem"];
+const GAMES: GameId[] = ["block-puzzle", "holdem", "trading-duel"];
 
 /** Game and entry for a Challenge, and the plain fact that the link is the only way it reaches the other Player. */
 function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () => void; player: string }) {
@@ -373,6 +374,7 @@ function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () 
   const router = useRouter();
   const [game, setGame] = useState<GameId>("block-puzzle");
   const [entry, setEntry] = useState<EntrySize>(1000);
+  const [asset, setAsset] = useState<0 | 1 | 2>(0);
   return (
     <Sheet open={open} onClose={onClose} title={`Challenge ${player}`}>
       <div className="stack-lg">
@@ -385,6 +387,7 @@ function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () 
             </label>
           ))}
         </fieldset>
+        {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="pa-asset" />}
         <EntryPicker value={entry} onChange={setEntry} name="pa-entry" />
         <p className="pa-p">
           Tesoro cannot tell this Player about your Challenge. You get a link to send them yourself, and whoever opens it first joins.{" "}
@@ -394,7 +397,7 @@ function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () 
         <Button
           variant="money"
           block
-          onClick={() => auth.gate("Challenge a Player", () => router.push(`/play/challenge?${game === "holdem" ? "game=holdem&" : ""}entry=${entry}`))}
+          onClick={() => auth.gate("Challenge a Player", () => router.push(`/play/challenge?${gameQuery(game, asset)}entry=${entry}`))}
         >
           Open Challenge · {fmtGemas(entry)} Gemas
         </Button>

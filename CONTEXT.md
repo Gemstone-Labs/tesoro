@@ -47,7 +47,7 @@ _Avoid_: wallet, user, profile
 ### Play
 
 **Game**:
-A title in Tesoro's catalogue, made by a Studio. The launch catalogue is heads-up Hold'em (real-time) and a block-placement puzzle (async).
+A title in Tesoro's catalogue, made by a Studio. The launch catalogue is three Games: heads-up Hold'em (real-time), a block-placement puzzle (async) and Trading Duel (real-time, two Players trade one live price for five minutes).
 _Avoid_: app, title, Match (a single contest)
 
 **Seed**:
@@ -71,7 +71,7 @@ A Match opened by one Player for a specific opponent through a link, outside the
 _Avoid_: invite, private table, duel
 
 **Chips**:
-In-match score units in Hold'em with no value outside the Match. Gemas enter a Match once and leaves once; Chips are only the scorekeeping in between.
+In-match score units in Hold'em and Trading Duel with no value outside the Match: the stack a Player bets with at the table, or trades with against the live price. Gemas enter a Match once and leaves once; Chips are only the scorekeeping in between.
 _Avoid_: in-game Gemas, bets
 
 **Platform Fee**:

@@ -83,7 +83,7 @@ export interface BackingBoard {
 const requestStatus = (o: object) => enumKey(o) as ChainRequest["status"];
 const offerStatus = (o: object) => enumKey(o) as ChainOffer["status"];
 
-/** Wins and settled count per Player over all Matches, from Block Puzzle Sessions and Hold'em tables. */
+/** Wins and settled count per Player over all Matches, from Block Puzzle Sessions, Hold'em tables and Trading Duels. */
 async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerRecord>> {
   const chain = getChain();
   const rows: any[] = await chain.core.account.matchState.all();
@@ -106,6 +106,17 @@ async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerRec
     const tables = await decodeAll(hd.map((m) => addresses(big(m.account.id)).gameMatch), (data) => program.coder.accounts.decode("gameMatch", data));
     hd.forEach((m, i) => {
       const w = tables[i]?.winner;
+      if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
+    });
+  }
+  const td = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "trading-duel");
+  if (td.length) {
+    const { getTradingDuel } = await import("./client");
+    const { addresses } = await import("@/games/trading-duel/chain");
+    const program = getTradingDuel().program;
+    const duels = await decodeAll(td.map((m) => addresses(big(m.account.id)).duel), (data) => program.coder.accounts.decode("duel", data));
+    td.forEach((m, i) => {
+      const w = duels[i]?.winner;
       if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
     });
   }
@@ -419,11 +430,11 @@ async function joinBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
 }
 
 /** Queue under a Backing: join the oldest open Match at this entry, else open one. The Player is never debited. */
-export async function enterQueueBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken, onStep?: (s: string) => void): Promise<Entered> {
+export async function enterQueueBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken, onStep?: (s: string) => void, asset: 0 | 1 | 2 = 0): Promise<Entered> {
   const snap = await ensureReady(signer, getToken);
   const offer = await requireBacking(signer, backing, game, entry);
   return queueEntry({
-    ...queueDeps(signer, snap.accountKey, game, entry),
+    ...queueDeps(signer, snap.accountKey, game, entry, asset),
     join: (id) => joinBacked(signer, id, offer),
     open: (id) => openBacked(signer, id, offer),
     // Another Player joined first: only move on while the Offer is still ours to use.
@@ -433,10 +444,10 @@ export async function enterQueueBacked(signer: ChainSigner, backing: string, gam
 }
 
 /** Challenge under a Backing: open a Match only reachable through its link. */
-export async function createChallengeBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken) {
+export async function createChallengeBacked(signer: ChainSigner, backing: string, game: GameId, entry: number, getToken: GetToken, asset: 0 | 1 | 2 = 0) {
   await ensureReady(signer, getToken);
   const offer = await requireBacking(signer, backing, game, entry);
-  const id = newMatchId(true);
+  const id = newMatchId(true, game, asset);
   return { id, sig: await openBacked(signer, id, offer) };
 }
 

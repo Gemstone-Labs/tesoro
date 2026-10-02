@@ -3,6 +3,7 @@ import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/w
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type ChainSigner, type Move, type Seat } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID } from "@/games/holdem/chain";
+import { TRADING_DUEL_PROGRAM_ID, duelMatchId } from "@/games/trading-duel/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
@@ -14,14 +15,16 @@ import { fetchMatch, fetchSnapshot, listLiveMatchIds, listQueueMatchIds, type Ac
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** The program id a Match of each Game is opened with. */
-export const GAME_IDS: Record<GameId, PublicKey> = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID };
+export const GAME_IDS: Record<GameId, PublicKey> = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID, "trading-duel": TRADING_DUEL_PROGRAM_ID };
 
 /**
  * Match ids are chosen by the opener (ms clock, doubled). tesoro_core has no Queue/Challenge
  * concept, so the lowest bit marks a Challenge: odd ids are only joined through their link and are
- * never picked by the Queue.
+ * never picked by the Queue. Trading Duel ids are `ms * 8 + asset * 2 + challenge`: bits 1 and 2 carry
+ * the asset the Match trades, so the Queue is per asset and nobody can change it later.
  */
-export function newMatchId(challenge: boolean): bigint {
+export function newMatchId(challenge: boolean, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0): bigint {
+  if (game === "trading-duel") return duelMatchId(asset, challenge);
   return BigInt(Date.now()) * 2n + (challenge ? 1n : 0n);
 }
 
@@ -80,26 +83,27 @@ export async function unfinishedMatches(signer: ChainSigner, me: PublicKey, game
 }
 
 /** The parts of a Queue entry that do not depend on how the entry is funded. */
-export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entry: number): Omit<QueueDeps, "join" | "open"> {
+export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entry: number, asset: 0 | 1 | 2 = 0): Omit<QueueDeps, "join" | "open"> {
   const chain = getChain();
   return {
     game,
     entry,
-    listCandidates: () => listQueueMatchIds(entry, me, game),
+    asset: game === "trading-duel" ? asset : undefined,
+    listCandidates: () => listQueueMatchIds(entry, me, game, game === "trading-duel" ? asset : undefined),
     readMatch: (id) => fetchMatch(id, me),
     settle: (e) => chain.txOutcome(e),
     unfinished: () => unfinishedMatches(signer, me, game),
-    newId: () => newMatchId(false),
+    newId: () => newMatchId(false, game, asset),
   };
 }
 
 /** Queue: join the oldest open Match at this entry from another Account, else open one. */
-export async function enterQueue(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", onStep?: (s: string) => void): Promise<Entered> {
+export async function enterQueue(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", onStep?: (s: string) => void, asset: 0 | 1 | 2 = 0): Promise<Entered> {
   const chain = getChain();
   const snap = await ensureReady(signer, getToken);
   const holdings = entryHoldings(snap, entry);
   return queueEntry({
-    ...queueDeps(signer, snap.accountKey, game, entry),
+    ...queueDeps(signer, snap.accountKey, game, entry, asset),
     join: (id) => chain.joinMatch(signer, id, holdings, GAME_IDS[game]),
     open: (id) => chain.openMatch(signer, id, entry, holdings, GAME_IDS[game]),
     onStep,
@@ -107,9 +111,9 @@ export async function enterQueue(signer: ChainSigner, entry: number, getToken: G
 }
 
 /** Challenge: open a Match only reachable through its link. */
-export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle"): Promise<bigint> {
+export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0): Promise<bigint> {
   const snap = await ensureReady(signer, getToken);
-  const id = newMatchId(true);
+  const id = newMatchId(true, game, asset);
   await getChain().openMatch(signer, id, entry, entryHoldings(snap, entry), GAME_IDS[game]);
   return id;
 }

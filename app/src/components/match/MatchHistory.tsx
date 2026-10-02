@@ -9,10 +9,11 @@ const FILTERS: [GameId | null, string][] = [
   [null, "All"],
   ["block-puzzle", GAME_NAMES["block-puzzle"]],
   ["holdem", "Hold'em"],
+  ["trading-duel", "Trading Duel"],
 ];
 
 /** The game a `?game=` value names, null for all games. */
-export const gameFilter = (v: string | null): GameId | null => (v === "block-puzzle" || v === "holdem" ? v : null);
+export const gameFilter = (v: string | null): GameId | null => (v === "block-puzzle" || v === "holdem" || v === "trading-duel" ? v : null);
 
 /** A Match history address: the game filter and the page live in the URL. */
 export function historyHref(base: string, game: GameId | null, page: number): string {

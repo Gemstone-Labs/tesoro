@@ -240,3 +240,25 @@ describe("txOutcome", () => {
     await expect(txOutcome(c, "sig", 1000, 30, 1)).resolves.toBe("unknown");
   });
 });
+
+describe("queueEntry for Trading Duel", () => {
+  const SOL = 8n * 1_000n; // asset bits 00
+  const ETH = SOL + 2n; // asset bits 01
+  const duelMatch = (id: bigint) => match(id, { game: "trading-duel", session: null });
+
+  it("joins only a Match of its own asset and opens one of that asset otherwise", async () => {
+    const matches = new Map([[SOL, duelMatch(SOL)]]);
+    const w = world({ list: [SOL], matches });
+    const deps: QueueDeps = { ...w.deps, game: "trading-duel", asset: 1, newId: () => ETH + 8n };
+    const r = await queueEntry(deps);
+    expect(r).toEqual({ id: ETH + 8n, via: "opened" });
+    expect(w.calls).not.toContain(`join ${SOL}`);
+  });
+
+  it("joins an open Match of the same asset", async () => {
+    const matches = new Map([[ETH, duelMatch(ETH)]]);
+    const w = world({ list: [ETH], matches });
+    const r = await queueEntry({ ...w.deps, game: "trading-duel", asset: 1 });
+    expect(r).toEqual({ id: ETH, via: "joined" });
+  });
+});

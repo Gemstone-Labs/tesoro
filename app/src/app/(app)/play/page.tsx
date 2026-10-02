@@ -6,6 +6,7 @@ export default async function Play({ searchParams }: PageProps<"/play">) {
   const sp = await searchParams;
   if (sp.game === "holdem") redirect("/play/holdem");
   if (sp.game === "block-puzzle") redirect("/play/block-puzzle");
+  if (sp.game === "trading-duel") redirect("/play/trading-duel");
   return (
     <div className="lobby">
       <PlayNowRail />

@@ -12,8 +12,8 @@ import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 
 export type EnterKind =
-  | { kind: "queue"; entry: number; game?: GameId; backing?: string }
-  | { kind: "challenge-new"; entry: number; game?: GameId; backing?: string }
+  | { kind: "queue"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string }
+  | { kind: "challenge-new"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string }
   | { kind: "challenge-join"; id: string; backing?: string };
 
 function explain(e: unknown): { text: string; wallet?: boolean } {
@@ -49,6 +49,7 @@ export function EnterMatch(props: EnterKind) {
       try {
         setStatus("Checking your SOL and Account…");
         const game = props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle");
+        const asset = props.kind === "challenge-join" ? 0 : (props.asset ?? 0);
         const entered = (r: Entered, opened: string) => {
           if (r.via === "existing") return setExisting(r.id);
           setStatus(r.via === "joined" ? "Opponent found." : opened);
@@ -56,19 +57,19 @@ export function EnterMatch(props: EnterKind) {
         };
         if (props.kind === "queue" && props.backing) {
           setStatus("Using your Backing…");
-          entered(await enterQueueBacked(signer, props.backing, game, props.entry, auth.getAccessToken, setStatus), "Entered the Queue.");
+          entered(await enterQueueBacked(signer, props.backing, game, props.entry, auth.getAccessToken, setStatus, asset), "Entered the Queue.");
         } else if (props.kind === "challenge-new" && props.backing) {
-          const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken);
+          const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken, asset);
           router.replace(`/play/match/${r.id.toString()}`);
         } else if (props.kind === "challenge-join" && props.backing) {
           setStatus("Joining the Challenge with your Backing…");
           await joinChallengeBacked(signer, props.backing, BigInt(props.id), auth.getAccessToken);
           router.replace(`/play/match/${props.id}`);
         } else if (props.kind === "queue") {
-          const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus);
-          entered(r, props.game === "holdem" ? "Entered the Queue." : "Match opened. You'll be paired while you play.");
+          const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset);
+          entered(r, props.game === "holdem" || props.game === "trading-duel" ? "Entered the Queue." : "Match opened. You'll be paired while you play.");
         } else if (props.kind === "challenge-new") {
-          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game);
+          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset);
           router.replace(`/play/match/${id.toString()}`);
         } else {
           setStatus("Joining the Challenge…");
@@ -84,17 +85,20 @@ export function EnterMatch(props: EnterKind) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signer, key]);
 
+  const assetName = props.kind !== "challenge-join" && props.game === "trading-duel" ? (["SOL", "ETH", "HYPE"][props.asset ?? 0] ?? "SOL") : "";
   const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
   return (
     <Card large as="section" aria-label={title} style={{ maxWidth: 480, margin: "0 auto" }}>
       <div className="stack">
         <h1 className="page-title">{title}</h1>
-        {props.kind === "queue" && <p className="meta">Play now — you&apos;ll be paired with the next Player. Your run counts against theirs.</p>}
+        {props.kind === "queue" && props.game === "trading-duel" && <p className="meta">Play now — you&apos;ll be paired with the next Player trading {assetName}. The Match starts as soon as you are paired.</p>}
+        {props.kind === "queue" && props.game !== "trading-duel" && <p className="meta">Play now — you&apos;ll be paired with the next Player. Your run counts against theirs.</p>}
         {props.kind !== "challenge-join" && (
           <span className="hstack">
             <GemaAmount value={props.entry} size="lg" />{" "}
             <span className="meta">
               entry · {GAME_NAMES[props.game ?? "block-puzzle"]}
+              {props.game === "trading-duel" ? ` · ${assetName}` : ""}
               {props.backing ? " · funded by your Backer" : ""}
             </span>
           </span>

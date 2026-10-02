@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowRight, Pause, Play } from "lucide-react";
-import { Button, EntryPicker } from "@/components/ui";
+import { AssetPicker, Button, EntryPicker } from "@/components/ui";
+import { gameQuery } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { art } from "@/lib/art";
@@ -26,12 +27,13 @@ interface Slide {
 const SLIDES: Slide[] = [
   { game: "block-puzzle", title: "Block Puzzle", sub: "Same Seed · 90 seconds · higher score wins", image: art.blockPuzzleHero, defaultEntry: 1000 },
   { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, defaultEntry: 500, long: true },
+  { game: "trading-duel", title: "Trading Duel", sub: "Live prices · 5 minutes · higher equity wins", image: art.tradingDuelHero, defaultEntry: 500 },
 ];
 
 const ADVANCE_MS = 7000;
 
-const hrefFor = (kind: "queue" | "challenge", game: GameId, entry: number) =>
-  `/play/${kind}?${game === "holdem" ? "game=holdem&" : ""}entry=${entry}`;
+const hrefFor = (kind: "queue" | "challenge", game: GameId, entry: number, asset: number) =>
+  `/play/${kind}?${gameQuery(game, asset)}entry=${entry}`;
 
 export function HeroCarousel() {
   // 0..N-1 are the slides, N is a clone of slide 0 so the last slide always has a next one peeking in.
@@ -39,7 +41,7 @@ export function HeroCarousel() {
   const [jump, setJump] = useState(false);
   const [paused, setPaused] = useState(false);
   const [hover, setHover] = useState(false);
-  const [entries, setEntries] = useState<Record<GameId, EntrySize>>({ "block-puzzle": 1000, holdem: 500 });
+  const [entries, setEntries] = useState<Record<GameId, EntrySize>>({ "block-puzzle": 1000, holdem: 500, "trading-duel": 500 });
   const [reduced, setReduced] = useState(true);
   const depth = useQueueDepth();
 
@@ -149,6 +151,7 @@ function HeroSlide({
 }) {
   const { gemas, auth, onChain, loading, entryProblem } = useAccount();
   const router = useRouter();
+  const [asset, setAsset] = useState<0 | 1 | 2>(0);
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
   const problem = signedIn && onChain ? entryProblem(entry) : null;
   const canEnter = !signedIn || loading || (onChain ? problem === null : gemas.available >= entry);
@@ -175,16 +178,17 @@ function HeroSlide({
         <h2 className="slide-title">{slide.title}</h2>
         <p className="slide-sub">{slide.sub}</p>
         <div className="slide-entry">
+          {slide.game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="hero-asset" />}
           <EntryPicker value={entry} onChange={onEntry} legend={`Entry for ${slide.title}`} name={`hero-${slide.game}`} maxAffordable={signedIn && onChain ? gemas.available : undefined} isDisabled={signedIn && onChain ? (size) => entryProblem(size) !== null : undefined} />
         </div>
-        <Button variant="money" size="lg" block onClick={() => go(hrefFor("queue", slide.game, entry), "Enter a Match")} disabled={!canEnter}>
+        <Button variant="money" size="lg" block onClick={() => go(hrefFor("queue", slide.game, entry, asset), "Enter a Match")} disabled={!canEnter}>
           Play now
         </Button>
         <p className="slide-meta">
           {canEnter ? (
             <>
               {waiting} waiting in Queue ·{" "}
-              <button type="button" onClick={() => go(hrefFor("challenge", slide.game, entry), "Challenge a friend")}>
+              <button type="button" onClick={() => go(hrefFor("challenge", slide.game, entry, asset), "Challenge a friend")}>
                 Challenge a friend
               </button>
             </>

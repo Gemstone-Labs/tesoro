@@ -26,3 +26,4 @@ deploy-keys/
 *secret*
 !**/*secret*.md
 .env*
+programs/trading_duel/scripts/evidence-*.json

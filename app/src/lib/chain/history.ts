@@ -1,6 +1,7 @@
 import { fmtGemas } from "../format";
 import type { GameId, MatchResult } from "../mock/types";
 import { backerDelta, matchDelta, seatResult } from "./ledger";
+import { assetIndexOf, matchOpenedAt } from "./match-id";
 import type { ChainMatch } from "./read";
 
 /** One finished Match in an Account's history, as a Player or as the Backer who funded it. */
@@ -21,6 +22,8 @@ export interface HistoryRow {
   opp: string | null;
   /** Milliseconds since the epoch (Match ids embed their creation time). */
   at: number;
+  /** Trading Duel only: the asset index the Match traded (0 SOL, 1 ETH, 2 HYPE), from its id. */
+  asset: number | null;
 }
 
 /** The history row of a finished Match, or null while it is unfinished or its result is not read yet. */
@@ -51,7 +54,8 @@ export function historyRow(m: ChainMatch): HistoryRow | null {
     backing,
     scores: s && s.settled ? (seat === 0 ? s.scores : [s.scores[1], s.scores[0]]) : null,
     opp: m.sides[1 - seat]?.player ?? null,
-    at: Number(m.id >> 1n),
+    at: matchOpenedAt(m.id, m.game),
+    asset: m.game === "trading-duel" ? assetIndexOf(m.id) : null,
   };
 }
 

@@ -72,3 +72,5 @@
 .gp-hero-body > :nth-child(3) { animation-delay: 140ms; }
 .gp-hero-body > :nth-child(4) { animation-delay: 210ms; }
 @media (min-width: 640px) { .gp-cta .btn.money { min-width: 180px; } }
+.gp-hero .assets { gap: 12px; width: min(100%, 470px); }
+.gp-hero .asset span { min-height: 66px; --c: 11px; }
