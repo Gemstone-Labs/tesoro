@@ -1,7 +1,7 @@
 import { Budget, log, runJob, type Ctx } from "./act.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
-import { checkHoodiAtStart, ethYieldJob } from "./eth.ts";
+import { NETS, checkEvmAtStart, ethYieldJob } from "./eth.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
 import { Health, startHealthServer, startWatchdog } from "./health.ts";
 import { matchHygiene } from "./matches.ts";
@@ -35,12 +35,13 @@ async function main() {
   const hostOf = (u: string) => new URL(u).host;
   const conn = newConnection(s.rpc, s.gpaRpc);
   const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: fetchWithBackoff as typeof fetch }));
-  await checkHoodiAtStart(s.hoodiRpc, (m) => log("keeper", "-", m));
+  for (const net of NETS) await checkEvmAtStart(net, net.rpc(s), (m) => log("keeper", "-", m));
   const ctx: Ctx = {
     ...buildRuntime(s, conn, payer),
     budget: new Budget(s.hourlyCapLamports),
     lz: new Budget(s.lzHourlyCapLamports),
     eth: new Budget(Math.round(s.ethHourlyCapEth * 1e9)),
+    hype: new Budget(Math.round(s.hypeHourlyCapHype * 1e9)),
     yieldShare: new Budget(Math.round(s.hourlyCapLamports * s.yieldShare)),
   };
   const balance = await conn.getBalance(payer.publicKey);
