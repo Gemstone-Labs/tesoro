@@ -1,4 +1,3 @@
-import { art } from "@/lib/art";
 import { appHref } from "@/lib/landing/config";
 import { LoopVideo } from "./LoopVideo";
 
@@ -8,7 +7,6 @@ const GAMES = [
     name: "Block Puzzle",
     facts: "Async · same Seed · 90 s · private moves",
     body: "Play when you like. You and your opponent get the same Seed; the higher score wins.",
-    backdrop: art.blockPuzzleHero,
     loop: [638, 738],
   },
   {
@@ -16,7 +14,6 @@ const GAMES = [
     name: "Heads-up Hold’em",
     facts: "Real-time · hidden deck",
     body: "Heads-up against one opponent, live. Nobody sees the deck.",
-    backdrop: art.holdemHero,
     loop: [924, 638],
   },
 ];
@@ -32,9 +29,6 @@ export function Games() {
           {GAMES.map((g) => (
             <article key={g.id} className="lp-game" data-reveal>
               <div className="lp-game-frame cut cut-frame">
-                <picture className="lp-game-backdrop" data-parallax="0.06">
-                  <img src={g.backdrop} alt="" loading="lazy" width={2400} height={1000} />
-                </picture>
                 <LoopVideo name={g.id} label={`${g.name} gameplay`} width={g.loop[0]} height={g.loop[1]} />
               </div>
               <h3 className="lp-h3">{g.name}</h3>

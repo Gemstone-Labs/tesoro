@@ -333,14 +333,10 @@ html.lenis, html.lenis body { height: auto; }
 /* 5. Games */
 .lp-games-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 16px; }
 .lp-game-frame { position: relative; aspect-ratio: 16 / 10; background: var(--surface-art); overflow: hidden; margin-bottom: 22px; }
-.lp-game-backdrop, .lp-game-backdrop img { position: absolute; left: 0; top: -8%; width: 100%; height: 116%; object-fit: cover; opacity: 0.4; display: block; }
-.lp-game-backdrop img { top: 0; height: 100%; opacity: 1; }
-.lp-loop {
-  position: absolute; left: 7%; right: 7%; top: 8%; width: 86%; height: 92%; object-fit: cover; object-position: top; background: var(--shell);
-  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%, 0 10px);
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
-}
-.lp-loop[data-tall] { left: 50%; right: auto; top: 5%; width: auto; height: 95%; aspect-ratio: 638 / 738; transform: translateX(-50%); }
+/* The loop is the whole game screen, centred on the frame: the recording's own background is the art surface, so it has no edge. */
+.lp-loop { position: absolute; inset: 0; margin: auto; width: auto; height: 88%; object-fit: cover; object-position: top; }
+/* The tall recording ends mid-way through the hint line under the tray: crop that line off. */
+.lp-loop[data-tall] { height: 92%; aspect-ratio: 638 / 722; }
 .lp-facts { font-size: 13px; color: var(--fg-2); margin: 6px 0 10px; }
 .lp-game .lp-body { max-width: 48ch; }
 .lp-per { margin-top: 48px; color: var(--fg-2); font-size: 14px; }
