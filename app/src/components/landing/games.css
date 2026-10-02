@@ -1,0 +1,56 @@
+/* 5. Games: the shelf picks a game, the stage plays it. Shelf and stage are art surfaces (dark in both themes),
+   so they carry the dark tokens themselves. */
+.lp-games-select {
+  --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.68);
+  --line: rgba(234, 239, 236, 0.13); --line-2: rgba(234, 239, 236, 0.22);
+  --raised: #11161a; --raised-2: #171e25;
+  display: grid; gap: 16px; margin-top: 16px; color: var(--fg);
+}
+
+/* Shelf: each game's hero art as a banner; the art's dark left third carries the name. */
+.lp-shelf { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.lp-shelf-tab {
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; min-height: 136px; padding: 22px 26px;
+  border: 0; background: var(--surface-art); color: var(--fg); text-align: left; overflow: hidden;
+}
+.lp-shelf-tab img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.4; filter: saturate(0.55); transition: opacity 0.3s, filter 0.3s; }
+.lp-shelf-tab::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, rgba(9, 13, 15, 0.8), rgba(9, 13, 15, 0) 62%); }
+.lp-shelf-tab:hover img { opacity: 0.7; filter: saturate(0.8); }
+.lp-shelf-tab[aria-selected="true"] { --edge: rgba(234, 239, 236, 0.5); }
+.lp-shelf-tab[aria-selected="true"] img { opacity: 1; filter: none; }
+.lp-shelf-name, .lp-shelf-note { position: relative; z-index: 1; }
+.lp-shelf-name { font-size: 24px; font-weight: 800; word-spacing: 0.14em; line-height: 1.2; }
+.lp-shelf-note { font-size: 14.5px; color: var(--fg-2); }
+/* The bar under the chosen game: full once picked; while the stage moves by itself it fills until the next game. */
+.lp-shelf-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--fg); transform: scaleX(0); transform-origin: left; }
+.lp-shelf-tab[aria-selected="true"] .lp-shelf-bar { transform: scaleX(1); }
+
+/* Stage: the gameplay loop on the game's own background (so the recording has no edge), facts beside it. */
+.lp-stage { display: grid; grid-template-columns: minmax(0, 1fr) 360px; background: var(--surface-art); }
+.lp-stage-screen { position: relative; aspect-ratio: 880 / 600; }
+.lp-loop { position: absolute; inset: 0; margin: auto; width: auto; max-width: 94%; height: 86%; object-fit: contain; opacity: 0; transition: opacity 0.3s; }
+.lp-loop[data-tall] { height: 92%; }
+.lp-loop[data-on] { opacity: 1; }
+.lp-stage-info { display: flex; flex-direction: column; padding: 44px 36px 30px; background: #0c1215; border-left: 1px solid var(--line); }
+.lp-stage-name { font-size: 28px; font-weight: 800; word-spacing: 0.14em; line-height: 1.15; margin-bottom: 12px; }
+.lp-stage-facts { margin: 26px 0 30px; border-top: 1px solid var(--line); }
+.lp-stage-facts div { display: flex; justify-content: space-between; gap: 16px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+.lp-stage-facts dt { color: var(--fg-2); }
+.lp-stage-facts dd { font-weight: 700; text-align: right; }
+.lp-stage-foot { margin-top: auto; padding-top: 28px; font-size: 12.5px; color: var(--fg-2); }
+
+@media (max-width: 1023px) {
+  .lp-stage { grid-template-columns: 1fr; }
+  .lp-stage-info { padding: 28px 24px 24px; border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 767px) {
+  .lp-games-select, .lp-shelf { gap: 10px; }
+  .lp-shelf-tab { min-height: 96px; padding: 14px 16px; }
+  /* Narrow banners: only the art's subject, on the right, behind the name's scrim. */
+  .lp-shelf-tab img { left: 30%; width: 70%; object-position: 84% 50%; }
+  .lp-shelf-tab::before { background: linear-gradient(90deg, rgb(9, 13, 15) 30%, rgba(9, 13, 15, 0.2)); }
+  .lp-stage-screen { aspect-ratio: 10 / 9; }
+  .lp-shelf-name { font-size: 17px; }
+  .lp-shelf-note { font-size: 13px; }
+  .lp-stage-name { font-size: 24px; }
+}

@@ -1,0 +1,21 @@
+/* Landing money fills (polished-table buttons, ink Gema mark). The light theme gets a deeper emerald under
+   white text; the hero and the unscrolled nav sit on dark art in both themes, so they keep the dark set. */
+:root[data-theme="light"] {
+  --money-fill: linear-gradient(180deg, #13a079 0%, #0b8462 55%, #076e51 100%);
+  --money-rim: linear-gradient(180deg, rgba(190, 255, 232, 0.7), rgba(190, 255, 232, 0) 55%);
+  --money-base: rgba(0, 30, 20, 0.3);
+  --money-off: linear-gradient(180deg, #e6e1d7, #ddd7cb);
+  --gem-ink-line: rgba(4, 60, 44, 0.6);
+}
+:root[data-theme="light"] :is(.lp-hero, .lp-nav[data-scrolled="false"]) {
+  --em-ink: #03201a;
+  --money-fill: linear-gradient(180deg, #5ef3cd 0%, #2fdcac 55%, #1cc699 100%);
+  --money-rim: linear-gradient(180deg, rgba(225, 255, 246, 0.95), rgba(225, 255, 246, 0) 55%);
+  --money-base: rgba(3, 32, 26, 0.28);
+  --gem-ink-line: rgba(122, 240, 201, 0.5);
+}
+.lp-entry.on { background: var(--money-fill); --edge: var(--money-rim); }
+.lp-entry.on .gema-mark .gm-body, .lp-entry.on .gema-mark .gm-table { fill: currentColor; }
+.lp-entry.on .gema-mark .gm-table { stroke: var(--gem-ink-line); stroke-width: 1; }
+.lp-entry.on .gema-mark .gm-cuts { stroke: var(--gem-ink-line); stroke-opacity: 1; stroke-width: 0.8; }
+.lp-entry.on .gema-mark .shine { display: none; }

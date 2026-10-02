@@ -1,0 +1,88 @@
+// Imports Astra's chosen landing-page takes from the workspace (outside the repo) into public/art/landing
+// as AVIF + WebP per width, and writes src/lib/landing/art.generated.ts listing what exists.
+// Missing images are skipped: the page renders its coded placeholder until the art lands.
+// Change a take by editing TAKE below and re-running `node scripts/import-landing-art.mjs`.
+import sharp from "sharp";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const SRC = process.env.LANDING_ART_SRC ?? resolve(here, "../../../art-source/landing");
+const OUT = resolve(here, "../public/art/landing");
+const GEN = resolve(here, "../src/lib/landing/art.generated.ts");
+
+/** The chosen take per folder (Ailton's picks; see art-source/landing/PROMPTS.md). */
+const TAKE = { hero: 1, "hero-light": 2, "him-guide": 1, "her-backer": 1, "final-cta": 1, "how-it-works": 1 };
+// Astra's multichain art (multichain/) is not imported: the section is a live 3D scene now.
+// Astra's facet textures (texture/) are not used: they repeat visibly behind text; the page keeps its coded SVG texture.
+
+// No 2560: the scenes are upscaled from ~1700 px natives (see each QA.json), so a larger file adds bytes, not detail.
+const SCENE = [1280, 1920];
+const ASSETS = [
+  // The hero falls back to the flattened composite until the layers are delivered.
+  { key: "heroBack", files: [`hero/take-${TAKE.hero}-back.png`, `hero/take-${TAKE.hero}.png`], widths: SCENE },
+  { key: "heroMid", files: [`hero/take-${TAKE.hero}-mid.png`], widths: SCENE, alpha: true },
+  { key: "heroFront", files: [`hero/take-${TAKE.hero}-front.png`], widths: SCENE, alpha: true },
+  { key: "heroMobile", files: [`hero/take-${TAKE.hero}-mobile.png`], widths: [828, 1242] },
+  // The light theme's own entrance (Astra A2); until delivered, light mode keeps the dark cave.
+  { key: "heroLight", files: [`hero-light/take-${TAKE["hero-light"]}.png`], widths: SCENE },
+  { key: "heroLightMobile", files: [`hero-light/take-${TAKE["hero-light"]}-mobile.png`], widths: [828, 1242] },
+  { key: "himGuide", files: [`him-guide/take-${TAKE["him-guide"]}.png`], widths: [640, 1024], alpha: true, trim: true },
+  { key: "herBacker", files: [`her-backer/take-${TAKE["her-backer"]}.png`], widths: [640, 1024], alpha: true, trim: true },
+  { key: "finalBack", files: [`final-cta/take-${TAKE["final-cta"]}-back.png`], widths: SCENE },
+  { key: "finalDuo", files: [`final-cta/take-${TAKE["final-cta"]}-duo.png`], widths: [640, 1024], alpha: true, trim: true },
+  // The duo's rope ends just above her top hand; this strip of the same rope sits above it and runs out of the frame.
+  { key: "finalRope", files: [`final-cta/take-${TAKE["final-cta"]}-duo.png`], widths: [640, 1024], alpha: true, trim: true, derive: ropeAbove },
+  { key: "finalMobile", files: [`final-cta/take-${TAKE["final-cta"]}-mobile.png`], widths: [828, 1242] },
+  ...["position", "advance", "gemas", "match", "redeem"].map((s, i) => ({
+    key: `step${i + 1}`,
+    files: [`how-it-works/take-${TAKE["how-it-works"]}-${i + 1}-${s}.png`],
+    widths: [160, 320],
+    alpha: true,
+    trim: true,
+  })),
+];
+
+/** The top rows of the duo are bare rope. Repeats three turns of its braid upward, crossfading the first rows so the repeats join. */
+async function ropeAbove(duo) {
+  const ROWS = 34, FADE = 8, REPEATS = 20;
+  const { width } = await sharp(duo).metadata();
+  const { data } = await sharp(duo).extract({ left: 0, top: 0, width, height: ROWS + FADE }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const row = width * 4;
+  const tile = Buffer.from(data.subarray(0, ROWS * row));
+  for (let y = 0; y < FADE; y++) {
+    const t = y / FADE;
+    for (let i = 0; i < row; i++) tile[y * row + i] = Math.round(data[(y + ROWS) * row + i] * (1 - t) + data[y * row + i] * t);
+  }
+  const raw = { width, height: ROWS * REPEATS, channels: 4 };
+  return sharp(Buffer.concat(Array(REPEATS).fill(tile)), { raw }).png().toBuffer();
+}
+
+mkdirSync(OUT, { recursive: true });
+const found = {};
+for (const a of ASSETS) {
+  const file = a.files.map((f) => resolve(SRC, f)).find(existsSync);
+  if (!file) {
+    console.log(`skip ${a.key} (not delivered)`);
+    continue;
+  }
+  // Characters keep the edge they are cut by; the empty transparent margins go.
+  const cut = a.trim ? await sharp(file).trim({ threshold: 1 }).png().toBuffer() : file;
+  const src = a.derive ? await a.derive(cut) : cut;
+  const { width, height } = await sharp(src).metadata();
+  const widths = a.widths.filter((w) => w <= width);
+  if (a.widths.some((w) => w > width)) widths.push(width);
+  for (const w of widths) {
+    const img = sharp(src).resize({ width: w });
+    await img.clone().avif({ quality: a.alpha ? 62 : 55, effort: 6 }).toFile(resolve(OUT, `${a.key}-${w}.avif`));
+    await img.clone().webp({ quality: 82, alphaQuality: 90 }).toFile(resolve(OUT, `${a.key}-${w}.webp`));
+  }
+  found[a.key] = { w: width, h: height, widths };
+  console.log(`${a.key} ← ${file.slice(SRC.length + 1)} ${widths.join("/")}`);
+}
+
+writeFileSync(
+  GEN,
+  `// Generated by scripts/import-landing-art.mjs. Do not edit.\nimport type { LandingAsset } from "./art";\n\nexport const LANDING_ART: Partial<Record<string, LandingAsset>> = ${JSON.stringify(found, null, 2)};\n`,
+);
