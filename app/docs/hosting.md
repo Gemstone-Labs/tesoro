@@ -1,6 +1,6 @@
 # Hosting runbook (judges' demo)
 
-The app runs on **Vercel** and the keeper runs on **Fly.io** as one always-on Machine. Both use Solana devnet and Ethereum Hoodi only. Nothing here is deployed yet: the founder runs these steps.
+The app runs on **Vercel** and the keeper runs on **Fly.io** as one always-on Machine. Both use Solana devnet and Ethereum Hoodi only. The app is deployed (2026-10-02) as Vercel project `gemstone-labs/tesoro`: production https://tesoro-fawn.vercel.app (also https://tesoro-gemstone-labs.vercel.app), landing at `/`, Lobby at `/lobby`. Production env: `NEXT_PUBLIC_PRIVY_APP_ID`, `TESORO_BASE_RPC` (Alchemy devnet, server only), `TESORO_RELAYER_SECRET_KEY`, `TESORO_ORACLE_SECRET_KEY`, `TESORO_RELAYER_EVM_PRIVATE_KEY`; the browser uses the default public RPCs. The keeper still runs on the founder's machine.
 
 Keys never go into the repo or the image. Each server key is read from an env secret first, then from the key file under `~/.config/tesoro/` (the local fallback). The app's loaders are in `src/server/keys.ts` and the keeper's in `keeper/src/keys.ts`. A Solana secret holds the key file's contents (the JSON array of 64 bytes). An EVM secret holds `0x` plus 64 hex digits. Both loaders refuse the compromised `AXwY…` key.
 

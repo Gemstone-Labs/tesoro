@@ -13,6 +13,8 @@ programs/block_puzzle/*
 !programs/block_puzzle/tests
 programs/block_puzzle/tests/*
 !programs/block_puzzle/tests/vectors.json
+# QA screenshots and docs (~220 MB); the site doesn't read them.
+app/docs
 **/node_modules
 **/.next
 **/.env*
