@@ -306,7 +306,7 @@ html.lenis, html.lenis body { height: auto; }
 }
 @supports (animation-timeline: view()) {
   @media (max-width: 1023px) and (prefers-reduced-motion: no-preference) {
-    .lp-gem::after {
+    .lp-gem:not([data-ready="true"])::after {
       content: ""; position: absolute; inset: 0;
       background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.35) 50%, transparent 60%) 0 0 / 250% 100% no-repeat;
       -webkit-mask: url(/art/landing/gem-poster.webp) center / contain no-repeat;
@@ -488,8 +488,11 @@ html.lenis, html.lenis body { height: auto; }
   clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
 }
 @media (max-width: 767px) {
-  .lp-final-frame { align-items: flex-start; padding-top: 96px; }
-  .lp-final-art::after { background: linear-gradient(180deg, rgba(9, 13, 15, 0.85) 0, transparent 50%); }
+  /* the phone art's dark top is taller than the copy needs: lift the art so the climbers sit right under the button */
+  .lp-final-frame { align-items: flex-start; padding-top: 80px; min-height: max(560px, 86svh); }
+  .lp-final-art { top: -14%; }
+  .lp-final-art .layer img { object-position: 50% 0; }
+  .lp-final-art::after { background: linear-gradient(180deg, rgba(9, 13, 15, 0.85) 0, transparent 42%); }
   .lp-final-duo { right: -6%; width: 78vw; }
   .lp-final-duo.rope { display: none; }
 }

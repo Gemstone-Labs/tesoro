@@ -153,7 +153,7 @@ function Scene({ layout, animate, theme }: { layout: ChainsLayout; animate: bool
 
 export default function ChainsCanvas({ active, still = false, onReady, layout = "wide", theme }: LiveCanvasProps) {
   const page = useTheme();
-  const [dpr, setDpr] = useState(1.5);
+  const [dpr, setDpr] = useState(() => (typeof window !== "undefined" && matchMedia("(max-width: 1023px)").matches ? 1.25 : 1.5));
   const frames = useRef(0);
   return (
     <Canvas

@@ -126,7 +126,7 @@ function Showcase({ tilt, animate, theme }: { tilt: boolean; animate: boolean; t
 /** The live 3D Gema. `active` false stops rendering (off screen); `still` renders the rest pose only (poster capture). */
 export default function GemCanvas({ active, still = false, onReady, theme }: LiveCanvasProps) {
   const page = useTheme();
-  const [dpr, setDpr] = useState(1.75);
+  const [dpr, setDpr] = useState(() => (typeof window !== "undefined" && matchMedia("(max-width: 1023px)").matches ? 1.25 : 1.75));
   const [tilt, setTilt] = useState(!still);
   const frames = useRef(0);
   return (

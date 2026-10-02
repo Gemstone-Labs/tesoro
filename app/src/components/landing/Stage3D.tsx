@@ -6,8 +6,8 @@ import type { Theme } from "./theme";
 /** `theme` pins the scene's palette (poster capture); without it the canvas follows the page. */
 export type LiveCanvasProps = { active: boolean; still?: boolean; onReady?: () => void; layout?: "wide" | "tall"; theme?: Theme };
 
-/** Live 3D only where it can run well and motion is allowed; everyone else keeps the poster (a render of the same scene). */
-export function canRunLive(minWidth = 1024) {
+/** Live 3D wherever WebGL works, motion is allowed and the device has 4+ cores (phones included, at a lower pixel ratio); everyone else keeps the poster (a render of the same scene). */
+export function canRunLive(minWidth = 0) {
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
   if (!matchMedia(`(min-width: ${minWidth}px)`).matches) return false;
   if ((navigator.hardwareConcurrency ?? 8) < 4) return false;
