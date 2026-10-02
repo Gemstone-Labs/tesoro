@@ -81,7 +81,7 @@ export function recordShort(r: PlayerRecord): string {
   return `${r.matches} ${r.matches === 1 ? "Match" : "Matches"} · ${Math.round((r.wins / r.matches) * 100)}% won`;
 }
 
-export const shortKey =(k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
+export { shortKey } from "./history";
 
 /** "23h 41m left" / "12m left" / "Expired". */
 export function timeLeft(unixSecs: number, nowMs = Date.now()): string {

@@ -1,0 +1,33 @@
+"use client";
+
+import { useCallback } from "react";
+import type { PlayerAccount } from "./player-account";
+import { refreshShared, useSharedQuery } from "./useRecentSettled";
+
+async function read(key: string): Promise<PlayerAccount> {
+  const fixture = await import("./fixture");
+  if (fixture.demoMode()) return fixture.demoPlayerAccount(key);
+  const [{ PublicKey }, { accountExists, fetchAccountMatches }, { fetchLiveRequests }, { playerSummary }] = await Promise.all([
+    import("@solana/web3.js"),
+    import("./read"),
+    import("./backing"),
+    import("./player-account"),
+  ]);
+  const address = new PublicKey(key);
+  const { played } = await fetchAccountMatches(address);
+  const requests = await fetchLiveRequests(key, playerSummary(played).record);
+  // An Account that played or asked to be backed exists; only an address with neither needs the extra read.
+  const exists = played.length > 0 || requests.length > 0 || (await accountExists(address));
+  return { exists, played, requests };
+}
+
+/** Any Player's Account by its key, from Solana devnet (public read, works signed out). Shared and polled like the Lobby feeds. */
+export function usePlayerAccount(key: string | null) {
+  const fetch = useCallback(() => read(key as string), [key]);
+  const id = key ? `account:${key}` : null;
+  const q = useSharedQuery(id, fetch);
+  const refresh = useCallback(() => {
+    if (id) refreshShared(id);
+  }, [id]);
+  return { ...q, refresh };
+}

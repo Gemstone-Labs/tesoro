@@ -6,6 +6,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { DEV_WALLET } from "./config";
 import type { BackingBoard, ChainRequest } from "./backing";
+import type { PlayerAccount } from "./player-account";
 import type { AccountSnapshot, ChainHolding, ChainMatch, ChainPosition } from "./read";
 import type { SettledMatch } from "./recent";
 
@@ -22,9 +23,15 @@ const key = (seed: number) => PublicKey.findProgramAddressSync([Buffer.from(`dem
 const ago = (mins: number) => Date.now() - mins * 60_000;
 const idAt = (ms: number) => BigInt(ms) << 1n;
 
-export function match(game: "block-puzzle" | "holdem", entry: number, win: boolean, mins: number, scores: [number, number]): ChainMatch {
+export function match(
+  game: "block-puzzle" | "holdem",
+  entry: number,
+  win: boolean,
+  mins: number,
+  scores: [number, number],
+  me = key(1).toBase58(),
+): ChainMatch {
   const id = idAt(ago(mins));
-  const me = key(1).toBase58();
   const them = key(2 + mins).toBase58();
   return {
     id,
@@ -144,4 +151,34 @@ export function demoSettled(): SettledMatch[] {
     { id: idAt(ago(9)), game: "holdem", entry: 2500, winner: key(702).toBase58(), payout: 4750, scores: null, at: ago(9) },
     { id: idAt(ago(21)), game: "block-puzzle", entry: 500, winner: key(703).toBase58(), payout: 950, scores: [133, 102], at: ago(21) },
   ];
+}
+
+/** Addresses for the Account page's other states: an Account that has not played, and an address with no Account. */
+export const DEMO_NEW_ACCOUNT = key(998).toBase58();
+export const DEMO_NO_ACCOUNT = key(999).toBase58();
+
+/** Any Player's Account as others see it. The signed-in demo Account shows its own Matches; every other key gets the same varied history. */
+export function demoPlayerAccount(address: string): PlayerAccount {
+  if (address === DEMO_NO_ACCOUNT) return { exists: false, played: [], requests: [] };
+  if (address === DEMO_NEW_ACCOUNT) return { exists: true, played: [], requests: [] };
+  if (address === key(1).toBase58()) return { exists: true, played: demoSnapshot(address).matches, requests: [] };
+  const m = (game: "block-puzzle" | "holdem", entry: number, win: boolean, mins: number, scores: [number, number] = [0, 0]) =>
+    match(game, entry, win, mins, scores, address);
+  const [backerA, backerB] = [key(801).toBase58(), key(802).toBase58()];
+  const draw = m("block-puzzle", 1000, true, 600, [118, 118]);
+  const played: ChainMatch[] = [
+    m("block-puzzle", 1000, true, 4, [171, 55]),
+    backed(m("block-puzzle", 1000, true, 35, [150, 88]), backerA),
+    m("holdem", 2500, false, 90),
+    backed(m("holdem", 1000, false, 180), backerA),
+    backed(m("block-puzzle", 2500, true, 300, [164, 97]), backerB, 3000),
+    m("block-puzzle", 500, true, 420, [133, 102]),
+    { ...draw, status: "refunded", session: draw.session && { ...draw.session, result: "draw" } },
+    { ...m("holdem", 1000, false, 720), status: "refunded", winner: null },
+    backed(m("block-puzzle", 1000, false, 900, [96, 140]), backerB, 3000),
+    ...Array.from({ length: 24 }, (_, i) =>
+      m(i % 3 === 0 ? "holdem" : "block-puzzle", [500, 1000, 2500][i % 3], i % 5 !== 2, 1500 + i * 97, [120 + ((i * 7) % 40), 80 + ((i * 11) % 50)]),
+    ),
+  ];
+  return { exists: true, played, requests: demoBoard().requests.filter((r) => r.player === address) };
 }
