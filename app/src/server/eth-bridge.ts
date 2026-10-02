@@ -1,7 +1,7 @@
 /**
  * Ethereum (Hoodi) and HyperEVM Positions, server side: the pieces that need a key or the LayerZero SDK.
  *
- *  - `fund-evm`: a capped Hoodi ETH top-up from the relayer (gas + the LayerZero fee). HyperEVM has no top-up (no HYPE to relay).
+ *  - `fund-evm`, `fund-hype`: capped Hoodi ETH / HyperEVM HYPE top-ups from the relayer (gas + the LayerZero fee).
  *  - `init-position`, `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield`: the permissionless
  *    bridge steps (docs/cross-chain.md), paid by the relayer so the Account only needs a little SOL. A keeper
  *    may run them first; each step skips when there is nothing left to do.
@@ -23,6 +23,8 @@ import {
   BRIDGE_AUTHORITY,
   BRIDGE_ID,
   HOODI_RPC,
+  HYPEREVM_RPC,
+  NETS,
   bridgePeerPda,
   bridgePositionPda,
   bridgeStore,
@@ -44,7 +46,8 @@ import {
   type EvmNet,
 } from "@/lib/chain/eth";
 import type { SignedFields } from "@/lib/chain/signed-request";
-import { requireDevnet, requireHoodi } from "./cluster";
+import { requireDevnet, requireHoodi, requireHyperEvm } from "./cluster";
+import { HYPE_DEFAULT_MAX_PER_HOUR, createHypeTopup } from "./hype-topup";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
@@ -69,8 +72,8 @@ const limits = {
   advancePerUser: new WindowLimiter(10, DAY),
 };
 
-export type EthStep = "fund-evm" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "advance";
-const STEPS: EthStep[] = ["fund-evm", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "advance"];
+export type EthStep = "fund-evm" | "fund-hype" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "advance";
+const STEPS: EthStep[] = ["fund-evm", "fund-hype", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "advance"];
 
 // ---- keys and clients ----------------------------------------------------------------------------
 
@@ -115,6 +118,24 @@ async function fundEvm(address: string, evm: string, sub: string | null) {
     throw new DemoHttpError(502, "chain", "Hoodi top-up failed. Try again.");
   }
 }
+
+// ---- HyperEVM HYPE top-up ------------------------------------------------------------------------
+
+const hyperPublic = () => createPublicClient({ chain: NETS.hyperevm.chain, transport: http(HYPEREVM_RPC) });
+const maxHypePerHour = Number(process.env.TESORO_HYPE_TOPUP_MAX_PER_HOUR) || HYPE_DEFAULT_MAX_PER_HOUR;
+const fundHype = createHypeTopup({
+  requireChain: () => requireHyperEvm(HYPEREVM_RPC),
+  balanceOf: (address) => hyperPublic().getBalance({ address: address as Address }),
+  relayerBalance: () => hyperPublic().getBalance({ address: privateKeyToAccount(evmRelayerKey()).address }),
+  send: async (to, value) => {
+    const client = hyperPublic();
+    const wallet = createWalletClient({ account: privateKeyToAccount(evmRelayerKey()), chain: NETS.hyperevm.chain, transport: http(HYPEREVM_RPC) });
+    const hash = await wallet.sendTransaction({ to: to as Address, value });
+    await client.waitForTransactionReceipt({ hash, timeout: 60_000 });
+    return hash;
+  },
+  maxPerHour: maxHypePerHour,
+});
 
 // ---- Solana relay --------------------------------------------------------------------------------
 
@@ -443,6 +464,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
   const wallet = address.toBase58();
 
   if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
+  if (step === "fund-hype") return fundHype(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   const ref = parseRef(fields);
   if (step === "advance") return advance(address, ref.vault, ref.pid, Number(fields.months), sub);
   const refund = takeAll([[limits.relayPerAccount, wallet], ...perUser(limits.relayPerUser, sub), [limits.relayGlobal, "all"]]);

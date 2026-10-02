@@ -113,22 +113,22 @@ export const MIN_HOODI_WEI = 4_000_000_000_000_000n;
 /** HyperEVM: gas is cheap (0.1 gwei); the LayerZero message is about 0.0075 HYPE (plus 20% headroom, refunded). */
 export const MIN_HYPE_WEI = 20_000_000_000_000_000n;
 
-/**
- * Hoodi: capped server-side top-up of ETH from the relayer (the key never reaches the client). HyperEVM: there is no
- * faucet to relay (testnet HYPE needs a mainnet balance), so the wallet must already hold HYPE.
- */
-export async function ensureGas(ctx: EthCtx, net: EvmNet, minWei = net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI): Promise<void> {
+/** Capped server-side top-up of the net's native token from the relayer (the key never reaches the client). */
+export async function requestGas(ctx: EthCtx, net: EvmNet): Promise<void> {
+  const min = net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI;
   const client = evmClient(net);
-  if ((await client.getBalance({ address: ctx.evm.address })) >= minWei) return;
-  if (net.key !== "hoodi") {
-    throw new Error(`Your EVM address needs a little ${net.native} on ${net.label} testnet for gas and the LayerZero fee (about 0.02 ${net.native}). Send some to ${ctx.evm.address}.`);
-  }
-  await ethCall("fund-evm", ctx, { evm: ctx.evm.address });
+  await ethCall(net.key === "hoodi" ? "fund-evm" : "fund-hype", ctx, { evm: ctx.evm.address });
   for (let i = 0; i < 40; i++) {
-    if ((await client.getBalance({ address: ctx.evm.address })) >= minWei) return;
+    if ((await client.getBalance({ address: ctx.evm.address })) >= min) return;
     await sleep(1500);
   }
-  throw new Error("Hoodi ETH has not arrived yet. Try again in a moment.");
+  throw new Error(`${net.native} has not arrived yet. Try again in a moment.`);
+}
+
+/** Tops the wallet up when it is under the net's minimum. */
+export async function ensureGas(ctx: EthCtx, net: EvmNet, minWei = net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI): Promise<void> {
+  if ((await evmClient(net).getBalance({ address: ctx.evm.address })) >= minWei) return;
+  await requestGas(ctx, net);
 }
 
 // ---- simETH / simHYPE and the Position -----------------------------------------------------------------------
