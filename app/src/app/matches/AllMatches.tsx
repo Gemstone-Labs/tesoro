@@ -1,38 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
+import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
 import { Button, Card, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
 import { accountHistory, historyPage } from "@/lib/chain/history";
 import { GAME_NAMES } from "@/lib/mock";
-import type { GameId } from "@/lib/mock";
-
-const FILTERS: [GameId | null, string][] = [
-  [null, "All"],
-  ["block-puzzle", GAME_NAMES["block-puzzle"]],
-  ["holdem", "Hold'em"],
-];
-
-const href = (game: GameId | null, page: number) => {
-  const q = new URLSearchParams();
-  if (game) q.set("game", game);
-  if (page > 1) q.set("page", String(page));
-  const s = q.toString();
-  return s ? `/matches?${s}` : "/matches";
-};
 
 /** Every finished Match of the signed-in Account (played or backed), newest first, 20 per page. */
 export function AllMatches() {
   const { auth, onChain, snapshot } = useAccount();
   const { error, refresh } = useChainData();
   const params = useSearchParams();
-  const gameParam = params.get("game");
-  const game: GameId | null = gameParam === "block-puzzle" || gameParam === "holdem" ? gameParam : null;
+  const game = gameFilter(params.get("game"));
   const [now] = useState(() => Date.now());
 
   const rows = useMemo(
@@ -57,13 +40,7 @@ export function AllMatches() {
     <div className="mh-page">
       <header className="mh-head">
         <h1 className="page-title">Matches</h1>
-        <nav className="mh-tabs" aria-label="Game">
-          {FILTERS.map(([id, label]) => (
-            <Link key={label} href={href(id, 1)} aria-current={game === id ? "page" : undefined} className={game === id ? "on" : undefined}>
-              {label}
-            </Link>
-          ))}
-        </nav>
+        <GameTabs base="/matches" game={game} />
       </header>
 
       {!snapshot ? (
@@ -91,35 +68,10 @@ export function AllMatches() {
               </div>
             ))}
           </div>
-          <nav className="mh-pages" aria-label="Pages">
-            <PageLink to={view.page > 1 ? href(game, view.page - 1) : null} rel="prev">
-              <ChevronLeft aria-hidden="true" /> Newer
-            </PageLink>
-            <span className="meta tnum" aria-current="page">
-              Page {view.page} of {view.pages} · {rows.length} {rows.length === 1 ? "Match" : "Matches"}
-            </span>
-            <PageLink to={view.page < view.pages ? href(game, view.page + 1) : null} rel="next">
-              Older <ChevronRight aria-hidden="true" />
-            </PageLink>
-          </nav>
+          <HistoryPages base="/matches" game={game} page={view.page} pages={view.pages} total={rows.length} />
         </>
       )}
       {error && snapshot && <p className="note">Could not refresh from Solana devnet; showing the last read.</p>}
     </div>
-  );
-}
-
-function PageLink({ to, rel, children }: { to: string | null; rel: "prev" | "next"; children: ReactNode }) {
-  if (!to) {
-    return (
-      <span className="cut cut-btn btn sm mh-page-link" aria-disabled="true">
-        {children}
-      </span>
-    );
-  }
-  return (
-    <Link href={to} rel={rel} className="cut cut-btn btn sm mh-page-link">
-      {children}
-    </Link>
   );
 }
