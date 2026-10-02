@@ -53,10 +53,10 @@ export const art = {
     herBacking: g("her-backing", 961, "right"),
     herWaitingCrosschain: g("her-waiting-crosschain", 1093, "left"),
   },
-  /** Demo/seed avatars. */
-  avatars: [1, 2, 3, 4, 5, 6].map((n) => f(`avatar-${n}`)),
+  /** Player avatars: animal heads cut from gemstones, never people and never green (DESIGN.md). */
+  avatars: Array.from({ length: 12 }, (_, i) => f(`avatars/avatar-${i + 1}`)),
 } as const;
-/** A stable avatar for a Player key, so the same Player always shows the same face. */
+/** A stable avatar for a Player key, so the same Player always shows the same avatar. */
 export function avatarFor(key: string): string {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;

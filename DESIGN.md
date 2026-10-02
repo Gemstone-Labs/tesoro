@@ -126,7 +126,7 @@ All game art, hero art and avatars come from one map, `app/src/lib/art.ts`. Unti
 - Money buttons use `--em-ink` for text and the inset focus ring.
 - Match results always pair an icon with words: ✓ Won · ✕ Lost · − Draw / Refunded (Play Again tiles too).
 - Simulated Unlock Estimates show an absolute time (the yield clock runs 1 month = 10 min); "–" until one exists.
-- Names are not on chain: Players show as short keys with a stable placeholder avatar (`avatarFor`).
+- Names are not on chain: Players show as short keys with a stable avatar (`avatarFor`), one of twelve animal heads cut from gemstones. Avatars never show people, and never a green stone or a loose gem (emerald and the gem mark belong to Gemas).
 - Dev only: `?dev=out` previews the signed-out UI and `?dev=demo` a populated fake Account (with `NEXT_PUBLIC_DEV_WALLET=1`); used for screenshots in `app/docs/screens/redesign-*.png`.
 
 ## Characters and the three product screens (p2)
