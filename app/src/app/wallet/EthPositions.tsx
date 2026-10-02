@@ -39,6 +39,7 @@ import {
   type VaultPosition,
 } from "@/lib/chain/eth";
 import {
+  ensureEvmLinked,
   ethError,
   fetchEthPrice,
   getTestSimEth,
@@ -658,6 +659,9 @@ async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: strin
 /** Redeems every ETH- and HYPE-Sourced holding the Account has redeemable: `redeem_to_evm`, then a tracker per Position. */
 export async function redeemEthHoldings(ctx: EthCtx, holdings: ChainHolding[]): Promise<number> {
   const rows = ethRedeemables(holdings);
+  if (rows.length === 0) return 0;
+  // A holder who won ETH-Sourced Gemas may never have opened an ETH Position: the bridge pays to the linked EVM address.
+  await ensureEvmLinked(ctx);
   const address = ctx.signer.publicKey.toBase58();
   for (const h of rows) await redeemEthSource(ctx, address, { vault: h.eth!.vault, id: h.eth!.id }, h.source, h.redeemable);
   return rows.length;
