@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
+import { Lightbulb } from "lucide-react";
 import { art } from "@/lib/art";
 import "./guide.css";
 
-export type PoseName = keyof typeof art.poses;
+export type PoseName = keyof typeof art.guide;
 
 /** One contextual tip the Guide can say. `id` is what "dismissed" is remembered by. */
 export interface GuideTip {
@@ -128,25 +129,30 @@ function GuideScene({ tip, dismiss }: { tip: GuideTip; dismiss: () => void }) {
       if (back?.isConnected) back.focus({ preventScroll: true });
     };
   }, [ready, dismiss]);
-  const pose = art.poses[tip.pose];
+  const pose = art.guide[tip.pose];
   return (
     <div className={`guide${ready ? " in" : ""}`} role="dialog" aria-modal="true" aria-labelledby="guide-title" aria-describedby="guide-text">
-      <div className="guide-stage">
-        <div className="cut cut-card guide-bubble">
-          <b id="guide-title">{tip.title ?? "Tip"}</b>
-          <p id="guide-text">{tip.text}</p>
-          <div className="guide-actions">
-            {tip.link && (
-              <Link href={tip.link.href} className="guide-link" onClick={dismiss}>
-                {tip.link.label}
-              </Link>
-            )}
-            <button ref={gotIt} type="button" className="cut cut-btn btn neutral guide-ok" onClick={dismiss}>
-              Got it
-            </button>
+      <div className="guide-figure">
+        <Image className={`guide-bust${pose.faces === "right" ? " flip" : ""}`} src={pose.src} alt="" width={pose.w} height={pose.h} priority onLoad={() => setReady(true)} />
+        <div className="guide-say">
+          <div className="cut cut-card guide-bubble">
+            <p className="guide-eyebrow">
+              <Lightbulb aria-hidden="true" /> Tip
+            </p>
+            <b id="guide-title">{tip.title ?? "Good to know"}</b>
+            <p id="guide-text">{tip.text}</p>
+            <div className="guide-actions">
+              {tip.link && (
+                <Link href={tip.link.href} className="guide-link" onClick={dismiss}>
+                  {tip.link.label}
+                </Link>
+              )}
+              <button ref={gotIt} type="button" className="cut cut-btn btn guide-ok" onClick={dismiss}>
+                Got it
+              </button>
+            </div>
           </div>
         </div>
-        <Image className="guide-pose" src={pose.src} alt="" width={pose.w} height={pose.h} priority onLoad={() => setReady(true)} />
       </div>
     </div>
   );
