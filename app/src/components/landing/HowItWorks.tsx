@@ -13,7 +13,7 @@ type Node = { id: string; x: number; y: number; art?: LandingKey | "back"; title
 const NODES: Node[] = [
   { id: "position", x: 92, y: 220, art: "step1", title: "Open a Position", sub: "SOL · ETH · HYPE", label: [92, 312] },
   { id: "advance", x: 332, y: 220, art: "step2", title: "Take an Advance", sub: "1–12 months of projected yield, today, as Gemas", label: [332, 312] },
-  { id: "play", x: 592, y: 92, art: "step4", title: "Play yourself", sub: "Head-to-head Matches", label: [592, 182] },
+  { id: "play", x: 592, y: 92, art: "step4", title: "Play yourself", label: [592, 182] },
   { id: "back", x: 592, y: 372, art: "back", title: "Back a Player", sub: "Fund a stronger Player’s entry", label: [592, 462] },
   { id: "settle", x: 800, y: 232, title: "Settle", small: true, label: [0, 0] },
 ];
