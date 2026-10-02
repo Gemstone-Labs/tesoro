@@ -56,6 +56,79 @@ function Outcome({ win, title, children }: { win?: boolean; title: string; child
   );
 }
 
+type Shape = "straight" | "split" | "merge";
+const LINKS: Record<Shape, string[]> = {
+  straight: ["M50 0V48"],
+  split: ["M50 0C50 26 25 22 25 48", "M50 0C50 26 75 22 75 48"],
+  merge: ["M25 0C25 26 50 22 50 48", "M75 0C75 26 50 22 50 48"],
+};
+
+/** A piece of glowing tube between two rows of the phone flow; columns sit at 25% / 75%. */
+function Link({ shape }: { shape: Shape }) {
+  const paths = LINKS[shape];
+  return (
+    <svg className="lp-m-link" viewBox="0 0 100 48" preserveAspectRatio="none" fill="none" aria-hidden>
+      {["tube-outer", "tube-core", "tube-hi", "tube-flow"].map((cls) => (
+        <g key={cls} className={cls}>
+          {paths.map((d) => (
+            <path key={d} d={d} vectorEffect="non-scaling-stroke" pathLength={100} />
+          ))}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function MNode({ node, size = "" }: { node: Node; size?: string }) {
+  return (
+    <div className={`lp-m-step ${size}`}>
+      <div className="lp-oct-node" aria-hidden>
+        <span className="lp-oct-frame" />
+        <NodeArt node={node} />
+      </div>
+      <b>{node.title}</b>
+      {node.sub && <span>{node.sub}</span>}
+    </div>
+  );
+}
+
+/** The same flow, drawn top to bottom for phones. */
+function FlowPhone() {
+  const [position, advance, play, back] = NODES;
+  return (
+    <div className="lp-flow-phone" data-reveal>
+      <MNode node={position} />
+      <Link shape="straight" />
+      <MNode node={advance} />
+      <Link shape="split" />
+      <div className="lp-m-pair">
+        <MNode node={play} size="sm" />
+        <MNode node={back} size="sm" />
+      </div>
+      <Link shape="merge" />
+      <div className="lp-m-step">
+        <div className="lp-oct-node settle" aria-hidden>
+          <span className="lp-oct-frame" />
+          <span className="lp-settle-label">Settle</span>
+        </div>
+      </div>
+      <Link shape="split" />
+      <div className="lp-m-pair">
+        {[true, false].map((win) => (
+          <div key={String(win)} className={`lp-m-outcome cut cut-frame ${win ? "win" : "lose"}`}>
+            <div className="lp-oct-node" aria-hidden>
+              <span className="lp-oct-frame" />
+              {landingArt(win ? "step5" : "step1") && <Picture k={win ? "step5" : "step1"} sizes="72px" />}
+            </div>
+            <b>{win ? "Win" : "Lose"}</b>
+            <span>{win ? "You take the loser’s Gemas, paid out as their yield lands." : "Your Position stays locked until its yield repays the Advance."}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function HowItWorks() {
   const guide = landingArt("himGuide");
   return (
@@ -122,6 +195,7 @@ export function HowItWorks() {
           </Outcome>
           <Outcome title="Lose">Your Position stays locked until its yield repays the Advance.</Outcome>
         </figure>
+        <FlowPhone />
         <p className="lp-flow-foot" data-reveal>
           <b>Your Principal is never played.</b> Only future yield moves.
         </p>
