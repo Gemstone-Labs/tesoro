@@ -11,6 +11,7 @@ Deployer / upgrade authority `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` (`~/
 | Program `trading_duel` (575,752 bytes) | `CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj` |
 | Deploy | `616jDmGR...V3Xmgp` |
 | Upgrade: `close_unstarted` added, crate built with `opt-level = "s"` (525,392 bytes, fits the allocated 575,752) | `ffTeUmYv...M2ti` |
+| Upgrade: end price pinned (`END_GRACE_SECS` 4, last-mid fallback in `Duel.final_price`), `MAX_STALE_SECS` 2, checked arithmetic in the engine (526,152 bytes, layout unchanged) | `4gXAxxgD...mt8De` |
 | `register_game` (authority PDA `["authority"]`, Studio Fee 300 bps) | authority `mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe`, tx `2qEAdKkQ...JxjST2` |
 | TEE validator whitelist (ProgramConfig `43amrCapYPLYz9tGPcdxw84A3Hby9j4kSTmDTCmu7xZb`) | `58oD5t2o...XveMXU` |
 | Oracle feeds (MagicBlock real-time pricing, owner `PriCems5tHihc6UDXDjzjeawomAwBduWMGAi8ZUjppd`) | SOL `ENYwebBThHzmzwPLAQvCucUTsjyfBSZdD9ViXksS4jPu`, ETH `5vaYr1hpv8yrSpu8w3K95x22byYxUJCCNCSYJtqVWPvG`, HYPE `CxEkVoCUwSAprvAhdWRPH63JeioQVNDtyZYEMRXuLu6x`: read live on the devnet rollup and the TEE |

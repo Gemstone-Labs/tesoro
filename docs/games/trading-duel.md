@@ -86,6 +86,8 @@ Program `trading_duel` `CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj`. Players a
 | draw | ETH | `14327736067186` | nobody traded, 10,000 each, `refund_match`, both entries back | `finalize` `46iXXPDj...` |
 | no-show | SOL | `14327749974168` | created and delegated, never started: `claim_timeout` after the start deadline, `close_unstarted`, `finalize` refunds both entries | `claim_timeout` `3ktUCjz7...`, `finalize` `3q1th5ia...` |
 
+**After the end-price pinning upgrade** (deploy `4gXAxxgD...mt8De`; 2 s staleness, 28 LiteSVM tests): full ETH Match `on time` (`end_match` inside the grace, final price 2,668.78, seat 1 won 9,992 to 9,968) and a HYPE Match with `end_match` called 8 s after the end, which settled at the last mid recorded in the window (86.335, not the live feed; seat 1 won 9,996 to 9,966). No trade was refused as stale in either run.
+
 **In the browser** (`app/scripts/qa-trading-duel.mjs`, two dev wallets, Player A on a 1440 desktop and Player B on a 390 phone, Queue entry, then everything driven by the clients: create, delegate, start, trades, `tick`, `end_match`, `close_match`, `finalize`):
 
 - ETH Queue Match `14327757396330`: A long 5x, B short 5x, A closed. Final equity 9,986 (A) to 9,995 (B); A lost 500 Gemas, B won; both fill histories shown on the result.
