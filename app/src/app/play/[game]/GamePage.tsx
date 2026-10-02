@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ArrowRight, Clock, Link2 } from "lucide-react";
+import { AccountLink } from "@/components/account/AccountLink";
 import { MatchRow } from "@/components/match/MatchRow";
 import { BustCard, Button, EntryPicker } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -31,8 +32,6 @@ const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: str
     hero: art.holdemHero,
   },
 };
-
-const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
 export function GamePage({ game }: { game: GameId }) {
   const { snapshot, onChain, auth } = useAccount();
@@ -113,7 +112,7 @@ export function GamePage({ game }: { game: GameId }) {
                 <div key={key} className="cut cut-card gp-top">
                   <b className="gp-rank">{i + 1}</b>
                   <Image className="gp-av" src={avatarFor(key)} alt="" width={44} height={44} />
-                  <span className="gp-topname">{short(key)}</span>
+                  <AccountLink account={key} className="gp-topname" />
                   <b className="tnum gp-score">{score}</b>
                 </div>
               ))}

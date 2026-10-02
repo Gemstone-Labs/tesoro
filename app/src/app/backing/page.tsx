@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { Trophy, X as XMark } from "lucide-react";
 import {
@@ -19,6 +19,7 @@ import {
   SkeletonCards,
   Slider,
 } from "@/components/ui";
+import { AccountLink } from "@/components/account/AccountLink";
 import { useGuideTip } from "@/components/guide/Guide";
 import { useAccount } from "@/lib/account";
 import { art, avatarFor } from "@/lib/art";
@@ -57,6 +58,11 @@ function explain(e: unknown): string {
   }
   const first = e instanceof Error ? e.message.split("\n")[0] : String(e);
   return first.length > 160 ? `${first.slice(0, 160)}…` : first;
+}
+
+function onHashChange(notify: () => void) {
+  window.addEventListener("hashchange", notify);
+  return () => window.removeEventListener("hashchange", notify);
 }
 
 function useNow(everyMs = 30_000) {
@@ -147,6 +153,18 @@ export default function Backing() {
       return applyToOffer(signer, request, offer.address);
     });
 
+  // `/backing#<request>` (the Lobby rail, a Player's Account) opens the Offer on that Request, once the
+  // board is read and it is known whether the Request is the visitor's own.
+  const hash = useSyncExternalStore(onHashChange, () => window.location.hash.slice(1), () => "");
+  const hashRead = useRef(false);
+  const meKnown = auth.status === "signed-out" || (auth.status === "signed-in" && !!snapshot);
+  const linked = hash && meKnown ? requests.find((r) => r.address.toBase58() === hash && r.player !== me) : undefined;
+  useEffect(() => {
+    if (hashRead.current || !linked) return;
+    hashRead.current = true;
+    if (linked.live) auth.gate("make an Offer", () => setOfferFor(linked));
+  }, [linked, auth]);
+
   const selected = offerFor && offerFor !== "public" ? offerFor.address.toBase58() : null;
   const tabs: [Tab, string][] = [
     ["requests", "Requests"],
@@ -173,6 +191,7 @@ export default function Backing() {
       </header>
 
       {error && <p className="status err" role="alert">{error}</p>}
+      {linked && !linked.live && <p className="status" role="status">That Request is no longer open.</p>}
       {done && (
         <div className="status ok" role="status">
           <CheckIcon /> {done.text}
@@ -404,9 +423,10 @@ function Empty({ title, body }: { title: string; body: string }) {
   );
 }
 
-/** A Player or Backer card: avatar, handle, game, record line, a game art strip, the entry and one action. */
+/** A Player or Backer card: avatar, handle, game, record line, a game art strip, the entry and one action. With `account`, the avatar and name lead to that Player's Account. */
 function ArtCard({
   seed,
+  account,
   name,
   game,
   line,
@@ -417,6 +437,7 @@ function ArtCard({
   id,
 }: {
   seed: string;
+  account?: string;
   name: string;
   game: GameId;
   line: string;
@@ -428,11 +449,17 @@ function ArtCard({
 }) {
   return (
     <article id={id} className={`cut cut-card bk-card${selected ? " selected" : ""}`} aria-label={`${name}, ${GAME_NAMES[game]}`}>
-      <span className="cut cut-btn avatar bk-avatar">
-        <Image src={avatarFor(seed)} alt="" width={78} height={78} />
-      </span>
+      {account ? (
+        <AccountLink account={account} decorative className="cut cut-btn avatar bk-avatar">
+          <Image src={avatarFor(seed)} alt="" width={78} height={78} />
+        </AccountLink>
+      ) : (
+        <span className="cut cut-btn avatar bk-avatar">
+          <Image src={avatarFor(seed)} alt="" width={78} height={78} />
+        </span>
+      )}
       <div className="bk-who">
-        <strong>{name}</strong>
+        <strong>{account ? <AccountLink account={account}>{name}</AccountLink> : name}</strong>
         <span>{GAME_NAMES[game]}</span>
         <span className="bk-rec">{line}</span>
       </div>
@@ -454,6 +481,7 @@ function RequestCard({ r, selected, onOffer }: { r: ChainRequest; selected: bool
     <ArtCard
       id={r.address.toBase58()}
       seed={r.player}
+      account={r.player}
       name={shortKey(r.player)}
       game={r.game}
       line={recordShort(r.record)}
@@ -579,7 +607,9 @@ function MyOffer({
               return (
                 <div className="spread" key={a}>
                   <span className="row-body">
-                    <span className="row-title">{shortKey(r.player)}</span>
+                    <span className="row-title">
+                      <AccountLink account={r.player} newTab />
+                    </span>
                     <span className="row-meta">{recordText(r.record)}</span>
                   </span>
                   <Button size="sm" variant="money" disabled={busy !== null || !r.live} onClick={() => onAccept(r)}>
@@ -660,7 +690,9 @@ function OfferDrawer({
                     <Image src={avatarFor(player)} alt="" width={78} height={78} />
                   </span>
                   <div className="bk-who">
-                    <strong>{shortKey(player)}</strong>
+                    <strong>
+                      <AccountLink account={player} newTab />
+                    </strong>
                     <span>{GAME_NAMES[game]}</span>
                     <span className="bk-rec">{recordShort(request!.record)}</span>
                   </div>

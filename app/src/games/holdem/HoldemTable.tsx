@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { PublicKey } from "@solana/web3.js";
+import { AccountLink } from "@/components/account/AccountLink";
 import { Button, GemaMark } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
+import { shortKey } from "@/lib/chain/history";
 import { fmtGemas } from "@/lib/format";
-import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, call, check, fold, raise, type Action, type Table } from "./chain";
+import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, call, check, fold, raise, tesoroAccountPda, type Action, type Table } from "./chain";
 import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
 import { PlayingCard } from "./cards";
 import { inPlay, legalMoves } from "./rules";
 import "./holdem.css";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
-const short = (k: { toBase58(): string }) => `${k.toBase58().slice(0, 4)}…${k.toBase58().slice(-4)}`;
 const STREET = ["Shuffling", "Preflop", "Flop", "Turn", "River", ""];
 
 function useNow(ms = 250) {
@@ -58,6 +60,12 @@ interface Props {
 export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim, practice }: Props) {
   const opp = 1 - seat;
   const now = useNow();
+  const [walletA, walletB] = t.players.map((p) => p.toBase58());
+  // The table holds wallets; every other screen shows a Player by their Account key.
+  const accounts = useMemo(
+    () => (practice ? [] : [walletA, walletB].map((w) => tesoroAccountPda(new PublicKey(w)).toBase58())),
+    [practice, walletA, walletB],
+  );
   const playing = inPlay(t);
   const myTurn = playing && t.toAct === seat;
   const between = !ended && t.status === STATUS.live && t.phase === PHASE.shuffle;
@@ -130,7 +138,9 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           <div className="hdx-felt">
             <Seat
               who="Opponent"
-              address={practice ? "Bot" : short(t.players[opp])}
+              address={practice ? "Bot" : undefined}
+              account={practice ? undefined : accounts[opp]}
+              linked={ended}
               stack={t.stacks[opp]}
               bet={t.bets[opp]}
               dealer={sbSeat === opp}
@@ -164,7 +174,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
 
             <Seat
               who="You"
-              address={practice ? "" : short(t.players[seat])}
+              account={practice ? undefined : accounts[seat]}
               stack={t.stacks[seat]}
               bet={t.bets[seat]}
               dealer={sbSeat === seat}
@@ -222,6 +232,8 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
 function Seat({
   who,
   address,
+  account,
+  linked,
   stack,
   bet,
   dealer,
@@ -232,7 +244,12 @@ function Seat({
   children,
 }: {
   who: string;
-  address: string;
+  /** A plain label in place of a Player (the practice bot). */
+  address?: string;
+  /** The Player's Account key, as shown everywhere else (the table itself holds wallets). */
+  account?: string;
+  /** Link the key to the Account: only once the Match has ended, never during a hand. */
+  linked?: boolean;
   stack: bigint;
   bet: bigint;
   dealer: boolean;
@@ -250,7 +267,7 @@ function Seat({
           <strong>{who}</strong>
           {dealer && <span className="hd-btn" title="Button, posts the small blind" aria-label="Dealer button">D</span>}
           {active && <span className="hd-turn">To act</span>}
-          <span className="mono hd-addr">{address}</span>
+          <span className="mono hd-addr">{account ? linked ? <AccountLink account={account} newTab /> : shortKey(account) : address}</span>
         </div>
         <div className="hd-stack mono" aria-label={`${who} stack ${chips(stack)} Chips`}>
           {chips(stack)} <span className="hd-unit">Chips</span>
