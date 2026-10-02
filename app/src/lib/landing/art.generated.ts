@@ -7,8 +7,7 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
     "h": 1800,
     "widths": [
       1280,
-      1920,
-      2560
+      1920
     ]
   },
   "heroMid": {
@@ -16,8 +15,7 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
     "h": 1800,
     "widths": [
       1280,
-      1920,
-      2560
+      1920
     ]
   },
   "heroFront": {
@@ -25,8 +23,7 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
     "h": 1800,
     "widths": [
       1280,
-      1920,
-      2560
+      1920
     ]
   },
   "heroMobile": {
@@ -58,8 +55,7 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
     "h": 1800,
     "widths": [
       1280,
-      1920,
-      2560
+      1920
     ]
   },
   "finalDuo": {

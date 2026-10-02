@@ -15,7 +15,8 @@ const GEN = resolve(here, "../src/lib/landing/art.generated.ts");
 /** The chosen take per folder (Ailton's picks; see art-source/landing/PROMPTS.md). */
 const TAKE = { hero: 1, "him-guide": 1, "her-backer": 1, "final-cta": 1, "how-it-works": 1, multichain: 1, texture: 1 };
 
-const SCENE = [1280, 1920, 2560];
+// No 2560: the scenes are upscaled from ~1700 px natives (see each QA.json), so a larger file adds bytes, not detail.
+const SCENE = [1280, 1920];
 const ASSETS = [
   // The hero falls back to the flattened composite until the layers are delivered.
   { key: "heroBack", files: [`hero/take-${TAKE.hero}-back.png`, `hero/take-${TAKE.hero}.png`], widths: SCENE },

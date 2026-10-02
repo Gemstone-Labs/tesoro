@@ -26,11 +26,10 @@ export function Nav() {
   const theme = useSyncExternalStore(subscribeTheme, readTheme, () => "dark" as Theme);
 
   useEffect(() => {
-    const hero = document.getElementById("top");
-    if (!hero) return;
-    const io = new IntersectionObserver(([e]) => setScrolled(!e.isIntersecting), { rootMargin: "-72px 0px 0px 0px", threshold: 0 });
-    io.observe(hero);
-    return () => io.disconnect();
+    const onScroll = () => setScrolled(scrollY > 24);
+    onScroll();
+    addEventListener("scroll", onScroll, { passive: true });
+    return () => removeEventListener("scroll", onScroll);
   }, []);
 
   const toggle = () => {

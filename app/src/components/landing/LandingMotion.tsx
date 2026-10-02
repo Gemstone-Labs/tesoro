@@ -76,10 +76,9 @@ export function LandingMotion() {
         const hero = document.querySelector<HTMLElement>(".lp-hero");
         if (hero) {
           const scrub = { trigger: hero, start: "top top", end: "bottom top", scrub: true };
-          const h = () => hero.offsetHeight;
-          gsap.to(".lp-hero .layer.back", { y: () => h() * 0.3, ease: "none", scrollTrigger: scrub });
-          gsap.to(".lp-hero .layer.mid", { y: () => h() * 0.18, ease: "none", scrollTrigger: scrub });
-          gsap.to(".lp-hero .layer.front", { y: () => h() * 0.04, ease: "none", scrollTrigger: scrub });
+          // Small, fixed offsets: Astra's layers hold together up to about 100 art px (60 page px) apart.
+          gsap.to(".lp-hero .layer.back", { y: 60, ease: "none", scrollTrigger: scrub });
+          gsap.to(".lp-hero .layer.mid", { y: 30, ease: "none", scrollTrigger: scrub });
           gsap.to("[data-hero-copy]", { autoAlpha: 0, y: -40, ease: "none", scrollTrigger: { ...scrub, end: "60% top" } });
         }
 
