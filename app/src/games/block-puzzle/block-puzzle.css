@@ -20,7 +20,9 @@
 .bpx-stake { grid-area: stake; font-size: 13.5px; color: var(--fg-2); padding-top: 8px; border-top: 1px solid var(--line); }
 .bpx-stake b { color: var(--fg); font-weight: 700; }
 .bp-score-n { font-size: 36px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
-.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: 640px; }
+/* The board is square and as wide as .bpx-mid, so cap that width by the viewport height left after the
+   top bar, score bar, tray and hint (~380px): the whole play screen fits without scrolling. */
+.bpx-mid { display: grid; gap: 14px; justify-items: center; width: 100%; max-width: clamp(300px, calc(100dvh - 380px), 640px); }
 .bpx-mid .bp-stage, .bpx-mid .bp-tray, .bpx-mid .bp-help { width: 100%; }
 .bpx-foot { display: grid; gap: 6px; justify-items: center; width: 100%; max-width: 640px; font-size: 14px; color: var(--fg-2); text-align: center; }
 .bpx-status { font-size: 15px; color: var(--fg-2); }
@@ -35,6 +37,16 @@
 @media (min-width: 640px) {
   .bpx-bar { grid-template-columns: auto auto 1fr auto; grid-template-areas: "score ring run stake"; }
   .bpx-stake { border-top: 0; padding-top: 0; text-align: right; }
+}
+/* Short screens (laptops, zoomed browsers): slimmer bar and tray so the board keeps more of the height. */
+@media (max-height: 860px) {
+  .bpx { gap: 12px; }
+  .bpx-bar { padding: 8px 16px; }
+  .bpx-ring { width: 56px; height: 56px; }
+  .bp-score-n { font-size: 30px; }
+  .bpx-mid { gap: 10px; max-width: clamp(300px, calc(100dvh - 320px), 640px); }
+  .bp-slot { height: 72px; }
+  .bp-overlay .bp-final { font-size: 48px; }
 }
 .bp-final { font-size: 64px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 .bp-title { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
