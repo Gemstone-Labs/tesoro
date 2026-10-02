@@ -42,6 +42,14 @@ export const LANDING_ART: Partial<Record<string, LandingAsset>> = {
       1920
     ]
   },
+  "heroLightMobile": {
+    "w": 1242,
+    "h": 1660,
+    "widths": [
+      828,
+      1242
+    ]
+  },
   "himGuide": {
     "w": 1041,
     "h": 1638,

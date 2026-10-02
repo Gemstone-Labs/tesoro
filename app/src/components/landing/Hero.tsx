@@ -10,6 +10,14 @@ export function Hero() {
       {light && (
         <div className="lp-hero-art lp-hero-light" aria-hidden>
           <Picture k="heroLight" mobile="heroLightMobile" sizes="100vw" className="layer" />
+          {/* Same box maths as the dark hero, so the effects stay on the art at any viewport. */}
+          <span className="lp-lantern-box">
+            <span className="lp-rays day" />
+            <Motes count={22} seed={41} className="lp-shaft-motes day" />
+            <Glints at={[[88.3, 18.5, 0.4], [52.6, 41, 2.1], [77.3, 59.5, 3.7], [49.4, 19.5, 5.0], [74.6, 30.5, 1.5], [57.5, 70, 4.4]]} />
+            <span className="lp-crystal-glow" style={{ left: "88.3%", top: "28.7%" }} />
+            <span className="lp-crystal-glow sm" style={{ left: "52.4%", top: "45.9%" }} />
+          </span>
         </div>
       )}
       <div className="lp-hero-art" aria-hidden>

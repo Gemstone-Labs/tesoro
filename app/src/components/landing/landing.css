@@ -12,8 +12,8 @@
   --side: #efebe3;
   --raised: #fbf9f5;
   --raised-2: #ebe6dc;
-  --line: rgba(17, 24, 22, 0.12);
-  --line-2: rgba(17, 24, 22, 0.22);
+  --line: rgba(17, 24, 22, 0.2);
+  --line-2: rgba(17, 24, 22, 0.34);
   --fg: #111816;
   --fg-2: #4a5451;
   --fg-3: #5e6663;
@@ -258,8 +258,10 @@ html.lenis, html.lenis body { height: auto; }
 .lp-gem { position: absolute; inset: 4% 0 2%; }
 .lp-gem-glow { position: absolute; inset: 14% 10% 22%; background: radial-gradient(closest-side, rgba(36, 216, 168, 0.3), transparent 72%); }
 :root[data-theme="light"] .lp-gem-glow { background: radial-gradient(closest-side, rgba(10, 125, 92, 0.18), transparent 72%); }
-/* Stage3D: poster underneath, the live canvas fading in over it. */
+/* Stage3D: poster underneath (one render per theme), the live canvas fading in over it. */
 .lp-stage-poster, .lp-stage-poster picture, .lp-stage-poster img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; transition: opacity 0.4s; }
+.lp-stage-poster .on-light, :root[data-theme="light"] .lp-stage-poster .on-dark { display: none; }
+:root[data-theme="light"] .lp-stage-poster .on-light { display: block; }
 .lp-stage-canvas { position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s; }
 [data-ready="true"] > .lp-stage-canvas { opacity: 1; }
 [data-ready="true"] > .lp-stage-poster { opacity: 0; }
@@ -615,3 +617,29 @@ html.lenis, html.lenis body { height: auto; }
   --gem-ink-line: rgba(4, 60, 44, 0.6);
 }
 :root[data-theme="light"] .lp-hero.has-light-art .btn.money { color: #ffffff; }
+
+/* Daylight hero effects: warm-white god rays through the opening, dust catching the sun, glints and a slow pulse on
+   the crystals. Normal blending (screen would vanish on a light image). */
+.lp-rays.day {
+  left: 56%; top: -6%; width: 30%; height: 90%; mix-blend-mode: normal; opacity: 0.55;
+  background: repeating-linear-gradient(104deg, transparent 0 22px, rgba(255, 253, 246, 0.55) 22px 38px, transparent 38px 64px);
+  -webkit-mask: radial-gradient(55% 85% at 50% 0, #000 25%, transparent 78%);
+  mask: radial-gradient(55% 85% at 50% 0, #000 25%, transparent 78%);
+}
+.lp-shaft-motes.day { left: 56%; width: 30%; height: 85%; }
+.lp-shaft-motes.day i { background: rgba(255, 255, 255, 0.95); box-shadow: 0 0 2px rgba(110, 100, 85, 0.35), 0 0 6px rgba(255, 250, 235, 0.9); }
+.lp-crystal-glow {
+  position: absolute; width: 12%; aspect-ratio: 1; translate: -50% -50%; pointer-events: none; mix-blend-mode: screen; opacity: 0.6;
+  background: radial-gradient(closest-side, rgba(106, 248, 214, 0.55), rgba(36, 216, 168, 0.15) 55%, transparent);
+}
+.lp-crystal-glow.sm { width: 8%; }
+@media (prefers-reduced-motion: no-preference) {
+  .lp-crystal-glow { animation: lp-crystal-pulse 5.5s ease-in-out infinite; }
+  .lp-crystal-glow.sm { animation-delay: -2.4s; }
+}
+@keyframes lp-crystal-pulse { 50% { opacity: 1; scale: 1.12; } }
+@media (max-width: 767px) { .lp-hero-light .lp-glints, .lp-hero-light .lp-crystal-glow { display: none; } }
+@media (max-width: 767px) {
+  .lp-rays.day { left: 26%; top: 34%; width: 40%; height: 50%; }
+  .lp-shaft-motes.day { left: 26%; top: 34%; width: 40%; height: 55%; }
+}
