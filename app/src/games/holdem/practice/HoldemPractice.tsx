@@ -60,7 +60,7 @@ export function HoldemPractice() {
           </div>
           <div className="bp-actions">
             <Button onClick={() => setGame(newPractice(nowSecs()))}>Play again</Button>
-            <Button href="/">Lobby</Button>
+            <Button href="/lobby">Lobby</Button>
           </div>
         </div>
       )}

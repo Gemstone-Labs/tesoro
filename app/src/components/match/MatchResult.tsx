@@ -183,7 +183,7 @@ export function MatchResult(p: MatchResultProps) {
         ) : (
           <Button variant="money" size="lg" href={p.playAgainHref}>Play again</Button>
         )}
-        <Button size="lg" href="/">Lobby</Button>
+        <Button size="lg" href="/lobby">Lobby</Button>
         <Button size="lg" href="/wallet">Wallet</Button>
       </div>
       {p.children}

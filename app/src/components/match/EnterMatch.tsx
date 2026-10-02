@@ -109,7 +109,7 @@ export function EnterMatch(props: EnterKind) {
             <p className="status" role="status">You still have a {GAME_NAMES[props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle")]} Match to play. Finish it before entering another.</p>
             <div className="hstack wrap">
               <Button variant="money" href={`/play/match/${existing.toString()}`}>Continue</Button>
-              <Button href="/">Lobby</Button>
+              <Button href="/lobby">Lobby</Button>
             </div>
           </>
         ) : failure ? (
@@ -118,7 +118,7 @@ export function EnterMatch(props: EnterKind) {
             <div className="hstack wrap">
               {failure.wallet && <Button variant="money" href="/wallet">Open Wallet</Button>}
               <Button onClick={() => window.location.reload()}>Try again</Button>
-              <Button href="/">Lobby</Button>
+              <Button href="/lobby">Lobby</Button>
             </div>
           </>
         ) : (

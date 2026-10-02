@@ -187,9 +187,9 @@ The founder's rule (Oct 1): the website must not copy the mockups' density. Mock
 
 Dev only: `/design/result?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost` renders every result variant from fixtures (`NEXT_PUBLIC_DEV_WALLET=1`).
 
-## Landing page (`/welcome`)
+## Landing page (`/`)
 
-Plan, copy and decisions: `~/Work/gemstone-labs/tesoro/art-source/landing/PLAN.md` (workspace); Astra brief: `PROMPTS.md` beside it. Code: `app/src/app/(marketing)/welcome`, `app/src/components/landing`. The app routes live in the `(app)` route group, so `/welcome` loads none of Privy, chain data or the shell.
+Plan, copy and decisions: `~/Work/gemstone-labs/tesoro/art-source/landing/PLAN.md` (workspace); Astra brief: `PROMPTS.md` beside it. Code: `app/src/app/(marketing)/page.tsx`, `app/src/components/landing`. The landing is `/` (`/welcome` redirects there) and the Lobby is `/lobby`. The app routes live in the `(app)` route group, so the landing loads none of Privy, chain data or the shell.
 
 - **Written for mainnet.** Testnet-only content (the Multichain status line, the footer's "testnet / devnet · no real value") renders only while `NEXT_PUBLIC_LAUNCH_STAGE` is not `mainnet`. Launch app and every in-app link read `NEXT_PUBLIC_APP_URL` (the landing page and the app get separate URLs at launch).
 - **Light theme, landing only.** `:root[data-theme="light"]` in `landing.css`: `--shell #f5f3ee` (the background the light lockup was checked on), `--fg #111816`, `--fg-2 #4a5451`, `--em #086b4f` (5.8:1), `--facet` deep emerald with white ink. Set before paint from localStorage, else `prefers-color-scheme`; cleared when leaving the page so the app stays dark. The hero is the dark cave in both themes (the light theme starts below it); the final CTA becomes a cut-frame window in light.

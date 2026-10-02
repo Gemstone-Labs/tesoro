@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // The landing moved from /welcome to /; keep old links working.
+  async redirects() {
+    return [{ source: "/welcome", destination: "/", permanent: false }];
+  },
 };
 
 export default nextConfig;

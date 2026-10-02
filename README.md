@@ -124,7 +124,7 @@ All commands run from the repo root after `pnpm install`.
 
 ```bash
 pnpm install
-NEXT_PUBLIC_DEV_WALLET=1 pnpm dev    # http://localhost:3000, with a dev-only local wallet
+NEXT_PUBLIC_DEV_WALLET=1 pnpm dev    # http://localhost:3000 (landing; the app starts at /lobby), with a dev-only local wallet
 ```
 
 Every RPC defaults to `https://rpc.magicblock.app/devnet`, so no configuration is needed. To use your own endpoints, create `app/.env.local` with only the variables you set. `app/.env.example` lists them. Leave unset variables out instead of copying them blank, because an empty value overrides the default.

@@ -16,7 +16,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const router = useRouter();
   const signedIn = auth.status === "signed-in";
   const signedOut = auth.status === "signed-out";
-  const onLobby = path === "/";
+  const onLobby = path === "/lobby";
 
   return (
     <header className={`topbar${onLobby ? " on-lobby" : ""}`}>
@@ -29,7 +29,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         role="search"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!onLobby) router.push("/");
+          if (!onLobby) router.push("/lobby");
         }}
       >
         <Search aria-hidden="true" />
@@ -42,7 +42,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            if (!onLobby && e.target.value) router.push("/");
+            if (!onLobby && e.target.value) router.push("/lobby");
           }}
         />
         {query && (

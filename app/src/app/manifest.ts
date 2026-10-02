@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Tesoro",
     short_name: "Tesoro",
     description: "Play now with yield you haven't earned yet. Skill games on Solana; your staking Principal is never played.",
-    start_url: "/",
+    start_url: "/lobby",
     display: "standalone",
     background_color: "#0C0E10",
     theme_color: "#0C0E10",

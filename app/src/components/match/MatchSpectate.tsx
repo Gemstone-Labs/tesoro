@@ -43,7 +43,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
       <div className="stack-lg mr">
         <h1 className="page-title">Match not found</h1>
         <p className="meta">No Match with that id on devnet.</p>
-        <Button href="/">Lobby</Button>
+        <Button href="/lobby">Lobby</Button>
       </div>
     );
   }
@@ -142,7 +142,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
             Play {GAME_NAMES[m.game]}
           </Button>
         )}
-        <Button size="lg" href="/">Lobby</Button>
+        <Button size="lg" href="/lobby">Lobby</Button>
         <Button size="lg" href="/matches">All Matches</Button>
       </div>
     </div>

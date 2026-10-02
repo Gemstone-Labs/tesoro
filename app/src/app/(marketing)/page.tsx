@@ -14,7 +14,7 @@ import { Studios } from "@/components/landing/Studios";
 
 export const metadata: Metadata = {
   title: "Tesoro · Play now with yield you haven't earned yet",
-  alternates: { canonical: "/welcome" },
+  alternates: { canonical: "/" },
 };
 
 export default function Welcome() {

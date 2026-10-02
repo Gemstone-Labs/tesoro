@@ -6,19 +6,19 @@ import { BookOpen, CircleHelp, Gamepad2, HandCoins, House, Wallet, type LucideIc
 import { TesoroLogo } from "@/components/brand";
 
 export const NAV: { href: string; label: string; Icon: LucideIcon }[] = [
-  { href: "/", label: "Lobby", Icon: House },
+  { href: "/lobby", label: "Lobby", Icon: House },
   { href: "/play", label: "Play", Icon: Gamepad2 },
   { href: "/backing", label: "Backing", Icon: HandCoins },
   { href: "/wallet", label: "Wallet", Icon: Wallet },
 ];
 
 export function isHere(path: string, href: string): boolean {
-  return href === "/" ? path === "/" : path.startsWith(href);
+  return path.startsWith(href);
 }
 
 export function Wordmark({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <Link href="/" className="wordmark" aria-label="Tesoro, home" onClick={onNavigate}>
+    <Link href="/lobby" className="wordmark" aria-label="Tesoro, home" onClick={onNavigate}>
       <TesoroLogo height={34} />
     </Link>
   );

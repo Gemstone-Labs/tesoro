@@ -23,7 +23,7 @@ const ctx = await browser.newContext({ viewport: VIEW, recordVideo: { dir: work,
 await ctx.addInitScript(() => localStorage.setItem("tesoro-landing-theme", "dark"));
 const t0 = Date.now();
 const page = await ctx.newPage();
-await page.goto(`${BASE}/welcome`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 const start = (Date.now() - t0) / 1000;
 await page.waitForTimeout(2500);
 await page.mouse.move(VIEW.width * 0.6, VIEW.height * 0.5);

@@ -200,7 +200,7 @@ function Notice({ title, body }: { title: string; body: string }) {
       <div className="stack">
         <h1 className="page-title">{title}</h1>
         <p className="meta">{body}</p>
-        <Button href="/">Lobby</Button>
+        <Button href="/lobby">Lobby</Button>
       </div>
     </Card>
   );
