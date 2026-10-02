@@ -59,7 +59,7 @@ The tesoro_core Match id is `ms * 8 + asset * 2 + challenge`: bit 0 marks a Chal
 | mark | TEE | `tick` | anyone |
 | end | TEE | `end_match` | anyone, after the window |
 | cancel | TEE | `claim_timeout` (delegated, never started, past `start_deadline`) | anyone |
-| commit | TEE | `close_match` (closes permissions, commit + undelegate; Books are not wiped) | anyone |
+| commit | TEE | `close_match` (closes permissions, commit + undelegate; Books are not wiped), or `close_unstarted` for a cancelled Duel (it never had permissions) | anyone |
 | settle | base | `finalize` (CPI `settle_match`, or `refund_match` for a draw or cancel) | anyone |
 
 Trades are signed by the Account's wallet signer without a prompt (embedded or dev wallet), as in Hold'em; there is no separate session key.
@@ -73,9 +73,34 @@ Trades are signed by the Account's wallet signer without a prompt (embedded or d
 - A backed Player can only choose the asset where the Queue link carries it (default SOL).
 - Programs are devnet only; the feeds are devnet rollup copies.
 
-## Devnet evidence
+## Devnet evidence (Solana devnet + MagicBlock devnet TEE, 2026-10-03)
 
-To be filled by the lead after the browser run.
+Program `trading_duel` `CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj`. Players are test wallets funded with simulated Gemas (a stand-in Position and Advance each). TEE transactions are private (no public explorer page). Signatures are shortened here (the pre-commit hook refuses full ones); the full set per run is written by `programs/trading_duel/scripts/play.ts` to `evidence-<mode>.json` (git-ignored).
+
+**Scripted, every on-chain step** (`play.ts`, through the same client the app uses; each run checks: both entries in escrow, Duel starts with a 300 s window, the Duel is readable by an outsider, a Player reads null for the opponent's Book and their own Book normally, positions open with the spread, the public Duel shows only the lead and trade counts, the Match ends, `finalize` settles by CPI, the winner's Gemas move, both Books become public with every fill):
+
+| Run | Asset | Match id | Outcome | Notable steps |
+|---|---|---|---|---|
+| full | SOL | `14327732236408` | seat 1 won, equity 10,021 to 9,911 | `create_match` `3qH6vvBr...`, `end_match` `5GmZtxgj...`, `finalize` `5XF6JLJQ...` |
+| full | HYPE | `14327742202396` | seat 0 won, 9,993 to 9,971; winner 74,000 to 74,450 Gemas (entry 500, fee 50) | `delegate_match` `eJmJ6jW9...`, `end_match` `31v97Z6H...`, `finalize` `4bQvNXWs...` |
+| draw | ETH | `14327736067186` | nobody traded, 10,000 each, `refund_match`, both entries back | `finalize` `46iXXPDj...` |
+| no-show | SOL | `14327749974168` | created and delegated, never started: `claim_timeout` after the start deadline, `close_unstarted`, `finalize` refunds both entries | `claim_timeout` `3ktUCjz7...`, `finalize` `3q1th5ia...` |
+
+**In the browser** (`app/scripts/qa-trading-duel.mjs`, two dev wallets, Player A on a 1440 desktop and Player B on a 390 phone, Queue entry, then everything driven by the clients: create, delegate, start, trades, `tick`, `end_match`, `close_match`, `finalize`):
+
+- ETH Queue Match `14327757396330`: A long 5x, B short 5x, A closed. Final equity 9,986 (A) to 9,995 (B); A lost 500 Gemas, B won; both fill histories shown on the result.
+- SOL Queue Match `14327753137600`: both traded; the clients were closed before the end, so the Match was ended, committed and settled by a script standing in for the keeper (`end_match`, `close_match`, `finalize`), seat 1 won 9,996 to 9,990.
+- HYPE draw `14327762412308`: nobody traded, "Refunded, equal equity: a draw, both entries refunded", entries back.
+- **Backed** (`app/scripts/qa-trading-duel-backed.mjs`, three wallets): a Player with no Gemas posted a Request for Trading Duel, a Backer answered with an Offer (40% share), the Player accepted and entered the Queue under the Backing, an opponent joined, SOL Match `14327772171784`. The backed Player won 9,996 to 9,993; split on the result: Backer's entry 1,000 back first, fees 100 from the loser, surplus 900 as 360 to the Player and 540 to the Backer; "You never owe anything". A third wallet viewing the Match sees it as a spectator with both fill histories.
+
+Screens in `app/docs/screens/trading-duel-live-*.png` (position, closed, result for both Players, backed Request, Offer, accepted Backing, result and spectator view) and `trading-duel-practice-*.png`.
+
+**What this showed about the rollup**
+
+- The feed accounts update about once a second on both the devnet rollup and the TEE, and a program in the TEE reads them natively; the ER clock matched the oracle's publish time (a `5 s` staleness bound never fired).
+- The public Duel can be read without a token (its permission is not private); a Book reads as null for anyone but its Player. A Player's token read of the opponent's Book also returns null.
+- `close_match` on a Duel that never started failed ("illegally used as writable": its permission accounts do not exist), so a cancelled Duel is committed by `close_unstarted` instead. The program was upgraded in place for it (slot 506736837).
+- `close_match` uses about 150,000 CU (the default limit is 200,000); the client sends 400,000. `GetCommitmentSignature` can race the commit, so the client does not depend on it.
 
 ## Verification
 

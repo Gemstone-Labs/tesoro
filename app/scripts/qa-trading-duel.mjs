@@ -53,7 +53,6 @@ await shot(pa, "a-setup");
 
 // Wait for trading to open.
 const upA = pa.locator(".td-btn.up");
-const upB = pb.locator(".td-btn.up");
 await upA.waitFor({ timeout: 300000 });
 await pa.waitForFunction(() => !document.querySelector(".td-btn.up")?.disabled, null, { timeout: 120000 });
 log("trading open");
@@ -77,13 +76,9 @@ if (MODE === "full") {
   await pa.getByRole("button", { name: /Flip to/ }).count();
 }
 
-// Wait for the end and the settled result on both.
-await pa.waitForSelector("text=/Gemas|Won|Lost|Draw|refund/i", { timeout: 400000 }).catch(() => {});
-for (let i = 0; i < 120; i++) {
-  const t = await pa.locator("body").innerText();
-  if (/Match settled|You won|You lost|Refunded|Draw/i.test(t) && !/Closing|Settling|Committing/i.test(t)) break;
-  await pa.waitForTimeout(5000);
-}
+// Wait for the end and the settled result card on both (the clients end, commit and settle the Match themselves).
+await pa.locator('[aria-label^="Match result"]').waitFor({ timeout: 720000 });
+await pb.locator('[aria-label^="Match result"]').waitFor({ timeout: 120000 });
 await pa.waitForTimeout(6000);
 await shot(pa, "a-result", true);
 await shot(pb, "b-result", true);
