@@ -4,3 +4,4 @@ export * from "./money";
 export * from "./inputs";
 export * from "./icons";
 export * from "./Character";
+export * from "./CountUp";

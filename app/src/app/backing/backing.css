@@ -11,9 +11,9 @@
 .bk-tabs button.on { color: var(--fg); font-weight: 700; border-bottom-color: var(--fg); }
 .bk-tabs button:hover { color: var(--fg); }
 .bk-tools { display: flex; gap: 10px; align-items: center; padding-bottom: 8px; }
-.bk-sort { --c: 10px; --edge: var(--line); display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; background: transparent; font-size: 14px; color: var(--fg-2); }
+.bk-sort { --c: 10px; --edge: var(--edge-1); display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; background: transparent; font-size: 14px; color: var(--fg-2); }
 .bk-sort select { background: transparent; border: 0; outline: 0; font-weight: 600; font-size: 14px; color: var(--fg); }
-.bk-sort select option { background: var(--raised); }
+.bk-sort select option { background: var(--surface); }
 
 /* cards: a calm grid, avatar, name, game and record, entry and Offer */
 .bk-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
@@ -21,7 +21,7 @@
 @media (min-width: 1100px) { .bk-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .bk-span { grid-column: 1 / -1; }
 
-.bk-card { --edge: var(--line); position: relative; background: var(--raised); padding: 20px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px 16px; align-items: center; overflow: hidden; }
+.bk-card { --edge: var(--edge-1); position: relative; background: var(--surface); padding: 20px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px 16px; align-items: center; overflow: hidden; }
 .bk-card.selected { --edge: var(--fg); --t: 2px; }
 .bk-avatar { width: 60px; height: 60px; --c: 14px; }
 .bk-who { display: grid; gap: 2px; min-width: 0; }
@@ -42,26 +42,26 @@
 
 /* drawer */
 .bk-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.66); z-index: 50; }
-.bk-drawer { --edge: var(--line-2); background: var(--side); z-index: 51; padding: 18px 16px 20px; display: grid; gap: 12px; align-content: start;
+.bk-drawer { --edge: var(--edge-2); background: var(--side); z-index: 51; padding: 18px 16px 20px; display: grid; gap: 12px; align-content: start;
   position: fixed; left: 0; right: 0; bottom: 0; max-height: 92dvh; overflow-y: auto; }
 .bk-drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .bk-drawer-head .h-section { font-size: clamp(30px, 2.6vw, 46px); }
 .bk-drawer-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .bk-drawer-form { display: grid; gap: 12px; min-width: 0; }
 .bk-summary { display: grid; grid-template-columns: minmax(0, 1fr) 128px; gap: 10px; }
-.bk-summary-who { --edge: var(--line-2); background: var(--raised); display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+.bk-summary-who { --edge: var(--edge-2); background: var(--surface); display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
 .bk-summary-art { --c: 10px; overflow: hidden; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); }
 .bk-summary-art img { width: 100%; height: 100%; object-fit: cover; }
-.bk-entry { --edge: var(--line-2); background: var(--raised); padding: 10px 14px; display: grid; gap: 4px; }
+.bk-entry { --edge: var(--edge-2); background: var(--surface); padding: 10px 14px; display: grid; gap: 4px; }
 .bk-entry span { font-size: 15px; color: var(--fg-2); }
 .bk-entry b { display: inline-flex; align-items: center; gap: 10px; font-size: 30px; font-weight: 800; }
 .bk-entry small { font-size: 18px; font-weight: 500; color: var(--fg-2); }
 .bk-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.bk-split > div { --edge: var(--line-2); background: var(--raised); padding: 10px 14px; display: grid; gap: 0; }
+.bk-split > div { --edge: var(--edge-2); background: var(--surface); padding: 10px 14px; display: grid; gap: 0; }
 .bk-split span { font-size: 14px; color: var(--fg-2); }
 .bk-split b { font-size: 30px; font-weight: 800; }
 .bk-split small { font-size: 14px; color: var(--fg-2); }
-.bk-explain { --edge: var(--line); background: var(--raised); padding: 14px; display: grid; gap: 14px; }
+.bk-explain { --edge: var(--edge-1); background: var(--surface); padding: 14px; display: grid; gap: 14px; }
 .bk-explain > div { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; }
 .bk-explain svg { width: 26px; height: 26px; color: var(--fg); }
 .bk-explain p { font-size: 15px; color: var(--fg); }
@@ -73,4 +73,11 @@
 @media (min-width: 1024px) {
   .bk-drawer { inset: 0 0 0 auto; left: auto; width: min(520px, 100vw); max-height: none; padding: 28px 28px 32px; clip-path: none; }
   .bk-drawer::after { display: none; }
+}
+
+/* the Offer drawer arrives from where it docks */
+.bk-drawer { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@media (min-width: 1024px) {
+  .bk-drawer { animation-name: bk-drawer-in; box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45); border-left: 1px solid var(--line-2); }
+  @keyframes bk-drawer-in { from { transform: translateX(32px); opacity: 0; } }
 }

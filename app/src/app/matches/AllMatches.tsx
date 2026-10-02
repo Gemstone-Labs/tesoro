@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { MatchRow } from "@/components/match/MatchRow";
-import { Button, Card } from "@/components/ui";
+import { Button, Card, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
 import { accountHistory, historyPage } from "@/lib/chain/history";
@@ -73,7 +73,9 @@ export function AllMatches() {
             <Button size="sm" onClick={() => void refresh()}>Try again</Button>
           </div>
         ) : (
-          <p className="meta mh-state" role="status">Reading your Matches from Solana devnet…</p>
+          <div className="mh-list">
+            <SkeletonCards count={4} avatar={false} className="mh-skel" label="Reading your Matches from Solana devnet…" />
+          </div>
         )
       ) : rows.length === 0 ? (
         <div className="mh-state">

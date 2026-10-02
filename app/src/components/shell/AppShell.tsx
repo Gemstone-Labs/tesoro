@@ -51,7 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="content">
           <TopBar onMenu={() => setDrawer(true)} />
-          <main className="app-main">{children}</main>
+          <main className="app-main" key={path}>{children}</main>
           <SiteFooter />
         </div>
 
