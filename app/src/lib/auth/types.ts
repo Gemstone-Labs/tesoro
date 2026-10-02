@@ -1,4 +1,4 @@
-import type { Account, Address, WalletClient } from "viem";
+import type { Account, Address, Chain, WalletClient } from "viem";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 
 /** A wallet the person linked themselves, as opposed to the embedded wallets Tesoro creates for the Account. */
@@ -9,15 +9,17 @@ export interface LinkedWallet {
   client: string;
 }
 
-/** The Account's EVM wallet (the embedded one, or a linked external wallet when there is none), as a viem client on Hoodi. */
+/** The Account's EVM wallet (the embedded one, or a linked external wallet when there is none), as a viem client (Hoodi by default; `clientFor` for HyperEVM). */
 export interface EvmSigner {
   address: Address;
   /** Signs `personal_sign` and sends transactions with `account` set to `address`. */
   client: WalletClient;
   /** The local account (dev key) or the address of a JSON-RPC wallet; pass it as `account` on every call. */
   account: Account | Address;
-  /** Switches the wallet to Hoodi before a transaction (a no-op for the dev key). */
-  prepare: () => Promise<void>;
+  /** The same wallet as a client on `chain`, for transactions there. */
+  clientFor: (chain: Chain) => WalletClient;
+  /** Switches the wallet to `chain` (default Hoodi) before a transaction (a no-op for the dev key). */
+  prepare: (chain?: Chain) => Promise<void>;
   source: "embedded" | "linked" | "dev";
 }
 

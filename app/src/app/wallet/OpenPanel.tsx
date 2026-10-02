@@ -108,7 +108,7 @@ export function OpenFormView({
   );
 }
 
-/** Chain tabs + the active chain's form. HYPE is not open yet. */
+/** Chain tabs + the active chain's form. */
 export function OpenPanel({ tab, onTab, children }: { tab: Chain; onTab: (c: Chain) => void; children: ReactNode }) {
   return (
     <section className="wl-open" id="open-position" aria-label="Open a Position">

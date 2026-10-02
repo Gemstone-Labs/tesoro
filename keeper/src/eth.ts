@@ -5,9 +5,9 @@ import { createPublicClient, createWalletClient, defineChain, getAddress, http, 
 import { privateKeyToAccount } from "viem/accounts";
 import type { PublicKey } from "@solana/web3.js";
 import { log, type Budget, type Ctx } from "./act.ts";
-import { assertHoodi } from "./cluster.ts";
+import { assertHoodi, assertHyperEvm } from "./cluster.ts";
 import { fetchBridgePositions } from "./bridge.ts";
-import { EID_HOODI, bridgePositionPda } from "./lz.ts";
+import { EID_HOODI, EID_HYPEREVM, bridgePositionPda } from "./lz.ts";
 import type { Settings } from "./env.ts";
 import { fetchWithBackoff } from "./runtime.ts";
 import { evmKeyFromEnv } from "./keys.ts";
@@ -15,13 +15,29 @@ import { evmKeyFromEnv } from "./keys.ts";
 const status = (o: object) => Object.keys(o)[0];
 const GWEI = 1_000_000_000n;
 
-const hoodi = (rpc: string) =>
-  defineChain({
-    id: 560048,
-    name: "Hoodi",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: { default: { http: [rpc] } },
-  });
+/** The EVM networks a vault can live on: what the keeper needs to report yield on each. */
+export interface EvmNet {
+  /** tesoro_core `source_chain` variant. */
+  chain: "ethereum" | "hyperEvm";
+  eid: number;
+  name: string;
+  /** Native token, for logs. */
+  unit: string;
+  rpc: (s: Settings) => string;
+  /** Hourly cap, in native units, and the budget it is tracked in. */
+  cap: (s: Settings) => number;
+  budget: (c: Ctx) => Budget;
+  chainDef: (rpc: string) => ReturnType<typeof defineChain>;
+  assert: (pub: { getChainId(): Promise<number> }) => Promise<void>;
+}
+
+const chainDef = (id: number, name: string, symbol: string, currency: string) => (rpc: string) =>
+  defineChain({ id, name, nativeCurrency: { name: currency, symbol, decimals: 18 }, rpcUrls: { default: { http: [rpc] } } });
+
+export const NETS: EvmNet[] = [
+  { chain: "ethereum", eid: EID_HOODI, name: "Hoodi", unit: "ETH", rpc: (s) => s.hoodiRpc, cap: (s) => s.ethHourlyCapEth, budget: (c) => c.eth, chainDef: chainDef(560048, "Hoodi", "ETH", "Ether"), assert: assertHoodi },
+  { chain: "hyperEvm", eid: EID_HYPEREVM, name: "HyperEVM", unit: "HYPE", rpc: (s) => s.hyperEvmRpc, cap: (s) => s.hypeHourlyCapHype, budget: (c) => c.hype, chainDef: chainDef(998, "HyperEVM Testnet", "HYPE", "HYPE"), assert: assertHyperEvm },
+];
 
 const vaultAbi = parseAbi([
   "function quoteYieldAccrued() view returns (uint256)",
@@ -62,6 +78,7 @@ const saveState = (s: State) => {
 const DROPPED_AFTER_MS = 15 * 60_000;
 
 const eth = (wei: bigint) => (Number(wei) / 1e18).toFixed(6);
+const DEFAULT_UNIT = "ETH";
 
 /** The viem calls the per-Position step uses (a public client and a wallet client in production, fakes in tests). */
 export interface EthIo {
@@ -85,6 +102,8 @@ export interface EthTarget {
   /** Highest message seq the bridge has delivered for this Position. */
   inSeq: bigint;
   subject: string;
+  /** Native token of the vault's chain, for logs (default ETH). */
+  unit?: string;
 }
 
 type Step = "sent" | "wait" | "skip" | "stop";
@@ -136,6 +155,7 @@ async function settleSent(io: EthIo, budget: Budget, state: State, t: EthTarget,
  */
 export async function reportStep(io: EthIo, s: Pick<Settings, "ethYieldMins" | "ethHourlyCapEth" | "dryRun">, budget: Budget, state: State, save: (s: State) => void, t: EthTarget, nowMs = Date.now()): Promise<Step> {
   const windowMs = s.ethYieldMins * 60_000;
+  const unit = t.unit ?? DEFAULT_UNIT;
   const prev = state[t.slot];
   if (prev !== undefined && typeof prev !== "number") {
     const r = await settleSent(io, budget, state, t, prev, nowMs);
@@ -162,18 +182,18 @@ export async function reportStep(io: EthIo, s: Pick<Settings, "ethYieldMins" | "
   const capGwei = BigInt(Math.round(s.ethHourlyCapEth * 1e9));
   const spentGwei = BigInt(budget.spentLastHour());
   if (spentGwei + quote / GWEI + 1n > capGwei) {
-    log("eth", t.subject, `SKIP reportYield: hourly ETH cap reached (${eth(spentGwei * GWEI)} of ${s.ethHourlyCapEth} ETH)`);
+    log("eth", t.subject, `SKIP reportYield: hourly ${unit} cap reached (${eth(spentGwei * GWEI)} of ${s.ethHourlyCapEth} ${unit})`);
     return "stop";
   }
   const balance = await io.pub.getBalance({ address: io.account.address });
   if (balance < value * 2n) {
-    log("eth", t.subject, `SKIP reportYield: deployer balance ${eth(balance)} ETH is too low for fee ${eth(value)} ETH`);
+    log("eth", t.subject, `SKIP reportYield: deployer balance ${eth(balance)} ${unit} is too low for fee ${eth(value)} ${unit}`);
     return "stop";
   }
   const call = { account: io.account, address: t.vault, abi: vaultAbi, functionName: "reportYield", args: [t.id], value };
   const sim = await io.pub.simulateContract(call);
   if (s.dryRun) {
-    log("eth", t.subject, `DRY-RUN would reportYield (fee quote ${eth(quote)} ETH, sending ${eth(value)} ETH, excess refunded)`);
+    log("eth", t.subject, `DRY-RUN would reportYield (fee quote ${eth(quote)} ${unit}, sending ${eth(value)} ${unit}, excess refunded)`);
     return "skip";
   }
   const [gas, gasPrice] = await Promise.all([io.pub.estimateContractGas(call), io.pub.getGasPrice()]);
@@ -182,45 +202,46 @@ export async function reportStep(io: EthIo, s: Pick<Settings, "ethYieldMins" | "
   state[t.slot] = { sentAt: Date.now(), hash, estGwei };
   save(state);
   budget.record(estGwei);
-  log("eth", t.subject, `SENT reportYield (LayerZero fee ${eth(quote)} ETH, est. ${eth(BigInt(estGwei) * GWEI)} ETH in all) tx=${hash}; receipt read next pass`);
+  log("eth", t.subject, `SENT reportYield (LayerZero fee ${eth(quote)} ${unit}, est. ${eth(BigInt(estGwei) * GWEI)} ${unit} in all) tx=${hash}; receipt read next pass`);
   return "sent";
 }
 
-let hoodiChecked = "";
+const checked = new Map<string, string>();
 
 /** At startup: refuses an EVM RPC that answers with another chain id; an unreachable one is rechecked by the job. */
-export async function checkHoodiAtStart(rpc: string, warn: (m: string) => void): Promise<void> {
+export async function checkEvmAtStart(net: EvmNet, rpc: string, warn: (m: string) => void): Promise<void> {
   let id: number;
   try {
     id = await createPublicClient({ transport: http(rpc, { fetchFn: fetchWithBackoff as typeof fetch, retryCount: 1 }) }).getChainId();
   } catch (e) {
-    warn(`WARN Hoodi RPC unreachable at start (${String((e as Error).message ?? e).split("\n")[0].slice(0, 120)}); the eth job checks it before sending`);
+    warn(`WARN ${net.name} RPC unreachable at start (${String((e as Error).message ?? e).split("\n")[0].slice(0, 120)}); the eth job checks it before sending`);
     return;
   }
-  await assertHoodi({ getChainId: async () => id });
-  hoodiChecked = rpc;
+  await net.assert({ getChainId: async () => id });
+  checked.set(net.chain, rpc);
 }
 
 /**
- * Job 6: ETH yield. A Position sourced from Ethereum (Hoodi) with Debt (tesoro_core `open_advance` set) needs the
- * vault's yield reported to Solana so its Debt falls: `PositionVaultOApp.reportYield(id)` is permissionless and payable
- * with the LayerZero fee, paid here from the EVM deployer key (~/.config/tesoro/evm-deployer.env, never printed) as
- * quote + 20% (the excess is refunded to the caller). Once it is delivered (about 2 min) the Solana side is applied by the
- * bridge job's `apply_yield`. Default cadence: one Position per 10 minutes = one simulated month.
+ * Job 6: EVM yield. A Position sourced from Ethereum (Hoodi) or HyperEVM testnet with Debt (tesoro_core `open_advance`
+ * set) needs the vault's yield reported to Solana so its Debt falls: `PositionVaultOApp.reportYield(id)` is permissionless
+ * and payable with the LayerZero fee, paid here from the EVM deployer key (~/.config/tesoro/evm-deployer.env, never
+ * printed) as quote + 20% (the excess is refunded to the caller). Once it is delivered (about 1 to 2 min) the Solana side is
+ * applied by the bridge job's `apply_yield`. Default cadence: one Position per 10 minutes = one simulated month.
  *
  * Skipped: a Position reported inside the window or whose last send has no receipt yet (state file), one whose last
  * message is still in flight (the vault's `outSeq` is ahead of the bridge's `last_in_seq`), an unlocked one, and
- * everything when the hourly ETH cap is used or the RPC is not Hoodi. Returns the number of reports sent.
+ * everything on a chain whose hourly cap is used or whose RPC is not the expected chain. Each chain has its own cap and
+ * budget (ETH on Hoodi, HYPE on HyperEVM). Returns the number of reports sent.
  */
 export async function ethYieldJob(ctx: Ctx): Promise<number> {
   const s = ctx.settings;
   const all: any[] = await ctx.core.account.positionState.all();
   const owing = all.filter((p) => {
     const i = p.account.inner;
-    return status(i.sourceChain) === "ethereum" && status(i.status) === "locked" && i.openAdvance !== null && i.openAdvance !== undefined;
+    return NETS.some((n) => n.chain === status(i.sourceChain)) && status(i.status) === "locked" && i.openAdvance !== null && i.openAdvance !== undefined;
   });
   if (!owing.length) {
-    log("eth", "-", `no Ethereum Position with Debt (${all.filter((p) => status(p.account.inner.sourceChain) !== "solana").length} non-Solana Position(s) in total)`);
+    log("eth", "-", `no Ethereum or HyperEVM Position with Debt (${all.filter((p) => status(p.account.inner.sourceChain) !== "solana").length} non-Solana Position(s) in total)`);
     return 0;
   }
   let key: string | undefined = evmKeyFromEnv("KEEPER_EVM_PRIVATE_KEY");
@@ -236,41 +257,57 @@ export async function ethYieldJob(ctx: Ctx): Promise<number> {
     }
   }
   const account = privateKeyToAccount((key.startsWith("0x") ? key : `0x${key}`) as Hex);
-  const chain = hoodi(s.hoodiRpc);
-  const transport = http(s.hoodiRpc, { fetchFn: fetchWithBackoff as typeof fetch, retryCount: 2 });
-  const pub = createPublicClient({ chain, transport });
-  const wallet = createWalletClient({ account, chain, transport });
-  if (hoodiChecked !== s.hoodiRpc) {
-    await assertHoodi(pub);
-    hoodiChecked = s.hoodiRpc;
-  }
-  const io: EthIo = { pub: pub as unknown as EthIo["pub"], wallet: wallet as unknown as EthIo["wallet"], account };
 
   const bridge = new Map((await fetchBridgePositions(ctx)).map((p) => [p.key.toBase58(), p]));
   const state = loadState();
   let sent = 0;
-  let waiting = 0;
 
-  for (const { publicKey, account: pos } of owing) {
-    const positionId = Uint8Array.from(pos.positionId);
-    const vault = getAddress(`0x${Buffer.from(positionId.subarray(0, 20)).toString("hex")}`) as Address;
-    const id = Buffer.from(positionId).readBigUInt64BE(20);
-    const target: EthTarget = {
-      slot: `${vault}#${id}`,
-      vault,
-      id,
-      inSeq: bridge.get(bridgePositionPda(EID_HOODI, positionId).toBase58())?.lastInSeq ?? 0n,
-      subject: `eth vault=${vault.slice(0, 8)}..${vault.slice(-4)}#${id} position=${(publicKey as PublicKey).toBase58().slice(0, 4)}`,
-    };
-    try {
-      const r = await reportStep(io, s, ctx.eth, state, saveState, target);
-      if (r === "sent") sent++;
-      if (r === "wait") waiting++;
-      if (r === "stop") break;
-    } catch (e) {
-      log("eth", target.subject, `FAIL reportYield: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 300)}`);
+  for (const net of NETS) {
+    const here = owing.filter((p) => status(p.account.inner.sourceChain) === net.chain);
+    if (!here.length) continue;
+    const rpc = net.rpc(s);
+    const chain = net.chainDef(rpc);
+    const transport = http(rpc, { fetchFn: fetchWithBackoff as typeof fetch, retryCount: 2 });
+    const pub = createPublicClient({ chain, transport });
+    const wallet = createWalletClient({ account, chain, transport });
+    if (checked.get(net.chain) !== rpc) {
+      try {
+        await net.assert(pub);
+        checked.set(net.chain, rpc);
+      } catch (e) {
+        log("eth", "-", `SKIP ${here.length} ${net.name} Position(s): ${String((e as Error).message ?? e).split("\n")[0].slice(0, 160)}`);
+        continue;
+      }
     }
+    const io: EthIo = { pub: pub as unknown as EthIo["pub"], wallet: wallet as unknown as EthIo["wallet"], account };
+    const budget = net.budget(ctx);
+    const netSettings = { ethYieldMins: s.ethYieldMins, ethHourlyCapEth: net.cap(s), dryRun: s.dryRun };
+    let waiting = 0;
+    let sentOn = 0;
+
+    for (const { publicKey, account: pos } of here) {
+      const positionId = Uint8Array.from(pos.positionId);
+      const vault = getAddress(`0x${Buffer.from(positionId.subarray(0, 20)).toString("hex")}`) as Address;
+      const id = Buffer.from(positionId).readBigUInt64BE(20);
+      const target: EthTarget = {
+        slot: `${vault}#${id}`,
+        vault,
+        id,
+        inSeq: bridge.get(bridgePositionPda(net.eid, positionId).toBase58())?.lastInSeq ?? 0n,
+        subject: `${net.chain === "hyperEvm" ? "hyperevm" : "eth"} vault=${vault.slice(0, 8)}..${vault.slice(-4)}#${id} position=${(publicKey as PublicKey).toBase58().slice(0, 4)}`,
+        unit: net.unit,
+      };
+      try {
+        const r = await reportStep(io, netSettings, budget, state, saveState, target);
+        if (r === "sent") sentOn++;
+        if (r === "wait") waiting++;
+        if (r === "stop") break;
+      } catch (e) {
+        log("eth", target.subject, `FAIL reportYield: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 300)}`);
+      }
+    }
+    sent += sentOn;
+    log("eth", "-", `${here.length} ${net.name} Position(s) with Debt, ${waiting} waiting, ${sentOn} report(s) sent, ${(budget.spentLastHour() / 1e9).toFixed(6)} ${net.unit} spent this hour`);
   }
-  log("eth", "-", `${owing.length} Ethereum Position(s) with Debt, ${waiting} waiting, ${sent} report(s) sent, ${(ctx.eth.spentLastHour() / 1e9).toFixed(6)} ETH spent this hour`);
   return sent;
 }

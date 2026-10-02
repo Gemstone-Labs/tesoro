@@ -154,7 +154,7 @@ Run it in a fresh browser profile against the production URL.
 3. **Open a native Position.** On the Wallet, use "Get test simSOL", then "Open a Position" (any amount, Horizon 1–12), and sign. The Position appears with Principal, Debt and Gemas, labelled simulated. The first action also tops up devnet SOL for fees through `/api/demo-advance`. If it answers `503 not-configured`, `TESORO_RELAYER_SECRET_KEY` is missing or malformed: check `vercel logs` for `[keys] …`.
 4. **Queue a Match.** In the Lobby, Enter Block Puzzle. The Match opens and the Gemas entry leaves the balance. From a second profile (a second Account), Enter the same game; both land in the same Match. Play it out, or leave it for the keeper.
 5. **Keeper.** `fly logs -a tesoro-keeper` shows `alive` lines every ~20 s, `price … ok devnet price feed` (or a `set_price` DONE), and `yield …` cranks once a Position has Debt.
-6. **ETH path (if configured).** Wallet > Ethereum: the Hoodi ETH top-up and an ETH Position open, then the Advance step completes. A 503 here points at `TESORO_RELAYER_EVM_PRIVATE_KEY` / `TESORO_ORACLE_SECRET_KEY`.
+6. **ETH path (if configured).** Wallet > Ethereum: the Hoodi ETH top-up and an ETH Position open, then the Advance step completes. A 503 here points at `TESORO_RELAYER_EVM_PRIVATE_KEY` / `TESORO_ORACLE_SECRET_KEY`. The HYPE tab needs no extra secret but the tester's EVM address must hold about 0.02 testnet HYPE (there is no faucet to relay); the keeper reports HYPE yield with `KEEPER_HYPEREVM_RPC` (default public) and `KEEPER_MAX_HYPE_PER_HOUR`.
 
 ## Known limits
 

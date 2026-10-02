@@ -11,7 +11,7 @@ contract SimLSTTest is Test {
 
     function setUp() public {
         vm.prank(admin);
-        lst = new SimLST(admin);
+        lst = new SimLST(admin, "Simulated Staked ETH", "simETH");
         vm.deal(user, 100 ether);
         vm.deal(admin, 100 ether);
     }

@@ -1,6 +1,10 @@
-# Ethereum Positions (Hoodi) in the web app
+# Ethereum (Hoodi) and HYPE (HyperEVM) Positions in the web app
 
-Wallet: **Ethereum Positions · Hoodi** card, ETH Position cards, and one cross-chain tracker per operation in flight. SIMULATED: simETH is a test token (SimLST) whose yield runs 1 month = 10 min. The flow and its LayerZero facts are in `docs/cross-chain.md`; this file is the app side.
+Wallet: the ETH and HYPE tabs of Open a Position (each with its own faucet card), ETH and HYPE Position cards, and one cross-chain tracker per operation in flight. SIMULATED: simETH (Hoodi) and simHYPE (HyperEVM) are test tokens (SimLST) whose yield runs 1 month = 10 min.
+
+## Two networks, one code path
+
+`src/lib/chain/eth.ts` has `NETS` (`hoodi`: eid 40449, chain byte 1, ETH; `hyperevm`: eid 40362, chain byte 2, HYPE, explorer `https://testnet.purrsec.com`) and `ETH_VAULTS` (each vault carries its `net`). Every helper derives the network from the vault (`netOfVault`; the first 20 bytes of a Position id are the vault), so PDAs, LayerZero sends, price asset, clients and copy follow the vault. A vault the app does not list (a retired Hoodi redeploy) is treated as Hoodi. HYPE differs in two ways: the server has no HYPE top-up (`ensureGas` asks the user to send about 0.02 HYPE to their EVM address, because testnet HYPE needs a mainnet balance), and the Advance price is Coinbase HYPE-USD (`GET /api/eth-bridge?asset=HYPE`). The wallet is switched to the vault's chain before each EVM transaction (`EvmSigner.prepare(chain)` / `clientFor(chain)`); the HyperEVM chain must be configured in Privy (see `accounts.md`). The flow and its LayerZero facts are in `docs/cross-chain.md`; this file is the app side.
 
 ## Files
 
@@ -48,6 +52,8 @@ Requests are authenticated like the SOL top-up (see [demo-funding.md](demo-fundi
 Each card shows the Hoodi tx, LayerZero Scan link and the Scan status.
 
 ## Not done
+
+- HYPE was driven in a browser (dev wallet, 390 px): faucet, open, Advance, Report yield and Redeem all completed (`docs/deployments.md`). Not driven: Unlock on a HYPE Position, the Privy embedded wallet path (it needs HyperEVM configured in the Privy dashboard), and a Backing Offer funded with HYPE-Sourced Gemas.
 
 - The real-Lido wstETH vault (`0x214A...8DeD`) is not listed: there is no wstETH faucet. Add it as a second entry in `ETH_VAULTS` once a funded wstETH source exists.
 - Won ETH-Sourced Gemas redeem through the Wallet Redeem sheet (the same `redeem_to_evm`); only the own-Position path was driven end to end.

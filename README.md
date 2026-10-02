@@ -23,11 +23,11 @@ The **Principal is never played** and never pays Debt. Accrued yield repays the 
 | Five Solana programs on devnet: the `tesoro_core` ledger, the `block_puzzle` and `holdem` Game programs, the `tesoro_bridge` LayerZero OApp, and `sim_lst` | **Yield is Simulated.** `sim_lst` (simSOL, 7% APY) and the Hoodi `SimLST` (simETH, 5% APY) run a 4,320× clock: 1 month of yield every 10 minutes. Their faucets mint unbacked test tokens. |
 | Matches settled on chain from a **MagicBlock Private Ephemeral Rollup** (Intel TDX TEE). The deck, the hole cards, the Block Puzzle Seed and each Player's moves stay private until settlement. | **Prices come from a trusted oracle key.** The SOL/USD issuance price is an on-chain devnet `PriceFeed` that the keeper writes with the oracle key (median of CoinGecko and Coinbase spot). The ETH issuance price is signed by the same key. Reading Pyth on chain is planned. |
 | ETH Positions on **Ethereum Hoodi**, carried to the Solana ledger by **LayerZero V2**: open, Advance, yield report, Redeem to Hoodi and Unlock, all tested end to end | The full ETH round trip ran on the previous Hoodi vault. The current vault (redeployed 2026-10-01 for SP-01) was smoke-tested for open and yield, not for Redeem and Unlock. |
+| HYPE Positions on **HyperEVM testnet** over the same bridge: open, Advance, yield report and Redeem payout (Solana to HyperEVM) delivered on chain; opened from the Wallet's HYPE tab | **Simulated** simHYPE (1 month = 10 min). Unlock was not run on HyperEVM, and a wallet needs its own testnet HYPE (no faucet to relay). |
 | A Hoodi vault for Lido's real **wstETH**, deployed and wired | Not run end to end, and not offered in the app (there is no wstETH faucet). |
 | Backing (Request → Offer → backed Match → split), played in the browser on devnet | Backed Hold'em has not been played. Only backed Block Puzzle has. |
 | A keeper that writes the price, cranks yield, relays bridge messages, expires Offers and settles or refunds stalled Matches | **Demo funding routes.** The app server tops up devnet SOL for fees, and Hoodi ETH for gas plus test simETH, from low-balance relayer keys. simSOL comes from the `sim_lst` on-chain faucet. These exist only for the demo. |
 | Privy email sign-in and embedded wallets are integrated | The demo was driven with a dev-only local wallet (`NEXT_PUBLIC_DEV_WALLET=1`). Privy has not been run end to end. |
-| | **HyperEVM: prepared, not deployed.** The Solana side of the pathway (eid 40362) is wired, but no vault is deployed because the deployer has no testnet HYPE. |
 | | **No external audit.** An internal security review and an internal implementation review were done (see [Security](#security)). |
 
 ## How it works
@@ -87,7 +87,13 @@ Both vaults are owned by the EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f4
 
 ### HyperEVM testnet (chain 998, eid 40362)
 
-Prepared, not deployed: the deployer has no testnet HYPE. On Solana, the HyperEVM source authority and the LayerZero pathway are in place. The remaining steps are in `docs/cross-chain.md`.
+Owned by the same EVM deployer and peered to the same Solana OApp Store. Deployed 2026-10-02 (not upgradeable); wired on Solana at 500 bps. Transactions and the smoke test (every LayerZero message DELIVERED) are in `docs/deployments.md`; the flow is in `docs/cross-chain.md`.
+
+| Contract | Address | Notes |
+|---|---|---|
+| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0x23B17A4c55867406E7CD5602c664E1447400c4a3` | The vault the app uses for HYPE Positions. |
+| SimLST (simHYPE, **Simulated**, 5% APY) | `0x4FF730663d88457990eAF47b23E19737E39BB238` | Unbacked faucet, 1 month = 10 min. |
+| LayerZero EndpointV2 (external) | `0xf9e1815f151024bde4b7c10bac10e8ba9f6b53e1` | Explorer: `https://testnet.purrsec.com`. |
 
 ## Evidence (selected)
 
