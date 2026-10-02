@@ -80,7 +80,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
         ) : (
           <span>No opponent yet</span>
         )}
-        {mark && <b className={`tnum${winSeat !== null && winSeat !== i ? " dim" : ""}`}>{mark}</b>}
+        {mark && <b className={`tnum${scores ? (winSeat !== null && winSeat !== i ? " dim" : "") : winSeat === i ? " won" : " lost"}`}>{mark}</b>}
       </div>
     );
   };

@@ -89,3 +89,6 @@
 .mr-sp-players > div { align-content: start; gap: 6px; padding: 16px 8px 18px; }
 .mr-sp-players .mono { font-size: 16px; font-weight: 700; }
 .mr-sp-av { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+/* Won/Lost words in the landing's outcome colours: emerald win, red loss (never "success" green) */
+.mr-sp-players b.won { color: var(--em); }
+.mr-sp-players b.lost { color: #f2685a; }
