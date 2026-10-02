@@ -331,7 +331,9 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .skel.player, .skel.bk-card { display: flex; align-items: center; gap: 16px; }
 @keyframes skel { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 
-/* the big money action catches a passing light every few seconds */
+/* the big money action catches a passing light every few seconds; the cut only clips its paint,
+   so the button clips its overflow too or the light widens the page as it leaves */
+.btn.money.lg { overflow: clip; }
 .btn.money.lg:not(:disabled)::before {
   content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
   background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.5) 50%, transparent 62%);
