@@ -5,29 +5,26 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { studioEnvironment } from "../gem/envTexture";
-import { GemMesh, softGlowTexture } from "../gem/GemMesh";
+import { GemMesh, glowTexture } from "../gem/GemMesh";
 import { gemState } from "../gem/store";
 import type { LiveCanvasProps } from "../Stage3D";
 import type { Theme } from "../theme";
 import { useTheme } from "../useTheme";
 import { CAMERA, CHAINS, LEDGER, type ChainLabel, type ChainsLayout } from "./layout";
 import { chainLogo } from "./logos";
-import { outlineGlow } from "./outlineGlow";
 
 const PARTICLES = 16;
 
 /** Where a mark starts its spin: almost square to the camera, so it reads, with its depth just showing. The poster is rendered at this angle. */
 const REST = 0.12;
 
-const GLOW = 0.38;
-
-/** A chain's mark cut as a stone: refractive and flat-faceted in the chain's own colours, with bright facet edges and a soft light behind in the mark's shape. */
+/** A chain's mark cut as a stone: refractive and flat-faceted in the chain's own colours, with bright facet edges and its light behind. */
 function Logo({ label, color, pace, animate }: { label: ChainLabel; color: string; pace: number; animate: boolean }) {
   const geometry = useMemo(() => chainLogo[label](), [label]);
   const edges = useMemo(() => new THREE.EdgesGeometry(geometry, 20), [geometry]);
   const env = useMemo(() => studioEnvironment("neutral"), []);
-  const glow = useMemo(() => outlineGlow(geometry, 0.3), [geometry]);
-  useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose(), glow.texture.dispose()), [geometry, edges, env, glow]);
+  const light = useMemo(() => glowTexture("255,255,255", 0.5), []);
+  useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose(), light.dispose()), [geometry, edges, env, light]);
   const graded = geometry.hasAttribute("color");
   const spin = useRef<THREE.Group>(null);
   const t = useRef(0);
@@ -39,11 +36,9 @@ function Logo({ label, color, pace, animate }: { label: ChainLabel; color: strin
   });
   return (
     <group>
-      {/* The light stays put while the mark turns in front of it. */}
-      <mesh position={[0, 0, -0.15]}>
-        <planeGeometry args={[glow.width, glow.height]} />
-        <meshBasicMaterial map={glow.texture} color={color} transparent opacity={GLOW} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
-      </mesh>
+      <sprite scale={[1.9, 1.9, 1]} position={[0, 0, -0.3]}>
+        <spriteMaterial map={light} color={color} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      </sprite>
       <group ref={spin} rotation={[0, REST, 0]}>
         <mesh geometry={geometry}>
           <MeshRefractionMaterial
@@ -107,7 +102,7 @@ function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: 
 function Scene({ layout, animate, theme }: { layout: ChainsLayout; animate: boolean; theme: Theme }) {
   const root = useRef<THREE.Group>(null);
   const ledger = useRef<THREE.Group>(null);
-  const halo = useMemo(() => softGlowTexture("54,240,190", 0.3), []);
+  const halo = useMemo(() => glowTexture("54,240,190", 0.45), []);
   useEffect(() => () => halo.dispose(), [halo]);
   const ledgerAt = useMemo(() => new THREE.Vector3(...LEDGER[layout]), [layout]);
   const sources = useMemo(() => CHAINS.map((c) => new THREE.Vector3(...c.at[layout])), [layout]);
@@ -140,7 +135,7 @@ function Scene({ layout, animate, theme }: { layout: ChainsLayout; animate: bool
       })}
       <group position={ledgerAt}>
         <mesh position={[0, 0, -0.6]}>
-          <planeGeometry args={[4.2, 2.8]} />
+          <planeGeometry args={[4, 4]} />
           <meshBasicMaterial map={halo} transparent depthWrite={false} toneMapped={false} />
         </mesh>
         <group ref={ledger} scale={1.45}>
