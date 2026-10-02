@@ -34,10 +34,7 @@ export function RunningTotalChart({ series }: { series: { row: PlayedRow; total:
 
   return (
     <figure className="pa-chart">
-      <figcaption>
-        <b>Running total</b>
-        <span>Gemas won and lost, added up in the order the Matches were opened</span>
-      </figcaption>
+      <figcaption>Running total, Match by Match in the order they were opened</figcaption>
       <div className="pa-plot">
         {ticks.map((t) => (
           <span key={t} className="pa-tick" style={{ top: `${y(t)}%` }}>

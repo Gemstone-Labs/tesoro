@@ -78,9 +78,21 @@ describe("playerSummary", () => {
     expect(s.backings).toMatchObject({ backers: 2, ahead: 1 });
   });
 
+  it("splits the record by game and keeps the best Block Puzzle score", () => {
+    const holdem = (won: boolean, mins: number) => match("holdem", 500, won, mins, [0, 0]);
+    const s = playerSummary([win(1), loss(2), match("block-puzzle", 1000, true, 3, [171, 55]), holdem(true, 4), draw(5)]);
+    expect(s.byGame).toEqual([
+      { game: "block-puzzle", matches: 3, wins: 2 },
+      { game: "holdem", matches: 1, wins: 1 },
+    ]);
+    // The Player's own score: 120 in the two wins, 80 in the loss, 171 in the best run.
+    expect(s.bestScore).toBe(171);
+    expect(Math.round((s.latest! - s.first!) / 60_000)).toBe(4);
+  });
+
   it("is all zeros for an Account that has not played", () => {
     const s = playerSummary([]);
-    expect(s).toMatchObject({ record: { matches: 0, wins: 0 }, undecided: 0, notRead: 0, net: 0 });
+    expect(s).toMatchObject({ record: { matches: 0, wins: 0 }, undecided: 0, notRead: 0, net: 0, byGame: [], bestScore: null, first: null, latest: null });
     expect(s.backings.matches).toBe(0);
   });
 });
