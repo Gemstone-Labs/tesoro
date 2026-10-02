@@ -47,7 +47,7 @@ export function Multichain() {
   return (
     <section id="multichain" className="lp-section lp-multichain" aria-labelledby="multichain-title">
       <div className="lp-wrap">
-        <div className="lp-window cut cut-frame">
+        <div className={art ? "lp-window has-art cut cut-frame" : "lp-window cut cut-frame"}>
           <div className="lp-window-copy">
             <h2 id="multichain-title" className="lp-h2" data-reveal>
               One ledger, every chain
@@ -58,7 +58,7 @@ export function Multichain() {
           </div>
           <div className="lp-multichain-art" data-wipe>
             {art ? <Picture k="multichain" mobile="multichainMobile" sizes="(max-width: 1240px) 100vw, 1240px" /> : <Paths />}
-            <ul className="lp-chains" aria-label="Chains">
+            <ul className={art ? "lp-chains on-art" : "lp-chains"} aria-label="Chains">
               {["SOL", "ETH", "HYPE"].map((c) => (
                 <li key={c} className="chain cut cut-chip">
                   {c}

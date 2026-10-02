@@ -70,7 +70,7 @@ export function HowItWorks() {
             {STEPS.map((s, i) => (
               <li key={s.title} className="lp-step" data-reveal>
                 <div className="lp-step-art cut cut-card" aria-hidden>
-                  {landingArt(s.art) ? <Picture k={s.art} sizes="96px" /> : <span className="lp-step-icon">{s.icon}</span>}
+                  {landingArt(s.art) ? <Picture k={s.art} sizes="(max-width: 767px) 72px, 120px" /> : <span className="lp-step-icon">{s.icon}</span>}
                 </div>
                 <div>
                   <p className="lp-step-n mono">0{i + 1}</p>
