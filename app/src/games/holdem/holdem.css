@@ -169,6 +169,29 @@
   .hd-card.lg { --w: clamp(54px, 6.8vh, 78px); }
 }
 
+/* Wide screens: the hand result sits in the empty left side of the table instead of under it, and the felt
+   takes the height left after the top bar, header and action bar, so the whole table fits one screen. */
+@media (min-width: 1280px) {
+  .hdx-stage { position: relative; }
+  .hdx-stage > .hd-result, .hdx-stage > .hd-last {
+    position: absolute; z-index: 2; left: 4.5%; top: 50%; transform: translateY(-50%); width: min(280px, 26%);
+    text-align: left; background: rgba(8, 14, 28, 0.88); border: 1px solid rgba(190, 210, 255, 0.22);
+  }
+  .hdx-stage > .hd-last { padding: 10px 12px; }
+  .hd-result-top { flex-wrap: wrap; }
+  .hdx-stage > .hd-result .hd-show { display: grid; grid-template-columns: auto auto 1fr; justify-items: start; }
+  .hdx-stage > .hd-result .hd-show-l { margin-left: 0; }
+  .hdx-felt { min-height: 0; height: clamp(360px, calc(100dvh - 318px), 520px); }
+  .hdx-actions { padding: 12px 16px; gap: 10px; }
+  .hdx-btn { min-height: 56px; }
+}
+
+@media (min-width: 1280px) and (max-height: 860px) {
+  .hdx-felt { padding: 10px 16px 8px; gap: 4px; }
+  .hdx-mid { gap: 8px; }
+  .hdx-plaque { padding: 5px 22px 6px; }
+}
+
 /* practice: end-of-Match panel under the table */
 .hd-practice-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 14px 20px; max-width: 1100px; margin: 0 auto; width: 100%; }
 .hd-practice-end .bp-actions { display: flex; gap: 8px; }
