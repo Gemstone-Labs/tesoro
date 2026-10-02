@@ -31,7 +31,7 @@ export interface MatchResultProps {
   children?: ReactNode;
 }
 
-const RULES: Record<GameId, { chip: string; line: string }> = {
+export const RULES: Record<GameId, { chip: string; line: string }> = {
   "block-puzzle": { chip: "Same Seed", line: "90 seconds · higher score wins" },
   holdem: { chip: "Heads-up", line: "Turbo blinds · last stack standing" },
 };
