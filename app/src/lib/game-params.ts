@@ -22,3 +22,8 @@ export function gameQuery(game: GameId, asset?: number | null): string {
   if (game === "trading-duel") return `game=trading-duel&asset=${ASSET_PARAMS[asset ?? 0] ?? "sol"}&`;
   return `game=${game}&`;
 }
+
+/** The query of an accepted Backing's Queue or Challenge link: game and asset, entry, and the Offer funding it. */
+export function backingQuery(game: GameId, asset: number | null | undefined, entry: number, offer: string): string {
+  return `${gameQuery(game, asset)}entry=${entry}&backing=${offer}`;
+}

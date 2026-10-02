@@ -40,7 +40,7 @@ import {
 import { EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { recordFromMatches, recordShort, recordText, shortKey, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
-import { gameQuery } from "@/lib/game-params";
+import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import "./backing.css";
@@ -412,7 +412,7 @@ export default function Backing() {
 /** Enter the Queue or Challenge under a Backing. A Trading Duel Backing asks which asset to trade first. */
 function BackingEnter({ game, entry, offer }: { game: GameId; entry: number; offer: string }) {
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
-  const q = `${gameQuery(game, asset)}entry=${entry}&backing=${offer}`;
+  const q = backingQuery(game, asset, entry, offer);
   return (
     <>
       {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name={`bk-asset-${offer}`} />}
