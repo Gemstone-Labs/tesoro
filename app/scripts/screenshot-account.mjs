@@ -29,10 +29,12 @@ const shots = [
   // The running total read with the pointer.
   { name: "chart-hover", route: `/account/${demo(701)}?dev=demo`, hover: ".pa-area", clip: ".pa-chart" },
   // The Challenge sheet: Game, entry, and that the link is the only delivery.
-  { name: "challenge", route: `/account/${demo(701)}?dev=demo`, click: "#pa-challenge ~ button", viewportOnly: true },
-  // The signed-in Account looking at itself, an Account that has not played, and addresses with no Account.
+  { name: "challenge", route: `/account/${demo(701)}?dev=demo`, click: ".pa-hero-actions .btn", viewportOnly: true },
+  // The signed-in Account looking at itself; a new dev wallet looking at its own Account before any Match
+  // (real devnet, opened from the Account menu); someone else's Account that has not played; no Account.
   { name: "own", route: `/account/${demo(1)}?dev=demo`, sizes: ["1920"], viewportOnly: true },
-  { name: "new", route: `/account/${demo(998)}?dev=demo`, sizes: ["1920"], viewportOnly: true },
+  { name: "own-new", route: "/?dev=acct-empty", viaMenu: true, viewportOnly: true, wait: 9000 },
+  { name: "new", route: `/account/${demo(998)}?dev=demo`, viewportOnly: true },
   { name: "none", route: `/account/${demo(999)}?dev=demo`, sizes: ["1920"], viewportOnly: true },
   { name: "invalid", route: "/account/not-a-key?dev=demo", sizes: ["1920"], viewportOnly: true },
   // Signed out, read from Solana devnet.
@@ -49,6 +51,14 @@ for (const s of shots) {
     const page = await ctx.newPage();
     await page.goto(BASE + s.route, { waitUntil: "load", timeout: 180000 });
     await page.waitForTimeout(s.wait ?? 5000);
+    if (s.viaMenu) {
+      // The Lobby's first-visit guide tip covers the page until it is dismissed.
+      await page.getByRole("button", { name: "Got it" }).click({ timeout: 30000 }).catch(() => {});
+      await page.locator(".acct-btn").click();
+      await page.getByRole("menuitem", { name: /Your Account page/ }).click();
+      await page.waitForSelector(".pa-hero", { timeout: 120000 });
+      await page.waitForTimeout(1500);
+    }
     if (s.click) {
       await page.locator(s.click).click();
       await page.waitForTimeout(500);

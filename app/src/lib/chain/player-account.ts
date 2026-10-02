@@ -1,4 +1,5 @@
 import { fmtGemas } from "../format";
+import type { GameId } from "../mock/types";
 import type { ChainRequest, PlayerRecord } from "./backing";
 import { historyRow, shortKey, type HistoryRow } from "./history";
 import { backerDelta } from "./ledger";
@@ -45,6 +46,13 @@ export interface PlayerSummary {
   won: number;
   lost: number;
   net: number;
+  /** The record again, one entry per game the Player has a decided Match in. */
+  byGame: { game: GameId; matches: number; wins: number }[];
+  /** The Player's highest Block Puzzle score in a finished Match, when there is one. */
+  bestScore: number | null;
+  /** Opening time of the first and the latest finished Match (ms), null with none. */
+  first: number | null;
+  latest: number | null;
   /** The decided Matches this Player played under a Backing, and what their Backers made of them. */
   backings: {
     matches: number;
@@ -57,6 +65,8 @@ export interface PlayerSummary {
     net: number;
   };
 }
+
+const GAMES: GameId[] = ["block-puzzle", "holdem"];
 
 export function playerSummary(played: ChainMatch[]): PlayerSummary {
   const rows = playedRows(played);
@@ -71,6 +81,8 @@ export function playerSummary(played: ChainMatch[]): PlayerSummary {
   const perBacker = new Map<string, number>();
   for (const r of backed) perBacker.set(r.backing!.other, (perBacker.get(r.backing!.other) ?? 0) + (r.backerDelta as number));
 
+  const scores = rows.filter((r) => r.game === "block-puzzle" && r.scores).map((r) => r.scores![0]);
+  const times = rows.map((r) => r.at);
   const finished = played.filter((m) => m.seat !== null && (m.status === "settled" || m.status === "refunded")).length;
   return {
     record: { matches: decided.length, wins: decided.filter((r) => r.result === "won").length },
@@ -79,6 +91,13 @@ export function playerSummary(played: ChainMatch[]): PlayerSummary {
     won: gains(deltas),
     lost: losses(deltas),
     net: sum(deltas),
+    byGame: GAMES.map((game) => {
+      const of = decided.filter((r) => r.game === game);
+      return { game, matches: of.length, wins: of.filter((r) => r.result === "won").length };
+    }).filter((g) => g.matches > 0),
+    bestScore: scores.length ? Math.max(...scores) : null,
+    first: times.length ? Math.min(...times) : null,
+    latest: times.length ? Math.max(...times) : null,
     backings: {
       matches: backed.length,
       wins: backed.filter((r) => r.result === "won").length,

@@ -3,13 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Check, Copy, Link2 } from "lucide-react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
-import { Button, Card, EntryPicker, GemaMark, Label, Sheet, SkeletonCards } from "@/components/ui";
+import { Bust, Button, Card, EntryPicker, GemaMark, Label, Sheet, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { avatarFor } from "@/lib/art";
+import { ago } from "@/lib/catalogue";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
 import { historyPage, shortKey } from "@/lib/chain/history";
 import { backingLine, playedRows, playerSummary, runningTotal, signed, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
@@ -56,12 +57,11 @@ export function AccountView({ address }: { address: string }) {
       </div>
     );
   }
-  if (!data.exists) return <Notice title="Account not found" body="There is no Tesoro Account at this address on Solana devnet." />;
   return <Loaded address={key} data={data} stale={!!error} />;
 }
 
 function Loaded({ address, data, stale }: { address: string; data: PlayerAccount; stale: boolean }) {
-  const { auth, snapshot } = useAccount();
+  const { auth, snapshot, gemas } = useAccount();
   const params = useSearchParams();
   const [now] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
@@ -77,7 +77,14 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
 
   const me = snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null);
   const own = me === address;
+  const visitor = !own && auth.status !== "loading";
   const name = shortKey(address);
+  const played = rows.length > 0 || summary.notRead > 0;
+
+  // Your own Account page exists before the Account does on chain (it is created with your first Position or Match).
+  if (!data.exists && !own) {
+    return auth.status === "loading" ? null : <Notice title="Account not found" body="There is no Tesoro Account at this address on Solana devnet." />;
+  }
 
   const copy = () => {
     void navigator.clipboard?.writeText(`${window.location.origin}${base}`).then(() => {
@@ -88,109 +95,109 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
 
   return (
     <div className="pa">
-      <header className="pa-head">
+      <header className="cut cut-frame pa-hero">
         <span className="cut cut-btn avatar pa-avatar">
-          <Image src={avatarFor(address)} alt="" width={96} height={96} priority />
+          <Image src={avatarFor(address)} alt="" width={120} height={120} priority />
         </span>
         <div className="pa-who">
           <Label>{own ? "Your Account" : "Account"}</Label>
           <h1 className="page-title">{name}</h1>
           <span className="mono pa-key">{address}</span>
+          {summary.first !== null && (
+            <ul className="pa-facts">
+              <li>Playing since {day(summary.first)}</li>
+              <li>Last Match {ago(summary.latest as number, now)}</li>
+              {summary.byGame.map((g) => (
+                <li key={g.game}>{GAME_NAMES[g.game]}</li>
+              ))}
+            </ul>
+          )}
         </div>
-        <Button size="sm" onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
-          {copied ? "Link copied" : "Copy link"}
-        </Button>
-        <span className="sr-only" role="status">
-          {copied ? "Link copied" : ""}
-        </span>
-      </header>
-
-      {own && (
-        <p className="pa-own">
-          This is your Account as other Players see it. Your Gemas and Positions stay in your <Link href="/wallet">Wallet</Link>; Matches you backed are in{" "}
-          <Link href="/matches">All Matches</Link>.
-        </p>
-      )}
-
-      {rows.length === 0 && summary.notRead === 0 ? (
-        <p className="pa-none">No finished Matches yet. They appear here as they settle on Solana devnet.</p>
-      ) : (
-        <Figures s={summary} />
-      )}
-
-      {series.length >= 2 && (
-        <Card as="section" className="pa-card" aria-label="Running total of Gemas won and lost">
-          <RunningTotalChart series={series} />
-        </Card>
-      )}
-
-      {!own && auth.status !== "loading" && (
-        <div className="pa-actions">
-          <Card as="section" className="pa-card" aria-labelledby="pa-back">
-            <h2 id="pa-back" className="pa-h">Back this Player</h2>
-            {data.requests.length === 0 ? (
-              <>
-                <p className="pa-p">Not asking to be backed right now. A Backing answers a Request, so there is nothing to make an Offer on yet.</p>
-                <Link href="/backing" className="pa-more">See open Requests</Link>
-              </>
-            ) : (
-              <>
-                <p className="pa-p">{name} is asking to be backed. You fund the whole entry and choose the share of the surplus you offer.</p>
-                <ul className="pa-reqs">
-                  {data.requests.map((r) => (
-                    <li key={r.address.toBase58()}>
-                      <span>
-                        <b>{GAME_NAMES[r.game]}</b>
-                        <small>
-                          Entry {fmtGemas(r.entry)} Gemas · {timeLeft(r.expiresAt, now)}
-                        </small>
-                      </span>
-                      <Button variant="money" size="sm" href={`/backing#${r.address.toBase58()}`}>
-                        Make an Offer
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </Card>
-          <Card as="section" className="pa-card" aria-labelledby="pa-challenge">
-            <h2 id="pa-challenge" className="pa-h">Challenge this Player</h2>
-            <p className="pa-p">Open a Match outside the Queue and send {name} the link. Tesoro does not tell them: the link is how they find it.</p>
+        <div className="pa-hero-actions">
+          {visitor && (
             <Button onClick={() => setChallenge(true)}>
               Challenge <Link2 aria-hidden="true" />
             </Button>
-          </Card>
+          )}
+          <Button size={visitor ? "sm" : "md"} onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
+            {copied ? "Link copied" : "Copy link"}
+          </Button>
+          <span className="sr-only" role="status">
+            {copied ? "Link copied" : ""}
+          </span>
         </div>
-      )}
-
-      <section className="pa-history" aria-labelledby="pa-matches">
-        <header className="mh-head">
-          <h2 id="pa-matches" className="h-section">Match history</h2>
-          {rows.length > 0 && <GameTabs base={base} game={game} />}
-        </header>
-        {shown.length === 0 ? (
-          rows.length > 0 && <p className="pa-none">No finished {game ? GAME_NAMES[game] : ""} Matches yet.</p>
-        ) : (
-          <>
-            <div className="mh-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
-              {view.rows.map((r) => (
-                <div key={r.id} role="listitem">
-                  <MatchRow r={r} now={now} showGame={!game} link="opponent" backing={backingLine(r)} />
-                </div>
-              ))}
-            </div>
-            <HistoryPages base={base} game={game} page={view.page} pages={view.pages} total={shown.length} />
-          </>
-        )}
-        {summary.notRead > 0 && (
-          <p className="note">
-            {summary.notRead} settled {summary.notRead === 1 ? "Match" : "Matches"} could not be read and {summary.notRead === 1 ? "is" : "are"} not counted here.
+        {own && (
+          <p className="pa-hero-note">
+            This is your Account as other Players see it. Your Gemas and Positions stay in your <Link href="/wallet">Wallet</Link>; Matches you backed are in{" "}
+            <Link href="/matches">All Matches</Link>.
           </p>
         )}
-        {stale && <p className="note">Could not refresh from Solana devnet; showing the last read.</p>}
-      </section>
+        {visitor && data.requests.length === 0 && (
+          <p className="pa-hero-note">
+            Not asking to be backed right now. A Backing answers a Request: <Link href="/backing">see open Requests</Link>.
+          </p>
+        )}
+      </header>
 
+      {visitor && data.requests.length > 0 && (
+        <section className="cut cut-card pa-asks" aria-labelledby="pa-asks">
+          <div className="pa-asks-lead">
+            <h2 id="pa-asks" className="pa-h">Asking to be backed</h2>
+            <p>You fund the whole entry and choose the share of the surplus you offer.</p>
+          </div>
+          <ul>
+            {data.requests.map((r) => (
+              <li key={r.address.toBase58()}>
+                <span>
+                  <b>{GAME_NAMES[r.game]}</b>
+                  <small>
+                    Entry {fmtGemas(r.entry)} Gemas · {timeLeft(r.expiresAt, now)}
+                  </small>
+                </span>
+                <Button variant="money" href={`/backing#${r.address.toBase58()}`}>
+                  Make an Offer
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {played ? (
+        <Scoreboard s={summary} series={series} />
+      ) : (
+        <NoMatches own={own} name={name} hasGemas={snapshot ? gemas.total > 0 : null} />
+      )}
+
+      {played && (
+        <section className="pa-history" aria-labelledby="pa-matches">
+          <header className="mh-head">
+            <h2 id="pa-matches" className="h-section">Match history</h2>
+            {rows.length > 0 && <GameTabs base={base} game={game} />}
+          </header>
+          {shown.length === 0 ? (
+            rows.length > 0 && <p className="pa-none">No finished {game ? GAME_NAMES[game] : ""} Matches yet.</p>
+          ) : (
+            <>
+              <div className="mh-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
+                {view.rows.map((r) => (
+                  <div key={r.id} role="listitem">
+                    <MatchRow r={r} now={now} showGame={!game} link="opponent" backing={backingLine(r)} />
+                  </div>
+                ))}
+              </div>
+              <HistoryPages base={base} game={game} page={view.page} pages={view.pages} total={shown.length} />
+            </>
+          )}
+          {summary.notRead > 0 && (
+            <p className="note">
+              {summary.notRead} settled {summary.notRead === 1 ? "Match" : "Matches"} could not be read and {summary.notRead === 1 ? "is" : "are"} not counted here.
+            </p>
+          )}
+        </section>
+      )}
+
+      {stale && <p className="note">Could not refresh from Solana devnet; showing the last read.</p>}
       <p className="note">Solana devnet · testnet Gemas from a simulated Position.</p>
 
       <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={name} />
@@ -199,58 +206,162 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
 }
 
 const pct = (wins: number, of: number) => Math.round((wins / of) * 100);
-const plural = (n: number, one: string, many: string) => `${fmtGemas(n)} ${n === 1 ? one : many}`;
+const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-/** The three figures. Every rate carries its sample size, and the Player's Gemas sit beside their Backers'. */
-function Figures({ s }: { s: PlayerSummary }) {
+/**
+ * The figures. Gemas won and lost lead, with the running total inside the same panel; Matches and
+ * Backings sit beside it. Every rate carries its sample size, and the Player's Gemas are never
+ * shown without their Backers'.
+ */
+function Scoreboard({ s, series }: { s: PlayerSummary; series: ReturnType<typeof runningTotal> }) {
   const { record, backings } = s;
   return (
-    <div className="pa-figs">
-      <Card as="section" className="pa-fig" aria-label="Matches">
-        <Label>Matches</Label>
-        {record.matches === 0 ? (
-          <b>None with a winner</b>
-        ) : (
-          <b>
-            {record.wins} of {record.matches} won
-          </b>
-        )}
-        <p>
-          {record.matches > 0 && `${pct(record.wins, record.matches)}% of ${plural(record.matches, "Match", "Matches")} with a winner. `}
-          {s.undecided > 0 && `${plural(s.undecided, "draw or refund", "draws or refunds")} not counted.`}
-        </p>
-      </Card>
-      <Card as="section" className="pa-fig" aria-label="Gemas won and lost">
+    <div className="pa-board">
+      <section className="cut cut-card pa-panel pa-gemas" aria-label="Gemas won and lost">
         <Label>Gemas won and lost</Label>
-        <b>
-          <GemaMark size={26} />
+        <b className="pa-big">
+          <GemaMark size={34} />
           {signed(s.net)}
         </b>
-        <p>
-          {signed(s.won)} won · {signed(-s.lost)} lost, after Fees.
-          {backings.matches > 0 && " A loss under a Backing costs the Player nothing: see Backings."}
-        </p>
-      </Card>
-      <Card as="section" className="pa-fig" aria-label="Backings">
+        <dl className="pa-split">
+          <div>
+            <dt>Won</dt>
+            <dd>{signed(s.won)}</dd>
+          </div>
+          <div>
+            <dt>Lost</dt>
+            <dd>{signed(-s.lost)}</dd>
+          </div>
+          <p>After Fees</p>
+        </dl>
+        {series.length >= 2 && <RunningTotalChart series={series} />}
+      </section>
+
+      <section className="cut cut-card pa-panel" aria-label="Matches">
+        <Label>Matches</Label>
+        {record.matches === 0 ? (
+          <b className="pa-fig">None with a winner</b>
+        ) : (
+          <>
+            <b className="pa-fig">
+              {record.wins} of {record.matches} won
+            </b>
+            <Bar value={record.wins / record.matches} label={`${pct(record.wins, record.matches)}% won`} />
+          </>
+        )}
+        <dl className="kv pa-kv">
+          {s.byGame.length > 1 &&
+            s.byGame.map((g) => (
+              <Fragment key={g.game}>
+                <dt>{GAME_NAMES[g.game]}</dt>
+                <dd>
+                  {g.wins} of {g.matches}
+                </dd>
+              </Fragment>
+            ))}
+          {s.bestScore !== null && (
+            <>
+              <dt>Best {GAME_NAMES["block-puzzle"]} score</dt>
+              <dd>{fmtGemas(s.bestScore)}</dd>
+            </>
+          )}
+          {s.undecided > 0 && (
+            <>
+              <dt>Draws and refunds, not counted</dt>
+              <dd>{s.undecided}</dd>
+            </>
+          )}
+        </dl>
+      </section>
+
+      <section className="cut cut-card pa-panel" aria-label="Backings">
         <Label>Backings</Label>
         {backings.matches === 0 ? (
           <>
-            <b>None yet</b>
-            <p>No Match with a winner was played under a Backing.</p>
+            <b className="pa-fig">None yet</b>
+            <p className="pa-p">No Match with a winner was played under a Backing.</p>
           </>
         ) : (
           <>
-            <b>
+            <b className="pa-fig">
               {backings.wins} of {backings.matches} won
             </b>
-            <p>
-              Backers: {signed(backings.won)} won · {signed(-backings.lost)} lost · net {signed(backings.net)} Gemas. {backings.ahead} of{" "}
-              {plural(backings.backers, "Backer", "Backers")} ahead.
-            </p>
+            <dl className="kv pa-kv">
+              <dt>Backers&apos; Gemas</dt>
+              <dd>
+                {signed(backings.won)} · {signed(-backings.lost)}
+              </dd>
+              <dt>Backers&apos; net</dt>
+              <dd>{signed(backings.net)}</dd>
+              <dt>Backers ahead</dt>
+              <dd>
+                {backings.ahead} of {backings.backers}
+              </dd>
+            </dl>
+            <p className="note">A loss under a Backing costs the Player nothing, so read their Gemas beside their Backers&apos;.</p>
           </>
         )}
-      </Card>
+      </section>
     </div>
+  );
+}
+
+/** A share as a neutral bar with its words: emerald is for Gemas, and a win rate is not one. */
+function Bar({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="pa-bar">
+      <span className="pa-bar-track" aria-hidden="true">
+        <i style={{ width: `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%` }} />
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+const SHOWN: [string, string][] = [
+  ["Matches", "How many were won, of those with a winner."],
+  ["Gemas won and lost", "After Fees, with a running total Match by Match."],
+  ["Backings", "What the Backers made, beside the Player."],
+];
+
+/**
+ * No finished Match yet: what the Account will show, and for its owner the way to start (a Position
+ * first when they hold no Gemas, since Gemas come from one; no button until their Gemas are read).
+ */
+function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGemas: boolean | null }) {
+  return (
+    <section className={`cut cut-card pa-empty${own ? "" : " quiet"}`} aria-label="No Matches yet">
+      <Bust name="himWaiting" width={190} className="pa-empty-bust" />
+      <div className="pa-empty-lead">
+        <b>No Matches yet</b>
+        <p>
+          {!own
+            ? `${name} has not finished a Match. When they do, their Account shows:`
+            : hasGemas !== false
+              ? "Play a Match and your Account fills in as it settles. This is what other Players will see:"
+              : "Open a Position to get Gemas, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
+        </p>
+      </div>
+      {own &&
+        hasGemas !== null &&
+        (hasGemas ? (
+          <Button variant="money" href="/play">
+            Play now
+          </Button>
+        ) : (
+          <Button variant="money" href="/wallet">
+            Open a Position
+          </Button>
+        ))}
+      <ul className="pa-empty-list">
+        {SHOWN.map(([title, text]) => (
+          <li key={title}>
+            <b>{title}</b>
+            <p>{text}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
