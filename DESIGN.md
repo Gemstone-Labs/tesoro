@@ -59,7 +59,7 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
 .cut::after { /* evenodd ring: the outline follows the chamfer */ background: var(--edge, var(--line)); }
 ```
 
-`clip-path` clips real borders, so cut shapes draw their outline as an `::after` evenodd ring coloured by `--edge` (never `border`). Neutral cards use `--edge-1`, controls `--edge-2`, the balance pill and money panels `--edge-em`; money buttons and the chosen entry carry a crown highlight (a white-to-clear edge) plus an inset pavilion shade, and press down 1px. Inputs keep a real border (they cannot have pseudo-elements). Classes: `cut-frame` (heroes, sheets), `cut-card` (cards, nav items, chips-as-buttons, tiles), `cut-btn` (buttons, avatars), `cut-chip` (small chips, entry buttons, ticker). Focus rings sit inside the shape (`outline-offset: -4px`).
+`clip-path` clips real borders, so cut shapes draw their outline as an `::after` evenodd ring coloured by `--edge` (never `border`). Neutral cards use `--edge-1`, controls `--edge-2`, the balance pill and money panels `--edge-em`; money buttons and the chosen entry carry a crown highlight (a white-to-clear edge) plus an inset pavilion shade, and press down 1px. Inputs and selects cannot have pseudo-elements: their sides are an inset shadow and each chamfer a corner gradient (`--ring`, `--t`). Classes: `cut-frame` (heroes, sheets), `cut-card` (cards, nav items, chips-as-buttons, tiles), `cut-btn` (buttons, avatars), `cut-chip` (small chips, entry buttons, ticker). Focus never uses `outline` on a cut shape (the clip turns it into a broken rectangle): the edge itself becomes the ring, 2px solid `--fg`, following the chamfers. Light fills (money buttons, the chosen entry, the white Hold'em action, the active Wallet tab) take an ink ring set 3px inside instead. A cut wrapper around a bare input, select or summary takes the ring for it; a cut ancestor further up never lights.
 
 ## Type
 
@@ -123,7 +123,7 @@ All game art, hero art and avatars come from one map, `app/src/lib/art.ts`. Unti
 
 - `--fg-3` (40%) fails AA for text: decoration only; all text uses `--fg` or `--fg-2`.
 - Only Gema actions (Play now, Enter, Offer, Redeem, Take an Advance, sliders that set Gema amounts) and the balance are emerald.
-- Money buttons use `--em-ink` for text and focus rings.
+- Money buttons use `--em-ink` for text and the inset focus ring.
 - Match results always pair an icon with words: ✓ Won · ✕ Lost · − Draw / Refunded (Play Again tiles too).
 - Simulated Unlock Estimates show an absolute time (the yield clock runs 1 month = 10 min); "–" until one exists.
 - Names are not on chain: Players show as short keys with a stable placeholder avatar (`avatarFor`).

@@ -72,6 +72,7 @@
 .wl-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .wl-tabs button { --edge: var(--edge-2); background: var(--surface); border: 0; height: 44px; font-weight: 700; font-size: 16px; color: var(--fg); }
 .wl-tabs button.on { background: var(--fg); color: var(--shell); --edge: transparent; }
+.wl-tabs button.on:focus-visible::after { --t: 1px; --r: 2px; background: var(--shell); }
 .wl-open-form { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; }
 .wl-amount { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 14px; background: var(--surface); border: 1px solid var(--line-2); }
 .wl-open .field { grid-template-columns: minmax(0, 1fr); }

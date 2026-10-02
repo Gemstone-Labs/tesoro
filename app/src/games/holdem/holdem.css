@@ -116,7 +116,7 @@
 .hdx-btn.primary { background: #eef0e9; color: #0a0d0f; }
 .hdx-btn.primary:hover { background: #fff !important; }
 .hdx-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.hdx-btn:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
+.hdx-btn.primary:focus-visible::after { --t: 1px; --r: 2px; background: #0a0d0f; }
 .hdx-raise { display: grid; gap: 12px; align-items: center; }
 .hdx-raise-in { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hdx-raise-in input {

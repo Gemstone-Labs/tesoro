@@ -9,27 +9,45 @@
     calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)
   );
 }
-/* border drawn as an evenodd ring so the diagonals get an outline too (clip-path clips real borders) */
+/* border drawn as an evenodd ring so the diagonals get an outline too (clip-path clips real borders).
+   Four octagons, each closed on its first point: the edge lies between insets 0 and --t, the focus
+   ring between --o and --o + --r (zero-width until focused). */
 .cut:not(input, select, textarea, img)::after {
+  --r: 0px; --o: 3px;
+  --a: calc(0.42 * var(--t)); --b: calc(0.42 * var(--o)); --d: calc(var(--o) + var(--r)); --e: calc(0.42 * var(--d));
   content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
   background: var(--edge, var(--edge-1));
   clip-path: polygon(
     evenodd,
     var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)),
-    calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c),
-    calc(var(--c) + 0.42 * var(--t)) var(--t), calc(100% - var(--c) - 0.42 * var(--t)) var(--t),
-    calc(100% - var(--t)) calc(var(--c) + 0.42 * var(--t)), calc(100% - var(--t)) calc(100% - var(--c) - 0.42 * var(--t)),
-    calc(100% - var(--c) - 0.42 * var(--t)) calc(100% - var(--t)), calc(var(--c) + 0.42 * var(--t)) calc(100% - var(--t)),
-    var(--t) calc(100% - var(--c) - 0.42 * var(--t)), var(--t) calc(var(--c) + 0.42 * var(--t))
+    calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c), var(--c) 0,
+    calc(var(--c) + var(--a)) var(--t), calc(100% - var(--c) - var(--a)) var(--t),
+    calc(100% - var(--t)) calc(var(--c) + var(--a)), calc(100% - var(--t)) calc(100% - var(--c) - var(--a)),
+    calc(100% - var(--c) - var(--a)) calc(100% - var(--t)), calc(var(--c) + var(--a)) calc(100% - var(--t)),
+    var(--t) calc(100% - var(--c) - var(--a)), var(--t) calc(var(--c) + var(--a)), calc(var(--c) + var(--a)) var(--t),
+    calc(var(--c) + var(--b)) var(--o), calc(100% - var(--c) - var(--b)) var(--o),
+    calc(100% - var(--o)) calc(var(--c) + var(--b)), calc(100% - var(--o)) calc(100% - var(--c) - var(--b)),
+    calc(100% - var(--c) - var(--b)) calc(100% - var(--o)), calc(var(--c) + var(--b)) calc(100% - var(--o)),
+    var(--o) calc(100% - var(--c) - var(--b)), var(--o) calc(var(--c) + var(--b)), calc(var(--c) + var(--b)) var(--o),
+    calc(var(--c) + var(--e)) var(--d), calc(100% - var(--c) - var(--e)) var(--d),
+    calc(100% - var(--d)) calc(var(--c) + var(--e)), calc(100% - var(--d)) calc(100% - var(--c) - var(--e)),
+    calc(100% - var(--c) - var(--e)) calc(100% - var(--d)), calc(var(--c) + var(--e)) calc(100% - var(--d)),
+    var(--d) calc(100% - var(--c) - var(--e)), var(--d) calc(var(--c) + var(--e)), calc(var(--c) + var(--e)) var(--d)
   );
 }
 .cut-frame { --c: var(--cut-frame); }
 .cut-card { --c: var(--cut-card); }
 .cut-chip { --c: var(--cut-chip); }
 .cut-btn { --c: var(--cut-btn); }
-/* clip-path clips outer outlines, so focus rings on cut shapes sit inside */
-.cut:focus-visible, .cut:has(:focus-visible) { outline: 2px solid var(--fg); outline-offset: -4px; }
-.cut-chip:focus-visible, .cut-chip:has(:focus-visible) { outline-offset: -3px; }
+/* Focus: an outline is a rectangle that the cut clips, so the edge itself becomes the ring and
+   follows the chamfers. A cut wrapper around a bare control takes the ring for it. */
+.cut:focus-visible { outline: 0; }
+.cut:focus-visible::after,
+.cut:has(> :is(input, select, textarea, summary):not(.cut):focus-visible)::after,
+.entry input:focus-visible + span::after { --t: 2px; background: var(--fg); }
+/* light fills: a pale edge would not show, so they take an ink ring set inside the shape */
+.btn.money:focus-visible::after,
+.entry input:checked:focus-visible + span::after { --t: 1px; --r: 2px; background: var(--em-ink); }
 
 .label {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
@@ -105,7 +123,6 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .btn.money:hover:not(:disabled) { filter: brightness(1.07) saturate(1.05); }
 .btn.money:active:not(:disabled) { filter: brightness(0.95); }
 .btn:active:not(:disabled, [aria-disabled="true"]) { transform: translateY(1px); }
-.btn.money:focus-visible { outline-color: var(--em-ink); }
 .btn.neutral { background: var(--surface); color: var(--fg); --edge: var(--edge-2); }
 .btn.neutral:hover { background: var(--surface-2); }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; }
@@ -181,8 +198,6 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .entry input:disabled + span { color: rgba(234, 239, 236, 0.42); background: rgba(9, 13, 15, 0.6); --edge: var(--edge-1); }
 .entry input:disabled:checked + span { background: linear-gradient(180deg, #16302a, #10221e); color: rgba(234, 239, 236, 0.62); --edge: rgba(45, 190, 140, 0.4); }
 .entry input:disabled { cursor: not-allowed; }
-.entry input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: -4px; }
-.entry input:checked:focus-visible + span { outline-color: var(--em-ink); }
 
 /* ——— Slider ——— */
 .slider { display: grid; gap: 8px; }
@@ -249,9 +264,21 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 
 /* ——— Form controls ——— */
 .field { display: grid; gap: 6px; }
+/* inputs cannot carry the ::after ring: the straight sides are an inset shadow, each chamfer a corner gradient */
 .select, .input {
-  --c: var(--cut-chip); min-height: 44px; padding: 8px 12px; background: var(--shell); border: 1px solid var(--line-2); color: var(--fg); width: 100%;
+  --c: var(--cut-chip); --t: 1px; --ring: var(--line-2); --k: calc(0.7071 * var(--c) + var(--t));
+  min-height: 44px; padding: 9px 13px; border: 0; color: var(--fg); width: 100%;
+  box-shadow: inset 0 0 0 var(--t) var(--ring);
+  background:
+    linear-gradient(135deg, var(--ring) calc(var(--k) - 0.5px), transparent calc(var(--k) + 0.5px)) top left,
+    linear-gradient(225deg, var(--ring) calc(var(--k) - 0.5px), transparent calc(var(--k) + 0.5px)) top right,
+    linear-gradient(315deg, var(--ring) calc(var(--k) - 0.5px), transparent calc(var(--k) + 0.5px)) bottom right,
+    linear-gradient(45deg, var(--ring) calc(var(--k) - 0.5px), transparent calc(var(--k) + 0.5px)) bottom left,
+    var(--shell);
+  background-size: calc(2 * var(--c)) calc(2 * var(--c)), calc(2 * var(--c)) calc(2 * var(--c)), calc(2 * var(--c)) calc(2 * var(--c)), calc(2 * var(--c)) calc(2 * var(--c)), auto;
+  background-repeat: no-repeat;
 }
+:is(.select, .input):focus-visible { --t: 2px; --ring: var(--fg); }
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; }
 .kv dt { color: var(--fg-2); }
 .kv dd { margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }

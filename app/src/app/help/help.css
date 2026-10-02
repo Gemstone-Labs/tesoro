@@ -25,6 +25,7 @@
   padding: 14px 16px; font-weight: 700; font-size: 15px;
 }
 .help-q summary::-webkit-details-marker { display: none; }
+.help-q summary:focus-visible { outline: 0; }
 .help-q summary svg { width: 18px; height: 18px; flex: none; color: var(--fg-2); transition: transform 160ms ease; }
 .help-q[open] { background: var(--raised-2); --edge: var(--line-2); }
 .help-q[open] summary svg { transform: rotate(180deg); }
