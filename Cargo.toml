@@ -11,3 +11,7 @@ codegen-units = 1
 opt-level = 3
 incremental = false
 codegen-units = 1
+
+# Smaller binary: the upgrade buffer costs the full rent of the program.
+[profile.release.package.trading_duel]
+opt-level = "s"

@@ -498,13 +498,12 @@ pub mod trading_duel {
         Ok(())
     }
 
-    /// Rollup. After the Match is over (or cancelled): closes the permissions and commits +
-    /// undelegates everything. The Books are not wiped: once committed they are public, which is
-    /// how both Players' fill histories become readable.
+    /// Rollup. After the Match is over: closes the permissions and commits + undelegates
+    /// everything. The Books are not wiped: once committed they are public, which is how both
+    /// Players' fill histories become readable.
     pub fn close_match(ctx: Context<CloseMatch>) -> Result<()> {
-        let status = ctx.accounts.duel.status;
         require!(
-            status == STATUS_OVER || status == STATUS_CANCELLED,
+            ctx.accounts.duel.status == STATUS_OVER,
             DuelError::MatchNotOver
         );
         let duel_key = ctx.accounts.duel.key();
@@ -542,6 +541,30 @@ pub mod trading_duel {
             ],
         )?;
 
+        MagicIntentBundleBuilder::new(
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.magic_context.to_account_info(),
+            ctx.accounts.magic_program.to_account_info(),
+        )
+        .commit_and_undelegate(&[
+            ctx.accounts.duel.to_account_info(),
+            ctx.accounts.book_0.to_account_info(),
+            ctx.accounts.book_1.to_account_info(),
+        ])
+        .build_and_invoke()?;
+        Ok(())
+    }
+
+    /// Rollup. A cancelled Duel never started, so it has no permissions: commits + undelegates
+    /// it as it is, which lets `finalize` refund both entries.
+    pub fn close_unstarted(ctx: Context<CloseUnstarted>) -> Result<()> {
+        require!(
+            ctx.accounts.duel.status == STATUS_CANCELLED,
+            DuelError::MatchNotOver
+        );
+        ctx.accounts.duel.exit(&ID)?;
+        ctx.accounts.book_0.exit(&ID)?;
+        ctx.accounts.book_1.exit(&ID)?;
         MagicIntentBundleBuilder::new(
             ctx.accounts.payer.to_account_info(),
             ctx.accounts.magic_context.to_account_info(),
@@ -676,16 +699,13 @@ fn require_real_permission(
     }
 }
 
-/// Closes a permission when one exists (a Match cancelled before it started has none).
+/// Closes a permission.
 fn close_permission<'info, T: PermissionAccounts<'info>>(
     accounts: &T,
     data: &AccountInfo<'info>,
     permission: &UncheckedAccount<'info>,
     seeds: &[&[u8]],
 ) -> Result<()> {
-    if permission.lamports() == 0 {
-        return Ok(());
-    }
     CloseEphemeralPermissionCpi {
         payer: data.clone(),
         permissioned_account: data.clone(),
@@ -869,6 +889,19 @@ pub struct CloseMatch<'info> {
     /// CHECK: ephemeral rent vault
     #[account(mut, address = EPHEMERAL_VAULT_ID)]
     pub ephemeral_vault: UncheckedAccount<'info>,
+}
+
+#[commit]
+#[derive(Accounts)]
+pub struct CloseUnstarted<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    pub duel: Account<'info, Duel>,
+    #[account(mut, seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
+    pub book_0: Box<Account<'info, Book>>,
+    #[account(mut, seeds = [BOOK_SEED, duel.key().as_ref(), &[1]], bump = book_1.bump)]
+    pub book_1: Box<Account<'info, Book>>,
 }
 
 #[derive(Accounts)]

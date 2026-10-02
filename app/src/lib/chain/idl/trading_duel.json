@@ -55,9 +55,9 @@
     {
       "name": "close_match",
       "docs": [
-        "Rollup. After the Match is over (or cancelled): closes the permissions and commits +",
-        "undelegates everything. The Books are not wiped: once committed they are public, which is",
-        "how both Players' fill histories become readable."
+        "Rollup. After the Match is over: closes the permissions and commits + undelegates",
+        "everything. The Books are not wiped: once committed they are public, which is how both",
+        "Players' fill histories become readable."
       ],
       "discriminator": [
         79,
@@ -374,6 +374,70 @@
         },
         {
           "name": "price_feed"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_unstarted",
+      "docs": [
+        "Rollup. A cancelled Duel never started, so it has no permissions: commits + undelegates",
+        "it as it is, which lets `finalize` refund both entries."
+      ],
+      "discriminator": [
+        158,
+        112,
+        245,
+        215,
+        186,
+        244,
+        242,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "duel",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  117,
+                  101,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "duel.match_id",
+                "account": "Duel"
+              }
+            ]
+          }
+        },
+        {
+          "name": "book_0",
+          "writable": true
+        },
+        {
+          "name": "book_1",
+          "writable": true
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
         }
       ],
       "args": []

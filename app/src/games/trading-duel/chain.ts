@@ -515,29 +515,40 @@ export class TradingDuelChain {
     return this.sendTee("claim_timeout", [ix], caller);
   }
 
-  /** Rollup. Over or cancelled: closes the permissions and commits everything (Books included, now public). */
+  /**
+   * Rollup. Over: closes the permissions and commits everything (Books included, now public).
+   * Cancelled (never started, so no permissions exist): commits the accounts as they are.
+   */
   async closeMatch(payer: PlayerSigner, matchId: bigint | number): Promise<{ tee: string; commit: string }> {
     const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .closeMatch()
-      .accountsPartial({
-        payer: payer.publicKey,
-        duel: ad.duel,
-        book0: ad.book0,
-        book1: ad.book1,
-        duelPermission: permissionPdaFromAccount(ad.duel),
-        book0Permission: permissionPdaFromAccount(ad.book0),
-        book1Permission: permissionPdaFromAccount(ad.book1),
-        permissionProgram: PERMISSION_PROGRAM_ID,
-        ephemeralVault: EPHEMERAL_VAULT,
-        magicContext: MAGIC_CONTEXT,
-        magicProgram: MAGIC_PROGRAM_ID,
-      } as any)
-      .instruction();
-    const tee = await this.sendTee("close_match", [ix], payer);
+    const duel = await this.readDuel(payer, matchId);
+    const cancelled = duel?.status === STATUS.cancelled;
+    const ix = cancelled
+      ? await this.program.methods
+          .closeUnstarted()
+          .accountsPartial({ payer: payer.publicKey, duel: ad.duel, book0: ad.book0, book1: ad.book1, magicContext: MAGIC_CONTEXT, magicProgram: MAGIC_PROGRAM_ID } as any)
+          .instruction()
+      : await this.program.methods
+          .closeMatch()
+          .accountsPartial({
+            payer: payer.publicKey,
+            duel: ad.duel,
+            book0: ad.book0,
+            book1: ad.book1,
+            duelPermission: permissionPdaFromAccount(ad.duel),
+            book0Permission: permissionPdaFromAccount(ad.book0),
+            book1Permission: permissionPdaFromAccount(ad.book1),
+            permissionProgram: PERMISSION_PROGRAM_ID,
+            ephemeralVault: EPHEMERAL_VAULT,
+            magicContext: MAGIC_CONTEXT,
+            magicProgram: MAGIC_PROGRAM_ID,
+          } as any)
+          .instruction();
+    const tee = await this.sendTee("close_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix], payer);
     const conn = await this.teeConnection(payer);
-    const commit = await GetCommitmentSignature(tee, conn);
-    this.onTx?.("close_match commit", "base", commit);
+    // The commitment signature is evidence only; the commit itself landed when the Duel is program-owned again.
+    const commit = await GetCommitmentSignature(tee, conn).catch(() => "");
+    if (commit) this.onTx?.("close_match commit", "base", commit);
     return { tee, commit };
   }
 
