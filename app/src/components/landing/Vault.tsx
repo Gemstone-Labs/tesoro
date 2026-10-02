@@ -37,6 +37,7 @@ export function Vault({ locked, open }: { locked: ReactNode; open: ReactNode }) 
         </span>
       </div>
       <div className="lp-vault-art" aria-hidden>
+        {unlocked && <span key={step} className="lp-vault-burst" />}
         {locked}
         {open}
         <span className="lp-vault-rise">

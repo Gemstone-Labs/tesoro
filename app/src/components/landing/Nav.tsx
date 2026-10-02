@@ -66,10 +66,11 @@ export function Nav() {
         >
           {theme === "dark" ? <Sun aria-hidden /> : <Moon aria-hidden />}
         </button>
-        <a className="btn money cut cut-btn lp-launch" href={appHref()}>
+        <a className="btn money cut cut-btn lp-launch lp-shine" href={appHref()}>
           Launch app
         </a>
       </div>
+      <span className="lp-progress" aria-hidden />
     </header>
   );
 }

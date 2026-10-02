@@ -32,6 +32,7 @@ function Vitrine() {
       {[0, 22, 44].map((i) => (
         <path key={i} d={ring(i)} className={i === 0 ? "outer" : "inner"} />
       ))}
+      <path d={ring(0)} className="sweep" pathLength={100} />
     </svg>
   );
 }
@@ -59,7 +60,9 @@ export function Gemas() {
             ))}
           </ol>
           <div className="lp-showcase">
+            <span className="lp-showcase-rays" aria-hidden />
             <Vitrine />
+            <span className="lp-beam" aria-hidden />
             <span className="lp-sparkles" aria-hidden>
               {Array.from({ length: 9 }, (_, i) => (
                 <i key={i} style={{ ["--i" as string]: i }} />

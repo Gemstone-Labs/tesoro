@@ -6,7 +6,7 @@ import { Vault } from "./Vault";
 const FACTS = [
   { icon: <ShieldCheck aria-hidden />, title: "Never played", body: "The Principal never enters a Match and is never spent." },
   { icon: <Sprout aria-hidden />, title: "Only yield pays Debt", body: "The Position’s own yield repays the Advance, Source by Source." },
-  { icon: <LockOpen aria-hidden />, title: "Unlocks at zero", body: "When Debt reaches zero the Position unlocks. The Unlock Estimate moves with the provider’s actual yield." },
+  { icon: <LockOpen aria-hidden />, title: "Unlocks at zero", body: "When Debt reaches zero the Position unlocks." },
 ];
 
 export function Principal() {

@@ -10,21 +10,34 @@ const CATALOGUE = [
   { src: art.comingSoon["bubble-burst"], name: "Bubble Burst" },
 ];
 
-/** The Pot at settlement, drawn as proportions only (the fee levels aren't set). */
-function PotSplit() {
+/** The Pot at settlement as a ring: illustrative proportions only (the fee levels aren't set). */
+function PotRing() {
+  // arc lengths in a pathLength of 100: winner, Studio Fee, Platform Fee, with small gaps
+  const arcs = [
+    { cls: "win", len: 80, off: 0 },
+    { cls: "studio", len: 9, off: 81.5 },
+    { cls: "platform", len: 6.5, off: 92 },
+  ];
   return (
-    <div className="lp-pot" aria-label="A Pot at settlement: the winner's share, your Studio Fee, and Tesoro's Platform Fee.">
-      <span className="lp-pot-bar" aria-hidden>
-        <i className="win" />
-        <i className="studio" />
-        <i className="platform" />
-      </span>
+    <div className="lp-pot">
+      <div className="lp-pot-ring" aria-hidden>
+        <svg viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="48" className="track" pathLength={100} />
+          {arcs.map((a) => (
+            <circle key={a.cls} cx="60" cy="60" r="48" className={a.cls} pathLength={100} strokeDasharray={`${a.len} ${100 - a.len}`} strokeDashoffset={-a.off} />
+          ))}
+        </svg>
+        <span className="lp-pot-center">
+          <GemaMark size={30} />
+          <b>Pot</b>
+        </span>
+      </div>
       <ul className="lp-pot-legend">
         <li>
           <i className="win" /> Winner
         </li>
         <li>
-          <i className="studio" /> <b>Your Studio Fee</b>, you set it
+          <i className="studio" /> <b>Your Studio Fee</b>
         </li>
         <li>
           <i className="platform" /> Platform Fee
@@ -68,12 +81,15 @@ export function Studios() {
           <article className="lp-tile lp-tile-fee cut cut-frame" data-reveal>
             <h3 className="lp-h3">Set your own Studio Fee on every Pot.</h3>
             <p className="lp-body">It sits on top of Tesoro&rsquo;s Platform Fee, taken in Gemas at settlement.</p>
-            <PotSplit />
+            <PotRing />
           </article>
           <article className="lp-tile lp-tile-players cut cut-frame" data-reveal>
             <h3 className="lp-h3">Players arrive with Gemas already in hand.</h3>
             <p className="lp-body">No deposit flow to build: they pick an entry and play.</p>
             <div className="lp-arrive" aria-hidden>
+              <span className="lp-arrive-token">
+                <GemaMark size={14} />
+              </span>
               <span className="lp-pill cut cut-btn">
                 <GemaMark size={18} /> Gemas
               </span>
@@ -84,16 +100,13 @@ export function Studios() {
             </div>
           </article>
         </div>
-        <div className="lp-studios-foot" data-reveal>
-          <p className="lp-body lp-measure">
-            The Platform Fee is Tesoro&rsquo;s only revenue; nothing is charged on Principal, Advances or redemption.
-          </p>
-          {OUTBOUND.x && (
+        {OUTBOUND.x && (
+          <div className="lp-studios-foot" data-reveal>
             <a className="btn neutral cut cut-btn" href={OUTBOUND.x} rel="noopener">
               Talk to us →
             </a>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </section>
   );

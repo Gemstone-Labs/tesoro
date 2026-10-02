@@ -13,7 +13,7 @@ const OUT = resolve(here, "../public/art/landing");
 const GEN = resolve(here, "../src/lib/landing/art.generated.ts");
 
 /** The chosen take per folder (Ailton's picks; see art-source/landing/PROMPTS.md). */
-const TAKE = { hero: 1, "him-guide": 1, "her-backer": 1, "final-cta": 1, "how-it-works": 1 };
+const TAKE = { hero: 1, "hero-light": 1, "him-guide": 1, "her-backer": 1, "final-cta": 1, "how-it-works": 1 };
 // Astra's multichain art (multichain/) is not imported: the section is a live 3D scene now.
 // Astra's facet textures (texture/) are not used: they repeat visibly behind text; the page keeps its coded SVG texture.
 
@@ -25,6 +25,9 @@ const ASSETS = [
   { key: "heroMid", files: [`hero/take-${TAKE.hero}-mid.png`], widths: SCENE, alpha: true },
   { key: "heroFront", files: [`hero/take-${TAKE.hero}-front.png`], widths: SCENE, alpha: true },
   { key: "heroMobile", files: [`hero/take-${TAKE.hero}-mobile.png`], widths: [828, 1242] },
+  // The light theme's own entrance (Astra A2); until delivered, light mode keeps the dark cave.
+  { key: "heroLight", files: [`hero-light/take-${TAKE["hero-light"]}.png`], widths: SCENE },
+  { key: "heroLightMobile", files: [`hero-light/take-${TAKE["hero-light"]}-mobile.png`], widths: [828, 1242] },
   { key: "himGuide", files: [`him-guide/take-${TAKE["him-guide"]}.png`], widths: [640, 1024], alpha: true, trim: true },
   { key: "herBacker", files: [`her-backer/take-${TAKE["her-backer"]}.png`], widths: [640, 1024], alpha: true, trim: true },
   { key: "finalBack", files: [`final-cta/take-${TAKE["final-cta"]}-back.png`], widths: SCENE },

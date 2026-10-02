@@ -1,52 +1,60 @@
-import { Compass, Lock, RefreshCcw, Spade, Undo2 } from "lucide-react";
 import type { ReactNode } from "react";
-import { GemaMark } from "@/components/ui/gema";
 import { art } from "@/lib/art";
-import type { LandingKey } from "@/lib/landing/art";
-import { landingArt } from "@/lib/landing/art";
+import { landingArt, type LandingKey } from "@/lib/landing/art";
 import { Picture } from "./Picture";
 
-const STEPS: { title: string; body: ReactNode; art: LandingKey; icon: ReactNode }[] = [
-  {
-    title: "Open a Position",
-    body: "Stake SOL, ETH or HYPE into a Position. Its Principal stays locked while you have Debt, and is never played.",
-    art: "step1",
-    icon: <Lock aria-hidden />,
-  },
-  {
-    title: "Take an Advance",
-    body: (
-      <>
-        Get <b data-count="100" data-suffix="%">100%</b> of your Position&rsquo;s projected yield over a{" "}
-        <b>1&ndash;<span data-count="12">12</span></b>-month Horizon, upfront.
-      </>
-    ),
-    art: "step2",
-    icon: <Compass aria-hidden />,
-  },
-  {
-    title: "Get Gemas",
-    body: "Your Advance arrives as Gemas: one play unit on every chain.",
-    art: "step3",
-    icon: <GemaMark size={28} />,
-  },
-  {
-    title: "Play head-to-head Matches",
-    body: (
-      <>
-        Enter <b data-count="500">500</b>, <b data-count="1000">1,000</b> or <b data-count="2500">2,500</b> Gemas. The winner takes the Pot, minus Fees.
-      </>
-    ),
-    art: "step4",
-    icon: <Spade aria-hidden />,
-  },
-  {
-    title: "Redeem",
-    body: "Winners redeem as the losers’ yield actually accrues. Your Debt repays itself from yield.",
-    art: "step5",
-    icon: <Undo2 aria-hidden />,
-  },
+/** The diagram's coordinate space (px); nodes and labels are placed in % of it so it scales with the column. */
+const W = 1240;
+const H = 520;
+const pct = (x: number, y: number) => ({ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%` });
+
+type Node = { id: string; x: number; y: number; art?: LandingKey | "back"; title: string; sub?: string; small?: boolean; label: [number, number] };
+
+const NODES: Node[] = [
+  { id: "position", x: 92, y: 220, art: "step1", title: "Open a Position", sub: "SOL · ETH · HYPE", label: [92, 312] },
+  { id: "advance", x: 332, y: 220, art: "step2", title: "Take an Advance", sub: "1–12 months of projected yield, today, as Gemas", label: [332, 312] },
+  { id: "play", x: 592, y: 92, art: "step4", title: "Play yourself", sub: "Head-to-head Matches", label: [592, 182] },
+  { id: "back", x: 592, y: 372, art: "back", title: "Back a Player", sub: "Fund a stronger Player’s entry", label: [592, 462] },
+  { id: "settle", x: 800, y: 232, title: "Settle", small: true, label: [0, 0] },
 ];
+
+/** The tubes between nodes. */
+const TUBES = [
+  "M168 220H256",
+  "M408 220C470 220 470 92 516 92",
+  "M408 220C470 220 470 372 516 372",
+  "M668 92C724 92 700 232 748 232",
+  "M668 372C724 372 700 232 748 232",
+  "M852 232C872 232 868 100 890 100",
+  "M852 232C872 232 868 372 890 372",
+];
+
+function NodeArt({ node }: { node: Node }) {
+  if (node.art === "back") {
+    return (
+      <picture>
+        <img src="/art/landing/back-a-player.webp" alt="" width={360} height={360} loading="lazy" />
+      </picture>
+    );
+  }
+  if (node.art && landingArt(node.art)) return <Picture k={node.art} sizes="140px" />;
+  return null;
+}
+
+function Outcome({ win, title, children }: { win?: boolean; title: string; children: ReactNode }) {
+  return (
+    <div className={`lp-outcome-card cut cut-frame${win ? " win" : " lose"}`} style={pct(890, win ? 100 : 372)}>
+      <div className="lp-oct-node small" aria-hidden>
+        <span className="lp-oct-frame" />
+        {landingArt(win ? "step5" : "step1") && <Picture k={win ? "step5" : "step1"} sizes="96px" />}
+      </div>
+      <div>
+        <b>{title}</b>
+        <span>{children}</span>
+      </div>
+    </div>
+  );
+}
 
 export function HowItWorks() {
   const guide = landingArt("himGuide");
@@ -72,31 +80,51 @@ export function HowItWorks() {
             </p>
           </div>
         </header>
-        <div className="lp-cycle cut cut-frame" data-reveal>
-          <ol className="lp-cycle-steps">
-            {STEPS.map((s, i) => (
-              <li key={s.title} className="lp-node" style={{ ["--n" as string]: i }}>
-                <div className="lp-node-art cut cut-card" aria-hidden>
-                  {landingArt(s.art) ? <Picture k={s.art} sizes="(max-width: 767px) 72px, 112px" /> : <span className="lp-step-icon">{s.icon}</span>}
-                </div>
-                <p className="lp-step-n mono">0{i + 1}</p>
-                <h3 className="lp-h3">{s.title}</h3>
-                <p className="lp-body">{s.body}</p>
-              </li>
-            ))}
-          </ol>
-          <div className="lp-cycle-line" aria-hidden>
-            <span className="lp-pulse" />
-          </div>
-          <div className="lp-cycle-return" aria-hidden>
-            <svg viewBox="0 0 1000 90" preserveAspectRatio="none">
-              <path d="M900 0 C900 80, 100 80, 100 0" vectorEffect="non-scaling-stroke" />
-            </svg>
-          </div>
-          <p className="lp-cycle-label mono">
-            <RefreshCcw aria-hidden /> Yield repays the Debt · the Position unlocks at zero
-          </p>
-        </div>
+
+        <figure className="lp-flowmap" data-reveal aria-label="Open a Position, take an Advance as Gemas, then play yourself or back a Player. At settlement the winner takes the loser's Gemas, paid out as their yield lands; the loser's Position stays locked until its yield repays the Advance.">
+          <svg viewBox={`0 0 ${W} ${H}`} fill="none" strokeLinecap="round" aria-hidden>
+            <defs>
+              <filter id="lp-tube-glow" x="-10%" y="-40%" width="120%" height="180%">
+                <feGaussianBlur stdDeviation="6" />
+              </filter>
+              <g id="lp-tubes">
+                {TUBES.map((d) => (
+                  <path key={d} d={d} />
+                ))}
+              </g>
+            </defs>
+            <use href="#lp-tubes" className="tube-glow" filter="url(#lp-tube-glow)" />
+            <use href="#lp-tubes" className="tube-outer" />
+            <use href="#lp-tubes" className="tube-core" />
+            <use href="#lp-tubes" className="tube-hi" />
+            <g className="lp-flow-dots">
+              {TUBES.map((d, i) => (
+                <circle key={d} r="4">
+                  <animateMotion dur={`${2.4 + (i % 3) * 0.3}s`} begin={`${(i * 0.37).toFixed(2)}s`} repeatCount="indefinite" path={d} />
+                </circle>
+              ))}
+            </g>
+          </svg>
+          {NODES.map((n) => (
+            <div key={n.id} className={`lp-oct-node n-${n.id}${n.small ? " settle" : ""}`} style={pct(n.x, n.y)} aria-hidden>
+              <span className="lp-oct-frame" />
+              {n.small ? <span>Settle</span> : <NodeArt node={n} />}
+            </div>
+          ))}
+          {NODES.filter((n) => !n.small).map((n) => (
+            <div key={n.id} className={`lp-flow-label l-${n.id}`} style={pct(...n.label)}>
+              <b>{n.title}</b>
+              {n.sub && <span>{n.sub}</span>}
+            </div>
+          ))}
+          <Outcome win title="Win">
+            You take the loser&rsquo;s Gemas, paid out as their yield lands.
+          </Outcome>
+          <Outcome title="Lose">Your Position stays locked until its yield repays the Advance.</Outcome>
+        </figure>
+        <p className="lp-flow-foot" data-reveal>
+          <b>Your Principal is never played.</b> Only future yield moves.
+        </p>
       </div>
     </section>
   );

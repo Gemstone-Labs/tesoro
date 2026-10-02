@@ -106,7 +106,7 @@ export function LandingMotion() {
         const final = document.querySelector<HTMLElement>(".lp-final");
         if (final) {
           const scrub = { trigger: final, start: "top bottom", end: "bottom bottom", scrub: true };
-          gsap.fromTo("[data-climb]", { y: 60 }, { y: -60, ease: "none", scrollTrigger: scrub });
+          gsap.fromTo("[data-climb]", { y: 40 }, { y: -20, ease: "none", scrollTrigger: scrub });
           gsap.fromTo(".lp-final .layer", { y: -40 }, { y: 0, ease: "none", scrollTrigger: scrub });
         }
       });

@@ -58,12 +58,12 @@ await ctx.addInitScript(() => localStorage.setItem("tesoro-landing-theme", "dark
 const page = await ctx.newPage();
 await page.goto(`${BASE}/welcome`, { waitUntil: "networkidle" });
 await page.waitForTimeout(2200);
-await page.screenshot({ path: resolve(OUT, "landing-motion-hero-1920.png") });
+await page.screenshot({ path: resolve(OUT, "landing-motion-hero-1920.png"), timeout: 180000 });
 const top = await page.evaluate(() => document.querySelector("#gemas").getBoundingClientRect().top + scrollY);
 for (const beat of [0, 1, 2]) {
   await page.evaluate((y) => window.scrollTo(0, y), top + beat * 1080 * 0.68 + 40);
   await page.waitForTimeout(1600);
-  await page.screenshot({ path: resolve(OUT, `landing-motion-gemas-${beat + 1}-1920.png`) });
+  await page.screenshot({ path: resolve(OUT, `landing-motion-gemas-${beat + 1}-1920.png`), timeout: 180000 });
 }
 console.log("motion frames");
 await browser.close();

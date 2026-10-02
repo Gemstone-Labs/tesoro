@@ -1,6 +1,6 @@
 "use client";
 
-import { PerformanceMonitor } from "@react-three/drei";
+import { MeshRefractionMaterial, PerformanceMonitor } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -8,41 +8,43 @@ import { studioEnvironment } from "../gem/envTexture";
 import { GemMesh, glowTexture } from "../gem/GemMesh";
 import { gemState } from "../gem/store";
 import type { LiveCanvasProps } from "../Stage3D";
+import { crystalCluster } from "./crystal";
 import { CAMERA, CHAINS, LEDGER, type ChainsLayout } from "./layout";
 
 const PARTICLES = 16;
 
-/** A raw crystal cluster: hexagonal prisms with pointed tips, glowing in the chain's tint. */
-function Cluster({ color, scale, animate }: { color: string; scale: number; animate: boolean }) {
+/** A raw crystal cluster: refractive, flat-faceted prisms tinted per chain, with bright facet edges, a glowing core and a rock base. */
+function Cluster({ color, seed, scale, animate }: { color: string; seed: number; scale: number; animate: boolean }) {
+  const geometry = useMemo(() => crystalCluster(seed), [seed]);
+  const edges = useMemo(() => new THREE.EdgesGeometry(geometry, 20), [geometry]);
   const env = useMemo(() => studioEnvironment(), []);
-  const material = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.22, roughness: 0.06, metalness: 0.35, envMap: env, envMapIntensity: 1.3, flatShading: true }),
-    [color, env],
-  );
-  useEffect(() => () => (material.dispose(), env.dispose()), [material, env]);
+  const core = useMemo(() => glowTexture("106,248,214", 0.55), []);
+  const rock = useMemo(() => new THREE.MeshStandardMaterial({ color: "#2a353b", roughness: 0.8, metalness: 0.2, flatShading: true }), []);
+  useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose(), core.dispose(), rock.dispose()), [geometry, edges, env, core, rock]);
   const spin = useRef<THREE.Group>(null);
-  useFrame((_, delta) => void (animate && spin.current && (spin.current.rotation.y += delta * 0.25)));
-  const prisms: [number, number, number, number, number][] = [
-    // h, r, x, z, lean
-    [1.0, 0.13, 0, 0, 0],
-    [0.72, 0.1, -0.2, 0.06, 0.38],
-    [0.64, 0.095, 0.2, -0.05, -0.34],
-    [0.46, 0.075, 0.09, 0.19, -0.16],
-    [0.38, 0.07, -0.1, -0.18, 0.22],
-  ];
+  const t = useRef(seed);
+  useFrame((_, delta) => {
+    if (!animate || !spin.current) return;
+    t.current += delta;
+    spin.current.rotation.y += delta * 0.22;
+    spin.current.position.y = Math.sin(t.current * 0.9) * 0.04;
+  });
   return (
-    <group ref={spin} scale={scale} rotation={[0, 0.6, 0]}>
-      {prisms.map(([h, r, x, z, lean], i) => (
-        <group key={i} position={[x, -0.35, z]} rotation={[0, 0, lean]}>
-          <mesh material={material} position={[0, h / 2, 0]}>
-            <cylinderGeometry args={[r, r * 1.05, h, 6]} />
-          </mesh>
-          <mesh material={material} position={[0, h + r * 0.7, 0]}>
-            <coneGeometry args={[r, r * 1.4, 6]} />
-          </mesh>
-        </group>
-      ))}
+    <group scale={scale}>
+      <sprite scale={[1.6, 1.6, 1]} position={[0, 0.05, -0.2]}>
+        <spriteMaterial map={core} color={color} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+      </sprite>
+      <group ref={spin} rotation={[0, seed, 0]}>
+        <mesh geometry={geometry}>
+          <MeshRefractionMaterial envMap={env} color={color} ior={1.75} bounces={2} fresnel={0.85} aberrationStrength={0} toneMapped={false} />
+        </mesh>
+        <lineSegments geometry={edges}>
+          <lineBasicMaterial color="#effffa" transparent opacity={0.45} depthWrite={false} toneMapped={false} />
+        </lineSegments>
+      </group>
+      <mesh material={rock} position={[0, -0.56, 0]} scale={[1, 0.38, 0.8]}>
+        <dodecahedronGeometry args={[0.32, 0]} />
+      </mesh>
     </group>
   );
 }
@@ -110,7 +112,7 @@ function Scene({ layout, animate }: { layout: ChainsLayout; animate: boolean }) 
       {CHAINS.map((c, i) => (
         <group key={c.label}>
           <group position={sources[i]}>
-            <Cluster color={c.color} scale={i === 1 ? 0.8 : 0.9} animate={animate} />
+            <Cluster color={c.color} seed={11 + i * 17} scale={i === 1 ? 0.95 : 1.02} animate={animate} />
           </group>
           <Stream from={sources[i].clone().add(new THREE.Vector3(0.3, 0.1, 0))} to={inlet(sources[i])} color={c.color} phase={i * 0.21} animate={animate} />
         </group>

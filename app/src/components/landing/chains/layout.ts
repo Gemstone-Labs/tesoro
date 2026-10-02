@@ -4,9 +4,9 @@ export type ChainsLayout = "wide" | "tall";
 type V3 = [number, number, number];
 
 export const CHAINS: { label: string; color: string; at: Record<ChainsLayout, V3> }[] = [
-  { label: "SOL", color: "#24d8a8", at: { wide: [-3.4, 1.15, 0], tall: [-1.15, 1.55, 0] } },
-  { label: "ETH", color: "#a9c3cd", at: { wide: [-3.7, -0.05, 0], tall: [0, 1.8, 0] } },
-  { label: "HYPE", color: "#82f3e0", at: { wide: [-3.4, -1.25, 0], tall: [1.15, 1.55, 0] } },
+  { label: "SOL", color: "#3ff0c4", at: { wide: [-3.4, 1.3, 0], tall: [-1.15, 1.5, 0] } },
+  { label: "ETH", color: "#a8c8d6", at: { wide: [-3.75, -0.05, 0], tall: [0, 1.8, 0] } },
+  { label: "HYPE", color: "#8ff7e4", at: { wide: [-3.4, -1.4, 0], tall: [1.15, 1.5, 0] } },
 ];
 
 export const LEDGER: Record<ChainsLayout, V3> = { wide: [2.5, 0, 0], tall: [0, -1.55, 0] };

@@ -15,6 +15,38 @@ const TILT = 0.12;
 /** The rest pose for the poster: table almost facing the viewer. */
 const REST_YAW = -0.45;
 
+/** Three small Gemas circling the stone on a tilted ring of light: one play unit, on every chain. */
+function Orbit({ animate }: { animate: boolean }) {
+  const ring = useRef<THREE.Group>(null);
+  const ringGeo = useMemo(() => {
+    const pts = Array.from({ length: 129 }, (_, i) => {
+      const a = (i / 128) * Math.PI * 2;
+      return new THREE.Vector3(Math.cos(a) * 1.12, 0, Math.sin(a) * 1.12);
+    });
+    return new THREE.BufferGeometry().setFromPoints(pts);
+  }, []);
+  useEffect(() => () => ringGeo.dispose(), [ringGeo]);
+  useFrame((_, delta) => void (animate && ring.current && (ring.current.rotation.y -= delta * 0.35)));
+  return (
+    <group rotation={[0.42, 0, -0.18]}>
+      <line>
+        <primitive object={ringGeo} attach="geometry" />
+        <lineBasicMaterial color="#6af8d6" transparent opacity={0.28} toneMapped={false} />
+      </line>
+      <group ref={ring}>
+        {[0, 1, 2].map((i) => {
+          const a = (i / 3) * Math.PI * 2;
+          return (
+            <group key={i} position={[Math.cos(a) * 1.12, 0, Math.sin(a) * 1.12]} rotation={[0.5, a, 0.3]} scale={0.16}>
+              <GemMesh />
+            </group>
+          );
+        })}
+      </group>
+    </group>
+  );
+}
+
 /** The Gema standing on its end on an octagonal plinth, spinning. */
 function Showcase({ tilt, animate }: { tilt: boolean; animate: boolean }) {
   const spin = useRef<THREE.Group>(null);
@@ -57,6 +89,7 @@ function Showcase({ tilt, animate }: { tilt: boolean; animate: boolean }) {
           </group>
         </group>
       </group>
+      <Orbit animate={animate} />
       <group position={[0, -1.02, 0]}>
         <mesh material={steel} position={[0, -0.13, 0]}>
           <cylinderGeometry args={[0.62, 0.7, 0.26, 8, 1, false, Math.PI / 8]} />
@@ -64,6 +97,10 @@ function Showcase({ tilt, animate }: { tilt: boolean; animate: boolean }) {
         <lineLoop geometry={rim} position={[0, 0.004, 0]}>
           <lineBasicMaterial color="#5ff7d0" toneMapped={false} />
         </lineLoop>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.26, 0]}>
+          <planeGeometry args={[3.2, 3.2]} />
+          <meshBasicMaterial map={pool} transparent opacity={0.55} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+        </mesh>
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0]}>
           <planeGeometry args={[1.1, 1.1]} />
           <meshBasicMaterial map={pool} transparent blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />

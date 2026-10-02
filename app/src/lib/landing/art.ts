@@ -3,7 +3,7 @@ import { LANDING_ART } from "./art.generated";
 export type LandingAsset = { w: number; h: number; widths: number[] };
 
 export type LandingKey =
-  | "heroBack" | "heroMid" | "heroFront" | "heroMobile"
+  | "heroBack" | "heroMid" | "heroFront" | "heroMobile" | "heroLight" | "heroLightMobile"
   | "himGuide" | "herBacker"
   | "finalBack" | "finalDuo" | "finalMobile"
   | "step1" | "step2" | "step3" | "step4" | "step5";
