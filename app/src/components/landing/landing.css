@@ -681,12 +681,30 @@ html.lenis, html.lenis body { height: auto; }
   @keyframes lp-mote { 0% { opacity: 0; transform: translate(0, 0); } 15% { opacity: 0.8; } 85% { opacity: 0.6; } 100% { opacity: 0; transform: translate(var(--dx), -90px); } }
 }
 
-/* Phones: Gemas → Entry → Your game runs top to bottom, the Gema travelling down it. */
+/* Phones: Gemas → Entry → Your game runs top to bottom; the Gema drops out of each card into the next, visible in
+   the gaps along a faint guide line (the cards sit above it). */
 @media (max-width: 767px) {
-  .lp-arrive { flex-direction: column; align-items: center; gap: 8px; width: 100%; margin-top: 16px; }
-  .lp-arrive > svg { rotate: 90deg; }
-  .lp-arrive .lp-pill { width: min(100%, 220px); justify-content: center; }
-  .lp-arrive-token { left: calc(50% - 142px); top: 0; translate: 0 0; }
-  @media (prefers-reduced-motion: no-preference) { .lp-arrive-token { animation-name: lp-arrive-v; } }
+  .lp-arrive { flex-direction: column; align-items: center; gap: 26px; width: 100%; margin-top: 18px; }
+  .lp-arrive::before { content: ""; position: absolute; left: 50%; top: 20px; bottom: 20px; width: 0; border-left: 2px dashed color-mix(in srgb, var(--em) 45%, transparent); }
+  .lp-arrive > svg { display: none; }
+  .lp-arrive .lp-pill { position: relative; z-index: 1; width: min(100%, 220px); justify-content: center; background: var(--shell); }
+  .lp-arrive-token { left: 50%; top: 10px; translate: -50% 0; width: 22px; height: 22px; z-index: 0; background: none; }
+  .lp-arrive-token .gema-mark { width: 18px; height: 18px; filter: drop-shadow(0 0 6px var(--em)); }
+  @media (prefers-reduced-motion: no-preference) { .lp-arrive-token { animation: lp-arrive-v 3.2s cubic-bezier(0.55, 0, 0.6, 1) infinite; } }
 }
-@keyframes lp-arrive-v { 0% { top: 0; opacity: 0; } 10% { opacity: 1; } 80% { top: calc(100% - 26px); opacity: 1; } 100% { top: calc(100% - 26px); opacity: 0; } }
+@keyframes lp-arrive-v { 0% { top: 12px; opacity: 1; } 85% { top: calc(100% - 34px); opacity: 1; } 100% { top: calc(100% - 34px); opacity: 0; } }
+
+/* Final CTA, phones: an effects box that matches the phone art's cover crop (anchored top), so the glows sit on the
+   baked-in lanterns and the dust in the shaft. */
+.lp-final-fx { display: none; }
+@media (max-width: 767px) {
+  .lp-final-art { container-type: size; }
+  .lp-final-motes { display: none; }
+  .lp-final-fx {
+    display: block; position: absolute; z-index: 1; pointer-events: none;
+    width: max(100cqw, 100cqh * 0.7482); height: max(100cqh, 100cqw * 1.3365);
+    left: calc((100cqw - max(100cqw, 100cqh * 0.7482)) * 0.5); top: 0;
+  }
+  .lp-duo-lantern.m { width: 20%; }
+  .lp-final-motes-m { left: 46%; top: 42%; width: 28%; height: 40%; }
+}

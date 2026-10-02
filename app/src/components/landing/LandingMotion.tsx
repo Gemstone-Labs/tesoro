@@ -18,19 +18,8 @@ export function LandingMotion() {
       const [{ gsap }, { ScrollTrigger }] = await Promise.all([import("gsap"), import("gsap/ScrollTrigger")]);
       if (cancelled) return;
       gsap.registerPlugin(ScrollTrigger);
-      const desktop = matchMedia("(min-width: 1024px)").matches;
-
-      let stopLenis = () => {};
-      if (desktop && matchMedia("(pointer: fine)").matches) {
-        const { default: Lenis } = await import("lenis");
-        if (cancelled) return;
-        const lenis = new Lenis({ anchors: true });
-        lenis.on("scroll", ScrollTrigger.update);
-        const tick = (t: number) => lenis.raf(t * 1000);
-        gsap.ticker.add(tick);
-        gsap.ticker.lagSmoothing(0);
-        stopLenis = () => (gsap.ticker.remove(tick), lenis.destroy());
-      }
+      const Lenis = matchMedia("(pointer: fine)").matches ? (await import("lenis")).default : null;
+      if (cancelled) return;
 
       const ctx = gsap.context(() => {
         const below = (el: Element) => el.getBoundingClientRect().top > innerHeight * 0.9;
@@ -67,7 +56,20 @@ export function LandingMotion() {
           gsap.fromTo(el, { autoAlpha: 0, x: 24 }, { autoAlpha: 1, x: 0, duration: 0.8, ease: "power2.out", scrollTrigger: { trigger: el, start: "top 80%", once: true } });
         }
 
-        if (!desktop) return;
+      });
+
+      // Desktop-only motion (smooth scroll, pins, scrubs, parallax) is set up and torn down with the viewport, so a
+      // window resized below 1024px never keeps the Gemas pin or the smooth scroll.
+      const mm = gsap.matchMedia();
+      mm.add("(min-width: 1024px)", () => {
+        let lenis: InstanceType<NonNullable<typeof Lenis>> | null = null;
+        const tick = (t: number) => lenis?.raf(t * 1000);
+        if (Lenis) {
+          lenis = new Lenis({ anchors: true });
+          lenis.on("scroll", ScrollTrigger.update);
+          gsap.ticker.add(tick);
+          gsap.ticker.lagSmoothing(0);
+        }
 
         const hero = document.querySelector<HTMLElement>(".lp-hero");
         if (hero) {
@@ -110,14 +112,20 @@ export function LandingMotion() {
           gsap.fromTo("[data-climb]", { y: 40 }, { y: -20, ease: "none", scrollTrigger: scrub });
           gsap.fromTo(".lp-final .layer", { y: -40 }, { y: 0, ease: "none", scrollTrigger: scrub });
         }
+        return () => {
+          gsap.ticker.remove(tick);
+          lenis?.destroy();
+          document.querySelector("[data-gemas]")?.classList.remove("is-stepped");
+          gemState.beat = 0;
+        };
       });
 
       const refresh = () => ScrollTrigger.refresh();
       addEventListener("load", refresh);
       undo = () => {
         removeEventListener("load", refresh);
+        mm.revert();
         ctx.revert();
-        stopLenis();
         gemState.beat = 0;
       };
     })();
