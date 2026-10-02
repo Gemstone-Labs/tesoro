@@ -1,5 +1,6 @@
 import { TxFailedError, TxUnconfirmedError, type TxOutcome } from "../../games/block-puzzle/tx";
 import type { GameId } from "@/lib/mock/types";
+import { assetIndexOf } from "./match-id";
 import type { ChainMatch } from "./read";
 
 /**
@@ -12,6 +13,8 @@ import type { ChainMatch } from "./read";
 export interface QueueDeps {
   game: GameId;
   entry: number;
+  /** Trading Duel: the asset index (0 SOL, 1 ETH, 2 HYPE) this Queue is for. Other Games ignore it. */
+  asset?: number;
   /** Open Queue Match ids at this entry, oldest first. A list read: it may lag the chain. */
   listCandidates(): Promise<bigint[]>;
   /** Fresh read of one Match as this Account sees it. */
@@ -72,7 +75,9 @@ function joinable(d: QueueDeps, m: ChainMatch, now: number): boolean {
     m.backerSeat === null &&
     m.deadline > now + MIN_LEFT_SECS &&
     // Block Puzzle: only Matches opened with their Session (this version of the app) can be joined.
-    (d.game !== "block-puzzle" || m.session !== null)
+    (d.game !== "block-puzzle" || m.session !== null) &&
+    // Trading Duel: the Queue is per asset, which the Match id carries.
+    (d.game !== "trading-duel" || d.asset === undefined || assetIndexOf(m.id) === d.asset)
   );
 }
 

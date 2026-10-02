@@ -21,10 +21,11 @@ export interface CatalogueEntry {
   game?: GameId;
 }
 
-/** The Lobby's Play Now rail: the two live Games first, then the announced ones. */
+/** The Lobby's Play Now rail: the three live Games first, then the announced ones. */
 export const CATALOGUE: CatalogueEntry[] = [
   { key: "block-puzzle", name: "Block Puzzle", tags: ["puzzle", "async", "head-to-head"], tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
   { key: "holdem", name: "Heads-up Hold'em", tags: ["cards", "head-to-head"], tile: art.holdemTile, live: true, game: "holdem" },
+  { key: "trading-duel", name: "Trading Duel", tags: ["head-to-head"], tile: art.tradingDuelTile, live: true, game: "trading-duel" },
   { key: "word-duel", name: "Word Duel", tags: ["puzzle", "head-to-head"], tile: art.comingSoon["word-duel"], live: false },
   { key: "bubble-burst", name: "Bubble Burst", tags: ["puzzle", "async"], tile: art.comingSoon["bubble-burst"], live: false },
   { key: "pocket-pool", name: "Pocket Pool", tags: ["head-to-head"], tile: art.comingSoon["pocket-pool"], live: false },

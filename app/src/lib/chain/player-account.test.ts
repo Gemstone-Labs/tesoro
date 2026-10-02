@@ -111,3 +111,27 @@ describe("signed", () => {
     expect([signed(540), signed(-1000), signed(0)]).toEqual(["+540", "−1,000", "0"]);
   });
 });
+
+describe("Trading Duel in a Player's record", () => {
+  const duelWin = (mins: number) => match("trading-duel", 1000, true, mins, [0, 0]);
+  const duelLoss = (mins: number) => match("trading-duel", 1000, false, mins, [0, 0]);
+  const duelDraw = (mins: number): ChainMatch => ({ ...duelWin(mins), status: "refunded", winner: null });
+
+  it("counts wins and losses per game and leaves a draw (a refunded Match) undecided", () => {
+    const s = playerSummary([duelWin(30), duelLoss(20), duelWin(10), duelDraw(5), win(40)]);
+    expect(s.record).toEqual({ matches: 4, wins: 3 });
+    expect(s.undecided).toBe(1);
+    expect(s.byGame).toEqual([
+      { game: "block-puzzle", matches: 1, wins: 1 },
+      { game: "trading-duel", matches: 3, wins: 2 },
+    ]);
+    // 3 wins of 900 (entry 1,000, Fee 100), 1 loss of 1,000
+    expect(s.net).toBe(900 * 3 - 1000);
+  });
+
+  it("orders Trading Duel rows by their opening time", () => {
+    const rows = playedRows([duelWin(30), duelLoss(10)]);
+    expect(rows[0].at).toBeGreaterThan(rows[1].at);
+    expect(rows[0].asset).toBe(1);
+  });
+});

@@ -3,6 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { feeGemas } from "./ledger";
+import { matchOpenedAt } from "./match-id";
 import { decodeAll, gameOf } from "./read";
 import { pickSettled, topScores, type SettledMatch, type SettledQuery } from "./settled";
 
@@ -57,6 +58,15 @@ export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
       })()
     : [];
 
+  const td = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "trading-duel");
+  const duels = td.length
+    ? await (async () => {
+        const [{ getTradingDuel }, { addresses }] = await Promise.all([import("./client"), import("@/games/trading-duel/chain")]);
+        const program = getTradingDuel().program;
+        return decodeAll(td.map((m) => addresses(big(m.account.id)).duel), (data) => program.coder.accounts.decode("duel", data));
+      })()
+    : [];
+
   const out: SettledMatch[] = [];
   const push = (m: any, winnerSeat: 0 | 1, scores: [number, number] | null) => {
     const inner = m.account.inner;
@@ -71,7 +81,7 @@ export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
       winner: pk(side.player).toBase58(),
       payout: entry * 2 - Number(feeGemas(BigInt(entry), inner.fees.platformBps, inner.fees.studioBps)),
       scores,
-      at: Number(id >> 1n),
+      at: matchOpenedAt(id, gameOf(pk(inner.game))),
     });
   };
   bp.forEach((m, i) => {
@@ -82,6 +92,10 @@ export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
   });
   hd.forEach((m, i) => {
     const w = tables[i]?.winner;
+    if (w === 0 || w === 1) push(m, w, null);
+  });
+  td.forEach((m, i) => {
+    const w = duels[i]?.winner;
     if (w === 0 || w === 1) push(m, w, null);
   });
   return out.sort((x, y) => (x.id < y.id ? 1 : -1)).slice(0, q.limit);

@@ -9,6 +9,9 @@ import { feeGemas } from "@/lib/chain/ledger";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
+import { gameQuery } from "@/lib/game-params";
+import { assetIndexOf } from "@/lib/chain/match-id";
+import { DuelSpectate } from "./DuelSpectate";
 import { RULES } from "./MatchResult";
 import "./match.css";
 
@@ -69,7 +72,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
   const side = (i: 0 | 1) => {
     const s = m.sides[i];
-    const mark = scores ? String(scores[i]) : m.game === "holdem" && winSeat !== null ? (winSeat === i ? "Won" : "Lost") : null;
+    const mark = scores ? String(scores[i]) : m.game !== "block-puzzle" && winSeat !== null ? (winSeat === i ? "Won" : "Lost") : null;
     return (
       <div key={i}>
         {s ? (
@@ -126,9 +129,11 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
             </div>
           </div>
 
+          {m.game === "trading-duel" && <DuelSpectate m={m} />}
+
           <p className="mr-copy">
             {m.status === "open" || m.status === "active"
-              ? "You are watching a Match you are not part of. Runs and cards stay hidden until it settles."
+              ? `You are watching a Match you are not part of. ${m.game === "trading-duel" ? "Positions" : "Runs and cards"} stay hidden until it settles.`
               : "You are viewing a Match you were not part of. The result is settled on Solana devnet."}
           </p>
         </div>
@@ -138,7 +143,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
         {onSignIn ? (
           <Button variant="money" size="lg" onClick={onSignIn}>Sign in to play</Button>
         ) : (
-          <Button variant="money" size="lg" href={`/play/queue?${m.game === "holdem" ? "game=holdem&" : ""}entry=${m.entry}`}>
+          <Button variant="money" size="lg" href={`/play/queue?${gameQuery(m.game, m.game === "trading-duel" ? assetIndexOf(m.id) : null)}entry=${m.entry}`}>
             Play {GAME_NAMES[m.game]}
           </Button>
         )}

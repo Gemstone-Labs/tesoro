@@ -2,8 +2,10 @@ import { BN } from "@coral-xyz/anchor";
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, TESORO_CORE_PROGRAM_ID } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/chain";
+import { TRADING_DUEL_PROGRAM_ID, addresses as duelAddresses } from "@/games/trading-duel/chain";
 import type { GameId } from "@/lib/mock/types";
-import { getChain, getHoldem } from "./client";
+import { getChain, getHoldem, getTradingDuel } from "./client";
+import { assetIndexOf } from "./match-id";
 import { debtGemas, debtUnits, redeemableFor, type SourceMath } from "./ledger";
 import { parseEthPositionId } from "./eth";
 import { SIM_SOL_MINT, fetchNativeInfo, fetchNativeMarket, type NativeInfo, type NativeMarket } from "./native";
@@ -133,6 +135,7 @@ const isChallengeId = (id: bigint) => (id & 1n) === 1n;
 export function gameOf(game: PublicKey): GameId | null {
   if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return "block-puzzle";
   if (game.equals(HOLDEM_PROGRAM_ID)) return "holdem";
+  if (game.equals(TRADING_DUEL_PROGRAM_ID)) return "trading-duel";
   return null;
 }
 
@@ -202,6 +205,10 @@ export async function fetchMatch(id: bigint, me: PublicKey | null): Promise<Chai
     const table = enumKey(state.inner.status) === "settled" ? await holdemTable(id) : null;
     return toChainMatch(state, me, null, table);
   }
+  if (gameOf(pk(state.inner.game)) === "trading-duel") {
+    const duel = enumKey(state.inner.status) === "settled" ? await duelAccount(id) : null;
+    return toChainMatch(state, me, null, duel);
+  }
   const session = await chain.bp.account.session.fetchNullable(a.session).catch(() => null);
   return toChainMatch(state, me, session);
 }
@@ -210,6 +217,12 @@ export async function fetchMatch(id: bigint, me: PublicKey | null): Promise<Chai
 async function holdemTable(id: bigint): Promise<any | null> {
   const acc = getHoldem().program.account as Record<string, any>;
   return (await acc.gameMatch.fetchNullable(holdemAddresses(id).gameMatch).catch(() => null)) ?? null;
+}
+
+/** A finished Trading Duel on the base layer (committed back by `close_match`). */
+async function duelAccount(id: bigint): Promise<any | null> {
+  const acc = getTradingDuel().program.account as Record<string, any>;
+  return (await acc.duel.fetchNullable(duelAddresses(id).duel).catch(() => null)) ?? null;
 }
 
 /** Fetches and decodes many accounts; one that is missing or fails to decode (a Session from an older program layout) is null, not an error. */
@@ -260,24 +273,33 @@ export async function fetchAccountMatches(key: PublicKey): Promise<{ played: Cha
     const involved = sides.some((s: any) => pk(s.player).equals(key) || (pk(s.funder).equals(key) && !pk(s.player).equals(key)));
     return gameOf(pk(inner.game)) !== null && involved;
   });
-  const isHoldem = (m: any) => gameOf(pk(m.account.inner.game)) === "holdem";
+  const isGame = (g: GameId) => (m: any) => gameOf(pk(m.account.inner.game)) === g;
+  const isHoldem = isGame("holdem");
+  const isDuel = isGame("trading-duel");
+  const settled = (m: any) => enumKey(m.account.inner.status) === "settled";
   const holdem = getHoldem().program;
-  const [sessions, tables] = await Promise.all([
+  const duelProgram = getTradingDuel().program;
+  const [sessions, tables, duels] = await Promise.all([
     gameAccounts(
-      mine.filter((m: any) => !isHoldem(m)),
+      mine.filter((m: any) => !isHoldem(m) && !isDuel(m)),
       (id) => BlockPuzzleChain.addresses(id).session,
       (data) => chain.bp.coder.accounts.decode("session", data),
     ),
     gameAccounts(
-      mine.filter((m: any) => isHoldem(m) && enumKey(m.account.inner.status) === "settled"),
+      mine.filter((m: any) => isHoldem(m) && settled(m)),
       (id) => holdemAddresses(id).gameMatch,
       (data) => holdem.coder.accounts.decode("gameMatch", data),
+    ),
+    gameAccounts(
+      mine.filter((m: any) => isDuel(m) && settled(m)),
+      (id) => duelAddresses(id).duel,
+      (data) => duelProgram.coder.accounts.decode("duel", data),
     ),
   ]);
   const all_ = mine
     .map((m: any) => {
       const id = big(m.account.id).toString();
-      return toChainMatch(m.account, key, sessions.get(id) ?? null, tables.get(id) ?? null);
+      return toChainMatch(m.account, key, sessions.get(id) ?? null, tables.get(id) ?? duels.get(id) ?? null);
     })
     .sort((x: ChainMatch, y: ChainMatch) => (x.id < y.id ? 1 : -1));
   return { played: all_.filter((m: ChainMatch) => m.seat !== null), funded: all_.filter((m: ChainMatch) => m.seat === null && m.backerSeat !== null) };
@@ -296,7 +318,7 @@ export async function accountExists(key: PublicKey): Promise<boolean> {
  * Open Queue Matches at this entry from other Accounts, oldest first (Challenges are excluded).
  * A list read that may lag the chain: re-read a Match before acting on it.
  */
-export async function listQueueMatchIds(entry: number, me: PublicKey, game: GameId = "block-puzzle"): Promise<bigint[]> {
+export async function listQueueMatchIds(entry: number, me: PublicKey, game: GameId = "block-puzzle", asset?: number): Promise<bigint[]> {
   const chain = getChain();
   const now = Math.floor(Date.now() / 1000);
   const all = await chain.core.account.matchState.all();
@@ -308,6 +330,7 @@ export async function listQueueMatchIds(entry: number, me: PublicKey, game: Game
         gameOf(pk(inner.game)) === game &&
         Number(inner.entry.toString()) === entry &&
         !isChallengeId(big(m.account.id)) &&
+        (asset === undefined || game !== "trading-duel" || assetIndexOf(big(m.account.id)) === asset) &&
         !pk(inner.a.player).equals(me) &&
         Number(inner.deadline.toString()) > now + 60
       );

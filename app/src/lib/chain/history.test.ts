@@ -79,3 +79,18 @@ describe("accountHistory and paging", () => {
     expect(historyPage([], 1)).toEqual({ rows: [], page: 1, pages: 1 });
   });
 });
+
+describe("Trading Duel history", () => {
+  it("reads the asset and the opening time from the id", () => {
+    const m = match("trading-duel", 500, true, 7, [0, 0]);
+    const r = historyRow(m)!;
+    expect(r).toMatchObject({ game: "trading-duel", result: "won", asset: 1 });
+    expect(Math.abs(Date.now() - r.at - 7 * 60_000)).toBeLessThan(5_000);
+  });
+
+  it("the game filter accepts Trading Duel", async () => {
+    const { gameFilter } = await import("../../components/match/MatchHistory");
+    expect(gameFilter("trading-duel")).toBe("trading-duel");
+    expect(gameFilter("nonsense")).toBeNull();
+  });
+});

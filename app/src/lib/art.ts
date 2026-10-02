@@ -12,9 +12,12 @@ export const art = {
   /** Wide hero art (2400x1000), left 40% dark and empty for the title. */
   blockPuzzleHero: f("block-puzzle-hero"),
   holdemHero: f("holdem-hero"),
+  /** Placeholder until Astra's art is imported (DESIGN.md). */
+  tradingDuelHero: f("trading-duel-hero"),
   /** Square key art. */
   blockPuzzleTile: f("block-puzzle-tile"),
   holdemTile: f("holdem-tile"),
+  tradingDuelTile: f("trading-duel-tile"),
   comingSoon: {
     "word-duel": f("coming-soon-word-duel"),
     "bubble-burst": f("coming-soon-bubble-burst"),
@@ -25,6 +28,7 @@ export const art = {
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),
     holdem: f("holdem-tile"),
+    "trading-duel": f("trading-duel-tile"),
   },
   /**
    * Guide characters, torso-up crops (made by scripts/make-busts.mjs from the full-body poses, which

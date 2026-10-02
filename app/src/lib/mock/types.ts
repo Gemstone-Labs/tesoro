@@ -6,7 +6,7 @@
 export type Chain = "SOL" | "ETH" | "HYPE";
 /** Each Position's asset is the native asset of its chain. */
 export type Asset = Chain;
-export type GameId = "block-puzzle" | "holdem";
+export type GameId = "block-puzzle" | "holdem" | "trading-duel";
 export type EntrySize = 500 | 1000 | 2500;
 
 export interface Account {

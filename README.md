@@ -6,7 +6,7 @@ Tesoro lets stakers play head-to-head skill games with their future staking yiel
 
 1. Lock a **Position**: a SOL or ETH liquid staking token.
 2. Take an **Advance** of 100% of the Position's projected yield over a 1–12 month **Horizon**. It is issued as **Gemas**, worth $0.01 each at issuance.
-3. Play **Matches**: async Block Puzzle or real-time heads-up Hold'em.
+3. Play **Matches**: async Block Puzzle, real-time heads-up Hold'em, or Trading Duel (a real-time trading Match on a live oracle price).
 
 The **Principal is never played** and never pays Debt. Accrued yield repays the Advance automatically, and winners Redeem the Gemas they won as the loser's yield actually accrues.
 
@@ -20,7 +20,7 @@ The **Principal is never played** and never pays Debt. Accrued yield repays the 
 
 | Real (on testnets) | Simulated, stand-in or not done |
 |---|---|
-| Five Solana programs on devnet: the `tesoro_core` ledger, the `block_puzzle` and `holdem` Game programs, the `tesoro_bridge` LayerZero OApp, and `sim_lst` | **Yield is Simulated.** `sim_lst` (simSOL, 7% APY) and the Hoodi `SimLST` (simETH, 5% APY) run a 4,320× clock: 1 month of yield every 10 minutes. Their faucets mint unbacked test tokens. |
+| Six Solana programs on devnet: the `tesoro_core` ledger, the `block_puzzle`, `holdem` and `trading_duel` Game programs, the `tesoro_bridge` LayerZero OApp, and `sim_lst` | **Yield is Simulated.** `sim_lst` (simSOL, 7% APY) and the Hoodi `SimLST` (simETH, 5% APY) run a 4,320× clock: 1 month of yield every 10 minutes. Their faucets mint unbacked test tokens. |
 | Matches settled on chain from a **MagicBlock Private Ephemeral Rollup** (Intel TDX TEE). The deck, the hole cards, the Block Puzzle Seed and each Player's moves stay private until settlement. | **Prices come from a trusted oracle key.** The SOL/USD issuance price is an on-chain devnet `PriceFeed` that the keeper writes with the oracle key (median of CoinGecko and Coinbase spot). The ETH issuance price is signed by the same key. Reading Pyth on chain is planned. |
 | ETH Positions on **Ethereum Hoodi**, carried to the Solana ledger by **LayerZero V2**: open, Advance, yield report, Redeem to Hoodi and Unlock, all tested end to end | The full ETH round trip ran on the previous Hoodi vault. The current vault (redeployed 2026-10-01 for SP-01) was smoke-tested for open and yield, not for Redeem and Unlock. |
 | HYPE Positions on **HyperEVM testnet** over the same bridge: open, Advance, yield report and Redeem payout (Solana to HyperEVM) delivered on chain; opened from the Wallet's HYPE tab | **Simulated** simHYPE (1 month = 10 min). Unlock was not run on HyperEVM, and a wallet needs its own testnet HYPE (no faucet to relay). |
@@ -63,6 +63,9 @@ Base-layer RPC: `https://rpc.magicblock.app/devnet` (the public `api.devnet.sola
 | `holdem` | [`CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE`](https://explorer.solana.com/address/CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE?cluster=devnet) |
 | `holdem` Game authority PDA (registered in `tesoro_core`, Studio Fee 300 bps) | `Eu2RtadRsFCV9Xe2A7v7GivS9W5Trbrz6tCagNRUCwtn` |
 | `holdem` delegation ProgramConfig (TEE validator whitelist) | `CVBjwJ8LaJS37zokHDjgkWASNPW9X5oWxmCHT2DvVKL3` |
+| `trading_duel` | [`CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj`](https://explorer.solana.com/address/CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj?cluster=devnet) |
+| `trading_duel` Game authority PDA (registered in `tesoro_core`, Studio Fee 300 bps) | `mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe` |
+| `trading_duel` delegation ProgramConfig (TEE validator whitelist) | `43amrCapYPLYz9tGPcdxw84A3Hby9j4kSTmDTCmu7xZb` |
 | MagicBlock TEE validator (the only validator allowed to receive delegations) | `MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo` |
 | `sim_lst` (**Simulated** LST) | [`WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F`](https://explorer.solana.com/address/WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F?cluster=devnet) |
 | `sim_lst` Pool PDA (7% APY, 4,320× speedup) | `Fc9UUnGEDapkBDM3mPayjqVDLYHokKCPwSLdbvKBUvPL` |
@@ -230,7 +233,7 @@ Signatures: `docs/deployments.md` → "Key compromise response".
 
 | Path | Contents |
 |---|---|
-| `programs/` | Anchor workspace: `tesoro_core`, `block_puzzle`, `holdem`, `sim_lst` |
+| `programs/` | Anchor workspace: `tesoro_core`, `block_puzzle`, `holdem`, `trading_duel`, `sim_lst` |
 | `bridge/` | `tesoro_bridge` and the LayerZero scripts |
 | `contracts/` | Foundry: `PositionVaultOApp`, `SimLST`, `WstETHRateAdapter` |
 | `app/` | Next.js 16 |

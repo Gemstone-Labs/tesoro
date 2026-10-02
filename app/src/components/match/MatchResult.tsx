@@ -34,6 +34,7 @@ export interface MatchResultProps {
 export const RULES: Record<GameId, { chip: string; line: string }> = {
   "block-puzzle": { chip: "Same Seed", line: "90 seconds · higher score wins" },
   holdem: { chip: "Heads-up", line: "Turbo blinds · last stack standing" },
+  "trading-duel": { chip: "Live prices", line: "5 minutes · higher equity wins" },
 };
 
 /** Faceted emerald burst behind the won amount: hard-stop shards and a few sparkles. Decorative. */

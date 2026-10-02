@@ -7,7 +7,9 @@ import { useMemo, useState } from "react";
 import { ArrowRight, Clock, Link2 } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { MatchRow } from "@/components/match/MatchRow";
-import { BustCard, Button, EntryPicker } from "@/components/ui";
+import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
+import { ASSET_PARAMS } from "@/lib/chain/match-id";
+import { gameQuery } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art, avatarFor } from "@/lib/art";
 import { accountHistory } from "@/lib/chain/history";
@@ -31,12 +33,20 @@ const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: str
     steps: ["1,500 Chips each, blinds rise every hand", "30 seconds per action", "Last stack standing takes the Pot minus Fees"],
     hero: art.holdemHero,
   },
+  "trading-duel": {
+    tag: "Head-to-head · Real-time",
+    sub: ["Real-time · 5 minutes · live prices · higher equity wins", "Your position stays hidden from your opponent until the end"],
+    how: "Same market. One position at a time.",
+    steps: ["10,000 Chips each, 5 minutes on a live price", "Long or short, 1 to 20x, one position at a time", "Higher final equity takes the Pot minus Fees; a tie refunds both"],
+    hero: art.tradingDuelHero,
+  },
 };
 
 export function GamePage({ game }: { game: GameId }) {
   const { snapshot, onChain, auth } = useAccount();
   const router = useRouter();
-  const [entry, setEntry] = useState<EntrySize>(game === "holdem" ? 500 : 1000);
+  const [entry, setEntry] = useState<EntrySize>(game === "block-puzzle" ? 1000 : 500);
+  const [asset, setAsset] = useState<0 | 1 | 2>(0);
   const top = useTopScoresToday(game === "block-puzzle");
   const [now] = useState(() => Date.now());
   const copy = COPY[game];
@@ -46,7 +56,7 @@ export function GamePage({ game }: { game: GameId }) {
   const mine = history.slice(0, 3);
   const scores = top.data ?? [];
 
-  const query = (kind: "queue" | "challenge") => `/play/${kind}?${game === "holdem" ? "game=holdem&" : ""}entry=${entry}`;
+  const query = (kind: "queue" | "challenge") => `/play/${kind}?${gameQuery(game, asset)}entry=${entry}`;
 
   return (
     <div className="gp">
@@ -62,6 +72,7 @@ export function GamePage({ game }: { game: GameId }) {
           <p className="gp-sub">
             {copy.sub[0]}
           </p>
+          {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="gp-asset" />}
           <EntryPicker value={entry} onChange={setEntry} name={`gp-entry-${game}`} />
           <div className="gp-cta">
             <Button variant="money" size="lg" onClick={() => auth.gate("Enter a Match", () => router.push(query("queue")))}>
@@ -70,7 +81,7 @@ export function GamePage({ game }: { game: GameId }) {
             <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
               Challenge a friend <Link2 aria-hidden="true" />
             </Button>
-            <Button size="lg" href={game === "holdem" ? "/play/practice?game=holdem" : "/play/practice"}>
+            <Button size="lg" href={game === "holdem" ? "/play/practice?game=holdem" : game === "trading-duel" ? `/play/practice?game=trading-duel&asset=${ASSET_PARAMS[asset]}` : "/play/practice"}>
               Practice <Clock aria-hidden="true" />
             </Button>
           </div>

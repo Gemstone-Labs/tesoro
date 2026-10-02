@@ -9,6 +9,33 @@ import { XIcon } from "./icons";
 
 export const ENTRY_SIZES: readonly EntrySize[] = [500, 1000, 2500];
 
+/** The assets Trading Duel can trade, by `?asset=` index (see lib/chain/match-id.ts). */
+export const DUEL_ASSETS = [
+  { id: 0, symbol: "SOL", name: "Solana" },
+  { id: 1, symbol: "ETH", name: "Ethereum" },
+  { id: 2, symbol: "HYPE", name: "Hyperliquid" },
+] as const;
+
+/** Radio group over Trading Duel's assets. Neutral: the chosen asset is pale, never emerald (no Gemas move here). */
+export function AssetPicker({ value, onChange, name }: { value: 0 | 1 | 2; onChange: (v: 0 | 1 | 2) => void; name?: string }) {
+  const auto = useId();
+  const group = name ?? auto;
+  return (
+    <fieldset className="assets">
+      <legend className="sr-only">Asset</legend>
+      {DUEL_ASSETS.map((a) => (
+        <label key={a.id} className="asset">
+          <input type="radio" name={group} value={a.id} checked={value === a.id} onChange={() => onChange(a.id)} />
+          <span className="cut cut-chip">
+            <b>{a.symbol}</b>
+            <small>{a.name}</small>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 /** Radio group over the entry ladder. The chosen entry is emerald and carries the Gema mark. */
 export function EntryPicker({
   value,

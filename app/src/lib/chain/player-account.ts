@@ -66,7 +66,7 @@ export interface PlayerSummary {
   };
 }
 
-const GAMES: GameId[] = ["block-puzzle", "holdem"];
+const GAMES: GameId[] = ["block-puzzle", "holdem", "trading-duel"];
 
 export function playerSummary(played: ChainMatch[]): PlayerSummary {
   const rows = playedRows(played);

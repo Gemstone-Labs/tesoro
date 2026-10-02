@@ -24,14 +24,15 @@ const ago = (mins: number) => Date.now() - mins * 60_000;
 const idAt = (ms: number) => BigInt(ms) << 1n;
 
 export function match(
-  game: "block-puzzle" | "holdem",
+  game: "block-puzzle" | "holdem" | "trading-duel",
   entry: number,
   win: boolean,
   mins: number,
   scores: [number, number],
   me = key(1).toBase58(),
 ): ChainMatch {
-  const id = idAt(ago(mins));
+  // Trading Duel ids carry the asset in bits 1 and 2 (ETH here): ms * 8 + 1 * 2.
+  const id = game === "trading-duel" ? (BigInt(ago(mins)) << 3n) + 2n : idAt(ago(mins));
   const them = key(2 + mins).toBase58();
   return {
     id,
@@ -50,7 +51,7 @@ export function match(
     backerSeat: null,
     backing: null,
     fees: { platformBps: 500, studioBps: 0 },
-    winner: game === "holdem" ? (win ? "opener" : "joiner") : null,
+    winner: game !== "block-puzzle" ? (win ? "opener" : "joiner") : null,
     session:
       game === "block-puzzle"
         ? { settled: true, joined: true, result: win ? "opener" : "joiner", scores: win ? scores : [scores[1], scores[0]], seed: 0n, openerDeadline: 0, deadline: 0 }
@@ -127,7 +128,7 @@ export function demoSnapshot(address: string): AccountSnapshot {
 }
 
 export function demoBoard(): BackingBoard {
-  const req = (n: number, game: "block-puzzle" | "holdem", entry: number, matches: number, wins: number): ChainRequest => ({
+  const req = (n: number, game: "block-puzzle" | "holdem" | "trading-duel", entry: number, matches: number, wins: number): ChainRequest => ({
     address: key(600 + n),
     nonce: BigInt(n),
     player: key(700 + n).toBase58(),

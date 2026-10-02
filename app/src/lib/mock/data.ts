@@ -101,7 +101,8 @@ export const matches: Match[] = [
 export const GAME_NAMES: Record<GameId, string> = {
   "block-puzzle": "Block Puzzle",
   holdem: "Heads-up Hold'em",
+  "trading-duel": "Trading Duel",
 };
 
 /** Current Queue depth per game (example figures). */
-export const queueDepth: Record<GameId, number> = { "block-puzzle": 4, holdem: 2 };
+export const queueDepth: Record<GameId, number> = { "block-puzzle": 4, holdem: 2, "trading-duel": 1 };

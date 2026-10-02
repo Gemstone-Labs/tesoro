@@ -8,6 +8,7 @@ import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { backingText, historyRow, type HistoryRow } from "@/lib/chain/history";
+import { gameQuery } from "@/lib/game-params";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import { Rail } from "./Rail";
@@ -70,7 +71,7 @@ export function PlayAgainRail() {
         const headline =
           p.result === "won" ? `You won ${fmtGemas(p.delta)}` : p.result === "lost" ? (p.backing ? "You lost · 0 Gemas" : `You lost ${fmtGemas(-p.delta)}`) : p.result === "draw" ? "Draw · entry refunded" : "Refunded";
         const backing = backingText(p);
-        const href = `/play/queue?${p.game === "holdem" ? "game=holdem&" : ""}entry=${p.entry}`;
+        const href = `/play/queue?${gameQuery(p.game, p.asset)}entry=${p.entry}`;
         return (
           <div key={p.id} className="cut cut-card again">
             <button type="button" className="again-main" onClick={() => auth.gate("Enter a Match", () => router.push(href))} aria-label={`Play ${GAME_NAMES[p.game]} again for ${fmtGemas(p.entry)} Gemas. Last Match: ${headline}${backing ? `. ${backing}` : ""}`}>

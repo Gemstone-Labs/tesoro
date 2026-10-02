@@ -1,4 +1,5 @@
 import type { GameId } from "../mock/types";
+import { matchOpenedAt } from "./match-id";
 
 /** A settled Match anyone may see: the Lobby ticker. Winners are shown by short key (no names on chain). */
 export interface SettledMatch {
@@ -37,7 +38,7 @@ export interface SettledQuery {
  */
 export function pickSettled<T extends SettledCandidate>(rows: T[], q: SettledQuery): T[] {
   return rows
-    .filter((m) => m.settled && m.joined && m.game !== null && (!q.game || m.game === q.game) && (q.since === undefined || Number(m.id >> 1n) >= q.since))
+    .filter((m) => m.settled && m.joined && m.game !== null && (!q.game || m.game === q.game) && (q.since === undefined || matchOpenedAt(m.id, m.game) >= q.since))
     .sort((x, y) => (x.id < y.id ? 1 : -1))
     .slice(0, q.limit);
 }

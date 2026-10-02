@@ -10,9 +10,9 @@ export function useQueueDepth(): Record<GameId, number> {
   useEffect(() => {
     let live = true;
     import("@/lib/chain/read")
-      .then(async (m) => [await m.queueDepth("block-puzzle"), await m.queueDepth("holdem")] as const)
-      .then(([bp, hd]) => {
-        if (live) setDepth({ "block-puzzle": bp, holdem: hd });
+      .then(async (m) => [await m.queueDepth("block-puzzle"), await m.queueDepth("holdem"), await m.queueDepth("trading-duel")] as const)
+      .then(([bp, hd, td]) => {
+        if (live) setDepth({ "block-puzzle": bp, holdem: hd, "trading-duel": td });
       })
       .catch(() => undefined);
     return () => {
