@@ -482,6 +482,9 @@ html.lenis, html.lenis body { height: auto; }
 /* The art's rope ends above her hand: the same braid carries on up and out of the frame, lapping the art's first rows. */
 .lp-final-duo.rope .lp-final-rope { position: absolute; left: 0; bottom: 98.67%; width: 100%; height: auto; }
 .lp-final-duo.rope .lp-final-rope img { width: 100%; height: auto; }
+/* the rope fades out at the top of the frame (a frame-sized wrapper, so the fade stays put while the duo climbs) */
+.lp-final-duo-fade { position: absolute; inset: 0; z-index: 1; pointer-events: none; -webkit-mask: linear-gradient(180deg, transparent 0, #000 100px); mask: linear-gradient(180deg, transparent 0, #000 100px); }
+.lp-final-duo.rope .lp-final-rope { -webkit-mask: linear-gradient(180deg, transparent 45%, #000 100%); mask: linear-gradient(180deg, transparent 45%, #000 100%); }
 .lp-final-copy { position: relative; z-index: 2; }
 .lp-final-title { max-width: 13ch; margin-bottom: 36px; }
 :root[data-theme="light"] .lp-final { padding: 0 var(--g) var(--g); }
@@ -495,7 +498,8 @@ html.lenis, html.lenis body { height: auto; }
   .lp-final-frame { align-items: flex-start; padding-top: 80px; min-height: max(520px, 80svh); }
   .lp-final-art { top: -22%; }
   .lp-final-art .layer img { object-position: 50% 0; }
-  .lp-final-art::after { background: linear-gradient(180deg, rgba(9, 13, 15, 0.85) 0, transparent 42%); }
+  /* solid at the top so the baked-in rope fades out under the copy */
+  .lp-final-art::after { background: linear-gradient(180deg, #090d0f 0, #090d0f 27%, rgba(9, 13, 15, 0.55) 35%, transparent 40%); }
   .lp-final-duo { right: -6%; width: 78vw; }
   .lp-final-duo.rope { display: none; }
 }

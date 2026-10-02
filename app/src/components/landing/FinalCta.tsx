@@ -23,21 +23,23 @@ export function FinalCta() {
             <span className="lp-duo-lantern m" style={{ left: "68.5%", top: "61%" }} />
             <span className="lp-duo-lantern m" style={{ left: "53.3%", top: "85.8%" }} />
           </span>
-          <div className={duo ? "lp-final-duo rope" : "lp-final-duo"} data-climb>
-            {duo && (
-              <>
-                <Picture k="finalRope" sizes="420px" className="lp-final-rope" />
-                <span className="lp-duo-lantern" style={{ left: "86%", top: "31.5%" }} />
-                <span className="lp-duo-lantern" style={{ left: "28.5%", top: "75.5%" }} />
-              </>
-            )}
-            {duo ? (
-              <Picture k="finalDuo" sizes="420px" />
-            ) : (
-              <picture>
-                <img src={art.busts.duoHero.src.replace("/bust/", "/")} alt="" loading="lazy" width={1200} height={600} />
-              </picture>
-            )}
+          <div className="lp-final-duo-fade">
+            <div className={duo ? "lp-final-duo rope" : "lp-final-duo"} data-climb>
+              {duo && (
+                <>
+                  <Picture k="finalRope" sizes="420px" className="lp-final-rope" />
+                  <span className="lp-duo-lantern" style={{ left: "86%", top: "31.5%" }} />
+                  <span className="lp-duo-lantern" style={{ left: "28.5%", top: "75.5%" }} />
+                </>
+              )}
+              {duo ? (
+                <Picture k="finalDuo" sizes="420px" />
+              ) : (
+                <picture>
+                  <img src={art.busts.duoHero.src.replace("/bust/", "/")} alt="" loading="lazy" width={1200} height={600} />
+                </picture>
+              )}
+            </div>
           </div>
         </div>
         <div className="lp-wrap lp-final-copy">
