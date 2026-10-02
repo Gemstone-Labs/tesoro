@@ -13,7 +13,7 @@ import { chainLogo } from "./logos";
 
 const PARTICLES = 16;
 
-/** Where a mark rests: almost square to the camera, so it reads, with its depth just showing. The poster is rendered at this angle. */
+/** Where a mark starts its spin: almost square to the camera, so it reads, with its depth just showing. The poster is rendered at this angle. */
 const REST = 0.12;
 
 /** A chain's mark cut as a stone: refractive and flat-faceted in the chain's own colours, with bright facet edges and its light behind. */
@@ -24,20 +24,20 @@ function Logo({ label, color, pace, animate }: { label: ChainLabel; color: strin
   const light = useMemo(() => glowTexture("255,255,255", 0.5), []);
   useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose(), light.dispose()), [geometry, edges, env, light]);
   const graded = geometry.hasAttribute("color");
-  const sway = useRef<THREE.Group>(null);
+  const spin = useRef<THREE.Group>(null);
   const t = useRef(0);
   useFrame((_, delta) => {
-    if (!animate || !sway.current) return;
-    t.current += delta * pace;
-    sway.current.rotation.y = REST + Math.sin(t.current) * 0.45;
-    sway.current.position.y = Math.sin(t.current * 1.6) * 0.04;
+    if (!animate || !spin.current) return;
+    t.current += delta;
+    spin.current.rotation.y += delta * pace;
+    spin.current.position.y = Math.sin(t.current * 0.9) * 0.04;
   });
   return (
     <group>
       <sprite scale={[1.9, 1.9, 1]} position={[0, 0, -0.3]}>
         <spriteMaterial map={light} color={color} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
       </sprite>
-      <group ref={sway} rotation={[0, REST, 0]}>
+      <group ref={spin} rotation={[0, REST, 0]}>
         <mesh geometry={geometry}>
           <MeshRefractionMaterial
             envMap={env}
@@ -123,7 +123,7 @@ function Scene({ layout, animate }: { layout: ChainsLayout; animate: boolean }) 
       {CHAINS.map((c, i) => (
         <group key={c.label}>
           <group position={sources[i]}>
-            <Logo label={c.label} color={c.color} pace={0.55 + i * 0.08} animate={animate} />
+            <Logo label={c.label} color={c.color} pace={0.22 + i * 0.03} animate={animate} />
           </group>
           <Stream from={sources[i].clone().add(outlet)} to={inlet(sources[i])} color={c.color} phase={i * 0.21} animate={animate} />
         </group>
