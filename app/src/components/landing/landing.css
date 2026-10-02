@@ -173,6 +173,12 @@ html.lenis, html.lenis body { height: auto; }
 .lp-flowmap .tube-core { stroke: #2fdcae; stroke-width: 7; }
 .lp-flowmap .tube-hi { stroke: #c4fff0; stroke-width: 1.6; opacity: 0.75; }
 .lp-flow-dots circle { fill: #e6fff8; filter: drop-shadow(0 0 4px #6af8d6); }
+/* Light theme: brighter, airier tubes (the dark-theme outer stroke reads as near-black on a light page). */
+:root[data-theme="light"] .lp-flowmap .tube-glow { stroke: #4ff0c6; opacity: 0.4; }
+:root[data-theme="light"] .lp-flowmap .tube-outer { stroke: #3fdcb0; }
+:root[data-theme="light"] .lp-flowmap .tube-core { stroke: #9cf7dc; }
+:root[data-theme="light"] .lp-flowmap .tube-hi { stroke: #ffffff; opacity: 0.9; }
+:root[data-theme="light"] .lp-flow-dots circle { fill: #ffffff; filter: drop-shadow(0 0 4px #24d8a8); }
 @media (prefers-reduced-motion: reduce) { .lp-flow-dots { display: none; } }
 .lp-oct-node { position: absolute; width: 11.3%; aspect-ratio: 258 / 252; translate: -50% -50%; display: grid; place-items: center; }
 .lp-oct-node .lp-oct-frame { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: url(/art/landing/oct-frame.webp) center / 100% 100% no-repeat; }
@@ -189,6 +195,10 @@ html.lenis, html.lenis body { height: auto; }
 .lp-outcome-card.win { --edge: color-mix(in srgb, var(--em) 60%, transparent); background: linear-gradient(170deg, color-mix(in srgb, var(--em) 14%, var(--raised)), var(--raised)); }
 .lp-outcome-card b { display: block; font-family: var(--f-display); font-weight: 800; font-size: clamp(22px, 2.8cqi, 36px); text-transform: uppercase; line-height: 1; color: var(--fg); margin-bottom: 4px; }
 .lp-outcome-card.win b { color: var(--em); }
+/* Lose mirrors Win in red: a loss, never "success" green. */
+.lp-outcome-card.lose { --lose: #f2685a; --edge: color-mix(in srgb, var(--lose) 55%, transparent); background: linear-gradient(170deg, color-mix(in srgb, var(--lose) 13%, var(--raised)), var(--raised)); }
+.lp-outcome-card.lose b { color: var(--lose); }
+:root[data-theme="light"] .lp-outcome-card.lose { --lose: #c0392b; }
 .lp-outcome-card .lp-oct-node.small { position: relative; translate: none; width: 34%; flex: none; }
 .lp-flow-foot { text-align: center; font-size: clamp(18px, 1.5vw, 22px); color: var(--fg-2); margin-top: 28px; }
 .lp-flow-foot b { color: var(--fg); }
