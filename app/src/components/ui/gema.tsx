@@ -33,9 +33,10 @@ export function GemaMark({ size = 16, glint = false }: { size?: number; glint?: 
       aria-hidden="true"
       focusable="false"
     >
-      <polygon points="7,3 17,3 22,8 22,16 17,21 7,21 2,16 2,8" fill="url(#gema-face)" />
-      <polygon points="9,7 15,7 18,10 18,14 15,17 9,17 6,14 6,10" fill="url(#gema-table)" />
+      <polygon className="gm-body" points="7,3 17,3 22,8 22,16 17,21 7,21 2,16 2,8" fill="url(#gema-face)" />
+      <polygon className="gm-table" points="9,7 15,7 18,10 18,14 15,17 9,17 6,14 6,10" fill="url(#gema-table)" />
       <path
+        className="gm-cuts"
         d="M7 3 9 7M17 3 15 7M22 8 18 10M22 16 18 14M17 21 15 17M7 21 9 17M2 16 6 14M2 8 6 10"
         stroke="#063D2C"
         strokeOpacity=".45"

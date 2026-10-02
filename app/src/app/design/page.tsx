@@ -98,6 +98,10 @@ export default function Design() {
             <span className="cut cut-chip" style={{ width: 36, height: 36, background: "var(--facet)", flex: "none" }} />
             <span className="mono" style={{ fontSize: 12 }}>--facet</span>
           </div>
+          <div className="hstack">
+            <span className="cut cut-chip" style={{ width: 36, height: 36, background: "var(--money-fill)", flex: "none" }} />
+            <span className="mono" style={{ fontSize: 12 }}>--money-fill</span>
+          </div>
         </div>
       </Section>
 

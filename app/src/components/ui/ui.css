@@ -95,13 +95,21 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .btn.block { display: flex; width: 100%; }
 .btn.sm { padding: 7px 12px; min-height: 34px; font-size: 13px; }
 .btn.lg { min-height: 60px; font-size: 20px; padding: 0 24px; }
-.btn.money { color: var(--em-ink); background: var(--facet); --edge: transparent; }
-.btn.money:hover:not(:disabled) { filter: brightness(1.06); }
+.btn { transition: filter 0.15s ease, transform 0.08s ease; }
+.btn.lg { --c: 9px; }
+.btn.money {
+  color: var(--em-ink); --edge: var(--money-rim);
+  background: linear-gradient(0deg, var(--money-base) 0 3px, transparent 3px), var(--money-fill);
+}
+.btn.money.lg { padding-bottom: 3px; }
+.btn.money:hover:not(:disabled) { filter: brightness(1.07) saturate(1.05); }
+.btn.money:active:not(:disabled) { filter: brightness(0.95); }
+.btn:active:not(:disabled, [aria-disabled="true"]) { transform: translateY(1px); }
 .btn.money:focus-visible { outline-color: var(--em-ink); }
 .btn.neutral { background: var(--raised); color: var(--fg); --edge: var(--line-2); }
 .btn.neutral:hover { background: var(--raised-2); }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; }
-.btn.money:disabled { background: #17241f; color: var(--fg-2); --edge: var(--line); }
+.btn.money:disabled { background: var(--money-off); color: var(--fg-2); --edge: var(--line); }
 .btn.neutral:disabled { color: var(--fg-2); }
 .btn svg { width: 16px; height: 16px; flex: none; }
 
@@ -114,6 +122,12 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 /* ——— Gema mark & amount ——— */
 .gema-mark { display: inline-block; flex: none; vertical-align: middle; }
 .gema-mark .shine { opacity: 0; }
+/* on a money fill the full-colour mark blends in: draw it in ink instead */
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-body,
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-table { fill: currentColor; }
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-table { stroke: var(--gem-ink-line); stroke-width: 1; }
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-cuts { stroke: var(--gem-ink-line); stroke-opacity: 1; stroke-width: 0.8; }
+:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .shine { display: none; }
 .gema-mark.glint .shine { animation: glint 3.2s ease-in-out infinite; }
 @keyframes glint { 0%, 70%, 100% { opacity: 0; } 80% { opacity: 0.9; } }
 .gema-amount { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
@@ -161,7 +175,7 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
   background: var(--shell); font-weight: 800; font-size: 14px; --edge: var(--line-2);
 }
 .entry input:hover:not(:disabled, :checked) + span { background: var(--raised-2); }
-.entry input:checked + span { background: var(--facet); color: var(--em-ink); --edge: transparent; }
+.entry input:checked + span { background: var(--money-fill); color: var(--em-ink); --edge: var(--money-rim); }
 .entry input:disabled + span { color: var(--fg-2); text-decoration: line-through; }
 .entry input:disabled { cursor: not-allowed; }
 .entry input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: -4px; }
@@ -204,7 +218,7 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .xc li.done .xc-icon { color: var(--fg); --edge: var(--fg-3); }
 .xc li.active .xc-icon { color: var(--warn); --edge: rgba(242, 185, 75, 0.5); }
 .xc li.failed .xc-icon { color: var(--danger); --edge: rgba(242, 104, 90, 0.5); }
-.xc li.available .xc-icon { background: var(--facet); color: var(--em-ink); --edge: transparent; }
+.xc li.available .xc-icon { background: var(--money-fill); color: var(--em-ink); --edge: var(--money-rim); }
 .xc-title { font-weight: 700; font-size: 14px; }
 .xc-note { font-size: 12px; color: var(--fg-2); }
 .xc-state { font-size: 12px; font-weight: 700; color: var(--fg-2); white-space: nowrap; padding-top: 4px; }
