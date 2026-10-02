@@ -70,4 +70,22 @@ describe("HYPE top-up guards", () => {
     expect(await code(setup().fund("w", "0x12", null))).toBe("bad-request");
     expect(await code(setup({ wrongChain: true }).fund("w", A, null))).toBe("wrong-cluster");
   });
+
+  it("sends one drip at a time (one relayer nonce)", async () => {
+    let active = 0;
+    let overlap = false;
+    const fund = createHypeTopup({
+      requireChain: async () => {},
+      balanceOf: async () => 0n,
+      relayerBalance: async () => parseEther("1"),
+      send: async () => {
+        if (++active > 1) overlap = true;
+        await new Promise((r) => setTimeout(r, 10));
+        active--;
+        return "0xhash";
+      },
+    });
+    await Promise.all([fund("w1", "0x" + "1".repeat(40), null), fund("w2", "0x" + "2".repeat(40), null), fund("w3", "0x" + "3".repeat(40), null)]);
+    expect(overlap).toBe(false);
+  });
 });

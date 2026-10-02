@@ -28,6 +28,13 @@ export type HypeTopupDeps = {
 };
 
 export function createHypeTopup(deps: HypeTopupDeps) {
+  // One relayer key sends every drip: two at once would race on the nonce, so sends go one at a time.
+  let sending: Promise<unknown> = Promise.resolve();
+  const send = (to: string, value: bigint) => {
+    const run = sending.then(() => deps.send(to, value));
+    sending = run.catch(() => {});
+    return run;
+  };
   const cost = Number(HYPE_FUND_AMOUNT);
   const perHour = deps.maxPerHour ?? HYPE_DEFAULT_MAX_PER_HOUR;
   // Once per day per EVM address, Account and signed-in user: one drip each.
@@ -48,7 +55,7 @@ export function createHypeTopup(deps: HypeTopupDeps) {
         refund();
         throw new DemoHttpError(503, "faucet-empty", "The test HYPE faucet is empty. Ask the team to refill it, or send HYPE to your EVM address.");
       }
-      const hash = await deps.send(evm, HYPE_FUND_AMOUNT);
+      const hash = await send(evm, HYPE_FUND_AMOUNT);
       return { funded: true, hash, balance: (balance + HYPE_FUND_AMOUNT).toString() };
     } catch (e) {
       if (e instanceof DemoHttpError) throw e;
