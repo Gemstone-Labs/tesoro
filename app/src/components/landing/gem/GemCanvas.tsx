@@ -14,15 +14,16 @@ const IDLE_YAW = 0.12;
 const TILT = 0.14;
 
 function Gem({ tilt, animate }: { tilt: boolean; animate: boolean }) {
-  const mesh = useRef<THREE.Mesh>(null);
+  const mesh = useRef<THREE.Group>(null);
   const geometry = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(buildEmeraldCut(), 3));
     g.computeVertexNormals();
     return g;
   }, []);
+  const edges = useMemo(() => new THREE.EdgesGeometry(geometry, 1), [geometry]);
   const env = useMemo(() => studioEnvironment(), []);
-  useEffect(() => () => (geometry.dispose(), env.dispose()), [geometry, env]);
+  useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose()), [geometry, edges, env]);
 
   const target = useMemo(() => new THREE.Quaternion(), []);
   const euler = useMemo(() => new THREE.Euler(), []);
@@ -43,9 +44,14 @@ function Gem({ tilt, animate }: { tilt: boolean; animate: boolean }) {
   });
 
   return (
-    <mesh ref={mesh} geometry={geometry}>
-      <MeshRefractionMaterial envMap={env} color="#4cf0c2" ior={2.0} bounces={3} fresnel={0.7} aberrationStrength={0} toneMapped={false} />
-    </mesh>
+    <group ref={mesh}>
+      <mesh geometry={geometry}>
+        <MeshRefractionMaterial envMap={env} color="#62f9d4" ior={2.0} bounces={3} fresnel={0.9} aberrationStrength={0} toneMapped={false} />
+      </mesh>
+      <lineSegments geometry={edges} scale={1.003}>
+        <lineBasicMaterial color="#c8fdee" transparent opacity={0.35} depthWrite={false} toneMapped={false} />
+      </lineSegments>
+    </group>
   );
 }
 
