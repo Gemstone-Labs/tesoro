@@ -23,7 +23,7 @@ contract VaultHandler is Test {
     bool public claimUnderpaid;
 
     constructor() {
-        lst = new SimLST(address(this));
+        lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
         ep = new MockEndpoint();
         vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN);
         vm.prank(user);
@@ -156,7 +156,7 @@ contract PositionVaultFuzzTest is Test {
 
     /// A message applied twice changes state exactly as if applied once.
     function testFuzz_payYieldIdempotent(uint256 amount, uint256 elapsed) public {
-        SimLST lst = new SimLST(address(this));
+        SimLST lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
         MockEndpoint ep = new MockEndpoint();
         PositionVault vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN);
         address alice = address(0xA11CE);
@@ -178,7 +178,7 @@ contract PositionVaultFuzzTest is Test {
     }
 
     function testFuzz_simRateMonotonicAcrossParamChanges(uint16 apy, uint16 speed, uint32 dt1, uint32 dt2) public {
-        SimLST lst = new SimLST(address(this));
+        SimLST lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
         vm.warp(block.timestamp + dt1);
         uint256 r1 = lst.underlyingPerShare();
         lst.setRateParams(apy, speed);

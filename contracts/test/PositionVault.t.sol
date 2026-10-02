@@ -64,7 +64,7 @@ contract PositionVaultSimTest is VaultBase {
     SimLST lst;
 
     function setUp() public {
-        lst = new SimLST(address(this));
+        lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
         ep = new MockEndpoint();
         vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN);
         lst.faucet(alice);

@@ -44,7 +44,7 @@ contract Deploy is Script {
         address deployer = vm.addr(pk);
         vm.startBroadcast(pk);
 
-        SimLST sim = new SimLST(deployer);
+        SimLST sim = new SimLST(deployer, hasWstETH ? "Simulated Staked ETH" : "Simulated Staked HYPE", hasWstETH ? "simETH" : "simHYPE");
         MockEndpoint endpoint = new MockEndpoint();
         PositionVault simVault = new PositionVault(address(sim), address(sim), address(endpoint), chainTag);
         if (reserveEth > 0) {
