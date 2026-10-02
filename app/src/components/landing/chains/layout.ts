@@ -3,10 +3,13 @@ export type ChainsLayout = "wide" | "tall";
 
 type V3 = [number, number, number];
 
-export const CHAINS: { label: string; color: string; at: Record<ChainsLayout, V3> }[] = [
-  { label: "SOL", color: "#3ff0c4", at: { wide: [-3.4, 1.3, 0], tall: [-1.15, 1.5, 0] } },
-  { label: "ETH", color: "#a8c8d6", at: { wide: [-3.75, -0.05, 0], tall: [0, 1.8, 0] } },
-  { label: "HYPE", color: "#8ff7e4", at: { wide: [-3.4, -1.4, 0], tall: [1.15, 1.5, 0] } },
+export type ChainLabel = "SOL" | "ETH" | "HYPE";
+
+/** `color` is the chain's own brand colour: its light, its stream and (for a single-colour mark) its stone. */
+export const CHAINS: { label: ChainLabel; color: string; at: Record<ChainsLayout, V3> }[] = [
+  { label: "SOL", color: "#9945ff", at: { wide: [-3.4, 1.3, 0], tall: [-1.15, 1.5, 0] } },
+  { label: "ETH", color: "#627eea", at: { wide: [-3.75, -0.05, 0], tall: [0, 1.8, 0] } },
+  { label: "HYPE", color: "#97fce4", at: { wide: [-3.4, -1.4, 0], tall: [1.15, 1.5, 0] } },
 ];
 
 export const LEDGER: Record<ChainsLayout, V3> = { wide: [2.5, 0, 0], tall: [0, -1.55, 0] };

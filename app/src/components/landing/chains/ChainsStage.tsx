@@ -11,7 +11,7 @@ function Labels({ layout }: { layout: ChainsLayout }) {
     <ul className="lp-chain-labels" aria-hidden>
       {CHAINS.map((c) => {
         const [x, y, z] = c.at[layout];
-        const at = layout === "wide" ? toStage([x - 0.8, y, z], layout) : toStage([x, y + 0.85, z], layout);
+        const at = layout === "wide" ? toStage([x - 0.95, y, z], layout) : toStage([x, y + 0.85, z], layout);
         return (
           <li key={c.label} className="chain cut cut-chip" style={at}>
             {c.label}

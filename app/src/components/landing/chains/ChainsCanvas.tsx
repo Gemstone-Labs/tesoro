@@ -8,43 +8,52 @@ import { studioEnvironment } from "../gem/envTexture";
 import { GemMesh, glowTexture } from "../gem/GemMesh";
 import { gemState } from "../gem/store";
 import type { LiveCanvasProps } from "../Stage3D";
-import { crystalCluster } from "./crystal";
-import { CAMERA, CHAINS, LEDGER, type ChainsLayout } from "./layout";
+import { CAMERA, CHAINS, LEDGER, type ChainLabel, type ChainsLayout } from "./layout";
+import { chainLogo } from "./logos";
 
 const PARTICLES = 16;
 
-/** A raw crystal cluster: refractive, flat-faceted prisms tinted per chain, with bright facet edges, a glowing core and a rock base. */
-function Cluster({ color, seed, scale, animate }: { color: string; seed: number; scale: number; animate: boolean }) {
-  const geometry = useMemo(() => crystalCluster(seed), [seed]);
+/** Where a mark rests: almost square to the camera, so it reads, with its depth just showing. The poster is rendered at this angle. */
+const REST = 0.12;
+
+/** A chain's mark cut as a stone: refractive and flat-faceted in the chain's own colours, with bright facet edges and its light behind. */
+function Logo({ label, color, pace, animate }: { label: ChainLabel; color: string; pace: number; animate: boolean }) {
+  const geometry = useMemo(() => chainLogo[label](), [label]);
   const edges = useMemo(() => new THREE.EdgesGeometry(geometry, 20), [geometry]);
-  const env = useMemo(() => studioEnvironment(), []);
-  const core = useMemo(() => glowTexture("106,248,214", 0.55), []);
-  const rock = useMemo(() => new THREE.MeshStandardMaterial({ color: "#2a353b", roughness: 0.8, metalness: 0.2, flatShading: true }), []);
-  useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose(), core.dispose(), rock.dispose()), [geometry, edges, env, core, rock]);
-  const spin = useRef<THREE.Group>(null);
-  const t = useRef(seed);
+  const env = useMemo(() => studioEnvironment("neutral"), []);
+  const light = useMemo(() => glowTexture("255,255,255", 0.5), []);
+  useEffect(() => () => (geometry.dispose(), edges.dispose(), env.dispose(), light.dispose()), [geometry, edges, env, light]);
+  const graded = geometry.hasAttribute("color");
+  const sway = useRef<THREE.Group>(null);
+  const t = useRef(0);
   useFrame((_, delta) => {
-    if (!animate || !spin.current) return;
-    t.current += delta;
-    spin.current.rotation.y += delta * 0.22;
-    spin.current.position.y = Math.sin(t.current * 0.9) * 0.04;
+    if (!animate || !sway.current) return;
+    t.current += delta * pace;
+    sway.current.rotation.y = REST + Math.sin(t.current) * 0.45;
+    sway.current.position.y = Math.sin(t.current * 1.6) * 0.04;
   });
   return (
-    <group scale={scale}>
-      <sprite scale={[1.6, 1.6, 1]} position={[0, 0.05, -0.2]}>
-        <spriteMaterial map={core} color={color} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+    <group>
+      <sprite scale={[1.9, 1.9, 1]} position={[0, 0, -0.3]}>
+        <spriteMaterial map={light} color={color} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
       </sprite>
-      <group ref={spin} rotation={[0, seed, 0]}>
+      <group ref={sway} rotation={[0, REST, 0]}>
         <mesh geometry={geometry}>
-          <MeshRefractionMaterial envMap={env} color={color} ior={1.75} bounces={2} fresnel={0.85} aberrationStrength={0} toneMapped={false} />
+          <MeshRefractionMaterial
+            envMap={env}
+            color={graded ? "#ffffff" : color}
+            vertexColors={graded}
+            ior={1.75}
+            bounces={2}
+            fresnel={0.85}
+            aberrationStrength={0}
+            toneMapped={false}
+          />
         </mesh>
         <lineSegments geometry={edges}>
-          <lineBasicMaterial color="#effffa" transparent opacity={0.45} depthWrite={false} toneMapped={false} />
+          <lineBasicMaterial color="#ffffff" transparent opacity={0.45} depthWrite={false} toneMapped={false} />
         </lineSegments>
       </group>
-      <mesh material={rock} position={[0, -0.56, 0]} scale={[1, 0.38, 0.8]}>
-        <dodecahedronGeometry args={[0.32, 0]} />
-      </mesh>
     </group>
   );
 }
@@ -104,6 +113,8 @@ function Scene({ layout, animate }: { layout: ChainsLayout; animate: boolean }) 
       root.current.rotation.x += ((animate ? gemState.pointer.y * 0.05 : 0) - root.current.rotation.x) * 0.05;
     }
   });
+  /** Where each stream leaves its mark: past its right edge (wide) or below it (tall). */
+  const outlet = useMemo(() => (layout === "wide" ? new THREE.Vector3(0.58, 0, 0) : new THREE.Vector3(0, -0.72, 0)), [layout]);
   /** Where each stream enters the ledger: its near tip (wide) or its top face (tall). */
   const inlet = (s: THREE.Vector3) =>
     ledgerAt.clone().add(layout === "wide" ? new THREE.Vector3(-0.85, (s.y - ledgerAt.y) * 0.1, 0.1) : new THREE.Vector3(s.x * 0.22, 0.38, 0.1));
@@ -112,9 +123,9 @@ function Scene({ layout, animate }: { layout: ChainsLayout; animate: boolean }) 
       {CHAINS.map((c, i) => (
         <group key={c.label}>
           <group position={sources[i]}>
-            <Cluster color={c.color} seed={11 + i * 17} scale={i === 1 ? 0.95 : 1.02} animate={animate} />
+            <Logo label={c.label} color={c.color} pace={0.55 + i * 0.08} animate={animate} />
           </group>
-          <Stream from={sources[i].clone().add(new THREE.Vector3(0.3, 0.1, 0))} to={inlet(sources[i])} color={c.color} phase={i * 0.21} animate={animate} />
+          <Stream from={sources[i].clone().add(outlet)} to={inlet(sources[i])} color={c.color} phase={i * 0.21} animate={animate} />
         </group>
       ))}
       <group position={ledgerAt}>
