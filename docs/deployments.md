@@ -80,7 +80,7 @@ Deployed 2026-10-02 from the EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f4
 
 The SimLST address equals the one the spike OApp would have used (deployer nonce 0 on HyperEVM); the vault equals the address of the Hoodi SimLST (nonce 1). The Solana peer registered by the spike for that old address is inert.
 
-Solana signatures below are abbreviated (first 10 and last 8 characters; the repo's pre-commit scanner treats a full 88-character signature as a possible secret key). The full values are in the branch report and on any Solana explorer by prefix search of the program or Position accounts.
+Solana signatures below are abbreviated (first 10 and last 8 characters; the repo's pre-commit scanner treats a full 88-character signature as a possible secret key). The full values are in the branch report.
 
 Smoke test, 2026-10-02, Position id 1 (owner = the deployer's EVM address, linked to the bridge demo Account `5LL7EmptMRWSroaQuK8CxzQpSeBwC1EQEnmc4cRhho8k`): every LayerZero message was DELIVERED, in both directions. The open S2 risk (a live executor and DVN on 40362) is closed.
 
