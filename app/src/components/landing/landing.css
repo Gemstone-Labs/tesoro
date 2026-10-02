@@ -164,6 +164,11 @@ html.lenis, html.lenis body { height: auto; }
 .lp-how-head { display: grid; grid-template-columns: auto 1fr; gap: clamp(20px, 3vw, 40px); align-items: end; margin-bottom: 40px; }
 .lp-how-guide { width: clamp(130px, 13vw, 190px); margin-bottom: -40px; position: relative; z-index: 1; }
 .lp-how-guide img { width: 100%; height: auto; display: block; }
+/* Both figures are cropped at the hip: fade the crop out so it doesn't end on a straight line. */
+.lp-how-guide, .lp-backing-her {
+  -webkit-mask: linear-gradient(#000 66%, transparent 97%);
+  mask: linear-gradient(#000 66%, transparent 97%);
+}
 .lp-how-head .lp-h2 { margin-bottom: 12px; }
 /* The flow, as in the pitch deck: octagon nodes joined by glowing tubes, particles running along them. */
 .lp-flowmap { position: relative; margin: 8px 0 0; aspect-ratio: 1240 / 520; container-type: inline-size; }
@@ -375,7 +380,7 @@ html.lenis, html.lenis body { height: auto; }
 @media (max-width: 1023px) {
   .lp-backing-grid { grid-template-columns: 1fr; }
   .lp-backing-stage { grid-template-columns: 1fr; }
-  .lp-backing-her { order: -1; width: 180px; margin-bottom: -8px; }
+  .lp-backing-her { order: -1; width: 180px; margin-bottom: -8px; -webkit-mask: none; mask: none; }
 }
 
 /* 7. Multichain: a 3D scene on the page itself (no window): three raw crystals stream light into one cut ledger. */
