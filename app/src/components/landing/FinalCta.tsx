@@ -36,7 +36,7 @@ export function FinalCta() {
         </div>
         <div className="lp-wrap lp-final-copy">
           <h2 id="final-title" className="lp-h1 lp-final-title" data-reveal>
-            Your <em className="lp-hl">yield</em> is ready to play.
+            Your yield is ready to play.
           </h2>
           <span className="lp-cta-glow" data-reveal>
             <a className="btn money lg cut cut-btn lp-shine" href={appHref()}>

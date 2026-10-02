@@ -18,7 +18,7 @@ export function Principal() {
             Your <em className="lp-hl">Principal</em> is never played
           </h2>
           <p className="lp-lede lp-measure" data-reveal>
-            You play with the <em className="lp-hl">yield</em> your stake will earn, never with the stake itself.
+            You play with the yield your stake will earn, never with the stake itself.
           </p>
           <ul className="lp-facts-list">
             {FACTS.map((f) => (
