@@ -40,7 +40,7 @@ const bookKey = (b: Book) => [b.cash, b.side, b.margin, b.entry, b.fillCount, b.
 /** How long the Player who does not act at once waits before doing a step either Player may do. */
 const GRACE_MS = 15_000;
 /** Seconds after the window closes before the second Player also tries to end the Match. */
-const END_GRACE_MS = 6_000;
+const END_GRACE_MS = 2_000;
 const TICK_EVERY_MS = 4_000;
 
 /**

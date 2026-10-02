@@ -15,6 +15,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PW ?? "playwright-core");
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), "../docs/screens");
 const BASE = process.env.BASE ?? "http://localhost:3161";
+const ASSET = process.env.ASSET ?? "sol";
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const keys = JSON.parse(readFileSync(`${process.env.HOME}/.cache/tmp/td-keys.json`, "utf8"));
 const secret = (k) => bs58.encode(Uint8Array.from(k));
@@ -34,8 +35,13 @@ const mk = async (w, h, dev, key) => {
 const pa = await mk(1440, 900, "tdA", keys.p0); // Backer
 const pb = await mk(390, 844, "tdB", keys.p1); // opponent
 const pc = await mk(1440, 900, "tdC", keys.p2); // backed Player
-const shot = (p, name, full = false) => p.screenshot({ path: `${OUT}/trading-duel-live-backed-${name}.png`, fullPage: full });
+const shot = (p, name, full = false) => p.screenshot({ path: `${OUT}/trading-duel-live-backed${ASSET === "sol" ? "" : "-" + ASSET}-${name}.png`, fullPage: full });
 
+// RESUME=1 skips straight to the Queue when the Backing was already accepted.
+if (process.env.RESUME) {
+  await pc.goto(`${BASE}/backing?dev=tdC`, { waitUntil: "load", timeout: 180000 });
+  await pc.locator('article[aria-label="Accepted Backing"]').first().waitFor({ timeout: 180000 });
+} else {
 // C posts a Request.
 await pc.goto(`${BASE}/backing?dev=tdC`, { waitUntil: "load", timeout: 180000 });
 if (!process.env.SKIP_POST) {
@@ -67,14 +73,17 @@ await pc.locator('article[aria-label="Offer for you"]').getByRole("button", { na
 await pc.locator('article[aria-label="Offer for you"]').getByRole("button", { name: /Accept/ }).first().click();
 await pc.locator('article[aria-label="Accepted Backing"]').first().waitFor({ timeout: 180000 });
 log("C accepted");
+}
 await shot(pc, "c-accepted");
-await pc.locator('article[aria-label="Accepted Backing"]').first().getByRole("link", { name: /Enter the Queue/ }).click();
+const accepted = pc.locator('article[aria-label="Accepted Backing"]').first();
+if (ASSET !== "sol") await accepted.locator("label.asset", { hasText: ASSET.toUpperCase() }).click();
+await accepted.getByRole("link", { name: /Enter the Queue/ }).click();
 await pc.waitForURL(/\/play\/match\/\d+/, { timeout: 240000 });
 const id = pc.url().match(/match\/(\d+)/)[1];
 log("C in match", id);
 
 // B joins from the Queue (SOL, the asset a backed Player queues on).
-await pb.goto(`${BASE}/play/queue?game=trading-duel&asset=sol&entry=1000&dev=tdB`, { waitUntil: "load", timeout: 180000 });
+await pb.goto(`${BASE}/play/queue?game=trading-duel&asset=${ASSET}&entry=1000&dev=tdB`, { waitUntil: "load", timeout: 180000 });
 await pb.waitForURL(/\/play\/match\/\d+/, { timeout: 240000 });
 log("B in match", pb.url().match(/match\/(\d+)/)[1]);
 

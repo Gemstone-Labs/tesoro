@@ -8,7 +8,7 @@ import { simulate, when } from "./tee.ts";
 
 
 /** Seconds past `ends_at` before the keeper ends a Match itself, so the Players' clients get the first try. */
-export const END_GRACE_SECS = Number(process.env.KEEPER_DUEL_END_GRACE_SECS ?? 6);
+export const END_GRACE_SECS = Number(process.env.KEEPER_DUEL_END_GRACE_SECS ?? 2);
 
 export interface DuelFacts {
   status: number;

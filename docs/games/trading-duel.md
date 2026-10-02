@@ -24,7 +24,7 @@ Maintenance margin is 50 bps of the position's notional. On every price read (`o
 
 ### Final marking (known gap)
 
-`end_match` is permissionless and valid once the window closed. **Pinned price:** called within `END_GRACE_SECS` (4 s) after the end it needs a fresh oracle price published inside `[ends_at, ends_at + 4 s]` (a price from before the end, or from after the grace, is refused); called later it ignores the feed and settles at the last mid recorded during the window (`Duel.final_price` holds the last mid of every trade or tick, then the final price), so waiting for a better move cannot change the result and a late keeper is deterministic. Open positions are closed with a final fill (spread included). Inside the grace the first caller still picks among about four one-second ticks; the clients call right at the end (seat 1 immediately, seat 0 after 6 s, retrying every second) and the keeper after 6 s. The last mid is as old as the last trade or tick (clients tick every 4 s).
+`end_match` is permissionless and valid once the window closed. **Pinned price:** called within `END_GRACE_SECS` (4 s) after the end it needs a fresh oracle price published inside `[ends_at, ends_at + 4 s]` (a price from before the end, or from after the grace, is refused); called later it ignores the feed and settles at the last mid recorded during the window (`Duel.final_price` holds the last mid of every trade or tick, then the final price), so waiting for a better move cannot change the result and a late keeper is deterministic. Open positions are closed with a final fill (spread included). Inside the grace the first caller still picks among about four one-second ticks; the clients call right at the end (seat 1 immediately, seat 0 after 2 s, retrying every second, so both try inside the window) and the keeper after 2 s (`KEEPER_DUEL_END_GRACE_SECS`; a keeper pass that lands after the window settles at the last recorded mid). The last mid is as old as the last trade or tick (clients tick every 4 s).
 
 ## Oracle
 
@@ -70,7 +70,6 @@ Trades are signed by the Account's wallet signer without a prompt (embedded or d
 - Liquidation is at the next price read, not at the trigger price.
 - The fill log keeps the last 64 fills per Player; the trade count is exact.
 - The Lead is public and reveals who is ahead by 50 Chips or more, by design.
-- A backed Player can only choose the asset where the Queue link carries it (default SOL).
 - Programs are devnet only; the feeds are devnet rollup copies.
 
 ## Devnet evidence (Solana devnet + MagicBlock devnet TEE, 2026-10-03)
@@ -93,7 +92,7 @@ Program `trading_duel` `CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj`. Players a
 - ETH Queue Match `14327757396330`: A long 5x, B short 5x, A closed. Final equity 9,986 (A) to 9,995 (B); A lost 500 Gemas, B won; both fill histories shown on the result.
 - SOL Queue Match `14327753137600`: both traded; the clients were closed before the end, so the Match was ended, committed and settled by a script standing in for the keeper (`end_match`, `close_match`, `finalize`), seat 1 won 9,996 to 9,990.
 - HYPE draw `14327762412308`: nobody traded, "Refunded, equal equity: a draw, both entries refunded", entries back.
-- **Backed** (`app/scripts/qa-trading-duel-backed.mjs`, three wallets): a Player with no Gemas posted a Request for Trading Duel, a Backer answered with an Offer (40% share), the Player accepted and entered the Queue under the Backing, an opponent joined, SOL Match `14327772171784`. The backed Player won 9,996 to 9,993; split on the result: Backer's entry 1,000 back first, fees 100 from the loser, surplus 900 as 360 to the Player and 540 to the Backer; "You never owe anything". A third wallet viewing the Match sees it as a spectator with both fill histories.
+- **Backed** (`app/scripts/qa-trading-duel-backed.mjs`, three wallets): a Player with no Gemas posted a Request for Trading Duel, a Backer answered with an Offer (40% share), the Player accepted and entered the Queue under the Backing, an opponent joined, SOL Match `14327772171784`. The backed Player won 9,996 to 9,993; split on the result: Backer's entry 1,000 back first, fees 100 from the loser, surplus 900 as 360 to the Player and 540 to the Backer; "You never owe anything". A third wallet viewing the Match sees it as a spectator with both fill histories. The accepted Backing card now carries an asset picker (SOL, ETH, HYPE) that goes into the Queue and Challenge links; a second Backed Match on **ETH** (`14327796196930`) was driven the same way and the backed Player won with the same split.
 
 Screens in `app/docs/screens/trading-duel-live-*.png` (position, closed, result for both Players, backed Request, Offer, accepted Backing, result and spectator view) and `trading-duel-practice-*.png`.
 
