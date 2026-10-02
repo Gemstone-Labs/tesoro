@@ -28,13 +28,19 @@ export function Motes({ count, seed, className = "" }: { count: number; seed: nu
   );
 }
 
-/** Four-point star glints that flash now and then, at given spots (% of the parent). */
-export function Glints({ at }: { at: [number, number, number][] }) {
-  return (
-    <span className="lp-glints" aria-hidden>
-      {at.map(([x, y, delay], i) => (
+/** Four-point star glints that flash now and then, at given spots (% of the parent); `phone` replaces them below 768px. */
+export function Glints({ at, phone }: { at: [number, number, number][]; phone?: [number, number, number][] }) {
+  const set = (pts: [number, number, number][], cls: string) => (
+    <span className={`lp-glints ${cls}`} aria-hidden>
+      {pts.map(([x, y, delay], i) => (
         <i key={i} style={{ left: `${x}%`, top: `${y}%`, ["--d" as string]: `${delay}s` }} />
       ))}
     </span>
+  );
+  return (
+    <>
+      {set(at, phone ? "wide-only" : "")}
+      {phone && set(phone, "phone-only")}
+    </>
   );
 }

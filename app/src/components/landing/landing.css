@@ -629,7 +629,7 @@ html.lenis, html.lenis body { height: auto; }
 .lp-shaft-motes.day { left: 56%; width: 30%; height: 85%; }
 .lp-shaft-motes.day i { background: rgba(255, 255, 255, 0.95); box-shadow: 0 0 2px rgba(110, 100, 85, 0.35), 0 0 6px rgba(255, 250, 235, 0.9); }
 .lp-crystal-glow {
-  position: absolute; width: 12%; aspect-ratio: 1; translate: -50% -50%; pointer-events: none; mix-blend-mode: screen; opacity: 0.6;
+  position: absolute; left: var(--x); top: var(--y); width: 12%; aspect-ratio: 1; translate: -50% -50%; pointer-events: none; mix-blend-mode: screen; opacity: 0.6;
   background: radial-gradient(closest-side, rgba(106, 248, 214, 0.55), rgba(36, 216, 168, 0.15) 55%, transparent);
 }
 .lp-crystal-glow.sm { width: 8%; }
@@ -638,8 +638,19 @@ html.lenis, html.lenis body { height: auto; }
   .lp-crystal-glow.sm { animation-delay: -2.4s; }
 }
 @keyframes lp-crystal-pulse { 50% { opacity: 1; scale: 1.12; } }
-@media (max-width: 767px) { .lp-hero-light .lp-glints, .lp-hero-light .lp-crystal-glow { display: none; } }
+
+
+/* Phones: the phone art has its own composition, so every hero effect gets its own place, and nothing drifts over
+   the copy in the top half. */
+.lp-glints.phone-only { display: none; }
 @media (max-width: 767px) {
-  .lp-rays.day { left: 26%; top: 34%; width: 40%; height: 50%; }
-  .lp-shaft-motes.day { left: 26%; top: 34%; width: 40%; height: 55%; }
+  .lp-glints.wide-only { display: none; }
+  .lp-glints.phone-only { display: block; }
+  .lp-rays:not(.day) { left: 30%; top: 46%; width: 40%; height: 40%; }
+  .lp-shaft-motes:not(.day) { left: 30%; top: 50%; width: 40%; height: 40%; }
+  .lp-rays.day { left: 25%; top: 47%; width: 46%; height: 36%; }
+  .lp-shaft-motes.day { left: 25%; top: 52%; width: 46%; height: 36%; }
+  .lp-crystal-glow { left: var(--mx); top: var(--my); width: 22%; }
+  .lp-crystal-glow.sm { width: 16%; }
+  @keyframes lp-mote { 0% { opacity: 0; transform: translate(0, 0); } 15% { opacity: 0.8; } 85% { opacity: 0.6; } 100% { opacity: 0; transform: translate(var(--dx), -90px); } }
 }
