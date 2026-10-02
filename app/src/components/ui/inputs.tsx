@@ -79,22 +79,32 @@ export function Slider({
 }) {
   const id = useId();
   const pct = ((value - min) / (max - min)) * 100;
+  const steps = Math.round((max - min) / step);
   return (
     <div className="slider">
       <div className="slider-head">
         <label className="label" htmlFor={id}>{label}</label>
         <span className="slider-value">{display}</span>
       </div>
-      <input
-        id={id}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        style={{ ["--pct" as string]: `${pct}%` }}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
+      <div className="slider-track">
+        {steps <= 24 && (
+          <div className="slider-notches" aria-hidden="true">
+            {Array.from({ length: steps + 1 }, (_, i) => (
+              <i key={i} className={min + i * step <= value ? "on" : undefined} />
+            ))}
+          </div>
+        )}
+        <input
+          id={id}
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          style={{ ["--pct" as string]: `calc(14px + (100% - 28px) * ${pct / 100})` }}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+      </div>
       <div className="slider-ticks" aria-hidden="true">
         <span>{minLabel ?? min}</span>
         <span>{maxLabel ?? max}</span>
