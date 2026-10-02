@@ -395,7 +395,7 @@ export async function assetPrice(asset: Asset): Promise<{ microUsd: bigint; live
   let microUsd = FALLBACK_MICRO_USD[asset];
   let live = false;
   try {
-    const res = await fetch(`https://api.coinbase.com/v2/prices/${asset}-USD/spot`, { signal: AbortSignal.timeout(4000) });
+    const res = await fetch(`https://api.coinbase.com/v2/prices/${asset}-USD/spot`, { signal: AbortSignal.timeout(10_000) });
     const amount = Number(((await res.json()) as { data?: { amount?: string } }).data?.amount);
     const [lo, hi] = PRICE_BOUNDS[asset];
     if (Number.isFinite(amount) && amount > lo && amount < hi) {
