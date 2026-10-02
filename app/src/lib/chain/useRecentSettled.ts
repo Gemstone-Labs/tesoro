@@ -84,6 +84,12 @@ export function useSharedQuery<T>(key: string | null, fetch: () => Promise<T>): 
   );
 }
 
+/** Re-reads a shared query now (a "Try again" after a failed read). */
+export function refreshShared(key: string) {
+  const e = entries.get(key);
+  if (e) load(e);
+}
+
 async function settled<T>(read: (r: typeof import("./recent")) => Promise<T>, demo: (f: typeof import("./fixture")) => T): Promise<T> {
   const fixture = await import("./fixture");
   if (fixture.demoMode()) return demo(fixture);

@@ -7,7 +7,7 @@ import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import { EntryError } from "./ledger";
 import { ChallengeError, GAME_IDS, ensureReady, entryHoldings, isChallengeId, newMatchId, queueDeps } from "./match-flow";
-import { fetchMatch, gameOf } from "./read";
+import { decodeAll, fetchMatch, gameOf } from "./read";
 import { queueEntry, type Entered } from "./queue";
 
 /**
@@ -82,22 +82,6 @@ export interface BackingBoard {
 
 const requestStatus = (o: object) => enumKey(o) as ChainRequest["status"];
 const offerStatus = (o: object) => enumKey(o) as ChainOffer["status"];
-
-/** Fetches and decodes many accounts; one that fails to decode (a Session from an older program layout) is null, not an error. */
-async function decodeAll(keys: PublicKey[], decode: (data: Buffer) => any): Promise<any[]> {
-  const out: any[] = [];
-  for (let i = 0; i < keys.length; i += 100) {
-    const infos = await getChain().base.getMultipleAccountsInfo(keys.slice(i, i + 100));
-    for (const info of infos) {
-      try {
-        out.push(info ? decode(info.data) : null);
-      } catch {
-        out.push(null);
-      }
-    }
-  }
-  return out;
-}
 
 /** Wins and settled count per Player over all Matches, from Block Puzzle Sessions and Hold'em tables. */
 async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerRecord>> {
@@ -218,6 +202,16 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
     .map((o) => toOffer(o, enumKey(o.account.inner.status) === "consumed" ? matchOf(o) : null))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   return { requests, offers, fetchedAt: Date.now() };
+}
+
+/** The live (open, not expired) Requests of one Player, soonest to expire last. `record` is that Player's own, already known to the caller. */
+export async function fetchLiveRequests(player: string, record: PlayerRecord): Promise<ChainRequest[]> {
+  const rows: any[] = await getChain().core.account.requestState.all();
+  return rows
+    .filter((r) => pk(r.account.inner.player).toBase58() === player)
+    .map((r) => toRequest(r, record))
+    .filter((r) => r.live)
+    .sort((a, b) => b.expiresAt - a.expiresAt);
 }
 
 export async function fetchOffer(address: PublicKey): Promise<ChainOffer | null> {

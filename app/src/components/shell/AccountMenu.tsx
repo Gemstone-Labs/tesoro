@@ -2,18 +2,26 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, LogOut, User, Wallet } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronDown, Eye, LogOut, User, Wallet } from "lucide-react";
 import { useAuth } from "@/lib/auth/context";
 import { avatarFor } from "@/lib/art";
+import { accountKeyOf } from "@/lib/chain/account-key";
+import { useChainData } from "@/lib/chain/ChainDataProvider";
 
-/** The Account avatar with its menu: Account details, Wallet, Sign out. */
+/** The Account avatar with its menu: Account details, the Account as others see it, Wallet, Sign out. */
 export function AccountMenu() {
   const auth = useAuth();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const menuId = useId();
-  const seed = auth.addresses.solana ?? auth.email ?? "guest";
+  const { snapshot } = useChainData();
+  // The same key every other screen shows this Player by, so the avatar is the same one everywhere.
+  const me = useMemo(
+    () => snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null),
+    [snapshot, auth.addresses.solana],
+  );
+  const seed = me ?? auth.email ?? "guest";
 
   useEffect(() => {
     if (!open) return;
@@ -53,6 +61,11 @@ export function AccountMenu() {
           <button type="button" role="menuitem" onClick={() => { setOpen(false); auth.openAccount(); }}>
             <User aria-hidden="true" /> Account
           </button>
+          {me && (
+            <Link href={`/account/${me}`} role="menuitem" onClick={() => setOpen(false)}>
+              <Eye aria-hidden="true" /> Your Account page
+            </Link>
+          )}
           <Link href="/wallet" role="menuitem" onClick={() => setOpen(false)}>
             <Wallet aria-hidden="true" /> Wallet
           </Link>

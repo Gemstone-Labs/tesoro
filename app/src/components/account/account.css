@@ -1,0 +1,70 @@
+/* ——— A Player wherever one is shown, linking to their Account ——— */
+.acc-link { color: inherit; }
+.acc-link:hover :is(b, strong), .acc-link:hover:not(:has(b, strong)) { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ——— A Player's Account (/account/<key>) ——— */
+.pa { display: grid; gap: 28px; max-width: 980px; width: 100%; margin: 0 auto; }
+.pa-head { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.pa-avatar { width: 96px; height: 96px; --c: 18px; flex: none; }
+.pa-who { display: grid; gap: 4px; min-width: 0; flex: 1 1 200px; }
+.pa-who .page-title { line-height: 1; white-space: nowrap; }
+.pa-key { font-size: 13px; color: var(--fg-2); overflow-wrap: anywhere; }
+.pa-own, .pa-none, .pa-p { color: var(--fg-2); font-size: 15px; line-height: 1.5; }
+.pa-own a, .pa-more { color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.pa-more { font-size: 15px; justify-self: start; }
+
+.pa-card { padding: 20px 22px; display: grid; gap: 12px; align-content: start; justify-items: start; }
+.pa-h { font-size: 20px; font-weight: 800; }
+
+.pa-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.pa-fig { padding: 20px 22px; display: grid; gap: 8px; align-content: start; }
+.pa-fig b { display: inline-flex; align-items: center; gap: 8px; font-size: clamp(26px, 2.4vw, 34px); font-weight: 800; line-height: 1.1; letter-spacing: -0.01em; }
+.pa-fig p { color: var(--fg-2); font-size: 14px; line-height: 1.45; }
+
+.pa-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.pa-reqs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; width: 100%; }
+.pa-reqs li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; box-shadow: inset 0 1px var(--line); }
+.pa-reqs li > span { display: grid; min-width: 0; }
+.pa-reqs b { font-size: 16px; }
+.pa-reqs small { color: var(--fg-2); font-size: 14px; }
+.pa-reqs .btn { flex: none; white-space: nowrap; }
+.pa-games { grid-template-columns: repeat(2, 1fr); }
+
+.pa-history { display: grid; gap: 16px; }
+
+/* running total: one neutral step line around a zero baseline; the sign is in the text, not a colour */
+.pa-chart { margin: 0; display: grid; gap: 14px; width: 100%; }
+.pa-chart figcaption { display: grid; gap: 2px; }
+.pa-chart figcaption b { font-size: 20px; font-weight: 800; }
+.pa-chart figcaption span { color: var(--fg-2); font-size: 14px; }
+.pa-plot { position: relative; height: 168px; margin: 8px 64px 8px 58px; }
+.pa-area { position: absolute; inset: 0; cursor: crosshair; touch-action: pan-y; }
+.pa-area:focus-visible { outline: 2px solid var(--fg); outline-offset: 8px; }
+.pa-area svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.pa-area .grid, .pa-area .zero { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pa-area .zero { stroke: var(--line-2); }
+.pa-area .line { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.pa-tick, .pa-end { position: absolute; transform: translateY(-50%); font-size: 12px; color: var(--fg-2); white-space: nowrap; }
+.pa-tick { right: calc(100% + 10px); }
+.pa-end { left: calc(100% + 10px); color: var(--fg); font-weight: 700; }
+.pa-cross { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-2); pointer-events: none; }
+.pa-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 2px var(--raised); pointer-events: none; }
+.pa-tip {
+  position: absolute; top: -6px; z-index: 2; display: none; gap: 2px; padding: 8px 10px; pointer-events: none; white-space: nowrap;
+  background: var(--raised-2); box-shadow: 0 0 0 1px var(--line-2), 0 8px 24px rgba(0, 0, 0, 0.4); font-size: 13px;
+}
+.pa-tip.on { display: grid; }
+.pa-tip[data-side="right"] { transform: translateX(12px); }
+.pa-tip[data-side="left"] { transform: translateX(calc(-100% - 12px)); }
+.pa-tip b { font-size: 15px; }
+.pa-tip span { color: var(--fg-2); }
+
+@media (max-width: 900px) {
+  .pa-figs, .pa-actions { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 639px) {
+  .pa { gap: 22px; }
+  .pa-avatar { width: 72px; height: 72px; --c: 14px; }
+  .pa-plot { height: 140px; margin: 8px 56px 8px 50px; }
+  .pa-tick, .pa-end { font-size: 11px; }
+}

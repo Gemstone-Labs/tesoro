@@ -8,7 +8,8 @@ Backing on Solana devnet, in the browser: a Player posts a **Request**, a Backer
 |---|---|
 | Chain reads and writes (Requests, Offers, records, backed open/join) | `app/src/lib/chain/backing.ts` |
 | Polling hook, record and expiry text | `app/src/lib/chain/useBackingBoard.ts` |
-| Backing screen | `app/src/app/backing/page.tsx` |
+| Backing screen (`/backing#<request>` opens the Offer drawer on that Request) | `app/src/app/backing/page.tsx` |
+| A Player's Account: record, Gemas won and lost, Backings and what they did for the Backers | `app/src/app/account/[key]/page.tsx`, `app/src/components/account/`, `app/src/lib/chain/player-account.ts` (vitest) |
 | Lobby "Back a Player" rail | `app/src/app/page.tsx` |
 | Split display on the Match result | `app/src/components/match/BackingSplit.tsx`, `MatchView.tsx` |
 | Settlement maths (`backedSplit`, `backerDelta`, backed `matchDelta`) | `app/src/lib/chain/ledger.ts` (vitest) |
@@ -61,7 +62,8 @@ On-chain after settlement (read from the TesoroAccounts): Backer own 7,500 (6,50
 
 ## Program observations and limits
 
-- `MatchState` does not record the winner, so a Player's record is derived client-side from Block Puzzle Sessions and Hold'em tables. It reads every Match, Session and table; fine at devnet scale, it would want an indexer.
+- `MatchState` does not record the winner, so a Player's record is derived client-side from Block Puzzle Sessions and Hold'em tables. It reads every Match, Session and table; fine at devnet scale, it would want an indexer. The Account page reads the same way (`fetchAccountMatches`), and keeps the Session or table of a finished Match in memory so a poll costs only the Match list.
+- A Backing can only answer a Request: there is no instruction to back a Player who has not asked. A Player's Account with no live Request says so instead of offering a button.
 - The Queue is shared across everyone on devnet (other builders' Accounts were paired with mine while testing). A backed Player can be paired with anyone, including the Backer's own Accounts: the program has no rule against it.
 - Requests and Offers have no display name, so the UI shows short Account keys.
 - A Request stays `Accepted` forever after use; the UI hides it once no Offer is pending on it. Only one Offer per Request can be accepted; the rest lapse in 24h.

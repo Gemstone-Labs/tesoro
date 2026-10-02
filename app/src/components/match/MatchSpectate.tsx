@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { AccountLink } from "@/components/account/AccountLink";
 import { Button, CheckIcon, GemaMark, MinusIcon } from "@/components/ui";
 import { avatarFor } from "@/lib/art";
 import { feeGemas } from "@/lib/chain/ledger";
@@ -14,7 +15,7 @@ import "./match.css";
 const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
 /**
- * Someone else's Match, read-only: both Players, the result and the Pot. Open and live Matches are
+ * Someone else's Match, read-only: both Players (each leading to their Account), the result and the Pot. Open and live Matches are
  * re-read every few seconds until they finish; runs and hands stay hidden until settlement.
  */
 export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn?: () => void }) {
@@ -74,7 +75,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
         {s ? (
           <>
             <Image className="mr-sp-av" src={avatarFor(s.player)} alt="" width={56} height={56} />
-            <span className="mono">{short(s.player)}</span>
+            <AccountLink account={s.player} className="mono" />
             {s.funder !== s.player && <small className="note">Backed by {short(s.funder)}</small>}
           </>
         ) : (

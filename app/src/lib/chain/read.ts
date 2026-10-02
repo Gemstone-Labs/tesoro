@@ -1,5 +1,5 @@
 import { BN } from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, TESORO_CORE_PROGRAM_ID } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/chain";
 import type { GameId } from "@/lib/mock/types";
@@ -13,7 +13,7 @@ const big = (n: { toString(): string }) => BigInt(n.toString());
 
 export type MatchStatus = "open" | "active" | "settled" | "refunded";
 
-/** A Match as the signed-in Account sees it. */
+/** A Match as one Account sees it (the signed-in one, or the Account a page is about). */
 export interface ChainMatch {
   id: bigint;
   game: GameId;
@@ -212,34 +212,84 @@ async function holdemTable(id: bigint): Promise<any | null> {
   return (await acc.gameMatch.fetchNullable(holdemAddresses(id).gameMatch).catch(() => null)) ?? null;
 }
 
-/** Every Match this Account plays, and every Match it funds as a Backer, newest first. */
-async function fetchMyMatches(me: PublicKey): Promise<{ played: ChainMatch[]; funded: ChainMatch[] }> {
+/** Fetches and decodes many accounts; one that is missing or fails to decode (a Session from an older program layout) is null, not an error. */
+export async function decodeAll(keys: PublicKey[], decode: (data: Buffer) => any): Promise<any[]> {
+  const infos: (AccountInfo<Buffer> | null)[] = [];
+  // getMultipleAccounts takes at most 100 keys per request.
+  for (let i = 0; i < keys.length; i += 100) infos.push(...(await getChain().base.getMultipleAccountsInfo(keys.slice(i, i + 100))));
+  return infos.map((info) => {
+    try {
+      return info ? decode(info.data) : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+/** Sessions and Hold'em tables of finished Matches, by Match id: they never change again, so each is read once per tab. */
+const finished = new Map<string, any>();
+
+async function gameAccounts(rows: any[], address: (id: bigint) => PublicKey, decode: (data: Buffer) => any): Promise<Map<string, any>> {
+  const out = new Map<string, any>();
+  const unread = rows.filter((m) => {
+    const id = big(m.account.id).toString();
+    const hit = finished.get(id);
+    if (hit) out.set(id, hit);
+    return !hit;
+  });
+  const read = await decodeAll(unread.map((m) => address(big(m.account.id))), decode);
+  unread.forEach((m, i) => {
+    const id = big(m.account.id).toString();
+    const status = enumKey(m.account.inner.status);
+    out.set(id, read[i]);
+    if (read[i] && (status === "settled" || status === "refunded")) finished.set(id, read[i]);
+  });
+  return out;
+}
+
+/**
+ * Every Match an Account plays, and every Match it funds as a Backer, newest first. `key` is the
+ * TesoroAccount key (any Account, not only the signed-in one): seats and the Backing are relative to it.
+ */
+export async function fetchAccountMatches(key: PublicKey): Promise<{ played: ChainMatch[]; funded: ChainMatch[] }> {
   const chain = getChain();
   const all = await chain.core.account.matchState.all();
   const mine = all.filter((m: any) => {
     const inner = m.account.inner;
     const sides = [inner.a, inner.b].filter(Boolean);
-    const involved = sides.some((s: any) => pk(s.player).equals(me) || (pk(s.funder).equals(me) && !pk(s.player).equals(me)));
+    const involved = sides.some((s: any) => pk(s.player).equals(key) || (pk(s.funder).equals(key) && !pk(s.player).equals(key)));
     return gameOf(pk(inner.game)) !== null && involved;
   });
   const isHoldem = (m: any) => gameOf(pk(m.account.inner.game)) === "holdem";
-  const bpRows = mine.filter((m: any) => !isHoldem(m));
-  const sessionKeys = bpRows.map((m: any) => BlockPuzzleChain.addresses(big(m.account.id)).session);
-  const sessions = sessionKeys.length ? await chain.bp.account.session.fetchMultiple(sessionKeys) : [];
-  const sessionOf = new Map<string, any>(bpRows.map((m: any, i: number) => [big(m.account.id).toString(), sessions[i] ?? null]));
-  const tables = new Map<string, any>();
-  await Promise.all(
-    mine
-      .filter((m: any) => isHoldem(m) && enumKey(m.account.inner.status) === "settled")
-      .map(async (m: any) => tables.set(big(m.account.id).toString(), await holdemTable(big(m.account.id)))),
-  );
+  const holdem = getHoldem().program;
+  const [sessions, tables] = await Promise.all([
+    gameAccounts(
+      mine.filter((m: any) => !isHoldem(m)),
+      (id) => BlockPuzzleChain.addresses(id).session,
+      (data) => chain.bp.coder.accounts.decode("session", data),
+    ),
+    gameAccounts(
+      mine.filter((m: any) => isHoldem(m) && enumKey(m.account.inner.status) === "settled"),
+      (id) => holdemAddresses(id).gameMatch,
+      (data) => holdem.coder.accounts.decode("gameMatch", data),
+    ),
+  ]);
   const all_ = mine
     .map((m: any) => {
-      const key = big(m.account.id).toString();
-      return toChainMatch(m.account, me, sessionOf.get(key) ?? null, tables.get(key) ?? null);
+      const id = big(m.account.id).toString();
+      return toChainMatch(m.account, key, sessions.get(id) ?? null, tables.get(id) ?? null);
     })
     .sort((x: ChainMatch, y: ChainMatch) => (x.id < y.id ? 1 : -1));
   return { played: all_.filter((m: ChainMatch) => m.seat !== null), funded: all_.filter((m: ChainMatch) => m.seat === null && m.backerSeat !== null) };
+}
+
+/** Whether a TesoroAccount exists at this address (false for any other kind of account). */
+export async function accountExists(key: PublicKey): Promise<boolean> {
+  try {
+    return (await getChain().core.account.tesoroAccount.fetchNullable(key)) !== null;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -325,7 +375,7 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
     chain.core.account.holdingState.all([{ memcmp: { offset: 9, bytes: accountKey.toBase58() } }]),
     // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
     chain.core.account.positionState.all([{ memcmp: { offset: 41, bytes: accountKey.toBase58() } }]),
-    fetchMyMatches(accountKey),
+    fetchAccountMatches(accountKey),
   ]);
 
   const heldSources = holdingRows.map((h: any) => pk(h.account.inner.source));

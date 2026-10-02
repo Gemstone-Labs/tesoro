@@ -30,9 +30,8 @@ export function historyRow(m: ChainMatch): HistoryRow | null {
   if (!role) return null;
   const seat = m.seat ?? (m.backing as NonNullable<ChainMatch["backing"]>).seat;
   const draw = !!m.session?.settled && m.session.result === "draw";
-  const refunded = m.status === "refunded" || (m.game === "block-puzzle" && !m.session);
-  const result = draw ? "draw" : refunded ? "refunded" : seatResult(m, seat);
-  // A settled Hold'em Match whose table could not be read: the next refresh fills it in.
+  const result = draw ? "draw" : m.status === "refunded" ? "refunded" : seatResult(m, seat);
+  // A settled Match whose Session or Hold'em table could not be read has no known result: never a refund.
   if (!result) return null;
   const delta =
     result === "draw" || result === "refunded"
@@ -73,7 +72,8 @@ export function historyPage<T>(rows: T[], page: number, size = HISTORY_PAGE): { 
   return { rows: rows.slice((p - 1) * size, p * size), page: p, pages };
 }
 
-const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
+/** An Account key as shown everywhere: first four, last four. */
+export const shortKey = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
 /** The Gema change of a row as shown: a backed Player's loss is "0 Gemas", never their entry. */
 export function amountText(r: HistoryRow): string {
@@ -86,7 +86,7 @@ export function amountText(r: HistoryRow): string {
 /** Who else was in the Backing, worded as the Result screen's split does. Null for an unbacked Match. */
 export function backingText(r: HistoryRow): string | null {
   if (!r.backing) return null;
-  const other = short(r.backing.other);
+  const other = shortKey(r.backing.other);
   if (r.role === "backer") return `You backed ${other}`;
   return r.result === "lost" ? `Backer ${other} bore the loss` : `Backed by ${other}`;
 }

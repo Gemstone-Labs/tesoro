@@ -4,21 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { useAccount } from "@/lib/account";
 import { avatarFor } from "@/lib/art";
-import type { ChainRequest } from "@/lib/chain/backing";
-import { shortKey, useBackingBoard } from "@/lib/chain/useBackingBoard";
+import { recordShort, shortKey, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import { GemaMark, SkeletonCards } from "@/components/ui";
+import { AccountLink } from "@/components/account/AccountLink";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
 
-/** "38 Matches · 61% won": the win rate always carries its sample size. */
-function recordShort(r: ChainRequest["record"]): string {
-  if (r.matches === 0) return "New Player · no settled Matches";
-  return `${r.matches} ${r.matches === 1 ? "Match" : "Matches"} · ${Math.round((r.wins / r.matches) * 100)}% won`;
-}
-
-/** BACK A PLAYER: live Requests from Solana devnet with the Player's real record. Offer opens the Backing flow. */
+/** BACK A PLAYER: live Requests from Solana devnet with the Player's real record. The name leads to their Account; Offer opens the Backing flow. */
 export function BackPlayerRail() {
   const { board, loading } = useBackingBoard();
   const { snapshot } = useAccount();
@@ -39,11 +33,13 @@ export function BackPlayerRail() {
         const mine = r.player === me;
         return (
           <article key={key} className="cut cut-card player">
-            <span className="cut cut-btn avatar player-avatar">
+            <AccountLink account={r.player} decorative className="cut cut-btn avatar player-avatar">
               <Image src={avatarFor(r.player)} alt="" width={78} height={78} />
-            </span>
+            </AccountLink>
             <div className="player-info">
-              <strong>{shortKey(r.player)}</strong>
+              <strong>
+                <AccountLink account={r.player} />
+              </strong>
               <span>{GAME_NAMES[r.game]} · {recordShort(r.record)}</span>
             </div>
             <div className="player-side">

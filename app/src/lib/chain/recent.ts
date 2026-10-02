@@ -1,9 +1,9 @@
 import "./polyfill";
-import { PublicKey, type AccountInfo } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { feeGemas } from "./ledger";
-import { gameOf } from "./read";
+import { decodeAll, gameOf } from "./read";
 import { pickSettled, topScores, type SettledMatch, type SettledQuery } from "./settled";
 
 export type { SettledMatch } from "./settled";
@@ -11,19 +11,6 @@ export type { SettledMatch } from "./settled";
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
 const enumKey = (o: object) => Object.keys(o)[0];
-
-async function decodeAll(keys: PublicKey[], decode: (data: Buffer) => any): Promise<any[]> {
-  const infos: (AccountInfo<Buffer> | null)[] = [];
-  // getMultipleAccounts takes at most 100 keys per request.
-  for (let i = 0; i < keys.length; i += 100) infos.push(...(await getChain().base.getMultipleAccountsInfo(keys.slice(i, i + 100))));
-  return infos.map((info) => {
-    try {
-      return info ? decode(info.data) : null;
-    } catch {
-      return null;
-    }
-  });
-}
 
 const SCAN_TTL_MS = 20_000;
 let scan: { at: number; rows: Promise<any[]> } | null = null;

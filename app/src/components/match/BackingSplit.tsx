@@ -1,5 +1,6 @@
 "use client";
 
+import { AccountLink } from "@/components/account/AccountLink";
 import { GemaAmount, Label } from "@/components/ui";
 import { backedSplit } from "@/lib/chain/ledger";
 import type { ChainMatch } from "@/lib/chain/read";
@@ -35,7 +36,7 @@ export function BackingSplit({ m }: { m: ChainMatch }) {
   const s = backedSplit({ entry: m.entry, ...m.fees, shareBps: b.shareBps, won });
   return (
     <div className="stack" aria-label="Backing">
-      <Label>{asPlayer ? `Backed by ${other}` : `You backed ${other}`}</Label>
+      <Label>{asPlayer ? `Backed by ${other}` : <>You backed <AccountLink account={b.player} /></>}</Label>
       {won ? (
         <dl className="kv">
           <dt>1. {asPlayer ? "Your Backer's" : "Your"} entry back first</dt>
