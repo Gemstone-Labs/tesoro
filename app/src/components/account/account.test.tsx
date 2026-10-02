@@ -28,12 +28,13 @@ describe("MatchRow", () => {
     expect(html).not.toContain("/account/");
   });
 
-  it("on someone else's Account links the opponent, not the Match, and never nests links", () => {
+  it("on someone else's Account links the opponent and the Match side by side, never nested", () => {
     const html = renderToStaticMarkup(<MatchRow r={row} now={Date.now()} link="opponent" backing="Backed by Back…1111 · Backer +540" />);
     expect(html).toMatch(/^<div /);
-    expect(html).not.toContain("/play/match/");
     expect(html).toContain(`href="/account/${row.opp}"`);
-    expect(html.match(/<a /g)).toHaveLength(1);
+    expect(html).toContain(`href="/play/match/${row.id}"`);
+    expect(html.match(/<a /g)).toHaveLength(2);
+    expect(html).not.toMatch(/<a [^>]*>(?:(?!<\/a>).)*<a /);
     expect(html).toContain("Backer +540");
   });
 });

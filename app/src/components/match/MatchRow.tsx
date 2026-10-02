@@ -14,8 +14,8 @@ const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Ic
 
 /**
  * One finished Match: result (icon and word), opponent, score or entry, the Gema change and any Backing.
- * The row links to the Match, which only its Players and Backer can open. On someone else's Account
- * (`link="opponent"`) the row is not a link and the opponent leads to their Account instead.
+ * The whole row links to the Match. On someone else's Account (`link="opponent"`) it holds two links
+ * side by side instead: the opponent leads to their Account, the chevron to the Match.
  * `backing` replaces the default Backing line.
  */
 export function MatchRow({
@@ -70,7 +70,16 @@ export function MatchRow({
       </span>
     </>
   );
-  if (link === "opponent") return <div className="cut cut-card mh-row still">{cells}</div>;
+  if (link === "opponent") {
+    return (
+      <div className="cut cut-card mh-row still">
+        {cells}
+        <Link href={`/play/match/${r.id}`} className="mh-go-link" aria-label="See this Match">
+          <ChevronRight aria-hidden="true" className="mh-go" />
+        </Link>
+      </div>
+    );
+  }
   return (
     <Link href={`/play/match/${r.id}`} className="cut cut-card mh-row">
       {cells}

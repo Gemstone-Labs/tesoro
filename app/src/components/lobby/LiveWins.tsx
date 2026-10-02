@@ -12,7 +12,7 @@ import type { SettledMatch } from "@/lib/chain/settled";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 
-/** Recent wins, settled on Solana devnet, as one slow strip under the hero; each leads to the winner's Account. Pauses on hover and focus. */
+/** Recent wins, settled on Solana devnet, as one slow strip under the hero. Pauses on hover and focus. */
 export function LiveWins() {
   const { matches } = useRecentSettled(12);
   const { snapshot } = useAccount();
@@ -21,7 +21,7 @@ export function LiveWins() {
 
   const item = (m: SettledMatch, copy: boolean) => (
     <li key={`${copy ? "c" : "o"}${m.id.toString()}`} aria-hidden={copy || undefined}>
-      <Link href={`/account/${m.winner}`} tabIndex={copy ? -1 : undefined}>
+      <Link href={`/play/match/${m.id.toString()}`} tabIndex={copy ? -1 : undefined}>
         <Image className="lw-av" src={avatarFor(m.winner)} alt="" width={28} height={28} />
         <b>{m.winner === me ? "You" : shortKey(m.winner)}</b>
         <span>won</span>
