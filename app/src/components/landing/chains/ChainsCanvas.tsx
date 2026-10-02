@@ -37,7 +37,7 @@ function Logo({ label, color, pace, animate }: { label: ChainLabel; color: strin
   return (
     <group>
       <sprite scale={[1.9, 1.9, 1]} position={[0, 0, -0.3]}>
-        <spriteMaterial map={light} color={color} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+        <spriteMaterial map={light} color={color} transparent opacity={0.75} depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
       </sprite>
       <group ref={spin} rotation={[0, REST, 0]}>
         <mesh geometry={geometry}>
@@ -136,7 +136,7 @@ function Scene({ layout, animate, theme }: { layout: ChainsLayout; animate: bool
       <group position={ledgerAt}>
         <mesh position={[0, 0, -0.6]}>
           <planeGeometry args={[4, 4]} />
-          <meshBasicMaterial map={halo} transparent depthWrite={false} toneMapped={false} />
+          <meshBasicMaterial map={halo} transparent opacity={0.75} depthWrite={false} toneMapped={false} />
         </mesh>
         <group ref={ledger} scale={1.45}>
           <group rotation={[0.35, 0, 0]}>
