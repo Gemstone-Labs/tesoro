@@ -4,9 +4,9 @@ import { art } from "@/lib/art";
 export type BustName = keyof typeof art.busts;
 
 /**
- * A guide character, torso up. Decorative (empty alt). Never full-body: only the bust crops exist in
- * the app. `width` is the CSS pixel width; the height follows the crop's aspect. Use inside bust
- * cards, the corner Guide and moment overlays only (DESIGN.md, Character placement).
+ * A guide character, torso up. Decorative (empty alt). Full-body poses are only for the Guide overlay.
+ * `width` is the CSS pixel width; the height follows the crop's aspect. Use inside bust
+ * cards and moment overlays only (DESIGN.md, Character placement).
  */
 export function Bust({ name, width, className = "", priority = false }: { name: BustName; width: number; className?: string; priority?: boolean }) {
   const b = art.busts[name];

@@ -1,30 +1,29 @@
-/* ——— Guide: a small bust with a speech bubble, docked in chrome so it never covers content ———
-   1024px and up: the bottom of the sidebar. Below: a chip at the left end of the bottom nav. */
-.guide-bubble { --edge: var(--line-2); background: var(--raised-2); padding: 12px 14px; display: grid; gap: 6px; width: 100%; }
-.guide-bubble b { font-size: 15px; }
-.guide-bubble p { font-size: 14px; color: var(--fg); line-height: 1.4; }
-.guide-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
-.guide-link { font-size: 13px; font-weight: 700; color: var(--fg); border-bottom: 1px solid var(--line-2); }
-.guide-x { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 4px 6px; background: transparent; border: 0; color: var(--fg-2); font-size: 13px; font-weight: 700; }
-.guide-x:hover { color: var(--fg); }
-.guide-x svg { width: 14px; height: 14px; }
+/* ——— Guide: a first-visit overlay. The page darkens, the character steps in from the bottom right,
+   then the speech bubble pops in beside it. Stays until "Got it". */
+.guide { position: fixed; inset: 0; z-index: 55; visibility: hidden; display: flex; align-items: flex-end; justify-content: flex-end; background: radial-gradient(120% 90% at 100% 100%, rgba(3, 32, 26, 0.55), rgba(5, 8, 10, 0.82) 60%); }
+.guide.in { visibility: visible; animation: guide-dim 360ms ease-out both; }
+.guide-stage { display: flex; align-items: center; padding-right: clamp(0px, 2vw, 32px); }
+.guide-pose { display: block; width: auto; height: min(560px, 74vh); max-width: none; margin-bottom: -2vh; filter: drop-shadow(0 16px 40px rgba(0, 0, 0, 0.6)); }
+.guide.in .guide-pose { animation: guide-step 640ms cubic-bezier(0.2, 1, 0.3, 1) 120ms both; }
+.guide-bubble { --edge: var(--line-2); position: relative; z-index: 1; width: min(380px, calc(100vw - 32px)); margin-right: -40px; margin-bottom: 12vh; padding: 20px 22px; background: var(--raised-2); display: grid; gap: 10px; filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.55)); transform-origin: 100% 100%; }
+.guide.in .guide-bubble { animation: guide-pop 380ms cubic-bezier(0.2, 1.3, 0.4, 1) 520ms both; }
+.guide-bubble b { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+.guide-bubble p { font-size: 16px; color: var(--fg); line-height: 1.5; }
+.guide-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 6px; }
+.guide-link { margin-right: auto; font-size: 14px; font-weight: 700; color: var(--fg); border-bottom: 1px solid var(--line-2); }
+.guide-ok { min-width: 120px; }
 
-/* sidebar dock: below Docs / Help, pushed to the bottom; the sidebar scrolls if the window is short */
-.guide-side { display: none; margin-top: auto; padding-top: 24px; }
-.guide-side .guide-bubble { padding: 12px; }
-.guide-side .guide-bubble p { font-size: 13.5px; }
-.guide-side .guide-bust { display: block; margin: 6px 0 -20px 4px; }
+/* phones: the character takes the bottom right, the bubble sits above it */
+@media (max-width: 720px) {
+  .guide-stage { flex-direction: column; align-items: flex-end; padding-right: 0; }
+  .guide-bubble { margin: 0 16px -24px; }
+  .guide-pose { height: min(340px, 46vh); margin-bottom: 0; }
+}
 
-/* bottom-nav dock: the chip takes the nav's left end; the bubble opens above it on demand */
-.guide-nav { position: fixed; z-index: 31; left: 0; bottom: 0; width: 56px; height: calc(var(--nav-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); border-right: 1px solid var(--line); }
-.guide-chip { width: 100%; height: var(--nav-h); display: grid; place-items: end center; overflow: hidden; background: transparent; border: 0; padding: 0; cursor: pointer; }
-.guide-chip .bust { width: 44px; height: auto; }
-.guide-chip:focus-visible { outline-offset: -4px; }
-.guide-nav.open .guide-chip { background: var(--raised-2); }
-.guide-pop { position: fixed; left: 12px; bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom)); width: min(320px, calc(100vw - 24px)); filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.55)); }
-.shell:has(.guide-nav) .bottom-nav { padding-left: 56px; }
+@keyframes guide-dim { from { opacity: 0; } to { opacity: 1; } }
+@keyframes guide-step { from { opacity: 0; transform: translate(35%, 12%) scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes guide-pop { from { opacity: 0; transform: scale(0.85) translateY(10px); } to { opacity: 1; transform: none; } }
 
-@media (min-width: 1024px) {
-  .guide-side { display: block; }
-  .guide-nav { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .guide.in, .guide.in .guide-pose, .guide.in .guide-bubble { animation-name: guide-dim; animation-duration: 200ms; }
 }

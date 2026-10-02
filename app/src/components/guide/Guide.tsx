@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { X } from "lucide-react";
-import { Bust, type BustName } from "@/components/ui";
+import Image from "next/image";
+import { art } from "@/lib/art";
 import "./guide.css";
 
-/** One contextual tip the corner Guide can say. `id` is what "dismissed" is remembered by. */
+export type PoseName = keyof typeof art.poses;
+
+/** One contextual tip the Guide can say. `id` is what "dismissed" is remembered by. */
 export interface GuideTip {
   id: string;
-  bust: BustName;
+  pose: PoseName;
   title?: string;
   text: string;
-  /** Optional follow-up link inside the bubble. */
+  /** Optional follow-up link inside the bubble (following it also dismisses the tip). */
   link?: { href: string; label: string };
 }
 
@@ -25,14 +27,13 @@ interface GuideApi {
 interface GuideView {
   /** The tip to show now, or null (none registered, all dismissed, or a game is running). */
   tip: GuideTip | null;
-  open: boolean;
-  setOpen: (open: boolean | ((o: boolean) => boolean)) => void;
   dismiss: () => void;
 }
 
 const Ctx = createContext<GuideApi | null>(null);
 const ViewCtx = createContext<GuideView | null>(null);
 const STORE = "tesoro-guide-dismissed";
+const LOAD_WAIT_MS = 1500;
 
 function readDismissed(): string[] {
   try {
@@ -53,15 +54,14 @@ function writeDismissed(ids: string[]) {
 }
 
 /**
- * The corner Guide's state: pages register a tip with `useGuideTip`; one shows at a time (the
- * earliest registered that is not dismissed). Dismissal is remembered per tip in localStorage.
- * Hidden while a game is running (`useGuideHidden`). `GuideCorner` renders it.
+ * The Guide's state: pages register a tip with `useGuideTip`; one shows at a time (the earliest
+ * registered that is not dismissed). Dismissal is remembered per tip in localStorage.
+ * Hidden while a game is running (`useGuideHidden`). `GuideOverlay` renders it.
  */
 export function GuideProvider({ children }: { children: ReactNode }) {
   const [tips, setTips] = useState<GuideTip[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [hidden, setHidden] = useState(0);
-  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDismissed(readDismissed()), 0);
@@ -79,17 +79,14 @@ export function GuideProvider({ children }: { children: ReactNode }) {
   const view = useMemo<GuideView>(
     () => ({
       tip,
-      open,
-      setOpen,
       dismiss: () => {
         if (!tip) return;
         const next = [...dismissed, tip.id];
         setDismissed(next);
         writeDismissed(next);
-        setOpen(false);
       },
     }),
-    [tip, open, dismissed],
+    [tip, dismissed],
   );
 
   return (
@@ -100,54 +97,58 @@ export function GuideProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * The Guide: a small bust with a speech bubble for the current tip. It lives in chrome, never over
- * the content: `dock="side"` sits at the bottom of the desktop sidebar (1024px and up), `dock="nav"`
- * is a tappable chip at the left end of the bottom nav below 1024px whose bubble opens on demand.
- * Decorative: the tip text is real text, never the only place its information lives.
+ * The Guide: the first time a tip applies, the page darkens and the character steps in from the
+ * bottom right with the tip in a speech bubble. It stays until "Got it" (or the tip's link, or
+ * Escape) and is then remembered as dismissed for good. Focus sits on "Got it" while it shows.
  */
-export function GuideCorner({ dock }: { dock: "side" | "nav" }) {
+export function GuideOverlay() {
   const v = useContext(ViewCtx);
-  const { tip, open, setOpen } = v ?? { tip: null, open: false, setOpen: () => undefined };
+  const tip = v?.tip ?? null;
+  return v && tip ? <GuideScene key={tip.id} tip={tip} dismiss={v.dismiss} /> : null;
+}
+
+/** Waits for the pose to load (at most `LOAD_WAIT_MS`) so the entrance plays with the art in it. */
+function GuideScene({ tip, dismiss }: { tip: GuideTip; dismiss: () => void }) {
+  const [ready, setReady] = useState(false);
+  const gotIt = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (!open || dock !== "nav") return;
+    const t = setTimeout(() => setReady(true), LOAD_WAIT_MS);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!ready) return;
+    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    gotIt.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") dismiss();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, dock, setOpen]);
-  if (!v || !tip) return null;
-  const bubble = (
-    <div className="cut cut-card guide-bubble" role="status">
-      {tip.title && <b>{tip.title}</b>}
-      <p>{tip.text}</p>
-      <div className="guide-actions">
-        {tip.link && (
-          <Link href={tip.link.href} className="guide-link" onClick={v.dismiss}>
-            {tip.link.label}
-          </Link>
-        )}
-        <button type="button" className="guide-x" onClick={v.dismiss} aria-label="Dismiss tip">
-          <X aria-hidden="true" /> Got it
-        </button>
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (back?.isConnected) back.focus({ preventScroll: true });
+    };
+  }, [ready, dismiss]);
+  const pose = art.poses[tip.pose];
+  return (
+    <div className={`guide${ready ? " in" : ""}`} role="dialog" aria-modal="true" aria-labelledby="guide-title" aria-describedby="guide-text">
+      <div className="guide-stage">
+        <div className="cut cut-card guide-bubble">
+          <b id="guide-title">{tip.title ?? "Tip"}</b>
+          <p id="guide-text">{tip.text}</p>
+          <div className="guide-actions">
+            {tip.link && (
+              <Link href={tip.link.href} className="guide-link" onClick={dismiss}>
+                {tip.link.label}
+              </Link>
+            )}
+            <button ref={gotIt} type="button" className="cut cut-btn btn neutral guide-ok" onClick={dismiss}>
+              Got it
+            </button>
+          </div>
+        </div>
+        <Image className="guide-pose" src={pose.src} alt="" width={pose.w} height={pose.h} priority onLoad={() => setReady(true)} />
       </div>
     </div>
-  );
-  if (dock === "side") {
-    return (
-      <aside className="guide guide-side" aria-label="Tip">
-        {bubble}
-        <Bust name={tip.bust} width={96} className="guide-bust" />
-      </aside>
-    );
-  }
-  return (
-    <aside className={`guide guide-nav${open ? " open" : ""}`} aria-label="Tip">
-      <button type="button" className="guide-chip" aria-expanded={open} aria-label={`Tip: ${tip.title ?? tip.text}`} onClick={() => setOpen((o) => !o)}>
-        <Bust name={tip.bust} width={44} />
-      </button>
-      {open && <div className="guide-pop">{bubble}</div>}
-    </aside>
   );
 }
 
@@ -158,12 +159,12 @@ export function useGuideTip(tip: GuideTip, active = true) {
   useEffect(() => {
     ref.current = tip;
   });
-  const { id, bust, title, text } = tip;
+  const { id, pose, title, text } = tip;
   useEffect(() => {
     if (!api || !active) return;
-    api.register({ ...ref.current, id, bust, title, text });
+    api.register({ ...ref.current, id, pose, title, text });
     return () => api.unregister(id);
-  }, [api, active, id, bust, title, text]);
+  }, [api, active, id, pose, title, text]);
 }
 
 /** Hides the Guide while `hidden` is true: call from anything that is a running game. */
