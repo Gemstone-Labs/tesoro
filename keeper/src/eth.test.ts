@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Budget } from "./act.ts";
-import { reportStep, type EthIo, type EthTarget, type State } from "./eth.ts";
+import { NETS, reportStep, type EthIo, type EthTarget, type State } from "./eth.ts";
 
 const GWEI = 1_000_000_000n;
 const HASH = "0xabc0000000000000000000000000000000000000000000000000000000000001" as const;
@@ -91,5 +91,15 @@ describe("reportYield bookkeeping (OC-07)", () => {
     const state: State = { [target.slot]: { sentAt: Date.now() - 60 * 60_000, hash: HASH, estGwei: 1 } };
     assert.equal(await reportStep(io, settings, new Budget(1e9), state, () => {}, target), "wait");
     assert.equal(calls.write, 0);
+  });
+});
+
+describe("EVM networks", () => {
+  it("maps each Source chain to its LayerZero eid, chain id, native unit and own cap", () => {
+    const s = { hoodiRpc: "h", hyperEvmRpc: "y", ethHourlyCapEth: 0.005, hypeHourlyCapHype: 0.03 } as Parameters<(typeof NETS)[number]["cap"]>[0];
+    const byChain = Object.fromEntries(NETS.map((n) => [n.chain, n]));
+    assert.deepEqual([byChain.ethereum.eid, byChain.ethereum.unit, byChain.ethereum.chainDef("h").id, byChain.ethereum.cap(s)], [40449, "ETH", 560048, 0.005]);
+    assert.deepEqual([byChain.hyperEvm.eid, byChain.hyperEvm.unit, byChain.hyperEvm.chainDef("y").id, byChain.hyperEvm.cap(s)], [40362, "HYPE", 998, 0.03]);
+    assert.equal(byChain.hyperEvm.rpc(s), "y");
   });
 });

@@ -3,7 +3,7 @@
 # Usage: script/deploy-oapp.sh <hoodi|hyperevm> <sim|wsteth> [simLstAddress]
 #   hoodi  sim    vault for SimLST (SIMULATED yield); pass the deployed SimLST address
 #   hoodi  wsteth vault for real Lido wstETH through WstETHRateAdapter
-#   hyperevm sim  vault for a SimLST on HyperEVM testnet (deploy SimLST first with script/Deploy.s.sol; no HYPE yet, so not run)
+#   hyperevm sim  vault for a SimLST on HyperEVM testnet (deploy the SimLST first: forge create src/SimLST.sol:SimLST --constructor-args <owner> "Simulated Staked HYPE" simHYPE)
 # Afterwards: setPeer(40168, <tesoro_bridge Store PDA as bytes32>) on the vault, and register the vault on Solana
 # with `bridge/scripts/lz.ts wire`.
 set -euo pipefail

@@ -5,8 +5,9 @@
 .bk-avail { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--fg-2); font-size: 14px; }
 
 .bk-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; border-bottom: 1px solid var(--line); }
-.bk-tabs { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; }
-.bk-tabs button { background: transparent; border: 0; padding: 12px 18px 13px; font-size: 17px; font-weight: 500; color: var(--fg-2); border-bottom: 2px solid transparent; white-space: nowrap; margin-bottom: -1px; }
+.bk-tabs { display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; max-width: 100%; margin-bottom: -1px; scrollbar-width: none; }
+.bk-tabs::-webkit-scrollbar { display: none; }
+.bk-tabs button { background: transparent; border: 0; padding: 12px 18px 13px; font-size: 17px; font-weight: 500; color: var(--fg-2); border-bottom: 2px solid transparent; white-space: nowrap; }
 .bk-tabs button.on { color: var(--fg); font-weight: 700; border-bottom-color: var(--fg); }
 .bk-tabs button:hover { color: var(--fg); }
 .bk-tools { display: flex; gap: 10px; align-items: center; padding-bottom: 8px; }

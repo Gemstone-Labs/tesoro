@@ -7,6 +7,7 @@ import { DemoHttpError } from "./request-auth";
  */
 export const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 export const HOODI_CHAIN_ID = 560048;
+export const HYPEREVM_TESTNET_CHAIN_ID = 998;
 
 type Check = { ok: true } | { ok: false; reason: string };
 
@@ -50,7 +51,13 @@ export function createClusterGuard(doFetch: typeof fetch = (...a) => fetch(...a)
       return id === HOODI_CHAIN_ID ? { ok: true } : { ok: false, reason: `chain id ${id} is not Hoodi` };
     });
 
-  return { solana, hoodi };
+  const hyperevm = (url: string) =>
+    check(`hyperevm:${url}`, async () => {
+      const id = Number(await rpc(doFetch, url, "eth_chainId"));
+      return id === HYPEREVM_TESTNET_CHAIN_ID ? { ok: true } : { ok: false, reason: `chain id ${id} is not HyperEVM testnet` };
+    });
+
+  return { solana, hoodi, hyperevm };
 }
 
 type Guard = ReturnType<typeof createClusterGuard>;
@@ -67,3 +74,4 @@ async function refuseUnless(check: Promise<Check>, cluster: string) {
 }
 export const requireDevnet = (url: string, guard: Guard = clusterGuard) => refuseUnless(guard.solana(url), "devnet");
 export const requireHoodi = (url: string, guard: Guard = clusterGuard) => refuseUnless(guard.hoodi(url), "Hoodi");
+export const requireHyperEvm = (url: string, guard: Guard = clusterGuard) => refuseUnless(guard.hyperevm(url), "HyperEVM testnet");

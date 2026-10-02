@@ -23,6 +23,13 @@
   --em-deep: #0a7d5c;
   --em-ink: #03201a;
   --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%);
+  /* money fills (buttons, selected entries): lit from above, a bright rim on the top edge, a dark pavilion band at the base */
+  --money-fill: linear-gradient(180deg, #5ef3cd 0%, #2fdcac 55%, #1cc699 100%);
+  --money-rim: linear-gradient(180deg, rgba(225, 255, 246, 0.95), rgba(225, 255, 246, 0) 55%);
+  --money-base: rgba(3, 32, 26, 0.28);
+  --money-off: linear-gradient(180deg, #15201d, #101816);
+  /* the ink Gema mark drawn on a money fill: body in the text colour, cuts in this */
+  --gem-ink-line: rgba(122, 240, 201, 0.5);
   /* semantic (never the accent) */
   --danger: #f2685a;
   --warn: #f2b94b;
@@ -33,7 +40,7 @@
   /* cut sizes */
   --cut-frame: 22px;
   --cut-card: 12px;
-  --cut-btn: 10px;
+  --cut-btn: 7px;
   --cut-chip: 8px;
 
   --nav-h: 64px;

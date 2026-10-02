@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { DEVNET_GENESIS, assertDevnet, assertHoodi } from "./cluster.ts";
+import { DEVNET_GENESIS, assertDevnet, assertHoodi, assertHyperEvm } from "./cluster.ts";
 import { loadPayer, settings } from "./env.ts";
 
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -35,6 +35,12 @@ describe("cluster guard (OC-10)", () => {
   it("accepts Hoodi and refuses any other chain id", async () => {
     await assertHoodi({ getChainId: async () => 560048 });
     await assert.rejects(assertHoodi({ getChainId: async () => 1 }), /not Hoodi/);
+    await assert.rejects(assertHoodi({ getChainId: async () => 998 }), /not Hoodi/);
+  });
+
+  it("accepts HyperEVM testnet and refuses any other chain id", async () => {
+    await assertHyperEvm({ getChainId: async () => 998 });
+    await assert.rejects(assertHyperEvm({ getChainId: async () => 560048 }), /not HyperEVM testnet/);
   });
 
   it("refuses to load the payer on a mainnet RPC, before touching any key", async () => {

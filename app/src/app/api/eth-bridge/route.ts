@@ -4,9 +4,9 @@ import { handleEthPrice, handleEthRequest } from "@/server/eth-bridge";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-/** The devnet price an Advance on an ETH Position is issued at (public). */
-export async function GET() {
-  return Response.json(await handleEthPrice());
+/** The devnet price an Advance on an ETH or HYPE Position is issued at (public): `?asset=HYPE`, ETH by default. */
+export async function GET(request: Request) {
+  return Response.json(await handleEthPrice(new URL(request.url).searchParams.get("asset")));
 }
 
 /** Hoodi ETH top-up, the permissionless bridge steps and the oracle-priced Advance: see app/docs/eth-positions.md. */

@@ -34,6 +34,12 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
   /* emerald — money only */
   --em-hi: #6af8d6; --em: #24d8a8; --em-deep: #0a7d5c; --em-ink: #03201a;
   --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%);
+  /* money fills (buttons, chosen entry): lit from above, bright top rim, dark pavilion band at the base */
+  --money-fill: linear-gradient(180deg, #5ef3cd 0%, #2fdcac 55%, #1cc699 100%);
+  --money-rim: linear-gradient(180deg, rgba(225,255,246,.95), rgba(225,255,246,0) 55%);
+  --money-base: rgba(3,32,26,.28);
+  --money-off: linear-gradient(180deg, #15201d, #101816);
+  --gem-ink-line: rgba(122,240,201,.5);
   /* semantic (never the accent) */
   --danger: #f2685a; --warn: #f2b94b;
   /* type */
@@ -41,7 +47,7 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
   --f-display: "Barlow Condensed", "Oswald", "Arial Narrow", Impact, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, monospace;
   /* cut sizes */
-  --cut-frame: 22px; --cut-card: 12px; --cut-btn: 10px; --cut-chip: 8px;
+  --cut-frame: 22px; --cut-card: 12px; --cut-btn: 7px; --cut-chip: 8px;
   --side-w: 244px;           /* 268px from 1440px up */
 }
 ```
@@ -82,12 +88,12 @@ The Tesoro logo is the **T-gem**: an emerald-cut octagon whose facets form a "T"
 
 ## The Gema mark
 
-A small emerald-cut stone (octagon with table facet and facet lines, emerald gradient) — never a flat ◆ glyph, never gold. It precedes Gema amounts of consequence (balance pill, entry chips); it is **not** the logo (see Logo). A brief glint animation is allowed on the balance only, and is off under `prefers-reduced-motion`.
+A small emerald-cut stone (octagon with table facet and facet lines, emerald gradient) — never a flat ◆ glyph, never gold. It precedes Gema amounts of consequence (balance pill, entry chips); it is **not** the logo (see Logo). A brief glint animation is allowed on the balance only, and is off under `prefers-reduced-motion`. On a money fill (money button, chosen entry) the full-colour mark blends in, so it is drawn in **ink**: body in the text colour (`--em-ink`), table and facet lines in `--gem-ink-line`. Disabled money buttons keep the full-colour mark.
 
 ## Shell and layout
 
 - **Desktop (≥1024px):** fixed left sidebar (`--side-w`), then a sticky top bar over the content.
-  - Sidebar is navigation only, top to bottom: wordmark with gem, Lobby / Play / Backing / Wallet (active item raised and outlined), divider, Docs / Help (not built yet: shown dimmed, not clickable). No Positions card, no chips: balances live in the top bar pill and the Wallet. The corner guide, when it has a tip, sits at the sidebar's bottom.
+  - Sidebar is navigation only, top to bottom: wordmark with gem, Lobby / Play / Backing / Wallet (active item raised and outlined), divider, Docs (not built yet: shown dimmed, not clickable) / Help (`/help`: a four-step Start here, topic jump chips, then one collapsible `<details>` per question, grouped by topic; static, no account needed). No Positions card, no chips: balances live in the top bar pill and the Wallet. The corner guide, when it has a tip, sits at the sidebar's bottom.
   - Top bar: the Gema balance pill (emerald, links to Wallet) and the Account avatar menu (Account, Wallet, Sign out); signed out: a Sign in button. The search box shows on the Lobby only and filters its games.
   - Content is one centred column, max 1320px, with 32px side padding; wider screens get margins, not more content. The footer is one line ("Fair play · on-chain", the simulated-yield label) plus links.
 - **Below 1024px:** the sidebar becomes a left drawer (menu button in the top bar), a four-item bottom navigation appears, the search box drops to its own row on the Lobby, and grids collapse to one column.
@@ -98,9 +104,9 @@ A small emerald-cut stone (octagon with table facet and facet lines, emerald gra
 
 Live in `app/src/components/ui` (primitives, money, inputs, icons, `ui.css`), the shell in `components/shell`, Lobby pieces in `components/lobby`. `/design` renders every ui component and state.
 
-- **Button** — `money` (facet gradient) only where Gemas move; `neutral` otherwise; sizes `sm`, `md`, `lg` (Play now).
+- **Button** — `money` (polished table: `--money-fill` with the `--money-rim` edge and a 3px `--money-base` band; `lg` cuts 9px) only where Gemas move; `neutral` otherwise; sizes `sm`, `md`, `lg` (Play now).
 - **Icon button** (`.icon-btn`) — square cut button for arrows, menu, close, copy.
-- **Entry picker** — 500 / 1,000 / 2,500; the chosen entry is facet-filled with the Gema mark. An entry the balance cannot cover is dimmed (never struck through).
+- **Entry picker** — 500 / 1,000 / 2,500; the chosen entry is filled with `--money-fill` and carries the ink Gema mark. An entry the balance cannot cover is dimmed (never struck through).
 - **Skeleton** (`SkeletonCards`) — loading is shaped like the cards that are coming (cut cards with a faint sweep), with the old status line kept for screen readers. Used for Requests, Positions and Match history.
 - **Living surfaces** (founder, Oct 2: "too static") — the hero art settles in (slow zoom) and its copy rises in order on each slide; a few sparkles twinkle over the art; the big money action catches a passing light every few seconds; Play now tiles lean toward the pointer with a moving glare and carry a live Queue badge; balances count up to new values (`CountUp`), and a won amount counts up from zero; the Block Puzzle score pops on change; grids rise in as they scroll into view (scroll-driven, no JS); each page arrives with a short rise. The red pulsing dot means *live* and always sits beside the word.
 - **Motion that answers an action** — sheets rise in over a blurred page, the drawer and the Offer drawer slide from where they dock, the Account menu drops in, the top bar frosts once the page scrolls under it, and the Lobby hero's slide markers fill while auto-advance runs. All off under `prefers-reduced-motion`.

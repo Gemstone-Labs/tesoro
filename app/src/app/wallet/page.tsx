@@ -15,6 +15,7 @@ import { returnRows } from "@/lib/chain/return-own";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
+import { vaultsOn } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
@@ -115,8 +116,8 @@ export default function Wallet() {
         tiles.push(<NativePositionCard key={p.address.toBase58()} position={p} market={market} onRedeem={openRedeem} />);
       }
     }
-    if (chain === "ETH") {
-      for (const p of (snapshot?.positions ?? []).filter((x) => x.eth)) {
+    if (chain === "ETH" || chain === "HYPE") {
+      for (const p of (snapshot?.positions ?? []).filter((x) => x.eth && x.asset === chain)) {
         tiles.push(<EthPositionCard key={p.address.toBase58()} position={p} market={null} />);
       }
     }
@@ -207,7 +208,6 @@ export default function Wallet() {
             </div>
           )
         )}
-        <p className="wl-soon"><span className="cut cut-chip chain">HYPE</span> HyperEVM Positions are coming soon.</p>
         {onChain && <EthOps />}
       </section>
 
@@ -229,12 +229,8 @@ export default function Wallet() {
       <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
-          {tab === "ETH" && (onChain ? <EthOpenForm onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
-          {tab === "HYPE" && (
-            <div className="stack">
-              <IdleForm unit="HYPE" months={months} onMonths={setMonths} soon />
-            </div>
-          )}
+          {tab === "ETH" && (onChain ? <EthOpenForm vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
+          {tab === "HYPE" && (onChain ? <EthOpenForm vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>
       </Sheet>
       <NativeRedeemSheet open={nativeRedeemOpen} onClose={() => setNativeRedeemOpen(false)} />
@@ -247,8 +243,8 @@ export default function Wallet() {
   );
 }
 
-/** The open form's shape before there is a market to quote from (or for a chain that is not open). */
-function IdleForm({ unit, months, onMonths, soon = false }: { unit: string; months: number; onMonths: (m: number) => void; soon?: boolean }) {
+/** The open form's shape before there is a market to quote from. */
+function IdleForm({ unit, months, onMonths }: { unit: string; months: number; onMonths: (m: number) => void }) {
   return (
     <OpenFormView
       unit={unit}
@@ -259,8 +255,8 @@ function IdleForm({ unit, months, onMonths, soon = false }: { unit: string; mont
       onMonths={onMonths}
       gemas={null}
       estimate="—"
-      note={soon ? "HyperEVM Positions are not open yet." : "Sign in to see your balance and a real quote."}
-      buttonLabel={soon ? "HyperEVM coming soon" : "Open a Position"}
+      note="Sign in to see your balance and a real quote."
+      buttonLabel="Open a Position"
       disabled
       onSubmit={() => undefined}
     />

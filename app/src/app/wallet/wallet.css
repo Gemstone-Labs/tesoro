@@ -29,7 +29,6 @@
 @media (min-width: 960px) { .wl-hero { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); padding: 40px 44px 28px; } }
 @media (max-width: 479px) { .wl-hero { padding: 24px 18px 18px; } .wl-second { grid-template-columns: 1fr; } }
 
-.wl-soon { font-size: 14px; color: var(--fg-2); }
 .wl-foot { display: grid; gap: 10px; }
 .wl-dev { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 
@@ -102,8 +101,6 @@
 .wl-empty .gema-mark { opacity: 0.85; }
 .wl-empty b { display: block; font-size: 17px; }
 .wl-empty p { color: var(--fg-2); font-size: 14.5px; margin-top: 2px; }
-.wl-soon { display: flex; align-items: center; gap: 10px; }
-.wl-soon .chain { --edge: var(--edge-2); font-size: 12px; padding: 3px 8px; }
 .wl-actions .btn { min-height: 44px; }
 .wl-tile.skel { min-height: 236px; align-content: start; }
 

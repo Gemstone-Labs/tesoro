@@ -328,7 +328,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     <>
       <p className="meta">
         Each Gema redeems for its Source asset, only as far as that Source Position&apos;s yield has actually accrued.
-        Winning Gemas never shorten your own lock. Paid in simSOL (Simulated) to your wallet, or simETH (Simulated) on Hoodi for ETH Positions.
+        Winning Gemas never shorten your own lock. Paid in simSOL (Simulated) to your wallet, simETH (Simulated) on Hoodi for ETH Positions, or simHYPE (Simulated) on HyperEVM for HYPE Positions.
       </p>
       <dl className="kv">
         {rows.map((h) => {
@@ -344,13 +344,13 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
         })}
         {ethRows.map((h) => (
           <div key={h.holding.toBase58()} style={{ display: "contents" }}>
-            <dt>{h.isOwn ? "Your ETH Position" : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`}</dt>
-            <dd>{fmtGemas(Number(h.redeemable))} → simETH on Hoodi</dd>
+            <dt>{h.isOwn ? `Your ${h.asset} Position` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`}</dt>
+            <dd>{fmtGemas(Number(h.redeemable))} → {h.asset === "HYPE" ? "simHYPE on HyperEVM" : "simETH on Hoodi"}</dd>
           </div>
         ))}
       </dl>
       {rows.length + ethRows.length > 0 && <SimulatedYieldLabel />}
-      {ethRows.length > 0 && <p className="meta">ETH-Sourced Gemas redeem through the bridge: the simETH arrives on Hoodi a few minutes later, with progress shown on the Wallet.</p>}
+      {ethRows.length > 0 && <p className="meta">ETH- and HYPE-Sourced Gemas redeem through the bridge: the simETH (Hoodi) or simHYPE (HyperEVM) arrives a few minutes later, with progress shown on the Wallet.</p>}
       {rows.length + ethRows.length === 0 && sigs.length === 0 && <p className="meta">Nothing is redeemable yet. Yield accrues on the Source Position over time.</p>}
       {sigs.length > 0 && (
         <div className="status ok" role="status">
