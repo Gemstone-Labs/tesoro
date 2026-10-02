@@ -51,7 +51,7 @@ export function BackingSplit({ m }: { m: ChainMatch }) {
         </dl>
       ) : (
         <dl className="kv">
-          <dt>{party} bears the loss</dt>
+          <dt>{asPlayer ? `${party} bears` : "You bear"} the loss</dt>
           <dd><GemaAmount value={-m.entry} size="sm" sign /></dd>
           <dt>{asPlayer ? "You owe" : "Player owes"}</dt>
           <dd>0 Gemas · 0 Debt</dd>
