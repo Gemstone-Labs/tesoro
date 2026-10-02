@@ -72,13 +72,13 @@ html.lenis, html.lenis body { height: auto; }
 .lp-links a:hover { color: var(--fg); }
 .lp-theme { color: var(--fg); }
 .lp-launch { min-height: 40px; padding: 8px 16px; }
-.lp-nav[data-scrolled="false"] {
+:root:not([data-theme="light"]) .lp-nav[data-scrolled="false"] {
   --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.78); --line-2: rgba(234, 239, 236, 0.22);
   --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%); --em-ink: #03201a;
 }
-.lp-nav[data-scrolled="false"] .lp-links { background: rgba(9, 13, 15, 0.5); backdrop-filter: blur(12px); }
-.lp-nav[data-scrolled="false"] .on-dark { display: revert; }
-.lp-nav[data-scrolled="false"] .on-light { display: none; }
+:root:not([data-theme="light"]) .lp-nav[data-scrolled="false"] .lp-links { background: rgba(9, 13, 15, 0.5); backdrop-filter: blur(12px); }
+:root:not([data-theme="light"]) .lp-nav[data-scrolled="false"] .on-dark { display: revert; }
+:root:not([data-theme="light"]) .lp-nav[data-scrolled="false"] .on-light { display: none; }
 @media (max-width: 1023px) {
   .lp-links { display: none; }
   .lp-theme { margin-left: auto; }
@@ -176,11 +176,12 @@ html.lenis, html.lenis body { height: auto; }
 @media (prefers-reduced-motion: reduce) { .lp-flow-dots { display: none; } }
 .lp-oct-node { position: absolute; width: 11.3%; aspect-ratio: 258 / 252; translate: -50% -50%; display: grid; place-items: center; }
 .lp-oct-node .lp-oct-frame { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: url(/art/landing/oct-frame.webp) center / 100% 100% no-repeat; }
-.lp-oct-node picture, .lp-oct-node > picture img { position: absolute; inset: 13%; width: 74%; height: 74%; object-fit: contain; }
-.lp-oct-node picture img { width: 100%; height: 100%; object-fit: contain; }
+:root[data-theme="light"] .lp-oct-node .lp-oct-frame { background-image: url(/art/landing/oct-frame-light.webp); }
+.lp-oct-node > picture { position: absolute; inset: 16%; display: grid; place-items: center; }
+.lp-oct-node > picture img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .lp-oct-node.settle { width: 8.6%; }
-.lp-oct-node.settle span { position: relative; z-index: 2; font-family: var(--f-display); font-weight: 800; font-size: clamp(16px, 2.2cqi, 28px); text-transform: uppercase; color: var(--em-hi); text-shadow: 0 0 14px rgba(36, 216, 168, 0.6); }
-:root[data-theme="light"] .lp-oct-node.settle span { color: var(--em); text-shadow: none; }
+.lp-oct-node.settle .lp-settle-label { position: relative; z-index: 2; font-family: var(--f-display); font-weight: 800; font-size: clamp(16px, 2.2cqi, 28px); text-transform: uppercase; color: var(--em-hi); text-shadow: 0 0 14px rgba(36, 216, 168, 0.6); }
+:root[data-theme="light"] .lp-oct-node.settle .lp-settle-label { color: var(--em); text-shadow: none; }
 .lp-flow-label { position: absolute; translate: -50% 0; width: 20%; text-align: center; }
 .lp-flow-label b { display: block; font-family: var(--f-display); font-weight: 800; font-size: clamp(18px, 2.3cqi, 28px); text-transform: uppercase; line-height: 1; }
 .lp-flow-label span { display: block; font-size: clamp(12px, 1.25cqi, 15px); line-height: 1.3; color: var(--fg-2); margin-top: 5px; }
@@ -207,7 +208,7 @@ html.lenis, html.lenis body { height: auto; }
   .n-play { grid-area: play-a; } .l-play { grid-area: play-l; }
   .n-back { grid-area: back-a; } .l-back { grid-area: back-l; }
   .lp-oct-node.settle { grid-area: settle; width: 76px; justify-self: start; }
-  .lp-oct-node.settle span { font-size: 18px; }
+  .lp-oct-node.settle .lp-settle-label { font-size: 18px; }
   .lp-outcome-card { height: auto; padding: 14px 16px; font-size: 14px; }
   .lp-outcome-card.win { grid-area: win; }
   .lp-outcome-card.lose { grid-area: lose; }
@@ -448,8 +449,11 @@ html.lenis, html.lenis body { height: auto; }
 .lp-final-duo { position: absolute; right: 8%; bottom: 0; width: min(36vw, 560px); z-index: 1; }
 .lp-final-duo img { width: 100%; height: auto; display: block; }
 /* Astra's climbing duo: the rope runs the full height of the frame and beyond. */
-.lp-final-duo.rope { top: 6%; bottom: -12%; right: 14%; width: auto; -webkit-mask: linear-gradient(180deg, transparent 0, #000 9%); mask: linear-gradient(180deg, transparent 0, #000 9%); }
+.lp-final-duo.rope { top: 6%; bottom: -12%; right: 14%; width: auto; }
 .lp-final-duo.rope picture, .lp-final-duo.rope img { height: 100%; width: auto; }
+/* The art's rope ends above her hand: the same braid carries on up and out of the frame, lapping the art's first rows. */
+.lp-final-duo.rope .lp-final-rope { position: absolute; left: 0; bottom: 98.67%; width: 100%; height: auto; }
+.lp-final-duo.rope .lp-final-rope img { width: 100%; height: auto; }
 .lp-final-copy { position: relative; z-index: 2; }
 .lp-final-title { max-width: 13ch; margin-bottom: 36px; }
 :root[data-theme="light"] .lp-final { padding: 0 var(--g) var(--g); }
@@ -584,3 +588,17 @@ html.lenis, html.lenis body { height: auto; }
 :root[data-theme="light"]:has(.lp-hero.has-light-art) .lp-nav[data-scrolled="false"] .on-dark { display: none; }
 :root[data-theme="light"]:has(.lp-hero.has-light-art) .lp-nav[data-scrolled="false"] .on-light { display: revert; }
 @media (max-width: 767px) { :root[data-theme="light"] .lp-hero.has-light-art .lp-hero-light::after { background: linear-gradient(180deg, rgba(245, 243, 238, 0.7) 0, transparent 45%); } }
+
+/* Light theme, until its own hero art lands: the cave as a framed window on the light page, like the final CTA. */
+:root[data-theme="light"] .lp-hero:not(.has-light-art) {
+  --c: var(--cut-frame);
+  margin: 80px var(--g) 0; min-height: max(640px, calc(100svh - 80px - var(--g)));
+  clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+}
+:root[data-theme="light"] .lp-hero:not(.has-light-art)::before { display: none; }
+:root[data-theme="light"] .lp-hero:not(.has-light-art) .lp-hero-copy { padding-top: 0; }
+:root[data-theme="light"] .lp-nav[data-scrolled="false"] .lp-links { background: rgba(251, 249, 245, 0.7); }
+@media (max-width: 767px) {
+  :root[data-theme="light"] .lp-hero:not(.has-light-art) { margin-top: 64px; min-height: max(600px, calc(100svh - 64px - var(--g))); }
+  :root[data-theme="light"] .lp-hero:not(.has-light-art) .lp-hero-copy { padding-top: 40px; }
+}

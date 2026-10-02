@@ -32,14 +32,32 @@ const ASSETS = [
   { key: "herBacker", files: [`her-backer/take-${TAKE["her-backer"]}.png`], widths: [640, 1024], alpha: true, trim: true },
   { key: "finalBack", files: [`final-cta/take-${TAKE["final-cta"]}-back.png`], widths: SCENE },
   { key: "finalDuo", files: [`final-cta/take-${TAKE["final-cta"]}-duo.png`], widths: [640, 1024], alpha: true, trim: true },
+  // The duo's rope ends just above her top hand; this strip of the same rope sits above it and runs out of the frame.
+  { key: "finalRope", files: [`final-cta/take-${TAKE["final-cta"]}-duo.png`], widths: [640, 1024], alpha: true, trim: true, derive: ropeAbove },
   { key: "finalMobile", files: [`final-cta/take-${TAKE["final-cta"]}-mobile.png`], widths: [828, 1242] },
   ...["position", "advance", "gemas", "match", "redeem"].map((s, i) => ({
     key: `step${i + 1}`,
     files: [`how-it-works/take-${TAKE["how-it-works"]}-${i + 1}-${s}.png`],
     widths: [160, 320],
     alpha: true,
+    trim: true,
   })),
 ];
+
+/** The top rows of the duo are bare rope. Repeats three turns of its braid upward, crossfading the first rows so the repeats join. */
+async function ropeAbove(duo) {
+  const ROWS = 34, FADE = 8, REPEATS = 20;
+  const { width } = await sharp(duo).metadata();
+  const { data } = await sharp(duo).extract({ left: 0, top: 0, width, height: ROWS + FADE }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const row = width * 4;
+  const tile = Buffer.from(data.subarray(0, ROWS * row));
+  for (let y = 0; y < FADE; y++) {
+    const t = y / FADE;
+    for (let i = 0; i < row; i++) tile[y * row + i] = Math.round(data[(y + ROWS) * row + i] * (1 - t) + data[y * row + i] * t);
+  }
+  const raw = { width, height: ROWS * REPEATS, channels: 4 };
+  return sharp(Buffer.concat(Array(REPEATS).fill(tile)), { raw }).png().toBuffer();
+}
 
 mkdirSync(OUT, { recursive: true });
 const found = {};
@@ -50,7 +68,8 @@ for (const a of ASSETS) {
     continue;
   }
   // Characters keep the edge they are cut by; the empty transparent margins go.
-  const src = a.trim ? await sharp(file).trim({ threshold: 1 }).png().toBuffer() : file;
+  const cut = a.trim ? await sharp(file).trim({ threshold: 1 }).png().toBuffer() : file;
+  const src = a.derive ? await a.derive(cut) : cut;
   const { width, height } = await sharp(src).metadata();
   const widths = a.widths.filter((w) => w <= width);
   if (a.widths.some((w) => w > width)) widths.push(width);

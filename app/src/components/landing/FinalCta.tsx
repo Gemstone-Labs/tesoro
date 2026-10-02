@@ -20,6 +20,7 @@ export function FinalCta() {
           <div className={duo ? "lp-final-duo rope" : "lp-final-duo"} data-climb>
             {duo && (
               <>
+                <Picture k="finalRope" sizes="420px" className="lp-final-rope" />
                 <span className="lp-duo-lantern" style={{ left: "86%", top: "31.5%" }} />
                 <span className="lp-duo-lantern" style={{ left: "28.5%", top: "75.5%" }} />
               </>

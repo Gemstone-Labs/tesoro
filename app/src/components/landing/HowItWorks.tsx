@@ -108,7 +108,7 @@ export function HowItWorks() {
           {NODES.map((n) => (
             <div key={n.id} className={`lp-oct-node n-${n.id}${n.small ? " settle" : ""}`} style={pct(n.x, n.y)} aria-hidden>
               <span className="lp-oct-frame" />
-              {n.small ? <span>Settle</span> : <NodeArt node={n} />}
+              {n.small ? <span className="lp-settle-label">Settle</span> : <NodeArt node={n} />}
             </div>
           ))}
           {NODES.filter((n) => !n.small).map((n) => (
