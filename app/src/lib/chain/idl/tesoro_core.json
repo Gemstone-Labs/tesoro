@@ -227,6 +227,7 @@
         },
         {
           "name": "custody",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -248,10 +249,104 @@
           }
         },
         {
-          "name": "vault"
+          "name": "vault",
+          "writable": true
         },
         {
           "name": "pool"
+        },
+        {
+          "name": "mint",
+          "writable": true
+        },
+        {
+          "name": "yield_config",
+          "docs": [
+            "sim_lst's record of the yield authority."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  105,
+                  101,
+                  108,
+                  100,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "yield_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  105,
+                  101,
+                  108,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sim_lst_program",
+          "address": "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "source",
@@ -2888,6 +2983,57 @@
       ]
     },
     {
+      "name": "set_admin",
+      "discriminator": [
+        251,
+        163,
+        0,
+        52,
+        91,
+        194,
+        187,
+        92
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "program_data"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "set_evm_address",
       "discriminator": [
         138,
@@ -3848,6 +3994,19 @@
         197,
         178
       ]
+    },
+    {
+      "name": "YieldConfig",
+      "discriminator": [
+        249,
+        13,
+        186,
+        63,
+        85,
+        7,
+        255,
+        18
+      ]
     }
   ],
   "events": [
@@ -4515,6 +4674,15 @@
               "layout; custodies opened before it are extended by `migrate_native_custody`."
             ],
             "type": "u64"
+          },
+          {
+            "name": "last_accrual_ts",
+            "docs": [
+              "Unix time up to which yield has been minted into the vault (per-Position yield model,",
+              "docs/yield-model.md). Appended after `tracked_shares`; older custodies are extended by",
+              "`migrate_native_custody`, which starts it at the migration time."
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -5464,6 +5632,25 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "YieldConfig",
+      "docs": [
+        "The authority allowed to mint simulated yield."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
