@@ -17,18 +17,19 @@ export const DUEL_ASSETS = [
 ] as const;
 
 /** Radio group over Trading Duel's assets. Neutral: the chosen asset is pale, never emerald (no Gemas move here). */
-export function AssetPicker({ value, onChange, name }: { value: 0 | 1 | 2; onChange: (v: 0 | 1 | 2) => void; name?: string }) {
+/** `compact` shows the tickers only (the Lobby hero), with the asset name kept for screen readers. */
+export function AssetPicker({ value, onChange, name, compact }: { value: 0 | 1 | 2; onChange: (v: 0 | 1 | 2) => void; name?: string; compact?: boolean }) {
   const auto = useId();
   const group = name ?? auto;
   return (
-    <fieldset className="assets">
+    <fieldset className={compact ? "assets compact" : "assets"}>
       <legend className="sr-only">Asset</legend>
       {DUEL_ASSETS.map((a) => (
         <label key={a.id} className="asset">
           <input type="radio" name={group} value={a.id} checked={value === a.id} onChange={() => onChange(a.id)} />
           <span className="cut cut-chip">
             <b>{a.symbol}</b>
-            <small>{a.name}</small>
+            <small className={compact ? "sr-only" : undefined}>{a.name}</small>
           </span>
         </label>
       ))}

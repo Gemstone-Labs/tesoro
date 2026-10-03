@@ -178,7 +178,7 @@ function HeroSlide({
         <h2 className="slide-title">{slide.title}</h2>
         <p className="slide-sub">{slide.sub}</p>
         <div className="slide-entry">
-          {slide.game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="hero-asset" />}
+          {slide.game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="hero-asset" compact />}
           <EntryPicker value={entry} onChange={onEntry} legend={`Entry for ${slide.title}`} name={`hero-${slide.game}`} maxAffordable={signedIn && onChain ? gemas.available : undefined} isDisabled={signedIn && onChain ? (size) => entryProblem(size) !== null : undefined} />
         </div>
         <Button variant="money" size="lg" block onClick={() => go(hrefFor("queue", slide.game, entry, asset), "Enter a Match")} disabled={!canEnter}>

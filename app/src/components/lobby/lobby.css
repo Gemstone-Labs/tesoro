@@ -13,7 +13,7 @@
 .slide-body { position: relative; z-index: 1; display: grid; align-content: center; justify-items: start; gap: 18px; width: min(100%, 560px); height: 100%; padding: 0 40px; }
 .slide-title { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(48px, 5.2vw, 92px); font-weight: 800; letter-spacing: 0; line-height: 0.9; word-spacing: 0; text-wrap: balance; color: #fff; }
 .slide-sub { margin-top: -8px; font-size: clamp(15px, 1.2vw, 20px); font-weight: 500; color: var(--fg-2); }
-.slide-entry { width: 100%; max-width: 420px; }
+.slide-entry { display: grid; gap: 10px; width: 100%; max-width: 420px; }
 .slide-entry .entry span { min-height: 54px; font-size: 18px; --c: 11px; }
 .slide-body .btn.lg { width: 100%; max-width: 420px; min-height: 62px; --c: 14px; }
 .slide-meta { font-size: 13.5px; color: var(--fg-2); }
