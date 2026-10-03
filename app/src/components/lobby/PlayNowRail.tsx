@@ -97,7 +97,7 @@ export function PlayNowRail() {
       {matches.length === 0 && <p className="rail-empty">No games match. Clear the filter to see every game.</p>}
       {live.map((g) => (
         <Link key={g.key} href={`/play/${g.game}`} className="cut cut-frame tile" onPointerMove={tilt} onPointerLeave={untilt}>
-          <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" />
+          <Image src={g.wide ?? g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" style={g.wide ? { objectPosition: "right center" } : undefined} />
           <span className="tile-shade" aria-hidden="true" />
           <span className="tile-glare" aria-hidden="true" />
           <span className="cut cut-chip tile-live">

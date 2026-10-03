@@ -16,6 +16,8 @@ export interface CatalogueEntry {
   name: string;
   tags: Category[];
   tile: string;
+  /** Wide art for the big /play card when the square tile crops badly there, shown right-aligned. */
+  wide?: string;
   /** Playable today. Coming-soon entries are dimmed and not clickable. */
   live: boolean;
   game?: GameId;
@@ -25,7 +27,7 @@ export interface CatalogueEntry {
 export const CATALOGUE: CatalogueEntry[] = [
   { key: "block-puzzle", name: "Block Puzzle", tags: ["puzzle", "async", "head-to-head"], tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
   { key: "holdem", name: "Heads-up Hold'em", tags: ["cards", "head-to-head"], tile: art.holdemTile, live: true, game: "holdem" },
-  { key: "trading-duel", name: "Trading Duel", tags: ["head-to-head"], tile: art.tradingDuelTile, live: true, game: "trading-duel" },
+  { key: "trading-duel", name: "Trading Duel", tags: ["head-to-head"], tile: art.tradingDuelTile, wide: art.tradingDuelHero, live: true, game: "trading-duel" },
   { key: "word-duel", name: "Word Duel", tags: ["puzzle", "head-to-head"], tile: art.comingSoon["word-duel"], live: false },
   { key: "bubble-burst", name: "Bubble Burst", tags: ["puzzle", "async"], tile: art.comingSoon["bubble-burst"], live: false },
   { key: "pocket-pool", name: "Pocket Pool", tags: ["head-to-head"], tile: art.comingSoon["pocket-pool"], live: false },
