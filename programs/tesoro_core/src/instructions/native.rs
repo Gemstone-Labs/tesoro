@@ -187,6 +187,7 @@ pub(crate) fn open_native_position(
     a.custody.deposited_shares = lst_amount;
     a.custody.redeemed_units = 0;
     a.custody.tracked_shares = lst_amount;
+    a.custody.last_accrual_ts = now()?;
 
     emit!(NativePositionOpened {
         position: position_key,
@@ -270,8 +271,10 @@ pub(crate) fn take_native_advance(
 
 // --- Yield crank -----------------------------------------------------------------------------
 
-/// Anyone can call. Cumulative accrued yield comes from the vault's shares and the pool's rate,
-/// and is applied like the oracle's `YieldAccrued`: Debt is repaid first, the rest is free yield.
+/// Anyone can call. First mints the simulated yield the Position earned since `last_accrual_ts`
+/// (`principal * apy * dt * speedup / year`) into its vault through `sim_lst::mint_yield`, then
+/// reads cumulative accrued yield from the vault's shares and applies it like the oracle's
+/// `YieldAccrued`: Debt is repaid first, the rest is free yield. Nothing accrues after Unlock.
 #[derive(Accounts)]
 pub struct AccrueNativeYield<'info> {
     #[account(
@@ -281,15 +284,26 @@ pub struct AccrueNativeYield<'info> {
     )]
     pub position: Account<'info, PositionState>,
     #[account(
+        mut,
         seeds = [NATIVE_SEED, position.key().as_ref()],
         bump = custody.bump,
         constraint = custody.position == position.key() @ TesoroError::InvalidAccount
     )]
     pub custody: Account<'info, NativeCustody>,
-    #[account(address = custody.vault @ TesoroError::InvalidAccount)]
+    #[account(mut, address = custody.vault @ TesoroError::InvalidAccount)]
     pub vault: Account<'info, TokenAccount>,
     #[account(address = custody.pool @ TesoroError::InvalidPool)]
     pub pool: Account<'info, Pool>,
+    #[account(mut, address = custody.mint @ TesoroError::InvalidMint)]
+    pub mint: Account<'info, Mint>,
+    /// sim_lst's record of the yield authority.
+    #[account(seeds = [sim_lst::YIELD_SEED], seeds::program = sim_lst::ID, bump = yield_config.bump)]
+    pub yield_config: Account<'info, sim_lst::YieldConfig>,
+    /// CHECK: this program's `["yield"]` PDA; it only signs the `mint_yield` CPI.
+    #[account(seeds = [YIELD_SEED], bump)]
+    pub yield_authority: UncheckedAccount<'info>,
+    pub sim_lst_program: Program<'info, sim_lst::program::SimLst>,
+    pub token_program: Program<'info, Token>,
     /// The Position's open Advance, when it has one.
     #[account(
         mut,
@@ -301,8 +315,13 @@ pub struct AccrueNativeYield<'info> {
 }
 
 pub(crate) fn accrue_native_yield(mut ctx: Context<AccrueNativeYield>) -> Result<()> {
+    let bump = ctx.bumps.yield_authority;
     let a = &mut ctx.accounts;
-    let rate = sim_lst::current_rate(&a.pool, now()?)?;
+    let now = now()?;
+    let rate = sim_lst::current_rate(&a.pool, now)?;
+    if a.position.inner.status == ledger::PositionStatus::Locked {
+        mint_accrued_yield(a, now, rate, bump)?;
+    }
     let cumulative = native::accrued_yield(
         a.custody.tracked_shares,
         rate,
@@ -331,6 +350,49 @@ pub(crate) fn accrue_native_yield(mut ctx: Context<AccrueNativeYield>) -> Result
         cumulative,
         debt_gemas: a.source.as_ref().map_or(0, |s| s.inner.debt()),
     });
+    Ok(())
+}
+
+/// Mints the yield earned since `last_accrual_ts` into the vault. When the amount is under one
+/// share the timestamp stays put, so the time carries into the next crank instead of being lost.
+fn mint_accrued_yield(a: &mut AccrueNativeYield, now: i64, rate: u64, bump: u8) -> Result<()> {
+    let dt = now.saturating_sub(a.custody.last_accrual_ts);
+    if dt <= 0 {
+        return Ok(());
+    }
+    let units = sim_lst::yield_units(
+        a.position.inner.principal,
+        u32::from(a.position.inner.rate_bps),
+        dt,
+        a.pool.speedup,
+    )?;
+    let shares = native::shares_for_units_floor(units, rate).map_err(core_err)?;
+    if shares == 0 {
+        return Ok(());
+    }
+    let seeds: &[&[u8]] = &[YIELD_SEED, &[bump]];
+    sim_lst::cpi::mint_yield(
+        CpiContext::new_with_signer(
+            a.sim_lst_program.to_account_info(),
+            sim_lst::cpi::accounts::MintYield {
+                authority: a.yield_authority.to_account_info(),
+                config: a.yield_config.to_account_info(),
+                pool: a.pool.to_account_info(),
+                mint: a.mint.to_account_info(),
+                destination: a.vault.to_account_info(),
+                token_program: a.token_program.to_account_info(),
+            },
+            &[seeds],
+        ),
+        shares,
+    )?;
+    a.vault.reload()?;
+    a.custody.tracked_shares = a
+        .custody
+        .tracked_shares
+        .checked_add(shares)
+        .ok_or(TesoroError::InvalidAccount)?;
+    a.custody.last_accrual_ts = now;
     Ok(())
 }
 
@@ -559,9 +621,12 @@ pub(crate) fn sweep_native_surplus(mut ctx: Context<SweepNativeSurplus>) -> Resu
 
 // --- Migration -------------------------------------------------------------------------------
 
-/// Extends a custody opened before `tracked_shares` existed. Permissionless; the payer covers the
-/// extra rent. The count starts at `min(vault balance, deposited at open)`: shares paid out since
-/// open only lower the balance, and the deposit caps anything added to the vault directly.
+/// Extends a custody opened before `tracked_shares` (original layout) or before `last_accrual_ts`
+/// (tracked layout) to the current one. Permissionless; the payer covers the extra rent. For the
+/// original layout the count starts at `min(vault balance, deposited at open)`: shares paid out
+/// since open only lower the balance, and the deposit caps anything added to the vault directly.
+/// `last_accrual_ts` starts at the migration time: the Position earns the per-Position yield
+/// from here on and keeps whatever the old rate model already gave it.
 #[derive(Accounts)]
 pub struct MigrateNativeCustody<'info> {
     #[account(mut)]
@@ -594,9 +659,9 @@ pub(crate) fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Resu
     let info = a.custody.to_account_info();
     let (deposited, tracked) = {
         let data = info.try_borrow_data()?;
-        require_eq!(
-            data.len(),
-            NativeCustody::LEGACY_SPACE,
+        let len = data.len();
+        require!(
+            len == NativeCustody::LEGACY_SPACE || len == NativeCustody::TRACKED_SPACE,
             TesoroError::InvalidAccount
         );
         require!(
@@ -612,7 +677,16 @@ pub(crate) fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Resu
                 .try_into()
                 .map_err(|_| error!(TesoroError::InvalidAccount))?,
         );
-        (deposited, deposited.min(a.vault.amount))
+        let tracked = if len == NativeCustody::TRACKED_SPACE {
+            u64::from_le_bytes(
+                data[NativeCustody::TRACKED_OFFSET..NativeCustody::TRACKED_OFFSET + 8]
+                    .try_into()
+                    .map_err(|_| error!(TesoroError::InvalidAccount))?,
+            )
+        } else {
+            deposited.min(a.vault.amount)
+        };
+        (deposited, tracked)
     };
     let rent = Rent::get()?.minimum_balance(NativeCustody::SPACE);
     let missing = rent.saturating_sub(info.lamports());
@@ -630,7 +704,9 @@ pub(crate) fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Resu
     }
     info.resize(NativeCustody::SPACE)?;
     let mut data = info.try_borrow_mut_data()?;
-    data[NativeCustody::LEGACY_SPACE..].copy_from_slice(&tracked.to_le_bytes());
+    data[NativeCustody::LEGACY_SPACE..NativeCustody::TRACKED_SPACE]
+        .copy_from_slice(&tracked.to_le_bytes());
+    data[NativeCustody::TRACKED_SPACE..].copy_from_slice(&now()?.to_le_bytes());
     emit!(NativeCustodyMigrated {
         position: a.position.key(),
         deposited_shares: deposited,

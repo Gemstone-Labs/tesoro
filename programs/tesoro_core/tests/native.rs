@@ -24,9 +24,9 @@ const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
 /// $150 per SOL, micro-USD.
 const PRICE: u64 = 150_000_000;
-/// One month of yield takes 600 s, but the pool accrues simple interest per 30-day month while the
-/// Advance projects 1/12 of a year, so a Horizon of one month is repaid a little after 600 s.
-const MONTH: i64 = 610;
+/// One simulated month (1/12 year) of per-Position yield takes 600 s at the 4,380x speedup, so an
+/// Advance of N months is repaid after N * MONTH seconds.
+const MONTH: i64 = 600;
 
 const ERR_INVALID_ACCOUNT: u32 = 6003;
 const ERR_BAD_REMAINING: u32 = 6004;
@@ -178,6 +178,22 @@ impl Env {
         let admin = env.admin.insecure_clone();
         env.send(&[init_pool], &admin, &[]).expect("init pool");
 
+        let set_yield_authority = ix(
+            sim_lst::ID,
+            sim_lst::accounts::SetYieldAuthority {
+                admin: a(env.admin.pubkey()),
+                pool,
+                config: sim_pda(&[sim_lst::YIELD_SEED]),
+                system_program: anchor_lang::system_program::ID,
+            },
+            sim_lst::instruction::SetYieldAuthority {
+                authority: pda(&[YIELD_SEED]),
+            },
+            vec![],
+        );
+        env.send(&[set_yield_authority], &admin, &[])
+            .expect("set yield authority");
+
         let platform = env.person();
         let init = tix(
             accounts::InitializeConfig {
@@ -241,6 +257,14 @@ impl Env {
     fn advance(&mut self, secs: i64) {
         let t = self.now() + secs;
         self.set_time(t);
+    }
+
+    /// Total simSOL minted (faucet plus minted yield).
+    fn supply(&self) -> u64 {
+        let acct = self.svm.get_account(&s(self.mint)).expect("mint");
+        spl_token::state::Mint::unpack(&acct.data)
+            .expect("mint")
+            .supply
     }
 
     fn rate(&self) -> u64 {
@@ -418,6 +442,11 @@ impl Env {
                 custody: pos.custody,
                 vault: pos.vault,
                 pool: self.pool,
+                mint: self.mint,
+                yield_config: sim_pda(&[sim_lst::YIELD_SEED]),
+                yield_authority: pda(&[YIELD_SEED]),
+                sim_lst_program: sim_lst::ID,
+                token_program: TOKEN_PROGRAM_ID,
                 source,
             },
             instruction::AccrueNativeYield {},
@@ -664,8 +693,13 @@ fn f05_donating_simsol_to_the_vault_does_not_repay_debt() {
     // Real yield still counts, and only on the tracked shares.
     env.advance(300);
     env.crank(&donor.kp, pos).expect("crank");
-    let expected =
-        native::accrued_yield(10 * SOL, env.rate(), 0, env.position(pos).principal).unwrap();
+    let expected = native::accrued_yield(
+        env.custody(pos).tracked_shares,
+        env.rate(),
+        0,
+        env.position(pos).principal,
+    )
+    .unwrap();
     assert_eq!(env.position(pos).cumulative_yield, expected);
     env.check_invariants(pos);
 }
@@ -781,7 +815,13 @@ fn anyone_can_crank_and_yield_repays_debt() {
     env.advance(300);
     env.crank(&cranker.kp, pos).expect("crank");
     let position = env.position(pos);
-    let expected = native::accrued_yield(10 * SOL, env.rate(), 0, position.principal).unwrap();
+    let expected = native::accrued_yield(
+        env.custody(pos).tracked_shares,
+        env.rate(),
+        0,
+        position.principal,
+    )
+    .unwrap();
     assert_eq!(position.cumulative_yield, expected);
     let debt = env.debt(source);
     assert!(debt > 0 && debt < 874, "debt {debt}");
@@ -1030,7 +1070,7 @@ fn unlock_needs_zero_debt_and_returns_principal_shares_to_the_owner() {
     assert!(env.token_balance(pos.vault) <= 1);
     assert_eq!(
         env.token_balance(alice.token) + env.token_balance(pos.vault),
-        10 * SOL
+        env.supply()
     );
     assert!(env.token_balance(alice.token) > redeemed_shares);
     // The owner ends with at least the SOL value of the Principal plus all the yield.
@@ -1070,7 +1110,7 @@ fn unlock_keeps_the_yield_owed_to_other_holders_in_the_vault_until_they_redeem()
     assert!(env.token_balance(pos.vault) <= 1);
     assert_eq!(
         env.token_balance(alice.token) + env.token_balance(pos.vault),
-        10 * SOL
+        env.supply()
     );
 }
 
@@ -1273,7 +1313,7 @@ proptest! {
         env.advance_native(&alice, pos, 2).unwrap();
         let cranker = env.person();
         let total = |env: &Env| env.token_balance(alice.token) + env.token_balance(pos.vault);
-        prop_assert_eq!(total(&env), 10 * SOL);
+        prop_assert_eq!(total(&env), env.supply());
 
         for op in ops {
             let before_cum = env.position(pos).cumulative_yield;
@@ -1332,7 +1372,7 @@ proptest! {
             prop_assert!(position.cumulative_yield >= before_cum);
             prop_assert!(env.custody(pos).redeemed_units >= before_paid);
             // Shares are conserved: they are in the vault or in the owner's wallet.
-            prop_assert_eq!(total(&env), 10 * SOL);
+            prop_assert_eq!(total(&env), env.supply());
             env.check_invariants(pos);
         }
     }
@@ -1357,4 +1397,237 @@ fn cu_profile_accrue_native_yield() {
         env.last_cu
     );
     assert!(with_debt < 100_000 && env.last_cu < 100_000);
+}
+
+// --- Per-Position yield (docs/yield-model.md) -------------------------------------------------
+
+/// Sets the pool's constant rate, as a devnet pool that grew under the old model and was then
+/// checkpointed.
+fn set_pool_rate(env: &mut Env, rate: u64) {
+    let mut acct = env.svm.get_account(&s(env.pool)).expect("pool");
+    // disc 8, admin 32, mint 32, then base_rate
+    acct.data[72..80].copy_from_slice(&rate.to_le_bytes());
+    env.svm.set_account(s(env.pool), acct).expect("set");
+}
+
+fn mint_yield_ix(env: &Env, authority: APk, destination: APk, shares: u64) -> Instruction {
+    ix(
+        sim_lst::ID,
+        sim_lst::accounts::MintYield {
+            authority,
+            config: sim_pda(&[sim_lst::YIELD_SEED]),
+            pool: env.pool,
+            mint: env.mint,
+            destination,
+            token_program: TOKEN_PROGRAM_ID,
+        },
+        sim_lst::instruction::MintYield { shares },
+        vec![],
+    )
+}
+
+#[test]
+fn an_advance_of_n_months_is_repaid_in_n_times_a_month_for_any_principal_and_rate() {
+    for rate in [SOL, 3_720_000_000, 7_000 * SOL] {
+        for months in [1u8, 3, 12] {
+            let mut env = Env::new();
+            set_pool_rate(&mut env, rate);
+            let alice = env.staker();
+            // Two Positions of very different size opened at the same moment.
+            let mut positions = vec![];
+            for shares in [2 * SOL, SOL / 20] {
+                let pos = env.open(&alice, shares).unwrap();
+                let source = env.advance_native(&alice, pos, months).unwrap();
+                positions.push((pos, source));
+            }
+            let total = i64::from(months) * MONTH;
+            let early = total / 10;
+            env.advance(total - early);
+            for (pos, source) in &positions {
+                env.crank(&alice.kp, *pos).unwrap();
+                assert!(env.debt(*source) > 0, "not repaid {early} s early");
+                env.check_invariants(*pos);
+            }
+            env.advance(early + 1);
+            for (pos, source) in &positions {
+                env.crank(&alice.kp, *pos).unwrap();
+                assert_eq!(
+                    env.debt(*source),
+                    0,
+                    "rate {rate} months {months}: repaid at {} s",
+                    total + 1
+                );
+                env.check_invariants(*pos);
+            }
+        }
+    }
+}
+
+#[test]
+fn the_rate_does_not_grow() {
+    let mut env = Env::new();
+    let before = env.rate();
+    env.advance(30 * 24 * 3_600);
+    assert_eq!(env.rate(), before);
+}
+
+#[test]
+fn yield_accrues_linearly_on_the_principal_and_is_minted_into_the_vault() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    assert_eq!(env.custody(pos).last_accrual_ts, T0);
+    env.advance(MONTH);
+    env.crank(&alice.kp, pos).unwrap();
+    // 7% a year over one simulated month on 10 SOL, minted as simSOL at rate 1.0.
+    let expected = 10 * SOL * 700 / 10_000 / 12;
+    let custody = env.custody(pos);
+    assert_eq!(custody.tracked_shares, 10 * SOL + expected);
+    assert_eq!(env.token_balance(pos.vault), 10 * SOL + expected);
+    assert_eq!(custody.last_accrual_ts, T0 + MONTH);
+    assert_eq!(env.position(pos).cumulative_yield, expected);
+    // Cranking again in the same second mints nothing more.
+    env.crank(&alice.kp, pos).unwrap();
+    assert_eq!(env.token_balance(pos.vault), 10 * SOL + expected);
+}
+
+#[test]
+fn yield_that_rounds_to_zero_shares_carries_its_time() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 1_000).unwrap();
+    env.advance(1);
+    env.crank(&alice.kp, pos).unwrap();
+    assert_eq!(
+        env.custody(pos).last_accrual_ts,
+        T0,
+        "time kept until a share is due"
+    );
+    assert_eq!(env.token_balance(pos.vault), 1_000);
+    env.advance(3_600_000);
+    env.crank(&alice.kp, pos).unwrap();
+    assert!(env.token_balance(pos.vault) > 1_000);
+}
+
+#[test]
+fn nothing_accrues_after_unlock() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH + 1);
+    env.crank(&alice.kp, pos).unwrap();
+    assert_eq!(env.debt(source), 0);
+    env.redeem(&alice, pos, source, 874).expect("redeem");
+    env.unlock(&alice, pos).expect("unlock");
+    let shares = env.custody(pos).tracked_shares;
+    env.advance(10 * MONTH);
+    env.crank(&alice.kp, pos).unwrap();
+    assert_eq!(env.custody(pos).tracked_shares, shares);
+    env.check_invariants(pos);
+}
+
+#[test]
+fn only_the_recorded_yield_authority_can_mint_yield() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, SOL).unwrap();
+    for who in [
+        &alice.kp,
+        &env.admin.insecure_clone(),
+        &env.oracle.insecure_clone(),
+    ] {
+        let ix = mint_yield_ix(&env, a(who.pubkey()), pos.vault, SOL);
+        let err = env.send(&[ix], who, &[]).expect_err("must be refused");
+        assert_eq!(code(&err), 6000, "Unauthorized");
+    }
+    assert_eq!(env.token_balance(pos.vault), SOL);
+}
+
+#[test]
+fn the_crank_only_calls_the_real_sim_lst() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, SOL).unwrap();
+    env.advance(MONTH);
+    let mut ix = tix(
+        accounts::AccrueNativeYield {
+            position: pos.position,
+            custody: pos.custody,
+            vault: pos.vault,
+            pool: env.pool,
+            mint: env.mint,
+            yield_config: sim_pda(&[sim_lst::YIELD_SEED]),
+            yield_authority: pda(&[YIELD_SEED]),
+            sim_lst_program: anchor_lang::system_program::ID,
+            token_program: TOKEN_PROGRAM_ID,
+            source: None,
+        },
+        instruction::AccrueNativeYield {},
+        vec![],
+    );
+    assert!(env.send(&[ix.clone()], &alice.kp, &[]).is_err());
+    // A mint other than the custody's is refused too.
+    ix.accounts[4].pubkey = s(pos.vault);
+    assert!(env.send(&[ix], &alice.kp, &[]).is_err());
+    assert_eq!(env.token_balance(pos.vault), SOL);
+}
+
+/// Rewrites the custody as it was after F-05 and before the per-Position yield (no `last_accrual_ts`).
+fn make_tracked_only(env: &mut Env, pos: Pos) {
+    let mut acct = env.svm.get_account(&s(pos.custody)).expect("custody");
+    acct.data.truncate(NativeCustody::TRACKED_SPACE);
+    env.svm.set_account(s(pos.custody), acct).expect("set");
+}
+
+#[test]
+fn migration_of_a_pre_upgrade_custody_starts_earning_at_the_new_rate_from_now() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    make_tracked_only(&mut env, pos);
+    let cranker = env.person();
+    assert!(
+        env.crank(&cranker.kp, pos).is_err(),
+        "unreadable until migrated"
+    );
+
+    env.advance(5_000); // the upgrade lands long after the custody was opened
+    let migrate = migrate_ix(&env, &cranker, pos);
+    env.send(&[migrate], &cranker.kp, &[]).expect("migrate");
+    let custody = env.custody(pos);
+    assert_eq!(
+        custody.tracked_shares,
+        10 * SOL,
+        "tracked count carried over"
+    );
+    assert_eq!(custody.last_accrual_ts, T0 + 5_000);
+    let migrate = migrate_ix(&env, &cranker, pos);
+    assert!(
+        env.send(&[migrate], &cranker.kp, &[]).is_err(),
+        "twice is refused"
+    );
+
+    // No back pay for the 5,000 s before the migration, then the schedule runs from there.
+    env.crank(&cranker.kp, pos).unwrap();
+    assert_eq!(env.token_balance(pos.vault), 10 * SOL);
+    env.advance(MONTH + 1);
+    env.crank(&cranker.kp, pos).unwrap();
+    assert_eq!(env.debt(source), 0);
+    env.check_invariants(pos);
+}
+
+#[test]
+fn migration_still_accepts_the_original_layout() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    make_legacy(&mut env, pos);
+    let cranker = env.person();
+    let migrate = migrate_ix(&env, &cranker, pos);
+    env.send(&[migrate], &cranker.kp, &[]).expect("migrate");
+    let custody = env.custody(pos);
+    assert_eq!(custody.tracked_shares, 10 * SOL);
+    assert_eq!(custody.last_accrual_ts, T0);
 }
