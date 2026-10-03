@@ -20,7 +20,7 @@ The **Principal is never played** and never pays Debt. Accrued yield repays the 
 
 | Real (on testnets) | Simulated, stand-in or not done |
 |---|---|
-| Six Solana programs on devnet: the `tesoro_core` ledger, the `block_puzzle`, `holdem` and `trading_duel` Game programs, the `tesoro_bridge` LayerZero OApp, and `sim_lst` | **Yield is Simulated.** `sim_lst` (simSOL, 7% APY) and the Hoodi `SimLST` (simETH, 5% APY) run a 4,320× clock: 1 month of yield every 10 minutes. Their faucets mint unbacked test tokens. |
+| Six Solana programs on devnet: the `tesoro_core` ledger, the `block_puzzle`, `holdem` and `trading_duel` Game programs, the `tesoro_bridge` LayerZero OApp, and `sim_lst` | **Yield is Simulated.** `sim_lst` (simSOL, 7% APY) and the Hoodi `SimLST` (simETH, 5% APY) run a 4,380× clock: 1 month of yield every 10 minutes. Their faucets mint unbacked test tokens. |
 | Matches settled on chain from a **MagicBlock Private Ephemeral Rollup** (Intel TDX TEE). The deck, the hole cards, the Block Puzzle Seed and each Player's moves stay private until settlement. | **Prices come from a trusted oracle key.** The SOL/USD issuance price is an on-chain devnet `PriceFeed` that the keeper writes with the oracle key (median of CoinGecko and Coinbase spot). The ETH issuance price is signed by the same key. Reading Pyth on chain is planned. |
 | ETH Positions on **Ethereum Hoodi**, carried to the Solana ledger by **LayerZero V2**: open, Advance, yield report, Redeem to Hoodi and Unlock, all tested end to end | The full ETH round trip ran on the previous Hoodi vault. The current vault (redeployed 2026-10-01 for SP-01) was smoke-tested for open and yield, not for Redeem and Unlock. |
 | HYPE Positions on **HyperEVM testnet** over the same bridge: open, Advance, yield report and Redeem payout (Solana to HyperEVM) delivered on chain; opened from the Wallet's HYPE tab | **Simulated** simHYPE (1 month = 10 min). Unlock was not run on HyperEVM, and a wallet needs its own testnet HYPE (no faucet to relay). |
@@ -68,7 +68,7 @@ Base-layer RPC: `https://rpc.magicblock.app/devnet` (the public `api.devnet.sola
 | `trading_duel` delegation ProgramConfig (TEE validator whitelist) | `43amrCapYPLYz9tGPcdxw84A3Hby9j4kSTmDTCmu7xZb` |
 | MagicBlock TEE validator (the only validator allowed to receive delegations) | `MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo` |
 | `sim_lst` (**Simulated** LST) | [`WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F`](https://explorer.solana.com/address/WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F?cluster=devnet) |
-| `sim_lst` Pool PDA (7% APY, 4,320× speedup) | `Fc9UUnGEDapkBDM3mPayjqVDLYHokKCPwSLdbvKBUvPL` |
+| `sim_lst` Pool PDA (7% APY, 4,380× speedup) | `Fc9UUnGEDapkBDM3mPayjqVDLYHokKCPwSLdbvKBUvPL` |
 | simSOL mint PDA (9 decimals) | `3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ` |
 | `sim_lst` vault / reserve PDA | `2fQyEVMJNzGmaccxpbzhqMRFSpx9mf1kjsZRAMMRNKDm` |
 | `tesoro_bridge` (LayerZero V2 OApp) | [`5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ`](https://explorer.solana.com/address/5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ?cluster=devnet) |

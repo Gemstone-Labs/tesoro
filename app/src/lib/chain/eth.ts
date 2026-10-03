@@ -94,7 +94,7 @@ const RETIRED_HYPEREVM_VAULTS = ["0x23b17a4c55867406e7cd5602c664e1447400c4a3".to
 
 export const WEI = 10n ** 18n;
 export const ETH_DECIMALS = 18;
-/** Wall-clock minutes of one simulated month (SimLST speedup 4,320). */
+/** Wall-clock minutes of one simulated month (SimLST speedup 4,380). */
 export const ETH_SIM_MONTH_MIN = 10;
 /** The vault's own `principalUnderlying` must fit u64 on Solana. */
 export const MAX_PRINCIPAL_WEI = (1n << 64n) - 1n;

@@ -10,7 +10,7 @@ Every Position earns, from the moment it opens:
 yield(t) = principal * apy * simulated_elapsed(t) / year          simulated_elapsed = real_elapsed * speedup
 ```
 
-linear on its own Principal (no compounding), on every chain. `apy` is the Position's own `rate_bps` (set at open from the pool); `speedup` is 4,320 (1 simulated month = 10 real minutes). An Advance of `N` months is `principal * apy * N / 12`, so it is repaid in exactly `N * 10` minutes for every Position, today and on Oct 12.
+linear on its own Principal (no compounding), on every chain. `apy` is the Position's own `rate_bps` (set at open from the pool); `speedup` is 4,380 (1 simulated month = 1/12 year = 600 real seconds; the old 4,320 is 30 days per 600 s, which repaid an N-month Advance after about N x 10.14 minutes). An Advance of `N` months is `principal * apy * N / 12`, so it is repaid in exactly `N * 10` minutes for every Position, today and on Oct 12.
 
 The LST exchange rate (`sim_lst` Pool rate, `SimLST.underlyingPerShare()`) is **constant**. It stays at the value it had when the model changed, so existing simSOL / simETH keeps its underlying value. Deposit and withdraw price at that constant rate.
 

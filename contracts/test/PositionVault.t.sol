@@ -101,9 +101,9 @@ contract PositionVaultSimTest is VaultBase {
         vm.warp(block.timestamp + 5 minutes);
         uint64 b = _open(4 ether); // opens later, earns from its own open time
         vm.warp(block.timestamp + 10 minutes);
-        // 5% APY, speedup 4320: yield = P * 500 * 4320 * dt / (10_000 * 365 days)
-        uint256 ya = (uint256(6 ether) * 500 * 4320 * 15 minutes) / (10_000 * 365 days);
-        uint256 yb = (uint256(4 ether) * 500 * 4320 * 10 minutes) / (10_000 * 365 days);
+        // 5% APY, speedup 4380: yield = P * 500 * 4380 * dt / (10_000 * 365 days)
+        uint256 ya = (uint256(6 ether) * 500 * 4380 * 15 minutes) / (10_000 * 365 days);
+        uint256 yb = (uint256(4 ether) * 500 * 4380 * 10 minutes) / (10_000 * 365 days);
         assertApproxEqAbs(vault.accruedYield(a), ya, 2);
         assertApproxEqAbs(vault.accruedYield(b), yb, 2);
         assertEq(lst.underlyingPerShare(), 1e18, "rate does not move");
@@ -120,15 +120,14 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(lst.totalSupply(), lst.faucetAmount() + lst.balanceOf(address(vault)) - 10 ether);
     }
 
-    /// An Advance of N months (principal * apy * N / 12) is repaid by N * 10 minutes, within the 30-day vs
-    /// 365/12-day rounding of the speedup (about 1.4%).
+    /// An Advance of N months (principal * apy * N / 12) is repaid at exactly N * 10 minutes (speedup 4,380).
     function test_advanceOfNMonthsIsRepaidInNTimesTenMinutes() public {
         uint64 id = _open(10 ether);
         for (uint256 n = 1; n <= 12; n++) {
             uint256 advance = (10 ether * 500 * n) / (10_000 * 12);
-            vm.warp(vault.getPosition(id).openTime + n * 10 minutes * 1015 / 1000);
+            vm.warp(vault.getPosition(id).openTime + n * 10 minutes);
             assertGe(vault.accruedYield(id), advance, "repaid");
-            vm.warp(vault.getPosition(id).openTime + n * 10 minutes * 980 / 1000);
+            vm.warp(vault.getPosition(id).openTime + n * 10 minutes - 1);
             assertLt(vault.accruedYield(id), advance, "not before");
         }
     }

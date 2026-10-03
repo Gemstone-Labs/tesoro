@@ -30,7 +30,7 @@ contract SimLST is IRateSource {
     /// @notice Only this address may `mint` (the PositionVault that accrues simulated yield).
     address public minter;
     uint256 public apyBps = 500;
-    uint256 public speedup = 4320; // 30 days per 600 s
+    uint256 public speedup = 4380; // 1/12 year per 600 s
 
     uint256 public faucetAmount = 10 ether;
     uint256 public faucetCooldown = 1 hours;
