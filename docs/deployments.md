@@ -20,6 +20,23 @@ The wstETH vault on Hoodi (`0x61B46f64CDB75930a87955487aAb8A7711F757b5`) is not 
 
 Smoke test (2026-10-03, Position id 1 on each new vault, owner = deployer EVM address, linked to the bridge demo Account; 1 simETH / 1 simHYPE, 1-month Advance): Hoodi `init_position` `284QUqky…bZXHfz`, `openPosition` `0xb26e75db776d82719f2c3935a9a1160cb631840b5fd05cd5048bedcad9ddbc7a` (04:57:14 UTC), `take_advance` `4vR37YC6…zTKxzD` (1,249 Gemas at $3,000/ETH), `reportYield` `0x9f684805db8cd7990117c31c0114cc4ad23cb6e0dbf14011a19c9f795a87a116` (05:12:49, accrued 6.4932e15 wei = 1 ETH x 5% x 4,320 x 932 s / year), `apply_yield` `5LemYigo…zqXgvfy3XRA`: Debt 1,249 to 0. HyperEVM: `init_position` `5CwEtVH9…A7gN7y`, `openPosition` `0x86c6414820bbc6b368cad7e9cc2fe05a5d4bc127e0404e62336ccd37ce13aae0` (04:57:37), `take_advance` `4XKNjquW…rGh13` (10 Gemas at $0.025/HYPE), `reportYield` `0xce978d901e8e095d58ce5d0cc5d5f2d477ac03dae5ff82699ee5b2af5a3fd1cc`, Debt 0. The Advance is repaid when yield since OPEN reaches `principal x 5% / 12` (4.1667e15 wei), about 10.1 min after open at the then speedup of 4,320 (30-day month against 1/12 year); both messages DELIVERED. Both SimLSTs were then set to speedup 4,380 (`setRateParams(500, 4380)`: Hoodi `0xd8bfcbf86fae61c0e821c79aabeec9079366e10654b0ebb84df18ccf7df50f64`, HyperEVM `0x8adb35f2ae8d55f745caca260b0fbe99dd19bf9b1ac69e60c2e80e8e6587da6c`) so a month is exactly 10 minutes. Redeem/Unlock were not re-run on the new vaults.
 
+## Per-Position yield: Solana cutover (2026-10-03)
+
+Model: `docs/yield-model.md`, ADR 0005. Deployer `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`. Scripts: `keeper/scripts/yield-cutover.ts`, `migrate-custody.ts`, `yield-smoke.ts`, `yield-crank.ts`.
+
+| Step | Signature |
+|---|---|
+| Borrowed 2.9 SOL (bridge-demo-owner) and 2.95 SOL (relayer) to the deployer for buffer rent | `4D6ioZJz...RL34`, `2TnbUCtw...MfQezm` |
+| `yield-cutover pre`: old `set_params` rebases `base_rate` at the then-current rate and sets speedup 4,380 | `3N161p7U...zPgCF` |
+| `sim_lst` extend +25,000 bytes, upgrade (401,160 bytes) | `43FhC7xy...GmGCF` |
+| `tesoro_core` extend +20,000 bytes, upgrade (1,015,664 bytes) | `4SwBKNjq...LqKB` (see `solana program show`) |
+| `set_yield_authority` (tesoro_core `["yield"]` PDA `C9zdFERGijamSQVQ1D4hE3iabc99g1XcurKCnS6CuSAf`, config `EwAQxNE81ifE8r5vu9p1X5eGmPoNBucj2n9ooETL8BtY`) | `agMKcMqC...eremeoN2L` |
+| `fund_reserve` 2 SOL | `2faitCFh...W8BLe` |
+| `migrate_native_custody` x45 (all custodies, 194/202 to 210 bytes, `last_accrual_ts` = migration time) | see `migrate-custody` output; second run reports 0 legacy |
+| Repaid borrowed SOL: relayer first (2.95), then bridge-demo-owner (2.9) | `2uN6PppcxR...Ym3`, `2FxEzc1e...RFFYMS` |
+
+Smoke test: a fresh wallet (`6QrYEa7NhAqz2DcTpiHrxvzq6Gz5VYWUcPxEUjTr3ARG`) opened Position `Eu2m8cLkAgzyijDz1Hjasm6eAJjGHQMmfVpkgdPKqVAy` (5 simSOL, 1-month Advance, open tx `MnqT2BNP...nfocni49s`). Cranking every ~21 s took Debt 1,377 to 0 in about 10 minutes (about 50 per crank, linear); last crank `3MoVzhk8...hC` (open Advance cleared). The Wallet quote reads 1 month about 10 min, 3 months about 30 min, 12 months about 120 min.
+
 ## Trading Duel (2026-10-03)
 
 Deployer / upgrade authority `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` (`~/.config/solana/dev-2026-10.json`) via `https://rpc.magicblock.app/devnet`. Design and rules: `docs/games/trading-duel.md`.
