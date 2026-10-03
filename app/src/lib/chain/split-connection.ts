@@ -34,7 +34,7 @@ export const routeGpa: GpaFn = (programId, config) => {
   const hit = recent.get(key);
   if (hit && Date.now() - hit.at < SHARE_MS) return hit.p;
   const p = (async () => {
-    const res = await fetch(`${GPA_ROUTE}?${key}`);
+    const res = await fetch(`${GPA_ROUTE}?${key}`, { signal: AbortSignal.timeout(20_000) });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       throw new Error(body?.error ?? `List query failed (${res.status})`);

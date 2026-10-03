@@ -111,4 +111,21 @@ describe("gpa list cache (OC-03)", () => {
     await Promise.all(all);
     expect(calls).toBe(1);
   });
+
+  it("replaces a shared upstream call older than the timeout instead of awaiting it", async () => {
+    let t = 0;
+    let calls = 0;
+    const fetch = (async () => {
+      calls++;
+      // The first call never settles: its invocation was frozen mid-flight.
+      if (calls === 1) return new Promise<Response>(() => undefined);
+      return Response.json({ result: [] });
+    }) as typeof globalThis.fetch;
+    const lists = createListCache({ fetch, now: () => t });
+    void lists.getAccounts(q(`program=${CORE}&filter=m:0:${MATCH}`)).catch(() => undefined);
+    await Promise.resolve();
+    t = 25_000;
+    await expect(lists.getAccounts(q(`program=${CORE}&filter=m:0:${MATCH}`))).resolves.toEqual([]);
+    expect(calls).toBe(2);
+  });
 });

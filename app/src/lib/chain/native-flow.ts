@@ -3,7 +3,7 @@ import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
-import { createAccountIx, ensureReady } from "./match-flow";
+import { createAccountIx } from "./match-flow";
 import { ensureSol, type GetToken } from "./demo-client";
 import {
   accrueNativeYieldIx,
@@ -42,20 +42,27 @@ export async function getTestSimSol(signer: ChainSigner, getToken: GetToken, onS
   return send(signer, account ? [faucet] : [await createAccountIx(signer.publicKey), faucet]);
 }
 
-/** One transaction: `open_native_position` (deposits simSOL) + `take_native_advance` (the Horizon). */
+/**
+ * One transaction: `open_native_position` (deposits simSOL) + `take_native_advance` (the Horizon), with
+ * `create_account` in front when the wallet has no Account yet. Reads only the Account and the SOL balance.
+ */
 export async function openPositionWithAdvance(
   signer: ChainSigner,
   getToken: GetToken,
   simSolBaseUnits: bigint,
   months: number,
+  onStep: (s: string) => void = () => undefined,
 ): Promise<{ signature: string; position: string }> {
-  await ensureReady(signer, getToken);
+  onStep("Preparing");
+  const [account] = await Promise.all([
+    getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
+    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for fees")),
+  ]);
   const nonce = BigInt(Date.now());
   const position = await positionPda(signer.publicKey, nonce);
-  const signature = await send(signer, [
-    openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position),
-    takeNativeAdvanceIx(signer.publicKey, position, 0, months),
-  ]);
+  const ixs = [openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position), takeNativeAdvanceIx(signer.publicKey, position, 0, months)];
+  onStep("Opening the Position");
+  const signature = await send(signer, account ? ixs : [await createAccountIx(signer.publicKey), ...ixs]);
   return { signature, position: position.toBase58() };
 }
 

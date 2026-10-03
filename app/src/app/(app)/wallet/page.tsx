@@ -23,7 +23,7 @@ import "./wallet.css";
 const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
 
 export default function Wallet() {
-  const { gemas, positions, holdings, auth, onChain, loading, snapshot } = useAccount();
+  const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
   const [demoOpen, setDemoOpen] = useState(false);
   const [tab, setTab] = useState<Chain>("SOL");
   const [nativeRedeemOpen, setNativeRedeemOpen] = useState(false);
@@ -145,23 +145,26 @@ export default function Wallet() {
           <h2>Total Balance</h2>
           <div className="wl-total-fig">
             <GemaMark size={72} glint />
-            <b>
-              <CountUp value={gemas.total} />
-            </b>
+            <b aria-busy={!ready}>{ready ? <CountUp value={gemas.total} /> : "—"}</b>
             <span>Gemas</span>
           </div>
         </div>
         <div className="wl-second">
           <div className="wl-redeemable" aria-label="Redeemable now">
             <h2>Redeemable now</h2>
-            <b>{fmtGemas(redeemAmount)}</b>
+            <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>
             <Button variant="money" disabled={redeemAmount === 0} onClick={openRedeem}>Redeem</Button>
           </div>
           <div className="wl-pending" aria-label="Pending">
             <h2>Pending</h2>
-            <b>{fmtGemas(gemas.pending)}</b>
+            <b>{ready ? fmtGemas(gemas.pending) : "—"}</b>
           </div>
         </div>
+        {error && (
+          <p className="status err wl-hero-err" role="alert">
+            Could not read your Account from Solana devnet. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
+          </p>
+        )}
         <SimulatedYieldLabel className="wl-hero-sim" />
         <details className="wl-pbs">
           <summary>Pending by Source</summary>

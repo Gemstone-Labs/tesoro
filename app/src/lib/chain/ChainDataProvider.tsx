@@ -15,6 +15,15 @@ const EMPTY: ChainData = { snapshot: null, loading: false, error: null, refresh:
 const Ctx = createContext<ChainData>(EMPTY);
 
 const POLL_MS = 12_000;
+/** A read that has not answered by then is dropped, so a hung request cannot freeze the Account. */
+const READ_TIMEOUT_MS = 30_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("Reading your Account from Solana devnet timed out.")), ms);
+    p.then(resolve, reject).finally(() => clearTimeout(t));
+  });
+}
 
 /** Reads the signed-in Account's on-chain state (tesoro_core) and keeps it fresh. */
 export function ChainDataProvider({ children }: { children: ReactNode }) {
@@ -25,11 +34,11 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
     snapshot: null,
     error: null,
   });
-  const inflight = useRef(false);
+  const inflight = useRef<Promise<void> | null>(null);
+  const again = useRef(false);
 
-  const load = useCallback(async () => {
-    if (!address || inflight.current) return;
-    inflight.current = true;
+  const readOnce = useCallback(async () => {
+    if (!address) return;
     try {
       const { demoMode, demoSnapshot } = await import("./fixture");
       if (demoMode()) {
@@ -37,23 +46,42 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
         return;
       }
       const [{ PublicKey }, { fetchSnapshot }] = await Promise.all([import("@solana/web3.js"), import("./read")]);
-      const snapshot = await fetchSnapshot(new PublicKey(address));
+      const snapshot = await withTimeout(fetchSnapshot(new PublicKey(address)), READ_TIMEOUT_MS);
       setState({ address, snapshot, error: null });
     } catch (e) {
+      console.warn("[chain] Account read failed", e);
       setState((s) => ({ address, snapshot: s.address === address ? s.snapshot : null, error: e instanceof Error ? e.message : String(e) }));
-    } finally {
-      inflight.current = false;
     }
   }, [address]);
 
+  // One read at a time. A refresh during a read (after a transaction) waits for it and reads once more, so it sees the new state; a poll just skips.
+  const load = useCallback((fresh: boolean): Promise<void> => {
+    if (inflight.current) {
+      if (fresh) again.current = true;
+      return inflight.current;
+    }
+    const run = (async () => {
+      do {
+        again.current = false;
+        await readOnce();
+      } while (again.current);
+    })().finally(() => {
+      inflight.current = null;
+    });
+    inflight.current = run;
+    return run;
+  }, [readOnce]);
+
   useEffect(() => {
     if (!address) return;
-    void load();
+    void load(false);
     const t = setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void load(false);
     }, POLL_MS);
     return () => clearInterval(t);
   }, [address, load]);
+
+  const refresh = useCallback(() => load(true), [load]);
 
   const value = useMemo<ChainData>(() => {
     const mine = state.address === address;
@@ -61,9 +89,9 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
       snapshot: mine ? state.snapshot : null,
       loading: !!address && (!mine || (state.snapshot === null && state.error === null)),
       error: mine ? state.error : null,
-      refresh: load,
+      refresh,
     };
-  }, [state, address, load]);
+  }, [state, address, refresh]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

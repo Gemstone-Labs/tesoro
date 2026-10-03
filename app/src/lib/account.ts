@@ -30,6 +30,10 @@ export interface AccountView {
    */
   onChain: boolean;
   loading: boolean;
+  /** True once `gemas` are real figures (mock data, or the chain snapshot has been read); false while sign-in or the first read is pending. */
+  ready: boolean;
+  /** Why the last chain read failed, while no snapshot is shown; null otherwise. */
+  error: string | null;
   /** This Account's Matches that are not finished yet (Open or Active), newest first. Empty when mock. */
   openMatches: ChainMatch[];
   /** The raw chain snapshot (null while loading or when mock). */
@@ -147,9 +151,11 @@ export function useAccount(): AccountView {
   const auth = useAuth();
   const chain = useChainData();
   const onChain = auth.status === "signed-in";
+  // Mock data only where there is no session to read for: never while Privy is still deciding.
+  const mock = auth.status === "signed-out" || auth.status === "unconfigured";
 
   const real = chain.snapshot ? fromSnapshot(chain.snapshot) : null;
-  const holdings = onChain ? (real?.holdings ?? []) : mockHoldings;
+  const holdings = mock ? mockHoldings : (real?.holdings ?? []);
   const total = holdings.reduce((s, h) => s + h.gemas, 0);
   const reserved = onChain ? (chain.snapshot?.holdings.reduce((s, h) => s + Number(h.reserved), 0) ?? 0) : 0;
   const redeemable = holdings.reduce((s, h) => s + redeemableOf(h), 0);
@@ -161,12 +167,14 @@ export function useAccount(): AccountView {
   return {
     account,
     auth,
-    positions: onChain ? (real?.positions ?? []) : mockPositions,
+    positions: mock ? mockPositions : (real?.positions ?? []),
     holdings,
-    matches: onChain ? (real?.matches ?? []) : mockMatches,
+    matches: mock ? mockMatches : (real?.matches ?? []),
     gemas: { total, redeemable, pending: total - redeemable, reserved, available: total - reserved },
     onChain,
-    loading: onChain && chain.loading,
+    loading: auth.status === "loading" || (onChain && (chain.loading || !auth.addresses.solana)),
+    ready: mock || (onChain && chain.snapshot !== null),
+    error: onChain && !chain.snapshot ? chain.error : null,
     openMatches: real?.openMatches ?? [],
     snapshot: chain.snapshot,
     refresh: chain.refresh,

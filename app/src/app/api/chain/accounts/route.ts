@@ -2,6 +2,8 @@ import { GpaInputError, GpaUpstreamError, clientKey, getAccounts, parseQuery, re
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Upstream calls time out at 20 s: a request still running at 30 s is hung, not slow (Vercel's default let one run 300 s). */
+export const maxDuration = 30;
 
 /**
  * List query for tesoro_core (getProgramAccounts on TESORO_GPA_RPC), cached in-process so every tab

@@ -105,6 +105,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   const balance = market ? Number(market.simSol) / LAMPORTS : 0;
   const [text, setText] = useState("");
   const [months, setMonths] = useState(3);
+  const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
 
   const amount = Number(text);
@@ -176,9 +177,9 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
           pool&apos;s actual yield. <span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span>
         </>
       }
-      buttonLabel={a.busy ? "Signing…" : gemas > 0 ? `Open a Position · ${fmtGemas(gemas)} Gemas` : "Open a Position"}
+      buttonLabel={a.busy ? `${step}…` : gemas > 0 ? `Open a Position · ${fmtGemas(gemas)} Gemas` : "Open a Position"}
       disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
-      onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months)).signature)}
+      onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, setStep)).signature)}
     />
   );
 }

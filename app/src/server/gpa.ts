@@ -71,12 +71,16 @@ type Row = { pubkey: string; account: { data: [string, string] } };
 
 const FRESH_MS = 4_000;
 const STALE_MS = 120_000;
+/** Upstream fetch timeout. A shared call older than this is dead (its invocation was frozen mid-flight on Vercel) and is replaced, never awaited. */
+const UPSTREAM_MS = 20_000;
 
 interface Entry {
   /** When the rows were fetched; null until the first fetch succeeds. */
   at: number | null;
   rows: Row[];
   inflight: Promise<void> | null;
+  /** When `inflight` started. */
+  since: number;
 }
 
 export interface ListCacheOptions {
@@ -113,7 +117,7 @@ export function createListCache(opts: ListCacheOptions = {}) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getProgramAccounts", params: [q.program, cfg] }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(UPSTREAM_MS),
     });
     if (res.status === 429) rateLimited();
     if (!res.ok) throw new GpaUpstreamError(`Upstream status ${res.status}.`, 502);
@@ -127,24 +131,35 @@ export function createListCache(opts: ListCacheOptions = {}) {
   }
 
   function refresh(q: GpaQuery, entry: Entry): Promise<void> {
-    if (!entry.inflight) {
-      entry.inflight = fetchUpstream(q)
+    if (!entry.inflight || now() - entry.since > UPSTREAM_MS) {
+      const p: Promise<void> = fetchUpstream(q)
         .then((rows) => {
           entry.rows = rows;
           entry.at = now();
         })
         .finally(() => {
-          entry.inflight = null;
+          if (entry.inflight === p) entry.inflight = null;
         });
-      entry.inflight.catch(() => undefined);
+      p.catch(() => undefined);
+      entry.inflight = p;
+      entry.since = now();
     }
     return entry.inflight;
+  }
+
+  /** `refresh`, but the caller stops waiting after the upstream timeout even if the abort never fires. */
+  function refreshBounded(q: GpaQuery, entry: Entry): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new GpaUpstreamError("Upstream list query timed out.", 504)), UPSTREAM_MS + 2_000);
+    });
+    return Promise.race([refresh(q, entry), late]).finally(() => clearTimeout(timer));
   }
 
   async function list(q: GpaQuery): Promise<Row[]> {
     let entry = cache.get(q.disc);
     if (!entry) {
-      entry = { at: null, rows: [], inflight: null };
+      entry = { at: null, rows: [], inflight: null, since: 0 };
       cache.set(q.disc, entry);
     }
     const hasData = entry.at !== null;
@@ -157,7 +172,7 @@ export function createListCache(opts: ListCacheOptions = {}) {
     }
     if (blocked) throw new GpaUpstreamError("Rate limited upstream.", 429);
     try {
-      await refresh(q, entry);
+      await refreshBounded(q, entry);
     } catch (e) {
       if (hasData) return entry.rows;
       throw e;

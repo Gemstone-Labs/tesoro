@@ -54,6 +54,14 @@ const privyConfig: PrivyClientConfig = {
   },
 };
 
+/** The embedded wallet signs without a prompt, in about a second; one that has not answered in 60 s is not going to. */
+function signingTimeout<T>(p: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("Your wallet did not answer the signing request. Reload the page and try again.")), 60_000);
+    p.then(resolve, reject).finally(() => clearTimeout(t));
+  });
+}
+
 export function AccountProvider({ children }: { children: ReactNode }) {
   if (DevAccountProvider) {
     return (
@@ -120,15 +128,17 @@ function PrivyBridge({ children }: { children: ReactNode }) {
     return {
       publicKey: new PublicKey(solana),
       signTransaction: async (tx: Transaction) => {
-        const { signedTransaction } = await signTransaction({
-          transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
-          wallet,
-          chain: "solana:devnet",
-          options: { uiOptions },
-        });
+        const { signedTransaction } = await signingTimeout(
+          signTransaction({
+            transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
+            wallet,
+            chain: "solana:devnet",
+            options: { uiOptions },
+          }),
+        );
         return Transaction.from(signedTransaction);
       },
-      signMessage: async (message: Uint8Array) => (await signMessage({ message, wallet, options: { uiOptions } })).signature,
+      signMessage: async (message: Uint8Array) => (await signingTimeout(signMessage({ message, wallet, options: { uiOptions } }))).signature,
     };
   }, [solana, solanaWallets, signTransaction, signMessage]);
 

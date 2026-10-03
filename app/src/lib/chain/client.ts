@@ -10,6 +10,9 @@ import tradingDuelIdl from "./idl/trading_duel.json";
 import { BASE_RPC_URL } from "./config";
 import { SplitConnection, routeGpa } from "./split-connection";
 
+/** No RPC call waits forever: a hung request fails after 20 s and the caller's retry or error path takes over. */
+const timedFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(20_000) });
+
 let chain: BlockPuzzleChain | null = null;
 let holdem: HoldemChain | null = null;
 let tradingDuel: TradingDuelChain | null = null;
@@ -18,7 +21,7 @@ let tradingDuel: TradingDuelChain | null = null;
 export function getChain(): BlockPuzzleChain {
   if (!chain) {
     chain = new BlockPuzzleChain({
-      base: new SplitConnection(BASE_RPC_URL, routeGpa, "confirmed"),
+      base: new SplitConnection(BASE_RPC_URL, routeGpa, { commitment: "confirmed", fetch: timedFetch }),
       blockPuzzleIdl: blockPuzzleIdl as Idl,
       coreIdl: coreIdl as Idl,
     });
