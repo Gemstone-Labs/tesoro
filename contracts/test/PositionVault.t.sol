@@ -97,13 +97,13 @@ contract PositionVaultSimTest is VaultBase {
     // ---- per-Position linear yield (docs/yield-model.md) ----
 
     function test_yieldIsLinearOnOwnPrincipal() public {
-        uint64 a = _open(10 ether);
+        uint64 a = _open(6 ether);
         vm.warp(block.timestamp + 5 minutes);
-        uint64 b = _open(15 ether); // opens later, earns from its own open time
+        uint64 b = _open(4 ether); // opens later, earns from its own open time
         vm.warp(block.timestamp + 10 minutes);
         // 5% APY, speedup 4320: yield = P * 500 * 4320 * dt / (10_000 * 365 days)
-        uint256 ya = (uint256(10 ether) * 500 * 4320 * 15 minutes) / (10_000 * 365 days);
-        uint256 yb = (uint256(15 ether) * 500 * 4320 * 10 minutes) / (10_000 * 365 days);
+        uint256 ya = (uint256(6 ether) * 500 * 4320 * 15 minutes) / (10_000 * 365 days);
+        uint256 yb = (uint256(4 ether) * 500 * 4320 * 10 minutes) / (10_000 * 365 days);
         assertApproxEqAbs(vault.accruedYield(a), ya, 2);
         assertApproxEqAbs(vault.accruedYield(b), yb, 2);
         assertEq(lst.underlyingPerShare(), 1e18, "rate does not move");
