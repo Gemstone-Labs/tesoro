@@ -1,6 +1,6 @@
 # Cross-chain: Ethereum Positions on the Solana ledger (LayerZero V2)
 
-Testnets only (Solana devnet, Ethereum Hoodi; HyperEVM prepared). SimLST yield is SIMULATED ("Simulated yield · 1 month = 10 min"). Decision: ADR 0002. Spike background: `docs/spikes/S2-S3.md`.
+Testnets only (Solana devnet, Ethereum Hoodi; HyperEVM prepared). SimLST yield is SIMULATED ("Simulated yield · 1 month = 10 min", per Position, linear on its Principal). Decision: ADR 0002. Spike background: `docs/spikes/S2-S3.md`.
 
 ## Pieces
 
@@ -30,6 +30,10 @@ Replays and reordering: `Endpoint::clear` burns the nonce; `PositionLocked` appl
 ## `tesoro_core` changes (additive)
 
 New `SourceAuthority` PDA (`["source_auth", chain_byte]`, `chain`, `authority`) and instructions `set_source_authority(chain, authority)` / `remove_source_authority(chain)` (admin), `open_position_from_source(...)` and `apply_yield_from_source(seq, cumulative)`: the same bodies as `open_position` / `apply_yield` but signed by the registered authority of the Position's chain (an Ethereum authority cannot touch a HyperEVM Position). `oracle_authority` and every existing instruction, account layout and signature are unchanged; the oracle still supplies the issuance price in `take_advance`. Tests: `programs/tesoro_core/tests/source_authority.rs`.
+
+## Vault redeploy (2026-10-03, per-Position yield)
+
+The SimLST vaults were redeployed because the yield model changed (`docs/yield-model.md`): the SimLST rate no longer grows; the vault mints each Position's linear yield into itself (`PositionVaultOApp` takes a `yieldMinter` constructor argument, `SimLST.setMinter(vault)` authorises it). Hoodi simETH vault `0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`, HyperEVM simHYPE vault `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316` (wiring in `docs/deployments.md`). The wire format, flow and Solana side are unchanged. `reportYield` accrues first, so the reported cumulative yield includes everything earned up to that block. Positions on the earlier vaults below are abandoned.
 
 ## Vault redeploy (2026-10-01, implementation review SP-01 and PR-01)
 

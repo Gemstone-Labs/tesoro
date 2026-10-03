@@ -4,6 +4,7 @@
 #   hoodi  sim    vault for SimLST (SIMULATED yield); pass the deployed SimLST address
 #   hoodi  wsteth vault for real Lido wstETH through WstETHRateAdapter
 #   hyperevm sim  vault for a SimLST on HyperEVM testnet (deploy the SimLST first: forge create src/SimLST.sol:SimLST --constructor-args <owner> "Simulated Staked HYPE" simHYPE)
+# `sim` vaults mint simulated yield: afterwards call SimLST.setMinter(<vault>) (docs/yield-model.md).
 # Afterwards: setPeer(40168, <tesoro_bridge Store PDA as bytes32>) on the vault, and register the vault on Solana
 # with `bridge/scripts/lz.ts wire`.
 set -euo pipefail
@@ -15,10 +16,10 @@ case "$1" in
   *) echo "unknown chain"; exit 1;;
 esac
 case "$2" in
-  sim) LST=${3:?SimLST address}; RATE=$LST;;
-  wsteth) LST=0x7E99eE3C66636DE415D2d7C880938F2f40f94De4; RATE=0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37;;
+  sim) LST=${3:?SimLST address}; RATE=$LST; MINTER=$LST;;
+  wsteth) LST=0x7E99eE3C66636DE415D2d7C880938F2f40f94De4; RATE=0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37; MINTER=0x0000000000000000000000000000000000000000;;
   *) echo "unknown asset"; exit 1;;
 esac
 cd "$(dirname "$0")/.."
 forge create src/PositionVaultOApp.sol:PositionVaultOApp --rpc-url "$RPC" --private-key "$EVM_DEPLOYER_PRIVATE_KEY" --broadcast \
-  --constructor-args "$LST" "$RATE" "$EP" "$EID" "$SOLANA_EID" "$EVM_DEPLOYER_ADDRESS"
+  --constructor-args "$LST" "$RATE" "$EP" "$EID" "$SOLANA_EID" "$EVM_DEPLOYER_ADDRESS" "$MINTER"

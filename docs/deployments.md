@@ -2,6 +2,24 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Per-Position yield: EVM redeploy (2026-10-03)
+
+Model: `docs/yield-model.md`, ADR 0005. `SimLST` now has a constant rate and a `minter`; `PositionVaultOApp` takes a fifth constructor argument `yieldMinter` (the SimLST) and mints `principalUnderlying * apyBps * simElapsed / (BPS * YEAR)` into itself on `reportYield` / `accrue` / Unlock / PayYield. Deployer `0x96137cB99Fe2878299b672Ac967e88279f479d1C`, Store PDA peer `0x60ae58df…c792`, 500 bps on Solana, same deploy commands as before (`script/deploy-oapp.sh`, now passing `yieldMinter`).
+
+| Item | Hoodi (560048) | HyperEVM (998) |
+|---|---|---|
+| SimLST (**Simulated**) | `0xD82840623A7a00C37b0883d221Fa84e39ddA2a28`, deploy `0xde18ca5904b25407bdcad080c1ba6a240ec978e2a5081388a4ece3a33d577c31` | `0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3`, deploy `0x215a433889e322be574802b4fc08979bfcec827ac42a9c01894055bac83cb46e` |
+| Reserve funding | 0.1 ETH `0xe7f8bf5cdd9df3505eb88a8c71371dcf7e666ebea67b3aaef1288e30462c1a20` | 0.3 HYPE `0x0bfcce65a2b9a6a151884a9ac1ff6dfc0259f37b18f396cda129d6d26c54726e` |
+| `PositionVaultOApp` | `0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`, deploy `0x4e31e2538621101284950f85795d13e4b32c60eafb71985d66b0010ece45c972` | `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316`, deploy `0xdde9888b9c73e42273978652e06a0e44efc36d3a836d6ba28d1080782049eddf` |
+| `SimLST.setMinter(vault)` | `0xb8ebb284586719159683da4afc22b0096e110c7a2c61815095039188949cadf3` | `0x5b6854e7ba8ea02e5007d9e5a751d78cc8fa75c1175b7a08045f9b234fe58325` |
+| `setPeer(40168, Store)` | `0xd7b78a78427d9e4e61021ceb6e9206745c4aad3f8fca8219bba4477e6236d825` | `0xe243ebefe1f8d821e10b05d26292e4e04cd46b573956c996f1b21d9d3082dba1` |
+| Solana `set_peer_config` | `1dTDC8wo…V9CQ` | `3navPnLt…VT5yNb` |
+| Solana `endpoint_init_oapp_pathway` | `2H4CwGbR…UD2gV` | `27kVbj7x…6RGiqYi` |
+
+The wstETH vault on Hoodi (`0x61B46f64CDB75930a87955487aAb8A7711F757b5`) is not redeployed: it uses real wstETH yield (`yieldMinter = address(0)` behaves exactly like the old contract). **Abandoned** (not migrated, they keep the old rate model): the previous Hoodi simETH vault `0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a` (SimLST `0x23B17A4c55867406E7CD5602c664E1447400c4a3`) and the previous HyperEVM simHYPE vault `0x23B17A4c55867406E7CD5602c664E1447400c4a3` (SimLST `0x4FF730663d88457990eAF47b23E19737E39BB238`), with every test Position opened on them. Their Solana `PeerConfig`s stay registered but unused; the keeper reports only Positions that exist on Solana, so those Positions keep getting reports until Debt 0 or are ignored if the vault is no longer readable.
+
+Smoke test (2026-10-03, Position id 1 on each new vault, owner = deployer EVM address, linked to the bridge demo Account; 1 simETH / 1 simHYPE, 1-month Advance): Hoodi `init_position` `284QUqky…bZXHfz`, `openPosition` `0xb26e75db776d82719f2c3935a9a1160cb631840b5fd05cd5048bedcad9ddbc7a` (04:57:14 UTC), `take_advance` `4vR37YC6…zTKxzD` (1,249 Gemas at $3,000/ETH), `reportYield` `0x9f684805db8cd7990117c31c0114cc4ad23cb6e0dbf14011a19c9f795a87a116` (05:12:49, accrued 6.4932e15 wei = 1 ETH x 5% x 4,320 x 932 s / year), `apply_yield` `5LemYigo…zqXgvfy3XRA`: Debt 1,249 to 0. HyperEVM: `init_position` `5CwEtVH9…A7gN7y`, `openPosition` `0x86c6414820bbc6b368cad7e9cc2fe05a5d4bc127e0404e62336ccd37ce13aae0` (04:57:37), `take_advance` `4XKNjquW…rGh13` (10 Gemas at $0.025/HYPE), `reportYield` `0xce978d901e8e095d58ce5d0cc5d5f2d477ac03dae5ff82699ee5b2af5a3fd1cc`, Debt 0. The Advance is repaid when yield since OPEN reaches `principal x 5% / 12` (4.1667e15 wei), about 10.1 min after open (the 30-day month of the 4,320x clock against 1/12 year); both messages DELIVERED. Redeem/Unlock were not re-run on the new vaults.
+
 ## Trading Duel (2026-10-03)
 
 Deployer / upgrade authority `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` (`~/.config/solana/dev-2026-10.json`) via `https://rpc.magicblock.app/devnet`. Design and rules: `docs/games/trading-duel.md`.

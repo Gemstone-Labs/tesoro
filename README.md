@@ -81,9 +81,9 @@ Both vaults are owned by the EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f4
 
 | Contract | Address | Notes |
 |---|---|---|
-| `PositionVaultOApp`, SimLST (simETH, **Simulated**) | [`0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a`](https://hoodi.etherscan.io/address/0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a) | The vault the app uses. Redeployed 2026-10-01 (SP-01, PR-01). |
+| `PositionVaultOApp`, SimLST (simETH, **Simulated**) | [`0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`](https://hoodi.etherscan.io/address/0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3) | The vault the app uses. Redeployed 2026-10-03 for per-Position yield (`docs/yield-model.md`). |
 | `PositionVaultOApp`, real Lido wstETH | [`0x61B46f64CDB75930a87955487aAb8A7711F757b5`](https://hoodi.etherscan.io/address/0x61B46f64CDB75930a87955487aAb8A7711F757b5) | Deployed and wired, not run end to end. Redeployed 2026-10-01. |
-| SimLST (simETH, **Simulated**, 5% APY) | [`0x23B17A4c55867406E7CD5602c664E1447400c4a3`](https://hoodi.etherscan.io/address/0x23B17A4c55867406E7CD5602c664E1447400c4a3) | |
+| SimLST (simETH, **Simulated**, 5% APY) | [`0xD82840623A7a00C37b0883d221Fa84e39ddA2a28`](https://hoodi.etherscan.io/address/0xD82840623A7a00C37b0883d221Fa84e39ddA2a28) | |
 | `WstETHRateAdapter` | [`0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37`](https://hoodi.etherscan.io/address/0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37) | The wstETH vault's rate source. Reads wstETH `stEthPerToken()`. |
 | LayerZero EndpointV2 (external) | `0x3aCAAf60502791D199a5a5F0B173D78229eBFe32` | |
 | Lido stETH / wstETH (external) | `0x3508A952176b3c15387C97BE809eaffB1982176a` / `0x7E99eE3C66636DE415D2d7C880938F2f40f94De4` | |
@@ -94,8 +94,8 @@ Owned by the same EVM deployer and peered to the same Solana OApp Store. Deploye
 
 | Contract | Address | Notes |
 |---|---|---|
-| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0x23B17A4c55867406E7CD5602c664E1447400c4a3` | The vault the app uses for HYPE Positions. |
-| SimLST (simHYPE, **Simulated**, 5% APY) | `0x4FF730663d88457990eAF47b23E19737E39BB238` | Unbacked faucet, 1 month = 10 min. |
+| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316` | The vault the app uses for HYPE Positions (redeployed 2026-10-03). |
+| SimLST (simHYPE, **Simulated**, 5% APY) | `0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3` | Unbacked faucet, 1 month = 10 min. |
 | LayerZero EndpointV2 (external) | `0xf9e1815f151024bde4b7c10bac10e8ba9f6b53e1` | Explorer: `https://testnet.purrsec.com`. |
 
 ## Evidence (selected)
