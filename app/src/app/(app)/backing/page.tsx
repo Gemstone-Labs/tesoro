@@ -121,6 +121,7 @@ export default function Backing() {
     () => null,
   );
   const mine = offers.filter((o) => o.backer === me && ["open", "accepted", "consumed"].includes(o.status));
+  const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt && o.directedTo).map((o) => o.directedTo));
 
   const run = (key: string, label: string, fn: () => Promise<string | undefined>) => {
     setBusy(key);
@@ -161,11 +162,12 @@ export default function Backing() {
   const hashRead = useRef(false);
   const meKnown = auth.status === "signed-out" || (auth.status === "signed-in" && !!snapshot);
   const linked = hash && meKnown ? requests.find((r) => r.address.toBase58() === hash && r.player !== me) : undefined;
+  const linkedOffered = !!linked && offeredTo.has(hash);
   useEffect(() => {
     if (hashRead.current || !linked) return;
     hashRead.current = true;
-    if (linked.live) auth.gate("make an Offer", () => setOfferFor(linked));
-  }, [linked, auth]);
+    if (linked.live && !linkedOffered) auth.gate("make an Offer", () => setOfferFor(linked));
+  }, [linked, linkedOffered, auth]);
 
   const selected = offerFor && offerFor !== "public" ? offerFor.address.toBase58() : null;
   const tabs: [Tab, string][] = [
@@ -298,7 +300,9 @@ export default function Backing() {
                   key={r.address.toBase58()}
                   r={r}
                   selected={selected === r.address.toBase58()}
+                  offered={offeredTo.has(r.address.toBase58())}
                   onOffer={() => auth.gate("make an Offer", () => setOfferFor(r))}
+                  onView={() => setTab("mine")}
                 />
               ))}
               {myRequests.map((r) => (
@@ -490,7 +494,7 @@ function ArtCard({
   );
 }
 
-function RequestCard({ r, selected, onOffer }: { r: ChainRequest; selected: boolean; onOffer: () => void }) {
+function RequestCard({ r, selected, offered, onOffer, onView }: { r: ChainRequest; selected: boolean; offered: boolean; onOffer: () => void; onView: () => void }) {
   return (
     <ArtCard
       id={r.address.toBase58()}
@@ -502,7 +506,7 @@ function RequestCard({ r, selected, onOffer }: { r: ChainRequest; selected: bool
       label="Requested entry"
       entry={r.entry}
       selected={selected}
-      action={<Button variant="money" onClick={onOffer}>Make an Offer</Button>}
+      action={offered ? <Button onClick={onView}>Offer sent</Button> : <Button variant="money" onClick={onOffer}>Make an Offer</Button>}
     />
   );
 }
