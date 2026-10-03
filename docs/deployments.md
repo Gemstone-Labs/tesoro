@@ -26,16 +26,16 @@ Model: `docs/yield-model.md`, ADR 0005. Deployer `7zr1j185zT8r6jcysC4LyrdSEJ13Up
 
 | Step | Signature |
 |---|---|
-| Borrowed 2.9 SOL (bridge-demo-owner) and 2.95 SOL (relayer) to the deployer for buffer rent | `4D6ioZJz...RL34`, `2TnbUCtw...MfQezm` |
+| Borrowed 2.9 SOL (bridge-demo-owner) and 2.95 SOL (relayer) to the deployer for buffer rent | `4D6ioZJz...QL34`, `2TnbUCtw...fQezm` |
 | `yield-cutover pre`: old `set_params` rebases `base_rate` at the then-current rate and sets speedup 4,380 | `3N161p7U...zPgCF` |
-| `sim_lst` extend +25,000 bytes, upgrade (401,160 bytes) | `43FhC7xy...GmGCF` |
-| `tesoro_core` extend +20,000 bytes, upgrade (1,015,664 bytes) | `4SwBKNjq...LqKB` (see `solana program show`) |
-| `set_yield_authority` (tesoro_core `["yield"]` PDA `C9zdFERGijamSQVQ1D4hE3iabc99g1XcurKCnS6CuSAf`, config `EwAQxNE81ifE8r5vu9p1X5eGmPoNBucj2n9ooETL8BtY`) | `agMKcMqC...eremeoN2L` |
-| `fund_reserve` 2 SOL | `2faitCFh...W8BLe` |
+| `sim_lst` extend +25,000 bytes, upgrade (401,160 bytes) | `43FhC7xy...ggq3F` |
+| `tesoro_core` extend +20,000 bytes, upgrade (1,015,664 bytes) | `4SBAtHDT...hVMC` |
+| `set_yield_authority` (tesoro_core `["yield"]` PDA `C9zdFERGijamSQVQ1D4hE3iabc99g1XcurKCnS6CuSAf`, config `EwAQxNE81ifE8r5vu9p1X5eGmPoNBucj2n9ooETL8BtY`) | `agMKcMqC...eoN2L` |
+| `fund_reserve` 2 SOL | `2faitCFh...8BLe` |
 | `migrate_native_custody` x45 (all custodies, 194/202 to 210 bytes, `last_accrual_ts` = migration time) | see `migrate-custody` output; second run reports 0 legacy |
-| Repaid borrowed SOL: relayer first (2.95), then bridge-demo-owner (2.9) | `2uN6PppcxR...Ym3`, `2FxEzc1e...RFFYMS` |
+| Repaid borrowed SOL: relayer first (2.95), then bridge-demo-owner (2.9) | `2uN6Ppcx...Ym3`, `2FxEzc1e...SYMS` |
 
-Smoke test: a fresh wallet (`6QrYEa7NhAqz2DcTpiHrxvzq6Gz5VYWUcPxEUjTr3ARG`) opened Position `Eu2m8cLkAgzyijDz1Hjasm6eAJjGHQMmfVpkgdPKqVAy` (5 simSOL, 1-month Advance, open tx `MnqT2BNP...nfocni49s`). Cranking every ~21 s took Debt 1,377 to 0 in about 10 minutes (about 50 per crank, linear); last crank `3MoVzhk8...hC` (open Advance cleared). The Wallet quote reads 1 month about 10 min, 3 months about 30 min, 12 months about 120 min.
+Smoke test: a fresh wallet (`6QrYEa7NhAqz2DcTpiHrxvzq6Gz5VYWUcPxEUjTr3ARG`) opened Position `Eu2m8cLkAgzyijDz1Hjasm6eAJjGHQMmfVpkgdPKqVAy` (5 simSOL, 1-month Advance, open tx `MnqT2BNP...ni49s`). Cranking every ~21 s took Debt 1,377 to 0 in about 10 minutes (about 50 per crank, linear); last crank `3MoVzhk8...Urm` (open Advance cleared). The Wallet quote reads 1 month about 10 min, 3 months about 30 min, 12 months about 120 min.
 
 ## Trading Duel (2026-10-03)
 
