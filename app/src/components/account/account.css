@@ -15,7 +15,7 @@
 }
 .pa-avatar { width: 120px; height: 120px; --c: 22px; }
 .pa-who { display: grid; gap: 6px; min-width: 0; justify-items: start; }
-.pa-who .page-title { font-size: clamp(40px, 4vw, 60px); line-height: 0.95; white-space: nowrap; }
+.pa-who .page-title { font-size: clamp(40px, 4vw, 60px); line-height: 0.95; white-space: nowrap; text-transform: none; }
 .pa-key { font-size: 13px; color: var(--fg-2); overflow-wrap: anywhere; }
 .pa-facts { list-style: none; margin: 6px 0 0; padding: 0; font-size: 15px; line-height: 1.6; color: var(--fg); }
 .pa-facts li { display: inline-block; white-space: nowrap; }
