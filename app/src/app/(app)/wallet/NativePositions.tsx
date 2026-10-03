@@ -12,6 +12,8 @@ import {
   projectedDebtGemas,
   quoteNativeAdvance,
   rateAt,
+  accruedAt,
+  yieldClockOf,
   redeemPayoutShares,
   sharesValue,
   unlockEstimateMs,
@@ -110,7 +112,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
 
   const amount = Number(text);
   const shares = market && Number.isFinite(amount) && amount > 0 ? BigInt(Math.round(amount * LAMPORTS)) : 0n;
-  const rate = market ? rateAt(market.pool, now / 1000) : 0n;
+  const rate = market ? rateAt(market.pool) : 0n;
   const principal = market ? sharesValue(shares, rate) : 0n;
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
   const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
@@ -124,6 +126,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
         redeemedUnits: 0n,
         principalLamports: principal,
         pool: market.pool,
+        clock: { rateBps: market.pool.apyBps, lastAccrualTs: Math.floor(now / 1000) },
         nowMs: now,
       })
     : null;
@@ -199,20 +202,21 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
   const onChainDebt = src ? live(src) - covered(src) : 0n;
   const debtSol = src && onChainDebt > 0n ? (onChainDebt * src.unitNum + src.unitDen - 1n) / src.unitDen : 0n;
   const pool = market?.pool ?? null;
-  const projected = pool ? projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, now) : onChainDebt;
-  const liveYield = pool ? sharesValue(info.vaultShares, rateAt(pool, now / 1000)) + info.redeemedUnits - info.principalLamports : info.cumulativeYield;
+  const clock = yieldClockOf(info);
+  const projected = pool ? projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, now, clock) : onChainDebt;
+  const liveYield = pool ? accruedAt({ vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock, nowMs: now }) : info.cumulativeYield;
   const accruedYield = liveYield > info.cumulativeYield ? liveYield : info.cumulativeYield;
   const unapplied = onChainDebt - projected;
   const estimate =
     pool && src && onChainDebt > 0n
-      ? unlockEstimateMs({ source: src, vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, nowMs: now })
+      ? unlockEstimateMs({ source: src, vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock: clock ?? { rateBps: info.rateBps, lastAccrualTs: Math.floor(now / 1000) }, nowMs: now })
       : null;
   const locked = info.status === "locked";
   const canUnlock = locked && projected === 0n;
   const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);
   const series =
     pool && src && locked && onChainDebt > 0n
-      ? sampledSeries((at) => Number(projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, at)), now, estimate ? estimate - now : 10 * 60_000)
+      ? sampledSeries((at) => Number(projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, at, clock)), now, estimate ? estimate - now : 10 * 60_000)
       : null;
 
   return (
@@ -292,7 +296,6 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sigs, setSigs] = useState<string[]>([]);
-  const now = useNow(5000);
   const rows = nativeRedeemables(snapshot?.holdings ?? []);
   const ethRows = ethRedeemables(snapshot?.holdings ?? []);
   const ethCtx = useEthCtx();
@@ -301,7 +304,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
   const payout = (h: ChainHolding) => {
     const src = infoOf(h)?.source;
     if (!pool || !src || !src.key.equals(h.source)) return null;
-    return redeemPayoutShares(src.math, h.redeemable, rateAt(pool, now / 1000));
+    return redeemPayoutShares(src.math, h.redeemable, rateAt(pool));
   };
   const total = [...rows, ...ethRows].reduce((s, h) => s + Number(h.redeemable), 0);
 

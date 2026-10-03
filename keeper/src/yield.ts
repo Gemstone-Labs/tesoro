@@ -1,6 +1,6 @@
 import type { AccountInfo, PublicKey } from "@solana/web3.js";
 import { debtGemas, unitsToRepay, type SourceMath } from "../../app/src/lib/chain/ledger.ts";
-import { accrueNativeYieldIx, custodyPda, fetchNativeMarket, parseSource, rateAt, rdU64, sharesValue, sourcePda, SIM_SOL_MINT } from "../../app/src/lib/chain/native.ts";
+import { accrueNativeYieldIx, accruedAt, custodyPda, fetchNativeMarket, parseSource, rdI64, rdU64, sourcePda, SIM_SOL_MINT, type PoolParams } from "../../app/src/lib/chain/native.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
 import { pk } from "./runtime.ts";
@@ -17,9 +17,10 @@ const MIN_INTERVAL_MS = Number(process.env.KEEPER_YIELD_MIN_INTERVAL_SECS ?? 120
 const PER_TX = 4;
 const MAX_TX_PER_PASS = Number(process.env.KEEPER_YIELD_MAX_TX ?? 3);
 
-// NativeCustody: disc 8, bump, vault_bump, 5 keys, rate_at_open, deposited, redeemed_units, tracked_shares.
+// NativeCustody: disc 8, bump, vault_bump, 5 keys, rate_at_open, deposited, redeemed_units, tracked_shares, last_accrual_ts.
 const REDEEMED_AT = 8 + 2 + 5 * 32 + 16;
 const TRACKED_AT = REDEEMED_AT + 8;
+const ACCRUAL_AT = TRACKED_AT + 8;
 
 const lastCrank = new Map<string, number>();
 /** Positions whose batch failed: sent alone from then on, so one bad Position cannot block the rest. */
@@ -34,16 +35,26 @@ export interface Reading {
   trackedShares: bigint | null;
   redeemedUnits: bigint;
   source: SourceMath | null;
+  /** Position's own APY and the custody's `last_accrual_ts`; null while the custody is not migrated. */
+  rateBps: number;
+  lastAccrualTs: number | null;
 }
 
 /**
- * Gemas of Debt one `accrue_native_yield` would repay at `rate`, as the program applies it: the yield accrued past the
- * Position's `cumulative_yield`, capped at what repays the open Source. Null when it cannot be computed.
+ * Gemas of Debt one `accrue_native_yield` would repay at `nowMs`, as the program applies it: the yield minted since
+ * `last_accrual_ts` (per-Position model) plus what the vault already holds, past the Position's `cumulative_yield`,
+ * capped at what repays the open Source. Null when it cannot be computed.
  */
-export function crankGain(r: Reading, rate: bigint): { gain: bigint; clears: boolean } | null {
-  if (r.trackedShares === null || !r.source) return null;
-  const value = sharesValue(r.trackedShares, rate) + r.redeemedUnits;
-  const accrued = value > r.principal ? value - r.principal : 0n;
+export function crankGain(r: Reading, pool: PoolParams, nowMs: number): { gain: bigint; clears: boolean } | null {
+  if (r.trackedShares === null || r.lastAccrualTs === null || !r.source) return null;
+  const accrued = accruedAt({
+    vaultShares: r.trackedShares,
+    redeemedUnits: r.redeemedUnits,
+    principalLamports: r.principal,
+    pool,
+    clock: { rateBps: r.rateBps, lastAccrualTs: r.lastAccrualTs },
+    nowMs,
+  });
   if (accrued <= r.cumulative) return { gain: 0n, clears: false };
   const need = unitsToRepay(r.source);
   const take = accrued - r.cumulative < need ? accrued - r.cumulative : need;
@@ -104,7 +115,7 @@ export async function yieldJob(ctx: Ctx): Promise<number> {
     return 0;
   }
 
-  const rate = rateAt((await fetchNativeMarket(ctx.conn, ctx.payer.publicKey)).pool, ctx.now);
+  const pool = (await fetchNativeMarket(ctx.conn, ctx.payer.publicKey)).pool;
   const keys = owing.flatMap(({ publicKey, account }) => [custodyPda(publicKey), sourcePda(publicKey, Number(account.inner.openAdvance))]);
   const infos: (AccountInfo<Buffer> | null)[] = [];
   for (let i = 0; i < keys.length; i += 100) infos.push(...(await ctx.conn.getMultipleAccountsInfo(keys.slice(i, i + 100))));
@@ -122,8 +133,11 @@ export async function yieldJob(ctx: Ctx): Promise<number> {
             trackedShares: cust.data.length >= TRACKED_AT + 8 ? rdU64(cust.data, TRACKED_AT) : null,
             redeemedUnits: rdU64(cust.data, REDEEMED_AT),
             source: src ? parseSource(sourcePda(publicKey, Number(account.inner.openAdvance)), Buffer.from(src.data)).math : null,
+            rateBps: Number(account.inner.rateBps),
+            lastAccrualTs: cust.data.length >= ACCRUAL_AT + 8 ? Number(rdI64(cust.data, ACCRUAL_AT)) : null,
           },
-          rate,
+          pool,
+          nowMs,
         )
       : null;
     if ((retryAt.get(key) ?? 0) > nowMs) return;

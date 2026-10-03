@@ -7,6 +7,7 @@ import {
   type AccountMeta,
 } from "@solana/web3.js";
 import { covered, live, unitsToRepay, type SourceMath } from "./ledger";
+import { accruedYield, secondsToAccrue } from "./yield";
 
 /**
  * Solana-native Positions (simSOL custody, tesoro_core) and the SIMULATED sim_lst pool. Instructions
@@ -19,10 +20,9 @@ export const SIM_LST_ID = new PublicKey("WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1V
 export const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
-const YEAR = 31_536_000;
 export const RATE_SCALE = 1_000_000_000n;
 export const LAMPORTS = 1_000_000_000;
-/** Wall-clock minutes of one simulated month (sim_lst speedup 4,320). */
+/** Wall-clock minutes of one simulated month (speedup 4,380 = 1/12 year per 10 minutes, `lib/chain/yield.ts`). */
 export const SIM_MONTH_MIN = 10;
 /** The feed is only accepted by `take_native_advance` for this long. */
 export const MAX_PRICE_AGE_SECS = 24 * 60 * 60;
@@ -32,7 +32,7 @@ export const s = (x: string) => Buffer.from(x);
 // The browser Buffer polyfill has no bigint accessors: read and write through DataView.
 const view = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset, d.byteLength);
 export const rdU64 = (d: Uint8Array, o: number) => view(d).getBigUint64(o, true);
-const rdI64 = (d: Uint8Array, o: number) => view(d).getBigInt64(o, true);
+export const rdI64 = (d: Uint8Array, o: number) => view(d).getBigInt64(o, true);
 export const rdU32 = (d: Uint8Array, o: number) => view(d).getUint32(o, true);
 const rdU16 = (d: Uint8Array, o: number) => view(d).getUint16(o, true);
 export const u64 = (n: bigint | number) => {
@@ -57,6 +57,11 @@ export const POOL = pda([s("pool")], SIM_LST_ID);
 export const SIM_SOL_MINT = pda([s("mint")], SIM_LST_ID);
 export const CONFIG = pda([s("config")]);
 export const PRICE_FEED = pda([s("price"), SIM_SOL_MINT.toBuffer()]);
+
+/** tesoro_core `["yield"]` PDA: signs `sim_lst::mint_yield` during `accrue_native_yield`. */
+export const yieldAuthorityPda = () => pda([s("yield")]);
+/** sim_lst `["yield_config"]`: records the one authority allowed to mint simulated yield. */
+export const yieldConfigPda = () => pda([s("yield_config")], SIM_LST_ID);
 
 export const accountPda = (authority: PublicKey) => pda([s("account"), authority.toBuffer()]);
 /** Same derivation as `native_position_id` on chain: sha256("native" || owner || nonce_le). */
@@ -165,9 +170,14 @@ export const accrueNativeYieldIx = (position: PublicKey, openAdvance: number | n
   core(
     [
       meta(position, true),
-      meta(custodyPda(position)),
-      meta(vaultPda(position)),
+      meta(custodyPda(position), true),
+      meta(vaultPda(position), true),
       meta(POOL),
+      meta(SIM_SOL_MINT, true),
+      meta(yieldConfigPda()),
+      meta(yieldAuthorityPda()),
+      meta(SIM_LST_ID),
+      meta(TOKEN_PROGRAM_ID),
       // Optional account: the program id stands for `None`.
       meta(openAdvance === null ? TESORO_CORE_ID : sourcePda(position, openAdvance), openAdvance !== null),
     ],
@@ -225,10 +235,35 @@ export interface PoolParams {
   speedup: number;
 }
 
-/** sim_lst rate (SOL per simSOL, 1e9 fixed point) at `nowSec`, as the program computes it. */
-export function rateAt(p: PoolParams, nowSec: number): bigint {
-  const elapsed = BigInt(Math.max(0, Math.floor(nowSec) - p.baseTs));
-  return p.baseRate + (p.baseRate * BigInt(p.apyBps) * elapsed * BigInt(p.speedup)) / (10_000n * BigInt(YEAR));
+/** sim_lst rate (SOL per simSOL, 1e9 fixed point): constant since the per-Position yield model (docs/yield-model.md). */
+export function rateAt(p: PoolParams): bigint {
+  return p.baseRate;
+}
+
+/** What a custody needs to project the yield `accrue_native_yield` has not minted yet. */
+export interface YieldClock {
+  rateBps: number;
+  /** Unix seconds up to which yield is minted into the vault. */
+  lastAccrualTs: number;
+}
+
+/** The yield clock of a Locked, migrated custody; null when nothing more will be minted. */
+export const yieldClockOf = (info: Pick<NativeInfo, "status" | "rateBps" | "lastAccrualTs">): YieldClock | null =>
+  info.status === "locked" && info.lastAccrualTs !== null ? { rateBps: info.rateBps, lastAccrualTs: info.lastAccrualTs } : null;
+
+/** Cumulative accrued yield (SOL units) as the program would read it after a crank at `nowMs`. */
+export function accruedAt(args: { vaultShares: bigint; redeemedUnits: bigint; principalLamports: bigint; pool: PoolParams; clock?: YieldClock | null; nowMs: number }): bigint {
+  const { vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs } = args;
+  const minted = sharesValue(vaultShares, rateAt(pool)) + redeemedUnits - principalLamports;
+  const pending = clock
+    ? accruedYield({
+        principal: principalLamports,
+        rateBps: clock.rateBps,
+        elapsedSec: BigInt(Math.max(0, Math.floor(nowMs / 1000) - clock.lastAccrualTs)),
+        speedup: BigInt(pool.speedup),
+      })
+    : 0n;
+  return (minted > 0n ? minted : 0n) + pending;
 }
 
 /** SOL base units a simSOL amount is worth at `rate`. */
@@ -242,9 +277,9 @@ export function quoteNativeAdvance(principalLamports: bigint, rateBps: number, m
 }
 
 /**
- * Unlock Estimate (ms since epoch): when the vault's accrued yield covers the Source's Debt at the
- * pool's current growth. Null when it cannot be projected (nothing in the vault, no growth). An
- * estimate, never a promise: it moves with the provider's actual yield.
+ * Unlock Estimate (ms since epoch): when the Position's accrued yield covers the Source's Debt at
+ * its own linear rate. Null when it cannot be projected (nothing earning). An estimate, never a
+ * promise: it moves with the pool's yield parameters.
  */
 export function unlockEstimateMs(args: {
   source: SourceMath | null;
@@ -252,24 +287,23 @@ export function unlockEstimateMs(args: {
   redeemedUnits: bigint;
   principalLamports: bigint;
   pool: PoolParams;
+  clock: YieldClock;
   nowMs: number;
 }): number | null {
-  const { source, vaultShares, redeemedUnits, principalLamports, pool, nowMs } = args;
+  const { source, vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs } = args;
   if (!source) return null;
   const needed = unitsToRepay(source) + source.yieldUnits; // total yield units that repay every live Gema
-  const rate = rateAt(pool, nowMs / 1000);
-  const accrued = sharesValue(vaultShares, rate) + redeemedUnits - principalLamports;
+  const accrued = accruedAt({ vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs });
   const have = accrued > source.yieldUnits ? accrued : source.yieldUnits;
   if (have >= needed) return nowMs;
-  const perSec = (Number(vaultShares) * Number(pool.baseRate) * pool.apyBps * pool.speedup) / (10_000 * YEAR) / Number(RATE_SCALE);
-  if (!(perSec > 0)) return null;
-  return nowMs + (Number(needed - have) / perSec) * 1000;
+  const secs = secondsToAccrue({ principal: principalLamports, rateBps: clock.rateBps, units: needed - have, speedup: BigInt(pool.speedup) });
+  return secs === null ? null : nowMs + secs * 1000;
 }
 
-/** Debt in Gemas if the vault's yield were applied now (what a crank would leave). */
-export function projectedDebtGemas(source: SourceMath | null, vaultShares: bigint, redeemedUnits: bigint, principalLamports: bigint, pool: PoolParams, nowMs: number): bigint {
+/** Debt in Gemas if the Position's yield were applied now (what a crank would leave). */
+export function projectedDebtGemas(source: SourceMath | null, vaultShares: bigint, redeemedUnits: bigint, principalLamports: bigint, pool: PoolParams, nowMs: number, clock: YieldClock | null = null): bigint {
   if (!source) return 0n;
-  const accrued = sharesValue(vaultShares, rateAt(pool, nowMs / 1000)) + redeemedUnits - principalLamports;
+  const accrued = accruedAt({ vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs });
   const y = accrued > source.yieldUnits ? accrued : source.yieldUnits;
   const l = live(source);
   const c = covered({ ...source, yieldUnits: y });
@@ -309,6 +343,8 @@ export interface NativeInfo {
   freeYield: bigint;
   vaultShares: bigint;
   redeemedUnits: bigint;
+  /** Unix seconds up to which yield is minted into the vault (null on a custody not yet migrated). */
+  lastAccrualTs: number | null;
   /** The latest Advance's Source (kept after Debt reaches zero), null before the first Advance. */
   source: { key: PublicKey; index: number; horizonMonths: number; math: SourceMath } | null;
 }
@@ -375,6 +411,8 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
   // simSOL sent straight to the vault is not yield. Mirror that, or a top-up shows a Debt that is not really repaid.
   const TRACKED_AT = 8 + 2 + 5 * 32 + 24;
   const tracked = cust.data.length >= TRACKED_AT + 8 ? rdU64(cust.data, TRACKED_AT) : null;
+  const ACCRUAL_AT = TRACKED_AT + 8;
+  const lastAccrualTs = cust.data.length >= ACCRUAL_AT + 8 ? Number(rdI64(cust.data, ACCRUAL_AT)) : null;
   const vaultBalance = rdU64(vault.data, 64);
   let source: NativeInfo["source"] = null;
   if (advances > 0) {
@@ -394,6 +432,7 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
     freeYield,
     vaultShares: tracked !== null && tracked < vaultBalance ? tracked : vaultBalance,
     redeemedUnits,
+    lastAccrualTs,
     source,
   };
 }

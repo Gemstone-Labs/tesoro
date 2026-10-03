@@ -22,7 +22,7 @@ import {
 } from "./native";
 
 const owner = new PublicKey("AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV");
-const pool: PoolParams = { baseRate: 1_000_000_000n, baseTs: 0, apyBps: 700, speedup: 4320 };
+const pool: PoolParams = { baseRate: 1_000_000_000n, baseTs: 0, apyBps: 700, speedup: 4380 };
 
 describe("native instructions", () => {
   it("uses Anchor discriminators sha256('global:<name>')[..8]", () => {
@@ -80,29 +80,34 @@ describe("native math", () => {
     expect(q.gemas).toBe(437n);
   });
 
-  it("rate grows 1 month of yield per 10 minutes", () => {
-    const r = rateAt(pool, 600);
-    expect(Number(r - 1_000_000_000n) / 1e9).toBeCloseTo((0.07 * (600 * 4320)) / 31_536_000, 6);
+  it("keeps the rate constant: yield is per Position, not in the rate", () => {
+    expect(rateAt(pool)).toBe(pool.baseRate);
+    expect(rateAt(pool)).toBe(pool.baseRate);
   });
 
   const source = { issued: 437n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
   const vault = 5_000_000_000n;
 
   it("projects Debt down and the Unlock Estimate forward", () => {
-    const args = { source, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool };
-    const debt0 = projectedDebtGemas(source, vault, 0n, vault, pool, 0);
-    const debt5 = projectedDebtGemas(source, vault, 0n, vault, pool, 300_000);
+    const clock = { rateBps: 700, lastAccrualTs: 0 };
+    const args = { source, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, clock };
+    const debt0 = projectedDebtGemas(source, vault, 0n, vault, pool, 0, clock);
+    const debt5 = projectedDebtGemas(source, vault, 0n, vault, pool, 300_000, clock);
     expect(debt0).toBe(437n);
     expect(debt5 < debt0).toBe(true);
+    // A 1-month Advance is repaid in 10 minutes.
     const at = unlockEstimateMs({ ...args, nowMs: 0 })!;
-    expect(at).toBeGreaterThan(9 * 60_000);
-    expect(at).toBeLessThan(12 * 60_000);
-    expect(projectedDebtGemas(source, vault, 0n, vault, pool, at + 5_000)).toBe(0n);
+    expect(at).toBeGreaterThanOrEqual(599_000);
+    expect(at).toBeLessThanOrEqual(601_000);
+    expect(projectedDebtGemas(source, vault, 0n, vault, pool, at + 5_000, clock)).toBe(0n);
+    // Yield already minted into the vault counts, and yield not yet minted is projected.
+    const minted = unlockEstimateMs({ ...args, vaultShares: vault + 14_583_333n, principalLamports: vault, nowMs: 300_000 })!;
+    expect(minted).toBeLessThan(at + 1);
   });
 
   it("has no estimate without an Advance and 'now' when already repaid", () => {
-    expect(unlockEstimateMs({ source: null, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, nowMs: 0 })).toBeNull();
-    expect(unlockEstimateMs({ source: { ...source, yieldUnits: 10n ** 12n }, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, nowMs: 42 })).toBe(42);
+    expect(unlockEstimateMs({ source: null, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, clock: { rateBps: 700, lastAccrualTs: 0 }, nowMs: 0 })).toBeNull();
+    expect(unlockEstimateMs({ source: { ...source, yieldUnits: 10n ** 12n }, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, clock: { rateBps: 700, lastAccrualTs: 0 }, nowMs: 42 })).toBe(42);
   });
 
   it("pays simSOL worth the redeemed units", () => {

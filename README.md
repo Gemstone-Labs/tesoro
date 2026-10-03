@@ -20,7 +20,7 @@ The **Principal is never played** and never pays Debt. Accrued yield repays the 
 
 | Real (on testnets) | Simulated, stand-in or not done |
 |---|---|
-| Six Solana programs on devnet: the `tesoro_core` ledger, the `block_puzzle`, `holdem` and `trading_duel` Game programs, the `tesoro_bridge` LayerZero OApp, and `sim_lst` | **Yield is Simulated.** `sim_lst` (simSOL, 7% APY) and the Hoodi `SimLST` (simETH, 5% APY) run a 4,320× clock: 1 month of yield every 10 minutes. Their faucets mint unbacked test tokens. |
+| Six Solana programs on devnet: the `tesoro_core` ledger, the `block_puzzle`, `holdem` and `trading_duel` Game programs, the `tesoro_bridge` LayerZero OApp, and `sim_lst` | **Yield is Simulated.** `sim_lst` (simSOL, 7% APY) and the Hoodi `SimLST` (simETH, 5% APY) run a 4,380× clock: 1 month of yield every 10 minutes. Their faucets mint unbacked test tokens. |
 | Matches settled on chain from a **MagicBlock Private Ephemeral Rollup** (Intel TDX TEE). The deck, the hole cards, the Block Puzzle Seed and each Player's moves stay private until settlement. | **Prices come from a trusted oracle key.** The SOL/USD issuance price is an on-chain devnet `PriceFeed` that the keeper writes with the oracle key (median of CoinGecko and Coinbase spot). The ETH issuance price is signed by the same key. Reading Pyth on chain is planned. |
 | ETH Positions on **Ethereum Hoodi**, carried to the Solana ledger by **LayerZero V2**: open, Advance, yield report, Redeem to Hoodi and Unlock, all tested end to end | The full ETH round trip ran on the previous Hoodi vault. The current vault (redeployed 2026-10-01 for SP-01) was smoke-tested for open and yield, not for Redeem and Unlock. |
 | HYPE Positions on **HyperEVM testnet** over the same bridge: open, Advance, yield report and Redeem payout (Solana to HyperEVM) delivered on chain; opened from the Wallet's HYPE tab | **Simulated** simHYPE (1 month = 10 min). Unlock was not run on HyperEVM, and a wallet needs its own testnet HYPE (no faucet to relay). |
@@ -68,7 +68,7 @@ Base-layer RPC: `https://rpc.magicblock.app/devnet` (the public `api.devnet.sola
 | `trading_duel` delegation ProgramConfig (TEE validator whitelist) | `43amrCapYPLYz9tGPcdxw84A3Hby9j4kSTmDTCmu7xZb` |
 | MagicBlock TEE validator (the only validator allowed to receive delegations) | `MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo` |
 | `sim_lst` (**Simulated** LST) | [`WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F`](https://explorer.solana.com/address/WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F?cluster=devnet) |
-| `sim_lst` Pool PDA (7% APY, 4,320× speedup) | `Fc9UUnGEDapkBDM3mPayjqVDLYHokKCPwSLdbvKBUvPL` |
+| `sim_lst` Pool PDA (7% APY, 4,380× speedup) | `Fc9UUnGEDapkBDM3mPayjqVDLYHokKCPwSLdbvKBUvPL` |
 | simSOL mint PDA (9 decimals) | `3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ` |
 | `sim_lst` vault / reserve PDA | `2fQyEVMJNzGmaccxpbzhqMRFSpx9mf1kjsZRAMMRNKDm` |
 | `tesoro_bridge` (LayerZero V2 OApp) | [`5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ`](https://explorer.solana.com/address/5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ?cluster=devnet) |
@@ -81,9 +81,9 @@ Both vaults are owned by the EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f4
 
 | Contract | Address | Notes |
 |---|---|---|
-| `PositionVaultOApp`, SimLST (simETH, **Simulated**) | [`0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a`](https://hoodi.etherscan.io/address/0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a) | The vault the app uses. Redeployed 2026-10-01 (SP-01, PR-01). |
+| `PositionVaultOApp`, SimLST (simETH, **Simulated**) | [`0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`](https://hoodi.etherscan.io/address/0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3) | The vault the app uses. Redeployed 2026-10-03 for per-Position yield (`docs/yield-model.md`). |
 | `PositionVaultOApp`, real Lido wstETH | [`0x61B46f64CDB75930a87955487aAb8A7711F757b5`](https://hoodi.etherscan.io/address/0x61B46f64CDB75930a87955487aAb8A7711F757b5) | Deployed and wired, not run end to end. Redeployed 2026-10-01. |
-| SimLST (simETH, **Simulated**, 5% APY) | [`0x23B17A4c55867406E7CD5602c664E1447400c4a3`](https://hoodi.etherscan.io/address/0x23B17A4c55867406E7CD5602c664E1447400c4a3) | |
+| SimLST (simETH, **Simulated**, 5% APY) | [`0xD82840623A7a00C37b0883d221Fa84e39ddA2a28`](https://hoodi.etherscan.io/address/0xD82840623A7a00C37b0883d221Fa84e39ddA2a28) | |
 | `WstETHRateAdapter` | [`0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37`](https://hoodi.etherscan.io/address/0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37) | The wstETH vault's rate source. Reads wstETH `stEthPerToken()`. |
 | LayerZero EndpointV2 (external) | `0x3aCAAf60502791D199a5a5F0B173D78229eBFe32` | |
 | Lido stETH / wstETH (external) | `0x3508A952176b3c15387C97BE809eaffB1982176a` / `0x7E99eE3C66636DE415D2d7C880938F2f40f94De4` | |
@@ -94,8 +94,8 @@ Owned by the same EVM deployer and peered to the same Solana OApp Store. Deploye
 
 | Contract | Address | Notes |
 |---|---|---|
-| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0x23B17A4c55867406E7CD5602c664E1447400c4a3` | The vault the app uses for HYPE Positions. |
-| SimLST (simHYPE, **Simulated**, 5% APY) | `0x4FF730663d88457990eAF47b23E19737E39BB238` | Unbacked faucet, 1 month = 10 min. |
+| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316` | The vault the app uses for HYPE Positions (redeployed 2026-10-03). |
+| SimLST (simHYPE, **Simulated**, 5% APY) | `0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3` | Unbacked faucet, 1 month = 10 min. |
 | LayerZero EndpointV2 (external) | `0xf9e1815f151024bde4b7c10bac10e8ba9f6b53e1` | Explorer: `https://testnet.purrsec.com`. |
 
 ## Evidence (selected)

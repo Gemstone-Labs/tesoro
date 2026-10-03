@@ -20,31 +20,41 @@ contract SimLSTTest is Test {
         assertEq(lst.underlyingPerShare(), 1e18);
     }
 
-    function test_rateGrowsOneMonthPerTenMinutes() public {
+    function test_rateIsConstant() public {
         vm.warp(block.timestamp + 10 minutes);
-        // 5% APY for 30 simulated days
-        uint256 expected = 1e18 + (uint256(1e18) * 500 * 4320 * 10 minutes) / (10_000 * 365 days);
-        assertEq(lst.underlyingPerShare(), expected);
+        assertEq(lst.underlyingPerShare(), 1e18);
+        vm.warp(block.timestamp + 400 days);
+        assertEq(lst.underlyingPerShare(), 1e18);
     }
 
-    function test_rateMonotonic() public {
-        uint256 prev = lst.underlyingPerShare();
-        for (uint256 i = 0; i < 10; i++) {
-            vm.warp(block.timestamp + 7 minutes);
-            uint256 r = lst.underlyingPerShare();
-            assertGe(r, prev);
-            prev = r;
-        }
-    }
-
-    function test_setParamsCheckpointsRate() public {
-        vm.warp(block.timestamp + 10 minutes);
-        uint256 before = lst.underlyingPerShare();
+    function test_setParamsKeepsRate() public {
         vm.prank(admin);
         lst.setRateParams(1000, 1);
-        assertEq(lst.underlyingPerShare(), before);
         vm.warp(block.timestamp + 365 days);
-        assertEq(lst.underlyingPerShare(), before + (before * 1000) / 10_000);
+        assertEq(lst.underlyingPerShare(), 1e18);
+        assertEq(lst.apyBps(), 1000);
+    }
+
+    function test_onlyMinterMints() public {
+        vm.prank(user);
+        vm.expectRevert(SimLST.NotMinter.selector);
+        lst.mint(user, 1 ether);
+        vm.prank(admin);
+        lst.setMinter(user);
+        vm.prank(user);
+        lst.mint(user, 1 ether);
+        assertEq(lst.balanceOf(user), 1 ether);
+        vm.prank(admin);
+        lst.setMinter(address(0xDEAD));
+        vm.prank(user);
+        vm.expectRevert(SimLST.NotMinter.selector);
+        lst.mint(user, 1 ether);
+    }
+
+    function test_onlyOwnerSetsMinter() public {
+        vm.prank(user);
+        vm.expectRevert(SimLST.NotOwner.selector);
+        lst.setMinter(user);
     }
 
     function test_onlyOwnerAdmin() public {
@@ -60,7 +70,6 @@ contract SimLSTTest is Test {
         vm.prank(user);
         uint256 shares = lst.deposit{value: 10 ether}();
         assertEq(shares, 10 ether);
-        vm.warp(block.timestamp + 10 minutes);
         uint256 rate = lst.underlyingPerShare();
         vm.prank(admin);
         (bool ok,) = address(lst).call{value: 1 ether}("");
@@ -75,10 +84,13 @@ contract SimLSTTest is Test {
     function test_withdrawRefusedBeyondReserve() public {
         vm.prank(user);
         uint256 shares = lst.deposit{value: 10 ether}();
-        vm.warp(block.timestamp + 60 minutes); // 6 sim months of yield, reserve unfunded
+        vm.prank(admin);
+        lst.setMinter(admin);
+        vm.prank(admin);
+        lst.mint(user, 5 ether); // minted yield, reserve unfunded
         vm.prank(user);
         vm.expectRevert();
-        lst.withdraw(shares);
+        lst.withdraw(shares + 5 ether);
     }
 
     function test_pauseBlocksDepositAndFaucet() public {

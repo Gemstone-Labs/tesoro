@@ -51,6 +51,7 @@ const COOLDOWN: i64 = 3_600;
 
 const ERR_UNAUTHORIZED: u32 = 6000;
 const ERR_PAUSED: u32 = 6001;
+const ERR_ZERO_AMOUNT: u32 = 6002;
 const ERR_INVALID_PARAMS: u32 = 6004;
 const ERR_RESERVE: u32 = 6005;
 const ERR_FAUCET_DISABLED: u32 = 6006;
@@ -268,15 +269,25 @@ fn simsol_balance(env: &Env, who: &Pk) -> u64 {
 }
 
 #[test]
-fn rate_grows_on_accelerated_clock() {
+fn the_rate_is_constant_and_yield_is_per_position() {
     let mut env = setup();
     assert_eq!(rate_now(&env), RATE_SCALE);
-    // 10 real minutes = 1 simulated month: 7% APY * 600s * 4320 / 1 year.
-    advance(&mut env, 600);
-    assert_eq!(rate_now(&env), 1_005_753_424);
-    // Linear between checkpoints: 20 minutes doubles the growth.
-    advance(&mut env, 600);
-    assert_eq!(rate_now(&env), 1_011_506_849);
+    advance(&mut env, 10 * 24 * 3_600);
+    assert_eq!(rate_now(&env), RATE_SCALE);
+    // 10 real minutes = 1 simulated month (1/12 year): 7% on 12 SOL is exactly 0.07 SOL.
+    assert_eq!(
+        sim_lst::yield_units(12 * SOL, APY_BPS, 600, DEFAULT_SPEEDUP).unwrap(),
+        70_000_000
+    );
+    // Linear in time and Principal.
+    assert_eq!(
+        sim_lst::yield_units(24 * SOL, APY_BPS, 1_200, DEFAULT_SPEEDUP).unwrap(),
+        4 * 70_000_000
+    );
+    assert_eq!(
+        sim_lst::yield_units(SOL, APY_BPS, -5, DEFAULT_SPEEDUP).unwrap(),
+        0
+    );
 }
 
 #[test]
@@ -297,35 +308,32 @@ fn get_rate_returns_current_rate_as_return_data() {
     );
     let meta = env.svm.send_transaction(tx).unwrap();
     let rate = u64::from_le_bytes(meta.return_data.data.as_slice().try_into().unwrap());
-    assert_eq!(rate, 1_005_753_424);
+    assert_eq!(rate, RATE_SCALE);
 }
 
 #[test]
-fn deposit_withdraw_round_trip_earns_yield_from_reserve() {
+fn deposit_withdraw_round_trip_is_one_to_one_at_the_constant_rate() {
     let mut env = setup();
     let alice = user(&mut env);
     deposit(&mut env, &alice, 10 * SOL).unwrap();
     assert_eq!(simsol_balance(&env, &alice.pubkey()), 10 * SOL);
-
     let admin = env.admin.insecure_clone();
-    fund_reserve(&mut env, &admin, 5 * SOL).unwrap();
+    fund_reserve(&mut env, &admin, SOL).unwrap(); // keeps the vault above its rent floor
     advance(&mut env, 600);
     let before = env.svm.get_balance(&alice.pubkey()).unwrap();
     withdraw(&mut env, &alice, 10 * SOL).unwrap();
     let after = env.svm.get_balance(&alice.pubkey()).unwrap();
-    // 10 simSOL * 1.005753424 = 10.05753424 SOL (minus the tx fee).
-    assert_eq!(after - before, 10_057_534_240 - 5_000);
+    assert_eq!(after - before, 10 * SOL - 5_000);
     assert_eq!(simsol_balance(&env, &alice.pubkey()), 0);
 }
 
 #[test]
-fn deposit_after_growth_mints_fewer_shares() {
+fn deposit_later_mints_the_same_shares() {
     let mut env = setup();
     advance(&mut env, 600);
     let bob = user(&mut env);
     deposit(&mut env, &bob, SOL).unwrap();
-    // 1e9 * 1e9 / 1_005_753_424 rounded down.
-    assert_eq!(simsol_balance(&env, &bob.pubkey()), 994_279_488);
+    assert_eq!(simsol_balance(&env, &bob.pubkey()), SOL);
 }
 
 #[test]
@@ -333,13 +341,12 @@ fn withdraw_beyond_reserve_is_refused() {
     let mut env = setup();
     let alice = user(&mut env);
     deposit(&mut env, &alice, 10 * SOL).unwrap();
-    advance(&mut env, 600);
-    // Vault holds exactly the deposit; the accrued yield is unfunded.
-    assert_eq!(withdraw(&mut env, &alice, 10 * SOL), Err(ERR_RESERVE));
-    // Funding the reserve unblocks it.
+    // Unbacked simSOL (faucet or minted yield) is only redeemable from the funded reserve.
+    faucet(&mut env, &alice).unwrap();
+    assert_eq!(withdraw(&mut env, &alice, 15 * SOL), Err(ERR_RESERVE));
     let admin = env.admin.insecure_clone();
-    fund_reserve(&mut env, &admin, SOL).unwrap();
-    withdraw(&mut env, &alice, 10 * SOL).unwrap();
+    fund_reserve(&mut env, &admin, 6 * SOL).unwrap();
+    withdraw(&mut env, &alice, 15 * SOL).unwrap();
 }
 
 #[test]
@@ -371,7 +378,7 @@ fn only_admin_can_change_params_pause_or_fund() {
 }
 
 #[test]
-fn set_params_rebases_and_keeps_accrued_rate() {
+fn set_params_changes_the_yield_parameters_and_never_the_rate() {
     let mut env = setup();
     advance(&mut env, 600);
     let admin = env.admin.insecure_clone();
@@ -380,16 +387,68 @@ fn set_params_rebases_and_keeps_accrued_rate() {
         &admin.pubkey(),
         instruction::SetParams {
             apy_bps: Some(1_400),
-            speedup: None,
+            speedup: Some(2 * DEFAULT_SPEEDUP),
         },
     );
     send(&mut env, &admin, ix).unwrap();
-    assert_eq!(rate_now(&env), 1_005_753_424);
-    advance(&mut env, 600);
-    // Second month at 14% compounds on the rebased 1.005753424.
-    let expected = 1_005_753_424u64 + 1_005_753_424u64 * 1_400 * 2_592_000 / (10_000 * 31_536_000);
-    assert_eq!(rate_now(&env), expected);
-    assert_eq!(pool_state(&env).speedup, DEFAULT_SPEEDUP);
+    assert_eq!(rate_now(&env), RATE_SCALE);
+    assert_eq!(pool_state(&env).apy_bps, 1_400);
+    assert_eq!(pool_state(&env).speedup, 2 * DEFAULT_SPEEDUP);
+}
+
+fn set_yield_authority(env: &mut Env, signer: &Keypair, authority: APk) -> Result<(), u32> {
+    let ix = ix(
+        accounts::SetYieldAuthority {
+            admin: key(signer),
+            pool: env.pool,
+            config: pda(&[sim_lst::YIELD_SEED]),
+            system_program: system_program::ID,
+        },
+        instruction::SetYieldAuthority { authority },
+    );
+    send(env, signer, ix)
+}
+
+fn mint_yield(env: &mut Env, signer: &Keypair, to: APk, shares: u64) -> Result<(), u32> {
+    let ix = ix(
+        accounts::MintYield {
+            authority: key(signer),
+            config: pda(&[sim_lst::YIELD_SEED]),
+            pool: env.pool,
+            mint: env.mint,
+            destination: to,
+            token_program: TOKEN_PROGRAM_ID,
+        },
+        instruction::MintYield { shares },
+    );
+    send(env, signer, ix)
+}
+
+#[test]
+fn only_the_recorded_yield_authority_mints_yield() {
+    let mut env = setup();
+    let alice = user(&mut env);
+    faucet(&mut env, &alice).unwrap();
+    let dest = ata(&env, &alice);
+    let yielder = user(&mut env);
+    let mallory = user(&mut env);
+    // Only the admin records the authority.
+    assert_eq!(
+        set_yield_authority(&mut env, &mallory, key(&mallory)),
+        Err(ERR_UNAUTHORIZED)
+    );
+    let admin = env.admin.insecure_clone();
+    set_yield_authority(&mut env, &admin, key(&yielder)).unwrap();
+    for who in [&mallory, &alice, &admin] {
+        assert_eq!(mint_yield(&mut env, who, dest, SOL), Err(ERR_UNAUTHORIZED));
+    }
+    let before = simsol_balance(&env, &alice.pubkey());
+    mint_yield(&mut env, &yielder, dest, SOL).unwrap();
+    assert_eq!(simsol_balance(&env, &alice.pubkey()), before + SOL);
+    assert_eq!(
+        mint_yield(&mut env, &yielder, dest, 0),
+        Err(ERR_ZERO_AMOUNT)
+    );
 }
 
 #[test]

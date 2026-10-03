@@ -26,7 +26,7 @@ import {
 import { opCopy, opProgress, opSteps, untrackedOpens, type EthOp } from "./eth-track";
 
 const VAULT = "0x6c836b96464B5D1b55536d5a34D023528eaEe4bD";
-const rate: SimRate = { baseRate: 10n ** 18n, baseTime: 1_000n, apyBps: 500n, speedup: 4320n };
+const rate: SimRate = { baseRate: 10n ** 18n, baseTime: 1_000n, apyBps: 500n, speedup: 4380n };
 
 describe("position id", () => {
   it("round-trips vault and vault id", () => {
@@ -44,31 +44,27 @@ describe("advance quote", () => {
 });
 
 describe("SimLST clock", () => {
-  it("accrues 5% APY at 4,320x: one simulated month per 10 minutes", () => {
-    const r = simRateAt(rate, 1_000 + 600);
-    // 30 days at 5% APY, simple: 0.05 * 30/365
-    expect(Number(r - rate.baseRate) / 1e18).toBeCloseTo((0.05 * 30) / 365, 4);
+  it("keeps the exchange rate constant (yield is minted per Position, docs/yield-model.md)", () => {
+    expect(simRateAt(rate)).toBe(rate.baseRate);
+    expect(simRateAt(rate)).toBe(rate.baseRate);
   });
 
-  it("estimates the unlock time from the Debt and the rate", () => {
+  it("estimates a fresh 1-month Advance at 10 minutes, whatever the Principal", () => {
+    for (const principal of [10n ** 18n, 4n * 10n ** 18n]) {
+      // Advance = principal * 5% / 12; one Gema = a fixed share of it
+      const units = (principal * 500n) / (10_000n * 12n);
+      const source = { issued: 1000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: units, unitDen: 1000n };
+      const position = { heldShares: principal, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n };
+      const at = ethUnlockEstimateMs({ source, position, rate, nowMs: 0 })!;
+      expect(at / 60_000).toBeGreaterThanOrEqual(10);
+      expect(at / 60_000).toBeLessThan(10.01);
+    }
+  });
+
+  it("is done when the accrued yield already covers the Debt", () => {
     const source = { issued: 1000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 15n, unitDen: 1n };
-    const position = { heldShares: 10n ** 18n, principalUnderlying: 10n ** 18n, paidUnderlying: 0n, accrued: 0n };
-    const at = ethUnlockEstimateMs({ source, position, rate, nowMs: 1_000_000 });
-    // 1e18 wei of yield needed on 1 share: rate must reach baseRate + 1e18 * 1e18 / 1e18 shares... one full unit
-    expect(at).not.toBeNull();
-    expect(at!).toBeGreaterThan(1_000_000);
-    const done = ethUnlockEstimateMs({ source, position: { ...position, accrued: 10n ** 30n }, rate, nowMs: 5 });
-    expect(done).toBe(5);
-  });
-
-  it("counts only the shares still held after a payout (SP-01)", () => {
-    const source = { issued: 2000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 15n, unitDen: 1n };
-    const fresh = { heldShares: 10n ** 19n, principalUnderlying: 10n ** 19n, paidUnderlying: 0n, accrued: 0n };
-    // 0.5 paid out at rate 1.1: about 0.4545 shares left the vault and no longer earn
-    const paidOut = { ...fresh, heldShares: 10n ** 19n - 454_545_454_545_454_545n, paidUnderlying: 5n * 10n ** 17n };
-    const a = ethUnlockEstimateMs({ source, position: fresh, rate, nowMs: 0 })!;
-    const b = ethUnlockEstimateMs({ source, position: paidOut, rate, nowMs: 0 })!;
-    expect(b).toBeGreaterThan(a);
+    const position = { heldShares: 10n ** 18n, principalUnderlying: 10n ** 18n, paidUnderlying: 0n, accrued: 10n ** 30n };
+    expect(ethUnlockEstimateMs({ source, position, rate, nowMs: 5 })).toBe(5);
   });
 
   it("projects the Debt a report would leave", () => {

@@ -15,6 +15,8 @@ pub const REQUEST_SEED: &[u8] = b"request";
 pub const OFFER_SEED: &[u8] = b"offer";
 pub const NATIVE_SEED: &[u8] = b"native";
 pub const NATIVE_VAULT_SEED: &[u8] = b"native_vault";
+/// PDA that signs `sim_lst::mint_yield`; sim_lst records it as the one yield authority.
+pub const YIELD_SEED: &[u8] = b"yield";
 pub const PRICE_SEED: &[u8] = b"price";
 
 /// simSOL mint of `sim_lst` (PDA `["mint"]` of `WgcM5G...`). A Solana Position whose
@@ -200,15 +202,22 @@ pub struct NativeCustody {
     /// yield (ADR 0001: Principal never pays Debt, not even by top-up). Appended after the original
     /// layout; custodies opened before it are extended by `migrate_native_custody`.
     pub tracked_shares: u64,
+    /// Unix time up to which yield has been minted into the vault (per-Position yield model,
+    /// docs/yield-model.md). Appended after `tracked_shares`; older custodies are extended by
+    /// `migrate_native_custody`, which starts it at the migration time.
+    pub last_accrual_ts: i64,
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = Self::LEGACY_SPACE + 8;
+    pub const SPACE: usize = Self::TRACKED_SPACE + 8;
+    /// The layout with `tracked_shares` and before `last_accrual_ts`.
+    pub const TRACKED_SPACE: usize = Self::LEGACY_SPACE + 8;
     /// The layout before `tracked_shares`.
     pub const LEGACY_SPACE: usize = 8 + 1 + 1 + 5 * 32 + 3 * 8;
     /// Offsets inside the account data, after the 8-byte discriminator.
     pub const VAULT_OFFSET: usize = 8 + 2 + 4 * 32;
     pub const DEPOSITED_OFFSET: usize = 8 + 2 + 5 * 32 + 8;
+    pub const TRACKED_OFFSET: usize = Self::LEGACY_SPACE;
 }
 
 /// SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IRateSource, IERC20Minimal, IMessageEndpoint} from "./IRateSource.sol";
+import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRateSource.sol";
 
 /// @title PositionVault
 /// @notice Holds a Position's Principal in an LST and reports its yield to Solana, where Gemas and Debt live.
@@ -13,6 +13,11 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint} from "./IRateSource.sol";
 ///  - cumulative accrued yield = paid + value of the held shares above the Principal reserve, frozen at Unlock.
 ///    Shares already paid out stop earning here, so every unpaid unit of accrued yield is backed by held shares
 ///    and a PayYield within it is paid in full.
+///
+/// Simulated yield (docs/yield-model.md): when `yieldMinter` is a SimLST, each Position earns
+/// principalUnderlying * apyBps * simElapsed / (BPS * YEAR) linearly from its open time, minted as shares into this
+/// vault by `accrue`. The rate is constant, so the accounting above is unchanged. With `yieldMinter == address(0)`
+/// (real wstETH) yield comes from the rate only.
 ///
 /// Messaging seam: outbound goes through `_send(bytes)`; inbound enters through `receiveMessage(bytes)`, which is
 /// authorised to the endpoint and forwards to `_receive(bytes)`. A LayerZero OApp subclass overrides `_send` and
@@ -44,6 +49,13 @@ contract PositionVault {
     address public immutable messageEndpoint;
     /// @notice Tesoro chain id carried in every payload; the Solana side keys Positions by (sourceChain, positionId).
     uint32 public immutable sourceChain;
+    /// @notice SimLST that mints simulated yield into this vault; address(0) for rate-based LSTs.
+    address public immutable yieldMinter;
+    uint256 internal constant BPS = 10_000;
+    uint256 internal constant YEAR = 365 days;
+
+    /// @notice Last time `accrue` converted time to shares, per position.
+    mapping(uint64 => uint64) public lastAccrual;
 
     uint64 public nextPositionId;
     mapping(uint64 => Position) internal _positions;
@@ -60,6 +72,7 @@ contract PositionVault {
     event YieldPaid(
         uint64 indexed positionId, address indexed to, uint256 amountUnderlying, uint256 shares, uint64 seq
     );
+    event YieldMinted(uint64 indexed positionId, uint256 shares, uint256 underlying);
     event MessageIgnored(uint64 indexed positionId, uint8 msgType, uint64 seq, string reason);
 
     error NotEndpoint();
@@ -72,11 +85,12 @@ contract PositionVault {
     error InsufficientShares(uint256 needed, uint256 spendable);
     error PrincipalTooLarge();
 
-    constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_) {
+    constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_, address yieldMinter_) {
         lst = IERC20Minimal(lst_);
         rateSource = IRateSource(rateSource_);
         messageEndpoint = endpoint_;
         sourceChain = sourceChain_;
+        yieldMinter = yieldMinter_;
     }
 
     // ---------------------------------------------------------------- views
@@ -85,13 +99,15 @@ contract PositionVault {
         return _positions[id];
     }
 
+    /// @notice Cumulative accrued yield including what `accrue` would mint right now.
     function accruedYield(uint64 id) public view returns (uint256) {
-        return _accrued(_positions[id], rateSource.underlyingPerShare());
+        Position storage p = _positions[id];
+        return _accruedWithPending(id, p, rateSource.underlyingPerShare());
     }
 
     function payableYield(uint64 id) public view returns (uint256) {
         Position storage p = _positions[id];
-        uint256 accrued = _accrued(p, rateSource.underlyingPerShare());
+        uint256 accrued = _accruedWithPending(id, p, rateSource.underlyingPerShare());
         return accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;
     }
 
@@ -112,6 +128,7 @@ contract PositionVault {
         p.openRate = rate;
         p.heldShares = lstAmount;
         p.openTime = uint64(block.timestamp);
+        lastAccrual[id] = uint64(block.timestamp);
         p.horizonMonths = horizonMonths;
         uint64 seq = ++p.outSeq;
 
@@ -139,11 +156,48 @@ contract PositionVault {
     function reportYield(uint64 id) external payable {
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
+        _accrue(id, p);
         uint256 rate = rateSource.underlyingPerShare();
         uint256 accrued = _accrued(p, rate);
         uint64 seq = ++p.outSeq;
         emit YieldAccrued(id, accrued, rate, seq);
         _send(abi.encode(MSG_YIELD_ACCRUED, sourceChain, id, seq, accrued, rate, block.timestamp));
+    }
+
+    /// @notice Permissionless: mints the simulated yield earned since the last accrual into the vault.
+    function accrue(uint64 id) external {
+        Position storage p = _positions[id];
+        if (p.owner == address(0)) revert UnknownPosition();
+        _accrue(id, p);
+    }
+
+    /// @dev No-op for rate-based LSTs and after Unlock. If the elapsed time is worth less than one share the
+    ///      timestamp is kept so the time carries over.
+    function _pending(uint64 id, Position storage p) internal view returns (uint256 shares, uint256 underlying) {
+        if (yieldMinter == address(0) || p.unlocked) return (0, 0);
+        uint256 dt = block.timestamp - lastAccrual[id];
+        if (dt == 0) return (0, 0);
+        IYieldMinter m = IYieldMinter(yieldMinter);
+        underlying = (p.principalUnderlying * m.apyBps() * dt * m.speedup()) / (BPS * YEAR);
+        shares = (underlying * RATE_SCALE) / rateSource.underlyingPerShare();
+    }
+
+    function _accruedWithPending(uint64 id, Position storage p, uint256 rate) internal view returns (uint256) {
+        if (p.unlocked) return p.frozenAccrued;
+        (uint256 shares,) = _pending(id, p);
+        uint256 held = p.heldShares + shares;
+        uint256 reserve = _principalReserve(p, rate);
+        reserve = reserve > held ? held : reserve;
+        return p.paidUnderlying + ((held - reserve) * rate) / RATE_SCALE;
+    }
+
+    function _accrue(uint64 id, Position storage p) internal {
+        (uint256 shares, uint256 underlying) = _pending(id, p);
+        if (shares == 0) return;
+        lastAccrual[id] = uint64(block.timestamp);
+        p.heldShares += shares;
+        IYieldMinter(yieldMinter).mint(address(this), shares);
+        emit YieldMinted(id, shares, underlying);
     }
 
     // ---------------------------------------------------------------- inbound
@@ -178,6 +232,7 @@ contract PositionVault {
     ///      in the vault, frozen, for redeemers.
     function _onUnlock(uint64 id, Position storage p, uint64 seq) internal {
         if (p.unlocked) return _ignore(id, MSG_UNLOCK, seq, "already unlocked");
+        _accrue(id, p);
         uint256 rate = rateSource.underlyingPerShare();
         p.frozenAccrued = _accrued(p, rate);
         p.unlocked = true;
@@ -189,6 +244,7 @@ contract PositionVault {
     }
 
     function _onPayYield(uint64 id, Position storage p, uint64 seq, address to, uint256 amount) internal {
+        _accrue(id, p);
         uint256 rate = rateSource.underlyingPerShare();
         uint256 accrued = _accrued(p, rate);
         uint256 available = accrued > p.paidUnderlying ? accrued - p.paidUnderlying : 0;

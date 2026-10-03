@@ -4,6 +4,7 @@ import { createPublicClient, http, parseAbi, type Address, type Chain, type Hex,
 import { hoodi, hyperEvmTestnet } from "@/lib/chains";
 import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, u64 } from "./native";
 import { unitsToRepay, type SourceMath } from "./ledger";
+import { accruedYield } from "./yield";
 
 /**
  * EVM Positions (Ethereum Hoodi and HyperEVM testnet) on the Solana ledger, over LayerZero V2. Accounts and wire
@@ -67,8 +68,8 @@ export const ETH_VAULTS: EthVault[] = [
     key: "sim",
     net: "hoodi",
     label: "Simulated ETH (simETH)",
-    address: "0xF3F2361432e5066588B96c9A9acF0b7b2907AE0a",
-    lst: "0x23B17A4c55867406E7CD5602c664E1447400c4a3",
+    address: "0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3",
+    lst: "0xD82840623A7a00C37b0883d221Fa84e39ddA2a28",
     symbol: "simETH",
     simulated: true,
   },
@@ -76,8 +77,8 @@ export const ETH_VAULTS: EthVault[] = [
     key: "sim-hype",
     net: "hyperevm",
     label: "Simulated HYPE (simHYPE)",
-    address: "0x23B17A4c55867406E7CD5602c664E1447400c4a3",
-    lst: "0x4FF730663d88457990eAF47b23E19737E39BB238",
+    address: "0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316",
+    lst: "0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3",
     symbol: "simHYPE",
     simulated: true,
   },
@@ -86,11 +87,14 @@ export const isKnownVault = (v: string) => ETH_VAULTS.some((x) => x.address.toLo
 export const vaultByAddress = (v: string) => ETH_VAULTS.find((x) => x.address.toLowerCase() === v.toLowerCase()) ?? null;
 export const vaultsOn = (net: NetKey) => ETH_VAULTS.filter((v) => v.net === net);
 /** The network a vault lives on. Vaults the app no longer lists (retired Hoodi redeploys) are Hoodi. */
-export const netOfVault = (v: string): EvmNet => NETS[vaultByAddress(v)?.net ?? "hoodi"];
+export const netOfVault = (v: string): EvmNet =>
+  NETS[vaultByAddress(v)?.net ?? (RETIRED_HYPEREVM_VAULTS.includes(v.toLowerCase()) ? "hyperevm" : "hoodi")];
+/** HyperEVM vaults replaced by the per-Position yield redeploy (2026-10-03); their Positions are abandoned. */
+const RETIRED_HYPEREVM_VAULTS = ["0x23b17a4c55867406e7cd5602c664e1447400c4a3".toLowerCase()];
 
 export const WEI = 10n ** 18n;
 export const ETH_DECIMALS = 18;
-/** Wall-clock minutes of one simulated month (SimLST speedup 4,320). */
+/** Wall-clock minutes of one simulated month (SimLST speedup 4,380). */
 export const ETH_SIM_MONTH_MIN = 10;
 /** The vault's own `principalUnderlying` must fit u64 on Solana. */
 export const MAX_PRINCIPAL_WEI = (1n << 64n) - 1n;
@@ -397,11 +401,9 @@ export interface SimRate {
   speedup: bigint;
 }
 
-const YEAR = 31_536_000n;
-/** SimLST `underlyingPerShare()` at unix second `t`, as the contract computes it. */
-export function simRateAt(r: SimRate, t: number): bigint {
-  const elapsed = BigInt(Math.max(0, Math.floor(t))) - r.baseTime;
-  return r.baseRate + (r.baseRate * r.apyBps * (elapsed > 0n ? elapsed : 0n) * r.speedup) / (10_000n * YEAR);
+/** SimLST `underlyingPerShare()`: constant since the per-Position yield model (docs/yield-model.md). */
+export function simRateAt(r: SimRate): bigint {
+  return r.baseRate;
 }
 
 export interface EthMarket {
@@ -508,7 +510,7 @@ export function projectedEthDebt(source: SourceMath | null, accruedUnits: bigint
 }
 
 /**
- * Unlock Estimate (ms since epoch, simulated clock): when the yield accrued on Hoodi covers the
+ * Unlock Estimate (ms since epoch): when the yield accrued on the vault covers the
  * Debt. An estimate, never a promise. Null when it cannot be projected.
  */
 export function ethUnlockEstimateMs(args: {
@@ -522,16 +524,17 @@ export function ethUnlockEstimateMs(args: {
   const needed = unitsToRepay(source) + source.yieldUnits;
   const have = position.accrued > source.yieldUnits ? position.accrued : source.yieldUnits;
   if (have >= needed) return nowMs;
-  const growth = rate.baseRate * rate.apyBps * rate.speedup;
-  if (growth === 0n) return null;
-  // As PositionVault: accrued(t) = paid + held * rate(t) / 1e18 - principal, so
-  // accrued(t) >= needed  <=>  rate(t) >= (needed + principal - paid) * 1e18 / held
-  const target = needed + position.principalUnderlying - position.paidUnderlying;
-  if (target <= 0n) return nowMs;
-  const targetRate = (target * WEI + position.heldShares - 1n) / position.heldShares;
-  if (targetRate <= rate.baseRate) return nowMs;
-  const seconds = ((targetRate - rate.baseRate) * 10_000n * YEAR + growth - 1n) / growth;
-  return Number(rate.baseTime + seconds) * 1000;
+  // Yield is linear on the Position's own Principal (docs/yield-model.md): accrued(t) = accrued_now + per_second * t.
+  const window = 1_000_000n;
+  const perWindow = accruedYield({
+    principal: position.principalUnderlying,
+    rateBps: Number(rate.apyBps),
+    elapsedSec: window,
+    speedup: rate.speedup,
+  });
+  if (perWindow === 0n) return null;
+  const seconds = ((needed - have) * window + perWindow - 1n) / perWindow;
+  return nowMs + Number(seconds) * 1000;
 }
 
 /** ETH base units a redeem of `gemas` pays (floor, as the program computes it). */

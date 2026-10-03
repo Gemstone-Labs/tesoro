@@ -234,7 +234,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   }, [unit]);
 
   const shares = /^\d*\.?\d{0,18}$/.test(text) && Number(text) > 0 ? BigInt(Math.round(Number(text) * 1e9)) * 10n ** 9n : 0n;
-  const rate = market ? simRateAt(market.rate, now / 1000) : WEI;
+  const rate = market ? simRateAt(market.rate) : WEI;
   const principal = underlyingOf(shares, rate);
   const quote = price && principal > 0n ? quoteEthAdvance(principal, Number(market?.rate.apyBps ?? 500n), months, price.microUsd) : null;
   const gemas = quote ? Number(quote.gemas) : 0;

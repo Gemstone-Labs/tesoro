@@ -4,12 +4,12 @@
 //! exchange rate (SOL per simSOL) grows on an accelerated clock. The yield is paid out of an
 //! admin-funded reserve held in the vault; withdrawals beyond the vault's balance are refused.
 //!
-//! Rate formula (integer only, `RATE_SCALE` = 1e9 fixed point):
-//! `rate = base_rate + base_rate * apy_bps * (elapsed * speedup) / (10_000 * SECONDS_PER_YEAR)`
-//! where `elapsed = now - base_ts`. Yield is linear (simple interest) between checkpoints; the
-//! admin changing `apy_bps` or `speedup` first rebases (`base_rate = current rate`,
-//! `base_ts = now`), so past growth is kept and later growth compounds across checkpoints.
-//! Default `speedup` is 4,320 (1 month of yield per 10 minutes).
+//! Rate: constant. `current_rate` returns the checkpointed `base_rate` (RATE_SCALE = 1e9 fixed
+//! point), so deposit and withdraw price at a fixed SOL value per simSOL. Yield does not come from
+//! the rate: each Position earns `principal * apy * simulated_time` and the tesoro_core yield
+//! authority mints it into the Position's vault with `mint_yield` (see docs/yield-model.md).
+//! `apy_bps` and `speedup` stay in the Pool as the yield parameters. Default `speedup` is 4,380
+//! (1 simulated month = 1/12 year = 10 real minutes).
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{self, Transfer};
@@ -21,7 +21,7 @@ declare_id!("WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F");
 pub const RATE_SCALE: u64 = 1_000_000_000;
 pub const BPS_DENOMINATOR: u128 = 10_000;
 pub const SECONDS_PER_YEAR: u128 = 31_536_000;
-pub const DEFAULT_SPEEDUP: u32 = 4_320;
+pub const DEFAULT_SPEEDUP: u32 = 4_380;
 pub const MAX_APY_BPS: u32 = 100_000;
 pub const MAX_SPEEDUP: u32 = 1_000_000;
 pub const DECIMALS: u8 = 9;
@@ -30,6 +30,7 @@ pub const POOL_SEED: &[u8] = b"pool";
 pub const MINT_SEED: &[u8] = b"mint";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const FAUCET_SEED: &[u8] = b"faucet";
+pub const YIELD_SEED: &[u8] = b"yield_config";
 
 #[program]
 pub mod sim_lst {
@@ -169,21 +170,47 @@ pub mod sim_lst {
         current_rate(&ctx.accounts.pool, Clock::get()?.unix_timestamp)
     }
 
-    /// Admin: rebases at the current rate, then changes APY and/or speedup.
+    /// Admin: changes the yield parameters (APY and/or speedup). The rate does not move.
     pub fn set_params(
         ctx: Context<AdminOnly>,
         apy_bps: Option<u32>,
         speedup: Option<u32>,
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
-        let now = Clock::get()?.unix_timestamp;
         let new_apy = apy_bps.unwrap_or(pool.apy_bps);
         let new_speedup = speedup.unwrap_or(pool.speedup);
         validate_params(new_apy, new_speedup)?;
-        pool.base_rate = current_rate(pool, now)?;
-        pool.base_ts = now;
         pool.apy_bps = new_apy;
         pool.speedup = new_speedup;
+        Ok(())
+    }
+
+    /// Admin: records the one authority allowed to `mint_yield` (the tesoro_core `["yield"]` PDA).
+    pub fn set_yield_authority(ctx: Context<SetYieldAuthority>, authority: Pubkey) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.authority = authority;
+        config.bump = ctx.bumps.config;
+        Ok(())
+    }
+
+    /// Yield authority only: mints `shares` simSOL of simulated yield to `destination`. The
+    /// shares are backed by the admin-funded reserve, like the faucet's are not.
+    pub fn mint_yield(ctx: Context<MintYield>, shares: u64) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        require!(!pool.paused, SimLstError::Paused);
+        require!(shares > 0, SimLstError::ZeroAmount);
+        mint_shares(
+            pool,
+            &ctx.accounts.token_program,
+            &ctx.accounts.mint,
+            &ctx.accounts.destination,
+            &ctx.accounts.pool.to_account_info(),
+            shares,
+        )?;
+        emit!(YieldMinted {
+            destination: ctx.accounts.destination.key(),
+            shares,
+        });
         Ok(())
     }
 
@@ -225,23 +252,24 @@ pub mod sim_lst {
     }
 }
 
-/// Current SOL-per-simSOL rate (1e9 fixed point). Other programs can deserialize [`Pool`]
-/// and call this with the Clock timestamp.
-pub fn current_rate(pool: &Pool, now: i64) -> Result<u64> {
-    let elapsed = u128::try_from(now.saturating_sub(pool.base_ts).max(0))
-        .map_err(|_| SimLstError::MathOverflow)?;
-    let scaled_time = elapsed
-        .checked_mul(u128::from(pool.speedup))
-        .ok_or(SimLstError::MathOverflow)?;
-    let growth = u128::from(pool.base_rate)
-        .checked_mul(u128::from(pool.apy_bps))
-        .and_then(|v| v.checked_mul(scaled_time))
+/// Current SOL-per-simSOL rate (1e9 fixed point): constant, the checkpointed `base_rate`. Other
+/// programs can deserialize [`Pool`] and call this; `now` is kept so callers need not change.
+pub fn current_rate(pool: &Pool, _now: i64) -> Result<u64> {
+    require!(pool.base_rate > 0, SimLstError::MathOverflow);
+    Ok(pool.base_rate)
+}
+
+/// Simulated yield of one Position: `principal * apy * elapsed * speedup / (10_000 * year)`, linear
+/// and rounded down. The same function sizes what `mint_yield` mints.
+pub fn yield_units(principal: u64, apy_bps: u32, elapsed: i64, speedup: u32) -> Result<u64> {
+    let elapsed = u128::try_from(elapsed.max(0)).map_err(|_| SimLstError::MathOverflow)?;
+    let v = u128::from(principal)
+        .checked_mul(u128::from(apy_bps))
+        .and_then(|v| v.checked_mul(elapsed))
+        .and_then(|v| v.checked_mul(u128::from(speedup)))
         .ok_or(SimLstError::MathOverflow)?
         / (BPS_DENOMINATOR * SECONDS_PER_YEAR);
-    let rate = u128::from(pool.base_rate)
-        .checked_add(growth)
-        .ok_or(SimLstError::MathOverflow)?;
-    Ok(u64::try_from(rate).map_err(|_| SimLstError::MathOverflow)?)
+    Ok(u64::try_from(v).map_err(|_| SimLstError::MathOverflow)?)
 }
 
 pub fn lamports_to_shares(lamports: u64, rate: u64) -> Result<u64> {
@@ -310,6 +338,20 @@ pub struct Pool {
     pub bump: u8,
     pub mint_bump: u8,
     pub vault_bump: u8,
+}
+
+/// The authority allowed to mint simulated yield.
+#[account]
+#[derive(InitSpace)]
+pub struct YieldConfig {
+    pub authority: Pubkey,
+    pub bump: u8,
+}
+
+#[event]
+pub struct YieldMinted {
+    pub destination: Pubkey,
+    pub shares: u64,
 }
 
 #[account]
@@ -416,6 +458,38 @@ pub struct Faucet<'info> {
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetYieldAuthority<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [POOL_SEED], bump = pool.bump, has_one = admin @ SimLstError::Unauthorized)]
+    pub pool: Account<'info, Pool>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + YieldConfig::INIT_SPACE,
+        seeds = [YIELD_SEED],
+        bump
+    )]
+    pub config: Account<'info, YieldConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct MintYield<'info> {
+    #[account(address = config.authority @ SimLstError::Unauthorized)]
+    pub authority: Signer<'info>,
+    #[account(seeds = [YIELD_SEED], bump = config.bump)]
+    pub config: Account<'info, YieldConfig>,
+    #[account(seeds = [POOL_SEED], bump = pool.bump)]
+    pub pool: Account<'info, Pool>,
+    #[account(mut, address = pool.mint)]
+    pub mint: Account<'info, Mint>,
+    #[account(mut, token::mint = mint)]
+    pub destination: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]

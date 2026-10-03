@@ -1,23 +1,27 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Keypair } from "@solana/web3.js";
-import { RATE_SCALE } from "../../app/src/lib/chain/native.ts";
+import type { PoolParams } from "../../app/src/lib/chain/native.ts";
 import { Budget, act, type ActCtx } from "./act.ts";
 import { batches, crankGain, crankReason, type Reading } from "./yield.ts";
 
-// 1 SOL Principal held as 1e9 shares at rate 1.0; an Advance of 100 Gemas at 100,000 lamports per Gema.
+// 1 SOL Principal held as 1e9 shares at the constant rate 1.0 (7% APY, 4,380x); an Advance of 100 Gemas at 100,000 lamports per Gema.
+const pool: PoolParams = { baseRate: 1_000_000_000n, baseTs: 0, apyBps: 700, speedup: 4380 };
 const source = { issued: 100n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 100_000n, unitDen: 1n };
-const reading = (over: Partial<Reading> = {}): Reading => ({ principal: 1_000_000_000n, cumulative: 0n, trackedShares: 1_000_000_000n, redeemedUnits: 0n, source, ...over });
-/** The rate at which the vault has accrued `units` lamports of yield. */
-const rateFor = (units: bigint) => RATE_SCALE + units;
+const reading = (over: Partial<Reading> = {}): Reading => ({ principal: 1_000_000_000n, cumulative: 0n, trackedShares: 1_000_000_000n, redeemedUnits: 0n, source, rateBps: 700, lastAccrualTs: 0, ...over });
+/** Milliseconds after `last_accrual_ts`. */
+const after = (secs: number) => secs * 1000;
 
 describe("native yield cranks (OC-06)", () => {
   it("computes the Gemas one crank repays, as the program applies it", () => {
-    assert.deepEqual(crankGain(reading(), rateFor(0n)), { gain: 0n, clears: false });
-    assert.deepEqual(crankGain(reading(), rateFor(350_000n)), { gain: 3n, clears: false });
-    assert.deepEqual(crankGain(reading({ cumulative: 300_000n }), rateFor(350_000n)), { gain: 0n, clears: false });
-    assert.deepEqual(crankGain(reading(), rateFor(50_000_000n)), { gain: 100n, clears: true });
-    assert.equal(crankGain(reading({ trackedShares: null }), rateFor(1n)), null);
+    // 1 SOL at 7% earns 5,833,333 lamports per simulated month (600 s): 9,722 lamports per second.
+    assert.deepEqual(crankGain(reading(), pool, after(0)), { gain: 0n, clears: false });
+    assert.deepEqual(crankGain(reading(), pool, after(36)), { gain: 3n, clears: false });
+    assert.deepEqual(crankGain(reading({ cumulative: 350_000n }), pool, after(36)), { gain: 0n, clears: false });
+    assert.deepEqual(crankGain(reading(), pool, after(600)), { gain: 58n, clears: false });
+    assert.deepEqual(crankGain(reading(), pool, after(1031)), { gain: 100n, clears: true });
+    assert.equal(crankGain(reading({ trackedShares: null }), pool, after(1)), null);
+    assert.equal(crankGain(reading({ lastAccrualTs: null }), pool, after(1)), null, "an unmigrated custody");
   });
 
   it("skips a Position whose crank would repay too little, until it is stale", () => {

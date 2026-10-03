@@ -4,8 +4,9 @@ pragma solidity ^0.8.28;
 import {IRateSource} from "./IRateSource.sol";
 
 /// @title SimLST ("simETH" on Ethereum, "simHYPE" on HyperEVM)
-/// @notice SIMULATED wstETH-like token for demos. Non-rebasing; its exchange rate against ETH
-///         grows on an accelerated clock (default: 1 month of yield per 10 real minutes).
+/// @notice SIMULATED wstETH-like token for demos. Non-rebasing; its exchange rate against ETH is CONSTANT
+///         (docs/yield-model.md). Yield is simulated per Position: the PositionVault (the `minter`) mints
+///         shares into itself at `apyBps`, `speedup` (default 1 month per 10 real minutes) on each Principal.
 ///         Not a real staking product. Withdrawals are paid from an admin-funded ETH reserve.
 contract SimLST is IRateSource {
     string public name;
@@ -23,11 +24,13 @@ contract SimLST is IRateSource {
     address public owner;
     bool public paused;
 
-    // Rate = baseRate * (1 + apyBps * simElapsed / (BPS * YEAR)), simElapsed = realElapsed * speedup.
+    // Rate is constant at `baseRate`. `apyBps` / `speedup` are the yield parameters read by the minter.
     uint256 public baseRate = RATE_SCALE;
     uint256 public baseTime;
+    /// @notice Only this address may `mint` (the PositionVault that accrues simulated yield).
+    address public minter;
     uint256 public apyBps = 500;
-    uint256 public speedup = 4320; // 30 days per 600 s
+    uint256 public speedup = 4380; // 1/12 year per 600 s
 
     uint256 public faucetAmount = 10 ether;
     uint256 public faucetCooldown = 1 hours;
@@ -40,9 +43,12 @@ contract SimLST is IRateSource {
     event ReserveFunded(address indexed from, uint256 amount);
     event RateParamsSet(uint256 baseRate, uint256 apyBps, uint256 speedup);
     event Paused(bool paused);
+    event MinterSet(address minter);
+    event YieldMint(address indexed to, uint256 amount);
     event FaucetMint(address indexed to, uint256 amount);
 
     error NotOwner();
+    error NotMinter();
     error IsPaused();
     error ZeroAmount();
     error InsufficientReserve(uint256 needed, uint256 available);
@@ -71,8 +77,7 @@ contract SimLST is IRateSource {
     // ---- rate ----
 
     function underlyingPerShare() public view returns (uint256) {
-        uint256 simElapsed = (block.timestamp - baseTime) * speedup;
-        return baseRate + (baseRate * apyBps * simElapsed) / (BPS * YEAR);
+        return baseRate;
     }
 
     // ---- ETH <-> simETH ----
@@ -113,11 +118,22 @@ contract SimLST is IRateSource {
     // ---- admin ----
 
     function setRateParams(uint256 apyBps_, uint256 speedup_) external onlyOwner {
-        baseRate = underlyingPerShare(); // checkpoint so past accrual is kept
         baseTime = block.timestamp;
         apyBps = apyBps_;
         speedup = speedup_;
         emit RateParamsSet(baseRate, apyBps_, speedup_);
+    }
+
+    function setMinter(address minter_) external onlyOwner {
+        minter = minter_;
+        emit MinterSet(minter_);
+    }
+
+    /// @notice Mints simulated yield shares. Backed by the ETH reserve at withdrawal time, not at mint time.
+    function mint(address to, uint256 amount) external {
+        if (msg.sender != minter) revert NotMinter();
+        _mint(to, amount);
+        emit YieldMint(to, amount);
     }
 
     function setPaused(bool paused_) external onlyOwner {

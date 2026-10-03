@@ -62,7 +62,8 @@ contract PositionVaultOAppTest is Test {
     function setUp() public {
         ep = new MockLzEndpoint();
         lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
-        vault = new PositionVaultOApp(address(lst), address(lst), address(ep), HOODI, SOLANA, address(this));
+        vault = new PositionVaultOApp(address(lst), address(lst), address(ep), HOODI, SOLANA, address(this), address(lst));
+        lst.setMinter(address(vault));
         vault.setPeer(SOLANA, STORE);
         lst.faucet(alice);
         vm.deal(alice, 1 ether);
