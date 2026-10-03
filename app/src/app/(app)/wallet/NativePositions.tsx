@@ -296,7 +296,6 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sigs, setSigs] = useState<string[]>([]);
-  const now = useNow(5000);
   const rows = nativeRedeemables(snapshot?.holdings ?? []);
   const ethRows = ethRedeemables(snapshot?.holdings ?? []);
   const ethCtx = useEthCtx();
