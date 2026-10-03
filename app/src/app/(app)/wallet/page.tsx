@@ -88,7 +88,7 @@ export default function Wallet() {
           principal: fmtAsset(p.principal, p.asset),
           debt: fmtAsset(p.debt, p.asset),
           apy: `${(p.apy * 100).toFixed(1)}%`,
-          unlock: p.advance ? (p.advance.unlockEstimate ? fmtWhen(p.advance.unlockEstimate).replace(" UTC", "") : "Once yield accrues") : "No open Advance",
+          unlock: p.advance ? (p.advance.unlockEstimate ? fmtWhen(p.advance.unlockEstimate) : "Once yield accrues") : "No open Advance",
         }}
         chartTitle={`Debt (${p.asset})`}
         series={p.advance && p.debt > 0 ? linearSeries(p.debt, now, zeroAt) : null}

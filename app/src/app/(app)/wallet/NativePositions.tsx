@@ -154,7 +154,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
       months={months}
       onMonths={setMonths}
       gemas={gemas}
-      estimate={estimate ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})` : "—"}
+      estimate={estimate ? `${fmtWhen(estimate)} (${inMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtSol(principal)} SOL`],
@@ -231,7 +231,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
             : onChainDebt === 0n
               ? "Debt is zero"
               : estimate
-                ? `${fmtWhen(new Date(estimate).toISOString()).replace(" UTC", "")} (${inMinutes(estimate, now)})`
+                ? `${fmtWhen(estimate)} (${inMinutes(estimate, now)})`
                 : "Once yield accrues",
       }}
       chartTitle="Debt (Gemas)"

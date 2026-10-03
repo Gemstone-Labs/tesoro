@@ -264,7 +264,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       months={months}
       onMonths={setMonths}
       gemas={gemas}
-      estimate={estimate ? `${fmtWhen(new Date(estimate).toISOString())} (${inMinutes(estimate, now)})` : "—"}
+      estimate={estimate ? `${fmtWhen(estimate)} (${inMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtEth(principal)} ${unit}`],
@@ -601,7 +601,7 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
             : onChainDebt === 0n
               ? "Debt is zero"
               : estimate
-                ? `${fmtWhen(new Date(estimate).toISOString()).replace(" UTC", "")} (${inMinutes(estimate, now)})`
+                ? `${fmtWhen(estimate)} (${inMinutes(estimate, now)})`
                 : "Once yield accrues",
       }}
       chartTitle="Debt (Gemas)"

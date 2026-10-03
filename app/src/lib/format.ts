@@ -29,15 +29,7 @@ export function fmtAsset(amount: number, asset: Asset): string {
   })} ${asset}`;
 }
 
-/** Fixed-zone formatting so server and client render the same string. */
-export function fmtWhen(iso: string): string {
-  const s = new Date(iso).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "UTC",
-  });
-  return `${s} UTC`;
+/** The viewer's local time, e.g. "Oct 3, 17:05". Only for values read in the browser (Unlock Estimates). */
+export function fmtWhen(at: string | number): string {
+  return new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 }
