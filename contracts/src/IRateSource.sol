@@ -6,6 +6,13 @@ interface IRateSource {
     function underlyingPerShare() external view returns (uint256);
 }
 
+/// @notice Simulated LST whose yield is minted per Position (SimLST). Not implemented by real wstETH.
+interface IYieldMinter {
+    function mint(address to, uint256 amount) external;
+    function apyBps() external view returns (uint256);
+    function speedup() external view returns (uint256);
+}
+
 interface IERC20Minimal {
     function balanceOf(address) external view returns (uint256);
     function transfer(address to, uint256 amount) external returns (bool);

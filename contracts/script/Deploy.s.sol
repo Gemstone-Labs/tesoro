@@ -46,7 +46,8 @@ contract Deploy is Script {
 
         SimLST sim = new SimLST(deployer, hasWstETH ? "Simulated Staked ETH" : "Simulated Staked HYPE", hasWstETH ? "simETH" : "simHYPE");
         MockEndpoint endpoint = new MockEndpoint();
-        PositionVault simVault = new PositionVault(address(sim), address(sim), address(endpoint), chainTag);
+        PositionVault simVault = new PositionVault(address(sim), address(sim), address(endpoint), chainTag, address(sim));
+        sim.setMinter(address(simVault));
         if (reserveEth > 0) {
             (bool ok,) = address(sim).call{value: reserveEth}("");
             require(ok, "reserve funding failed");
@@ -61,7 +62,7 @@ contract Deploy is Script {
             WstETHRateAdapter adapter = new WstETHRateAdapter(HOODI_WSTETH);
             uint256 rate = adapter.underlyingPerShare();
             require(rate >= 1e18, "wstETH rate sanity");
-            PositionVault wstVault = new PositionVault(HOODI_WSTETH, address(adapter), address(endpoint), chainTag);
+            PositionVault wstVault = new PositionVault(HOODI_WSTETH, address(adapter), address(endpoint), chainTag, address(0));
             console.log("WstETHRateAdapter", address(adapter));
             console.log("PositionVault (wstETH)", address(wstVault));
             console.log("wstETH stEthPerToken", rate);

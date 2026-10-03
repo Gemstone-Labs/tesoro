@@ -66,7 +66,8 @@ contract PositionVaultSimTest is VaultBase {
     function setUp() public {
         lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
         ep = new MockEndpoint();
-        vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN);
+        vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN, address(lst));
+        lst.setMinter(address(vault));
         lst.faucet(alice);
         vm.prank(alice);
         lst.approve(address(vault), type(uint256).max);
@@ -91,6 +92,73 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(seq, 1);
         assertEq(shares, 10 ether);
         assertEq(horizon, 3);
+    }
+
+    // ---- per-Position linear yield (docs/yield-model.md) ----
+
+    function test_yieldIsLinearOnOwnPrincipal() public {
+        uint64 a = _open(10 ether);
+        vm.warp(block.timestamp + 5 minutes);
+        uint64 b = _open(15 ether); // opens later, earns from its own open time
+        vm.warp(block.timestamp + 10 minutes);
+        // 5% APY, speedup 4320: yield = P * 500 * 4320 * dt / (10_000 * 365 days)
+        uint256 ya = (uint256(10 ether) * 500 * 4320 * 15 minutes) / (10_000 * 365 days);
+        uint256 yb = (uint256(15 ether) * 500 * 4320 * 10 minutes) / (10_000 * 365 days);
+        assertApproxEqAbs(vault.accruedYield(a), ya, 2);
+        assertApproxEqAbs(vault.accruedYield(b), yb, 2);
+        assertEq(lst.underlyingPerShare(), 1e18, "rate does not move");
+    }
+
+    function test_accrueMintsSharesIntoTheVaultAndKeepsReportsConsistent() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 10 minutes);
+        uint256 view1 = vault.accruedYield(id);
+        vault.accrue(id);
+        assertEq(vault.accruedYield(id), view1);
+        assertEq(lst.balanceOf(address(vault)), vault.getPosition(id).heldShares);
+        assertGt(lst.balanceOf(address(vault)), 10 ether);
+        assertEq(lst.totalSupply(), lst.faucetAmount() + lst.balanceOf(address(vault)) - 10 ether);
+    }
+
+    /// An Advance of N months (principal * apy * N / 12) is repaid by N * 10 minutes, within the 30-day vs
+    /// 365/12-day rounding of the speedup (about 1.4%).
+    function test_advanceOfNMonthsIsRepaidInNTimesTenMinutes() public {
+        uint64 id = _open(10 ether);
+        for (uint256 n = 1; n <= 12; n++) {
+            uint256 advance = (10 ether * 500 * n) / (10_000 * 12);
+            vm.warp(vault.getPosition(id).openTime + n * 10 minutes * 1015 / 1000);
+            assertGe(vault.accruedYield(id), advance, "repaid");
+            vm.warp(vault.getPosition(id).openTime + n * 10 minutes * 980 / 1000);
+            assertLt(vault.accruedYield(id), advance, "not before");
+        }
+    }
+
+    function test_noAccrualAfterUnlock() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 10 minutes);
+        _deliver(_unlockMsg(id, 1));
+        uint256 frozen = vault.accruedYield(id);
+        uint256 supply = lst.totalSupply();
+        vm.warp(block.timestamp + 1 days);
+        vault.accrue(id);
+        assertEq(vault.accruedYield(id), frozen);
+        assertEq(lst.totalSupply(), supply);
+    }
+
+    function test_unlockedPrincipalAndYieldStayCovered() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 10 minutes);
+        _deliver(_unlockMsg(id, 1));
+        uint256 owed = vault.payableYield(id);
+        assertGt(owed, 0);
+        _deliver(_payMsg(id, 2, redeemer, owed));
+        assertApproxEqAbs(lst.balanceOf(redeemer), owed, 2);
+        assertGe(lst.balanceOf(alice), 10 ether - 1);
+    }
+
+    function test_vaultIsTheOnlyMinter() public {
+        vm.expectRevert(SimLST.NotMinter.selector);
+        lst.mint(address(this), 1);
     }
 
     function test_horizonBounds() public {
@@ -272,7 +340,7 @@ contract PositionVaultWstETHTest is VaultBase {
         wst = new MockWstETH();
         adapter = new WstETHRateAdapter(address(wst));
         ep = new MockEndpoint();
-        vault = new PositionVault(address(wst), address(adapter), address(ep), CHAIN);
+        vault = new PositionVault(address(wst), address(adapter), address(ep), CHAIN, address(0));
         wst.mint(alice, 100 ether);
         vm.prank(alice);
         wst.approve(address(vault), type(uint256).max);

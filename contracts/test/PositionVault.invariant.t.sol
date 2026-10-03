@@ -25,7 +25,8 @@ contract VaultHandler is Test {
     constructor() {
         lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
         ep = new MockEndpoint();
-        vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN);
+        vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN, address(lst));
+        lst.setMinter(address(vault));
         vm.prank(user);
         lst.approve(address(vault), type(uint256).max);
     }
@@ -158,7 +159,8 @@ contract PositionVaultFuzzTest is Test {
     function testFuzz_payYieldIdempotent(uint256 amount, uint256 elapsed) public {
         SimLST lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
         MockEndpoint ep = new MockEndpoint();
-        PositionVault vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN);
+        PositionVault vault = new PositionVault(address(lst), address(lst), address(ep), CHAIN, address(lst));
+        lst.setMinter(address(vault));
         address alice = address(0xA11CE);
         lst.faucet(alice);
         vm.prank(alice);

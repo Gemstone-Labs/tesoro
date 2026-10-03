@@ -38,8 +38,9 @@ contract PositionVaultOApp is PositionVault, OApp {
         address lzEndpoint_,
         uint32 chainEid_,
         uint32 solanaEid_,
-        address delegate_
-    ) PositionVault(lst_, rateSource_, lzEndpoint_, chainEid_) OApp(lzEndpoint_, delegate_) Ownable(delegate_) {
+        address delegate_,
+        address yieldMinter_
+    ) PositionVault(lst_, rateSource_, lzEndpoint_, chainEid_, yieldMinter_) OApp(lzEndpoint_, delegate_) Ownable(delegate_) {
         require(endpoint.eid() == chainEid_, "eid mismatch");
         solanaEid = solanaEid_;
     }
