@@ -1,0 +1,38 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Introduction" />
+
+# Tesoro Storybook
+
+Every piece of the Tesoro app, one at a time, with fake data. Nothing here talks to a chain, a wallet or the network.
+
+## What is here
+
+- **Foundations**: colours, type, the cut shape, the Gema mark and the icons, read live from the app's own CSS.
+- **Brand**: the Facet T mark and the lockups, with every prop as a control.
+- **Assets**: every image, loop and 3D file the app ships, listed from the manifests. New art shows up without editing a story.
+- **Motion, Components, Games, Screens**: the app itself, from small parts to whole pages.
+
+## The toolbar
+
+- **Auth**: who is signed in on app screens. Signed in uses a demo Account. Signed out and "Signing in…" show the other two states.
+- **Theme**: dark or light. It applies to the landing page, the docs, and stories marked as themed. The app shell is always dark.
+- **Motion**: switches to reduced motion, the same as the system setting.
+- **Guide**: turns the Guide character's tips on for app screens.
+
+## Run it
+
+```
+pnpm --filter @tesoro/app storybook
+```
+
+It opens on port 6006. `pnpm --filter @tesoro/app build-storybook` makes a static copy in `app/storybook-static`.
+
+## Where things live
+
+- Stories: `app/stories/`, one folder per section. A story is a `*.stories.tsx` file; plain pages are `*.mdx`.
+- Fake data and sign-in states: `app/stories/support/`.
+- Module mocks: `app/.storybook/mocks/src/<path>` replaces `app/src/<path>` for every importer. Restart Storybook after adding a mock file.
+- Shared bits for the Foundations, Brand and Assets galleries: `app/stories/kit/`.
+
+The design rules behind all of it are in `DESIGN.md`.

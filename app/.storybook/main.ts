@@ -51,6 +51,8 @@ const config: StorybookConfig = {
   core: { disableTelemetry: true },
   async viteFinal(cfg) {
     cfg.plugins = [...(cfg.plugins ?? []), mirrorMocks(), nodePolyfills({ include: ["buffer", "process", "crypto", "stream", "util"], globals: { Buffer: true, process: true } })];
+    // Loaded only by the landing's motion, so Vite would otherwise discover them late and reload mid-story.
+    cfg.optimizeDeps = { ...cfg.optimizeDeps, include: [...(cfg.optimizeDeps?.include ?? []), "gsap", "gsap/ScrollTrigger", "lenis"] };
     return cfg;
   },
 };
