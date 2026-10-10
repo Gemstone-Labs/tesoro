@@ -10,9 +10,16 @@
 .gp-sub { font-size: clamp(16px, 1.5vw, 24px); color: var(--fg); line-height: 1.35; }
 .gp-hero .entries { gap: 12px; width: min(100%, 470px); }
 .gp-hero .entry span { min-height: 62px; font-size: 22px; --c: 11px; }
-.gp-cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.gp-cta .btn { min-height: 60px; }
-.gp-cta .btn svg { width: 20px; height: 20px; }
+/* one two-line money action (entry, who is waiting), the two free ways to play paired under it */
+.gp-cta { display: grid; gap: 12px; width: min(100%, 470px); }
+.gp-cta > .btn.money { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 80px; padding: 10px 20px 13px; line-height: 1.1; }
+.gp-play-label { font-size: 24px; font-weight: 900; }
+.gp-play-sub { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; word-spacing: normal; opacity: 0.82; }
+.gp-play-sub svg { width: 15px; height: 15px; }
+.gp-more { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.gp-more .btn.neutral { min-width: 0; min-height: 52px; gap: 9px; padding: 0 12px; font-size: 16px; white-space: nowrap; background: rgba(14, 19, 24, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.gp-more .btn.neutral:hover { background: var(--surface-2); }
+.gp-more .btn svg { width: 18px; height: 18px; color: var(--fg-2); }
 
 .gp-grid { display: grid; gap: var(--section-gap); grid-template-columns: minmax(0, 1fr); }
 .gp-right { display: grid; gap: 16px; align-content: start; min-width: 0; }
@@ -54,13 +61,9 @@
 .gp-top-wrap { display: grid; gap: 10px; margin-top: 24px; }
 .gp-sub-h { font-size: 18px; font-weight: 700; }
 
-/* phones: Play now spans the row; the secondary actions share the next one */
+/* phones: the hero controls take the full width */
 @media (max-width: 639px) {
-  .gp-cta { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; gap: 10px; }
-  .gp-cta .btn { min-height: 54px; font-size: 16px; padding: 0 12px; white-space: nowrap; }
-  .gp-cta .btn:not(.money) svg { display: none; }
-  .gp-cta .btn.money { grid-column: 1 / -1; font-size: 20px; min-height: 60px; }
-  .gp-cta .btn:nth-child(2):last-child { grid-column: 1 / -1; }
+  .gp-cta { width: 100%; }
   .gp-hero .entries { width: 100%; }
 }
 
@@ -71,7 +74,6 @@
 .gp-hero-body > :nth-child(2) { animation-delay: 70ms; }
 .gp-hero-body > :nth-child(3) { animation-delay: 140ms; }
 .gp-hero-body > :nth-child(4) { animation-delay: 210ms; }
-@media (min-width: 640px) { .gp-cta .btn.money { min-width: 180px; } }
 .gp-hero .assets { gap: 12px; width: min(100%, 470px); }
 .gp-hero .asset span { min-height: 66px; --c: 11px; }
 

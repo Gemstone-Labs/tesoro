@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ArrowRight, Clock, Link2 } from "lucide-react";
+import { ArrowRight, Dumbbell, UserPlus, Users } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { MatchRow } from "@/components/match/MatchRow";
 import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
@@ -13,6 +13,8 @@ import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountHistory } from "@/lib/chain/history";
 import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
+import { fmtGemas } from "@/lib/format";
+import { useQueue } from "@/components/lobby/useQueue";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import "./game.css";
@@ -48,6 +50,7 @@ export function GamePage({ game }: { game: GameId }) {
   const [entry, setEntry] = useState<EntrySize>(game === "block-puzzle" ? 1000 : 500);
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
   const top = useTopScoresToday(game === "block-puzzle");
+  const queue = useQueue();
   const [now] = useState(() => Date.now());
   const copy = COPY[game];
   const name = GAME_NAMES[game];
@@ -55,6 +58,10 @@ export function GamePage({ game }: { game: GameId }) {
   const history = useMemo(() => (onChain && snapshot ? accountHistory(snapshot.matches, snapshot.funded).filter((r) => r.game === game) : []), [onChain, snapshot, game]);
   const mine = history.slice(0, 3);
   const scores = top.data ?? [];
+
+  const me = snapshot?.accountKey.toBase58();
+  /** Other Players in the Queue at this entry (and asset): who Play now would meet. */
+  const waiting = queue?.[game].filter((w) => w.player !== me && w.entry === entry && (game !== "trading-duel" || w.asset === asset)).length ?? 0;
 
   const query = (kind: "queue" | "challenge") => `/play/${kind}?${gameQuery(game, asset)}entry=${entry}`;
 
@@ -75,15 +82,30 @@ export function GamePage({ game }: { game: GameId }) {
           {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="gp-asset" />}
           <EntryPicker value={entry} onChange={setEntry} name={`gp-entry-${game}`} />
           <div className="gp-cta">
-            <Button variant="money" size="lg" onClick={() => auth.gate("Enter a Match", () => router.push(query("queue")))}>
-              Play now
+            <Button variant="money" size="lg" block onClick={() => auth.gate("Enter a Match", () => router.push(query("queue")))}>
+              <span className="gp-play-label">Play now</span>
+              <span className="gp-play-sub">
+                {fmtGemas(entry)} Gemas
+                {waiting ? (
+                  <>
+                    {" · "}
+                    <Users aria-hidden="true" /> {waiting} waiting
+                  </>
+                ) : null}
+              </span>
             </Button>
-            <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
-              Challenge<span className="gp-friend"> a friend</span> <Link2 aria-hidden="true" />
-            </Button>
-            <Button size="lg" href={practiceHref(game, asset)}>
-              Practice <Clock aria-hidden="true" />
-            </Button>
+            <div className="gp-more">
+              <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
+                <UserPlus aria-hidden="true" />
+                <span>
+                  Challenge<span className="gp-friend"> a friend</span>
+                </span>
+              </Button>
+              <Button size="lg" href={practiceHref(game, asset)}>
+                <Dumbbell aria-hidden="true" />
+                Practice free
+              </Button>
+            </div>
           </div>
         </div>
       </section>
