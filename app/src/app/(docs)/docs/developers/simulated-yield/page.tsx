@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, Code, DataTable, DocPage, H2, Sim } from "@/components/docs/prose";
+import { ClockDiagram } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Simulated yield", alternates: { canonical: "/docs/developers/simulated-yield" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/developers/simulated-yield">
+    <DocPage href="/docs/developers/simulated-yield" hero={<ClockDiagram />}>
       <Callout kind="sim" title="The label">
         <p>
           Every screen, doc and video that shows yield says <Sim>Simulated yield · 1 month = 10 min</Sim>. The test staking tokens are not backed by anything and

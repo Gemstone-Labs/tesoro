@@ -1,12 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DocPage, H2 } from "@/components/docs/prose";
+import { Eye, EyeOff, Gamepad2, Calculator, Scale } from "lucide-react";
+import { Pipeline } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Fairness and privacy", alternates: { canonical: "/docs/fairness" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/fairness">
+    <DocPage href="/docs/fairness" hero={<Pipeline label="From a hidden start to a settled result" items={[
+  { icon: EyeOff, tone: "violet", title: "Sealed", body: "Pieces, deck and positions are made inside a private environment." },
+  { icon: Gamepad2, tone: "sapphire", title: "Played", body: "Your moves stay hidden from your opponent while the Match runs." },
+  { icon: Eye, tone: "violet", title: "Revealed", body: "Both runs close, or a showdown happens. Then it is public." },
+  { icon: Calculator, tone: "amber", title: "Replayed", body: "The game program works out the result itself." },
+  { icon: Scale, tone: "emerald", title: "Settled", body: "One transaction on Solana moves the Gemas." },
+]} />}>
       <p>
         A head-to-head game is only fair if neither Player can see what they should not, and the result is calculated by rules both Players can
         check. This page says how Tesoro does that, and where you still have to trust someone.

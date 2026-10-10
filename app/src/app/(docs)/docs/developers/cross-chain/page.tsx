@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3, Sim } from "@/components/docs/prose";
+import { ChainPath } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Cross-chain with LayerZero V2", alternates: { canonical: "/docs/developers/cross-chain" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/developers/cross-chain">
+    <DocPage href="/docs/developers/cross-chain" hero={<ChainPath detail />}>
       <p>
         Positions stay on their home chains while Gemas, Debt, Matches and Backings live on Solana, so four messages cross chains. ADR 0002 picks
         LayerZero V2 on Solana devnet, Ethereum Hoodi and HyperEVM testnet: the only transport verified to reach all three with managed relaying. A trusted

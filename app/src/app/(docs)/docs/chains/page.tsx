@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, Sim } from "@/components/docs/prose";
+import { ChainPath, ThemedArt } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Chains", alternates: { canonical: "/docs/chains" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/chains">
+    <DocPage href="/docs/chains" hero={<ThemedArt dark="/art/landing/chains-wide.webp" light="/art/landing/chains-wide-light.webp" ratio="1920 / 800" alt="Solana, Ethereum and HyperEVM shown as three cut stones joined to one ledger" priority />}>
       <H2 id="one-ledger">One ledger, three places to stake</H2>
       <p>
         Gemas, Debt, Matches and Backings all live on <b>Solana</b>. Positions can be opened on Solana, Ethereum or HyperEVM. A Position opened on
@@ -26,6 +27,8 @@ export default function Page() {
         Everything is on test networks. There is no mainnet deployment yet. A vault for Lido&apos;s real wstETH is deployed on Hoodi and uses real
         wstETH yield, but it is not offered in the app because there is no faucet for it.
       </p>
+
+      <ChainPath />
 
       <H2 id="what-crosses">What travels between chains</H2>
       <p>Four things cross between an Ethereum-style chain and Solana, carried by LayerZero V2:</p>

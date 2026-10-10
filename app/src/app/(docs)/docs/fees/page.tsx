@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
+import { PayoutBar } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Fees", alternates: { canonical: "/docs/fees" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/fees">
+    <DocPage href="/docs/fees" hero={<PayoutBar />}>
       <H2 id="table">What is charged</H2>
       <DataTable
         head={["Fee", "Share of the Pot", "Goes to"]}

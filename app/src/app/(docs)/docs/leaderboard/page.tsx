@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
+import { SeasonDiagram, Shot } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Leaderboard", alternates: { canonical: "/docs/leaderboard" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/leaderboard">
+    <DocPage href="/docs/leaderboard" hero={<Shot name="leaderboard" url="tesoro-fawn.vercel.app/leaderboard" alt="The Leaderboard with the current Pool, time left in the season and the top Players" priority caption="The live Leaderboard: the Pool, the time left in the season and the standings." />}>
       <p>
         The Leaderboard rewards Players who win Matches. Every Match in every Game adds a little to a shared prize pool, and each week the top ten
         Players split it.
@@ -23,6 +24,8 @@ export default function Page() {
         The Leaderboard runs in <b>weekly seasons</b>, from Monday 00:00 UTC to the next Monday. Season 1 began on 5 October 2026. Points count within a
         season, and each season starts again from zero.
       </p>
+
+      <SeasonDiagram />
 
       <H2 id="points">How you earn points</H2>
       <p>You earn points when you <b>win</b> a Match, scaled by its entry:</p>

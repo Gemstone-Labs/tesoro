@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
+import { GameCards, PayoutBar, Shot } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Games and Matches", alternates: { canonical: "/docs/matches" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/matches">
+    <DocPage href="/docs/matches" hero={<GameCards />}>
       <H2 id="match">A Match</H2>
       <p>
         A <b>Match</b> is a head-to-head contest between two Players with equal Gema entries: <b>500, 1,000 or 2,500</b> (at issuance prices, $5, $10 or
@@ -24,6 +25,8 @@ export default function Page() {
         Only the Game&apos;s own program can settle its Matches. Tesoro never decides a result by hand. See <Link href="/docs/fairness">Fairness and
         privacy</Link>.
       </p>
+
+      <PayoutBar />
 
       <H2 id="finding-a-match">Finding an opponent</H2>
       <ul>
@@ -52,6 +55,8 @@ export default function Page() {
         <li>If you are first, you have a one-hour Queue window for an opponent to join. After someone joins, they have 24 hours to play their run; if they never begin, you win by forfeit.</li>
       </ul>
 
+      <Shot name="block-puzzle" url="tesoro-fawn.vercel.app/play/…" alt="A Block Puzzle run: the board, the three pieces and the score" caption="A Block Puzzle run. Both Players get the same pieces." />
+
       <H2 id="holdem">Hold&apos;em</H2>
       <p>
         Heads-up no-limit Texas Hold&apos;em, played in real time, as one sit-and-go per Match. Both Players start with <b>1,500 Chips</b>. Hands repeat
@@ -62,6 +67,8 @@ export default function Page() {
         <li>You have 30 seconds for each action. Three missed turns in a row forfeit the Match.</li>
         <li>The deck is shuffled with randomness from both Players and a random-number service; nobody can see the deck, and your hole cards are visible only to you. Cards are revealed only at a showdown.</li>
       </ul>
+
+      <Shot name="holdem" url="tesoro-fawn.vercel.app/play/…" alt="A Hold'em table, heads-up, with the pot and action buttons" caption="Heads-up Hold'em. Only you see your hole cards." />
 
       <H2 id="trading-duel">Trading Duel</H2>
       <p>

@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
+import { Diagram, Stats } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Security", alternates: { canonical: "/docs/developers/security" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/developers/security">
+    <DocPage href="/docs/developers/security" hero={<Diagram label="Security review at a glance" caption="Two internal reviews and one contained key incident. No external audit.">
+  <Stats items={[{ value: "14", label: "findings, review 1" }, { value: "29", label: "findings, review 2" }, { value: "2", label: "internal reviews" }, { value: "0", label: "external audits" }, { value: "1", label: "key incident, test funds" }]} />
+</Diagram>}>
       <Callout kind="warn" title="Internal reviews, not an external audit">
         <p>
           Both reviews below were done internally, before submission. Neither is an independent audit, and neither is a guarantee. Every
