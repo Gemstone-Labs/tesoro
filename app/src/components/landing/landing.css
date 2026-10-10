@@ -56,7 +56,7 @@ html.lenis, html.lenis body { height: auto; }
 .lp-body b { color: var(--fg); }
 .lp-measure { max-width: 58ch; }
 .lp-money { color: var(--em); }
-/* Heading terms the pitch rests on (yield, Play now, pays later, Principal) carry the faceted emerald. */
+/* Heading terms the pitch rests on (yield, Play now, pays later) carry the faceted emerald. */
 .lp-hl { font-style: normal; color: transparent; background: var(--hl-facet, var(--facet)); -webkit-background-clip: text; background-clip: text; white-space: nowrap; }
 @media (forced-colors: active) { .lp-hl { color: Highlight; background: none; } }
 .lp-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); margin-bottom: 14px; }
@@ -320,43 +320,7 @@ html.lenis, html.lenis body { height: auto; }
 }
 @keyframes lp-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
-/* 4. Your Principal: facts beside a Position drawn as a vault. Yield rises out of the crystal into the Debt meter;
-   at zero Debt the clasp opens. */
-.lp-principal, .lp-studios { background-image: var(--lp-texture); }
-.lp-principal-grid { display: grid; grid-template-columns: 1.1fr minmax(320px, 440px); gap: clamp(40px, 6vw, 96px); align-items: center; }
-.lp-facts-list { list-style: none; padding: 0; margin: 32px 0 28px; display: grid; gap: 18px; }
-.lp-facts-list li { display: grid; grid-template-columns: 44px 1fr; gap: 16px; align-items: start; }
-.lp-facts-list b { display: block; font-size: 18px; margin-bottom: 2px; }
-.lp-fact-icon { width: 44px; height: 44px; display: grid; place-items: center; background: var(--raised); --edge: var(--line-2); color: var(--em); }
-.lp-fact-icon svg { width: 20px; height: 20px; }
-.lp-note { display: flex; gap: 10px; color: var(--fg-2); max-width: 62ch; font-size: 14.5px; }
-.lp-note svg { width: 18px; height: 18px; flex: none; margin-top: 3px; }
-
-.lp-vault { background: var(--raised); padding: 22px 24px 26px; display: grid; gap: 14px; }
-.lp-vault-head { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--fg-2); letter-spacing: 0.06em; text-transform: uppercase; }
-.lp-vault-state { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
-.lp-vault-state svg { width: 14px; height: 14px; }
-.lp-vault[data-unlocked="true"] .lp-vault-state { color: var(--em); }
-.lp-vault-art { position: relative; aspect-ratio: 1; background: radial-gradient(closest-side, color-mix(in srgb, var(--em) 16%, transparent), transparent 75%), var(--shell); }
-.lp-vault-art picture { position: absolute; inset: 6%; transition: opacity 0.6s; }
-.lp-vault-art img { width: 100%; height: 100%; object-fit: contain; }
-.lp-vault-art .open { opacity: 0; }
-.lp-vault[data-unlocked="true"] .lp-vault-art .open { opacity: 1; }
-.lp-vault[data-unlocked="true"] .lp-vault-art .closed { opacity: 0; }
-.lp-vault-rise { position: absolute; inset: 0; pointer-events: none; }
-.lp-vault-rise i { position: absolute; left: calc(36% + var(--i) * 4%); bottom: 34%; width: 5px; height: 5px; background: var(--em-hi); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); opacity: 0; }
-@media (prefers-reduced-motion: no-preference) { .lp-vault-rise i { animation: lp-rise 2.6s calc(var(--i) * 0.37s) ease-out infinite; } }
-@keyframes lp-rise { 0% { opacity: 0; transform: translateY(0); } 20% { opacity: 0.9; } 100% { opacity: 0; transform: translateY(-120px); } }
-.lp-vault[data-unlocked="true"] .lp-vault-rise i { animation: none; }
-.lp-vault-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.lp-vault-tag { font-size: 12.5px; color: var(--fg); }
-.lp-meter { display: flex; gap: 4px; }
-.lp-meter i { width: 14px; height: 10px; background: var(--line-2); transition: background 0.3s; }
-.lp-meter i.on { background: var(--em); }
-@media (max-width: 1023px) {
-  .lp-principal-grid { grid-template-columns: 1fr; }
-  .lp-vault { max-width: 420px; }
-}
+.lp-studios { background-image: var(--lp-texture); }
 
 /* 5. Games: games.css */
 
@@ -450,7 +414,6 @@ html.lenis, html.lenis body { height: auto; }
 .lp-pot-legend .studio { background: var(--em); }
 .lp-pot-legend .platform { background: var(--fg-2); }
 .lp-pot-legend .pool { background: var(--fg); }
-.lp-pot-note { font-size: 12px; color: var(--fg-2); justify-self: stretch; }
 /* catalogue: tiles lift and glow; the empty slot breathes */
 .lp-catalogue li { transition: translate 0.3s, filter 0.3s; }
 .lp-catalogue li:not(.lp-slot):hover { translate: 0 -4px; filter: drop-shadow(0 8px 18px rgba(36, 216, 168, 0.25)); }
@@ -590,14 +553,6 @@ html.lenis, html.lenis body { height: auto; }
 @media (prefers-reduced-motion: no-preference) { .lp-vitrine .sweep { animation: lp-sweep-ring 7s linear infinite; } }
 @media (prefers-reduced-motion: reduce) { .lp-vitrine .sweep { display: none; } }
 @keyframes lp-sweep-ring { to { stroke-dashoffset: -100; } }
-
-/* Your Principal: a burst of light when the clasp opens. */
-.lp-vault-burst {
-  position: absolute; inset: 0; z-index: 1; pointer-events: none; mix-blend-mode: screen;
-  background: radial-gradient(closest-side, rgba(106, 248, 214, 0.55), transparent 70%);
-  animation: lp-burst 1.2s ease-out both;
-}
-@keyframes lp-burst { from { scale: 0.4; opacity: 1; } to { scale: 1.4; opacity: 0; } }
 
 /* Final CTA: the climbers' lanterns glow. */
 .lp-duo-lantern {

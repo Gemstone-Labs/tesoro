@@ -47,7 +47,6 @@ function PotRing() {
           <i className="pool" /> Leaderboard prize pool
         </li>
       </ul>
-      <p className="lp-pot-note mono">Proportions illustrative</p>
     </div>
   );
 }
@@ -84,7 +83,6 @@ export function Studios() {
           </article>
           <article className="lp-tile lp-tile-fee cut cut-frame" data-reveal>
             <h3 className="lp-h3">Set your own Studio Fee on every Pot.</h3>
-            <p className="lp-body">It sits on top of Tesoro&rsquo;s Platform Fee and a 1% Leaderboard Fee that pays out to the week&rsquo;s best Players, all taken in Gemas at settlement.</p>
             <PotRing />
           </article>
           <article className="lp-tile lp-tile-players cut cut-frame" data-reveal>

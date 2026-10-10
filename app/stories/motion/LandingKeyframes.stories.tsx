@@ -6,7 +6,6 @@ import { Glints, Motes } from "@/components/landing/Fx";
 import { Lab, ScrollBox, type Spec } from "./lab";
 
 const L = "src/components/landing/landing.css";
-const fill = { position: "absolute", inset: 0 } as const;
 const mid = (s: CSSProperties, more: CSSProperties = {}): CSSProperties => ({ ...s, left: "50%", top: "50%", ...more });
 
 const specs: Spec[] = [
@@ -121,27 +120,9 @@ const specs: Spec[] = [
     ),
   },
   {
-    name: "lp-rise",
-    file: L,
-    line: 349,
-    note: "Yield sparks rising out of the vault crystal (Your Principal). They stop once the clasp opens.",
-    dur: 2600,
-    ease: "ease-out",
-    iter: "infinite",
-    keepDelay: true,
-    target: ".lp-vault-rise i",
-    stage: () => (
-      <span className="lp-vault-rise" aria-hidden style={{ ...fill, bottom: -40 }}>
-        {Array.from({ length: 5 }, (_, i) => (
-          <i key={i} style={{ ["--i" as string]: i, bottom: 20 }} />
-        ))}
-      </span>
-    ),
-  },
-  {
     name: "lp-breathe",
     file: L,
-    line: 431,
+    line: 395,
     note: "The empty 'your game' slot in the catalogue breathing.",
     dur: 2800,
     ease: "ease-in-out",
@@ -157,7 +138,7 @@ const specs: Spec[] = [
   {
     name: "lp-pulse-arc",
     file: L,
-    line: 442,
+    line: 406,
     note: "The Studio Fee arc in the Pot ring pulsing thicker.",
     dur: 2600,
     ease: "ease-in-out",
@@ -176,7 +157,7 @@ const specs: Spec[] = [
   {
     name: "lp-arrive",
     file: L,
-    line: 461,
+    line: 424,
     note: "A Gema running along the path from Gemas to your game (wide screens).",
     dur: 3600,
     ease: "ease-in-out",
@@ -198,7 +179,7 @@ const specs: Spec[] = [
   {
     name: "lp-arrive-v",
     file: L,
-    line: 701,
+    line: 656,
     note: "The same Gema dropping top to bottom on phones.",
     dur: 3200,
     ease: "cubic-bezier(0.55, 0, 0.6, 1)",
@@ -215,7 +196,7 @@ const specs: Spec[] = [
   {
     name: "lp-rays",
     file: L,
-    line: 533,
+    line: 496,
     note: "God rays slowly shifting in the hero light shaft.",
     dur: 14000,
     ease: "ease-in-out",
@@ -225,7 +206,7 @@ const specs: Spec[] = [
   {
     name: "lp-mote",
     file: L,
-    line: 540,
+    line: 503,
     note: "Dust drifting up through the shaft (Motes). Each speck has its own speed and start. Phones use a shorter climb (90 px).",
     dur: 12000,
     ease: "linear",
@@ -241,7 +222,7 @@ const specs: Spec[] = [
   {
     name: "lp-glint",
     file: L,
-    line: 550,
+    line: 513,
     note: "Four-point stars flashing on the crystals (Glints), one every few seconds.",
     dur: 6500,
     ease: "ease-in-out",
@@ -261,7 +242,7 @@ const specs: Spec[] = [
   {
     name: "lp-progress",
     file: L,
-    line: 568,
+    line: 531,
     note: "The thin line under the landing nav that fills as you scroll. Scroll the box.",
     dur: 0,
     ease: "linear",
@@ -279,7 +260,7 @@ const specs: Spec[] = [
   {
     name: "lp-beam",
     file: L,
-    line: 580,
+    line: 543,
     note: "The light beam rising from the Gema's plinth breathing.",
     dur: 4800,
     ease: "ease-in-out",
@@ -289,7 +270,7 @@ const specs: Spec[] = [
   {
     name: "lp-spin",
     file: L,
-    line: 588,
+    line: 551,
     note: "The slow rays turning behind the Gema (one turn a minute).",
     dur: 60000,
     ease: "linear",
@@ -299,7 +280,7 @@ const specs: Spec[] = [
   {
     name: "lp-sweep-ring",
     file: L,
-    line: 592,
+    line: 555,
     note: "The light that runs round the frame of the Gema showcase.",
     dur: 7000,
     ease: "linear",
@@ -313,20 +294,9 @@ const specs: Spec[] = [
     ),
   },
   {
-    name: "lp-burst",
-    file: L,
-    line: 600,
-    note: "The burst of light when the vault clasp opens.",
-    dur: 1200,
-    ease: "ease-out",
-    iter: 1,
-    fill: "both",
-    stage: (s) => <span className="lp-vault-burst" style={s} />,
-  },
-  {
     name: "lp-crystal-pulse",
     file: L,
-    line: 672,
+    line: 627,
     note: "The glow on the hero crystals pulsing.",
     dur: 5500,
     ease: "ease-in-out",

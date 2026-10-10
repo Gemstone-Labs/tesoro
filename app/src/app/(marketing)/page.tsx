@@ -9,7 +9,6 @@ import { HowItWorks } from "@/components/landing/HowItWorks";
 import { LandingMotion } from "@/components/landing/LandingMotion";
 import { Multichain } from "@/components/landing/Multichain";
 import { Nav } from "@/components/landing/Nav";
-import { Principal } from "@/components/landing/Principal";
 import { Studios } from "@/components/landing/Studios";
 
 export const metadata: Metadata = {
@@ -28,7 +27,6 @@ export default function Welcome() {
         <Hero />
         <HowItWorks />
         <Gemas />
-        <Principal />
         <Games />
         <Backing />
         <Multichain />
