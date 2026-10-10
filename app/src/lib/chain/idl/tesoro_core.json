@@ -4842,23 +4842,23 @@
     },
     {
       "code": 6013,
-      "name": "LeaderboardOff",
-      "msg": "the leaderboard is not set up"
-    },
-    {
-      "code": 6014,
       "name": "InvalidProfileName",
       "msg": "a name is 3 to 20 letters, digits, spaces, dots, underscores or dashes, with no space at either end"
     },
     {
-      "code": 6015,
+      "code": 6014,
       "name": "InvalidAvatar",
       "msg": "avatar is not one of the available pictures"
     },
     {
-      "code": 6016,
+      "code": 6015,
       "name": "EvmNotLinked",
       "msg": "the EVM address is not linked to this Account through the bridge"
+    },
+    {
+      "code": 6016,
+      "name": "LeaderboardOff",
+      "msg": "the leaderboard is not set up"
     }
   ],
   "types": [
