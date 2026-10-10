@@ -12,6 +12,7 @@ import {
   projectedDebtGemas,
   quoteNativeAdvance,
   rateAt,
+  surplusShares,
   accruedAt,
   yieldClockOf,
   redeemPayoutShares,
@@ -222,6 +223,8 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
       : null;
   const locked = info.status === "locked";
   const canUnlock = locked && projected === 0n;
+  // Unknown until the pool is read: keep the action rather than hide a real surplus.
+  const surplus = pool ? surplusShares(info, rateAt(pool)) : null;
   const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);
   const series =
     pool && src && locked && onChainDebt > 0n
@@ -268,9 +271,9 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} />
         </>
       )}
-      {!locked && (
+      {!locked && surplus !== 0n && (
         <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("sweep", () => sweepNative(signer, info))}>
-          {a.busy === "sweep" ? "Collecting…" : "Collect leftover yield"}
+          {a.busy === "sweep" ? "Collecting…" : surplus ? `Collect leftover yield · ${fmtSol(surplus, 4)} simSOL` : "Collect leftover yield"}
         </Button>
       )}
       <p className="note wl-tile-note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated).</p>

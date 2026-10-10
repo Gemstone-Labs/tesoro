@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth/context";
 import type { AccountSnapshot } from "./read";
+import { plainError } from "@/lib/errors";
 
 interface ChainData {
   snapshot: AccountSnapshot | null;
@@ -50,7 +51,7 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
       setState({ address, snapshot, error: null });
     } catch (e) {
       console.warn("[chain] Account read failed", e);
-      setState((s) => ({ address, snapshot: s.address === address ? s.snapshot : null, error: e instanceof Error ? e.message : String(e) }));
+      setState((s) => ({ address, snapshot: s.address === address ? s.snapshot : null, error: plainError(e) }));
     }
   }, [address]);
 

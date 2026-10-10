@@ -26,7 +26,6 @@ export default function Wallet() {
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
   const [demoOpen, setDemoOpen] = useState(false);
   const [tab, setTab] = useState<Chain>("SOL");
-  const [nativeRedeemOpen, setNativeRedeemOpen] = useState(false);
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
   const [returnFor, setReturnFor] = useState<Position | null>(null);
   const [chainReturnFor, setChainReturnFor] = useState<ChainPosition | null>(null);
@@ -61,7 +60,10 @@ export default function Wallet() {
     nativeRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0) +
     ethRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0);
   const redeemAmount = onChain ? nativeRedeemable : gemas.redeemable;
-  const openRedeem = () => auth.gate("Redeem", () => (onChain ? setNativeRedeemOpen(true) : setRedeemOpen(true)));
+  // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
+  // is still loading must not open the offline sheet once the Account turns out to be on chain.
+  const openRedeem = () => auth.gate("Redeem", () => setRedeemOpen(true));
+  const offline = auth.status === "unconfigured";
 
   const pendingRows = pendingBySource(holdings);
 
@@ -229,12 +231,12 @@ export default function Wallet() {
           {tab === "HYPE" && (onChain ? <EthOpenForm vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>
       </Sheet>
-      <NativeRedeemSheet open={nativeRedeemOpen} onClose={() => setNativeRedeemOpen(false)} />
+      <NativeRedeemSheet open={redeemOpen && onChain} onClose={() => setRedeemOpen(false)} />
       {DEMO_ADVANCE && <DemoAdvanceSheet open={demoOpen} onClose={() => setDemoOpen(false)} />}
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
       <ReturnSheet position={returnFor} onClose={() => setReturnFor(null)} />
       {chainReturnFor && <ReturnOwnSheet position={chainReturnFor} open onClose={() => setChainReturnFor(null)} />}
-      <RedeemSheet open={redeemOpen} onClose={() => setRedeemOpen(false)} />
+      <RedeemSheet open={redeemOpen && offline} onClose={() => setRedeemOpen(false)} />
     </div>
   );
 }

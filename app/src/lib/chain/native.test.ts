@@ -19,6 +19,8 @@ import {
   unlockEstimateMs,
   unlockIx,
   type PoolParams,
+  RATE_SCALE,
+  surplusShares,
 } from "./native";
 
 const owner = new PublicKey("AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV");
@@ -113,5 +115,21 @@ describe("native math", () => {
   it("pays simSOL worth the redeemed units", () => {
     // 15,000 Gemas = $150 = 1 SOL of units; at rate 1.25 that is 0.8 simSOL
     expect(redeemPayoutShares(source, 15_000n, 1_250_000_000n)).toBe(800_000_000n);
+  });
+});
+
+describe("surplusShares", () => {
+  const base = { vaultShares: 1_000_000n, cumulativeYield: 500_000n, freeYield: 100_000n, redeemedUnits: 150_000n };
+  it("is 0 while Locked", () => {
+    expect(surplusShares({ ...base, status: "locked" }, RATE_SCALE)).toBe(0n);
+  });
+  it("keeps the yield still owed to holders, rounded up", () => {
+    // owed 250,000 units at rate 2.0 → 125,000 shares required.
+    expect(surplusShares({ ...base, status: "unlocked" }, 2n * RATE_SCALE)).toBe(875_000n);
+    // owed 250,000 at rate 3.0 → 83,333.3 rounds up to 83,334.
+    expect(surplusShares({ ...base, status: "unlocked" }, 3n * RATE_SCALE)).toBe(916_666n);
+  });
+  it("is 0 once swept", () => {
+    expect(surplusShares({ ...base, vaultShares: 125_000n, status: "unlocked" }, 2n * RATE_SCALE)).toBe(0n);
   });
 });

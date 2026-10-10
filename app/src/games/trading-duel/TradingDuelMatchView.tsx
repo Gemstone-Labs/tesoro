@@ -186,7 +186,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         <Card large>
           <div className="stack">
             <Label>Match over</Label>
-            <Busy>{view.note}…</Busy>
+            <Busy>{view.note || "Saving the result"}…</Busy>
             <p className="note">Saving the result and paying out the Pot. This takes a few seconds.</p>
           </div>
         </Card>

@@ -316,6 +316,17 @@ export function redeemPayoutShares(source: SourceMath, gemas: bigint, rate: bigi
   return (units * RATE_SCALE) / rate;
 }
 
+/**
+ * simSOL base units an Unlocked Position's owner can sweep: the vault beyond the yield still owed to
+ * holders (tesoro_core `surplus_shares`, owed rounded up). 0 while Locked.
+ */
+export function surplusShares(info: Pick<NativeInfo, "status" | "vaultShares" | "cumulativeYield" | "freeYield" | "redeemedUnits">, rate: bigint): bigint {
+  if (info.status !== "unlocked" || rate <= 0n) return 0n;
+  const owed = info.cumulativeYield - info.freeYield - info.redeemedUnits;
+  const required = owed > 0n ? (owed * RATE_SCALE + rate - 1n) / rate : 0n;
+  return info.vaultShares > required ? info.vaultShares - required : 0n;
+}
+
 // --- Readers -----------------------------------------------------------------------------------
 
 export interface PriceFeedView {

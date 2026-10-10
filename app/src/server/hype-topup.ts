@@ -44,7 +44,7 @@ export function createHypeTopup(deps: HypeTopupDeps) {
   const global = new WindowLimiter(cost * perHour, HOUR);
 
   return async function fundHype(address: string, evm: string, sub: string | null) {
-    if (!/^0x[0-9a-fA-F]{40}$/.test(evm)) throw new DemoHttpError(400, "bad-request", "Malformed EVM address.");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(evm)) throw new DemoHttpError(400, "bad-request", "That wallet address doesn’t look right.");
     await deps.requireChain();
     const balance = await deps.balanceOf(evm);
     if (balance >= HYPE_FUND_BELOW) return { funded: false, balance: balance.toString() };
@@ -53,7 +53,7 @@ export function createHypeTopup(deps: HypeTopupDeps) {
     try {
       if ((await deps.relayerBalance()) < HYPE_RELAYER_MIN + HYPE_FUND_AMOUNT) {
         refund();
-        throw new DemoHttpError(503, "faucet-empty", "The test HYPE faucet is empty. Ask the team to refill it, or send HYPE to your EVM address.");
+        throw new DemoHttpError(503, "faucet-empty", "The test HYPE faucet is empty. Ask the team to refill it, or send HYPE to your wallet address.");
       }
       const hash = await send(evm, HYPE_FUND_AMOUNT);
       return { funded: true, hash, balance: (balance + HYPE_FUND_AMOUNT).toString() };

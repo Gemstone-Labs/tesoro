@@ -94,7 +94,7 @@ const hoodiPublic = () => createPublicClient({ chain: hoodi, transport: http(HOO
 // ---- Hoodi ETH top-up ----------------------------------------------------------------------------
 
 async function fundEvm(address: string, evm: string, sub: string | null) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(evm)) throw new DemoHttpError(400, "bad-request", "Malformed EVM address.");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(evm)) throw new DemoHttpError(400, "bad-request", "That wallet address doesn’t look right.");
   await requireHoodi(HOODI_RPC);
   const client = hoodiPublic();
   const balance = await client.getBalance({ address: evm as Address });
@@ -165,7 +165,7 @@ function parseRef(fields: SignedFields) {
 async function relaySend(ixs: TransactionInstruction[], cu = 400_000): Promise<string> {
   const { conn } = chain();
   const relayer = relayerKey();
-  if ((await conn.getBalance(relayer.publicKey)) < RELAYER_MIN_LAMPORTS) throw new DemoHttpError(503, "faucet-empty", "The relay wallet is empty.");
+  if ((await conn.getBalance(relayer.publicKey)) < RELAYER_MIN_LAMPORTS) throw new DemoHttpError(503, "faucet-empty", "Test funds have run out for now. Try again later.");
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: cu }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }), ...ixs);
   tx.feePayer = relayer.publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
@@ -205,10 +205,10 @@ async function applyLocked(vault: string, pid: Buffer) {
   if (await conn.getAccountInfo(corePositionPda(pid))) return { skipped: true };
   const bp = await conn.getAccountInfo(bridgePositionPda(pid));
   const view = bp ? parseBridgePosition(bp.data) : null;
-  if (!view || view.lastInSeq === 0n) throw new DemoHttpError(409, "not-delivered", "The message has not arrived on Solana yet.");
+  if (!view || view.lastInSeq === 0n) throw new DemoHttpError(409, "not-delivered", "Still crossing chains. This continues automatically.");
   const link = evmLinkPda(view.ownerEvm);
   const linkInfo = await conn.getAccountInfo(link);
-  if (!linkInfo) throw new DemoHttpError(409, "not-linked", "The Position owner's EVM address is not linked to an Account.");
+  if (!linkInfo) throw new DemoHttpError(409, "not-linked", "This wallet is not linked to a Tesoro Account yet.");
   const account = new PublicKey(linkInfo.data.subarray(8 + 20, 8 + 52));
   const relayer = relayerKey();
   const ix = new TransactionInstruction({
@@ -275,7 +275,7 @@ async function sendAccounts(vault: string) {
   const oapp = umiKey(bridgeStore().toBase58());
   const eid = netOfVault(vault).eid;
   const lib = await endpoint.getSendLibrary(umi.rpc, oapp, eid);
-  if (!lib.programId) throw new DemoHttpError(503, "not-configured", "The LayerZero send library is not initialized.");
+  if (!lib.programId) throw new DemoHttpError(503, "not-configured", "Cross-chain transfers are not available right now.");
   const receiver = Uint8Array.from(Buffer.from(vault.replace(/^0x/, "").padStart(64, "0"), "hex"));
   const path = { dstEid: eid, sender: oapp, receiver };
   const msgLibProgram = new UlnProgram.Uln(lib.programId);
@@ -299,7 +299,7 @@ async function quoteFee(vault: string, type: number, quoteMetas: ReturnType<type
   tx.feePayer = relayer.publicKey;
   tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
   const sim = await conn.simulateTransaction(tx, [relayer]);
-  if (sim.value.err || !sim.value.returnData) throw new DemoHttpError(502, "chain", "Could not quote the LayerZero fee.");
+  if (sim.value.err || !sim.value.returnData) throw new DemoHttpError(502, "chain", "Couldn’t get the cross-chain fee. Try again.");
   return Buffer.from(sim.value.returnData.data[0], "base64").readBigUInt64LE(0);
 }
 
