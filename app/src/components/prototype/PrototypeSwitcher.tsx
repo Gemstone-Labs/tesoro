@@ -5,7 +5,8 @@
  * renders nothing in production builds.
  */
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 export function usePrototypeVariant<K extends string>(keys: readonly K[]): K {
   const v = useSearchParams().get("variant");
@@ -16,6 +17,10 @@ export function PrototypeSwitcher({ variants }: { variants: { key: string; name:
   const router = useRouter();
   const path = usePathname();
   const params = useSearchParams();
+  // Portalled to <body>: a clip-path or transform on any ancestor (every .cut shape) would clip or trap a fixed bar.
+  const [mounted, setMounted] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- prototype: mount once, then portal
+  useEffect(() => setMounted(true), []);
   const current = Math.max(0, variants.findIndex((v) => v.key === params.get("variant")));
 
   const go = useCallback(
@@ -39,10 +44,10 @@ export function PrototypeSwitcher({ variants }: { variants: { key: string; name:
     return () => window.removeEventListener("keydown", onKey);
   }, [go]);
 
-  if (process.env.NODE_ENV === "production") return null;
+  if (process.env.NODE_ENV === "production" || !mounted) return null;
   const v = variants[current];
   const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "6px 12px", fontSize: 18, lineHeight: 1 };
-  return (
+  return createPortal(
     <div
       style={{
         position: "fixed", left: "50%", bottom: 20, transform: "translateX(-50%)", zIndex: 9999,
@@ -56,6 +61,7 @@ export function PrototypeSwitcher({ variants }: { variants: { key: string; name:
         PROTOTYPE · {v.key} ({v.name}) · {current + 1}/{variants.length}
       </span>
       <button type="button" style={btn} onClick={() => go(1)} aria-label="Next variant">→</button>
-    </div>
+    </div>,
+    document.body,
   );
 }
