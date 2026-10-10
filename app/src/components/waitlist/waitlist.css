@@ -1,0 +1,121 @@
+/* The waitlist (/): the form bottom left, a band of jewel blocks along a diagonal, casual-game clips behind it
+   top right. An art surface, dark in both themes, so the frame carries the dark tokens itself. */
+html:has(.wl), body:has(.wl) { background: #090d0f; }
+.wl {
+  --shell: #090d0f; --raised: #11161a; --raised-2: #171e25;
+  --line: rgba(234, 239, 236, 0.13); --line-2: rgba(234, 239, 236, 0.22);
+  --edge-1: linear-gradient(180deg, rgba(234, 239, 236, 0.24) 0, rgba(234, 239, 236, 0.1) 32%, rgba(234, 239, 236, 0.06) 100%);
+  --edge-2: linear-gradient(180deg, rgba(234, 239, 236, 0.4) 0, rgba(234, 239, 236, 0.16) 36%, rgba(234, 239, 236, 0.1) 100%);
+  --surface: linear-gradient(180deg, #161d22 0, #11171b 44%, #0f1418 100%);
+  --surface-2: linear-gradient(180deg, #1d252c 0, #171e25 50%, #151b21 100%);
+  --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.74); --fg-3: rgba(234, 239, 236, 0.5);
+  --em-ink: #03201a;
+  --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%);
+  --money-fill: linear-gradient(180deg, #5ef3cd 0%, #2fdcac 55%, #1cc699 100%);
+  --money-rim: linear-gradient(180deg, rgba(225, 255, 246, 0.95), rgba(225, 255, 246, 0) 55%);
+  --money-base: rgba(3, 32, 26, 0.28);
+  --money-off: linear-gradient(180deg, #15201d, #101816);
+  --sweep: #ffffff;
+  --pad: clamp(22px, 4vw, 64px);
+  position: relative; isolation: isolate; overflow: clip;
+  height: 100dvh; min-height: 640px;
+  background: #090d0f; color: var(--fg); color-scheme: dark;
+  font-size: 16px; line-height: 1.5;
+}
+
+/* Video wall: tilted columns drifting in opposite directions, clipped to the region above the diagonal. */
+.vw { position: absolute; inset: 0; z-index: 1; clip-path: var(--above-wide); }
+.vw-tilt { position: absolute; right: -10%; top: -25%; width: 82%; height: 150%; display: flex; gap: 14px; transform: rotate(-8deg); }
+.vw-col { flex: 1 1 0; min-width: 0; height: 100%; overflow: hidden; }
+.vw-col-1 { margin-top: 16%; }
+.vw-track { animation: vw-drift 110s linear infinite; }
+.vw-col-1 .vw-track { animation-direction: reverse; animation-duration: 130s; }
+.vw-col-2 .vw-track { animation-duration: 95s; animation-delay: -30s; }
+.vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 9 / 16; object-fit: cover; margin-bottom: 14px; background: #0c1215; }
+@keyframes vw-drift { to { transform: translateY(-50%); } }
+
+/* The floor: solid below the diagonal, casting a soft shade onto the footage along it. */
+.wl-floor { position: absolute; inset: 0; z-index: 2; pointer-events: none; filter: drop-shadow(0 0 28px rgba(9, 13, 15, 0.95)) drop-shadow(0 0 70px rgba(9, 13, 15, 0.7)); }
+.wl-floor-in { position: absolute; inset: 0; clip-path: var(--below-wide); background: radial-gradient(120% 90% at 0% 100%, #0f161a 0, #090d0f 60%); }
+/* and a fade from the left so the top bar and headline never sit on footage */
+.vw::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0, rgba(9, 13, 15, 0.5) 30%, rgba(9, 13, 15, 0.12) 62%, rgba(9, 13, 15, 0.22) 100%); }
+
+/* Gem divider: octagon-cut jewels along the diagonal, thinning and shrinking into the footage. */
+.gd-defs { position: absolute; width: 0; height: 0; }
+.gd { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.gd-tall { display: none; }
+.gd-b {
+  position: absolute; aspect-ratio: 1; height: auto; translate: -50% -50%; overflow: visible;
+  animation: gd-pop 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.25) both, gd-glint 6s linear infinite;
+  animation-delay: calc(var(--i) * 14ms), calc(1.4s + var(--t) * 2.8s);
+}
+.gd-b[data-hue="amber"] { --k: #ffb43a; }
+.gd-b[data-hue="cyan"] { --k: #3fc6ff; }
+.gd-b[data-hue="pink"] { --k: #ff4d9b; }
+.gd-b[data-hue="violet"] { --k: #9d74ff; }
+.gd-b[data-hue="emerald"] { --k: #2fdcac; }
+/* bevels lit from above, like the Block Puzzle jewels */
+.gd-f0 { fill: color-mix(in oklab, var(--k) 46%, white); }
+.gd-f1 { fill: color-mix(in oklab, var(--k) 74%, white); }
+.gd-f2 { fill: color-mix(in oklab, var(--k) 70%, black); }
+.gd-f3 { fill: color-mix(in oklab, var(--k) 58%, black); }
+.gd-f4 { fill: color-mix(in oklab, var(--k) 48%, black); }
+.gd-f5 { fill: color-mix(in oklab, var(--k) 66%, black); }
+.gd-f6 { fill: color-mix(in oklab, var(--k) 76%, white); }
+.gd-f7 { fill: color-mix(in oklab, var(--k) 56%, white); }
+.gd-table { fill: color-mix(in oklab, var(--k) 88%, black); }
+.gd-glint { fill: #fff; fill-opacity: 0.26; }
+@keyframes gd-pop { from { scale: 0.5; opacity: 0; } to { scale: 1; opacity: 1; } }
+@keyframes gd-glint { 0%, 84%, 100% { filter: none; } 91% { filter: brightness(1.6) saturate(1.15); } }
+
+/* Frame content */
+.wl-top { position: absolute; z-index: 5; inset: 0 0 auto 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px var(--pad); }
+.wl-logo { display: inline-flex; }
+.wl-nav { display: flex; gap: 26px; font-weight: 700; font-size: 14.5px; }
+.wl-nav a { color: var(--fg-2); padding-block: 6px; }
+.wl-nav a:hover { color: var(--fg); }
+.wl-nav a:focus-visible, .wl-logo:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+
+.wl-main { position: absolute; z-index: 5; left: var(--pad); bottom: clamp(28px, 6vh, 64px); width: min(480px, calc(100% - 2 * var(--pad))); }
+.wl-kicker { margin-bottom: clamp(8px, 1.6vh, 14px); font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.wl-h1 { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.005em; font-size: clamp(38px, 7.4vh, 68px); line-height: 0.95; max-width: 17ch; text-wrap: balance; }
+.wl-lede { margin-top: clamp(10px, 2vh, 18px); font-size: clamp(15px, 2.1vh, 18px); line-height: 1.5; color: var(--fg-2); max-width: 44ch; }
+.wl-form { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
+.wl-row { display: flex; gap: 10px; }
+.wl-row .input { flex: 1 1 auto; min-width: 0; }
+.wl-join { flex: none; min-height: 48px; padding-inline: 20px; }
+.wl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.wl-error { min-height: 1.4em; font-size: 14px; color: var(--danger, #f2685a); }
+.wl-count { margin-top: 4px; font-size: 13px; color: var(--fg-2); }
+.wl-stage { margin-top: 10px; font-size: 11.5px; color: var(--fg-3); }
+
+.wl-done { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
+.wl-done-title { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(30px, 5vh, 44px); line-height: 1; }
+.wl-done-note { color: var(--fg-2); }
+.wl-done-links { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px; }
+.wl-done-links .btn { min-height: 46px; padding-inline: 18px; }
+
+/* Phone: footage across the top half, the form below the diagonal. */
+@media (max-width: 640px) {
+  .wl { min-height: 680px; }
+  .vw { clip-path: var(--above-tall); }
+  .wl-floor-in { clip-path: var(--below-tall); }
+  .gd-wide { display: none; }
+  .gd-tall { display: block; }
+  .vw-tilt { right: -18%; top: -14%; width: 136%; height: 120%; }
+  .vw-col-2, .vw-extra { display: none; }
+  .vw-col-1 { margin-top: 24%; }
+  .wl-top { padding-block: 16px; }
+  .wl-nav { gap: 12px; font-size: 13.5px; }
+  .wl-main { bottom: 24px; }
+  .wl-h1 { font-size: clamp(34px, 9.2vw, 42px); }
+  .wl-lede { font-size: 15px; }
+  .wl-nav a { white-space: nowrap; }
+  .wl-kicker { display: none; }
+  .wl-row { flex-direction: column; }
+  .wl-join { width: 100%; min-height: 52px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vw-track, .gd-b { animation: none; }
+}
