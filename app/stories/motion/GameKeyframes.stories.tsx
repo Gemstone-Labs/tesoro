@@ -3,7 +3,7 @@ import "@/games/block-puzzle/block-puzzle.css";
 import "@/app/(app)/wallet/opening/opening.css";
 import "@/app/(app)/backing/backing.css";
 import { LoaderCircle } from "lucide-react";
-import { Lab, Sample, type Spec } from "./lab";
+import { Lab, type Spec } from "./lab";
 
 const B = "src/games/block-puzzle/block-puzzle.css";
 
@@ -67,16 +67,6 @@ const specs: Spec[] = [
     ease: "linear",
     iter: "infinite",
     stage: (s) => <LoaderCircle className="op-spin" style={{ ...s, width: 40, height: 40 }} aria-hidden="true" />,
-  },
-  {
-    name: "bk-drawer-in",
-    file: "src/app/(app)/backing/backing.css",
-    line: 82,
-    note: "The Offer drawer sliding in from the right on wide screens (phones use sheet-in). The real drawer is in Motion / Sheet and drawers.",
-    dur: 320,
-    ease: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-    iter: 1,
-    stage: (s) => <Sample style={s}>Offer drawer</Sample>,
   },
 ];
 

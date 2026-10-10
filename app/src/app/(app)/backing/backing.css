@@ -40,10 +40,11 @@
 .bk-empty .bust-card-body b { font-size: 20px; }
 .bk-empty .bust-card-body p { font-size: 15px; margin-top: 4px; max-width: 46ch; }
 
-/* drawer */
-.bk-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.66); z-index: 50; }
-.bk-drawer { --edge: var(--edge-2); background: var(--side); z-index: 51; padding: 18px 16px 20px; display: grid; gap: 12px; align-content: start;
-  position: fixed; left: 0; right: 0; bottom: 0; max-height: 92dvh; overflow-y: auto; }
+/* Offer modal: a native dialog in the top layer, centred over everything */
+dialog.bk-drawer { --c: var(--cut-frame); --edge: var(--edge-2); position: fixed; padding: 0; border: 0; color: var(--fg); background: var(--side);
+  width: calc(100% - 24px); max-width: 560px; max-height: calc(100dvh - 24px); margin: auto; overflow-y: auto; }
+dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: blur(6px); }
+.bk-drawer-in { padding: 18px 16px 20px; display: grid; gap: 12px; align-content: start; }
 .bk-drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .bk-drawer-head .h-section { font-size: clamp(30px, 2.6vw, 46px); }
 .bk-drawer-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
@@ -70,17 +71,10 @@
 .bk-drawer-actions { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; }
 .bk-drawer-actions .btn { min-height: 56px; font-size: 18px; }
 
-@media (min-width: 1024px) {
-  .bk-drawer { inset: 0 0 0 auto; left: auto; width: min(520px, 100vw); max-height: none; padding: 28px 28px 32px; clip-path: none; }
-  .bk-drawer::after { display: none; }
-}
+@media (min-width: 640px) { .bk-drawer-in { padding: 28px 28px 32px; } }
 
-/* the Offer drawer arrives from where it docks */
-.bk-drawer { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
-@media (min-width: 1024px) {
-  .bk-drawer { animation-name: bk-drawer-in; box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45); border-left: 1px solid var(--line-2); }
-  @keyframes bk-drawer-in { from { transform: translateX(32px); opacity: 0; } }
-}
+dialog.bk-drawer[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+dialog.bk-drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 
 /* How Backing works: the worked example shown while there are no Requests */
 .bk-ex { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px 36px; padding: 24px 28px; align-items: center; }

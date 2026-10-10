@@ -45,10 +45,10 @@ try {
   await shot(pbk, "3-backer-sees-request");
   await card.getByRole("button", { name: "Make an Offer" }).click();
   await pbk.waitForTimeout(1500);
-  const slider = pbk.locator("aside[role=dialog] input[type=range]");
+  const slider = pbk.locator("dialog.bk-drawer input[type=range]");
   await slider.fill(String(100 - Number(SHARE) === 0 ? 10 : SHARE));
   await shot(pbk, "4-offer-drawer");
-  await pbk.locator("aside[role=dialog]").getByRole("button", { name: "Make an Offer" }).click();
+  await pbk.locator("dialog.bk-drawer").getByRole("button", { name: "Make an Offer" }).click();
   await pbk.getByText(/Offer (posted|sent)/i).first().waitFor();
   log("Offer sent by", BACKER);
   await shot(pbk, "5-offer-sent");

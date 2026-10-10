@@ -59,18 +59,25 @@ function MenuDrawerDemo() {
 
 function OfferDrawerDemo() {
   const [open, setOpen] = useState(false);
-  const { panel, rule } = useTiming({ dur: 320, ease: "cubic-bezier(0.2, 0.8, 0.2, 1)" }, "Offer drawer");
+  const ref = useRef<HTMLDialogElement>(null);
+  const { panel, rule } = useTiming({ dur: 320, ease: "cubic-bezier(0.2, 0.8, 0.2, 1)" }, "Offer modal");
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
   return (
     <section className="sbm-panel">
-      <h3>Offer drawer</h3>
-      <p className="meta">The Backing Offer drawer. Below 1024px it rises like a sheet (sheet-in); from 1024px it slides in from the right (bk-drawer-in, backing.css:82).</p>
-      <style>{rule(".bk-drawer")}</style>
+      <h3>Offer modal</h3>
+      <p className="meta">The Backing Offer modal: a dialog centred over the page at every width, rising with sheet-in (backing.css).</p>
+      <style>{rule("dialog.bk-drawer[open]")}</style>
       {panel}
       <div className="sbm-row">
-        <Button variant="money" onClick={() => setOpen(true)}>Open Offer drawer</Button>
+        <Button variant="money" onClick={() => setOpen(true)}>Open Offer modal</Button>
       </div>
-      {open && (
-        <aside className="cut cut-frame bk-drawer" role="dialog" aria-label="Make an Offer">
+      <dialog ref={ref} className="cut cut-frame bk-drawer" aria-label="Make an Offer" onClose={() => setOpen(false)} onClick={(e) => e.target === e.currentTarget && setOpen(false)}>
+        <div className="bk-drawer-in">
           <div className="bk-drawer-head">
             <h2>Make an Offer</h2>
             <button type="button" className="cut icon-btn" aria-label="Close" onClick={() => setOpen(false)}>
@@ -78,8 +85,8 @@ function OfferDrawerDemo() {
             </button>
           </div>
           <p className="meta">Close it, then open it again to replay.</p>
-        </aside>
-      )}
+        </div>
+      </dialog>
     </section>
   );
 }

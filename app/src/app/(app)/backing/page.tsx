@@ -684,16 +684,21 @@ function OfferDrawer({
   const request = isPublic ? null : target;
   const player = request?.player ?? null;
 
+  const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    const d = ref.current;
+    if (d && !d.open) d.showModal();
+  }, []);
 
   return (
-    <>
-      <div className="bk-scrim" onClick={onClose} aria-hidden="true" />
-      <aside className="cut cut-frame bk-drawer" role="dialog" aria-label={isPublic ? "New public Offer" : "Make an Offer"}>
+    <dialog
+      ref={ref}
+      className="cut cut-frame bk-drawer"
+      aria-label={isPublic ? "New public Offer" : "Make an Offer"}
+      onClose={onClose}
+      onClick={(e) => e.target === ref.current && onClose()}
+    >
+      <div className="bk-drawer-in">
         <div className="bk-drawer-head">
           <h2 className="h-section">{isPublic ? "New public offer" : "Make an offer"}</h2>
           <button type="button" className="cut icon-btn" onClick={onClose} aria-label="Close">
@@ -799,7 +804,7 @@ function OfferDrawer({
             </div>
           </div>
         </div>
-      </aside>
-    </>
+      </div>
+    </dialog>
   );
 }
