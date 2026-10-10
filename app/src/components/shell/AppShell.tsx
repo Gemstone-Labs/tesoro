@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { EditProfileSheet } from "@/components/account/EditProfileSheet";
 import { GuideOverlay, GuideProvider } from "@/components/guide/Guide";
 import { SearchProvider } from "./SearchContext";
 import { NAV, SidebarBody, isHere } from "./Sidebar";
@@ -66,6 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <GuideOverlay />
+        <EditProfileSheet />
       </div>
       </GuideProvider>
     </SearchProvider>

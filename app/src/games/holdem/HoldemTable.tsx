@@ -5,13 +5,13 @@ import { PublicKey } from "@solana/web3.js";
 import { AccountLink } from "@/components/account/AccountLink";
 import { Button, GemaMark } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
-import { shortKey } from "@/lib/chain/history";
 import { fmtGemas } from "@/lib/format";
 import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, call, check, fold, raise, tesoroAccountPda, type Action, type Table } from "./chain";
 import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
 import { PlayingCard } from "./cards";
 import { inPlay, legalMoves } from "./rules";
 import "./holdem.css";
+import { PlayerName } from "@/components/account/Player";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 const STREET = ["Shuffling", "Preflop", "Flop", "Turn", "River", ""];
@@ -267,7 +267,7 @@ function Seat({
           <strong>{who}</strong>
           {dealer && <span className="hd-btn" title="Button, posts the small blind" aria-label="Dealer button">D</span>}
           {active && <span className="hd-turn">To act</span>}
-          <span className="mono hd-addr">{account ? linked ? <AccountLink account={account} newTab /> : shortKey(account) : address}</span>
+          <span className="mono hd-addr">{account ? linked ? <AccountLink account={account} newTab /> : <PlayerName account={account} /> : address}</span>
         </div>
         <div className="hd-stack mono" aria-label={`${who} stack ${chips(stack)} Chips`}>
           {chips(stack)} <span className="hd-unit">Chips</span>

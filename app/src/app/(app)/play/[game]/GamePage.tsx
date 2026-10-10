@@ -11,12 +11,13 @@ import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
 import { ASSET_PARAMS } from "@/lib/chain/match-id";
 import { gameQuery } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
-import { art, avatarFor } from "@/lib/art";
+import { art } from "@/lib/art";
 import { accountHistory } from "@/lib/chain/history";
 import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import "./game.css";
+import { PlayerAvatar } from "@/components/account/Player";
 
 const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: string[]; hero: string }> = {
   "block-puzzle": {
@@ -122,7 +123,7 @@ export function GamePage({ game }: { game: GameId }) {
               {scores.map(([key, score], i) => (
                 <div key={key} className="cut cut-card gp-top">
                   <b className="gp-rank">{i + 1}</b>
-                  <Image className="gp-av" src={avatarFor(key)} alt="" width={44} height={44} />
+                  <PlayerAvatar className="gp-av" account={key} size={44} />
                   <AccountLink account={key} className="gp-topname" />
                   <b className="tnum gp-score">{score}</b>
                 </div>

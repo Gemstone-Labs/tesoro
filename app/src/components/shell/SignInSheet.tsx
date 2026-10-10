@@ -2,27 +2,30 @@
 
 import { useState } from "react";
 import { useLoginWithEmail } from "@privy-io/react-auth";
-import { AlertIcon, Button, Sheet } from "@/components/ui";
+import { AlertIcon, Button, Label, Sheet } from "@/components/ui";
 
 export function SignInSheet({
   open,
   reason,
   onClose,
   onSignedIn,
+  onWallet,
 }: {
   open: boolean;
   reason?: string;
   onClose: () => void;
   onSignedIn: () => void;
+  /** Hands over to the wallet picker for one chain family. */
+  onWallet: (family: "solana" | "evm") => void;
 }) {
   return (
     <Sheet open={open} onClose={onClose} title="Sign in">
-      <SignInForm reason={reason} onSignedIn={onSignedIn} />
+      <SignInForm reason={reason} onSignedIn={onSignedIn} onWallet={onWallet} />
     </Sheet>
   );
 }
 
-function SignInForm({ reason, onSignedIn }: { reason?: string; onSignedIn: () => void }) {
+function SignInForm({ reason, onSignedIn, onWallet }: { reason?: string; onSignedIn: () => void; onWallet: (family: "solana" | "evm") => void }) {
   const { sendCode, loginWithCode, state } = useLoginWithEmail();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -55,8 +58,22 @@ function SignInForm({ reason, onSignedIn }: { reason?: string; onSignedIn: () =>
     <>
       <p className="meta">
         {reason ? `Sign in to ${reason}. ` : ""}
-        Your Account gets a Solana address and an EVM address, created for you. Browsing needs no sign-in.
+        Use a wallet or an email: either way you get one Tesoro Account that works with Solana and Ethereum, set up for you. Browsing needs no sign-in.
       </p>
+      {!codeStep && (
+        <div className="stack signin-wallets">
+          <Label>Connect a wallet</Label>
+          <button type="button" className="cut cut-card signin-wallet" onClick={() => onWallet("solana")}>
+            <b>Solana wallet</b>
+            <small>Phantom, Solflare, Backpack</small>
+          </button>
+          <button type="button" className="cut cut-card signin-wallet" onClick={() => onWallet("evm")}>
+            <b>Ethereum wallet</b>
+            <small>MetaMask, Rabby, WalletConnect</small>
+          </button>
+          <p className="signin-or"><span>or use email</span></p>
+        </div>
+      )}
       {!codeStep ? (
         <form className="stack" onSubmit={send}>
           <div className="field">

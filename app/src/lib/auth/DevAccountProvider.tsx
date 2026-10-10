@@ -128,6 +128,8 @@ function DevBridge({ children }: { children: ReactNode }) {
       openAccount: () => setAccountOpen(true),
       signer,
       evm,
+      externalSolana: null,
+      externalEvm: null,
       getAccessToken: async () => null,
       devWallet: true,
     };

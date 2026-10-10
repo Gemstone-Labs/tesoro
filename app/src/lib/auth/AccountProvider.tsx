@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { PrivyProvider, useCreateWallet, usePrivy, useWallets, type PrivyClientConfig } from "@privy-io/react-auth";
+import { PrivyProvider, useCreateWallet, useLogin, usePrivy, useWallets, type ConnectedWallet, type PrivyClientConfig } from "@privy-io/react-auth";
 import { createWalletClient, custom, type Address } from "viem";
 import {
   toSolanaWalletConnectors,
@@ -26,11 +26,15 @@ const DevAccountProvider = DEV_WALLET ? lazy(() => import("./DevAccountProvider"
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 
 const privyConfig: PrivyClientConfig = {
-  loginMethods: ["email"],
+  // Email, or a Solana / Ethereum wallet. Either way the Account is backed by the embedded wallets below:
+  // a wallet used to sign in is linked to it and proves who the person is, but never signs game moves.
+  loginMethods: ["email", "wallet"],
   appearance: {
     theme: "dark",
     accentColor: "#EAEFEC",
     walletChainType: "ethereum-and-solana",
+    // Installed wallets first (Phantom, Solflare, Backpack, MetaMask, Rabby, ...), then the QR options.
+    walletList: ["detected_solana_wallets", "detected_ethereum_wallets", "phantom", "metamask", "coinbase_wallet", "wallet_connect"],
   },
   // Every Account gets one embedded wallet per chain family.
   embeddedWallets: {
@@ -39,7 +43,7 @@ const privyConfig: PrivyClientConfig = {
     ethereum: { createOnLogin: "all-users" },
     solana: { createOnLogin: "all-users" },
   },
-  // Phantom / Backpack via wallet-standard.
+  // Phantom / Solflare / Backpack via wallet-standard.
   externalWallets: { solana: { connectors: toSolanaWalletConnectors() } },
   // Hoodi and HyperEVM testnet. The same EVM address is valid on both.
   supportedChains: [...EVM_CHAINS],
@@ -55,11 +59,31 @@ const privyConfig: PrivyClientConfig = {
 };
 
 /** The embedded wallet signs without a prompt, in about a second; one that has not answered in 60 s is not going to. */
-function signingTimeout<T>(p: Promise<T>): Promise<T> {
+function signingTimeout<T>(p: Promise<T>, ms = 60_000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("Your wallet did not answer the signing request. Reload the page and try again.")), 60_000);
+    const t = setTimeout(() => reject(new Error("Your wallet did not answer the signing request. Reload the page and try again.")), ms);
     p.then(resolve, reject).finally(() => clearTimeout(t));
   });
+}
+
+function evmSignerOf(wallet: ConnectedWallet, source: EvmSigner["source"]): EvmSigner {
+  const address = wallet.address as Address;
+  const transport = custom({
+    request: async (args: { method: string; params?: unknown }) => {
+      const provider = await wallet.getEthereumProvider();
+      return provider.request(args as Parameters<typeof provider.request>[0]);
+    },
+  });
+  return {
+    address,
+    account: address,
+    client: createWalletClient({ account: address, chain: hoodi, transport }),
+    clientFor: (chain) => createWalletClient({ account: address, chain, transport }),
+    prepare: async (chain = hoodi) => {
+      await wallet.switchChain(chain.id);
+    },
+    source,
+  };
 }
 
 export function AccountProvider({ children }: { children: ReactNode }) {
@@ -91,6 +115,35 @@ function PrivyBridge({ children }: { children: ReactNode }) {
   const [reason, setReason] = useState<string | undefined>();
   const [accountOpen, setAccountOpen] = useState(false);
   const pending = useRef<(() => void) | null>(null);
+  const walletLogin = useRef(false);
+
+  const finishSignIn = useCallback(() => {
+    setSignInOpen(false);
+    const run = pending.current;
+    pending.current = null;
+    run?.();
+  }, []);
+
+  const { login } = useLogin({
+    onComplete: () => {
+      if (!walletLogin.current) return;
+      walletLogin.current = false;
+      finishSignIn();
+    },
+    onError: () => {
+      walletLogin.current = false;
+    },
+  });
+
+  /** Privy's wallet picker is its own modal and would sit under our dialog: close ours first, keeping what the person was doing. */
+  const signInWithWallet = useCallback(
+    (family: "solana" | "evm") => {
+      walletLogin.current = true;
+      setSignInOpen(false);
+      login({ loginMethods: ["wallet"], walletChainType: family === "solana" ? "solana-only" : "ethereum-only" });
+    },
+    [login],
+  );
 
   const wallets = useMemo(
     () => (user?.linkedAccounts ?? []).flatMap((a) => (a.type === "wallet" ? [a] : [])),
@@ -147,27 +200,38 @@ function PrivyBridge({ children }: { children: ReactNode }) {
     const embedded = evm ? evmWallets.find((w) => w.address.toLowerCase() === evm.toLowerCase()) : undefined;
     const external = linked.find((l) => l.family === "evm");
     const wallet = embedded ?? (external ? evmWallets.find((w) => w.address.toLowerCase() === external.address.toLowerCase()) : undefined);
-    if (!wallet) return null;
-    const address = wallet.address as Address;
-    const transport = custom({
-      request: async (args: { method: string; params?: unknown }) => {
-        const provider = await wallet.getEthereumProvider();
-        return provider.request(args as Parameters<typeof provider.request>[0]);
-      },
-    });
-    return {
-      address,
-      account: address,
-      client: createWalletClient({ account: address, chain: hoodi, transport }),
-      clientFor: (chain) => createWalletClient({ account: address, chain, transport }),
-      prepare: async (chain = hoodi) => {
-        await wallet.switchChain(chain.id);
-      },
-      source: embedded ? "embedded" : "linked",
-    };
+    return wallet ? evmSignerOf(wallet, embedded ? "embedded" : "linked") : null;
     // `linked` is rebuilt every render from `wallets`; depend on its source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [evm, evmWallets, wallets]);
+
+  // The person's own Ethereum wallet (MetaMask, Rabby, ...), when connected: it proves a .eth name, and never signs game moves.
+  const externalEvm = useMemo<EvmSigner | null>(() => {
+    const external = linked.find((l) => l.family === "evm");
+    const wallet = external ? evmWallets.find((w) => w.address.toLowerCase() === external.address.toLowerCase()) : undefined;
+    return wallet ? evmSignerOf(wallet, "linked") : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evmWallets, wallets]);
+
+  // The person's own Solana wallet (Phantom, Solflare, Backpack), when connected: it co-signs to show its .sol name.
+  const externalSolana = useMemo<ChainSigner | null>(() => {
+    const external = linked.find((l) => l.family === "solana");
+    const wallet = external ? solanaWallets.find((w) => w.address === external.address) : undefined;
+    if (!wallet || !external) return null;
+    return {
+      publicKey: new PublicKey(external.address),
+      // The wallet app asks the person to approve: this is only used for the rare identity steps.
+      signTransaction: async (tx: Transaction) => {
+        const { signedTransaction } = await signingTimeout(
+          signTransaction({ transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }), wallet, chain: "solana:devnet" }),
+          180_000,
+        );
+        return Transaction.from(signedTransaction);
+      },
+      signMessage: async (message: Uint8Array) => (await signingTimeout(signMessage({ message, wallet }), 180_000)).signature,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [solanaWallets, wallets, signTransaction, signMessage]);
 
   const gate = useCallback(
     (why: string, action: () => void) => {
@@ -189,18 +253,21 @@ function PrivyBridge({ children }: { children: ReactNode }) {
       linkWallet: (family) => linkWallet({ walletChainType: family === "solana" ? "solana-only" : "ethereum-only" }),
       gate,
       openSignIn: (why) => {
+        pending.current = null;
         setReason(why);
         setSignInOpen(true);
       },
       openAccount: () => setAccountOpen(true),
       signer,
       evm: evmSigner,
+      externalSolana,
+      externalEvm,
       getAccessToken,
       devWallet: false,
     }),
     // `linked` is rebuilt every render from `wallets`; depend on its source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ready, authenticated, user, solana, evm, wallets, logout, linkWallet, gate, signer, evmSigner, getAccessToken],
+    [ready, authenticated, user, solana, evm, wallets, logout, linkWallet, gate, signer, evmSigner, externalSolana, externalEvm, getAccessToken],
   );
 
   return (
@@ -213,12 +280,8 @@ function PrivyBridge({ children }: { children: ReactNode }) {
           pending.current = null;
           setSignInOpen(false);
         }}
-        onSignedIn={() => {
-          setSignInOpen(false);
-          const run = pending.current;
-          pending.current = null;
-          run?.();
-        }}
+        onSignedIn={finishSignIn}
+        onWallet={signInWithWallet}
       />
       <AccountSheet
         open={accountOpen}

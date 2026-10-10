@@ -263,8 +263,9 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         q: "How do I sign in?",
         a: (
           <p>
-            With your email and a one-time code. Your Account holds one address for Solana and one for ETH and HYPE, so you don&apos;t need a
-            wallet extension. Positions, Gemas, Matches and Backings belong to your Account.
+            With your email and a one-time code, or with a wallet you already have: a Solana wallet such as Phantom, Solflare or Backpack, or an
+            Ethereum wallet such as MetaMask or Rabby. You don&apos;t need a wallet to start. Either way you get one Tesoro Account, and
+            Positions, Gemas, Matches and Backings belong to it.
           </p>
         ),
       },
