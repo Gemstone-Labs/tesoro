@@ -4,10 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ArrowRight, Clock, Link2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { MatchRow } from "@/components/match/MatchRow";
-import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
+import { AssetPicker, BustCard, EntryPicker } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
@@ -16,6 +16,9 @@ import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import "./game.css";
+import { GameCta } from "./GameCta.prototype";
+
+const PRACTICE_LINE: Record<GameId, string> = { "block-puzzle": "random pieces", holdem: "against a bot", "trading-duel": "against a bot" };
 import { PlayerAvatar } from "@/components/account/Player";
 
 const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: string[]; hero: string }> = {
@@ -74,17 +77,16 @@ export function GamePage({ game }: { game: GameId }) {
           </p>
           {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="gp-asset" />}
           <EntryPicker value={entry} onChange={setEntry} name={`gp-entry-${game}`} />
-          <div className="gp-cta">
-            <Button variant="money" size="lg" onClick={() => auth.gate("Enter a Match", () => router.push(query("queue")))}>
-              Play now
-            </Button>
-            <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
-              Challenge<span className="gp-friend"> a friend</span> <Link2 aria-hidden="true" />
-            </Button>
-            <Button size="lg" href={practiceHref(game, asset)}>
-              Practice <Clock aria-hidden="true" />
-            </Button>
-          </div>
+          {/* PROTOTYPE: action variants, see GameCta.prototype.tsx */}
+          <GameCta
+            game={game}
+            entry={entry}
+            asset={asset}
+            practiceLine={PRACTICE_LINE[game]}
+            onPlay={() => auth.gate("Enter a Match", () => router.push(query("queue")))}
+            onChallenge={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}
+            practiceHref={practiceHref(game, asset)}
+          />
         </div>
       </section>
 
