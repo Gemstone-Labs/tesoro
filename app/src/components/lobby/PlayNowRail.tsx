@@ -8,7 +8,7 @@ import { practiceHref } from "@/lib/game-params";
 import { CATALOGUE } from "@/lib/catalogue";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
-import { useQueueDepth } from "./useQueueDepth";
+import { useQueueDepth } from "./useQueue";
 
 const GAME_LINE: Record<string, string> = {
   "block-puzzle": "Play anytime · same pieces · higher score wins",

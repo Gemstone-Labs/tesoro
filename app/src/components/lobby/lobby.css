@@ -19,7 +19,27 @@
 .slide-cta { display: flex; gap: 12px; }
 .slide-cta .btn { flex: 1 1 0; min-width: 0; padding-inline: 12px; white-space: nowrap; }
 .slide-meta { font-size: 13.5px; color: var(--fg-2); }
-.slide-meta button, .slide-meta a { background: none; border: 0; padding: 0; color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.slide-meta a { color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.slide-queue { --c: 10px; --edge: var(--line-2); display: flex; align-items: center; gap: 12px; width: 100%; max-width: 420px; margin-top: -6px; padding: 8px 8px 8px 14px; background: rgba(10, 19, 34, 0.72); backdrop-filter: blur(6px); }
+.slide-queue-live { position: relative; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg); }
+.slide-queue-live::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; animation: queue-ping 1.6s ease-out infinite; }
+@keyframes queue-ping { to { transform: scale(2.6); opacity: 0; } }
+.slide-queue-faces { display: inline-flex; align-items: center; flex: none; }
+.slide-queue-faces img { border-radius: 50%; border: 2px solid #0a1322; background: #0a1322; }
+.slide-queue-faces img + img { margin-left: -8px; }
+.slide-queue-faces b { margin-left: 4px; font-size: 12px; color: var(--fg-2); }
+.slide-queue-faces i { width: 26px; height: 26px; border-radius: 50%; border: 1.5px dashed var(--line-2); }
+.slide-queue-text { display: grid; flex: 1; min-width: 0; line-height: 1.15; }
+.slide-queue-text strong { font-size: 14px; color: var(--fg); }
+.slide-queue-text small { font-size: 12px; color: var(--fg-2); }
+.slide-queue .btn.sm { gap: 6px; white-space: nowrap; background: rgba(255, 255, 255, 0.07); --edge: var(--line-2); color: var(--fg); }
+.slide-queue .btn.sm:hover { background: rgba(255, 255, 255, 0.13); }
+.slide-queue .btn.sm svg { width: 15px; height: 15px; }
+@media (max-width: 520px) {
+  .slide-queue { flex-wrap: wrap; }
+  .slide-queue .btn.sm { flex: 1 0 100%; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) { .slide-queue-live::after { animation: none; } }
 .slide:not(.active) .slide-body { visibility: hidden; }
 
 .hero-next {

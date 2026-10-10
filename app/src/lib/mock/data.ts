@@ -104,5 +104,3 @@ export const GAME_NAMES: Record<GameId, string> = {
   "trading-duel": "Trading Duel",
 };
 
-/** Current Queue depth per game (example figures). */
-export const queueDepth: Record<GameId, number> = { "block-puzzle": 4, holdem: 2, "trading-duel": 1 };

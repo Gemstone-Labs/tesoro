@@ -360,15 +360,28 @@ export async function listLiveMatchIds(me: PublicKey, game: GameId): Promise<big
     .sort((x: bigint, y: bigint) => (x < y ? 1 : -1));
 }
 
-/** Number of Open Queue Matches for one Game (for the Lobby). */
-export async function queueDepth(game: GameId = "block-puzzle"): Promise<number> {
-  const chain = getChain();
+export interface QueueSeat {
+  /** Account key of the Player waiting. */
+  player: string;
+  entry: number;
+  /** Trading Duel asset index; 0 for the other Games. */
+  asset: number;
+}
+
+/** Open Queue Matches per Game, oldest first: who waits and at which entry (for the Lobby). One list read. */
+export async function queueSeats(): Promise<Record<GameId, QueueSeat[]>> {
   const now = Math.floor(Date.now() / 1000);
-  const all = await chain.core.account.matchState.all();
-  return all.filter((m: any) => {
+  const all = await getChain().core.account.matchState.all();
+  const out: Record<GameId, (QueueSeat & { id: bigint })[]> = { "block-puzzle": [], holdem: [], "trading-duel": [] };
+  for (const m of all as any[]) {
     const inner = m.account.inner;
-    return enumKey(inner.status) === "open" && gameOf(pk(inner.game)) === game && !isChallengeId(big(m.account.id)) && Number(inner.deadline.toString()) > now;
-  }).length;
+    const id = big(m.account.id);
+    const game = gameOf(pk(inner.game));
+    if (!game || enumKey(inner.status) !== "open" || isChallengeId(id) || Number(inner.deadline.toString()) <= now) continue;
+    out[game].push({ id, player: pk(inner.a.player).toBase58(), entry: Number(inner.entry.toString()), asset: game === "trading-duel" ? assetIndexOf(id) : 0 });
+  }
+  const sorted = (seats: (QueueSeat & { id: bigint })[]) => seats.sort((x, y) => (x.id < y.id ? -1 : 1)).map(({ player, entry, asset }) => ({ player, entry, asset }));
+  return { "block-puzzle": sorted(out["block-puzzle"]), holdem: sorted(out.holdem), "trading-duel": sorted(out["trading-duel"]) };
 }
 
 export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapshot> {

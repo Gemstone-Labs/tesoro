@@ -4,15 +4,17 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowRight, Pause, Play } from "lucide-react";
+import { ArrowRight, Pause, Play, Swords } from "lucide-react";
+import { PlayerAvatar } from "@/components/account/Player";
 import { AssetPicker, Button, EntryPicker, Sheet } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { art } from "@/lib/art";
 import { fmtGemas } from "@/lib/format";
+import type { QueueSeat } from "@/lib/chain/read";
 import type { EntrySize, GameId } from "@/lib/mock";
-import { useQueueDepth } from "./useQueueDepth";
+import { useQueue } from "./useQueue";
 
 interface Slide {
   game: GameId;
@@ -49,7 +51,7 @@ export function HeroCarousel() {
   const [hover, setHover] = useState(false);
   const [entries, setEntries] = useState<Record<GameId, EntrySize>>({ "block-puzzle": 1000, holdem: 500, "trading-duel": 500 });
   const [reduced, setReduced] = useState(true);
-  const depth = useQueueDepth();
+  const queue = useQueue();
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -109,7 +111,7 @@ export function HeroCarousel() {
               position={`${i + 1} of ${SLIDES.length}`}
               entry={entries[s.game]}
               onEntry={(e) => setEntries((cur) => ({ ...cur, [s.game]: e }))}
-              waiting={depth[s.game]}
+              waiting={queue?.[s.game] ?? null}
               onSelect={() => setIndex(clone ? 0 : i)}
             />
           );
@@ -152,10 +154,11 @@ function HeroSlide({
   position: string;
   entry: EntrySize;
   onEntry: (e: EntrySize) => void;
-  waiting: number;
+  /** Open Queue Matches for this Game; null until read. */
+  waiting: QueueSeat[] | null;
   onSelect: () => void;
 }) {
-  const { gemas, auth, onChain, loading, entryProblem } = useAccount();
+  const { gemas, auth, onChain, loading, entryProblem, snapshot } = useAccount();
   const router = useRouter();
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
   const [choosing, setChoosing] = useState(false);
@@ -164,6 +167,8 @@ function HeroSlide({
   const canEnter = !signedIn || loading || (onChain ? problem === null : gemas.available >= entry);
   const needsGemas = !canEnter && problem !== "too-many-sources";
   const go = (href: string, reason: string) => auth.gate(reason, () => router.push(href));
+  const me = snapshot?.accountKey.toBase58();
+  const others = waiting?.filter((w) => w.player !== me) ?? null;
 
   return (
     <article
@@ -203,30 +208,27 @@ function HeroSlide({
             Play now
           </Button>
         )}
-        <p className="slide-meta">
-          {canEnter ? (
-            <>
-              {waiting} waiting in Queue ·{" "}
-              <button type="button" onClick={() => go(hrefFor("challenge", slide.game, entry, asset), "Challenge a friend")}>
-                Challenge a friend
-              </button>
-            </>
-          ) : (
-            <>
-              {problem === "too-many-sources" ? (
-                <>Your Gemas are spread over more than {MAX_ENTRY_SOURCES} Sources. <Link href="/wallet">Redeem a few small balances in your Wallet</Link></>
-              ) : (
-                <>You need {fmtGemas(entry)} Gemas to enter a Match. Practice is free.</>
-              )}
-            </>
-          )}
-        </p>
+        {canEnter ? (
+          <QueueStrip
+            seats={others}
+            fits={(w) => w.entry === entry && (slide.game !== "trading-duel" || w.asset === asset)}
+            onChallenge={() => go(hrefFor("challenge", slide.game, entry, asset), "Challenge a friend")}
+          />
+        ) : (
+          <p className="slide-meta">
+            {problem === "too-many-sources" ? (
+              <>Your Gemas are spread over more than {MAX_ENTRY_SOURCES} Sources. <Link href="/wallet">Redeem a few small balances in your Wallet</Link></>
+            ) : (
+              <>You need {fmtGemas(entry)} Gemas to enter a Match. Practice is free.</>
+            )}
+          </p>
+        )}
       </div>
       <Sheet open={choosing} onClose={() => setChoosing(false)} title={`Play ${slide.title}`}>
         <div className="stack play-choice">
           <div className="cut cut-card play-opt">
             <b>Match</b>
-            <small>{fmtGemas(entry)} Gemas entry · {waiting} waiting in Queue</small>
+            <small>{fmtGemas(entry)} Gemas entry · {others?.length ?? 0} waiting in Queue</small>
             <Button
               variant="money"
               block
@@ -248,5 +250,29 @@ function HeroSlide({
         </div>
       </Sheet>
     </article>
+  );
+}
+
+/** Who is waiting in the Queue, whether one of them takes your entry, and the way to play a friend instead. */
+function QueueStrip({ seats, fits, onChallenge }: { seats: QueueSeat[] | null; fits: (w: QueueSeat) => boolean; onChallenge: () => void }) {
+  const n = seats?.length ?? 0;
+  const faces = [...new Set(seats?.map((w) => w.player))].slice(0, 3);
+  const [title, note] =
+    seats === null ? ["Queue", "Checking…"] : n === 0 ? ["Queue is open", "Be the first in"] : [`${n} waiting`, seats.some(fits) ? "Matched right away" : "None at this entry yet"];
+  return (
+    <div className="cut slide-queue">
+      {n > 0 && <span className="slide-queue-live" aria-hidden="true" />}
+      <span className="slide-queue-faces" aria-hidden="true">
+        {n === 0 ? <i /> : faces.map((p) => <PlayerAvatar key={p} account={p} size={26} />)}
+        {n > faces.length && <b>+{n - faces.length}</b>}
+      </span>
+      <p className="slide-queue-text">
+        <strong>{title}</strong>
+        <small>{note}</small>
+      </p>
+      <Button size="sm" icon={<Swords aria-hidden="true" />} onClick={onChallenge}>
+        Challenge a friend
+      </Button>
+    </div>
   );
 }
