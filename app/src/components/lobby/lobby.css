@@ -16,8 +16,8 @@
 .slide-entry { display: grid; gap: 10px; width: 100%; max-width: 420px; }
 .slide-entry .entry span { min-height: 54px; font-size: 18px; --c: 11px; }
 .slide-body .btn.lg { width: 100%; max-width: 420px; min-height: 62px; --c: 14px; }
-.slide-cta { display: flex; flex-wrap: wrap; gap: 12px; }
-.slide-cta .btn { flex: 1 1 160px; }
+.slide-cta { display: flex; gap: 12px; }
+.slide-cta .btn { flex: 1 1 0; min-width: 0; padding-inline: 12px; white-space: nowrap; }
 .slide-meta { font-size: 13.5px; color: var(--fg-2); }
 .slide-meta button, .slide-meta a { background: none; border: 0; padding: 0; color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .slide:not(.active) .slide-body { visibility: hidden; }
