@@ -39,6 +39,7 @@ export function GameTabs({ base, game }: { base: string; game: GameId | null }) 
 
 /** Newer / Older under a Match history, with the page and the count. */
 export function HistoryPages({ base, game, page, pages, total }: { base: string; game: GameId | null; page: number; pages: number; total: number }) {
+  if (pages <= 1) return null;
   return (
     <nav className="mh-pages" aria-label="Pages">
       <PageLink to={page > 1 ? historyHref(base, game, page - 1) : null} rel="prev">

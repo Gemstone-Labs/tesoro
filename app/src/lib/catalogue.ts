@@ -1,14 +1,13 @@
 import { art } from "./art";
 import type { GameId } from "./mock/types";
 
-export type Category = "puzzle" | "cards" | "head-to-head" | "async" | "backing";
+export type Category = "puzzle" | "cards" | "head-to-head" | "async";
 
 export const CATEGORIES: { id: Category; label: string }[] = [
   { id: "puzzle", label: "Puzzle" },
   { id: "cards", label: "Cards" },
   { id: "head-to-head", label: "Head-to-head" },
   { id: "async", label: "Async" },
-  { id: "backing", label: "Backing" },
 ];
 
 export interface CatalogueEntry {

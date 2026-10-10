@@ -99,7 +99,11 @@ export function GamePage({ game }: { game: GameId }) {
           </header>
           {mine.length === 0 ? (
             <p className="meta gp-empty">
-              {onChain ? `No finished ${name} Matches yet. Yours appear here when they finish.` : "Sign in to see your Matches."}
+              {onChain
+                ? `No finished ${name} Matches yet. Yours appear here when they finish.`
+                : auth.status === "signed-out"
+                  ? "Sign in to see your Matches."
+                  : "Loading your Matches…"}
             </p>
           ) : (
             <div className="mh-list">

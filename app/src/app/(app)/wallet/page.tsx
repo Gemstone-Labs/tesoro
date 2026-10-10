@@ -145,7 +145,7 @@ export default function Wallet() {
           <h1 className="page-title">Wallet</h1>
           <p className="page-sub">1 Gema = $0.01</p>
         </div>
-        <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>
+        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>}
       </header>
 
       <section className="cut cut-frame facet-panel wl-hero" aria-label="Balance">

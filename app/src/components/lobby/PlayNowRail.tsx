@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState, type PointerEvent } from "react";
-import { ChartColumn, Clock, LayoutGrid, Spade, Users, X, type LucideIcon } from "lucide-react";
+import { Clock, LayoutGrid, Spade, Users, X, type LucideIcon } from "lucide-react";
 import { practiceHref } from "@/lib/game-params";
 import { CATALOGUE, CATEGORIES, type Category } from "@/lib/catalogue";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
@@ -15,7 +15,6 @@ const CHIP_ICON: Record<Category, LucideIcon> = {
   cards: Spade,
   "head-to-head": Users,
   async: Clock,
-  backing: ChartColumn,
 };
 
 const GAME_LINE: Record<string, string> = {
@@ -52,10 +51,6 @@ export function PlayNowRail() {
   const filtering = Boolean(category) || Boolean(query.trim());
 
   const pick = (id: Category) => {
-    if (id === "backing") {
-      document.getElementById("back-a-player")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-      return;
-    }
     setCategory((cur) => (cur === id ? null : id));
   };
 
@@ -86,7 +81,7 @@ export function PlayNowRail() {
           {CATEGORIES.map(({ id, label }) => {
             const Icon = CHIP_ICON[id];
             return (
-              <button key={id} type="button" className={`cut cut-card cat${category === id ? " on" : ""}`} aria-pressed={id === "backing" ? undefined : category === id} onClick={() => pick(id)}>
+              <button key={id} type="button" className={`cut cut-card cat${category === id ? " on" : ""}`} aria-pressed={category === id} onClick={() => pick(id)}>
                 <Icon aria-hidden="true" />
                 {label}
               </button>
