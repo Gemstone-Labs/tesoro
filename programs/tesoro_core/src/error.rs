@@ -33,6 +33,8 @@ pub enum TesoroError {
     StalePrice,
     #[msg("Gemas of an EVM-sourced Advance are redeemed through the bridge")]
     BridgedSource,
+    #[msg("the leaderboard is not set up")]
+    LeaderboardOff,
 }
 
 pub fn core_err(e: CoreError) -> Error {

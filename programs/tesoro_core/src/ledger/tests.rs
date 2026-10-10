@@ -1287,3 +1287,171 @@ fn a_backed_entry_over_eight_sources_settles_with_bounded_payouts() {
     assert_eq!(payouts.iter().map(|p| p.amount).sum::<u64>(), 1_000);
     assert!(payouts.len() <= 2 * MAX_ENTRY_SOURCES + 3);
 }
+
+const POOL: usize = 3;
+
+fn lb() -> LeaderboardTerms {
+    LeaderboardTerms {
+        bps: 100,
+        recipient: akey(POOL),
+    }
+}
+
+#[test]
+fn leaderboard_fee_comes_from_the_loser_after_platform_and_studio() {
+    let mk = |backed: bool| {
+        let funder = if backed { akey(2) } else { akey(0) };
+        let mut m = Match::open(
+            GAME,
+            1_000,
+            fees(),
+            side(akey(0), funder, 4_000, &[(1, 1_000)]),
+            0,
+        )
+        .unwrap();
+        m.join(side(akey(1), akey(1), 0, &[(2, 30), (3, 970)]), 10)
+            .unwrap();
+        m
+    };
+    // Pot 2_000: platform 40, studio 60, pool 20; the winner nets 1_000 + 880.
+    let mut m = mk(false);
+    assert_eq!(m.leaderboard_due(&lb()).unwrap(), 20);
+    let payouts = m.settle_with(Outcome::Winner(0), &lb()).unwrap();
+    let to = |k: Key| {
+        payouts
+            .iter()
+            .filter(|p| p.recipient == k)
+            .map(|p| p.amount)
+            .sum::<u64>()
+    };
+    assert_eq!(to(akey(PLATFORM)), 40);
+    assert_eq!(to(akey(STUDIO)), 60);
+    assert_eq!(to(akey(POOL)), 20);
+    assert_eq!(to(akey(0)), 1_000 + 880);
+    let total: u64 = payouts.iter().map(|p| p.amount).sum();
+    assert_eq!(total, 2_000);
+    // Backed: the Backer's entry back, then the Offer's split of the surplus after all fees.
+    let payouts = mk(true).settle_with(Outcome::Winner(0), &lb()).unwrap();
+    let to = |k: Key| {
+        payouts
+            .iter()
+            .filter(|p| p.recipient == k)
+            .map(|p| p.amount)
+            .sum::<u64>()
+    };
+    assert_eq!(to(akey(POOL)), 20);
+    assert_eq!(to(akey(0)), 352);
+    assert_eq!(to(akey(2)), 1_000 + 528);
+    // Without terms nothing is taken, a draw never pays it.
+    let payouts = mk(false).settle(Outcome::Winner(0)).unwrap();
+    assert!(payouts.iter().all(|p| p.recipient != akey(POOL)));
+    let payouts = mk(false).settle_with(Outcome::Draw, &lb()).unwrap();
+    assert!(payouts.iter().all(|p| p.recipient != akey(POOL)));
+    assert_eq!(payouts.iter().map(|p| p.amount).sum::<u64>(), 2_000);
+}
+
+#[test]
+fn all_fees_together_stay_under_the_cap() {
+    let mut m = Match::open(GAME, 500, fees(), side(akey(0), akey(0), 0, &[(1, 500)]), 0).unwrap();
+    m.join(side(akey(1), akey(1), 0, &[(2, 500)]), 1).unwrap();
+    let hot = LeaderboardTerms {
+        bps: MAX_TOTAL_FEE_BPS,
+        recipient: akey(POOL),
+    };
+    assert_eq!(
+        m.settle_with(Outcome::Winner(0), &hot),
+        Err(CoreError::FeeTooHigh)
+    );
+    assert_eq!(m.status, MatchStatus::Active);
+}
+
+#[test]
+fn seasons_are_weeks_from_a_monday() {
+    assert_eq!(season_at(SEASON_EPOCH - 1), Err(CoreError::SeasonInvalid));
+    assert_eq!(season_at(SEASON_EPOCH), Ok(1));
+    assert_eq!(season_at(SEASON_EPOCH + SEASON_SECS - 1), Ok(1));
+    assert_eq!(season_at(SEASON_EPOCH + SEASON_SECS), Ok(2));
+    assert_eq!(season_start(2), Ok(SEASON_EPOCH + SEASON_SECS));
+    assert_eq!(season_end(1), season_start(2));
+    assert_eq!(season_start(0), Err(CoreError::SeasonInvalid));
+    // 1970-01-01 was a Thursday: the epoch is a whole number of days from a Monday.
+    assert_eq!(((SEASON_EPOCH / 86_400) + 3) % 7, 0);
+    assert_eq!(PRIZE_BPS.iter().map(|b| *b as u32).sum::<u32>(), 10_000);
+    assert_eq!([500u64, 1_000, 2_500].map(points_for_win), [5, 10, 25]);
+}
+
+fn ranked(points: &[u64]) -> Vec<Ranked> {
+    points
+        .iter()
+        .enumerate()
+        .map(|(i, p)| Ranked {
+            account: akey(i),
+            points: *p,
+        })
+        .collect()
+}
+
+#[test]
+fn a_season_pays_the_scale_and_unfilled_ranks_roll_over() {
+    let end = season_end(1).unwrap();
+    assert_eq!(
+        Season::record(1, end - 1, 10_000, &ranked(&[5])),
+        Err(CoreError::SeasonNotEnded)
+    );
+    let mut s = Season::record(1, end, 10_000, &ranked(&[50, 40, 40, 5])).unwrap();
+    assert_eq!(s.count, 4);
+    assert_eq!(s.amounts[..5], [2_500, 1_800, 1_300, 1_000, 0]);
+    // Only 66% of the pool is allocated; the rest stays for the next season.
+    assert_eq!(s.amounts.iter().sum::<u64>(), 6_600);
+    assert_eq!(s.pay(0), Ok(2_500));
+    assert_eq!(s.pay(0), Err(CoreError::AlreadyPaid));
+    assert_eq!(s.pay(4), Err(CoreError::SeasonInvalid));
+    assert!(s.paid(0) && !s.paid(1));
+
+    // Amounts are floored: never more than the pool.
+    let full = ranked(&[10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+    let s = Season::record(1, end, 12_345, &full).unwrap();
+    assert!(s.amounts.iter().sum::<u64>() <= 12_345);
+    assert_eq!(s.amounts[0], 3_086);
+}
+
+#[test]
+fn a_ranking_must_be_ordered_distinct_and_at_most_ten() {
+    let end = season_end(3).unwrap();
+    let bad = |r: Vec<Ranked>| Season::record(3, end, 1_000, &r);
+    assert_eq!(bad(ranked(&[5, 6])), Err(CoreError::SeasonInvalid));
+    assert_eq!(bad(ranked(&[5, 0])), Err(CoreError::SeasonInvalid));
+    assert_eq!(bad(ranked(&[1; 11])), Err(CoreError::SeasonInvalid));
+    let mut dup = ranked(&[5, 4]);
+    dup[1].account = dup[0].account;
+    assert_eq!(bad(dup), Err(CoreError::SeasonInvalid));
+    assert!(bad(vec![]).is_ok());
+}
+
+#[test]
+fn a_prize_drains_pool_holdings_in_source_order() {
+    let h = |s: u8, amount: u64| {
+        let mut h = Holding::new([s; 32], false);
+        h.amount = amount;
+        h
+    };
+    assert_eq!(plan_prize(&[h(1, 50), h(2, 100)], 120), Ok(vec![50, 70]));
+    assert_eq!(plan_prize(&[h(1, 500)], 120), Ok(vec![120]));
+    // Not enough supplied, an extra one, empty ones and unordered ones are refused.
+    assert_eq!(
+        plan_prize(&[h(1, 50), h(2, 10)], 120),
+        Err(CoreError::PrizeShortfall)
+    );
+    assert_eq!(
+        plan_prize(&[h(1, 500), h(2, 10)], 120),
+        Err(CoreError::NonCanonicalPrize)
+    );
+    assert_eq!(
+        plan_prize(&[h(1, 0), h(2, 500)], 120),
+        Err(CoreError::NonCanonicalPrize)
+    );
+    assert_eq!(
+        plan_prize(&[h(2, 50), h(1, 500)], 120),
+        Err(CoreError::NonCanonicalPrize)
+    );
+}

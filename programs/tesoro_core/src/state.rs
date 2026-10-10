@@ -18,6 +18,9 @@ pub const NATIVE_VAULT_SEED: &[u8] = b"native_vault";
 /// PDA that signs `sim_lst::mint_yield`; sim_lst records it as the one yield authority.
 pub const YIELD_SEED: &[u8] = b"yield";
 pub const PRICE_SEED: &[u8] = b"price";
+pub const SEASON_SEED: &[u8] = b"season";
+/// Address (never a signer) that owns the Leaderboard Pool Account: `["leaderboard"]`.
+pub const LEADERBOARD_SEED: &[u8] = b"leaderboard";
 
 /// simSOL mint of `sim_lst` (PDA `["mint"]` of `WgcM5G...`). A Solana Position whose
 /// `source_asset` is this mint is a native Position and is only ever opened by `open_native_position`.
@@ -50,13 +53,35 @@ pub struct Config {
     /// `TesoroAccount` that receives the Platform Fee.
     pub platform_recipient: Pubkey,
     pub games: Vec<GameEntry>,
+    /// Leaderboard Fee in basis points of the Pot. Appended after `games`: an account created
+    /// before it reads the fields as zero (the unused tail of the account is zeroed) and is
+    /// extended by `init_leaderboard`.
+    pub leaderboard_bps: u16,
+    /// The Leaderboard Pool: `TesoroAccount` owned by the `["leaderboard"]` address. Zero until
+    /// `init_leaderboard`; the fee is off while it is.
+    pub pool_account: Pubkey,
+    /// Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so
+    /// readers show the fee only for Matches opened at or after it. Zero until then.
+    pub leaderboard_since: i64,
 }
 
 impl Config {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 4 + MAX_GAMES * (32 + 32 + 2 + 32);
+    pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8;
+    /// The layout before the Leaderboard fields.
+    pub const LEGACY_SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 4 + MAX_GAMES * (32 + 32 + 2 + 32);
 
     pub fn game(&self, game: &Pubkey) -> Option<&GameEntry> {
         self.games.iter().find(|g| g.game == *game)
+    }
+
+    pub fn leaderboard_terms(&self) -> ledger::LeaderboardTerms {
+        if self.pool_account == Pubkey::default() {
+            return ledger::LeaderboardTerms::default();
+        }
+        ledger::LeaderboardTerms {
+            bps: self.leaderboard_bps,
+            recipient: self.pool_account.to_bytes(),
+        }
     }
 
     pub fn fee_terms(&self, g: &GameEntry) -> ledger::FeeTerms {
@@ -67,6 +92,18 @@ impl Config {
             studio_recipient: g.studio_recipient.to_bytes(),
         }
     }
+}
+
+/// A finished season: the ranking and prizes recorded by `record_season`, paid by
+/// `pay_season_rank`. Seeds `["season", number as u32 LE]`.
+#[account]
+pub struct SeasonState {
+    pub bump: u8,
+    pub inner: ledger::Season,
+}
+
+impl SeasonState {
+    pub const SPACE: usize = 8 + 1 + 4 + 8 + 1 + ledger::PRIZE_PLACES * (32 + 8 + 8) + 2;
 }
 
 /// The signer allowed to report `PositionLocked` / `YieldAccrued` for Positions of one source
@@ -308,6 +345,37 @@ pub struct NativeCustodyMigrated {
 pub struct PriceSet {
     pub asset: Pubkey,
     pub price_micro_usd: u64,
+}
+
+/// A Match was won. The Player is the Account that played (a Backer's win is the Player's for
+/// points). Every season standing is the sum of these events, so anyone can recompute it.
+#[event]
+pub struct MatchWon {
+    pub match_id: u64,
+    pub game: Pubkey,
+    pub entry: u64,
+    pub player: Pubkey,
+    pub funder: Pubkey,
+    pub points: u64,
+    /// Gemas this Match paid into the Leaderboard Pool.
+    pub pool_fee: u64,
+    pub season: u32,
+    pub ts: i64,
+}
+
+#[event]
+pub struct SeasonRecorded {
+    pub season: u32,
+    pub pool_total: u64,
+    pub winners: u8,
+}
+
+#[event]
+pub struct SeasonPrizePaid {
+    pub season: u32,
+    pub rank: u8,
+    pub account: Pubkey,
+    pub amount: u64,
 }
 
 #[event]

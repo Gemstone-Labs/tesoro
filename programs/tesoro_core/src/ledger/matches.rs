@@ -26,6 +26,26 @@ impl FeeTerms {
     }
 }
 
+/// The Leaderboard Fee: a share of the Pot of every Match, paid into the pool Account. Read from
+/// `Config` when the Match settles (not snapshotted in the Match, whose layout is fixed), so a
+/// rate of 0 or no pool means no fee. Taken after the Platform and Studio Fees.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LeaderboardTerms {
+    pub bps: u16,
+    pub recipient: Key,
+}
+
+impl LeaderboardTerms {
+    /// All three fees together may not exceed `MAX_TOTAL_FEE_BPS` of the Pot.
+    pub fn validate(&self, fees: &FeeTerms) -> CoreResult<()> {
+        let total = (fees.platform_bps as u32) + (fees.studio_bps as u32) + (self.bps as u32);
+        if total > MAX_TOTAL_FEE_BPS as u32 {
+            return Err(CoreError::FeeTooHigh);
+        }
+        Ok(())
+    }
+}
+
 /// One entrant. `funder == player` unless the entry is backed; then `share_bps` is the Player's
 /// share of the surplus from the accepted Offer.
 #[derive(Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
@@ -210,11 +230,26 @@ impl Match {
         Ok((platform, studio))
     }
 
+    /// The Leaderboard Fee for this Pot, in Gemas.
+    pub fn leaderboard_due(&self, lb: &LeaderboardTerms) -> CoreResult<u64> {
+        let pot = (self.entry as u128).checked_mul(2).ok_or(CoreError::Math)?;
+        to_u64(mul_div_floor(pot, lb.bps as u128, BPS)?)
+    }
+
+    /// `settle_with` and no Leaderboard Fee.
+    pub fn settle(&mut self, outcome: Outcome) -> CoreResult<Vec<Payout>> {
+        self.settle_with(outcome, &LeaderboardTerms::default())
+    }
+
     /// Settles an Active Match exactly once and returns who is credited which Gemas.
     /// Winner: the loser's lines minus fees (fees to the recipients), plus the winner's own entry
     /// back. If the winner is backed: the Backer's entry back first, the remainder split by the
     /// Offer's share. Draw: both entries returned in full.
-    pub fn settle(&mut self, outcome: Outcome) -> CoreResult<Vec<Payout>> {
+    pub fn settle_with(
+        &mut self,
+        outcome: Outcome,
+        lb: &LeaderboardTerms,
+    ) -> CoreResult<Vec<Payout>> {
         if self.status != MatchStatus::Active {
             return Err(CoreError::InvalidStatus);
         }
@@ -227,25 +262,37 @@ impl Match {
                     1 => (b, &self.a),
                     _ => return Err(CoreError::NotParty),
                 };
-                (self.win_payouts(winner, loser)?, MatchStatus::Settled)
+                (self.win_payouts(winner, loser, lb)?, MatchStatus::Settled)
             }
         };
         self.status = status;
         Ok(payouts)
     }
 
-    fn win_payouts(&self, winner: &Side, loser: &Side) -> CoreResult<Vec<Payout>> {
+    fn win_payouts(
+        &self,
+        winner: &Side,
+        loser: &Side,
+        lb: &LeaderboardTerms,
+    ) -> CoreResult<Vec<Payout>> {
+        lb.validate(&self.fees)?;
         let (platform, studio) = self.fees_due()?;
+        let pool = self.leaderboard_due(lb)?;
         let mut rest = normalize(&loser.lines)?;
         let platform_lines = take_lines(&mut rest, platform);
         let studio_lines = take_lines(&mut rest, studio);
-        if sum(&platform_lines)? != platform || sum(&studio_lines)? != studio {
+        let pool_lines = take_lines(&mut rest, pool);
+        if sum(&platform_lines)? != platform
+            || sum(&studio_lines)? != studio
+            || sum(&pool_lines)? != pool
+        {
             return Err(CoreError::FeeTooHigh);
         }
         let surplus = sum(&rest)?;
         let mut out = Vec::new();
         push(&mut out, self.fees.platform_recipient, &platform_lines);
         push(&mut out, self.fees.studio_recipient, &studio_lines);
+        push(&mut out, lb.recipient, &pool_lines);
         if winner.is_backed() {
             // Backer's entry back first, then the Offer's split of the remainder.
             push(&mut out, winner.funder, &normalize(&winner.lines)?);

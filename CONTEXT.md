@@ -61,7 +61,7 @@ _Avoid_: game (the catalogue title), bet, wager, contest
 
 **Pot**:
 The Gemas entered into one Match, held in escrow until settlement. The winner receives the loser's actual Gemas, each keeping its Source. An entry always draws on the entrant's own-Sourced Gemas before Gemas they won.
-_Avoid_: prize pool, jackpot
+_Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
 The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired.
@@ -82,6 +82,22 @@ _Avoid_: rake, commission, house edge
 **Studio Fee**:
 The additional share of the Pot a game's studio sets for itself on top of the Platform Fee, taken in Gemas at settlement.
 _Avoid_: developer cut, revenue share
+
+**Leaderboard Fee**:
+A fixed share of every Pot on every game (1% at launch), taken in Gemas at settlement on top of the Platform Fee and the Studio Fee, and paid into the Leaderboard Pool. A draw or a refund pays none. It is Tesoro's way of funding the prizes, not revenue.
+_Avoid_: tournament fee, jackpot contribution, rake
+
+**Leaderboard Pool**:
+The Gemas collected from Leaderboard Fees, held by a Tesoro Account that no person controls and paid out to the top Players of each Season. Gemas in it keep their Source. Not a Pot: a Pot belongs to one Match.
+_Avoid_: prize fund, jackpot, treasury
+
+**Season**:
+One week of the Leaderboard, Monday 00:00 UTC to the next Monday, numbered from 1 (Season 1 starts on 2026-10-05). The Leaderboard Pool is paid out when a Season ends, and what is not paid rolls into the next.
+_Avoid_: round, epoch, tournament
+
+**Points**:
+What a won Match earns its Player in a Season: one point for every 100 Gemas of entry, so 5, 10 and 25 for the three entries, the same in every game. Losses, draws and refunds earn none. A backed Match earns them for the Player who played, not for the Backer. Ties in a Season go to the Player who first won in it.
+_Avoid_: score (a game's own result), XP, rank
 
 **Studio**:
 The maker of a game listed on Tesoro. Tesoro's own games have Tesoro as their Studio.
