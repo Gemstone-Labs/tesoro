@@ -45,7 +45,7 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
       <hr className="side-rule" />
       <div className="side-nav docs">
-        <Link href="/docs" className="cut cut-card side-link">
+        <Link href="/docs" className="cut cut-card side-link" onClick={onNavigate}>
           <BookOpen aria-hidden="true" />
           Docs
         </Link>
