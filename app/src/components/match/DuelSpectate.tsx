@@ -9,7 +9,6 @@ import { LEAD, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decod
 import { getTradingDuel } from "@/lib/chain/client";
 import type { ChainMatch } from "@/lib/chain/read";
 
-const usd = (v: bigint) => `$${(Number(v) / 1e8).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
 /**
  * What anyone may see of a Trading Duel: while it runs, only the coarse lead, the trade counts
@@ -67,11 +66,6 @@ export function DuelSpectate({ m }: { m: ChainMatch }) {
     if (!duel || !books) return <p className="mr-copy">Loading the trades…</p>;
     return (
       <section className="td-spectate" aria-label="Trading Duel result">
-        {duel.status === STATUS.over && (
-          <p className="mr-copy">
-            Ended at {usd(duel.finalPrice)} per {symbol}. Final equity {duel.finalEquity[0].toString()} to {duel.finalEquity[1].toString()} Chips.
-          </p>
-        )}
         <FillHistory books={books} duel={duel} />
       </section>
     );
