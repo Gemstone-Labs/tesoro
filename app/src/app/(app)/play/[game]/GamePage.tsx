@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ArrowRight, Clock, Link2 } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
@@ -16,6 +16,7 @@ import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import "./game.css";
+import { GameLowerPrototype } from "./GameLower.prototype";
 import { PlayerAvatar } from "@/components/account/Player";
 
 const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: string[]; hero: string }> = {
@@ -56,6 +57,13 @@ export function GamePage({ game }: { game: GameId }) {
   const mine = history.slice(0, 3);
   const scores = top.data ?? [];
 
+  const variant = useSearchParams().get("variant") ?? "0";
+  const empty = onChain
+    ? `No finished ${name} Matches yet. Yours appear here when they finish.`
+    : auth.status === "signed-out"
+      ? "Sign in to see your Matches."
+      : "Loading your Matches…";
+
   const query = (kind: "queue" | "challenge") => `/play/${kind}?${gameQuery(game, asset)}entry=${entry}`;
 
   return (
@@ -88,7 +96,19 @@ export function GamePage({ game }: { game: GameId }) {
         </div>
       </section>
 
-      <div className="gp-grid">
+      <GameLowerPrototype
+        variant={variant}
+        game={game}
+        name={name}
+        how={copy.how}
+        steps={copy.steps}
+        history={history}
+        scores={scores}
+        me={snapshot?.accountKey.toBase58() ?? null}
+        empty={empty}
+        now={now}
+      />
+      {variant === "0" && <div className="gp-grid">
         <section className="cut cut-frame gp-panel" aria-labelledby="gp-recent">
           <header className="gp-head">
             <h2 id="gp-recent" className="h-section">Recent Matches</h2>
@@ -151,7 +171,7 @@ export function GamePage({ game }: { game: GameId }) {
             </ol>
           </BustCard>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
