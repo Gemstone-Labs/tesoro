@@ -1,7 +1,7 @@
 import "./polyfill";
 import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type ChainSigner, type Move, type Seat } from "@/games/block-puzzle/chain";
+import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type ChainSigner, type Seat } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID } from "@/games/holdem/chain";
 import { TRADING_DUEL_PROGRAM_ID, duelMatchId } from "@/games/trading-duel/chain";
 import type { GameId } from "@/lib/mock/types";
@@ -12,6 +12,7 @@ import { EntryError, planEntry } from "./ledger";
 import { queueEntry, type Entered, type QueueDeps } from "./queue";
 import { fetchMatch, fetchSnapshot, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
 import { plainError } from "@/lib/errors";
+import { RunSubmitter } from "./run-submitter";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -269,55 +270,17 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
   }
 }
 
-/**
- * Streams a Player's moves to their private Board: batched, in order, never blocking the game.
- * Batches are small (a few placements) so the on-chain score trails the screen by about a second.
- */
-export class RunSubmitter {
-  private pending: Move[] = [];
-  private queue: Promise<void> = Promise.resolve();
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  error: Error | null = null;
-  submitted = 0;
-
-  constructor(
-    private readonly signer: ChainSigner,
-    private readonly id: bigint,
-    private readonly seat: Seat,
-    private readonly batch = 4,
-    private readonly idleMs = 1200,
-  ) {}
-
-  push(move: Move) {
-    this.pending.push(move);
-    if (this.timer) clearTimeout(this.timer);
-    if (this.pending.length >= this.batch) this.flush();
-    else this.timer = setTimeout(() => this.flush(), this.idleMs);
-  }
-
-  private flush() {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
-    const moves = this.pending.splice(0);
-    if (!moves.length) return;
-    this.queue = this.queue.then(async () => {
-      if (this.error) return;
-      try {
-        await getChain().play(this.signer, this.id, this.seat, moves);
-        this.submitted += moves.length;
-      } catch (e) {
-        this.error = e instanceof Error ? e : new Error(String(e));
-      }
-    });
-  }
-
-  /** Sends everything left, then closes the run on chain. Returns how many moves landed. */
-  async finish(): Promise<number> {
-    this.flush();
-    await this.queue;
-    await getChain().finish(this.signer, this.id, this.seat).catch(() => undefined);
-    return this.submitted;
-  }
+/** The Player's move stream for one Match, wired to the chain (see run-submitter.ts). */
+export function runSubmitter(signer: ChainSigner, id: bigint, seat: Seat): RunSubmitter {
+  const chain = getChain();
+  return new RunSubmitter({
+    play: (moves) => chain.play(signer, id, seat, moves),
+    finish: () => chain.finish(signer, id, seat),
+    movesOnChain: async () => {
+      const board: any = await chain.fetchOwnBoard(signer, id, seat);
+      return board ? Number(board.moves) : null;
+    },
+  });
 }
 
 export type SettleOutcome = "settled" | "waiting-opponent" | "failed";

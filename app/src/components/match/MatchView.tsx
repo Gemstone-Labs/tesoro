@@ -7,8 +7,9 @@ import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
 import { getChain } from "@/lib/chain/client";
 import { backerDelta, matchDelta, seatResult } from "@/lib/chain/ledger";
-import { RunSubmitter, canClaimTimeout, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
+import { canClaimTimeout, runSubmitter, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
+import type { RunSubmitter } from "@/lib/chain/run-submitter";
 import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "./BackingSplit";
 import { MatchResult } from "./MatchResult";
@@ -68,6 +69,7 @@ export function MatchView({ matchId }: { matchId: string }) {
   }, []);
   const working = useRef(false);
   const submitter = useRef<RunSubmitter | null>(null);
+  const movesLost = useRef<string | null>(null);
   const lastSettle = useRef(0);
   const settledSeen = useRef(false);
 
@@ -90,6 +92,8 @@ export function MatchView({ matchId }: { matchId: string }) {
       if (m.status === "settled" || m.status === "refunded") {
         if (!settledSeen.current) {
           settledSeen.current = true;
+          // A settle race or a retry that failed earlier no longer matters once the Match is final.
+          setError(movesLost.current);
           void refresh();
         }
         return setPhase("result");
@@ -148,7 +152,7 @@ export function MatchView({ matchId }: { matchId: string }) {
       const startedAt = performance.now();
       const { sig, seed } = await getChain().beginRun(signer, id, seat);
       addSig("begin_run", sig);
-      const sub = new RunSubmitter(signer, id, seat);
+      const sub = runSubmitter(signer, id, seat);
       submitter.current = sub;
       setRun({
         seed,
@@ -160,7 +164,10 @@ export function MatchView({ matchId }: { matchId: string }) {
           setPhase("submitting");
           void (async () => {
             await sub.finish();
-            if (sub.error) setError(`Some moves were not accepted: ${errText(sub.error)}`);
+            if (sub.error) {
+              movesLost.current = `Some moves were not accepted: ${errText(sub.error)}`;
+              setError(movesLost.current);
+            }
             setRun(null);
             lastSettle.current = 0;
             setPhase("awaiting");
