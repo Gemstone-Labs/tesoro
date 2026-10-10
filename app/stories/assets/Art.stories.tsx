@@ -28,7 +28,7 @@ export const Manifest: Story = {
       <Gallery title="Heroes" note="Wide 2400 × 1000, left 40% empty for the title." items={[["blockPuzzleHero", art.blockPuzzleHero], ["holdemHero", art.holdemHero], ["tradingDuelHero", art.tradingDuelHero]]} />
       <Gallery title="Tiles" note="Square key art." items={[["blockPuzzleTile", art.blockPuzzleTile], ["holdemTile", art.holdemTile], ["tradingDuelTile", art.tradingDuelTile]]} />
       <Gallery title="Coming soon" items={flat(art.comingSoon)} />
-      <Gallery title="Play again thumbs" note="The square tiles, cropped by CSS." items={flat(art.thumb)} />
+      <Gallery title="Game thumbs" note="The square tiles, cropped by CSS." items={flat(art.thumb)} />
       <Gallery title="Busts" note="Torso-up crops of the guide characters: him is the Player, her is the Backer." items={flat(art.busts)} />
       <Gallery title="Guide poses" note="Large crops for the Guide overlay." items={flat(art.guide)} />
       <Gallery title="Avatars" note="Gemstone animal heads. Never people, never green." items={art.avatars.map((a, i) => [`avatar-${i + 1}`, a] as const)} maxH={140} />

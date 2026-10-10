@@ -21,8 +21,6 @@ const shots = [
   { name: "game-block-puzzle", route: "/play/block-puzzle?dev=demo" },
   // P2B-07 error state: the list route fails, signed out.
   { name: "game-top-scores-error", route: "/play/block-puzzle?dev=out", failLists: true, sizes: ["1920"], wait: 9000 },
-  // P2B-04: Lobby Play again with the backed loss tile and See all.
-  { name: "lobby-play-again", route: "/?dev=demo", scrollTo: "#play-again", sizes: ["1920", "390"], viewportOnly: true },
   // P2B-04: the Result screen of a backed loss (unchanged copy, for comparison with the rows).
   { name: "result-backed-lost", route: "/design/result?case=backed-lost&dev=demo", sizes: ["1920"] },
   // P2B-06: the win overlay shows under next dev (StrictMode), with its Continue button focused.
