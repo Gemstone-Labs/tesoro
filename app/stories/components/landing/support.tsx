@@ -7,4 +7,4 @@ export const inLanding: Decorator = (Story) => (
   </div>
 );
 
-export const landingParameters = { layout: "fullscreen", themed: true, nextjs: { navigation: { pathname: "/" } } } as const;
+export const landingParameters = { layout: "fullscreen", themed: true, nextjs: { navigation: { pathname: "/welcome" } } } as const;

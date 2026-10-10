@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import Welcome from "@/app/(marketing)/page";
+import Welcome from "@/app/(marketing)/welcome/page";
 
 const meta = {
   title: "Motion/Landing page",

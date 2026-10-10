@@ -28,7 +28,7 @@ for (const theme of ["dark", "light"]) {
     const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, reducedMotion: "reduce" });
     await ctx.addInitScript((t) => localStorage.setItem("tesoro-landing-theme", t), theme);
     const page = await ctx.newPage();
-    await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/welcome`, { waitUntil: "networkidle" });
     await page.evaluate(async () => {
       for (const img of document.querySelectorAll("img")) img.loading = "eager";
       await Promise.all([...document.images].map((i) => (i.complete ? null : new Promise((r) => (i.onload = i.onerror = r)))));
@@ -56,7 +56,7 @@ for (const theme of ["dark", "light"]) {
 const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
 await ctx.addInitScript(() => localStorage.setItem("tesoro-landing-theme", "dark"));
 const page = await ctx.newPage();
-await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}/welcome`, { waitUntil: "networkidle" });
 await page.waitForTimeout(2200);
 await page.screenshot({ path: resolve(OUT, "landing-motion-hero-1920.png"), timeout: 180000 });
 const top = await page.evaluate(() => document.querySelector("#gemas").getBoundingClientRect().top + scrollY);
