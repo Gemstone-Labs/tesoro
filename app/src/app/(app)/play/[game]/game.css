@@ -74,3 +74,9 @@
 @media (min-width: 640px) { .gp-cta .btn.money { min-width: 180px; } }
 .gp-hero .assets { gap: 12px; width: min(100%, 470px); }
 .gp-hero .asset span { min-height: 66px; --c: 11px; }
+
+@media (max-width: 420px) {
+  .gp-friend { display: none; }
+  .gp-hero .entries { gap: 8px; }
+  .gp-hero .entry span { font-size: 19px; }
+}

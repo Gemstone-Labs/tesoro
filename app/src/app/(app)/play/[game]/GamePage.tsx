@@ -78,7 +78,7 @@ export function GamePage({ game }: { game: GameId }) {
               Play now
             </Button>
             <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
-              Challenge a friend <Link2 aria-hidden="true" />
+              Challenge<span className="gp-friend"> a friend</span> <Link2 aria-hidden="true" />
             </Button>
             <Button size="lg" href={practiceHref(game, asset)}>
               Practice <Clock aria-hidden="true" />
