@@ -8,7 +8,6 @@ export default function Page() {
   return (
     <DocPage href="/docs/fees">
       <H2 id="table">What is charged</H2>
-      {/* TODO(verify-after-merge): Leaderboard Fee 1% of the Pot on every Match in every Game; total 6%. Platform 200 bps and Studio 300 bps were read from the devnet Config on 2026-10-10. */}
       <DataTable
         head={["Fee", "Share of the Pot", "Goes to"]}
         rows={[
@@ -53,8 +52,9 @@ export default function Page() {
 
       <Callout kind="note" title="Where the numbers come from">
         <p>
-          The Platform Fee and each Game&apos;s Studio Fee are set in Tesoro&apos;s ledger program and are checked at the moment a Match opens, so the
-          Fees on a Match cannot change after you have entered. Developers can read them on chain; see{" "}
+          The Platform Fee and each Game&apos;s Studio Fee are set in Tesoro&apos;s ledger program and are fixed when a Match opens, so they cannot
+          change after you have entered. The Leaderboard Fee is read from the same program when the Match settles. Developers can read them on chain;
+          see{" "}
           <Link href="/docs/developers/settlement">How settlement works</Link>.
         </p>
       </Callout>

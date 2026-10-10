@@ -7,7 +7,6 @@ export const metadata: Metadata = { title: "Leaderboard", alternates: { canonica
 export default function Page() {
   return (
     <DocPage href="/docs/leaderboard">
-      {/* TODO(verify-after-merge): whole page is written from the Oct 10 spec: weekly seasons, 1% Leaderboard Fee into the Leaderboard Pool, points 5 / 10 / 25 for wins at 500 / 1,000 / 2,500, top 10 split 25 / 18 / 13 / 10 / 8 / 7 / 6 / 5 / 4 / 4%, unpaid shares roll over. Page lives at /leaderboard. */}
       <p>
         The Leaderboard rewards Players who win Matches. Every Match in every Game adds a little to a shared prize pool, and each week the top ten
         Players split it.
@@ -16,12 +15,13 @@ export default function Page() {
       <H2 id="pool">The Leaderboard Pool</H2>
       <p>
         Every Match in every Game pays a <b>Leaderboard Fee of 1%</b> of the Pot into the <b>Leaderboard Pool</b>. It is charged on top of the
-        Platform Fee and the Studio Fee (see <Link href="/docs/fees">Fees</Link>). Draws and refunds take no Fees, so they add nothing to the Pool.
+        Platform Fee and the Studio Fee (see <Link href="/docs/fees">Fees</Link>), taken from the loser&apos;s Gemas like the other two. Draws and refunds take no Fees, so they add nothing to the Pool.
       </p>
 
       <H2 id="seasons">Seasons</H2>
       <p>
-        The Leaderboard runs in <b>weekly seasons</b>. Points count within a season, and each season starts again from zero.
+        The Leaderboard runs in <b>weekly seasons</b>, from Monday 00:00 UTC to the next Monday. Season 1 began on 5 October 2026. Points count within a
+        season, and each season starts again from zero.
       </p>
 
       <H2 id="points">How you earn points</H2>
@@ -35,6 +35,10 @@ export default function Page() {
         ]}
       />
       <p>Losses, draws and refunds earn nothing. The game does not matter: a win in Block Puzzle, Hold&apos;em or Trading Duel counts the same at the same entry.</p>
+      <p>
+        When a <Link href="/docs/backing">Backer</Link> funds the entry, the points go to the Player who played, not to the Backer. If two Players finish
+        on the same points, the one who won first that week ranks higher.
+      </p>
 
       <H2 id="prizes">Who gets paid</H2>
       <p>At the end of the season, the <b>top 10</b> Players by points split the Pool:</p>
@@ -44,6 +48,10 @@ export default function Page() {
       />
       <p>
         If fewer than ten Players earned points, the shares nobody earned <b>roll into the next season&apos;s Pool</b>.
+      </p>
+      <p>
+        Prizes are paid in Gemas, each keeping the Source it came from, shortly after the season ends. The ranking is recorded on chain before anything is
+        paid.
       </p>
 
       <H2 id="where">Where to see it</H2>

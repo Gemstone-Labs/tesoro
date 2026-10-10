@@ -33,7 +33,6 @@ export default function Page() {
         ]}
       />
 
-      {/* TODO(verify-after-merge): split example assumes the 1% Leaderboard Fee is taken from the loser's Gemas like the other Fees (6% total). */}
       <H2 id="split">The split, with numbers</H2>
       <p>
         Take a Match with a 1,000 Gema entry each, a Pot of 2,000, and an Offer that gives the Player 40% of the surplus. The Fees in this example are
