@@ -8,7 +8,7 @@ const meta = { title: "Foundations/Icons", parameters: { layout: "padded" } } sa
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const sources = import.meta.glob("/src/**/*.{ts,tsx}", { query: "?raw", import: "default" }) as Record<string, () => Promise<string>>;
+const sources = import.meta.glob(["/src/**/*.{ts,tsx}", "!/src/**/*.test.{ts,tsx}"], { query: "?raw", import: "default" }) as Record<string, () => Promise<string>>;
 
 /** The lucide icons the app imports, found by reading its source for `from "lucide-react"`. */
 function useLucideNames() {
