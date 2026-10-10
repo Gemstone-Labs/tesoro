@@ -1,16 +1,15 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useAccount } from "@/lib/account";
-import { avatarFor } from "@/lib/art";
-import { recordShort, shortKey, useBackingBoard } from "@/lib/chain/useBackingBoard";
+import { recordShort, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import { GemaMark, SkeletonCards } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
+import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
 
 /** BACK A PLAYER: live Requests from Solana devnet with the Player's real record. The name leads to their Account; Offer opens the Backing flow. */
 export function BackPlayerRail() {
@@ -34,7 +33,7 @@ export function BackPlayerRail() {
         return (
           <article key={key} className="cut cut-card player">
             <AccountLink account={r.player} decorative className="cut cut-btn avatar player-avatar">
-              <Image src={avatarFor(r.player)} alt="" width={78} height={78} />
+              <PlayerAvatar account={r.player} size={78} />
             </AccountLink>
             <div className="player-info">
               <strong>
@@ -52,14 +51,21 @@ export function BackPlayerRail() {
                   Yours
                 </Link>
               ) : (
-                <Link href={`/backing#${key}`} className="cut cut-btn btn money player-offer" aria-label={`Offer to back ${shortKey(r.player)} in ${GAME_NAMES[r.game]} for ${fmtGemas(r.entry)} Gemas`}>
-                  Offer
-                </Link>
+                <OfferLink href={`/backing#${key}`} player={r.player} label={`in ${GAME_NAMES[r.game]} for ${fmtGemas(r.entry)} Gemas`} />
               )}
             </div>
           </article>
         );
       })}
     </Rail>
+  );
+}
+
+function OfferLink({ href, player, label }: { href: string; player: string; label: string }) {
+  const name = usePlayerLabel(player);
+  return (
+    <Link href={href} className="cut cut-btn btn money player-offer" aria-label={`Offer to back ${name} ${label}`}>
+      Offer
+    </Link>
   );
 }

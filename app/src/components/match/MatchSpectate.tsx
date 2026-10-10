@@ -1,10 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { Button, CheckIcon, GemaMark, MinusIcon } from "@/components/ui";
-import { avatarFor } from "@/lib/art";
 import { feeGemas } from "@/lib/chain/ledger";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
@@ -14,8 +12,8 @@ import { assetIndexOf } from "@/lib/chain/match-id";
 import { DuelSpectate } from "./DuelSpectate";
 import { RULES } from "./MatchResult";
 import "./match.css";
+import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 
-const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
 /**
  * Someone else's Match, read-only: both Players (each leading to their Account), the result and the Pot. Open and live Matches are
@@ -40,6 +38,9 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
     };
   }, [matchId]);
 
+  const settledResult = m ? (m.session ? (m.session.settled ? m.session.result : null) : m.winner) : null;
+  const winnerLabel = usePlayerLabel(m && m.status === "settled" && (settledResult === "opener" || settledResult === "joiner") ? m.sides[settledResult === "opener" ? 0 : 1]?.player : undefined);
+
   if (m === undefined) return <p className="status" role="status">Loading the Match…</p>;
   if (m === null) {
     return (
@@ -60,7 +61,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
   const headline =
     winSeat !== null
-      ? `${short(m.sides[winSeat]!.player)} won`
+      ? `${winnerLabel} won`
       : m.status === "settled"
         ? "Draw"
         : m.status === "refunded"
@@ -77,9 +78,9 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
       <div key={i}>
         {s ? (
           <>
-            <Image className="mr-sp-av" src={avatarFor(s.player)} alt="" width={56} height={56} />
-            <AccountLink account={s.player} className="mono" />
-            {s.funder !== s.player && <small className="note">Backed by {short(s.funder)}</small>}
+            <PlayerAvatar className="mr-sp-av" account={s.player} size={56} />
+            <AccountLink account={s.player} />
+            {s.funder !== s.player && <small className="note">Backed by <PlayerName account={s.funder} /></small>}
           </>
         ) : (
           <span>No opponent yet</span>

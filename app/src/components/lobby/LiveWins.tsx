@@ -1,16 +1,14 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { avatarFor } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
-import { shortKey } from "@/lib/chain/useBackingBoard";
 import { useRecentSettled } from "@/lib/chain/useRecentSettled";
 import type { SettledMatch } from "@/lib/chain/settled";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
+import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 
 /** Recent wins, settled on Solana devnet, as one slow strip under the hero. Pauses on hover and focus. */
 export function LiveWins() {
@@ -22,8 +20,8 @@ export function LiveWins() {
   const item = (m: SettledMatch, copy: boolean) => (
     <li key={`${copy ? "c" : "o"}${m.id.toString()}`} aria-hidden={copy || undefined}>
       <Link href={`/play/match/${m.id.toString()}`} tabIndex={copy ? -1 : undefined}>
-        <Image className="lw-av" src={avatarFor(m.winner)} alt="" width={28} height={28} />
-        <b>{m.winner === me ? "You" : shortKey(m.winner)}</b>
+        <PlayerAvatar className="lw-av" account={m.winner} size={28} />
+        <b>{m.winner === me ? "You" : <PlayerName account={m.winner} />}</b>
         <span>won</span>
         <strong>
           <GemaMark size={15} />

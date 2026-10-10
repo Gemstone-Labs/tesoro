@@ -3,12 +3,13 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { CheckIcon, GemaMark, MinusIcon, XIcon } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
-import { art, avatarFor } from "@/lib/art";
+import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
-import { amountText, backingText, shortKey, type HistoryRow } from "@/lib/chain/history";
+import { amountText, backingText, type HistoryRow } from "@/lib/chain/history";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import "./history.css";
+import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 
 const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Icon: XIcon }, draw: { text: "Draw", Icon: MinusIcon }, refunded: { text: "Refunded", Icon: MinusIcon } } as const;
 
@@ -36,9 +37,9 @@ export function MatchRow({
   const detail = r.scores ? `${r.scores[0]} – ${r.scores[1]}` : `Entry ${fmtGemas(r.entry)}`;
   const opp = (
     <>
-      {r.opp && <Image className="mh-av" src={avatarFor(r.opp)} alt="" width={44} height={44} />}
+      {r.opp && <PlayerAvatar className="mh-av" account={r.opp} size={44} />}
       <span>
-        <b>{r.opp ? shortKey(r.opp) : "No opponent"}</b>
+        <b>{r.opp ? <PlayerName account={r.opp} /> : "No opponent"}</b>
         <small className="tnum">
           {showGame ? `${GAME_NAMES[r.game]} · ` : ""}
           {detail} · {ago(r.at, now)}
