@@ -14,6 +14,7 @@ import { Receipts } from "@/components/match/Receipts";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
+import { MatchStage, type StageKind, type StageModel } from "@/components/match/MatchStage.prototype";
 
 
 function fmtFee(m: ChainMatch): string {
@@ -25,7 +26,7 @@ function fmtFee(m: ChainMatch): string {
  * settlement and result. Everything is read from chain, so a reload resumes where you were.
  */
 export function HoldemMatchView({ matchId }: { matchId: string }) {
-  const { auth, refresh } = useAccount();
+  const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const id = (() => {
     try {
@@ -75,7 +76,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
     );
   }
 
-  return (
+  const current = (
     <div className="stack-lg" style={showTable ? undefined : { maxWidth: 480, margin: "0 auto" }}>
       {!showTable && (
         <div className="spread">
@@ -160,5 +161,28 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
       <p className="note hd-note">Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>
     </div>
   );
+
+  // PROTOTYPE: the stage variants (MatchStage.prototype.tsx); "now" renders `current`.
+  const kind: StageKind | null = !showTable && (stage === "waiting" || stage === "setup" || stage === "closing") ? stage : null;
+  if (!kind || !m) return current;
+  const model: StageModel = {
+    game: "holdem",
+    kind,
+    entry: m.entry,
+    pot: m.entry * 2 - matchFee(m),
+    me: snapshot?.accountKey.toBase58() ?? null,
+    opponent: m.opponent,
+    step: kind === "setup" ? view.note || "Creating your session" : kind === "closing" ? view.note || "Saving the result" : undefined,
+    deadline: m.deadline || undefined,
+    challengeLink: m.challenge && kind === "waiting" ? link : null,
+    backedShareBps: m.backing && m.seat !== null ? m.backing.shareBps : null,
+    actions:
+      kind === "waiting" || view.refundable
+        ? [{ label: kind === "waiting" ? "Cancel and refund" : "Refund Match", onClick: () => void run("refund", () => refundMatch(signer, m.id)), busy: view.busy === "refund" && "Refunding…", disabled: view.busy !== null }]
+        : [],
+    error: view.error,
+    footer: <Receipts items={view.sigs} />,
+  };
+  return <MatchStage model={model} current={current} />;
 }
 

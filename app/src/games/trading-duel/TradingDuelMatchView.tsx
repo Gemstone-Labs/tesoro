@@ -19,6 +19,7 @@ import { chips, usdMid } from "./fmt";
 import { TradingScreen } from "./TradingScreen";
 import type { Lead } from "./math";
 import { useDuelMatch } from "./useDuelMatch";
+import { MatchStage, type StageKind, type StageModel } from "@/components/match/MatchStage.prototype";
 import "./trading.css";
 
 
@@ -34,7 +35,7 @@ const leadOf = (n: number): Lead => (n === LEAD.seat0 ? "seat0" : n === LEAD.sea
  * resumes where you were.
  */
 export function TradingDuelMatchView({ matchId }: { matchId: string }) {
-  const { auth, refresh } = useAccount();
+  const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const id = (() => {
     try {
@@ -92,7 +93,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   const ended = stage === "closing" || (!!duel && duel.status !== STATUS.live);
   const opponent = duel && seat !== null ? { lead: leadOf(duel.lead), trades: duel.trades[1 - seat] } : null;
 
-  return (
+  const current = (
     <div className="stack-lg" style={showScreen ? undefined : { maxWidth: 480, margin: "0 auto" }}>
       {!showScreen && (
         <div className="spread">
@@ -202,5 +203,29 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
       <p className="note td-note">Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>
     </div>
   );
+
+  // PROTOTYPE: the stage variants (MatchStage.prototype.tsx); "now" renders `current`.
+  const kind: StageKind | null = !showScreen && (stage === "waiting" || stage === "setup" || stage === "closing") ? stage : null;
+  if (!kind || !m) return current;
+  const model: StageModel = {
+    game: "trading-duel",
+    kind,
+    entry: m.entry,
+    pot: m.entry * 2 - matchFee(m),
+    me: snapshot?.accountKey.toBase58() ?? null,
+    opponent: m.opponent,
+    step: kind === "setup" ? view.note || "Creating your session" : kind === "closing" ? view.note || "Saving the result" : undefined,
+    deadline: m.deadline || undefined,
+    challengeLink: m.challenge && kind === "waiting" ? link : null,
+    backedShareBps: m.backing && m.seat !== null ? m.backing.shareBps : null,
+    actions:
+      kind === "waiting" || view.refundable
+        ? [{ label: kind === "waiting" ? "Cancel and refund" : "Refund Match", onClick: () => void run("refund", () => refundMatch(signer, m.id)), busy: view.busy === "refund" && "Refunding…", disabled: view.busy !== null }]
+        : [],
+    error: view.error,
+    asset: asset.symbol,
+    footer: <Receipts items={view.sigs} />,
+  };
+  return <MatchStage model={model} current={current} />;
 }
 

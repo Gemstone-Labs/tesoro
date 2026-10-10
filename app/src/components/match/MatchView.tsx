@@ -16,6 +16,7 @@ import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
 import { Receipts } from "./Receipts";
 import { plainError } from "@/lib/errors";
+import { MatchStage, type StageKind, type StageModel } from "./MatchStage.prototype";
 
 type Phase =
   | "loading"
@@ -40,7 +41,7 @@ const SETTLE_TRY_MS = 6000;
  * opponent, then the result. Every step re-reads chain state, so a reload resumes where you were.
  */
 export function MatchView({ matchId }: { matchId: string }) {
-  const { auth, refresh } = useAccount();
+  const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const id = (() => {
     try {
@@ -257,7 +258,7 @@ export function MatchView({ matchId }: { matchId: string }) {
     );
   }
 
-  return (
+  const current = (
     <div className="stack-lg" style={{ maxWidth: 480, margin: "0 auto" }}>
       <div className="spread">
         <h1 className="page-title">{asBacker ? "Match you funded" : "Block Puzzle Match"}</h1>
@@ -404,6 +405,54 @@ export function MatchView({ matchId }: { matchId: string }) {
       <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
     </div>
   );
+
+  // PROTOTYPE: the stage variants (MatchStage.prototype.tsx); "now" renders `current`.
+  const kind: StageKind | null =
+    phase === "backer-watch" ? "backer-watch" : phase === "queued" ? "waiting-run" : phase === "prep" ? "setup" : phase === "ready" || phase === "starting" ? "ready" : phase === "submitting" ? "saving-run" : phase === "awaiting" ? "awaiting" : null;
+  if (!kind || !m) return current;
+  /* eslint-disable react-hooks/refs -- PROTOTYPE: these closures run on click, not during render */
+  const refund = () => act("refund", async () => addSig("refund", await refundMatch(signer, m.id)));
+  const actions: StageModel["actions"] = [];
+  if (kind === "waiting-run") actions.push({ label: playerBacked ? "Cancel (Gemas return to your Backer)" : "Cancel and refund", onClick: refund, busy: busy === "refund" && "Refunding…", disabled: busy !== null });
+  if (kind === "awaiting")
+    actions.push({
+      label: "Check now",
+      busy: busy === "settle" && "Checking…",
+      disabled: busy !== null,
+      onClick: () =>
+        act("settle", async () => {
+          const r = await trySettle(signer, m.id);
+          if (r.sig) addSig("settle", r.sig);
+          if (r.outcome === "waiting-opponent") setError("Your opponent is still playing.");
+          if (r.outcome === "failed") setError(r.error ?? "Couldn’t finish the Match. Try again.");
+        }),
+    });
+  if (kind === "awaiting" && timeoutOk) actions.push({ label: "Time’s up: refund both entries", disabled: busy !== null, onClick: () => act("timeout", async () => addSig("claim_timeout", await claimTimeout(signer, m.id))) });
+  if (refundable && (kind === "awaiting" || kind === "ready" || kind === "setup")) actions.push({ label: "Refund Match", onClick: refund, disabled: busy !== null });
+  /* eslint-enable react-hooks/refs */
+  const model: StageModel = {
+    game: "block-puzzle",
+    kind,
+    entry: m.entry,
+    pot: m.entry * 2 - matchFee(m),
+    me: kind === "backer-watch" ? (m.backing?.player ?? null) : (snapshot?.accountKey.toBase58() ?? null),
+    opponent: m.opponent,
+    score: final?.score ?? null,
+    step: kind === "setup" ? step || "Creating your session" : kind === "saving-run" ? "Saving your last moves" : undefined,
+    deadline: m.deadline || undefined,
+    challengeLink: m.challenge && kind === "waiting-run" ? link : null,
+    backedShareBps: playerBacked && m.backing ? m.backing.shareBps : null,
+    primary: kind === "ready" ? { label: "Start · 90 s", onClick: begin, busy: phase === "starting" && "Starting…" } : null,
+    actions,
+    error,
+    footer: (
+      <>
+        <Receipts items={sigs} />
+        <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
+      </>
+    ),
+  };
+  return <MatchStage model={model} current={current} />;
 }
 
 function fmtFee(m: ChainMatch): string {
