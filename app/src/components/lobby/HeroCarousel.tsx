@@ -1,19 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowRight, Pause, Play, Swords } from "lucide-react";
+import { ArrowRight, Pause, Play } from "lucide-react";
 import { PlayerAvatar } from "@/components/account/Player";
-import { AssetPicker, Button, ENTRY_SIZES, EntryPicker, Sheet } from "@/components/ui";
-import { gameQuery, practiceHref } from "@/lib/game-params";
+import { Button, ENTRY_SIZES } from "@/components/ui";
+import { practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
-import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { art } from "@/lib/art";
-import { fmtGemas } from "@/lib/format";
 import type { QueueSeat } from "@/lib/chain/read";
-import type { EntrySize, GameId } from "@/lib/mock";
+import type { GameId } from "@/lib/mock";
 import { useQueue } from "./useQueue";
 
 interface Slide {
@@ -21,27 +17,17 @@ interface Slide {
   title: string;
   sub: string;
   image: string;
-  defaultEntry: EntrySize;
   /** Two-line title, smaller type. */
   long?: boolean;
 }
 
+/** The featured Games. Entry, Queue and Challenge live on each Game's page; the hero only leads there. */
 const SLIDES: Slide[] = [
-  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero, defaultEntry: 1000 },
-  { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, defaultEntry: 500, long: true },
-  { game: "trading-duel", title: "Trading Duel", sub: "Live prices · 5 minutes · higher equity wins", image: art.tradingDuelHero, defaultEntry: 500 },
+  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero },
+  { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true },
 ];
 
 const ADVANCE_MS = 7000;
-
-const PRACTICE_LINE: Record<GameId, string> = {
-  "block-puzzle": "Random pieces, nothing at stake.",
-  holdem: "Against a bot, nothing at stake.",
-  "trading-duel": "Against a bot, nothing at stake.",
-};
-
-const hrefFor = (kind: "queue" | "challenge", game: GameId, entry: number, asset: number) =>
-  `/play/${kind}?${gameQuery(game, asset)}entry=${entry}`;
 
 export function HeroCarousel() {
   // 0..N-1 are the slides, N is a clone of slide 0 so the last slide always has a next one peeking in.
@@ -49,7 +35,6 @@ export function HeroCarousel() {
   const [jump, setJump] = useState(false);
   const [paused, setPaused] = useState(false);
   const [hover, setHover] = useState(false);
-  const [entries, setEntries] = useState<Partial<Record<GameId, EntrySize>>>({});
   const [reduced, setReduced] = useState(true);
   const queue = useQueue();
 
@@ -109,8 +94,6 @@ export function HeroCarousel() {
               active={i === index}
               clone={clone}
               position={`${i + 1} of ${SLIDES.length}`}
-              entry={entries[s.game]}
-              onEntry={(e) => setEntries((cur) => ({ ...cur, [s.game]: e }))}
               waiting={queue?.[s.game] ?? null}
               onSelect={() => setIndex(clone ? 0 : i)}
             />
@@ -143,8 +126,6 @@ function HeroSlide({
   active,
   clone,
   position,
-  entry: picked,
-  onEntry,
   waiting,
   onSelect,
 }: {
@@ -152,24 +133,14 @@ function HeroSlide({
   active: boolean;
   clone: boolean;
   position: string;
-  /** The entry the player picked; until then the slide's default, or the smallest entry if the default is not playable. */
-  entry: EntrySize | undefined;
-  onEntry: (e: EntrySize) => void;
   /** Open Queue Matches for this Game; null until read. */
   waiting: QueueSeat[] | null;
   onSelect: () => void;
 }) {
   const { gemas, auth, onChain, loading, entryProblem, snapshot } = useAccount();
-  const router = useRouter();
-  const [asset, setAsset] = useState<0 | 1 | 2>(0);
-  const [choosing, setChoosing] = useState(false);
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
-  const playable = (size: EntrySize) => !signedIn || loading || (onChain ? entryProblem(size) === null : gemas.available >= size);
-  const entry = picked ?? (playable(slide.defaultEntry) ? slide.defaultEntry : ENTRY_SIZES[0]);
-  const problem = signedIn && onChain ? entryProblem(entry) : null;
-  const canEnter = playable(entry);
-  const needsGemas = !canEnter && problem !== "too-many-sources";
-  const go = (href: string, reason: string) => auth.gate(reason, () => router.push(href));
+  const smallest = ENTRY_SIZES[0];
+  const priced = signedIn && !loading && (onChain ? entryProblem(smallest) !== null : gemas.available < smallest);
   const me = snapshot?.accountKey.toBase58();
   const others = waiting?.filter((w) => w.player !== me) ?? null;
 
@@ -193,75 +164,27 @@ function HeroSlide({
       <div className="slide-body" {...(active ? {} : { inert: true })}>
         <h2 className="slide-title">{slide.title}</h2>
         <p className="slide-sub">{slide.sub}</p>
-        <div className="slide-entry">
-          {slide.game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="hero-asset" compact />}
-          <EntryPicker value={entry} onChange={onEntry} legend={`Entry for ${slide.title}`} name={`hero-${slide.game}${clone ? "-clone" : ""}`} maxAffordable={signedIn && onChain ? gemas.available : undefined} isDisabled={signedIn && onChain ? (size) => entryProblem(size) !== null : undefined} />
-        </div>
-        {needsGemas ? (
-          <div className="slide-cta">
-            <Button variant="money" size="lg" href="/wallet?open=1">
-              Get Gemas
-            </Button>
-            <Button size="lg" href={practiceHref(slide.game, asset)}>
-              Practice free
-            </Button>
-          </div>
-        ) : (
-          <Button variant="money" size="lg" block onClick={() => setChoosing(true)} disabled={!canEnter}>
+        <div className="slide-cta">
+          <Button variant="money" size="lg" href={`/play/${slide.game}`}>
             Play now
           </Button>
-        )}
-        {canEnter ? (
-          <QueueStrip
-            seats={others}
-            fits={(w) => w.entry === entry && (slide.game !== "trading-duel" || w.asset === asset)}
-            onChallenge={() => go(hrefFor("challenge", slide.game, entry, asset), "Challenge a friend")}
-          />
-        ) : (
-          <p className="slide-meta">
-            {problem === "too-many-sources" ? (
-              <>Your Gemas are spread over more than {MAX_ENTRY_SOURCES} Sources. <Link href="/wallet">Redeem a few small balances in your Wallet</Link></>
-            ) : (
-              <>You need {fmtGemas(entry)} Gemas to enter a Match. Practice is free.</>
-            )}
-          </p>
-        )}
-      </div>
-      <Sheet open={choosing} onClose={() => setChoosing(false)} title={`Play ${slide.title}`}>
-        <div className="stack play-choice">
-          <div className="cut cut-card play-opt">
-            <b>Match</b>
-            <small>{fmtGemas(entry)} Gemas entry · {others?.length ?? 0} waiting in Queue</small>
-            <Button
-              variant="money"
-              block
-              onClick={() => {
-                setChoosing(false);
-                go(hrefFor("queue", slide.game, entry, asset), "Enter a Match");
-              }}
-            >
-              Play now
-            </Button>
-          </div>
-          <div className="cut cut-card play-opt">
-            <b>Practice</b>
-            <small>{PRACTICE_LINE[slide.game]}</small>
-            <Button block href={practiceHref(slide.game, asset)}>
+          {priced && (
+            <Button size="lg" href={practiceHref(slide.game)}>
               Practice free
             </Button>
-          </div>
+          )}
         </div>
-      </Sheet>
+        <QueueStrip seats={others} />
+      </div>
     </article>
   );
 }
 
-/** Who is waiting in the Queue, whether one of them takes your entry, and the way to play a friend instead. */
-function QueueStrip({ seats, fits, onChallenge }: { seats: QueueSeat[] | null; fits: (w: QueueSeat) => boolean; onChallenge: () => void }) {
+/** Who is waiting in the Queue for this Game. */
+function QueueStrip({ seats }: { seats: QueueSeat[] | null }) {
   const n = seats?.length ?? 0;
   const faces = [...new Set(seats?.map((w) => w.player))].slice(0, 3);
-  const [title, note] =
-    seats === null ? ["Queue", "Checking…"] : n === 0 ? ["Queue is open", "Be the first in"] : [`${n} waiting`, seats.some(fits) ? "Matched right away" : "None at this entry yet"];
+  const [title, note] = seats === null ? ["Queue", "Checking…"] : n === 0 ? ["Queue is open", "Be the first in"] : [`${n} waiting in Queue`, "Ready to play now"];
   return (
     <div className="cut slide-queue">
       {n > 0 && <span className="slide-queue-live" aria-hidden="true" />}
@@ -273,9 +196,6 @@ function QueueStrip({ seats, fits, onChallenge }: { seats: QueueSeat[] | null; f
         <strong>{title}</strong>
         <small>{note}</small>
       </p>
-      <Button size="sm" icon={<Swords aria-hidden="true" />} onClick={onChallenge}>
-        Challenge a friend
-      </Button>
     </div>
   );
 }
