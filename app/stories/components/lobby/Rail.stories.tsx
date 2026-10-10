@@ -15,7 +15,7 @@ const meta = {
     cols: 3,
     children: [1, 2, 3].map((i) => <Row key={i} thumb={<Thumb>{i}</Thumb>} title={`Item ${i}`} meta="A line of detail" />),
   },
-  argTypes: { cols: { control: "inline-radio", options: [2, 3] }, children: { control: false }, aside: { control: false }, lead: { control: false } },
+  argTypes: { cols: { control: "inline-radio", options: [2, 3] }, children: { control: false }, aside: { control: false } },
 } satisfies Meta<typeof Rail>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -24,4 +24,4 @@ type Story = StoryObj<typeof meta>;
 export const ThreeColumns: Story = {};
 export const TwoColumns: Story = { args: { cols: 2 } };
 export const NoLink: Story = { args: { viewAll: undefined } };
-export const WithAside: Story = { args: { aside: <span className="meta">Filtered by cards</span> } };
+export const WithAside: Story = { args: { aside: <span className="meta">“puzzle”</span> } };

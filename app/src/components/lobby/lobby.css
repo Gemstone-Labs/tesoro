@@ -63,15 +63,6 @@
   .rail[data-cols="3"] .rail-track { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-/* category filter: a quiet row above the game tiles, Lobby only */
-.cats { display: flex; flex-wrap: wrap; gap: 10px; }
-.cat {
-  --c: 9px; display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 18px;
-  background: transparent; border: 0; font-size: 14.5px; font-weight: 500; color: var(--fg-2); --edge: var(--edge-1);
-}
-.cat svg { width: 18px; height: 18px; stroke-width: 1.8; }
-.cat:hover { background: var(--surface); color: var(--fg); }
-.cat.on { background: var(--raised-2); color: var(--fg); --edge: var(--fg); }
 .filter-note { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); }
 .filter-note button { display: grid; place-items: center; background: none; border: 0; padding: 4px; color: var(--fg); }
 .filter-note svg { width: 14px; height: 14px; }
@@ -186,13 +177,6 @@ a.tile:hover .tile-glare { opacity: 1; }
 /* cards brighten their lit edge under the pointer */
 .player { transition: background-color 0.2s ease; }
 .player:hover { --edge: var(--edge-2); }
-
-/* phones: the category chips are one swipeable row */
-@media (max-width: 639px) {
-  .cats { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
-  .cats::-webkit-scrollbar { display: none; }
-  .cat { flex: none; }
-}
 
 /* ——— Leaderboard teaser ——— */
 .lb-teaser .rail-track > * { grid-column: 1 / -1; }

@@ -10,7 +10,6 @@ export function Rail({
   cols,
   children,
   aside,
-  lead,
   className,
 }: {
   id: string;
@@ -21,8 +20,6 @@ export function Rail({
   children: ReactNode;
   /** Extra header content (e.g. an active-filter note). */
   aside?: ReactNode;
-  /** Content between the header and the grid (e.g. the category filter). */
-  lead?: ReactNode;
   className?: string;
 }) {
   return (
@@ -36,7 +33,6 @@ export function Rail({
           </Link>
         )}
       </header>
-      {lead}
       <div className="rail-track">{children}</div>
     </section>
   );

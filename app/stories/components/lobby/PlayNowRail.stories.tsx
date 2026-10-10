@@ -11,6 +11,6 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Live Games as large tiles, announced ones as a quiet strip. Category chips filter. */
+/** Live Games as large tiles, announced ones as a quiet strip. */
 export const Default: Story = {};
 export const WaitingPlayers: Story = { parameters: { screen: { queueDepth: { "block-puzzle": 3, holdem: 1, "trading-duel": 0 } } } };

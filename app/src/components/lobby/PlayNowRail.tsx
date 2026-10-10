@@ -2,20 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState, type PointerEvent } from "react";
-import { Clock, LayoutGrid, Spade, Users, X, type LucideIcon } from "lucide-react";
+import type { PointerEvent } from "react";
+import { Clock, X } from "lucide-react";
 import { practiceHref } from "@/lib/game-params";
-import { CATALOGUE, CATEGORIES, type Category } from "@/lib/catalogue";
+import { CATALOGUE } from "@/lib/catalogue";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
 import { useQueueDepth } from "./useQueueDepth";
-
-const CHIP_ICON: Record<Category, LucideIcon> = {
-  puzzle: LayoutGrid,
-  cards: Spade,
-  "head-to-head": Users,
-  async: Clock,
-};
 
 const GAME_LINE: Record<string, string> = {
   "block-puzzle": "Play anytime · same pieces · higher score wins",
@@ -40,19 +33,14 @@ function untilt(e: PointerEvent<HTMLElement>) {
   ["--rx", "--ry", "--gx", "--gy"].forEach((p) => el.style.removeProperty(p));
 }
 
-/** PLAY NOW: the live Games as large tiles, the announced ones as one quiet strip. The category chips and search filter it. */
+/** PLAY NOW: the live Games as large tiles, the announced ones as one quiet strip. Search filters it. */
 export function PlayNowRail() {
   const { query, setQuery } = useSearch();
-  const [category, setCategory] = useState<Category | null>(null);
   const depth = useQueueDepth();
-  const matches = CATALOGUE.filter((g) => (!category || g.tags.includes(category)) && (!query.trim() || matchesQuery(g.name, query)));
+  const matches = CATALOGUE.filter((g) => !query.trim() || matchesQuery(g.name, query));
   const live = matches.filter((g) => g.live);
   const soon = matches.filter((g) => !g.live);
-  const filtering = Boolean(category) || Boolean(query.trim());
-
-  const pick = (id: Category) => {
-    setCategory((cur) => (cur === id ? null : id));
-  };
+  const filtering = Boolean(query.trim());
 
   return (
     <Rail
@@ -62,35 +50,15 @@ export function PlayNowRail() {
       aside={
         filtering && (
           <span className="filter-note">
-            {[category && CATEGORIES.find((c) => c.id === category)?.label, query.trim() && `“${query.trim()}”`].filter(Boolean).join(" · ")}
-            <button
-              type="button"
-              aria-label="Clear filters"
-              onClick={() => {
-                setCategory(null);
-                setQuery("");
-              }}
-            >
+            “{query.trim()}”
+            <button type="button" aria-label="Clear search" onClick={() => setQuery("")}>
               <X aria-hidden="true" />
             </button>
           </span>
         )
       }
-      lead={
-        <nav className="cats" aria-label="Game categories">
-          {CATEGORIES.map(({ id, label }) => {
-            const Icon = CHIP_ICON[id];
-            return (
-              <button key={id} type="button" className={`cut cut-card cat${category === id ? " on" : ""}`} aria-pressed={category === id} onClick={() => pick(id)}>
-                <Icon aria-hidden="true" />
-                {label}
-              </button>
-            );
-          })}
-        </nav>
-      }
     >
-      {matches.length === 0 && <p className="rail-empty">No games match. Clear the filter to see every game.</p>}
+      {matches.length === 0 && <p className="rail-empty">No games match. Clear the search to see every game.</p>}
       {live.map((g, i) => (
         <div key={g.key} className={`tile-cell${i === live.length - 1 && live.length % 2 === 1 ? " last-odd" : ""}`}>
           <Link href={`/play/${g.game}`} className="cut cut-frame tile" onPointerMove={tilt} onPointerLeave={untilt}>
