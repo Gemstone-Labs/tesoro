@@ -44,7 +44,7 @@ export function Ticker() {
           {ago(m.at)}
         </span>
       ) : (
-        <span className="ticker-line dim">{loading ? "Reading recent Matches from Solana devnet…" : "Live · settled Matches from Solana devnet appear here"}</span>
+        <span className="ticker-line dim">{loading ? "Loading recent Matches…" : "Live · finished Matches appear here"}</span>
       )}
     </div>
   );

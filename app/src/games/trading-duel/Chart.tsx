@@ -69,7 +69,7 @@ export function Chart({ asset, series, from, to, startsAt, fills, origin, entry,
     return { pts, marks, path, ticks, x, y, lo, hi, digits, last: pts[pts.length - 1] };
   }, [series, from, to, fills, origin, entry, W, H]);
 
-  if (!g) return <div ref={box} className="td-chart-empty meta" role="status">Waiting for the first price from the oracle…</div>;
+  if (!g) return <div ref={box} className="td-chart-empty meta" role="status">Waiting for the first live price…</div>;
   const nowX = Math.min(Math.max(g.x(now), PAD.l), W - PAD.r);
   const startX = g.x(startsAt);
   const entryColor = entry?.side === SIDE.short ? "var(--down)" : "var(--up)";

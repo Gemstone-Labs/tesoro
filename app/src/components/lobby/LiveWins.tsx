@@ -38,7 +38,7 @@ export function LiveWins() {
   );
 
   return (
-    <section className="cut cut-card live-wins" aria-label="Recent wins on Solana devnet">
+    <section className="cut cut-card live-wins" aria-label="Recent wins">
       <span className="live-tag">
         <i className="live-dot" aria-hidden="true" />
         Live wins

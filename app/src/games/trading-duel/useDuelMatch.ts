@@ -7,6 +7,7 @@ import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain, getTradingDuel } from "@/lib/chain/client";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { ASSETS, DRAW, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
+import { plainError } from "@/lib/errors";
 
 /** Where a Trading Duel Match is in its life, read from chain. */
 export type Stage = "loading" | "notfound" | "spectator" | "waiting" | "setup" | "live" | "closing" | "settled";
@@ -30,7 +31,7 @@ export interface DuelView {
   refundable: boolean;
 }
 
-const errText = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e));
+const errText = plainError;
 const now = () => Date.now();
 
 /** A key that changes whenever anything a Player can see in the Duel changes. */
@@ -154,7 +155,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     const info = await td.base.getAccountInfo(ad.duel);
 
     if (!info) {
-      setStage("setup", "Creating the Duel on Solana devnet");
+      setStage("setup", "Setting up the Match");
       if (!late || !m.opponent) return;
       const core = getChain().core;
       const opp = (await core.account.tesoroAccount.fetch(new PublicKey(m.opponent))) as unknown as { authority: PublicKey };
@@ -166,7 +167,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     if (info.owner.equals(TRADING_DUEL_PROGRAM_ID)) {
       const d = decodeDuel(ad.duel, td.program.coder.accounts.decode("duel", info.data));
       if (d.status === STATUS.created) {
-        setStage("setup", "Moving the Duel to the private rollup");
+        setStage("setup", "Creating your session");
         if (!late) return;
         await td.delegateDuel(p, id);
         return;
@@ -174,7 +175,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       // Committed back after the Match ended: settle.
       delegated.current = false;
       setView((v) => ({ ...v, duel: d }));
-      setStage("closing", "Settling on Solana devnet");
+      setStage("closing", "Paying out the Pot");
       if (!closingSince.current) closingSince.current = now();
       // The winner settles at once (seat 0 for a draw or a cancelled Duel); the other waits, so the loser of a race burns no fee.
       const mine = d.status === STATUS.cancelled || d.winner === DRAW ? seat === 0 : d.winner === seat;
@@ -192,7 +193,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     if (!info.owner.equals(DELEGATION_PROGRAM_ID)) return;
     delegated.current = true;
     const d = await td.readDuel(p, id);
-    if (!d) return setStage("setup", "Waiting for the private Duel");
+    if (!d) return setStage("setup", "Creating your session");
     applyDuel(d);
 
     if (d.status === STATUS.created) {
@@ -235,7 +236,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     }
 
     // Over or cancelled: close the permissions and commit everything back.
-    setStage("closing", "Committing the Duel to Solana devnet");
+    setStage("closing", "Saving the result");
     if (!closingSince.current) closingSince.current = now();
     const mine = d.status === STATUS.cancelled || d.winner === DRAW ? seat === 0 : d.winner === seat;
     if (!mine && now() - closingSince.current < GRACE_MS) return;

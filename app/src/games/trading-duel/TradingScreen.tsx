@@ -99,13 +99,13 @@ export function TradingScreen(p: ScreenProps) {
 
   const tradable = phase === "live" && !stale && !!mid && !p.busy && !!ledger;
   const reason = !ledger
-    ? "Reading your Book…"
+    ? "Loading your trades…"
     : phase === "countdown"
       ? `Trading opens in ${Math.max(0, countdown)} s`
       : phase === "ended"
-        ? "The window has closed"
+        ? "Time’s up"
         : stale || !mid
-          ? "Waiting for a fresh oracle price"
+          ? "Waiting for a fresh price"
           : p.busy
             ? "Sending…"
             : null;
@@ -153,7 +153,7 @@ export function TradingScreen(p: ScreenProps) {
         <div className="td-main">
           <div className="cut cut-card td-card td-ticker">
             <div className="td-px">
-              <Label>{asset.symbol} oracle price</Label>
+              <Label>{asset.symbol} live price</Label>
               <b className="mono td-price">{mid ? usdMid(mid, asset) : "…"}</b>
               <span className={`td-feed ${stale ? "stale" : "live"}`}>{feed.status === "waiting" ? "Connecting" : stale ? "Feed delayed" : "Live"}</span>
             </div>
@@ -192,7 +192,7 @@ export function TradingScreen(p: ScreenProps) {
           <div className="cut cut-card td-card">
             <Label>Your trades</Label>
             {fills.length === 0 ? (
-              <p className="meta td-empty">No trades yet. Fills execute at the oracle price plus a {RULES.spreadBps / 100}% spread.</p>
+              <p className="meta td-empty">No trades yet. Fills execute at the live price plus a {RULES.spreadBps / 100}% spread.</p>
             ) : (
               <ol className="td-log" aria-label="Your fills, newest first">
                 {[...fills].reverse().map((f, i) => (
@@ -308,7 +308,7 @@ export function TradingScreen(p: ScreenProps) {
             <Label>The rules</Label>
             <ul className="td-ul">
               <li>One position at a time, 1x to 20x.</li>
-              <li>Fills use the oracle price with a {RULES.spreadBps / 100}% spread; prices older than {RULES.maxStaleSecs} s are refused.</li>
+              <li>Fills use the live price with a {RULES.spreadBps / 100}% spread. If the price feed pauses for more than {RULES.maxStaleSecs} s, trading waits for a fresh price.</li>
               <li>Liquidated near {RULES.maintenanceBps / 100}% of notional left, at the next price read.</li>
               <li>Open positions close at the final price; higher equity wins, equal equity is a draw.</li>
               <li>Your positions stay hidden from your opponent until the Match ends.</li>

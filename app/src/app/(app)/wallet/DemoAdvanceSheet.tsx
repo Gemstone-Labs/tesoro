@@ -6,8 +6,9 @@ import { useAccount } from "@/lib/account";
 import { ensureReady } from "@/lib/chain/match-flow";
 import { takeDemoAdvance } from "@/lib/chain/demo-client";
 import { fmtUsd, gemasToUsd } from "@/lib/format";
+import { plainError } from "@/lib/errors";
 
-const STEPS = ["Topping up devnet SOL for fees", "Creating your Account on Solana", "Opening a simulated Position", "Signing the Advance"];
+const STEPS = ["Adding SOL for network fees", "Creating your Account", "Opening a simulated Position", "Signing the Advance"];
 
 /**
  * Simulated · demo Advance. Stopgap until Solana-native Position custody exists: the server opens a
@@ -32,7 +33,7 @@ export function DemoAdvanceSheet({ open, onClose }: { open: boolean; onClose: ()
       setResult(r);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message.split("\n")[0] : String(e));
+      setError(plainError(e));
     } finally {
       setStep(null);
     }

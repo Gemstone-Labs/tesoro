@@ -419,7 +419,7 @@ export class BlockPuzzleChain {
       if (board && !board.seed.isZero()) return { sig, seed: BigInt(board.seed.toString()) };
       await sleep(300);
     }
-    throw new Error("Seed not readable in your Board");
+    throw new Error("Your pieces aren’t ready yet. Try again in a moment.");
   }
 
   /** Submits moves in batches of at most 40; an illegal move fails its whole batch. */

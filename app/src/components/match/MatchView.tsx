@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
+import { Busy, Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
 import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzleGame";
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
@@ -13,6 +13,8 @@ import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "./BackingSplit";
 import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
+import { Receipts } from "./Receipts";
+import { plainError } from "@/lib/errors";
 
 type Phase =
   | "loading"
@@ -28,8 +30,7 @@ type Phase =
   | "awaiting"
   | "result";
 
-const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
-const errText = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e));
+const errText = plainError;
 const SETTLE_TRY_MS = 6000;
 
 /**
@@ -119,7 +120,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         const r = await trySettle(signer, id, m.session);
         if (r.sig) addSig("settle", r.sig);
         if (r.outcome === "settled") setMatch(await fetchMatch(id, me));
-        if (r.outcome === "failed") setError(r.error ?? "Settlement failed");
+        if (r.outcome === "failed") setError(r.error ?? "Couldn’t finish the Match. Try again.");
       }
     } catch (e) {
       setError(errText(e));
@@ -146,7 +147,7 @@ export function MatchView({ matchId }: { matchId: string }) {
     try {
       const startedAt = performance.now();
       const { sig, seed } = await getChain().beginRun(signer, id, seat);
-      addSig("begin_run (private)", sig);
+      addSig("begin_run", sig);
       const sub = new RunSubmitter(signer, id, seat);
       submitter.current = sub;
       setRun({
@@ -192,8 +193,8 @@ export function MatchView({ matchId }: { matchId: string }) {
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
   if (!signer) return <Notice title="Match" body="Getting your wallet ready…" />;
-  if (phase === "loading") return <Notice title="Match" body="Reading the Match from Solana devnet…" />;
-  if (phase === "notfound") return <Notice title="Match not found" body="No Match with that id on devnet." />;
+  if (phase === "loading") return <Notice title="Match" body="Loading the Match…" />;
+  if (phase === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (phase === "spectator") return <MatchSpectate matchId={matchId} />;
 
   if (phase === "playing" && run) {
@@ -203,7 +204,7 @@ export function MatchView({ matchId }: { matchId: string }) {
           run={run}
           matchPanel={
             <div className="bpx-status" role="status">
-              <p>{match?.status === "open" ? "Opponent plays the same Seed · waiting to be paired" : "Opponent plays the same Seed · higher score wins"}</p>
+              <p>{match?.status === "open" ? "Your opponent gets the same pieces · waiting to be paired" : "Your opponent gets the same pieces · higher score wins"}</p>
               {match?.status === "open" && (
                 <span className="bpx-finding">
                   <i className="bpx-spin" aria-hidden="true" /> Finding opponent…
@@ -243,17 +244,8 @@ export function MatchView({ matchId }: { matchId: string }) {
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {error && <p className="status err" role="alert">{error}</p>}
-        {sigs.length > 0 && (
-          <div className="stack">
-            <Label>Transactions</Label>
-            {sigs.map((s) => (
-              <a key={s.sig} className="meta mono" href={explorer(s.sig)} target="_blank" rel="noreferrer">
-                {s.label} · {s.sig.slice(0, 10)}…
-              </a>
-            ))}
-          </div>
-        )}
-        <p className="note">Solana devnet · testnet Gemas from a simulated Position.</p>
+        <Receipts items={sigs} />
+        <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
@@ -277,7 +269,7 @@ export function MatchView({ matchId }: { matchId: string }) {
               Your {fmtGemas(m.entry)} Gemas are in the Pot. You cannot play or steer this Match; the result settles on chain. If your
               Player wins, your entry returns first and the surplus is split by your Offer. If they lose, you bear the loss.
             </p>
-            <p className="status" role="status">Checking every few seconds…</p>
+            <Busy>Checking every few seconds…</Busy>
           </div>
         </Card>
       )}
@@ -322,8 +314,8 @@ export function MatchView({ matchId }: { matchId: string }) {
         <Card large>
           <div className="stack">
             <Label>Getting your run ready</Label>
-            <p className="status" role="status">{step || "Preparing"}…</p>
-            <p className="note">Your Board moves to a private rollup, and the Seed is drawn there where nobody can read it. About 20 seconds.</p>
+            <Busy>{step || "Creating your session"}…</Busy>
+            <p className="note">Your pieces are drawn in secret, so nobody (not even us) can see them before you press Start. About 20 seconds.</p>
           </div>
         </Card>
       )}
@@ -333,7 +325,7 @@ export function MatchView({ matchId }: { matchId: string }) {
           <div className="stack">
             <Label>Ready</Label>
             <p className="meta">
-              You and your opponent play the same Seed, 90 seconds each, one after the other. The pieces stay hidden until
+              You and your opponent get the same pieces, 90 seconds each, one after the other. The pieces stay hidden until
               you press Start, and that is when your clock starts.{" "}
               {m.status === "open"
                 ? "No opponent yet: play now and you will be paired with the next Player."
@@ -353,7 +345,7 @@ export function MatchView({ matchId }: { matchId: string }) {
           <div className="stack">
             <Label>Run over</Label>
             {final && <span className="bp-final tnum">{final.score}</span>}
-            <p className="status" role="status">Sending your last moves to the chain…</p>
+            <Busy>Saving your last moves…</Busy>
           </div>
         </Card>
       )}
@@ -364,10 +356,10 @@ export function MatchView({ matchId }: { matchId: string }) {
             <Label>Waiting for the opponent</Label>
             {final && <span className="bp-final tnum">{final.score}</span>}
             <p className="meta">
-              Your run is closed and hidden in the private rollup. When your opponent finishes (or their time runs out),
-              both Boards are committed and the Match settles.
+              Your score is saved and hidden from your opponent. When they finish (or their time runs out), both scores are
+              revealed and the winner is paid.
             </p>
-            <p className="status" role="status">Checking every few seconds…</p>
+            <Busy>Checking every few seconds…</Busy>
             <Button
               disabled={busy !== null}
               onClick={() =>
@@ -375,17 +367,17 @@ export function MatchView({ matchId }: { matchId: string }) {
                   const r = await trySettle(signer, m.id);
                   if (r.sig) addSig("settle", r.sig);
                   if (r.outcome === "waiting-opponent") setError("Your opponent is still playing.");
-                  if (r.outcome === "failed") setError(r.error ?? "Settlement failed");
+                  if (r.outcome === "failed") setError(r.error ?? "Couldn’t finish the Match. Try again.");
                 })
               }
             >
-              {busy === "settle" ? "Settling…" : "Settle Match"}
+              {busy === "settle" ? "Checking…" : "Check result"}
             </Button>
             {timeoutOk && (
               <div className="stack">
-                <p className="note">The submission deadline passed and nobody played. Both entries can be refunded.</p>
+                <p className="note">Time ran out and nobody played. Both entries can be refunded.</p>
                 <Button disabled={busy !== null} onClick={() => act("timeout", async () => addSig("claim_timeout", await claimTimeout(signer, m.id)))}>
-                  Claim timeout
+                  Refund both entries
                 </Button>
               </div>
             )}
@@ -401,17 +393,8 @@ export function MatchView({ matchId }: { matchId: string }) {
 
       {error && <p className="status err" role="alert">{error}</p>}
 
-      {sigs.length > 0 && (
-        <div className="stack">
-          <Label>Transactions</Label>
-          {sigs.map((s) => (
-            <a key={s.sig} className="meta mono" href={explorer(s.sig)} target="_blank" rel="noreferrer">
-              {s.label} · {s.sig.slice(0, 10)}…
-            </a>
-          ))}
-        </div>
-      )}
-      <p className="note">Solana devnet · testnet Gemas from a simulated Position.</p>
+      <Receipts items={sigs} />
+      <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
     </div>
   );
 }

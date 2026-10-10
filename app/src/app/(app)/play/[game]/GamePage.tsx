@@ -21,9 +21,9 @@ import "./game.css";
 const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: string[]; hero: string }> = {
   "block-puzzle": {
     tag: "Head-to-head · Async",
-    sub: ["Same Seed as your opponent · 90 s · higher score wins", "Pieces stay hidden until you press Start"],
-    how: "Same Seed. Same chance.",
-    steps: ["Same Seed as your opponent", "90 seconds · higher score wins", "Pieces stay hidden until you press Start"],
+    sub: ["Same pieces as your opponent · 90 s · higher score wins", "Pieces stay hidden until you press Start"],
+    how: "Same pieces. Same chance.",
+    steps: ["Same pieces as your opponent", "90 seconds · higher score wins", "Pieces stay hidden until you press Start"],
     hero: art.blockPuzzleHero,
   },
   holdem: {
@@ -100,7 +100,7 @@ export function GamePage({ game }: { game: GameId }) {
           </header>
           {mine.length === 0 ? (
             <p className="meta gp-empty">
-              {onChain ? `No finished ${name} Matches yet. Yours appear here as they settle on Solana devnet.` : "Sign in to see your Matches on Solana devnet."}
+              {onChain ? `No finished ${name} Matches yet. Yours appear here when they finish.` : "Sign in to see your Matches."}
             </p>
           ) : (
             <div className="mh-list">
@@ -128,7 +128,7 @@ export function GamePage({ game }: { game: GameId }) {
                 </div>
               ))}
               <p className="note">
-                {top.error ? "Could not refresh from Solana devnet; showing the last read. " : ""}Best winning score per Player in the last 24 hours, from settled
+                {top.error ? "Couldn’t refresh; showing what was last loaded. " : ""}Best winning score per Player in the last 24 hours, from settled
                 Matches on Solana devnet.
               </p>
             </div>

@@ -6,11 +6,11 @@ const GAMES: LandingGame[] = [
   {
     id: "block-puzzle",
     name: "Block Puzzle",
-    note: "Async, 90 s",
-    body: "Play when you like. You and your opponent get the same Seed; the higher score wins.",
+    note: "Play anytime, 90 s",
+    body: "Play when you like. You and your opponent get the same pieces; the higher score wins.",
     facts: [
-      ["Pace", "Async"],
-      ["Seed", "Same for both Players"],
+      ["Pace", "Play anytime"],
+      ["Pieces", "Same for both Players"],
       ["Length", "90 s"],
       ["Moves", "Private"],
     ],
@@ -41,7 +41,7 @@ export function Games() {
         <h2 id="games-title" className="lp-h2" data-reveal>
           The games
         </h2>
-        <GameSelect games={GAMES} footnote="On-chain in MagicBlock Private Ephemeral Rollups." />
+        <GameSelect games={GAMES} footnote="Hidden moves, fair results, settled on Solana. Powered by MagicBlock." />
       </div>
     </section>
   );

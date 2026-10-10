@@ -46,17 +46,17 @@ export function AllMatches() {
       {!snapshot ? (
         error ? (
           <div className="mh-state" role="alert">
-            <p>Your Matches could not be read from Solana devnet.</p>
+            <p>Your Matches couldn’t be loaded.</p>
             <Button size="sm" onClick={() => void refresh()}>Try again</Button>
           </div>
         ) : (
           <div className="mh-list">
-            <SkeletonCards count={4} avatar={false} className="mh-skel" label="Reading your Matches from Solana devnet…" />
+            <SkeletonCards count={4} avatar={false} className="mh-skel" label="Loading your Matches…" />
           </div>
         )
       ) : rows.length === 0 ? (
         <div className="mh-state">
-          <p>{game ? `No finished ${GAME_NAMES[game]} Matches yet.` : "No finished Matches yet."} They appear here as they settle on Solana devnet.</p>
+          <p>{game ? `No finished ${GAME_NAMES[game]} Matches yet.` : "No finished Matches yet."} They appear here when they finish.</p>
           <Button size="sm" href={game ? `/play/${game}` : "/play"}>Play a Match</Button>
         </div>
       ) : (
@@ -71,7 +71,7 @@ export function AllMatches() {
           <HistoryPages base="/matches" game={game} page={view.page} pages={view.pages} total={rows.length} />
         </>
       )}
-      {error && snapshot && <p className="note">Could not refresh from Solana devnet; showing the last read.</p>}
+      {error && snapshot && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
     </div>
   );
 }

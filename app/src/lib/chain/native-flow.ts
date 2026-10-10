@@ -17,14 +17,10 @@ import {
   unlockIx,
   type NativeInfo,
 } from "./native";
+import { plainError } from "@/lib/errors";
 
-/** The program's own message from a failed transaction's logs ("Error Message: ..."), else the first line. */
-export function friendlyError(e: unknown): string {
-  const text = e instanceof Error ? e.message : String(e);
-  const m = /Error Message: ([^\n]+)/.exec(text);
-  if (m) return m[1].replace(/\.$/, "");
-  return text.split("\n")[0].replace(/^base tx failed \S+: /, "").slice(0, 200);
-}
+/** The one line a Player sees for a failed Wallet action (see lib/errors.ts). */
+export const friendlyError = plainError;
 
 const send = (signer: ChainSigner, ixs: TransactionInstruction[]) => getChain().sendBase(signer, ixs);
 
@@ -35,7 +31,7 @@ const send = (signer: ChainSigner, ixs: TransactionInstruction[]) => getChain().
 export async function getTestSimSol(signer: ChainSigner, getToken: GetToken, onStep: (s: string) => void = () => undefined): Promise<string> {
   const [account] = await Promise.all([
     getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
-    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for fees")),
+    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees")),
   ]);
   onStep("Getting simSOL");
   const faucet = faucetIx(signer.publicKey);
@@ -56,7 +52,7 @@ export async function openPositionWithAdvance(
   onStep("Preparing");
   const [account] = await Promise.all([
     getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
-    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for fees")),
+    ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees")),
   ]);
   const nonce = BigInt(Date.now());
   const position = await positionPda(signer.publicKey, nonce);

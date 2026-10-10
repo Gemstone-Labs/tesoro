@@ -486,8 +486,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       {(matchPanel || run) && (
         <div className="bpx-foot">
           {matchPanel}
-          <span className="mono bpx-seed" title="Seed">
-            {phase === "idle" ? "Seed —" : `Seed 0x${st.seed.toString(16).padStart(16, "0").slice(0, 6)}…`}
+          <span className="mono bpx-seed" title="Your opponent gets this exact set of pieces">
+            {phase === "idle" ? "Pieces —" : `Pieces #${st.seed.toString(16).padStart(16, "0").slice(0, 6)}`}
           </span>
         </div>
       )}

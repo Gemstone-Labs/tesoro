@@ -133,7 +133,7 @@ function Picker({ asset, setAsset, mode, setMode, onStart }: { asset: Asset; set
               </button>
             ))}
           </div>
-          <p className="meta mono" role="status">{asset.symbol}/USD {price} {ready ? "· live" : "· connecting to the oracle…"}</p>
+          <p className="meta mono" role="status">{asset.symbol}/USD {price} {ready ? "· live" : "· connecting to live prices…"}</p>
         </div>
         <div className="stack">
           <Label>Length</Label>
@@ -149,7 +149,7 @@ function Picker({ asset, setAsset, mode, setMode, onStart }: { asset: Asset; set
           <Button variant="neutral" size="lg" onClick={onStart} disabled={!ready}>Start practice</Button>
           <Button href="/play/trading-duel">Back</Button>
         </div>
-        <p className="note">Prices come from MagicBlock&apos;s real-time oracle (Pyth Lazer). Fills carry a {RULES.spreadBps / 100}% spread.</p>
+        <p className="note">Live market prices, updated every second. Fills carry a {RULES.spreadBps / 100}% spread.</p>
       </div>
     </section>
   );

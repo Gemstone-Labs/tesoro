@@ -13,7 +13,7 @@ import { fmtGemas } from "@/lib/format";
 import { useEthCtx, useOpTracker } from "../EthPositions";
 import "./opening.css";
 
-const stepsFor = (label: string) => [`${label} confirmed`, "LayerZero delivered", "Position recorded", "Gemas available"];
+const stepsFor = (label: string) => [`${label} confirmed`, "Reached Solana", "Position recorded", "Gemas available"];
 /** Steps of the five-step `open` op that must be done for each of the four shown steps. */
 const NEEDS = [1, 2, 3, 5];
 const ACTIVE = ["Confirming…", "Delivering…", "Recording…", "Taking your Advance…"];
@@ -61,7 +61,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
   const { refresh } = useAccount();
   const ctx = useEthCtx()!;
   const { stage, note, error, scan, state, finished } = useOpTracker(op, ctx, address, refresh);
-  useGuideTip({ id: "xc-open", pose: "herWaitingCrosschain", title: "Crossing chains", text: "LayerZero usually takes 2–5 minutes. You can leave this page. Taking your Advance is the last step and needs your signature: it continues when you come back to your Wallet." }, !finished);
+  useGuideTip({ id: "xc-open", pose: "herWaitingCrosschain", title: "Crossing chains", text: "Crossing chains usually takes 2–5 minutes. You can leave this page. Taking your Advance is the last step and needs your signature: it continues when you come back to your Wallet." }, !finished);
 
   const done = STEPS.map((_, i) => finished || stage >= NEEDS[i]);
   const active = done.findIndex((d) => !d);

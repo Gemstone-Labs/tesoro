@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
+import { Busy, Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { matchDelta, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -10,11 +10,11 @@ import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
+import { Receipts } from "@/components/match/Receipts";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
 
-const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
 function fmtFee(m: ChainMatch): string {
   const pot = m.entry * 2;
@@ -42,8 +42,8 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
   if (!signer) return <Notice title="Hold'em" body="Getting your wallet ready…" />;
-  if (stage === "loading") return <Notice title="Hold'em" body="Reading the Match from Solana devnet…" />;
-  if (stage === "notfound") return <Notice title="Match not found" body="No Match with that id on devnet." />;
+  if (stage === "loading") return <Notice title="Hold'em" body="Loading the Match…" />;
+  if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
 
   const link = typeof window === "undefined" || !m ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
@@ -70,23 +70,8 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {view.error && <p className="status err" role="alert">{view.error}</p>}
-        {view.sigs.length > 0 && (
-          <details className="stack hd-sigs">
-            <summary className="label">Transactions ({view.sigs.length})</summary>
-            {view.sigs.map((s) =>
-              s.layer === "base" ? (
-                <a key={s.sig} className="meta mono" href={explorer(s.sig)} target="_blank" rel="noreferrer">
-                  {s.label} · {s.sig.slice(0, 10)}…
-                </a>
-              ) : (
-                <span key={s.sig} className="meta mono" title={`${s.sig} (private rollup, no public explorer page)`}>
-                  {s.label} · {s.sig.slice(0, 10)}… (TEE)
-                </span>
-              ),
-            )}
-          </details>
-        )}
-        <p className="note hd-note">Solana devnet + MagicBlock private rollup · testnet Gemas from a simulated Position.</p>
+        <Receipts items={view.sigs} className="hd-sigs" />
+        <p className="note hd-note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
@@ -141,10 +126,9 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         <Card large>
           <div className="stack">
             <Label>Opponent found · getting the table ready</Label>
-            <p className="status" role="status">{view.note || "Preparing"}…</p>
+            <Busy>{view.note || "Creating your session"}…</Busy>
             <p className="note">
-              The table and the shuffled deck move to a private rollup, so neither Player can see the other&apos;s cards. Turbo blinds
-              (50/100, rising every hand). About 30 seconds.
+              Your cards stay hidden from your opponent, and from us. Turbo blinds (50/100, rising every hand). About 30 seconds.
             </p>
           </div>
         </Card>
@@ -157,9 +141,9 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
       {stage === "closing" && (
         <Card large>
           <div className="stack">
-            <Label>Match over · settling</Label>
-            <p className="status" role="status">{view.note}…</p>
-            <p className="note">The table is wiped of hidden cards, committed back to Solana, then the Pot is settled once.</p>
+            <Label>Match over</Label>
+            <Busy>{view.note}…</Busy>
+            <p className="note">Saving the result and paying out the Pot. This takes a few seconds.</p>
           </div>
         </Card>
       )}
@@ -173,23 +157,8 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
 
       {view.error && <p className="status err" role="alert">{view.error}</p>}
 
-      {view.sigs.length > 0 && (
-        <details className="stack hd-sigs">
-          <summary className="label">Transactions ({view.sigs.length})</summary>
-          {view.sigs.map((s) =>
-            s.layer === "base" ? (
-              <a key={s.sig} className="meta mono" href={explorer(s.sig)} target="_blank" rel="noreferrer">
-                {s.label} · {s.sig.slice(0, 10)}…
-              </a>
-            ) : (
-              <span key={s.sig} className="meta mono" title={`${s.sig} (private rollup, no public explorer page)`}>
-                {s.label} · {s.sig.slice(0, 10)}… (TEE)
-              </span>
-            ),
-          )}
-        </details>
-      )}
-      <p className="note hd-note">Solana devnet + MagicBlock private rollup · Chips are in-match scorekeeping, not Gemas · testnet Gemas from a simulated Position.</p>
+      <Receipts items={view.sigs} className="hd-sigs" />
+      <p className="note hd-note">Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>
     </div>
   );
 }

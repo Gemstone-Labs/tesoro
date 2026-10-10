@@ -5,9 +5,9 @@ export function SiteFooter() {
   return (
     <footer className="site-foot">
       <p>
-        <span>Fair play · on-chain</span>
+        <span>Fair play · every result on record</span>
         <i aria-hidden="true">·</i>
-        <span>Simulated yield · 1 month = 10 min · devnet</span>
+        <span>Test mode · simulated yield · 1 month = 10 min</span>
       </p>
       <nav aria-label="Footer">
         <Link href="/wallet">Wallet</Link>

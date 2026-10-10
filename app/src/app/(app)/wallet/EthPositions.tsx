@@ -143,7 +143,7 @@ function Links({ evm, vault, scan, solana }: { evm?: string; vault: string; scan
   return (
     <div className="stack">
       {evm && <a className="meta mono" href={net.tx(evm)} target="_blank" rel="noreferrer">{net.label} tx · {shortHex(evm)}</a>}
-      {scan && <a className="meta mono" href={lzScanUrl(scan)} target="_blank" rel="noreferrer">LayerZero Scan · {shortHex(scan)}</a>}
+      {scan && <a className="meta mono" href={lzScanUrl(scan)} target="_blank" rel="noreferrer">Track the transfer · {shortHex(scan)}</a>}
       {solana && <a className="meta mono" href={solscan(solana)} target="_blank" rel="noreferrer">Solana tx · {solana.slice(0, 10)}…</a>}
     </div>
   );
@@ -173,9 +173,9 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
         <Chip tone="warn">Simulated</Chip>
       </div>
       <dl className="kv">
-        <dt>Your EVM address</dt>
+        <dt>Your wallet address</dt>
         <dd className="mono">{auth.evm ? shortHex(auth.evm.address) : "Creating your wallet…"}</dd>
-        <dt>{net.label} {net.native} (gas)</dt>
+        <dt>{net.label} {net.native} (for fees)</dt>
         <dd className="tnum">{market ? fmtEth(market.ethBalance, 4) : "—"} {net.native}</dd>
         <dt>Your {vault.symbol}</dt>
         <dd className="tnum">{market ? fmtEth(market.simEth, 3) : "—"} {vault.symbol}</dd>
@@ -197,7 +197,7 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
       </Button>
       {lowGas && (
         <>
-          <p className="meta">Simulated test HYPE for gas and the LayerZero fee, once a day per wallet.</p>
+          <p className="meta">Free test HYPE for network fees, once a day per wallet.</p>
           <Button size="sm" block disabled={!ctx || a.busy !== null} onClick={() => ctx && void a.run("gas", async () => { await requestGas(ctx, net); await refresh(); })}>
             {a.busy === "gas" ? "Getting test HYPE…" : "Get test HYPE"}
           </Button>
@@ -210,10 +210,10 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
 }
 
 const openStepText = (vault: EthVault): Record<OpenStep, string> => ({
-  link: "Linking your EVM address to your Account…",
-  gas: `Checking ${NETS[vault.net].label} gas…`,
+  link: "Linking your wallet to your Account…",
+  gas: `Checking ${NETS[vault.net].label} fees…`,
   approve: `Approving ${vault.symbol}…`,
-  inbox: "Preparing the Solana inbox for your Position…",
+  inbox: "Getting your Account ready for the Position…",
   open: `Opening the Position on ${NETS[vault.net].label}…`,
 });
 
@@ -269,7 +269,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtEth(principal)} ${unit}`],
         ["Projected yield", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ${unit}`],
-        ["LayerZero fee", `≤ ${fmtEth(fee, 5)} ${unit}`],
+        ["Cross-chain fee", `≤ ${fmtEth(fee, 5)} ${unit}`],
         ["Price feed", price ? `${unit} $${(Number(price.microUsd) / 1e6).toFixed(2)}${price.live ? "" : " (fallback)"}` : "unavailable"],
       ]}
       alerts={
@@ -282,7 +282,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       }
       note={
         <>
-          You sign once to link your EVM address, then approve and open on {net.label}. Once the message reaches Solana, in about 2 to 5
+          You sign once to link your wallet, then approve and open on {net.label}. Once your Position reaches Tesoro, in about 2 to 5
           minutes, your Advance is taken while this page or your Wallet is open. The Unlock Estimate is an estimate, not a promise.{" "}
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
@@ -438,7 +438,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
   const steps = opSteps(op.kind, op.vault);
   const copy = opCopy(op.kind, op.vault);
   const net = netOfVault(op.vault);
-  const scanText = scan ? `LayerZero: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "LayerZero: waiting for Scan" : null;
+  const scanText = scan ? `Transfer: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "Transfer: waiting for the first update" : null;
 
   return (
     <Card large as="section" aria-label={`${copy.label} progress`}>
@@ -470,7 +470,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
           scan={op.kind === "open" || op.kind === "yield" ? op.hash : op.sendSig}
           solana={op.kind === "redeem" || op.kind === "unlock" ? op.hash : undefined}
         />
-        <span className="sim">Simulated · {opWords(op.vault).symbol} yield runs 1 month = {ETH_SIM_MONTH_MIN} min. Testnets only.</span>
+        <span className="sim">Simulated · {opWords(op.vault).symbol} yield runs 1 month = {ETH_SIM_MONTH_MIN} min. Test mode.</span>
       </div>
     </Card>
   );
@@ -478,11 +478,11 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
 
 const NEXT_NOTE = (label: string) =>
   ({
-    "apply-locked": "Opening your Position on Solana (apply_locked)…",
-    advance: "Taking your Advance at the oracle price…",
-    "apply-yield": "Applying the yield on Solana (apply_yield)…",
-    "send-pay-yield": `Sending the payout to ${label} (send_pay_yield)…`,
-    "send-unlock": `Sending the unlock to ${label} (send_unlock)…`,
+    "apply-locked": "Recording your Position…",
+    advance: "Taking your Advance at today’s price…",
+    "apply-yield": "Applying the yield to your Debt…",
+    "send-pay-yield": `Sending the payout to ${label}…`,
+    "send-unlock": `Sending the unlock to ${label}…`,
   }) as const;
 
 function titleOf(op: EthOp) {
@@ -627,11 +627,11 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} onReturned={load} />
         </>
       )}
-      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} ${symbol}` : symbol} (Simulated) to your EVM address on {net.label}.</p>}
+      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} ${symbol}` : symbol} (simulated) to your wallet on {net.label}.</p>}
       <p className="note wl-tile-note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated).</p>
       {unreported > 0n && locked && (
         <p className="note wl-tile-note">
-          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to bring it to Solana (a small LayerZero fee).
+          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to apply it (a small cross-chain fee).
         </p>
       )}
       {locked && !canUnlock && <p className="note wl-tile-note">Unlock returns the Principal on {net.label} once Debt is zero. Only this Position&apos;s own yield repays it.</p>}

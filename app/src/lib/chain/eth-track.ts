@@ -45,26 +45,26 @@ export const opSteps = (kind: EthOpKind, vault: string): CrossChainStep[] => {
   const w = opWords(vault);
   return {
     open: [
-      { title: `${w.net} confirmed`, note: `openPosition confirmed on ${w.net}` },
-      { title: "LayerZero delivered", note: "Message delivered to Solana" },
-      { title: "Position opened", note: "apply_locked opened it for your Account" },
-      { title: "Advance taken", note: "At the oracle price for your Horizon" },
+      { title: `${w.net} confirmed`, note: `Your Position is open on ${w.net}` },
+      { title: "Reached Solana", note: "Tesoro received your Position" },
+      { title: "Position recorded", note: "Added to your Account" },
+      { title: "Advance taken", note: "At today’s price, for your Horizon" },
       { title: "Gemas available", note: "Gemas credited to your Account" },
     ],
     yield: [
-      { title: `${w.net} confirmed`, note: `reportYield confirmed on ${w.net}` },
-      { title: "LayerZero delivered", note: "Yield message delivered to Solana" },
-      { title: "Debt updated", note: "apply_yield lowered the Debt" },
+      { title: `${w.net} confirmed`, note: `Yield report sent from ${w.net}` },
+      { title: "Reached Solana", note: "Tesoro received the yield report" },
+      { title: "Debt updated", note: "The yield paid down your Debt" },
     ],
     redeem: [
-      { title: "Redeemed on Solana", note: "redeem_to_evm burned the Gemas and recorded the claim" },
-      { title: "LayerZero message sent", note: `send_pay_yield is on its way to ${w.net}` },
-      { title: `${w.symbol} on ${w.net}`, note: "The vault paid your EVM address" },
+      { title: "Redeemed", note: "Your Gemas are exchanged and the payout is recorded" },
+      { title: `On its way to ${w.net}`, note: "The payout is crossing chains" },
+      { title: `${w.symbol} on ${w.net}`, note: "Paid to your wallet" },
     ],
     unlock: [
-      { title: "Unlocked on Solana", note: "Debt is zero; the Position is unlocked" },
-      { title: "LayerZero message sent", note: `send_unlock is on its way to ${w.net}` },
-      { title: `Principal on ${w.net}`, note: "The vault released your Principal" },
+      { title: "Unlocked", note: "Debt is zero; the Position is unlocked" },
+      { title: `On its way to ${w.net}`, note: "The unlock is crossing chains" },
+      { title: `Principal on ${w.net}`, note: "Your Principal is back in your wallet" },
     ],
   }[kind];
 };
@@ -84,7 +84,7 @@ export const opCopy = (kind: EthOpKind, vault: string): { label: string; finalSt
       label: "Report yield",
       finalState: "Updated",
       done: `Debt updated from the yield accrued on ${w.net}.`,
-      pending: "Pending. Debt only falls once the report reaches Solana.",
+      pending: "Pending. Debt only falls once the report arrives.",
       failed: "This step failed. Debt is unchanged.",
     },
     redeem: {
@@ -99,7 +99,7 @@ export const opCopy = (kind: EthOpKind, vault: string): { label: string; finalSt
       finalState: "Returned",
       done: `Principal is back on ${w.net}.`,
       pending: "Pending. The Principal is not back until the last step completes.",
-      failed: "This step failed. The Position is unlocked on Solana and the send can be retried.",
+      failed: "This step failed. The Position is unlocked and the transfer can be retried.",
     },
   }[kind];
 };

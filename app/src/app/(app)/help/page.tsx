@@ -87,7 +87,7 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         a: (
           <p>
             Two Players enter the same amount: 500, 1,000 or 2,500 Gemas. The winner takes the Pot minus Fees. A draw, an abandoned Match or
-            a no-show refunds both entries. Every Match is settled once, on chain, by its game&apos;s own program.
+            a no-show refunds both entries. Every Match is settled once and recorded on Solana, where anyone can check it.
           </p>
         ),
       },
@@ -96,11 +96,11 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         a: (
           <>
             <p>
-              You and your opponent play the same Seed for 90 seconds; the higher score wins. The pieces stay hidden until you press Start, and
-              your score counts only as the server&apos;s replay of your moves against the Seed.
+              You and your opponent get the same pieces and 90 seconds each; the higher score wins. Nobody can see the pieces before you press
+              Start, and your score is checked by replaying your moves, so it can&apos;t be faked.
             </p>
             <p>
-              It is async: you can play before an opponent is paired, and the next Player in the Queue plays the same Seed. If nobody joins
+              You don&apos;t have to play at the same time: you can play before an opponent is paired, and the next Player in the Queue gets the same pieces. If nobody joins
               before the Queue window ends, you can cancel and get your entry back.
             </p>
           </>
@@ -126,13 +126,13 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
           <>
             <p>
               Two Players trade the same live price (SOL, ETH or HYPE, chosen when the Match is opened) for 5 minutes. Each starts with 10,000
-              Chips and holds one position at a time: long or short, with 1x to 20x leverage, opened and closed at the on-chain oracle price. When the
+              Chips and holds one position at a time: long or short, with 1x to 20x leverage, opened and closed at the live market price. When the
               window ends, an open position is closed at the final price, and the higher equity takes the Pot minus Fees. Equal equity, including
               neither of you trading, is a draw and refunds both entries.
             </p>
             <p>
-              Every fill pays a small spread (0.05%) and an oracle price older than 2 seconds is refused, so a faster feed on your screen does not
-              beat the chain. A position is liquidated, on the next price read, when its margin plus profit falls to 0.5% of its size: you lose that
+              Every fill pays a small spread (0.05%) and only uses a price from the last 2 seconds, so a faster price feed elsewhere gives
+              nobody an edge. A position is liquidated, on the next price read, when its margin plus profit falls to 0.5% of its size: you lose that
               margin and nothing more. Your position and fills stay hidden from your opponent until the Match ends; the opponent sees only who is ahead
               and how many trades were made. Afterwards both Players&apos; full fill histories are public on the Match page. Chips are scorekeeping inside
               the Match, not Gemas.
@@ -145,7 +145,7 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         a: (
           <p>
             A Platform Fee for Tesoro and a Studio Fee for the game&apos;s maker, taken in Gemas from the loser&apos;s entry when the Match
-            settles. On devnet they are 5% of the Pot together. Nothing is ever charged on your Principal, your Advance or a Redeem.
+            settles. In test mode they are 5% of the Pot together. Nothing is ever charged on your Principal, your Advance or a Redeem.
           </p>
         ),
       },
@@ -262,7 +262,7 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         q: "How do I sign in?",
         a: (
           <p>
-            With your email and a one-time code. Your Account holds one address per chain family (Solana and EVM), so you don&apos;t need a
+            With your email and a one-time code. Your Account holds one address for Solana and one for ETH and HYPE, so you don&apos;t need a
             wallet extension. Positions, Gemas, Matches and Backings belong to your Account.
           </p>
         ),
@@ -271,8 +271,8 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         q: "Which chains does Tesoro use?",
         a: (
           <p>
-            Solana devnet for SOL Positions, Matches and the ledger; Ethereum Hoodi for ETH Positions; HyperEVM testnet for HYPE Positions. ETH
-            and HYPE Positions stay on their own chain, and LayerZero carries their messages to Solana.
+            Solana for SOL Positions, Matches and your Account; Ethereum (the Hoodi test network) for ETH Positions; HyperEVM for HYPE
+            Positions. ETH and HYPE Positions stay on their own chain, and Tesoro keeps them in sync with your Account.
           </p>
         ),
       },
@@ -295,7 +295,7 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         q: "My ETH or HYPE Position is still crossing chains",
         a: (
           <p>
-            LayerZero usually takes 2 to 5 minutes between Hoodi and Solana, and about a minute from HyperEVM. You can leave the page. Taking the
+            Crossing chains usually takes 2 to 5 minutes from Ethereum, and about a minute from HyperEVM. You can leave the page. Taking the
             Advance is the last step and needs your signature, so it continues when you come back to your Wallet.
           </p>
         ),
@@ -313,23 +313,23 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         q: "My ETH or HYPE Position shows yield that is not reported",
         a: (
           <p>
-            Yield earned on Hoodi or HyperEVM is applied to your Debt once it is reported to Solana. Press Report yield on the Position to send it
-            now; it costs a small LayerZero fee.
+            Yield earned on Ethereum or HyperEVM is applied to your Debt once it is reported to Tesoro. Press Report yield on the Position to send it
+            now; it costs a small cross-chain fee.
           </p>
         ),
       },
       {
-        q: "The price feed is stale",
+        q: "It says the price is updating",
         a: (
-          <p>Opening a Position needs a fresh price. It is refreshed every hour; try again in a few minutes.</p>
+          <p>Opening a Position needs a fresh price, and it is refreshed every hour. Try again in a few minutes.</p>
         ),
       },
       {
-        q: "A page could not read from Solana devnet",
+        q: "A page won’t load",
         a: (
           <p>
-            The devnet network is sometimes slow or rate-limited. Press Try again or refresh the page. Nothing is lost: your Positions, Gemas and
-            Matches live on chain, not in your browser.
+            The test network is sometimes slow or busy. Press Try again or refresh the page. Nothing is lost: your Positions, Gemas and
+            Matches are saved on Solana, not in your browser.
           </p>
         ),
       },

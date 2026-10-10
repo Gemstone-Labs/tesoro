@@ -28,7 +28,7 @@ export function Footer() {
             ),
           )}
         </nav>
-        {LAUNCH_STAGE === "testnet" && <p className="mono lp-footer-stage">testnet / devnet · no real value</p>}
+        {LAUNCH_STAGE === "testnet" && <p className="mono lp-footer-stage">test mode · no real value</p>}
       </div>
     </footer>
   );

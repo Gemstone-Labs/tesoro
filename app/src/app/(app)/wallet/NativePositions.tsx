@@ -46,10 +46,19 @@ function inMinutes(targetMs: number, nowMs: number): string {
   return `in ~${m} min`;
 }
 
+const DONE: Record<string, string> = {
+  faucet: "Got test simSOL",
+  open: "Position opened",
+  refresh: "Yield refreshed",
+  unlock: "Principal unlocked",
+  sweep: "Leftover yield collected",
+  redeem: "Redeemed",
+};
+
 function Sig({ label, sig }: { label: string; sig: string }) {
   return (
     <a className="meta mono" href={explorer(sig)} target="_blank" rel="noreferrer">
-      {label} · {sig.slice(0, 10)}…
+      {DONE[label] ?? label} · receipt {sig.slice(0, 8)}…
     </a>
   );
 }
@@ -87,14 +96,14 @@ export function NativeFaucet({ market, loading }: { market: NativeMarket | null;
     <div className="wl-faucet">
       <div className="spread">
         <span className="meta">
-          {loading ? "Reading your Account from Solana devnet…" : <>Your simSOL <b className="tnum">{market ? fmtSol(market.simSol, 3) : "—"}</b></>}
+          {loading ? "Loading your Account…" : <>Your simSOL <b className="tnum">{market ? fmtSol(market.simSol, 3) : "—"}</b></>}
         </span>
         <Chip tone="warn">Simulated</Chip>
       </div>
       <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken, setStep))}>
         {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
       </Button>
-      {a.done && <Sig label="simSOL faucet" sig={a.done.sig} />}
+      {a.done && <Sig label="faucet" sig={a.done.sig} />}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
     </div>
   );
@@ -139,7 +148,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
         <div className="status ok" role="status">
           <CheckIcon /> Position opened · <GemaAmount value={gemas} size="md" /> issued
         </div>
-        <Sig label="open_native_position + take_native_advance" sig={a.done.sig} />
+        <Sig label="open" sig={a.done.sig} />
         <Button block onClick={() => { a.clear(); setText(""); onDone?.(); }}>Done</Button>
       </div>
     );
@@ -169,7 +178,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
       ]}
       alerts={
         <>
-          {market && !priceOk && <p className="status err" role="alert">The devnet price feed is stale or missing. The keeper refreshes it hourly; try again shortly.</p>}
+          {market && !priceOk && <p className="status err" role="alert">The SOL price is updating. Try again in a few minutes.</p>}
           {tooMuch && <p className="status err" role="alert">That is more simSOL than you have.</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
@@ -261,13 +270,13 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
       )}
       {!locked && (
         <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("sweep", () => sweepNative(signer, info))}>
-          {a.busy === "sweep" ? "Sweeping…" : "Sweep surplus"}
+          {a.busy === "sweep" ? "Collecting…" : "Collect leftover yield"}
         </Button>
       )}
       <p className="note wl-tile-note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated).</p>
       {unapplied > 0n && locked && (
         <p className="note wl-tile-note">
-          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (the keeper does it every ~20 s).
+          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (it happens automatically every ~20 s).
         </p>
       )}
       {locked && !canUnlock && <p className="note wl-tile-note">Unlock returns the Principal once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
@@ -318,7 +327,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
         setSigs((s) => [...s, sig]);
       }
       if (ethRows.length > 0) {
-        if (!ethCtx) throw new Error("Your EVM wallet is not ready yet. Try again in a moment.");
+        if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
         await redeemEthHoldings(ethCtx, snapshot?.holdings ?? []);
         if (rows.length === 0) onClose();
       }
@@ -356,7 +365,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
         ))}
       </dl>
       {rows.length + ethRows.length > 0 && <SimulatedYieldLabel />}
-      {ethRows.length > 0 && <p className="meta">ETH- and HYPE-Sourced Gemas redeem through the bridge: the simETH (Hoodi) or simHYPE (HyperEVM) arrives a few minutes later, with progress shown on the Wallet.</p>}
+      {ethRows.length > 0 && <p className="meta">ETH- and HYPE-Sourced Gemas pay out on their own chain: the simETH (Hoodi) or simHYPE (HyperEVM) arrives a few minutes later, with progress shown on the Wallet.</p>}
       {rows.length + ethRows.length === 0 && sigs.length === 0 && <p className="meta">Nothing is redeemable yet. Yield accrues on the Source Position over time.</p>}
       {sigs.length > 0 && (
         <div className="status ok" role="status">

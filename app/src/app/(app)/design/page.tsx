@@ -111,7 +111,7 @@ export default function Design() {
           <span style={{ fontSize: 24, fontWeight: 900, letterSpacing: "-.02em" }}>Page title</span>
           <span style={{ fontSize: 14 }}>Body 14 / 400. Money is plain, big and honest.</span>
           <Label>Label 11 / 700 caps</Label>
-          <span className="mono">0x9f3a…c21e · Seed · 01:30</span>
+          <span className="mono">Pieces #9f3a1c · 01:30</span>
         </div>
       </Section>
 

@@ -20,7 +20,7 @@ export default function PlayPreview() {
       run={run}
       matchPanel={
         <div className="bpx-status" role="status">
-          <p>Opponent plays the same Seed · waiting to be paired</p>
+          <p>Your opponent gets the same pieces · waiting to be paired</p>
           <span className="bpx-finding">
             <i className="bpx-spin" aria-hidden="true" /> Finding opponent…
           </span>
