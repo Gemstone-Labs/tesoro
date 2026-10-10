@@ -17,6 +17,7 @@ Every page of the app inside its real layout, one story per state. Pick **Signed
 | `/play/queue` | Play: Queue, Queue signed out, Queue not enough Gemas |
 | `/play/challenge`, `/play/challenge/<id>` | Play: Challenge create, Challenge join |
 | `/play/match/<id>` | Match: for each Game, waiting for an opponent, getting ready, live, waiting for the opponent, Won, Lost, Refunded, backed, and a spectator |
+| `/play/queue` → `/play/match/<id>` | Match flow: the whole journey on the real pages, step by step (see below) |
 | `/matches` | Matches: History, Only Hold'em, Second page, Empty, Loading, Signed out |
 | `/account/<key>` | Account: Own, Other player, Other player signed out, New account, New account (own), No account |
 | `/backing` | Backing: Board, Board signed out, Empty board, Offer drawer, Loading, Load failed |
@@ -31,3 +32,9 @@ Every page of the app inside its real layout, one story per state. Pick **Signed
 The page, its components and its CSS are the app's own. Reads that would touch a chain are answered by examples: the demo Account, a few Backing Requests, a leaderboard, the open Queue. A story picks its state with parameters (see `docs/storybook.md`). Nothing is sent: buttons that would sign a transaction do nothing, and Block Puzzle's Live story plays on made-up pieces.
 
 Hold'em and Trading Duel Matches show the table a Player would see in a given moment: the Match driver is replaced by a fixed state, so the clock and the opponent do not move. The Trading Duel price walks on its own so the chart is alive.
+
+## Match flow
+
+**Screens / Match flow** plays a Match from the Enter button to the result: the Queue page's progress lines, the redirect, MatchRoute reading the Match, the session setup (delegation to MagicBlock's private Ephemeral Rollup, permissions, the hidden Seed or the shuffle), play, the commit back to Solana and the payout. Eight journeys: Block Puzzle opening, joining, Backed and from a Challenge link; Hold'em joining and a new Challenge; Trading Duel joining and opening.
+
+A dock lists every step with where it runs (wallet, Solana, Ephemeral Rollup, TEE, VRF, price oracle), what happens underneath and the instructions sent. Play steps through on a timer (the **speed** control sets the pace); click any step to jump there. Stepping forward keeps the page mounted, so it moves on by itself as it would on devnet; jumping starts the page afresh at that step.

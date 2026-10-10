@@ -16,8 +16,8 @@ export interface ScreenData {
   queueDepth?: { "block-puzzle": number; holdem: number; "trading-duel": number };
   /** The Backing Request to open in the Offer drawer (the URL hash). */
   hash?: string;
-  /** Block Puzzle Match: where the signed-in Player's run is, and whether the joiner timed out. */
-  run?: { stage: RunStage; timeout?: boolean };
+  /** Block Puzzle Match: where the signed-in Player's run is, whether the joiner timed out, and the setup step shown while preparing. */
+  run?: { stage: RunStage; timeout?: boolean; step?: string };
   /** Ethereum / HyperEVM Positions: the Advance on every Position card, and how far an opening Position has got. */
   eth?: { advance?: "open" | "paid"; opening?: "sent" | "delivered" | "recorded" | "arrived" | "failed" };
   /** Hold'em Match: what the driver reports (merged over a "waiting" view). */
@@ -28,6 +28,9 @@ export interface ScreenData {
 
 let current: ScreenData = {};
 export const screenData = () => current;
+export const setScreenData = (d: ScreenData) => {
+  current = d;
+};
 
 /** Reads `parameters.screen` before each story renders. Add it to a story file's `decorators`. */
 export const withScreen: Decorator = (Story, ctx) => {
