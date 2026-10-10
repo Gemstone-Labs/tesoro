@@ -1,0 +1,22 @@
+/* ——— Continue: the Player's open Matches, at the top of the Lobby ——— */
+.continue-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
+.continue-card { display: flex; align-items: center; gap: 16px; padding: 10px 14px 10px 10px; background: var(--surface); }
+.continue-card:hover { background: var(--surface-2); }
+.continue-card.ready { --edge: rgba(234, 239, 236, 0.5); background: var(--surface-2); }
+.continue-art { --c: 8px; position: relative; flex: none; width: 76px; height: 76px; overflow: hidden; clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c)); }
+.continue-art img { object-fit: cover; }
+.continue-body { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.continue-game { font-family: var(--f-display); font-size: 20px; font-weight: 800; line-height: 1; text-transform: uppercase; }
+.continue-status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
+.continue-status i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--fg-3); }
+.continue-status i.ready { background: var(--fg); animation: continue-ready 1.4s ease-in-out infinite; }
+@keyframes continue-ready { 0%, 100% { box-shadow: 0 0 0 3px rgba(234, 239, 236, 0.18); } 50% { box-shadow: 0 0 0 6px rgba(234, 239, 236, 0); } }
+.continue-figures { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; font-weight: 700; }
+.continue-figures > span { display: inline-flex; align-items: center; gap: 4px; }
+.continue-time { color: var(--fg-2); font-weight: 500; }
+.continue-time svg { width: 12px; height: 12px; }
+.continue-cta { flex: none; gap: 6px; }
+.continue-cta svg { width: 14px; height: 14px; }
+.continue-cta.ready { background: var(--fg); color: #0b0f12; --edge: transparent; }
+.continue-card:hover .continue-cta.ready { background: #fff; }
+@media (prefers-reduced-motion: reduce) { .continue-status i.ready { animation: none; box-shadow: 0 0 0 3px rgba(234, 239, 236, 0.18); } }

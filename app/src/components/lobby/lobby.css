@@ -101,7 +101,6 @@ a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(23
 .soon-thumb { position: relative; width: 36px; height: 36px; overflow: hidden; --c: 7px; }
 .soon-thumb img { object-fit: cover; filter: saturate(0.4) brightness(0.7); }
 
-.live-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
 
 @container (max-width: 700px) {
   .hero { --hero-h: 440px; }
