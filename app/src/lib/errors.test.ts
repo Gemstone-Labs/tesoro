@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUSY, RETRY, plainError } from "./errors";
+import { BUSY, RETRY, UNCONFIRMED, plainError } from "./errors";
 
 describe("plainError", () => {
   it("keeps the program's own message", () => {
@@ -13,7 +13,11 @@ describe("plainError", () => {
   });
   it("turns rate limits and timeouts into a busy line", () => {
     expect(plainError(new Error("429 Too Many Requests"))).toBe(BUSY);
-    expect(plainError(new Error("Transaction was not confirmed in 30.00 seconds"))).toBe(BUSY);
+  });
+  it("never tells the Player to retry a send that may still land", () => {
+    expect(plainError(new Error("Transaction was not confirmed in 30.00 seconds"))).toBe(UNCONFIRMED);
+    expect(plainError(new Error("base tx not confirmed 5abc"))).toBe(UNCONFIRMED);
+    expect(plainError(new Error("Simulation failed. \nMessage: custom program error: 0x1771"))).toBe(RETRY);
   });
   it("names a wallet rejection", () => {
     expect(plainError(Object.assign(new Error("x"), { code: 4001 }))).toBe("You cancelled the request in your wallet.");

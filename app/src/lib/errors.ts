@@ -5,6 +5,8 @@
  */
 export const BUSY = "The network is busy right now. Wait a few seconds and try again.";
 export const RETRY = "That didn’t go through. Try again in a moment.";
+/** Sent but not confirmed: it may still land, so a retry could do it twice. */
+export const UNCONFIRMED = "Sent, but not confirmed yet. Wait a moment and check before trying again.";
 
 export function plainError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e);
@@ -14,9 +16,10 @@ export function plainError(e: unknown): string {
   }
   const program = /Error Message: ([^\n]+)/.exec(text);
   if (program) return program[1].replace(/\.$/, "");
-  if (/\b429\b|rate.?limit|too many requests|exceeds defined limit|took too long|timed? ?out|not confirmed|blockhash|failed to fetch|fetch failed|network ?error|unknown RPC error/i.test(text)) return BUSY;
+  if (/not confirmed|was not confirmed|confirmation timed? ?out|block height exceeded/i.test(text)) return UNCONFIRMED;
+  if (/\b429\b|rate.?limit|too many requests|exceeds defined limit|took too long|timed? ?out|blockhash|failed to fetch|fetch failed|network ?error|unknown RPC error/i.test(text)) return BUSY;
   if (/insufficient (funds|lamports)|attempt to debit an account but found no record/i.test(text)) return "Not enough SOL to cover the network fee. Try again in a moment.";
   const first = text.split("\n")[0];
-  if (/tx failed|\bfailed [1-9A-HJ-NP-Za-km-z]{32,}|InstructionError|Custom\b|"Custom"|base layer|rollup|delegat|\bTEE\b|\bcommit/i.test(first)) return RETRY;
+  if (/tx failed|\bfailed [1-9A-HJ-NP-Za-km-z]{32,}|InstructionError|Custom\b|"Custom"|simulation failed|transaction failed|custom program error|base layer|rollup|delegat|\bTEE\b|\bcommit/i.test(first)) return RETRY;
   return first.length > 200 ? `${first.slice(0, 200)}…` : first;
 }

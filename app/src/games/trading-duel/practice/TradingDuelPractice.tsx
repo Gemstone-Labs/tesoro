@@ -11,6 +11,7 @@ import { TradingScreen, useNow } from "../TradingScreen";
 import { seededRng } from "./bot";
 import { marked, newSession, playerOrder, stepSession, type Session } from "./session";
 import "../trading.css";
+import { plainError } from "@/lib/errors";
 
 const MODES = [
   { id: "full", label: "5 minutes", secs: RULES.durationSecs },
@@ -68,7 +69,7 @@ export function TradingDuelPractice() {
       setSession(playerOrder(session, o, mid, Date.now()));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(plainError(e));
     }
   };
 
