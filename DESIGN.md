@@ -189,9 +189,9 @@ The founder's rule (Oct 1): the website must not copy the mockups' density. Mock
 
 Dev only: `/design/result?case=won|lost|draw|refunded|backed-player|backed-lost|backer-won|backer-lost|holdem-won|holdem-lost` renders every result variant from fixtures (`NEXT_PUBLIC_DEV_WALLET=1`).
 
-## Landing page (`/`)
+## Landing page (`/welcome`)
 
-Plan, copy and decisions: `~/Work/gemstone-labs/tesoro/art-source/landing/PLAN.md` (workspace); Astra brief: `PROMPTS.md` beside it. Code: `app/src/app/(marketing)/page.tsx`, `app/src/components/landing`. The landing is `/` (`/welcome` redirects there) and the Lobby is `/lobby`. The app routes live in the `(app)` route group, so the landing loads none of Privy, chain data or the shell.
+Plan, copy and decisions: `~/Work/gemstone-labs/tesoro/art-source/landing/PLAN.md` (workspace); Astra brief: `PROMPTS.md` beside it. Code: `app/src/app/(marketing)/welcome/page.tsx`, `app/src/components/landing`. The landing is `/welcome`, the waitlist is `/` (see Waitlist) and the Lobby is `/lobby`. The app routes live in the `(app)` route group, so the landing loads none of Privy, chain data or the shell.
 
 - **Written for mainnet.** Testnet-only content (the Multichain status line, the footer's "testnet / devnet · no real value") renders only while `NEXT_PUBLIC_LAUNCH_STAGE` is not `mainnet`. Launch app and every in-app link read `NEXT_PUBLIC_APP_URL` (the landing page and the app get separate URLs at launch).
 - **Light theme, landing only.** `:root[data-theme="light"]` in `landing.css`: `--shell #f5f3ee` (the background the light lockup was checked on), `--fg #111816`, `--fg-2 #4a5451`, `--em #086b4f` (5.8:1), `--facet` deep emerald with white ink. Set before paint from localStorage, else `prefers-color-scheme`; cleared when leaving the page so the app stays dark. The hero is the dark cave in both themes (the light theme starts below it); the final CTA becomes a cut-frame window in light.
@@ -201,6 +201,18 @@ Plan, copy and decisions: `~/Work/gemstone-labs/tesoro/art-source/landing/PLAN.m
 - **Motion.** GSAP ScrollTrigger + Lenis, loaded only here, desktop-only for smooth scroll, the Gemas pin and the hero parallax; nothing under `prefers-reduced-motion`. The server HTML is the complete page. The hero lantern glows and flickers (CSS, positioned to follow the art's object-fit).
 - **3D** (`components/landing/{gem,chains}`, `Stage3D`): the procedural emerald cut (`emeraldCut.ts`, tested) with drei's refraction material over a procedural studio environment. Live only on ≥1024 px with WebGL, motion allowed and 4+ cores; otherwise a poster rendered from the same scene (`scripts/render-landing-posters.mjs`). Always the plain Gema, never the Facet T. `public/art/landing/gema.glb` is the same mesh for Blender (`scripts/export-gem-glb.mjs`).
 - **Art pipeline.** `scripts/import-landing-art.mjs` (Astra's chosen takes → AVIF/WebP per width, `art.generated.ts`). Gameplay loops: `scripts/capture-landing-loops.mjs`; screenshots `scripts/screenshot-landing.mjs` → `app/docs/screens/landing-*.png`; scroll recording `scripts/record-landing-scroll.mjs`.
+
+## Waitlist (`/`)
+
+The home page until launch; the landing it replaced is `/welcome`. Code: `app/src/app/(marketing)/page.tsx`, `app/src/components/waitlist/` (`waitlist.css`), the sign-up in `(marketing)/waitlist-action.ts` and `src/server/waitlist.ts`; env and schema in `app/docs/hosting.md`.
+
+- **One dark frame, both themes.** `.wl` carries the dark tokens itself, like the Games shelf, and ignores the landing's theme switch. `100dvh` with a 640px floor (680px on a phone) so the form is never clipped.
+- **Layout.** The form is bottom left, a diagonal band of jewel blocks splits the frame, casual-game footage fills the top right. The diagonal is one constant (`waitlist/geometry.ts`): the video wall's `clip-path`, the solid floor under the form and the block layout are all derived from it, so they line up at every size. Phone: footage in the top ~45%, the form below.
+- **Gem divider.** Octagon-cut blocks (a table facet and eight bevels lit from above, `GemDivider.tsx`) in the four Block Puzzle jewel colours; rows thin out and shrink towards the footage. At most two emerald blocks, because emerald means Gemas move. Never the Facet T mark. A pop-in on load and a light sweep along the band every ~6 s; both off under reduced motion.
+- **Video wall.** Stock clips (Pexels, free licence, none showing a branded game; `art-source/waitlist/CREDITS.md`) in tilted columns drifting in opposite directions. `muted loop playsInline preload="none"`, WebM then MP4, WebP poster; a clip plays only while on screen, the first four on load and the rest when the browser is idle. Reduced motion or Save-Data: posters only, no drift. Regenerate with `scripts/import-waitlist-clips.mjs`.
+- **Join is the page's single primary CTA**, drawn as the landing's Launch app button (`btn money cut cut-btn`). This is the one place emerald is a form submit rather than Gemas moving: the page has no Gemas, and the button is the only action it asks for. "Try the app" in the top bar is plain text.
+- **Words.** The hero says what the product is and carries no testnet, devnet or "simulated" caveat; the only trace is the small "test mode" line under the form, gated on `LAUNCH_STAGE`. The count line shows only from 50 players.
+- **Sign-up** works without JavaScript (a Server Action behind a plain form). A duplicate email still answers "You're on the list", so the form never reveals who is listed; a hidden `company` field is the honeypot; 5 tries a minute per IP.
 
 ## Docs (`/docs`)
 

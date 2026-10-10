@@ -48,7 +48,19 @@ Keys never go into the repo or the image. Each server key is read from an env se
 - `TESORO_DEMO_ADVANCE`: not gated on `NODE_ENV`, so setting it would turn the oracle-signed fake Advance back on.
 - `TESORO_*_KEYPAIR`, `TESORO_RELAYER_EVM_ENV`: these are file paths and are not used on Vercel.
 
-`NEXT_PUBLIC_APP_URL` does not exist in the code, so don't set it.
+`NEXT_PUBLIC_APP_URL` is read by `lib/landing/config.ts` (`appHref`): set it only when the app lives on a different origin than the landing and waitlist. Left unset, every in-app link stays relative.
+
+### Waitlist (Supabase)
+
+The home page `/` is the waitlist: emails go to a Supabase table through a Server Action (`src/server/waitlist.ts`). Env (Production, **secret** unless noted):
+
+| Variable | Notes |
+|---|---|
+| `SUPABASE_URL` | Project URL, `https://<ref>.supabase.co`. The Vercel Supabase integration may name it differently: map it to this name. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only. The table has row level security on and no policies, so only this key reads or writes it. |
+| `NEXT_PUBLIC_SITE_URL` | public, optional. The URL the "Share on X" link carries. Defaults to the production domain. |
+
+Apply the schema once per project, in order: `app/supabase/migrations/*.sql` (SQL editor, `supabase db push`, or the Supabase MCP `apply_migration`). Without the env the page still renders; joining shows "We couldn't save that just now". The count line ("N players waiting") appears from 50 players and refreshes every minute.
 
 ### Commands
 
