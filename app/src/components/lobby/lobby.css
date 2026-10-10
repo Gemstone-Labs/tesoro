@@ -191,3 +191,10 @@ a.tile:hover .tile-glare { opacity: 1; }
 .lbt-name b { font-size: 16px; }
 .lbt-pts { font-weight: 800; font-size: 15px; font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) { .lbt { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
+
+/* Play now: Match or Practice */
+.play-choice { gap: 10px; }
+.play-opt { --edge: var(--edge-2); display: grid; gap: 4px; padding: 16px; background: var(--shell); }
+.play-opt b { font-size: 17px; font-weight: 800; }
+.play-opt small { font-size: 13.5px; color: var(--fg-2); }
+.play-opt .btn { margin-top: 10px; }

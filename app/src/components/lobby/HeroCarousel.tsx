@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowRight, Pause, Play } from "lucide-react";
-import { AssetPicker, Button, EntryPicker } from "@/components/ui";
+import { AssetPicker, Button, EntryPicker, Sheet } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
@@ -31,6 +31,12 @@ const SLIDES: Slide[] = [
 ];
 
 const ADVANCE_MS = 7000;
+
+const PRACTICE_LINE: Record<GameId, string> = {
+  "block-puzzle": "Random pieces, nothing at stake.",
+  holdem: "Against a bot, nothing at stake.",
+  "trading-duel": "Against a bot, nothing at stake.",
+};
 
 const hrefFor = (kind: "queue" | "challenge", game: GameId, entry: number, asset: number) =>
   `/play/${kind}?${gameQuery(game, asset)}entry=${entry}`;
@@ -152,6 +158,7 @@ function HeroSlide({
   const { gemas, auth, onChain, loading, entryProblem } = useAccount();
   const router = useRouter();
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
+  const [choosing, setChoosing] = useState(false);
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
   const problem = signedIn && onChain ? entryProblem(entry) : null;
   const canEnter = !signedIn || loading || (onChain ? problem === null : gemas.available >= entry);
@@ -192,7 +199,7 @@ function HeroSlide({
             </Button>
           </div>
         ) : (
-          <Button variant="money" size="lg" block onClick={() => go(hrefFor("queue", slide.game, entry, asset), "Enter a Match")} disabled={!canEnter}>
+          <Button variant="money" size="lg" block onClick={() => setChoosing(true)} disabled={!canEnter}>
             Play now
           </Button>
         )}
@@ -215,6 +222,31 @@ function HeroSlide({
           )}
         </p>
       </div>
+      <Sheet open={choosing} onClose={() => setChoosing(false)} title={`Play ${slide.title}`}>
+        <div className="stack play-choice">
+          <div className="cut cut-card play-opt">
+            <b>Match</b>
+            <small>{fmtGemas(entry)} Gemas entry · {waiting} waiting in Queue</small>
+            <Button
+              variant="money"
+              block
+              onClick={() => {
+                setChoosing(false);
+                go(hrefFor("queue", slide.game, entry, asset), "Enter a Match");
+              }}
+            >
+              Play now
+            </Button>
+          </div>
+          <div className="cut cut-card play-opt">
+            <b>Practice</b>
+            <small>{PRACTICE_LINE[slide.game]}</small>
+            <Button block href={practiceHref(slide.game, asset)}>
+              Practice free
+            </Button>
+          </div>
+        </div>
+      </Sheet>
     </article>
   );
 }
