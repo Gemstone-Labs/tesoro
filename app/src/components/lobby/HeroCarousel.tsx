@@ -13,6 +13,8 @@ import { art } from "@/lib/art";
 import { fmtGemas } from "@/lib/format";
 import type { EntrySize, GameId } from "@/lib/mock";
 import { useQueueDepth } from "./useQueueDepth";
+// PROTOTYPE: hero meta variants (?variant=A..E)
+import { EntryQueueRow, HeroMetaSwitcher, MetaByEntry, MetaLiveStrip, MetaModeToggle, MetaTwoDoors, useMetaVariant, useWaitingOverride } from "./HeroMeta.prototype";
 
 interface Slide {
   game: GameId;
@@ -126,6 +128,7 @@ export function HeroCarousel() {
           </button>
         )}
       </div>
+      <HeroMetaSwitcher />
     </section>
   );
 }
@@ -157,6 +160,17 @@ function HeroSlide({
   const canEnter = !signedIn || loading || (onChain ? problem === null : gemas.available >= entry);
   const needsGemas = !canEnter && problem !== "too-many-sources";
   const go = (href: string, reason: string) => auth.gate(reason, () => router.push(href));
+  const variant = useMetaVariant();
+  waiting = useWaitingOverride(waiting);
+  const proto = canEnter && !needsGemas && variant !== "A";
+  const protoProps = {
+    game: slide.game,
+    title: slide.title,
+    entry,
+    waiting,
+    onPlay: () => go(hrefFor("queue", slide.game, entry, asset), "Enter a Match"),
+    onChallenge: () => go(hrefFor("challenge", slide.game, entry, asset), "Challenge a friend"),
+  };
 
   return (
     <article
@@ -179,10 +193,18 @@ function HeroSlide({
         <h2 className="slide-title">{slide.title}</h2>
         <p className="slide-sub">{slide.sub}</p>
         <div className="slide-entry">
+          {proto && variant === "D" && <EntryQueueRow game={slide.game} waiting={waiting} entry={entry} />}
           {slide.game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="hero-asset" compact />}
           <EntryPicker value={entry} onChange={onEntry} legend={`Entry for ${slide.title}`} name={`hero-${slide.game}${clone ? "-clone" : ""}`} maxAffordable={signedIn && onChain ? gemas.available : undefined} isDisabled={signedIn && onChain ? (size) => entryProblem(size) !== null : undefined} />
         </div>
-        {needsGemas ? (
+        {proto ? (
+          <>
+            {variant === "B" && <MetaLiveStrip {...protoProps} />}
+            {variant === "C" && <MetaTwoDoors {...protoProps} />}
+            {variant === "D" && <MetaByEntry {...protoProps} />}
+            {variant === "E" && <MetaModeToggle {...protoProps} />}
+          </>
+        ) : needsGemas ? (
           <div className="slide-cta">
             <Button variant="money" size="lg" href="/wallet?open=1">
               Get Gemas
@@ -196,7 +218,7 @@ function HeroSlide({
             Play now
           </Button>
         )}
-        <p className="slide-meta">
+        {!proto && <p className="slide-meta">
           {canEnter ? (
             <>
               {waiting} waiting in Queue ·{" "}
@@ -213,7 +235,7 @@ function HeroSlide({
               )}
             </>
           )}
-        </p>
+        </p>}
       </div>
     </article>
   );
