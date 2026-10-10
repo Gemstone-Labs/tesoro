@@ -28,7 +28,7 @@ export type AuthStatus = "unconfigured" | "loading" | "signed-out" | "signed-in"
 export interface AuthState {
   status: AuthStatus;
   email: string | null;
-  /** Embedded wallet addresses; null until Privy has created them (a moment after first sign-in). */
+  /** The Account's wallet addresses (the embedded ones Privy creates for every sign-in method); null until they exist (a moment after first sign-in). */
   addresses: { solana: string | null; evm: string | null };
   linked: LinkedWallet[];
   signOut: () => Promise<void>;
@@ -44,6 +44,10 @@ export interface AuthState {
   signer: ChainSigner | null;
   /** Signs and sends on Hoodi with the Account's EVM wallet; null until it exists. */
   evm: EvmSigner | null;
+  /** The person's own Solana wallet when one is linked and connected (Phantom, Solflare, ...). It proves a .sol name by co-signing; it never signs game moves. Null in dev mode. */
+  externalSolana: ChainSigner | null;
+  /** The person's own Ethereum wallet when one is linked and connected (MetaMask, Rabby, ...). It proves a .eth name; null in dev mode. */
+  externalEvm: EvmSigner | null;
   /** Privy access token for server routes (null when signed out or in dev-wallet mode). */
   getAccessToken: () => Promise<string | null>;
   /** True when the dev-only local Keypair wallet stands in for Privy (never in production builds). */
