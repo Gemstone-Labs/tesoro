@@ -63,7 +63,7 @@ export function MatchRow({
         <span className="mh-opp">{opp}</span>
       )}
       <span className="mh-amt">
-        <b className={r.delta > 0 ? "won" : undefined}>
+        <b className={r.delta > 0 ? "won" : r.delta < 0 ? "lost" : undefined}>
           {r.delta > 0 && <GemaMark size={20} />}
           {amountText(r)}
         </b>

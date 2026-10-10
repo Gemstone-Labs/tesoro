@@ -21,6 +21,7 @@ a.mh-row:hover { background: var(--surface-2); }
 .mh-amt { grid-area: amt; display: grid; justify-items: end; text-align: right; gap: 2px; }
 .mh-amt b { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; white-space: nowrap; }
 .mh-amt b.won { color: var(--em-hi); }
+.mh-amt b.lost { color: var(--danger); }
 .mh-amt small { color: var(--fg-2); font-size: 13px; }
 .mh-go { grid-area: go; width: 20px; height: 20px; color: var(--fg-2); }
 
