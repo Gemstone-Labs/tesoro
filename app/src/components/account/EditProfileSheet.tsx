@@ -89,15 +89,13 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
 
-  const payer = auth.signer?.publicKey ?? null;
   useEffect(() => {
     let live = true;
-    if (!payer) return;
-    void import("@/lib/identity/chain").then(({ profilesAvailable }) => profilesAvailable(payer)).then((ok) => live && setAvailable(ok));
+    void import("@/lib/identity/chain").then(({ profilesAvailable }) => profilesAvailable()).then((ok) => live && setAvailable(ok));
     return () => {
       live = false;
     };
-  }, [payer]);
+  }, []);
 
   const trimmed = name.trim();
   const nameError = trimmed === "" ? null : profileNameError(trimmed);
@@ -250,7 +248,7 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
       {available === false ? (
         <p className="meta" role="status">Profiles are coming soon.</p>
       ) : (
-        <Button type="submit" block disabled={!valid || unchanged || busy !== null || !auth.signer}>
+        <Button type="submit" block disabled={!valid || unchanged || busy !== null || !auth.signer || available === null}>
           {busy ?? "Save"}
         </Button>
       )}

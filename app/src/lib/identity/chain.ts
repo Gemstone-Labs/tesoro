@@ -145,21 +145,27 @@ const FALLBACK_NOT_FOUND = 101;
 let liveSince = 0;
 
 /**
- * Whether the deployed tesoro_core has `set_profile`. Simulates the instruction without signatures:
- * a program that knows it fails later for another reason, one that does not answers 101. Anything
- * else (no SOL yet, a flaky RPC) counts as available, since saving will say what went wrong.
+ * Whether the deployed tesoro_core has `set_profile`. Simulates the instruction without signatures
+ * (paid by the program admin's funded account, so a new Account needs no SOL to be asked): a program
+ * that knows the instruction fails later for another reason, one that does not answers 101. Anything
+ * else (a flaky RPC) counts as available, since saving will say what went wrong.
  */
-export async function profilesAvailable(payer: PublicKey): Promise<boolean> {
+export async function profilesAvailable(): Promise<boolean> {
   if (liveSince > 0) return true;
   try {
+    const core = getChain().core;
+    const config = PublicKey.findProgramAddressSync([Buffer.from("config")], TESORO_CORE_PROGRAM_ID)[0];
+    const payer = new PublicKey((await core.account.config.fetch(config)).admin);
     const ix = await setProfileIx(payer, "Probe", { kind: "default" });
     const { blockhash } = await getChain().base.getLatestBlockhash();
     const tx = new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: blockhash, instructions: [ix] }).compileToV0Message());
     const sim = await getChain().base.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true });
     const err = sim.value.err as { InstructionError?: [number, { Custom?: number }] } | string | null;
     if (err && typeof err === "object" && err.InstructionError?.[1]?.Custom === FALLBACK_NOT_FOUND) return false;
-  } catch {
+    if (err) console.info("[identity] profile probe", JSON.stringify(err));
+  } catch (e) {
     // Unknown: assume it is there.
+    console.info("[identity] profile probe failed", e);
   }
   liveSince = Date.now();
   return true;
