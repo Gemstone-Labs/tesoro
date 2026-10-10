@@ -1,0 +1,64 @@
+/* PROTOTYPE ONLY: Back a player card variants (PlayerCard.prototype.tsx). Delete with it. */
+
+.pc-time { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f-mono); font-size: 12.5px; color: var(--fg-2); white-space: nowrap; }
+.pcA, .pcB, .pcC { background: var(--surface); --edge: var(--edge-1); transition: background-color 0.2s ease; }
+.pcA:hover, .pcB:hover, .pcC:hover { --edge: var(--edge-2); }
+.pcA strong, .pcB strong, .pcC strong { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.pcA .avatar img, .pcB .avatar img, .pcC .avatar img { object-fit: cover; transform: scale(1.18); }
+
+/* A: Record first */
+.pcA { --c: 12px; container-type: inline-size; display: grid; gap: 18px; padding: 18px 20px 20px; }
+.pcA-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; }
+.pcA-av { width: 56px; height: 56px; --c: 12px; }
+.pcA-who { display: grid; gap: 2px; min-width: 0; }
+.pcA-who span { font-size: 14px; color: var(--fg-2); }
+.pcA-head .pc-time { align-self: start; padding-top: 4px; }
+.pcA-rec { display: grid; gap: 12px; padding: 16px 0 2px; border-top: 1px solid var(--line); }
+.pcA-stats { display: grid; grid-template-columns: 1.15fr 1fr 1fr; margin: 0; }
+.pcA-stats div { display: grid; gap: 2px; }
+.pcA-stats div + div { padding-left: 16px; border-left: 1px solid var(--line); }
+.pcA-stats dt { order: 2; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
+.pcA-stats dd { order: 1; margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 34px; line-height: 1; letter-spacing: 0.01em; white-space: nowrap; }
+.pcA-stats div:first-child dd { font-size: 44px; }
+.pcA-bar { display: block; height: 6px; background: rgba(255, 255, 255, 0.09); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+.pcA-bar i { display: block; height: 100%; background: var(--fg); }
+.pcA-new { margin: 0; padding: 16px 0 2px; border-top: 1px solid var(--line); font-size: 15px; color: var(--fg-2); }
+.pcA-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+.pcA-foot > div { display: grid; gap: 2px; }
+.pcA-foot span { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
+.pcA-foot b { display: inline-flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
+.pcA-foot .player-offer { width: 120px; height: 48px; min-height: 48px; }
+
+/* B: Game banner */
+.pcB { --c: 12px; display: grid; padding: 0; overflow: hidden; }
+.pcB-art { position: relative; height: 112px; overflow: hidden; }
+.pcB-art img { object-fit: cover; object-position: 78% 40%; }
+.pcB-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0%, rgba(9, 13, 15, 0.35) 55%, rgba(9, 13, 15, 0.1) 100%), linear-gradient(0deg, rgba(9, 13, 15, 0.7), transparent 60%); }
+.pcB-game { position: absolute; z-index: 1; left: 20px; top: 16px; font-family: var(--f-display); font-weight: 800; font-size: 26px; line-height: 1; text-transform: uppercase; letter-spacing: 0.01em; }
+.pcB-art .pc-time { position: absolute; z-index: 1; right: 14px; top: 14px; padding: 5px 9px; color: var(--fg); background: rgba(6, 9, 12, 0.7); clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px); }
+.pcB-body { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 14px; padding: 0 20px; margin-top: -36px; position: relative; z-index: 2; }
+.pcB-av { width: 76px; height: 76px; --c: 14px; --edge: var(--edge-2); --t: 2px; background: var(--shell); }
+.pcB-who { display: grid; gap: 2px; min-width: 0; padding-bottom: 4px; }
+.pcB-who span { font-size: 14px; color: var(--fg-2); }
+.pcB-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 18px; }
+.pcB-foot b { display: inline-flex; align-items: baseline; gap: 8px; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
+.pcB-foot b svg { align-self: center; }
+.pcB-foot small { font-size: 14px; font-weight: 400; color: var(--fg-2); }
+.pcB-foot .player-offer { width: 120px; height: 48px; min-height: 48px; }
+
+/* C: Win ring, compact */
+.pcC { --c: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: 112px; padding: 14px 16px 14px 14px; }
+.pcC-ring { position: relative; width: 84px; height: 84px; flex: none; }
+.pcC-ring svg { position: absolute; inset: 0; }
+.pcC-ring path { fill: none; stroke-width: 3; stroke-linejoin: miter; }
+.pcC-ring .track { stroke: rgba(234, 239, 236, 0.12); }
+.pcC-ring .fill { stroke: var(--fg); }
+.pcC-av { position: absolute; inset: 7px; width: auto; height: auto; --c: 13px; }
+.pcC-pct { position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); padding: 3px 7px; font-size: 12.5px; font-weight: 800; line-height: 1; background: var(--raised-2); color: var(--fg); clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px); box-shadow: inset 0 0 0 1px var(--line-2); }
+.pcC-info { display: grid; gap: 2px; min-width: 0; }
+.pcC-info > span { font-size: 14px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcC-rec { margin-top: 4px; font-size: 13px !important; }
+.pcC-rec b { color: var(--fg); font-weight: 800; margin-right: 1px; }
+.pcC-rec b + b, .pcC-rec b:nth-of-type(2) { margin-left: 6px; }
+.pcC-side { display: grid; gap: 8px; justify-items: end; }
+.pcC-side > b { display: inline-flex; align-items: center; gap: 7px; font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }

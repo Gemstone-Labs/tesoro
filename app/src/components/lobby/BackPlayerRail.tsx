@@ -10,9 +10,23 @@ import { AccountLink } from "@/components/account/AccountLink";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
+import { Suspense } from "react";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { CardBanner, CardRecord, CardRing, PLAYER_CARD_VARIANTS } from "./PlayerCard.prototype";
 
 /** BACK A PLAYER: live Requests from Solana devnet with the Player's real record. The name leads to their Account; Offer opens the Backing flow. */
+// PROTOTYPE: variant switcher around the rail (see PlayerCard.prototype.tsx).
 export function BackPlayerRail() {
+  return (
+    <Suspense>
+      <BackPlayerRailInner />
+      <PrototypeSwitcher variants={[...PLAYER_CARD_VARIANTS]} />
+    </Suspense>
+  );
+}
+
+function BackPlayerRailInner() {
+  const variant = usePrototypeVariant(PLAYER_CARD_VARIANTS.map((v) => v.key));
   const { board, loading, error, refresh } = useBackingBoard();
   const { snapshot } = useAccount();
   const { query } = useSearch();
@@ -35,6 +49,16 @@ export function BackPlayerRail() {
       {requests.map((r) => {
         const key = r.address.toBase58();
         const mine = r.player === me;
+        const action = mine ? (
+          <Link href={`/backing#${key}`} className="cut cut-btn btn neutral player-offer" aria-label="Your Request">
+            Yours
+          </Link>
+        ) : (
+          <OfferLink href={`/backing#${key}`} player={r.player} label={`in ${GAME_NAMES[r.game]} for ${fmtGemas(r.entry)} Gemas`} />
+        );
+        if (variant === "A") return <CardRecord key={key} r={r} action={action} />;
+        if (variant === "B") return <CardBanner key={key} r={r} action={action} />;
+        if (variant === "C") return <CardRing key={key} r={r} action={action} />;
         return (
           <article key={key} className="cut cut-card player">
             <AccountLink account={r.player} decorative className="cut cut-btn avatar player-avatar">
