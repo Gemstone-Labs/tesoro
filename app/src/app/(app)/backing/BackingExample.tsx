@@ -1,9 +1,10 @@
 import { Button, GemaMark } from "@/components/ui";
 import { backedSplit } from "@/lib/chain/ledger";
+import { LEADERBOARD_BPS } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 
-/** A worked Offer for the empty Requests tab. Fees are the test-mode registry's (2% Platform + 3% Studio of the Pot). */
-const EXAMPLE = { entry: 1000, platformBps: 200, studioBps: 300, shareBps: 5000 };
+/** A worked Offer for the empty Requests tab. Fees are the test-mode registry's (2% Platform + 3% Studio) plus the 1% Leaderboard Fee. */
+const EXAMPLE = { entry: 1000, platformBps: 200, studioBps: 300, leaderboardBps: LEADERBOARD_BPS, shareBps: 5000 };
 
 function Gemas({ n }: { n: number }) {
   return (
