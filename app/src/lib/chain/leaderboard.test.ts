@@ -35,6 +35,28 @@ describe("Config leaderboard terms", () => {
   });
 });
 
+describe("a Config still in the old layout (app deployed before the upgrade)", () => {
+  // The account as created before the Leaderboard: 895 bytes, 3 Games, nothing after them.
+  const legacy = () => {
+    const buf = config(3);
+    const legacyBuf = Buffer.alloc(895);
+    buf.copy(legacyBuf, 0, 0, HEAD + 4 + 3 * 98);
+    Buffer.from(idl.accounts.find((a) => a.name === "Config")!.discriminator).copy(legacyBuf, 0);
+    return legacyBuf;
+  };
+  it("reads as the leaderboard being off, with no fee shown", () => {
+    expect(parseLeaderboardTerms(legacy())).toEqual(NO_LEADERBOARD);
+    setLeaderboardSince(parseLeaderboardTerms(legacy()).since);
+    expect(leaderboardBpsFor(1_791_300_000_000)).toBe(0);
+  });
+  it("still decodes with the new IDL (the unused tail is zero)", () => {
+    const decoded: any = new BorshCoder(idl as never).accounts.decode("Config", legacy());
+    expect(decoded.games).toHaveLength(3);
+    expect(decoded.leaderboard_bps ?? decoded.leaderboardBps).toBe(0);
+    expect((decoded.pool_account ?? decoded.poolAccount).equals(PublicKey.default)).toBe(true);
+  });
+});
+
 describe("MatchWon events", () => {
   it("are read from the logs of a settlement", () => {
     const player = PublicKey.unique();
