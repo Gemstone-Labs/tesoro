@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { ArrowRight, Pause, Play } from "lucide-react";
 import { PlayerAvatar } from "@/components/account/Player";
-import { Button, ENTRY_SIZES } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
@@ -137,10 +137,7 @@ function HeroSlide({
   waiting: QueueSeat[] | null;
   onSelect: () => void;
 }) {
-  const { gemas, auth, onChain, loading, entryProblem, snapshot } = useAccount();
-  const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
-  const smallest = ENTRY_SIZES[0];
-  const priced = signedIn && !loading && (onChain ? entryProblem(smallest) !== null : gemas.available < smallest);
+  const { snapshot } = useAccount();
   const me = snapshot?.accountKey.toBase58();
   const others = waiting?.filter((w) => w.player !== me) ?? null;
 
@@ -168,11 +165,9 @@ function HeroSlide({
           <Button variant="money" size="lg" href={`/play/${slide.game}`}>
             Play now
           </Button>
-          {priced && (
-            <Button size="lg" href={practiceHref(slide.game)}>
-              Practice free
-            </Button>
-          )}
+          <Button size="lg" href={practiceHref(slide.game)}>
+            Practice free
+          </Button>
         </div>
         <QueueStrip seats={others} />
       </div>
