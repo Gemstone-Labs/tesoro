@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import Image from "next/image";
 import { Lightbulb } from "lucide-react";
 import { art } from "@/lib/art";
+import { useAuth } from "@/lib/auth/context";
 import "./guide.css";
 
 export type PoseName = keyof typeof art.guide;
@@ -57,12 +58,13 @@ function writeDismissed(ids: string[]) {
 /**
  * The Guide's state: pages register a tip with `useGuideTip`; one shows at a time (the earliest
  * registered that is not dismissed). Dismissal is remembered per tip in localStorage.
- * Hidden while a game is running (`useGuideHidden`). `GuideOverlay` renders it.
+ * Only shown to signed-in Players, so it never covers Sign in. Hidden while a game is running (`useGuideHidden`). `GuideOverlay` renders it.
  */
 export function GuideProvider({ children }: { children: ReactNode }) {
   const [tips, setTips] = useState<GuideTip[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [hidden, setHidden] = useState(0);
+  const signedIn = useAuth().status === "signed-in";
 
   useEffect(() => {
     const t = setTimeout(() => setDismissed(readDismissed()), 0);
@@ -76,7 +78,7 @@ export function GuideProvider({ children }: { children: ReactNode }) {
   const hide = useCallback((d: 1 | -1) => setHidden((h) => Math.max(0, h + d)), []);
   const api = useMemo(() => ({ register, unregister, hide }), [register, unregister, hide]);
 
-  const tip = hidden === 0 ? (tips.find((t) => !dismissed.includes(t.id)) ?? null) : null;
+  const tip = hidden === 0 && signedIn ? (tips.find((t) => !dismissed.includes(t.id)) ?? null) : null;
   const view = useMemo<GuideView>(
     () => ({
       tip,
@@ -100,7 +102,8 @@ export function GuideProvider({ children }: { children: ReactNode }) {
 /**
  * The Guide: the first time a tip applies, the page darkens and the character steps in from the
  * bottom right with the tip in a speech bubble. It stays until "Got it" (or the tip's link, or
- * Escape) and is then remembered as dismissed for good. Focus sits on "Got it" while it shows.
+ * Escape) and is then remembered as dismissed for good. The page stays usable underneath: only
+ * the bubble takes clicks and focus is never moved.
  */
 export function GuideOverlay() {
   const v = useContext(ViewCtx);
@@ -111,27 +114,23 @@ export function GuideOverlay() {
 /** Waits for the pose to load (at most `LOAD_WAIT_MS`) so the entrance plays with the art in it. */
 function GuideScene({ tip, dismiss }: { tip: GuideTip; dismiss: () => void }) {
   const [ready, setReady] = useState(false);
-  const gotIt = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const t = setTimeout(() => setReady(true), LOAD_WAIT_MS);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => {
     if (!ready) return;
-    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    gotIt.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") dismiss();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
-      if (back?.isConnected) back.focus({ preventScroll: true });
     };
   }, [ready, dismiss]);
   const pose = art.guide[tip.pose];
   return (
-    <div className={`guide${ready ? " in" : ""}`} role="dialog" aria-modal="true" aria-labelledby="guide-title" aria-describedby="guide-text">
+    <div className={`guide${ready ? " in" : ""}`} role="dialog" aria-labelledby="guide-title" aria-describedby="guide-text">
       <div className="guide-figure">
         <Image className={`guide-bust${pose.faces === "right" ? " flip" : ""}`} src={pose.src} alt="" width={pose.w} height={pose.h} priority onLoad={() => setReady(true)} />
         <div className="guide-say">
@@ -147,7 +146,7 @@ function GuideScene({ tip, dismiss }: { tip: GuideTip; dismiss: () => void }) {
                   {tip.link.label}
                 </Link>
               )}
-              <button ref={gotIt} type="button" className="cut cut-btn btn guide-ok" onClick={dismiss}>
+              <button type="button" className="cut cut-btn btn guide-ok" onClick={dismiss}>
                 Got it
               </button>
             </div>

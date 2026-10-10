@@ -113,6 +113,7 @@
 .td-fh-t th { text-align: left; color: var(--fg-2); font-weight: 600; padding: 4px 8px 6px 0; }
 .td-fh-t td { padding: 5px 8px 5px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .td-fh-t .r { text-align: right; }
+.td-fh-t td:nth-child(2), .td-fh-t th:nth-child(2) { white-space: nowrap; }
 .td-fh-scroll { overflow-x: auto; }
 
 @media (min-width: 1024px) {

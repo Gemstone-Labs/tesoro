@@ -184,7 +184,7 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .src-foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 
 /* ——— Entry picker ——— */
-.entries { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.entries { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .entry { position: relative; display: block; }
 .entry input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
 .entry span {
@@ -200,7 +200,7 @@ a.row:hover, button.row:hover { background: var(--raised-2); }
 .entry input:disabled { cursor: not-allowed; }
 
 /* ——— Asset picker (Trading Duel): neutral, the chosen asset is pale ——— */
-.assets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.assets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .asset { position: relative; display: block; }
 .asset input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
 .asset span { display: grid; justify-items: center; align-content: center; gap: 2px; padding: 8px 0; min-height: 58px; background: var(--shell); --edge: var(--edge-2); transition: background-color 0.15s ease; }
@@ -390,4 +390,10 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
     animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 30%;
   }
   @keyframes reveal { from { opacity: 0; translate: 0 32px; } }
+}
+
+/* narrow phones: the three entry chips share the row, mark and figure both fit */
+@media (max-width: 420px) {
+  .entries { gap: 6px; }
+  .entry span { gap: 4px; font-size: 16px; }
 }

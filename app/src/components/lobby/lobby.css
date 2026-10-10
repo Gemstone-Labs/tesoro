@@ -16,6 +16,8 @@
 .slide-entry { display: grid; gap: 10px; width: 100%; max-width: 420px; }
 .slide-entry .entry span { min-height: 54px; font-size: 18px; --c: 11px; }
 .slide-body .btn.lg { width: 100%; max-width: 420px; min-height: 62px; --c: 14px; }
+.slide-cta { display: flex; gap: 12px; }
+.slide-cta .btn { flex: 1 1 0; min-width: 0; padding-inline: 12px; white-space: nowrap; }
 .slide-meta { font-size: 13.5px; color: var(--fg-2); }
 .slide-meta button, .slide-meta a { background: none; border: 0; padding: 0; color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .slide:not(.active) .slide-body { visibility: hidden; }
@@ -51,6 +53,7 @@
 .rail-link:hover { color: var(--fg); }
 .rail-track { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
 .rail-empty { color: var(--fg-2); padding: 8px 0; }
+.rail-empty button { background: none; border: 0; padding: 0; color: var(--fg); font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .rail-empty a { color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 @container (min-width: 720px) {
   .rail[data-cols="2"] .rail-track { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -79,6 +82,13 @@
 a.tile:hover img { transform: scale(1.04); filter: brightness(1.08) saturate(1.08); }
 a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(234, 239, 236, 0.2) 50%, rgba(234, 239, 236, 0.12)); }
 .tile-shade { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 42%, rgba(6, 9, 12, 0.55) 70%, rgba(6, 9, 12, 0.94) 100%); }
+.tile-cell { position: relative; min-width: 0; }
+.tile-practice { position: absolute; right: 18px; bottom: 20px; z-index: 4; padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--fg); background: rgba(6, 9, 12, 0.7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); --edge: var(--edge-2); }
+.tile-practice:hover { background: rgba(6, 9, 12, 0.88); }
+@container (min-width: 720px) {
+  .tile-cell.last-odd { grid-column: 1 / -1; }
+  .tile-cell.last-odd .tile { aspect-ratio: 3.6; }
+}
 .tile-label { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: grid; gap: 4px; justify-items: start; padding: 0 24px 20px; }
 .tile-label strong { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(30px, 2.8vw, 46px); font-weight: 800; letter-spacing: 0.005em; line-height: 0.95; color: #fff; }
 .tile-label span { font-size: 14.5px; color: var(--fg-2); }

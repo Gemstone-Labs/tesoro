@@ -27,3 +27,9 @@ export function gameQuery(game: GameId, asset?: number | null): string {
 export function backingQuery(game: GameId, asset: number | null | undefined, entry: number, offer: string): string {
   return `${gameQuery(game, asset)}entry=${entry}&backing=${offer}`;
 }
+
+/** The free practice page of a Game (Trading Duel carries the chosen asset). */
+export function practiceHref(game: GameId, asset?: number | null): string {
+  if (game === "block-puzzle") return "/play/practice";
+  return `/play/practice?${gameQuery(game, asset).replace(/&$/, "")}`;
+}

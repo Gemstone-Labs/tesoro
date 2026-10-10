@@ -17,12 +17,12 @@ interface Props {
   mySeat?: 0 | 1 | null;
 }
 
-/** Both Players' full fill histories after the Match: every order, its price, size and PnL. */
+/** Both Players' full fill histories after the Match: every order, its price, size and result. */
 export function FillHistory({ books, duel, mySeat = null }: Props) {
   return (
     <section className="td td-fh" aria-label="Fill histories">
       <p className="meta">
-        Final price {usdMid(duel.finalPrice, duel.asset)} · {duel.asset.symbol}/USD · positions were hidden until the Match ended.
+        Ended at {usdMid(duel.finalPrice, duel.asset)} per {duel.asset.symbol} · {chips(duel.finalEquity[0])} vs {chips(duel.finalEquity[1])} Chips. Positions were hidden until the Match ended.
       </p>
       <div className="td-fh-grid">
         {books.map((b, i) => (
@@ -62,8 +62,8 @@ function Table({ book, duel, seat, you }: { book: Book; duel: Duel; seat: 0 | 1;
                 <th>Time</th>
                 <th>Order</th>
                 <th className="r">Price</th>
-                <th className="r">Notional</th>
-                <th className="r">PnL</th>
+                <th className="r">Size</th>
+                <th className="r">Result</th>
               </tr>
             </thead>
             <tbody>

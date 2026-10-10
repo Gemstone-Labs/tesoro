@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
@@ -34,6 +34,12 @@ export default function Wallet() {
   const [now] = useState(() => Date.now());
   const [openSheet, setOpenSheet] = useState(false);
   const router = useRouter();
+  // `/wallet?open=1` (the Lobby's Get Gemas) lands with the Open a Position sheet already up.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("open") !== "1") return;
+    const t = setTimeout(() => setOpenSheet(true), 0);
+    return () => clearTimeout(t);
+  }, []);
   useGuideTip({
     id: "wallet-first",
     pose: "himExplain",
@@ -139,7 +145,7 @@ export default function Wallet() {
           <h1 className="page-title">Wallet</h1>
           <p className="page-sub">1 Gema = $0.01</p>
         </div>
-        <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>
+        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>}
       </header>
 
       <section className="cut cut-frame facet-panel wl-hero" aria-label="Balance">

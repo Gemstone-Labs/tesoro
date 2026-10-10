@@ -7,7 +7,7 @@ import { Check, Copy, Link2, Pencil } from "lucide-react";
 import { PlayerAvatar, PlayerName, VerifiedMark } from "@/components/account/Player";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
-import { AssetPicker, Bust, Button, Card, EntryPicker, GemaMark, Label, Sheet, SkeletonCards } from "@/components/ui";
+import { AssetPicker, Bust, Button, EntryPicker, GemaMark, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ago } from "@/lib/catalogue";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
@@ -19,6 +19,7 @@ import { fmtGemas } from "@/lib/format";
 import { gameQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
+import { AccountSkeleton } from "./AccountSkeleton";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
@@ -52,12 +53,7 @@ export function AccountView({ address }: { address: string }) {
         </div>
       </div>
     ) : (
-      <div className="pa">
-        <h1 className="page-title">Account</h1>
-        <div className="mh-list">
-          <SkeletonCards count={4} avatar={false} className="mh-skel" label="Loading this Account…" />
-        </div>
-      </div>
+      <AccountSkeleton />
     );
   }
   return <Loaded address={key} data={data} stale={!!error} />;
@@ -426,14 +422,3 @@ function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () 
   );
 }
 
-function Notice({ title, body }: { title: string; body: string }) {
-  return (
-    <Card large as="section">
-      <div className="stack">
-        <h1 className="page-title">{title}</h1>
-        <p className="meta">{body}</p>
-        <Button href="/lobby">Lobby</Button>
-      </div>
-    </Card>
-  );
-}

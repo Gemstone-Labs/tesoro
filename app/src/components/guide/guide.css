@@ -1,6 +1,6 @@
 /* ——— Guide: a first-visit overlay. The page darkens, the character (torso up, fading out at the
    bottom) rises in at the bottom right, then the speech bubble pops in beside it. Stays until "Got it". */
-.guide { position: fixed; inset: 0; z-index: 55; visibility: hidden; display: flex; align-items: flex-end; justify-content: flex-end; overflow: hidden; background: radial-gradient(90% 80% at 100% 100%, rgba(3, 32, 26, 0.6), rgba(5, 8, 10, 0.84) 62%); }
+.guide { position: fixed; inset: 0; z-index: 55; visibility: hidden; display: flex; align-items: flex-end; justify-content: flex-end; overflow: hidden; pointer-events: none; background: radial-gradient(90% 80% at 100% 100%, rgba(3, 32, 26, 0.45), rgba(5, 8, 10, 0.4) 62%); }
 .guide.in { visibility: visible; animation: guide-dim 360ms ease-out both; }
 
 .guide-figure { position: relative; width: min(500px, 38vw); margin-right: clamp(8px, 4vw, 72px); }
@@ -10,7 +10,7 @@
 .guide.in .guide-bust { animation: guide-rise 700ms cubic-bezier(0.2, 1, 0.3, 1) 100ms both; }
 
 /* the bubble sits left of the figure at chest height; its tail points at the character */
-.guide-say { position: absolute; right: calc(100% - 24px); top: 16%; width: min(400px, calc(100vw - 32px)); filter: drop-shadow(0 16px 36px rgba(0, 0, 0, 0.55)); }
+.guide-say { pointer-events: auto; position: absolute; right: calc(100% - 24px); top: 16%; width: min(400px, calc(100vw - 32px)); filter: drop-shadow(0 16px 36px rgba(0, 0, 0, 0.55)); }
 .guide-say::after { content: ""; position: absolute; right: -9px; top: 46px; width: 20px; height: 20px; rotate: 45deg; background: #141c21; border-top: 1px solid rgba(45, 190, 140, 0.45); border-right: 1px solid rgba(45, 190, 140, 0.45); }
 .guide.in .guide-say { transform-origin: 100% 56px; animation: guide-pop 420ms cubic-bezier(0.2, 1.3, 0.4, 1) 560ms both; }
 .guide-bubble { --c: 16px; --edge: rgba(45, 190, 140, 0.45); position: relative; z-index: 1; display: grid; gap: 10px; padding: 22px 24px 20px; background: linear-gradient(165deg, #1a232a, #121a1f 70%); }

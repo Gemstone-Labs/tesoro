@@ -44,6 +44,7 @@ import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
+import { BackingExample } from "./BackingExample";
 import "./backing.css";
 import { plainError } from "@/lib/errors";
 
@@ -210,7 +211,12 @@ export default function Backing() {
           )}
         </div>
       )}
-      {loadError && !board && <p className="status err" role="alert">Couldn’t load Backing: {loadError}</p>}
+      {loadError && !board && (
+        <div className="stack" role="alert">
+          <p className="status err">Backing couldn’t be loaded. {loadError}</p>
+          <Button size="sm" onClick={() => void refresh()}>Try again</Button>
+        </div>
+      )}
 
       {backings.length > 0 && (
         <section className="stack" aria-labelledby="bk-h">
@@ -296,6 +302,7 @@ export default function Backing() {
               {board && others.length === 0 && (
                 <Empty title="No open Requests" body="Nobody is asking to be backed right now. Post yours, or check back soon." />
               )}
+              {board && others.length === 0 && myRequests.length === 0 && <BackingExample onPost={() => auth.gate("post a Request", () => setPostOpen(true))} />}
               {others.map((r) => (
                 <RequestCard
                   key={r.address.toBase58()}

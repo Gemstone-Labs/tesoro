@@ -8,8 +8,7 @@ import { ArrowRight, Clock, Link2 } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { MatchRow } from "@/components/match/MatchRow";
 import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
-import { ASSET_PARAMS } from "@/lib/chain/match-id";
-import { gameQuery } from "@/lib/game-params";
+import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountHistory } from "@/lib/chain/history";
@@ -80,9 +79,9 @@ export function GamePage({ game }: { game: GameId }) {
               Play now
             </Button>
             <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
-              Challenge a friend <Link2 aria-hidden="true" />
+              Challenge<span className="gp-friend"> a friend</span> <Link2 aria-hidden="true" />
             </Button>
-            <Button size="lg" href={game === "holdem" ? "/play/practice?game=holdem" : game === "trading-duel" ? `/play/practice?game=trading-duel&asset=${ASSET_PARAMS[asset]}` : "/play/practice"}>
+            <Button size="lg" href={practiceHref(game, asset)}>
               Practice <Clock aria-hidden="true" />
             </Button>
           </div>
@@ -101,7 +100,11 @@ export function GamePage({ game }: { game: GameId }) {
           </header>
           {mine.length === 0 ? (
             <p className="meta gp-empty">
-              {onChain ? `No finished ${name} Matches yet. Yours appear here when they finish.` : "Sign in to see your Matches."}
+              {onChain
+                ? `No finished ${name} Matches yet. Yours appear here when they finish.`
+                : auth.status === "signed-out"
+                  ? "Sign in to see your Matches."
+                  : "Loading your Matches…"}
             </p>
           ) : (
             <div className="mh-list">

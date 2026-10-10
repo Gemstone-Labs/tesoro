@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowRight, Pause, Play } from "lucide-react";
 import { AssetPicker, Button, EntryPicker } from "@/components/ui";
-import { gameQuery } from "@/lib/game-params";
+import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { art } from "@/lib/art";
@@ -155,6 +155,7 @@ function HeroSlide({
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
   const problem = signedIn && onChain ? entryProblem(entry) : null;
   const canEnter = !signedIn || loading || (onChain ? problem === null : gemas.available >= entry);
+  const needsGemas = !canEnter && problem !== "too-many-sources";
   const go = (href: string, reason: string) => auth.gate(reason, () => router.push(href));
 
   return (
@@ -181,9 +182,20 @@ function HeroSlide({
           {slide.game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="hero-asset" compact />}
           <EntryPicker value={entry} onChange={onEntry} legend={`Entry for ${slide.title}`} name={`hero-${slide.game}`} maxAffordable={signedIn && onChain ? gemas.available : undefined} isDisabled={signedIn && onChain ? (size) => entryProblem(size) !== null : undefined} />
         </div>
-        <Button variant="money" size="lg" block onClick={() => go(hrefFor("queue", slide.game, entry, asset), "Enter a Match")} disabled={!canEnter}>
-          Play now
-        </Button>
+        {needsGemas ? (
+          <div className="slide-cta">
+            <Button variant="money" size="lg" href="/wallet?open=1">
+              Get Gemas
+            </Button>
+            <Button size="lg" href={practiceHref(slide.game, asset)}>
+              Practice free
+            </Button>
+          </div>
+        ) : (
+          <Button variant="money" size="lg" block onClick={() => go(hrefFor("queue", slide.game, entry, asset), "Enter a Match")} disabled={!canEnter}>
+            Play now
+          </Button>
+        )}
         <p className="slide-meta">
           {canEnter ? (
             <>
@@ -197,9 +209,7 @@ function HeroSlide({
               {problem === "too-many-sources" ? (
                 <>Your Gemas are spread over more than {MAX_ENTRY_SOURCES} Sources. <Link href="/wallet">Redeem a few small balances in your Wallet</Link></>
               ) : (
-                <>
-                  You need {fmtGemas(entry)} Gemas to enter. <Link href="/wallet">Get Gemas in your Wallet</Link>
-                </>
+                <>You need {fmtGemas(entry)} Gemas to enter a Match. Practice is free.</>
               )}
             </>
           )}
