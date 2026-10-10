@@ -38,8 +38,12 @@ export default async function Waitlist() {
           <TesoroLogo height={30} tone="dark" />
         </Link>
         <nav className="wl-nav" aria-label="Elsewhere">
-          <Link href="/welcome">How it works</Link>
-          <Link href="/docs">Docs</Link>
+          <Link href="/welcome" className="wl-hide-phone">
+            How it works
+          </Link>
+          <Link href="/docs" className="wl-hide-phone">
+            Docs
+          </Link>
           <a href={appHref()}>Try the app</a>
         </nav>
       </header>
@@ -53,6 +57,10 @@ export default async function Waitlist() {
         </p>
         <WaitlistForm />
         {waiting !== null && waiting >= SHOW_COUNT_FROM && <p className="wl-count mono">{waiting.toLocaleString("en-US")} players waiting</p>}
+        <p className="wl-more">
+          <Link href="/welcome">How it works</Link>
+          <Link href="/docs">Docs</Link>
+        </p>
         {LAUNCH_STAGE === "testnet" && <p className="wl-stage mono">test mode · no real value</p>}
       </main>
     </div>

@@ -33,8 +33,29 @@ for (const [name, width, height, scheme, motion, path] of shots) {
     const r = document.querySelector(".wl-form")?.getBoundingClientRect();
     return r ? { bottom: Math.round(r.bottom), vh: innerHeight } : null;
   });
+  const tiles = await page.evaluate(() => {
+    const vs = [...document.querySelectorAll(".vw video")].filter((v) => v.offsetParent);
+    const inView = vs.filter((v) => {
+      const r = v.getBoundingClientRect();
+      return r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
+    });
+    return { rendered: vs.length, inView: inView.length, playing: vs.filter((v) => !v.paused).length };
+  });
   await page.screenshot({ path: `${OUT}/waitlist-${name}.png` });
-  console.log(name, "hscroll", overflow, "form", JSON.stringify(form));
+  console.log(name, "hscroll", overflow, "form", JSON.stringify(form), "tiles", JSON.stringify(tiles));
+  await ctx.close();
+}
+// The success state, through the honeypot (it answers success without storing anything).
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  await page.goto(BASE + "/", { waitUntil: "networkidle", timeout: 120000 });
+  await page.fill("#wl-email", "screenshot@example.com");
+  await page.evaluate(() => (document.querySelector("input[name=company]").value = "x"));
+  await page.click("button[type=submit]");
+  await page.waitForSelector(".wl-done-title");
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${OUT}/waitlist-success.png` });
   await ctx.close();
 }
 await browser.close();

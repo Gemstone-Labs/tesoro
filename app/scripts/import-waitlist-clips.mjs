@@ -1,6 +1,6 @@
 // Turns the stock clips listed in art-source/waitlist/sources.json (workspace, outside the repo) into the
 // waitlist's background wall: 9:16, 480 px wide, silent, lightly graded, as WebM (AV1) + MP4 (H.264) + WebP poster
-// in public/art/waitlist. Re-run `node scripts/import-waitlist-clips.mjs` after editing sources.json.
+// in public/art/waitlist. Re-run `node scripts/import-waitlist-clips.mjs` after editing sources.json (ONLY=clip-5,clip-7 for a few).
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -12,11 +12,12 @@ const OUT = resolve(here, "../public/art/waitlist");
 const W = 480;
 const H = 854;
 const FPS = 24;
-// Per file: the wall plays 9 to 18 clips at once at ~25% of the viewport each, so small and soft is fine.
-const LIMIT = { webm: 160_000, mp4: 230_000 };
+// Per file: the wall plays 12 to 20 tiles at once at ~25% of the viewport each, so small and soft is fine.
+const LIMIT = { webm: 125_000, mp4: 190_000 };
 
 mkdirSync(OUT, { recursive: true });
-const { clips } = JSON.parse(readFileSync(resolve(SRC, "sources.json"), "utf8"));
+const only = process.env.ONLY?.split(",");
+const clips = JSON.parse(readFileSync(resolve(SRC, "sources.json"), "utf8")).clips.filter((c) => !only || only.includes(c.out));
 const ff = (...args) => execFileSync("ffmpeg", ["-v", "error", "-y", ...args], { stdio: ["ignore", "inherit", "inherit"] });
 const size = (p) => statSync(p).size;
 
@@ -47,7 +48,7 @@ for (const c of clips) {
   ].join(",");
   const input = ["-ss", String(c.trimStart), "-t", String(c.trimSeconds), "-i", resolve(SRC, c.file), "-an", "-vf", vf];
   const base = resolve(OUT, c.out);
-  const webmCrf = encode((crf) => [...input, "-c:v", "libsvtav1", "-crf", String(crf), "-preset", "6", "-g", "48"], `${base}.webm`, [38, 42, 46, 50, 54], LIMIT.webm);
+  const webmCrf = encode((crf) => [...input, "-c:v", "libsvtav1", "-crf", String(crf), "-preset", "6", "-g", "48"], `${base}.webm`, [40, 44, 48, 52, 56], LIMIT.webm);
   const mp4Crf = encode((crf) => [...input, "-c:v", "libx264", "-crf", String(crf), "-preset", "slow", "-profile:v", "main", "-movflags", "+faststart"], `${base}.mp4`, [28, 31, 34, 37, 40], LIMIT.mp4);
   ff("-ss", String(c.trimStart + 0.4), "-i", resolve(SRC, c.file), "-frames:v", "1", "-vf", vf, "-c:v", "libwebp", "-quality", "70", `${base}.webp`);
   const sizes = ["webm", "mp4", "webp"].map((e) => size(`${base}.${e}`));

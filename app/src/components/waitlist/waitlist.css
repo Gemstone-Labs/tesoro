@@ -25,13 +25,25 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 
 /* Video wall: tilted columns drifting in opposite directions, clipped to the region above the diagonal. */
 .vw { position: absolute; inset: 0; z-index: 1; clip-path: var(--above-wide); }
-.vw-tilt { position: absolute; right: -10%; top: -25%; width: 82%; height: 150%; display: flex; gap: 14px; transform: rotate(-8deg); }
+.vw-tilt { position: absolute; right: -10%; top: -25%; width: 92%; height: 150%; display: flex; gap: 8px; transform: rotate(-8deg); }
 .vw-col { flex: 1 1 0; min-width: 0; height: 100%; overflow: hidden; }
-.vw-col-1 { margin-top: 16%; }
-.vw-track { animation: vw-drift 110s linear infinite; }
-.vw-col-1 .vw-track { animation-direction: reverse; animation-duration: 130s; }
-.vw-col-2 .vw-track { animation-duration: 95s; animation-delay: -30s; }
-.vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 9 / 16; object-fit: cover; margin-bottom: 14px; background: #0c1215; }
+.vw-col-1 { margin-top: 18%; }
+.vw-col-2 { margin-top: 6%; }
+.vw-col-3 { margin-top: 24%; }
+.vw-col-4 { margin-top: 10%; }
+.vw-col-5 { margin-top: 30%; }
+.vw-col-6 { margin-top: 14%; }
+.vw-track { animation: vw-drift 150s linear infinite; }
+.vw-col-1 .vw-track { animation-direction: reverse; animation-duration: 175s; }
+.vw-col-2 .vw-track { animation-duration: 135s; animation-delay: -40s; }
+.vw-col-3 .vw-track { animation-direction: reverse; animation-duration: 165s; animation-delay: -70s; }
+.vw-col-4 .vw-track { animation-duration: 190s; animation-delay: -20s; }
+.vw-col-5 .vw-track { animation-direction: reverse; animation-duration: 155s; animation-delay: -55s; }
+.vw-col-6 .vw-track { animation-duration: 180s; animation-delay: -90s; }
+.vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 9 / 16; object-fit: cover; margin-bottom: 8px; background: #0c1215; }
+/* Tiles stay about 140-220px wide: seven columns on a wide screen, six on a laptop, five on a tablet, four on a phone. */
+@media (max-width: 1439px) { .vw-col-6 { display: none; } .vw-tilt { width: 90%; } }
+@media (max-width: 1099px) { .vw-col-5 { display: none; } .vw-tilt { width: 98%; } }
 @keyframes vw-drift { to { transform: translateY(-50%); } }
 
 /* The floor: solid below the diagonal, casting a soft shade onto the footage along it. */
@@ -69,6 +81,7 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 @keyframes gd-glint { 0%, 84%, 100% { filter: none; } 91% { filter: brightness(1.6) saturate(1.15); } }
 
 /* Frame content */
+.wl-top::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -36px 0; background: linear-gradient(180deg, rgba(9, 13, 15, 0.82) 0, rgba(9, 13, 15, 0.5) 55%, transparent 100%); pointer-events: none; }
 .wl-top { position: absolute; z-index: 5; inset: 0 0 auto 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px var(--pad); }
 .wl-logo { display: inline-flex; }
 .wl-nav { display: flex; gap: 26px; font-weight: 700; font-size: 14.5px; }
@@ -87,6 +100,10 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .wl-error { min-height: 1.4em; font-size: 14px; color: var(--danger, #f2685a); }
 .wl-count { margin-top: 4px; font-size: 13px; color: var(--fg-2); }
+.wl-more { display: none; gap: 18px; margin-top: 14px; font-size: 13.5px; font-weight: 700; }
+.wl-more a { color: var(--fg-2); }
+.wl-more a:hover { color: var(--fg); }
+.wl-more a:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
 .wl-stage { margin-top: 10px; font-size: 11.5px; color: var(--fg-3); }
 
 .wl-done { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
@@ -102,11 +119,12 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
   .wl-floor-in { clip-path: var(--below-tall); }
   .gd-wide { display: none; }
   .gd-tall { display: block; }
-  .vw-tilt { right: -18%; top: -14%; width: 136%; height: 120%; }
-  .vw-col-2, .vw-extra { display: none; }
-  .vw-col-1 { margin-top: 24%; }
+  .vw-col-4 { display: none; }
+  .vw-tilt { right: -26%; top: -14%; width: 150%; height: 120%; gap: 6px; }
+  .vw-clip { margin-bottom: 6px; }
   .wl-top { padding-block: 16px; }
-  .wl-nav { gap: 12px; font-size: 13.5px; }
+  .wl-hide-phone { display: none; }
+  .wl-more { display: flex; }
   .wl-main { bottom: 24px; }
   .wl-h1 { font-size: clamp(34px, 9.2vw, 42px); }
   .wl-lede { font-size: 15px; }
