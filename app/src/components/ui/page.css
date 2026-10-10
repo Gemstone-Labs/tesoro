@@ -40,6 +40,3 @@
 }
 
 /* Queue / Challenge entry card: a centred card with room above it and readable type */
-.enter-card { width: min(100%, 560px); margin: clamp(16px, 7vh, 80px) auto 0; }
-.enter-card .meta, .enter-card .status { font-size: 15px; }
-.enter-card .status.busy { padding: 14px 16px; }

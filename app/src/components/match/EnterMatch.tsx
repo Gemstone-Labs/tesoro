@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Busy, Button, Card, GemaAmount } from "@/components/ui";
+import { Busy, Button, GemaAmount } from "@/components/ui";
+import { PlayerAvatar } from "@/components/account/Player";
+import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
@@ -13,6 +15,7 @@ import { practiceHref } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 import { plainError } from "@/lib/errors";
+import "./enter.css";
 
 export type EnterKind =
   | { kind: "queue"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string }
@@ -43,6 +46,9 @@ export function EnterMatch(props: EnterKind) {
   const [failure, setFailure] = useState<{ text: string; wallet?: boolean } | null>(null);
   const [launched, setLaunched] = useState(false);
   const [existing, setExisting] = useState<bigint | null>(null);
+  const seats = useQueue();
+  const game: GameId = props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle");
+  const asset = props.kind === "challenge-join" ? 0 : (props.asset ?? 0);
   const signer = auth.signer;
   const signedOut = auth.status === "signed-out";
   const key = props.kind === "challenge-join" ? props.id : String(props.entry);
@@ -59,8 +65,6 @@ export function EnterMatch(props: EnterKind) {
     void (async () => {
       try {
         setStatus("Checking your SOL and Account…");
-        const game = props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle");
-        const asset = props.kind === "challenge-join" ? 0 : (props.asset ?? 0);
         const entered = (r: Entered, opened: string) => {
           if (r.via === "existing") return setExisting(r.id);
           setStatus(r.via === "joined" ? "Opponent found." : opened);
@@ -96,24 +100,61 @@ export function EnterMatch(props: EnterKind) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signer, key, loading, needsGemas]);
 
-  const assetName = props.kind !== "challenge-join" && props.game === "trading-duel" ? (["SOL", "ETH", "HYPE"][props.asset ?? 0] ?? "SOL") : "";
+  const assetName = game === "trading-duel" ? (["SOL", "ETH", "HYPE"][asset] ?? "SOL") : "";
   const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
+  const me = snapshot?.accountKey.toBase58() ?? null;
+  // Players already waiting at this entry: the opponent seat cycles through them while the Queue runs.
+  const waiting =
+    props.kind === "queue" && seats
+      ? [...new Set(seats[game].filter((w) => w.entry === props.entry && w.player !== me && (game !== "trading-duel" || w.asset === asset)).map((w) => w.player))]
+      : [];
+  const found = status === "Opponent found.";
+  const busy = !signedOut && existing === null && !needsGemas && !failure;
+  const seat = found ? "Opponent" : props.kind === "challenge-new" ? "Your friend" : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
+  const waitLine =
+    props.kind === "challenge-new"
+      ? "Your link is ready once the Match opens."
+      : props.kind === "challenge-join"
+        ? "Joining your friend's Match."
+        : waiting.length
+          ? `${waiting.length} waiting at this entry: you take the oldest seat.`
+          : game === "block-puzzle"
+            ? "No one waiting yet: you play now and are paired when someone joins."
+            : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
   return (
-    <Card large as="section" aria-label={title} className="enter-card">
-      <div className="stack">
-        <h1 className="page-title">{title}</h1>
-        {props.kind === "queue" && props.game === "trading-duel" && <p className="meta">Play now — you&apos;ll be paired with the next Player trading {assetName}. The Match starts as soon as you are paired.</p>}
-        {props.kind === "queue" && props.game !== "trading-duel" && <p className="meta">Play now — you&apos;ll be paired with the next Player. Your run counts against theirs.</p>}
-        {props.kind !== "challenge-join" && (
-          <span className="hstack">
-            <GemaAmount value={props.entry} size="lg" />{" "}
-            <span className="meta">
-              entry · {GAME_NAMES[props.game ?? "block-puzzle"]}
-              {props.game === "trading-duel" ? ` · ${assetName}` : ""}
-              {props.backing ? " · funded by your Backer" : ""}
-            </span>
+    <section className="enter" aria-label={title}>
+      <header className="enter-head">
+        <span className="enter-kicker">
+          {GAME_NAMES[game]}
+          {assetName ? ` · ${assetName}` : ""}
+          {props.backing ? " · funded by your Backer" : ""}
+        </span>
+        <h1 className="enter-title">{found ? "Opponent found" : title}</h1>
+      </header>
+      <div className="enter-arena">
+        <figure className="enter-seat">
+          <span className="cut enter-av">{me ? <PlayerAvatar account={me} size={112} /> : <span className="enter-q">?</span>}</span>
+          <figcaption>You</figcaption>
+        </figure>
+        <div className="enter-pot">
+          {props.kind !== "challenge-join" ? (
+            <div className="cut cut-card enter-plaque">
+              <span className="enter-label">Pot</span>
+              <GemaAmount value={props.entry * 2} size="lg" />
+              <small>{fmtGemas(props.entry)} each · minus Fees</small>
+            </div>
+          ) : (
+            <span className="enter-vs">VS</span>
+          )}
+        </div>
+        <figure className={`enter-seat${busy && !found ? " seeking" : ""}`}>
+          <span className="cut enter-av">
+            <SeekingFace keys={found ? [] : waiting} />
           </span>
-        )}
+          <figcaption>{seat}</figcaption>
+        </figure>
+      </div>
+      <div className="enter-foot">
         {signedOut ? (
           <>
             <p className="meta">Sign in to play a Match.</p>
@@ -121,7 +162,7 @@ export function EnterMatch(props: EnterKind) {
           </>
         ) : existing !== null ? (
           <>
-            <p className="status" role="status">You still have a {GAME_NAMES[props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle")]} Match to play. Finish it before entering another.</p>
+            <p className="status" role="status">You still have a {GAME_NAMES[game]} Match to play. Finish it before entering another.</p>
             <div className="hstack wrap">
               <Button variant="money" href={`/play/match/${existing.toString()}`}>Continue</Button>
               <Button href="/lobby">Lobby</Button>
@@ -132,7 +173,7 @@ export function EnterMatch(props: EnterKind) {
             <p className="status err" role="status">You need {fmtGemas(props.entry)} Gemas to enter. You have {fmtGemas(gemas.available)}.</p>
             <div className="hstack wrap">
               <Button variant="money" href="/wallet?open=1">Get Gemas</Button>
-              <Button href={practiceHref(props.game ?? "block-puzzle", props.asset)}>Practice free</Button>
+              <Button href={practiceHref(game, props.asset)}>Practice free</Button>
               <Button href="/lobby">Lobby</Button>
             </div>
           </>
@@ -146,10 +187,26 @@ export function EnterMatch(props: EnterKind) {
             </div>
           </>
         ) : (
-          <Busy>{status}</Busy>
+          <>
+            <Busy>{status}</Busy>
+            {!found && <p className="meta">{waitLine}</p>}
+          </>
         )}
         {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your Tesoro Account as part of this step.</p>}
       </div>
-    </Card>
+    </section>
   );
+}
+
+/** The empty seat: flicks through the faces waiting in the Queue, or a question mark when there are none. */
+function SeekingFace({ keys }: { keys: string[] }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (keys.length < 2) return;
+    const t = setInterval(() => setI((n) => n + 1), 900);
+    return () => clearInterval(t);
+  }, [keys.length]);
+  if (!keys.length) return <span className="enter-q">?</span>;
+  const k = keys[i % keys.length];
+  return <PlayerAvatar key={k} account={k} size={112} />;
 }

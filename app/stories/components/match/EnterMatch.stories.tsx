@@ -12,7 +12,7 @@ const meta = {
   args: { kind: "queue", entry: 1000, game: "block-puzzle" },
   argTypes: { kind: { control: "inline-radio", options: ["queue", "challenge-new"] }, game: { control: "inline-radio", options: ["block-puzzle", "holdem", "trading-duel"] } },
   parameters: { layout: "fullscreen", shell: "app", nextjs: { navigation: { pathname: "/play/queue" } } },
-  decorators: [(Story) => <div style={{ maxWidth: 640, margin: "0 auto" }}><Story /></div>],
+  decorators: [(Story) => <div style={{ maxWidth: 820, margin: "0 auto" }}><Story /></div>],
 } satisfies Meta<typeof Enter>;
 export default meta;
 type Story = StoryObj<typeof meta>;
