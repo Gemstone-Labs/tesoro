@@ -9,6 +9,7 @@ import "../src/components/landing/landing.css";
 import "../src/components/landing/games.css";
 import "../src/components/landing/money.css";
 import "../src/components/docs/docs.css";
+import "../src/components/docs/docs-visual.css";
 import "./preview.css";
 import { GemaDefs } from "../src/components/ui/gema";
 import { AuthContext } from "../src/lib/auth/context";
