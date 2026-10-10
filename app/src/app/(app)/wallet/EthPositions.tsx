@@ -555,6 +555,8 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
   const holding = mine.find((h) => h.redeemable > 0n && state?.source && h.source.equals(state.source.key)) ?? mine.find((h) => h.redeemable > 0n);
   const redeemable = holding?.redeemable ?? 0n;
   const payout = src && state?.source && holding?.source.equals(state.source.key) && redeemable > 0n ? redeemPayoutWei(src, redeemable) : 0n;
+  // The claim is in the underlying asset; the vault pays it as simulated-token shares at its rate.
+  const payoutShares = rate && payout > 0n ? (payout * WEI) / simRateAt(rate) : 0n;
   const canUnlock = locked && !!src && onChainDebt === 0n;
   const pendingOps = useOps(ctx?.signer.publicKey.toBase58() ?? null).filter((o) => !o.done && o.vault === ref.vault && o.id === ref.id.toString());
   const inFlight = pendingOps.length > 0;
@@ -627,7 +629,7 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} onReturned={load} />
         </>
       )}
-      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payout > 0n ? `${fmtEth(payout, 5)} ${symbol}` : symbol} (simulated) to your wallet on {net.label}.</p>}
+      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol} (simulated) to your wallet on {net.label}.</p>}
       <p className="note wl-tile-note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated).</p>
       {unreported > 0n && locked && (
         <p className="note wl-tile-note">
