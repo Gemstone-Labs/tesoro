@@ -1,0 +1,47 @@
+/* Request card: Game banner, Player over its edge, record, ask (RequestCard.tsx) */
+.rq { --c: 12px; container-type: inline-size; display: grid; overflow: hidden; background: var(--surface); --edge: var(--edge-1); transition: background-color 0.2s ease; }
+.rq:hover { --edge: var(--edge-2); }
+.rq.selected { --edge: var(--fg); --t: 2px; }
+
+.rq-art { position: relative; height: 112px; overflow: hidden; }
+.rq-art img { object-fit: cover; object-position: 78% 40%; }
+.rq-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0%, rgba(9, 13, 15, 0.35) 55%, rgba(9, 13, 15, 0.1) 100%), linear-gradient(0deg, rgba(9, 13, 15, 0.7), transparent 60%); }
+.rq-game { position: absolute; z-index: 1; left: 20px; top: 16px; max-width: calc(100% - 150px); font-family: var(--f-display); font-weight: 800; font-size: 26px; line-height: 1; text-transform: uppercase; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rq-time {
+  position: absolute; z-index: 1; right: 14px; top: 14px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px;
+  font-family: var(--f-mono); font-size: 12.5px; color: var(--fg); white-space: nowrap; background: rgba(6, 9, 12, 0.7);
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
+}
+
+.rq-who { position: relative; z-index: 2; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 14px; margin-top: -36px; padding: 0 20px; }
+.rq-avatar { width: 76px; height: 76px; --c: 14px; --edge: var(--edge-2); --t: 2px; background: var(--shell); }
+.rq-avatar img { object-fit: cover; transform: scale(1.18); }
+.rq-who strong { display: block; padding-bottom: 10px; font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rq-who strong a { color: var(--fg); }
+
+.rq-body { display: grid; gap: 18px; padding: 18px 20px 20px; }
+.rq-rec { display: grid; gap: 12px; }
+.rq-rec dl { display: grid; grid-template-columns: 1.15fr 1fr 1fr; margin: 0; }
+.rq-rec dl div { display: grid; gap: 2px; }
+.rq-rec dl div + div { padding-left: 16px; border-left: 1px solid var(--line); }
+.rq-rec dt, .rq-foot span { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
+.rq-rec dt { order: 2; }
+.rq-rec dd { order: 1; margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 34px; line-height: 1; letter-spacing: 0.01em; white-space: nowrap; }
+.rq-rec dl div:first-child dd { font-size: 44px; }
+.rq-bar { display: block; height: 6px; background: rgba(255, 255, 255, 0.09); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+.rq-bar i { display: block; height: 100%; background: var(--fg); }
+.rq-new { margin: 0; font-size: 15px; color: var(--fg-2); }
+
+.rq-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+.rq-foot > div { display: grid; gap: 2px; }
+.rq-foot b { display: inline-flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: normal; }
+.rq-foot .btn { min-width: 120px; min-height: 48px; padding: 0 18px; font-size: 16px; white-space: nowrap; }
+
+/* loading: the same banner-over-body shape */
+.skel.rq { display: flex; align-items: flex-start; gap: 14px; min-height: 332px; padding: 132px 20px 20px; background: linear-gradient(rgba(234, 239, 236, 0.04) 0 112px, transparent 112px), var(--surface); }
+
+@container (max-width: 340px) {
+  .rq-rec dd { font-size: 28px; }
+  .rq-rec dl div:first-child dd { font-size: 36px; }
+  .rq-rec dl div + div { padding-left: 12px; }
+}

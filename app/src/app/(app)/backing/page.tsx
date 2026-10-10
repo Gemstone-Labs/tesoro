@@ -44,6 +44,7 @@ import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
+import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample } from "./BackingExample";
 import "./backing.css";
 import { plainError } from "@/lib/errors";
@@ -298,21 +299,32 @@ export default function Backing() {
 
           {tab === "requests" && (
             <section aria-label="Requests" className="bk-cards">
-              {loading && !board && <SkeletonCards className="bk-card" label="Loading Requests…" />}
+              {loading && !board && <SkeletonCards className="rq" label="Loading Requests…" />}
               {board && others.length === 0 && (
                 <Empty title="No open Requests" body="Nobody is asking to be backed right now. Post yours, or check back soon." />
               )}
               {board && others.length === 0 && myRequests.length === 0 && <BackingExample onPost={() => auth.gate("post a Request", () => setPostOpen(true))} />}
-              {others.map((r) => (
-                <RequestCard
-                  key={r.address.toBase58()}
-                  r={r}
-                  selected={selected === r.address.toBase58()}
-                  offered={offeredTo.has(r.address.toBase58())}
-                  onOffer={() => auth.gate("make an Offer", () => setOfferFor(r))}
-                  onView={() => setTab("mine")}
-                />
-              ))}
+              {others.map((r) => {
+                const key = r.address.toBase58();
+                return (
+                  <RequestCard
+                    key={key}
+                    id={key}
+                    r={r}
+                    nowMs={nowMs}
+                    selected={selected === key}
+                    action={
+                      offeredTo.has(key) ? (
+                        <Button onClick={() => setTab("mine")}>Offer sent</Button>
+                      ) : (
+                        <Button variant="money" onClick={() => auth.gate("make an Offer", () => setOfferFor(r))}>
+                          Make an Offer
+                        </Button>
+                      )
+                    }
+                  />
+                );
+              })}
               {myRequests.map((r) => (
                 <div className="bk-span" key={r.address.toBase58()}>
                   <MyRequest
@@ -497,22 +509,6 @@ function ArtCard({
         {action}
       </div>
     </article>
-  );
-}
-
-function RequestCard({ r, selected, offered, onOffer, onView }: { r: ChainRequest; selected: boolean; offered: boolean; onOffer: () => void; onView: () => void }) {
-  return (
-    <ArtCard
-      id={r.address.toBase58()}
-      seed={r.player}
-      account={r.player}
-      game={r.game}
-      line={recordShort(r.record)}
-      label="Requested entry"
-      entry={r.entry}
-      selected={selected}
-      action={offered ? <Button onClick={onView}>Offer sent</Button> : <Button variant="money" onClick={onOffer}>Make an Offer</Button>}
-    />
   );
 }
 

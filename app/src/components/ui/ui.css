@@ -371,7 +371,7 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .skel-line.lg { height: 18px; }
 .skel-av { width: 64px; height: 64px; flex: none; background: rgba(234, 239, 236, 0.07); --edge: transparent; }
 .skel-lines { display: grid; gap: 10px; flex: 1; min-width: 0; }
-.skel.player, .skel.bk-card { display: flex; align-items: center; gap: 16px; }
+.skel.bk-card { display: flex; align-items: center; gap: 16px; }
 @keyframes skel { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 
 /* the big money action catches a passing light every few seconds; the cut only clips its paint,
