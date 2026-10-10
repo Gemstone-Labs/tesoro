@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, Steps } from "@/components/docs/prose";
+import { BackingBars, Shot } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Backing", alternates: { canonical: "/docs/backing" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/backing">
+    <DocPage href="/docs/backing" hero={<Shot name="backing" url="tesoro-fawn.vercel.app/backing" alt="The Backing page with Requests from Players and a button to make an Offer" priority caption="Backing: Players ask to be backed, Backers make Offers. Sample data." />}>
       <p>
         A <b>Backing</b> is an agreement, accepted by both sides, in which a <b>Backer</b> funds a <b>Player&apos;s</b> full entry into one Match. If the
         Player wins, the Backer&apos;s entry comes back first and the rest is split by the share the Backer offered. If the Player loses, only the
@@ -38,6 +39,8 @@ export default function Page() {
         Take a Match with a 1,000 Gema entry each, a Pot of 2,000, and an Offer that gives the Player 40% of the surplus. The Fees in this example are
         6% of the Pot (2% Platform, 3% Studio, 1% Leaderboard), taken from the loser&apos;s Gemas. See <Link href="/docs/fees">Fees</Link>.
       </p>
+      <BackingBars />
+
       <DataTable
         head={["Step", "Gemas"]}
         rows={[

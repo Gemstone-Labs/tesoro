@@ -1,30 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Callout, Code, DataTable, DocPage, H2, H3, Sim } from "@/components/docs/prose";
+import { Callout, DataTable, DocPage, H2, H3, Sim } from "@/components/docs/prose";
+import { Architecture } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Architecture", alternates: { canonical: "/docs/developers" } };
 
-const DIAGRAM = `Next.js app (Privy wallets)      keeper (cranks, relays, expiries)
-        |                                   |
-        v                                   v
-+------------------------- Solana (devnet, base layer) ---------------------------+
-|  tesoro_core   Accounts, Positions, Sources, Gemas, Debt, Matches, Pots, Fees,  |
-|                Backing, Game registry, price feed                                |
-|  block_puzzle / holdem / trading_duel   Game programs, settle by CPI            |
-|  sim_lst       simulated LST (simSOL)                                           |
-|  tesoro_bridge LayerZero V2 OApp: inbox, apply, send                            |
-+--------------------------------------------------------------------------------+
-        ^  delegate / commit                          ^  LayerZero V2 messages
-        |                                             |
-+--- MagicBlock Private Ephemeral Rollup ---+   +--- Ethereum Hoodi (560048) ---+
-|  Intel TDX TEE. Hidden state: Boards,     |   |  PositionVaultOApp + SimLST   |
-|  SeedVault, Deck, Hole cards, Books       |   +--- HyperEVM testnet (998) ----+
-+-------------------------------------------+   |  PositionVaultOApp + SimLST   |
-                                                +-------------------------------+`;
-
 export default function Page() {
   return (
-    <DocPage href="/docs/developers">
+    <DocPage href="/docs/developers" hero={<Architecture />}>
       <p>
         One ledger on Solana, Games as on-chain programs that run their hidden state inside MagicBlock Private Ephemeral Rollups, Positions on their
         home chains, and LayerZero V2 carrying four messages between them. There are no game servers in the settlement path.
@@ -35,9 +18,6 @@ export default function Page() {
           not an external audit. Verification links are on <Link href="/docs/developers/programs">Programs and addresses</Link>.
         </p>
       </Callout>
-
-      <H2 id="diagram">The pieces</H2>
-      <Code label="diagram">{DIAGRAM}</Code>
 
       <H2 id="components">Components</H2>
       <DataTable

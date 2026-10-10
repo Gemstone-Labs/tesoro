@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3, Sim } from "@/components/docs/prose";
+import { DebtDiagram, Shot } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Positions and Advances", alternates: { canonical: "/docs/positions" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/positions">
+    <DocPage href="/docs/positions" hero={<DebtDiagram />}>
       <H2 id="position">A Position</H2>
       <p>
         A <b>Position</b> is your locked, yield-bearing stake in Tesoro. The staked amount inside it is the <b>Principal</b>. The Principal is only
@@ -25,6 +26,8 @@ export default function Page() {
         The test tokens come from a faucet in your Wallet. They are not real staking tokens, and their yield is simulated: a month of yield arrives in
         about 10 minutes.
       </p>
+
+      <Shot name="wallet" url="tesoro-fawn.vercel.app/wallet" alt="The Wallet showing a Position with its Debt, Horizon and Unlock Estimate" caption="The Wallet shows each Position, its Debt and its Unlock Estimate. Figures here are sample data." />
 
       <H2 id="advance">An Advance</H2>
       <p>

@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3, Sim } from "@/components/docs/prose";
+import { Shot, SourceDiagram } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Gemas", alternates: { canonical: "/docs/gemas" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/gemas">
+    <DocPage href="/docs/gemas" hero={<SourceDiagram />}>
       <H2 id="what">What a Gema is</H2>
       <p>
         <b>Gemas</b> are the one play unit on Tesoro, the same on every chain. A Gema is worth <b>$0.01 at the moment it is issued</b>. Every Gema is
@@ -45,6 +46,8 @@ export default function Page() {
         Redeem pays out in the Source asset: simSOL <Sim /> on Solana, or the Ethereum or HyperEVM test token on those chains. Redeeming an
         Ethereum or HyperEVM Gema sends a message to that chain, which takes a few minutes (see <Link href="/docs/chains">Chains</Link>).
       </p>
+
+      <Shot name="wallet" url="tesoro-fawn.vercel.app/wallet" alt="The Wallet listing Gemas by Source, redeemable now and pending" caption="Gemas by Source in the Wallet, split into redeemable now and pending. Sample data." />
 
       <H2 id="own-first">Which Gemas an entry uses</H2>
       <p>

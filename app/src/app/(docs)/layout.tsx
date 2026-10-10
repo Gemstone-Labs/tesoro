@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "@/components/ui/ui.css";
 import "@/components/docs/docs.css";
+import "@/components/docs/docs-visual.css";
 import { DocsHeader } from "@/components/docs/DocsHeader";
 import { NavList } from "@/components/docs/NavList";
 import { TocRail } from "@/components/docs/TocRail";

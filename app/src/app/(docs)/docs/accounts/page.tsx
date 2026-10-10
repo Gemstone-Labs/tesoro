@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DocPage, H2 } from "@/components/docs/prose";
+import { AvatarStrip, Shot } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Accounts and sign-in", alternates: { canonical: "/docs/accounts" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/accounts">
+    <DocPage href="/docs/accounts" hero={<Shot name="account" url="tesoro-fawn.vercel.app/account/…" alt="A Player's public Account page with their record, Gemas won and lost, and Match history" priority caption="A Player's public Account page: what they played, nothing more. Figures here are sample data." />}>
       <H2 id="account">One Account</H2>
       <p>
         Your <b>Account</b> is your single identity on Tesoro. Your Positions, Gemas, Match history and Backings all belong to the Account, not to a
@@ -36,6 +37,8 @@ export default function Page() {
       <p>
         Tesoro&apos;s pictures are animals cut like gemstones. There are no photos of people, so you are never asked to upload one.
       </p>
+
+      <AvatarStrip />
 
       <H2 id="public-page">Your public Account page</H2>
       <p>

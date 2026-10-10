@@ -1,12 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
+import { Cpu, GitCommitHorizontal, KeyRound, Landmark, Play, Send } from "lucide-react";
+import { Pipeline } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Private Ephemeral Rollups", alternates: { canonical: "/docs/developers/rollups" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/developers/rollups">
+    <DocPage href="/docs/developers/rollups" hero={<Pipeline label="Lifecycle of delegated state" items={[
+  { icon: Landmark, tone: "sapphire", title: "Base layer", body: "Match opens in tesoro_core." },
+  { icon: Send, tone: "violet", title: "Delegate", body: "State moves to the TEE." },
+  { icon: KeyRound, tone: "violet", title: "Permissions", body: "Who may read each account." },
+  { icon: Play, tone: "amber", title: "Play", body: "Game rules run in the rollup." },
+  { icon: GitCommitHorizontal, tone: "violet", title: "Commit", body: "Wipe hidden state, commit back." },
+  { icon: Cpu, tone: "emerald", title: "Settle", body: "CPI into tesoro_core." },
+]} />}>
       <p>
         A Match&apos;s result must reach the Solana settlement program without trusting a Studio server&apos;s signature, and some of its state must stay hidden:
         the Hold&apos;em deck, a Player&apos;s hole cards, a Block Puzzle run, a Trading Duel position. ADR 0003 decides that each Game is a Solana program whose

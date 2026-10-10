@@ -1,12 +1,22 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, Code, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
+import { Download, Play, Hammer, ListChecks } from "lucide-react";
+import { StepGrid } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Run it locally", alternates: { canonical: "/docs/developers/run" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/developers/run">
+    <DocPage href="/docs/developers/run" hero={<StepGrid
+  items={[
+    { icon: Download, tone: "sapphire", title: "Install", body: <>Node 22 and pnpm 10, then <code>pnpm install</code>.</> },
+    { icon: Play, tone: "sapphire", title: "Start the app", body: <><code>NEXT_PUBLIC_DEV_WALLET=1 pnpm dev</code> on localhost:3000, against devnet.</> },
+    { icon: Hammer, tone: "amber", title: "Build the programs", body: <><code>pnpm build:programs</code>, then <code>cargo test --workspace</code>.</> },
+    { icon: ListChecks, tone: "amber", title: "Check", body: <>Build the app, run tsc, eslint and the tests; run the keeper once with <code>--dry-run</code>.</> },
+  ]}
+  result={{ title: "What you will have", body: <>The app running locally with a dev wallet, all programs built and tested, and the same devnet deployment to check against.</> }}
+/>}>
       <H2 id="requirements">Requirements</H2>
       <ul>
         <li>Node 22 (Next.js 16 needs 20.9 or newer) and pnpm 10.</li>
