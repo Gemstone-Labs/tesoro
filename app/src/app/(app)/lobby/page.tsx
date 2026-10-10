@@ -34,11 +34,6 @@ export default function Lobby() {
 
   return (
     <div className="lobby">
-      <div className="lobby-top">
-        <HeroCarousel />
-        <LiveWins />
-      </div>
-
       {openMatches.length > 0 && (
         <section className="rail" aria-labelledby="live-h">
           <header className="rail-head">
@@ -58,6 +53,11 @@ export default function Lobby() {
           </div>
         </section>
       )}
+
+      <div className="lobby-top">
+        <HeroCarousel />
+        <LiveWins />
+      </div>
 
       <PlayNowRail />
       <BackPlayerRail />
