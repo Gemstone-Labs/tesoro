@@ -47,9 +47,7 @@ export function Nav() {
               {label}
             </a>
           ))}
-          <span className="lp-dim" aria-disabled="true" title="Docs are coming soon">
-            Docs
-          </span>
+          <a href="/docs">Docs</a>
         </nav>
         <button
           type="button"
