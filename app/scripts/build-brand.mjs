@@ -1,10 +1,11 @@
 /**
- * Builds the Tesoro brand vectors from geometry (no auto-trace): mark SVGs, lockups with outlined
- * wordmark, shared path data for the React component, and the icon rasters.
+ * Builds the Tesoro brand from geometry (no auto-trace): the Facet T mark, the chamfered-caps wordmark,
+ * lockups, shared path data for the React component, icons and the social cards.
  * Needs `opentype.js`, `sharp` and `@fontsource/schibsted-grotesk` resolvable from BRAND_DEPS
- * (path to a package.json that has them installed):
+ * (path to a package.json that has them installed; the font is only used for the social card headline):
  *   BRAND_DEPS=/path/to/package.json node app/scripts/build-brand.mjs
- * Sources: art-source/ui-redesign/brand/{app-icon,og-image}.png (outside the repo).
+ * Sources (outside the repo): art-source/ui-redesign/brand/og-image.png (social card background art).
+ * Exports copies to art-source/brand-v2/export/.
  */
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -18,109 +19,98 @@ const fontFile = require.resolve("@fontsource/schibsted-grotesk/files/schibsted-
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = path.resolve(here, "..");
-const SRC = process.env.BRAND_SRC ?? path.join(process.env.HOME, "Work/gemstone-labs/tesoro/art-source/ui-redesign/brand");
-const EXPORT = path.join(SRC, "export");
+const ART = path.join(process.env.HOME, "Work/gemstone-labs/tesoro/art-source");
+const SRC = process.env.BRAND_SRC ?? path.join(ART, "ui-redesign/brand");
+const EXPORT = process.env.BRAND_EXPORT ?? path.join(ART, "brand-v2/export");
 const out = (p) => path.join(app, p);
 for (const d of [out("public/brand"), out("public/icons"), out("src/components/brand"), EXPORT]) fs.mkdirSync(d, { recursive: true });
 
-// ---- geometry, in the source's coordinates, mirrored about x = 966 ----
-const OX = 192, OY = 204, W = 1548, H = 1558;
-const mir = (pts) => pts.map(([x, y]) => [1932 - x, y]).reverse();
-const d = (pts) => "M" + pts.map(([x, y]) => `${x - OX} ${y - OY}`).join("L") + "Z";
-const pair = (pts) => [pts, mir(pts)];
+// ---- the Facet T: an emerald-cut octagon whose table and stem facets form the T ----
+const S = 1000;
+const poly = (pts) => "M" + pts.map(([x, y]) => `${x} ${y}`).join("L") + "Z";
+const octagon = [[270, 0], [730, 0], [1000, 270], [1000, 730], [730, 1000], [270, 1000], [0, 730], [0, 270]];
+const table = [[270, 0], [730, 0], [900, 310], [100, 310]];
+const left = [[0, 400], [380, 470], [380, 1000], [270, 1000], [0, 730]];
+const right = [[1000, 400], [620, 470], [620, 1000], [730, 1000], [1000, 730]];
+// one colour: the side facets drop away and the T stands alone
+const monoT = [[270, 0], [730, 0], [1000, 270], [1000, 400], [620, 470], [620, 1000], [380, 1000], [380, 470], [0, 400], [0, 270]];
+const MK = { octagon: poly(octagon), table: poly(table), left: poly(left), right: poly(right), mono: poly(monoT) };
 
-const facets = {
-  light: [
-    [[620, 204], [1312, 204], [1232, 383], [700, 383]],
-    [[760, 1527], [1172, 1527], [1312, 1762], [620, 1762]],
-    [[720, 425], [1212, 425], [1340, 553], [598, 553]],
-    ...pair([[500, 822], [790, 822], [790, 1012], [490, 838]]),
-  ],
-  mid: [
-    ...pair([[620, 204], [700, 383], [380, 703], [203, 620]]),
-    ...pair([[455, 1245], [735, 1522], [612, 1750], [207, 1350]]),
-    [[598, 553], [1340, 553], [1510, 735], [1430, 785], [1105, 785], [1105, 1483], [827, 1483], [827, 785], [505, 785], [418, 735]],
-  ],
-  dark: [
-    ...pair([[192, 648], [458, 808], [458, 1195], [192, 1335]]),
-    ...pair([[490, 838], [790, 1012], [790, 1483], [772, 1483], [490, 1195]]),
-  ],
-};
-const octagon = [[620, 204], [1312, 204], [1732, 624], [1732, 1340], [1312, 1762], [620, 1762], [200, 1340], [200, 624]];
-const simpleT = [[430, 470], [1502, 470], [1502, 720], [1122, 720], [1122, 1500], [810, 1500], [810, 720], [430, 720]];
-
-const dp = Object.fromEntries(Object.entries(facets).map(([k, v]) => [k, v.map(d).join("")]));
-const octD = d(octagon), tD = d(simpleT);
-
-// ---- palettes ----
+// flat facet tones, light from the upper left; the light-background set is deeper
 const PAL = {
-  dark: { light: ["#A4FADD", "#7EF0C8"], mid: ["#38CB98", "#2AB786"], dark: ["#0E7D5A", "#0A6549"], text: "#F5F3EE" },
-  light: { light: ["#2CC593", "#1FB283"], mid: ["#17A374", "#0F8F65"], dark: ["#0A6146", "#07503A"], text: "#0C0E10" },
+  dark: { table: "#8FF5CF", body: "#2DBE8C", left: "#0F7D5B", right: "#0B6B4E", text: "#F5F3EE" },
+  light: { table: "#5FD9AE", body: "#0E9E70", left: "#086045", right: "#064B37", text: "#0C0E10" },
 };
-const grad = (id, [a, b]) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient>`;
-const defs = (p, pre) => grad(pre + "l", p.light) + grad(pre + "m", p.mid) + grad(pre + "d", p.dark);
-const fullBody = (pre) => `<path fill="url(#${pre}d)" d="${dp.dark}"/><path fill="url(#${pre}m)" d="${dp.mid}"/><path fill="url(#${pre}l)" d="${dp.light}"/>`;
-const monoBody = `<path fill="currentColor" fill-opacity=".45" d="${dp.dark}"/><path fill="currentColor" fill-opacity=".75" d="${dp.mid}"/><path fill="currentColor" d="${dp.light}"/>`;
-const svg = (w, h, inner, title) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="${title}">${inner}</svg>\n`;
+const markBody = (p) =>
+  `<path fill="${p.body}" d="${MK.octagon}"/><path fill="${p.table}" d="${MK.table}"/><path fill="${p.left}" d="${MK.left}"/><path fill="${p.right}" d="${MK.right}"/>`;
+const svg = (w, h, inner, title = "Tesoro") => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="${title}">${inner}</svg>\n`;
 const write = (name, s) => { fs.writeFileSync(out("public/brand/" + name), s); fs.writeFileSync(path.join(EXPORT, name), s); };
 
-write("tesoro-mark.svg", svg(W, H, `<defs>${defs(PAL.dark, "g")}</defs>${fullBody("g")}`, "Tesoro"));
-write("tesoro-mark-mono.svg", svg(W, H, monoBody, "Tesoro"));
-const markSimple = svg(W, H, `<defs>${grad("gm", PAL.dark.mid)}</defs><path fill="url(#gm)" d="${octD}"/><path fill="#06231B" d="${tD}"/>`, "Tesoro");
-write("tesoro-mark-simple.svg", markSimple);
+write("tesoro-mark.svg", svg(S, S, markBody(PAL.dark)));
+write("tesoro-mark-light.svg", svg(S, S, markBody(PAL.light)));
+write("tesoro-mark-mono.svg", svg(S, S, `<path fill="currentColor" d="${MK.mono}"/>`));
 
-// ---- wordmark outlines ----
-const fb = fs.readFileSync(fontFile);
-const font = opentype.parse(fb.buffer.slice(fb.byteOffset, fb.byteOffset + fb.length));
-const FS = 1000, LS = -0.02;
-const wp = font.getPath("Tesoro", 0, 0, FS, { letterSpacing: LS, kerning: true });
-const bb = wp.getBoundingBox();
-const capH = -font.getPath("T", 0, 0, FS).getBoundingBox().y1;
-const r = (n) => Math.round(n * 10) / 10;
-const shifted = (x, y, scale) => {
-  const p = new opentype.Path();
-  for (const c of wp.commands) {
-    const m = { ...c };
-    for (const k of ["x", "x1", "x2"]) if (k in m) m[k] = r((m[k] - bb.x1) * scale + x);
-    for (const k of ["y", "y1", "y2"]) if (k in m) m[k] = r(m[k] * scale + y);
-    p.commands.push(m);
-  }
-  return p.toPathData(1);
+// ---- wordmark: TESORO in chamfered caps, stroked with bevel joins so every outer corner is cut at 45° ----
+// Units: cap height 100, stroke 20, bowl chamfer 18. Spacing is per letter pair (T sits tighter).
+const WT = 20, CH = 100, C = 18, h = WT / 2;
+const glyph = {
+  T: (x) => [`M${x} ${h}H${x + 76}M${x + 38} ${h}V${CH}`, 76],
+  E: (x) => [`M${x + 64} ${h}H${x + h}V${CH - h}H${x + 64}M${x + h} ${CH / 2}H${x + 56}`, 64],
+  S: (x) => {
+    const w = 70;
+    return [`M${x + w} ${h}H${x + C + h}L${x + h} ${h + C}V${CH / 2 - C / 2}L${x + C / 2 + h} ${CH / 2}H${x + w - C / 2 - h}L${x + w - h} ${CH / 2 + C / 2}V${CH - h - C}L${x + w - C - h} ${CH - h}H${x}`, w];
+  },
+  O: (x) => {
+    const w = 90, a = x + h, b = x + w - h, t = h, u = CH - h;
+    return [`M${a + C} ${t}H${b - C}L${b} ${t + C}V${u - C}L${b - C} ${u}H${a + C}L${a} ${u - C}V${t + C}Z`, w];
+  },
+  R: (x) => {
+    const w = 72;
+    return [`M${x + h} ${CH}V${h}H${x + w - C - h}L${x + w - h} ${h + C}V${CH / 2 - C + 4}L${x + w - C - h} ${CH / 2 + 4}H${x + h}M${x + w - 30} ${CH / 2 + 4}L${x + w - h + 2} ${CH}`, w];
+  },
 };
-const textW = bb.x2 - bb.x1;
+const track = { TE: 12, ES: 22, SO: 22, OR: 22, RO: 22 };
+let wx = 0;
+const wparts = [];
+[..."TESORO"].forEach((ch, i, a) => {
+  const [dd, w] = glyph[ch](wx);
+  wparts.push(dd);
+  wx += w + (track[ch + a[i + 1]] ?? 0);
+});
+const WORD = { w: wx, h: CH, d: wparts.join(""), stroke: WT };
+const wordGroup = (x, y, scale, color) =>
+  `<g transform="translate(${x} ${y}) scale(${scale})"><path d="${WORD.d}" fill="none" stroke="${color}" stroke-width="${WT}" stroke-linejoin="bevel" stroke-linecap="butt"/></g>`;
+write("tesoro-wordmark.svg", svg(WORD.w, CH, wordGroup(0, 0, 1, "currentColor")));
 
-// horizontal: cap height 0.67 of mark height, gap 0.16 H
-const hs = (0.67 * H) / capH, hx = W + 0.16 * H, hW = Math.round(hx + textW * hs), hBase = H / 2 + (capH * hs) / 2;
-const hWord = shifted(hx, hBase, hs);
-// stacked: text width 1.3 x mark width
-const ss = (1.3 * W) / textW, sW = Math.round(textW * ss), gap = 0.16 * H, sBase = H + gap + capH * ss, sH = Math.round(sBase + 0.05 * capH * ss);
-const sWord = shifted(0, sBase, ss);
+// horizontal: cap height 0.46 of the mark, gap 0.28; stacked: word 1.6 x the mark's width, gap 0.2
+const hCap = 0.46 * S, hGap = 0.28 * S, hScale = hCap / CH, hW = Math.round(S + hGap + WORD.w * hScale);
+const sScale = (1.6 * S) / WORD.w, sW = Math.round(WORD.w * sScale), sGap = 0.2 * S, sH = Math.round(S + sGap + CH * sScale);
 for (const mode of ["dark", "light"]) {
-  const p = PAL[mode], pre = mode[0];
-  const hd = `<defs>${defs(p, pre)}</defs>`;
-  write(`tesoro-lockup-horizontal-${mode}.svg`, svg(hW, H, `${hd}${fullBody(pre)}<path fill="${p.text}" d="${hWord}"/>`, "Tesoro"));
-  write(`tesoro-lockup-stacked-${mode}.svg`, svg(sW, sH, `${hd}<g transform="translate(${r((sW - W) / 2)} 0)">${fullBody(pre)}</g><path fill="${p.text}" d="${sWord}"/>`, "Tesoro"));
+  const p = PAL[mode];
+  write(`tesoro-lockup-horizontal-${mode}.svg`, svg(hW, S, markBody(p) + wordGroup(S + hGap, (S - hCap) / 2, hScale, p.text)));
+  write(`tesoro-lockup-stacked-${mode}.svg`, svg(sW, sH, `<g transform="translate(${(sW - S) / 2} 0)">${markBody(p)}</g>` + wordGroup(0, S + sGap, sScale, p.text)));
 }
 
 // shared data for the React component
 const ts = `// Generated by app/scripts/build-brand.mjs. Do not edit by hand.
-export const MARK = { w: ${W}, h: ${H}, dark: "${dp.dark}", mid: "${dp.mid}", light: "${dp.light}", octagon: "${octD}", t: "${tD}" } as const;
-export const WORDMARK = { w: ${Math.round(textW * hs)}, capH: ${r(capH * hs)}, path: "${shifted(0, capH * hs, hs)}" } as const;
-export const LOCKUP = { w: ${hW}, h: ${H}, gap: ${r(0.16 * H)} } as const;
+export const MARK = { size: ${S}, ...${JSON.stringify(MK)} } as const;
+export const WORDMARK = ${JSON.stringify(WORD)} as const;
+export const LOCKUP = { w: ${hW}, h: ${S}, gap: ${hGap}, capH: ${hCap} } as const;
 export const PALETTE = ${JSON.stringify(PAL, null, 2)} as const;
 `;
 fs.writeFileSync(out("src/components/brand/paths.ts"), ts);
 
-// ---- rasters ----
-// Site and app icons are the approved T-gem art itself (founder, Oct 2), not the vector mark: the transparent
-// mark-take-2 for the tab icon and the maskable icon, the glowing app-icon tile for Apple and install icons.
-const clear = { r: 0, g: 0, b: 0, alpha: 0 };
-const mark = await sharp(path.join(SRC, "mark-take-2.png")).trim().png().toBuffer();
-const markAt = (s) => sharp(mark).resize(s, s, { fit: "contain", background: clear, kernel: "lanczos3" }).png().toBuffer();
-const icon = path.join(SRC, "app-icon.png");
+// ---- rasters, all rendered from the vector mark ----
+const markSvg = Buffer.from(svg(S, S, markBody(PAL.dark)));
+const markAt = (s) => sharp(markSvg, { density: 72 * (s / S) * 4 }).resize(s, s, { kernel: "lanczos3" }).png().toBuffer();
 fs.writeFileSync(out("src/app/icon.png"), await markAt(192));
-await sharp(icon).resize(180, 180).png({ compressionLevel: 9 }).toFile(out("src/app/apple-icon.png"));
-for (const s of [192, 512]) await sharp(icon).resize(s, s).png({ compressionLevel: 9 }).toFile(out(`public/icons/icon-${s}.png`));
+// app tile: the mark on the shell colour with a soft light from the upper left
+const tile = async (s, frac) => {
+  const bg = Buffer.from(svg(s, s, `<defs><radialGradient id="r" cx=".32" cy=".26" r=".85"><stop offset="0" stop-color="#1B2A25"/><stop offset=".7" stop-color="#0A0D0E"/></radialGradient></defs><rect width="${s}" height="${s}" fill="url(#r)"/>`));
+  return sharp(bg).composite([{ input: await markAt(Math.round(s * frac)), gravity: "center" }]).png({ compressionLevel: 9 });
+};
+await (await tile(180, 0.6)).toFile(out("src/app/apple-icon.png"));
+for (const s of [192, 512]) await (await tile(s, 0.6)).toFile(out(`public/icons/icon-${s}.png`));
 const mask = await sharp({ create: { width: 512, height: 512, channels: 4, background: "#0C0E10" } })
   .composite([{ input: await markAt(300), gravity: "center" }]).png({ compressionLevel: 9 }).toBuffer();
 fs.writeFileSync(out("public/icons/maskable-512.png"), mask);
@@ -139,10 +129,22 @@ imgs.forEach((b, i) => {
   off += b.length;
 });
 fs.writeFileSync(out("src/app/favicon.ico"), Buffer.concat([head, ...imgs]));
-// social
+
+// ---- social card: the original game art on the right, lockup + headline set from vectors on the left ----
+const fb = fs.readFileSync(fontFile);
+const font = opentype.parse(fb.buffer.slice(fb.byteOffset, fb.byteOffset + fb.length));
+const lines = ["Play now with", "yield you haven’t", "earned yet."];
+const OGX = 72, FS = 62, LH = 70, firstBase = 360;
+const headline = lines.map((t, i) => font.getPath(t, OGX, firstBase + i * LH, FS, { kerning: true }).toPathData(1)).join("");
+const ogLockH = 104, ogScale = ogLockH / S;
+const og = svg(1200, 630,
+  `<defs><linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#080B0F"/><stop offset=".505" stop-color="#080B0F"/><stop offset=".6" stop-color="#080B0F" stop-opacity="0"/></linearGradient></defs>` +
+  `<rect width="1200" height="630" fill="url(#f)"/>` +
+  `<g transform="translate(${OGX} 150) scale(${ogScale})">${markBody(PAL.dark)}${wordGroup(S + hGap, (S - hCap) / 2, hScale, PAL.dark.text)}</g>` +
+  `<path fill="#F5F3EE" d="${headline}"/>`);
+const ogPng = await sharp(path.join(SRC, "og-image.png")).resize(1200, 630).composite([{ input: Buffer.from(og) }]).png().toBuffer();
 for (const n of ["opengraph-image", "twitter-image"])
-  await sharp(path.join(SRC, "og-image.png")).png({ compressionLevel: 9, palette: true, quality: 90, effort: 10 }).toFile(out(`src/app/${n}.png`));
-// export copies
-for (const f of ["mark-take-2.png", "mark-take-2-mono.png", "lockup-take-1.png", "lockup-take-1-stacked.png", "app-icon.png", "og-image.png", "x-avatar.png", "x-banner.png"])
-  fs.copyFileSync(path.join(SRC, f), path.join(EXPORT, f));
-console.log("ok", { hW, sW, sH });
+  await sharp(ogPng).png({ compressionLevel: 9, palette: true, quality: 90, effort: 10 }).toFile(out(`src/app/${n}.png`));
+fs.writeFileSync(path.join(EXPORT, "og-image.png"), ogPng);
+for (const s of [1024, 400]) await (await tile(s, 0.6)).toFile(path.join(EXPORT, s === 1024 ? "app-icon.png" : "x-avatar.png"));
+console.log("ok", { hW, sW, sH, word: WORD.w });
