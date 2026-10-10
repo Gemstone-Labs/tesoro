@@ -1,12 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, Sim } from "@/components/docs/prose";
+import { FlaskConical, ShieldCheck } from "lucide-react";
+import { Compare } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Risks and limits", alternates: { canonical: "/docs/risks" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/risks">
+    <DocPage href="/docs/risks" hero={<Compare
+  left={{ title: "Simulated in test mode", icon: FlaskConical, tone: "amber", items: ["Staking tokens and their yield: 1 month = 10 minutes", "The issuance price, from a team-controlled key", "Faucets and funding helpers for test fees", "Every Gema and every payout: nothing has value"] }}
+  right={{ title: "Enforced by the programs", icon: ShieldCheck, tone: "emerald", items: ["Principal is never entered into a Match or used to pay Debt", "A Match is settled exactly once, by the Game's own program", "Fees are fixed when the Match opens", "Anyone can trigger a timeout or a refund"] }}
+/>}>
       <Callout kind="warn" title="Status">
         <p>
           Tesoro is on test networks only. There is no mainnet deployment, no real value, no external security audit and no legal review. Read this page

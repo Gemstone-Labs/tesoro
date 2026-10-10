@@ -127,8 +127,8 @@ export function Steps({ items }: { items: { title: string; body: ReactNode }[] }
   );
 }
 
-/** The page frame: group label, title, summary, body, then previous and next. */
-export function DocPage({ href, children }: { href: string; children: ReactNode }) {
+/** The page frame: group label, title, summary, an optional hero visual, body, then previous and next. */
+export function DocPage({ href, hero, children }: { href: string; hero?: ReactNode; children: ReactNode }) {
   const page = ALL_PAGES.find((p) => p.href === href);
   const group = groupOf(href);
   const { prev, next } = neighbours(href);
@@ -140,6 +140,7 @@ export function DocPage({ href, children }: { href: string; children: ReactNode 
         <h1 className="docs-h1">{page.title}</h1>
         <p className="docs-lede">{page.summary}</p>
       </header>
+      {hero && <div className="docs-hero">{hero}</div>}
       <div className="docs-prose">{children}</div>
       <nav className="docs-pager" aria-label="Previous and next">
         {prev ? (

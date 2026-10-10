@@ -1,12 +1,30 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Addr, Callout, DataTable, DocPage, H2, H3, Sim, explorer, hoodi, purrsec } from "@/components/docs/prose";
+import { IconTile } from "@/components/docs/visual";
+import { Coins, Network, Spade, Swords, Timer, Puzzle } from "lucide-react";
 
 export const metadata: Metadata = { title: "Programs and addresses", alternates: { canonical: "/docs/developers/programs" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/developers/programs">
+    <DocPage href="/docs/developers/programs" hero={<ul className="dx-programs">
+  {[
+    ["tesoro_core", "The money rules and the ledger", Coins, "emerald", "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"],
+    ["block_puzzle", "Game: Block Puzzle", Puzzle, "sapphire", "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"],
+    ["holdem", "Game: Hold'em", Spade, "rose", "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"],
+    ["trading_duel", "Game: Trading Duel", Swords, "amber", "CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj"],
+    ["sim_lst", "Simulated staking token (simulated)", Timer, "steel", "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"],
+    ["tesoro_bridge", "LayerZero V2 OApp on Solana", Network, "violet", "5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ"],
+  ].map(([n, r, I, t, id]) => (
+    <li key={n as string} className="cut cut-card">
+      <IconTile icon={I as typeof Coins} tone={t as "emerald"} />
+      <b>{n as string}</b>
+      <p>{r as string}</p>
+      <a className="docs-ext" href={explorer(id as string)}><code>{(id as string).slice(0, 6)}…{(id as string).slice(-4)}</code> Explorer</a>
+    </li>
+  ))}
+</ul>}>
       <Callout kind="note" title="Checked on chain, 10 October 2026">
         <p>
           The six Solana programs below were read from devnet that day: each one is executable and each one&apos;s upgrade authority is{" "}

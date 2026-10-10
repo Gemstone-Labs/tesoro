@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, Code, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
+import { Sequence } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "How settlement works", alternates: { canonical: "/docs/developers/settlement" } };
 
@@ -24,6 +25,20 @@ export default function Page() {
         A Match is settled by the Game program, not by a Studio server. The Game keeps its state in a rollup, works out the result itself, and then calls
         tesoro_core, signing as the authority registered for that Game. tesoro_core moves the Gemas.
       </p>
+
+      <Sequence
+        label="Match settlement sequence"
+        caption="Who calls whom, in order. Only the Game program's registered authority can call settle_match."
+        steps={[
+          { from: "Player", to: "tesoro_core", call: "open_match / join_match", note: "Entries leave each Player's Holdings. Fee basis points are snapshotted." },
+          { from: "Game", to: "Rollup", call: "delegate state accounts", note: "Pinned to the one approved TEE validator." },
+          { from: "Players", to: "Rollup", call: "play", note: "Hidden state. The program enforces the rules and its own clock." },
+          { from: "Rollup", to: "Solana", call: "commit and undelegate", note: "Hidden state is wiped, the final state returns to the base layer." },
+          { from: "Anyone", to: "Game", call: "settle", note: "The Game works out the winner itself." },
+          { from: "Game", to: "tesoro_core", call: "settle_match(result) by CPI", note: "Signed by the Game's authority PDA with invoke_signed." },
+          { from: "tesoro_core", to: "Players", call: "credit payout lines, take Fees", note: "Leaderboard Fee goes to the Pool. A MatchWon event is emitted." },
+        ]}
+      />
 
       <H2 id="lifecycle">Match lifecycle in tesoro_core</H2>
       <DataTable
