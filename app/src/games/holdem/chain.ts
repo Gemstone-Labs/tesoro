@@ -32,6 +32,7 @@ import {
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
+import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
 
 export const HOLDEM_PROGRAM_ID = new PublicKey("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
@@ -256,7 +257,7 @@ const toLines = (side: any): Line[] => side.lines.map((l: any) => ({ source: Arr
  * (recipient TesoroAccount then Holding of that Source, sorted by recipient then Source).
  * `winner` is the seat (0 = opener, 1 = joiner) or `null` for a refund.
  */
-export function computePayouts(matchInner: any, winner: 0 | 1 | null): Payout[] {
+export function computePayouts(matchInner: any, winner: 0 | 1 | null, lb: LeaderboardTerms = NO_LEADERBOARD): Payout[] {
   const raw: { recipient: number[]; source: number[]; amount: bigint }[] = [];
   const push = (recipient: number[], lines: Line[]) => {
     for (const l of lines) if (l.amount > 0n) raw.push({ recipient, source: l.source, amount: l.amount });
@@ -274,6 +275,7 @@ export function computePayouts(matchInner: any, winner: 0 | 1 | null): Payout[] 
     const rest = normalize(toLines(l));
     push(Array.from(matchInner.fees.platformRecipient), take(rest, platform));
     push(Array.from(matchInner.fees.studioRecipient), take(rest, studio));
+    if (lb.recipient) push(Array.from(lb.recipient.toBytes()), take(rest, (pot * BigInt(lb.bps)) / BPS));
     const backed = Buffer.compare(Buffer.from(w.funder), Buffer.from(w.player)) !== 0;
     if (backed) {
       push(Array.from(w.funder), normalize(toLines(w)));
@@ -526,7 +528,7 @@ export class HoldemChain {
     const tesoroMatch = await this.readTesoroMatch(matchId);
     if (!this.isLive(tesoroMatch)) return "";
     const winner = table.status === STATUS.over ? (table.winner as 0 | 1) : null;
-    const payouts = computePayouts(tesoroMatch.inner, winner);
+    const payouts = computePayouts(tesoroMatch.inner, winner, await fetchLeaderboardTerms(this.base));
     const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
     const existing = await this.base.getMultipleAccountsInfo(holdings);
     const missing: TransactionInstruction[] = [];

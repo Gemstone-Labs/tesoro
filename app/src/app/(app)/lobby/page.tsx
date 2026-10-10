@@ -3,6 +3,7 @@
 import { useGuideTip } from "@/components/guide/Guide";
 import { BackPlayerRail } from "@/components/lobby/BackPlayerRail";
 import { HeroCarousel } from "@/components/lobby/HeroCarousel";
+import { LeaderboardTeaser } from "@/components/lobby/LeaderboardTeaser";
 import { LiveWins } from "@/components/lobby/LiveWins";
 import { PlayAgainRail } from "@/components/lobby/PlayAgainRail";
 import { PlayNowRail } from "@/components/lobby/PlayNowRail";
@@ -51,6 +52,7 @@ export default function Lobby() {
       <PlayNowRail />
       <PlayAgainRail />
       <BackPlayerRail />
+      <LeaderboardTeaser />
     </div>
   );
 }

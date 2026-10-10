@@ -16,6 +16,7 @@
  * A Player's `play` calls go to the private rollup (TEE); everything else to the base layer.
  * Scores are never sent: the program replays the moves with the same engine as `./engine.ts`.
  */
+import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
@@ -540,7 +541,7 @@ export class BlockPuzzleChain {
   /** Payout accounts in tesoro_core's order; opens any Holding a recipient is missing first. */
   private async payoutAccounts(payer: ChainSigner, matchId: bigint, result: Result) {
     const m: any = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
-    const payouts = computePayouts(m.inner, result);
+    const payouts = computePayouts(m.inner, result, await fetchLeaderboardTerms(this.base));
     const holdings = payouts.map((p) => BlockPuzzleChain.holding(p.recipient, p.source));
     const existing = await this.base.getMultipleAccountsInfo(holdings);
     const missing: TransactionInstruction[] = [];
@@ -618,7 +619,7 @@ const take = (lines: Line[], amount: bigint): Line[] => {
 const sum = (lines: Line[]) => lines.reduce((a, l) => a + l.amount, 0n);
 
 /** Port of `Match::settle` payouts in programs/tesoro_core/src/ledger/matches.rs (merged and sorted). */
-export function computePayouts(m: any, result: Result): Payout[] {
+export function computePayouts(m: any, result: Result, lb: LeaderboardTerms = NO_LEADERBOARD): Payout[] {
   const out: Payout[] = [];
   const push = (recipient: PublicKey, lines: Line[]) => {
     for (const l of lines) if (l.amount > 0n) out.push({ recipient, source: l.source, amount: l.amount });
@@ -636,6 +637,7 @@ export function computePayouts(m: any, result: Result): Payout[] {
     const rest = normalize(loser.lines);
     push(pk(m.fees.platformRecipient), take(rest, platform));
     push(pk(m.fees.studioRecipient), take(rest, studio));
+    if (lb.recipient) push(lb.recipient, take(rest, (pot * BigInt(lb.bps)) / 10_000n));
     if (pk(winner.funder).equals(pk(winner.player)) === false) {
       const surplus = sum(rest);
       push(pk(winner.funder), normalize(winner.lines));

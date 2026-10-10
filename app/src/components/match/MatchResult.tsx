@@ -15,7 +15,7 @@ export interface MatchResultProps {
   /** The Gema change for whoever is looking (the Player's, or the Backer's when `role` is backer). */
   delta: number;
   entry: number;
-  /** Platform + Studio Fee taken from the Pot, in Gemas. */
+  /** Platform + Studio + Leaderboard Fee taken from the Pot, in Gemas. */
   fee: number;
   role: "player" | "backer";
   backed: boolean;

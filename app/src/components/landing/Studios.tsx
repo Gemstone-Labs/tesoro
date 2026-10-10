@@ -10,13 +10,14 @@ const CATALOGUE = [
   { src: art.comingSoon["bubble-burst"], name: "Bubble Burst" },
 ];
 
-/** The Pot at settlement as a ring: illustrative proportions only (the fee levels aren't set). */
+/** The Pot at settlement as a ring: illustrative proportions only. */
 function PotRing() {
-  // arc lengths in a pathLength of 100: winner, Studio Fee, Platform Fee, with small gaps
+  // arc lengths in a pathLength of 100: winner, Studio Fee, Platform Fee, Leaderboard Fee, with small gaps
   const arcs = [
-    { cls: "win", len: 80, off: 0 },
-    { cls: "studio", len: 9, off: 81.5 },
-    { cls: "platform", len: 6.5, off: 92 },
+    { cls: "win", len: 76, off: 0 },
+    { cls: "studio", len: 9, off: 77.5 },
+    { cls: "platform", len: 6.5, off: 88 },
+    { cls: "pool", len: 3.5, off: 96 },
   ];
   return (
     <div className="lp-pot">
@@ -41,6 +42,9 @@ function PotRing() {
         </li>
         <li>
           <i className="platform" /> Platform Fee
+        </li>
+        <li>
+          <i className="pool" /> Leaderboard prize pool
         </li>
       </ul>
       <p className="lp-pot-note mono">Proportions illustrative</p>
@@ -80,7 +84,7 @@ export function Studios() {
           </article>
           <article className="lp-tile lp-tile-fee cut cut-frame" data-reveal>
             <h3 className="lp-h3">Set your own Studio Fee on every Pot.</h3>
-            <p className="lp-body">It sits on top of Tesoro&rsquo;s Platform Fee, taken in Gemas at settlement.</p>
+            <p className="lp-body">It sits on top of Tesoro&rsquo;s Platform Fee and a 1% Leaderboard Fee that pays out to the week&rsquo;s best Players, all taken in Gemas at settlement.</p>
             <PotRing />
           </article>
           <article className="lp-tile lp-tile-players cut cut-frame" data-reveal>

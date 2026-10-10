@@ -53,7 +53,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
   const result = m.session ? (m.session.settled ? m.session.result : null) : m.winner;
   const winSeat = m.status === "settled" && (result === "opener" || result === "joiner") ? (result === "opener" ? 0 : 1) : null;
-  const fee = Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps));
+  const fee = Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps, m.fees.leaderboardBps));
   const payout = m.entry * 2 - fee;
   const scores = m.session && m.status === "settled" ? m.session.scores : null;
   const rules = RULES[m.game];

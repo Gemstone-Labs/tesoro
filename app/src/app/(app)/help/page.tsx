@@ -144,9 +144,26 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         q: "What are the Fees?",
         a: (
           <p>
-            A Platform Fee for Tesoro and a Studio Fee for the game&apos;s maker, taken in Gemas from the loser&apos;s entry when the Match
-            settles. In test mode they are 5% of the Pot together. Nothing is ever charged on your Principal, your Advance or a Redeem.
+            Three, taken in Gemas from the loser&apos;s entry when a Match settles: a Platform Fee for Tesoro, a Studio Fee for the game&apos;s
+            maker, and a Leaderboard Fee that fills the weekly prize pool. In test mode they are 2%, 3% and 1% of the Pot, 6% together. A draw
+            or a refund pays none of them. Nothing is ever charged on your Principal, your Advance or a Redeem.
           </p>
+        ),
+      },
+      {
+        q: "How does the Leaderboard work?",
+        a: (
+          <>
+            <p>
+              Every Match you win earns points, the same in every game: 5 for a 500 Gema entry, 10 for 1,000 and 25 for 2,500. Losses, draws and
+              refunds earn none. When a Backer funds your entry, you get the points, because you played.
+            </p>
+            <p>
+              Seasons run from Monday 00:00 UTC to the next Monday. When one ends, the top ten share the prize pool (the Leaderboard Fee of every Match) on a
+              sliding scale: 25%, 18%, 13%, 10%, 8%, 7%, 6%, 5%, 4% and 4%. Ties go to whoever won first that week. With fewer than ten Players, the
+              unclaimed shares stay in the pool for the next season. See the <Link href="/leaderboard">Leaderboard</Link>.
+            </p>
+          </>
         ),
       },
       {

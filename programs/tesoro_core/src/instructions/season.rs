@@ -147,7 +147,7 @@ pub(crate) fn pay_season_rank<'info>(
     if amount == 0 {
         require!(n == 0, TesoroError::BadRemainingAccounts);
     } else {
-        require!(n > 0 && n % 2 == 0, TesoroError::BadRemainingAccounts);
+        require!(n > 0 && n.is_multiple_of(2), TesoroError::BadRemainingAccounts);
         let (pool_infos, winner_infos) = ctx.remaining_accounts.split_at(n / 2);
         let pool_key = ctx.accounts.pool_account.key();
         let mut pool_holdings = load_holdings(&pool_key, pool_infos)?;

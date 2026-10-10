@@ -5,8 +5,10 @@ import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/
 import { TRADING_DUEL_PROGRAM_ID, addresses as duelAddresses } from "@/games/trading-duel/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain, getHoldem, getTradingDuel } from "./client";
-import { assetIndexOf } from "./match-id";
+import { assetIndexOf, matchOpenedAt } from "./match-id";
 import { debtGemas, debtUnits, redeemableFor, type SourceMath } from "./ledger";
+import { fetchLeaderboardTerms } from "./leaderboard";
+import { leaderboardBpsFor } from "./season";
 import { parseEthPositionId } from "./eth";
 import { SIM_SOL_MINT, fetchNativeInfo, fetchNativeMarket, type NativeInfo, type NativeMarket } from "./native";
 
@@ -36,7 +38,7 @@ export interface ChainMatch {
   backerSeat: 0 | 1 | null;
   /** The Backing this Account is part of in this Match (as the backed Player or as the Backer), else null. */
   backing: { seat: 0 | 1; player: string; funder: string; shareBps: number } | null;
-  fees: { platformBps: number; studioBps: number };
+  fees: { platformBps: number; studioBps: number; leaderboardBps: number };
   /** Hold'em: the winning seat of a settled table (null for a refund or while unsettled). */
   winner: "opener" | "joiner" | null;
   /** Block Puzzle: set as soon as the Match is opened (the opener plays before anyone is paired). */
@@ -179,7 +181,7 @@ export function toChainMatch(state: any, me: PublicKey | null, session: any | nu
       backedSeat !== null && backedSide
         ? { seat: backedSeat, player: backedSide.player, funder: backedSide.funder, shareBps: backedSide.shareBps }
         : null,
-    fees: { platformBps: m.fees.platformBps, studioBps: m.fees.studioBps },
+    fees: { platformBps: m.fees.platformBps, studioBps: m.fees.studioBps, leaderboardBps: leaderboardBpsFor(matchOpenedAt(id, gameOf(pk(m.game)))) },
     winner: status === "settled" && table ? (table.winner === 0 ? "opener" : table.winner === 1 ? "joiner" : null) : null,
     session: session
       ? {
@@ -198,6 +200,7 @@ export function toChainMatch(state: any, me: PublicKey | null, session: any | nu
 /** Reads one Match (and its Session, when it has one). Null when the Match does not exist. */
 export async function fetchMatch(id: bigint, me: PublicKey | null): Promise<ChainMatch | null> {
   const chain = getChain();
+  await fetchLeaderboardTerms(chain.core.provider.connection).catch(() => undefined);
   const a = BlockPuzzleChain.addresses(id);
   const state = await chain.core.account.matchState.fetchNullable(a.match);
   if (!state) return null;
@@ -266,6 +269,7 @@ async function gameAccounts(rows: any[], address: (id: bigint) => PublicKey, dec
  */
 export async function fetchAccountMatches(key: PublicKey): Promise<{ played: ChainMatch[]; funded: ChainMatch[] }> {
   const chain = getChain();
+  await fetchLeaderboardTerms(chain.core.provider.connection).catch(() => undefined);
   const all = await chain.core.account.matchState.all();
   const mine = all.filter((m: any) => {
     const inner = m.account.inner;

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Busy, Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { matchDelta, seatResult } from "@/lib/chain/ledger";
+import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
@@ -17,8 +17,7 @@ import { useHoldemMatch } from "./useHoldemMatch";
 
 
 function fmtFee(m: ChainMatch): string {
-  const pot = m.entry * 2;
-  return String(Math.floor((pot * m.fees.platformBps) / 10_000) + Math.floor((pot * m.fees.studioBps) / 10_000));
+  return String(matchFee(m));
 }
 
 /**

@@ -100,7 +100,7 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 /* ——— Bottom nav (below 1024px) ——— */
 .bottom-nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--side); border-top: 1px solid var(--line);
-  padding-bottom: env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(4, 1fr);
+  padding-bottom: env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(5, 1fr);
 }
 .bottom-nav a { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: var(--nav-h); font-size: 12px; font-weight: 700; color: var(--fg-2); }
 .bottom-nav a svg { width: 22px; height: 22px; stroke-width: 1.8; }

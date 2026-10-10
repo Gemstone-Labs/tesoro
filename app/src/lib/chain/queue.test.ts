@@ -23,7 +23,7 @@ function match(id: bigint, over: Partial<ChainMatch> = {}): ChainMatch {
     sides: [{ player: "opener", funder: "opener", shareBps: 0 }, null],
     backerSeat: null,
     backing: null,
-    fees: { platformBps: 0, studioBps: 0 },
+    fees: { platformBps: 0, studioBps: 0, leaderboardBps: 0 },
     winner: null,
     session: { settled: false, joined: false, result: "draw", scores: [0, 0], seed: 0n, openerDeadline: NOW / 1000 + 3600, deadline: 0 },
     ...over,

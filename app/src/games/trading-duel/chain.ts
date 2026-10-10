@@ -31,6 +31,7 @@ import {
   tesoroMatchPda,
   type PlayerSigner,
 } from "../holdem/chain";
+import { fetchLeaderboardTerms } from "../../lib/chain/leaderboard";
 
 export { keypairSigner, type PlayerSigner } from "../holdem/chain";
 
@@ -412,7 +413,7 @@ export class TradingDuelChain {
     const tesoroMatch = await this.readTesoroMatch(matchId);
     if (!this.isLive(tesoroMatch)) return "";
     const winner = duel.status === STATUS.over && duel.winner !== DRAW ? (duel.winner as 0 | 1) : null;
-    const payouts = computePayouts(tesoroMatch.inner, winner);
+    const payouts = computePayouts(tesoroMatch.inner, winner, await fetchLeaderboardTerms(this.base));
     const holdings = payouts.map((p) => tesoroHoldingPda(p.recipient, p.source));
     const existing = await this.base.getMultipleAccountsInfo(holdings);
     const missing: TransactionInstruction[] = [];

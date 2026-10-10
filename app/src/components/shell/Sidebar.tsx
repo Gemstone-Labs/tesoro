@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, CircleHelp, Gamepad2, HandCoins, House, Wallet, type LucideIcon } from "lucide-react";
+import { BookOpen, CircleHelp, Gamepad2, HandCoins, House, Trophy, Wallet, type LucideIcon } from "lucide-react";
 import { TesoroLogo } from "@/components/brand";
 
 export const NAV: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/lobby", label: "Lobby", Icon: House },
   { href: "/play", label: "Play", Icon: Gamepad2 },
   { href: "/backing", label: "Backing", Icon: HandCoins },
+  { href: "/leaderboard", label: "Leaderboard", Icon: Trophy },
   { href: "/wallet", label: "Wallet", Icon: Wallet },
 ];
 
