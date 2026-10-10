@@ -45,10 +45,10 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
       <hr className="side-rule" />
       <div className="side-nav docs">
-        <span className="cut cut-card side-link soon" aria-disabled="true" title="Coming soon">
+        <Link href="/docs" className="cut cut-card side-link" onClick={onNavigate}>
           <BookOpen aria-hidden="true" />
           Docs
-        </span>
+        </Link>
         <Link href="/help" className={`cut cut-card side-link${isHere(path, "/help") ? " here" : ""}`} aria-current={isHere(path, "/help") ? "page" : undefined} onClick={onNavigate}>
           <CircleHelp aria-hidden="true" />
           Help

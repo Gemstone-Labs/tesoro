@@ -58,7 +58,7 @@ function SignInForm({ reason, onSignedIn, onWallet }: { reason?: string; onSigne
     <>
       <p className="meta">
         {reason ? `Sign in to ${reason}. ` : ""}
-        Use a wallet or an email: either way your Account gets a Solana address and an EVM address, created for you. Browsing needs no sign-in.
+        Use a wallet or an email: either way you get one Tesoro Account that works with Solana and Ethereum, set up for you. Browsing needs no sign-in.
       </p>
       {!codeStep && (
         <div className="stack signin-wallets">

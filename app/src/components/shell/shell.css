@@ -20,7 +20,6 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 .side-link.here { background: var(--surface-2); color: var(--fg); font-weight: 700; --edge: var(--edge-2); }
 /* the active item carries a short lit bar on its left chamfer */
 .side-link.here::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; background: var(--fg); clip-path: polygon(0 0, 100% 3px, 100% calc(100% - 3px), 0 100%); }
-.side-link.soon { opacity: 0.7; cursor: default; }
 .side-rule { border: 0; height: 1px; background: var(--line-2); margin: 19px 10px 19px; }
 .side-nav.docs { gap: 0; }
 .side-nav.docs .side-link { height: 49px; }
