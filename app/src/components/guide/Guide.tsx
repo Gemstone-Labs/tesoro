@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import Image from "next/image";
 import { Lightbulb } from "lucide-react";
 import { art } from "@/lib/art";
+import { useAuth } from "@/lib/auth/context";
 import "./guide.css";
 
 export type PoseName = keyof typeof art.guide;
@@ -57,12 +58,13 @@ function writeDismissed(ids: string[]) {
 /**
  * The Guide's state: pages register a tip with `useGuideTip`; one shows at a time (the earliest
  * registered that is not dismissed). Dismissal is remembered per tip in localStorage.
- * Hidden while a game is running (`useGuideHidden`). `GuideOverlay` renders it.
+ * Only shown to signed-in Players, so it never covers Sign in. Hidden while a game is running (`useGuideHidden`). `GuideOverlay` renders it.
  */
 export function GuideProvider({ children }: { children: ReactNode }) {
   const [tips, setTips] = useState<GuideTip[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [hidden, setHidden] = useState(0);
+  const signedIn = useAuth().status === "signed-in";
 
   useEffect(() => {
     const t = setTimeout(() => setDismissed(readDismissed()), 0);
@@ -76,7 +78,7 @@ export function GuideProvider({ children }: { children: ReactNode }) {
   const hide = useCallback((d: 1 | -1) => setHidden((h) => Math.max(0, h + d)), []);
   const api = useMemo(() => ({ register, unregister, hide }), [register, unregister, hide]);
 
-  const tip = hidden === 0 ? (tips.find((t) => !dismissed.includes(t.id)) ?? null) : null;
+  const tip = hidden === 0 && signedIn ? (tips.find((t) => !dismissed.includes(t.id)) ?? null) : null;
   const view = useMemo<GuideView>(
     () => ({
       tip,
