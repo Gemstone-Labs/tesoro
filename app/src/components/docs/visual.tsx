@@ -256,7 +256,7 @@ export function PayoutBar() {
               <b>60</b> Studio 3%
             </i>
             <i className="seg f3" style={{ flex: 20 }}>
-              <b>20</b> Board 1%
+              <b>20</b> Leaderboard 1%
             </i>
           </div>
         </div>
