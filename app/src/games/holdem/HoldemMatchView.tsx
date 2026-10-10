@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Busy, Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
+import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { matchDelta, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -163,14 +163,3 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
   );
 }
 
-function Notice({ title, body }: { title: string; body: string }) {
-  return (
-    <Card large as="section">
-      <div className="stack">
-        <h1 className="page-title">{title}</h1>
-        <p className="meta">{body}</p>
-        <Button href="/lobby">Lobby</Button>
-      </div>
-    </Card>
-  );
-}

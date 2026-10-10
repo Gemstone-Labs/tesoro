@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Busy, Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
+import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzleGame";
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
@@ -411,14 +411,3 @@ function fmtFee(m: ChainMatch): string {
   return String(Math.floor((pot * m.fees.platformBps) / 10_000) + Math.floor((pot * m.fees.studioBps) / 10_000));
 }
 
-function Notice({ title, body }: { title: string; body: string }) {
-  return (
-    <Card large as="section">
-      <div className="stack">
-        <h1 className="page-title">{title}</h1>
-        <p className="meta">{body}</p>
-        <Button href="/lobby">Lobby</Button>
-      </div>
-    </Card>
-  );
-}

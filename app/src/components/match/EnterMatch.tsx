@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, GemaAmount } from "@/components/ui";
+import { Busy, Button, Card, GemaAmount } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
+import { fmtGemas } from "@/lib/format";
+import { practiceHref } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 import { plainError } from "@/lib/errors";
@@ -33,19 +35,27 @@ function explain(e: unknown): { text: string; wallet?: boolean } {
  * (the Lobby's Enter button, or a Challenge link); it runs once per visit.
  */
 export function EnterMatch(props: EnterKind) {
-  const { auth, snapshot, onChain } = useAccount();
+  const { auth, snapshot, onChain, loading, gemas } = useAccount();
   const router = useRouter();
   const started = useRef(false);
+  const attempted = useRef(false);
   const [status, setStatus] = useState("Getting your wallet ready…");
   const [failure, setFailure] = useState<{ text: string; wallet?: boolean } | null>(null);
+  const [launched, setLaunched] = useState(false);
   const [existing, setExisting] = useState<bigint | null>(null);
   const signer = auth.signer;
   const signedOut = auth.status === "signed-out";
   const key = props.kind === "challenge-join" ? props.id : String(props.entry);
+  // Own Gemas cover a new entry or Challenge; a Backing pays for itself and a joined Challenge is checked on chain.
+  // Only before the entry starts: it reserves the Gemas and would trip this check itself.
+  const needsGemas = !launched && props.kind !== "challenge-join" && !props.backing && onChain && !loading && gemas.available < props.entry;
 
   useEffect(() => {
-    if (!signer || started.current) return;
+    // A failed attempt is retried by reloading the page, never by this effect re-running.
+    if (!signer || started.current || attempted.current || loading || needsGemas) return;
     started.current = true;
+    attempted.current = true;
+    setLaunched(true);
     void (async () => {
       try {
         setStatus("Checking your SOL and Account…");
@@ -84,12 +94,12 @@ export function EnterMatch(props: EnterKind) {
     })();
     // The mode and entry are fixed for this page instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signer, key]);
+  }, [signer, key, loading, needsGemas]);
 
   const assetName = props.kind !== "challenge-join" && props.game === "trading-duel" ? (["SOL", "ETH", "HYPE"][props.asset ?? 0] ?? "SOL") : "";
   const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
   return (
-    <Card large as="section" aria-label={title} style={{ maxWidth: 480, margin: "0 auto" }}>
+    <Card large as="section" aria-label={title} className="enter-card">
       <div className="stack">
         <h1 className="page-title">{title}</h1>
         {props.kind === "queue" && props.game === "trading-duel" && <p className="meta">Play now — you&apos;ll be paired with the next Player trading {assetName}. The Match starts as soon as you are paired.</p>}
@@ -117,6 +127,15 @@ export function EnterMatch(props: EnterKind) {
               <Button href="/lobby">Lobby</Button>
             </div>
           </>
+        ) : needsGemas ? (
+          <>
+            <p className="status err" role="status">You need {fmtGemas(props.entry)} Gemas to enter. You have {fmtGemas(gemas.available)}.</p>
+            <div className="hstack wrap">
+              <Button variant="money" href="/wallet?open=1">Get Gemas</Button>
+              <Button href={practiceHref(props.game ?? "block-puzzle", props.asset)}>Practice free</Button>
+              <Button href="/lobby">Lobby</Button>
+            </div>
+          </>
         ) : failure ? (
           <>
             <p className="status err" role="alert">{failure.text}</p>
@@ -127,7 +146,7 @@ export function EnterMatch(props: EnterKind) {
             </div>
           </>
         ) : (
-          <p className="status" role="status">{status}</p>
+          <Busy>{status}</Busy>
         )}
         {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your Tesoro Account as part of this step.</p>}
       </div>

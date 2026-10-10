@@ -7,7 +7,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Check, Copy, Link2 } from "lucide-react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
-import { AssetPicker, Bust, Button, Card, EntryPicker, GemaMark, Label, Sheet, SkeletonCards } from "@/components/ui";
+import { AssetPicker, Bust, Button, EntryPicker, GemaMark, Label, Sheet, SkeletonCards, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { avatarFor } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
@@ -406,14 +406,3 @@ function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () 
   );
 }
 
-function Notice({ title, body }: { title: string; body: string }) {
-  return (
-    <Card large as="section">
-      <div className="stack">
-        <h1 className="page-title">{title}</h1>
-        <p className="meta">{body}</p>
-        <Button href="/lobby">Lobby</Button>
-      </div>
-    </Card>
-  );
-}

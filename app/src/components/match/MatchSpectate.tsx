@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
-import { Button, CheckIcon, GemaMark, MinusIcon } from "@/components/ui";
+import { Button, CheckIcon, GemaMark, MinusIcon, Notice } from "@/components/ui";
 import { avatarFor } from "@/lib/art";
 import { feeGemas } from "@/lib/chain/ledger";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
@@ -42,13 +42,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
   if (m === undefined) return <p className="status" role="status">Loading the Match…</p>;
   if (m === null) {
-    return (
-      <div className="stack-lg mr">
-        <h1 className="page-title">Match not found</h1>
-        <p className="meta">This Match doesn’t exist, or the link is incomplete.</p>
-        <Button href="/lobby">Lobby</Button>
-      </div>
-    );
+    return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   }
 
   const result = m.session ? (m.session.settled ? m.session.result : null) : m.winner;
