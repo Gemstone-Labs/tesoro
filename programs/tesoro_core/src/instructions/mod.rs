@@ -4,6 +4,7 @@ pub mod identity;
 pub mod matching;
 pub mod native;
 pub mod position;
+pub mod season;
 pub mod source_auth;
 
 pub use admin::*;
@@ -12,4 +13,5 @@ pub use identity::*;
 pub use matching::*;
 pub use native::*;
 pub use position::*;
+pub use season::*;
 pub use source_auth::*;

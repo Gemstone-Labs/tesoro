@@ -3,6 +3,7 @@
  * (Source math, redeemable split, entry draw plan). No Solana imports so they are unit-testable.
  */
 
+
 export interface SourceMath {
   issued: bigint;
   returned: bigint;
@@ -131,10 +132,18 @@ export function entryProblem(entry: bigint, holdings: EntryHolding[]): EntryErro
   }
 }
 
-/** Fee taken from the Pot at settlement, in Gemas (each share floored, as in the ledger). */
-export function feeGemas(entry: bigint, platformBps: number, studioBps: number): bigint {
+/**
+ * Fee taken from the Pot at settlement, in Gemas (each share floored, as in the ledger): Platform, Studio and the
+ * Leaderboard Fee (the Match does not store that one: pass what it was charged, see `leaderboardBpsFor`; 0 when omitted).
+ */
+export function feeGemas(entry: bigint, platformBps: number, studioBps: number, leaderboardBps = 0): bigint {
   const pot = entry * 2n;
-  return (pot * BigInt(platformBps)) / 10_000n + (pot * BigInt(studioBps)) / 10_000n;
+  return (pot * BigInt(platformBps)) / 10_000n + (pot * BigInt(studioBps)) / 10_000n + (pot * BigInt(leaderboardBps)) / 10_000n;
+}
+
+/** Total Fee of a Match, in Gemas: all three Fees from its terms. */
+export function matchFee(m: { entry: number; fees: { platformBps: number; studioBps: number; leaderboardBps?: number } }): number {
+  return Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps, m.fees.leaderboardBps));
 }
 
 export interface BackedSplit {
@@ -151,11 +160,11 @@ export interface BackedSplit {
 }
 
 /** The Backing settlement rule (tesoro_core `win_payouts`): Backer's entry back first, then the Offer's split of the surplus. */
-export function backedSplit(a: { entry: number; platformBps: number; studioBps: number; shareBps: number; won: boolean }): BackedSplit {
+export function backedSplit(a: { entry: number; platformBps: number; studioBps: number; leaderboardBps?: number; shareBps: number; won: boolean }): BackedSplit {
   if (!a.won) {
     return { fees: 0, surplus: 0, playerShare: 0, backerEntryBack: 0, backerSurplus: 0, backerNet: -a.entry, playerNet: 0 };
   }
-  const fees = Number(feeGemas(BigInt(a.entry), a.platformBps, a.studioBps));
+  const fees = Number(feeGemas(BigInt(a.entry), a.platformBps, a.studioBps, a.leaderboardBps));
   const surplus = a.entry - fees;
   const playerShare = Number((BigInt(surplus) * BigInt(a.shareBps)) / 10_000n);
   const backerSurplus = surplus - playerShare;
@@ -185,7 +194,7 @@ export function matchDelta(
   m: Outcome & {
     seat: 0 | 1 | null;
     entry: number;
-    fees: { platformBps: number; studioBps: number };
+    fees: { platformBps: number; studioBps: number; leaderboardBps?: number };
     backing?: { shareBps: number } | null;
   },
 ): number {
@@ -194,7 +203,7 @@ export function matchDelta(
   const won = result === "won";
   if (m.backing) return backedSplit({ entry: m.entry, ...m.fees, shareBps: m.backing.shareBps, won }).playerNet;
   if (!won) return -m.entry;
-  return m.entry - Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps));
+  return m.entry - Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps, m.fees.leaderboardBps));
 }
 
 /** The Backer's result of a Match they funded: the split on a win, the entry on a loss, 0 on a draw or refund. */

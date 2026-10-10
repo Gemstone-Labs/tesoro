@@ -60,19 +60,18 @@ export default function Page() {
       </p>
 
       <H3 id="fees">Fees</H3>
-      {/* TODO(verify-after-merge): Leaderboard Fee (1%) as a third Fee: where tesoro_core takes it, in which order, and into which account. Rewrite this section from the merged code. */}
       <ul>
-        <li>Fees are <code>platform_bps</code> (on Config, 200) plus the Game&apos;s <code>studio_bps</code> (300 for all three launch Games), both snapshotted when the Match opens.</li>
-        <li>They are taken in Gemas from the <b>loser&apos;s lines</b>: Platform Fee first, then Studio Fee, then (for a backed win) the Player&apos;s share of what remains. Lines are merged by Source and drained in ascending Source-address order.</li>
-        <li>The Leaderboard Fee of 1% is an additional Fee of the same kind on every Match, paid into the Leaderboard Pool.</li>
+        <li>Fees are <code>platform_bps</code> (on Config, 200) plus the Game&apos;s <code>studio_bps</code> (300 for all three launch Games), both snapshotted when the Match opens, plus the Leaderboard Fee <code>leaderboard_bps</code> (on Config, 100), read from Config when the Match settles. Together they are capped at 5,000 bps of the Pot.</li>
+        <li>They are taken in Gemas from the <b>loser&apos;s lines</b>: Platform Fee first, then Studio Fee, then Leaderboard Fee, then (for a backed win) the Player&apos;s share of what remains. Lines are merged by Source and drained in ascending Source-address order.</li>
+        <li>The Leaderboard Fee is paid to the Leaderboard Pool, a Tesoro Account owned by the address <code>[&quot;leaderboard&quot;]</code>, as one more <code>(recipient, source)</code> payout line. Each decisive settlement also emits <code>MatchWon</code> (Player, entry, points, season).</li>
         <li>Fees are floored, so the winner gets the dust. A Draw, abandonment or no-show takes none.</li>
       </ul>
 
       <H3 id="allocation">Entry draw and bounds</H3>
       <ul>
         <li>An entry draws <code>own = min(entry, own_free)</code> from own-sourced Gemas first, the rest from won Gemas. The client supplies Holdings, own class first then won, each strictly ascending by Source address; a non-canonical draw is rejected.</li>
-        <li><code>MAX_ENTRY_SOURCES = 8</code> Holdings per entry. A settlement therefore pays at most 18 <code>(recipient, source)</code> lines (19 for a backed win).</li>
-        <li>Measured worst case on devnet: a Block Puzzle <code>settle</code> with 18 payouts is 135,734 compute units and 1,091 bytes of the 1,232 limit as a legacy transaction, so no lookup table is needed.</li>
+        <li><code>MAX_ENTRY_SOURCES = 8</code> Holdings per entry. A settlement therefore pays at most 19 <code>(recipient, source)</code> lines (20 for a backed win).</li>
+        <li>Measured worst case on devnet before the Leaderboard Fee: a Block Puzzle <code>settle</code> with 18 payouts is 135,734 compute units and 1,091 bytes of the 1,232 limit as a legacy transaction, so no lookup table is needed.</li>
       </ul>
 
       <H2 id="backing">Backing in the ledger</H2>

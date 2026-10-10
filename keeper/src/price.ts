@@ -71,7 +71,7 @@ export async function fetchSolUsd(lastUsd: number | null): Promise<{ usd: number
 }
 
 let oracle: Keypair | null = null;
-function oracleKey(): Keypair | null {
+export function oracleKey(): Keypair | null {
   if (oracle) return oracle;
   const secret = keypairFromEnv("KEEPER_ORACLE_SECRET_KEY");
   if (secret) return (oracle = secret);

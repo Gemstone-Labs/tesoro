@@ -1321,6 +1321,108 @@
       ]
     },
     {
+      "name": "init_leaderboard",
+      "docs": [
+        "Extends a Config that predates the Leaderboard, creates the pool Account and sets the fee."
+      ],
+      "discriminator": [
+        70,
+        179,
+        5,
+        151,
+        152,
+        16,
+        47,
+        15
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  101,
+                  97,
+                  100,
+                  101,
+                  114,
+                  98,
+                  111,
+                  97,
+                  114,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "leaderboard_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "initialize_config",
       "discriminator": [
         208,
@@ -2405,6 +2507,224 @@
         {
           "name": "rate_bps",
           "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "pay_season_rank",
+      "discriminator": [
+        108,
+        86,
+        84,
+        112,
+        251,
+        52,
+        222,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "season",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "season.inner.number",
+                "account": "SeasonState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "winner_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "rank",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "record_season",
+      "discriminator": [
+        237,
+        63,
+        234,
+        43,
+        39,
+        70,
+        4,
+        38
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "season",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "number"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "number",
+          "type": "u32"
+        },
+        {
+          "name": "points",
+          "type": {
+            "vec": "u64"
+          }
         }
       ]
     },
@@ -4218,6 +4538,19 @@
       ]
     },
     {
+      "name": "SeasonState",
+      "discriminator": [
+        95,
+        85,
+        74,
+        250,
+        108,
+        189,
+        152,
+        52
+      ]
+    },
+    {
       "name": "SourceAuthority",
       "discriminator": [
         115,
@@ -4298,6 +4631,19 @@
       ]
     },
     {
+      "name": "MatchWon",
+      "discriminator": [
+        198,
+        118,
+        27,
+        130,
+        109,
+        143,
+        140,
+        66
+      ]
+    },
+    {
       "name": "NativeCustodyMigrated",
       "discriminator": [
         19,
@@ -4373,6 +4719,32 @@
         165,
         107,
         38
+      ]
+    },
+    {
+      "name": "SeasonPrizePaid",
+      "discriminator": [
+        82,
+        170,
+        26,
+        3,
+        163,
+        100,
+        180,
+        78
+      ]
+    },
+    {
+      "name": "SeasonRecorded",
+      "discriminator": [
+        80,
+        253,
+        219,
+        52,
+        59,
+        219,
+        115,
+        216
       ]
     },
     {
@@ -4482,6 +4854,11 @@
       "code": 6015,
       "name": "EvmNotLinked",
       "msg": "the EVM address is not linked to this Account through the bridge"
+    },
+    {
+      "code": 6016,
+      "name": "LeaderboardOff",
+      "msg": "the leaderboard is not set up"
     }
   ],
   "types": [
@@ -4610,6 +4987,31 @@
                 }
               }
             }
+          },
+          {
+            "name": "leaderboard_bps",
+            "docs": [
+              "Leaderboard Fee in basis points of the Pot. Appended after `games`: an account created",
+              "before it reads the fields as zero (the unused tail of the account is zeroed) and is",
+              "extended by `init_leaderboard`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "pool_account",
+            "docs": [
+              "The Leaderboard Pool: `TesoroAccount` owned by the `[\"leaderboard\"]` address. Zero until",
+              "`init_leaderboard`; the fee is off while it is."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "leaderboard_since",
+            "docs": [
+              "Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so",
+              "readers show the fee only for Matches opened at or after it. Zero until then."
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -4899,6 +5301,57 @@
           },
           {
             "name": "Refunded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchWon",
+      "docs": [
+        "A Match was won. The Player is the Account that played (a Backer's win is the Player's for",
+        "points). Every season standing is the sum of these events, so anyone can recompute it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "game",
+            "type": "pubkey"
+          },
+          {
+            "name": "entry",
+            "type": "u64"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "points",
+            "type": "u64"
+          },
+          {
+            "name": "pool_fee",
+            "docs": [
+              "Gemas this Match paid into the Leaderboard Pool."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
           }
         ]
       }
@@ -5736,6 +6189,142 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Season",
+      "docs": [
+        "What a finished season pays, fixed when it is recorded."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "number",
+            "type": "u32"
+          },
+          {
+            "name": "pool_total",
+            "docs": [
+              "Gemas in the pool when the season was recorded; prizes are shares of this."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "count",
+            "docs": [
+              "Ranked Players (at most `PRIZE_PLACES`)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "winners",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                },
+                10
+              ]
+            }
+          },
+          {
+            "name": "points",
+            "type": {
+              "array": [
+                "u64",
+                10
+              ]
+            }
+          },
+          {
+            "name": "amounts",
+            "type": {
+              "array": [
+                "u64",
+                10
+              ]
+            }
+          },
+          {
+            "name": "paid_mask",
+            "docs": [
+              "Bit `i` set once rank `i` was paid."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonPrizePaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "rank",
+            "type": "u8"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonRecorded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "pool_total",
+            "type": "u64"
+          },
+          {
+            "name": "winners",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonState",
+      "docs": [
+        "A finished season: the ranking and prizes recorded by `record_season`, paid by",
+        "`pay_season_rank`. Seeds `[\"season\", number as u32 LE]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "Season"
+              }
+            }
           }
         ]
       }

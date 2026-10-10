@@ -4,6 +4,8 @@ import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { feeGemas } from "./ledger";
 import { matchOpenedAt } from "./match-id";
+import { fetchLeaderboardTerms } from "./leaderboard";
+import { leaderboardBpsFor } from "./season";
 import { decodeAll, gameOf } from "./read";
 import { pickSettled, topScores, type SettledMatch, type SettledQuery } from "./settled";
 
@@ -31,6 +33,7 @@ function allMatches(): Promise<any[]> {
 /** Settled Matches with a winner (draws and refunds are skipped), newest first. */
 export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
   const chain = getChain();
+  await fetchLeaderboardTerms(chain.core.provider.connection).catch(() => undefined);
   const rows = await allMatches();
   // Draws are only known once the Session is read: take some slack so `limit` winners usually remain.
   const settled = pickSettled(
@@ -79,7 +82,7 @@ export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
       game: gameOf(pk(inner.game)) ?? "block-puzzle",
       entry,
       winner: pk(side.player).toBase58(),
-      payout: entry * 2 - Number(feeGemas(BigInt(entry), inner.fees.platformBps, inner.fees.studioBps)),
+      payout: entry * 2 - Number(feeGemas(BigInt(entry), inner.fees.platformBps, inner.fees.studioBps, leaderboardBpsFor(matchOpenedAt(id, gameOf(pk(inner.game)))))),
       scores,
       at: matchOpenedAt(id, gameOf(pk(inner.game))),
     });

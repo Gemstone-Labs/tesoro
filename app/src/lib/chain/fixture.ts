@@ -50,7 +50,7 @@ export function match(
     ],
     backerSeat: null,
     backing: null,
-    fees: { platformBps: 500, studioBps: 0 },
+    fees: { platformBps: 500, studioBps: 0, leaderboardBps: 0 },
     winner: game !== "block-puzzle" ? (win ? "opener" : "joiner") : null,
     session:
       game === "block-puzzle"

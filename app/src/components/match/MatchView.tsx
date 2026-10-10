@@ -6,7 +6,7 @@ import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzle
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
 import { getChain } from "@/lib/chain/client";
-import { backerDelta, matchDelta, seatResult } from "@/lib/chain/ledger";
+import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { canClaimTimeout, runSubmitter, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import type { RunSubmitter } from "@/lib/chain/run-submitter";
@@ -407,8 +407,7 @@ export function MatchView({ matchId }: { matchId: string }) {
 }
 
 function fmtFee(m: ChainMatch): string {
-  const pot = m.entry * 2;
-  return String(Math.floor((pot * m.fees.platformBps) / 10_000) + Math.floor((pot * m.fees.studioBps) / 10_000));
+  return String(matchFee(m));
 }
 
 function Notice({ title, body }: { title: string; body: string }) {

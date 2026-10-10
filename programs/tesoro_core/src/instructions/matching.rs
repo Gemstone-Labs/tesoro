@@ -275,13 +275,32 @@ pub(crate) fn settle_match<'info>(
         MatchResult::Joiner => Outcome::Winner(1),
         MatchResult::Draw => Outcome::Draw,
     };
+    let lb = ctx.accounts.config.leaderboard_terms();
     let payouts = ctx
         .accounts
         .match_state
         .inner
-        .settle(outcome)
+        .settle_with(outcome, &lb)
         .map_err(core_err)?;
     credit_payouts(&payouts, ctx.remaining_accounts)?;
+    if let Outcome::Winner(i) = outcome {
+        let m = &ctx.accounts.match_state.inner;
+        let side = if i == 0 { Some(&m.a) } else { m.b.as_ref() };
+        if let Some(side) = side {
+            let ts = now()?;
+            emit!(MatchWon {
+                match_id: ctx.accounts.match_state.id,
+                game,
+                entry: m.entry,
+                player: Pubkey::new_from_array(side.player),
+                funder: Pubkey::new_from_array(side.funder),
+                points: ledger::points_for_win(m.entry),
+                pool_fee: m.leaderboard_due(&lb).map_err(core_err)?,
+                season: ledger::season_at(ts).unwrap_or(0),
+                ts,
+            });
+        }
+    }
     emit!(MatchSettled {
         match_id: ctx.accounts.match_state.id,
         result: match result {

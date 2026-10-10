@@ -437,6 +437,7 @@ html.lenis, html.lenis body { height: auto; }
 .lp-pot-ring .win { stroke: color-mix(in srgb, var(--em) 32%, var(--raised-2)); }
 .lp-pot-ring .studio { stroke: var(--em); filter: drop-shadow(0 0 6px var(--em)); }
 .lp-pot-ring .platform { stroke: var(--fg-2); }
+.lp-pot-ring .pool { stroke: var(--fg); }
 @media (prefers-reduced-motion: no-preference) { .lp-pot-ring .studio { animation: lp-pulse-arc 2.6s ease-in-out infinite; } }
 @keyframes lp-pulse-arc { 50% { stroke-width: 18; } }
 .lp-pot-center { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px; }
@@ -448,6 +449,7 @@ html.lenis, html.lenis body { height: auto; }
 .lp-pot-legend .win { background: color-mix(in srgb, var(--em) 32%, var(--raised-2)); }
 .lp-pot-legend .studio { background: var(--em); }
 .lp-pot-legend .platform { background: var(--fg-2); }
+.lp-pot-legend .pool { background: var(--fg); }
 .lp-pot-note { font-size: 12px; color: var(--fg-2); justify-self: stretch; }
 /* catalogue: tiles lift and glow; the empty slot breathes */
 .lp-catalogue li { transition: translate 0.3s, filter 0.3s; }

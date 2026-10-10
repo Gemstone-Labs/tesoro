@@ -49,6 +49,28 @@ pub mod tesoro_core {
         instructions::admin::remove_game(ctx, game)
     }
 
+    /// Extends a Config that predates the Leaderboard, creates the pool Account and sets the fee.
+    pub fn init_leaderboard(ctx: Context<InitLeaderboard>, leaderboard_bps: u16) -> Result<()> {
+        instructions::admin::init_leaderboard(ctx, leaderboard_bps)
+    }
+
+    // --- Leaderboard seasons ----------------------------------------------------------------
+
+    pub fn record_season<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RecordSeason<'info>>,
+        number: u32,
+        points: Vec<u64>,
+    ) -> Result<()> {
+        instructions::season::record_season(ctx, number, points)
+    }
+
+    pub fn pay_season_rank<'info>(
+        ctx: Context<'_, '_, 'info, 'info, PaySeasonRank<'info>>,
+        rank: u8,
+    ) -> Result<()> {
+        instructions::season::pay_season_rank(ctx, rank)
+    }
+
     // --- Accounts and Holdings --------------------------------------------------------------
 
     pub fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20]) -> Result<()> {

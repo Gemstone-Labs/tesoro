@@ -10,6 +10,7 @@ pub mod backing;
 pub mod matches;
 pub mod money;
 pub mod native;
+pub mod season;
 
 #[cfg(test)]
 mod tests;
@@ -21,6 +22,7 @@ pub use native::{
     accrued_yield, check_cover, owed_units, required_shares, shares_for_units_ceil,
     shares_for_units_floor, shares_value, surplus_shares,
 };
+pub use season::*;
 
 /// Identity of an Account, Position, Source, Game, ... (a Solana public key in the program).
 pub type Key = [u8; 32];
@@ -96,6 +98,12 @@ core_errors! {
     InvalidDeadline => "deadline may only move later, within the extension cap",
     VaultShortfall => "vault would not cover principal and the yield owed to holders",
     ZeroShares => "amount is worth less than one share at the current rate",
+    SeasonNotEnded => "the season has not ended",
+    SeasonInvalid => "season or ranking is invalid",
+    AlreadyPaid => "this rank was already paid",
+    PrizeShortfall => "the supplied pool holdings do not cover the prize",
+    NonCanonicalPrize => "pool holdings must be non-empty, ascending by source, each drained but the last",
+    LeaderboardOff => "the leaderboard is not set up",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

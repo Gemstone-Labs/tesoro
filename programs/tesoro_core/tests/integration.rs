@@ -96,6 +96,7 @@ struct Env {
     last_cu: u64,
     /// Serialized size in bytes of the last transaction as a legacy transaction.
     last_size: usize,
+    last_logs: Vec<String>,
 }
 
 fn custom_code(err: &litesvm::types::FailedTransactionMetadata) -> u32 {
@@ -145,6 +146,7 @@ impl Env {
             next_match: 1,
             last_cu: 0,
             last_size: 0,
+            last_logs: Vec::new(),
         };
         env.platform = env.person();
         env.studio = env.person();
@@ -202,6 +204,7 @@ impl Env {
         match self.svm.send_transaction(tx) {
             Ok(meta) => {
                 self.last_cu = meta.compute_units_consumed;
+                self.last_logs = meta.logs;
                 Ok(())
             }
             Err(e) => {
@@ -418,7 +421,8 @@ impl Env {
             MatchResult::Joiner => Outcome::Winner(1),
             MatchResult::Draw => Outcome::Draw,
         };
-        let payouts = m.settle(outcome).expect("ledger settles");
+        let lb = self.load::<Config>(pda(&[CONFIG_SEED])).leaderboard_terms();
+        let payouts = m.settle_with(outcome, &lb).expect("ledger settles");
         self.payout_metas(&payouts)
     }
 
@@ -1591,4 +1595,287 @@ fn a_ninth_holding_is_refused() {
     let holdings = fragment(&mut env, &alice, 10, 9, 60);
     let err = env.open_match(&alice, 500, &holdings).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::TooManySources));
+}
+
+// --- Leaderboard ------------------------------------------------------------------------------
+
+fn pool_pda() -> APk {
+    account_pda(pda(&[LEADERBOARD_SEED]))
+}
+fn season_pda(n: u32) -> APk {
+    pda(&[SEASON_SEED, &n.to_le_bytes()])
+}
+
+impl Env {
+    /// Rewrites Config in the layout that predates the Leaderboard, then runs `init_leaderboard`.
+    fn enable_leaderboard(&mut self, bps: u16) {
+        let config = s(pda(&[CONFIG_SEED]));
+        let mut acct = self.svm.get_account(&config).expect("config");
+        acct.data.truncate(Config::LEGACY_SPACE);
+        self.svm
+            .set_account(config, acct)
+            .expect("set legacy config");
+        let legacy = self.load::<Config>(pda(&[CONFIG_SEED]));
+        assert_eq!(
+            (legacy.leaderboard_bps, legacy.pool_account),
+            (0, APk::default())
+        );
+        assert_eq!(legacy.leaderboard_terms().bps, 0);
+        let init = ix(
+            accounts::InitLeaderboard {
+                admin: a(self.admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                pool_authority: pda(&[LEADERBOARD_SEED]),
+                pool_account: pool_pda(),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitLeaderboard {
+                leaderboard_bps: bps,
+            },
+            vec![],
+        );
+        let admin = self.admin.insecure_clone();
+        self.send(&[init], &admin, &[]).expect("init leaderboard");
+    }
+
+    fn record_season(
+        &mut self,
+        signer: &Keypair,
+        n: u32,
+        ranked: &[(&Person, u64)],
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let record = ix(
+            accounts::RecordSeason {
+                authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                pool_account: pool_pda(),
+                season: season_pda(n),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::RecordSeason {
+                number: n,
+                points: ranked.iter().map(|(_, p)| *p).collect(),
+            },
+            ranked.iter().map(|(p, _)| rem(p.account)).collect(),
+        );
+        self.send(&[record], signer, &[])
+    }
+
+    /// Pool Holdings of `candidates` that hold Gemas, ascending by Source (the canonical order).
+    fn pool_sources(&self, candidates: &[APk]) -> Vec<(APk, u64)> {
+        let mut out: Vec<(APk, u64)> = candidates
+            .iter()
+            .filter(|src| {
+                self.svm
+                    .get_account(&s(holding_pda(pool_pda(), **src)))
+                    .is_some()
+            })
+            .map(|src| {
+                (
+                    *src,
+                    self.load::<HoldingState>(holding_pda(pool_pda(), *src))
+                        .inner
+                        .amount,
+                )
+            })
+            .filter(|(_, n)| *n > 0)
+            .collect();
+        out.sort_by_key(|(src, _)| *src);
+        out
+    }
+
+    fn pay_rank(
+        &mut self,
+        signer: &Keypair,
+        n: u32,
+        rank: u8,
+        winner: &Person,
+        sources: &[APk],
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let mut remaining: Vec<AccountMeta> = sources
+            .iter()
+            .map(|src| rem(holding_pda(pool_pda(), *src)))
+            .collect();
+        for src in sources {
+            self.open_holding(winner.account, *src);
+            remaining.push(rem(holding_pda(winner.account, *src)));
+        }
+        let pay = ix(
+            accounts::PaySeasonRank {
+                authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                season: season_pda(n),
+                pool_account: pool_pda(),
+                winner_account: winner.account,
+            },
+            instruction::PaySeasonRank { rank },
+            remaining,
+        );
+        self.send(&[pay], signer, &[])
+    }
+}
+
+#[test]
+fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
+    use tesoro_core::ledger::{season_end, SEASON_EPOCH};
+    let mut d = duel();
+    d.env.enable_leaderboard(100);
+    let cfg = d.env.load::<Config>(pda(&[CONFIG_SEED]));
+    assert_eq!((cfg.leaderboard_bps, cfg.pool_account), (100, pool_pda()));
+    assert_eq!(cfg.leaderboard_since, d.env.now());
+    assert_eq!(
+        d.env.load::<TesoroAccount>(pool_pda()).authority,
+        pda(&[LEADERBOARD_SEED])
+    );
+    let game = d.env.game_auth.insecure_clone();
+    d.env.set_time(SEASON_EPOCH + 3_600);
+
+    // Alice wins 1,000: pot 2,000, the pool takes 1% = 20 of Bob's own Source.
+    let m1 = d
+        .env
+        .open_match(&d.alice, ENTRY, &[d.a_holding])
+        .expect("open");
+    d.env.join_match(&d.bob, m1, &[d.b_holding]).expect("join");
+    let payouts = d.env.payout_accounts(m1, MatchResult::Opener);
+    d.env
+        .settle(&game, m1, MatchResult::Opener, payouts)
+        .expect("settle");
+    let won_events = d
+        .env
+        .last_logs
+        .iter()
+        .filter(|l| l.starts_with("Program data:"))
+        .count();
+    assert_eq!(won_events, 2, "MatchSettled and MatchWon");
+    assert_eq!(d.env.total_gemas(&d.env.platform), 40);
+    assert_eq!(d.env.total_gemas(&d.env.studio), 60);
+    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
+    assert_eq!(pool.won_total + pool.own_total, 20);
+    // Alice nets 880 on top of her entry (1,000 pot share less 4 + 6 + 2 percent of the pot).
+    assert_eq!(d.env.total_gemas(&d.alice), 75_000 + 880);
+
+    // Bob wins 500 against Alice: Alice's own Source pays 10 into the pool.
+    let m2 = d.env.open_match(&d.bob, 500, &[d.b_holding]).expect("open");
+    d.env
+        .join_match(&d.alice, m2, &[d.a_holding])
+        .expect("join");
+    let payouts = d.env.payout_accounts(m2, MatchResult::Opener);
+    d.env
+        .settle(&game, m2, MatchResult::Opener, payouts)
+        .expect("settle");
+    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
+    assert_eq!(pool.won_total + pool.own_total, 30);
+    let sources = d.env.pool_sources(&[d.a_source, d.b_source]);
+    assert_eq!(sources.len(), 2);
+
+    // A draw never pays the pool.
+    let m3 = d
+        .env
+        .open_match(&d.alice, 500, &[d.a_holding])
+        .expect("open");
+    d.env.join_match(&d.bob, m3, &[d.b_holding]).expect("join");
+    let payouts = d.env.payout_accounts(m3, MatchResult::Draw);
+    d.env
+        .settle(&game, m3, MatchResult::Draw, payouts)
+        .expect("draw");
+    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
+    assert_eq!(pool.won_total + pool.own_total, 30);
+
+    // The season is still running.
+    let admin = d.env.admin.insecure_clone();
+    let oracle = d.env.oracle.insecure_clone();
+    let err = d
+        .env
+        .record_season(&admin, 1, &[(&d.alice, 10), (&d.bob, 5)])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SeasonNotEnded));
+    d.env.set_time(season_end(1).unwrap() + 60);
+    // Only the admin or the keeper records.
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let err = d
+        .env
+        .record_season(&stranger, 1, &[(&d.alice, 10), (&d.bob, 5)])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    // Ranks are ordered and distinct.
+    let err = d
+        .env
+        .record_season(&oracle, 1, &[(&d.alice, 5), (&d.bob, 10)])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SeasonInvalid));
+    d.env
+        .record_season(&oracle, 1, &[(&d.alice, 10), (&d.bob, 5)])
+        .expect("record");
+    let season = d.env.load::<SeasonState>(season_pda(1)).inner;
+    assert_eq!((season.pool_total, season.count), (30, 2));
+    // 25% of 30 = 7, 18% of 30 = 5.
+    assert_eq!(season.amounts[..3], [7, 5, 0]);
+    // Recorded once.
+    assert!(d.env.record_season(&admin, 1, &[(&d.alice, 10)]).is_err());
+
+    // The wrong winner, the wrong Holding order and a stranger are refused.
+    let all: Vec<APk> = sources.iter().map(|(src, _)| *src).collect();
+    let err = d
+        .env
+        .pay_rank(&oracle, 1, 0, &d.bob, &all[..1])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), 6003);
+    let err = d
+        .env
+        .pay_rank(&stranger, 1, 0, &d.alice, &all[..1])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    let rev: Vec<APk> = all.iter().rev().cloned().collect();
+    let err = d.env.pay_rank(&oracle, 1, 0, &d.alice, &rev).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::NonCanonicalPrize));
+    let before = d.env.total_gemas(&d.alice);
+    d.env
+        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
+        .expect("pay 1st");
+    assert_eq!(d.env.total_gemas(&d.alice), before + 7);
+    let err = d
+        .env
+        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::AlreadyPaid));
+    // Rank 1 (5 Gemas) may span two Holdings, drained in Source order.
+    let left_first = d.env.pool_sources(&[d.a_source, d.b_source])[0].1;
+    let span: &[APk] = if left_first >= 5 { &all[..1] } else { &all };
+    let before = d.env.total_gemas(&d.bob);
+    d.env
+        .pay_rank(&oracle, 1, 1, &d.bob, span)
+        .expect("pay 2nd");
+    assert_eq!(d.env.total_gemas(&d.bob), before + 5);
+    // No rank 2 was recorded.
+    assert!(d.env.pay_rank(&oracle, 1, 2, &d.alice, &all[..1]).is_err());
+
+    // 30 - 12 stays in the pool: it rolls into the next season, Sources intact.
+    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
+    assert_eq!(pool.won_total + pool.own_total, 18);
+    assert_eq!(
+        d.env
+            .pool_sources(&[d.a_source, d.b_source])
+            .iter()
+            .map(|(_, n)| n)
+            .sum::<u64>(),
+        18
+    );
+    for src in [d.a_source, d.b_source] {
+        let total: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
+            .iter()
+            .map(|p| d.env.holding_amount(p, src))
+            .sum::<u64>()
+            + d.env
+                .svm
+                .get_account(&s(holding_pda(pool_pda(), src)))
+                .map(|_| {
+                    d.env
+                        .load::<HoldingState>(holding_pda(pool_pda(), src))
+                        .inner
+                        .amount
+                })
+                .unwrap_or(0);
+        assert_eq!(total, d.env.load::<SourceState>(src).inner.outstanding());
+    }
 }

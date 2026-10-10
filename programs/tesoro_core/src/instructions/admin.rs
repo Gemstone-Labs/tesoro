@@ -1,16 +1,21 @@
 use crate::error::{core_err, TesoroError};
-use crate::ledger::FeeTerms;
+use crate::ledger::{FeeTerms, LeaderboardTerms};
 use crate::state::*;
 use anchor_lang::prelude::*;
 
-fn validate_fees(platform_bps: u16, studio_bps: u16) -> Result<()> {
-    FeeTerms {
+fn validate_fees(platform_bps: u16, studio_bps: u16, leaderboard_bps: u16) -> Result<()> {
+    let fees = FeeTerms {
         platform_bps,
         studio_bps,
         platform_recipient: [0; 32],
         studio_recipient: [0; 32],
+    };
+    fees.validate().map_err(core_err)?;
+    LeaderboardTerms {
+        bps: leaderboard_bps,
+        recipient: [0; 32],
     }
-    .validate()
+    .validate(&fees)
     .map_err(core_err)
 }
 
@@ -39,7 +44,7 @@ pub(crate) fn initialize_config(
     oracle_authority: Pubkey,
     platform_bps: u16,
 ) -> Result<()> {
-    validate_fees(platform_bps, 0)?;
+    validate_fees(platform_bps, 0, 0)?;
     let config = &mut ctx.accounts.config;
     config.bump = ctx.bumps.config;
     config.admin = ctx.accounts.admin.key();
@@ -47,6 +52,9 @@ pub(crate) fn initialize_config(
     config.platform_bps = platform_bps;
     config.platform_recipient = ctx.accounts.platform_recipient.key();
     config.games = Vec::new();
+    config.leaderboard_bps = 0;
+    config.pool_account = Pubkey::default();
+    config.leaderboard_since = 0;
     Ok(())
 }
 
@@ -82,7 +90,11 @@ pub(crate) fn update_config(
         .map(|g| g.studio_bps)
         .max()
         .unwrap_or(0);
-    validate_fees(platform_bps, max_studio)?;
+    validate_fees(
+        platform_bps,
+        max_studio,
+        ctx.accounts.config.leaderboard_bps,
+    )?;
     let config = &mut ctx.accounts.config;
     config.oracle_authority = oracle_authority;
     config.platform_bps = platform_bps;
@@ -137,7 +149,8 @@ pub(crate) fn register_game(
     studio_bps: u16,
 ) -> Result<()> {
     let platform_bps = ctx.accounts.config.platform_bps;
-    validate_fees(platform_bps, studio_bps)?;
+    let leaderboard_bps = ctx.accounts.config.leaderboard_bps;
+    validate_fees(platform_bps, studio_bps, leaderboard_bps)?;
     let entry = GameEntry {
         game,
         authority,
@@ -170,4 +183,67 @@ pub struct RemoveGame<'info> {
         has_one = admin @ TesoroError::Unauthorized
     )]
     pub config: Box<Account<'info, Config>>,
+}
+
+/// Sets up the Leaderboard on a Config that predates it, or changes its fee: extends the Config
+/// account, creates the Leaderboard Pool Account (owned by the `["leaderboard"]` address, which
+/// nobody can sign for, so only this program ever moves its Gemas) and sets the fee. Safe to
+/// call again to change `leaderboard_bps`.
+#[derive(Accounts)]
+pub struct InitLeaderboard<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized,
+        realloc = Config::SPACE,
+        realloc::payer = admin,
+        realloc::zero = true
+    )]
+    pub config: Box<Account<'info, Config>>,
+    /// CHECK: address only; the PDA that owns the pool Account.
+    #[account(seeds = [LEADERBOARD_SEED], bump)]
+    pub pool_authority: UncheckedAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = TesoroAccount::SPACE,
+        seeds = [ACCOUNT_SEED, pool_authority.key().as_ref()],
+        bump
+    )]
+    pub pool_account: Account<'info, TesoroAccount>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn init_leaderboard(ctx: Context<InitLeaderboard>, leaderboard_bps: u16) -> Result<()> {
+    let pool = &mut ctx.accounts.pool_account;
+    if pool.authority == Pubkey::default() {
+        pool.bump = ctx.bumps.pool_account;
+        pool.authority = ctx.accounts.pool_authority.key();
+        pool.evm_address = [0; 20];
+        pool.inner = Default::default();
+    }
+    let max_studio = ctx
+        .accounts
+        .config
+        .games
+        .iter()
+        .map(|g| g.studio_bps)
+        .max()
+        .unwrap_or(0);
+    validate_fees(
+        ctx.accounts.config.platform_bps,
+        max_studio,
+        leaderboard_bps,
+    )?;
+    let pool_key = ctx.accounts.pool_account.key();
+    let config = &mut ctx.accounts.config;
+    config.leaderboard_bps = leaderboard_bps;
+    config.pool_account = pool_key;
+    if config.leaderboard_since == 0 {
+        config.leaderboard_since = crate::util::now()?;
+    }
+    Ok(())
 }

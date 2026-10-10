@@ -39,6 +39,8 @@ pub enum TesoroError {
     InvalidAvatar,
     #[msg("the EVM address is not linked to this Account through the bridge")]
     EvmNotLinked,
+    #[msg("the leaderboard is not set up")]
+    LeaderboardOff,
 }
 
 pub fn core_err(e: CoreError) -> Error {

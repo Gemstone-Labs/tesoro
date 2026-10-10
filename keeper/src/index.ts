@@ -8,6 +8,7 @@ import { matchHygiene } from "./matches.ts";
 import { priceJob } from "./price.ts";
 import { Connection } from "@solana/web3.js";
 import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
+import { seasonJob } from "./season.ts";
 import { yieldJob } from "./yield.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -26,6 +27,7 @@ async function pass(ctx: Ctx) {
     ["yield", yieldJob],
     ["bridge", bridgeJob],
     ["eth", ethYieldJob],
+    ["season", seasonJob],
   ];
   for (const [name, job] of jobs) await runJob(name, job, ctx);
 }
