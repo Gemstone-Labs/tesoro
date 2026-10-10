@@ -7,7 +7,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Check, Copy, Link2 } from "lucide-react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
-import { AssetPicker, Bust, Button, EntryPicker, GemaMark, Label, Sheet, SkeletonCards, Notice } from "@/components/ui";
+import { AssetPicker, Bust, Button, EntryPicker, GemaMark, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { avatarFor } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
@@ -20,6 +20,7 @@ import { fmtGemas } from "@/lib/format";
 import { gameQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
+import { AccountSkeleton } from "./AccountSkeleton";
 import { RunningTotalChart } from "./RunningTotalChart";
 import "./account.css";
 
@@ -50,12 +51,7 @@ export function AccountView({ address }: { address: string }) {
         </div>
       </div>
     ) : (
-      <div className="pa">
-        <h1 className="page-title">Account</h1>
-        <div className="mh-list">
-          <SkeletonCards count={4} avatar={false} className="mh-skel" label="Loading this Account…" />
-        </div>
-      </div>
+      <AccountSkeleton />
     );
   }
   return <Loaded address={key} data={data} stale={!!error} />;

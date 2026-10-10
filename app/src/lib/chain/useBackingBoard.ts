@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BackingBoard, PlayerRecord } from "./backing";
 import type { ChainMatch } from "./read";
+import { withTimeout } from "./timeout";
 import { plainError } from "@/lib/errors";
 
 const POLL_MS = 12_000;
@@ -32,7 +33,7 @@ export function useBackingBoard(): BackingData {
         return;
       }
       const { fetchBackingBoard } = await import("./backing");
-      setBoard(await fetchBackingBoard());
+      setBoard(await withTimeout(fetchBackingBoard(), 20_000));
       setError(null);
     } catch (e) {
       setError(plainError(e));

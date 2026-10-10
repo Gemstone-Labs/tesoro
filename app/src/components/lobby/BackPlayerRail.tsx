@@ -14,7 +14,7 @@ import { Rail } from "./Rail";
 
 /** BACK A PLAYER: live Requests from Solana devnet with the Player's real record. The name leads to their Account; Offer opens the Backing flow. */
 export function BackPlayerRail() {
-  const { board, loading } = useBackingBoard();
+  const { board, loading, error, refresh } = useBackingBoard();
   const { snapshot } = useAccount();
   const { query } = useSearch();
   const me = snapshot?.accountKey.toBase58();
@@ -23,6 +23,11 @@ export function BackPlayerRail() {
   return (
     <Rail id="back-a-player" title="Back a player" viewAll="/backing" cols={3}>
       {loading && !board && <SkeletonCards className="player" label="Loading Requests…" />}
+      {error && !board && (
+        <p className="rail-empty">
+          Requests couldn’t be loaded. <button type="button" onClick={() => void refresh()}>Try again</button>
+        </p>
+      )}
       {board && requests.length === 0 && (
         <p className="rail-empty">
           {query.trim() ? "No Requests match your search." : "No Players are asking to be backed right now."} <Link href="/backing">Post a Request</Link> or check back soon.

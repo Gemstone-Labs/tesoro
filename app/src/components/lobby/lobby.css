@@ -53,6 +53,7 @@
 .rail-link:hover { color: var(--fg); }
 .rail-track { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
 .rail-empty { color: var(--fg-2); padding: 8px 0; }
+.rail-empty button { background: none; border: 0; padding: 0; color: var(--fg); font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .rail-empty a { color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 @container (min-width: 720px) {
   .rail[data-cols="2"] .rail-track { grid-template-columns: repeat(2, minmax(0, 1fr)); }

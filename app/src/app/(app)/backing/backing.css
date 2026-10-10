@@ -81,3 +81,14 @@
   .bk-drawer { animation-name: bk-drawer-in; box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45); border-left: 1px solid var(--line-2); }
   @keyframes bk-drawer-in { from { transform: translateX(32px); opacity: 0; } }
 }
+
+/* How Backing works: the worked example shown while there are no Requests */
+.bk-ex { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px 36px; padding: 24px 28px; align-items: center; }
+.bk-ex-lead { display: grid; gap: 12px; justify-items: start; }
+.bk-ex-lead p { color: var(--fg-2); font-size: 15.5px; line-height: 1.55; max-width: 52ch; }
+.bk-ex-cases { display: grid; gap: 14px; margin: 0; }
+.bk-ex-cases > div { padding-left: 16px; box-shadow: inset 2px 0 var(--line-2); }
+.bk-ex-cases dt { font-weight: 800; font-size: 15px; }
+.bk-ex-cases dd { margin: 3px 0 0; color: var(--fg-2); font-size: 14.5px; line-height: 1.55; }
+.bk-ex-n { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); white-space: nowrap; }
+@media (max-width: 760px) { .bk-ex { grid-template-columns: minmax(0, 1fr); padding: 20px; } }
