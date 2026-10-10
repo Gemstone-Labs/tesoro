@@ -1,0 +1,176 @@
+/* Match flow dock: Storybook chrome over the page, not part of the app's design. */
+.sbf {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  color: #e8ecf1;
+  background: rgb(12 14 18 / 0.95);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+  font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+  backdrop-filter: blur(8px);
+}
+
+.sbf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+  font-size: 13px;
+}
+
+.sbf-url {
+  margin: 0 12px;
+  padding: 4px 8px;
+  overflow: hidden;
+  color: #aab4c0;
+  background: rgb(255 255 255 / 0.06);
+  border-radius: 6px;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sbf-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+
+.sbf-btn {
+  min-width: 30px;
+  padding: 4px 8px;
+  color: inherit;
+  background: rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sbf-btn:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.sbf-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sbf-play {
+  min-width: 64px;
+  font-weight: 600;
+}
+
+.sbf-count {
+  margin-left: auto;
+  color: #aab4c0;
+  font-variant-numeric: tabular-nums;
+}
+
+.sbf-now {
+  margin: 0;
+  padding: 8px 12px 10px;
+}
+
+.sbf-steps {
+  margin: 0;
+  padding: 6px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.sbf-steps > li > button {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 12px;
+  color: #aab4c0;
+  text-align: left;
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sbf-steps > li > button:hover {
+  color: #fff;
+}
+
+.sbf-steps > li[data-done] > button {
+  color: #7d8794;
+}
+
+.sbf-steps > li[aria-current="step"] > button {
+  color: #fff;
+  font-weight: 600;
+}
+
+.sbf-n {
+  flex: none;
+  width: 18px;
+  color: #7d8794;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+[aria-current="step"] .sbf-n {
+  color: #3ee6a0;
+}
+
+.sbf-detail {
+  margin: 2px 12px 8px 40px;
+}
+
+.sbf-detail p {
+  margin: 6px 0;
+  color: #cfd6df;
+}
+
+.sbf-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sbf-layer {
+  padding: 1px 7px;
+  color: #0c0e12;
+  background: var(--sbf-layer, #cfd6df);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sbf-layer[data-layer="wallet"] { --sbf-layer: #c9a2ff; }
+.sbf-layer[data-layer="server"] { --sbf-layer: #9aa4b2; }
+.sbf-layer[data-layer="solana"] { --sbf-layer: #14f195; }
+.sbf-layer[data-layer="er"] { --sbf-layer: #ffb347; }
+.sbf-layer[data-layer="tee"] { --sbf-layer: #ff8a65; }
+.sbf-layer[data-layer="vrf"] { --sbf-layer: #7ec8ff; }
+.sbf-layer[data-layer="oracle"] { --sbf-layer: #ffd84d; }
+
+.sbf-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sbf-calls code {
+  color: #ffd9a8;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}

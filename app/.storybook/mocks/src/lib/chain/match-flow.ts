@@ -1,14 +1,37 @@
-// Storybook: the Block Puzzle Match's chain steps answer from the story (`parameters.screen.run`); nothing is sent.
+// Storybook: the Match's chain steps answer from the story (`parameters.screen.run`), or follow a Match flow story step by step; nothing is sent.
+import * as real from "../../../../../src/lib/chain/match-flow";
 import type { RunSubmitter } from "../../../../../src/lib/chain/run-submitter";
 import { screenData } from "../../../../../stories/screens/support/screen";
+import { flowFrame, untilFrame } from "../../../../../stories/screens/support/flow-store";
 
 export * from "../../../../../src/lib/chain/match-flow";
+
+/** In a flow story: reports each step's progress line until the step where the entry lands. */
+export async function flowEntry(onStep?: (s: string) => void): Promise<real.Entered> {
+  await untilFrame((f) => {
+    if (f.status) onStep?.(f.status);
+    return !!f.entered;
+  });
+  const f = flowFrame()!;
+  return { id: f.match!.id, via: f.entered! };
+}
+
+export const enterQueue = (...a: Parameters<typeof real.enterQueue>) => (flowFrame() ? flowEntry(a[4]) : real.enterQueue(...a));
+export const createChallenge = async (...a: Parameters<typeof real.createChallenge>) => (flowFrame() ? (await flowEntry()).id : real.createChallenge(...a));
+export const joinChallenge = async (...a: Parameters<typeof real.joinChallenge>) => (flowFrame() ? void (await flowEntry()) : real.joinChallenge(...a));
 
 export const ensureJoined = async () => {};
 export const probeRun = async () => screenData().run?.stage ?? "ready";
 export const prepareRun = (_signer: unknown, _id: bigint, _seat: unknown, onStep: (s: string) => void) => {
-  onStep("Creating your session");
-  return new Promise<void>(() => {});
+  if (!flowFrame()) {
+    onStep("Creating your session");
+    return new Promise<void>(() => {});
+  }
+  return untilFrame((f) => {
+    const run = f.screen?.run;
+    if (run?.step) onStep(run.step);
+    return run?.stage !== "needs-prep";
+  });
 };
 export const runSubmitter = () => ({ push() {}, finish: async () => {}, error: null }) as unknown as RunSubmitter;
 export const trySettle = async () => ({ outcome: "waiting-opponent" as const });

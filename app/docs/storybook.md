@@ -20,7 +20,7 @@ Edit a component or its CSS and the story reloads. Copy, numbers and states can 
 | Motion | Every `@keyframes`, transition and JS animation, with Replay and timing controls |
 | Components | Each shared component with controls and its states |
 | Games | Block Puzzle, Hold'em and Trading Duel, playable and in fixed states |
-| Screens | Every route in its real shell, one story per state |
+| Screens | Every route in its real shell, one story per state; **Match flow** plays a whole Match step by step (below) |
 
 ## Toolbar
 
@@ -54,6 +54,12 @@ export const NoPositions: Story = {
 `data.snapshot` is the signed-in Account (`null` = still loading), `data.snapshotError` the failed read, and `board`, `settled` and `playerAccount` replace the demo Backing board, recent wins and Account pages. `DEMO_ME` (in `stories/support/data.ts`) is the signed-in Account's key, so its Account page is "your own".
 
 Any fetch or WebSocket that isn't a local static file fails at once with "Offline in Storybook", so a story without a mock shows the component's error or empty state rather than hanging.
+
+## Match flow
+
+`Screens/Match flow` runs the real Queue / Challenge page, MatchRoute and the Game's Match view through a list of steps (`stories/screens/MatchFlow.stories.tsx`). Each step (`Frame` in `stories/screens/support/flow-store.ts`) says what the page shows, what the chain mocks answer while it is current, and what happens underneath, which the dock prints. The mocks follow it: `enterQueue`, `enterQueueBacked`, `createChallenge` and `joinChallenge` report each step's `status` and land at the step marked `entered`; MatchRoute's Match read answers at `routed`; Block Puzzle's `prepareRun` reports `screen.run.step` until the run is ready. A step with `click` presses that button on arrival; `remount` starts the page afresh where the real one would get there by polling.
+
+To add a step, add a frame to the flow; if the app gains a new progress line, add it there so the dock stays true to the code.
 
 ## Checking every story
 
