@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState, type PointerEvent } from "react";
 import { ChartColumn, Clock, LayoutGrid, Spade, Users, X, type LucideIcon } from "lucide-react";
+import { practiceHref } from "@/lib/game-params";
 import { CATALOGUE, CATEGORIES, type Category } from "@/lib/catalogue";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
@@ -95,20 +96,27 @@ export function PlayNowRail() {
       }
     >
       {matches.length === 0 && <p className="rail-empty">No games match. Clear the filter to see every game.</p>}
-      {live.map((g) => (
-        <Link key={g.key} href={`/play/${g.game}`} className="cut cut-frame tile" onPointerMove={tilt} onPointerLeave={untilt}>
-          <Image src={g.wide ?? g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" style={g.wide ? { objectPosition: "right center" } : undefined} />
-          <span className="tile-shade" aria-hidden="true" />
-          <span className="tile-glare" aria-hidden="true" />
-          <span className="cut cut-chip tile-live">
-            <i className="live-dot" aria-hidden="true" />
-            {g.game && depth[g.game] > 0 ? `${depth[g.game]} waiting in Queue` : "Live now"}
-          </span>
-          <span className="tile-label">
-            <strong>{g.name}</strong>
-            <span>{GAME_LINE[g.key]}</span>
-          </span>
-        </Link>
+      {live.map((g, i) => (
+        <div key={g.key} className={`tile-cell${i === live.length - 1 && live.length % 2 === 1 ? " last-odd" : ""}`}>
+          <Link href={`/play/${g.game}`} className="cut cut-frame tile" onPointerMove={tilt} onPointerLeave={untilt}>
+            <Image src={g.wide ?? g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" style={g.wide ? { objectPosition: "right center" } : undefined} />
+            <span className="tile-shade" aria-hidden="true" />
+            <span className="tile-glare" aria-hidden="true" />
+            <span className="cut cut-chip tile-live">
+              <i className="live-dot" aria-hidden="true" />
+              {g.game && depth[g.game] > 0 ? `${depth[g.game]} waiting in Queue` : "Live now"}
+            </span>
+            <span className="tile-label">
+              <strong>{g.name}</strong>
+              <span>{GAME_LINE[g.key]}</span>
+            </span>
+          </Link>
+          {g.game && (
+            <Link href={practiceHref(g.game)} className="cut cut-chip tile-practice">
+              Practice free
+            </Link>
+          )}
+        </div>
       ))}
       {soon.length > 0 && (
         <div className="soon-strip" style={{ gridColumn: "1 / -1" }}>

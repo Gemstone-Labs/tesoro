@@ -8,8 +8,7 @@ import { ArrowRight, Clock, Link2 } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { MatchRow } from "@/components/match/MatchRow";
 import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
-import { ASSET_PARAMS } from "@/lib/chain/match-id";
-import { gameQuery } from "@/lib/game-params";
+import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art, avatarFor } from "@/lib/art";
 import { accountHistory } from "@/lib/chain/history";
@@ -81,7 +80,7 @@ export function GamePage({ game }: { game: GameId }) {
             <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
               Challenge a friend <Link2 aria-hidden="true" />
             </Button>
-            <Button size="lg" href={game === "holdem" ? "/play/practice?game=holdem" : game === "trading-duel" ? `/play/practice?game=trading-duel&asset=${ASSET_PARAMS[asset]}` : "/play/practice"}>
+            <Button size="lg" href={practiceHref(game, asset)}>
               Practice <Clock aria-hidden="true" />
             </Button>
           </div>
