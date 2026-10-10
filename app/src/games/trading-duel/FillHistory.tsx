@@ -4,10 +4,10 @@ import { PublicKey } from "@solana/web3.js";
 import { AccountLink } from "@/components/account/AccountLink";
 import { Label } from "@/components/ui";
 import { tesoroAccountPda } from "../holdem/chain";
-import { shortKey } from "@/lib/chain/history";
 import { DRAW, FILL, RULES, SIDE, type Book, type Duel } from "./chain";
 import { chips, kindName, signedChips, sideName, tPlus, usdMid } from "./fmt";
 import "./trading.css";
+import { PlayerName } from "@/components/account/Player";
 
 interface Props {
   /** Both Books, as committed to the base layer: public once the Match is over. */
@@ -43,7 +43,7 @@ function Table({ book, duel, seat, you }: { book: Book; duel: Duel; seat: 0 | 1;
     <div className="cut cut-card td-card">
       <div className="spread">
         <Label>{you ? "You" : `Seat ${seat + 1}`}</Label>
-        <span className="mono meta">{you ? shortKey(account) : <AccountLink account={account} newTab />}</span>
+        <span className="mono meta">{you ? <PlayerName account={account} /> : <AccountLink account={account} newTab />}</span>
       </div>
       <p className="mono td-big">
         {chips(eq)} <span className="meta">Chips · {verdict}</span>

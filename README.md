@@ -27,7 +27,7 @@ The **Principal is never played** and never pays Debt. Accrued yield repays the 
 | A Hoodi vault for Lido's real **wstETH**, deployed and wired | Not run end to end, and not offered in the app (there is no wstETH faucet). |
 | Backing (Request → Offer → backed Match → split), played in the browser on devnet | Backed Hold'em has not been played. Only backed Block Puzzle has. |
 | A keeper that writes the price, cranks yield, relays bridge messages, expires Offers and settles or refunds stalled Matches | **Demo funding routes.** The app server tops up devnet SOL for fees, and Hoodi ETH for gas plus test simETH, from low-balance relayer keys. simSOL comes from the `sim_lst` on-chain faucet. These exist only for the demo. |
-| Privy email sign-in and embedded wallets are integrated | The demo was driven with a dev-only local wallet (`NEXT_PUBLIC_DEV_WALLET=1`). Privy has not been run end to end. |
+| Privy sign-in (email, Solana wallets, Ethereum wallets) and embedded wallets are integrated; Player profiles (name, picture, `.sol` / `.eth` names) are in the app and in `tesoro_core` but not yet deployed | The demo was driven with a dev-only local wallet (`NEXT_PUBLIC_DEV_WALLET=1`). Privy has not been run end to end. |
 | | **No external audit.** An internal security review and an internal implementation review were done (see [Security](#security)). |
 
 ## How it works
@@ -140,6 +140,7 @@ Every RPC defaults to `https://rpc.magicblock.app/devnet`, so no configuration i
 | `KEEPER_RPC`, `KEEPER_GPA_RPC` | keeper | the keeper's sends and list queries (it reads `app/.env.local` for anything its own env leaves unset) |
 | `NEXT_PUBLIC_DEV_WALLET=1` | browser | dev-only local wallet instead of Privy (compiled out of production builds) |
 | `NEXT_PUBLIC_PRIVY_APP_ID` | browser | Privy sign-in. Without it the app runs signed-out. |
+| `TESORO_SOL_MAINNET_RPC`, `TESORO_ETH_MAINNET_RPC` | server | Mainnet endpoints for `.sol` / `.eth` name lookups (`/api/names`); public endpoints by default. |
 | `NEXT_PUBLIC_HOODI_RPC` | browser | Hoodi RPC (default `https://ethereum-hoodi-rpc.publicnode.com`) |
 | `NEXT_PUBLIC_SITE_URL` | build | canonical URL for metadata |
 | `TESORO_RELAYER_KEYPAIR`, `TESORO_RELAYER_EVM_ENV` | server | low-balance relayer keys for the demo funding routes (default `~/.config/tesoro/relayer.json`, `relayer-evm.env`). Without them those routes answer `503 not-configured`. |

@@ -23,7 +23,7 @@ export function AccountSheet({
   return (
     <Sheet open={open} onClose={onClose} title="Account">
       <div className="stack">
-        <span className="meta">{email ?? "Signed in"}</span>
+        <span className="meta">{email ?? (linked[0] ? `Signed in with ${linked[0].client.replace(/_/g, " ")}` : "Signed in")}</span>
         <AddressCard title="Solana address" chains={["SOL"]} address={addresses.solana} />
         <AddressCard title="ETH & HYPE address" chains={["ETH", "HYPE"]} address={evm?.address ?? addresses.evm} />
         {evm && (
@@ -57,7 +57,7 @@ export function AccountSheet({
           <Button size="sm" onClick={() => linkWallet("solana")}>Link Solana wallet</Button>
           <Button size="sm" onClick={() => linkWallet("evm")}>Link ETH wallet</Button>
         </div>
-        <p className="note">Phantom or Backpack for Solana, MetaMask for ETH and HYPE. Your Account, not the wallet, holds Positions and Gemas.</p>
+        <p className="note">Phantom, Solflare or Backpack for Solana; MetaMask or Rabby for ETH and HYPE. Your Account, not the wallet, holds Positions and Gemas. A linked wallet can show its .sol or .eth name on your profile.</p>
       </div>
 
       <Button

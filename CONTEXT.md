@@ -42,7 +42,14 @@ _Avoid_: loan balance, obligation
 
 **Account**:
 One person's single Tesoro identity, holding one address per chain family (Solana, EVM). Positions, Gemas, Match history and Backings all belong to the Account, never to a wallet.
-_Avoid_: wallet, user, profile
+_Avoid_: wallet, user
+
+**Profile**:
+The display name and picture a Player chose for their Account, kept on chain and public. It decorates the Account; it holds nothing and is not the Account. Names are labels, not identities: they are not unique.
+_Avoid_: account (the Profile is only how the Account is shown), username, handle
+
+**Name service name**:
+A `.sol` (Solana Name Service) or `.eth` (ENS) primary name of a wallet the Player attached to their Profile. It is shown with a verified mark because the registry says the wallet owns it and the wallet proved it belongs to the Account.
 
 ### Play
 

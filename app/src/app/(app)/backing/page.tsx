@@ -21,9 +21,10 @@ import {
   Slider,
 } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
+import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 import { useGuideTip } from "@/components/guide/Guide";
 import { useAccount } from "@/lib/account";
-import { art, avatarFor } from "@/lib/art";
+import { art } from "@/lib/art";
 import {
   acceptApplicant,
   acceptDirected,
@@ -38,7 +39,7 @@ import {
   type PlayerRecord,
 } from "@/lib/chain/backing";
 import { EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
-import { recordFromMatches, recordShort, recordText, shortKey, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
+import { recordFromMatches, recordShort, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
@@ -225,7 +226,7 @@ export default function Backing() {
               <div className="stack">
                 <div className="spread">
                   <span className="row-body">
-                    <span className="row-title">{shortKey(o.backer)} funds your {fmtGemas(o.entry)}</span>
+                    <span className="row-title"><PlayerName account={o.backer} /> funds your {fmtGemas(o.entry)}</span>
                     <span className="row-meta">
                       {GAME_NAMES[o.game]} · you keep {o.shareBps / 100}% of the surplus · start within {timeLeft(o.useBy, nowMs).replace(" left", "")}
                     </span>
@@ -250,7 +251,7 @@ export default function Backing() {
             <Card key={o.address.toBase58()} as="article" aria-label="Offer for you">
               <div className="spread">
                 <span className="row-body">
-                  <span className="row-title">{shortKey(o.backer)} offers to fund {fmtGemas(o.entry)}</span>
+                  <span className="row-title"><PlayerName account={o.backer} /> offers to fund {fmtGemas(o.entry)}</span>
                   <span className="row-meta">
                     {GAME_NAMES[o.game]} · you keep {o.shareBps / 100}% of the surplus · {timeLeft(o.expiresAt, nowMs)}
                   </span>
@@ -337,7 +338,6 @@ export default function Backing() {
                   <ArtCard
                     key={o.address.toBase58()}
                     seed={o.backer}
-                    name={shortKey(o.backer)}
                     game={o.game}
                     line={`Player keeps ${o.shareBps / 100}% · ${timeLeft(o.expiresAt, nowMs)}`}
                     label="Offered entry"
@@ -452,7 +452,6 @@ function Empty({ title, body }: { title: string; body: string }) {
 function ArtCard({
   seed,
   account,
-  name,
   game,
   line,
   label,
@@ -463,7 +462,6 @@ function ArtCard({
 }: {
   seed: string;
   account?: string;
-  name: string;
   game: GameId;
   line: string;
   label: string;
@@ -472,19 +470,20 @@ function ArtCard({
   selected?: boolean;
   id?: string;
 }) {
+  const name = usePlayerLabel(seed);
   return (
     <article id={id} className={`cut cut-card bk-card${selected ? " selected" : ""}`} aria-label={`${name}, ${GAME_NAMES[game]}`}>
       {account ? (
         <AccountLink account={account} decorative className="cut cut-btn avatar bk-avatar">
-          <Image src={avatarFor(seed)} alt="" width={78} height={78} />
+          <PlayerAvatar account={seed} size={78} />
         </AccountLink>
       ) : (
         <span className="cut cut-btn avatar bk-avatar">
-          <Image src={avatarFor(seed)} alt="" width={78} height={78} />
+          <PlayerAvatar account={seed} size={78} />
         </span>
       )}
       <div className="bk-who">
-        <strong>{account ? <AccountLink account={account}>{name}</AccountLink> : name}</strong>
+        <strong>{account ? <AccountLink account={account} /> : <PlayerName account={seed} />}</strong>
         <span>{GAME_NAMES[game]}</span>
         <span className="bk-rec">{line}</span>
       </div>
@@ -507,7 +506,6 @@ function RequestCard({ r, selected, offered, onOffer, onView }: { r: ChainReques
       id={r.address.toBase58()}
       seed={r.player}
       account={r.player}
-      name={shortKey(r.player)}
       game={r.game}
       line={recordShort(r.record)}
       label="Requested entry"
@@ -609,9 +607,9 @@ function MyOffer({
       : lapsed
         ? "Expired: release your reserved Gemas"
         : offer.status === "accepted"
-          ? `Accepted by ${shortKey(offer.player ?? "")} · they have ${timeLeft(offer.useBy, nowMs).replace(" left", "")} to start`
+          ? <>Accepted by <PlayerName account={offer.player ?? ""} /> · they have {timeLeft(offer.useBy, nowMs).replace(" left", "")} to start</>
           : offer.directedTo
-            ? `Waiting for ${playerKey ? shortKey(playerKey) : "the Player"} · ${timeLeft(offer.expiresAt, nowMs)}`
+            ? <>Waiting for {playerKey ? <PlayerName account={playerKey} /> : "the Player"} · {timeLeft(offer.expiresAt, nowMs)}</>
             : `Public · ${offer.applicants.length} applicant${offer.applicants.length === 1 ? "" : "s"} · ${timeLeft(offer.expiresAt, nowMs)}`;
   return (
     <Card as="article" aria-label={offer.directedTo ? "Your directed Offer" : "Your public Offer"}>
@@ -713,7 +711,7 @@ function OfferDrawer({
               <div className="bk-summary">
                 <div className="cut cut-card bk-summary-who">
                   <span className="cut cut-btn avatar bk-avatar">
-                    <Image src={avatarFor(player)} alt="" width={78} height={78} />
+                    <PlayerAvatar account={player} size={78} />
                   </span>
                   <div className="bk-who">
                     <strong>
@@ -770,7 +768,7 @@ function OfferDrawer({
                 <small>of surplus</small>
               </div>
               <div className="cut cut-card">
-                <span>Player{player ? ` (${shortKey(player)})` : ""}</span>
+                <span>Player{player ? <> (<PlayerName account={player} />)</> : ""}</span>
                 <b>{share}%</b>
                 <small>of surplus</small>
               </div>
