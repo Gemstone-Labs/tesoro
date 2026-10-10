@@ -10,10 +10,13 @@ import { useSearch } from "@/components/shell/SearchContext";
 import { Row, Thumb } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { fmtGemas } from "@/lib/format";
+// PROTOTYPE: Continue rail variants (?variant=A..E, ?demo=1)
+import { ContinueCurrent, ContinueSwitcher, ContinueTickets, ContinueTiles, ContinueUpNext, ContinueVersus, useContinue } from "@/components/lobby/Continue.prototype";
 import { GAME_NAMES } from "@/lib/mock";
 
 export default function Lobby() {
-  const { openMatches } = useAccount();
+  const { openMatches: realOpen, snapshot } = useAccount();
+  const { variant, matches: openMatches } = useContinue(realOpen);
   const { query } = useSearch();
   useGuideTip({
     id: "lobby-first",
@@ -39,18 +42,11 @@ export default function Lobby() {
           <header className="rail-head">
             <h2 id="live-h" className="h-section">Continue</h2>
           </header>
-          <div className="live-grid">
-            {openMatches.map((m) => (
-              <Row
-                key={m.id.toString()}
-                href={`/play/match/${m.id.toString()}`}
-                thumb={<Thumb>{m.entry >= 1000 ? `${m.entry / 1000}K` : m.entry}</Thumb>}
-                title={`${GAME_NAMES[m.game]} · ${fmtGemas(m.entry)} entry`}
-                meta={m.status === "open" ? (m.challenge ? "Waiting for your Challenge to be opened" : m.game === "block-puzzle" ? "Waiting to be paired" : "Waiting for an opponent") : "Opponent found · continue"}
-                cta="Open"
-              />
-            ))}
-          </div>
+          {variant === "A" && <ContinueCurrent matches={openMatches} />}
+          {variant === "B" && <ContinueTiles matches={openMatches} />}
+          {variant === "C" && <ContinueVersus matches={openMatches} me={snapshot?.accountKey.toBase58() ?? "you"} />}
+          {variant === "D" && <ContinueTickets matches={openMatches} />}
+          {variant === "E" && <ContinueUpNext matches={openMatches} />}
         </section>
       )}
 
@@ -62,6 +58,7 @@ export default function Lobby() {
       <PlayNowRail />
       <BackPlayerRail />
       <LeaderboardTeaser />
+      <ContinueSwitcher />
     </div>
   );
 }
