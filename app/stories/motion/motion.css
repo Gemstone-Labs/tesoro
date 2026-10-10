@@ -1,0 +1,39 @@
+.sbm { display: grid; gap: 20px; }
+.sbm-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.sbm-intro p { color: var(--fg-2); font-size: 14.5px; max-width: 70ch; }
+.sbm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.sbm-card { display: grid; gap: 10px; padding: 14px; background: var(--surface); --edge: var(--edge-1); align-content: start; }
+.sbm-card h3 { font-family: var(--f-mono); font-size: 15px; font-weight: 700; word-break: break-all; }
+.sbm-card .where { font-family: var(--f-mono); font-size: 11.5px; color: var(--fg-2); }
+.sbm-card .note { font-size: 13.5px; color: var(--fg-2); line-height: 1.45; }
+.sbm-stage { position: relative; height: 160px; display: grid; place-items: center; overflow: hidden; background: var(--shell); border: 1px solid var(--line); }
+.sbm-stage.scroll { place-items: stretch; overflow: hidden; }
+.sbm-ctl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: end; }
+.sbm-ctl label { display: grid; gap: 3px; white-space: nowrap; font-size: 11px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.sbm-ctl input, .sbm-ctl select { width: 100%; min-width: 0; height: 30px; padding: 0 6px; background: var(--raised); color: var(--fg); border: 1px solid var(--line-2); font: inherit; font-size: 13px; text-transform: none; letter-spacing: 0; }
+.sbm-btns { display: flex; gap: 8px; }
+.sbm-btn { height: 30px; padding: 0 12px; background: var(--raised-2); color: var(--fg); border: 1px solid var(--line-2); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.sbm-btn:hover { border-color: var(--fg-2); }
+.sbm-btn.primary { background: var(--fg); color: var(--shell); border-color: var(--fg); }
+.sbm-sample { display: grid; place-items: center; gap: 4px; width: 150px; height: 84px; padding: 10px; background: var(--raised-2); --edge: var(--edge-2); font-size: 13px; font-weight: 700; text-align: center; }
+.sbm-sample.gem { color: var(--em-hi); }
+.sbm-dark { background: #0b1115; color: #eaefec; }
+.sbm-scroll-item { flex: none; height: 54px; margin: 8px; display: grid; place-items: center; background: var(--raised-2); border: 1px solid var(--line-2); font-size: 13px; }
+.sbm-sticky { position: sticky; top: 0; z-index: 2; padding: 10px 14px; border-bottom: 1px solid transparent; font-weight: 700; font-size: 13px; }
+.sbm-field { position: absolute; inset: 0; }
+.sbm-wide { grid-column: 1 / -1; }
+.sbm-panel { display: grid; gap: 12px; padding: 16px; background: var(--surface); --edge: var(--edge-1); }
+.sbm-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.sbm-row label { display: grid; gap: 3px; font-size: 11px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.sbm-row input, .sbm-row select { height: 32px; padding: 0 8px; background: var(--raised); color: var(--fg); border: 1px solid var(--line-2); font: inherit; font-size: 13.5px; text-transform: none; letter-spacing: 0; }
+.sbm-big { font-size: 56px; font-weight: 900; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.sbm-tall { min-height: 100svh; }
+.sbm-note { position: fixed; left: 12px; bottom: 12px; z-index: 80; display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: rgba(9, 13, 15, 0.92); border: 1px solid var(--line-2); font-size: 12.5px; color: var(--fg-2); }
+.sbm-canvas { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: #0b1115; }
+.sbm-canvas.tall { aspect-ratio: 3 / 4; max-width: 420px; }
+.sbm-canvas .lp-stage-poster, .sbm-canvas .lp-stage-canvas { position: absolute; inset: 0; }
+.sbm-canvas img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sbm-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.sbm-compare h4 { font-size: 13px; margin-bottom: 6px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.sbm-motes { left: 15%; top: 0; width: 70%; height: 100%; }
+.sbm-fill { position: absolute; inset: 0; }

@@ -1,0 +1,40 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Motion/Overview" />
+
+# Motion
+
+Every animation and transition in the app. Each story has timing controls (duration, easing, delay, repeat) and a Replay button, so you can watch and tune. Nothing changes the app: to keep a new timing, tell us the numbers.
+
+Use the toolbar **Motion** switch to see Reduced motion. In the app, all animation stops or shortens under it.
+
+## Keyframes, one card each
+
+| Story | Keyframes | Where the app uses them |
+| --- | --- | --- |
+| UI keyframes | `glint`, `sheet-in`, `fade-in`, `spin`, `skel`, `btn-sweep`, `reveal` | Gema mark shine, sheets and their backdrop, every spinner, loading skeletons, the big money button's passing light, lists rising as they scroll in |
+| Shell keyframes | `drawer-in`, `menu-in`, `page-in`, `topbar-lift` | Menu drawer, Account menu, every page arriving, the top bar's frosted ground on scroll |
+| Lobby keyframes | `hero-fill`, `hero-settle`, `hero-rise`, `twinkle`, `live-pulse`, `lw-scroll` | Hero marker, art and copy, sparkles, the red Live dot, the Live wins strip |
+| Match and Guide keyframes | `mo-in`, `mo-out`, `mo-pop`, `burst-breathe`, `gema-land`, `guide-dim`, `guide-rise`, `guide-pop` | Win overlay, the light behind a won amount, the Gema landing, the Guide's entrance |
+| Game and wallet keyframes | `bpx-spin`, `bp-pop`, `bp-rise`, `score-bump`, `op-spin`, `bk-drawer-in` | Block Puzzle board and score, the Position opening steps, the Backing Offer drawer |
+| Landing keyframes | `lp-flicker`, `lp-flicker-wide`, `lp-settle`, `lp-sweep`, `lp-m-flow`, `lp-twinkle`, `lp-sheen`, `lp-rise`, `lp-breathe`, `lp-pulse-arc`, `lp-arrive`, `lp-arrive-v`, `lp-rays`, `lp-mote`, `lp-glint`, `lp-progress`, `lp-beam`, `lp-spin`, `lp-sweep-ring`, `lp-burst`, `lp-crystal-pulse` | Everything that moves on the landing page: lanterns, rays, dust, glints, vault sparks, Pot ring, the Gema's light |
+
+## Whole sequences and motion done in code
+
+| Story | What it shows | Source |
+| --- | --- | --- |
+| Count up | A figure rolling to a new value (800 ms, ease-out) | `components/ui/CountUp.tsx` |
+| Moment overlay | The 3 s win celebration: bust pops up in a burst of light | `components/match/MomentOverlay.tsx` |
+| Guide entrance | Page dims, character steps in, bubble pops | `components/guide/Guide.tsx` |
+| Landing effects | Dust motes and crystal glints | `components/landing/Fx.tsx` |
+| Hero carousel | Auto-advance every 7 s with the filling marker | `components/lobby/HeroCarousel.tsx` |
+| Page in | Every page rising in, with the whole shell | `components/shell/AppShell.tsx` |
+| Sheets and drawers | The Sheet, the menu drawer and the Offer drawer opening | `components/ui/inputs.tsx`, `AppShell.tsx`, `backing/page.tsx` |
+| Hover and focus | Every transition on buttons, pickers, rows and the tilting game tiles, with one control to slow them all | `ui.css`, `lobby.css` and others |
+| Landing page | The full page: scroll reveals, count-ups, pins and the progress line (gsap and Lenis) | `components/landing/LandingMotion.tsx` |
+| 3D canvases | The live Gema and Multichain scenes next to their posters | `components/landing/gem`, `chains` |
+
+## Not shown
+
+- Games' own motion is in **Games** (Block Puzzle clears, the Hold'em clock, the Trading Duel chart).
+- Short colour or opacity fades under 0.5 s on single landing elements (`.lp-nav`, `.lp-beat`, `.lp-meter`, `.lp-lane`, `.lp-stage-poster`) are listed in **Hover and focus** only where they respond to the pointer.

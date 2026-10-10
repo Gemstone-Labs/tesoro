@@ -152,6 +152,12 @@ What to try:
 - In **Wallet**: "Get test simSOL" → **Open a Position** (amount, Horizon). The Gemas arrive in one transaction.
 - In **Lobby**: pick an entry → **Play now**. Block Puzzle lets you play before an opponent is paired.
 
+Storybook: every screen, component, asset and animation on fixtures, offline (see `app/docs/storybook.md`).
+
+```bash
+pnpm --filter @tesoro/app storybook   # http://localhost:6006
+```
+
 Checks:
 
 ```bash

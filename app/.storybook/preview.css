@@ -1,0 +1,7 @@
+/* Toolbar "Reduced motion": approximates prefers-reduced-motion for the CSS animations (JS reads the matchMedia override). */
+html.sb-reduced-motion *, html.sb-reduced-motion *::before, html.sb-reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
