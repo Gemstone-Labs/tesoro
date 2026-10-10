@@ -62,3 +62,12 @@
 .pcC-rec b + b, .pcC-rec b:nth-of-type(2) { margin-left: 6px; }
 .pcC-side { display: grid; gap: 8px; justify-items: end; }
 .pcC-side > b { display: inline-flex; align-items: center; gap: 7px; font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+
+/* D: Banner + record */
+.pcD { container-type: inline-size; }
+.pcD .pcB-who { padding-bottom: 10px; }
+.pcD .pcB-who strong { font-size: 20px; }
+.pcD-main { display: grid; gap: 18px; padding: 18px 20px 20px; }
+.pcD .pcA-rec { padding-top: 0; border-top: 0; }
+.pcD .pcA-new { padding-top: 0; border-top: 0; }
+.pcD .pcB-who strong a { color: var(--fg); }

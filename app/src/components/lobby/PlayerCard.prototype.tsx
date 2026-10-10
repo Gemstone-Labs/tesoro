@@ -18,6 +18,7 @@ import { PlayerAvatar } from "@/components/account/Player";
 import "./player-card.prototype.css";
 
 export const PLAYER_CARD_VARIANTS = [
+  { key: "D", name: "Banner + record" },
   { key: "A", name: "Record first" },
   { key: "B", name: "Game banner" },
   { key: "C", name: "Win ring, compact" },
@@ -175,6 +176,65 @@ export function CardRing({ r, action }: Props) {
         </b>
         {action}
         <Left r={r} />
+      </div>
+    </article>
+  );
+}
+
+/** D: B's Game banner and avatar header over A's record and ask. */
+export function CardBannerRecord({ r, action }: Props) {
+  const s = stats(r);
+  return (
+    <article className="cut cut-card pcB pcD">
+      <div className="pcB-art">
+        <Image src={HERO[r.game]} alt="" fill sizes="440px" />
+        <span className="pcB-game">{GAME_NAMES[r.game]}</span>
+        <Left r={r} />
+      </div>
+      <div className="pcB-body">
+        <Avatar r={r} className="pcB-av" size={140} />
+        <div className="pcB-who">
+          <strong>
+            <AccountLink account={r.player} />
+          </strong>
+        </div>
+      </div>
+      <div className="pcD-main">
+        {s.matches ? (
+          <div className="pcA-rec">
+            <dl className="pcA-stats">
+              <div>
+                <dt>Won</dt>
+                <dd>{s.pct}%</dd>
+              </div>
+              <div>
+                <dt>Matches</dt>
+                <dd>{s.matches}</dd>
+              </div>
+              <div>
+                <dt>W – L</dt>
+                <dd>
+                  {s.wins}–{s.losses}
+                </dd>
+              </div>
+            </dl>
+            <span className="pcA-bar" aria-hidden="true">
+              <i style={{ width: `${s.pct}%` }} />
+            </span>
+          </div>
+        ) : (
+          <p className="pcA-new">New Player · no settled Matches yet</p>
+        )}
+        <footer className="pcA-foot">
+          <div>
+            <span>Asks for</span>
+            <b>
+              <GemaMark size={20} />
+              {fmtGemas(r.entry)}
+            </b>
+          </div>
+          {action}
+        </footer>
       </div>
     </article>
   );

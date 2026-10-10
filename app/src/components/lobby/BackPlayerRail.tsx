@@ -12,7 +12,7 @@ import { Rail } from "./Rail";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
 import { Suspense } from "react";
 import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
-import { CardBanner, CardRecord, CardRing, PLAYER_CARD_VARIANTS } from "./PlayerCard.prototype";
+import { CardBanner, CardBannerRecord, CardRecord, CardRing, PLAYER_CARD_VARIANTS } from "./PlayerCard.prototype";
 
 /** BACK A PLAYER: live Requests from Solana devnet with the Player's real record. The name leads to their Account; Offer opens the Backing flow. */
 // PROTOTYPE: variant switcher around the rail (see PlayerCard.prototype.tsx).
@@ -56,6 +56,7 @@ function BackPlayerRailInner() {
         ) : (
           <OfferLink href={`/backing#${key}`} player={r.player} label={`in ${GAME_NAMES[r.game]} for ${fmtGemas(r.entry)} Gemas`} />
         );
+        if (variant === "D") return <CardBannerRecord key={key} r={r} action={action} />;
         if (variant === "A") return <CardRecord key={key} r={r} action={action} />;
         if (variant === "B") return <CardBanner key={key} r={r} action={action} />;
         if (variant === "C") return <CardRing key={key} r={r} action={action} />;
