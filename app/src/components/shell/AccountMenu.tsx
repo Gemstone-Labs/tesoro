@@ -3,9 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronDown, Eye, LogOut, User, Wallet } from "lucide-react";
+import { ChevronDown, Eye, LogOut, Pencil, User, Wallet } from "lucide-react";
+import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { useAuth } from "@/lib/auth/context";
 import { avatarFor } from "@/lib/art";
+import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
 
@@ -51,13 +53,13 @@ export function AccountMenu() {
         onClick={() => setOpen((o) => !o)}
       >
         <span className="cut cut-btn avatar">
-          <Image src={avatarFor(seed)} alt="" width={48} height={48} />
+          {me ? <PlayerAvatar account={me} size={48} /> : <Image src={avatarFor(seed)} alt="" width={48} height={48} />}
         </span>
         <ChevronDown aria-hidden="true" className="acct-chev" />
       </button>
       {open && (
         <div id={menuId} role="menu" className="cut cut-card acct-menu">
-          {auth.email && <span className="acct-mail">{auth.email}</span>}
+          {me ? <span className="acct-mail"><PlayerName account={me} /></span> : auth.email && <span className="acct-mail">{auth.email}</span>}
           <button type="button" role="menuitem" onClick={() => { setOpen(false); auth.openAccount(); }}>
             <User aria-hidden="true" /> Account
           </button>
@@ -65,6 +67,11 @@ export function AccountMenu() {
             <Link href={`/account/${me}`} role="menuitem" onClick={() => setOpen(false)}>
               <Eye aria-hidden="true" /> Your Account page
             </Link>
+          )}
+          {me && (
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); setEditProfileOpen(true); }}>
+              <Pencil aria-hidden="true" /> Edit profile
+            </button>
           )}
           <Link href="/wallet" role="menuitem" onClick={() => setOpen(false)}>
             <Wallet aria-hidden="true" /> Wallet

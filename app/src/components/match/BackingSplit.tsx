@@ -1,12 +1,11 @@
 "use client";
 
 import { AccountLink } from "@/components/account/AccountLink";
+import { PlayerName } from "@/components/account/Player";
 import { GemaAmount, Label } from "@/components/ui";
 import { backedSplit } from "@/lib/chain/ledger";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
-
-const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
 
 /**
  * How a settled Backing paid out, for whichever party is looking (the backed Player or the Backer).
@@ -19,14 +18,14 @@ export function BackingSplit({ m }: { m: ChainMatch }) {
   if (!b || m.status === "open" || m.status === "active") return null;
   const asPlayer = m.seat !== null;
   const party = asPlayer ? "Your Backer" : "Your Player";
-  const other = asPlayer ? short(b.funder) : short(b.player);
+  const other = asPlayer ? b.funder : b.player;
 
   if (m.status === "refunded" || !result || result === "draw") {
     return (
       <div className="stack" aria-label="Backing">
         <Label>Backing</Label>
         <p className="meta">
-          No result, so the entry of {fmtGemas(m.entry)} Gemas went back to {asPlayer ? `your Backer ${other}` : "you"}. Nobody won or lost.
+          No result, so the entry of {fmtGemas(m.entry)} Gemas went back to {asPlayer ? <>your Backer <PlayerName account={other} /></> : "you"}. Nobody won or lost.
         </p>
       </div>
     );
@@ -36,7 +35,7 @@ export function BackingSplit({ m }: { m: ChainMatch }) {
   const s = backedSplit({ entry: m.entry, ...m.fees, shareBps: b.shareBps, won });
   return (
     <div className="stack" aria-label="Backing">
-      <Label>{asPlayer ? `Backed by ${other}` : <>You backed <AccountLink account={b.player} /></>}</Label>
+      <Label>{asPlayer ? <>Backed by <PlayerName account={other} /></> : <>You backed <AccountLink account={b.player} /></>}</Label>
       {won ? (
         <dl className="kv">
           <dt>1. {asPlayer ? "Your Backer's" : "Your"} entry back first</dt>

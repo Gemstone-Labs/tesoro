@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { Radio } from "lucide-react";
 import { useAccount } from "@/lib/account";
 import { ago } from "@/lib/catalogue";
-import { shortKey } from "@/lib/chain/useBackingBoard";
 import { useRecentSettled } from "@/lib/chain/useRecentSettled";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
+import { PlayerName } from "@/components/account/Player";
 
 const STEP_MS = 4500;
 
@@ -31,7 +31,7 @@ export function Ticker() {
       <Radio aria-hidden="true" />
       {m ? (
         <span key={m.id.toString()} className="ticker-line">
-          <b>{m.winner === me ? "You" : shortKey(m.winner)}</b> won <b>{fmtGemas(m.payout)}</b> Gemas
+          <b>{m.winner === me ? "You" : <PlayerName account={m.winner} />}</b> won <b>{fmtGemas(m.payout)}</b> Gemas
           <i aria-hidden="true">·</i>
           {GAME_NAMES[m.game]}
           {m.scores && (

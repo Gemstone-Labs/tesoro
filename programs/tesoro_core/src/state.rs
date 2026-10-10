@@ -21,6 +21,11 @@ pub const PRICE_SEED: &[u8] = b"price";
 pub const SEASON_SEED: &[u8] = b"season";
 /// Address (never a signer) that owns the Leaderboard Pool Account: `["leaderboard"]`.
 pub const LEADERBOARD_SEED: &[u8] = b"leaderboard";
+pub const PROFILE_SEED: &[u8] = b"profile";
+/// The cross-chain bridge, whose `EvmLink` accounts prove an EVM address belongs to an Account.
+pub const BRIDGE_PROGRAM_ID: Pubkey = pubkey!("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ");
+/// Seed of the bridge's `EvmLink` PDA: `["evm", evm_address]`.
+pub const EVM_LINK_SEED: &[u8] = b"evm";
 
 /// simSOL mint of `sim_lst` (PDA `["mint"]` of `WgcM5G...`). A Solana Position whose
 /// `source_asset` is this mint is a native Position and is only ever opened by `open_native_position`.
@@ -382,4 +387,96 @@ pub struct SeasonPrizePaid {
 pub struct MatchSettled {
     pub match_id: u64,
     pub result: u8,
+}
+
+/// Number of animal-head avatars the app ships (`app/src/lib/art.ts`). `AvatarChoice::Animal(i)` takes `i` in `0..AVATAR_COUNT`.
+pub const AVATAR_COUNT: u8 = 12;
+pub const PROFILE_NAME_MIN: usize = 3;
+pub const PROFILE_NAME_MAX: usize = 20;
+
+/// Which picture a Player shows. `Default` is the avatar derived from the Account key;
+/// `NameService` is the avatar of the Player's .sol / .eth record (the app falls back to
+/// `Default` when there is none).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, AnchorSerialize, AnchorDeserialize)]
+pub enum AvatarChoice {
+    Default,
+    NameService,
+    Animal(u8),
+}
+
+/// A Player's chosen display name and picture. Seeds `["profile", account]`; one per Account,
+/// created by the first `set_profile`. Names are not unique and are not verified: a name is a label.
+#[account]
+pub struct Profile {
+    pub bump: u8,
+    /// The `TesoroAccount` this Profile belongs to.
+    pub account: Pubkey,
+    pub name_len: u8,
+    /// UTF-8 (ASCII only), zero padded past `name_len`.
+    pub name: [u8; PROFILE_NAME_MAX],
+    pub avatar: AvatarChoice,
+    /// A Solana wallet that co-signed `set_name_wallet`: its primary .sol name shows for this Player
+    /// (the Account's own wallet is a Tesoro-created one with no name). Default key = none.
+    pub name_wallet: Pubkey,
+    /// An EVM address linked to this Account through the bridge (`link_evm`) and attached by
+    /// `set_name_evm`: its primary .eth name shows. All zeros = none.
+    pub name_evm: [u8; 20],
+}
+
+impl Profile {
+    /// Discriminator, bump, account, name_len, name, avatar (tag + one index byte at most), name_wallet, name_evm.
+    pub const SPACE: usize = 8 + 1 + 32 + 1 + PROFILE_NAME_MAX + 2 + 32 + 20;
+
+    /// 3 to 20 characters from letters, digits, space, `.`, `_`, `-`; no leading or trailing space.
+    pub fn name_is_valid(name: &[u8]) -> bool {
+        (PROFILE_NAME_MIN..=PROFILE_NAME_MAX).contains(&name.len())
+            && name.first() != Some(&b' ')
+            && name.last() != Some(&b' ')
+            && name
+                .iter()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b' ' | b'.' | b'_' | b'-'))
+    }
+
+    pub fn avatar_is_valid(avatar: AvatarChoice) -> bool {
+        !matches!(avatar, AvatarChoice::Animal(i) if i >= AVATAR_COUNT)
+    }
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::*;
+
+    #[test]
+    fn names() {
+        for ok in [
+            "abc",
+            "Ana Maria",
+            "a.b_c-d",
+            "x".repeat(20).as_str(),
+            "0xAB",
+        ] {
+            assert!(Profile::name_is_valid(ok.as_bytes()), "{ok}");
+        }
+        for bad in [
+            "",
+            "ab",
+            " abc",
+            "abc ",
+            "a@b",
+            "ça va",
+            "x".repeat(21).as_str(),
+            "a\tb",
+            "a/b",
+        ] {
+            assert!(!Profile::name_is_valid(bad.as_bytes()), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn avatars() {
+        assert!(Profile::avatar_is_valid(AvatarChoice::Default));
+        assert!(Profile::avatar_is_valid(AvatarChoice::NameService));
+        assert!(Profile::avatar_is_valid(AvatarChoice::Animal(11)));
+        assert!(!Profile::avatar_is_valid(AvatarChoice::Animal(12)));
+    }
 }

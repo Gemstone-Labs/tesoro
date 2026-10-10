@@ -1,18 +1,17 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Check, Copy, Link2 } from "lucide-react";
+import { Check, Copy, Link2, Pencil } from "lucide-react";
+import { PlayerAvatar, PlayerName, VerifiedMark } from "@/components/account/Player";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
 import { AssetPicker, Bust, Button, Card, EntryPicker, GemaMark, Label, Sheet, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { avatarFor } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
-import { historyPage, shortKey } from "@/lib/chain/history";
+import { historyPage } from "@/lib/chain/history";
 import { backingLine, playedRows, playerSummary, runningTotal, signed, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
@@ -20,6 +19,9 @@ import { fmtGemas } from "@/lib/format";
 import { gameQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
+import { setEditProfileOpen } from "@/lib/identity/edit-profile";
+import { shownIdentity } from "@/lib/identity/display";
+import { useIdentity } from "@/lib/identity/store";
 import { RunningTotalChart } from "./RunningTotalChart";
 import "./account.css";
 
@@ -79,7 +81,10 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   const me = snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null);
   const own = me === address;
   const visitor = !own && auth.status !== "loading";
-  const name = shortKey(address);
+  const identity = useIdentity(address);
+  const who = shownIdentity(address, identity);
+  // Registry names the title does not already show.
+  const otherNames = ([[".sol", identity.sol], [".eth", identity.eth]] as const).flatMap(([suffix, n]) => (n && n.name !== who.label ? [{ suffix, name: n.name }] : []));
   const played = rows.length > 0 || summary.notRead > 0;
 
   // Your own Account page exists before the Account does on chain (it is created with your first Position or Match).
@@ -98,11 +103,21 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
     <div className="pa">
       <header className="cut cut-frame pa-hero">
         <span className="cut cut-btn avatar pa-avatar">
-          <Image src={avatarFor(address)} alt="" width={120} height={120} priority />
+          <PlayerAvatar account={address} size={120} />
         </span>
         <div className="pa-who">
           <Label>{own ? "Your Account" : "Account"}</Label>
-          <h1 className="page-title">{name}</h1>
+          <h1 className="page-title"><PlayerName account={address} /></h1>
+          {otherNames.length > 0 && (
+            <span className="pa-names">
+              {otherNames.map((n) => (
+                <span key={n.suffix} className="pn">
+                  <span className="pn-label">{n.name}</span>
+                  <VerifiedMark suffix={n.suffix} />
+                </span>
+              ))}
+            </span>
+          )}
           <span className="mono pa-key">{address}</span>
           {summary.first !== null && (
             <ul className="pa-facts">
@@ -120,7 +135,12 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
               Challenge <Link2 aria-hidden="true" />
             </Button>
           )}
-          <Button size={visitor ? "sm" : "md"} onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
+          {own && (
+            <Button onClick={() => setEditProfileOpen(true)} icon={<Pencil aria-hidden="true" />}>
+              Edit profile
+            </Button>
+          )}
+          <Button size={visitor || own ? "sm" : "md"} onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
             {copied ? "Link copied" : "Copy link"}
           </Button>
           <span className="sr-only" role="status">
@@ -167,7 +187,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
       {played ? (
         <Scoreboard s={summary} series={series} />
       ) : (
-        <NoMatches own={own} name={name} hasGemas={snapshot ? gemas.total > 0 : null} />
+        <NoMatches own={own} name={who.label} hasGemas={snapshot ? gemas.total > 0 : null} />
       )}
 
       {played && (
@@ -201,7 +221,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
       {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
       <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
 
-      <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={name} />
+      <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={who.label} />
     </div>
   );
 }

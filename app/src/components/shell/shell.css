@@ -167,3 +167,17 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 /* each page arrives with a short rise; the Lobby hero then plays its own entrance */
 .app-main { animation: page-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 @keyframes page-in { from { opacity: 0; translate: 0 10px; } }
+
+/* ——— Sign in: wallets first, email below ——— */
+.signin-wallets { gap: 10px; }
+.signin-wallet {
+  --edge: var(--edge-2);
+  display: grid; gap: 2px; justify-items: start; text-align: left; width: 100%;
+  padding: 14px 16px; background: var(--shell); color: var(--fg); cursor: pointer; border: 0; font: inherit;
+  transition: background-color 0.15s ease;
+}
+.signin-wallet b { font-size: 17px; font-weight: 800; }
+.signin-wallet small { font-size: 13px; color: var(--fg-2); }
+.signin-wallet:hover { background: var(--raised-2); }
+.signin-or { display: flex; align-items: center; gap: 12px; margin: 4px 0 0; color: var(--fg-2); font-size: 13px; }
+.signin-or::before, .signin-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }

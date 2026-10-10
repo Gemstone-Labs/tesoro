@@ -1,11 +1,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { shortKey } from "@/lib/chain/history";
+import { PlayerName } from "./Player";
 import "./account.css";
 
 /**
  * A Player wherever one is shown, linking to their Account. `account` is the Account key; the
- * default content is its short form. `newTab` keeps the page underneath (an open drawer, a tab) as it is.
+ * default content is the Player's name (Profile, .sol, .eth or the short key). `newTab` keeps the page underneath (an open drawer, a tab) as it is.
  */
 export function AccountLink({
   account,
@@ -28,7 +28,7 @@ export function AccountLink({
       {...(newTab ? { target: "_blank", rel: "noopener" } : {})}
       {...(decorative ? { tabIndex: -1, "aria-hidden": true } : {})}
     >
-      {children ?? shortKey(account)}
+      {children ?? <PlayerName account={account} />}
     </Link>
   );
 }

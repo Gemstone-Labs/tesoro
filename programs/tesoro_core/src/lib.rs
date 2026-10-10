@@ -85,6 +85,22 @@ pub mod tesoro_core {
         instructions::identity::open_holding(ctx)
     }
 
+    pub fn set_profile(
+        ctx: Context<SetProfile>,
+        name: String,
+        avatar: state::AvatarChoice,
+    ) -> Result<()> {
+        instructions::identity::set_profile(ctx, name, avatar)
+    }
+
+    pub fn set_name_wallet(ctx: Context<SetNameWallet>) -> Result<()> {
+        instructions::identity::set_name_wallet(ctx)
+    }
+
+    pub fn set_name_evm(ctx: Context<SetNameEvm>, evm_address: [u8; 20]) -> Result<()> {
+        instructions::identity::set_name_evm(ctx, evm_address)
+    }
+
     // --- Positions, Advances, Debt, Redeem --------------------------------------------------
 
     pub fn open_position(

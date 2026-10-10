@@ -14,7 +14,6 @@ export default function Page() {
       </p>
 
       <H2 id="sign-in">Signing in</H2>
-      {/* TODO(verify-after-merge): sign-in methods: email or a wallet (Solana wallets like Phantom, EVM wallets like MetaMask). */}
       <p>You can sign in with:</p>
       <ul>
         <li>
@@ -29,11 +28,10 @@ export default function Page() {
       </p>
 
       <H2 id="profile">Your profile</H2>
-      {/* TODO(verify-after-merge): profiles: display name + gemstone animal picture, or the player's .sol / .eth name and avatar. */}
       <p>Other Players see your profile on Match pages, the Lobby, Backing Requests and the Leaderboard. You can:</p>
       <ul>
         <li>set a <b>display name</b> and pick a <b>gemstone animal picture</b>, or</li>
-        <li>use your <b>.sol or .eth name and avatar</b> instead.</li>
+        <li>show the <b>.sol or .eth name</b> of a wallet you attach, with a check mark, and use the <b>.eth avatar</b> as your picture.</li>
       </ul>
       <p>
         Tesoro&apos;s pictures are animals cut like gemstones. There are no photos of people, so you are never asked to upload one.

@@ -3408,6 +3408,169 @@
       ]
     },
     {
+      "name": "set_name_evm",
+      "discriminator": [
+        88,
+        9,
+        237,
+        88,
+        244,
+        51,
+        45,
+        35
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "evm_link",
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "evm_address",
+          "type": {
+            "array": [
+              "u8",
+              20
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_name_wallet",
+      "discriminator": [
+        16,
+        38,
+        186,
+        36,
+        80,
+        159,
+        28,
+        151
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "wallet",
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "set_price",
       "discriminator": [
         16,
@@ -3507,6 +3670,91 @@
         {
           "name": "price_micro_usd",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_profile",
+      "discriminator": [
+        221,
+        221,
+        195,
+        121,
+        133,
+        71,
+        113,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "profile",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  102,
+                  105,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "avatar",
+          "type": {
+            "defined": {
+              "name": "AvatarChoice"
+            }
+          }
         }
       ]
     },
@@ -4264,6 +4512,19 @@
       ]
     },
     {
+      "name": "Profile",
+      "discriminator": [
+        184,
+        101,
+        165,
+        188,
+        95,
+        63,
+        127,
+        188
+      ]
+    },
+    {
       "name": "RequestState",
       "discriminator": [
         106,
@@ -4583,6 +4844,21 @@
       "code": 6013,
       "name": "LeaderboardOff",
       "msg": "the leaderboard is not set up"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidProfileName",
+      "msg": "a name is 3 to 20 letters, digits, spaces, dots, underscores or dashes, with no space at either end"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidAvatar",
+      "msg": "avatar is not one of the available pictures"
+    },
+    {
+      "code": 6016,
+      "name": "EvmNotLinked",
+      "msg": "the EVM address is not linked to this Account through the bridge"
     }
   ],
   "types": [
@@ -4641,6 +4917,31 @@
           {
             "name": "price_micro_usd",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AvatarChoice",
+      "docs": [
+        "Which picture a Player shows. `Default` is the avatar derived from the Account key;",
+        "`NameService` is the avatar of the Player's .sol / .eth record (the app falls back to",
+        "`Default` when there is none)."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Default"
+          },
+          {
+            "name": "NameService"
+          },
+          {
+            "name": "Animal",
+            "fields": [
+              "u8"
+            ]
           }
         ]
       }
@@ -5675,6 +5976,74 @@
           {
             "name": "price_micro_usd",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Profile",
+      "docs": [
+        "A Player's chosen display name and picture. Seeds `[\"profile\", account]`; one per Account,",
+        "created by the first `set_profile`. Names are not unique and are not verified: a name is a label."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "account",
+            "docs": [
+              "The `TesoroAccount` this Profile belongs to."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "name_len",
+            "type": "u8"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "UTF-8 (ASCII only), zero padded past `name_len`."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
+          },
+          {
+            "name": "avatar",
+            "type": {
+              "defined": {
+                "name": "AvatarChoice"
+              }
+            }
+          },
+          {
+            "name": "name_wallet",
+            "docs": [
+              "A Solana wallet that co-signed `set_name_wallet`: its primary .sol name shows for this Player",
+              "(the Account's own wallet is a Tesoro-created one with no name). Default key = none."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "name_evm",
+            "docs": [
+              "An EVM address linked to this Account through the bridge (`link_evm`) and attached by",
+              "`set_name_evm`: its primary .eth name shows. All zeros = none."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
           }
         ]
       }
