@@ -35,7 +35,7 @@ export function nativePosition(state: "debt" | "repaid" | "unlocked" = "debt"): 
       key: key(403),
       index: 0,
       horizonMonths: 3,
-      math: { issued, returned, redeemed: 0n, yieldUnits: 1_000_000_000n, unitNum: 10_000_000_000_000n, unitDen: 110_000_000n },
+      math: { issued, returned, redeemed: 0n, yieldUnits: state === "debt" ? 100_000_000n : 2_000_000_000n, unitNum: 10_000_000_000_000n, unitDen: 110_000_000n },
     },
   };
   return {
