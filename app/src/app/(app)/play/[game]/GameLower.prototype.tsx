@@ -29,7 +29,8 @@ export interface LowerProps {
 
 export const VARIANTS = [
   { key: "0", name: "Current" },
-  { key: "A", name: "Scoreboard" },
+  { key: "A", name: "Scoreboard, guide in header" },
+  { key: "A2", name: "Scoreboard, guide at the foot" },
   { key: "B", name: "Guide band" },
   { key: "C", name: "Podium" },
 ];
@@ -37,7 +38,7 @@ export const VARIANTS = [
 export function GameLowerPrototype({ variant, ...p }: LowerProps & { variant: string }) {
   return (
     <>
-      {variant === "A" ? <VariantA {...p} /> : variant === "B" ? <VariantB {...p} /> : variant === "C" ? <VariantC {...p} /> : null}
+      {variant === "A" || variant === "A2" ? <VariantA {...p} guide={variant === "A" ? "head" : "foot"} /> : variant === "B" ? <VariantB {...p} /> : variant === "C" ? <VariantC {...p} /> : null}
       <PrototypeSwitcher variants={VARIANTS} />
     </>
   );
@@ -86,7 +87,7 @@ function Line({ r, now }: { r: HistoryRow; now: number }) {
           </small>
         </span>
       </span>
-      <b className={`gl-amt${r.delta > 0 ? " won" : ""}`}>
+      <b className={`gl-amt${r.delta > 0 ? " won" : r.delta < 0 ? " neg" : ""}`}>
         {r.delta > 0 && <GemaMark size={18} />}
         {amountText(r)}
       </b>
@@ -125,7 +126,7 @@ function Board({ p, limit = 5 }: { p: LowerProps; limit?: number }) {
 }
 
 /* ——— A: Scoreboard. Your record on top of a ruled list | leaderboard + short steps. No character. ——— */
-function VariantA(p: LowerProps) {
+function VariantA({ guide, ...p }: LowerProps & { guide: "head" | "foot" }) {
   const rec = record(p.history);
   return (
     <div className="gl-a">
@@ -144,7 +145,7 @@ function VariantA(p: LowerProps) {
             </div>
             <div>
               <dt>Gemas</dt>
-              <dd className={rec.net > 0 ? "won" : undefined}>{signed(rec.net)}</dd>
+              <dd className={rec.net > 0 ? "won" : rec.net < 0 ? "neg" : undefined}>{signed(rec.net)}</dd>
             </div>
             {p.game === "block-puzzle" && (
               <div>
@@ -164,7 +165,7 @@ function VariantA(p: LowerProps) {
           </div>
         )}
       </section>
-      <div className="gl-side">
+      <div className={`gl-side ${guide}`}>
         {p.scores.length > 0 && (
           <section className="cut cut-card gl-card" aria-labelledby="gla-top">
             <header className="gl-head">
@@ -174,13 +175,27 @@ function VariantA(p: LowerProps) {
             <Board p={p} />
           </section>
         )}
-        <section className="cut cut-card gl-card" aria-labelledby="gla-how">
-          <header className="gl-head">
-            <h2 id="gla-how" className="gl-h3">How to play</h2>
-          </header>
-          <b className="gl-tag">{p.how}</b>
-          <Steps steps={p.steps} />
-        </section>
+        {guide === "head" ? (
+          <section className="cut cut-card gl-card gl-how-head" aria-labelledby="gla-how">
+            <div className="gl-how-top">
+              <Bust name="himExplain" width={150} className="gl-how-bust" />
+              <div>
+                <h2 id="gla-how" className="gl-h3">How to play</h2>
+                <b className="gl-tag">{p.how}</b>
+              </div>
+            </div>
+            <Steps steps={p.steps} />
+          </section>
+        ) : (
+          <section className="cut cut-card gl-card gl-how-foot" aria-labelledby="gla-how">
+            <header className="gl-head">
+              <h2 id="gla-how" className="gl-h3">How to play</h2>
+            </header>
+            <b className="gl-tag">{p.how}</b>
+            <Steps steps={p.steps} />
+            <Bust name="himExplain" width={160} className="gl-how-bust" />
+          </section>
+        )}
       </div>
     </div>
   );

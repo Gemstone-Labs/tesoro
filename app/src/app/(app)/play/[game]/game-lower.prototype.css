@@ -104,3 +104,23 @@
   .gl-amt { grid-area: amt; }
 }
 .gl-c-grid.solo { grid-template-columns: minmax(0, 1fr); }
+
+/* A: the guide in How to play */
+.gl-how-head { padding-top: 0; }
+.gl-how-top { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 16px; border-bottom: 1px solid var(--line); margin: 0 -24px; padding: 14px 24px 0 8px; }
+.gl-how-top > div { display: grid; gap: 4px; align-self: center; padding-bottom: 6px; }
+.gl-how-head .gl-how-bust { width: 150px; height: auto; margin-bottom: -1px; }
+.gl-how-head .gl-h3 { font-family: var(--f-display); text-transform: uppercase; font-size: 30px; line-height: 1; color: #fff; }
+
+.gl-side.foot { align-content: stretch; grid-template-rows: auto 1fr; }
+.gl-how-foot { grid-template-rows: auto auto auto 1fr; padding-bottom: 0; overflow: hidden; }
+.gl-how-foot .gl-how-bust { width: 200px; height: auto; align-self: end; justify-self: end; margin: 0 -8px -1px 0; transform: scaleX(-1); }
+@media (max-width: 639px) {
+  .gl-how-top { margin: 0 -16px; padding: 12px 16px 0 4px; gap: 10px; }
+  .gl-how-head .gl-how-bust { width: 112px; }
+  .gl-how-head .gl-h3 { font-size: 26px; }
+  .gl-how-foot .gl-how-bust { width: 150px; }
+}
+.neg { color: var(--danger); }
+.gl-a:has(.gl-side.foot) > section { align-self: start; }
+.gl-how-foot .gl-how-bust { width: 160px; }
