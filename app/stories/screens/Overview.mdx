@@ -1,0 +1,33 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Screens/Overview" />
+
+# Screens
+
+Every page of the app inside its real layout, one story per state. Pick **Signed in**, **Signed out** or **Signing in…** in the toolbar Auth switch; a story that depends on it pins its own.
+
+| Route | Stories |
+|---|---|
+| `/` | Landing: Dark, Light. The toolbar Motion switch turns the hero and scroll motion down. |
+| `/docs/...` | Docs: one story per page, 12 for players and 8 for developers. Theme switch flips light and dark. |
+| `/lobby` | Lobby: Signed in, With open Matches, New Account, Loading, Signed out |
+| `/play` | Play: Picker |
+| `/play/<game>` | Play: Block Puzzle, Hold'em, Trading Duel, Block Puzzle signed out |
+| `/play/practice` | Play: Practice Block Puzzle, Practice Hold'em, Practice Trading Duel |
+| `/play/queue` | Play: Queue, Queue signed out, Queue not enough Gemas |
+| `/play/challenge`, `/play/challenge/<id>` | Play: Challenge create, Challenge join |
+| `/play/match/<id>` | Match: for each Game, waiting for an opponent, getting ready, live, waiting for the opponent, Won, Lost, Refunded, backed, and a spectator |
+| `/matches` | Matches: History, Only Hold'em, Second page, Empty, Loading, Signed out |
+| `/account/<key>` | Account: Own, Other player, Other player signed out, New account, New account (own), No account |
+| `/backing` | Backing: Board, Board signed out, Empty board, Offer drawer, Loading, Load failed |
+| `/leaderboard` | Leaderboard: Live season, Prizes being paid, No points yet, Opens with next upgrade, Loading, Load failed |
+| `/wallet` | Wallet: With positions, With ETH and HYPE positions, ETH and HYPE paid off, Open ETH Position, Open HYPE Position, No positions, No account yet, Loading, Load failed, Signed out |
+| `/wallet/opening` | Wallet: Opening sent on Hoodi, delivered to Solana, Position recorded, Gemas arrived, failed, and nothing opening |
+| `/help` | Help: Default |
+| any other address | Page not found: Default |
+
+## What is real and what is made up
+
+The page, its components and its CSS are the app's own. Reads that would touch a chain are answered by examples: the demo Account, a few Backing Requests, a leaderboard, the open Queue. A story picks its state with parameters (see `docs/storybook.md`). Nothing is sent: buttons that would sign a transaction do nothing, and Block Puzzle's Live story plays on made-up pieces.
+
+Hold'em and Trading Duel Matches show the table a Player would see in a given moment: the Match driver is replaced by a fixed state, so the clock and the opponent do not move. The Trading Duel price walks on its own so the chart is alive.
