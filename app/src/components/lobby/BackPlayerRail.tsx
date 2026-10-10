@@ -7,7 +7,6 @@ import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import { GemaMark, SkeletonCards } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
-import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
 
@@ -15,9 +14,8 @@ import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
 export function BackPlayerRail() {
   const { board, loading, error, refresh } = useBackingBoard();
   const { snapshot } = useAccount();
-  const { query } = useSearch();
   const me = snapshot?.accountKey.toBase58();
-  const requests = (board?.requests ?? []).filter((r) => r.live && (!query.trim() || matchesQuery(GAME_NAMES[r.game], query))).slice(0, 3);
+  const requests = (board?.requests ?? []).filter((r) => r.live).slice(0, 3);
 
   return (
     <Rail id="back-a-player" title="Back a player" viewAll="/backing" cols={3}>
@@ -29,7 +27,7 @@ export function BackPlayerRail() {
       )}
       {board && requests.length === 0 && (
         <p className="rail-empty">
-          {query.trim() ? "No Requests match your search." : "No Players are asking to be backed right now."} <Link href="/backing">Post a Request</Link> or check back soon.
+          No Players are asking to be backed right now. <Link href="/backing">Post a Request</Link> or check back soon.
         </p>
       )}
       {requests.map((r) => {

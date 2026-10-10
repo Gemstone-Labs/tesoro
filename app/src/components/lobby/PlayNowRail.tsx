@@ -45,7 +45,7 @@ export function PlayNowRail() {
   return (
     <Rail
       id="play-now"
-      title="Play now"
+      title={filtering ? "Search results" : "Play now"}
       cols={2}
       aside={
         filtering && (

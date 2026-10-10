@@ -9,7 +9,7 @@ interface SearchState {
 
 const Ctx = createContext<SearchState>({ query: "", setQuery: () => {} });
 
-/** The top-bar search box and the Lobby rails share one query. */
+/** The top-bar search box and the Lobby share one query: while it is set, the Lobby shows only the matching Games. */
 export function SearchProvider({ children }: { children: ReactNode }) {
   const [query, setQuery] = useState("");
   const value = useMemo(() => ({ query, setQuery }), [query]);
