@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BackingBoard, PlayerRecord } from "./backing";
 import type { ChainMatch } from "./read";
+import { plainError } from "@/lib/errors";
 
 const POLL_MS = 12_000;
 
@@ -34,7 +35,7 @@ export function useBackingBoard(): BackingData {
       setBoard(await fetchBackingBoard());
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message.split("\n")[0] : String(e));
+      setError(plainError(e));
     } finally {
       inflight.current = false;
       setLoading(false);

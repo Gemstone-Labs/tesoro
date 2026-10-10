@@ -44,6 +44,7 @@ import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import "./backing.css";
+import { plainError } from "@/lib/errors";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -58,8 +59,7 @@ function explain(e: unknown): string {
       ? "Not enough available Gemas. Gemas reserved for your other Offers cannot be reserved again."
       : `This entry would draw on more than ${MAX_ENTRY_SOURCES} Sources. Redeem a few small balances in your Wallet first.`;
   }
-  const first = e instanceof Error ? e.message.split("\n")[0] : String(e);
-  return first.length > 160 ? `${first.slice(0, 160)}…` : first;
+  return plainError(e);
 }
 
 function onHashChange(notify: () => void) {
@@ -209,7 +209,7 @@ export default function Backing() {
           )}
         </div>
       )}
-      {loadError && !board && <p className="status err" role="alert">Could not read Backing from Solana devnet: {loadError}</p>}
+      {loadError && !board && <p className="status err" role="alert">Couldn’t load Backing: {loadError}</p>}
 
       {backings.length > 0 && (
         <section className="stack" aria-labelledby="bk-h">
@@ -291,7 +291,7 @@ export default function Backing() {
 
           {tab === "requests" && (
             <section aria-label="Requests" className="bk-cards">
-              {loading && !board && <SkeletonCards className="bk-card" label="Reading Requests from Solana devnet…" />}
+              {loading && !board && <SkeletonCards className="bk-card" label="Loading Requests…" />}
               {board && others.length === 0 && (
                 <Empty title="No open Requests" body="Nobody is asking to be backed right now. Post yours, or check back soon." />
               )}

@@ -106,7 +106,7 @@ function SignInForm({ reason, onSignedIn }: { reason?: string; onSignedIn: () =>
           <AlertIcon /> {error}
         </div>
       )}
-      <p className="note">Testnets only: Solana devnet, Ethereum Hoodi, HyperEVM testnet.</p>
+      <p className="note">Test mode: nothing here has real value.</p>
     </>
   );
 }

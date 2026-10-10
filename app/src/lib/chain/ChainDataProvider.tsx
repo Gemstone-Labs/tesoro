@@ -20,7 +20,7 @@ const READ_TIMEOUT_MS = 30_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("Reading your Account from Solana devnet timed out.")), ms);
+    const t = setTimeout(() => reject(new Error("Loading your Account took too long.")), ms);
     p.then(resolve, reject).finally(() => clearTimeout(t));
   });
 }

@@ -150,3 +150,13 @@ export function SkeletonCards({ count = 3, label, className, avatar = true }: { 
     </>
   );
 }
+
+/* ——— Busy: a spinner and one plain line for a step the Player waits through ——— */
+export function Busy({ children }: { children: ReactNode }) {
+  return (
+    <p className="status busy" role="status">
+      <span className="spinner" aria-hidden />
+      {children}
+    </p>
+  );
+}

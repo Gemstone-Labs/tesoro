@@ -27,6 +27,7 @@ import {
 } from "./eth";
 import { ensureReady } from "./match-flow";
 import { newNonce, signedMessage, type SignedFields } from "./signed-request";
+import { plainError } from "@/lib/errors";
 
 /** What the ETH and HYPE flows need: the Account's Solana signer, its EVM wallet, and the Privy token for server routes. */
 export interface EthCtx {
@@ -73,9 +74,7 @@ export function ethError(e: unknown): string {
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001) return "Wallet request was rejected.";
   if (/exceeds defined limit|rate limited|took too long to respond|unknown RPC error/i.test(`${err?.shortMessage ?? ""} ${text}`)) return "The network is busy right now. Wait a few seconds and try again.";
   if (err?.shortMessage) return err.shortMessage.split("\n")[0].slice(0, 200);
-  const m = /Error Message: ([^\n]+)/.exec(text);
-  if (m) return m[1].replace(/\.$/, "");
-  return text.split("\n")[0].replace(/^base tx failed \S+: /, "").slice(0, 200);
+  return plainError(e);
 }
 
 async function waitEvm(hash: Hex, net: EvmNet) {

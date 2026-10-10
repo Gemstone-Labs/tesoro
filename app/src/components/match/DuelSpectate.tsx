@@ -64,7 +64,7 @@ export function DuelSpectate({ m }: { m: ChainMatch }) {
 
   const symbol = asset?.symbol ?? "SOL";
   if (finished) {
-    if (!duel || !books) return <p className="mr-copy">Reading the fill histories from Solana devnet…</p>;
+    if (!duel || !books) return <p className="mr-copy">Loading the trades…</p>;
     return (
       <section className="td-spectate" aria-label="Trading Duel result">
         {duel.status === STATUS.over && (

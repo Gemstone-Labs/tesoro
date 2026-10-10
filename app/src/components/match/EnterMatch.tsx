@@ -10,6 +10,7 @@ import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, ent
 import { DemoError } from "@/lib/chain/demo-client";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
+import { plainError } from "@/lib/errors";
 
 export type EnterKind =
   | { kind: "queue"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string }
@@ -19,12 +20,12 @@ export type EnterKind =
 function explain(e: unknown): { text: string; wallet?: boolean } {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
-      ? { text: "You do not have enough Gemas for this entry. Open a Position in your Wallet to get some (Simulated simSOL works).", wallet: true }
+      ? { text: "You do not have enough Gemas for this entry. Open a Position in your Wallet to get some (free test simSOL works).", wallet: true }
       : { text: `Your Gemas are spread over more than ${MAX_ENTRY_SOURCES} Sources, and this entry cannot draw on that many. Redeem a few small balances in your Wallet to consolidate, then try again.` };
   }
   if (e instanceof ChallengeError || e instanceof BackingError || e instanceof QueueUnconfirmedError) return { text: e.message };
   if (e instanceof DemoError) return { text: e.message };
-  return { text: e instanceof Error ? e.message.split("\n")[0] : String(e) };
+  return { text: plainError(e) };
 }
 
 /**
@@ -128,7 +129,7 @@ export function EnterMatch(props: EnterKind) {
         ) : (
           <p className="status" role="status">{status}</p>
         )}
-        {onChain && snapshot && !snapshot.exists && <p className="note">First time: your Account is created on Solana devnet.</p>}
+        {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your Tesoro Account as part of this step.</p>}
       </div>
     </Card>
   );

@@ -11,6 +11,7 @@ import { ensureSol, type GetToken } from "./demo-client";
 import { EntryError, planEntry } from "./ledger";
 import { queueEntry, type Entered, type QueueDeps } from "./queue";
 import { fetchMatch, fetchSnapshot, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
+import { plainError } from "@/lib/errors";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -213,9 +214,9 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
   };
   const session = () => chain.bp.account.session.fetchNullable(a.session) as Promise<any>;
 
-  if (!(await session())) throw new Error("This Match has no session on chain (it was opened by an older version of the app).");
+  if (!(await session())) throw new Error("This Match was opened by an older version of Tesoro and can’t be played here.");
   if (seat === 1 && !(await session()).joined) {
-    onStep("Binding you to the Match");
+    onStep("Joining the Match");
     await tolerate(
       async () => chain.sendBase(signer, [await chain.joinSessionIx(signer.publicKey, id, BlockPuzzleChain.coreAccount(signer.publicKey))]),
       async () => !!(await session())?.joined,
@@ -223,25 +224,25 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
   }
 
   if (!(await isDelegated(a.boards[0])) || !(await isDelegated(a.vault))) {
-    onStep("Moving the opener's Board to the private rollup");
+    onStep("Creating your session");
     if (await isProgramOwned(a.boards[0])) await tolerate(() => chain.delegateOpener(signer, id), async () => await isDelegated(a.boards[0]));
     for (let i = 0; i < 60 && !(await isDelegated(a.boards[0])); i++) await sleep(1000);
   }
   if (seat === 1 && !(await isDelegated(a.boards[1]))) {
-    onStep("Moving your Board to the private rollup");
+    onStep("Creating your session");
     if (await isProgramOwned(a.boards[1])) await tolerate(() => chain.delegateJoiner(signer, id), async () => await isDelegated(a.boards[1]));
     for (let i = 0; i < 60 && !(await isDelegated(a.boards[1])); i++) await sleep(1000);
   }
-  if (!(await isDelegated(a.boards[seat]))) throw new Error("Your Board was not delegated to the private rollup");
+  if (!(await isDelegated(a.boards[seat]))) throw new Error("Couldn’t create your session. Try again.");
   await sleep(2500);
 
-  onStep("Making your Board private");
+  onStep("Securing your session");
   let own: any = null;
   for (let i = 0; i < 40 && !own; i++) {
     own = await chain.fetchOwnBoard(signer, id, seat).catch(() => null);
     if (!own) await sleep(1500);
   }
-  if (!own) throw new Error("Your Board is not available in the private rollup yet");
+  if (!own) throw new Error("Your session isn’t ready yet. Try again in a moment.");
   if (!own.permissionReady) {
     for (let i = 0; i < 4; i++) {
       try {
@@ -257,14 +258,14 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
   }
 
   if (!(await chain.seedReady(signer, id))) {
-    onStep("Drawing the hidden Seed inside the rollup");
+    onStep("Dealing your pieces");
     await tolerate(() => chain.initVaultPermission(signer, id), async () => true);
     for (let i = 0; i < 30; i++) {
       if (i % 10 === 0) await chain.requestSeed(signer, id, 7 + (i % 200)).catch(() => undefined);
       await sleep(1500);
       if (await chain.seedReady(signer, id)) return;
     }
-    throw new Error("The rollup did not draw the Seed in time. Try again.");
+    throw new Error("Dealing your pieces took too long. Try again.");
   }
 }
 
@@ -369,7 +370,7 @@ export async function trySettle(signer: ChainSigner, id: bigint, session?: Chain
     return { outcome: "settled", sig };
   } catch (e) {
     if (await isSettled()) return { outcome: "settled" };
-    return { outcome: "failed", error: e instanceof Error ? e.message.split("\n")[0] : String(e) };
+    return { outcome: "failed", error: plainError(e) };
   }
 }
 

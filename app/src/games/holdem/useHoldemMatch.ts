@@ -16,6 +16,7 @@ import {
   type PlayerSigner,
   type Table,
 } from "./chain";
+import { plainError } from "@/lib/errors";
 
 /** Where a Hold'em Match is in its life, read from chain. */
 export type Stage =
@@ -46,7 +47,7 @@ export interface HoldemView {
   refundable: boolean;
 }
 
-const errText = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e));
+const errText = plainError;
 const now = () => Date.now();
 
 /** A key that changes whenever anything a Player can see changes. */
@@ -158,7 +159,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     const info = await hd.base.getAccountInfo(ad.gameMatch);
 
     if (!info) {
-      setStage("setup", "Creating the table on Solana devnet");
+      setStage("setup", "Setting up the Match");
       if (!late) return;
       const opponentAccount = m.opponent;
       if (!opponentAccount) return;
@@ -173,7 +174,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     if (info.owner.equals(HOLDEM_PROGRAM_ID)) {
       const t = decodeTable(ad.gameMatch, hd.program.coder.accounts.decode("gameMatch", info.data));
       if (t.status === STATUS.created) {
-        setStage("setup", "Moving the table to the private rollup");
+        setStage("setup", "Creating your session");
         if (!late) return;
         await hd.delegateTable(p, id);
         return;
@@ -181,7 +182,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       // Committed back after the Match ended: settle.
       delegated.current = false;
       setView((v) => ({ ...v, table: t }));
-      setStage("closing", "Settling on Solana devnet");
+      setStage("closing", "Paying out the Pot");
       if (!closingSince.current) closingSince.current = now();
       // One Player settles at once (the winner; seat 0 for a cancelled table). The other waits and
       // settles only if the Match is still open then, so the loser of a race does not burn a fee.
@@ -201,7 +202,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     if (!info.owner.equals(DELEGATION_PROGRAM_ID)) return;
     delegated.current = true;
     const t = await hd.readTable(p, id);
-    if (!t) return setStage("setup", "Waiting for the private table");
+    if (!t) return setStage("setup", "Creating your session");
     applyTable(t);
 
     if (t.status === STATUS.created) {
@@ -222,7 +223,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     }
 
     // Over or cancelled: wipe the hidden accounts and commit everything back.
-    setStage("closing", "Committing the table to Solana devnet");
+    setStage("closing", "Saving the result");
     if (!closingSince.current) closingSince.current = now();
     const mine = t.status === STATUS.cancelled ? seat === 0 : t.winner === seat;
     if (!mine && now() - closingSince.current < 15_000) return;

@@ -45,7 +45,7 @@ export function AccountView({ address }: { address: string }) {
       <div className="pa">
         <h1 className="page-title">Account</h1>
         <div className="mh-state" role="alert">
-          <p>This Account could not be read from Solana devnet.</p>
+          <p>This Account couldn’t be loaded.</p>
           <Button size="sm" onClick={refresh}>Try again</Button>
         </div>
       </div>
@@ -53,7 +53,7 @@ export function AccountView({ address }: { address: string }) {
       <div className="pa">
         <h1 className="page-title">Account</h1>
         <div className="mh-list">
-          <SkeletonCards count={4} avatar={false} className="mh-skel" label="Reading this Account from Solana devnet…" />
+          <SkeletonCards count={4} avatar={false} className="mh-skel" label="Loading this Account…" />
         </div>
       </div>
     );
@@ -84,7 +84,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
 
   // Your own Account page exists before the Account does on chain (it is created with your first Position or Match).
   if (!data.exists && !own) {
-    return auth.status === "loading" ? null : <Notice title="Account not found" body="There is no Tesoro Account at this address on Solana devnet." />;
+    return auth.status === "loading" ? null : <Notice title="Account not found" body="There is no Tesoro Account at this address." />;
   }
 
   const copy = () => {
@@ -198,8 +198,8 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
         </section>
       )}
 
-      {stale && <p className="note">Could not refresh from Solana devnet; showing the last read.</p>}
-      <p className="note">Solana devnet · testnet Gemas from a simulated Position.</p>
+      {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
+      <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
 
       <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={name} />
     </div>

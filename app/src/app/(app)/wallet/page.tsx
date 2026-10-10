@@ -194,7 +194,7 @@ export default function Wallet() {
           <div className="wl-list">
             {onChain && loading && positions.length === 0 && (
               <div className="wl-grid">
-                <SkeletonCards count={2} avatar={false} className="wl-tile" label="Reading Positions from Solana devnet…" />
+                <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Positions…" />
               </div>
             )}
             {gemas.reserved > 0 && (
@@ -212,7 +212,7 @@ export default function Wallet() {
 
       <footer className="wl-foot">
         {hasPositions && <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>}
-        {onChain && <p className="note">Redeem pays simSOL (Simulated) from the Source Position&apos;s accrued yield. Balances are read from Solana devnet.</p>}
+        {onChain && <p className="note">Redeem pays simSOL (simulated) from the yield your Source Position has earned so far.</p>}
         {onChain && DEMO_ADVANCE && (
           <div className="wl-dev">
             <Label>Dev only</Label>

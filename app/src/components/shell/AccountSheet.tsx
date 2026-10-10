@@ -25,17 +25,17 @@ export function AccountSheet({
       <div className="stack">
         <span className="meta">{email ?? "Signed in"}</span>
         <AddressCard title="Solana address" chains={["SOL"]} address={addresses.solana} />
-        <AddressCard title="EVM address" chains={["ETH", "HYPE"]} address={evm?.address ?? addresses.evm} />
+        <AddressCard title="ETH & HYPE address" chains={["ETH", "HYPE"]} address={evm?.address ?? addresses.evm} />
         {evm && (
           <p className="meta">
             {link === "linked"
-              ? "Linked to your Account on Solana: Ethereum Positions and payouts route here."
+              ? "Linked to your Account: ETH and HYPE Positions and payouts use this address."
               : link === "unlinked"
-                ? "Not linked yet. It links (one signature) the first time you open an ETH Position."
+                ? "Not linked yet. It links (one signature) the first time you open an ETH or HYPE Position."
                 : "Checking link…"}
           </p>
         )}
-        <p className="note">One EVM address works on Ethereum Hoodi and HyperEVM testnet. Testnets only.</p>
+        <p className="note">The same address works for ETH and HYPE. Test mode.</p>
       </div>
 
       <div className="stack">
@@ -55,9 +55,9 @@ export function AccountSheet({
         ))}
         <div className="hstack wrap">
           <Button size="sm" onClick={() => linkWallet("solana")}>Link Solana wallet</Button>
-          <Button size="sm" onClick={() => linkWallet("evm")}>Link EVM wallet</Button>
+          <Button size="sm" onClick={() => linkWallet("evm")}>Link ETH wallet</Button>
         </div>
-        <p className="note">Phantom or Backpack for Solana, MetaMask for EVM. Your Account, not the wallet, holds Positions and Gemas.</p>
+        <p className="note">Phantom or Backpack for Solana, MetaMask for ETH and HYPE. Your Account, not the wallet, holds Positions and Gemas.</p>
       </div>
 
       <Button

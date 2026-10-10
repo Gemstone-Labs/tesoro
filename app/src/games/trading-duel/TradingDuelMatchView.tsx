@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
+import { Busy, Button, Card, Chip, GemaAmount, Label } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { matchDelta, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -10,6 +10,7 @@ import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
+import { Receipts } from "@/components/match/Receipts";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { DRAW, LEAD, STATUS } from "./chain";
 import { FillHistory } from "./FillHistory";
@@ -20,7 +21,6 @@ import type { Lead } from "./math";
 import { useDuelMatch } from "./useDuelMatch";
 import "./trading.css";
 
-const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
 function fmtFee(m: ChainMatch): number {
   const pot = m.entry * 2;
@@ -55,8 +55,8 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
   if (!signer) return <Notice title="Trading Duel" body="Getting your wallet ready…" />;
-  if (stage === "loading") return <Notice title="Trading Duel" body="Reading the Match from Solana devnet…" />;
-  if (stage === "notfound") return <Notice title="Match not found" body="No Match with that id on devnet." />;
+  if (stage === "loading") return <Notice title="Trading Duel" body="Loading the Match…" />;
+  if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
 
   const link = typeof window === "undefined" || !m ? "" : `${window.location.origin}/play/challenge/${m.id.toString()}`;
@@ -84,8 +84,8 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
       >
         {view.error && <p className="status err" role="alert">{view.error}</p>}
         {duel && view.finalBooks && <FillHistory books={view.finalBooks} duel={duel} mySeat={seat} />}
-        <Sigs sigs={view.sigs} />
-        <p className="note td-note">Solana devnet + MagicBlock private rollup, live Pyth prices · Chips are in-match scorekeeping, not Gemas · testnet Gemas from a simulated Position.</p>
+        <Receipts items={view.sigs} className="td-sigs" />
+        <p className="note td-note">Live market prices. Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
@@ -140,9 +140,9 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         <Card large>
           <div className="stack">
             <Label>Opponent found · getting the Duel ready</Label>
-            <p className="status" role="status">{view.note || "Preparing"}…</p>
+            <Busy>{view.note || "Creating your session"}…</Busy>
             <p className="note">
-              Your position and your opponent&apos;s move to a private rollup, so neither Player can see the other&apos;s trades. You each start with
+              Your trades stay hidden from your opponent until the Match ends. You each start with
               10,000 Chips on {asset.symbol}/USD. About 30 seconds, then a short countdown.
             </p>
           </div>
@@ -169,11 +169,11 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
             stage === "closing" ? (
               <div className="cut cut-frame td-card td-banner" role="status">
                 <div>
-                  <Label>{duel.status === STATUS.over ? "Match over · settling" : "Closing the Match"}</Label>
+                  <Label>{duel.status === STATUS.over ? "Match over" : "Closing the Match"}</Label>
                   <p className="meta">
                     {duel.status === STATUS.over
                       ? `Final price ${usdMid(duel.finalPrice, asset)}. ${view.note || "Settling"}…`
-                      : `${view.note || "Waiting for the first oracle price after the close"}…`}
+                      : `${view.note || "Waiting for the closing price"}…`}
                   </p>
                 </div>
               </div>
@@ -185,9 +185,9 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
       {stage === "closing" && !showScreen && (
         <Card large>
           <div className="stack">
-            <Label>Match over · settling</Label>
-            <p className="status" role="status">{view.note}…</p>
-            <p className="note">The Duel is committed back to Solana, then the Pot is settled once.</p>
+            <Label>Match over</Label>
+            <Busy>{view.note}…</Busy>
+            <p className="note">Saving the result and paying out the Pot. This takes a few seconds.</p>
           </div>
         </Card>
       )}
@@ -199,29 +199,9 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
       )}
 
       {view.error && !showScreen && <p className="status err" role="alert">{view.error}</p>}
-      <Sigs sigs={view.sigs} />
-      <p className="note td-note">Solana devnet + MagicBlock private rollup · Chips are in-match scorekeeping, not Gemas · testnet Gemas from a simulated Position.</p>
+      <Receipts items={view.sigs} className="td-sigs" />
+      <p className="note td-note">Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>
     </div>
-  );
-}
-
-function Sigs({ sigs }: { sigs: { label: string; sig: string; layer: "base" | "tee" }[] }) {
-  if (sigs.length === 0) return null;
-  return (
-    <details className="stack td-sigs">
-      <summary className="label">Transactions ({sigs.length})</summary>
-      {sigs.map((s) =>
-        s.layer === "base" ? (
-          <a key={s.sig} className="meta mono" href={explorer(s.sig)} target="_blank" rel="noreferrer">
-            {s.label} · {s.sig.slice(0, 10)}…
-          </a>
-        ) : (
-          <span key={s.sig} className="meta mono" title={`${s.sig} (private rollup, no public explorer page)`}>
-            {s.label} · {s.sig.slice(0, 10)}… (TEE)
-          </span>
-        ),
-      )}
-    </details>
   );
 }
 

@@ -53,6 +53,7 @@ _Avoid_: app, title, Match (a single contest)
 **Seed**:
 The shared generated setup both Players of an async Match play against, so their scores are directly comparable. A score counts only as the server's replay of the Player's inputs against the Seed.
 _Avoid_: level, round, puzzle
+In UI copy the Seed is never named: Players see "the same pieces" (Block Puzzle).
 
 **Match**:
 A head-to-head contest between two players with equal Gema entries (500, 1,000 or 2,500), settled once: the winner takes the Pot minus Fees; a draw, abandonment or no-show refunds both entries.

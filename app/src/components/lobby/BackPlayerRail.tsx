@@ -22,7 +22,7 @@ export function BackPlayerRail() {
 
   return (
     <Rail id="back-a-player" title="Back a player" viewAll="/backing" cols={3}>
-      {loading && !board && <SkeletonCards className="player" label="Reading Requests from Solana devnet…" />}
+      {loading && !board && <SkeletonCards className="player" label="Loading Requests…" />}
       {board && requests.length === 0 && (
         <p className="rail-empty">
           {query.trim() ? "No Requests match your search." : "No Players are asking to be backed right now."} <Link href="/backing">Post a Request</Link> or check back soon.

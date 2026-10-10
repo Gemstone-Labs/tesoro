@@ -40,12 +40,12 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
     };
   }, [matchId]);
 
-  if (m === undefined) return <p className="status" role="status">Reading the Match from Solana devnet…</p>;
+  if (m === undefined) return <p className="status" role="status">Loading the Match…</p>;
   if (m === null) {
     return (
       <div className="stack-lg mr">
         <h1 className="page-title">Match not found</h1>
-        <p className="meta">No Match with that id on devnet.</p>
+        <p className="meta">This Match doesn’t exist, or the link is incomplete.</p>
         <Button href="/lobby">Lobby</Button>
       </div>
     );
@@ -134,7 +134,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
           <p className="mr-copy">
             {m.status === "open" || m.status === "active"
               ? `You are watching a Match you are not part of. ${m.game === "trading-duel" ? "Positions" : "Runs and cards"} stay hidden until it settles.`
-              : "You are viewing a Match you were not part of. The result is settled on Solana devnet."}
+              : "You are viewing a Match you were not part of. The result is final."}
           </p>
         </div>
       </section>
