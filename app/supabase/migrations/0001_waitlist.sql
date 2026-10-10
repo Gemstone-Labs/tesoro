@@ -10,3 +10,5 @@ create table public.waitlist (
 
 -- Only the server (service role) touches this table: RLS on, no policies.
 alter table public.waitlist enable row level security;
+
+revoke all on public.waitlist from anon, authenticated;
