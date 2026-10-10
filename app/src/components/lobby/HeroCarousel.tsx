@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowRight, Pause, Play, Swords } from "lucide-react";
 import { PlayerAvatar } from "@/components/account/Player";
-import { AssetPicker, Button, EntryPicker, Sheet } from "@/components/ui";
+import { AssetPicker, Button, ENTRY_SIZES, EntryPicker, Sheet } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
@@ -49,7 +49,7 @@ export function HeroCarousel() {
   const [jump, setJump] = useState(false);
   const [paused, setPaused] = useState(false);
   const [hover, setHover] = useState(false);
-  const [entries, setEntries] = useState<Record<GameId, EntrySize>>({ "block-puzzle": 1000, holdem: 500, "trading-duel": 500 });
+  const [entries, setEntries] = useState<Partial<Record<GameId, EntrySize>>>({});
   const [reduced, setReduced] = useState(true);
   const queue = useQueue();
 
@@ -143,7 +143,7 @@ function HeroSlide({
   active,
   clone,
   position,
-  entry,
+  entry: picked,
   onEntry,
   waiting,
   onSelect,
@@ -152,7 +152,8 @@ function HeroSlide({
   active: boolean;
   clone: boolean;
   position: string;
-  entry: EntrySize;
+  /** The entry the player picked; until then the slide's default, or the smallest entry if the default is not playable. */
+  entry: EntrySize | undefined;
   onEntry: (e: EntrySize) => void;
   /** Open Queue Matches for this Game; null until read. */
   waiting: QueueSeat[] | null;
@@ -163,8 +164,10 @@ function HeroSlide({
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
   const [choosing, setChoosing] = useState(false);
   const signedIn = auth.status === "signed-in" || auth.status === "unconfigured";
+  const playable = (size: EntrySize) => !signedIn || loading || (onChain ? entryProblem(size) === null : gemas.available >= size);
+  const entry = picked ?? (playable(slide.defaultEntry) ? slide.defaultEntry : ENTRY_SIZES[0]);
   const problem = signedIn && onChain ? entryProblem(entry) : null;
-  const canEnter = !signedIn || loading || (onChain ? problem === null : gemas.available >= entry);
+  const canEnter = playable(entry);
   const needsGemas = !canEnter && problem !== "too-many-sources";
   const go = (href: string, reason: string) => auth.gate(reason, () => router.push(href));
   const me = snapshot?.accountKey.toBase58();
