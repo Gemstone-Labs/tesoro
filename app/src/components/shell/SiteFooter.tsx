@@ -13,7 +13,7 @@ export function SiteFooter() {
         <Link href="/wallet">Wallet</Link>
         <Link href="/backing">Backing</Link>
         <Link href="/help">Help</Link>
-        <span aria-disabled="true" title="Coming soon">Docs</span>
+        <Link href="/docs">Docs</Link>
         <span aria-disabled="true" title="Coming soon">Legal</span>
       </nav>
     </footer>

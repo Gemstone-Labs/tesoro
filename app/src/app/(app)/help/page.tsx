@@ -25,7 +25,8 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         a: (
           <p>
             The one play unit on Tesoro, on every chain. A Gema is worth $0.01 when it is issued and is a claim on its Source: the Advance it
-            came from. Gemas are equal at the table but not at redemption: a Gema redeems in its Source asset (SOL, ETH or HYPE).
+            came from. Gemas are equal at the table but not at redemption: a Gema redeems in its Source asset (SOL, ETH or HYPE). The{" "}
+            <Link href="/docs/gemas">Docs</Link> go deeper.
           </p>
         ),
       },
@@ -298,7 +299,8 @@ const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[]
         a: (
           <p>
             No. Tesoro runs on testnets with simulated staking tokens whose yield runs on a fast clock: 1 month is about 10 minutes. Get test
-            tokens from the Get test buttons in your <Link href="/wallet">Wallet</Link>.
+            tokens from the Get test buttons in your <Link href="/wallet">Wallet</Link>. What is and is not simulated is on the{" "}
+            <Link href="/docs/risks">Risks and limits</Link> page of the Docs.
           </p>
         ),
       },
@@ -423,6 +425,7 @@ export default function HelpPage() {
         <div className="help-still">
           <Button size="sm" href="/matches">Match history</Button>
           <Button size="sm" href="/wallet">Wallet</Button>
+          <Button size="sm" href="/docs">Docs</Button>
         </div>
       </BustCard>
     </div>

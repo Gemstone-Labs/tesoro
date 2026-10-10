@@ -10,7 +10,7 @@ export const appHref = (path = "/lobby") => `${APP_URL}${path}`;
 
 /** Outbound links; unset ones render as dimmed placeholders (the GitHub org and the X account don't exist yet). */
 export const OUTBOUND = {
-  docs: process.env.NEXT_PUBLIC_DOCS_URL,
+  docs: process.env.NEXT_PUBLIC_DOCS_URL ?? "/docs",
   x: process.env.NEXT_PUBLIC_X_URL,
   github: process.env.NEXT_PUBLIC_GITHUB_URL,
 };

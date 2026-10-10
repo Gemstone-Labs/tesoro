@@ -41,7 +41,7 @@ The **Principal is never played** and never pays Debt. Accrued yield repays the 
 
 Design records: `CONTEXT.md` (glossary; its terms are used verbatim everywhere) and `docs/adr/` (0001 Gemas are claims on accrued Source yield, 0002 LayerZero V2, 0003 Games as programs in Private Ephemeral Rollups, 0004 PvP only, 0005 per-Position simulated yield, 0006 Leaderboard Pool). Ledger details: `docs/tesoro-core.md`. Cross-chain flow: `docs/cross-chain.md`.
 
-Longer explainers: [PLACEHOLDER: links to How Tesoro works / Backing / Architecture / Risks pages].
+Longer explainers live in the app's Docs (`app/src/app/(docs)/docs`, served at `/docs`): [How Tesoro works](app/src/app/(docs)/docs/how-it-works/page.tsx) for players, and for developers the architecture, program addresses, settlement, rollups, cross-chain, simulated yield, security and local-run pages under `/docs/developers`. Run the app and open `/docs`.
 
 ## Deployed addresses
 
