@@ -735,7 +735,6 @@ function OfferDrawer({
                     <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
                     <option value="holdem">{GAME_NAMES.holdem}</option>
                     <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
-            <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
                   </select>
                 </div>
                 <EntryPicker value={entry} onChange={setEntry} legend="Entry you fund" name="off-entry" />
