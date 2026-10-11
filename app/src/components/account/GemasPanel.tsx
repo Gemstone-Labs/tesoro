@@ -1,20 +1,24 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CountUp, GemaMark, Label } from "@/components/ui";
 import { gemasRecord, signed, type PlayedRow } from "@/lib/chain/player-account";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
+import { GameMenu } from "./GameMenu";
 import { RunningTotalChart } from "./RunningTotalChart";
 
 /**
  * Gemas won and lost, after Fees: the net, won against lost as one split bar, and the running total.
- * With more than one game played, a game filter narrows all three to that game.
+ * With more than one game played, a game menu (each game with its net) narrows all three to that game.
  */
 export function GemasPanel({ rows }: { rows: PlayedRow[] }) {
   const [game, setGame] = useState<GameId | null>(null);
   const r = useMemo(() => gemasRecord(rows, game), [rows, game]);
-  const group = useId();
+  const nets = useMemo(
+    () => new Map<GameId | "all", number>([["all", gemasRecord(rows, null).net], ...r.games.map((g) => [g, gemasRecord(rows, g).net] as const)]),
+    [rows, r.games],
+  );
   const n = r.series.length;
   const of = game ? ` of ${GAME_NAMES[game]}` : "";
 
@@ -22,17 +26,7 @@ export function GemasPanel({ rows }: { rows: PlayedRow[] }) {
     <section className="cut cut-card pa-panel pa-gemas" aria-label="Gemas won and lost">
       <div className="pa-gemas-top">
         <Label>Gemas won and lost</Label>
-        {r.games.length > 1 && (
-          <fieldset className="pa-filter">
-            <legend className="sr-only">Game</legend>
-            {[null, ...r.games].map((g) => (
-              <label key={g ?? "all"} className="asset">
-                <input type="radio" name={group} checked={game === g} onChange={() => setGame(g)} />
-                <span className="cut cut-chip">{g ? GAME_NAMES[g] : "All games"}</span>
-              </label>
-            ))}
-          </fieldset>
-        )}
+        {r.games.length > 1 && <GameMenu games={r.games} value={game} onChange={setGame} nets={nets} />}
       </div>
 
       <div className="pa-net">
