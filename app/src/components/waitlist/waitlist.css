@@ -129,3 +129,17 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
   .vw-col-6 .vw-track { transform: translateY(-37%); }
   .dv-ssr { transition: none; }
 }
+
+/* With JavaScript the divider is laid out for the real screen after hydration. Rather than show the server's design-size
+   layout and cross-fade (the edge dips while both are half transparent), the art waits for the exact layout and the wall,
+   floor texture, divider and light fade in once, together. The headline and form show straight away. Without
+   JavaScript the server's layout stays. */
+@media (scripting: enabled) {
+  .wl .dv-ssr { display: none; }
+  .vw, .wl-floor, .wl-light { opacity: 0; transition: opacity 0.7s ease-out; }
+  .wl:has(.dv-live) :is(.vw, .wl-floor, .wl-light) { opacity: 1; }
+  .dv-live { animation-duration: 0.7s; }
+}
+@media (scripting: enabled) and (prefers-reduced-motion: reduce) {
+  .vw, .wl-floor, .wl-light { transition: none; }
+}
