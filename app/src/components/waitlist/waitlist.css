@@ -1,0 +1,131 @@
+/* The waitlist (/): the form bottom left, a band of jewel blocks along a diagonal, casual-game clips behind it
+   top right. An art surface, dark in both themes, so the frame carries the dark tokens itself. */
+html:has(.wl), body:has(.wl) { background: #090d0f; }
+.wl {
+  --shell: #090d0f; --raised: #11161a; --raised-2: #171e25;
+  --line: rgba(234, 239, 236, 0.13); --line-2: rgba(234, 239, 236, 0.22);
+  --edge-1: linear-gradient(180deg, rgba(234, 239, 236, 0.24) 0, rgba(234, 239, 236, 0.1) 32%, rgba(234, 239, 236, 0.06) 100%);
+  --edge-2: linear-gradient(180deg, rgba(234, 239, 236, 0.4) 0, rgba(234, 239, 236, 0.16) 36%, rgba(234, 239, 236, 0.1) 100%);
+  --surface: linear-gradient(180deg, #161d22 0, #11171b 44%, #0f1418 100%);
+  --surface-2: linear-gradient(180deg, #1d252c 0, #171e25 50%, #151b21 100%);
+  --fg: #eaefec; --fg-2: rgba(234, 239, 236, 0.74); --fg-3: rgba(234, 239, 236, 0.5);
+  --em-ink: #03201a;
+  --facet: linear-gradient(160deg, #63f7d3 0%, #33e3b4 46%, #1fd3a2 46.5%, #0cbc8c 100%);
+  --money-fill: linear-gradient(180deg, #5ef3cd 0%, #2fdcac 55%, #1cc699 100%);
+  --money-rim: linear-gradient(180deg, rgba(225, 255, 246, 0.95), rgba(225, 255, 246, 0) 55%);
+  --money-base: rgba(3, 32, 26, 0.28);
+  --money-off: linear-gradient(180deg, #15201d, #101816);
+  --sweep: #ffffff;
+  --pad: clamp(22px, 4vw, 64px);
+  position: relative; isolation: isolate; overflow: clip;
+  height: 100dvh; min-height: 640px;
+  background: #090d0f; color: var(--fg); color-scheme: dark;
+  font-size: 16px; line-height: 1.5;
+}
+
+/* Video wall: tilted columns drifting in opposite directions, clipped to the region above the diagonal. */
+.vw { position: absolute; inset: 0; z-index: 1; clip-path: var(--above-wide); }
+.vw-tilt { position: absolute; right: -10%; top: -25%; width: 92%; height: 150%; display: flex; gap: 8px; transform: rotate(-8deg); }
+.vw-col { flex: 1 1 0; min-width: 0; height: 100%; overflow: hidden; }
+/* A column's track is its clip list twice over (8 tiles a copy, taller than the column), moving by exactly one copy, so it
+   covers the column top to bottom at every moment of the loop. Columns differ in speed and direction (even ones run
+   backwards, from -50% to 0), and in where they start in the loop (a negative delay), never by an offset that would leave the top bare. */
+.vw-track { animation: vw-drift 150s linear infinite; }
+.vw-col-1 .vw-track { animation-direction: reverse; animation-duration: 175s; animation-delay: -61s; }
+.vw-col-2 .vw-track { animation-duration: 135s; animation-delay: -40s; }
+.vw-col-3 .vw-track { animation-direction: reverse; animation-duration: 165s; animation-delay: -97s; }
+.vw-col-4 .vw-track { animation-duration: 190s; animation-delay: -20s; }
+.vw-col-5 .vw-track { animation-direction: reverse; animation-duration: 155s; animation-delay: -73s; }
+.vw-col-6 .vw-track { animation-duration: 180s; animation-delay: -125s; }
+.vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; margin-bottom: 8px; background: #0c1215; }
+/* Without JavaScript browsers draw their own player controls on a video: the wall has none. */
+.vw-clip::-webkit-media-controls, .vw-clip::-webkit-media-controls-enclosure { display: none !important; }
+/* Tiles stay about 140-220px wide: seven columns on a wide screen, six on a laptop, five on a tablet, four on a phone. */
+@media (max-width: 1439px) { .vw-col-6 { display: none; } .vw-tilt { width: 90%; } }
+@media (max-width: 1099px) { .vw-col-5 { display: none; } .vw-tilt { width: 98%; } }
+@keyframes vw-drift { to { transform: translateY(-50%); } }
+
+/* The floor: solid below the diagonal and carrying the landing's octagon texture (the same file as the landing's
+   `--lp-texture`, repeated here because the light theme redefines that variable and this frame stays dark), with a
+   soft shade on the footage along the edge. */
+.wl { --wl-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='300' fill='none' stroke='%23eaefec' stroke-opacity='.045'%3E%3Cpath d='M70 40h180l40 40v120l-40 40H70l-40-40V80z'/%3E%3Cpath d='M98 68h124l28 28v88l-28 28H98l-28-28V96z'/%3E%3Cpath d='M270 220l80 80M350 0l10 10M0 10l50 50M50 220L0 270M360 270l-30 30M330 0l-60 60'/%3E%3C/svg%3E"); }
+.wl-floor { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.wl-floor-in { position: absolute; inset: 0; clip-path: var(--in-wide); background: var(--wl-texture) 0 0 / 360px 300px, #090d0f; }
+/* and a fade from the left so the top bar and headline never sit on footage */
+.vw::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0, rgba(9, 13, 15, 0.5) 30%, rgba(9, 13, 15, 0.12) 62%, rgba(9, 13, 15, 0.22) 100%); }
+
+/* Divider: gems in the panel's own colour and texture. The server's design-size layout is there from the first paint; the
+   exact one fades in over it. */
+.dv { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+.dv-ssr-tall { display: none; }
+.dv-ssr { transition: opacity 0.6s ease-out; }
+.dv-live { animation: dv-in 0.6s ease-out both; }
+.wl:has(.dv-live) .dv-ssr { opacity: 0; }
+@keyframes dv-in { from { opacity: 0; } to { opacity: 1; } }
+/* Light on the texture (LivingTexture): above the divider so its band and gems take it too, masked to the panel. */
+.wl-light { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; pointer-events: none; }
+
+/* Frame content */
+.wl-top::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -36px 0; background: linear-gradient(180deg, rgba(9, 13, 15, 0.82) 0, rgba(9, 13, 15, 0.5) 55%, transparent 100%); pointer-events: none; }
+.wl-top { position: absolute; z-index: 5; inset: 0 0 auto 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px var(--pad); }
+.wl-logo { display: inline-flex; }
+.wl-nav { display: flex; gap: 26px; font-weight: 700; font-size: 14.5px; }
+.wl-nav a { color: var(--fg-2); padding-block: 6px; }
+.wl-nav a:hover { color: var(--fg); }
+.wl-nav a:focus-visible, .wl-logo:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+
+.wl-main { position: absolute; z-index: 5; left: var(--pad); bottom: clamp(28px, 6vh, 64px); width: min(480px, calc(100% - 2 * var(--pad))); }
+.wl-kicker { margin-bottom: clamp(8px, 1.6vh, 14px); font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.wl-h1 { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.005em; font-size: clamp(38px, 7.4vh, 68px); line-height: 0.95; max-width: 17ch; text-wrap: balance; }
+.wl-lede { margin-top: clamp(10px, 2vh, 18px); font-size: clamp(15px, 2.1vh, 18px); line-height: 1.5; color: var(--fg-2); max-width: 44ch; }
+.wl-form { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
+.wl-row { display: flex; gap: 10px; }
+.wl-row .input { flex: 1 1 auto; min-width: 0; }
+.wl-join { flex: none; min-height: 48px; padding-inline: 20px; }
+.wl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.wl-error { min-height: 1.4em; font-size: 14px; color: var(--danger, #f2685a); }
+.wl-count { margin-top: 4px; font-size: 13px; color: var(--fg-2); }
+.wl-more { display: none; gap: 18px; margin-top: 14px; font-size: 13.5px; font-weight: 700; }
+.wl-more a { color: var(--fg-2); }
+.wl-more a:hover { color: var(--fg); }
+.wl-more a:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+
+.wl-done { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
+.wl-done-title { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(30px, 5vh, 44px); line-height: 1; }
+.wl-done-note { color: var(--fg-2); }
+.wl-done-links { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px; }
+.wl-done-links .btn { min-height: 46px; padding-inline: 18px; }
+
+/* Phone: footage across the top half, the form below the diagonal. */
+@media (max-width: 640px) {
+  .wl { min-height: 680px; }
+  .vw { clip-path: var(--above-tall); }
+  .wl-floor-in { clip-path: var(--in-tall); }
+  .dv-ssr-wide { display: none; }
+  .dv-ssr-tall { display: block; }
+  .vw-col-4 { display: none; }
+  .vw-tilt { right: -26%; top: -14%; width: 150%; height: 120%; gap: 6px; }
+  .vw-clip { margin-bottom: 6px; }
+  .wl-top { padding-block: 16px; }
+  .wl-hide-phone { display: none; }
+  .wl-more { display: flex; }
+  .wl-main { bottom: 24px; }
+  .wl-h1 { font-size: clamp(34px, 9.2vw, 42px); }
+  .wl-lede { font-size: 15px; }
+  .wl-nav a { white-space: nowrap; }
+  .wl-kicker { display: none; }
+  .wl-row { flex-direction: column; }
+  .wl-join { width: 100%; min-height: 52px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vw-track, .dv-live { animation: none; }
+  /* Still, but not in lockstep: each column rests part of the way through its loop (0 to 50%, so it always covers). */
+  .vw-col-1 .vw-track { transform: translateY(-17%); }
+  .vw-col-2 .vw-track { transform: translateY(-31%); }
+  .vw-col-3 .vw-track { transform: translateY(-9%); }
+  .vw-col-4 .vw-track { transform: translateY(-43%); }
+  .vw-col-5 .vw-track { transform: translateY(-24%); }
+  .vw-col-6 .vw-track { transform: translateY(-37%); }
+  .dv-ssr { transition: none; }
+}

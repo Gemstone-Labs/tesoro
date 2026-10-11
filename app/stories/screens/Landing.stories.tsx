@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import Landing from "@/app/(marketing)/page";
+import Landing from "@/app/(marketing)/welcome/page";
 
 const meta = {
   title: "Screens/Landing",
   component: Landing,
-  parameters: { layout: "fullscreen", shell: "marketing", nextjs: { navigation: { pathname: "/" } } },
+  parameters: { layout: "fullscreen", shell: "marketing", nextjs: { navigation: { pathname: "/welcome" } } },
 } satisfies Meta<typeof Landing>;
 export default meta;
 type Story = StoryObj<typeof meta>;
