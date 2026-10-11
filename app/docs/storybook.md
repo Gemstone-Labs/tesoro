@@ -1,11 +1,13 @@
 # Storybook
 
-Every screen, component, asset, transition and animation of the app, rendered from fixtures. Nothing in it reads devnet, Hoodi, HyperEVM or the rollup, and nothing is published: it runs on your machine.
+Every screen, component, asset, transition and animation of the app, rendered from fixtures. Nothing in it reads devnet, Hoodi, HyperEVM or the rollup.
 
 ```bash
 pnpm --filter @tesoro/app storybook         # http://localhost:6006
 pnpm --filter @tesoro/app build-storybook   # static build in app/storybook-static
 ```
+
+A static build is published at https://tesoro-storybook.vercel.app (Vercel project `tesoro-storybook`). It only changes when someone redeploys it: `scripts/deploy-storybook.sh` builds the committed HEAD in a throwaway worktree, so uncommitted work stays out, and deploys it to production.
 
 Edit a component or its CSS and the story reloads. Copy, numbers and states can also be changed live in the **Controls** panel; those changes are not saved.
 
@@ -66,5 +68,7 @@ To add a step, add a frame to the flow; if the app gains a new progress line, ad
 ```bash
 PW=/path/to/playwright-core BASE=http://localhost:6006 node app/scripts/storybook-smoke.mjs [filter] [--shots=dir]
 ```
+
+`BASE=https://tesoro-storybook.vercel.app` checks the published build. Run the published build a section at a time: in one long run the reused tab runs out of memory around story 100.
 
 It opens every story (or those whose id contains `filter`), and fails on a page error, a console error, or a request to anything but localhost and Google Fonts. `--shots` saves a screenshot of each at 1440 and 390.

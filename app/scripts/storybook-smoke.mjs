@@ -1,7 +1,7 @@
 /**
  * Opens every Storybook story and fails on page errors, console errors or requests that leave the machine.
  *   PW=/path/to/playwright-core BASE=http://localhost:6006 node scripts/storybook-smoke.mjs [filter] [--shots=dir]
- * BASE can be the dev server or `npx http-server storybook-static`. `filter` keeps story ids containing it.
+ * BASE can be the dev server, `npx http-server storybook-static` or the deployed Storybook. `filter` keeps story ids containing it.
  * With --shots, saves <dir>/<story-id>-<1440|390>.png.
  */
 import { mkdirSync } from "node:fs";
@@ -18,7 +18,7 @@ if (shots) mkdirSync(shots, { recursive: true });
 
 // Expected noise: blocked network in stories (by design) and React dev warnings about keys are not failures.
 // Google Fonts is the one remote origin allowed: next/font serves the three faces from it in Storybook dev.
-const ALLOWED_HOSTS = ["localhost", "127.0.0.1", "fonts.gstatic.com", "fonts.googleapis.com"];
+const ALLOWED_HOSTS = ["localhost", "127.0.0.1", "fonts.gstatic.com", "fonts.googleapis.com", new URL(BASE).hostname];
 const IGNORE = [/Offline in Storybook/, /\[chain\]/, /Download the React DevTools/, /THREE\.WebGLRenderer/, /WebGL/];
 
 const index = await (await fetch(`${BASE}/index.json`)).json();
