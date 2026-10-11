@@ -48,6 +48,8 @@ import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample } from "./BackingExample";
 import "./backing.css";
 import { plainError } from "@/lib/errors";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { OFFER_VARIANTS, OfferDrawerPrototype, type OfferDrawerProps } from "./OfferDrawer.prototype";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -662,8 +664,14 @@ function MyOffer({
 }
 
 
+/** PROTOTYPE: `?variant=now|A|B|C|D` swaps the drawer (OfferDrawer.prototype.tsx). */
+function OfferDrawer(p: OfferDrawerProps) {
+  const v = usePrototypeVariant(OFFER_VARIANTS.map((x) => x.key));
+  return v === "now" ? <OfferDrawerNow {...p} /> : <OfferDrawerPrototype key={v} variant={v} {...p} />;
+}
+
 /** MAKE AN OFFER: a right-hand drawer on desktop, a bottom sheet below 1024px. Same terms as before: 24-hour Offer, Player's share 10 to 90%. */
-function OfferDrawer({
+function OfferDrawerNow({
   target,
   available,
   busy,
@@ -803,6 +811,7 @@ function OfferDrawer({
           </div>
         </div>
       </div>
+      <PrototypeSwitcher variants={OFFER_VARIANTS} inDialog />
     </dialog>
   );
 }
