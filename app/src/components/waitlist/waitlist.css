@@ -93,6 +93,13 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-done { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
 .wl-done-title { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(30px, 5vh, 44px); line-height: 1; }
 .wl-done-note { color: var(--fg-2); }
+.wl-gem { margin-top: 8px; display: flex; align-items: center; gap: 14px; }
+.wl-gem-art {
+  width: 72px; height: 72px; flex: none;
+  clip-path: polygon(27% 0, 73% 0, 100% 27%, 100% 73%, 73% 100%, 27% 100%, 0 73%, 0 27%);
+}
+.wl-gem-spot { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.wl-gem-name { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: 24px; line-height: 1.1; color: var(--gem); }
 .wl-done-links { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px; }
 .wl-done-links .btn { min-height: 46px; padding-inline: 18px; }
 

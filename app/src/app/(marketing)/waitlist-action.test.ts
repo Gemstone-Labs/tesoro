@@ -31,8 +31,12 @@ describe("parseEmail", () => {
 describe("joinWaitlist", () => {
   it("stores a valid email with source and referrer", async () => {
     const r = await joinWaitlist(idle, form({ email: "Ana@Example.com", utm_source: "x", referrer: "https://x.com/" }));
-    expect(r.status).toBe("ok");
+    expect(r).toEqual({ status: "ok" });
     expect(join).toHaveBeenCalledWith("ana@example.com", { source: "x", referrer: "https://x.com/" });
+  });
+  it("returns the spot", async () => {
+    join.mockResolvedValue(142);
+    expect(await joinWaitlist(idle, form({ email: "a@b.co" }))).toEqual({ status: "ok", spot: 142 });
   });
   it("a duplicate is still a success", async () => {
     await joinWaitlist(idle, form({ email: "a@b.co" }));

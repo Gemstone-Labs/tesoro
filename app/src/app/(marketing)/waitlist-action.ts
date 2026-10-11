@@ -5,7 +5,7 @@ import { parseEmail } from "@/lib/email";
 import { WindowLimiter } from "@/server/rate-limit";
 import { join } from "@/server/waitlist";
 
-export type WaitlistState = { status: "idle" | "ok" | "error"; message?: string };
+export type WaitlistState = { status: "idle" | "ok" | "error"; message?: string; spot?: number };
 
 const perClient = new WindowLimiter(5, 60_000);
 
@@ -19,8 +19,8 @@ export async function joinWaitlist(_prev: WaitlistState, form: FormData): Promis
   const client = h.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   if (!perClient.take(client)) return { status: "error", message: "Too many tries. Wait a minute and try again." };
   try {
-    await join(email, { source: clean(form.get("utm_source"), 80), referrer: clean(form.get("referrer"), 300) });
-    return { status: "ok" };
+    const spot = await join(email, { source: clean(form.get("utm_source"), 80), referrer: clean(form.get("referrer"), 300) });
+    return spot ? { status: "ok", spot } : { status: "ok" };
   } catch (e) {
     console.error("waitlist", e);
     perClient.refund(client);
