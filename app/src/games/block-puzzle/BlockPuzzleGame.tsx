@@ -2,14 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useGuideHidden } from "@/components/guide/Guide";
-import { Button, Label } from "@/components/ui";
+import { Button, CountUp, Label } from "@/components/ui";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAt, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
-import { Arena, MuteToggle } from "../fx";
+import { Arena, Callout, MuteToggle, burstAt, prefersReducedMotion, sfx, shake } from "../fx";
+import type { CalloutTone } from "../fx";
+import { clearCallout, comboHeat, wouldClear } from "./feel";
 import "./block-puzzle.css";
 
 const DURATION_MS = 90_000;
-const CLEAR_MS = 320;
+const CLEAR_MS = 760;
+const DROP_MS = 420;
+const BLOCK_HEX = ["#ffb43a", "#3fc6ff", "#ff4d9b", "#9d74ff"];
+const GEM_HEX = ["#6af8d6", "#24d8a8", "#c8fff0"];
 const NO_COLOR = 255;
 const LIFT_TOUCH_PX = 64;
 
@@ -20,11 +25,18 @@ interface Ghost {
   i: number;
   color: number;
   gem: boolean;
+  /** Stagger (ms) so the clear ripples out from the piece. */
+  delay: number;
 }
-interface Popup {
+interface Sweep {
+  id: number;
+  axis: "row" | "col";
+  at: number;
+}
+interface Moment {
   id: number;
   text: string;
-  gem: boolean;
+  tone: CalloutTone;
 }
 interface Game {
   st: State;
@@ -112,7 +124,12 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const [sel, setSel] = useState(0);
   const [remaining, setRemaining] = useState(DURATION_MS);
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
-  const [popup, setPopup] = useState<Popup | null>(null);
+  const [bestCombo, setBestCombo] = useState(0);
+  const [fresh, setFresh] = useState<ReadonlySet<number>>(new Set());
+  const [sweeps, setSweeps] = useState<Sweep[]>([]);
+  const [moment, setMoment] = useState<Moment | null>(null);
+  const [fizzle, setFizzle] = useState(0);
+  const [runId, setRunId] = useState(0);
   const [preview, setPreview] = useState<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<{ idx: number; px: number; py: number; cell: number } | null>(null);
   const [focusCell, setFocusCell] = useState(0);
@@ -122,6 +139,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const boardRef = useRef<HTMLDivElement>(null);
   const dragMeta = useRef<{ idx: number; sx: number; sy: number; moved: boolean; lift: number; cell: number } | null>(null);
   const popupId = useRef(0);
+  const scoreEl = useRef<HTMLSpanElement>(null);
 
   const { st } = game;
   const base = handBase(st);
@@ -149,7 +167,12 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     setGame({ st: newState(seed), colors: Array<number>(64).fill(NO_COLOR), lines: 0, gemsCleared: 0 });
     setSel(0);
     setGhosts([]);
-    setPopup(null);
+    setBestCombo(0);
+    setFresh(new Set());
+    setSweeps([]);
+    setMoment(null);
+    setFizzle(0);
+    setRunId((n) => n + 1);
     setPreview(null);
     setFocusCell(0);
     setAnnounce("");
@@ -184,6 +207,58 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     return () => clearInterval(t);
   }, [phase, finish]);
 
+  /** Everything a clear does besides the rules: sweep, shards, shake, callout, points to the score, sound. */
+  const celebrate = useCallback((lines: number, gems: number, comboNow: number, gained: number, gone: Ghost[], cleared: bigint, id: number) => {
+    const board = boardRef.current;
+    const sw: Sweep[] = [];
+    for (let i = 0; i < SIZE; i++) {
+      if ((cleared & (0xffn << BigInt(i * SIZE))) === 0xffn << BigInt(i * SIZE)) sw.push({ id: id * 20 + i, axis: "row", at: i });
+      if ((cleared & (0x0101010101010101n << BigInt(i))) === 0x0101010101010101n << BigInt(i)) sw.push({ id: id * 20 + 10 + i, axis: "col", at: i });
+    }
+    setSweeps(sw);
+    setTimeout(() => setSweeps((cur) => (cur === sw ? [] : cur)), 700);
+
+    sfx(gems > 0 ? "gem" : "clear");
+    if (comboNow >= 2) setTimeout(() => sfx("combo"), 110);
+
+    const text = clearCallout(lines, gems, comboNow);
+    if (text) setMoment({ id, text, tone: gems > 0 ? "gem" : "plain" });
+
+    if (!board || prefersReducedMotion()) return;
+    const cells = board.querySelectorAll<HTMLElement>("button");
+    const per = Math.min(5, 2 + lines);
+    for (const g of gone) {
+      const el = cells[g.i];
+      if (!el) continue;
+      setTimeout(() => burstAt(el, { colors: g.gem ? GEM_HEX : [BLOCK_HEX[g.color] ?? "#eaefec", "#ffffff"], kind: "shards", count: g.gem ? per + 4 : per }), g.delay);
+    }
+    shake(board, Math.min(1, 0.18 + lines * 0.22 + (gems > 0 ? 0.15 : 0)));
+
+    const to = scoreEl.current?.getBoundingClientRect();
+    const from = board.getBoundingClientRect();
+    if (to && typeof document !== "undefined") {
+      const fly = document.createElement("span");
+      fly.textContent = `+${gained}`;
+      fly.className = `bp-fly${gems > 0 ? " gem" : ""}`;
+      fly.setAttribute("aria-hidden", "true");
+      document.body.appendChild(fly);
+      const sx = from.left + from.width / 2;
+      const sy = from.top + from.height / 2;
+      const dx = to.left + to.width / 2 - sx;
+      const dy = to.top + to.height / 2 - sy;
+      const anim = fly.animate(
+        [
+          { transform: `translate(${sx}px, ${sy}px) translate(-50%, -50%) scale(0.6)`, opacity: 0 },
+          { transform: `translate(${sx}px, ${sy - 18}px) translate(-50%, -50%) scale(1.25)`, opacity: 1, offset: 0.28 },
+          { transform: `translate(${sx + dx}px, ${sy + dy}px) translate(-50%, -50%) scale(0.7)`, opacity: 0.2 },
+        ],
+        { duration: 780, easing: "cubic-bezier(0.5, 0, 0.2, 1)" },
+      );
+      anim.onfinish = () => fly.remove();
+      anim.oncancel = () => fly.remove();
+    }
+  }, []);
+
   const place = useCallback(
     (idx: number, x: number, y: number) => {
       if (phase !== "play") return false;
@@ -200,7 +275,12 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       const gone: Ghost[] = [];
       for (let i = 0; i < 64; i++) {
         if ((next.result.cleared >> BigInt(i)) & 1n) {
-          gone.push({ i, color: colors[i], gem: ((game.st.gems | footprintGem(piece, x, y)) >> BigInt(i)) & 1n ? true : false });
+          gone.push({
+            i,
+            color: colors[i],
+            gem: ((game.st.gems | footprintGem(piece, x, y)) >> BigInt(i)) & 1n ? true : false,
+            delay: Math.round(Math.hypot((i % SIZE) - (x + 0.5), Math.floor(i / SIZE) - (y + 0.5)) * 28),
+          });
           colors[i] = NO_COLOR;
         }
       }
@@ -214,20 +294,30 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       scoreRef.current = { score: next.state.score, moves: next.state.moves };
       runRef.current?.onMove({ piece: idx, x, y });
       setPreview(null);
+      popupId.current += 1;
+      const id = popupId.current;
+      const placed = new Set(pieceCells(piece).map((c) => (y + c.dy) * SIZE + x + c.dx));
+      setFresh(placed);
+      setTimeout(() => setFresh((f) => (f === placed ? new Set() : f)), DROP_MS);
       if (gone.length) {
         setGhosts(gone);
-        setTimeout(() => setGhosts([]), CLEAR_MS);
+        setTimeout(() => setGhosts((cur) => (cur === gone ? [] : cur)), CLEAR_MS);
       }
-      if (next.result.lines > 0) {
-        popupId.current += 1;
-        setCombo((c) => c + 1);
-        setRecent((r) => [{ id: popupId.current, lines: next.result.lines, gained: next.result.gained, at: endsAt.current - performance.now() }, ...r].slice(0, 3));
-        const gem = next.result.gems > 0;
-        setPopup({ id: popupId.current, text: `+${next.result.gained}${gem ? ` · gem x${1 + next.result.gems}` : ""}`, gem });
-        setAnnounce(`Cleared ${next.result.lines} ${next.result.lines === 1 ? "line" : "lines"}, plus ${next.result.gained}`);
-      } else {
+      if (next.result.lines === 0) {
+        sfx("check");
+        if (combo > 0) {
+          setFizzle(id);
+          setTimeout(() => setFizzle((f) => (f === id ? 0 : f)), 700);
+        }
         setCombo(0);
         setAnnounce(`Placed, plus ${next.result.gained}`);
+      } else {
+        const newCombo = combo + 1;
+        celebrate(next.result.lines, next.result.gems, newCombo, next.result.gained, gone, next.result.cleared, id);
+        setCombo(newCombo);
+        setBestCombo((b) => Math.max(b, newCombo));
+        setRecent((r) => [{ id, lines: next.result.lines, gained: next.result.gained, at: endsAt.current - performance.now() }, ...r].slice(0, 3));
+        setAnnounce(`Cleared ${next.result.lines} ${next.result.lines === 1 ? "line" : "lines"}, plus ${next.result.gained}`);
       }
       if (next.state.over) {
         finish(next.state.moves >= MAX_MOVES ? "limit" : "stuck", g);
@@ -238,7 +328,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       }
       return true;
     },
-    [phase, game, finish],
+    [phase, game, finish, combo, celebrate],
   );
 
   const cellFromPoint = (px: number, py: number) => {
@@ -312,12 +402,34 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     return { cells, valid: fitsAt(st, selPiece, preview.x, preview.y), color: colorOf(selPiece) };
   }, [preview, selPiece, st]);
 
+  const hint = useMemo(
+    () => (preview && selPiece && previewInfo?.valid ? wouldClear(st, selPiece, preview.x, preview.y) : null),
+    [preview, selPiece, previewInfo, st],
+  );
+  const hinting = hint !== null && hint.rows.length + hint.cols.length > 0;
+
+  const prevScore = useRef(0);
+  useEffect(() => {
+    const el = scoreEl.current;
+    if (el && st.score > prevScore.current && typeof el.animate === "function" && !prefersReducedMotion()) {
+      el.animate(
+        [
+          { transform: "scale(1.28)", color: "#fff", textShadow: "0 0 18px rgba(234,239,236,0.6)" },
+          { transform: "scale(1)" },
+        ],
+        { duration: 320, easing: "cubic-bezier(0.2, 1.6, 0.4, 1)" },
+      );
+    }
+    prevScore.current = st.score;
+  }, [st.score]);
+
   const ghostAt = useMemo(() => new Map(ghosts.map((g) => [g.i, g])), [ghosts]);
   const timeLow = remaining <= 10_000;
 
   const board = (
     <div
-      className={`bp-board${phase === "play" ? " live" : ""}`}
+      className={`bp-board${phase === "play" ? " live" : ""}${timeLow && phase === "play" ? " low" : ""}`}
+      style={hinting && previewInfo ? ({ "--hk": BLOCK_HEX[previewInfo.color] } as React.CSSProperties) : undefined}
       ref={boardRef}
       role="grid"
       aria-label="Block Puzzle board, 8 by 8"
@@ -333,6 +445,8 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         const pv = previewInfo?.cells.has(i);
         const cls = ["bp-cell"];
         if (filled) cls.push(`k${color}`, "on");
+        if (filled && fresh.has(i)) cls.push("drop");
+        if (hinting && (hint.rows.includes(cy) || hint.cols.includes(cx))) cls.push("hint");
         if (filled && isGem) cls.push("gem");
         if (gh) cls.push(`k${gh.color}`, "pop", ...(gh.gem ? ["gem"] : []));
         if (pv) cls.push(previewInfo?.valid ? `pv pk${previewInfo.color}` : "pv bad");
@@ -342,6 +456,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             type="button"
             role="gridcell"
             className={cls.join(" ")}
+            style={gh ? ({ animationDelay: `${gh.delay}ms` } as React.CSSProperties) : undefined}
             tabIndex={i === focusCell ? 0 : -1}
             aria-label={`Row ${cy + 1}, column ${cx + 1}${filled ? (isGem ? ", gem block" : ", filled") : ""}`}
             disabled={phase !== "play"}
@@ -356,11 +471,6 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           />
         );
       })}
-      {popup && (
-        <span key={popup.id} className={`bp-popup${popup.gem ? " gem" : ""}`} aria-hidden="true">
-          {popup.text}
-        </span>
-      )}
     </div>
   );
 
@@ -370,7 +480,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className="bpx-score">
           <Label>Score</Label>
-          <span key={st.score} className="bp-score-n tnum bump" aria-live="off">{st.score}</span>
+          <span ref={scoreEl} className="bp-score-n tnum" aria-live="off"><CountUp key={runId} value={st.score} from={0} format={String} duration={500} /></span>
         </div>
         <div className={`bpx-ring${timeLow && phase === "play" ? " low" : ""}`} role="timer" aria-label="Time left">
           <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
@@ -388,7 +498,11 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           <span className="mono">{fmtClock(phase === "idle" ? DURATION_MS : remaining)}</span>
         </div>
         <div className="bpx-run" aria-label="Run">
-          <span>Combo <b className="tnum">×{combo}</b></span>
+          <span className={`bpx-combo${fizzle ? " fizzle" : ""}`} data-heat={comboHeat(combo)} aria-label={`Combo ${combo}`}>
+            <span className="bpx-combo-l">Combo</span>
+            <i className="bpx-combo-m" aria-hidden="true"><s /><s /><s /><s /></i>
+            <b className="tnum">×{combo}</b>
+          </span>
           <span>Lines <b className="tnum">{game.lines}</b></span>
         </div>
         <div className="bpx-stake">
@@ -447,6 +561,10 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             </div>
           </div>
         )}
+        {sweeps.map((w) => (
+          <span key={w.id} className={`bp-sweep ${w.axis}`} style={{ "--at": w.at } as React.CSSProperties} aria-hidden="true" />
+        ))}
+        {moment && <Callout key={moment.id} text={moment.text} tone={moment.tone} onDone={() => setMoment((m) => (m?.id === moment.id ? null : m))} />}
       </div>
 
       <div className="bp-tray" aria-label="Pieces">
@@ -478,7 +596,11 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
                 }
               }}
             >
-              {!used && phase !== "over" && <PieceArt piece={piece} cell={16} />}
+              {!used && phase !== "over" && (
+                <span key={base} className="bp-deal" style={{ animationDelay: `${n * 90}ms` }}>
+                  <PieceArt piece={piece} cell={16} />
+                </span>
+              )}
             </button>
           );
         })}
