@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TesoroLogo } from "@/components/brand";
-import { LINES, clipAbove, clipBelow } from "@/components/waitlist/geometry";
-import { DissolveEdge } from "@/components/waitlist/DissolveEdge";
+import { INSET, LINES, clipAbove, clipBelow, clipBelowInset } from "@/components/waitlist/geometry";
+import { DividerHost } from "@/components/waitlist/DividerHost";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
 import { LAUNCH_STAGE, appHref } from "@/lib/landing/config";
@@ -25,6 +25,8 @@ export default async function Waitlist() {
     "--above-tall": clipAbove(LINES.tall),
     "--below-wide": clipBelow(LINES.wide),
     "--below-tall": clipBelow(LINES.tall),
+    "--in-wide": clipBelowInset(LINES.wide, INSET.wide, "x"),
+    "--in-tall": clipBelowInset(LINES.tall, INSET.tall, "y"),
   } as React.CSSProperties;
   return (
     <div className="wl" style={frame}>
@@ -32,7 +34,7 @@ export default async function Waitlist() {
       <div className="wl-floor" aria-hidden>
         <div className="wl-floor-in" />
       </div>
-      <DissolveEdge />
+      <DividerHost />
       <header className="wl-top">
         <Link href="/" className="wl-logo" aria-label="Tesoro">
           <TesoroLogo height={30} tone="dark" />

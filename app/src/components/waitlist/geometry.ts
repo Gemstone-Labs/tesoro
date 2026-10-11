@@ -38,3 +38,21 @@ export function clipBelow(l: Line): string {
   if (l.y1 <= 0) pts.push("0 0");
   return `polygon(${pts.join(", ")})`;
 }
+
+/**
+ * Divider variants (?d=a..f) draw their own edge, so the floor's straight edge is pulled back under them: the line
+ * moved `inset` px into the panel (sideways for the wide line, down for the tall one).
+ */
+export const INSET = { wide: 130, tall: 60 } as const;
+
+export function clipBelowInset(l: Line, inset: number, axis: "x" | "y"): string {
+  const sx = axis === "x" ? `calc(${pct(l.x1)} - ${inset}px)` : pct(l.x1);
+  const sy = axis === "y" ? `calc(${pct(l.y1)} + ${inset}px)` : pct(l.y1);
+  const ex = axis === "x" ? `calc(${pct(l.x2)} - ${inset}px)` : pct(l.x2);
+  const ey = axis === "y" ? `calc(${pct(l.y2)} + ${inset}px)` : pct(l.y2);
+  const pts = [`${sx} ${sy}`, `${ex} ${ey}`];
+  if (l.y2 < 1) pts.push("100% 100%");
+  pts.push("0 100%");
+  if (l.y1 <= 0) pts.push("0 0");
+  return `polygon(${pts.join(", ")})`;
+}
