@@ -23,6 +23,8 @@ export const art = {
     "pocket-pool": f("coming-soon-pocket-pool"),
     "trivia-sprint": f("coming-soon-trivia-sprint"),
   },
+  /** The Leaderboard Pool as a gold stone chest (1024 square, opaque dark ground: fade its edges in CSS). */
+  poolChest: f("pool-chest"),
   /** Play Again thumbs reuse the square tiles (cropped by CSS). */
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),

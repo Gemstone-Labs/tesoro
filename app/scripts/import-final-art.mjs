@@ -17,7 +17,8 @@ const AVATAR_CROP = 0.84;
 const AVATARS_OUT = resolve(OUT, "avatars");
 mkdirSync(AVATARS_OUT, { recursive: true });
 
-for (const file of readdirSync(SRC).filter((f) => f.endsWith(".png") && !f.endsWith("-contact-sheet.png"))) {
+// Contact sheets and review takes (`-take-N`) stay in art-source.
+for (const file of readdirSync(SRC).filter((f) => f.endsWith(".png") && !f.endsWith("-contact-sheet.png") && !/-take-\d+\.png$/.test(f))) {
   const name = file.replace(/\.png$/, "");
   let img = sharp(resolve(SRC, file));
   if (isAvatar(name)) {

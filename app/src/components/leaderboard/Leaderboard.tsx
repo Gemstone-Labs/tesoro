@@ -3,13 +3,14 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
-import { Button, GemaMark, Label, SkeletonCards } from "@/components/ui";
+import { Button, CountUp, GemaMark, Label, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { avatarFor } from "@/lib/art";
+import { art, avatarFor } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { shortKey } from "@/lib/chain/history";
 import type { LastSeason, LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
+import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 import "./leaderboard.css";
@@ -78,21 +79,24 @@ export function Leaderboard() {
 function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | null; now: number | null; stale: boolean }) {
   const mine = useMemo(() => data.standings.find((r) => r.account === me) ?? null, [data.standings, me]);
   const remaining = now === null ? null : data.season.end - now;
+  const pool = usePool() ?? data.poolGemas;
 
   return (
     <>
       <section className="cut cut-frame lb-hero" aria-label="This season">
         <div className="lb-pool">
-          <Label>Prize pool</Label>
-          <b className="lb-pool-fig">
-            <GemaMark size={40} />
-            {fmtGemas(data.poolGemas)}
-          </b>
-          <small>
-            {data.feeBps > 0
-              ? `${data.feeBps / 100}% of every Pot goes in, from every Game.`
-              : "The pool opens with the next upgrade."}
-          </small>
+          <Image className="pool-art" src={art.poolChest} alt="" width={200} height={200} priority />
+          <div className="lb-pool-text">
+            <Label>Leaderboard Pool</Label>
+            <b className="lb-pool-fig pool-fig">
+              <CountUp value={pool} duration={1200} />
+            </b>
+            <small>
+              {data.feeBps > 0
+                ? `${data.feeBps / 100}% of every Pot goes in, from every Game.`
+                : "The pool opens with the next upgrade."}
+            </small>
+          </div>
         </div>
         <dl className="lb-facts">
           <div>
@@ -133,7 +137,7 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
           ) : (
             <ol className="lb-rows">
               {data.standings.map((r) => (
-                <Row key={r.account} r={r} pool={data.poolGemas} me={me === r.account} />
+                <Row key={r.account} r={r} pool={pool} me={me === r.account} />
               ))}
             </ol>
           )}
@@ -145,7 +149,7 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
         </section>
 
         <aside className="lb-side">
-          <Scale pool={data.poolGemas} />
+          <Scale pool={pool} />
           <Points />
         </aside>
       </div>

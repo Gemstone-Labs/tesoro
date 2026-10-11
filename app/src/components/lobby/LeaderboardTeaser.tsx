@@ -2,11 +2,11 @@
 
 import Image from "next/image";
 import { AccountLink } from "@/components/account/AccountLink";
-import { GemaMark, SkeletonCards } from "@/components/ui";
-import { avatarFor } from "@/lib/art";
+import { CountUp, SkeletonCards } from "@/components/ui";
+import { art, avatarFor } from "@/lib/art";
 import { shortKey } from "@/lib/chain/history";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
-import { fmtGemas } from "@/lib/format";
+import { usePool } from "@/lib/chain/usePool";
 import { Rail } from "./Rail";
 
 const days = (secs: number) => {
@@ -18,6 +18,7 @@ const days = (secs: number) => {
 /** LEADERBOARD: this week's pool and its top three, linking to the full table. Hidden if the read fails: the Lobby does not depend on it. */
 export function LeaderboardTeaser() {
   const { data, error } = useLeaderboard();
+  const live = usePool();
   if (!data && error) return null;
   const top = data?.standings.slice(0, 3) ?? [];
   return (
@@ -27,12 +28,14 @@ export function LeaderboardTeaser() {
       ) : (
         <div className="cut cut-card lbt">
           <div className="lbt-pool">
-            <span className="label">Season {data.season.number} prize pool</span>
-            <b>
-              <GemaMark size={26} />
-              {fmtGemas(data.poolGemas)}
-            </b>
-            <small>{days(Math.max(0, data.season.end - data.now))} left · top ten share it</small>
+            <Image className="pool-art" src={art.poolChest} alt="" width={112} height={112} />
+            <div className="lbt-pool-text">
+              <span className="label">Season {data.season.number} Leaderboard Pool</span>
+              <b className="pool-fig">
+                <CountUp value={live ?? data.poolGemas} duration={1200} />
+              </b>
+              <small>{days(Math.max(0, data.season.end - data.now))} left · top ten share it</small>
+            </div>
           </div>
           {top.length === 0 ? (
             <p className="lbt-none">No points yet. A win in any game puts you at the top.</p>
