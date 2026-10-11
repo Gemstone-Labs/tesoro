@@ -4,6 +4,7 @@ import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, ChainChip, Chip, ClockIcon, CrossChainProgress } from "@/components/ui";
 import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
+import { GemasLabel } from "./AdvanceQuote";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import { useAccount } from "@/lib/account";
@@ -249,16 +250,19 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
 
   return (
     <OpenFormView
-      unit={unit}
+      chain={unit as "ETH" | "HYPE"}
+      apy={market ? `${Number(market.rate.apyBps) / 100}% APY` : undefined}
       inert={!market}
       head={<EthFaucet vault={vault} />}
       amountText={text}
       onAmount={setText}
       amountInvalid={tooMuch || tooBig}
-      amountHint={market ? <>You have {fmtEth(market.simEth, 3)} {vault.symbol}. Principal is locked, never played with.</> : undefined}
+      max={market ? Number(market.simEth) / 1e18 : undefined}
       months={months}
       onMonths={setMonths}
       gemas={gemas}
+      yieldText={`${quote ? fmtEth(quote.projectedUnits, 5) : "0"} ${unit}`}
+      arrival="Position opens, Gemas in 2 to 5 min"
       estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
@@ -282,7 +286,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
       }
-      buttonLabel={a.busy ? "Working…" : gemas > 0 ? `Open ${unit === "ETH" ? "an" : "a"} ${unit} Position · ${fmtGemas(gemas)} Gemas` : `Open ${unit === "ETH" ? "an" : "a"} ${unit} Position`}
+      buttonLabel={a.busy ? "Working…" : <GemasLabel action={`Open ${unit === "ETH" ? "an" : "a"} ${unit} Position`} gemas={gemas} />}
       disabled={!valid || a.busy !== null}
       onSubmit={() =>
         ctx &&

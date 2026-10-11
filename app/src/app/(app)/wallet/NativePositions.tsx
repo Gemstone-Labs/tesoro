@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, CheckIcon, Chip, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
+import { Button, CheckIcon, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
@@ -25,6 +25,7 @@ import { friendlyError, getTestSimSol, openPositionWithAdvance, redeemNative, re
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
+import { GemasLabel } from "./AdvanceQuote";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, sampledSeries } from "./PositionTile";
 
@@ -81,26 +82,24 @@ function useAction(refresh: () => Promise<void>) {
 
 // ---- Get simSOL + Open a Position ---------------------------------------------------------------
 
-/** The simSOL faucet, shown above the SOL open form: balance, a Get test simSOL button, the Simulated label. */
+/** The SOL deposit card's balance line: your simSOL and a Get test simSOL link, the receipt or error under it. */
 export function NativeFaucet({ market, loading }: { market: NativeMarket | null; loading: boolean }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const [step, setStep] = useState("Getting simSOL");
   const signer = auth.signer;
   return (
-    <div className="wl-faucet">
-      <div className="spread">
-        <span className="meta">
-          {loading ? "Loading your Account…" : <>Your simSOL <b className="tnum">{market ? fmtSol(market.simSol, 3) : "—"}</b></>}
-        </span>
-        <Chip tone="warn">Simulated</Chip>
-      </div>
-      <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken, setStep))}>
-        {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
-      </Button>
+    <>
+      <span>
+        {loading ? "Loading your Account…" : <>You have <b className="tnum">{market ? fmtSol(market.simSol, 3) : "—"}</b> simSOL</>}
+        {" · "}
+        <button type="button" className="wl-link" disabled={!signer || a.busy !== null} onClick={() => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken, setStep))}>
+          {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
+        </button>
+      </span>
       {a.done && <Sig label="faucet" sig={a.done.sig} />}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
-    </div>
+    </>
   );
 }
 
@@ -151,16 +150,18 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
 
   return (
     <OpenFormView
-      unit="SOL"
+      chain="SOL"
+      apy={market ? `${market.pool.apyBps / 100}% APY` : undefined}
       inert={!market}
-      head={<NativeFaucet market={market} loading={loading} />}
       amountText={text}
       onAmount={setText}
       amountInvalid={tooMuch}
-      amountHint={market ? <>You have {balance.toLocaleString("en-US", { maximumFractionDigits: 3 })} simSOL. Principal is locked, never played with.</> : undefined}
+      balance={<NativeFaucet market={market} loading={loading} />}
+      max={market ? balance : undefined}
       months={months}
       onMonths={setMonths}
       gemas={gemas}
+      yieldText={`${quote ? fmtSol(quote.projectedUnits) : "0"} SOL`}
       estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
@@ -178,13 +179,8 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
-      note={
-        <>
-          One transaction opens the Position and takes the Advance. The Unlock Estimate is an estimate, not a promise: it moves with the
-          pool&apos;s actual yield. <span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span>
-        </>
-      }
-      buttonLabel={a.busy ? `${step}…` : gemas > 0 ? `Open a Position · ${fmtGemas(gemas)} Gemas` : "Open a Position"}
+      note={<span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span>}
+      buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Open a Position" gemas={gemas} />}
       disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
       onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, setStep)).signature)}
     />

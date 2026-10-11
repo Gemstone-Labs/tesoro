@@ -246,10 +246,11 @@ export default function Wallet() {
 }
 
 /** The open form's shape before there is a market to quote from. */
-function IdleForm({ unit, months, onMonths }: { unit: string; months: number; onMonths: (m: number) => void }) {
+function IdleForm({ unit, months, onMonths }: { unit: Chain; months: number; onMonths: (m: number) => void }) {
   return (
     <OpenFormView
-      unit={unit}
+      chain={unit}
+      yieldText={`0 ${unit}`}
       inert
       amountText=""
       onAmount={() => undefined}
