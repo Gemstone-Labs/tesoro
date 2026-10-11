@@ -464,5 +464,4 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 
 /* ——— Leaderboard Pool: gold is its colour and nothing else's ——— */
 /* the chest art sits on its own dark ground: lighten drops that ground onto the card, the mask feathers the square */
-.pool-art { display: block; flex: none; height: auto; mix-blend-mode: lighten; -webkit-mask-image: radial-gradient(closest-side, #000 74%, transparent 100%); mask-image: radial-gradient(closest-side, #000 74%, transparent 100%); }
 .pool-fig { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
