@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, Card, ChainChip, FacetCrown, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
-import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
+import { fmtAsset, fmtGemas } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
@@ -91,16 +91,13 @@ export default function Wallet() {
         key={p.id}
         chain={p.chain}
         label={`${p.asset} Position`}
-        status="active"
-        rows={{
-          principal: fmtAsset(p.principal, p.asset),
-          debt: fmtAsset(p.debt, p.asset),
-          apy: `${(p.apy * 100).toFixed(1)}%`,
-          unlock: p.advance ? (p.advance.unlockEstimate ? fmtWhen(p.advance.unlockEstimate) : "Once yield accrues") : "No open Advance",
-        }}
-        chartTitle={`Debt (${p.asset})`}
+        state={!p.advance ? "idle" : p.debt > 0 ? "repaying" : "paid"}
+        principal={fmtAsset(p.principal, p.asset)}
+        debt={p.advance ? fmtAsset(p.debt, p.asset) : null}
+        apy={`${(p.apy * 100).toFixed(1)}%`}
+        unlockAt={p.advance?.unlockEstimate ? Date.parse(p.advance.unlockEstimate) : zeroAt}
+        now={now}
         series={p.advance && p.debt > 0 ? linearSeries(p.debt, now, zeroAt) : null}
-        fmt={(n) => n.toLocaleString("en-US", { maximumFractionDigits: 3 })}
       >
         {!p.advance && !onChain ? (
           <Button variant="money" size="sm" block onClick={() => auth.gate("take an Advance", () => setAdvanceFor(p))}>Take an Advance</Button>

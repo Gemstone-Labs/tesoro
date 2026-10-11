@@ -8,7 +8,7 @@ const LABEL = "Simulated yield · 1 month = 10 min";
 describe("simulated-yield label", () => {
   it("is on every Position tile, on-chain or not", () => {
     const html = renderToStaticMarkup(
-      <PositionTile chain="SOL" label="SOL Position" status="active" rows={{ principal: "40 SOL", debt: "0.55 SOL", apy: "7%", unlock: "—" }} chartTitle="Debt" series={null} />,
+      <PositionTile chain="SOL" label="SOL Position" state="repaying" principal="40 SOL" debt="0.55 SOL" apy="7%" unlockAt={null} now={0} series={null} />,
     );
     expect(html).toContain(LABEL);
   });
