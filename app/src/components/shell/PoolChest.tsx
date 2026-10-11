@@ -11,67 +11,99 @@ const compact = (n: number) => (n < 10_000 ? fmtGemas(n) : SHORT.format(n));
 const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const SHARD = "-2.5,-4 2.5,-4 4,-2.5 4,2.5 2.5,4 -2.5,4 -4,2.5 -4,-2.5";
 
+// Three-quarter view in a 48 box: front faces run x 5–33, the side recedes to x 43 (4 up per 10 across).
+const SILHOUETTE = "5,42 5,19 8,14 18,10 40,10 43,15 43,37 33,42 31,44 7,44";
+const RIVETS = [[12.5, 41], [25.5, 41], [12.5, 29.6], [25.5, 29.6]];
+
 /** The chest: gold, cut like everything else, a Gema for its lock. `pop` lifts the lid and throws Gemas out. */
 export function Chest({ size = 34, pop = 0 }: { size?: number; pop?: number }) {
   const id = useId().replace(/:/g, "");
-  const shape = `${id}-shape`;
+  const url = (name: string) => `url(#${id}-${name})`;
   return (
     <svg className="chest" width={size} height={size} viewBox="0 0 48 48" aria-hidden="true" focusable="false">
       <defs>
-        <linearGradient id={`${id}-body`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#ffd774" />
-          <stop offset=".42" stopColor="#f2b23a" />
-          <stop offset=".43" stopColor="#d48b1d" />
-          <stop offset="1" stopColor="#9a5a0e" />
+        <linearGradient id={`${id}-front`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#ffcf5e" />
+          <stop offset=".5" stopColor="#efaa2e" />
+          <stop offset=".51" stopColor="#d58d1e" />
+          <stop offset="1" stopColor="#a8650f" />
         </linearGradient>
-        <linearGradient id={`${id}-lid`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#fff2c2" />
-          <stop offset=".34" stopColor="#f9cb55" />
-          <stop offset=".35" stopColor="#e7a52c" />
-          <stop offset="1" stopColor="#b8741a" />
+        <linearGradient id={`${id}-side`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#c27c18" />
+          <stop offset="1" stopColor="#7a4307" />
         </linearGradient>
-        <linearGradient id={`${id}-band`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#a8650f" />
-          <stop offset="1" stopColor="#6e3d06" />
+        <linearGradient id={`${id}-top`} x1="0" y1="1" x2=".4" y2="0">
+          <stop offset="0" stopColor="#ffe08a" />
+          <stop offset="1" stopColor="#fff6d8" />
+        </linearGradient>
+        <linearGradient id={`${id}-band`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#7a4307" />
+          <stop offset=".45" stopColor="#c98a2a" />
+          <stop offset=".55" stopColor="#8f520c" />
+          <stop offset="1" stopColor="#5e3305" />
+        </linearGradient>
+        <linearGradient id={`${id}-mouth`} x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stopColor="#fff8dc" />
+          <stop offset="1" stopColor="#ffc548" />
         </linearGradient>
         <radialGradient id={`${id}-glow`}>
           <stop offset="0" stopColor="#fff8d6" />
           <stop offset=".45" stopColor="#ffd46a" stopOpacity=".75" />
           <stop offset="1" stopColor="#ffb52e" stopOpacity="0" />
         </radialGradient>
-        <clipPath id={shape}>
-          <polygon points="7,24 7,17 11,11 37,11 41,17 41,39 37,43 11,43 7,39" />
+        <clipPath id={`${id}-shape`}>
+          <polygon points={SILHOUETTE} />
         </clipPath>
       </defs>
 
-      <ellipse className="chest-glow" cx="24" cy="22" rx="22" ry="12" fill={`url(#${id}-glow)`} />
+      <ellipse className="chest-glow" cx="24" cy="20" rx="23" ry="13" fill={url("glow")} />
 
-      <g key={`burst-${pop}`} className={pop ? "chest-burst" : "chest-burst idle"} transform="translate(24 22)">
+      <g key={`burst-${pop}`} className={pop ? "chest-burst" : "chest-burst idle"} transform="translate(23 21)">
         {[0, 1, 2].map((i) => (
           <polygon key={i} points={SHARD} fill="url(#gema-face)" />
         ))}
       </g>
 
-      <polygon points="7,24 41,24 41,39 37,43 11,43 7,39" fill={`url(#${id}-body)`} />
-      <rect x="13" y="24" width="4" height="19" fill={`url(#${id}-band)`} />
-      <rect x="31" y="24" width="4" height="19" fill={`url(#${id}-band)`} />
-      <rect x="7" y="24" width="34" height="2.2" fill="#6e3d06" opacity=".55" />
+      <polygon points={SILHOUETTE} fill="#2e1903" stroke="#2e1903" strokeWidth="1.6" strokeLinejoin="round" />
 
-      <rect className="chest-mouth" x="8" y="22" width="32" height="3" fill="#fff4c8" />
+      {/* body: front, side, the rim, two bands */}
+      <polygon points="5,25 33,25 33,42 31,44 7,44 5,42" fill={url("front")} />
+      <polygon points="33,25 43,21 43,37 33,42" fill={url("side")} />
+      <polygon points="5,25 33,25 33,27.6 5,27.6" fill="#ffe08a" />
+      <polygon points="33,25 43,21 43,23.6 33,27.6" fill="#b8741a" />
+      <polygon points="11,25 14,25 14,44 11,44" fill={url("band")} />
+      <polygon points="24,25 27,25 27,44 24,44" fill={url("band")} />
+
+      {/* the open mouth: hidden under the lid until it lifts */}
+      <polygon className="chest-mouth" points="5,25 33,25 43,21 15,21" fill={url("mouth")} />
+
       <g key={`lid-${pop}`} className={pop ? "chest-lid pop" : "chest-lid"}>
-        <polygon points="7,24 7,17 11,11 37,11 41,17 41,24" fill={`url(#${id}-lid)`} />
-        <polygon points="11,11 37,11 39.4,14.5 8.6,14.5" fill="#fff8de" opacity=".55" />
-        <rect x="13" y="11" width="4" height="13" fill={`url(#${id}-band)`} />
-        <rect x="31" y="11" width="4" height="13" fill={`url(#${id}-band)`} />
+        <polygon points="5,25 5,19 33,19 33,25" fill={url("front")} />
+        <polygon points="5,19 8,14 30,14 33,19" fill="#ffd66a" />
+        <polygon points="8,14 18,10 40,10 30,14" fill={url("top")} />
+        <polygon points="33,25 33,19 30,14 40,10 43,15 43,21" fill={url("side")} />
+        <polygon points="30,14 40,10 43,15 33,19" fill="#d9952a" />
+        <polygon points="11,25 11,19 14,19 14,25" fill={url("band")} />
+        <polygon points="24,25 24,19 27,19 27,25" fill={url("band")} />
+        <polygon points="11,19 12,14 15,14 14,19" fill="#a86812" />
+        <polygon points="24,19 25,14 28,14 27,19" fill="#a86812" />
+        <polygon points="12,14 22,10 25,10 15,14" fill="#c98a2a" />
+        <polygon points="25,14 35,10 38,10 28,14" fill="#c98a2a" />
+        <polyline points="5,19 8,14 18,10 40,10" fill="none" stroke="#fff8e0" strokeOpacity=".7" strokeWidth=".7" />
+        <polyline points="5,25 33,25 43,21" fill="none" stroke="#3d2203" strokeWidth="1.1" />
       </g>
 
-      <g clipPath={`url(#${shape})`}>
-        <polygon className="chest-shine" points="0,48 8,48 26,0 18,0" fill="#fff" />
+      <g clipPath={url("shape")}>
+        <polygon className="chest-shine" points="0,48 7,48 25,0 18,0" fill="#fff" />
       </g>
 
-      <polygon points="21,21 27,21 29,23 29,28 27,30 21,30 19,28 19,23" fill="#5a3205" />
-      <polygon points="21.6,22 26.4,22 28,23.6 28,27.4 26.4,29 21.6,29 20,27.4 20,23.6" fill="url(#gema-face)" />
-      <polygon points="22.6,23.6 25.4,23.6 26.4,24.6 26.4,26.4 25.4,27.4 22.6,27.4 21.6,26.4 21.6,24.6" fill="url(#gema-table)" />
+      {RIVETS.map(([x, y]) => (
+        <circle key={`${x}-${y}`} cx={x} cy={y} r=".8" fill="#ffe7a8" />
+      ))}
+
+      <polygon points="17.2,22 20.8,22 22.5,23.7 22.5,28.3 20.8,30 17.2,30 15.5,28.3 15.5,23.7" fill="#3d2203" />
+      <polygon points="17.6,22.8 20.4,22.8 21.7,24.1 21.7,27.9 20.4,29.2 17.6,29.2 16.3,27.9 16.3,24.1" fill="url(#gema-face)" />
+      <polygon points="18.2,24.2 19.8,24.2 20.4,24.8 20.4,27.2 19.8,27.8 18.2,27.8 17.6,27.2 17.6,24.8" fill="url(#gema-table)" />
     </svg>
   );
 }
