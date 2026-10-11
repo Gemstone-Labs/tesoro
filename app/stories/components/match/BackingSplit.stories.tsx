@@ -11,7 +11,7 @@ const meta = {
   component: BackingSplit,
   args: { m: backed(base(true), BACKER, 4000) },
   argTypes: { m: { control: "object" } },
-  decorators: [(Story) => <div className="cut cut-card" style={{ maxWidth: 480, padding: 20 }}><Story /></div>],
+  decorators: [(Story) => <div style={{ maxWidth: 1100 }}><Story /></div>],
 } satisfies Meta<typeof BackingSplit>;
 export default meta;
 type Story = StoryObj<typeof meta>;

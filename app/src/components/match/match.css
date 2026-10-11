@@ -123,6 +123,42 @@
 .mr-tile.on { --edge: rgba(255, 255, 255, 0.7); }
 .mr-tile.on::before { content: ""; position: absolute; left: 18px; right: 18px; top: 0; height: 3px; background: var(--fg); }
 .mr-split { width: 100%; }
+
+/* Backing split (BackingSplit.tsx): the Pot to scale; bar and legend share --cols so labels sit under their segment */
+.bks { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 16px; padding: 22px 26px 24px; }
+.bks-h { display: flex; justify-content: space-between; align-items: center; gap: 8px 20px; flex-wrap: wrap; }
+.bks-h .meta { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.bks-who { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.bks-who a { color: var(--fg); }
+.bks-pill { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: none; color: var(--fg); background: var(--raised); clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+.bks .back { --sw: linear-gradient(180deg, #5c6a70, #3c474c); }
+.bks .backer, .bks .player { --sw: linear-gradient(180deg, #1f9e7c, var(--em-deep)); }
+.bks .backer.you, .bks .player.you { --sw: var(--facet); }
+.bks .fees { --sw: repeating-linear-gradient(135deg, rgba(234, 239, 236, 0.28) 0 4px, rgba(234, 239, 236, 0.1) 4px 8px); }
+.bks .lost { --sw: linear-gradient(180deg, var(--danger), #b8463b); }
+.bks .none { --sw: repeating-linear-gradient(135deg, rgba(234, 239, 236, 0.14) 0 4px, transparent 4px 8px); }
+.bks-bar, .bks-legend { display: grid; grid-template-columns: var(--cols); column-gap: 3px; }
+.bks-bar { height: 44px; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); }
+.bks-bar i { background: var(--sw); }
+.bks-bar i.you { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85); }
+.bks-bar .none { box-shadow: inset 0 0 0 1px var(--line-2); }
+.bks-legend { list-style: none; margin: 0; padding: 0; }
+.bks-legend li { min-width: 0; display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; row-gap: 4px; align-content: start; font-size: 13px; color: var(--fg-2); }
+.bks-legend li > b { grid-column: 2; color: var(--fg); }
+.bks-legend .gema-amount { font-size: 17px; }
+.bks-legend li.you { color: var(--fg); }
+.bks-legend li.you.backer > b, .bks-legend li.you.player > b { color: var(--em-hi); }
+.bks-legend li.lost > b { color: var(--danger); }
+.bks-sw { width: 10px; height: 10px; margin-top: 4px; background: var(--sw); }
+@media (prefers-reduced-motion: no-preference) {
+  .bks-bar i { transform-origin: left; animation: bks-grow 700ms cubic-bezier(0.2, 0.8, 0.2, 1) calc(1700ms + var(--i) * 140ms) both; }
+}
+@keyframes bks-grow { from { transform: scaleX(0); } }
+@media (max-width: 640px) {
+  .bks { padding: 18px 18px 20px; }
+  .bks-bar { grid-template-columns: var(--scale); }
+  .bks-legend { grid-template-columns: 1fr 1fr; gap: 14px 12px; }
+}
 .mr .mr-actions { max-width: none; }
 
 /* odometer figures and emerald shards (ResultMotion.tsx) */
