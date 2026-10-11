@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { CheckIcon, GemaMark, MinusIcon, XIcon } from "@/components/ui";
-import { AccountLink } from "@/components/account/AccountLink";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
 import { amountText, backingText, type HistoryRow } from "@/lib/chain/history";
@@ -13,55 +12,29 @@ import { PlayerAvatar, PlayerName } from "@/components/account/Player";
 
 const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Icon: XIcon }, draw: { text: "Draw", Icon: MinusIcon }, refunded: { text: "Refunded", Icon: MinusIcon } } as const;
 
-/**
- * One finished Match: result (icon and word), opponent, score or entry, the Gema change and any Backing.
- * The whole row links to the Match. On someone else's Account (`link="opponent"`) it holds two links
- * side by side instead: the opponent leads to their Account, the chevron to the Match.
- * `backing` replaces the default Backing line.
- */
-export function MatchRow({
-  r,
-  now,
-  showGame = false,
-  link = "match",
-  backing,
-}: {
-  r: HistoryRow;
-  now: number;
-  showGame?: boolean;
-  link?: "match" | "opponent";
-  backing?: string | null;
-}) {
+/** One finished Match: result (icon and word), opponent, score or entry, the Gema change and any Backing. The whole row links to the Match. */
+export function MatchRow({ r, now, showGame = false }: { r: HistoryRow; now: number; showGame?: boolean }) {
   const res = RESULT[r.result];
-  const note = backing === undefined ? backingText(r) : backing;
+  const note = backingText(r);
   const detail = r.scores ? `${r.scores[0]} – ${r.scores[1]}` : `Entry ${fmtGemas(r.entry)}`;
-  const opp = (
-    <>
-      {r.opp && <PlayerAvatar className="mh-av" account={r.opp} size={44} />}
-      <span>
-        <b>{r.opp ? <PlayerName account={r.opp} /> : "No opponent"}</b>
-        <small className="tnum">
-          {showGame ? `${GAME_NAMES[r.game]} · ` : ""}
-          {detail} · {ago(r.at, now)}
-        </small>
-      </span>
-    </>
-  );
-  const cells = (
-    <>
+  return (
+    <Link href={`/play/match/${r.id}`} className="cut cut-card mh-row">
       <span className="mh-thumb">
         <Image src={art.thumb[r.game]} alt="" fill sizes="110px" />
       </span>
       <span className={`mh-res ${r.result}`}>
         <res.Icon aria-hidden="true" /> {res.text}
       </span>
-      {link === "opponent" && r.opp ? (
-        <AccountLink account={r.opp} className="mh-opp">
-          {opp}
-        </AccountLink>
-      ) : (
-        <span className="mh-opp">{opp}</span>
-      )}
+      <span className="mh-opp">
+        {r.opp && <PlayerAvatar className="mh-av" account={r.opp} size={44} />}
+        <span>
+          <b>{r.opp ? <PlayerName account={r.opp} /> : "No opponent"}</b>
+          <small className="tnum">
+            {showGame ? `${GAME_NAMES[r.game]} · ` : ""}
+            {detail} · {ago(r.at, now)}
+          </small>
+        </span>
+      </span>
       <span className="mh-amt">
         <b className={r.delta > 0 ? "won" : r.delta < 0 ? "lost" : undefined}>
           {r.delta > 0 && <GemaMark size={20} />}
@@ -69,21 +42,6 @@ export function MatchRow({
         </b>
         {note && <small>{note}</small>}
       </span>
-    </>
-  );
-  if (link === "opponent") {
-    return (
-      <div className="cut cut-card mh-row still">
-        {cells}
-        <Link href={`/play/match/${r.id}`} className="mh-go-link" aria-label="See this Match">
-          <ChevronRight aria-hidden="true" className="mh-go" />
-        </Link>
-      </div>
-    );
-  }
-  return (
-    <Link href={`/play/match/${r.id}`} className="cut cut-card mh-row">
-      {cells}
       <ChevronRight aria-hidden="true" className="mh-go" />
     </Link>
   );

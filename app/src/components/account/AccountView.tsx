@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
-import { MatchRow } from "@/components/match/MatchRow";
+import { MatchBanner } from "@/components/match/MatchBanner";
 import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
@@ -138,10 +138,10 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
             rows.length > 0 && <p className="pa-none">No finished {game ? GAME_NAMES[game] : ""} Matches yet.</p>
           ) : (
             <>
-              <div className="mh-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
+              <div className="mb-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
                 {view.rows.map((r) => (
                   <div key={r.id} role="listitem">
-                    <MatchRow r={r} now={now} showGame={!game} link="opponent" backing={backingLine(r)} />
+                    <MatchBanner r={r} player={address} now={now} backing={backingLine(r)} />
                   </div>
                 ))}
               </div>
