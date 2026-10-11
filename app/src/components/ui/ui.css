@@ -400,8 +400,12 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 dialog.sheet {
   --c: var(--cut-frame); position: fixed;
   padding: 0; border: 0; background: var(--surface); color: var(--fg);
-  width: 100%; max-width: 480px; max-height: 90dvh; margin: auto auto 0; overflow: auto;
+  width: 100%; max-width: 480px; max-height: 90dvh; margin: auto auto 0;
 }
+/* the cut's edge is an inset-0 ::after, so a dialog that scrolled itself would carry it away with the
+   content: a cut dialog keeps a fixed box and scrolls its one child instead */
+dialog.cut[open] { display: flex; flex-direction: column; overflow: hidden; }
+dialog.cut[open] > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 dialog.sheet::backdrop { background: rgba(4, 7, 9, 0.62); backdrop-filter: blur(6px); }
 /* sheets rise into place when opened */
 dialog.sheet[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }

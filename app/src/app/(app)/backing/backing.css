@@ -42,7 +42,7 @@
 
 /* Offer modal: a native dialog in the top layer, centred over everything */
 dialog.bk-drawer { --c: var(--cut-frame); --edge: var(--edge-2); position: fixed; padding: 0; border: 0; color: var(--fg); background: var(--side);
-  width: calc(100% - 24px); max-width: 560px; max-height: calc(100dvh - 24px); margin: auto; overflow-y: auto; }
+  width: calc(100% - 24px); max-width: 560px; max-height: calc(100dvh - 24px); margin: auto; }
 dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: blur(6px); }
 .bk-drawer-in { padding: 18px 16px 20px; display: grid; gap: 12px; align-content: start; }
 .bk-drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
