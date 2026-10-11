@@ -1,7 +1,19 @@
+"use client";
+
 import Link from "next/link";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { FooterA, FooterB, FooterC, FooterD } from "./SiteFooter.prototype";
+
+const VARIANTS = [
+  { key: "A", name: "Directory" },
+  { key: "B", name: "Sign-off" },
+  { key: "C", name: "Last call" },
+  { key: "D", name: "Instrument strip" },
+  { key: "now", name: "Current" },
+] as const;
 
 /** One quiet line: the fair-play note and the simulated-yield label on the left, links on the right. */
-export function SiteFooter() {
+function Current() {
   return (
     <footer className="site-foot">
       <p>
@@ -17,5 +29,19 @@ export function SiteFooter() {
         <span aria-disabled="true" title="Coming soon">Legal</span>
       </nav>
     </footer>
+  );
+}
+
+export function SiteFooter() {
+  const v = usePrototypeVariant(VARIANTS.map((x) => x.key));
+  return (
+    <>
+      {v === "A" && <FooterA />}
+      {v === "B" && <FooterB />}
+      {v === "C" && <FooterC />}
+      {v === "D" && <FooterD />}
+      {v === "now" && <Current />}
+      <PrototypeSwitcher variants={VARIANTS} />
+    </>
   );
 }
