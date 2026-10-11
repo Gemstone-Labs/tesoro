@@ -7,13 +7,15 @@ import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { getChain } from "@/lib/chain/client";
 import { gameOf } from "@/lib/chain/read";
 import { PublicKey } from "@solana/web3.js";
-import { Notice } from "@/components/ui";
+import { useAccount } from "@/lib/account";
 import type { GameId } from "@/lib/mock";
+import { MatchStageLoading } from "./MatchStage";
 import { MatchView } from "./MatchView";
 
 /** Picks the Match view by the Game the tesoro_core Match belongs to. */
 export function MatchRoute({ matchId }: { matchId: string }) {
   const [game, setGame] = useState<GameId | null>(null);
+  const { snapshot } = useAccount();
 
   useEffect(() => {
     let live = true;
@@ -34,5 +36,5 @@ export function MatchRoute({ matchId }: { matchId: string }) {
   if (game === "holdem") return <HoldemMatchView matchId={matchId} />;
   if (game === "trading-duel") return <TradingDuelMatchView matchId={matchId} />;
   if (game === "block-puzzle") return <MatchView matchId={matchId} />;
-  return <Notice title="Match" body="Loading the Match…" />;
+  return <MatchStageLoading me={snapshot?.accountKey.toBase58() ?? null} />;
 }

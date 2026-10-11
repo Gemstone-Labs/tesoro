@@ -13,7 +13,7 @@ import type { RunSubmitter } from "@/lib/chain/run-submitter";
 import { BackingSplit } from "./BackingSplit";
 import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
-import { MatchStage, StageAction, type StageKind } from "./MatchStage";
+import { MatchStage, MatchStageLoading, StageAction, type StageKind } from "./MatchStage";
 import { Receipts } from "./Receipts";
 import { plainError } from "@/lib/errors";
 
@@ -198,8 +198,8 @@ export function MatchView({ matchId }: { matchId: string }) {
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
-  if (!signer) return <Notice title="Match" body="Getting your wallet ready…" />;
-  if (phase === "loading") return <Notice title="Match" body="Loading the Match…" />;
+  if (!signer) return <MatchStageLoading game="block-puzzle" me={snapshot?.accountKey.toBase58() ?? null} step="Getting your wallet ready" />;
+  if (phase === "loading") return <MatchStageLoading game="block-puzzle" me={snapshot?.accountKey.toBase58() ?? null} />;
   if (phase === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (phase === "spectator") return <MatchSpectate matchId={matchId} />;
 
@@ -270,7 +270,7 @@ export function MatchView({ matchId }: { matchId: string }) {
               : phase === "awaiting"
                 ? "awaiting"
                 : null;
-  if (!kind || !m) return <Notice title="Match" body="Loading the Match…" />;
+  if (!kind || !m) return <MatchStageLoading game="block-puzzle" me={snapshot?.accountKey.toBase58() ?? null} />;
   const refund = () => act("refund", async () => addSig("refund", await refundMatch(signer, m.id)));
 
   return (

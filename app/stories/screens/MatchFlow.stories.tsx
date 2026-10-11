@@ -101,7 +101,7 @@ function queueSteps(game: GameId, via: "joined" | "opened", o: { backing?: boole
 const routing: Step = {
   label: "Reading the Match",
   layers: ["solana"],
-  what: "/play/match/<id> renders MatchRoute. It reads the MatchState on tesoro_core and picks the Match view from the Game's program id (Block Puzzle, Hold'em or Trading Duel). Until that read answers the page shows “Loading the Match…”.",
+  what: "/play/match/<id> renders MatchRoute. It reads the MatchState on tesoro_core and picks the Match view from the Game's program id (Block Puzzle, Hold'em or Trading Duel). Until that read answers the page shows the Match stage blank with “Loading the Match…”, so the layout holds.",
   calls: ["tesoro_core.account.matchState.fetchNullable", "gameOf(program id)"],
   ms: 2000,
 };

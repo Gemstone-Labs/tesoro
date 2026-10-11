@@ -172,6 +172,8 @@
 .stage-plaque { --edge: var(--edge-em); position: relative; overflow: clip; display: grid; gap: 4px; justify-items: center; padding: 14px 22px; background: var(--surface); }
 .stage-plaque small { font-size: 12px; color: var(--fg-2); }
 .stage-plaque .gema-amount.lg { font-size: 26px; }
+.stage-wait { display: inline-block; width: 3.4em; height: 0.8em; background: var(--line-2); animation: stage-wait 1.4s ease-in-out infinite; }
+@keyframes stage-wait { 50% { opacity: 0.45; } }
 .stage-sheen { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(105deg, transparent 35%, rgba(143, 245, 207, 0.16) 50%, transparent 65%); translate: -100% 0; animation: stage-sheen 3.6s 1.2s ease-in-out infinite; }
 @keyframes stage-sheen { 0% { translate: -100% 0; } 40%, 100% { translate: 100% 0; } }
 .k-closing .stage-plaque { animation: stage-pulse 1.4s ease-in-out infinite; }

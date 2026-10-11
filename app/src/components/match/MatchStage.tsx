@@ -346,6 +346,41 @@ export function MatchStage({
   );
 }
 
+/**
+ * The stage before the Match has been read: the same header, seats, Pot and busy line, with the
+ * parts not known yet left blank, so the screen does not jump when the Match arrives.
+ */
+export function MatchStageLoading({ game, me, step = "Loading the Match" }: { game?: GameId; me: string | null; step?: string }) {
+  return (
+    <section className="stage k-loading" aria-label="Loading the Match" aria-busy="true">
+      <header className="stage-head">
+        <span className="stage-kicker">{game ? GAME_NAMES[game] : "Match"}</span>
+        <h1 className="stage-title">One moment</h1>
+        <p className="stage-line">Finding your seat at this Match.</p>
+      </header>
+      <div className="stage-arena">
+        <ArenaSeat account={me} label="You" state="idle" side="l" />
+        <Rail flow="off" side="l" game={game ?? "block-puzzle"} />
+        <div className="stage-pot">
+          <div className="cut cut-card stage-plaque">
+            <span className="stage-label">Pot</span>
+            <span className="gema-amount lg">
+              <GemaMark size={20} />
+              <span className="stage-wait" />
+            </span>
+            <small>after Fees</small>
+          </div>
+        </div>
+        <Rail flow="off" side="r" game={game ?? "block-puzzle"} />
+        <ArenaSeat account={null} label="Opponent" state="idle" side="r" />
+      </div>
+      <div className="stage-foot">
+        <Busy>{step}…</Busy>
+      </div>
+    </section>
+  );
+}
+
 /** A quiet text action under the arena: cancel, check, refunds. */
 export function StageAction({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: ReactNode }) {
   return (

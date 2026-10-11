@@ -9,7 +9,7 @@ import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { Receipts } from "@/components/match/Receipts";
-import { MatchStage, StageAction } from "@/components/match/MatchStage";
+import { MatchStage, MatchStageLoading, StageAction } from "@/components/match/MatchStage";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
@@ -38,8 +38,8 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
-  if (!signer) return <Notice title="Hold'em" body="Getting your wallet ready…" />;
-  if (stage === "loading") return <Notice title="Hold'em" body="Loading the Match…" />;
+  if (!signer) return <MatchStageLoading game="holdem" me={snapshot?.accountKey.toBase58() ?? null} step="Getting your wallet ready" />;
+  if (stage === "loading") return <MatchStageLoading game="holdem" me={snapshot?.accountKey.toBase58() ?? null} />;
   if (stage === "notfound") return <Notice title="Match not found" body="This Match doesn’t exist, or the link is incomplete." />;
   if (stage === "spectator") return <MatchSpectate matchId={matchId} />;
 
