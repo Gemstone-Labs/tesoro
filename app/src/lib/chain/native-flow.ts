@@ -62,6 +62,23 @@ export async function openPositionWithAdvance(
   return { signature, position: position.toBase58() };
 }
 
+/**
+ * Another Advance on a locked Position whose Debt is zero: crank first so the program sees the repaid
+ * Debt (it refuses while an Advance is open), then `take_native_advance` as Advance number `info.advances`.
+ */
+export async function takeNextAdvance(
+  signer: ChainSigner,
+  getToken: GetToken,
+  info: NativeInfo,
+  months: number,
+  onStep: (s: string) => void = () => undefined,
+): Promise<string> {
+  onStep("Preparing");
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
+  onStep("Taking the Advance");
+  return send(signer, [accrueNativeYieldIx(info.position, info.openAdvance), takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months)]);
+}
+
 /** Permissionless crank: applies the vault's accrued yield to the Position's Debt. */
 export const refreshYield = (signer: ChainSigner, info: NativeInfo) => send(signer, [accrueNativeYieldIx(info.position, info.openAdvance)]);
 

@@ -21,11 +21,12 @@ import {
   type NativeInfo,
   type NativeMarket,
 } from "@/lib/chain/native";
-import { friendlyError, getTestSimSol, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, unlockNative } from "@/lib/chain/native-flow";
+import { friendlyError, getTestSimSol, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
+import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, sampledSeries } from "./PositionTile";
 
@@ -45,6 +46,7 @@ function useNow(ms: number) {
 const DONE: Record<string, string> = {
   faucet: "Got test simSOL",
   open: "Position opened",
+  advance: "Advance taken",
   refresh: "Yield refreshed",
   unlock: "Principal unlocked",
   sweep: "Leftover yield collected",
@@ -197,6 +199,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
   const signer = auth.signer;
   const returnable = useReturnable(position);
   const [returning, setReturning] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
 
   const src = info.source?.math ?? null;
   const onChainDebt = src ? live(src) - covered(src) : 0n;
@@ -242,6 +245,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
             </p>
           )}
           {locked && !canUnlock && <p className="note">Unlock returns the Principal once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
+          {canUnlock && <p className="note">Debt is zero: Unlock to get your SOL back, or take another Advance on the same Principal.</p>}
         </>
       }
     >
@@ -250,6 +254,9 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
           <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("refresh", () => refreshYield(signer, info))}>
             {a.busy === "refresh" ? "Refreshing…" : "Refresh yield"}
           </Button>
+          {canUnlock && (
+            <Button variant="money" size="sm" block disabled={!signer || a.busy !== null} onClick={() => setAdvancing(true)}>Take another Advance</Button>
+          )}
           <div className="wl-actions-row">
             <Button variant="money" size="sm" disabled={!signer || a.busy !== null || !redeemable} onClick={onRedeem}>Redeem</Button>
             <Button size="sm" disabled={!signer || a.busy !== null || !canUnlock} onClick={() => signer && a.run("unlock", () => unlockNative(signer, info))}>
@@ -260,6 +267,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
             <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => setReturning(true)}>Return Gemas</Button>
           )}
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} />
+          <NativeAdvanceSheet info={info} market={market} open={advancing} onClose={() => setAdvancing(false)} />
         </>
       )}
       {!locked && surplus !== 0n && (
@@ -270,6 +278,64 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
       {a.done && <Sig label={a.done.label} sig={a.done.sig} />}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
     </PositionTile>
+  );
+}
+
+// ---- Take another Advance ------------------------------------------------------------------------
+
+/** A new Advance on a locked SOL Position whose Debt is zero: the same Principal, a new Horizon. */
+export function NativeAdvanceSheet({ info, market, open, onClose }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void }) {
+  return (
+    <Sheet open={open} onClose={onClose} title="Take another Advance" className="adv-sheet">
+      {open && <NativeAdvanceForm info={info} market={market} onClose={onClose} />}
+    </Sheet>
+  );
+}
+
+function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void }) {
+  const { auth, refresh } = useAccount();
+  const a = useAction(refresh);
+  const [months, setMonths] = useState(3);
+  const [step, setStep] = useState("Preparing");
+  const now = useNow(5000);
+  const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
+  const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
+  const quote = priceOk ? quoteNativeAdvance(info.principalLamports, info.rateBps, months, market!.price!.microUsd) : null;
+  const gemas = quote ? Number(quote.gemas) : 0;
+  // The Advance is all of the Horizon's projected yield at the Position's own rate, so yield repays it in exactly the Horizon.
+  const unlock = gemas > 0 ? now + months * SIM_MONTH_MIN * 60_000 : null;
+  const title = `${fmtSol(info.principalLamports, 3)} SOL Position`;
+
+  if (a.done) {
+    return (
+      <div className="adv">
+        <AdvanceTakenNote gemas={gemas} from={title} unlock={unlock ? fmtWhen(unlock) : "—"} />
+        <Sig label="advance" sig={a.done.sig} />
+        <Button block onClick={onClose}>Done</Button>
+      </div>
+    );
+  }
+
+  return (
+    <AdvanceFormView
+      chain="SOL"
+      title={title}
+      apy={`${(info.rateBps / 100).toFixed(1)}% APY`}
+      months={months}
+      onMonths={setMonths}
+      yieldText={`${quote ? fmtSol(quote.projectedUnits) : "0"} SOL`}
+      gemas={gemas}
+      unlock={unlock ? `${fmtWhen(unlock)} (${fmtInMinutes(unlock, now)})` : "—"}
+      alerts={
+        <>
+          {market && !priceOk && <p className="status err" role="alert">The SOL price is updating. Try again in a few minutes.</p>}
+          {a.error && <p className="status err" role="alert">{a.error}</p>}
+        </>
+      }
+      buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Take Advance" gemas={gemas} />}
+      disabled={gemas <= 0 || a.busy !== null || !auth.signer}
+      onSubmit={() => auth.signer && a.run("advance", () => takeNextAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
+    />
   );
 }
 
