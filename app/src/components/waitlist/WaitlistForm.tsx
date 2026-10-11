@@ -5,8 +5,7 @@ import { joinWaitlist, type WaitlistState } from "@/app/(marketing)/waitlist-act
 import { art } from "@/lib/art";
 import { appHref } from "@/lib/landing/config";
 import { gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
-import { PackReveal } from "./PackReveal";
-import { CARD_VARIANTS, SHARE_CARD, type CardVariant } from "./SpotCard";
+import { PACK_LOOK, PACK_LOOKS, PackReveal, type PackLook } from "./PackReveal";
 
 const IDLE: WaitlistState = { status: "idle" };
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://tesoro-fawn.vercel.app";
@@ -30,8 +29,8 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
 
   if (state.status === "ok") {
     const gem = state.spot ? gemFor(state.spot) : null;
-    const look = new URLSearchParams(location.search).get("card") as CardVariant | null;
-    const card = look && CARD_VARIANTS.includes(look) ? look : SHARE_CARD;
+    const asked = new URLSearchParams(location.search).get("pack") as PackLook | null;
+    const look = asked && PACK_LOOKS.includes(asked) ? asked : PACK_LOOK;
     const share = gem ? postUrl(shareText(gem), SITE + spotPath(gem.spot)) : postUrl(SHARE_TEXT, SITE);
     return (
       <div className="wl-done" role="status">
@@ -62,7 +61,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
           )}
         </div>
         {gem && pack !== "closed" ? (
-          <PackReveal gem={gem} variant={card} shareHref={share} tryHref={appHref()} sealed={pack === "sealed"} onClose={() => setPack("closed")} />
+          <PackReveal gem={gem} look={look} shareHref={share} tryHref={appHref()} sealed={pack === "sealed"} onClose={() => setPack("closed")} />
         ) : null}
       </div>
     );

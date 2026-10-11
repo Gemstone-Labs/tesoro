@@ -1,18 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TesoroMark } from "@/components/brand";
 import { art } from "@/lib/art";
 import type { SpotGem } from "@/lib/waitlist-spot";
-import { CARD, SpotCard, type CardFonts, type CardVariant } from "./SpotCard";
+import { CARD, SpotCard, type CardFonts } from "./SpotCard";
+
+/** Prototype: the pack's looks, each adding to the first. foil: pillow shading, pointer light, creases. */
+export const PACK_LOOKS = ["foil", "holo", "collection"] as const;
+export type PackLook = (typeof PACK_LOOKS)[number];
+export const PACK_LOOK: PackLook = "foil";
 
 /** Where the pack tears, as a share of its height. */
 const TEAR = 19;
 const TEETH = 22;
 const FONTS: CardFonts = { display: "var(--f-display)", sans: "var(--f-body)" };
-/** How long the burst plays before the card settles in the modal. */
-const BURST_MS = 1250;
+/** How long the burst plays before the card turns and settles in the modal. */
+const BURST_MS = 1150;
+/** The tear finishes itself past this. */
+const DONE_AT = 0.96;
 
 const jag = (i: number) => (((i * 37) % 11) - 5) * 0.16;
 const zig = (y0: number, y1: number, ltr: boolean) =>
@@ -43,8 +50,8 @@ const SHARDS = Array.from({ length: 26 }, (_, i) => {
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** The card scaled to its box, tilting toward the pointer with a foil sheen. */
-function Card({ gem, variant }: { gem: SpotGem; variant: CardVariant }) {
-  const box = useRef<HTMLDivElement>(null);
+const Card = forwardRef<HTMLDivElement, { gem: SpotGem }>(function Card({ gem }, ref) {
+  const box = useRef<HTMLDivElement | null>(null);
   const [k, setK] = useState(0.5);
   useEffect(() => {
     const el = box.current;
@@ -66,34 +73,80 @@ function Card({ gem, variant }: { gem: SpotGem; variant: CardVariant }) {
     for (const p of ["--tx", "--ty", "--shine"]) e.currentTarget.style.removeProperty(p);
   };
   return (
-    <div className="pk-card" ref={box} onPointerMove={tilt} onPointerLeave={rest}>
+    <div
+      ref={(el) => {
+        box.current = el;
+        if (typeof ref === "function") ref(el);
+        else if (ref) ref.current = el;
+      }}
+      className="pk-card"
+      onPointerMove={tilt}
+      onPointerLeave={rest}
+    >
       <div className="pk-card-in" style={{ height: CARD.height * k }}>
         <div style={{ position: "absolute", left: 0, top: 0, transform: `scale(${k})`, transformOrigin: "0 0" }}>
-          <SpotCard gem={gem} src={art.avatars[gem.avatar - 1]} variant={variant} fonts={FONTS} />
+          <SpotCard gem={gem} src={art.avatars[gem.avatar - 1]} fonts={FONTS} />
         </div>
         <span className="pk-card-sheen" aria-hidden />
       </div>
     </div>
   );
+});
+
+/** Paint shared by the strip and the body, inside each one's clip: holo foil, shading and the pointer's light. */
+function Paint() {
+  return (
+    <>
+      <span className="pk-holo" aria-hidden />
+      <span className="pk-paint" aria-hidden />
+    </>
+  );
+}
+
+function Face({ gem, look }: { gem: SpotGem; look: PackLook }) {
+  return (
+    <div className="pk-face">
+      <TesoroMark size={44} />
+      <span className="pk-kicker">Early access</span>
+      <b className="pk-name">Waitlist pack</b>
+      {look === "collection" ? (
+        <span className="pk-ring" aria-hidden>
+          {art.avatars.map((src, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={src} src={src} alt="" style={{ "--i": i } as React.CSSProperties} />
+          ))}
+          <span className="pk-emblem">?</span>
+        </span>
+      ) : (
+        <span className="pk-emblem" aria-hidden>
+          ?
+        </span>
+      )}
+      <span className="pk-count">{look === "collection" ? "1 of 12 gemstone animals" : "1 gemstone animal inside"}</span>
+      <span className="pk-spot mono">Spot #{gem.spot}</span>
+    </div>
+  );
 }
 
 type Phase = "sealed" | "torn" | "open";
+type Box = { cx: number; cy: number; long: number };
 
 /**
- * The waitlist reward: a sealed pack in the middle of the screen. Drag across its top (or tap it, or
- * press Rip it open) to tear it; the strip flies off, the gem's light bursts out in rays and shards,
- * and the card settles in a modal with Share and Try it now. Reduced motion opens straight to the card.
+ * The waitlist reward: a sealed pack in the middle of the screen. Drag along its top to tear it, as
+ * far as you drag and no further (Open it for me does it in one go). The strip flies off, the gem's
+ * light bursts out in rays and shards, the card rises out upright, then turns flat and settles in a
+ * modal with Share and Try it now. Reduced motion opens straight to the card.
  */
 export function PackReveal({
   gem,
-  variant,
+  look = PACK_LOOK,
   shareHref,
   tryHref,
   sealed = true,
   onClose,
 }: {
   gem: SpotGem;
-  variant: CardVariant;
+  look?: PackLook;
   shareHref: string;
   tryHref: string;
   sealed?: boolean;
@@ -101,34 +154,53 @@ export function PackReveal({
 }) {
   const [phase, setPhase] = useState<Phase>(() => (sealed && !reducedMotion() ? "sealed" : "open"));
   const pack = useRef<HTMLDivElement>(null);
+  const inside = useRef<HTMLDivElement>(null);
+  const shown = useRef<HTMLDivElement>(null);
+  const from = useRef<Box | null>(null);
   const ripButton = useRef<HTMLButtonElement>(null);
   const shareLink = useRef<HTMLAnchorElement>(null);
-  const drag = useRef<{ x: number; moved: boolean } | null>(null);
+  const drag = useRef<{ x: number; p0: number; moved: boolean } | null>(null);
   const progress = useRef(0);
   const timers = useRef<number[]>([]);
 
   const setProgress = (p: number) => {
+    const el = pack.current;
+    const step = Math.floor(p * 8);
+    if (el && step > Math.floor(progress.current * 8) && step < 8) {
+      el.classList.remove("tick");
+      void el.offsetWidth;
+      el.classList.add("tick");
+      navigator.vibrate?.(6);
+    }
     progress.current = p;
-    pack.current?.style.setProperty("--p", p.toFixed(3));
+    el?.style.setProperty("--p", p.toFixed(3));
   };
 
   const finish = useCallback(() => {
+    if (progress.current > 1) return;
+    progress.current = 2;
     setPhase("torn");
-    timers.current.push(window.setTimeout(() => setPhase("open"), BURST_MS));
+    timers.current.push(
+      window.setTimeout(() => {
+        const r = inside.current?.getBoundingClientRect();
+        from.current = r ? { cx: r.left + r.width / 2, cy: r.top + r.height / 2, long: Math.max(r.width, r.height) } : null;
+        setPhase("open");
+      }, BURST_MS),
+    );
   }, []);
 
-  const rip = useCallback(() => {
-    if (phase !== "sealed") return;
-    const from = progress.current;
+  const ripAll = () => {
+    if (progress.current >= 1) return;
+    const start = progress.current;
     const t0 = performance.now();
     const step = (t: number) => {
-      const k = Math.min(1, (t - t0) / 380);
-      setProgress(from + (1 - from) * (1 - (1 - k) ** 3));
+      const k = Math.min(1, (t - t0) / 700);
+      setProgress(start + (1 - start) * k * k);
       if (k < 1) requestAnimationFrame(step);
       else finish();
     };
     requestAnimationFrame(step);
-  }, [phase, finish]);
+  };
 
   useEffect(() => {
     const t = timers.current;
@@ -155,43 +227,72 @@ export function PackReveal({
     if (phase === "open") shareLink.current?.focus({ preventScroll: true });
   }, [phase]);
 
+  // The card left the pack upright: it turns flat and grows from there into its place in the modal.
+  useLayoutEffect(() => {
+    const a = from.current;
+    const el = shown.current;
+    if (phase !== "open" || !a || !el) return;
+    from.current = null;
+    const b = el.getBoundingClientRect();
+    const dx = a.cx - (b.left + b.width / 2);
+    const dy = a.cy - (b.top + b.height / 2);
+    el.classList.add("flip");
+    el.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px) rotate(-90deg) scale(${a.long / b.width})` },
+        { transform: `translate(${dx * 0.1}px, ${dy * 0.1}px) rotate(4deg) scale(1.03)`, offset: 0.72, easing: "cubic-bezier(0.3, 0, 0.3, 1)" },
+        { transform: "none" },
+      ],
+      { duration: 1050, easing: "cubic-bezier(0.45, 0.05, 0.3, 1)" },
+    );
+  }, [phase]);
+
   const down = (e: React.PointerEvent<HTMLDivElement>) => {
     if (phase !== "sealed") return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { x: e.clientX, moved: false };
+    drag.current = { x: e.clientX, p0: progress.current, moved: false };
     pack.current?.classList.add("dragging");
   };
   const move = (e: React.PointerEvent<HTMLDivElement>) => {
     const el = pack.current;
     if (!el || phase !== "sealed") return;
-    if (!drag.current) {
+    const r = el.getBoundingClientRect();
+    if (e.pointerType === "mouse") {
+      el.style.setProperty("--mx", `${(((e.clientX - r.left) / r.width) * 100).toFixed(1)}%`);
+      el.style.setProperty("--my", `${(((e.clientY - r.top) / r.height) * 100).toFixed(1)}%`);
+    }
+    const d = drag.current;
+    if (!d) {
       if (e.pointerType !== "mouse" || reducedMotion()) return;
-      const r = el.getBoundingClientRect();
       el.style.setProperty("--rx", `${(((r.top + r.height / 2 - e.clientY) / r.height) * 14).toFixed(2)}deg`);
       el.style.setProperty("--ry", `${(((e.clientX - r.left - r.width / 2) / r.width) * 20).toFixed(2)}deg`);
       el.style.setProperty("--sx", `${(((e.clientX - r.left) / r.width) * 60 + 10).toFixed(1)}%`);
       return;
     }
-    const dx = Math.abs(e.clientX - drag.current.x);
-    if (dx > 6) drag.current.moved = true;
-    setProgress(Math.min(1, dx / (el.offsetWidth * 0.85)));
-    if (progress.current >= 1) {
+    const dx = e.clientX - d.x;
+    if (Math.abs(dx) > 4) d.moved = true;
+    const p = Math.min(1, d.p0 + Math.max(0, dx) / (r.width * 0.9));
+    if (p > progress.current) setProgress(p);
+    if (progress.current >= DONE_AT) {
       drag.current = null;
       el.classList.remove("dragging");
+      setProgress(1);
       finish();
     }
   };
   const up = () => {
     const d = drag.current;
     drag.current = null;
-    pack.current?.classList.remove("dragging");
-    if (!d || phase !== "sealed") return;
-    if (!d.moved || progress.current > 0.45) rip();
-    else setProgress(0);
+    const el = pack.current;
+    el?.classList.remove("dragging");
+    if (!d || d.moved || !el || phase !== "sealed") return;
+    el.classList.remove("nudge");
+    void el.offsetWidth;
+    el.classList.add("nudge");
   };
   const leave = () => {
     if (drag.current) return;
-    for (const p of ["--rx", "--ry", "--sx"]) pack.current?.style.removeProperty(p);
+    for (const p of ["--rx", "--ry", "--sx", "--mx", "--my"]) pack.current?.style.removeProperty(p);
   };
 
   return createPortal(
@@ -221,36 +322,39 @@ export function PackReveal({
               <i key={i} style={s} />
             ))}
           </span>
-          <div className="pk-pack" ref={pack} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={leave}>
+          <div
+            className="pk-pack"
+            data-look={look}
+            ref={pack}
+            onPointerDown={down}
+            onPointerMove={move}
+            onPointerUp={up}
+            onPointerCancel={up}
+            onPointerLeave={leave}
+          >
             <div className="pk-tilt">
-              <div className="pk-rising" aria-hidden>
-                <Card gem={gem} variant={variant} />
+              <div className="pk-inside" ref={inside} aria-hidden>
+                <Card gem={gem} />
               </div>
               <span className="pk-beam" aria-hidden />
               <div className="pk-body" style={{ clipPath: BODY }}>
-                <div className="pk-face">
-                  <TesoroMark size={44} />
-                  <span className="pk-kicker">Early access</span>
-                  <b className="pk-name">Waitlist pack</b>
-                  <span className="pk-emblem" aria-hidden>
-                    ?
-                  </span>
-                  <span className="pk-count">1 gemstone animal inside</span>
-                  <span className="pk-spot mono">Spot #{gem.spot}</span>
-                </div>
+                <Paint />
+                <Face gem={gem} look={look} />
               </div>
               <span className="pk-leak" aria-hidden />
+              <span className="pk-front" aria-hidden />
               <div className="pk-strip" style={{ clipPath: STRIP }}>
+                <Paint />
                 <span className="pk-tear-here mono">Tear here</span>
               </div>
             </div>
           </div>
           <span className="pk-shadow" aria-hidden />
           <p className="pk-hint" id="pk-title">
-            You&apos;re on the list. Swipe across the top to open your pack.
+            You&apos;re on the list. Drag along the top to tear your pack open.
           </p>
-          <button ref={ripButton} type="button" className="pk-rip" onClick={rip} disabled={phase !== "sealed"}>
-            Rip it open
+          <button ref={ripButton} type="button" className="pk-rip" onClick={ripAll} disabled={phase !== "sealed"}>
+            Open it for me
           </button>
         </div>
       ) : (
@@ -260,7 +364,7 @@ export function PackReveal({
           <h2 className="pk-open-title" id="pk-title">
             You pulled the <em>{gem.name}</em>
           </h2>
-          <Card gem={gem} variant={variant} />
+          <Card gem={gem} ref={shown} />
           <p className="pk-open-note">We&apos;ll email you when your spot opens. Share your card and bring your friends in.</p>
           <div className="pk-open-actions">
             <a ref={shareLink} className="btn neutral cut cut-btn pk-share" href={shareHref} target="_blank" rel="noopener noreferrer">

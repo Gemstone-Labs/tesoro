@@ -3,16 +3,11 @@ import { MARK, PALETTE, WORDMARK } from "@/components/brand/paths";
 import type { SpotGem } from "@/lib/waitlist-spot";
 
 /**
- * The card for a waitlist spot, 1200x630: the X card and the card inside the pack. Written for
+ * The card for a waitlist spot (founder pick A1), 1200x630: the X card and the card inside the pack. Written for
  * `next/og` (flex only, no `inset`, one text node per element), so the same markup renders as the
  * PNG and in the browser.
  */
 export const CARD = { width: 1200, height: 630 } as const;
-/** A is the picked look; A1..A3 each add to the one before (rays, the card frame, foil). */
-export const CARD_VARIANTS = ["A", "A1", "A2", "A3"] as const;
-export type CardVariant = (typeof CARD_VARIANTS)[number];
-/** The look the X card and the pack use. Prototype: switch with `?card=` on the waitlist. */
-export const SHARE_CARD: CardVariant = "A2";
 
 /** Font family names: the ones registered with `next/og`, or CSS stacks in the browser. */
 export type CardFonts = { display: string; sans: string };
@@ -22,7 +17,6 @@ const BG = "#0C0E10";
 const FG = "#F5F3EE";
 const FG2 = "#A7ACB4";
 const EMERALD = "#2DBE8C";
-const OUTSIDE = "#060708";
 
 export const rgba = (hex: string, a: number) =>
   `rgba(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}, ${a})`;
@@ -32,7 +26,7 @@ export function fitSize(text: string, max: number, width: number, em = 0.56): nu
   return Math.min(max, Math.floor(width / (text.length * em)));
 }
 
-type Props = { gem: SpotGem; src: string; F: CardFonts; host: string };
+type Props = { gem: SpotGem; src: string; F: CardFonts };
 
 function Lockup({ height }: { height: number }) {
   const p = PALETTE.dark;
@@ -231,39 +225,7 @@ function Title({ gem, F, width, max = 200 }: { gem: SpotGem; F: CardFonts; width
   );
 }
 
-/** A: the picked look, sized to fit. */
-function Plain({ gem, src, F }: Props) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        width: "100%",
-        height: "100%",
-        background: BG,
-        padding: 64,
-        gap: 64,
-        alignItems: "center",
-      }}
-    >
-      <Window src={src} size={440} hex={gem.hex} />
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          width: 568,
-          height: "100%",
-          justifyContent: "space-between",
-        }}
-      >
-        <Lockup height={52} />
-        <Title gem={gem} F={F} width={568} />
-        <Tagline F={F} size={44} />
-      </div>
-    </div>
-  );
-}
-
-/** A1: A with the waitlist texture and the gem's light rays. */
+/** The gem in its window over its own light rays and the waitlist texture; spot, name and tagline beside it. */
 function Lit({ gem, src, F }: Props) {
   return (
     <div
@@ -312,153 +274,10 @@ function Lit({ gem, src, F }: Props) {
   );
 }
 
-/** A2: A1 inside a cut card frame, with a header and footer like a trading card. */
-function Framed({ gem, src, F, host, foil = false }: Props & { foil?: boolean }) {
-  const W = 1200 - 48;
-  const H = 630 - 48;
-  const C = 28;
+export function SpotCard({ gem, src, fonts = OG_FONTS }: { gem: SpotGem; src: string; fonts?: CardFonts }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        position: "relative",
-        width: "100%",
-        height: "100%",
-        background: OUTSIDE,
-        padding: 24,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          position: "relative",
-          width: W,
-          height: H,
-          background: BG,
-        }}
-      >
-        <Texture w={W} h={H} />
-        <Rays cx={250} cy={300} hex={gem.hex} w={W} h={H} />
-        <Fill
-          style={{
-            backgroundImage: `linear-gradient(90deg, ${rgba(BG, 0)} 36%, ${rgba(BG, 0.85)} 58%)`,
-          }}
-        />
-        {foil ? (
-          <Fill
-            style={{
-              backgroundImage: `linear-gradient(115deg, ${rgba("#FFFFFF", 0)} 18%, ${rgba("#FFFFFF", 0.07)} 24%, ${rgba(gem.hex, 0.12)} 30%, ${rgba("#FFFFFF", 0)} 38%, ${rgba("#FFFFFF", 0)} 58%, ${rgba("#FFFFFF", 0.05)} 63%, ${rgba(gem.hex, 0.1)} 68%, ${rgba("#FFFFFF", 0)} 75%)`,
-            }}
-          />
-        ) : null}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
-            width: "100%",
-            height: "100%",
-            padding: "30px 44px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <Lockup height={40} />
-            <div
-              style={{
-                display: "flex",
-                fontFamily: F.sans,
-                fontWeight: 700,
-                fontSize: 20,
-                color: EMERALD,
-                letterSpacing: 4,
-                textTransform: "uppercase",
-              }}
-            >
-              Early access
-            </div>
-          </div>
-          <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 52 }}>
-            <Window src={src} size={380} hex={gem.hex} halo={0.5} />
-            <Title gem={gem} F={F} width={560} max={190} />
-          </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              borderTop: `2px solid ${rgba(FG2, 0.18)}`,
-              paddingTop: 18,
-            }}
-          >
-            <Tagline F={F} size={36} />
-            <div
-              style={{
-                display: "flex",
-                fontFamily: F.sans,
-                fontWeight: 400,
-                fontSize: 22,
-                color: FG2,
-              }}
-            >
-              {host}
-            </div>
-          </div>
-        </div>
-        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: "absolute", left: 0, top: 0 }}>
-          <defs>
-            <linearGradient id={`edge-${gem.hex.slice(1)}`} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor={gem.hex} />
-              <stop offset="0.45" stopColor={gem.hex} stopOpacity="0.35" />
-              <stop offset="1" stopColor={gem.hex} />
-            </linearGradient>
-          </defs>
-          <path d={`M0 0H${W}V${H}H0Z ${octagon(0, 0, W, H, C)}`} fill={OUTSIDE} fillRule="evenodd" />
-          <path d={octagon(1.5, 1.5, W - 3, H - 3, C - 1)} fill="none" stroke={`url(#edge-${gem.hex.slice(1)})`} strokeWidth="3" />
-        </svg>
-      </div>
-    </div>
-  );
-}
-
-const VARIANTS: Record<CardVariant, (p: Props) => ReactNode> = {
-  A: Plain,
-  A1: Lit,
-  A2: (p) => <Framed {...p} />,
-  A3: (p) => <Framed {...p} foil />,
-};
-
-export function SpotCard({
-  gem,
-  src,
-  variant = "A",
-  fonts = OG_FONTS,
-  host = "tesoro-fawn.vercel.app",
-}: {
-  gem: SpotGem;
-  src: string;
-  variant?: CardVariant;
-  fonts?: CardFonts;
-  host?: string;
-}) {
-  const Card = VARIANTS[variant];
-  return (
-    <div
-      style={{
-        display: "flex",
-        width: CARD.width,
-        height: CARD.height,
-        fontFamily: fonts.sans,
-        textAlign: "left",
-        lineHeight: 1.2,
-      }}
-    >
-      <Card gem={gem} src={src} F={fonts} host={host} />
+    <div style={{ display: "flex", width: CARD.width, height: CARD.height, fontFamily: fonts.sans, textAlign: "left", lineHeight: 1.2 }}>
+      <Lit gem={gem} src={src} F={fonts} />
     </div>
   );
 }

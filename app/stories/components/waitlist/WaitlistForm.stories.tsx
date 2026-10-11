@@ -38,7 +38,7 @@ export const Joined: Story = {
   beforeEach: () => setNextJoin(7),
   play: async ({ canvasElement }) => {
     await join(canvasElement);
-    await expect(await within(document.body).findByRole("button", { name: "Rip it open" })).toBeInTheDocument();
+    await expect(await within(document.body).findByRole("button", { name: "Open it for me" })).toBeInTheDocument();
   },
 };
 

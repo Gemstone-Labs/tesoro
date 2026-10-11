@@ -21,16 +21,56 @@
 /* the stage: pack, its shadow, the hint and the keyboard button */
 .pk-stage { position: relative; display: grid; justify-items: center; }
 .pk-pack {
-  --rx: 0deg; --ry: 0deg; --p: 0; --sx: 38%;
-  position: relative; z-index: 2; width: min(270px, 62vw); aspect-ratio: 5 / 7; perspective: 1000px;
+  --rx: 0deg; --ry: 0deg; --p: 0; --sx: 38%; --w: min(270px, 62vw);
+  position: relative; z-index: 2; width: var(--w); aspect-ratio: 5 / 7; perspective: 1000px;
   touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none;
 }
 .pk-pack.dragging { cursor: grabbing; }
 .pk-tilt {
   position: absolute; inset: 0; transform-style: preserve-3d;
   transform: rotateX(var(--rx)) rotateY(var(--ry)); transition: transform 0.25s ease-out;
-  animation: pk-float 4.2s ease-in-out infinite;
+  animation: pk-float 4.2s ease-in-out infinite; filter: drop-shadow(0 22px 26px rgba(0, 0, 0, 0.55));
 }
+/* every look: the pack is a pillow (dark curving sides, a soft swell in the middle), creased by its seals,
+   and lit where the pointer is */
+.pk-paint, .pk-holo { position: absolute; inset: 0; pointer-events: none; }
+.pk-paint {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 140' preserveAspectRatio='none' fill='none' stroke-width='.5'%3E%3Cg stroke='%23fff' stroke-opacity='.10'%3E%3Cpath d='M8 9l9 6M30 8l6 7M55 9l-7 6M80 8l8 7M14 131l8-6M44 132l6-6M70 131l-7-7M92 132l-6-6'/%3E%3C/g%3E%3Cg stroke='%23000' stroke-opacity='.35'%3E%3Cpath d='M9 10l9 6M31 9l6 7M56 10l-7 6M81 9l8 7M15 132l8-6M45 133l6-6M71 132l-7-7M93 133l-6-6'/%3E%3C/g%3E%3C/svg%3E") 0 0 / 100% 100%,
+    linear-gradient(90deg, rgba(0, 0, 0, 0.55), transparent 13%, transparent 87%, rgba(0, 0, 0, 0.55)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent 10%, transparent 90%, rgba(0, 0, 0, 0.4));
+}
+.pk-paint::after {
+  content: ""; position: absolute; inset: 0; mix-blend-mode: screen;
+  background:
+    radial-gradient(circle at var(--mx, 50%) var(--my, 32%), rgba(255, 255, 255, 0.2), transparent 34%),
+    radial-gradient(ellipse 72% 52% at 50% 50%, rgba(255, 255, 255, 0.09), transparent 70%);
+}
+/* holo: rainbow foil in fine diagonal lines that shifts as the pack tilts */
+.pk-holo { display: none; }
+.pk-pack[data-look="holo"] .pk-holo {
+  display: block; mix-blend-mode: color-dodge; opacity: 0.32;
+  background: linear-gradient(115deg, #ff5ea8, #ffd36b 20%, #ff9a6b 38%, #6bc8ff 56%, #b36bff 74%, #ff5ea8 92%) var(--sx) 50% / 300% 100%;
+  -webkit-mask-image: repeating-linear-gradient(115deg, #000 0 2px, rgba(0, 0, 0, 0.35) 2px 5px);
+  mask-image: repeating-linear-gradient(115deg, #000 0 2px, rgba(0, 0, 0, 0.35) 2px 5px);
+  transition: background-position 0.25s ease-out;
+}
+/* collection: the twelve animals ring the question mark, greyed */
+.pk-ring { position: relative; display: grid; place-items: center; width: 128px; aspect-ratio: 1; margin: 2px 0 4px; }
+.pk-ring img {
+  position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px;
+  transform: rotate(calc(var(--i) * 30deg)) translateY(-51px) rotate(calc(var(--i) * -30deg));
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  filter: grayscale(1) brightness(0.8) contrast(1.1); opacity: 0.75;
+}
+.pk-ring .pk-emblem { width: 62px; margin: 0; font-size: 38px; }
+.pk-pack[data-look="collection"] .pk-face { gap: 2px; }
+.pk-pack[data-look="collection"] .pk-face > svg { width: 34px; height: 34px; }
+/* each eighth of the tear: a small jolt (and a buzz on phones) */
+.pk-pack.tick { animation: pk-tick 140ms ease-out; }
+/* a tap without a drag: the strip wiggles and the hint lights up */
+.pk-pack.nudge .pk-strip { animation: pk-wiggle 520ms ease-in-out; }
+.pk-pack.nudge ~ .pk-hint { animation: pk-hint 900ms ease-out; }
 .pk-body, .pk-strip {
   position: absolute; inset: 0;
   background:
@@ -56,7 +96,7 @@
   text-transform: uppercase; color: var(--fg-2);
 }
 .pk-tear-here::after { content: " →"; display: inline-block; animation: pk-nudge 1.6s ease-in-out infinite; }
-.pk-strip { transform-origin: 100% var(--tear); transform: rotate(calc(var(--p) * 7deg)) translateY(calc(var(--p) * -9px)); transition: transform 0.3s ease-out; }
+.pk-strip { transform-origin: 100% var(--tear); transform: rotate(calc(var(--p) * 9deg)) translateY(calc(var(--p) * -10px)); transition: transform 0.18s ease-out; }
 .pk-pack.dragging .pk-strip { transition: none; }
 
 .pk-face {
@@ -86,7 +126,14 @@
   background: linear-gradient(to top, color-mix(in srgb, var(--gem) 70%, white), color-mix(in srgb, var(--gem) 25%, transparent) 50%, transparent);
   filter: blur(6px); opacity: 0; scale: 1 0; pointer-events: none;
 }
-.pk-rising { position: absolute; left: 5%; right: 5%; top: calc(var(--tear) + 3%); opacity: 0; }
+/* the tear's leading point */
+.pk-front {
+  position: absolute; left: calc(var(--p) * 100%); top: var(--tear); width: 12px; aspect-ratio: 1; translate: -50% -50%; border-radius: 50%;
+  background: radial-gradient(closest-side, #fff, var(--gem) 55%, transparent); opacity: min(1, calc(var(--p) * 30)); pointer-events: none;
+}
+/* the card waits sideways in the pack, behind the body, upright when it leaves */
+.pk-inside { position: absolute; left: 50%; top: 52%; width: calc(var(--w) * 1.26); translate: -50% -50%; rotate: -90deg; visibility: hidden; }
+.pk.is-torn .pk-inside { visibility: visible; }
 
 .pk-shadow {
   width: min(230px, 54vw); height: 28px; margin-top: 18px;
@@ -122,12 +169,15 @@
 }
 
 .pk.is-torn .pk-pack { cursor: default; }
+.pk-stage { transition: translate 0.8s cubic-bezier(0.3, 0.7, 0.3, 1); }
+.pk.is-torn .pk-stage { translate: 0 min(9vh, 80px); }
 .pk.is-torn .pk-tilt { animation: none; transform: none; transition: transform 0.4s ease-out; }
 .pk.is-torn .pk-strip { animation: pk-strip-off 720ms cubic-bezier(0.3, 0.6, 0.4, 1) forwards; }
 .pk.is-torn .pk-leak { animation: pk-leak-out 500ms ease-out forwards; }
 .pk.is-torn .pk-beam { animation: pk-beam 1000ms ease-out 60ms both; }
-.pk.is-torn .pk-rising { animation: pk-rise 950ms cubic-bezier(0.2, 0.9, 0.25, 1) 220ms both; }
-.pk.is-torn .pk-body { animation: pk-body-drop 760ms cubic-bezier(0.5, 0, 0.8, 0.4) 380ms forwards; }
+.pk.is-torn .pk-inside { animation: pk-rise 900ms cubic-bezier(0.2, 0.85, 0.25, 1) 180ms both; }
+.pk.is-torn .pk-front { opacity: 0; }
+.pk.is-torn .pk-body { animation: pk-body-drop 700ms cubic-bezier(0.5, 0, 0.8, 0.4) 480ms forwards; }
 .pk.is-torn .pk-flash { animation: pk-flash 620ms ease-out both; }
 .pk.is-torn .pk-glow { animation: pk-glow 1250ms ease-out both; }
 .pk.is-torn .pk-rays { animation: pk-rays-in 700ms ease-out 100ms both, spin 14s linear infinite; }
@@ -158,15 +208,16 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .pk-open > * { animation: pk-up 420ms ease-out both; }
-  .pk-open > .pk-open-title { animation-delay: 60ms; }
+  .pk-open > .pk-open-kicker, .pk-open > .pk-open-title { animation-delay: 700ms; }
   .pk-open > .pk-card { animation: pk-card-in 760ms cubic-bezier(0.2, 1.25, 0.3, 1) both; }
-  .pk-open > .pk-card .pk-card-sheen { animation: pk-sheen 1500ms ease-in-out 450ms both; }
-  .pk-open > .pk-open-note { animation-delay: 300ms; }
-  .pk-open > .pk-open-actions { animation-delay: 380ms; }
+  .pk-open > .pk-card.flip { animation: none; }
+  .pk-open > .pk-card .pk-card-sheen { animation: pk-sheen 1500ms ease-in-out 1000ms both; }
+  .pk-open > .pk-open-note { animation-delay: 850ms; }
+  .pk-open > .pk-open-actions { animation-delay: 950ms; }
   .pk-open > .pk-rays { animation: pk-rays-in 700ms ease-out both, spin 30s linear infinite; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pk, .pk-tilt, .pk-shadow, .pk-tear-here::after { animation: none; }
+  .pk, .pk-tilt, .pk-shadow, .pk-tear-here::after, .pk-pack.tick, .pk-pack.nudge .pk-strip { animation: none; }
   .pk-card-in { transform: none; }
 }
 
@@ -177,7 +228,10 @@
 @keyframes pk-strip-off { to { transform: translate(-70px, -280px) rotate(-34deg); opacity: 0; } }
 @keyframes pk-leak-out { to { width: 100%; height: 14px; opacity: 0; } }
 @keyframes pk-beam { 0% { opacity: 1; scale: 0.6 0; } 35% { opacity: 0.95; scale: 1 1; } 100% { opacity: 0; scale: 1.4 1.25; } }
-@keyframes pk-rise { 0% { opacity: 1; transform: translateY(25%); } 100% { opacity: 1; transform: translateY(-120%) scale(1.2); } }
+@keyframes pk-rise { to { translate: -50% calc(-50% - var(--w) * 0.62); scale: 1.04; } }
+@keyframes pk-tick { 40% { translate: 1px -2px; } }
+@keyframes pk-wiggle { 25% { rotate: 4deg; } 55% { rotate: -1.5deg; } 80% { rotate: 1deg; } }
+@keyframes pk-hint { 30% { color: var(--gem); } }
 @keyframes pk-body-drop { to { transform: translateY(60%); opacity: 0; } }
 @keyframes pk-flash { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes pk-glow { 0% { opacity: 0; scale: 0.4; } 30% { opacity: 1; scale: 1.1; } 100% { opacity: 0.7; scale: 1; } }
