@@ -91,7 +91,7 @@
   -webkit-mask-image: radial-gradient(closest-side, #000 15%, transparent 95%); mask-image: radial-gradient(closest-side, #000 15%, transparent 95%);
   animation: lbx-spin 50s linear infinite;
 }
-.lbx-d-chest { position: relative; width: 100%; animation: lbx-bob 5s ease-in-out infinite; }
+.lbx-d-chest { position: relative; display: block; width: 100%; height: auto; animation: lbx-bob 5s ease-in-out infinite; }
 .lbx-d-copy { display: grid; gap: 10px; justify-items: start; }
 .lbx-d-kicker { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
 .lbx-d-kicker b { color: var(--fg); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 14px; }

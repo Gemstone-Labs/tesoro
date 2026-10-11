@@ -156,7 +156,7 @@ export function HeroD({ data, pool, remaining }: HeroProps) {
     <section className="cut cut-frame lbx-d" aria-label="This season">
       <div className="lbx-d-art" aria-hidden="true">
         <div className="lbx-d-rays" />
-        <Image className="pool-art lbx-d-chest" src={art.poolChest} alt="" width={420} height={420} priority />
+        <Image className="lbx-d-chest" src={art.poolChestCut} alt="" width={420} height={420} priority />
       </div>
       <div className="lbx-d-copy">
         <span className="lbx-d-kicker">
