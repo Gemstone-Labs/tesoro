@@ -1,0 +1,149 @@
+/* PROTOTYPE ONLY: CrossChainProgress takes A–D (branch proto/crosschain-progress-11-10-2026). */
+
+/* shared kicker */
+.xa-kicker, .xc2-kicker, .xd-kicker { font-family: var(--f-display); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+
+/* ——— A · Route ——— */
+.xa { display: grid; gap: 12px; }
+.xa-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.xa-route { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 0; }
+.xa-end { --c: 12px; width: 52px; height: 52px; display: grid; place-items: center; background: var(--surface-2); --edge: var(--edge-2); transition: background 0.4s, filter 0.4s; }
+.xa-end.waiting { filter: grayscale(1) brightness(0.7); --edge: var(--edge-1); }
+.xa-end.active { --edge: linear-gradient(180deg, rgba(242, 185, 75, 0.9), rgba(242, 185, 75, 0.3)); }
+.xa-end.failed { --edge: var(--danger); }
+.xa-end.available { background: var(--money-fill); --edge: var(--money-rim); }
+.xa-end.available svg { filter: drop-shadow(0 0 6px rgba(3, 32, 26, 0.35)); }
+.xa-track { position: relative; display: flex; height: 52px; align-items: center; margin: 0 -1px; }
+.xa-leg { flex: 1; height: 4px; background: repeating-linear-gradient(90deg, var(--line-2) 0 6px, transparent 6px 11px); transition: background 0.4s; }
+.xa-leg.lit { background: linear-gradient(180deg, rgba(234, 239, 236, 0.75), rgba(234, 239, 236, 0.35)); }
+.xa-leg.live {
+  background: linear-gradient(90deg, transparent 0, rgba(242, 185, 75, 0.95) 45%, transparent 60%) 0 0 / 220% 100%, var(--line-2);
+  animation: xa-flow 1.4s linear infinite;
+}
+.xa-leg.broken { background: repeating-linear-gradient(90deg, var(--danger) 0 6px, transparent 6px 11px); }
+.is-done .xa-leg { background: var(--money-fill); }
+@keyframes xa-flow { from { background-position: 120% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
+.xa-stop { --c: 4px; position: absolute; top: 50%; width: 16px; height: 16px; transform: translate(-50%, -50%); background: var(--raised-2); --edge: var(--edge-2); transition: background 0.4s; }
+.xa-stop.done { background: var(--fg); --edge: transparent; }
+.xa-stop.active { background: var(--warn); --edge: transparent; }
+.xa-stop.failed { background: var(--danger); --edge: transparent; }
+.is-done .xa-stop { background: var(--em); }
+.xa-packet {
+  position: absolute; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--warn); box-shadow: 0 0 0 4px rgba(242, 185, 75, 0.18), 0 0 18px rgba(242, 185, 75, 0.7);
+  transition: left 0.9s cubic-bezier(0.5, 0, 0.2, 1); animation: xa-beat 1.4s ease-in-out infinite;
+}
+.xa-packet.failed { background: var(--danger); box-shadow: 0 0 0 4px rgba(242, 104, 90, 0.2); animation: none; }
+@keyframes xa-beat { 50% { box-shadow: 0 0 0 7px rgba(242, 185, 75, 0.06), 0 0 26px rgba(242, 185, 75, 0.9); } }
+.xa-names { display: flex; justify-content: space-between; font-size: 12px; color: var(--fg-2); margin-top: -4px; }
+.xa-now { display: grid; gap: 2px; padding: 12px 14px; background: var(--shell); border-left: 2px solid var(--warn); }
+.is-done .xa-now { border-left-color: var(--em); }
+.is-failed .xa-now { border-left-color: var(--danger); }
+.xa-now strong { font-size: 17px; font-weight: 800; }
+.xa-note { font-size: 13px; color: var(--fg-2); }
+.xa-state { font-family: var(--f-display); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--warn); }
+.xa-state.available { color: var(--em); }
+.xa-state.failed { color: var(--danger); }
+
+/* ——— B · Status line ——— */
+.xb { display: grid; gap: 10px; }
+.xb-top { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--fg-2); }
+.xb-route { display: inline-flex; align-items: center; gap: 6px; }
+.xb-route > span:last-child { margin-left: 6px; font-family: var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; }
+.xb-count { font-family: var(--f-display); font-size: 14px; color: var(--fg); }
+.xb-word { display: flex; align-items: center; gap: 12px; font-family: var(--f-display); font-size: clamp(30px, 7vw, 40px); line-height: 1; text-transform: uppercase; letter-spacing: 0.01em; }
+.xb-dot { width: 12px; height: 12px; flex: none; transform: rotate(45deg); background: var(--warn); animation: xb-pulse 1.6s ease-in-out infinite; }
+.is-failed .xb-word { color: var(--danger); }
+.is-failed .xb-dot { background: var(--danger); animation: none; }
+.is-done .xb-word { background: var(--facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.is-done .xb-dot { background: var(--facet); animation: none; }
+@keyframes xb-pulse { 50% { opacity: 0.35; transform: rotate(45deg) scale(0.8); } }
+.xb-bar { display: flex; gap: 4px; }
+.xb-seg { --c: 4px; flex: 1; height: 12px; background: var(--raised-2); --edge: var(--edge-1); transition: background 0.5s; }
+.xb-seg.done { background: linear-gradient(180deg, #eaefec, #aab3b0); --edge: transparent; }
+.xb-seg.active {
+  --edge: transparent;
+  background: linear-gradient(100deg, rgba(242, 185, 75, 0.25) 20%, rgba(242, 185, 75, 1) 50%, rgba(242, 185, 75, 0.25) 80%) 0 0 / 250% 100%;
+  animation: xb-shine 1.6s linear infinite;
+}
+.xb-seg.failed { background: var(--danger); --edge: transparent; }
+.is-done .xb-seg { background: var(--money-fill); }
+@keyframes xb-shine { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+.xb-line { font-size: 14px; color: var(--fg-2); }
+.xb-line b { color: var(--fg); }
+.xb-more { border-top: 1px solid var(--line); padding-top: 8px; font-size: 13px; }
+.xb-more summary { cursor: pointer; color: var(--fg-2); font-weight: 700; }
+.xb-more ol { list-style: none; margin: 10px 0 8px; padding: 0; display: grid; gap: 6px; }
+.xb-more li { display: grid; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: center; color: var(--fg-2); }
+.xb-more li.done, .xb-more li.available { color: var(--fg); }
+.xb-more li.active { color: var(--warn); }
+.xb-more li.failed { color: var(--danger); }
+.xb-w { font-size: 12px; font-weight: 700; }
+
+/* ——— C · Facet dial ——— */
+.xc2 { display: grid; grid-template-columns: 124px 1fr; gap: 18px; align-items: center; }
+@media (max-width: 420px) { .xc2 { grid-template-columns: 96px 1fr; gap: 14px; } }
+.xc2-dial { position: relative; aspect-ratio: 1; }
+.xc2-dial svg { width: 100%; height: 100%; overflow: visible; }
+.xc2-table { fill: var(--shell); stroke: var(--line); stroke-width: 0.6; transform: scale(0.78); transform-origin: 50% 50%; transition: fill 0.6s; }
+.is-done .xc2-table { fill: #0d3a2e; }
+.xc2-facet { fill: none; stroke-width: 7; stroke-linejoin: round; stroke: rgba(234, 239, 236, 0.14); transition: stroke 0.5s; }
+.xc2-facet.done { stroke: #c9d0cd; }
+.xc2-facet.active { stroke: var(--warn); animation: xc2-glow 1.6s ease-in-out infinite; }
+.xc2-facet.failed { stroke: var(--danger); }
+.is-done .xc2-facet { stroke: var(--em); filter: drop-shadow(0 0 4px rgba(36, 216, 168, 0.55)); }
+@keyframes xc2-glow { 50% { stroke: rgba(242, 185, 75, 0.35); } }
+.xc2-core { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px; }
+.xc2-n { font-family: var(--f-display); font-size: 26px; line-height: 1; }
+.xc2-n small { font-size: 14px; color: var(--fg-2); }
+.is-done .xc2-core svg { width: 44px; height: 44px; filter: drop-shadow(0 0 10px rgba(36, 216, 168, 0.6)); }
+.xc2-side { display: grid; gap: 8px; min-width: 0; }
+.xc2-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 13px; }
+.xc2-list li { display: grid; grid-template-columns: 14px 1fr; gap: 8px; align-items: start; color: var(--fg-3); }
+.xc2-list li svg { margin-top: 2px; }
+.xc2-list li.done { color: var(--fg-2); }
+.xc2-list li.active { color: var(--fg); font-weight: 700; }
+.xc2-list li.active svg { color: var(--warn); }
+.xc2-list li.failed { color: var(--danger); font-weight: 700; }
+.xc2-list li.available { color: var(--em); font-weight: 700; }
+.xc2-list small { display: block; font-weight: 400; font-size: 12px; color: var(--fg-2); }
+
+/* ——— D · Lit rail ——— */
+.xd { display: grid; gap: 12px; }
+.xd-body { position: relative; display: grid; gap: 10px; --rail-x: 14px; }
+.xd-rail { position: absolute; left: calc(var(--rail-x) - 1px); top: 14px; bottom: 14px; width: 2px; background: var(--line); }
+.xd-rail::after {
+  content: ""; position: absolute; inset: 0 0 auto; height: calc(var(--fill) * 100%);
+  background: linear-gradient(180deg, rgba(234, 239, 236, 0.2), var(--fg)); transition: height 0.9s cubic-bezier(0.5, 0, 0.2, 1);
+}
+.is-done .xd-rail::after { background: linear-gradient(180deg, rgba(36, 216, 168, 0.3), var(--em)); box-shadow: 0 0 10px rgba(36, 216, 168, 0.6); }
+.xd-end { position: relative; display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.xd-mark { width: 28px; height: 28px; display: grid; place-items: center; background: var(--surface-2); --edge: var(--edge-2); }
+.xd-end.lit .xd-mark { background: var(--money-fill); --edge: var(--money-rim); }
+.xd-end.lit { color: var(--em); }
+.xd-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.xd-steps li { position: relative; display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: center; }
+.xd-steps li.open { align-items: start; }
+.xd-node { --c: 5px; width: 20px; height: 20px; margin-left: 4px; display: grid; place-items: center; background: var(--shell); color: var(--fg-3); --edge: var(--edge-1); }
+.xd-node svg { width: 12px; height: 12px; }
+.xd-steps li.done .xd-node { background: var(--fg); color: var(--shell); --edge: transparent; }
+.xd-steps li.active .xd-node { background: var(--warn); color: var(--shell); --edge: transparent; }
+.xd-steps li.failed .xd-node { background: var(--danger); color: var(--shell); --edge: transparent; }
+.xd-steps li.available .xd-node { background: var(--money-fill); color: var(--em-ink); --edge: transparent; }
+.xd-steps li.open .xd-node { margin-top: 12px; }
+.xd-t { font-size: 13px; color: var(--fg-2); }
+.xd-steps li.waiting .xd-t { color: var(--fg-3); }
+.xd-card { position: relative; overflow: hidden; display: grid; gap: 2px; padding: 10px 14px 12px; background: var(--surface-2); font-size: 13px; color: var(--fg-2); }
+.xd-card b { font-size: 15px; color: var(--fg); }
+.xd-card.active { --edge: linear-gradient(180deg, rgba(242, 185, 75, 0.9), rgba(242, 185, 75, 0.25)); }
+.xd-card.failed { --edge: var(--danger); }
+.xd-card.available { --edge: var(--edge-em); }
+.xd-w { font-family: var(--f-display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--warn); }
+.xd-card.failed .xd-w { color: var(--danger); }
+.xd-card.available .xd-w { color: var(--em); }
+.xd-scan { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(242, 185, 75, 0.12) 50%, transparent 70%) 0 0 / 250% 100%; animation: xb-shine 2.2s linear infinite; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .xa-leg.live, .xa-packet, .xb-dot, .xb-seg.active, .xc2-facet.active, .xd-scan { animation: none; }
+  .xa-packet, .xd-rail::after { transition: none; }
+}

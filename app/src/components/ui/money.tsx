@@ -3,6 +3,7 @@ import type { Chain } from "@/lib/mock/types";
 import { GemaAmount, SimulatedYieldLabel } from "./gema";
 import { CheckIcon, ClockIcon, MinusIcon, XIcon } from "./icons";
 import { ChainChip, Label, Meter } from "./primitives";
+import { CrossChainPrototype } from "./CrossChainProgress.prototype";
 
 /** The balance: big, plain, emerald-cut. The only place the glint runs. */
 export function BalanceCard({ total, title = "Your Gemas" }: { total: number; title?: string }) {
@@ -120,7 +121,9 @@ export function CrossChainProgress({
 }) {
   const last = steps.length;
   const allDone = stage >= last && !failed;
+  // PROTOTYPE: ?variant=now|A|B|C|D
   return (
+    <CrossChainPrototype props={{ stage, failed, chain, txHash, steps, label, finalState, doneText, pendingText, failedText }}>
     <div className="stack">
       <div className="spread">
         <Label>{label ?? (chain ? `${chain} → Gemas` : "Cross-chain")}</Label>
@@ -152,5 +155,6 @@ export function CrossChainProgress({
         {allDone ? doneText : failed ? failedText : pendingText}
       </p>
     </div>
+    </CrossChainPrototype>
   );
 }
