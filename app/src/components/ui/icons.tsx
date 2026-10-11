@@ -21,6 +21,7 @@ function Icon({ children, ...p }: P) {
 }
 
 export const CheckIcon = (p: P) => <Icon {...p}><path d="M4 12.5 9.5 18 20 6.5" /></Icon>;
+export const LockIcon = (p: P) => <Icon {...p}><rect x="5" y="11" width="14" height="9" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></Icon>;
 export const XIcon = (p: P) => <Icon {...p}><path d="M5 5l14 14M19 5 5 19" /></Icon>;
 export const ClockIcon = (p: P) => <Icon {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5.5l3.5 2" /></Icon>;
 export const MinusIcon = (p: P) => <Icon {...p}><path d="M6 12h12" /></Icon>;

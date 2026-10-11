@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { LockIcon } from "@/components/ui/icons";
 import { art } from "@/lib/art";
 import { landingArt, type LandingKey } from "@/lib/landing/art";
 import { Picture } from "./Picture";
@@ -41,7 +41,14 @@ function NodeArt({ node }: { node: Node }) {
   return null;
 }
 
-function Outcome({ win, title, children }: { win?: boolean; title: string; children: ReactNode }) {
+/** Win and Lose: the result in a line, then the small print. */
+const OUTCOMES = {
+  win: { line: "Take the loser’s Gemas.", note: "Paid out as their yield lands." },
+  lose: { line: "Your Gemas go to the winner.", note: "Your Position unlocks once its yield repays the Advance." },
+};
+
+function Outcome({ win }: { win?: boolean }) {
+  const o = win ? OUTCOMES.win : OUTCOMES.lose;
   return (
     <div className={`lp-outcome-card cut cut-frame${win ? " win" : " lose"}`} style={pct(890, win ? 100 : 372)}>
       <div className="lp-oct-node small" aria-hidden>
@@ -49,8 +56,9 @@ function Outcome({ win, title, children }: { win?: boolean; title: string; child
         {landingArt(win ? "step5" : "step1") && <Picture k={win ? "step5" : "step1"} sizes="96px" />}
       </div>
       <div>
-        <b>{title}</b>
-        <span>{children}</span>
+        <b>{win ? "Win" : "Lose"}</b>
+        <span>{o.line}</span>
+        <small>{o.note}</small>
       </div>
     </div>
   );
@@ -121,7 +129,9 @@ function FlowPhone() {
               {landingArt(win ? "step5" : "step1") && <Picture k={win ? "step5" : "step1"} sizes="72px" />}
             </div>
             <b>{win ? "Win" : "Lose"}</b>
-            <span>{win ? "You take the loser’s Gemas, paid out as their yield lands." : "Your Position stays locked until its yield repays the Advance."}</span>
+            <span>
+              {OUTCOMES[win ? "win" : "lose"].line} <small>{OUTCOMES[win ? "win" : "lose"].note}</small>
+            </span>
           </div>
         ))}
       </div>
@@ -154,7 +164,7 @@ export function HowItWorks() {
           </div>
         </header>
 
-        <figure className="lp-flowmap" data-reveal aria-label="Open a Position, take an Advance as Gemas, then play yourself or back a Player. At settlement the winner takes the loser's Gemas, paid out as their yield lands; the loser's Position stays locked until its yield repays the Advance.">
+        <figure className="lp-flowmap" data-reveal aria-label="Open a Position, take an Advance as Gemas, then play yourself or back a Player. At settlement the winner takes the loser's Gemas, paid out as their yield lands; the loser's Position unlocks once its yield repays the Advance. Your Principal is never played.">
           <svg viewBox={`0 0 ${W} ${H}`} fill="none" strokeLinecap="round" aria-hidden>
             <defs>
               <filter id="lp-tube-glow" x="-10%" y="-40%" width="120%" height="180%">
@@ -190,10 +200,11 @@ export function HowItWorks() {
               {n.sub && <span>{n.sub}</span>}
             </div>
           ))}
-          <Outcome win title="Win">
-            You take the loser&rsquo;s Gemas, paid out as their yield lands.
-          </Outcome>
-          <Outcome title="Lose">Your Position stays locked until its yield repays the Advance.</Outcome>
+          <span className="lp-flow-lock mono" style={pct(92, 132)}>
+            <LockIcon width={12} height={12} /> Never played
+          </span>
+          <Outcome win />
+          <Outcome />
         </figure>
         <FlowPhone />
         <p className="lp-flow-foot" data-reveal>
