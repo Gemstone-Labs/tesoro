@@ -44,12 +44,29 @@ export const Joined: Story = {
 
 /** Behind the pack once it is closed: the spot, Try it now and See your card. */
 export const JoinedClosed: Story = {
-  name: "Joined (pack closed)",
+  name: "Joined (pack closed unopened)",
   beforeEach: () => setNextJoin(7),
   play: async ({ canvasElement }) => {
     const c = await join(canvasElement);
     await userEvent.click(await within(document.body).findByRole("button", { name: "Close" }));
+    await expect(await c.findByRole("button", { name: "Open your pack" })).toBeInTheDocument();
+    await expect(within(document.body).queryByText(/Amethyst Owl/)).toBeNull();
+  },
+};
+
+/** Opened, then closed: now the page names the gem, and See your card brings the card back. */
+export const JoinedOpened: Story = {
+  name: "Joined (pack opened, closed)",
+  beforeEach: () => setNextJoin(7),
+  play: async ({ canvasElement }) => {
+    const c = await join(canvasElement);
+    const page = within(document.body);
+    await expect(page.queryByText(/Amethyst Owl/)).toBeNull();
+    await userEvent.click(await page.findByRole("button", { name: "Open it for me" }));
+    await page.findByRole("heading", { name: /You pulled the Amethyst Owl/ }, { timeout: 5000 });
+    await userEvent.click(page.getByRole("button", { name: "Close" }));
     await expect(await c.findByText("You pulled the Amethyst Owl.")).toBeInTheDocument();
+    await expect(c.getByRole("button", { name: "See your card" })).toBeInTheDocument();
   },
 };
 

@@ -31,9 +31,9 @@
   transform: rotateX(var(--rx)) rotateY(var(--ry)); transition: transform 0.25s ease-out;
   animation: pk-float 4.2s ease-in-out infinite; filter: drop-shadow(0 22px 26px rgba(0, 0, 0, 0.55));
 }
-/* every look: the pack is a pillow (dark curving sides, a soft swell in the middle), creased by its seals,
+/* the pack is a pillow (dark curving sides, a soft swell in the middle), creased by its seals,
    and lit where the pointer is */
-.pk-paint, .pk-holo { position: absolute; inset: 0; pointer-events: none; }
+.pk-paint { position: absolute; inset: 0; pointer-events: none; }
 .pk-paint {
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 140' preserveAspectRatio='none' fill='none' stroke-width='.5'%3E%3Cg stroke='%23fff' stroke-opacity='.10'%3E%3Cpath d='M8 9l9 6M30 8l6 7M55 9l-7 6M80 8l8 7M14 131l8-6M44 132l6-6M70 131l-7-7M92 132l-6-6'/%3E%3C/g%3E%3Cg stroke='%23000' stroke-opacity='.35'%3E%3Cpath d='M9 10l9 6M31 9l6 7M56 10l-7 6M81 9l8 7M15 132l8-6M45 133l6-6M71 132l-7-7M93 133l-6-6'/%3E%3C/g%3E%3C/svg%3E") 0 0 / 100% 100%,
@@ -46,26 +46,6 @@
     radial-gradient(circle at var(--mx, 50%) var(--my, 32%), rgba(255, 255, 255, 0.2), transparent 34%),
     radial-gradient(ellipse 72% 52% at 50% 50%, rgba(255, 255, 255, 0.09), transparent 70%);
 }
-/* holo: rainbow foil in fine diagonal lines that shifts as the pack tilts */
-.pk-holo { display: none; }
-.pk-pack[data-look="holo"] .pk-holo {
-  display: block; mix-blend-mode: color-dodge; opacity: 0.32;
-  background: linear-gradient(115deg, #ff5ea8, #ffd36b 20%, #ff9a6b 38%, #6bc8ff 56%, #b36bff 74%, #ff5ea8 92%) var(--sx) 50% / 300% 100%;
-  -webkit-mask-image: repeating-linear-gradient(115deg, #000 0 2px, rgba(0, 0, 0, 0.35) 2px 5px);
-  mask-image: repeating-linear-gradient(115deg, #000 0 2px, rgba(0, 0, 0, 0.35) 2px 5px);
-  transition: background-position 0.25s ease-out;
-}
-/* collection: the twelve animals ring the question mark, greyed */
-.pk-ring { position: relative; display: grid; place-items: center; width: 128px; aspect-ratio: 1; margin: 2px 0 4px; }
-.pk-ring img {
-  position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px;
-  transform: rotate(calc(var(--i) * 30deg)) translateY(-51px) rotate(calc(var(--i) * -30deg));
-  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
-  filter: grayscale(1) brightness(0.8) contrast(1.1); opacity: 0.75;
-}
-.pk-ring .pk-emblem { width: 62px; margin: 0; font-size: 38px; }
-.pk-pack[data-look="collection"] .pk-face { gap: 2px; }
-.pk-pack[data-look="collection"] .pk-face > svg { width: 34px; height: 34px; }
 /* each eighth of the tear: a small jolt (and a buzz on phones) */
 .pk-pack.tick { animation: pk-tick 140ms ease-out; }
 /* a tap without a drag: the strip wiggles and the hint lights up */

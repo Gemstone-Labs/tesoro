@@ -7,11 +7,6 @@ import { art } from "@/lib/art";
 import type { SpotGem } from "@/lib/waitlist-spot";
 import { CARD, SpotCard, type CardFonts } from "./SpotCard";
 
-/** Prototype: the pack's looks, each adding to the first. foil: pillow shading, pointer light, creases. */
-export const PACK_LOOKS = ["foil", "holo", "collection"] as const;
-export type PackLook = (typeof PACK_LOOKS)[number];
-export const PACK_LOOK: PackLook = "foil";
-
 /** Where the pack tears, as a share of its height. */
 const TEAR = 19;
 const TEETH = 22;
@@ -93,36 +88,17 @@ const Card = forwardRef<HTMLDivElement, { gem: SpotGem }>(function Card({ gem },
   );
 });
 
-/** Paint shared by the strip and the body, inside each one's clip: holo foil, shading and the pointer's light. */
-function Paint() {
-  return (
-    <>
-      <span className="pk-holo" aria-hidden />
-      <span className="pk-paint" aria-hidden />
-    </>
-  );
-}
 
-function Face({ gem, look }: { gem: SpotGem; look: PackLook }) {
+function Face({ gem }: { gem: SpotGem }) {
   return (
     <div className="pk-face">
       <TesoroMark size={44} />
       <span className="pk-kicker">Early access</span>
       <b className="pk-name">Waitlist pack</b>
-      {look === "collection" ? (
-        <span className="pk-ring" aria-hidden>
-          {art.avatars.map((src, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={src} src={src} alt="" style={{ "--i": i } as React.CSSProperties} />
-          ))}
-          <span className="pk-emblem">?</span>
-        </span>
-      ) : (
-        <span className="pk-emblem" aria-hidden>
-          ?
-        </span>
-      )}
-      <span className="pk-count">{look === "collection" ? "1 of 12 gemstone animals" : "1 gemstone animal inside"}</span>
+      <span className="pk-emblem" aria-hidden>
+        ?
+      </span>
+      <span className="pk-count">1 gemstone animal inside</span>
       <span className="pk-spot mono">Spot #{gem.spot}</span>
     </div>
   );
@@ -139,17 +115,18 @@ type Box = { cx: number; cy: number; long: number };
  */
 export function PackReveal({
   gem,
-  look = PACK_LOOK,
   shareHref,
   tryHref,
   sealed = true,
+  onOpen,
   onClose,
 }: {
   gem: SpotGem;
-  look?: PackLook;
   shareHref: string;
   tryHref: string;
   sealed?: boolean;
+  /** Runs once the card shows, so the page can name the gem from then on. */
+  onOpen?: () => void;
   onClose: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>(() => (sealed && !reducedMotion() ? "sealed" : "open"));
@@ -224,8 +201,11 @@ export function PackReveal({
 
   useEffect(() => {
     if (phase === "sealed") ripButton.current?.focus({ preventScroll: true });
-    if (phase === "open") shareLink.current?.focus({ preventScroll: true });
-  }, [phase]);
+    if (phase === "open") {
+      shareLink.current?.focus({ preventScroll: true });
+      onOpen?.();
+    }
+  }, [phase, onOpen]);
 
   // The card left the pack upright: it turns flat and grows from there into its place in the modal.
   useLayoutEffect(() => {
@@ -324,7 +304,6 @@ export function PackReveal({
           </span>
           <div
             className="pk-pack"
-            data-look={look}
             ref={pack}
             onPointerDown={down}
             onPointerMove={move}
@@ -338,13 +317,13 @@ export function PackReveal({
               </div>
               <span className="pk-beam" aria-hidden />
               <div className="pk-body" style={{ clipPath: BODY }}>
-                <Paint />
-                <Face gem={gem} look={look} />
+                <span className="pk-paint" aria-hidden />
+                <Face gem={gem} />
               </div>
               <span className="pk-leak" aria-hidden />
               <span className="pk-front" aria-hidden />
               <div className="pk-strip" style={{ clipPath: STRIP }}>
-                <Paint />
+                <span className="pk-paint" aria-hidden />
                 <span className="pk-tear-here mono">Tear here</span>
               </div>
             </div>
