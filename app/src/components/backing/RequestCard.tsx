@@ -10,13 +10,12 @@ import { GAME_NAMES } from "@/lib/mock";
 import { ClockIcon, GemaMark } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
+import { Pnl } from "./Pnl";
 import "./request-card.css";
 
-const HERO = { "block-puzzle": art.blockPuzzleHero, holdem: art.holdemHero, "trading-duel": art.tradingDuelHero } as const;
-
 /**
- * A Player's live Request: the Game's banner, the Player, their record (win rate with its sample
- * size, W–L) and the entry they ask for. Lobby "Back a player" and the Backing board.
+ * A Player's live Request on the Backing board, a poster like the Lobby's Player card: their animal
+ * over the Game's art, the name, record (win rate, W, L), P&L, then the entry they ask for.
  */
 export function RequestCard({
   r,
@@ -33,48 +32,42 @@ export function RequestCard({
 }) {
   const name = usePlayerLabel(r.player);
   const { matches, wins } = r.record;
-  const pct = matches ? Math.round((wins / matches) * 100) : 0;
+  const left = timeLeft(r.expiresAt, nowMs);
   return (
     <article id={id} className={`cut cut-card rq${selected ? " selected" : ""}`} aria-label={`${name}, ${GAME_NAMES[r.game]}`}>
-      <div className="rq-art">
-        <Image src={HERO[r.game]} alt="" fill sizes="(min-width: 1100px) 440px, 100vw" />
+      <div className="rq-face">
+        <Image className="rq-art" src={art.hero[r.game]} alt="" fill sizes="(min-width: 1100px) 440px, 100vw" />
         <span className="rq-game">{GAME_NAMES[r.game]}</span>
-        <span className="rq-time">
-          <ClockIcon width={13} height={13} />
-          {timeLeft(r.expiresAt, nowMs)}
+        <span className="rq-time mono" aria-label={left}>
+          <ClockIcon width={12} height={12} />
+          {left.replace(" left", "")}
         </span>
-      </div>
-      <div className="rq-who">
         <AccountLink account={r.player} decorative className="cut cut-btn avatar rq-avatar">
-          <PlayerAvatar account={r.player} size={152} />
+          <PlayerAvatar account={r.player} size={264} />
         </AccountLink>
+      </div>
+      <div className="rq-body">
         <strong>
           <AccountLink account={r.player} />
         </strong>
-      </div>
-      <div className="rq-body">
         {matches ? (
-          <div className="rq-rec">
-            <dl>
+          <>
+            <dl className="rq-stats">
               <div>
                 <dt>Won</dt>
-                <dd>{pct}%</dd>
+                <dd>{Math.round((wins / matches) * 100)}%</dd>
               </div>
               <div>
-                <dt>{matches === 1 ? "Match" : "Matches"}</dt>
-                <dd>{matches}</dd>
+                <dt>W</dt>
+                <dd>{wins}</dd>
               </div>
               <div>
-                <dt>W – L</dt>
-                <dd>
-                  {wins}–{matches - wins}
-                </dd>
+                <dt>L</dt>
+                <dd>{matches - wins}</dd>
               </div>
             </dl>
-            <span className="rq-bar" aria-hidden="true">
-              <i style={{ width: `${pct}%` }} />
-            </span>
-          </div>
+            <Pnl deltas={r.pnl} />
+          </>
         ) : (
           <p className="rq-new">New Player · no settled Matches yet</p>
         )}

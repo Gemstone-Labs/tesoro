@@ -44,20 +44,6 @@
 .bp-new { display: grid; place-items: center; min-height: 52px; margin: 0; font-size: 14px; color: var(--fg-2); }
 .bp-body .btn { gap: 6px; min-height: 46px; margin-top: auto; }
 
-.bp-pnl { display: grid; gap: 8px; padding-top: 12px; text-align: left; border-top: 1px solid var(--line); }
-.bp-pnl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.bp-pnl-head > span { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
-.bp-pnl-head b { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f-display); font-weight: 800; font-size: 26px; line-height: 1; }
-.bp-pnl-head b.up { color: var(--em-hi); }
-.bp-pnl-head b.down { color: var(--danger); }
-.bp-spark { display: block; width: 100%; height: 44px; overflow: visible; }
-.bp-spark .zero { stroke: rgba(234, 239, 236, 0.18); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
-.bp-spark .ln { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
-.bp-spark .up .ln { stroke: var(--em-hi); }
-.bp-spark .down .ln { stroke: var(--danger); }
-.bp-spark .up .area { fill: rgba(106, 248, 214, 0.14); }
-.bp-spark .down .area { fill: rgba(242, 104, 90, 0.16); }
-
 /* loading, failed and empty sit in the shelf as cards */
 .skel.bp-card { min-height: 460px; background: linear-gradient(rgba(234, 239, 236, 0.04) 0 230px, transparent 230px), var(--surface); }
 .bp-note { display: grid; place-content: center; min-height: 460px; margin: 0; padding: 24px; text-align: center; color: var(--fg-2); background: var(--surface); --edge: var(--edge-1); }
