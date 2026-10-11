@@ -33,9 +33,9 @@ function Demo({ ms }: { ms: number }) {
         <Slider label="Horizon" value={h} min={1} max={12} onChange={setH} display={`${h} months`} />
       </div>
       <div className="sbm-panel">
-        <h3>Rows (shell.css:177, block-puzzle.css:128, lobby.css:202: background, 0.15 to 0.2 s)</h3>
-        <Row title="Block Puzzle" meta="Won 900 · 2 min ago" cta="Open" href="#row" />
-        <Row title="Hold'em" meta="Lost 500 · 1 h ago" cta="Open" href="#row2" />
+        <h3>Rows (ui.css Row: art pans 0.7 s, a light crosses 0.8 s, arrow nudges 0.2 s)</h3>
+        <Row game="block-puzzle" title="Block Puzzle" meta="vs Otter · 171 – 140" when="2 min ago" delta={900} cta="Open" href="#row" />
+        <Row game="holdem" title="Hold'em" meta="vs Lynx · Entry 500" when="1 h ago" delta={-500} cta="Open" href="#row2" />
       </div>
       <div className="sbm-panel">
         <h3>Game tiles (lobby.css:195: tilt follows the mouse, 0.6 s back to flat, 0.15 s while hovered; art zoom 0.6 s)</h3>

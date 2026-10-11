@@ -71,17 +71,65 @@
 .card.flush { padding: 0; overflow: hidden; }
 .card.lg { padding: 16px; }
 
-/* ——— Row ——— */
+/* ——— Row ———
+   A list row. With a Game (`.has-art`) it is a banner: the hero art fills it from the right under a
+   dark fade, the title is a poster title, the Gema change sits on a glass chip; hover pans the art and
+   sends a light across. `.row-body/-title/-meta` are also used bare as a text block inside cards. */
 .row {
-  display: flex; align-items: center; gap: 10px; padding: 10px 12px; width: 100%;
-  background: var(--surface); text-align: left;
+  --edge: var(--edge-1);
+  position: relative; isolation: isolate; overflow: hidden; container-type: inline-size;
+  display: flex; align-items: center; gap: 16px; min-height: 76px; padding: 12px 18px; width: 100%;
+  background: var(--surface); color: var(--fg); text-align: left; border: 0; font: inherit;
 }
-a.row:hover, button.row:hover { background: var(--raised-2); }
+.row.has-art { min-height: 92px; }
+a.row:not(.has-art):hover, button.row:not(.has-art):hover { background: var(--surface-2); }
+a.row:hover, button.row:hover { --edge: var(--edge-2); }
+.row-art { position: absolute; inset: 0; z-index: -1; overflow: hidden; }
+.row-art img {
+  object-fit: cover; object-position: 75% 40%; transform: scale(1.04); filter: saturate(0.8) brightness(0.75);
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.3s;
+}
+.row-art::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, #12181c 0%, #12181c 26%, rgba(17, 23, 27, 0.55) 58%, rgba(17, 23, 27, 0.2) 100%);
+}
+a.row:hover .row-art img, button.row:hover .row-art img { transform: scale(1.1) translateX(-2%); filter: none; }
+.row.has-art::before {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.09) 48%, transparent 60%);
+  transform: translateX(-100%);
+}
+a.row.has-art:hover::before, button.row.has-art:hover::before { transform: translateX(100%); transition: transform 0.8s ease; }
+.row .thumb { width: 48px; height: 48px; }
 .row-body { min-width: 0; display: grid; flex: 1; }
 .row-title { font-size: 14px; font-weight: 700; }
 .row-meta { font-size: 12px; color: var(--fg-2); }
-.row-cta { margin-left: auto; font-size: 12px; font-weight: 800; white-space: nowrap; color: var(--fg); display: inline-flex; align-items: center; gap: 4px; }
+.row .row-body { gap: 2px; position: relative; z-index: 2; }
+.row .row-title { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .row-meta { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-kick { font-size: 11px; font-weight: 700; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.1em; }
+.row.has-art .row-title { font-family: var(--f-display); font-size: 26px; font-weight: 800; text-transform: uppercase; line-height: 1; letter-spacing: 0.01em; word-spacing: 0; }
+.row-side { margin-left: auto; display: flex; align-items: center; gap: 14px; position: relative; z-index: 2; }
+.row-fig {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 17px; font-weight: 800; white-space: nowrap;
+  background: rgba(9, 13, 15, 0.62); backdrop-filter: blur(8px); --edge: var(--edge-2);
+}
+.row-fig svg { width: 16px; height: 16px; stroke-width: 2.6; flex: none; }
+.row-fig.won { color: var(--em-hi); }
+.row-fig.lost { color: var(--danger); }
+.row-cta { font-size: 13px; font-weight: 800; white-space: nowrap; color: var(--fg); display: inline-flex; align-items: center; gap: 6px; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); }
+.row-cta svg { transition: transform 0.2s; }
+a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(4px); }
 .row-cta.money { color: var(--em); }
+@container (max-width: 520px) {
+  .row .row-body { gap: 1px; }
+  .row.has-art .row-title { font-size: 22px; }
+  .row-side { flex-direction: column; align-items: flex-end; gap: 6px; }
+  .row-cta { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-art img, .row.has-art::before, .row-cta svg { transition: none !important; }
+}
 .thumb {
   --c: var(--cut-chip);
   width: 40px; height: 40px; flex: none; display: grid; place-items: center;

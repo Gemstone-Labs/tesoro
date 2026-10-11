@@ -65,7 +65,7 @@ Tesoro is a **desktop web app first** (sidebar, top bar, scrolling sections); ph
 
 ## Type
 
-- **Display**: Barlow Condensed 800, all caps, for section headers (PLAY NOW, PLAY AGAIN, BACK A PLAYER), page titles (`.h-section`, `.page-title`) and **game titles wherever a Game is presented as a poster**: the Lobby hero, Play now tiles and the game page hero. Also playing-card ranks and leaderboard ranks. List rows (Play again, Match history) keep Schibsted.
+- **Display**: Barlow Condensed 800, all caps, for section headers (PLAY NOW, PLAY AGAIN, BACK A PLAYER), page titles (`.h-section`, `.page-title`) and **game titles wherever a Game is presented as a poster**: the Lobby hero, Play now tiles, the game page hero and a `Row` with a Game. Also playing-card ranks and leaderboard ranks. Match history rows (`MatchRow`) and plain rows keep Schibsted.
 - **UI text and figures**: Schibsted Grotesk (weights 400/700/800/900), including hero titles, buttons and every amount. `tabular-nums` on amounts in lists and tables (`.tnum`); big display figures (balance pill, sidebar panels, entry amounts) use proportional figures.
 - **Verifiable data**: IBM Plex Mono only: chain chips, hashes, Seeds, timers, footer links, the simulated-yield label.
 
@@ -107,6 +107,7 @@ Live in `app/src/components/ui` (primitives, money, inputs, icons, `ui.css`), th
 
 - **Button** — `money` (polished table: `--money-fill` with the `--money-rim` edge and a 3px `--money-base` band; `lg` cuts 9px) only where Gemas move; `neutral` otherwise; sizes `sm`, `md`, `lg` (Play now).
 - **Icon button** (`.icon-btn`) — square cut button for arrows, menu, close, copy.
+- **Row** (`Row`, `.row` in ui.css) — a list row. With a `game` it is a banner: the Game's hero art fills it from the right under a dark fade, a small kicker (`when`) over the title in display caps, the meta line, and on the right the Gema change on a glass chip (result icon; won `--em-hi`, lost `--danger`) and the call to action (emerald only for money). Hover pans the art and a light crosses it. Without a game: the same row on the plain surface, thumb at the left, Schibsted title. Picked from four prototypes on Oct 11 (branch `proto/rows-11-10-2026`).
 - **Entry picker** — 500 / 1,000 / 2,500; the chosen entry is filled with `--money-fill` and carries the ink Gema mark. An entry the balance cannot cover is dimmed (never struck through).
 - **Skeleton** (`SkeletonCards`) — loading is shaped like the cards that are coming (cut cards with a faint sweep), with the old status line kept for screen readers. Used for Requests, Positions and Match history.
 - **Living surfaces** (founder, Oct 2: "too static") — the hero art settles in (slow zoom) and its copy rises in order on each slide; a few sparkles twinkle over the art; the big money action catches a passing light every few seconds; Play now tiles lean toward the pointer with a moving glare and carry a live Queue badge; balances count up to new values (`CountUp`), and a won amount counts up from zero; the Block Puzzle score pops on change; grids rise in as they scroll into view (scroll-driven, no JS); each page arrives with a short rise. The red pulsing dot means *live* and always sits beside the word.

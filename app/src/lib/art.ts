@@ -25,6 +25,12 @@ export const art = {
   },
   /** The Leaderboard Pool as a gold stone chest (1024 square, opaque dark ground: fade its edges in CSS). */
   poolChest: f("pool-chest"),
+  /** The wide hero art by Game (list rows, result poster, Request cards). */
+  hero: {
+    "block-puzzle": f("block-puzzle-hero"),
+    holdem: f("holdem-hero"),
+    "trading-duel": f("trading-duel-hero"),
+  },
   /** Play Again thumbs reuse the square tiles (cropped by CSS). */
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),

@@ -1,7 +1,10 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import type { Chain } from "@/lib/mock/types";
-import { ArrowIcon } from "./icons";
+import { art } from "@/lib/art";
+import { fmtGemas } from "@/lib/format";
+import type { Chain, GameId } from "@/lib/mock/types";
+import { ArrowIcon, CheckIcon, MinusIcon, XIcon } from "./icons";
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -42,26 +45,52 @@ interface RowProps {
   href?: string;
   onClick?: () => void;
   children?: ReactNode;
+  /** The Game: its hero art fills the row from the right and the title becomes a poster title. */
+  game?: GameId;
+  /** A Gema change, signed: shown on a glass chip with the result icon. */
+  delta?: number;
+  /** When it happened ("2 min ago"), as a kicker over the title. */
+  when?: string;
 }
 
-export function Row({ thumb, title, meta, cta, ctaTone = "neutral", href, onClick, children }: RowProps) {
+/** A list row. With a `game` it is a banner over that Game's hero art; without, a plain card row. */
+export function Row({ thumb, title, meta, cta, ctaTone = "neutral", href, onClick, children, game, delta, when }: RowProps) {
+  const result = delta === undefined ? null : delta > 0 ? "won" : delta < 0 ? "lost" : "even";
+  const ResultIcon = result === "won" ? CheckIcon : result === "lost" ? XIcon : MinusIcon;
+  const figure = delta === undefined ? null : `${delta > 0 ? "+" : delta < 0 ? "−" : ""}${fmtGemas(Math.abs(delta))}`;
   const inner = (
     <>
-      {thumb}
+      {game && (
+        <span className="row-art">
+          <Image src={art.hero[game]} alt="" fill sizes="(max-width: 700px) 100vw, 900px" />
+        </span>
+      )}
+      {!game && thumb}
       <span className="row-body">
+        {when && <span className="row-kick">{when}</span>}
         <span className="row-title">{title}</span>
         {meta && <span className="row-meta">{meta}</span>}
       </span>
       {children}
-      {cta && (
-        <span className={cx("row-cta", ctaTone === "money" && "money")}>
-          {cta}
-          <ArrowIcon width={12} height={12} />
+      {(result || cta) && (
+        <span className="row-side">
+          {result && (
+            <span className={cx("cut cut-chip row-fig", result)}>
+              <ResultIcon aria-hidden="true" />
+              <b className="tnum">{figure}</b>
+            </span>
+          )}
+          {cta && (
+            <span className={cx("row-cta", ctaTone === "money" && "money")}>
+              {cta}
+              <ArrowIcon width={14} height={14} />
+            </span>
+          )}
         </span>
       )}
     </>
   );
-  const cls = "cut cut-card row";
+  const cls = cx("cut cut-card row", game && "has-art");
   if (href) return <Link href={href} className={cls}>{inner}</Link>;
   if (onClick) return <button type="button" className={cls} onClick={onClick}>{inner}</button>;
   return <div className={cls}>{inner}</div>;
