@@ -1,8 +1,6 @@
-// Storybook: Privy without its provider. Only the email login is faked, so the Sign in sheet can walk
-// through the code step offline; everything else is the real package.
+// Storybook: Privy without its provider. Stories only reach Privy through the Sign in sheet's email
+// login, so that is all this fakes; the real package is never loaded (privacy blockers stop it).
 import { useState } from "react";
-
-export * from "@privy-io/react-auth";
 
 type Status = "initial" | "sending-code" | "awaiting-code-input" | "submitting-code" | "done";
 
