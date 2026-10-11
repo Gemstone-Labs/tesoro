@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
-import { Button, CountUp, GemaMark, Label, SkeletonCards } from "@/components/ui";
+import { Button, CountUp, GemaMark, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
@@ -36,7 +36,7 @@ function left(secs: number): string {
   const d = Math.floor(s / 86_400);
   const h = Math.floor((s % 86_400) / 3_600);
   const m = Math.floor((s % 3_600) / 60);
-  return d > 0 ? `${d}d ${pad(h)}h ${pad(m)}m` : `${pad(h)}h ${pad(m)}m ${pad(s % 60)}s`;
+  return `${d > 0 ? `${d}d ` : ""}${pad(h)}h ${pad(m)}m ${pad(s % 60)}s`;
 }
 
 /** Seconds on the server's clock, ticking: the page does not trust the visitor's clock. */
@@ -88,6 +88,50 @@ export function Leaderboard() {
   );
 }
 
+/** The pool as a banner: the figure huge on the left, the cut-out chest over turning light on the right. */
+function Hero({ data, pool, remaining }: { data: LeaderboardView; pool: number; remaining: number | null }) {
+  const faces = data.standings.slice(0, 5);
+  return (
+    <section className="cut cut-frame lb-hero" aria-label="This season">
+      <div className="lb-hero-art" aria-hidden="true">
+        <div className="lb-hero-rays" />
+        <Image className="lb-hero-chest" src={art.poolChestCut} alt="" width={420} height={420} priority />
+      </div>
+      <div className="lb-hero-copy">
+        <span className="lb-hero-kicker">
+          Season {data.season.number} · ends in{" "}
+          <b className="mono" aria-live="off">{remaining === null ? "—" : left(remaining)}</b>
+        </span>
+        <b className="pool-fig lb-hero-fig">
+          <CountUp value={pool} duration={1200} />
+        </b>
+        <span className="lb-hero-title">Gemas in the Leaderboard Pool</span>
+        <p>
+          {data.feeBps > 0 ? `${data.feeBps / 100}% of every Pot goes in, from every Game.` : "The pool opens with the next upgrade."} The top{" "}
+          {PRIZE_PLACES} share it every Monday.
+        </p>
+        <div className="lb-hero-chips">
+          <span className="lb-hero-chip">
+            {faces.length > 0 && (
+              <span className="lb-hero-faces" aria-hidden="true">
+                {faces.map((r) => (
+                  <PlayerAvatar key={r.account} account={r.account} size={28} />
+                ))}
+              </span>
+            )}
+            <b>{data.players}</b> {data.players === 1 ? "Player" : "Players"} with points
+          </span>
+          {pool > 0 && (
+            <span className="lb-hero-chip">
+              1st takes <GemaMark size={14} /> <b>{fmtGemas(prize(pool, 0))}</b>
+            </span>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | null; now: number | null; stale: boolean }) {
   const mine = useMemo(() => data.standings.find((r) => r.account === me) ?? null, [data.standings, me]);
   const remaining = now === null ? null : data.season.end - now;
@@ -95,39 +139,7 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
 
   return (
     <>
-      <section className="cut cut-frame lb-hero" aria-label="This season">
-        <div className="lb-pool">
-          <Image className="pool-art" src={art.poolChest} alt="" width={200} height={200} priority />
-          <div className="lb-pool-text">
-            <Label>Leaderboard Pool</Label>
-            <b className="lb-pool-fig pool-fig">
-              <CountUp value={pool} duration={1200} />
-            </b>
-            <small>
-              {data.feeBps > 0
-                ? `${data.feeBps / 100}% of every Pot goes in, from every Game.`
-                : "The pool opens with the next upgrade."}
-            </small>
-          </div>
-        </div>
-        <dl className="lb-facts">
-          <div>
-            <dt>Season</dt>
-            <dd>{data.season.number}</dd>
-          </div>
-          <div>
-            <dt>Time left</dt>
-            <dd className="mono" aria-live="off">{remaining === null ? "—" : left(remaining)}</dd>
-          </div>
-          <div>
-            <dt>Players with points</dt>
-            <dd>{data.players}</dd>
-          </div>
-        </dl>
-        <p className="lb-hero-note">
-          Seasons run Monday to Monday, UTC. Prizes are paid in Gemas, with the Sources they came from, shortly after a season ends.
-        </p>
-      </section>
+      <Hero data={data} pool={pool} remaining={remaining} />
 
       {data.settling !== null && (
         <p className="note" role="status">

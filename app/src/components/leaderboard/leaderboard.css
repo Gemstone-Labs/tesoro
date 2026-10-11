@@ -4,23 +4,39 @@
 .lb-head p { color: var(--fg-2); font-size: 16px; line-height: 1.5; max-width: 60ch; }
 .lb-skel { display: grid; gap: 12px; }
 
-/* the pool: the money figure of the page, so the one emerald surface */
+/* the pool: a banner in gold, the Pool's colour. The chest is the cut-out (no lighten blend), so the rays stay behind it */
 .lb-hero {
-  --edge: var(--edge-gold);
-  background: radial-gradient(70% 160% at 0% 0%, rgba(255, 190, 80, 0.12), transparent 62%), var(--surface);
-  display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: center; gap: 18px 36px; padding: 28px 32px;
+  --edge: var(--edge-gold); position: relative; isolation: isolate; overflow: hidden;
+  background: radial-gradient(55% 120% at 82% 55%, rgba(255, 180, 60, 0.22), transparent 70%), var(--surface);
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; min-height: 320px; padding: 34px 36px;
 }
-.lb-pool { display: flex; align-items: center; gap: 20px; min-width: 0; }
-.lb-pool .pool-art { width: clamp(120px, 14vw, 200px); margin: -16px 0 -16px -12px; }
-.lb-pool-text { display: grid; gap: 8px; justify-items: start; min-width: 0; }
-.lb-pool-fig { display: inline-flex; align-items: center; gap: 12px; font-size: clamp(44px, 6vw, 76px); font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
-.lb-pool small { color: var(--fg-2); font-size: 15px; }
-.lb-facts { margin: 0; display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 12px 34px; }
-.lb-facts div { display: grid; gap: 4px; }
-.lb-facts dt { font-size: 13px; color: var(--fg-2); }
-.lb-facts dd { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.1; }
-.lb-facts dd.mono { font-family: var(--f-mono); font-size: 21px; font-weight: 500; white-space: nowrap; }
-.lb-hero-note { grid-column: 1 / -1; padding-top: 16px; box-shadow: inset 0 1px var(--line); color: var(--fg-2); font-size: 15px; line-height: 1.5; }
+.lb-hero-art { position: absolute; z-index: -1; right: -2%; top: 50%; translate: 0 -50%; width: min(48%, 460px); aspect-ratio: 1; display: grid; place-items: center; }
+.lb-hero-rays {
+  position: absolute; inset: -30%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 200, 100, 0.13) 0 5deg, transparent 5deg 15deg);
+  -webkit-mask-image: radial-gradient(closest-side, #000 15%, transparent 95%); mask-image: radial-gradient(closest-side, #000 15%, transparent 95%);
+  animation: lb-spin 50s linear infinite;
+}
+.lb-hero-chest { position: relative; display: block; width: 100%; height: auto; animation: lb-bob 5s ease-in-out infinite; }
+.lb-hero-copy { display: grid; gap: 10px; justify-items: start; min-width: 0; }
+.lb-hero-kicker { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
+.lb-hero-kicker b { color: var(--fg); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 14px; white-space: nowrap; }
+.lb-hero-fig { font-size: clamp(72px, 11vw, 148px); font-weight: 800; line-height: 0.9; letter-spacing: -0.035em; filter: drop-shadow(0 6px 24px rgba(214, 140, 28, 0.35)); }
+.lb-hero-title { font-family: var(--f-display); font-size: clamp(20px, 2.2vw, 28px); font-weight: 800; text-transform: uppercase; line-height: 1; }
+.lb-hero-copy p { color: var(--fg-2); font-size: 15px; line-height: 1.5; max-width: 46ch; }
+.lb-hero-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.lb-hero-chip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px 7px 10px; font-size: 14px; color: var(--fg-2);
+  background: rgba(255, 255, 255, 0.06); backdrop-filter: blur(8px);
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+}
+.lb-hero-chip b { color: var(--fg); }
+.lb-hero-faces { display: inline-flex; }
+.lb-hero-faces img { width: 26px; height: 26px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface); margin-left: -7px; }
+.lb-hero-faces img:first-child { margin-left: 0; }
+@keyframes lb-spin { to { rotate: 360deg; } }
+@keyframes lb-bob { 50% { translate: 0 -8px; } }
+@media (prefers-reduced-motion: reduce) { .lb-hero-rays, .lb-hero-chest { animation: none; } }
 
 .lb-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 
@@ -101,7 +117,10 @@
 
 @media (max-width: 1023px) {
   .lb-payout { grid-template-columns: minmax(0, 1fr); }
-  .lb-hero { grid-template-columns: minmax(0, 1fr); padding: 22px 20px; }
+  .lb-hero { grid-template-columns: minmax(0, 1fr); padding: 24px 20px; min-height: 0; }
+  .lb-hero-art { top: -6px; translate: 0 0; right: -6%; width: 50%; }
+  .lb-hero-copy { padding-top: 168px; }
+  .lb-hero-kicker { font-size: 12px; }
 }
 @media (max-width: 640px) {
   .lb-payout { padding: 16px; gap: 20px; }
@@ -115,7 +134,6 @@
   .lb-table .lb-c-rank { width: 30px; }
   .lb-table .lb-avatar { width: 26px; height: 26px; --c: 6px; }
   .lb-table .lb-name { max-width: 140px; }
-  .lb-facts { grid-template-columns: repeat(2, auto); }
   .lb-row { grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-areas: "rank who prize" "rank stats stats"; padding: 10px 12px; gap: 6px 10px; }
   .lb-rank { grid-area: rank; font-size: 26px; }
   .lb-who { grid-area: who; }

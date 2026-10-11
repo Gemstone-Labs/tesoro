@@ -27,6 +27,8 @@ export const art = {
   profileBanner: f("profile-banner"),
   /** The Leaderboard Pool as a gold stone chest (1024 square, opaque dark ground: fade its edges in CSS). */
   poolChest: f("pool-chest"),
+  /** The same chest cut out on transparency: solid over whatever is behind it (the Leaderboard hero's rays). */
+  poolChestCut: f("pool-chest-cut"),
   /** The wide hero art by Game (list rows, result poster, Request cards). */
   hero: {
     "block-puzzle": f("block-puzzle-hero"),
