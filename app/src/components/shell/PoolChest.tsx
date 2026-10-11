@@ -107,7 +107,7 @@ const pts = (n: number) => `${n} ${n === 1 ? "pt" : "pts"}`;
 
 /** The next step up, in one short line. */
 function nextStep(s: SeasonStanding) {
-  if (s.rank === null) return "Win a Match to get on the board";
+  if (s.rank === null) return null;
   if (s.toPrizes > 0) return `${pts(s.toPrizes)} to the prizes`;
   if (s.toNext === null) return "Top of the board";
   return `${pts(s.toNext)} to ${ordinal(s.rank - 1)}`;
@@ -169,7 +169,7 @@ export function PoolChest() {
           </div>
           <div className="pc-you-txt">
             <strong><CountUp value={standing.points} /> <small>pts</small></strong>
-            <small>{nextStep(standing)}</small>
+            {standing.rank !== null && <small>{nextStep(standing)}</small>}
           </div>
         </div>
       )}
