@@ -1,11 +1,16 @@
 import { fmtGemas, fmtUsd, gemasToUsd } from "@/lib/format";
 import type { Chain } from "@/lib/mock/types";
+import { BalanceCardPrototype } from "./BalanceCard.prototype";
 import { GemaAmount, SimulatedYieldLabel } from "./gema";
 import { CheckIcon, ClockIcon, MinusIcon, XIcon } from "./icons";
 import { ChainChip, Label, Meter } from "./primitives";
 
 /** The balance: big, plain, emerald-cut. The only place the glint runs. */
 export function BalanceCard({ total, title = "Your Gemas" }: { total: number; title?: string }) {
+  return <BalanceCardPrototype total={total} title={title} current={<CurrentBalanceCard total={total} title={title} />} />;
+}
+
+function CurrentBalanceCard({ total, title }: { total: number; title: string }) {
   return (
     <section className="cut cut-card balance" aria-label={title}>
       <Label>{title}</Label>

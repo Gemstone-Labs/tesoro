@@ -1,0 +1,106 @@
+/* PROTOTYPE ONLY (proto/balance-card-11-10-2026): BalanceCard variants A–D. */
+.bcA, .bcB, .bcC, .bcD { container-type: inline-size; font-variant-numeric: proportional-nums; }
+
+/* ——— A: step cut ——— */
+.bcA { display: grid; justify-items: center; gap: 10px; padding: 38px 40px 32px; text-align: center; }
+.bcA .label { color: var(--em-hi); opacity: 0.85; }
+.bcA-fig {
+  display: inline-flex; align-items: center; gap: 12px;
+  font-size: clamp(40px, 14cqi, 64px); font-weight: 900; letter-spacing: -0.035em; line-height: 1;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+.bcA-foot {
+  display: grid; gap: 6px; justify-items: center; margin-top: 6px; padding-top: 12px; width: min(100%, 300px);
+  border-top: 1px solid rgba(126, 250, 218, 0.16); font-size: 14px; font-weight: 700; color: var(--fg);
+}
+.bcA-foot i { font-style: normal; font-weight: 400; color: var(--fg-2); }
+.bcA-foot .sim { color: rgba(170, 240, 220, 0.6); }
+@container (max-width: 380px) { .bcA { padding: 26px 22px 22px; } }
+
+/* ——— B: stone and figure ——— */
+.bcB {
+  --edge: var(--edge-em);
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 20px; padding: 18px 20px 0;
+  background:
+    radial-gradient(60% 120% at 0% 50%, rgba(36, 216, 168, 0.12), transparent 70%),
+    var(--surface);
+}
+.bcB-well {
+  --c: 22px; --edge: var(--edge-1);
+  width: 104px; height: 104px; display: grid; place-items: center;
+  background:
+    radial-gradient(50% 50% at 50% 42%, rgba(106, 248, 214, 0.28), transparent 72%),
+    #070b0d;
+  box-shadow: inset 0 3px 10px rgba(0, 0, 0, 0.7);
+}
+.bcB-well .gema-mark { filter: drop-shadow(0 6px 14px rgba(36, 216, 168, 0.35)); }
+.bcB-text { display: grid; gap: 4px; min-width: 0; }
+.bcB-fig { font-size: clamp(34px, 12cqi, 56px); font-weight: 900; letter-spacing: -0.035em; line-height: 1; }
+.bcB-usd { font-size: 14px; color: var(--fg-2); }
+.bcB-sim {
+  grid-column: 1 / -1; margin: 14px -20px 0; padding: 9px 20px 10px;
+  border-top: 1px solid var(--line); background: rgba(0, 0, 0, 0.18);
+}
+@container (max-width: 360px) {
+  .bcB { gap: 4px 14px; padding: 16px 16px 0; }
+  .bcB-well { width: 76px; height: 76px; --c: 16px; }
+  .bcB-well .gema-mark { width: 48px; height: 48px; }
+  .bcB-sim { margin: 12px -16px 0; padding: 8px 16px 9px; }
+}
+
+/* ——— C: vault readout ——— */
+.bcC { --edge: var(--edge-1); display: grid; gap: 12px; padding: 16px; background: var(--surface); }
+.bcC-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bcC-tag {
+  --edge: var(--edge-1);
+  padding: 4px 9px; font-family: var(--f-mono); font-size: 10px; color: var(--fg-2); background: var(--raised-2);
+}
+.bcC-track {
+  --c: 10px; --edge: var(--edge-em);
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer;
+  background: #05080a; box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.bcC-cells { display: flex; align-items: flex-end; gap: 4px; min-width: 0; }
+.bcC-cell {
+  --c: 5px; --edge: linear-gradient(180deg, rgba(126, 250, 218, 0.5), rgba(45, 190, 140, 0.12));
+  display: grid; place-items: center; overflow: hidden;
+  width: clamp(24px, 8.6cqi, 40px); height: clamp(36px, 12cqi, 56px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 46%, rgba(0, 0, 0, 0.25) 46.5%),
+    linear-gradient(180deg, #12201c, #0b1512);
+  font-size: clamp(22px, 8cqi, 38px); font-weight: 900; line-height: 1; color: var(--fg);
+}
+.bcC-cell > span { animation: bcC-roll 0.7s cubic-bezier(0.2, 1.3, 0.4, 1) both; animation-delay: calc(var(--i) * 70ms); }
+@keyframes bcC-roll { from { transform: translateY(110%); opacity: 0; } to { transform: none; opacity: 1; } }
+.bcC-sep { font-size: clamp(22px, 8cqi, 38px); font-weight: 900; color: var(--em-hi); line-height: 1; padding-bottom: 4px; }
+.bcC-usd { font-size: 14px; color: var(--fg-2); }
+@media (prefers-reduced-motion: reduce) { .bcC-cell > span { animation: none; } }
+
+/* ——— D: banknote ——— */
+.bcD {
+  --edge: linear-gradient(180deg, rgba(225, 255, 246, 0.95), rgba(225, 255, 246, 0.2) 40%, rgba(3, 32, 26, 0.3));
+  display: grid; gap: 14px; padding: 16px 18px 18px; color: var(--em-ink);
+  background:
+    linear-gradient(180deg, rgba(225, 255, 246, 0.7), transparent 2px),
+    linear-gradient(0deg, var(--money-base) 0 4px, transparent 4px),
+    linear-gradient(115deg, transparent 0 62%, rgba(255, 255, 255, 0.16) 62% 70%, transparent 70%),
+    linear-gradient(115deg, transparent 0 74%, rgba(255, 255, 255, 0.09) 74% 77%, transparent 77%),
+    linear-gradient(170deg, #63f7d3 0%, #33e3b4 48%, #1fd3a2 48.5%, #0cbc8c 100%);
+}
+.bcD-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.bcD-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.bcD-usd { font-size: 15px; font-weight: 800; }
+.bcD-fig {
+  display: inline-flex; align-items: center; gap: 12px;
+  font-size: clamp(40px, 14cqi, 64px); font-weight: 900; letter-spacing: -0.035em; line-height: 1;
+}
+.bcD .gema-mark .gm-body, .bcD .gema-mark .gm-table { fill: currentColor; }
+.bcD .gema-mark .gm-table { stroke: var(--gem-ink-line); stroke-width: 1; }
+.bcD .gema-mark .gm-cuts { stroke: var(--gem-ink-line); stroke-opacity: 1; stroke-width: 0.8; }
+.bcD .gema-mark .shine { fill: var(--em-hi); }
+.bcD-foot {
+  display: flex; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap;
+  padding-top: 10px; border-top: 1px solid rgba(3, 32, 26, 0.22);
+  font-size: 12px; font-weight: 700; color: rgba(3, 32, 26, 0.72);
+}
+.bcD-sim { font-family: var(--f-mono); font-size: 10.5px; font-weight: 500; }
