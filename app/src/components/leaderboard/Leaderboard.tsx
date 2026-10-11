@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
-import { Button, CountUp, GemaMark, SkeletonCards } from "@/components/ui";
+import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
@@ -77,14 +77,82 @@ export function Leaderboard() {
             <Button size="sm" onClick={retry}>Try again</Button>
           </div>
         ) : (
-          <div className="lb-skel">
-            <SkeletonCards count={4} avatar={false} label="Loading the leaderboard…" />
-          </div>
+          <LoadingSkeleton />
         )
       ) : (
         <Loaded data={data} me={me} now={now} stale={error} />
       )}
     </div>
+  );
+}
+
+/** Loading: the page in outline (the pool banner, the season heading, the table with its real column heads), not a stack of bars. */
+function LoadingSkeleton() {
+  return (
+    <>
+      <span className="sr-only" role="status">
+        Loading the leaderboard…
+      </span>
+      <div className="cut cut-frame lb-hero skel" aria-hidden="true">
+        <div className="lb-hero-art">
+          <span className="lb-skel-chest" />
+        </div>
+        <div className="lb-hero-copy">
+          <span className="skel-line lb-skel-kicker" />
+          <span className="skel-line lb-skel-fig" />
+          <span className="skel-line lg lb-skel-title" />
+          <span className="skel-line lb-skel-text" />
+          <span className="lb-hero-chips">
+            <span className="lb-skel-chip" />
+            <span className="lb-skel-chip short" />
+          </span>
+        </div>
+      </div>
+      <section className="lb-season" aria-hidden="true">
+        <header className="lb-sec-head lb-season-head">
+          <span className="skel-line lb-skel-h" />
+        </header>
+        <table className="lb-table lb-skel-table">
+          <thead>
+            <tr>
+              <th className="lb-c-rank">#</th>
+              <th>Player</th>
+              <th className="lb-c-num lb-c-opt">Wins</th>
+              <th className="lb-c-num">Points</th>
+              <th className="lb-c-num lb-c-opt">Share</th>
+              <th className="lb-c-num">Prize</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 10 }, (_, i) => (
+              <tr key={i}>
+                <td className="lb-c-rank">
+                  <span className="skel-line" />
+                </td>
+                <td>
+                  <span className="lb-who">
+                    <span className="cut cut-btn avatar lb-avatar skel-av" />
+                    <span className="skel-line" style={{ width: `${[52, 44, 60, 48, 40][i % 5]}%` }} />
+                  </span>
+                </td>
+                <td className="lb-c-num lb-c-opt">
+                  <span className="skel-line" />
+                </td>
+                <td className="lb-c-num">
+                  <span className="skel-line" />
+                </td>
+                <td className="lb-c-num lb-c-opt">
+                  <span className="skel-line" />
+                </td>
+                <td className="lb-c-num">
+                  <span className="skel-line" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </>
   );
 }
 

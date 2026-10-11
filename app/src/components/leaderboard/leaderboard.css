@@ -2,7 +2,22 @@
 .lb { display: grid; gap: 22px; max-width: 1120px; width: 100%; margin: 0 auto; }
 .lb-head { display: grid; gap: 6px; }
 .lb-head p { color: var(--fg-2); font-size: 16px; line-height: 1.5; max-width: 60ch; }
-.lb-skel { display: grid; gap: 12px; }
+/* loading: the hero, the season heading and the table in outline */
+.lb-hero.skel { --edge: var(--edge-1); background: radial-gradient(55% 120% at 82% 55%, rgba(234, 239, 236, 0.05), transparent 70%), var(--surface); }
+.lb-skel-chest { width: 70%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(closest-side, rgba(234, 239, 236, 0.09), rgba(234, 239, 236, 0.03) 70%, transparent); }
+.lb-skel-kicker { width: min(280px, 70%); height: 12px; }
+.lb-skel-fig { width: min(420px, 90%); height: clamp(64px, 9vw, 124px); margin: 4px 0; }
+.lb-skel-title { width: min(380px, 86%); height: 24px; }
+.lb-skel-text { width: min(340px, 80%); }
+.lb-skel-chip { display: block; width: 190px; height: 38px; background: rgba(234, 239, 236, 0.06); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+.lb-skel-chip.short { width: 120px; }
+.lb-skel-h { width: 170px; height: 30px; }
+.lb-skel-table .lb-who { display: flex; align-items: center; gap: 10px; width: 100%; }
+.lb-skel-table .skel-av { --edge: transparent; }
+.lb-skel-table .lb-who .skel-line { flex: none; }
+.lb-skel-table td { height: 48px; }
+.lb-skel-table .lb-c-rank .skel-line { width: 16px; height: 18px; margin: 0 auto; }
+.lb-skel-table .lb-c-num .skel-line { width: 40px; margin-left: auto; }
 
 /* the pool: a banner in gold, the Pool's colour. The chest is the cut-out (no lighten blend), so the rays stay behind it */
 .lb-hero {
