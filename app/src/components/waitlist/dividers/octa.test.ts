@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LINES } from "../geometry";
-import { dividerScene, gemSize, growth, type Spacing } from "./octa";
+import { dividerScene, gemSize, growth } from "./octa";
 import type { Frame } from "./geo";
 
 const FRAMES: Frame[] = [
@@ -8,7 +8,6 @@ const FRAMES: Frame[] = [
   { w: 1280, h: 720, kind: "wide" },
   { w: 390, h: 844, kind: "tall" },
 ];
-const SPACINGS: Spacing[] = [1, 2, 3];
 
 describe("the split", () => {
   it("divides the wide frame about in half", () => {
@@ -41,33 +40,21 @@ describe("the growth", () => {
       for (const s of gr.sites) if (s.d <= band) expect(gr.at(s.i, s.j)).toBe(1);
     });
 
-    for (const sp of SPACINGS) {
-      it(`${name}, spacing ${sp}: finite shapes, the same ones each time`, () => {
-        const a = dividerScene(f, sp);
-        expect(a.gems.length).toBeGreaterThan(2000);
-        expect(a.gems + a.ground).not.toMatch(/NaN|Infinity/);
-        expect(dividerScene(f, sp)).toEqual(a);
-      });
-    }
+    it(`${name}: finite shapes, the same ones each time`, () => {
+      const a = dividerScene(f);
+      expect(a.gems.length).toBeGreaterThan(2000);
+      expect(a.gems + a.ground).not.toMatch(/NaN|Infinity/);
+      expect(dividerScene(f)).toEqual(a);
+    });
   }
-
-  it("more breakaway gems with the open spacing", () => {
-    const f = FRAMES[0];
-    const count = (sp: Spacing) => (dividerScene(f, sp).gems.match(/M/g) ?? []).length;
-    expect(count(3)).toBeGreaterThanOrEqual(count(2));
-  });
 });
 
 describe("gem size", () => {
-  it("tight is uniform at 86%", () => {
-    for (const t of [0, 0.5, 1]) expect(gemSize(1, t)).toBe(0.86);
-  });
-  it("graded shrinks from fused to 72% at the tips, open graded to 62%", () => {
-    expect(gemSize(2, 0)).toBe(1);
-    expect(gemSize(2, 1)).toBeCloseTo(0.72);
-    expect(gemSize(3, 0)).toBe(1);
-    expect(gemSize(3, 1)).toBeCloseTo(0.62);
-    expect(gemSize(2, 0.5)).toBeGreaterThan(gemSize(2, 1));
-    expect(gemSize(2, 2)).toBeCloseTo(0.72);
+  it("is fused at the foot of a finger and opens to 72% at the tip", () => {
+    expect(gemSize(0)).toBe(1);
+    expect(gemSize(1)).toBeCloseTo(0.72);
+    expect(gemSize(0.5)).toBeGreaterThan(gemSize(1));
+    expect(gemSize(2)).toBeCloseTo(0.72);
+    expect(gemSize(-1)).toBe(1);
   });
 });

@@ -9,9 +9,6 @@ import { along, bed, dist, geo, polyD, type Frame, type Geo, type Pt } from "./g
  */
 export const TILE_CENTRE = { x: 160, y: 140 };
 
-/** How tightly the growth zone's gems pack: 1 tight, 2 graded, 3 open graded. */
-export type Spacing = 1 | 2 | 3;
-
 export type Field = { g: Geo; frame: Frame; pitch: number; /** solid band, px past the diagonal */ band: number; /** size factor against 1440 wide */ unit: number };
 
 export function field(frame: Frame): Field {
@@ -51,7 +48,7 @@ export type Site = { i: number; j: number; x: number; y: number; d: number; s: n
 export type Growth = { fl: Field; state: Map<number, 1 | 2 | 3>; sites: Site[]; at: (i: number, j: number) => 0 | 1 | 2 | 3; /** how far the growth may reach past the band at this position along the diagonal */ reachAt: (s: number) => number };
 
 /** The grown layout for a frame: which lattice sites carry a gem and of which kind. */
-export function growth(frame: Frame, breakShare = 0.06): Growth {
+export function growth(frame: Frame): Growth {
   const fl = field(frame);
   const { g, pitch, band } = fl;
   const profile = reachProfile(fl);
@@ -93,7 +90,7 @@ export function growth(frame: Frame, breakShare = 0.06): Growth {
   }
   // Breakaway gems: a few, one empty cell beyond a clump tip, never touching one.
   const grown = sites.filter((s) => state.get(key(s.i, s.j)) === 2).length;
-  const want = Math.max(3, Math.round(grown * breakShare));
+  const want = Math.max(3, Math.round(grown * 0.06));
   const near = new Set<number>();
   const taken = (i: number, j: number) => state.has(key(i, j));
   const fused = sites.filter((s) => s.d > band + pitch);
@@ -128,21 +125,20 @@ export function octagon(cx: number, cy: number, flats: number): Pt[] {
   return Array.from({ length: 8 }, (_, k): Pt => [cx + r * Math.cos(Math.PI / 8 + (k * Math.PI) / 4), cy + r * Math.sin(Math.PI / 8 + (k * Math.PI) / 4)]);
 }
 
-/** Smallest gem size (share of the cell) at a finger tip, per spacing; the band and the foot of a finger are fused (1). */
-const TIP = { 1: 0.86, 2: 0.72, 3: 0.62 } as const;
+/** Gem size (share of its cell) at the finger tips; the band and the foot of a finger are fused (1). */
+const TIP = 0.72;
 
-/** A grown gem's size as a share of its cell: `along` is how far out it is on its finger (0 at the band, 1 at the tip). */
-export function gemSize(spacing: Spacing, along: number): number {
-  if (spacing === 1) return TIP[1];
-  return 1 - (1 - TIP[spacing]) * Math.min(Math.max(along, 0), 1);
+/** A grown gem's size as a share of its cell: `along` is how far out it is on its finger (0 at the band, 1 at the tip). Gaps open as the fingers grow out. */
+export function gemSize(along: number): number {
+  return 1 - (1 - TIP) * Math.min(Math.max(along, 0), 1);
 }
 
 /** The ground strip and every gem (as one path), for a frame of this size. The band is fused (diamonds between its gems filled); the growth zone keeps a gap between gems. */
-export function dividerScene(frame: Frame, spacing: Spacing = 2): { ground: string; gems: string } {
-  const gr = growth(frame, spacing === 3 ? 0.1 : 0.06);
+export function dividerScene(frame: Frame): { ground: string; gems: string } {
+  const gr = growth(frame);
   const { pitch, band } = gr.fl;
   // Size share per fused site: the band is solid, grown gems shrink towards the tips.
-  const size = (s: Site, kind: number) => (kind === 1 ? 1.04 : kind === 3 ? 0.86 : gemSize(spacing, (s.d - band) / Math.max(gr.reachAt(s.s), 1)));
+  const size = (s: Site, kind: number) => (kind === 1 ? 1.04 : kind === 3 ? 0.86 : gemSize((s.d - band) / Math.max(gr.reachAt(s.s), 1)));
   const bySite = new Map<string, { kind: number; size: number }>();
   for (const s of gr.sites) {
     const kind = gr.at(s.i, s.j);

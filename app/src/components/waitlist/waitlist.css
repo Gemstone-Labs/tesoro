@@ -27,19 +27,16 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .vw { position: absolute; inset: 0; z-index: 1; clip-path: var(--above-wide); }
 .vw-tilt { position: absolute; right: -10%; top: -25%; width: 92%; height: 150%; display: flex; gap: 8px; transform: rotate(-8deg); }
 .vw-col { flex: 1 1 0; min-width: 0; height: 100%; overflow: hidden; }
-.vw-col-1 { margin-top: 18%; }
-.vw-col-2 { margin-top: 6%; }
-.vw-col-3 { margin-top: 24%; }
-.vw-col-4 { margin-top: 10%; }
-.vw-col-5 { margin-top: 30%; }
-.vw-col-6 { margin-top: 14%; }
+/* A column's track is its clip list twice over (8 tiles a copy, taller than the column), moving by exactly one copy, so it
+   covers the column top to bottom at every moment of the loop. Columns differ in speed and direction (even ones run
+   backwards, from -50% to 0), and in where they start in the loop (a negative delay), never by an offset that would leave the top bare. */
 .vw-track { animation: vw-drift 150s linear infinite; }
-.vw-col-1 .vw-track { animation-direction: reverse; animation-duration: 175s; }
+.vw-col-1 .vw-track { animation-direction: reverse; animation-duration: 175s; animation-delay: -61s; }
 .vw-col-2 .vw-track { animation-duration: 135s; animation-delay: -40s; }
-.vw-col-3 .vw-track { animation-direction: reverse; animation-duration: 165s; animation-delay: -70s; }
+.vw-col-3 .vw-track { animation-direction: reverse; animation-duration: 165s; animation-delay: -97s; }
 .vw-col-4 .vw-track { animation-duration: 190s; animation-delay: -20s; }
-.vw-col-5 .vw-track { animation-direction: reverse; animation-duration: 155s; animation-delay: -55s; }
-.vw-col-6 .vw-track { animation-duration: 180s; animation-delay: -90s; }
+.vw-col-5 .vw-track { animation-direction: reverse; animation-duration: 155s; animation-delay: -73s; }
+.vw-col-6 .vw-track { animation-duration: 180s; animation-delay: -125s; }
 .vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; margin-bottom: 8px; background: #0c1215; }
 /* Without JavaScript browsers draw their own player controls on a video: the wall has none. */
 .vw-clip::-webkit-media-controls, .vw-clip::-webkit-media-controls-enclosure { display: none !important; }
@@ -64,10 +61,6 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .dv-ssr { transition: opacity 0.6s ease-out; }
 .dv-live { animation: dv-in 0.6s ease-out both; }
 .wl:has(.dv-live) .dv-ssr { opacity: 0; }
-/* Temporary growth switcher (?s=1..3). */
-.dv-switch { position: fixed; z-index: 60; right: 14px; bottom: 14px; display: flex; gap: 6px; padding: 6px; background: rgba(9, 13, 15, 0.86); border: 1px solid var(--line-2); }
-.dv-switch button { min-width: 34px; min-height: 34px; padding: 0 8px; border: 0; background: var(--raised-2); color: var(--fg); font-weight: 800; --edge: var(--edge-2); }
-.dv-switch button[aria-pressed="true"] { background: var(--fg); color: #090d0f; }
 @keyframes dv-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Frame content */
@@ -126,5 +119,12 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 
 @media (prefers-reduced-motion: reduce) {
   .vw-track, .dv-live { animation: none; }
+  /* Still, but not in lockstep: each column rests part of the way through its loop (0 to 50%, so it always covers). */
+  .vw-col-1 .vw-track { transform: translateY(-17%); }
+  .vw-col-2 .vw-track { transform: translateY(-31%); }
+  .vw-col-3 .vw-track { transform: translateY(-9%); }
+  .vw-col-4 .vw-track { transform: translateY(-43%); }
+  .vw-col-5 .vw-track { transform: translateY(-24%); }
+  .vw-col-6 .vw-track { transform: translateY(-37%); }
   .dv-ssr { transition: none; }
 }

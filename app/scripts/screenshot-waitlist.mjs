@@ -45,6 +45,55 @@ for (const [name, width, height, scheme, motion, path] of shots) {
   console.log(name, "hscroll", overflow, "form", JSON.stringify(form), "tiles", JSON.stringify(tiles));
   await ctx.close();
 }
+// The wall must cover every column top to bottom at every moment of the loop: pause the drift at 0, 25, 50 and 75% and
+// check that every visible column is flush with the tilted box's top and bottom and that its track (shifted by the drift)
+// spans it, and that the box itself covers the wall region (an empty strip at the top or bottom would fail one of these).
+for (const [name, width, height] of [["1440", 1440, 900], ["1280", 1280, 720], ["390", 390, 844]]) {
+  const ctx = await browser.newContext({ viewport: { width, height } });
+  const page = await ctx.newPage();
+  await page.goto(BASE + "/", { waitUntil: "networkidle", timeout: 120000 });
+  for (const [label, frac] of [["t0", 0], ["t25", 0.25], ["t50", 0.5], ["t75", 0.75]]) {
+    await page.evaluate((f) => {
+      for (const a of document.getAnimations()) {
+        if (!a.effect?.target?.classList?.contains("vw-track")) continue;
+        a.pause();
+        a.effect.updateTiming({ delay: 0 });
+        a.currentTime = f * a.effect.getComputedTiming().duration;
+      }
+    }, frac);
+    await page.waitForTimeout(400);
+    const bare = await page.evaluate(({ w, h }) => {
+      const tall = w <= 640;
+      const lineX = (y) => (0.28 + (y / h) * 0.44) * w;
+      const lineY = (x) => (0.48 - (x / w) * 0.08) * h;
+      let bare = 0;
+      let sampled = 0;
+      for (const y of [3, 14, 26, 38, h - 38, h - 26, h - 14, h - 3]) {
+        for (let x = 4; x < w; x += 12) {
+          // Only where the wall is meant to show: past the divider's reach.
+          if (tall ? y > lineY(x) - 190 : x < lineX(y) + (w < 1000 ? 140 : 300)) continue;
+          sampled++;
+          if (!document.elementsFromPoint(x, y).some((e) => e.classList.contains("vw-tilt"))) bare++;
+        }
+      }
+      const tilt = document.querySelector(".vw-tilt");
+      for (const col of document.querySelectorAll(".vw-col")) {
+        if (!col.offsetParent) continue;
+        const track = col.firstElementChild;
+        const ty = new DOMMatrix(getComputedStyle(track).transform).m42;
+        const flush = col.offsetTop === 0 && col.offsetHeight === tilt.offsetHeight;
+        const spans = ty <= 0.5 && track.offsetHeight + ty >= col.offsetHeight - 0.5;
+        if (!flush || !spans) bare++;
+        sampled++;
+      }
+      return { bare, sampled };
+    }, { w: width, h: height });
+    console.log("wall", name, label, "uncovered", bare.bare, "of", bare.sampled, "checks");
+    if (name === "1440") await page.screenshot({ path: `${OUT}/waitlist-wall-${label}-1440.png` });
+  }
+  await ctx.close();
+}
+
 // A 2x crop of the divider's front.
 {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
