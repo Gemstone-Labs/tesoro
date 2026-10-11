@@ -12,12 +12,19 @@ function db(): SupabaseClient {
   return client;
 }
 
-/** Adds an email. A duplicate is a success, so the form never reveals who is already listed. */
-export async function join(email: string, meta: { source?: string | null; referrer?: string | null }): Promise<void> {
+/**
+ * Adds an email and returns its spot: how many joined up to and including it. A duplicate is a
+ * success with the original spot, so the form never reveals who is already listed.
+ */
+export async function join(email: string, meta: { source?: string | null; referrer?: string | null }): Promise<number | null> {
   const { error } = await db()
     .from("waitlist")
     .upsert({ email, source: meta.source ?? null, referrer: meta.referrer ?? null }, { onConflict: "email", ignoreDuplicates: true });
   if (error) throw new Error(`Waitlist insert failed: ${error.message}`);
+  const { data: row } = await db().from("waitlist").select("id").eq("email", email).maybeSingle();
+  if (!row) return null;
+  const { count: spot } = await db().from("waitlist").select("*", { count: "exact", head: true }).lte("id", row.id);
+  return spot ?? null;
 }
 
 /** Players on the list, or null when storage is unavailable. The page revalidates every 60 s, which caches this. */
