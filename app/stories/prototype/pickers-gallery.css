@@ -1,0 +1,23 @@
+/* PROTOTYPE ONLY: gallery layout for Pickers.prototype.stories.tsx */
+.ppg { display: grid; gap: 16px; }
+.ppg-panel { --c: var(--cut-card); --edge: var(--edge-1); display: grid; gap: 14px; padding: 18px; background: var(--surface); }
+.ppg-panel h3 { font-size: 15px; font-weight: 700; color: var(--fg-2); }
+.ppg-panel h3 b { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 6px; background: #ff3df0; color: #14001a; font-weight: 900; }
+.ppg-set { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; align-items: start; }
+.ppg-cell { display: grid; gap: 10px; min-width: 0; }
+.ppg-sliders { gap: 18px; }
+.ppg-k { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); }
+.ppg-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ppg-place { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; }
+.ppg-now { grid-column: 1 / -1; color: var(--fg-2); font-size: 13px; }
+.ppg-now b { color: #ff3df0; }
+.ppg-hero { min-height: 560px; background: #05080a center right / cover no-repeat; }
+.ppg-hero-body { display: grid; gap: 22px; justify-items: start; padding: 48px; max-width: 560px; background: linear-gradient(90deg, rgba(5, 8, 10, 0.85), transparent); min-height: 560px; align-content: center; }
+.ppg-hero-body .btn { width: min(100%, 470px); }
+.ppg-title { font-family: var(--f-display); text-transform: uppercase; font-size: 84px; font-weight: 800; line-height: 0.9; color: #fff; }
+.ppg-sheet { --c: var(--cut-frame); display: grid; gap: 16px; padding: 24px; background: var(--surface); }
+.ppg-sheet h2 { font-size: 20px; font-weight: 900; }
+.ppg-quote { --edge: var(--edge-1); display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; padding: 14px; background: var(--shell); font-size: 13px; }
+.ppg-quote dt { color: var(--fg-2); }
+.ppg-quote dd { margin: 0; text-align: right; font-weight: 800; }
+@media (max-width: 900px) { .ppg-place { grid-template-columns: 1fr; } .ppg-hero-body { padding: 24px 16px; } .ppg-title { font-size: 56px; } }

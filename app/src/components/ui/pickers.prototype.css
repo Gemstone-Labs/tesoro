@@ -1,0 +1,296 @@
+/* PROTOTYPE ONLY (branch proto/pickers-11-10-2026): four picker directions. Delete with pickers.prototype.tsx. */
+
+.pp-root { border: 0; margin: 0; padding: 0; min-width: 0; width: min(100%, 470px); }
+.pp-root label { position: relative; display: block; }
+.pp-root input[type="radio"] { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
+.pp-root input[type="radio"]:disabled { cursor: not-allowed; }
+.pp-glyph { flex: none; display: block; }
+
+/* the Gema mark in ink on a money fill (same as ui.css does for .entry) */
+.pp-ink .gema-mark .gm-body, .pp-ink .gema-mark .gm-table { fill: currentColor; }
+.pp-ink .gema-mark .gm-table { stroke: var(--gem-ink-line); stroke-width: 1; }
+.pp-ink .gema-mark .gm-cuts { stroke: var(--gem-ink-line); stroke-opacity: 1; stroke-width: 0.8; }
+.pp-ink .gema-mark .shine { display: none; }
+
+/* shared invisible native range: the visuals are drawn underneath, positions use the same 28px thumb inset */
+.pp-track { position: relative; height: 40px; }
+.pp-range {
+  position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: grab;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+.pp-range:active { cursor: grabbing; }
+.pp-range::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 40px; }
+.pp-range::-moz-range-thumb { width: 28px; height: 40px; border: 0; }
+.pp-slider { display: grid; gap: 8px; --x: calc(14px + (100% - 28px) * var(--f)); }
+.pp-track { --x: calc(14px + (100% - 28px) * var(--f)); }
+
+/* ═══════════ A · Rail ═══════════ */
+.ppa-rail {
+  --c: var(--cut-chip); --edge: var(--edge-1);
+  position: relative; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); padding: 4px;
+  background: #05080a; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+.ppa-thumb {
+  --c: 6px;
+  position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / var(--n));
+  transform: translateX(calc(var(--i) * 100%)); transition: transform 0.32s cubic-bezier(0.3, 1.25, 0.5, 1);
+  clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+}
+.ppa-entry .ppa-thumb {
+  background: linear-gradient(180deg, rgba(225, 255, 246, 0.75), transparent 2px), linear-gradient(0deg, var(--money-base) 0 3px, transparent 3px), var(--money-fill);
+}
+.ppa-entry.off .ppa-thumb { background: linear-gradient(180deg, #1c3a32, #10221e); }
+.ppa-asset .ppa-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
+.ppa-opt span {
+  position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 48px; font-weight: 800; font-size: 16px; color: var(--fg-2); transition: color 0.2s ease;
+}
+.ppa-opt input:hover:not(:checked, :disabled) + span { color: var(--fg); }
+.ppa-entry .ppa-opt input:checked + span { color: var(--em-ink); }
+.ppa-entry .ppa-opt input:not(:checked) + span .gema-mark { filter: grayscale(1) brightness(0.85); opacity: 0.55; }
+.ppa-entry.off .ppa-opt input:checked + span { color: rgba(234, 239, 236, 0.7); }
+.ppa-entry.off .ppa-opt input:checked + span .gema-mark .gm-body { fill: url(#gema-face); }
+.ppa-opt input:disabled + span { color: var(--fg-3); opacity: 0.55; }
+.ppa-asset .ppa-opt span { display: grid; grid-template-columns: auto auto; column-gap: 7px; row-gap: 0; justify-content: center; align-content: center; min-height: 54px; }
+.ppa-asset .ppa-opt .pp-glyph { grid-row: span 2; align-self: center; }
+.ppa-asset .ppa-opt b { font-size: 16px; line-height: 1.1; letter-spacing: 0.02em; justify-self: start; }
+.ppa-asset .ppa-opt small { font-size: 11px; font-weight: 600; color: var(--fg-3); justify-self: start; }
+.ppa-asset .ppa-opt input:checked + span { color: var(--fg); }
+.ppa-asset .ppa-opt input:checked + span small { color: var(--fg-2); }
+.ppa-asset .ppa-opt input:not(:checked) + span .pp-glyph { filter: grayscale(1); opacity: 0.6; }
+.ppa-opt input:focus-visible + span { box-shadow: inset 0 0 0 2px var(--fg); }
+.ppa-entry .ppa-opt input:checked:focus-visible + span { box-shadow: inset 0 0 0 2px var(--em-ink); }
+
+/* A slider: one cell per value, a jewel marker over the current one */
+.ppa-track { height: 44px; }
+.ppa-cells {
+  position: absolute; top: 50%; height: 14px; transform: translateY(-50%);
+  left: 0; right: 0;
+  display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 3px;
+}
+.ppa-cells i {
+  background: rgba(255, 255, 255, 0.07);
+  clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%);
+  transition: background 0.18s ease;
+}
+.ppa-cells i.on { background: linear-gradient(180deg, #6af8d6 0 2px, #2fdcac 2px 55%, #19b68b 55%); }
+.ppa-bar { position: absolute; left: 0; right: 0; top: 50%; height: 14px; transform: translateY(-50%); background: rgba(255, 255, 255, 0.07); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.ppa-bar i { display: block; height: 100%; width: var(--x); background: linear-gradient(180deg, #6af8d6 0 2px, #2fdcac 2px 55%, #19b68b 55%); }
+.ppa-cells ~ .ppa-marker { left: calc(100% * (var(--f) * (var(--n) - 1) + 0.5) / var(--n)); }
+.ppa-marker {
+  position: absolute; top: 50%; left: var(--x); width: 20px; height: 38px; transform: translate(-50%, -50%); z-index: 2;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.7) 0 1px, transparent 1px), linear-gradient(160deg, #f4fffb 0%, #c9f7e8 46%, #9fe9d2 46.5%, #7fd8be 100%);
+  clip-path: polygon(50% 0, 100% 22%, 100% 78%, 50% 100%, 0 78%, 0 22%);
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6)); transition: transform 0.15s ease;
+}
+.ppa-slider:has(.pp-range:active) .ppa-marker { transform: translate(-50%, -50%) scale(1.1); }
+.ppa-slider:has(.pp-range:focus-visible) .ppa-marker { outline: 2px solid var(--fg); outline-offset: 3px; }
+
+/* A chip: tinted tag, small chamfer so it never reads as a hexagon */
+.ppa-chip {
+  --tone: var(--fg-2);
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; white-space: nowrap;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
+}
+.ppa-chip svg { width: 12px; height: 12px; }
+
+/* ═══════════ B · Stones ═══════════ */
+.ppb-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ppb-card {
+  --c: var(--cut-card); --edge: var(--edge-1);
+  display: grid; justify-items: center; align-content: end; gap: 8px; min-height: 96px; padding: 12px 6px 12px;
+  background: var(--surface); transition: background 0.2s ease;
+}
+.ppb-card b { font-size: 17px; font-weight: 900; color: var(--fg-2); letter-spacing: -0.01em; transition: color 0.2s ease; }
+.ppb-stone { display: grid; place-items: end center; height: 44px; transition: transform 0.3s cubic-bezier(0.3, 1.4, 0.5, 1), filter 0.2s ease; }
+.ppb-entry input:not(:checked) + .ppb-card .ppb-stone { filter: grayscale(1) brightness(0.75); opacity: 0.6; }
+.ppb-opt input:hover:not(:checked, :disabled) + .ppb-card { background: var(--surface-2); }
+.ppb-opt input:hover:not(:checked, :disabled) + .ppb-card .ppb-stone { transform: translateY(-2px); }
+.ppb-entry input:checked + .ppb-card {
+  --edge: var(--edge-em);
+  background: radial-gradient(ellipse 70% 60% at 50% 100%, rgba(36, 216, 168, 0.3), transparent 70%), linear-gradient(180deg, #13211d, #0d1714);
+}
+.ppb-entry input:checked + .ppb-card .ppb-stone { transform: translateY(-4px); filter: drop-shadow(0 6px 10px rgba(36, 216, 168, 0.45)); }
+.ppb-entry input:checked + .ppb-card b { color: var(--em-hi); }
+.ppb-opt input:disabled + .ppb-card { opacity: 0.45; }
+.ppb-opt input:focus-visible + .ppb-card::after { --t: 2px; background: var(--fg); }
+/* B asset: the chain as a cut token, lit in its own colour when chosen */
+.ppb-asset .ppb-card { min-height: 88px; }
+.ppb-token {
+  --c: 9px; --edge: var(--edge-2);
+  display: grid; place-items: center; width: 46px; height: 46px;
+  background: radial-gradient(circle at 50% 30%, #222b32, #0b1013); transition: transform 0.3s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.ppb-asset input:not(:checked) + .ppb-card .pp-glyph { filter: grayscale(1); opacity: 0.55; }
+.ppb-asset input:checked + .ppb-card { --edge: linear-gradient(180deg, color-mix(in srgb, var(--chain) 80%, white), color-mix(in srgb, var(--chain) 25%, transparent)); background: radial-gradient(ellipse 70% 60% at 50% 100%, color-mix(in srgb, var(--chain) 22%, transparent), transparent 70%), var(--surface); }
+.ppb-asset input:checked + .ppb-card .ppb-token { --edge: var(--chain); transform: translateY(-3px); background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--chain) 30%, #11171b), #0b1013); }
+.ppb-asset input:checked + .ppb-card b { color: var(--fg); }
+
+/* B slider: stepper first, a thin scrub line under it */
+.ppb-slider { gap: 6px; }
+.ppb-stepper { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 8px; }
+.ppb-step {
+  --c: var(--cut-btn); --edge: var(--edge-2);
+  height: 52px; border: 0; background: var(--surface); color: var(--fg); font-size: 26px; font-weight: 500; line-height: 1; cursor: pointer;
+  transition: background 0.15s ease, transform 0.08s ease;
+}
+.ppb-step:hover:not(:disabled) { background: var(--surface-2); }
+.ppb-step:active:not(:disabled) { transform: translateY(1px); }
+.ppb-step:disabled { color: var(--fg-3); cursor: not-allowed; }
+.ppb-step:focus-visible { outline: 0; }
+.ppb-step:focus-visible::after { --t: 2px; background: var(--fg); }
+.ppb-value { display: flex; justify-content: center; align-items: center; font-size: 26px; font-weight: 900; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ppb-value .gema-amount { font-size: 26px; }
+.ppb-track { height: 28px; }
+.ppb-line { position: absolute; left: 14px; right: 14px; top: 50%; height: 4px; transform: translateY(-50%); background: rgba(255, 255, 255, 0.1); }
+.ppb-line i { display: block; height: 100%; width: calc(100% * var(--f)); background: var(--em); }
+.ppb-knob {
+  position: absolute; top: 50%; left: var(--x); width: 16px; height: 16px; transform: translate(-50%, -50%); z-index: 2;
+  background: var(--fg); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+.ppb-slider:has(.pp-range:focus-visible) .ppb-knob { background: var(--em-hi); box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.3); }
+
+/* B chip: a small steel plaque with a gem bullet in the tone */
+.ppb-chip {
+  --c: 4px; --edge: var(--edge-2); --tone: var(--fg-2);
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px 0 7px; white-space: nowrap;
+  font-size: 11.5px; font-weight: 700; color: var(--fg);
+  background: linear-gradient(180deg, #2a333a 0, #1c2328 50%, #171d22 100%);
+}
+.ppb-chip svg { width: 12px; height: 12px; color: var(--tone); }
+.ppb-chip .ppchip-dot {
+  width: 9px; height: 9px; flex: none;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tone) 60%, white) 0 46%, var(--tone) 46.5%);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+
+/* ═══════════ C · Tickets ═══════════ */
+.ppc-list { display: grid; gap: 6px; }
+.ppc-row {
+  --c: var(--cut-chip); --edge: var(--edge-1);
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; min-height: 52px; padding: 0 16px 0 14px;
+  background: rgba(9, 13, 15, 0.55); transition: background 0.15s ease;
+}
+.ppc-dot {
+  width: 16px; height: 16px; flex: none; background: rgba(234, 239, 236, 0.3);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  position: relative;
+}
+.ppc-dot::after {
+  content: ""; position: absolute; inset: 2px; background: #0b1013;
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+.ppc-amt { display: inline-flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 900; letter-spacing: -0.01em; }
+.ppc-side { font-size: 13px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.ppc-side b { color: var(--fg); font-weight: 800; }
+.ppc-opt input:hover:not(:checked, :disabled) + .ppc-row { background: var(--raised-2); }
+.ppc-opt input:checked + .ppc-row { --edge: var(--edge-em); background: linear-gradient(90deg, rgba(36, 216, 168, 0.16), rgba(36, 216, 168, 0.04) 60%), #0d1714; }
+.ppc-opt input:checked + .ppc-row .ppc-dot { background: var(--em-hi); }
+.ppc-opt input:checked + .ppc-row .ppc-dot::after { inset: 4px; background: var(--facet); }
+.ppc-opt input:checked + .ppc-row .ppc-side b { color: var(--em-hi); }
+.ppc-opt input:not(:checked) + .ppc-row .gema-mark { filter: grayscale(1) brightness(0.85); opacity: 0.6; }
+.ppc-opt input:disabled + .ppc-row { opacity: 0.5; }
+.ppc-opt input:focus-visible + .ppc-row::after { --t: 2px; background: var(--fg); }
+/* the asset list stays neutral: a pale indicator, no emerald */
+.ppc-asset .ppc-amt { font-size: 16px; letter-spacing: 0.02em; }
+.ppc-opt input:checked + .ppc-asset { --edge: var(--edge-2); background: linear-gradient(90deg, rgba(234, 239, 236, 0.1), rgba(234, 239, 236, 0.02) 60%), #121a1f; }
+.ppc-opt input:checked + .ppc-asset .ppc-dot { background: var(--fg); }
+.ppc-opt input:checked + .ppc-asset .ppc-dot::after { background: var(--fg); }
+.ppc-opt input:not(:checked) + .ppc-asset .pp-glyph { filter: grayscale(1); opacity: 0.6; }
+
+/* C slider: a ruler with every value written under it, a pin pointing down at the current one */
+.ppc-track { height: 34px; }
+.ppc-rule { position: absolute; left: 14px; right: 14px; bottom: 6px; height: 6px; background: rgba(255, 255, 255, 0.09); }
+.ppc-rule i { display: block; height: 100%; width: calc(100% * var(--f)); background: linear-gradient(90deg, var(--em-deep), var(--em)); }
+.ppc-pin {
+  position: absolute; left: var(--x); bottom: 4px; width: 18px; height: 26px; transform: translateX(-50%); z-index: 2;
+  background: linear-gradient(160deg, #f4fffb 0%, #d7f7ec 50%, #a9e6d3 50.5%);
+  clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6)); transition: left 0.08s ease;
+}
+.ppc-slider:has(.pp-range:focus-visible) .ppc-pin { background: var(--fg); outline: 2px solid var(--fg); outline-offset: 2px; }
+.ppc-marks { position: relative; height: 22px; margin: 0 14px; }
+.ppc-marks button {
+  position: absolute; left: calc(100% * var(--m)); transform: translateX(-50%); top: 0;
+  border: 0; background: none; padding: 2px 4px; cursor: pointer; color: var(--fg-3);
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.ppc-marks button::before { content: ""; position: absolute; left: 50%; top: -8px; width: 1px; height: 6px; background: currentColor; opacity: 0.6; }
+.ppc-marks button.past { color: var(--fg-2); }
+.ppc-marks button.now { color: var(--em-hi); font-weight: 900; }
+.ppc-marks button:hover { color: var(--fg); }
+
+/* C chip: the cut outline kept, chamfer cut down to 4px, mono caps, a status pip */
+.ppc-chip {
+  --c: 4px; --tone: var(--fg-2); --edge: color-mix(in srgb, var(--tone) 50%, transparent);
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; white-space: nowrap;
+  font-family: var(--f-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--tone);
+}
+.ppc-chip svg { width: 12px; height: 12px; }
+
+/* ═══════════ D · Quiet type ═══════════ */
+.ppd-row { display: flex; align-items: stretch; }
+.ppd-opt { flex: 1; }
+.ppd-opt + .ppd-opt { border-left: 1px solid var(--line); }
+.ppd-opt span { display: grid; justify-items: center; align-content: center; gap: 4px; padding: 6px 0 14px; position: relative; color: var(--fg-2); transition: color 0.2s ease; }
+.ppd-opt span::after {
+  content: ""; position: absolute; left: 22%; right: 22%; bottom: 0; height: 4px; transform: scaleX(0); transition: transform 0.25s cubic-bezier(0.3, 1.3, 0.5, 1);
+  clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 100%, 0 100%);
+}
+.ppd-entry span { gap: 2px; }
+.ppd-entry .gema-mark { order: -1; }
+.ppd-entry b { font-family: var(--f-display); font-weight: 800; font-size: clamp(26px, 8vw, 34px); line-height: 1; letter-spacing: 0.01em; }
+.ppd-entry span::after { background: var(--facet); }
+.ppd-entry input:not(:checked) + span .gema-mark { opacity: 0; transform: scale(0.6); }
+.ppd-entry .gema-mark { transition: opacity 0.2s ease, transform 0.25s ease; }
+.ppd-opt input:checked + span { color: var(--fg); }
+.ppd-opt input:checked + span::after { transform: scaleX(1); }
+.ppd-opt input:hover:not(:checked, :disabled) + span { color: var(--fg); }
+.ppd-opt input:disabled + span { color: var(--fg-3); opacity: 0.5; }
+.ppd-opt input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: -2px; }
+.ppd-asset b { font-family: var(--f-display); font-weight: 800; font-size: clamp(24px, 7vw, 30px); line-height: 1; letter-spacing: 0.02em; }
+.ppd-asset small { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); }
+.ppd-asset input:checked + span small { color: var(--fg-2); }
+.ppd-asset span::after { background: var(--fg); }
+
+/* D slider: hairline, small gem knob carrying its own value tag */
+.ppd-slider { gap: 4px; }
+.ppd-track { height: 64px; }
+.ppd-line { position: absolute; left: 14px; right: 14px; bottom: 15px; height: 2px; background: rgba(255, 255, 255, 0.14); }
+.ppd-line i { display: block; height: 100%; width: calc(100% * var(--f)); background: var(--em); box-shadow: 0 0 8px rgba(36, 216, 168, 0.6); }
+.ppd-dots { position: absolute; left: 14px; right: 14px; bottom: 4px; display: flex; justify-content: space-between; }
+.ppd-dots i { width: 3px; height: 3px; background: var(--fg-3); }
+.ppd-dots i.on { background: var(--em-hi); }
+.ppd-knob {
+  position: absolute; left: var(--x); bottom: 7px; width: 18px; height: 18px; transform: translateX(-50%); z-index: 2;
+}
+/* the gem is drawn by ::before so the clip does not cut off the value tag */
+.ppd-knob::before {
+  content: ""; position: absolute; inset: 0; background: var(--facet);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+.ppd-tag {
+  --c: 5px; --edge: var(--edge-2);
+  position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%);
+  padding: 5px 9px; white-space: nowrap; background: #1a2228; color: var(--fg);
+  font-size: 14px; font-weight: 900; font-variant-numeric: tabular-nums;
+}
+.ppd-tag .gema-amount { font-size: 14px; }
+.ppd-slider:has(.pp-range:focus-visible) .ppd-knob::before { background: var(--fg); }
+.ppd-slider:has(.pp-range:active) .ppd-tag { transform: translateX(-50%) translateY(-2px); }
+
+/* D chip: no box, a pip and small caps */
+.ppd-chip {
+  --tone: var(--fg-2);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--tone);
+}
+.ppd-chip svg { width: 12px; height: 12px; }
+.ppd-chip .ppchip-dot { width: 7px; height: 7px; background: currentColor; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+
+.ppchip.t-strong { --tone: var(--fg); }
+.ppchip.t-money { --tone: var(--em); }
+.ppchip.t-warn { --tone: var(--warn); }
+.ppchip.t-danger { --tone: var(--danger); }

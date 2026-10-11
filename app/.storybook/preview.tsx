@@ -12,6 +12,8 @@ import "../src/components/docs/docs.css";
 import "../src/components/docs/docs-visual.css";
 import "./preview.css";
 import { GemaDefs } from "../src/components/ui/gema";
+import { PrototypeSwitcher } from "../src/components/prototype/PrototypeSwitcher";
+import { PICKER_VARIANTS } from "../src/components/ui/pickers.prototype";
 import { AuthContext } from "../src/lib/auth/context";
 import { authFor } from "../stories/support/auth";
 import { setStoryData, type AuthMode, type StoryData } from "../stories/support/data";
@@ -72,6 +74,8 @@ const withTesoro: Decorator = (Story, ctx) => {
       <ShellFor shell={shell}>
         <Story />
       </ShellFor>
+      {/* PROTOTYPE ONLY: pickers variant bar on every story */}
+      <PrototypeSwitcher variants={PICKER_VARIANTS} />
     </AuthContext.Provider>
   );
 };

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import type { Chain } from "@/lib/mock/types";
 import { ArrowIcon } from "./icons";
+import { ChipSwitch } from "./pickers.prototype";
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -78,10 +79,9 @@ export function Chip({
   icon?: ReactNode;
 }) {
   return (
-    <span className={cx("cut cut-chip chip", tone !== "neutral" && tone)}>
-      {icon}
+    <ChipSwitch tone={tone} icon={icon} now={<span className={cx("cut cut-chip chip", tone !== "neutral" && tone)}>{icon}{children}</span>}>
       {children}
-    </span>
+    </ChipSwitch>
   );
 }
 

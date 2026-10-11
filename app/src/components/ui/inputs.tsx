@@ -6,6 +6,7 @@ import type { EntrySize } from "@/lib/mock/types";
 import { fmtGemas } from "@/lib/format";
 import { GemaMark } from "./gema";
 import { XIcon } from "./icons";
+import { AssetPickerProto, EntryPickerProto, SliderProto, usePickerVariant } from "./pickers.prototype";
 
 export const ENTRY_SIZES: readonly EntrySize[] = [500, 1000, 2500];
 
@@ -19,7 +20,9 @@ export const DUEL_ASSETS = [
 /** Radio group over Trading Duel's assets. Neutral: the chosen asset is pale, never emerald (no Gemas move here). */
 /** `compact` shows the tickers only (the Lobby hero), with the asset name kept for screen readers. */
 export function AssetPicker({ value, onChange, name, compact }: { value: 0 | 1 | 2; onChange: (v: 0 | 1 | 2) => void; name?: string; compact?: boolean }) {
+  const pv = usePickerVariant();
   const auto = useId();
+  if (pv !== "now") return <AssetPickerProto variant={pv} value={value} onChange={onChange} name={name} />;
   const group = name ?? auto;
   return (
     <fieldset className={compact ? "assets compact" : "assets"}>
@@ -55,8 +58,11 @@ export function EntryPicker({
   /** Extra rule for an entry that `maxAffordable` cannot express (e.g. Gemas spread over too many Sources). */
   isDisabled?: (size: EntrySize) => boolean;
 }) {
+  const pv = usePickerVariant();
   const auto = useId();
   const group = name ?? auto;
+  if (pv !== "now")
+    return <EntryPickerProto variant={pv} value={value} onChange={onChange} legend={legend} name={name} maxAffordable={maxAffordable} isDisabled={isDisabled} />;
   return (
     <fieldset className="entries">
       <legend className="sr-only">{legend}</legend>
@@ -105,7 +111,10 @@ export function Slider({
   minLabel?: string;
   maxLabel?: string;
 }) {
+  const pv = usePickerVariant();
   const id = useId();
+  if (pv !== "now")
+    return <SliderProto variant={pv} label={label} value={value} min={min} max={max} step={step} onChange={onChange} display={display} minLabel={minLabel} maxLabel={maxLabel} />;
   const pct = ((value - min) / (max - min)) * 100;
   const steps = Math.round((max - min) / step);
   return (
