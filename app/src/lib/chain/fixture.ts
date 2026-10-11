@@ -127,20 +127,41 @@ export function demoSnapshot(address: string): AccountSnapshot {
   };
 }
 
+/** A seeded Gema change per Match for a demo record: a win nets the entry less 12% (Fees on a Pot of two entries), a loss costs the entry. `behind` loses the big entries. */
+function demoPnl(seed: number, matches: number, wins: number, behind = false): number[] {
+  let x = seed * 9301 + 49297;
+  const rnd = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+  const entries = [500, 1000, 2500];
+  const results = Array.from({ length: matches }, (_, i) => i < wins).sort(() => rnd() - 0.5);
+  return results.map((won) => {
+    const entry = behind ? (won ? 500 : entries[1 + Math.floor(rnd() * 2)]) : entries[Math.floor(rnd() * 3)];
+    return won ? Math.round(entry * 0.88) : -entry;
+  });
+}
+
 export function demoBoard(): BackingBoard {
-  const req = (n: number, game: "block-puzzle" | "holdem" | "trading-duel", entry: number, matches: number, wins: number): ChainRequest => ({
+  const req = (n: number, game: "block-puzzle" | "holdem" | "trading-duel", entry: number, matches: number, wins: number, mins = 60, behind = false): ChainRequest => ({
     address: key(600 + n),
     nonce: BigInt(n),
     player: key(700 + n).toBase58(),
     game,
     entry,
-    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    expiresAt: Math.floor(Date.now() / 1000) + mins * 60,
     status: "open",
     live: true,
     record: { matches, wins },
+    pnl: demoPnl(n, matches, wins, behind),
   });
   return {
-    requests: [req(1, "block-puzzle", 1000, 38, 23), req(2, "holdem", 500, 24, 14), req(3, "block-puzzle", 2500, 52, 34), req(4, "holdem", 1000, 17, 9)],
+    requests: [
+      req(1, "block-puzzle", 1000, 38, 23, 58),
+      req(2, "holdem", 500, 24, 14, 1290),
+      req(3, "block-puzzle", 2500, 52, 34, 312),
+      req(4, "holdem", 1000, 17, 9, 14, true),
+      req(5, "trading-duel", 500, 31, 21, 845),
+      req(6, "block-puzzle", 500, 0, 0, 1380),
+      req(7, "holdem", 2500, 64, 37, 96),
+    ],
     offers: [],
     fetchedAt: Date.now(),
   };

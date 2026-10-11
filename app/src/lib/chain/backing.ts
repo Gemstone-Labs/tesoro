@@ -5,10 +5,12 @@ import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
-import { EntryError } from "./ledger";
+import { EntryError, matchDelta } from "./ledger";
 import { ChallengeError, GAME_IDS, ensureReady, entryHoldings, isChallengeId, newMatchId, queueDeps } from "./match-flow";
 import { decodeAll, fetchMatch, gameOf } from "./read";
+import { matchOpenedAt } from "./match-id";
 import { queueEntry, type Entered } from "./queue";
+import { leaderboardBpsFor } from "./season";
 
 /**
  * Backing on chain (tesoro_core Requests and Offers). Reads are public; writes are signed by the
@@ -42,6 +44,8 @@ export interface ChainRequest {
   /** Open and not expired. */
   live: boolean;
   record: PlayerRecord;
+  /** The Player's Gema change in each Match with a winner, oldest first, by the Account page's rule (a backed loss costs them 0). */
+  pnl: number[];
 }
 
 export interface OfferLine {
@@ -83,8 +87,14 @@ export interface BackingBoard {
 const requestStatus = (o: object) => enumKey(o) as ChainRequest["status"];
 const offerStatus = (o: object) => enumKey(o) as ChainOffer["status"];
 
-/** Wins and settled count per Player over all Matches, from Block Puzzle Sessions, Hold'em tables and Trading Duels. */
-async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerRecord>> {
+interface PlayerForm {
+  record: PlayerRecord;
+  pnl: number[];
+}
+const noForm = (): PlayerForm => ({ record: { matches: 0, wins: 0 }, pnl: [] });
+
+/** Wins, settled count and Gema change per Player over all Matches, from Block Puzzle Sessions, Hold'em tables and Trading Duels. */
+async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerForm>> {
   const chain = getChain();
   const rows: any[] = await chain.core.account.matchState.all();
   const settled = rows.filter((m) => enumKey(m.account.inner.status) === "settled" && gameOf(pk(m.account.inner.game)) !== null);
@@ -120,22 +130,32 @@ async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerRec
       if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
     });
   }
-  const out = new Map<string, PlayerRecord>([...players].map((p) => [p, { matches: 0, wins: 0 }]));
+  const out = new Map<string, PlayerForm>([...players].map((p) => [p, noForm()]));
+  const changes = new Map<string, { at: number; delta: number }[]>();
   for (const m of settled) {
     const w = winnerSeat.get(big(m.account.id).toString());
     if (w === undefined) continue;
-    const sides = [m.account.inner.a, m.account.inner.b];
+    const inner = m.account.inner;
+    const id = big(m.account.id);
+    const at = matchOpenedAt(id, gameOf(pk(inner.game)));
+    const fees = { platformBps: inner.fees.platformBps, studioBps: inner.fees.studioBps, leaderboardBps: leaderboardBpsFor(at) };
+    const sides = [inner.a, inner.b];
     sides.forEach((s: any, seat: number) => {
-      const rec = s && out.get(pk(s.player).toBase58());
-      if (!rec) return;
-      rec.matches += 1;
-      if (seat === w) rec.wins += 1;
+      const player = s && pk(s.player).toBase58();
+      const form = player && out.get(player);
+      if (!form) return;
+      form.record.matches += 1;
+      if (seat === w) form.record.wins += 1;
+      const backing = pk(s.funder).equals(pk(s.player)) ? null : { shareBps: s.shareBps };
+      const delta = matchDelta({ session: null, winner: w === 0 ? "opener" : "joiner", seat: seat as 0 | 1, entry: Number(inner.entry.toString()), fees, backing });
+      changes.set(player, [...(changes.get(player) ?? []), { at, delta }]);
     });
   }
+  for (const [player, list] of changes) out.get(player)!.pnl = list.sort((a, b) => a.at - b.at).map((c) => c.delta);
   return out;
 }
 
-function toRequest(row: any, record: PlayerRecord): ChainRequest {
+function toRequest(row: any, { record, pnl }: PlayerForm): ChainRequest {
   const r = row.account.inner;
   const status = requestStatus(r.status);
   const expiresAt = Number(r.expiresAt.toString());
@@ -149,6 +169,7 @@ function toRequest(row: any, record: PlayerRecord): ChainRequest {
     status,
     live: status === "open" && now() < expiresAt,
     record,
+    pnl,
   };
 }
 
@@ -191,9 +212,9 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
     chain.core.account.matchState.all(),
   ]);
   const players = new Set<string>(reqRows.map((r) => pk(r.account.inner.player).toBase58()));
-  const records = players.size ? await fetchRecords(players) : new Map<string, PlayerRecord>();
+  const records = players.size ? await fetchRecords(players) : new Map<string, PlayerForm>();
   const requests = reqRows
-    .map((r) => toRequest(r, records.get(pk(r.account.inner.player).toBase58()) ?? { matches: 0, wins: 0 }))
+    .map((r) => toRequest(r, records.get(pk(r.account.inner.player).toBase58()) ?? noForm()))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   // A consumed Offer funded the newest Match with the same Backer, Player, Game and entry.
   const matchOf = (o: any): bigint | null => {
@@ -215,12 +236,12 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
   return { requests, offers, fetchedAt: Date.now() };
 }
 
-/** The live (open, not expired) Requests of one Player, soonest to expire last. `record` is that Player's own, already known to the caller. */
+/** The live (open, not expired) Requests of one Player, soonest to expire last. `record` is that Player's own, already known to the caller; `pnl` is left empty. */
 export async function fetchLiveRequests(player: string, record: PlayerRecord): Promise<ChainRequest[]> {
   const rows: any[] = await getChain().core.account.requestState.all();
   return rows
     .filter((r) => pk(r.account.inner.player).toBase58() === player)
-    .map((r) => toRequest(r, record))
+    .map((r) => toRequest(r, { record, pnl: [] }))
     .filter((r) => r.live)
     .sort((a, b) => b.expiresAt - a.expiresAt);
 }

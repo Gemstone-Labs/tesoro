@@ -11,7 +11,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Up to three live Requests, each with the Player's record. */
+/** The Backing explainer, then live Requests strongest record first: record, P&L and Back for. One Player is behind, one is new. */
 export const Default: Story = {};
+export const NoRequests: Story = { parameters: { data: { board: { requests: [], offers: [], fetchedAt: 0 } } } };
 export const Loading: Story = { parameters: { screen: { board: "loading" } } };
 export const LoadFailed: Story = { parameters: { screen: { board: "error" } } };
