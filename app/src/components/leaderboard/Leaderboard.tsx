@@ -15,6 +15,7 @@ import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 import "./leaderboard.css";
+import { SeasonPaying } from "./SeasonPaying.prototype";
 
 /** Prize of rank `i` from a pool, floored as in the program. */
 const prize = (pool: number, i: number) => Math.floor((pool * PRIZE_BPS[i]) / 10_000);
@@ -139,13 +140,10 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
 
   return (
     <>
+      {data.settling !== null && <SeasonPaying slot="above" settling={data.settling} endedAt={data.season.start} now={now} current={data.season.number} />}
       <Hero data={data} pool={pool} remaining={remaining} />
 
-      {data.settling !== null && (
-        <p className="note" role="status">
-          Season {data.settling} has ended and its prizes are being paid.
-        </p>
-      )}
+      {data.settling !== null && <SeasonPaying slot="below" settling={data.settling} endedAt={data.season.start} now={now} current={data.season.number} />}
 
       <Season data={data} pool={pool} me={me} />
 

@@ -1,0 +1,102 @@
+/* PROTOTYPE: season payout notice variants (SeasonPaying.prototype.tsx) */
+.sp-kicker { font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
+
+/* A: payout ribbon */
+.sp-ribbon {
+  --edge: var(--edge-gold); position: relative; overflow: hidden;
+  background: radial-gradient(40% 160% at 6% 50%, rgba(255, 180, 60, 0.2), transparent 70%), var(--surface);
+  display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(140px, 200px); align-items: center; gap: 20px; padding: 16px 24px 16px 18px;
+}
+.sp-ribbon-chest { display: grid; place-items: center; width: 72px; height: 72px; }
+.sp-ribbon-copy { display: grid; gap: 4px; min-width: 0; }
+.sp-ribbon-title { font-family: var(--f-display); font-size: clamp(20px, 2vw, 26px); font-weight: 800; text-transform: uppercase; line-height: 1; }
+.sp-ribbon-copy p { color: var(--fg-2); font-size: 14.5px; line-height: 1.45; max-width: 58ch; }
+.sp-ribbon-state { display: grid; gap: 8px; justify-items: end; }
+.sp-paying { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sp-paying::after { content: "…"; display: inline-block; width: 1.2em; text-align: left; animation: sp-dots 1.4s steps(4, end) infinite; overflow: hidden; vertical-align: bottom; }
+.sp-run { position: relative; width: 100%; height: 6px; overflow: hidden; background: rgba(255, 200, 100, 0.12); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
+.sp-run::before { content: ""; position: absolute; inset: 0; width: 40%; background: var(--gold-facet); animation: sp-run 1.8s ease-in-out infinite; }
+@keyframes sp-run { from { translate: -100% 0; } to { translate: 250% 0; } }
+@keyframes sp-dots { from { width: 0; } to { width: 1.2em; } }
+
+/* B: tab on the hero's top edge (pulls the hero up to meet it) */
+.sp-tab-row { display: flex; justify-content: flex-start; margin-bottom: -22px; padding-left: 28px; position: relative; z-index: 1; }
+.sp-tab {
+  display: inline-flex; align-items: center; gap: 10px; padding: 9px 20px 8px 14px; font-size: 14px; color: #2a1702;
+  background: var(--gold-facet);
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%, 0 10px);
+}
+.sp-tab b { font-weight: 800; }
+.sp-tab-sub { color: rgba(42, 23, 2, 0.78); }
+.sp-tab-gem { display: grid; place-items: center; animation: sp-turn 2.4s ease-in-out infinite; }
+@keyframes sp-turn { 0%, 60% { rotate: y 0deg; } 100% { rotate: y 360deg; } }
+
+/* C: winners slot */
+.sp-slot { display: grid; gap: 4px; }
+.sp-slot .lb-sec-head { flex-wrap: wrap; align-items: center; }
+.sp-slot-state { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--fg); }
+.sp-slot-ago { color: var(--fg-2); font-weight: 400; }
+.sp-dot { width: 9px; height: 9px; background: #ffc24a; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); animation: sp-pulse 1.2s ease-in-out infinite; }
+@keyframes sp-pulse { 50% { opacity: 0.3; scale: 0.7; } }
+.sp-seats { list-style: none; margin: 0 0 8px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.sp-seat {
+  --edge: var(--edge-1); position: relative; overflow: hidden; background: var(--surface);
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "rank ghost" "share ghost"; align-items: center; gap: 2px 12px; padding: 12px 14px; min-height: 78px;
+}
+.sp-seat.top { --edge: var(--edge-gold); }
+.sp-seat-sweep {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 210, 120, 0.16) 50%, transparent 70%);
+  translate: -100% 0; animation: sp-sweep 5s ease-in-out infinite; animation-delay: calc(var(--i) * 0.28s);
+}
+@keyframes sp-sweep { 0% { translate: -100% 0; } 30%, 100% { translate: 100% 0; } }
+.sp-seat-rank { grid-area: rank; font-family: var(--f-display); font-size: 30px; font-weight: 800; line-height: 1; color: var(--fg-2); }
+.sp-seat.top .sp-seat-rank { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sp-seat-share { grid-area: share; font-size: 12.5px; font-weight: 700; color: var(--fg-2); }
+.sp-seat-ghost { grid-area: ghost; display: grid; grid-template-columns: 34px minmax(0, 1fr); grid-template-rows: auto auto; gap: 6px 10px; align-items: center; }
+.sp-seat-ghost i:first-child { grid-row: span 2; width: 34px; height: 34px; background: rgba(234, 239, 236, 0.07); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+.sp-seat-ghost i:last-child { height: 10px; width: 80%; background: rgba(234, 239, 236, 0.07); }
+
+/* D: handover track */
+.sp-hand { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 14px; padding: 20px 26px 18px; }
+.sp-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sp-step { position: relative; display: grid; justify-items: center; text-align: center; gap: 4px; padding: 0 8px; }
+.sp-step::before { content: ""; position: absolute; top: 17px; right: 50%; width: 100%; height: 2px; background: var(--line-2); z-index: 0; }
+.sp-step:first-child::before { display: none; }
+.sp-step.live::before { background: linear-gradient(90deg, var(--fg-2), #ffc24a); }
+.sp-node {
+  position: relative; z-index: 1; width: 36px; height: 36px; display: grid; place-items: center; margin-bottom: 6px;
+  background: var(--surface-2); box-shadow: inset 0 0 0 2px var(--line-2);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+.sp-step.done .sp-node { background: var(--fg); color: var(--shell); box-shadow: none; }
+.sp-step.live .sp-node { background: rgba(255, 194, 74, 0.18); box-shadow: inset 0 0 0 2px #ffc24a; animation: sp-glow 1.6s ease-in-out infinite; }
+@keyframes sp-glow { 50% { background: rgba(255, 194, 74, 0.38); } }
+.sp-step b { font-size: 15px; font-weight: 800; }
+.sp-step small { font-size: 13px; color: var(--fg-2); }
+.sp-step.next b { color: var(--fg-2); }
+.sp-hand-foot { text-align: center; color: var(--fg-2); font-size: 14px; padding-top: 12px; box-shadow: inset 0 1px var(--line); }
+
+@media (max-width: 1023px) {
+  .sp-seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .sp-ribbon { grid-template-columns: auto minmax(0, 1fr); padding: 14px 16px; gap: 12px 14px; }
+  .sp-ribbon-chest { width: 56px; height: 56px; }
+  .sp-ribbon-state { grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; justify-items: stretch; }
+  .sp-tab-row { padding-left: 14px; }
+  .sp-tab { font-size: 13px; }
+  .sp-tab-sub { display: none; }
+  .sp-seat { min-height: 64px; padding: 10px 12px; }
+  .sp-seat-rank { font-size: 24px; }
+  .sp-hand { padding: 16px; }
+  .sp-steps { grid-template-columns: 1fr; gap: 14px; }
+  .sp-step { grid-template-columns: 36px 1fr; justify-items: start; text-align: left; column-gap: 12px; padding: 0; }
+  .sp-node { grid-row: span 2; margin: 0; }
+  .sp-step::before { top: auto; bottom: 100%; right: auto; left: 17px; width: 2px; height: 14px; }
+  .sp-step.live::before { background: linear-gradient(180deg, var(--fg-2), #ffc24a); }
+  .sp-hand-foot { text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sp-run::before, .sp-paying::after, .sp-tab-gem, .sp-dot, .sp-seat-sweep, .sp-step.live .sp-node { animation: none; }
+}

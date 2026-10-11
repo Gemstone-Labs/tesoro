@@ -66,5 +66,7 @@ export function leaderboardView(kind: "live" | "deep" | "empty" | "upgrade" | "s
   };
   if (kind === "empty") return { ...base, poolGemas: 0, feeBps: 100, standings: [], players: 0, last: null, settling: null };
   if (kind === "upgrade") return { ...base, poolGemas: 0, feeBps: 0, standings: [], players: 0, last: null, settling: null };
-  return { ...base, poolGemas: 12_650, feeBps: 100, standings, players: 61, last, settling: kind === "settling" ? 3 : null };
+  // While a season is settling it has no record yet, so there is no "last" season to show (as the server builds it).
+  if (kind === "settling") return { ...base, season: { ...base.season, number: 4 }, now: base.season.start + 2 * 3600, poolGemas: 12_650, feeBps: 100, standings, players: 61, last: null, settling: 3 };
+  return { ...base, poolGemas: 12_650, feeBps: 100, standings, players: 61, last, settling: null };
 }
