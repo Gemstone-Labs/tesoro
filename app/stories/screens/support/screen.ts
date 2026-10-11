@@ -12,6 +12,8 @@ export interface ScreenData {
   leaderboard?: "live" | "empty" | "upgrade" | "settling" | "loading" | "error";
   /** Backing page: still loading, or the read failed. Default: the demo board. */
   board?: "loading" | "error";
+  /** Leaderboard Pool in the top bar: its Gemas (null hides it), and a Match fee landing every `growMs`. */
+  pool?: { gemas: number | null; growMs?: number };
   /** Open Queue Matches per Game. */
   queueDepth?: { "block-puzzle": number; holdem: number; "trading-duel": number };
   /** The Backing Request to open in the Offer drawer (the URL hash). */

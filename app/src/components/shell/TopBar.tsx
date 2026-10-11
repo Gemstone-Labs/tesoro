@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, Search, X } from "lucide-react";
+import { TesoroMark } from "@/components/brand";
 import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { AccountMenu } from "./AccountMenu";
+import { PoolChest } from "./PoolChest";
 import { useSearch } from "./SearchContext";
 import { Wordmark } from "./Sidebar";
 
@@ -24,6 +26,9 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         <Menu aria-hidden="true" />
       </button>
       <span className="top-word"><Wordmark /></span>
+      <Link href="/lobby" className="top-mark" aria-label="Tesoro, home">
+        <TesoroMark size={32} />
+      </Link>
       <form
         className="cut cut-card search"
         role="search"
@@ -52,6 +57,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         )}
       </form>
       <div className="top-right">
+        <PoolChest />
         {auth.status !== "signed-out" && auth.status !== "loading" && (
           <Link href="/wallet" className="cut cut-card gpill" aria-label="Your Gemas, open Wallet" title="Simulated yield · 1 month = 10 min">
             <GemaMark size={30} glint />

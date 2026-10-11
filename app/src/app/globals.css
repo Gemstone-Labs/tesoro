@@ -30,6 +30,9 @@
   --money-off: linear-gradient(180deg, #15201d, #101816);
   /* the ink Gema mark drawn on a money fill: body in the text colour, cuts in this */
   --gem-ink-line: rgba(122, 240, 201, 0.5);
+  /* gold: the Leaderboard Pool only (chest, its figure) */
+  --edge-gold: linear-gradient(180deg, rgba(255, 224, 150, 0.85) 0, rgba(214, 150, 40, 0.42) 40%, rgba(214, 150, 40, 0.24) 100%);
+  --gold-facet: linear-gradient(180deg, #fff1c0 0%, #ffd66a 46%, #efaa2e 47%, #d68c1c 100%);
   /* semantic (never the accent) */
   --danger: #f2685a;
   --warn: #f2b94b;
