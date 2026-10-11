@@ -443,6 +443,11 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 }
 .select option { background: var(--surface); color: var(--fg); }
 :is(.select, .input):focus-visible { --t: 2px; --ring: var(--fg); }
+/* browser autofill paints its own pale fill and dark text over the frame: keep ours (its fill is !important, so hold it off with a transition) */
+.input:is(:autofill, :-webkit-autofill) {
+  -webkit-text-fill-color: var(--fg); caret-color: var(--fg);
+  transition: background-color 0s 99999s, color 0s 99999s;
+}
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; }
 .kv dt { color: var(--fg-2); }
 .kv dd { margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
