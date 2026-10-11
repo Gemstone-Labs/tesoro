@@ -1,8 +1,9 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { Bust, BustCard, Button, GemaAmount, Slider } from "@/components/ui";
+import { Bust, BustCard, Button, ChainGlyph, Slider } from "@/components/ui";
 import type { Chain } from "@/lib/mock/types";
+import { UnlockTrack, YieldToGemas, monthsLabel } from "./AdvanceQuote";
 import "./wallet.css";
 
 export const CHAINS: Chain[] = ["SOL", "ETH", "HYPE"];
@@ -50,17 +51,28 @@ export function NoPositions({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-/** The OPEN A POSITION form body: Amount, Horizon, the quote, how it works, and the money button. */
+const GLYPH = { SOL: 0, ETH: 1, HYPE: 2 } as const;
+const PRESETS: [string, number][] = [["25%", 0.25], ["50%", 0.5], ["Max", 1]];
+
+/**
+ * The OPEN A POSITION form body, built like the Take an Advance sheet but led by the deposit: an editable
+ * "Lock SOL · New Position" card where that sheet has its locked Position, then yield → Gemas, the Horizon,
+ * Now → Unlock Estimate and the money button.
+ */
 export function OpenFormView({
-  unit,
+  chain,
+  apy,
   amountText,
   onAmount,
   amountInvalid = false,
-  amountHint,
+  balance,
+  max,
   months,
   onMonths,
   gemas,
+  yieldText,
   estimate,
+  arrival = "Position opens, Gemas in your balance",
   details,
   alerts,
   note,
@@ -70,19 +82,28 @@ export function OpenFormView({
   head,
   inert = false,
 }: {
-  unit: string;
+  chain: Chain;
+  /** "7% APY", once known. */
+  apy?: string;
   amountText: string;
   onAmount: (v: string) => void;
   amountInvalid?: boolean;
-  amountHint?: ReactNode;
+  /** Under the amount: the balance and how to get more. */
+  balance?: ReactNode;
+  /** The balance as a number: shows 25% / 50% / Max. */
+  max?: number;
   months: number;
   onMonths: (m: number) => void;
   gemas: number | null;
+  /** The Position's yield over the Horizon, with its unit. */
+  yieldText: string;
   estimate: string;
+  /** What happens now, on the left of the Unlock line. */
+  arrival?: string;
   details?: [string, ReactNode][];
   alerts?: ReactNode;
   note?: ReactNode;
-  buttonLabel: string;
+  buttonLabel: ReactNode;
   disabled: boolean;
   onSubmit: () => void;
   head?: ReactNode;
@@ -90,33 +111,46 @@ export function OpenFormView({
   inert?: boolean;
 }) {
   const id = useId();
+  const presets = !inert && max !== undefined && max > 0;
   return (
     <div className="wl-open-form">
       {head}
-      <div className="field">
-        <label className="label" htmlFor={id}>Amount</label>
-        <div className={`wl-amount${amountInvalid ? " bad" : ""}`}>
-          <input id={id} className="tnum" inputMode="decimal" placeholder="0.0" value={amountText} disabled={inert} onChange={(e) => onAmount(e.target.value)} aria-invalid={amountInvalid} />
-          <span>{unit}</span>
+      <div className={`cut cut-card wl-deposit${amountInvalid ? " bad" : ""}`}>
+        <div className="wl-deposit-head">
+          <ChainGlyph asset={GLYPH[chain]} size={30} />
+          <div>
+            <label htmlFor={id}>Lock {chain}</label>
+            <span className="meta">{apy ? `${apy} · ` : ""}locked, never played</span>
+          </div>
+          <span className="wl-new">New Position</span>
         </div>
-        {amountHint && <span className="meta">{amountHint}</span>}
+        <div className="wl-amount">
+          <input id={id} inputMode="decimal" placeholder="0" value={amountText} disabled={inert} onChange={(e) => onAmount(e.target.value)} aria-invalid={amountInvalid} />
+          <span>{chain}</span>
+        </div>
+        {(balance || presets) && (
+          <div className="wl-deposit-foot">
+            {balance && <div className="meta wl-balance">{balance}</div>}
+            {presets && (
+              <div className="wl-presets">
+                {PRESETS.map(([label, f]) => (
+                  <button key={label} type="button" className="cut cut-chip" onClick={() => onAmount(String(Math.floor(max * f * 1000) / 1000))}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      <Slider
-        label="Horizon"
-        value={months}
-        min={1}
-        max={12}
-        onChange={onMonths}
-        display={`${months} ${months === 1 ? "month" : "months"}`}
-        minLabel="1 month"
-        maxLabel="12 months"
-      />
-      <dl className="cut cut-card wl-quote">
-        <dt>Gemas issued</dt>
-        <dd>{gemas && gemas > 0 ? <GemaAmount value={gemas} size="md" /> : <span>— Gemas</span>}</dd>
-        <dt>Unlock Estimate</dt>
-        <dd>{estimate}</dd>
-      </dl>
+      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas ?? 0} />
+      <Slider label="Horizon" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
+      <UnlockTrack now={arrival} unlock={estimate} end={`Unlock Estimate, your ${chain} back`} />
+      {alerts}
+      {note && <p className="note">{note}</p>}
+      <Button variant="money" size="lg" block disabled={disabled} onClick={onSubmit}>
+        {buttonLabel}
+      </Button>
       {details && (
         <details className="wl-details">
           <summary>Quote details</summary>
@@ -130,11 +164,6 @@ export function OpenFormView({
           </dl>
         </details>
       )}
-      {alerts}
-      {note && <p className="note">{note}</p>}
-      <Button variant="money" size="lg" block disabled={disabled} onClick={onSubmit}>
-        {buttonLabel}
-      </Button>
     </div>
   );
 }

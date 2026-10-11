@@ -79,16 +79,32 @@
 .wl-tabs button { --edge: var(--edge-2); background: var(--surface); border: 0; height: 44px; font-weight: 700; font-size: 16px; color: var(--fg); }
 .wl-tabs button.on { background: var(--fg); color: var(--shell); --edge: transparent; }
 .wl-tabs button.on:focus-visible::after { --t: 1px; --r: 2px; background: var(--shell); }
-.wl-open-form { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; }
-.wl-amount { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 14px; background: var(--surface); border: 1px solid var(--line-2); }
-.wl-open .field { grid-template-columns: minmax(0, 1fr); }
-.wl-amount input { flex: 1; width: 100%; min-width: 0; background: transparent; border: 0; outline: 0; font-size: 20px; color: var(--fg); }
-.wl-amount span { color: var(--fg); font-weight: 700; }
-.wl-amount:focus-within { border-color: var(--fg); }
-.wl-amount.bad { border-color: var(--danger); }
-.wl-quote { --edge: var(--edge-2); margin: 0; padding: 12px 14px; background: var(--surface); display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; font-size: 15px; }
-.wl-quote dt { color: var(--fg); }
-.wl-quote dd { margin: 0; text-align: right; font-weight: 700; }
+.wl-open-form { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 16px; }
+.wl-open-form .label { display: block; }
+/* the deposit card: where the Take an Advance sheet shows its locked Position, the Amount being locked */
+.wl-deposit { --edge: var(--edge-2); display: grid; gap: 10px; padding: 14px 16px; background: var(--shell); }
+.wl-deposit:focus-within { --edge: linear-gradient(180deg, var(--fg), var(--line-2)); }
+.wl-deposit.bad { --edge: linear-gradient(var(--danger), var(--danger)); }
+.wl-deposit-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
+.wl-deposit-head > div { display: grid; gap: 2px; }
+.wl-deposit-head label { font-size: 15px; font-weight: 700; }
+.wl-new { align-self: start; padding: 4px 8px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg); background: var(--raised-2); clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px); }
+.wl-amount { display: flex; align-items: baseline; gap: 8px; padding: 4px 0 8px; border-bottom: 2px solid var(--line-2); }
+.wl-deposit:focus-within .wl-amount { border-color: var(--fg); }
+.wl-deposit.bad .wl-amount { border-color: var(--danger); }
+.wl-amount input { flex: 1; width: 0; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--fg); font-size: 40px; font-weight: 900; letter-spacing: -0.03em; line-height: 1.1; }
+.wl-amount input::placeholder { color: var(--fg-3); }
+.wl-amount span { font-weight: 800; font-size: 16px; color: var(--fg-2); }
+.wl-deposit-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+.wl-balance { display: grid; gap: 6px; }
+.wl-balance b { color: var(--fg); }
+.wl-presets { display: flex; gap: 6px; margin-left: auto; }
+.wl-presets button { --edge: var(--edge-2); border: 0; background: var(--raised); color: var(--fg); font-size: 12px; font-weight: 700; line-height: 1; padding: 7px 10px; cursor: pointer; }
+.wl-presets button:hover { background: var(--raised-2); }
+.wl-link { all: unset; cursor: pointer; font-weight: 700; color: var(--fg); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.wl-link:hover { text-decoration-color: var(--fg); }
+.wl-link:disabled { cursor: default; color: var(--fg-2); text-decoration: none; }
+.wl-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .wl-details { font-size: 13px; }
 .wl-details summary { cursor: pointer; color: var(--fg-2); padding: 2px 0; }
 .wl-details .kv { margin-top: 6px; }
