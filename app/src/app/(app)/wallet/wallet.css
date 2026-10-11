@@ -39,34 +39,38 @@
 .wl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 20px; align-items: start; }
 .wl-col { display: grid; gap: 14px; align-content: start; }
 
-.wl-tile { --edge: var(--edge-2); background: var(--surface); padding: 20px 20px 20px; display: grid; gap: 14px; align-content: start; }
-.wl-tile header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.wl-chain { --edge: var(--edge-2); padding: 6px 16px; font-size: 18px; font-weight: 700; background: var(--shell); }
-.wl-status { display: inline-flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: 14px; }
-.wl-status i { width: 12px; height: 12px; border-radius: 50%; background: rgba(234, 239, 236, 0.85); }
-.wl-tile.none .wl-status i, .wl-tile.soon .wl-status i { background: rgba(234, 239, 236, 0.85); }
-.wl-tile.active .wl-status { color: var(--fg); }
-.wl-tile dl { display: grid; grid-template-columns: 1fr auto; margin: 0; }
-.wl-tile dt, .wl-tile dd { margin: 0; padding: 8px 2px; border-top: 1px solid var(--line); font-size: 15px; }
-.wl-tile dt { color: var(--fg-2); }
-.wl-tile dd { text-align: right; font-weight: 700; }
-
-.wl-chart { margin: 4px 0 0; }
-.wl-chart figcaption { font-size: 13px; color: var(--fg-2); }
-.wl-chart figcaption span { color: var(--fg-2); }
-.wl-chart svg { display: block; width: 100%; height: auto; }
-.wl-chart text { fill: var(--fg-2); font-size: 9.5px; font-family: var(--f-body); }
-.wl-chart .grid { stroke: rgba(234, 239, 236, 0.12); stroke-width: 1; }
-.wl-chart .line { fill: none; stroke: var(--fg); stroke-width: 1.6; }
-.wl-chart .dot { fill: var(--fg); }
-.wl-chart .empty { stroke: rgba(234, 239, 236, 0.35); stroke-width: 1; stroke-dasharray: 4 3; }
+.wl-tile { --edge: var(--edge-2); background: var(--surface); padding: 20px; display: grid; gap: 14px; align-content: start; min-width: 0; container-type: inline-size; }
+.wl-tile-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.wl-tile-lock { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); font-weight: 700; }
+/* countdown: when the Principal comes back */
+.wl-back { display: grid; gap: 4px; padding-top: 8px; }
+.wl-back b { font-family: var(--f-display); font-weight: 800; font-size: clamp(56px, 18cqi, 96px); line-height: 0.95; letter-spacing: -0.01em; text-transform: uppercase; }
+.wl-back > span:last-child { font-size: 15px; }
+.wl-tile.unlocked .wl-back b, .wl-tile.idle .wl-back b { color: var(--fg-2); }
+/* projected Debt burning down to zero, edge to edge */
+.wl-burn { margin: 0 -20px; display: grid; gap: 6px; }
+.wl-burn figcaption { padding: 0 20px; font-size: 13px; color: var(--fg-2); }
+.wl-burn figcaption b { color: var(--fg); }
+.wl-burn svg { display: block; width: 100%; height: 70px; color: var(--fg); }
+.wl-burn-axis { padding: 0 20px; display: flex; justify-content: space-between; font-family: var(--f-mono); font-size: 11px; color: var(--fg-3); }
+.wl-burn-flat { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg-2); }
+.wl-burn-flat::after { content: ""; flex: 1; border-top: 1px dashed var(--line-2); }
+.wl-facts { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+.wl-facts div { padding: 10px 12px; display: grid; gap: 2px; align-content: start; }
+.wl-facts div + div { border-left: 1px solid var(--line); }
+.wl-facts div:first-child { padding-left: 0; }
+.wl-facts dt { font-size: 12px; color: var(--fg-2); }
+.wl-facts dd { margin: 0; font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.wl-facts dd small { display: block; font-weight: 500; font-size: 12px; color: var(--fg-2); }
 
 .wl-actions { display: grid; gap: 8px; }
 .wl-actions:empty { display: none; }
 .wl-actions-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .wl-actions-row:has(> :only-child) { grid-template-columns: 1fr; }
-.wl-tile-note { font-size: 11.5px; }
-.wl-tile.none .wl-actions .btn, .wl-tile.soon .wl-actions .btn { min-height: 48px; }
+.wl-more summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--fg-2); }
+.wl-more[open] summary { color: var(--fg); margin-bottom: 8px; }
+.wl-more[open] > * + * { margin-top: 8px; }
+.wl-more .note { font-size: 11.5px; }
 
 /* open a position */
 .wl-open { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
@@ -92,12 +96,6 @@
 .wl-faucet b { color: var(--fg); }
 
 .wl-how { min-height: 116px; max-width: 560px; }
-.wl-more summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--fg-2); }
-.wl-more[open] summary { color: var(--fg); margin-bottom: 8px; }
-.wl-more dl { display: grid; grid-template-columns: 1fr auto; margin: 0; }
-.wl-more dt, .wl-more dd { margin: 0; padding: 8px 2px; border-top: 1px solid var(--line); font-size: 15px; }
-.wl-more dt { color: var(--fg-2); }
-.wl-more dd { text-align: right; font-weight: 700; }
 
 /* no Positions yet: one card carries the invitation, how Gemas work and the action */
 .wl-empty {

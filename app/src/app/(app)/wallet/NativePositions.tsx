@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button, CheckIcon, Chip, ClockIcon, GemaAmount, Sheet, SimulatedYieldLabel } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { fmtGemas, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
+import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { covered, live } from "@/lib/chain/ledger";
 import {
   LAMPORTS,
@@ -40,12 +40,6 @@ function useNow(ms: number) {
   return now;
 }
 
-function inMinutes(targetMs: number, nowMs: number): string {
-  const s = Math.max(0, Math.round((targetMs - nowMs) / 1000));
-  if (s < 45) return "any moment now";
-  const m = Math.round(s / 60);
-  return `in ~${m} min`;
-}
 
 const DONE: Record<string, string> = {
   faucet: "Got test simSOL",
@@ -167,7 +161,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
       months={months}
       onMonths={setMonths}
       gemas={gemas}
-      estimate={estimate ? `${fmtWhen(estimate)} (${inMinutes(estimate, now)})` : "—"}
+      estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtSol(principal)} SOL`],
@@ -235,24 +229,25 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
     <PositionTile
       chain="SOL"
       label="SOL Position"
-      status={locked ? "active" : "unlocked"}
-      rows={{
-        principal: `${fmtSol(info.principalLamports, 3)} SOL`,
-        debt: onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas · ${fmtSol(debtSol, 3)} SOL` : "0",
-        apy: `${(info.rateBps / 100).toFixed(1)}%`,
-        unlock: !locked
-          ? "Unlocked"
-          : !src
-            ? "No open Advance"
-            : onChainDebt === 0n
-              ? "Debt is zero"
-              : estimate
-                ? `${fmtWhen(estimate)} (${inMinutes(estimate, now)})`
-                : "Once yield accrues",
-      }}
-      chartTitle="Debt (Gemas)"
+      state={!locked ? "unlocked" : !src ? "idle" : onChainDebt === 0n ? "paid" : "repaying"}
+      principal={`${fmtSol(info.principalLamports, 3)} SOL`}
+      debt={!src ? null : onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas` : "0"}
+      debtAsset={onChainDebt > 0n ? `${fmtSol(debtSol, 3)} SOL` : undefined}
+      apy={`${(info.rateBps / 100).toFixed(1)}%`}
+      unlockAt={estimate}
+      now={now}
       series={series}
-      fmt={(n) => fmtGemas(n)}
+      notes={
+        <>
+          <p className="note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated).</p>
+          {unapplied > 0n && locked && (
+            <p className="note">
+              <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (it happens automatically every ~20 s).
+            </p>
+          )}
+          {locked && !canUnlock && <p className="note">Unlock returns the Principal once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
+        </>
+      }
     >
       {locked && (
         <>
@@ -276,13 +271,6 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
           {a.busy === "sweep" ? "Collecting…" : surplus ? `Collect leftover yield · ${fmtSol(surplus, 4)} simSOL` : "Collect leftover yield"}
         </Button>
       )}
-      <p className="note wl-tile-note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated).</p>
-      {unapplied > 0n && locked && (
-        <p className="note wl-tile-note">
-          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (it happens automatically every ~20 s).
-        </p>
-      )}
-      {locked && !canUnlock && <p className="note wl-tile-note">Unlock returns the Principal once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
       {a.done && <Sig label={a.done.label} sig={a.done.sig} />}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
     </PositionTile>
