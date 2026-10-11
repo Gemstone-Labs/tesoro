@@ -10,6 +10,7 @@ import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, call, check, fold, raise, tes
 import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
 import { PlayingCard } from "./cards";
 import { inPlay, legalMoves } from "./rules";
+import { Arena, MuteToggle } from "../fx";
 import "./holdem.css";
 import { PlayerName } from "@/components/account/Player";
 
@@ -91,6 +92,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const sbSeat = t.dealer;
 
   return (
+    <Arena game="holdem">
     <section className="hdx" aria-label="Hold'em table">
       <header className="hdx-head" aria-label="Table">
         <div className="hdx-head-l">
@@ -103,6 +105,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
               <GemaMark size={18} /> {fmtGemas(entry)} entry
             </span>
           )}
+          <MuteToggle />
         </div>
         {!ended && t.status === STATUS.live && (
           <div className="hdx-clock" role="timer" aria-live="off">
@@ -226,6 +229,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
       </details>
 
     </section>
+    </Arena>
   );
 }
 
