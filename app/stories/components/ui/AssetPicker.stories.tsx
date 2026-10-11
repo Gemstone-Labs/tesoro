@@ -15,7 +15,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The asset a Trading Duel trades. Pale when chosen, never emerald. */
+/** The asset a Trading Duel trades: a steel piece slides to it, never emerald. */
 export const Default: Story = {};
 export const Compact: Story = { args: { compact: true } };
 export const Hype: Story = { args: { value: 2 } };

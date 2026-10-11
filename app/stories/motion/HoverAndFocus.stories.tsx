@@ -24,7 +24,7 @@ function Demo({ ms }: { ms: number }) {
         </div>
       </div>
       <div className="sbm-panel">
-        <h3>Pickers (ui.css:196, 206: background, 0.15 s)</h3>
+        <h3>Pickers (ui.css:249: the rail piece slides, 0.32 s with a little overshoot; ui.css:257: label colour, 0.2 s)</h3>
         <div className="sbm-row">
           <EntryPicker value={entry} onChange={setEntry} name="sbm-entry" />
           <AssetPicker value={asset} onChange={setAsset} name="sbm-asset" />

@@ -8,8 +8,8 @@
 .gp-tag svg { width: 20px; height: 20px; color: var(--fg); }
 .gp-title { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(52px, 6.4vw, 120px); font-weight: 800; line-height: 0.9; color: #fff; }
 .gp-sub { font-size: clamp(16px, 1.5vw, 24px); color: var(--fg); line-height: 1.35; }
-.gp-hero .entries { gap: 12px; width: min(100%, 470px); }
-.gp-hero .entry span { min-height: 62px; font-size: 22px; --c: 11px; }
+.gp-hero .entries { width: min(100%, 470px); }
+.gp-hero .entry span { min-height: 58px; font-size: 21px; }
 /* one two-line money action (entry, who is waiting), the two free ways to play paired under it */
 .gp-cta { display: grid; gap: 12px; width: min(100%, 470px); }
 .gp-cta > .btn.money { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 80px; padding: 10px 20px 13px; line-height: 1.1; }
@@ -74,11 +74,11 @@
 .gp-hero-body > :nth-child(2) { animation-delay: 70ms; }
 .gp-hero-body > :nth-child(3) { animation-delay: 140ms; }
 .gp-hero-body > :nth-child(4) { animation-delay: 210ms; }
-.gp-hero .assets { gap: 12px; width: min(100%, 470px); }
-.gp-hero .asset span { min-height: 66px; --c: 11px; }
+.gp-hero .assets { width: min(100%, 470px); }
+.gp-hero .asset span { min-height: 60px; }
+.gp-hero .asset b { font-size: 19px; }
 
 @media (max-width: 420px) {
   .gp-friend { display: none; }
-  .gp-hero .entries { gap: 8px; }
-  .gp-hero .entry span { font-size: 19px; }
+  .gp-hero .entry span { font-size: 18px; }
 }

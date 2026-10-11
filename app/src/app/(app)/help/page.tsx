@@ -394,7 +394,7 @@ export default function HelpPage() {
 
       <nav aria-label="Help topics" className="help-topics">
         {TOPICS.map((t) => (
-          <a key={t.id} href={`#${t.id}`} className="cut cut-chip chip">
+          <a key={t.id} href={`#${t.id}`} className="cut chip">
             {t.title}
           </a>
         ))}

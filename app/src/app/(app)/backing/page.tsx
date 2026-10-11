@@ -758,8 +758,7 @@ function OfferDrawer({
               step={5}
               onChange={setShare}
               display={`${share}%`}
-              minLabel="10%"
-              maxLabel="90%"
+              format={(v) => `${v}%`}
             />
             <div className="bk-split">
               <div className="cut cut-card">

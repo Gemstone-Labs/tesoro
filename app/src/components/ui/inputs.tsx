@@ -16,18 +16,56 @@ export const DUEL_ASSETS = [
   { id: 2, symbol: "HYPE", name: "Hyperliquid" },
 ] as const;
 
-/** Radio group over Trading Duel's assets. Neutral: the chosen asset is pale, never emerald (no Gemas move here). */
-/** `compact` shows the tickers only (the Lobby hero), with the asset name kept for screen readers. */
+/** A chain's mark in its brand colours, flat, for pickers. */
+export function ChainGlyph({ asset, size = 18 }: { asset: 0 | 1 | 2; size?: number }) {
+  const uid = useId();
+  return (
+    <svg className="chain-glyph" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {asset === 0 && (
+        <>
+          <defs>
+            <linearGradient id={uid} x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0" stopColor="#9945ff" />
+              <stop offset="1" stopColor="#19fb9b" />
+            </linearGradient>
+          </defs>
+          <path fill={`url(#${uid})`} d="M6.5 5h15l-3 3.2h-15zM3.5 10.4h15l3 3.2h-15zM6.5 15.8h15l-3 3.2h-15z" />
+        </>
+      )}
+      {asset === 1 && (
+        <>
+          <path fill="#a9b8f5" d="M12 2 18.5 12.3 12 16.1z" />
+          <path fill="#8299ee" d="M12 2 5.5 12.3 12 16.1z" />
+          <path fill="#627eea" d="M12 17.4 18.5 13.6 12 22z" />
+          <path fill="#4a63c9" d="M12 17.4 5.5 13.6 12 22z" />
+        </>
+      )}
+      {asset === 2 && (
+        <path
+          fill="#97fce4"
+          d="M1.8 12c0-4 2.6-6.2 5.2-6.2 3.6 0 4 4.2 5 4.2s1.4-4.2 5-4.2c2.6 0 5.2 2.2 5.2 6.2s-2.6 6.2-5.2 6.2c-3.6 0-4-4.2-5-4.2s-1.4 4.2-5 4.2c-2.6 0-5.2-2.2-5.2-6.2z"
+        />
+      )}
+    </svg>
+  );
+}
+
+/**
+ * Radio group over Trading Duel's assets, as a rail: a steel piece slides to the chosen asset. Neutral, never
+ * emerald (no Gemas move here). `compact` keeps the asset name for screen readers only.
+ */
 export function AssetPicker({ value, onChange, name, compact }: { value: 0 | 1 | 2; onChange: (v: 0 | 1 | 2) => void; name?: string; compact?: boolean }) {
   const auto = useId();
   const group = name ?? auto;
   return (
-    <fieldset className={compact ? "assets compact" : "assets"}>
+    <fieldset className={`cut rail assets${compact ? " compact" : ""}`} style={{ ["--i" as string]: value }}>
       <legend className="sr-only">Asset</legend>
+      <span className="rail-thumb" aria-hidden="true" />
       {DUEL_ASSETS.map((a) => (
         <label key={a.id} className="asset">
           <input type="radio" name={group} value={a.id} checked={value === a.id} onChange={() => onChange(a.id)} />
-          <span className="cut cut-chip">
+          <span className="cut">
+            <ChainGlyph asset={a.id} />
             <b>{a.symbol}</b>
             <small className={compact ? "sr-only" : undefined}>{a.name}</small>
           </span>
@@ -37,7 +75,7 @@ export function AssetPicker({ value, onChange, name, compact }: { value: 0 | 1 |
   );
 }
 
-/** Radio group over the entry ladder. The chosen entry is emerald and carries the Gema mark. */
+/** Radio group over the entry ladder, as a rail: an emerald piece slides to the chosen entry. */
 export function EntryPicker({
   value,
   onChange,
@@ -57,33 +95,40 @@ export function EntryPicker({
 }) {
   const auto = useId();
   const group = name ?? auto;
+  const off = (size: EntrySize) => (maxAffordable !== undefined && size > maxAffordable) || (isDisabled?.(size) ?? false);
   return (
-    <fieldset className="entries">
+    <fieldset className={`cut rail entries${off(value) ? " off" : ""}`} style={{ ["--i" as string]: Math.max(0, ENTRY_SIZES.indexOf(value)) }}>
       <legend className="sr-only">{legend}</legend>
-      {ENTRY_SIZES.map((size) => {
-        const disabled = (maxAffordable !== undefined && size > maxAffordable) || (isDisabled?.(size) ?? false);
-        return (
-          <label key={size} className="entry">
-            <input
-              type="radio"
-              name={group}
-              value={size}
-              checked={value === size}
-              disabled={disabled}
-              onChange={() => onChange(size)}
-            />
-            <span className="cut cut-chip">
-              {value === size && <GemaMark size={14} />}
-              {fmtGemas(size)}
-            </span>
-          </label>
-        );
-      })}
+      <span className="rail-thumb" aria-hidden="true" />
+      {ENTRY_SIZES.map((size) => (
+        <label key={size} className="entry">
+          <input type="radio" name={group} value={size} checked={value === size} disabled={off(size)} onChange={() => onChange(size)} />
+          <span className="cut">
+            <GemaMark size={15} />
+            {fmtGemas(size)}
+          </span>
+        </label>
+      ))}
     </fieldset>
   );
 }
 
-/** Native range input, styled with the cut. */
+/** The ends plus round values between them (1-2-2.5-5 steps, about five gaps); none crowding an end. */
+function roundMarks(min: number, max: number, step: number): number[] {
+  const raw = (max - min) / 5;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const nice = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((n) => n >= raw) ?? 10 * mag;
+  const gap = Math.max(step, Math.round(nice / step) * step);
+  const inner: number[] = [];
+  for (let v = Math.ceil(min / gap) * gap; v < max; v += gap) if (v - min > gap / 2 && max - v > gap / 2) inner.push(v);
+  return [min, ...inner, max];
+}
+
+/**
+ * Native range input drawn as a ruler: every value written under it up to 12 steps (round values past that),
+ * a pin pointing at the current one. The marks are shortcuts for the pointer; the range itself carries
+ * keyboard and screen reader use. `format` writes the marks (default: the end labels, plain numbers between).
+ */
 export function Slider({
   label,
   value,
@@ -94,6 +139,7 @@ export function Slider({
   display,
   minLabel,
   maxLabel,
+  format,
 }: {
   label: string;
   value: number;
@@ -104,38 +150,40 @@ export function Slider({
   display: ReactNode;
   minLabel?: string;
   maxLabel?: string;
+  format?: (v: number) => string;
 }) {
   const id = useId();
-  const pct = ((value - min) / (max - min)) * 100;
-  const steps = Math.round((max - min) / step);
+  const span = max - min || 1;
+  const steps = Math.round(span / step);
+  const marks = steps <= 12 ? Array.from({ length: steps + 1 }, (_, i) => min + i * step) : roundMarks(min, max, step);
+  const write = (v: number) =>
+    format ? format(v) : steps > 12 && v === min && minLabel ? minLabel : steps > 12 && v === max && maxLabel ? maxLabel : v.toLocaleString("en-US");
   return (
-    <div className="slider">
+    <div className="slider" style={{ ["--f" as string]: (value - min) / span }}>
       <div className="slider-head">
         <label className="label" htmlFor={id}>{label}</label>
         <span className="slider-value">{display}</span>
       </div>
       <div className="slider-track">
-        {steps <= 24 && (
-          <div className="slider-notches" aria-hidden="true">
-            {Array.from({ length: steps + 1 }, (_, i) => (
-              <i key={i} className={min + i * step <= value ? "on" : undefined} />
-            ))}
-          </div>
-        )}
-        <input
-          id={id}
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          style={{ ["--pct" as string]: `calc(14px + (100% - 28px) * ${pct / 100})` }}
-          onChange={(e) => onChange(Number(e.target.value))}
-        />
+        <div className="slider-rule" aria-hidden="true">
+          <i />
+        </div>
+        <span className="slider-pin" aria-hidden="true" />
+        <input id={id} type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
       </div>
-      <div className="slider-ticks" aria-hidden="true">
-        <span>{minLabel ?? min}</span>
-        <span>{maxLabel ?? max}</span>
+      <div className="slider-marks" aria-hidden="true">
+        {marks.map((m) => (
+          <button
+            key={m}
+            type="button"
+            tabIndex={-1}
+            className={m === value ? "now" : m < value ? "past" : undefined}
+            style={{ ["--m" as string]: (m - min) / span }}
+            onClick={() => onChange(m)}
+          >
+            {write(m)}
+          </button>
+        ))}
       </div>
     </div>
   );

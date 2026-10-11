@@ -107,15 +107,15 @@ export function Chip({
   icon?: ReactNode;
 }) {
   return (
-    <span className={cx("cut cut-chip chip", tone !== "neutral" && tone)}>
-      {icon}
+    <span className={cx("cut chip", tone !== "neutral" && tone)}>
+      {icon ?? <i className="chip-dot" aria-hidden="true" />}
       {children}
     </span>
   );
 }
 
 export function ChainChip({ chain }: { chain: Chain }) {
-  return <span className="cut cut-chip chip chain">{chain}</span>;
+  return <span className="cut chip chain">{chain}</span>;
 }
 
 /* ——— Button ——— */

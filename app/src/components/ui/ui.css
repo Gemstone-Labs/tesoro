@@ -44,10 +44,11 @@
 .cut:focus-visible { outline: 0; }
 .cut:focus-visible::after,
 .cut:has(> :is(input, select, textarea, summary):not(.cut):focus-visible)::after,
-.entry input:focus-visible + span::after { --t: 2px; background: var(--fg); }
+.rail input:focus-visible + span::after { --t: 2px; background: var(--fg); }
 /* light fills: a pale edge would not show, so they take an ink ring set inside the shape */
 .btn.money:focus-visible::after,
 .entry input:checked:focus-visible + span::after { --t: 1px; --r: 2px; background: var(--em-ink); }
+.asset input:checked:focus-visible + span::after { --t: 1px; --r: 2px; background: var(--fg); }
 
 .label {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
@@ -137,19 +138,24 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 }
 .thumb.poker { background: #1d2a22; font-size: 13px; }
 
-/* ——— Chip / ChainChip ——— */
+/* ——— Chip / ChainChip: a small steel plaque; the tone is a gem pip (or the icon), the text stays light ——— */
 .chip {
-  --c: var(--cut-chip);
-  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px;
-  font-size: 11.5px; font-weight: 700; color: var(--fg-2);
-  background: transparent; white-space: nowrap;
+  --c: 4px; --edge: var(--edge-2); --tone: var(--fg-2);
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 7px;
+  font-size: 11.5px; font-weight: 700; line-height: 16px; color: var(--fg); white-space: nowrap;
+  background: linear-gradient(180deg, #2a333a 0, #1c2328 50%, #171d22 100%);
 }
-.chip svg { width: 12px; height: 12px; flex: none; }
-.chip.warn { color: var(--warn); --edge: rgba(242, 185, 75, 0.4); }
-.chip.danger { color: var(--danger); --edge: rgba(242, 104, 90, 0.4); }
-.chip.money { color: var(--em); --edge: rgba(45, 190, 140, 0.45); }
-.chip.strong { color: var(--fg); }
-.chain { font-family: var(--f-mono); font-size: 10.5px; font-weight: 500; padding: 2px 6px; color: var(--fg-2); }
+.chip svg { width: 12px; height: 12px; flex: none; color: var(--tone); }
+.chip-dot {
+  width: 9px; height: 9px; flex: none;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tone) 55%, white) 0 46%, var(--tone) 46.5%);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+.chip.strong { --tone: var(--fg); }
+.chip.money { --tone: var(--em); }
+.chip.warn { --tone: var(--warn); }
+.chip.danger { --tone: var(--danger); }
+.chain { font-family: var(--f-mono); font-size: 10.5px; font-weight: 500; padding: 2px 7px; color: var(--fg-2); }
 
 /* ——— Button ——— */
 .btn {
@@ -188,11 +194,11 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .gema-mark { display: inline-block; flex: none; vertical-align: middle; }
 .gema-mark .shine { opacity: 0; }
 /* on a money fill the full-colour mark blends in: draw it in ink instead */
-:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-body,
-:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-table { fill: currentColor; }
-:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-table { stroke: var(--gem-ink-line); stroke-width: 1; }
-:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .gm-cuts { stroke: var(--gem-ink-line); stroke-opacity: 1; stroke-width: 0.8; }
-:is(.btn.money:not(:disabled), .entry input:checked + span) .gema-mark .shine { display: none; }
+:is(.btn.money:not(:disabled), .entry input:checked:not(:disabled) + span) .gema-mark .gm-body,
+:is(.btn.money:not(:disabled), .entry input:checked:not(:disabled) + span) .gema-mark .gm-table { fill: currentColor; }
+:is(.btn.money:not(:disabled), .entry input:checked:not(:disabled) + span) .gema-mark .gm-table { stroke: var(--gem-ink-line); stroke-width: 1; }
+:is(.btn.money:not(:disabled), .entry input:checked:not(:disabled) + span) .gema-mark .gm-cuts { stroke: var(--gem-ink-line); stroke-opacity: 1; stroke-width: 0.8; }
+:is(.btn.money:not(:disabled), .entry input:checked:not(:disabled) + span) .gema-mark .shine { display: none; }
 .gema-mark.glint .shine { animation: glint 3.2s ease-in-out infinite; }
 @keyframes glint { 0%, 70%, 100% { opacity: 0; } 80% { opacity: 0.9; } }
 .gema-amount { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
@@ -231,78 +237,87 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--em-deep), var(--em), var(--em-hi)); }
 .src-foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 
-/* ——— Entry picker ——— */
-.entries { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
-.entry { position: relative; display: block; }
-.entry input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
-.entry span {
-  display: flex; justify-content: center; align-items: center; gap: 6px; padding: 10px 0; min-height: 44px;
-  background: var(--shell); font-weight: 800; font-size: 14px; --edge: var(--edge-2);
+/* ——— Rail: one recessed track, a lit piece slides to the chosen option (entry and asset pickers) ——— */
+.rail {
+  --c: var(--cut-chip); --edge: var(--edge-1); --n: 3;
+  display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); padding: 4px; margin: 0; border: 0; min-width: 0;
+  background: #05080a; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
 }
-.entry input:hover:not(:disabled, :checked) + span { background: var(--raised-2); }
-.entry input:checked + span { background: var(--money-fill); color: var(--em-ink); --edge: var(--money-rim); }
-.entry span { transition: background-color 0.15s ease; }
-/* an entry the balance cannot cover: dimmed, never struck through */
-.entry input:disabled + span { color: rgba(234, 239, 236, 0.42); background: rgba(9, 13, 15, 0.6); --edge: var(--edge-1); }
-.entry input:disabled:checked + span { background: linear-gradient(180deg, #16302a, #10221e); color: rgba(234, 239, 236, 0.62); --edge: rgba(45, 190, 140, 0.4); }
-.entry input:disabled { cursor: not-allowed; }
+.rail-thumb {
+  --c: 6px;
+  position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / var(--n));
+  transform: translateX(calc(var(--i) * 100%)); transition: transform 0.32s cubic-bezier(0.3, 1.25, 0.5, 1);
+  clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+}
+@media (prefers-reduced-motion: reduce) { .rail-thumb { transition: none; } }
+.rail label { position: relative; display: block; }
+.rail input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
+.rail input:disabled { cursor: not-allowed; }
+/* each option is cut like the thumb so its focus ring sits on the thumb's edge; no edge otherwise */
+.rail label > span { --c: 6px; --edge: transparent; position: relative; z-index: 1; color: var(--fg-2); transition: color 0.2s ease, background-color 0.15s ease; }
+.rail input:hover:not(:checked, :disabled) + span { color: var(--fg); background: rgba(234, 239, 236, 0.04); }
+.rail input:disabled + span { color: var(--fg-3); opacity: 0.55; }
 
-/* ——— Asset picker (Trading Duel): neutral, the chosen asset is pale ——— */
-.assets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
-.asset { position: relative; display: block; }
-.asset input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
-.asset span { display: grid; justify-items: center; align-content: center; gap: 2px; padding: 8px 0; min-height: 58px; background: var(--shell); --edge: var(--edge-2); transition: background-color 0.15s ease; }
-.asset b { font-size: 20px; font-weight: 800; letter-spacing: 0.02em; }
-.asset small { font-size: 12px; color: var(--fg-2); }
-.assets.compact .asset span { min-height: 44px; padding: 6px 0; }
-.assets.compact .asset b { font-size: 16px; }
-.asset input:hover:not(:checked) + span { background: var(--raised-2); }
-.asset input:checked + span { background: var(--fg); color: var(--shell); --edge: var(--edge-2); }
-.asset input:checked + span small { color: rgba(9, 13, 15, 0.72); }
-.asset input:focus-visible + span::after { --t: 2px; background: var(--fg); }
-.asset input:checked:focus-visible + span::after { --t: 1px; --r: 2px; background: var(--shell); }
+/* entry: the piece is the money fill */
+.entries .rail-thumb {
+  background: linear-gradient(180deg, rgba(225, 255, 246, 0.75), transparent 2px), linear-gradient(0deg, var(--money-base) 0 3px, transparent 3px), var(--money-fill);
+}
+.entry span { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 48px; font-weight: 800; font-size: 16px; }
+.entry input:checked + span { color: var(--em-ink); }
+.entry input:not(:checked) + span .gema-mark { filter: grayscale(1) brightness(0.85); opacity: 0.55; }
+/* the chosen entry the balance cannot cover: a dark green piece, never struck through */
+.entries.off .rail-thumb { background: linear-gradient(180deg, #1c3a32, #10221e); }
+.entries.off .entry input:checked + span { color: rgba(234, 239, 236, 0.7); opacity: 1; }
 
-/* ——— Slider ——— */
-.slider { display: grid; gap: 8px; }
+/* asset (Trading Duel): neutral, the piece is steel */
+.assets .rail-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
+.asset span { display: grid; grid-template-columns: auto auto; column-gap: 7px; row-gap: 1px; justify-content: center; align-content: center; align-items: center; min-height: 54px; }
+.asset b { font-size: 16px; font-weight: 800; line-height: 1.1; letter-spacing: 0.02em; }
+.asset small { grid-column: 1 / -1; justify-self: center; font-size: 11px; font-weight: 600; color: var(--fg-3); }
+.asset input:checked + span { color: var(--fg); }
+.asset input:checked + span small { color: var(--fg-2); }
+.asset input:not(:checked) + span .chain-glyph { filter: grayscale(1); opacity: 0.6; }
+.assets.compact .asset span { min-height: 44px; }
+
+/* ——— Slider: a ruler with its values written under it and a pin on the current one ———
+   The native range sits invisibly on top (28px thumb), so every position below is 14px + (100% - 28px) * fraction.
+   Emerald fill: sliders set Gema amounts or what they buy; `--fill` / `--mark-now` make it neutral (Trading Duel). */
+.slider {
+  --fill: linear-gradient(90deg, var(--em-deep), var(--em)); --mark-now: var(--em-hi);
+  display: grid; gap: 8px;
+}
 .slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .slider-value { font-weight: 900; font-size: 18px; font-variant-numeric: tabular-nums; }
-/* the cut lives on the thumb only: a clip-path on the track would clip the thumb to the track's height */
-.slider-track { position: relative; }
-.slider input[type="range"] {
-  --pct: 0%; position: relative; z-index: 1; -webkit-appearance: none; appearance: none; width: 100%; height: 32px; background: transparent; margin: 0; cursor: grab;
+.slider-track { position: relative; height: 34px; }
+.slider-track input[type="range"] {
+  position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: grab;
+  -webkit-appearance: none; appearance: none; background: transparent;
 }
-.slider input[type="range"]:active { cursor: grabbing; }
-.slider input[type="range"]::-webkit-slider-runnable-track {
-  height: 8px; background: linear-gradient(90deg, var(--em-deep), var(--em) var(--pct), rgba(255, 255, 255, 0.1) var(--pct));
+.slider-track input[type="range"]:active { cursor: grabbing; }
+.slider-track input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 34px; }
+.slider-track input[type="range"]::-moz-range-thumb { width: 28px; height: 34px; border: 0; }
+.slider-track:has(input:focus-visible) { outline: 2px solid var(--fg); outline-offset: 4px; }
+.slider-rule { position: absolute; left: 14px; right: 14px; bottom: 6px; height: 6px; background: rgba(255, 255, 255, 0.09); }
+.slider-rule i { display: block; height: 100%; width: calc(100% * var(--f)); background: var(--fill); }
+.slider-pin {
+  position: absolute; left: calc(14px + (100% - 28px) * var(--f)); bottom: 4px; width: 18px; height: 26px; transform: translateX(-50%); z-index: 2;
+  background: linear-gradient(160deg, #f4fffb 0%, #d7f7ec 50%, #a9e6d3 50.5%);
+  clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
 }
-.slider input[type="range"]::-moz-range-track {
-  height: 8px; background: linear-gradient(90deg, var(--em-deep), var(--em) var(--pct), rgba(255, 255, 255, 0.1) var(--pct));
+.slider-track:has(input:active) .slider-pin { background: #fff; }
+.slider-marks { position: relative; height: 20px; margin: 0 14px; }
+.slider-marks button {
+  position: absolute; top: 0; left: calc(100% * var(--m)); transform: translateX(-50%);
+  border: 0; background: none; padding: 2px 4px; cursor: pointer; color: var(--fg-3);
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-/* a cut gem with a grip: reads as something to drag */
-.slider input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 28px; height: 28px; margin-top: -10px; border: 0;
-  background:
-    linear-gradient(90deg, transparent 9px, var(--em-ink) 9px 11px, transparent 11px 13px, var(--em-ink) 13px 15px, transparent 15px 17px, var(--em-ink) 17px 19px, transparent 19px) center / 100% 10px no-repeat,
-    var(--facet);
-  clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
-  transition: filter 0.15s ease;
-}
-.slider input[type="range"]::-moz-range-thumb {
-  width: 28px; height: 28px; border: 0; border-radius: 0;
-  background:
-    linear-gradient(90deg, transparent 9px, var(--em-ink) 9px 11px, transparent 11px 13px, var(--em-ink) 13px 15px, transparent 15px 17px, var(--em-ink) 17px 19px, transparent 19px) center / 100% 10px no-repeat,
-    var(--facet);
-  clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
-  transition: filter 0.15s ease;
-}
-.slider input[type="range"]:hover::-webkit-slider-thumb { filter: brightness(1.15); }
-.slider input[type="range"]:hover::-moz-range-thumb { filter: brightness(1.15); }
-.slider input[type="range"]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-/* one notch per step, inset by half the thumb so each sits under the thumb's centre at that value */
-.slider-notches { position: absolute; inset: 0 14px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
-.slider-notches i { width: 2px; height: 16px; background: rgba(234, 239, 236, 0.22); }
-.slider-notches i.on { background: var(--em-hi); opacity: 0.55; }
-.slider-ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.slider-marks button::before { content: ""; position: absolute; left: 50%; top: -8px; width: 1px; height: 6px; background: currentColor; opacity: 0.6; }
+.slider-marks button.past { color: var(--fg-2); }
+.slider-marks button.now { color: var(--mark-now); font-weight: 900; }
+.slider-marks button:hover { color: var(--fg); }
+/* the end marks keep inside the track */
+.slider-marks button:first-child { transform: translateX(-25%); }
+.slider-marks button:last-child:not(:first-child) { transform: translateX(-75%); }
 
 /* ——— Cross-chain progress ——— */
 .xc { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
