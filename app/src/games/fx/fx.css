@@ -9,29 +9,29 @@
 .fx-arena-bg { background: #070a0c; }
 .fx-arena[data-game="block-puzzle"] .fx-arena-bg {
   background:
-    radial-gradient(60% 70% at 0% 100%, rgba(157, 116, 255, 0.34), transparent 70%),
-    radial-gradient(55% 65% at 100% 0%, rgba(63, 198, 255, 0.28), transparent 70%),
+    radial-gradient(60% 70% at 0% 100%, rgba(157, 116, 255, 0.5), transparent 70%),
+    radial-gradient(55% 65% at 100% 0%, rgba(63, 198, 255, 0.42), transparent 70%),
     radial-gradient(40% 45% at 100% 100%, rgba(255, 77, 155, 0.14), transparent 70%),
     #070a0f;
 }
 .fx-arena[data-game="holdem"] .fx-arena-bg {
   background:
-    radial-gradient(70% 60% at 50% 0%, rgba(63, 95, 154, 0.32), transparent 72%),
+    radial-gradient(70% 60% at 50% 0%, rgba(63, 95, 154, 0.5), transparent 72%),
     radial-gradient(50% 60% at 0% 100%, rgba(138, 160, 189, 0.2), transparent 70%),
     radial-gradient(50% 60% at 100% 100%, rgba(138, 160, 189, 0.2), transparent 70%),
     #070b12;
 }
 .fx-arena[data-game="trading-duel"] .fx-arena-bg {
   background:
-    radial-gradient(65% 85% at 0% 50%, rgba(90, 162, 255, 0.3), transparent 70%),
-    radial-gradient(65% 85% at 100% 50%, rgba(242, 166, 59, 0.24), transparent 70%),
+    radial-gradient(65% 85% at 0% 50%, rgba(90, 162, 255, 0.42), transparent 70%),
+    radial-gradient(65% 85% at 100% 50%, rgba(242, 166, 59, 0.34), transparent 70%),
     #080b10;
 }
 .fx-arena-bg.art { background: var(--fx-arena-art) center / cover no-repeat, #070a0c; }
 /* quiet, dark centre so the game stays the star: the colour lives at the edges */
 .fx-arena-shade {
   background:
-    radial-gradient(62% 72% at 50% 46%, rgba(6, 9, 12, 0.88) 0%, rgba(6, 9, 12, 0.6) 55%, rgba(6, 9, 12, 0) 100%),
+    radial-gradient(62% 72% at 50% 46%, rgba(6, 9, 12, 0.72) 0%, rgba(6, 9, 12, 0.4) 55%, rgba(6, 9, 12, 0) 100%),
     linear-gradient(180deg, rgba(9, 13, 15, 0.5), rgba(9, 13, 15, 0) 22%, rgba(9, 13, 15, 0) 78%, rgba(9, 13, 15, 0.5));
 }
 
