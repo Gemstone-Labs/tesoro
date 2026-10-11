@@ -6,6 +6,34 @@ import { TesoroLogo } from "@/components/brand";
 import { appHref } from "@/lib/landing/config";
 import { THEME_KEY, type Theme } from "./theme";
 import { useTheme } from "./useTheme";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { NavA, NavB, NavC, NavD, NavE } from "./Nav.prototype";
+import "./nav.prototype.css";
+
+const VARIANTS = [
+  { key: "A", name: "Island" },
+  { key: "B", name: "Ticker" },
+  { key: "C", name: "Chapters" },
+  { key: "D", name: "Menu" },
+  { key: "E", name: "Games first" },
+  { key: "now", name: "Current" },
+] as const;
+
+/** PROTOTYPE: `?variant=` picks a take on the nav (branch proto/landing-nav-11-10-2026). */
+export function Nav() {
+  const v = usePrototypeVariant(VARIANTS.map((x) => x.key));
+  return (
+    <>
+      {v === "A" && <NavA />}
+      {v === "B" && <NavB />}
+      {v === "C" && <NavC />}
+      {v === "D" && <NavD />}
+      {v === "E" && <NavE />}
+      {v === "now" && <Current />}
+      <PrototypeSwitcher variants={VARIANTS} />
+    </>
+  );
+}
 
 const LINKS = [
   ["How it works", "#how-it-works"],
@@ -15,7 +43,7 @@ const LINKS = [
 ] as const;
 
 
-export function Nav() {
+function Current() {
   const [scrolled, setScrolled] = useState(false);
   const theme = useTheme();
 
