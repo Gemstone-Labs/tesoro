@@ -27,6 +27,8 @@ import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, sampledSeries } from "./PositionTile";
+import { NOF_VARIANTS, NativeOpenPrototype, type NofVariant, type OpenModel } from "./NativeOpenForm.prototype";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
 
 const fmtSol = (lamports: bigint | number, digits = 4) => (Number(lamports) / LAMPORTS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
@@ -111,11 +113,27 @@ export function NativeFaucet({ market, loading }: { market: NativeMarket | null;
 }
 
 /** The SOL tab of OPEN A POSITION: lock simSOL and take the Advance in one transaction. `market` null = not read yet. */
-export function NativeOpenForm({ market, loading, onDone }: { market: NativeMarket | null; loading: boolean; onDone?: () => void }) {
+export function NativeOpenForm({
+  market,
+  loading,
+  onDone,
+  defaultAmount = "",
+  variant: forced,
+}: {
+  market: NativeMarket | null;
+  loading: boolean;
+  onDone?: () => void;
+  /** PROTOTYPE: pre-filled Amount for stories. */
+  defaultAmount?: string;
+  /** PROTOTYPE: pin a variant (gallery story); otherwise ?variant= decides. */
+  variant?: NofVariant;
+}) {
+  const fromUrl = usePrototypeVariant(NOF_VARIANTS.map((v) => v.key));
+  const variant = forced ?? fromUrl;
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const balance = market ? Number(market.simSol) / LAMPORTS : 0;
-  const [text, setText] = useState("");
+  const [text, setText] = useState(defaultAmount);
   const [months, setMonths] = useState(3);
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
@@ -155,7 +173,54 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
     );
   }
 
+  const alerts = (
+    <>
+      {market && !priceOk && <p className="status err" role="alert">The SOL price is updating. Try again in a few minutes.</p>}
+      {tooMuch && <p className="status err" role="alert">That is more simSOL than you have.</p>}
+      {a.error && <p className="status err" role="alert">{a.error}</p>}
+    </>
+  );
+  const buttonLabel = a.busy ? `${step}…` : gemas > 0 ? `Open a Position · ${fmtGemas(gemas)} Gemas` : "Open a Position";
+  const disabled = !valid || !priceOk || a.busy !== null || !auth.signer;
+  const submit = () => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, setStep)).signature);
+  const switcher = forced ? null : <PrototypeSwitcher variants={NOF_VARIANTS} inDialog />;
+
+  if (variant !== "now") {
+    const model: OpenModel = {
+      market,
+      loading,
+      balance,
+      text,
+      setText,
+      months,
+      setMonths,
+      gemas,
+      usd: fmtUsd(gemasToUsd(gemas)),
+      principalSol: fmtSol(principal),
+      yieldSol: quote ? fmtSol(quote.projectedUnits) : "—",
+      priceLine: market?.price ? `SOL $${(Number(market.price.microUsd) / 1e6).toFixed(2)} · ${Math.max(0, Math.round(priceAge / 60))} min ago` : "not published yet",
+      apyPct: market ? market.pool.apyBps / 100 : 0,
+      estimateMs: estimate,
+      now,
+      tooMuch,
+      alerts,
+      buttonLabel,
+      disabled,
+      submit,
+      gemasFor: (m) => (market && priceOk ? Number(quoteNativeAdvance(principal, market.pool.apyBps, m, market.price!.microUsd).gemas) : 0),
+      unlockFor: (m) => now + m * SIM_MONTH_MIN * 60_000,
+    };
+    return (
+      <>
+        <NativeOpenPrototype variant={variant} m={model} />
+        {switcher}
+      </>
+    );
+  }
+
   return (
+    <>
+    {switcher}
     <OpenFormView
       unit="SOL"
       inert={!market}
@@ -190,10 +255,11 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
           pool&apos;s actual yield. <span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span>
         </>
       }
-      buttonLabel={a.busy ? `${step}…` : gemas > 0 ? `Open a Position · ${fmtGemas(gemas)} Gemas` : "Open a Position"}
-      disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
-      onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, setStep)).signature)}
+      buttonLabel={buttonLabel}
+      disabled={disabled}
+      onSubmit={submit}
     />
+    </>
   );
 }
 
