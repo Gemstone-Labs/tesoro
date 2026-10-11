@@ -184,3 +184,15 @@ a.tile:hover .tile-glare { opacity: 1; }
 .lbt-pts { font-weight: 800; font-size: 15px; font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) { .lbt { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
 
+
+/* ——— Ticker: one line of recent settled Matches ——— */
+.ticker {
+  --edge: var(--line-2); display: flex; align-items: center; gap: 12px; min-width: 0; height: 40px; padding: 0 16px;
+  background: var(--raised-2); font-size: 14px; color: var(--fg-2); white-space: nowrap; overflow: hidden;
+}
+.ticker > svg { flex: none; width: 16px; height: 16px; color: var(--fg); }
+.ticker-line { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; animation: tick-in 0.4s ease both; }
+.ticker-line b { color: var(--fg); font-weight: 700; }
+.ticker-line i { font-style: normal; margin: 0 10px; color: var(--fg-3); }
+@keyframes tick-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ticker-line { animation: none; } }
