@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FILL, SIDE, type Asset, type Fill } from "./chain";
 import type { Point } from "./feed";
 import { usd } from "./fmt";
+import type { Tick } from "./feel";
 
 const PAD = { l: 12, r: 84, t: 16, b: 26 };
 
@@ -23,10 +24,12 @@ export interface ChartProps {
   entry?: { price: number; side: number } | null;
   liquidation?: number | null;
   now: number;
+  /** Direction of the latest price tick; tints the live head. */
+  dir?: Tick;
 }
 
 /** The live price as a line over the Match window, with the Player's own fills marked. Colours: sapphire up, amber down, never green or red. */
-export function Chart({ asset, series, from, to, startsAt, fills, origin, entry, liquidation, now }: ChartProps) {
+export function Chart({ asset, series, from, to, startsAt, fills, origin, entry, liquidation, now, dir = "flat" }: ChartProps) {
   // Drawn at the real pixel size so the labels stay readable on a phone.
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 960, h: 340 });
@@ -72,9 +75,20 @@ export function Chart({ asset, series, from, to, startsAt, fills, origin, entry,
   if (!g) return <div ref={box} className="td-chart-empty meta" role="status">Waiting for the first live price…</div>;
   const nowX = Math.min(Math.max(g.x(now), PAD.l), W - PAD.r);
   const startX = g.x(startsAt);
+  const headX = g.last ? Math.min(Math.max(nowX, g.x(g.last.t)), W - PAD.r) : 0;
   const entryColor = entry?.side === SIDE.short ? "var(--down)" : "var(--up)";
 
   const liqIn = liquidation && liquidation > g.lo && liquidation < g.hi ? liquidation : null;
+  const lastOpen = entry ? [...g.marks].reverse().find((m) => m.f.kind === FILL.open) : undefined;
+  const band =
+    entry && g.last
+      ? (() => {
+          const x0 = Math.max(PAD.l, lastOpen ? g.x(lastOpen.t) : PAD.l);
+          const y0 = g.y(entry.price);
+          const y1 = g.y(g.last.p);
+          return { x: x0, y: Math.min(y0, y1), w: Math.max(0, headX - x0), h: Math.abs(y1 - y0) };
+        })()
+      : null;
   const px = (v: number) => usd(v, asset, g.digits);
 
   return (
@@ -98,23 +112,35 @@ export function Chart({ asset, series, from, to, startsAt, fills, origin, entry,
       {liqIn ? <line x1={PAD.l} x2={W - PAD.r} y1={g.y(liqIn)} y2={g.y(liqIn)} className="td-level td-liq" /> : null}
       {liqIn ? <text x={PAD.l + 4} y={g.y(liqIn) - 5} className="td-axis td-liq-t">Liquidation {px(liqIn)}</text> : null}
       {liquidation && !liqIn ? <text x={PAD.l + 4} y={H - PAD.b - 6} className="td-axis td-liq-t">Liquidation {px(liquidation)} {liquidation < g.lo ? "\u25BC below" : "\u25B2 above"}</text> : null}
-      <path d={g.path} className="td-line" fill="none" />
+      <defs>
+        <linearGradient id="td-area" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#eaefec" stopOpacity="0.2" />
+          <stop offset="1" stopColor="#eaefec" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {band && <rect x={band.x} y={band.y} width={band.w} height={band.h} fill={entryColor} className="td-band" />}
+      {g.last && <path d={`${g.path} L${headX.toFixed(1)},${g.y(g.last.p).toFixed(1)} L${headX.toFixed(1)},${H - PAD.b} L${g.x(g.pts[0].t).toFixed(1)},${H - PAD.b} Z`} fill="url(#td-area)" />}
+      <path d={`${g.path}${g.last ? ` L${headX.toFixed(1)},${g.y(g.last.p).toFixed(1)}` : ""}`} className="td-line" fill="none" />
       {g.marks.map((m, i) => {
         const cx = g.x(m.t);
         const cy = g.y(m.p);
         if (cx < PAD.l || cx > W - PAD.r) return null;
+        const ripple = now - m.t < 2500 ? <circle key={`r${i}`} cx={cx} cy={cy} r="6" className={`td-ripple ${m.f.kind === FILL.liquidated ? "warn" : m.f.side === SIDE.long ? "up" : "down"}`} /> : null;
         if (m.f.kind === FILL.open) {
           const up = m.f.side === SIDE.long;
-          return <path key={i} d={up ? `M${cx},${cy - 9} L${cx + 8},${cy + 6} L${cx - 8},${cy + 6} Z` : `M${cx},${cy + 9} L${cx + 8},${cy - 6} L${cx - 8},${cy - 6} Z`} fill={up ? "var(--up)" : "var(--down)"} className="td-mark" />;
+          return <g key={i}>{ripple}<path d={up ? `M${cx},${cy - 9} L${cx + 8},${cy + 6} L${cx - 8},${cy + 6} Z` : `M${cx},${cy + 9} L${cx + 8},${cy - 6} L${cx - 8},${cy - 6} Z`} fill={up ? "var(--up)" : "var(--down)"} className="td-mark" /></g>;
         }
         if (m.f.kind === FILL.liquidated) {
-          return <path key={i} d={`M${cx - 7},${cy - 7} L${cx + 7},${cy + 7} M${cx + 7},${cy - 7} L${cx - 7},${cy + 7}`} className="td-mark-x" />;
+          return <g key={i}>{ripple}<path d={`M${cx - 7},${cy - 7} L${cx + 7},${cy + 7} M${cx + 7},${cy - 7} L${cx - 7},${cy + 7}`} className="td-mark-x" /></g>;
         }
-        return <path key={i} d={`M${cx},${cy - 7} L${cx + 7},${cy} L${cx},${cy + 7} L${cx - 7},${cy} Z`} className="td-mark-close" />;
+        return <g key={i}>{ripple}<path d={`M${cx},${cy - 7} L${cx + 7},${cy} L${cx},${cy + 7} L${cx - 7},${cy} Z`} className="td-mark-close" /></g>;
       })}
       {g.last && (
         <g>
-          <circle cx={g.x(g.last.t)} cy={g.y(g.last.p)} r="4.5" className="td-dot" />
+          <g className={`td-tip ${dir}`} style={{ transform: `translate(${headX}px, ${g.y(g.last.p)}px)` }}>
+            <circle r="4.5" className="td-pulse" />
+            <circle r="4.5" className="td-dot" />
+          </g>
           <text x={W - PAD.r + 8} y={g.y(g.last.p) + 4} className="td-axis td-axis-now">{px(g.last.p)}</text>
         </g>
       )}
