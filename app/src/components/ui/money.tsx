@@ -1,22 +1,37 @@
 import { fmtGemas, fmtUsd, gemasToUsd } from "@/lib/format";
 import type { Chain } from "@/lib/mock/types";
-import { GemaAmount, SimulatedYieldLabel } from "./gema";
+import { CountUp } from "./CountUp";
+import { GemaMark, SimulatedYieldLabel } from "./gema";
 import { CheckIcon, ClockIcon, MinusIcon, XIcon } from "./icons";
 import { ChainChip, Label, Meter } from "./primitives";
 
-/** The balance: big, plain, emerald-cut. The only place the glint runs. */
+/** The balance as a banknote: the card is the money fill, figure and Gema mark in ink. The only place the glint runs. */
 export function BalanceCard({ total, title = "Your Gemas" }: { total: number; title?: string }) {
   return (
     <section className="cut cut-card balance" aria-label={title}>
-      <Label>{title}</Label>
-      <GemaAmount value={total} size="xl" glint />
-      <span className="meta tnum">≈ {fmtUsd(gemasToUsd(total))} at issuance</span>
-      <SimulatedYieldLabel />
+      <div className="balance-top">
+        <span className="balance-label">{title}</span>
+        <span className="balance-usd">≈ {fmtUsd(gemasToUsd(total))}</span>
+      </div>
+      <div className="balance-fig">
+        <GemaMark size={38} glint />
+        <span>
+          <CountUp value={total} />
+          <span className="sr-only"> Gemas</span>
+        </span>
+      </div>
+      <div className="balance-foot">
+        <span>Value at issuance</span>
+        <SimulatedYieldLabel />
+      </div>
     </section>
   );
 }
 
-/** Redeemable now vs pending: always shown together, never one merged number. */
+/**
+ * Redeemable now vs pending: always shown together, never one merged number. One bar drawn to scale
+ * (emerald redeemable, hatched pending), each figure under its own end.
+ */
 export function BalanceSplit({
   redeemable,
   pending,
@@ -27,20 +42,27 @@ export function BalanceSplit({
   /** Number of Sources the redeemable Gemas sit on. */
   redeemableSources?: number;
 }) {
+  const total = redeemable + pending;
+  const share = total > 0 ? redeemable / total : 0;
+  const pct = Math.round(share * 100);
   return (
-    <div className="split">
-      <div className="cut cut-card now">
-        <span className="label">Redeemable now</span>
-        <b>{fmtGemas(redeemable)}</b>
+    <div className="cut cut-card bsplit">
+      <div className="bsplit-bar" role="img" aria-label={`${pct}% redeemable now, ${100 - pct}% pending`}>
+        {redeemable > 0 && <i className="now" style={{ flexGrow: share }} />}
+        {pending > 0 && <i className="pend" style={{ flexGrow: 1 - share }} />}
+      </div>
+      <div className="bsplit-now">
+        <span className="label"><i />Redeemable now</span>
+        <b><GemaMark size={18} />{fmtGemas(redeemable)}</b>
         <span className="tnum">
           ≈ {fmtUsd(gemasToUsd(redeemable))}
           {redeemableSources ? ` · ${redeemableSources} Source${redeemableSources === 1 ? "" : "s"}` : ""}
         </span>
       </div>
-      <div className="cut cut-card">
-        <span className="label">Pending</span>
+      <div className="bsplit-pend">
+        <span className="label"><i />Pending</span>
         <b>{fmtGemas(pending)}</b>
-        <span>Redeemable as each Source&apos;s yield accrues</span>
+        <span>As each Source&apos;s yield accrues</span>
       </div>
     </div>
   );

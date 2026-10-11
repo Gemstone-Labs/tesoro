@@ -10,7 +10,9 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Redeemable now and pending, always side by side. */
+/** Redeemable now and pending on one bar to scale, each figure under its own end. */
 export const Default: Story = {};
 export const OneSource: Story = { args: { redeemableSources: 1 } };
 export const NothingRedeemable: Story = { args: { redeemable: 0, redeemableSources: undefined } };
+export const NothingPending: Story = { args: { redeemable: 10060, pending: 0, redeemableSources: 6 } };
+export const Phone: Story = { decorators: [(Story) => <div style={{ maxWidth: 340 }}><Story /></div>] };
