@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { INSET, LINES, clipBelowInset } from "../geometry";
+import { INSET, LINES } from "../geometry";
+import { dividerScene } from "../dividers/octa";
 
 /* The octagon texture (waitlist.css --wl-texture, 360px tile) as geometry. */
 const T = 360;
@@ -23,11 +24,6 @@ type Pulse = { ox: number; oy: number; a: [number, number]; b: [number, number];
 
 export function LivingTexture() {
   const cv = useRef<HTMLCanvasElement>(null);
-  const clip = {
-    ["--c-wide" as string]: clipBelowInset(LINES.wide, 0, "x"),
-    ["--c-tall" as string]: clipBelowInset(LINES.tall, 0, "y"),
-  } as React.CSSProperties;
-  void INSET;
 
   useEffect(() => {
     const canvas = cv.current;
@@ -67,6 +63,27 @@ export function LivingTexture() {
         mctx.stroke();
         mctx.restore();
       }
+      // Light only the panel: the floor plus the divider's ground and gems, which sit over the floor's inset edge.
+      const kind = matchMedia("(max-width: 640px)").matches ? "tall" : "wide";
+      const l = LINES[kind];
+      const ix = kind === "wide" ? INSET.wide : 0, iy = kind === "tall" ? INSET.tall : 0;
+      const floor = new Path2D();
+      floor.moveTo(l.x1 * W - ix, l.y1 * H + iy);
+      floor.lineTo(l.x2 * W - ix, l.y2 * H + iy);
+      if (l.y2 < 1) floor.lineTo(W, H);
+      floor.lineTo(0, H);
+      if (l.y1 <= 0) floor.lineTo(0, 0);
+      floor.closePath();
+      const { ground, gems } = dividerScene({ w: wl.clientWidth, h: wl.clientHeight, kind });
+      const shape = document.createElement("canvas");
+      shape.width = mask.width; shape.height = mask.height;
+      const sctx = shape.getContext("2d")!;
+      sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      for (const path of [floor, new Path2D(ground), new Path2D(gems)]) sctx.fill(path);
+      mctx.setTransform(1, 0, 0, 1, 0, 0);
+      mctx.globalCompositeOperation = "destination-in";
+      mctx.drawImage(shape, 0, 0);
+      mctx.globalCompositeOperation = "source-over";
     };
     build();
     const ro = new ResizeObserver(build);
@@ -163,7 +180,7 @@ export function LivingTexture() {
           p.life += dt;
           const alive = step(p, 220 * dt);
           const x = p.ox + p.a[0] + (p.b[0] - p.a[0]) * p.t, y = p.oy + p.a[1] + (p.b[1] - p.a[1]) * p.t;
-          if (!alive || x > W * 0.8 || p.life > 6) { pulses.splice(k, 1); continue; }
+          if (!alive || x > W || p.life > 6) { pulses.splice(k, 1); continue; }
           blob(x, y, 84, Math.min(1, p.life * 2));
         }
       }
@@ -185,5 +202,5 @@ export function LivingTexture() {
     };
   }, []);
 
-  return <canvas ref={cv} className="pl-d-cv" style={clip} aria-hidden />;
+  return <canvas ref={cv} className="pl-d-cv" aria-hidden />;
 }

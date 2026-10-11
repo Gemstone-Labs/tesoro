@@ -82,8 +82,8 @@
 }
 
 /* D. Living texture: a canvas over the floor, lit through the octagon lines. */
-.pl-d-cv { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; pointer-events: none; clip-path: var(--c-wide); }
-@media (max-width: 640px) { .pl-d-cv { clip-path: var(--c-tall); } }
+/* Above the divider (z 3) so its band and gems light too; the canvas masks itself to the panel's shape. */
+.pl-d-cv { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; pointer-events: none; }
 
 /* E. Kinetic type */
 .pl-e-box { height: 100%; display: flex; flex-direction: column; gap: 12px; }
