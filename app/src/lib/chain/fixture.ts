@@ -128,19 +128,28 @@ export function demoSnapshot(address: string): AccountSnapshot {
 }
 
 export function demoBoard(): BackingBoard {
-  const req = (n: number, game: "block-puzzle" | "holdem" | "trading-duel", entry: number, matches: number, wins: number): ChainRequest => ({
+  const req = (n: number, game: "block-puzzle" | "holdem" | "trading-duel", entry: number, matches: number, wins: number, mins = 60): ChainRequest => ({
     address: key(600 + n),
     nonce: BigInt(n),
     player: key(700 + n).toBase58(),
     game,
     entry,
-    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    expiresAt: Math.floor(Date.now() / 1000) + mins * 60,
     status: "open",
     live: true,
     record: { matches, wins },
   });
   return {
-    requests: [req(1, "block-puzzle", 1000, 38, 23), req(2, "holdem", 500, 24, 14), req(3, "block-puzzle", 2500, 52, 34), req(4, "holdem", 1000, 17, 9)],
+    // PROTOTYPE (proto/back-player-rail): more Requests so the rail variants meet a new Player, a Duel and varied time left.
+    requests: [
+      req(1, "block-puzzle", 1000, 38, 23, 58),
+      req(2, "holdem", 500, 24, 14, 1290),
+      req(3, "block-puzzle", 2500, 52, 34, 312),
+      req(4, "holdem", 1000, 17, 9, 14),
+      req(5, "trading-duel", 500, 31, 21, 845),
+      req(6, "block-puzzle", 500, 0, 0, 1380),
+      req(7, "holdem", 2500, 64, 37, 96),
+    ],
     offers: [],
     fetchedAt: Date.now(),
   };
