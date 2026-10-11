@@ -24,6 +24,8 @@ import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
 import { RunningTotalChart } from "./RunningTotalChart";
+import { AccountHeroPrototype, HERO_VARIANTS } from "./AccountHero.prototype";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
 import "./account.css";
 
 /**
@@ -65,6 +67,8 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   const [now] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
   const [challenge, setChallenge] = useState(false);
+  const [challengeGame, setChallengeGame] = useState<GameId | undefined>(undefined);
+  const variant = usePrototypeVariant(HERO_VARIANTS.map((v) => v.key));
 
   const rows = useMemo(() => playedRows(data.played), [data.played]);
   const summary = useMemo(() => playerSummary(data.played), [data.played]);
@@ -97,6 +101,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
 
   return (
     <div className="pa">
+      {variant === "now" ? (
       <header className="cut cut-frame pa-hero">
         <span className="cut cut-btn avatar pa-avatar">
           <PlayerAvatar account={address} size={120} />
@@ -155,6 +160,25 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
           </p>
         )}
       </header>
+      ) : (
+        <AccountHeroPrototype
+          variant={variant}
+          address={address}
+          own={own}
+          visitor={visitor}
+          s={summary}
+          now={now}
+          otherNames={otherNames}
+          asking={data.requests.length}
+          copied={copied}
+          onCopy={copy}
+          onChallenge={(g) => {
+            setChallengeGame(g);
+            setChallenge(true);
+          }}
+          onEdit={() => setEditProfileOpen(true)}
+        />
+      )}
 
       {visitor && data.requests.length > 0 && (
         <section className="cut cut-card pa-asks" aria-labelledby="pa-asks">
@@ -217,7 +241,8 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
       {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
       <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
 
-      <ChallengeSheet open={challenge} onClose={() => setChallenge(false)} player={who.label} />
+      <ChallengeSheet key={challengeGame ?? "default"} initial={challengeGame} open={challenge} onClose={() => setChallenge(false)} player={who.label} />
+      <PrototypeSwitcher variants={HERO_VARIANTS} />
     </div>
   );
 }
@@ -385,10 +410,10 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
 const GAMES: GameId[] = ["block-puzzle", "holdem", "trading-duel"];
 
 /** Game and entry for a Challenge, and the plain fact that the link is the only way it reaches the other Player. */
-function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () => void; player: string }) {
+function ChallengeSheet({ open, onClose, player, initial }: { open: boolean; onClose: () => void; player: string; initial?: GameId }) {
   const { auth } = useAccount();
   const router = useRouter();
-  const [game, setGame] = useState<GameId>("block-puzzle");
+  const [game, setGame] = useState<GameId>(initial ?? "block-puzzle");
   const [entry, setEntry] = useState<EntrySize>(1000);
   const [asset, setAsset] = useState<0 | 1 | 2>(0);
   return (
