@@ -1,5 +1,6 @@
 import { GemaMark } from "@/components/ui/gema";
 import { GemStage } from "./gem/GemStage";
+import { GemasPrototype } from "./Gemas.prototype";
 
 const BEATS = [
   {
@@ -37,7 +38,12 @@ function Vitrine() {
   );
 }
 
+/** PROTOTYPE: `?variant=` layers add-ons on the section (branch proto/gemas-section-11-10-2026). */
 export function Gemas() {
+  return <GemasPrototype />;
+}
+
+export function GemasNow() {
   return (
     <section id="gemas" className="lp-section lp-gemas" aria-labelledby="gemas-title" data-gemas data-beat="0">
       <div className="lp-wrap">

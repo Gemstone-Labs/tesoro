@@ -1,0 +1,135 @@
+/* PROTOTYPE ONLY (branch proto/gemas-section-11-10-2026): add-ons for the Gemas section, see Gemas.prototype.tsx.
+   "Active" = the stepped beat on tall desktops; everywhere else (no pinning) every beat counts as active. */
+
+/* ——— A / E: leader lines drawn outside the cards (the card's own ::before line is clipped by .cut) ——— */
+.pg-lead { position: relative; width: 0; height: 0; align-self: center; pointer-events: none; z-index: 1; }
+.pg-lead[data-lead="0"] { grid-column: 1; grid-row: 1; justify-self: end; }
+.pg-lead[data-lead="1"] { grid-column: 3; grid-row: 2; justify-self: start; }
+.pg-lead[data-lead="2"] { grid-column: 1; grid-row: 3; justify-self: end; }
+.pg-lead::before {
+  content: ""; position: absolute; top: 0; height: 1px; width: calc(clamp(28px, 4vw, 64px) + 26px);
+  background: linear-gradient(90deg, var(--line-2), color-mix(in srgb, var(--em) 50%, transparent)); transition: background 0.4s, opacity 0.4s;
+}
+.pg-lead[data-lead="1"]::before { right: 0; background: linear-gradient(270deg, var(--line-2), color-mix(in srgb, var(--em) 50%, transparent)); }
+/* the pin where the line meets the frame */
+.pg-pins .pg-lead::after {
+  content: ""; position: absolute; top: -5px; width: 10px; height: 10px; background: var(--shell);
+  border: 1.5px solid color-mix(in srgb, var(--em) 60%, transparent); rotate: 45deg; transition: background 0.4s, box-shadow 0.4s;
+}
+.pg-pins .pg-lead:not([data-lead="1"])::after { left: calc(clamp(28px, 4vw, 64px) + 26px - 5px); }
+.pg-pins .pg-lead[data-lead="1"]::after { right: calc(clamp(28px, 4vw, 64px) + 26px - 5px); }
+.is-stepped .pg-lead::before { opacity: 0.35; }
+.is-stepped[data-beat="0"] .pg-lead[data-lead="0"]::before, .is-stepped[data-beat="1"] .pg-lead[data-lead="1"]::before, .is-stepped[data-beat="2"] .pg-lead[data-lead="2"]::before { opacity: 1; background: var(--em); }
+.is-stepped[data-beat="0"] .pg-lead[data-lead="0"]::after, .is-stepped[data-beat="1"] .pg-lead[data-lead="1"]::after, .is-stepped[data-beat="2"] .pg-lead[data-lead="2"]::after,
+.lp-gemas:not(.is-stepped) .pg-lead::after { background: var(--em); box-shadow: 0 0 12px var(--em); }
+.pg-spark { display: none; }
+
+/* A: one tag on the stone, saying what the active beat means */
+.pg-hud { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.pg-tag {
+  position: absolute; left: 0; right: 0; margin-inline: auto; width: max-content; top: 10%; display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 7px 12px; font-size: 13px; background: color-mix(in srgb, var(--shell) 80%, transparent); backdrop-filter: blur(6px);
+  border: 1px solid color-mix(in srgb, var(--em) 50%, transparent); color: var(--fg);
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+  opacity: 0; transform: translateY(6px); transition: opacity 0.35s, transform 0.35s;
+}
+.pg-tag b { font-weight: 800; }
+.is-stepped[data-beat="0"] [data-tag="0"], .is-stepped[data-beat="1"] [data-tag="1"], .is-stepped[data-beat="2"] [data-tag="2"],
+.lp-gemas:not(.is-stepped) [data-tag="0"] { opacity: 1; transform: none; }
+
+/* ——— B: a small picture of each claim ——— */
+.lp-gemas.pg-proof { padding-block: 56px; }
+.pg-proof .lp-gemas-head { margin-bottom: 12px; }
+.pg-proof .lp-gemas-stage { grid-template-columns: 1fr minmax(320px, 380px) 1fr; row-gap: 14px; }
+.pg-proof .lp-beat { padding: 16px 20px; }
+.pg-proof .lp-beat-line { font-size: clamp(19px, 1.45vw, 23px); margin-bottom: 6px; }
+.pg-proof .lp-beat .lp-body { font-size: 14px; }
+.pg-proof-art { margin-top: 10px; }
+.pg-price { display: flex; flex-wrap: wrap; gap: 6px; }
+.pg-price > span {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; font-size: 12.5px; background: var(--shell);
+  border: 1px solid var(--line-2);
+}
+.pg-price i { font-style: normal; color: var(--fg-2); }
+.pg-ticket {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 9px; font-size: 11.5px; color: var(--fg-2);
+  border: 1px dashed color-mix(in srgb, var(--em) 45%, transparent); background: color-mix(in srgb, var(--em) 6%, transparent);
+}
+.pg-ticket b { color: var(--fg); font-weight: 700; }
+.pg-ticket > span:first-child { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; }
+.pg-ticket > span:first-child b { color: var(--em); }
+.pg-debt-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--fg-2); margin-bottom: 6px; }
+.pg-debt-row b { color: var(--fg); }
+.pg-debt-row .pg-debt-end b { color: var(--em); }
+.pg-debt-track { height: 6px; background: var(--shell); border: 1px solid var(--line-2); overflow: hidden; }
+.pg-debt-fill { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #f2a65a, var(--danger)); transform-origin: left; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-stepped[data-beat="2"] .pg-debt-fill, .lp-gemas:not(.is-stepped) .pg-debt-fill { animation: pg-drain 5s ease-in-out infinite; }
+}
+@keyframes pg-drain { 0%, 10% { transform: scaleX(1); } 75%, 100% { transform: scaleX(0); } }
+.pg-debt-end { transition: opacity 0.3s; }
+
+/* ——— C: Now → Later rail under the heading ——— */
+.lp-gemas.pg-rail { padding-block: 84px 56px; }
+.pg-rail .lp-gemas-head .lp-eyebrow { display: none; }
+.pg-rail .lp-gemas-head { margin-bottom: 12px; }
+.pg-rail .lp-gemas-stage { grid-template-columns: 1fr minmax(320px, 390px) 1fr; }
+.pg-rail .lp-gemas-head .lp-h2 { margin-bottom: 0; }
+.pg-railbar { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; width: min(860px, 100%); margin: 14px auto 0; }
+.pg-rail-end { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 12px; color: var(--fg-2); text-align: left; }
+.pg-rail-end:last-child { align-items: flex-end; text-align: right; }
+.pg-rail-end b { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; }
+.pg-rail-track { position: relative; height: 2px; background: var(--line-2); }
+.pg-rail-fill { position: absolute; inset: 0 auto 0 0; width: 100%; background: var(--facet); transition: width 0.6s ease; box-shadow: 0 0 10px var(--em); }
+.is-stepped[data-beat="0"] .pg-rail-fill { width: 17%; }
+.is-stepped[data-beat="1"] .pg-rail-fill { width: 50%; }
+.is-stepped[data-beat="2"] .pg-rail-fill { width: 100%; }
+.pg-rail-track i {
+  position: absolute; top: 50%; translate: -50% -50%; font-style: normal; font-size: 11px; padding: 3px 7px; background: var(--shell);
+  border: 1px solid var(--line-2); color: var(--fg-2); transition: color 0.3s, border-color 0.3s;
+}
+.pg-rail-track [data-tick="0"] { left: 17%; }
+.pg-rail-track [data-tick="1"] { left: 50%; }
+.pg-rail-track [data-tick="2"] { left: 83%; }
+.is-stepped[data-beat="0"] [data-tick="0"], .is-stepped[data-beat="1"] :is([data-tick="0"], [data-tick="1"]), .is-stepped[data-beat="2"] [data-tick],
+.lp-gemas:not(.is-stepped) [data-tick] { color: var(--em); border-color: color-mix(in srgb, var(--em) 60%, transparent); }
+
+/* ——— D: the empty cells get the lede (top right) and the way in (bottom right) ——— */
+.pg-lede { grid-column: 3; grid-row: 1; align-self: center; justify-self: start; max-width: 340px; font-size: 17px; line-height: 1.5; }
+.pg-cta { grid-column: 3; grid-row: 3; align-self: center; justify-self: start; display: flex; flex-wrap: wrap; gap: 10px; }
+.lp-gemas.pg-corners { padding-block: 72px; }
+
+/* ——— E: motion ——— */
+.pg-motion .lp-beat { transition: opacity 0.5s, transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.pg-motion.is-stepped .lp-beat { transform: scale(0.96); }
+.pg-motion.is-stepped[data-beat="0"] [data-beat-i="0"], .pg-motion.is-stepped[data-beat="2"] [data-beat-i="2"] { transform: translateX(14px); --edge: color-mix(in srgb, var(--em) 55%, transparent); }
+.pg-motion.is-stepped[data-beat="1"] [data-beat-i="1"] { transform: translateX(-14px); --edge: color-mix(in srgb, var(--em) 55%, transparent); }
+.pg-motion .pg-spark {
+  display: block; position: absolute; top: -3px; left: 0; width: 7px; height: 7px; background: var(--em-hi); rotate: 45deg;
+  box-shadow: 0 0 10px var(--em), 0 0 18px var(--em); opacity: 0;
+}
+.pg-motion .pg-lead[data-lead="1"] .pg-spark { left: auto; right: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .pg-motion.is-stepped[data-beat="0"] [data-lead="0"] .pg-spark, .pg-motion.is-stepped[data-beat="2"] [data-lead="2"] .pg-spark,
+  .pg-motion:not(.is-stepped) .pg-lead:not([data-lead="1"]) .pg-spark { animation: pg-spark-r 1.6s ease-in infinite; }
+  .pg-motion.is-stepped[data-beat="1"] [data-lead="1"] .pg-spark, .pg-motion:not(.is-stepped) [data-lead="1"] .pg-spark { animation: pg-spark-l 1.6s ease-in infinite; }
+}
+@keyframes pg-spark-r { 0% { opacity: 0; translate: 0 0; } 15% { opacity: 1; } 100% { opacity: 0; translate: calc(clamp(28px, 4vw, 64px) + 26px) 0; } }
+@keyframes pg-spark-l { 0% { opacity: 0; translate: 0 0; } 15% { opacity: 1; } 100% { opacity: 0; translate: calc(-1 * (clamp(28px, 4vw, 64px) + 26px)) 0; } }
+.pg-counter { position: absolute; left: 50%; top: 7%; translate: -50% 0; display: inline-flex; align-items: baseline; gap: 4px; z-index: 3; pointer-events: none; }
+.pg-counter b { display: none; font-size: 30px; font-weight: 800; color: var(--em); letter-spacing: 0.04em; }
+.pg-counter i { font-style: normal; font-size: 14px; color: var(--fg-2); }
+.is-stepped[data-beat="0"] .pg-counter [data-c="0"], .is-stepped[data-beat="1"] .pg-counter [data-c="1"], .is-stepped[data-beat="2"] .pg-counter [data-c="2"] { display: inline; }
+.lp-gemas:not(.is-stepped) .pg-counter { display: none; }
+
+/* phones and tablets: one column, no leader lines; the add-ons follow the cards */
+@media (max-width: 1023px) {
+  .pg-lead { display: none; }
+  .pg-lede, .pg-cta { grid-column: 1; grid-row: auto; justify-self: stretch; max-width: none; }
+  .pg-lede { order: -2; text-align: center; }
+  .pg-corners .lp-showcase { order: -1; }
+  .pg-cta { justify-content: center; }
+  .pg-railbar { gap: 10px; }
+  .pg-rail-end { font-size: 11px; }
+}
+@media (max-width: 1023px) { .pg-corners .lp-gemas-stage { display: flex; flex-direction: column; gap: 20px; } .pg-corners .lp-showcase { width: 100%; } }
