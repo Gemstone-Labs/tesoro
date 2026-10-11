@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
+import { Button, Notice } from "@/components/ui";
 import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzleGame";
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
@@ -10,10 +10,10 @@ import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledge
 import { canClaimTimeout, runSubmitter, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import type { RunSubmitter } from "@/lib/chain/run-submitter";
-import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "./BackingSplit";
 import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
+import { MatchStage, StageAction, type StageKind } from "./MatchStage";
 import { Receipts } from "./Receipts";
 import { plainError } from "@/lib/errors";
 
@@ -40,7 +40,7 @@ const SETTLE_TRY_MS = 6000;
  * opponent, then the result. Every step re-reads chain state, so a reload resumes where you were.
  */
 export function MatchView({ matchId }: { matchId: string }) {
-  const { auth, refresh } = useAccount();
+  const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const id = (() => {
     try {
@@ -59,7 +59,6 @@ export function MatchView({ matchId }: { matchId: string }) {
   const [sigs, setSigs] = useState<{ label: string; sig: string }[]>([]);
   const [timeoutOk, setTimeoutOk] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [refundable, setRefundable] = useState(false);
 
   const phaseRef = useRef<Phase>("loading");
@@ -257,117 +256,53 @@ export function MatchView({ matchId }: { matchId: string }) {
     );
   }
 
+  const kind: StageKind | null =
+    phase === "backer-watch"
+      ? "backer-watch"
+      : phase === "queued"
+        ? "waiting-run"
+        : phase === "prep"
+          ? "setup"
+          : phase === "ready" || phase === "starting"
+            ? "ready"
+            : phase === "submitting"
+              ? "saving-run"
+              : phase === "awaiting"
+                ? "awaiting"
+                : null;
+  if (!kind || !m) return <Notice title="Match" body="Loading the Match…" />;
+  const refund = () => act("refund", async () => addSig("refund", await refundMatch(signer, m.id)));
+
   return (
-    <div className="stack-lg" style={{ maxWidth: 480, margin: "0 auto" }}>
-      <div className="spread">
-        <h1 className="page-title">{asBacker ? "Match you funded" : "Block Puzzle Match"}</h1>
-        {m && (
-          <Chip tone="money">
-            <GemaAmount value={m.entry} size="sm" /> entry
-          </Chip>
-        )}
-      </div>
-
-      {phase === "backer-watch" && m && (
-        <Card large>
-          <div className="stack">
-            <Label>{m.status === "open" ? "Your Player is waiting for an opponent" : "Your Player is in the Match"}</Label>
-            <p className="meta">
-              Your {fmtGemas(m.entry)} Gemas are in the Pot. You cannot play or steer this Match; the result settles on chain. If your
-              Player wins, your entry returns first and the surplus is split by your Offer. If they lose, you bear the loss.
-            </p>
-            <Busy>Checking every few seconds…</Busy>
-          </div>
-        </Card>
-      )}
-
-      {phase === "queued" && m && (
-        <Card large>
-          <div className="stack">
-            <Label>Your run is in · waiting to be paired</Label>
-            {final && <span className="bp-final tnum">{final.score}</span>}
-            <p className="meta">
-              {playerBacked
-                ? `Your Backer's ${fmtGemas(m.entry)} Gemas are held in escrow as your entry,`
-                : `Your entry of ${fmtGemas(m.entry)} Gemas is held in escrow,`}{" "}
-              and your run is hidden in the private rollup.
-              The next Player to join plays the same Seed against your score; nobody sees your moves until both runs are
-              closed. If nobody joins before {m.deadline ? new Date(m.deadline * 1000).toLocaleTimeString() : "the Queue window ends"}, the entry is refunded.
-              Keep this page open, or come back from the Lobby.
-            </p>
-            {m.challenge && (
-              <div className="stack">
-                <Label>Challenge link</Label>
-                <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>{link}</code>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(link).then(() => setCopied(true));
-                  }}
-                >
-                  {copied ? "Copied" : "Copy link"}
-                </Button>
-                <p className="note">Whoever opens this link joins with the same entry. Send it to the person you want to play.</p>
-              </div>
-            )}
-            <Button disabled={busy !== null} onClick={() => act("refund", async () => addSig("refund", await refundMatch(signer, m.id)))}>
-              {busy === "refund" ? "Refunding…" : playerBacked ? "Cancel (Gemas return to your Backer)" : "Cancel and refund entry"}
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {phase === "prep" && (
-        <Card large>
-          <div className="stack">
-            <Label>Getting your run ready</Label>
-            <Busy>{step || "Creating your session"}…</Busy>
-            <p className="note">Your pieces are drawn in secret, so nobody (not even us) can see them before you press Start. About 20 seconds.</p>
-          </div>
-        </Card>
-      )}
-
-      {(phase === "ready" || phase === "starting") && m && (
-        <Card large>
-          <div className="stack">
-            <Label>Ready</Label>
-            <p className="meta">
-              You and your opponent get the same pieces, 90 seconds each, one after the other. The pieces stay hidden until
-              you press Start, and that is when your clock starts.{" "}
-              {m.status === "open"
-                ? "No opponent yet: play now and you will be paired with the next Player."
-                : playerBacked && m.backing
-                  ? `Higher score wins: your Backer's entry returns first, then you keep ${m.backing.shareBps / 100}% of the surplus. A loss costs you nothing.`
-                  : `Higher score wins ${fmtGemas(m.entry * 2 - Number(fmtFee(m)))} Gemas.`}
-            </p>
-            <Button variant="money" block disabled={phase === "starting"} onClick={begin}>
-              {phase === "starting" ? "Starting…" : "Start run · 90 s"}
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {phase === "submitting" && (
-        <Card large>
-          <div className="stack">
-            <Label>Run over</Label>
-            {final && <span className="bp-final tnum">{final.score}</span>}
-            <Busy>Saving your last moves…</Busy>
-          </div>
-        </Card>
-      )}
-
-      {phase === "awaiting" && m && (
-        <Card large>
-          <div className="stack">
-            <Label>Waiting for the opponent</Label>
-            {final && <span className="bp-final tnum">{final.score}</span>}
-            <p className="meta">
-              Your score is saved and hidden from your opponent. When they finish (or their time runs out), both scores are
-              revealed and the winner is paid.
-            </p>
-            <Busy>Checking every few seconds…</Busy>
-            <Button
+    <MatchStage
+      game="block-puzzle"
+      kind={kind}
+      entry={m.entry}
+      pot={m.entry * 2 - matchFee(m)}
+      me={asBacker ? (m.backing?.player ?? null) : (snapshot?.accountKey.toBase58() ?? null)}
+      opponent={m.opponent}
+      score={final?.score ?? null}
+      step={kind === "setup" ? step || "Creating your session" : kind === "saving-run" ? "Saving your last moves" : undefined}
+      deadline={m.deadline || undefined}
+      challengeLink={m.challenge && kind === "waiting-run" ? link : null}
+      backedShareBps={playerBacked && m.backing ? m.backing.shareBps : null}
+      error={error}
+      start={
+        kind === "ready" && (
+          <Button variant="money" size="lg" block disabled={phase === "starting"} onClick={begin}>
+            {phase === "starting" ? "Starting…" : "Start · 90 s"}
+          </Button>
+        )
+      }
+      actions={
+        <>
+          {kind === "waiting-run" && (
+            <StageAction disabled={busy !== null} onClick={refund}>
+              {busy === "refund" ? "Refunding…" : playerBacked ? "Cancel (Gemas return to your Backer)" : "Cancel and refund"}
+            </StageAction>
+          )}
+          {kind === "awaiting" && (
+            <StageAction
               disabled={busy !== null}
               onClick={() =>
                 act("settle", async () => {
@@ -378,31 +313,25 @@ export function MatchView({ matchId }: { matchId: string }) {
                 })
               }
             >
-              {busy === "settle" ? "Checking…" : "Check result"}
-            </Button>
-            {timeoutOk && (
-              <div className="stack">
-                <p className="note">Time ran out and nobody played. Both entries can be refunded.</p>
-                <Button disabled={busy !== null} onClick={() => act("timeout", async () => addSig("claim_timeout", await claimTimeout(signer, m.id)))}>
-                  Refund both entries
-                </Button>
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
-
-      {m && refundable && (phase === "awaiting" || phase === "ready" || phase === "prep") && (
-        <Button disabled={busy !== null} onClick={() => act("refund", async () => addSig("refund", await refundMatch(signer, m.id)))}>
-          Refund Match
-        </Button>
-      )}
-
-      {error && <p className="status err" role="alert">{error}</p>}
-
+              {busy === "settle" ? "Checking…" : "Check now"}
+            </StageAction>
+          )}
+          {kind === "awaiting" && timeoutOk && (
+            <StageAction disabled={busy !== null} onClick={() => act("timeout", async () => addSig("claim_timeout", await claimTimeout(signer, m.id)))}>
+              Time’s up: refund both entries
+            </StageAction>
+          )}
+          {refundable && (kind === "awaiting" || kind === "ready" || kind === "setup") && (
+            <StageAction disabled={busy !== null} onClick={refund}>
+              Refund Match
+            </StageAction>
+          )}
+        </>
+      }
+    >
       <Receipts items={sigs} />
       <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
-    </div>
+    </MatchStage>
   );
 }
 

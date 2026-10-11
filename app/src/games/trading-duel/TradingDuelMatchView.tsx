@@ -1,16 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
+import { Button, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import type { ChainMatch } from "@/lib/chain/read";
-import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { Receipts } from "@/components/match/Receipts";
+import { MatchStage, StageAction } from "@/components/match/MatchStage";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { DRAW, LEAD, STATUS } from "./chain";
 import { FillHistory } from "./FillHistory";
@@ -34,7 +33,7 @@ const leadOf = (n: number): Lead => (n === LEAD.seat0 ? "seat0" : n === LEAD.sea
  * resumes where you were.
  */
 export function TradingDuelMatchView({ matchId }: { matchId: string }) {
-  const { auth, refresh } = useAccount();
+  const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const id = (() => {
     try {
@@ -44,7 +43,6 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
     }
   })();
   const { view, open, close, flip, run } = useDuelMatch(id, signer, refresh);
-  const [copied, setCopied] = useState(false);
   const { stage, match: m, duel, book, seat, asset } = view;
   const started = !!duel && duel.status !== STATUS.created && duel.startsAt > 0;
   const showScreen = started && seat !== null && (stage === "live" || stage === "closing");
@@ -92,6 +90,36 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   const ended = stage === "closing" || (!!duel && duel.status !== STATUS.live);
   const opponent = duel && seat !== null ? { lead: leadOf(duel.lead), trades: duel.trades[1 - seat] } : null;
 
+  const kind = !showScreen && (stage === "waiting" || stage === "setup" || stage === "closing") ? stage : null;
+  if (kind && m) {
+    return (
+      <MatchStage
+        game="trading-duel"
+        kind={kind}
+        entry={m.entry}
+        pot={m.entry * 2 - matchFee(m)}
+        me={snapshot?.accountKey.toBase58() ?? null}
+        opponent={m.opponent}
+        asset={asset.symbol}
+        step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" ? view.note || "Saving the result" : undefined}
+        deadline={m.deadline || undefined}
+        challengeLink={m.challenge && kind === "waiting" ? link : null}
+        backedShareBps={m.backing && m.seat !== null ? m.backing.shareBps : null}
+        error={view.error}
+        actions={
+          (kind === "waiting" || view.refundable) && (
+            <StageAction disabled={view.busy !== null} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
+              {view.busy === "refund" ? "Refunding…" : kind === "waiting" ? "Cancel and refund" : "Refund Match"}
+            </StageAction>
+          )
+        }
+      >
+        <Receipts items={view.sigs} className="td-sigs" />
+        <p className="note td-note">Test mode · Gemas come from simulated yield and have no real value.</p>
+      </MatchStage>
+    );
+  }
+
   return (
     <div className="stack-lg" style={showScreen ? undefined : { maxWidth: 480, margin: "0 auto" }}>
       {!showScreen && (
@@ -103,49 +131,6 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
             </Chip>
           )}
         </div>
-      )}
-
-      {stage === "waiting" && m && (
-        <Card large>
-          <div className="stack">
-            <Label>Waiting for an opponent</Label>
-            <p className="meta">
-              Your entry of {fmtGemas(m.entry)} Gemas is held in escrow. The {asset.symbol}/USD Match starts the moment an opponent joins: five
-              minutes on the live price. Keep this page open, or come back from the Lobby.
-            </p>
-            {m.challenge && (
-              <div className="stack">
-                <Label>Challenge link</Label>
-                <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>{link}</code>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(link).then(() => setCopied(true));
-                  }}
-                >
-                  {copied ? "Copied" : "Copy link"}
-                </Button>
-                <p className="note">Whoever opens this link joins with the same entry. Send it to the person you want to play.</p>
-              </div>
-            )}
-            <Button disabled={view.busy !== null} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
-              {view.busy === "refund" ? "Refunding…" : "Cancel and refund entry"}
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {stage === "setup" && (
-        <Card large>
-          <div className="stack">
-            <Label>Opponent found · getting the Duel ready</Label>
-            <Busy>{view.note || "Creating your session"}…</Busy>
-            <p className="note">
-              Your trades stay hidden from your opponent until the Match ends. You each start with
-              10,000 Chips on {asset.symbol}/USD. About 30 seconds, then a short countdown.
-            </p>
-          </div>
-        </Card>
       )}
 
       {showScreen && seat !== null && duel && (
@@ -181,17 +166,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         />
       )}
 
-      {stage === "closing" && !showScreen && (
-        <Card large>
-          <div className="stack">
-            <Label>Match over</Label>
-            <Busy>{view.note || "Saving the result"}…</Busy>
-            <p className="note">Saving the result and paying out the Pot. This takes a few seconds.</p>
-          </div>
-        </Card>
-      )}
-
-      {m && view.refundable && (stage === "setup" || stage === "closing") && (
+      {m && view.refundable && stage === "closing" && (
         <Button disabled={view.busy !== null} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
           Refund Match
         </Button>
