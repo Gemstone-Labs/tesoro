@@ -26,6 +26,7 @@ import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
 import { GemasPanel } from "./GemasPanel";
+import { HistoryPrototype } from "./History.prototype";
 import "./account.css";
 
 /**
@@ -197,13 +198,24 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
             rows.length > 0 && <p className="pa-none">No finished {game ? GAME_NAMES[game] : ""} Matches yet.</p>
           ) : (
             <>
-              <div className="mh-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
-                {view.rows.map((r) => (
-                  <div key={r.id} role="listitem">
-                    <MatchRow r={r} now={now} showGame={!game} link="opponent" backing={backingLine(r)} />
+              {/* PROTOTYPE: ?variant=now|A|B|C|D */}
+              <HistoryPrototype
+                self={address}
+                rows={rows}
+                shown={shown}
+                page={view.rows}
+                now={now}
+                showGame={!game}
+                current={
+                  <div className="mh-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
+                    {view.rows.map((r) => (
+                      <div key={r.id} role="listitem">
+                        <MatchRow r={r} now={now} showGame={!game} link="opponent" backing={backingLine(r)} />
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                }
+              />
               <HistoryPages base={base} game={game} page={view.page} pages={view.pages} total={shown.length} />
             </>
           )}
