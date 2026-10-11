@@ -11,8 +11,9 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** A season in progress: the pool, the table (you are third), the prize scale and last week's winners. */
+/** A season in progress: the pool, the Payout scale, the table (top 50 of 61, 15 a page; you are third) and last week's winners. */
 export const Live: Story = {};
+export const YouOnPageTwo: Story = { parameters: { screen: { leaderboard: "deep" } } };
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };
 export const PrizesBeingPaid: Story = { parameters: { screen: { leaderboard: "settling" } } };
 export const NoPointsYet: Story = { parameters: { screen: { leaderboard: "empty" } } };

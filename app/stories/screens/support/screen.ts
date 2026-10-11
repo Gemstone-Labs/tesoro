@@ -9,7 +9,7 @@ import { DEMO_ME } from "../../support/data";
 /** What the screen-level mocks (leaderboard, queue depth, Backing board, EVM market) return for the current story. */
 export interface ScreenData {
   /** Leaderboard page: a live season, the pool not open yet, a season waiting to be paid, still loading, or failed. */
-  leaderboard?: "live" | "empty" | "upgrade" | "settling" | "loading" | "error";
+  leaderboard?: "live" | "deep" | "empty" | "upgrade" | "settling" | "loading" | "error";
   /** Backing page: still loading, or the read failed. Default: the demo board. */
   board?: "loading" | "error";
   /** Leaderboard Pool in the top bar: its Gemas (null hides it), and a Match fee landing every `growMs`. */
@@ -48,13 +48,17 @@ export const demoKey = (n: number) => PublicKey.findProgramAddressSync([Buffer.f
 
 const now = () => Math.floor(Date.now() / 1000);
 
-/** A season table in the shape `/api/leaderboard` returns. The demo Account is third. */
-export function leaderboardView(kind: "live" | "empty" | "upgrade" | "settling"): LeaderboardView {
+/** A season table in the shape `/api/leaderboard` returns: the top 50 of 61 Players. The demo Account is third, or 23rd with "deep". */
+export function leaderboardView(kind: "live" | "deep" | "empty" | "upgrade" | "settling"): LeaderboardView {
   const SEASON = 7 * 24 * 3600;
   const start = now() - 2 * 24 * 3600;
   const base = { now: now(), season: { number: 4, start, end: start + SEASON } };
-  const keys = [801, 2, DEMO_ME, 803, 804, 805, 806, 807, 808, 809, 810, 811].map((k) => (typeof k === "number" ? demoKey(k) : k));
-  const standings = keys.map((account, i) => ({ rank: i + 1, account, points: 420 - i * 31, wins: 38 - i * 3 }));
+  const mine = kind === "deep" ? 22 : 2;
+  const keys = Array.from({ length: 50 }, (_, i) => (i === mine ? DEMO_ME : i === 1 ? demoKey(2) : demoKey(801 + i)));
+  const standings = keys.map((account, i) => {
+    const points = Math.round(420 * 0.94 ** i);
+    return { rank: i + 1, account, points, wins: Math.max(1, Math.round(points / 11)) };
+  });
   const last = {
     number: 3,
     poolGemas: 18_400,

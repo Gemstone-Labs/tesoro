@@ -1,13 +1,14 @@
 "use client";
 
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
+import { PlayerAvatar } from "@/components/account/Player";
 import { Button, CountUp, GemaMark, Label, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { art, avatarFor } from "@/lib/art";
+import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import { shortKey } from "@/lib/chain/history";
 import type { LastSeason, LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
@@ -17,6 +18,17 @@ import "./leaderboard.css";
 
 /** Prize of rank `i` from a pool, floored as in the program. */
 const prize = (pool: number, i: number) => Math.floor((pool * PRIZE_BPS[i]) / 10_000);
+
+/** Rows per page of the season table. */
+const PAGE = 15;
+/** Whether the Payout scale band is shown: remembered per browser. */
+const PAYOUT_KEY = "tesoro.leaderboard.payout";
+const ENTRIES = [500, 1000, 2500] as const;
+const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+const ord = (n: number) => {
+  const t = n % 100;
+  return `${n}${t >= 11 && t <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
+};
 
 const pad = (n: number) => String(n).padStart(2, "0");
 function left(secs: number): string {
@@ -123,36 +135,13 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
         </p>
       )}
 
-      <div className="lb-grid">
-        <section className="lb-table" aria-labelledby="lb-table-h">
-          <header className="lb-sec-head">
-            <h2 id="lb-table-h" className="h-section">Season {data.season.number}</h2>
-          </header>
-          {data.standings.length === 0 ? (
-            <div className="cut cut-card lb-empty">
-              <b>No points yet this season.</b>
-              <p>The first win puts you at the top. A won Match earns one point for every {POINTS_DIVISOR} Gemas of entry.</p>
-              <Button variant="money" href="/play">Play now</Button>
-            </div>
-          ) : (
-            <ol className="lb-rows">
-              {data.standings.map((r) => (
-                <Row key={r.account} r={r} pool={pool} me={me === r.account} />
-              ))}
-            </ol>
-          )}
-          {me && !mine && data.standings.length > 0 && (
-            <p className="note">
-              {data.players > data.standings.length ? "You’re not in the top of the table yet." : "You have no points this season yet."} Win a Match to climb.
-            </p>
-          )}
-        </section>
+      <Season data={data} pool={pool} me={me} />
 
-        <aside className="lb-side">
-          <Scale pool={pool} />
-          <Points />
-        </aside>
-      </div>
+      {me && !mine && data.standings.length > 0 && (
+        <p className="note">
+          {data.players > data.standings.length ? "You’re not in the top of the table yet." : "You have no points this season yet."} Win a Match to climb.
+        </p>
+      )}
 
       {data.last && <Last last={data.last} me={me} />}
 
@@ -167,87 +156,215 @@ function Person({ account }: { account: string }) {
     <>
       <AccountLink account={account} decorative>
         <span className="cut cut-btn avatar lb-avatar">
-          <Image src={avatarFor(account)} alt="" width={48} height={48} />
+          <PlayerAvatar account={account} size={48} />
         </span>
       </AccountLink>
-      <AccountLink account={account} className="lb-name">
-        <b>{shortKey(account)}</b>
-      </AccountLink>
+      <AccountLink account={account} className="lb-name" />
     </>
   );
 }
 
+function readPayout(): boolean {
+  try {
+    return localStorage.getItem(PAYOUT_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+/** This season's table, 15 ranks a page, under the Payout scale band (which the visitor can hide). */
+function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: string | null }) {
+  const rows = data.standings;
+  // Mounted only once the leaderboard has loaded in the browser, so reading storage here cannot mismatch a server render.
+  const [payout, setPayout] = useState(readPayout);
+  const [page, setPage] = useState(0);
+  const head = useRef<HTMLElement>(null);
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  const p = Math.min(page, pages - 1);
+  const shown = rows.slice(p * PAGE, (p + 1) * PAGE);
+  const paid = shown.filter((r) => r.rank <= PRIZE_PLACES);
+  const chasing = shown.filter((r) => r.rank > PRIZE_PLACES);
+  const line = rows[PRIZE_PLACES - 1]?.points;
+  const mine = rows.find((r) => r.account === me);
+  const myPage = mine ? Math.floor((mine.rank - 1) / PAGE) : null;
+
+  const toggle = () => {
+    setPayout(!payout);
+    try {
+      localStorage.setItem(PAYOUT_KEY, payout ? "off" : "on");
+    } catch {}
+  };
+  const go = (n: number) => {
+    setPage(n);
+    const el = head.current;
+    if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
+  };
+
+  return (
+    <section className="lb-season" aria-labelledby="lb-table-h">
+      <header className="lb-sec-head lb-season-head" ref={head}>
+        <h2 id="lb-table-h" className="h-section">Season {data.season.number}</h2>
+        <div className="lb-season-tools">
+          {mine && myPage !== null && myPage !== p && (
+            <Button size="sm" onClick={() => go(myPage)}>
+              You’re {ord(mine.rank)}
+            </Button>
+          )}
+          <Button size="sm" aria-expanded={payout} aria-controls="lb-payout" onClick={toggle} icon={<ChevronDown className="lb-chev" size={16} aria-hidden="true" />}>
+            Payout scale
+          </Button>
+        </div>
+      </header>
+
+      {payout && <Payout pool={pool} />}
+
+      {rows.length === 0 ? (
+        <div className="cut cut-card lb-empty">
+          <b>No points yet this season.</b>
+          <p>The first win puts you at the top. A won Match earns one point for every {POINTS_DIVISOR} Gemas of entry.</p>
+          <Button variant="money" href="/play">Play now</Button>
+        </div>
+      ) : (
+        <>
+          <table className="lb-table">
+            <thead>
+              <tr>
+                <th className="lb-c-rank" scope="col"><span aria-hidden="true">#</span><span className="sr-only">Rank</span></th>
+                <th scope="col">Player</th>
+                <th className="lb-c-num lb-c-opt" scope="col">Wins</th>
+                <th className="lb-c-num" scope="col">Points</th>
+                <th className="lb-c-num lb-c-opt" scope="col">Share</th>
+                <th className="lb-c-num" scope="col">Prize</th>
+              </tr>
+            </thead>
+            {paid.length > 0 && (
+              <tbody>
+                <tr className="lb-group">
+                  <th colSpan={6} scope="colgroup">In the prizes</th>
+                </tr>
+                {paid.map((r) => (
+                  <Row key={r.account} r={r} pool={pool} me={me === r.account} />
+                ))}
+              </tbody>
+            )}
+            {chasing.length > 0 && (
+              <tbody>
+                <tr className="lb-group">
+                  <th colSpan={6} scope="colgroup">Chasing{line !== undefined && ` · ${line + 1} points gets you in`}</th>
+                </tr>
+                {chasing.map((r) => (
+                  <Row key={r.account} r={r} pool={pool} me={me === r.account} />
+                ))}
+              </tbody>
+            )}
+          </table>
+          {pages > 1 && <Pager page={p} pages={pages} total={rows.length} go={go} />}
+        </>
+      )}
+    </section>
+  );
+}
+
 function Row({ r, pool, me }: { r: LeaderboardRow; pool: number; me: boolean }) {
-  const paid = r.rank <= PRIZE_PLACES ? prize(pool, r.rank - 1) : 0;
+  const paid = r.rank <= PRIZE_PLACES;
   return (
-    <li className={`cut cut-card lb-row${me ? " me" : ""}${r.rank <= PRIZE_PLACES ? " paid" : ""}`} aria-current={me ? "true" : undefined}>
-      <span className="lb-rank" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
-      <span className="lb-who">
-        <Person account={r.account} />
-        {me && <i className="lb-you">You</i>}
-      </span>
-      <span className="lb-num">
-        <b>{r.points}</b>
-        <small>points</small>
-      </span>
-      <span className="lb-num lb-wins">
-        <b>{r.wins}</b>
-        <small>{r.wins === 1 ? "win" : "wins"}</small>
-      </span>
-      <span className="lb-prize">
-        {paid > 0 ? (
-          <>
-            <GemaMark size={16} />
-            <b>{fmtGemas(paid)}</b>
-          </>
-        ) : null}
-      </span>
-    </li>
+    <tr className={me ? "me" : undefined} aria-current={me ? "true" : undefined}>
+      <td className="lb-c-rank">{r.rank}</td>
+      <td>
+        <span className="lb-who">
+          <AccountLink account={r.account} decorative>
+            <span className="cut cut-btn avatar lb-avatar">
+              <PlayerAvatar account={r.account} size={32} />
+            </span>
+          </AccountLink>
+          <AccountLink account={r.account} className="lb-name" />
+          {me && <i className="lb-you">You</i>}
+        </span>
+      </td>
+      <td className="lb-c-num lb-c-opt">{r.wins}</td>
+      <td className="lb-c-num lb-c-pts">{r.points}</td>
+      <td className="lb-c-num lb-c-opt">{paid ? `${PRIZE_BPS[r.rank - 1] / 100}%` : "—"}</td>
+      <td className="lb-c-num">
+        {paid ? (
+          <span className="lb-prize">
+            <GemaMark size={14} />
+            <b>{fmtGemas(prize(pool, r.rank - 1))}</b>
+          </span>
+        ) : (
+          <span className="lb-dim">—</span>
+        )}
+      </td>
+    </tr>
   );
 }
 
-function Scale({ pool }: { pool: number }) {
+function Pager({ page, pages, total, go }: { page: number; pages: number; total: number; go: (n: number) => void }) {
   return (
-    <section className="cut cut-card lb-card" aria-labelledby="lb-scale-h">
-      <h2 id="lb-scale-h" className="pa-h">Payout scale</h2>
-      <p>The pool is split between the top ten on a sliding scale.</p>
-      <ol className="lb-scale">
-        {PRIZE_BPS.map((bps, i) => (
-          <li key={i}>
-            <span className="lb-scale-rank">{i + 1}</span>
-            <span className="lb-scale-bar" aria-hidden="true">
-              <i style={{ width: `${(bps / PRIZE_BPS[0]) * 100}%` }} />
-            </span>
-            <span className="lb-scale-pct">{bps / 100}%</span>
-            <span className="lb-scale-amt">
-              <GemaMark size={14} />
-              {fmtGemas(prize(pool, i))}
-            </span>
-          </li>
+    <nav className="lb-pager" aria-label="Table pages">
+      <span className="lb-pager-range">
+        Ranks {page * PAGE + 1}–{Math.min(total, (page + 1) * PAGE)} of {total}
+      </span>
+      <span className="lb-pager-btns">
+        <button type="button" className="cut cut-btn btn neutral sm" onClick={() => go(page - 1)} disabled={page === 0} aria-label="Previous page">
+          <ChevronLeft size={16} aria-hidden="true" />
+        </button>
+        {Array.from({ length: pages }, (_, i) => (
+          <button
+            key={i}
+            type="button"
+            className="cut cut-btn btn neutral sm lb-page"
+            onClick={() => go(i)}
+            aria-current={i === page ? "page" : undefined}
+            aria-label={`Page ${i + 1}`}
+          >
+            {i + 1}
+          </button>
         ))}
-      </ol>
-      <small>A season with fewer than ten Players pays only the ranks it has; the rest stays in the pool for the next one.</small>
-    </section>
+        <button type="button" className="cut cut-btn btn neutral sm" onClick={() => go(page + 1)} disabled={page === pages - 1} aria-label="Next page">
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
+      </span>
+    </nav>
   );
 }
 
-function Points() {
+/** How the pool is split (a column per paid rank) and what a win is worth. */
+function Payout({ pool }: { pool: number }) {
   return (
-    <section className="cut cut-card lb-card" aria-labelledby="lb-pts-h">
-      <h2 id="lb-pts-h" className="pa-h">How points work</h2>
-      <ul className="lb-pts">
-        {[500, 1000, 2500].map((e) => (
-          <li key={e}>
-            <span>{fmtGemas(e)} entry</span>
-            <b>+{e / POINTS_DIVISOR} points</b>
-          </li>
-        ))}
-      </ul>
-      <small>
-        The same in every Game. A win earns points; a loss, a draw or a refund earns none. When a Backer funds the entry, the Player who played gets the
-        points. Ties go to whoever won first that week.
-      </small>
-    </section>
+    <div id="lb-payout" className="cut cut-card lb-payout">
+      <div className="lb-chart">
+        <h3 className="pa-h">Payout scale</h3>
+        <ol>
+          {PRIZE_BPS.map((bps, i) => (
+            <li key={i}>
+              <span className="lb-col" style={{ height: `${(bps / PRIZE_BPS[0]) * 100}%` }}>
+                <small>{bps / 100}%</small>
+              </span>
+              <b>{i + 1}</b>
+              <span className="lb-col-amt">
+                <span className="lb-col-full">{fmtGemas(prize(pool, i))}</span>
+                <span className="lb-col-short" aria-hidden="true">{SHORT.format(prize(pool, i))}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="lb-rules">
+        <h3 className="pa-h">Points per win</h3>
+        <dl>
+          {ENTRIES.map((e) => (
+            <div key={e}>
+              <dt>{fmtGemas(e)} entry</dt>
+              <dd>+{e / POINTS_DIVISOR}</dd>
+            </div>
+          ))}
+        </dl>
+        <p>
+          The same in every Game. A loss, a draw or a refund earns none. When a Backer funds the entry, the Player who played gets the points. Ties go to
+          whoever won first that week. A season with fewer than ten Players pays only the ranks it has; the rest stays in the pool.
+        </p>
+      </div>
+    </div>
   );
 }
 

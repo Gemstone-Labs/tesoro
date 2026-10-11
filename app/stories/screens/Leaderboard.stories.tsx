@@ -14,6 +14,9 @@ type Story = StoryObj<typeof meta>;
 /** A season in progress: the pool, the table (you are third), the prize scale and last week's winners. */
 export const LiveSeason: Story = { parameters: { screen: { leaderboard: "live" } } };
 
+/** You are 23rd: page 1 offers "You’re 23rd" to jump to your page. */
+export const YouOnPageTwo: Story = { parameters: { screen: { leaderboard: "deep" } } };
+
 export const LiveSeasonSignedOut: Story = { parameters: { screen: { leaderboard: "live" }, auth: "signed-out" } };
 
 /** The season before has ended and its prizes are still being paid. */
