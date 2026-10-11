@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { MatchBanner } from "@/components/match/MatchBanner";
 import { MatchRow } from "@/components/match/MatchRow";
 import { match } from "@/lib/chain/fixture";
 import { historyRow } from "@/lib/chain/history";
@@ -20,21 +21,32 @@ describe("AccountLink", () => {
 });
 
 describe("MatchRow", () => {
-  const row = historyRow(match("block-puzzle", 1000, true, 5, [120, 80]))!;
-
   it("opens the Match in the Account's own history", () => {
+    const row = historyRow(match("block-puzzle", 1000, true, 5, [120, 80]))!;
     const html = renderToStaticMarkup(<MatchRow r={row} now={Date.now()} />);
     expect(html).toMatch(/^<a [^>]*href="\/play\/match\//);
     expect(html).not.toContain("/account/");
   });
+});
 
-  it("on someone else's Account links the opponent and the Match side by side, never nested", () => {
-    const html = renderToStaticMarkup(<MatchRow r={row} now={Date.now()} link="opponent" backing="Backed by Back…1111 · Backer +540" />);
-    expect(html).toMatch(/^<div /);
+describe("MatchBanner", () => {
+  const row = historyRow(match("block-puzzle", 1000, true, 5, [120, 80]))!;
+
+  it("links the opponent and the Match side by side, never nested", () => {
+    const html = renderToStaticMarkup(<MatchBanner r={row} player={KEY} now={Date.now()} backing="Backed by Back…1111 · Backer +540" />);
+    expect(html).toMatch(/^<article /);
     expect(html).toContain(`href="/account/${row.opp}"`);
     expect(html).toContain(`href="/play/match/${row.id}"`);
     expect(html.match(/<a /g)).toHaveLength(2);
     expect(html).not.toMatch(/<a [^>]*>(?:(?!<\/a>).)*<a /);
     expect(html).toContain("Backer +540");
+    expect(html).toContain("120");
+  });
+
+  it("shows a backed Player's loss as 0 Gemas, not as an even result", () => {
+    const lost = historyRow(match("holdem", 1000, false, 5, [0, 0]))!;
+    const html = renderToStaticMarkup(<MatchBanner r={{ ...lost, delta: 0 }} player={KEY} now={Date.now()} />);
+    expect(html).toContain("0 Gemas");
+    expect(html).toContain("Lost");
   });
 });

@@ -1,0 +1,75 @@
+/* ——— A finished Match as a banner over the Game's art (a Player's Account) ———
+   Small text never sits on bright art: the word column is over the near-solid left of the scrim,
+   names and scores sit on dark plates, the Gema change on a dark glass chip. */
+.mb-list { display: grid; gap: 12px; container-type: inline-size; }
+.mb {
+  --edge: var(--edge-1); position: relative; isolation: isolate; overflow: hidden; background: #0b1013;
+  display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 1fr); grid-template-areas: "word face fig";
+  align-items: center; gap: 20px; min-height: 124px; padding: 16px 22px;
+}
+.mb.won { --edge: var(--edge-em); }
+.mb:hover { --edge: var(--edge-2); }
+.mb.won:hover { --edge: var(--edge-em); }
+.mb-art { position: absolute; inset: 0; z-index: -1; }
+.mb-art img { object-fit: cover; object-position: right center; opacity: 0.6; transition: transform 0.6s ease; }
+.mb-art::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, #0b1013 0, rgba(11, 16, 19, 0.96) 32%, rgba(11, 16, 19, 0.7) 58%, rgba(11, 16, 19, 0.38) 100%);
+}
+.mb:hover .mb-art img { transform: scale(1.05); }
+.mb-hit { position: absolute; inset: 0; z-index: 1; }
+.mb-hit:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
+
+.mb-word { grid-area: word; display: grid; gap: 4px; min-width: 0; pointer-events: none; }
+.mb-kick { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-2); }
+.mb-word b { font-family: var(--f-display); text-transform: uppercase; font-size: 46px; font-weight: 800; line-height: 0.95; color: var(--fg-2); }
+.mb.won .mb-word b { background: var(--facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.mb.lost .mb-word b { color: var(--danger); }
+.mb-word small { font-size: 14px; color: var(--fg); opacity: 0.86; line-height: 1.35; }
+
+.mb-face { grid-area: face; display: flex; align-items: flex-start; gap: 14px; }
+.mb-seat-link { position: relative; z-index: 2; border-radius: 6px; }
+.mb-seat { display: grid; justify-items: center; gap: 6px; }
+.mb-av { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; border: 2px solid var(--line-2); background: var(--raised-2); }
+.mb-seat.lit .mb-av { border-color: var(--em-hi); box-shadow: 0 0 0 4px rgba(36, 216, 168, 0.2); }
+.mb-seat.dim .mb-av { filter: grayscale(0.7) brightness(0.75); }
+.mb-plate {
+  display: inline-flex; align-items: baseline; gap: 6px; max-width: 150px; padding: 4px 9px;
+  background: rgba(6, 9, 11, 0.86); box-shadow: inset 0 0 0 1px var(--line); border-radius: 4px;
+  font-size: 13px; font-weight: 600; color: var(--fg); white-space: nowrap;
+}
+.mb-plate .pn { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mb-plate b { font-size: 14px; font-weight: 800; }
+.mb-seat.lit .mb-plate b { color: var(--em-hi); }
+.mb-seat-link:hover .mb-plate { box-shadow: inset 0 0 0 1px var(--line-2); }
+.mb-vs { align-self: center; margin-top: -24px; font-family: var(--f-display); font-size: 18px; font-weight: 700; text-transform: uppercase; color: var(--fg-2); }
+
+.mb-fig {
+  grid-area: fig; justify-self: end; display: inline-flex; align-items: center; gap: 8px; padding: 9px 15px; pointer-events: none;
+  background: rgba(6, 9, 11, 0.8); backdrop-filter: blur(8px); font-size: 17px; color: var(--fg);
+}
+.mb-fig svg { width: 18px; height: 18px; flex: none; }
+.mb-fig b { font-weight: 800; white-space: nowrap; }
+.mb-fig.won { color: var(--em-hi); }
+.mb-fig.lost { color: var(--danger); }
+.mb-fig.even { font-size: 15px; }
+
+/* narrow (phones): the game line on its own, then the word with the chip beside it, the entry line, the face-off across the full width; the scrim covers the whole banner */
+@container (max-width: 640px) {
+  .mb { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kick kick" "word fig" "line line" "face face"; gap: 4px 12px; padding: 14px 16px; min-height: 0; }
+  .mb-art::after { background: linear-gradient(90deg, rgba(11, 16, 19, 0.95) 0, rgba(11, 16, 19, 0.84) 55%, rgba(11, 16, 19, 0.64) 100%); }
+  .mb-word { display: contents; }
+  .mb-kick { grid-area: kick; font-size: 11px; }
+  .mb-word b { grid-area: word; align-self: center; font-size: 34px; }
+  .mb-word small { grid-area: line; font-size: 13px; }
+  .mb-fig { align-self: center; padding: 7px 11px; font-size: 15px; }
+  .mb-fig.even { font-size: 13px; }
+  .mb-face { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 10px; }
+  .mb-seat-link { min-width: 0; }
+  .mb-seat { grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: start; min-width: 0; }
+  .mb-av { width: 34px; height: 34px; }
+  .mb-plate { max-width: 100%; min-width: 0; padding: 3px 7px; font-size: 12.5px; }
+  .mb-plate b { font-size: 13px; }
+  .mb-vs { margin-top: 0; font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .mb-art img { transition: none; } }

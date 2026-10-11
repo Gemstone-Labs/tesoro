@@ -11,8 +11,8 @@ const NOW = Date.now();
 const meta = {
   title: "Components/match/MatchRow",
   component: MatchRow,
-  args: { r: row(match("block-puzzle", 1000, true, 4, [171, 55])), now: NOW, showGame: false, link: "match" },
-  argTypes: { link: { control: "inline-radio", options: ["match", "opponent"] }, r: { control: "object" }, now: { control: false } },
+  args: { r: row(match("block-puzzle", 1000, true, 4, [171, 55])), now: NOW, showGame: false },
+  argTypes: { r: { control: "object" }, now: { control: false } },
   decorators: [(Story) => <div className="mh-list" style={{ maxWidth: 860 }}><Story /></div>],
 } satisfies Meta<typeof MatchRow>;
 export default meta;
@@ -33,5 +33,3 @@ export const BackedPlayerWon: Story = { args: { r: row(backed(match("block-puzzl
 export const BackedPlayerLost: Story = { args: { r: row(backed(match("block-puzzle", 1000, false, 900, [96, 140]), BACKER)) } };
 export const AsBacker: Story = { args: { r: row(backed(match("block-puzzle", 2500, true, 300, [164, 97]), BACKER, 3000, true)) } };
 export const TradingDuel: Story = { args: { r: row(match("trading-duel", 1000, true, 12, [0, 0])), showGame: true } };
-export const OnAnotherAccount: Story = { args: { link: "opponent" } };
-export const CustomBackingLine: Story = { args: { r: row(backed(match("block-puzzle", 1000, true, 35, [150, 88]), BACKER)), backing: "Backed by Ana" } };
