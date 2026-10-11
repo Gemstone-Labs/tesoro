@@ -5,7 +5,7 @@ import "./account.css";
 
 /**
  * A Player wherever one is shown, linking to their Account. `account` is the Account key; the
- * default content is the Player's name (Profile, .sol, .eth or the short key). `newTab` keeps the page underneath (an open drawer, a tab) as it is.
+ * default content is the Player's name (Profile, .sol, .eth, .hl or the short key). `newTab` keeps the page underneath (an open drawer, a tab) as it is.
  */
 export function AccountLink({
   account,

@@ -23,7 +23,7 @@ export interface PlayerChainData {
   attached: { wallet: string | null; evm: string | null };
   /** Solana wallets whose .sol name may show, best first: the one the Player attached, then the Account's own. */
   wallets: string[];
-  /** EVM addresses whose .eth name may show, best first: the one the Player attached, then the Account's own. */
+  /** EVM addresses whose .eth / .hl name may show, best first: the one the Player attached, then the Account's own. */
   evms: string[];
 }
 

@@ -2,12 +2,12 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { shownIdentity } from "@/lib/identity/display";
+import { shownIdentity, type NameSuffix } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
 import "./account.css";
 
-/** The check next to a .sol / .eth name: the registry says this wallet owns it. */
-export function VerifiedMark({ suffix }: { suffix: ".sol" | ".eth" }) {
+/** The check next to a .sol / .eth / .hl name: the registry says this wallet owns it. */
+export function VerifiedMark({ suffix }: { suffix: NameSuffix }) {
   return (
     <>
       <svg className="pn-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
@@ -20,7 +20,7 @@ export function VerifiedMark({ suffix }: { suffix: ".sol" | ".eth" }) {
 }
 
 /**
- * A Player's name: Profile name, else .sol, else .eth, else the short key (`key` is the Account
+ * A Player's name: Profile name, else .sol, else .eth, else .hl, else the short key (`key` is the Account
  * key). One component everywhere a Player is shown, so every screen agrees.
  */
 export function PlayerName({ account, className }: { account: string; className?: string }) {

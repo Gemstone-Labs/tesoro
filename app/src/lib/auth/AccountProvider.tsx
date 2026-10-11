@@ -205,7 +205,7 @@ function PrivyBridge({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [evm, evmWallets, wallets]);
 
-  // The person's own Ethereum wallet (MetaMask, Rabby, ...), when connected: it proves a .eth name, and never signs game moves.
+  // The person's own Ethereum wallet (MetaMask, Rabby, ...), when connected: it proves a .eth or .hl name, and never signs game moves.
   const externalEvm = useMemo<EvmSigner | null>(() => {
     const external = linked.find((l) => l.family === "evm");
     const wallet = external ? evmWallets.find((w) => w.address.toLowerCase() === external.address.toLowerCase()) : undefined;

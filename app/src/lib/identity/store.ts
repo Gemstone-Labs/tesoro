@@ -5,7 +5,7 @@ import { PublicKey } from "@solana/web3.js";
 import { EMPTY_IDENTITY, type Identity, type NameRecord, type ProfileData } from "./display";
 
 /**
- * Every Player on screen, by Account key: Profile and .sol / .eth names. Requests made in the same
+ * Every Player on screen, by Account key: Profile and .sol / .eth / .hl names. Requests made in the same
  * moment are read together (two lookups for a whole page); nothing here ever blocks rendering, and a
  * Player whose lookups fail keeps showing as a short key.
  */
@@ -55,7 +55,7 @@ export function setProfileLocal(key: string, profile: ProfileData) {
   emit();
 }
 
-export async function fetchNames(wallets: string[], evm: string[]): Promise<{ solana: Record<string, NameRecord | null>; evm: Record<string, NameRecord | null> }> {
+export async function fetchNames(wallets: string[], evm: string[]): Promise<{ solana: Record<string, NameRecord | null>; evm: Record<string, NameRecord | null>; hl: Record<string, NameRecord | null> }> {
   const res = await fetch("/api/names", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -95,10 +95,12 @@ async function readBatch(keys: string[]) {
     const names = await fetchNames(wallets, evm);
     // The server answers with checksummed addresses; the chain data is lowercase.
     const ethByLower = new Map(Object.entries(names.evm).map(([addr, n]) => [addr.toLowerCase(), n]));
+    const hlByLower = new Map(Object.entries(names.hl ?? {}).map(([addr, n]) => [addr.toLowerCase(), n]));
     keys.forEach((k, i) => {
       const sol = chain[i].wallets.map((w) => names.solana[w]).find((n) => n) ?? null;
       const eth = chain[i].evms.map((e) => ethByLower.get(e)).find((n) => n) ?? null;
-      put(k, { sol, eth });
+      const hl = chain[i].evms.map((e) => hlByLower.get(e)).find((n) => n) ?? null;
+      put(k, { sol, eth, hl });
     });
     emit();
   } catch (e) {

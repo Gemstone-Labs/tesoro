@@ -19,24 +19,28 @@ export interface Identity {
   profile: ProfileData | null;
   sol: NameRecord | null;
   eth: NameRecord | null;
+  /** Hyperliquid Names, read for the same EVM addresses as .eth. */
+  hl: NameRecord | null;
   /** The wallets the Player attached to their Profile for names (addresses); null when none. */
   attached?: { wallet: string | null; evm: string | null };
 }
 
 export interface Shown {
-  /** The name to display: Profile name, else .sol, else .eth, else the short key. */
+  /** The name to display: Profile name, else .sol, else .eth, else .hl, else the short key. */
   label: string;
-  /** Set when the label is a .sol or .eth name, which carries the verified mark. */
-  verified: ".sol" | ".eth" | null;
+  /** Set when the label is a .sol, .eth or .hl name, which carries the verified mark. */
+  verified: NameSuffix | null;
   /** True when the Player chose the label (a Profile name or a name-service name), not a key. */
   named: boolean;
-  /** A local avatar path, or an https URL from the Player's .sol / .eth record. */
+  /** A local avatar path, or an https URL from the Player's .sol / .eth / .hl record. */
   avatar: string;
   /** The avatar is a remote image from a name record: not served by us, may fail to load. */
   remoteAvatar: boolean;
 }
 
-export const EMPTY_IDENTITY: Identity = { profile: null, sol: null, eth: null };
+export type NameSuffix = ".sol" | ".eth" | ".hl";
+
+export const EMPTY_IDENTITY: Identity = { profile: null, sol: null, eth: null, hl: null };
 
 export const PROFILE_NAME_MIN = 3;
 export const PROFILE_NAME_MAX = 20;
@@ -57,7 +61,7 @@ export function animalAvatar(index: number): string {
 
 /** The name-service picture, .sol first, as the name priority does. */
 export function nameServiceAvatar(id: Identity): string | null {
-  return id.sol?.avatar ?? id.eth?.avatar ?? null;
+  return id.sol?.avatar ?? id.eth?.avatar ?? id.hl?.avatar ?? null;
 }
 
 /** Applies the display rules to one Player (`key` is the Account key). */
@@ -75,6 +79,10 @@ export function shownIdentity(key: string, id: Identity = EMPTY_IDENTITY): Shown
   } else if (id.eth) {
     label = id.eth.name;
     verified = ".eth";
+    named = true;
+  } else if (id.hl) {
+    label = id.hl.name;
+    verified = ".hl";
     named = true;
   }
 

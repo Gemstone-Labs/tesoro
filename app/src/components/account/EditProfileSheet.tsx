@@ -16,6 +16,7 @@ import {
   shownIdentity,
   type AvatarPick,
   type NameRecord,
+  type NameSuffix,
 } from "@/lib/identity/display";
 import { fetchNames, refreshIdentity, setProfileLocal, useIdentity } from "@/lib/identity/store";
 import type { WalletNames } from "@/lib/identity/chain";
@@ -53,7 +54,7 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
   const evmAddr = extEvm?.address.toLowerCase() ?? null;
   const attachedSol = id.attached?.wallet != null && id.attached.wallet === solAddr;
   const attachedEvm = id.attached?.evm != null && id.attached.evm === evmAddr;
-  const [walletNames, setWalletNames] = useState<{ sol: NameRecord | null; eth: NameRecord | null } | null>(null);
+  const [walletNames, setWalletNames] = useState<{ sol: NameRecord | null; eth: NameRecord | null; hl: NameRecord | null } | null>(null);
   const [useSol, setUseSol] = useState<boolean | null>(null);
   const [useEvm, setUseEvm] = useState<boolean | null>(null);
   const showSol = useSol ?? attachedSol;
@@ -64,8 +65,8 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
     if (!solAddr && !evmAddr) return;
     let live = true;
     fetchNames(solAddr ? [solAddr] : [], extEvm ? [extEvm.address] : [])
-      .then((n) => live && setWalletNames({ sol: solAddr ? (n.solana[solAddr] ?? null) : null, eth: Object.values(n.evm)[0] ?? null }))
-      .catch(() => live && setWalletNames({ sol: null, eth: null }));
+      .then((n) => live && setWalletNames({ sol: solAddr ? (n.solana[solAddr] ?? null) : null, eth: Object.values(n.evm)[0] ?? null, hl: Object.values(n.hl ?? {})[0] ?? null }))
+      .catch(() => live && setWalletNames({ sol: null, eth: null, hl: null }));
     return () => {
       live = false;
     };
@@ -75,7 +76,9 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
     ...id,
     sol: extSol ? (showSol ? (walletNames?.sol ?? null) : attachedSol ? null : id.sol) : id.sol,
     eth: extEvm ? (showEvm ? (walletNames?.eth ?? null) : attachedEvm ? null : id.eth) : id.eth,
+    hl: extEvm ? (showEvm ? (walletNames?.hl ?? null) : attachedEvm ? null : id.hl) : id.hl,
   };
+  const evmNames = walletNames ? ([[".eth", walletNames.eth], [".hl", walletNames.hl]] as const).flatMap(([suffix, n]) => (n ? [{ suffix, name: n.name }] : [])) : [];
   const external = nameServiceAvatar(pendingId);
   const derived = useMemo(() => Math.max(0, art.avatars.indexOf(avatarFor(me ?? ""))), [me]);
 
@@ -199,7 +202,7 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
               <span className="cut cut-btn avatar">
                 <PlayerPreview src={external} />
               </span>
-              <small>{id.sol?.avatar ? id.sol.name : (id.eth?.name ?? "")}</small>
+              <small>{id.sol?.avatar ? id.sol.name : id.eth?.avatar ? id.eth.name : (id.hl?.name ?? "")}</small>
             </label>
           )}
         </div>
@@ -211,9 +214,9 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
           <WalletNameRow
             label="Solana wallet"
             address={solAddr as string}
-            name={walletNames?.sol?.name ?? null}
+            names={walletNames?.sol ? [{ suffix: ".sol", name: walletNames.sol.name }] : []}
+            none="No .sol name"
             loading={walletNames === null}
-            suffix=".sol"
             checked={showSol}
             disabled={available === false || (walletNames?.sol == null && !attachedSol)}
             onChange={setUseSol}
@@ -223,17 +226,17 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
           <WalletNameRow
             label="Ethereum wallet"
             address={extEvm.address}
-            name={walletNames?.eth?.name ?? null}
+            names={evmNames}
+            none="No .eth or .hl name"
             loading={walletNames === null}
-            suffix=".eth"
             checked={showEvm}
-            disabled={available === false || (walletNames?.eth == null && !attachedEvm)}
+            disabled={available === false || (evmNames.length === 0 && !attachedEvm)}
             onChange={setUseEvm}
           />
         )}
         {!extSol && !extEvm && (
           <div className="stack">
-            <p className="meta">Link a wallet to show its .sol or .eth name, with a check, when you have no profile name.</p>
+            <p className="meta">We support .sol, .eth and .hl names!</p>
             <div className="hstack wrap">
               <Button size="sm" type="button" onClick={() => auth.linkWallet("solana")}>Link Solana wallet</Button>
               <Button size="sm" type="button" onClick={() => auth.linkWallet("evm")}>Link ETH wallet</Button>
@@ -267,18 +270,18 @@ function PlayerPreview({ src }: { src: string }) {
 function WalletNameRow({
   label,
   address,
-  name,
+  names,
+  none,
   loading,
-  suffix,
   checked,
   disabled,
   onChange,
 }: {
   label: string;
   address: string;
-  name: string | null;
+  names: { suffix: NameSuffix; name: string }[];
+  none: string;
   loading: boolean;
-  suffix: ".sol" | ".eth";
   checked: boolean;
   disabled: boolean;
   onChange: (v: boolean) => void;
@@ -290,7 +293,17 @@ function WalletNameRow({
       <span>
         <b>{label}</b>
         <small className="meta">
-          {short} · {loading ? "Looking up…" : name ? <>{name} <VerifiedMark suffix={suffix} /></> : `No ${suffix} name`}
+          {short} ·{" "}
+          {loading
+            ? "Looking up…"
+            : names.length === 0
+              ? none
+              : names.map((n, i) => (
+                  <span key={n.suffix}>
+                    {i > 0 && " · "}
+                    {n.name} <VerifiedMark suffix={n.suffix} />
+                  </span>
+                ))}
         </small>
       </span>
     </label>

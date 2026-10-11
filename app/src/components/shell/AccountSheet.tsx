@@ -57,7 +57,7 @@ export function AccountSheet({
           <Button size="sm" onClick={() => linkWallet("solana")}>Link Solana wallet</Button>
           <Button size="sm" onClick={() => linkWallet("evm")}>Link ETH wallet</Button>
         </div>
-        <p className="note">Phantom, Solflare or Backpack for Solana; MetaMask or Rabby for ETH and HYPE. Your Account, not the wallet, holds Positions and Gemas. A linked wallet can show its .sol or .eth name on your profile.</p>
+        <p className="note">Phantom, Solflare or Backpack for Solana; MetaMask or Rabby for ETH and HYPE. Your Account, not the wallet, holds Positions and Gemas. A linked wallet can show its .sol, .eth or .hl name on your profile.</p>
       </div>
 
       <Button

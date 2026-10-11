@@ -76,7 +76,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   const identity = useIdentity(address);
   const who = shownIdentity(address, identity);
   // Registry names the title does not already show.
-  const otherNames = ([[".sol", identity.sol], [".eth", identity.eth]] as const).flatMap(([suffix, n]) => (n && n.name !== who.label ? [{ suffix, name: n.name }] : []));
+  const otherNames = ([[".sol", identity.sol], [".eth", identity.eth], [".hl", identity.hl]] as const).flatMap(([suffix, n]) => (n && n.name !== who.label ? [{ suffix, name: n.name }] : []));
   const played = rows.length > 0 || summary.notRead > 0;
 
   // Your own Account page exists before the Account does on chain (it is created with your first Position or Match).

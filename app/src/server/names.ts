@@ -1,6 +1,6 @@
 /**
- * Primary .sol (Bonfida SNS) and .eth (ENS) names for wallet addresses, read from the mainnet
- * registries. Read-only; answers are cached in memory so a page of Players costs a few lookups once.
+ * Primary .sol (Bonfida SNS), .eth (ENS) and .hl (Hyperliquid Names) names for wallet addresses,
+ * read from the mainnet registries. Read-only; answers are cached in memory so a page of Players costs a few lookups once.
  * Failures are never errors to the caller: a name that cannot be read is simply absent.
  */
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -9,7 +9,7 @@ import { mainnet } from "viem/chains";
 import { normalize } from "viem/ens";
 
 export interface NameRecord {
-  /** Full name with its suffix, e.g. `ana.sol`, `ana.eth`. */
+  /** Full name with its suffix, e.g. `ana.sol`, `ana.eth`, `ana.hl`. */
   name: string;
   /** An https image URL from the name's record, when it has one. */
   avatar: string | null;
@@ -23,6 +23,8 @@ export interface NameRequest {
 export interface NameResult {
   solana: Record<string, NameRecord | null>;
   evm: Record<string, NameRecord | null>;
+  /** .hl names of the same EVM addresses. */
+  hl: Record<string, NameRecord | null>;
 }
 
 /** What a registry answers; the real ones are below, tests pass their own. */
@@ -32,6 +34,8 @@ export interface NameSources {
   /** Primary .eth name whose forward record points back at the address. */
   ensName(address: `0x${string}`): Promise<string | null>;
   ensAvatar(name: string): Promise<string | null>;
+  /** Primary .hl name (with suffix) and its picture, only when the name resolves back to the address. */
+  hlProfile(address: `0x${string}`): Promise<{ name: string; avatar: string | null } | null>;
 }
 
 export const MAX_ADDRESSES = 50;
@@ -40,6 +44,7 @@ const TTL_NONE_MS = 3 * 60_000;
 const TTL_FAILED_MS = 30_000;
 const MAX_ENTRIES = 5000;
 const NAME_PART = /^[\p{L}\p{N}._-]{1,63}$/u;
+const HL_NAME = /^[\p{L}\p{N}_-]{1,29}\.hl$/u;
 
 type Entry = { at: number; ttl: number; value: NameRecord | null };
 
@@ -98,7 +103,7 @@ export function parseRequest(raw: unknown): NameRequest | null {
 }
 
 export async function resolveNames(req: NameRequest, sources: NameSources, cache: NameCache, now = Date.now()): Promise<NameResult> {
-  const out: NameResult = { solana: {}, evm: {} };
+  const out: NameResult = { solana: {}, evm: {}, hl: {} };
 
   const missSol: PublicKey[] = [];
   for (const a of req.solana) {
@@ -106,7 +111,9 @@ export async function resolveNames(req: NameRequest, sources: NameSources, cache
     if (hit) out.solana[a] = hit.value;
     else missSol.push(new PublicKey(a));
   }
-  if (missSol.length > 0) {
+  // The .sol read runs beside the .eth / .hl reads: the request takes as long as the slowest registry.
+  const sol = (async () => {
+    if (missSol.length === 0) return;
     let names: (string | undefined)[] | null = null;
     try {
       names = await sources.solPrimary(missSol);
@@ -133,10 +140,11 @@ export async function resolveNames(req: NameRequest, sources: NameSources, cache
         cache.set(`sol:${a}`, value, TTL_FOUND_MS, now);
       }),
     );
-  }
+  })();
 
-  await Promise.all(
-    req.evm.map(async (a) => {
+  await Promise.all([
+    sol,
+    ...req.evm.map(async (a) => {
       const hit = cache.get(`eth:${a}`, now);
       if (hit) {
         out.evm[a] = hit.value;
@@ -158,17 +166,45 @@ export async function resolveNames(req: NameRequest, sources: NameSources, cache
         cache.set(`eth:${a}`, null, TTL_FAILED_MS, now);
       }
     }),
-  );
+    ...req.evm.map(async (a) => {
+      const hit = cache.get(`hl:${a}`, now);
+      if (hit) {
+        out.hl[a] = hit.value;
+        return;
+      }
+      try {
+        const found = await sources.hlProfile(a as `0x${string}`);
+        const value = found && HL_NAME.test(found.name) ? { name: found.name, avatar: safeImageUrl(found.avatar) } : null;
+        out.hl[a] = value;
+        cache.set(`hl:${a}`, value, value ? TTL_FOUND_MS : TTL_NONE_MS, now);
+      } catch {
+        out.hl[a] = null;
+        cache.set(`hl:${a}`, null, TTL_FAILED_MS, now);
+      }
+    }),
+  ]);
   return out;
 }
 
 const SOL_RPC = process.env.TESORO_SOL_MAINNET_RPC || "https://api.mainnet-beta.solana.com";
 const ETH_RPC = process.env.TESORO_ETH_MAINNET_RPC || "https://ethereum-rpc.publicnode.com";
+const HLN_API = process.env.TESORO_HLN_API || "https://api.hlnames.xyz";
+// The integration key Hyperliquid Names publishes in its docs; a key of our own goes in the env.
+const HLN_KEY = process.env.TESORO_HLN_API_KEY || "CPEPKMI-HUSUX6I-SE2DHEA-YYWFG5Y";
 const LOOKUP_MS = 4000;
+// Hyperliquid Names answers in 2 to 4 s, and a name takes two calls (profile, then the check back).
+const HLN_CALL_MS = 6000;
+const HLN_TOTAL_MS = 10_000;
+
+async function hln<T>(path: string): Promise<T> {
+  const res = await fetch(`${HLN_API}${path}`, { headers: { "X-API-Key": HLN_KEY }, signal: AbortSignal.timeout(HLN_CALL_MS) });
+  if (!res.ok) throw new Error(`hlnames ${res.status}`);
+  return res.json() as Promise<T>;
+}
 
 let real: NameSources | null = null;
 
-/** The mainnet registries: SNS primary domains and ENS reverse records, each checked back. */
+/** The mainnet registries: SNS primary domains, ENS and Hyperliquid Names reverse records, each checked back. */
 export function mainnetSources(): NameSources {
   if (real) return real;
   const sol = new Connection(SOL_RPC, "confirmed");
@@ -187,6 +223,15 @@ export function mainnetSources(): NameSources {
     },
     async ensAvatar(name) {
       return eth.getEnsAvatar({ name: normalize(name) });
+    },
+    async hlProfile(address) {
+      const lookup = async () => {
+        const { primaryName, avatar } = await hln<{ primaryName: string | null; avatar: string | null }>(`/resolve/profile/${address}`);
+        if (!primaryName) return null;
+        const forward = await hln<{ address?: string }>(`/resolve/address/${encodeURIComponent(primaryName)}`);
+        return forward.address?.toLowerCase() === address.toLowerCase() ? { name: primaryName, avatar } : null;
+      };
+      return withTimeout(lookup(), HLN_TOTAL_MS);
     },
   };
   return real;

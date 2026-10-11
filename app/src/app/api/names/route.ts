@@ -7,7 +7,7 @@ export const maxDuration = 15;
 const cache = new NameCache();
 const perClient = new WindowLimiter(120, 60_000);
 
-/** Primary .sol / .eth names for the wallets of the Players on screen. Public, read-only. */
+/** Primary .sol / .eth / .hl names for the wallets of the Players on screen. Public, read-only. */
 export async function POST(request: Request) {
   const client = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   if (!perClient.take(client)) return Response.json({ error: "Too many requests." }, { status: 429 });
@@ -17,6 +17,6 @@ export async function POST(request: Request) {
     return Response.json(await resolveNames(req, mainnetSources(), cache));
   } catch (e) {
     console.error("names", e);
-    return Response.json({ solana: {}, evm: {} });
+    return Response.json({ solana: {}, evm: {}, hl: {} });
   }
 }

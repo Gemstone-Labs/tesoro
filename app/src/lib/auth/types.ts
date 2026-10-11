@@ -46,7 +46,7 @@ export interface AuthState {
   evm: EvmSigner | null;
   /** The person's own Solana wallet when one is linked and connected (Phantom, Solflare, ...). It proves a .sol name by co-signing; it never signs game moves. Null in dev mode. */
   externalSolana: ChainSigner | null;
-  /** The person's own Ethereum wallet when one is linked and connected (MetaMask, Rabby, ...). It proves a .eth name; null in dev mode. */
+  /** The person's own Ethereum wallet when one is linked and connected (MetaMask, Rabby, ...). It proves a .eth or .hl name; null in dev mode. */
   externalEvm: EvmSigner | null;
   /** Privy access token for server routes (null when signed out or in dev-wallet mode). */
   getAccessToken: () => Promise<string | null>;

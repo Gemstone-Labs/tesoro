@@ -9,6 +9,7 @@ import { Button } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ago } from "@/lib/catalogue";
 import type { PlayerSummary } from "@/lib/chain/player-account";
+import type { NameSuffix } from "@/lib/identity/display";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { GAME_NAMES } from "@/lib/mock";
 
@@ -21,7 +22,7 @@ interface Props {
   s: PlayerSummary;
   now: number;
   /** Registry names the title does not already show. */
-  otherNames: { suffix: ".sol" | ".eth"; name: string }[];
+  otherNames: { suffix: NameSuffix; name: string }[];
   /** Live Requests; the strip under the hero lists them. */
   asking: number;
   onChallenge: () => void;
