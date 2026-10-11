@@ -7,7 +7,19 @@ import { art, avatarFor } from "@/lib/art";
 import { shortKey } from "@/lib/chain/history";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
+import { useAccount } from "@/lib/account";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
 import { Rail } from "./Rail";
+import { TeaserA, TeaserB, TeaserC, TeaserD } from "./LeaderboardTeaser.prototype";
+
+// PROTOTYPE: ?variant=now|A|B|C|D
+const VARIANTS = [
+  { key: "now", name: "Current" },
+  { key: "A", name: "Podium" },
+  { key: "B", name: "Vault banner" },
+  { key: "C", name: "Your race" },
+  { key: "D", name: "Prize ladder" },
+] as const;
 
 const days = (secs: number) => {
   const d = Math.floor(secs / 86_400);
@@ -19,12 +31,19 @@ const days = (secs: number) => {
 export function LeaderboardTeaser() {
   const { data, error } = useLeaderboard();
   const live = usePool();
+  const { snapshot } = useAccount();
+  const me = snapshot?.accountKey.toBase58() ?? null;
+  const v = usePrototypeVariant(VARIANTS.map((x) => x.key));
   if (!data && error) return null;
   const top = data?.standings.slice(0, 3) ?? [];
+  const View = v === "now" ? null : { A: TeaserA, B: TeaserB, C: TeaserC, D: TeaserD }[v];
   return (
-    <Rail id="leaderboard" title="Leaderboard" viewAll="/leaderboard" cols={2} className="lb-teaser">
+    <Rail id="leaderboard" title="Leaderboard" viewAll={v === "now" ? "/leaderboard" : undefined} cols={2} className="lb-teaser">
+      <PrototypeSwitcher variants={VARIANTS} />
       {!data ? (
         <SkeletonCards count={1} avatar={false} label="Loading the leaderboard…" />
+      ) : View ? (
+        <View data={data} pool={live ?? data.poolGemas} me={me} />
       ) : (
         <div className="cut cut-card lbt">
           <div className="lbt-pool">
