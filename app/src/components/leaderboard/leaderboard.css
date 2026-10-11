@@ -22,9 +22,54 @@
 .lb-facts dd.mono { font-family: var(--f-mono); font-size: 21px; font-weight: 500; white-space: nowrap; }
 .lb-hero-note { grid-column: 1 / -1; padding-top: 16px; box-shadow: inset 0 1px var(--line); color: var(--fg-2); font-size: 15px; line-height: 1.5; }
 
-.lb-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr); gap: 24px; align-items: start; }
 .lb-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
-.lb-side { display: grid; gap: 16px; }
+
+/* this season: tools, the Payout scale band, the table and its pages */
+.lb-season { display: grid; gap: 14px; }
+.lb-season .lb-sec-head { margin-bottom: 0; flex-wrap: wrap; align-items: center; scroll-margin-top: 84px; }
+.lb-season-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.lb-chev { transition: transform 0.2s; }
+[aria-expanded="false"] > .lb-chev { transform: rotate(-90deg); }
+
+.lb-payout { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: 28px; padding: 20px 24px; }
+.lb-chart { display: grid; gap: 12px; }
+.lb-chart ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; height: 170px; align-items: end; }
+.lb-chart li { display: grid; grid-template-rows: 1fr auto auto; height: 100%; align-items: end; justify-items: center; gap: 4px; }
+.lb-col { width: 100%; min-height: 22px; display: flex; justify-content: center; background: linear-gradient(180deg, rgba(234, 239, 236, 0.5), rgba(234, 239, 236, 0.14)); clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 0 100%, 0 5px); }
+.lb-col small { padding-top: 4px; font-size: 11.5px; font-weight: 800; color: var(--shell); }
+.lb-chart b { font-family: var(--f-display); font-size: 18px; }
+.lb-col-amt { font-size: 11.5px; font-weight: 700; color: var(--em-hi); font-variant-numeric: tabular-nums; }
+.lb-col-short { display: none; }
+.lb-rules { display: grid; gap: 10px; align-content: start; }
+.lb-rules dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.lb-rules dl div { display: grid; gap: 2px; padding: 10px 12px; background: rgba(255, 255, 255, 0.04); }
+.lb-rules dt { font-size: 12.5px; color: var(--fg-2); }
+.lb-rules dd { margin: 0; font-size: 22px; font-weight: 800; }
+.lb-rules p { color: var(--fg-2); font-size: 13.5px; line-height: 1.5; }
+
+.lb-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.lb-table th { text-align: left; padding: 8px 12px; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
+.lb-table thead th { box-shadow: inset 0 -1px var(--line-2); }
+.lb-table td { padding: 8px 12px; box-shadow: inset 0 -1px var(--line); }
+.lb-table tbody tr:not(.lb-group):nth-child(odd) td { background: rgba(255, 255, 255, 0.018); }
+.lb-table tr.me td { background: var(--surface-2); }
+.lb-table tr.me td:first-child { box-shadow: inset 3px 0 var(--fg), inset 0 -1px var(--line); }
+.lb-table .lb-group th { padding-top: 18px; color: var(--fg); }
+.lb-table .lb-c-rank { width: 44px; text-align: center; font-family: var(--f-display); font-size: 20px; font-weight: 800; color: var(--fg-2); }
+.lb-table th.lb-c-rank { font-family: inherit; font-size: 12px; }
+.lb-table .lb-c-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lb-table .lb-c-pts { font-size: 17px; font-weight: 800; }
+.lb-table .lb-who { gap: 10px; }
+.lb-table .lb-avatar { width: 32px; height: 32px; --c: 7px; }
+.lb-table .lb-name { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-table .lb-prize b { font-size: 15px; }
+.lb-dim { color: var(--fg-2); }
+
+.lb-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.lb-pager-range { color: var(--fg-2); font-size: 14px; }
+.lb-pager-btns { display: flex; gap: 6px; }
+.lb-pager .btn { min-width: 38px; justify-content: center; }
+.lb-page[aria-current="page"] { background: var(--fg); color: var(--shell); --edge: var(--edge-2); }
 
 /* rows: rank, who, points, wins, prize */
 .lb-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -51,28 +96,25 @@
 .lb-empty { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 10px; justify-items: start; padding: 24px 26px; }
 .lb-empty p { color: var(--fg-2); font-size: 15px; line-height: 1.5; max-width: 52ch; }
 
-/* side cards */
-.lb-card { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 12px; padding: 20px 22px; }
-.lb-card > p, .lb-card > small { color: var(--fg-2); font-size: 14px; line-height: 1.5; }
-.lb-scale { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.lb-scale li { display: grid; grid-template-columns: 22px minmax(0, 1fr) 40px minmax(64px, auto); align-items: center; gap: 10px; font-size: 14px; }
-.lb-scale-rank { font-family: var(--f-display); font-weight: 800; font-size: 18px; color: var(--fg-2); text-align: center; }
-.lb-scale-bar { display: block; height: 6px; background: rgba(255, 255, 255, 0.09); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
-.lb-scale-bar i { display: block; height: 100%; background: var(--fg); }
-.lb-scale-pct { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
-.lb-scale-amt { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; color: var(--em-hi); font-weight: 700; font-variant-numeric: tabular-nums; }
-.lb-pts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.lb-pts li { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; padding-bottom: 8px; box-shadow: inset 0 -1px var(--line); }
-.lb-pts b { font-weight: 800; }
-
 .lb-last-pool { display: inline-flex; align-items: center; gap: 6px; color: var(--em-hi); font-size: 15px; }
 .lb-last-pool b { font-size: 18px; }
 
 @media (max-width: 1023px) {
-  .lb-grid { grid-template-columns: minmax(0, 1fr); }
+  .lb-payout { grid-template-columns: minmax(0, 1fr); }
   .lb-hero { grid-template-columns: minmax(0, 1fr); padding: 22px 20px; }
 }
 @media (max-width: 640px) {
+  .lb-payout { padding: 16px; gap: 20px; }
+  .lb-chart ol { height: 130px; gap: 3px; }
+  .lb-col small { font-size: 9.5px; }
+  .lb-col-amt { font-size: 10.5px; }
+  .lb-col-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .lb-col-short { display: inline; }
+  .lb-table td, .lb-table th { padding: 8px 6px; }
+  .lb-table .lb-c-opt, .lb-table .lb-you { display: none; }
+  .lb-table .lb-c-rank { width: 30px; }
+  .lb-table .lb-avatar { width: 26px; height: 26px; --c: 6px; }
+  .lb-table .lb-name { max-width: 140px; }
   .lb-facts { grid-template-columns: repeat(2, auto); }
   .lb-row { grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-areas: "rank who prize" "rank stats stats"; padding: 10px 12px; gap: 6px 10px; }
   .lb-rank { grid-area: rank; font-size: 26px; }
