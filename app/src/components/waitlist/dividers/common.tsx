@@ -16,8 +16,6 @@ export type Scene = Shape[];
 export const BG = "#090d0f";
 /** Light from above: the stone's own colour, a touch lighter facing the light and darker facing away. */
 export const TONES = { hi: "rgba(234,239,236,0.24)", lighter: "rgba(234,239,236,0.085)", light: "rgba(234,239,236,0.045)", shade: "rgba(0,0,0,0.26)", deep: "rgba(0,0,0,0.42)", lo: "rgba(0,0,0,0.78)" } as const;
-/** Direction towards the light: up and a little left. */
-export const LIGHT: Pt = [-0.45, -0.89];
 
 const subscribe = (notify: () => void) => {
   addEventListener("resize", notify);
@@ -34,18 +32,6 @@ export function useFrame(): Frame | null {
   if (!key) return null;
   const [w, h, kind] = key.split("x");
   return { w: Number(w), h: Number(h), kind: kind as Kind };
-}
-
-export function useReducedMotion(): boolean {
-  return useSyncExternalStore(
-    (n) => {
-      const m = matchMedia("(prefers-reduced-motion: reduce)");
-      m.addEventListener("change", n);
-      return () => m.removeEventListener("change", n);
-    },
-    () => matchMedia("(prefers-reduced-motion: reduce)").matches,
-    () => true,
-  );
 }
 
 /** The diagonal in px: origin, unit tangent (down the line), unit normal (towards the footage), length. */
@@ -115,10 +101,10 @@ function Defs() {
   );
 }
 
-/** Renders a scene. A shape with `ox`/`oy` (its base) and `delay` grows from that point (variant F). */
+/** Renders a scene. With `grow`, a shape with `ox`/`oy` (its centre) and `delay` pops in from that point (A4). */
 export function SceneSvg({ frame, scene, grow = false }: { frame: Frame; scene: Scene; grow?: boolean }) {
   return (
-    <svg className={`dv${grow ? " dv-grow" : ""}`} viewBox={`0 0 ${frame.w} ${frame.h}`} width={frame.w} height={frame.h} aria-hidden focusable="false">
+    <svg className={`dv${grow ? " dv-pop" : ""}`} viewBox={`0 0 ${frame.w} ${frame.h}`} width={frame.w} height={frame.h} aria-hidden focusable="false">
       <Defs />
       {scene.map((sh, i) => {
         const inner = (

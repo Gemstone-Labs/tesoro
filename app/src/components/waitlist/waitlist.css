@@ -60,13 +60,12 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .de-body { fill: #090d0f; stroke: rgba(234, 239, 236, 0.1); stroke-width: 1; }
 .de-line { fill: none; stroke: rgba(234, 239, 236, 0.1); stroke-width: 1; }
 .de-fade { animation: de-fade 7s ease-in-out infinite alternate; animation-delay: calc(var(--k) * -0.8s); }
-/* Divider variants (?d=a..f): they draw the whole edge, so the floor's straight one is pulled back under them. */
+/* Divider variants (?d=a, a1..a4): they draw the whole edge, so the floor's straight one is pulled back under them. */
 .wl:has(.dv) .wl-floor { filter: none; }
 .wl:has(.dv) .wl-floor-in { clip-path: var(--in-wide); }
 .dv { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
-.dv-g { animation: dv-grow 1.2s cubic-bezier(0.2, 0.8, 0.25, 1) var(--d) both, dv-breathe 9s ease-in-out calc(var(--d) + 1.3s) infinite alternate; }
+.dv-pop .dv-g { animation: dv-grow 1.4s cubic-bezier(0.2, 0.8, 0.25, 1) var(--d) both; }
 @keyframes dv-grow { from { transform: scale(0.02); } to { transform: scale(1); } }
-@keyframes dv-breathe { from { transform: scale(1); } to { transform: scale(1.022); } }
 .dv-switch { position: fixed; z-index: 60; right: 14px; bottom: 14px; display: flex; gap: 6px; padding: 6px; background: rgba(9, 13, 15, 0.86); border: 1px solid var(--line-2); }
 .dv-switch button { min-width: 34px; min-height: 34px; padding: 0 8px; border: 0; background: var(--raised-2); color: var(--fg); font-weight: 800; --edge: var(--edge-2); }
 .dv-switch button[aria-pressed="true"] { background: var(--fg); color: #090d0f; }

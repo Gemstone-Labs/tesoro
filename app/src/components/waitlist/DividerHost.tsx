@@ -3,14 +3,13 @@
 import { useSyncExternalStore } from "react";
 import { DissolveEdge } from "./DissolveEdge";
 import { VariantA } from "./dividers/VariantA";
-import { VariantB } from "./dividers/VariantB";
-import { VariantC } from "./dividers/VariantC";
-import { VariantD } from "./dividers/VariantD";
-import { VariantE } from "./dividers/VariantE";
-import { VariantF } from "./dividers/VariantF";
+import { VariantA1 } from "./dividers/VariantA1";
+import { VariantA2 } from "./dividers/VariantA2";
+import { VariantA3 } from "./dividers/VariantA3";
+import { VariantA4 } from "./dividers/VariantA4";
 
-const VARIANTS = { a: VariantA, b: VariantB, c: VariantC, d: VariantD, e: VariantE, f: VariantF } as const;
-const NAMES = { a: "Stepped octagons", b: "Crystal cluster", c: "Faceted edge", d: "Texture filling in", e: "Gem hill", f: "Growing crystals" } as const;
+const VARIANTS = { a: VariantA, a1: VariantA1, a2: VariantA2, a3: VariantA3, a4: VariantA4 } as const;
+const NAMES = { a: "Stepped octagons", a1: "Halftone front", a2: "Octagon-square tiling", a3: "Size halftone", a4: "Consuming (animated)" } as const;
 type Key = keyof typeof VARIANTS;
 
 const subscribe = (notify: () => void) => {
@@ -20,7 +19,7 @@ const subscribe = (notify: () => void) => {
 const current = () => new URLSearchParams(location.search).get("d")?.toLowerCase() ?? "";
 
 /**
- * The diagonal's edge. `/` keeps the dissolve until a variant is chosen; `?d=a`..`?d=f` shows that variant and a small
+ * The diagonal's edge. `/` keeps the dissolve until a variant is chosen; `?d=a`, `?d=a1`..`?d=a4` shows that variant and a small
  * switcher, so the founder can compare them on the real page.
  */
 export function DividerHost() {
