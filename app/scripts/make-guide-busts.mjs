@@ -16,7 +16,7 @@ const OUT = resolve(dirname(fileURLToPath(import.meta.url)), "../public/art/fina
 mkdirSync(OUT, { recursive: true });
 
 /** Fraction of the trimmed figure's height kept from the top: a little below the waist, so the fade has room. */
-const KEEP = { "him-welcome": 0.6, "him-explain": 0.6, "her-backing": 0.62, "her-waiting-crosschain": 0.6 };
+const KEEP = { "him-welcome": 0.6, "him-explain": 0.6, "him-lose": 0.6, "her-backing": 0.62, "her-waiting-crosschain": 0.6 };
 
 for (const [name, keep] of Object.entries(KEEP)) {
   const trimmed = await sharp(`${SRC}/${name}.png`).trim({ threshold: 10 }).toBuffer({ resolveWithObject: true });

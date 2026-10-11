@@ -53,6 +53,7 @@ export const art = {
   guide: {
     himWelcome: g("him-welcome", 1066, "left"),
     himExplain: g("him-explain", 846, "right"),
+    himLose: g("him-lose", 1271, "right"),
     herBacking: g("her-backing", 961, "right"),
     herWaitingCrosschain: g("her-waiting-crosschain", 1093, "left"),
   },
