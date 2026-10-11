@@ -10,8 +10,23 @@ import { AccountMenu } from "./AccountMenu";
 import { PoolChest } from "./PoolChest";
 import { useSearch } from "./SearchContext";
 import { Wordmark } from "./Sidebar";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { TOPBAR_VARIANTS, TopBarPrototype } from "./TopBar.prototype";
 
+const KEYS = TOPBAR_VARIANTS.map((v) => v.key);
+
+// PROTOTYPE: `?variant=A..E` swaps the whole bar; `now` is the bar below.
 export function TopBar({ onMenu }: { onMenu: () => void }) {
+  const variant = usePrototypeVariant(KEYS);
+  return (
+    <>
+      {variant === "now" ? <TopBarNow onMenu={onMenu} /> : <TopBarPrototype variant={variant} onMenu={onMenu} />}
+      <PrototypeSwitcher variants={TOPBAR_VARIANTS} />
+    </>
+  );
+}
+
+function TopBarNow({ onMenu }: { onMenu: () => void }) {
   const { gemas, auth, ready } = useAccount();
   const { query, setQuery } = useSearch();
   const path = usePathname();

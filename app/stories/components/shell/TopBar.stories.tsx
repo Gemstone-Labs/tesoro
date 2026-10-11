@@ -23,3 +23,11 @@ export const OffTheLobby: Story = { parameters: { nextjs: { navigation: { pathna
 export const PoolGrows: Story = { parameters: { screen: { pool: { gemas: 12_480, growMs: 4000 } } } };
 /** Before the first read, or with the Leaderboard off: no chest. */
 export const NoPool: Story = { parameters: { screen: { pool: { gemas: null } } } };
+
+/* PROTOTYPE (?variant=A..E): the Player's Season points in three standings. */
+/** 3rd of 61, in the prizes. */
+export const PointsInPrizes: Story = { parameters: { screen: { leaderboard: "live" } } };
+/** 23rd: chasing the top ten. */
+export const PointsChasing: Story = { parameters: { screen: { leaderboard: "deep" } } };
+/** No wins this Season yet. */
+export const NoPointsYet: Story = { parameters: { screen: { leaderboard: "empty" } } };
