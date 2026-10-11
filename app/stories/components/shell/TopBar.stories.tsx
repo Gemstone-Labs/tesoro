@@ -13,12 +13,16 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Search on the Lobby, the Leaderboard Pool chest, the Gemas balance, and the Account menu. */
+/** Search on the Lobby, the Season plate (Leaderboard Pool + your rank and points, 3rd here), the Gemas balance, and the Account menu. */
 export const SignedIn: Story = {};
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };
 export const SigningIn: Story = { parameters: { auth: "loading" } };
 export const BalanceLoading: Story = { parameters: { data: { snapshot: null } } };
 export const OffTheLobby: Story = { parameters: { nextjs: { navigation: { pathname: "/wallet" } } } };
+/** 23rd: the plate counts the points to the prizes. */
+export const ChasingThePrizes: Story = { parameters: { screen: { leaderboard: "deep" } } };
+/** No wins this Season yet. */
+export const NoSeasonPoints: Story = { parameters: { screen: { leaderboard: "empty" } } };
 /** A Match fee lands in the Pool every 4 s: the lid lifts, Gemas jump out, the figure counts up. */
 export const PoolGrows: Story = { parameters: { screen: { pool: { gemas: 12_480, growMs: 4000 } } } };
 /** Before the first read, or with the Leaderboard off: no chest. */

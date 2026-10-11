@@ -3,8 +3,13 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { CountUp } from "@/components/ui";
+import { useAccount } from "@/lib/account";
+import { accountKeyOf } from "@/lib/chain/account-key";
+import { seasonStanding, type SeasonStanding } from "@/lib/chain/leaderboard-view";
+import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { fmtGemas } from "@/lib/format";
+import "./season-plate.css";
 
 const POP_MS = 1600;
 const compact = (n: number) => (n < 10_000 ? fmtGemas(n) : SHORT.format(n));
@@ -94,9 +99,30 @@ export function Chest({ size = 34, pop = 0 }: { size?: number; pop?: number }) {
   );
 }
 
-/** Top bar: the Leaderboard Pool beside the balance, live. Opens with a burst whenever it grows. */
+const ordinal = (n: number) => {
+  const v = n % 100;
+  return `${n}${["th", "st", "nd", "rd"][(v - 20) % 10] || ["th", "st", "nd", "rd"][v] || "th"}`;
+};
+const pts = (n: number) => `${n} ${n === 1 ? "pt" : "pts"}`;
+
+/** The next step up, in one short line. */
+function nextStep(s: SeasonStanding) {
+  if (s.rank === null) return "Win a Match to get on the board";
+  if (s.toPrizes > 0) return `${pts(s.toPrizes)} to the prizes`;
+  if (s.toNext === null) return "Top of the board";
+  return `${pts(s.toNext)} to ${ordinal(s.rank - 1)}`;
+}
+
+/**
+ * Top bar: the Season plate. The Leaderboard Pool (gold, live, opens with a burst whenever it grows) and, signed in,
+ * the Player's own rank and Season points beside it in steel. One link to the Leaderboard.
+ */
 export function PoolChest() {
   const pool = usePool();
+  const { auth, snapshot } = useAccount();
+  const me = auth.status === "signed-in" ? (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null)) : null;
+  const { data } = useLeaderboard(me);
+  const standing = me && data && data.feeBps > 0 ? seasonStanding(data, me) : null;
   const [pop, setPop] = useState(0);
   const last = useRef<number | null>(null);
 
@@ -114,21 +140,39 @@ export function PoolChest() {
   useEffect(() => () => clearTimeout(settle.current), []);
 
   if (pool == null) return null;
+  const you = standing
+    ? standing.rank === null
+      ? " You have no Season points yet."
+      : ` You're ${ordinal(standing.rank)} with ${pts(standing.points)}.`
+    : "";
   return (
     <Link
       href="/leaderboard"
       className={`cut cut-card pchest${pop ? " pop" : ""}`}
-      aria-label={`Leaderboard Pool: ${fmtGemas(pool)} Gemas, open Leaderboard`}
+      aria-label={`Leaderboard Pool: ${fmtGemas(pool)} Gemas.${you} Open Leaderboard`}
       title="Leaderboard Pool · the top ten share it when the Season ends"
     >
       <Chest pop={pop} />
-      <b className="pc-full">
-        <CountUp value={pool} duration={1200} />
-      </b>
-      <b className="pc-short">
-        <CountUp value={pool} duration={1200} format={compact} />
-      </b>
-      <span>Pool</span>
+      <div className="pc-pool">
+        <b className="pc-full">
+          <CountUp value={pool} duration={1200} />
+        </b>
+        <b className="pc-short">
+          <CountUp value={pool} duration={1200} format={compact} />
+        </b>
+        <span>Pool{data && ` · Season ${data.season.number}`}</span>
+      </div>
+      {standing && (
+        <div className={`pc-you${standing.rank === null ? " none" : ""}`}>
+          <div className={`pc-rank${standing.rank !== null && standing.rank >= 10 ? " wide" : ""}`}>
+            {standing.rank === null ? "–" : <><small>#</small>{standing.rank}</>}
+          </div>
+          <div className="pc-you-txt">
+            {standing.rank === null ? <strong>No points</strong> : <strong><CountUp value={standing.points} /> <small>pts</small></strong>}
+            <small>{nextStep(standing)}</small>
+          </div>
+        </div>
+      )}
     </Link>
   );
 }
