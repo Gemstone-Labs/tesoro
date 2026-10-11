@@ -27,28 +27,13 @@ const specs: Spec[] = [
   {
     name: "bp-pop",
     file: B,
-    line: 161,
+    line: 144,
     note: "A block flashing bright, then spinning small and away when its line clears.",
     dur: 380,
     ease: "ease-out",
     iter: 1,
     fill: "both",
     stage: (s) => <span className="bp-cell k1 on pop" style={{ ...s, width: 56, ["--bev" as string]: "5px" }} />,
-  },
-  {
-    name: "bp-rise",
-    file: B,
-    line: 115,
-    note: "The '+40' that floats up from the board after a clear. Gem clears show it in emerald.",
-    dur: 800,
-    ease: "ease-out",
-    iter: 1,
-    fill: "forwards",
-    stage: (s) => (
-      <span className="bp-popup gem" style={s}>
-        +40
-      </span>
-    ),
   },
   {
     name: "op-spin",
@@ -63,7 +48,7 @@ const specs: Spec[] = [
   {
     name: "bp-drop",
     file: B,
-    line: 149,
+    line: 132,
     note: "A placed piece dropping into its cells and settling.",
     dur: 420,
     ease: "cubic-bezier(0.2, 0.9, 0.3, 1.2)",
@@ -73,7 +58,7 @@ const specs: Spec[] = [
   {
     name: "bp-hint",
     file: B,
-    line: 158,
+    line: 141,
     note: "Cells of a row or column the held piece would complete, pulsing in its colour.",
     dur: 700,
     ease: "ease-in-out",
@@ -83,7 +68,7 @@ const specs: Spec[] = [
   {
     name: "bp-sweep-x",
     file: B,
-    line: 169,
+    line: 152,
     note: "A white light running along a row that just cleared.",
     dur: 520,
     ease: "ease-out",
@@ -97,7 +82,7 @@ const specs: Spec[] = [
   {
     name: "bp-sweep-y",
     file: B,
-    line: 170,
+    line: 153,
     note: "The same light running down a column that just cleared.",
     dur: 520,
     ease: "ease-out",
@@ -111,7 +96,7 @@ const specs: Spec[] = [
   {
     name: "bpx-flame",
     file: B,
-    line: 183,
+    line: 166,
     note: "The combo meter pips flickering at the hottest heat.",
     dur: 520,
     ease: "ease-in-out",
@@ -131,7 +116,7 @@ const specs: Spec[] = [
   {
     name: "bpx-fizzle",
     file: B,
-    line: 186,
+    line: 169,
     note: "The combo number kicking when a move clears nothing and the chain breaks.",
     dur: 600,
     ease: "ease-out",
@@ -146,7 +131,7 @@ const specs: Spec[] = [
   {
     name: "bpx-fizzle-ring",
     file: B,
-    line: 187,
+    line: 170,
     note: "The ring that spreads from the combo when the chain breaks.",
     dur: 600,
     ease: "ease-out",
@@ -161,7 +146,7 @@ const specs: Spec[] = [
   {
     name: "bp-deal",
     file: B,
-    line: 190,
+    line: 173,
     note: "A new piece sliding up into the tray.",
     dur: 360,
     ease: "cubic-bezier(0.2, 0.9, 0.3, 1.15)",
@@ -172,7 +157,7 @@ const specs: Spec[] = [
   {
     name: "bpx-pulse",
     file: B,
-    line: 208,
+    line: 191,
     note: "The timer ring swelling and glowing amber in the last 10 seconds.",
     dur: 1000,
     ease: "ease-in-out",
@@ -182,7 +167,7 @@ const specs: Spec[] = [
   {
     name: "bp-edge",
     file: B,
-    line: 210,
+    line: 193,
     note: "The board edge pulsing amber in the last 10 seconds.",
     dur: 1000,
     ease: "ease-in-out",
@@ -192,7 +177,7 @@ const specs: Spec[] = [
   {
     name: "bp-best",
     file: B,
-    line: 214,
+    line: 197,
     note: "The 'New best!' line popping in on the game-over card.",
     dur: 700,
     ease: "cubic-bezier(0.2, 1.6, 0.4, 1)",
@@ -203,7 +188,7 @@ const specs: Spec[] = [
   {
     name: "bp-stat",
     file: B,
-    line: 219,
+    line: 202,
     note: "A run stat plaque rising in on the game-over card.",
     dur: 380,
     ease: "cubic-bezier(0.2, 0.9, 0.3, 1.1)",
