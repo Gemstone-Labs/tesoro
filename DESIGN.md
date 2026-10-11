@@ -87,6 +87,8 @@ The Tesoro logo is the **Facet T**: an emerald-cut octagon in four flat facets (
 
 The Wallet balance panel (`.facet-panel`) is itself cut as an emerald step cut: `<FacetCrown>` (components/ui) draws three thin bevels that follow the panel's chamfers (30px deep, 13px under 600px wide so they stay inside the padding), lit from above with the top facets brightest, and two faint hard-stop light bands across the table the figures sit on. It is measured to the panel, so the facet angles never stretch. Money surfaces only. (Picked from five prototypes on Oct 11; the others are on branch `proto/facet-crown-11-10-2026`.)
 
+The `BalanceCard` (`.balance`) is a banknote: the whole card is the money fill (crown rim on top, two faint facet light bands, dark pavilion band at the base, a hard-stop facet line across it), with the title and "≈ $" value on top, the figure and Gema mark in ink (glint kept), and "Value at issuance" beside the simulated-yield label under a rule. Proportional figures, up to 64px with the card's width. (Picked from four prototypes on Oct 11; the others are on branch `proto/balance-card-11-10-2026`.)
+
 ## The Gema mark
 
 A small emerald-cut stone (octagon with table facet and facet lines, emerald gradient) — never a flat ◆ glyph, never gold. It precedes Gema amounts of consequence (balance pill, entry chips); it is **not** the logo (see Logo). A brief glint animation is allowed on the balance only, and is off under `prefers-reduced-motion`. On a money fill (money button, chosen entry) the full-colour mark blends in, so it is drawn in **ink**: body in the text colour (`--em-ink`), table and facet lines in `--gem-ink-line`. Disabled money buttons keep the full-colour mark.
