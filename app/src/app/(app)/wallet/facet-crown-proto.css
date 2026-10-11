@@ -1,0 +1,56 @@
+/* PROTOTYPE ONLY (proto/facet-crown-11-10-2026): facet crown variants on the Wallet balance panel. */
+.facet-panel:has(> .fcp-on) { background-image: none, radial-gradient(90% 70% at 30% 0%, rgba(126, 250, 218, 0.1), transparent 70%), linear-gradient(170deg, #0f3d33 0%, #0b2c26 55%, #08211c 100%); }
+.facet-panel:has(> .fcp-on) > :not(.fcp) { position: relative; z-index: 1; }
+.fcp { position: absolute; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.fcp svg { display: block; }
+
+/* A: Jewel — solid stone in the bottom right, its crown showing, glint sweeping */
+.fcp-a-stone { position: absolute; right: 44px; bottom: -118px; width: 300px; height: auto; filter: drop-shadow(0 -4px 24px rgba(36, 216, 168, 0.28)); }
+.fcp-a-glow { position: absolute; right: -60px; bottom: -160px; width: 520px; height: 300px; background: radial-gradient(50% 50% at 50% 50%, rgba(36, 216, 168, 0.16), transparent 70%); }
+.fcp-glint { animation: fcp-glint 6s cubic-bezier(.6, 0, .2, 1) infinite; }
+@keyframes fcp-glint { 0%, 55% { transform: translateX(0); } 100% { transform: translateX(1100px); } }
+@media (max-width: 639px) { .fcp-a-stone { right: -60px; bottom: -110px; width: 230px; } .fcp-a-glow { right: -160px; } }
+
+/* B: Panel cut — fills the panel */
+.fcp-b svg { position: absolute; inset: 0; }
+
+/* C: Refraction */
+.fcp-c-rays { position: absolute; right: -40px; top: -60px; width: 1600px; height: 1600px; mix-blend-mode: screen; }
+.fcp-c-ray { transform-box: view-box; transform-origin: 1500px 100px; }
+.fcp-c-ray.r0 { animation: fcp-sway 18s ease-in-out infinite alternate; }
+.fcp-c-ray.r1 { animation: fcp-sway 24s ease-in-out -6s infinite alternate-reverse; }
+.fcp-c-ray.r2 { animation: fcp-sway 30s ease-in-out -12s infinite alternate; }
+@keyframes fcp-sway { from { transform: rotate(-3deg); } to { transform: rotate(4deg); } }
+.fcp-c-src { position: absolute; right: -28px; top: -40px; width: 150px; height: auto; transform: rotate(-18deg); filter: drop-shadow(0 0 24px rgba(126, 250, 218, 0.55)); }
+.fcp-c-patches { position: absolute; inset: 0; width: 100%; height: 100%; mix-blend-mode: screen; opacity: .7; animation: fcp-breathe 7s ease-in-out infinite alternate; }
+@media (max-width: 639px) { .fcp-c-src { right: -36px; top: -44px; width: 96px; } .fcp-c-rays { right: -60px; top: -80px; } }
+@keyframes fcp-breathe { from { opacity: .6; } to { opacity: 1; } }
+
+/* D: Tilt — a stone lying in the corner at an angle */
+.fcp-d { perspective: 900px; }
+.fcp-d-stone {
+  --rx: 52deg; --rz: -24deg; --gx: 30%;
+  position: absolute; right: 40px; bottom: -96px; width: 300px; aspect-ratio: 560 / 420;
+  transform: rotateX(var(--rx)) rotateZ(var(--rz)); transform-style: preserve-3d;
+  transition: transform .5s cubic-bezier(.2, .8, .2, 1);
+}
+.fcp-d-stone svg { width: 100%; height: 100%; }
+.fcp-d-stone .fcp-glint { display: none; }
+.fcp-d-glint {
+  position: absolute; inset: 0; mix-blend-mode: overlay;
+  clip-path: polygon(21.4% 0, 78.6% 0, 100% 28.6%, 100% 71.4%, 78.6% 100%, 21.4% 100%, 0 71.4%, 0 28.6%);
+  background: linear-gradient(105deg, transparent calc(var(--gx) - 12%), rgba(255, 255, 255, 0.45) var(--gx), transparent calc(var(--gx) + 12%));
+  transition: background .3s;
+}
+.fcp-d-shadow { position: absolute; right: 30px; bottom: -40px; width: 340px; height: 120px; background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.55), transparent 70%); }
+@media (max-width: 639px) { .fcp-d-stone { right: -90px; bottom: -110px; width: 280px; } .fcp-d-shadow { right: -80px; width: 300px; } }
+
+/* E: Filling — a tall gauge stone on the right edge, half off the panel */
+.fcp-e svg { position: absolute; right: -150px; top: 50%; translate: 0 -50%; height: calc(100% + 40px); width: auto; filter: drop-shadow(0 0 20px rgba(36, 216, 168, 0.2)); }
+.fcp-e-lit { transition: clip-path 1.6s cubic-bezier(.3, .7, .2, 1); }
+.fcp-e-level { opacity: .7; transition: transform 1.6s cubic-bezier(.3, .7, .2, 1); }
+@media (max-width: 639px) { .fcp-e svg { right: -120px; height: 70%; top: auto; bottom: -40px; translate: 0 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fcp * { animation: none !important; transition: none !important; }
+}

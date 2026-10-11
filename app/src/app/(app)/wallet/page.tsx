@@ -19,6 +19,9 @@ import { vaultsOn } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
+import { Suspense } from "react";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { CROWN_VARIANTS, FacetCrownVariant } from "./FacetCrownVariants.prototype";
 
 const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
 
@@ -149,6 +152,9 @@ export default function Wallet() {
       </header>
 
       <section className="cut cut-frame facet-panel wl-hero" aria-label="Balance">
+        <Suspense fallback={null}>
+          <CrownSlot share={accruedShareOf(pendingRows, redeemAmount, gemas.pending)} />
+        </Suspense>
         <div className="wl-total">
           <h2>Total Balance</h2>
           <div className="wl-total-fig">
@@ -248,6 +254,26 @@ export default function Wallet() {
 }
 
 /** The open form's shape before there is a market to quote from. */
+/** PROTOTYPE: facet crown variant layer + switcher. */
+function CrownSlot({ share }: { share: number }) {
+  const variant = usePrototypeVariant(CROWN_VARIANTS.map((v) => v.key));
+  return (
+    <>
+      {variant !== "now" && <div className="fcp-on" hidden />}
+      <FacetCrownVariant variant={variant} share={share} />
+      <PrototypeSwitcher variants={[...CROWN_VARIANTS]} />
+    </>
+  );
+}
+
+/** PROTOTYPE: how full the stone is = yield accrued across Pending Sources, Redeemable counted as full. */
+function accruedShareOf(rows: { pending: number; accruedShare: number }[], redeemable: number, pending: number) {
+  const total = redeemable + pending;
+  if (total <= 0) return 0;
+  const accrued = rows.reduce((a, r) => a + r.pending * r.accruedShare, 0);
+  return Math.min(1, (redeemable + accrued) / total);
+}
+
 function IdleForm({ unit, months, onMonths }: { unit: string; months: number; onMonths: (m: number) => void }) {
   return (
     <OpenFormView
