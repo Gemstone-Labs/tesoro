@@ -12,6 +12,7 @@ import { OPS_EVENT, loadOps, type EthOp } from "@/lib/chain/eth-track";
 import { fmtGemas } from "@/lib/format";
 import { useEthCtx, useOpTracker } from "../EthPositions";
 import "./opening.css";
+import { OpeningPrototype } from "./Opening.prototype";
 
 const stepsFor = (label: string) => [`${label} confirmed`, "Reached Solana", "Position recorded", "Gemas available"];
 /** Steps of the five-step `open` op that must be done for each of the four shown steps. */
@@ -68,8 +69,30 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
   const core = state?.core ?? null;
   const issued = state?.source?.math.issued ?? null;
   const scanKey = op.hash;
+  const principalWei = core?.principalWei ?? state?.bridge?.principal ?? null;
 
+  // PROTOTYPE: ?variant=now|A|B|C|D
   return (
+    <OpeningPrototype
+      model={{
+        native: net.native,
+        netLabel: net.label,
+        noun,
+        steps: STEPS,
+        subs: STEPS.map((_, i) => (done[i] ? (i === STEPS.length - 1 ? "Available" : "Confirmed") : i === active ? (i === 1 && scan ? scan.name.charAt(0) + scan.name.slice(1).toLowerCase() + "…" : ACTIVE[i]) : "Waiting")),
+        done,
+        active,
+        finished,
+        error,
+        note,
+        principal: principalWei !== null ? fmtEth(principalWei, 2) : null,
+        advance: issued !== null ? fmtGemas(Number(issued)) : null,
+        months: op.months ?? state?.bridge?.horizonMonths ?? null,
+        createdAt: op.createdAt,
+        hash: scanKey ?? null,
+        scanUrl: scanKey ? lzScanUrl(scanKey) : null,
+      }}
+    >
     <div className="op">
       <header className="page-head">
         <div>
@@ -135,5 +158,6 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
         </div>
       </section>
     </div>
+    </OpeningPrototype>
   );
 }
