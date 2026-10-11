@@ -14,3 +14,20 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 export const OneSource: Story = { args: { redeemableSources: 1 } };
 export const NothingRedeemable: Story = { args: { redeemable: 0, redeemableSources: undefined } };
+export const AllRedeemable: Story = { args: { redeemable: 10060, pending: 0, redeemableSources: 6 } };
+/** PROTOTYPE: every state at desktop and phone width, for comparing variants (?variant=). */
+export const PrototypeGallery: Story = {
+  decorators: [() => (
+    <div style={{ display: "grid", gridTemplateColumns: "520px 340px", gap: 32, alignItems: "start" }}>
+      {[520, 340].map((w) => (
+        <div key={w} style={{ display: "grid", gap: 20 }}>
+          <p className="meta">{w}px</p>
+          <BalanceSplit redeemable={1599} pending={8461} redeemableSources={4} />
+          <BalanceSplit redeemable={1599} pending={8461} redeemableSources={1} />
+          <BalanceSplit redeemable={0} pending={8461} />
+          <BalanceSplit redeemable={10060} pending={0} redeemableSources={6} />
+        </div>
+      ))}
+    </div>
+  )],
+};

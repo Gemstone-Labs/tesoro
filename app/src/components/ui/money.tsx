@@ -3,6 +3,7 @@ import type { Chain } from "@/lib/mock/types";
 import { GemaAmount, SimulatedYieldLabel } from "./gema";
 import { CheckIcon, ClockIcon, MinusIcon, XIcon } from "./icons";
 import { ChainChip, Label, Meter } from "./primitives";
+import { BalanceSplitSwitch } from "./BalanceSplit.prototype";
 
 /** The balance: big, plain, emerald-cut. The only place the glint runs. */
 export function BalanceCard({ total, title = "Your Gemas" }: { total: number; title?: string }) {
@@ -27,6 +28,13 @@ export function BalanceSplit({
   /** Number of Sources the redeemable Gemas sit on. */
   redeemableSources?: number;
 }) {
+  // PROTOTYPE: ?variant=now|A|B|C|D
+  return (
+    <BalanceSplitSwitch redeemable={redeemable} pending={pending} redeemableSources={redeemableSources} now={<BalanceSplitNow redeemable={redeemable} pending={pending} redeemableSources={redeemableSources} />} />
+  );
+}
+
+function BalanceSplitNow({ redeemable, pending, redeemableSources }: { redeemable: number; pending: number; redeemableSources?: number }) {
   return (
     <div className="split">
       <div className="cut cut-card now">
