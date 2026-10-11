@@ -35,7 +35,7 @@ export const art = {
     "trading-duel": f("trading-duel-hero"),
   },
   /** Dark backdrops for the play screens (Astra art for the edges of the Arena); null until the art lands, the Arena then paints a CSS gradient. */
-  arena: { "block-puzzle": null, holdem: null, "trading-duel": null } as Record<"block-puzzle" | "holdem" | "trading-duel", string | null>,
+  arena: { "block-puzzle": f("arena/block-puzzle"), holdem: f("arena/holdem"), "trading-duel": f("arena/trading-duel") } as Record<"block-puzzle" | "holdem" | "trading-duel", string | null>,
   /** Play Again thumbs reuse the square tiles (cropped by CSS). */
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),
