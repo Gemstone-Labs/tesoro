@@ -27,7 +27,14 @@
     radial-gradient(65% 85% at 100% 50%, rgba(242, 166, 59, 0.34), transparent 70%),
     #080b10;
 }
-.fx-arena-bg.art { background: var(--fx-arena-art) center / cover no-repeat, #070a0c; }
+.fx-arena[data-game] .fx-arena-bg.art { background: var(--fx-arena-art) center / cover no-repeat, #070a0c; }
+/* no hard box: the backdrop fades out on every side into the page */
+.fx-arena-bg {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent), linear-gradient(180deg, transparent, #000 6%, #000 90%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent), linear-gradient(180deg, transparent, #000 6%, #000 90%, transparent);
+  mask-composite: intersect;
+}
 /* quiet, dark centre so the game stays the star: the colour lives at the edges */
 .fx-arena-shade {
   background:
