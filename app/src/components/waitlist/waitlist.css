@@ -41,6 +41,8 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .vw-col-5 .vw-track { animation-direction: reverse; animation-duration: 155s; animation-delay: -55s; }
 .vw-col-6 .vw-track { animation-duration: 180s; animation-delay: -90s; }
 .vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; margin-bottom: 8px; background: #0c1215; }
+/* Without JavaScript browsers draw their own player controls on a video: the wall has none. */
+.vw-clip::-webkit-media-controls, .vw-clip::-webkit-media-controls-enclosure { display: none !important; }
 /* Tiles stay about 140-220px wide: seven columns on a wide screen, six on a laptop, five on a tablet, four on a phone. */
 @media (max-width: 1439px) { .vw-col-6 { display: none; } .vw-tilt { width: 90%; } }
 @media (max-width: 1099px) { .vw-col-5 { display: none; } .vw-tilt { width: 98%; } }
@@ -50,27 +52,19 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
    `--lp-texture`, repeated here because the light theme redefines that variable and this frame stays dark), with a
    soft shade on the footage along the edge. */
 .wl { --wl-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360' fill='none' stroke='%23eaefec' stroke-opacity='.045'%3E%3Cpath d='M70 40h180l40 40v120l-40 40H70l-40-40V80z'/%3E%3Cpath d='M98 68h124l28 28v88l-28 28H98l-28-28V96z'/%3E%3Cpath d='M250 40l60-40M290 200l70 40M70 240l-70 60M30 80L0 60'/%3E%3C/svg%3E"); }
-.wl-floor { position: absolute; inset: 0; z-index: 2; pointer-events: none; filter: drop-shadow(0 0 24px rgba(9, 13, 15, 0.6)); }
-.wl-floor-in { position: absolute; inset: 0; clip-path: var(--below-wide); background: var(--wl-texture) 0 0 / 360px 360px, #090d0f; }
+.wl-floor { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.wl-floor-in { position: absolute; inset: 0; clip-path: var(--in-wide); background: var(--wl-texture) 0 0 / 360px 360px, #090d0f; }
 /* and a fade from the left so the top bar and headline never sit on footage */
 .vw::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0, rgba(9, 13, 15, 0.5) 30%, rgba(9, 13, 15, 0.12) 62%, rgba(9, 13, 15, 0.22) 100%); }
 
-/* Dissolve: octagon cells in the page colour on the texture's grid, thinning and shrinking into the footage. */
-.de { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; pointer-events: none; overflow: hidden; animation: de-in 0.6s ease-out both; }
-.de-body { fill: #090d0f; stroke: rgba(234, 239, 236, 0.1); stroke-width: 1; }
-.de-line { fill: none; stroke: rgba(234, 239, 236, 0.1); stroke-width: 1; }
-.de-fade { animation: de-fade 7s ease-in-out infinite alternate; animation-delay: calc(var(--k) * -0.8s); }
-/* Divider variants (?d=a, a1..a4): they draw the whole edge, so the floor's straight one is pulled back under them. */
-.wl:has(.dv) .wl-floor { filter: none; }
-.wl:has(.dv) .wl-floor-in { clip-path: var(--in-wide); }
+/* Divider: gems in the panel's own colour and texture. The server's design-size layout is there from the first paint; the
+   exact one fades in over it. */
 .dv { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
-.dv-pop .dv-g { animation: dv-grow 1.4s cubic-bezier(0.2, 0.8, 0.25, 1) var(--d) both; }
-@keyframes dv-grow { from { transform: scale(0.02); } to { transform: scale(1); } }
-.dv-switch { position: fixed; z-index: 60; right: 14px; bottom: 14px; display: flex; gap: 6px; padding: 6px; background: rgba(9, 13, 15, 0.86); border: 1px solid var(--line-2); }
-.dv-switch button { min-width: 34px; min-height: 34px; padding: 0 8px; border: 0; background: var(--raised-2); color: var(--fg); font-weight: 800; --edge: var(--edge-2); }
-.dv-switch button[aria-pressed="true"] { background: var(--fg); color: #090d0f; }
-@keyframes de-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes de-fade { from { opacity: 1; } to { opacity: 0.3; } }
+.dv-ssr-tall { display: none; }
+.dv-ssr { transition: opacity 0.6s ease-out; }
+.dv-live { animation: dv-in 0.6s ease-out both; }
+.wl:has(.dv-live) .dv-ssr { opacity: 0; }
+@keyframes dv-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Frame content */
 .wl-top::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -36px 0; background: linear-gradient(180deg, rgba(9, 13, 15, 0.82) 0, rgba(9, 13, 15, 0.5) 55%, transparent 100%); pointer-events: none; }
@@ -108,8 +102,9 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 @media (max-width: 640px) {
   .wl { min-height: 680px; }
   .vw { clip-path: var(--above-tall); }
-  .wl-floor-in { clip-path: var(--below-tall); }
-  .wl:has(.dv) .wl-floor-in { clip-path: var(--in-tall); }
+  .wl-floor-in { clip-path: var(--in-tall); }
+  .dv-ssr-wide { display: none; }
+  .dv-ssr-tall { display: block; }
   .vw-col-4 { display: none; }
   .vw-tilt { right: -26%; top: -14%; width: 150%; height: 120%; gap: 6px; }
   .vw-clip { margin-bottom: 6px; }
@@ -126,5 +121,6 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vw-track, .de, .de-fade, .dv-g { animation: none; }
+  .vw-track, .dv-live { animation: none; }
+  .dv-ssr { transition: none; }
 }

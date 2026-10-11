@@ -1,17 +1,14 @@
 /**
- * The diagonal that splits the frame, in fractions of the frame (x right, y down). The video wall's clip-path
- * and the gem divider are both built from it, so they line up at every viewport. Videos sit above the line,
+ * The diagonal that splits the frame in half, in fractions of the frame (x right, y down). The video wall's clip-path,
+ * the floor and the gem divider are all built from it, so they line up at every viewport. Videos sit above the line,
  * the form below it. `wide` is the desktop frame, `tall` the phone one (wall on top, form below).
  */
 export type Line = { x1: number; y1: number; x2: number; y2: number };
 
 export const LINES = {
-  wide: { x1: 0.2, y1: 0, x2: 0.97, y2: 1 },
-  tall: { x1: 0, y1: 0.44, x2: 1, y2: 0.31 },
+  wide: { x1: 0.28, y1: 0, x2: 0.72, y2: 1 },
+  tall: { x1: 0, y1: 0.48, x2: 1, y2: 0.4 },
 } as const satisfies Record<string, Line>;
-
-/** The frame size each line's blocks are laid out for; block sizes are fractions of this width. */
-export const DESIGN = { wide: { w: 1440, h: 900 }, tall: { w: 390, h: 760 } } as const;
 
 const pct = (n: number) => `${+(n * 100).toFixed(3)}%`;
 
@@ -30,17 +27,8 @@ export function clipAbove(l: Line): string {
   return `polygon(${pts.join(", ")})`;
 }
 
-/** The region below the line: the solid floor the form stands on. */
-export function clipBelow(l: Line): string {
-  const pts = [start(l), end(l)];
-  if (l.y2 < 1) pts.push("100% 100%");
-  pts.push("0 100%");
-  if (l.y1 <= 0) pts.push("0 0");
-  return `polygon(${pts.join(", ")})`;
-}
-
 /**
- * Divider variants (?d=a..f) draw their own edge, so the floor's straight edge is pulled back under them: the line
+ * The divider draws its own edge, so the floor's straight edge is pulled back under it: the line
  * moved `inset` px into the panel (sideways for the wide line, down for the tall one).
  */
 export const INSET = { wide: 130, tall: 60 } as const;

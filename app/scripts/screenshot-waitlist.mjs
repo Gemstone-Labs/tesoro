@@ -45,6 +45,16 @@ for (const [name, width, height, scheme, motion, path] of shots) {
   console.log(name, "hscroll", overflow, "form", JSON.stringify(form), "tiles", JSON.stringify(tiles));
   await ctx.close();
 }
+// A 2x crop of the divider's front.
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+  const page = await ctx.newPage();
+  await page.goto(BASE + "/", { waitUntil: "networkidle", timeout: 120000 });
+  await page.waitForTimeout(2500);
+  await page.screenshot({ path: `${OUT}/waitlist-zoom.png`, clip: { x: 560, y: 250, width: 400, height: 300 } });
+  await ctx.close();
+}
+
 // The success state, through the honeypot (it answers success without storing anything).
 {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
