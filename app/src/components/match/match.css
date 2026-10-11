@@ -1,4 +1,4 @@
-/* ——— Match result (take-1: result-won-desktop) ——— */
+/* ——— Match card (MatchSpectate; the result poster is below) ——— */
 .mr-frame {
   --edge: var(--edge-2); background: var(--shell); width: 100%; max-width: 760px; margin: 0 auto;
   display: grid; padding: 40px 24px 36px; justify-items: center; overflow: hidden;
@@ -11,19 +11,12 @@
 .mr-status.lost .mr-status-icon { background: var(--danger); }
 .mr-status.draw .mr-status-icon, .mr-status.refunded .mr-status-icon { background: rgba(234, 239, 236, 0.5); }
 
-.mr-amount-wrap { position: relative; display: grid; justify-items: center; width: 100%; padding: 6px 0; }
-.mr-burst { position: absolute; inset: -30px -40px; width: calc(100% + 80px); height: calc(100% + 60px); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 60%, transparent 100%); mask-image: radial-gradient(closest-side, #000 60%, transparent 100%); }
 .mr-amount-label { position: relative; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--em-hi); }
-.mr-amount { position: relative; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 18px; text-align: center; }
-.mr-amount .gema-mark { width: clamp(64px, 8vw, 150px); height: clamp(64px, 8vw, 150px); filter: drop-shadow(0 0 24px rgba(36, 216, 168, 0.5)); }
-.mr-figure { font-size: clamp(64px, 8.2vw, 156px); font-weight: 900; line-height: 0.95; letter-spacing: -0.04em; word-spacing: 0; }
-.mr-amount.won .mr-figure { background: var(--facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.mr-unit { flex-basis: 100%; font-size: clamp(30px, 3.4vw, 64px); font-weight: 800; line-height: 1; margin-top: -0.1em; }
 .mr-neutral { position: relative; display: grid; gap: 6px; justify-items: center; text-align: center; }
 .mr-neutral b { font-size: clamp(30px, 3vw, 48px); font-weight: 900; }
 .mr-neutral-amt { display: inline-flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; }
 
-.mr-pending { position: relative; color: var(--em-hi); font-weight: 700; font-size: 15px; padding: 6px 12px; border-bottom: 1px solid rgba(106, 248, 214, 0.35); }
+.mr-pending { position: relative; display: inline-block; color: var(--em-hi); font-weight: 700; font-size: 15px; padding: 6px 12px; border-bottom: 1px solid rgba(106, 248, 214, 0.35); }
 .mr-pending:hover { border-bottom-color: var(--em-hi); }
 .mr-copy { text-align: center; color: var(--fg-2); font-size: 15px; max-width: 46ch; }
 .mr-copy.strong { color: var(--fg); font-weight: 600; }
@@ -38,9 +31,7 @@
 .mr-fees > div { justify-items: start; padding: 10px 18px 12px; }
 .mr-fees b { display: inline-flex; align-items: center; gap: 8px; font-size: clamp(22px, 2vw, 32px); font-weight: 800; }
 .mr-fees small { font-size: 0.7em; font-weight: 500; }
-.mr-split { width: 100%; padding: 4px 2px 0; }
 
-.mr-right { display: none; }
 .mr-actions { display: grid; grid-template-columns: 1fr; gap: 12px; width: 100%; max-width: 760px; margin: 0 auto; }
 .mr-actions .btn { min-height: 56px; }
 
@@ -52,7 +43,11 @@
 /* ——— Moment overlay: bust + Gema burst over the result, ~3 s or a click ——— */
 .mo { position: fixed; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: 4px; background: radial-gradient(closest-side, rgba(3, 32, 26, 0.72), rgba(9, 13, 15, 0.86)); cursor: pointer; animation: mo-in 260ms ease-out both, mo-out 320ms ease-in 2680ms forwards; }
 .mo-stage { position: relative; display: grid; place-items: end center; width: min(560px, 92vw); }
-.mo-burst { position: absolute; inset: -18% -6% -10%; width: 112%; height: auto; pointer-events: none; }
+/* emerald rays turning behind the bust (prototype A's light) */
+.mo-rays { position: absolute; left: 50%; top: 50%; width: min(1100px, 180vw); aspect-ratio: 1; translate: -50% -50%; pointer-events: none;
+  background: repeating-conic-gradient(from 0deg, rgba(99, 247, 211, 0.24) 0deg 7deg, transparent 7deg 22deg);
+  -webkit-mask-image: radial-gradient(closest-side, #000 10%, rgba(0, 0, 0, 0.6) 32%, transparent 64%); mask-image: radial-gradient(closest-side, #000 10%, rgba(0, 0, 0, 0.6) 32%, transparent 64%); }
+.mo-rays::after { content: ""; position: absolute; inset: 30%; background: radial-gradient(closest-side, rgba(36, 216, 168, 0.45), transparent); }
 .mo-bust { position: relative; max-width: 88vw; height: auto; filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.6)); animation: mo-pop 420ms cubic-bezier(0.2, 1.4, 0.4, 1) both; }
 .mo-text { display: grid; justify-items: center; gap: 6px; text-align: center; }
 .mo-text b { font-size: clamp(30px, 4vw, 52px); font-weight: 900; letter-spacing: -0.02em; }
@@ -64,7 +59,11 @@
 @keyframes mo-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mo-out { to { opacity: 0; visibility: hidden; } }
 @keyframes mo-pop { from { transform: translateY(24px) scale(0.92); } to { transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .mo-rays { animation: mo-rays-in 700ms ease-out both, spin 12s linear infinite; }
+}
 @media (prefers-reduced-motion: reduce) { .mo, .mo-bust { animation: none; } }
+@keyframes mo-rays-in { from { opacity: 0; scale: 0.5; } }
 
 /* phones: the result card keeps every figure inside its frame */
 .mr-scores, .mr-fees { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -78,13 +77,6 @@
   .mr-pending { font-size: 14px; padding: 6px 4px; }
 }
 
-/* a won amount counts up while its light breathes */
-.mr-burst { transform-origin: center; }
-.mr-burst { animation: burst-breathe 4.5s ease-in-out infinite; }
-@keyframes burst-breathe { 0%, 100% { opacity: 0.85; transform: scale(1); } 50% { opacity: 1; transform: scale(1.05); } }
-.mr-amount.won .gema-mark { animation: gema-land 0.7s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
-@keyframes gema-land { from { transform: scale(0.4) rotate(-25deg); opacity: 0; } }
-
 /* ——— Someone else's Match (MatchSpectate) ——— */
 .mr-sp-players > div { align-content: start; gap: 6px; padding: 16px 8px 18px; }
 .mr-sp-players .mono { font-size: 16px; font-weight: 700; }
@@ -92,3 +84,114 @@
 /* Won/Lost words in the landing's outcome colours: emerald win, red loss (never "success" green) */
 .mr-sp-players b.won { color: var(--em); }
 .mr-sp-players b.lost { color: #f2685a; }
+
+/* ——— Match result: a poster over the game's art, then a strip of tiles ———
+   Every element's resting style is its final frame; the motion lives under
+   prefers-reduced-motion: no-preference and holds (paused) while the win overlay shows. */
+.mr { width: 100%; max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
+.mr.held, .mr.held * { animation-play-state: paused !important; }
+.mr-poster { position: relative; --edge: var(--edge-2); min-height: clamp(420px, 60vh, 580px); display: grid; align-items: center; overflow: hidden; background: #070a0b; }
+.mr-art { object-fit: cover; object-position: right center; }
+.mr.lost .mr-art { filter: grayscale(1) brightness(0.55); }
+.mr.draw .mr-art, .mr.refunded .mr-art { filter: grayscale(0.6) brightness(0.7); }
+.mr-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(7, 10, 11, 0.96) 0%, rgba(7, 10, 11, 0.86) 38%, rgba(7, 10, 11, 0.2) 70%, transparent), linear-gradient(0deg, rgba(7, 10, 11, 0.7), transparent 40%); }
+.mr-copyblock { position: relative; z-index: 1; display: grid; gap: 14px; justify-items: start; padding: clamp(28px, 5vw, 64px); max-width: 640px; }
+.mr-kicker { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.mr-kicker .mr-status-icon { font-size: 22px; }
+.mr-status-icon.lost { background: var(--danger); }
+.mr-status-icon.draw, .mr-status-icon.refunded { background: rgba(234, 239, 236, 0.5); }
+.mr-word { margin: 0; font-family: var(--f-display); text-transform: uppercase; font-weight: 800; font-size: clamp(64px, 10vw, 150px); line-height: 0.86; color: #fff; white-space: nowrap; text-shadow: 0 6px 40px rgba(0, 0, 0, 0.6); }
+.mr-word span { display: inline-block; }
+.mr.lost .mr-word span:nth-child(odd) { rotate: 2deg; }
+.mr.lost .mr-word span:nth-child(3n) { rotate: -3deg; translate: 0 4px; }
+.mr-amount { display: grid; gap: 4px; }
+.mr-amount-label { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--em-hi); }
+.mr.lost .mr-amount-label { color: var(--fg-2); }
+.mr-fig { display: inline-flex; align-items: center; gap: 12px; font-size: clamp(40px, 5vw, 72px); font-weight: 900; letter-spacing: -0.03em; }
+.mr-fig small { font-size: 0.42em; font-weight: 800; letter-spacing: 0; align-self: flex-end; margin-bottom: 0.2em; }
+.mr.lost .mr-fig { color: var(--danger); }
+.mr-fig .gema-mark { width: 1em; height: 1em; filter: drop-shadow(0 0 18px rgba(36, 216, 168, 0.5)); }
+.mr-notes { display: grid; gap: 8px; justify-items: start; }
+.mr-notes .mr-pending { padding-left: 0; padding-right: 0; text-align: left; }
+.mr-notes .mr-copy { text-align: left; }
+.mr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.mr-tile { position: relative; --edge: var(--edge-2); display: grid; gap: 4px; padding: 14px 18px; background: var(--shell); }
+.mr-tile span { font-size: 13px; color: var(--fg-2); font-weight: 600; }
+.mr-tile b { display: inline-flex; align-items: center; gap: 8px; font-size: clamp(24px, 2.4vw, 36px); font-weight: 900; line-height: 1.05; }
+.mr-tile.on { --edge: rgba(255, 255, 255, 0.7); }
+.mr-tile.on::before { content: ""; position: absolute; left: 18px; right: 18px; top: 0; height: 3px; background: var(--fg); }
+.mr-split { width: 100%; }
+.mr .mr-actions { max-width: none; }
+.mr .mr-actions .btn.money { position: relative; overflow: clip; }
+
+/* odometer figures and emerald shards (ResultMotion.tsx) */
+.odo { display: inline-flex; align-items: flex-end; line-height: 1; }
+.odo-col { position: relative; display: inline-block; height: 1em; overflow: hidden; }
+.odo-ghost { visibility: hidden; display: block; line-height: 1; }
+.odo-strip { position: absolute; left: 50%; top: 0; translate: -50% 0; display: flex; flex-direction: column; align-items: center; transform: translateY(calc(var(--to) * -1em)); }
+.odo-strip > span { display: block; height: 1em; line-height: 1; }
+.odo-s { display: inline-block; line-height: 1; }
+.odo-s.sep { margin: 0 -0.06em 0 -0.1em; }
+.odo.facet .odo-strip > span, .odo.facet .odo-s { background: var(--facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.shards { position: absolute; inset: 0; pointer-events: none; display: none; }
+.shards i { position: absolute; width: var(--s); aspect-ratio: 1; background: var(--facet); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); filter: drop-shadow(0 0 6px rgba(36, 216, 168, 0.6)); opacity: 0; }
+.shards.burst i { left: 50%; top: 50%; }
+.shards.rain { overflow: hidden; }
+.shards.rain i { left: var(--x); top: -40px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .mr-in { animation: mr-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--d, 0ms) both; }
+  .mr-rise { animation: mr-rise 640ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--d, 0ms) both; }
+  .mr-poster { animation: mr-enter 520ms cubic-bezier(0.2, 0.9, 0.25, 1) both; }
+  .mr-art { animation: mr-zoom 7s cubic-bezier(0.2, 0.6, 0.3, 1) both; }
+  .mr.lost .mr-art { animation: mr-zoom 7s cubic-bezier(0.2, 0.6, 0.3, 1) both, mr-drain 1.4s ease-in-out 700ms both; }
+  .mr-word span { animation: mr-letter 560ms cubic-bezier(0.25, 1.5, 0.45, 1) calc(220ms + var(--i) * 55ms) both; }
+  .mr.lost .mr-word span { animation: mr-drop 760ms cubic-bezier(0.5, 0, 0.75, 0) calc(220ms + var(--i) * 70ms) both, mr-thud 360ms ease-out calc(980ms + var(--i) * 70ms); }
+  .mr.draw .mr-word span:nth-child(odd), .mr.refunded .mr-word span:nth-child(odd) { animation: mr-from-l 620ms cubic-bezier(0.2, 0.9, 0.25, 1) calc(200ms + var(--i) * 40ms) both; }
+  .mr.draw .mr-word span:nth-child(even), .mr.refunded .mr-word span:nth-child(even) { animation: mr-from-r 620ms cubic-bezier(0.2, 0.9, 0.25, 1) calc(200ms + var(--i) * 40ms) both; }
+  .mr-fig .gema-mark { animation: mr-gem 760ms cubic-bezier(0.3, 1.5, 0.4, 1) 550ms both; }
+  .mr-fig small { animation: mr-in 500ms ease-out 1300ms both; }
+  .mr.lost .mr-fig { animation: mr-redden 900ms ease-in-out 1500ms both; }
+  .mr-tile.on::before { transform-origin: left; animation: mr-bar 520ms cubic-bezier(0.2, 0.8, 0.2, 1) 2300ms both; }
+  .mr .mr-actions .btn.money::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.55) 50%, transparent 65%); transform: translateX(-120%); animation: mr-shine 3.2s ease-in-out 2.4s infinite; pointer-events: none; }
+  .odo-strip { animation: odo-roll var(--dur) cubic-bezier(0.12, 0.75, 0.18, 1) var(--d) both; }
+  .shards { display: block; }
+  .shards.burst i { animation: shard-burst 1300ms cubic-bezier(0.1, 0.7, 0.3, 1) var(--d) both; }
+  .shards.rain i { animation: shard-fall var(--t) linear var(--d) 2 both; }
+}
+@keyframes mr-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes mr-rise { from { opacity: 0; transform: translateY(22px); } }
+@keyframes mr-enter { from { opacity: 0; transform: translateY(18px) scale(0.97); } }
+@keyframes mr-zoom { from { transform: scale(1.14); } }
+@keyframes mr-drain { from { filter: none; } }
+@keyframes mr-letter { from { opacity: 0; transform: translateY(70%) rotate(10deg) scale(0.8); } }
+@keyframes mr-drop { from { opacity: 0; transform: translateY(-120%); } 40% { opacity: 1; } }
+@keyframes mr-thud { 40% { transform: translateY(3px) scaleY(0.92); } }
+@keyframes mr-from-l { from { opacity: 0; transform: translateX(-80px); } }
+@keyframes mr-from-r { from { opacity: 0; transform: translateX(80px); } }
+@keyframes mr-gem { from { opacity: 0; transform: translateY(-120px) rotate(-200deg) scale(0.4); } }
+@keyframes mr-redden { from { color: #fff; } }
+@keyframes mr-bar { from { transform: scaleX(0); } }
+@keyframes mr-shine { 0% { transform: translateX(-120%); } 30%, 100% { transform: translateX(120%); } }
+@keyframes odo-roll { from { transform: translateY(0); } }
+@keyframes shard-burst {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+  12% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(var(--r)) scale(1); }
+}
+@keyframes shard-fall {
+  0% { opacity: 0; transform: translateY(0) rotate(0); }
+  10% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(640px) rotate(var(--r)); }
+}
+
+@media (max-width: 639px) {
+  .mr-poster { min-height: 0; align-items: end; }
+  .mr-art { object-position: 70% center; }
+  .mr-shade { background: linear-gradient(0deg, rgba(7, 10, 11, 0.97) 30%, rgba(7, 10, 11, 0.55) 70%, rgba(7, 10, 11, 0.2)); }
+  .mr-copyblock { padding: 140px 18px 24px; }
+  .mr-word { font-size: clamp(52px, 16vw, 80px); white-space: normal; }
+  .mr-tiles { grid-template-columns: 1fr 1fr; }
+}

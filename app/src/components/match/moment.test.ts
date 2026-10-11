@@ -32,11 +32,14 @@ describe("scheduleMoment", () => {
   it("shows once per Match per tab", () => {
     const store = memory();
     const show = vi.fn();
-    scheduleMoment("42", store, show);
+    const skip = vi.fn();
+    scheduleMoment("42", store, show, skip);
     vi.runAllTimers();
-    scheduleMoment("42", store, show);
+    expect(skip).not.toHaveBeenCalled();
+    scheduleMoment("42", store, show, skip);
     vi.runAllTimers();
     expect(show).toHaveBeenCalledTimes(1);
+    expect(skip).toHaveBeenCalledTimes(1);
   });
 
   it("shows without storage", () => {
