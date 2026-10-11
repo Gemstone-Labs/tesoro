@@ -6,6 +6,9 @@ import { useAuth } from "@/lib/auth/context";
 import { getChain } from "@/lib/chain/client";
 import { fetchLinkState } from "@/lib/chain/eth";
 import type { Chain } from "@/lib/mock";
+import { accountKeyOf } from "@/lib/chain/account-key";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { AccountSheetPrototype, SHEET_VARIANTS } from "./AccountSheet.prototype";
 
 export function AccountSheet({
   open,
@@ -20,8 +23,25 @@ export function AccountSheet({
   const link = useEvmLink(open, signer?.publicKey.toBase58() ?? null, evm?.address ?? null);
   const solanaLinked = linked.filter((w) => w.family === "solana");
   const evmLinked = linked.filter((w) => w.family === "evm");
+  // PROTOTYPE: ?variant=now|A|B|C|D
+  const auth = useAuth();
+  const variant = usePrototypeVariant(SHEET_VARIANTS.map((v) => v.key));
+  if (variant !== "now") {
+    const me = addresses.solana ? accountKeyOf(addresses.solana) : null;
+    const signOutNow = async () => {
+      await signOut();
+      onSignedOut();
+    };
+    return (
+      <Sheet open={open} onClose={onClose} title="Account">
+        <AccountSheetPrototype variant={variant} data={{ auth, me, evmAddress: evm?.address ?? addresses.evm, link, onSignOut: () => void signOutNow() }} />
+        {open && <PrototypeSwitcher variants={SHEET_VARIANTS} inDialog />}
+      </Sheet>
+    );
+  }
   return (
     <Sheet open={open} onClose={onClose} title="Account">
+      {open && <PrototypeSwitcher variants={SHEET_VARIANTS} inDialog />}
       <div className="stack">
         <span className="meta">{email ?? (linked[0] ? `Signed in with ${linked[0].client.replace(/_/g, " ")}` : "Signed in")}</span>
         <AddressCard title="Solana address" chains={["SOL"]} address={addresses.solana} />
