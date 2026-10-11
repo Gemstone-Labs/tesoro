@@ -10,6 +10,7 @@ import { TheLine } from "./B";
 import { TheGema } from "./C";
 import { LivingTexture } from "./D";
 import { KineticType } from "./E";
+import { TEXTURES, TEXTURE_KEYS } from "./textures";
 
 const ORDER = ["", "A", "B", "C", "D", "E"] as const;
 const LABEL: Record<string, string> = { "": "Current", A: "Live wins", B: "The line", C: "The Gema", D: "Living texture", E: "Kinetic type" };
@@ -20,13 +21,14 @@ function Inner() {
   const enabled = process.env.NODE_ENV !== "production" || params.get("proto") === "1";
   const raw = (params.get("v") ?? "").toUpperCase();
   const v = (ORDER as readonly string[]).includes(raw) ? raw : "";
+  const t = TEXTURE_KEYS.includes(params.get("t") ?? "") ? params.get("t")! : "0";
   const zone = useRef<HTMLDivElement>(null);
 
   const go = useCallback(
-    (to: string) => {
+    (to: string, name = "v") => {
       const next = new URLSearchParams(params.toString());
-      if (to) next.set("v", to);
-      else next.delete("v");
+      if (to) next.set(name, to);
+      else next.delete(name);
       router.replace(`?${next.toString()}`, { scroll: false });
     },
     [params, router],
@@ -35,15 +37,21 @@ function Inner() {
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      if (v === "D" && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        e.preventDefault();
+        const k = TEXTURE_KEYS.indexOf(t);
+        go(TEXTURE_KEYS[(k + (e.key === "ArrowDown" ? 1 : -1) + TEXTURE_KEYS.length) % TEXTURE_KEYS.length], "t");
+        return;
+      }
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       const i = ORDER.indexOf(v as (typeof ORDER)[number]);
       go(ORDER[(i + (e.key === "ArrowRight" ? 1 : -1) + ORDER.length) % ORDER.length]);
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [enabled, v, go]);
+  }, [enabled, v, t, go]);
 
   // The zone ends above the form block, wherever that block starts.
   useEffect(() => {
@@ -60,13 +68,24 @@ function Inner() {
   const i = ORDER.indexOf(v as (typeof ORDER)[number]);
   return (
     <>
-      {v === "D" && <LivingTexture />}
+      {v === "D" && <LivingTexture tex={t} />}
       {v && v !== "D" && (
         <div className={`pl-zone pl-${v.toLowerCase()}`} ref={zone}>
           {v === "A" && <LiveWins />}
           {v === "B" && <TheLine />}
           {v === "C" && <TheGema />}
           {v === "E" && <KineticType />}
+        </div>
+      )}
+      {v === "D" && (
+        <div className="pl-switch pl-switch-t" role="group" aria-label="Background pattern">
+          <button type="button" onClick={() => go(TEXTURE_KEYS[(TEXTURE_KEYS.indexOf(t) + TEXTURE_KEYS.length - 1) % TEXTURE_KEYS.length], "t")} aria-label="Previous pattern">
+            ↑
+          </button>
+          <span>Pattern {t} · {TEXTURES[t].name}</span>
+          <button type="button" onClick={() => go(TEXTURE_KEYS[(TEXTURE_KEYS.indexOf(t) + 1) % TEXTURE_KEYS.length], "t")} aria-label="Next pattern">
+            ↓
+          </button>
         </div>
       )}
       <div className="pl-switch" role="group" aria-label="Prototype variant">

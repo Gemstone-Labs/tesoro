@@ -7,6 +7,11 @@
 .pl-switch span { min-width: 124px; text-align: center; white-space: nowrap; }
 .pl-switch button { width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(9, 13, 15, 0.1); color: inherit; font: inherit; cursor: pointer; }
 .pl-switch button:hover { background: rgba(9, 13, 15, 0.22); }
+.pl-switch.pl-switch-t { bottom: 52px; }
+.pl-switch-t span { min-width: 170px; }
+/* A new pattern replaces the CSS one: the floor and the divider's pattern drop their lines, the canvas draws them. */
+.wl[data-tex] .wl-floor-in { background: #090d0f; }
+.wl[data-tex] .dv pattern g { display: none; }
 
 /* The empty top-left: from under the nav to above the form block, left of the diagonal. */
 .pl-zone {

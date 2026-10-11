@@ -4,28 +4,35 @@ import { useEffect, useRef } from "react";
 import { INSET, LINES } from "../geometry";
 import { dividerScene } from "../dividers/octa";
 
-/* The octagon texture (waitlist.css --wl-texture, 360px tile) as geometry. */
-const T = 360;
-const OUTER: [number, number][] = [[70, 40], [250, 40], [290, 80], [290, 200], [250, 240], [70, 240], [30, 200], [30, 80]];
-const INNER: [number, number][] = [[98, 68], [222, 68], [250, 96], [250, 184], [222, 212], [98, 212], [70, 184], [70, 96]];
-const LINKS: [[number, number], [number, number]][] = [[[250, 40], [310, 0]], [[290, 200], [360, 240]], [[70, 240], [0, 300]], [[30, 80], [0, 60]]];
+import { TEXTURES, type Pt, type Texture } from "./textures";
 
-const key = (p: [number, number]) => `${p[0]},${p[1]}`;
-const edges: [[number, number], [number, number]][] = [];
-for (const poly of [OUTER, INNER]) poly.forEach((p, i) => edges.push([p, poly[(i + 1) % poly.length]]));
-edges.push(...LINKS);
-const adj = new Map<string, [number, number][]>();
-for (const [a, b] of edges) {
-  adj.set(key(a), [...(adj.get(key(a)) ?? []), b]);
-  adj.set(key(b), [...(adj.get(key(b)) ?? []), a]);
+const T = 360;
+const key = (p: Pt) => `${Math.round(p[0])},${Math.round(p[1])}`;
+const wrap = (n: number) => ((n % T) + T) % T;
+
+/* Every segment of a pattern, keyed by its tile-wrapped end; neighbours are stored relative to that wrapped end. */
+function graph(tex: Texture) {
+  const segs: [Pt, Pt][] = [...tex.lines];
+  for (const poly of tex.polys) poly.forEach((p, i) => segs.push([p, poly[(i + 1) % poly.length]]));
+  const adj = new Map<string, Pt[]>();
+  const add = (a: Pt, b: Pt) => {
+    const dx = a[0] - wrap(a[0]), dy = a[1] - wrap(a[1]);
+    const k = key([wrap(a[0]), wrap(a[1])]);
+    adj.set(k, [...(adj.get(k) ?? []), [b[0] - dx, b[1] - dy]]);
+  };
+  for (const [a, b] of segs) { add(a, b); add(b, a); }
+  const nodes = tex.polys[0];
+  return { adj, nodes };
 }
 
 type Pulse = { ox: number; oy: number; a: [number, number]; b: [number, number]; t: number; life: number };
 
-export function LivingTexture() {
+export function LivingTexture({ tex = "0" }: { tex?: string }) {
   const cv = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    const pattern = TEXTURES[tex] ?? TEXTURES["0"];
+    const { adj, nodes } = graph(pattern);
     const canvas = cv.current;
     const wl = canvas?.closest<HTMLElement>(".wl");
     const ctx = canvas?.getContext("2d");
@@ -46,17 +53,19 @@ export function LivingTexture() {
       for (let i = -1; i * T < W + T; i++) for (let j = -1; j * T < H + T; j++) {
         mctx.save();
         mctx.translate(i * T, j * T);
+        pattern.polys.forEach((poly, n) => {
+          mctx.beginPath();
+          poly.forEach(([x, y], k) => (k ? mctx.lineTo(x, y) : mctx.moveTo(x, y)));
+          mctx.closePath();
+          if (n === 0 || pattern.name === "Tiled floor") {
+            mctx.fillStyle = "rgba(255,255,255,.16)"; // the cell itself lights faintly
+            if (n % 2 === 0) mctx.fill();
+          }
+          mctx.strokeStyle = "#fff";
+          mctx.stroke();
+        });
         mctx.beginPath();
-        OUTER.forEach(([x, y], k) => (k ? mctx.lineTo(x, y) : mctx.moveTo(x, y)));
-        mctx.closePath();
-        mctx.fillStyle = "rgba(255,255,255,.16)"; // the cell itself lights faintly
-        mctx.fill();
-        mctx.strokeStyle = "#fff";
-        mctx.stroke();
-        mctx.beginPath();
-        INNER.forEach(([x, y], k) => (k ? mctx.lineTo(x, y) : mctx.moveTo(x, y)));
-        mctx.closePath();
-        for (const [a, b] of LINKS) {
+        for (const [a, b] of pattern.lines) {
           mctx.moveTo(a[0], a[1]);
           mctx.lineTo(b[0], b[1]);
         }
@@ -95,17 +104,23 @@ export function LivingTexture() {
     const spawn = (x: number, y: number) => {
       const i = Math.floor(x / T), j = Math.floor(y / T);
       const lx = x - i * T, ly = y - j * T;
-      // the closest outer-octagon vertex to the point
-      const a = OUTER.reduce((m, p) => (Math.hypot(p[0] - lx, p[1] - ly) < Math.hypot(m[0] - lx, m[1] - ly) ? p : m));
-      const n = adj.get(key(a))!;
+      // the closest vertex of the main outline to the point
+      const a = nodes.reduce((m, p) => (Math.hypot(p[0] - lx, p[1] - ly) < Math.hypot(m[0] - lx, m[1] - ly) ? p : m));
+      const w: Pt = [wrap(a[0]), wrap(a[1])];
+      const n = adj.get(key(w));
+      if (!n) return;
       const b = n.reduce((m, p) => (p[0] > m[0] ? p : m));
-      pulses.push({ ox: i * T, oy: j * T, a, b, t: 0, life: 0 });
+      pulses.push({ ox: i * T + a[0] - w[0], oy: j * T + a[1] - w[1], a: w, b, t: 0, life: 0 });
     };
     const step = (p: Pulse, d: number) => {
       let len = Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]);
-      p.t += d / len;
+      p.t += d / Math.max(len, 1);
       while (p.t >= 1) {
-        const from = p.a, at = p.b;
+        // re-anchor on the tile that holds the node just reached, so links carry on into the next tile
+        const dx = p.b[0] - wrap(p.b[0]), dy = p.b[1] - wrap(p.b[1]);
+        p.ox += dx; p.oy += dy;
+        const at: Pt = [p.b[0] - dx, p.b[1] - dy];
+        const from: Pt = [p.a[0] - dx, p.a[1] - dy];
         const opts = (adj.get(key(at)) ?? []).filter((q) => key(q) !== key(from));
         if (!opts.length) return false;
         // lean towards the divider (right), with some wandering
@@ -113,7 +128,7 @@ export function LivingTexture() {
         p.t -= 1;
         p.a = at; p.b = pick;
         len = Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]);
-        p.t = Math.min(p.t * (len ? 1 : 0), 0.99);
+        p.t = Math.min(p.t, 0.99);
       }
       return true;
     };
@@ -188,11 +203,19 @@ export function LivingTexture() {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.drawImage(mask, 0, 0);
       ctx.globalCompositeOperation = "source-over";
+      if (tex !== "0") {
+        // the pattern itself, at the CSS texture's strength (the CSS one is hidden while a new pattern is on)
+        ctx.globalAlpha = 0.05;
+        ctx.drawImage(mask, 0, 0);
+        ctx.globalAlpha = 1;
+      }
       if (!still) raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
+    if (tex !== "0") wl.dataset.tex = tex;
 
     return () => {
+      delete wl.dataset.tex;
       cancelAnimationFrame(raf);
       ro.disconnect();
       removeEventListener("pointermove", onMove);
@@ -200,7 +223,7 @@ export function LivingTexture() {
       wl.removeEventListener("focusin", onFocusIn);
       wl.removeEventListener("focusout", onFocusOut);
     };
-  }, []);
+  }, [tex]);
 
   return <canvas ref={cv} className="pl-d-cv" aria-hidden />;
 }
