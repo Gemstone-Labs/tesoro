@@ -4,6 +4,7 @@ import { TesoroLogo } from "@/components/brand";
 import { INSET, LINES, clipAbove, clipBelowInset } from "@/components/waitlist/geometry";
 import { Divider } from "@/components/waitlist/Divider";
 import { VideoWall } from "@/components/waitlist/VideoWall";
+import { ProtoLeft } from "@/components/waitlist/proto-left";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
 import { appHref } from "@/lib/landing/config";
 import { count } from "@/server/waitlist";
@@ -38,6 +39,7 @@ export default async function Waitlist() {
         <div className="wl-floor-in" />
       </div>
       <Divider />
+      <ProtoLeft />
       <header className="wl-top">
         <Link href="/" className="wl-logo" aria-label="Tesoro">
           <TesoroLogo height={30} tone="dark" />
