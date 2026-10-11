@@ -406,8 +406,13 @@ html.lenis, html.lenis body { height: auto; }
 .lp-catalogue picture, .lp-catalogue img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .lp-catalogue li > span { position: absolute; left: 8px; right: 8px; bottom: 8px; font-size: 12.5px; font-weight: 800; color: #eaefec; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); }
 .lp-catalogue li.soon img { filter: grayscale(0.7) brightness(0.55); }
-.lp-catalogue .lp-slot { background: transparent; display: grid; place-items: center; align-content: center; gap: 6px; color: var(--em); --edge: color-mix(in srgb, var(--em) 55%, transparent); }
-.lp-catalogue .lp-slot > span { position: static; color: var(--em); text-shadow: none; }
+.lp-catalogue li > .lp-status { right: auto; bottom: auto; top: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; background: rgba(9, 13, 15, 0.72); text-shadow: none; }
+.lp-status.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #33e3b4; box-shadow: 0 0 8px #33e3b4; }
+.lp-catalogue .lp-slot { background: transparent; --edge: color-mix(in srgb, var(--em) 55%, transparent); }
+.lp-catalogue .lp-slot a { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 4px; color: var(--em); text-decoration: none; }
+.lp-catalogue .lp-slot a span { font-size: 12.5px; font-weight: 800; }
+.lp-catalogue .lp-slot small { font-size: 11.5px; color: var(--fg-2); }
+.lp-catalogue .lp-slot:hover { background: color-mix(in srgb, var(--em) 14%, transparent); }
 .lp-catalogue .lp-slot svg { width: 26px; height: 26px; }
 @media (prefers-reduced-motion: no-preference) { .lp-slot { animation: lp-breathe 2.8s ease-in-out infinite; } }
 @keyframes lp-breathe { 50% { background: color-mix(in srgb, var(--em) 10%, transparent); } }
@@ -435,11 +440,11 @@ html.lenis, html.lenis body { height: auto; }
 /* catalogue: tiles lift and glow; the empty slot breathes */
 .lp-catalogue li { transition: translate 0.3s, filter 0.3s; }
 .lp-catalogue li:not(.lp-slot):hover { translate: 0 -4px; filter: drop-shadow(0 8px 18px rgba(36, 216, 168, 0.25)); }
-/* players: a Gema runs along the path into your game */
+/* players: a Gema runs along the path and rests on the last arrow, short of "Your game" */
 .lp-arrive { position: relative; width: fit-content; }
 .lp-arrive-token { position: absolute; left: 0; top: 50%; translate: 0 -50%; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(closest-side, rgba(106, 248, 214, 0.5), transparent); opacity: 0; }
 @media (prefers-reduced-motion: no-preference) { .lp-arrive-token { animation: lp-arrive 3.6s ease-in-out infinite; } }
-@keyframes lp-arrive { 0% { left: 2%; opacity: 0; } 10% { opacity: 1; } 80% { left: calc(100% - 80px); opacity: 1; } 100% { left: calc(100% - 80px); opacity: 0; } }
+@keyframes lp-arrive { 0% { left: 2%; opacity: 0; } 10% { opacity: 1; } 70% { left: calc(100% - 170px); opacity: 1; } 85%, 100% { left: calc(100% - 170px); opacity: 0; } }
 .lp-arrive { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; color: var(--fg-2); }
 .lp-arrive > svg { width: 18px; height: 18px; }
 .lp-pill { display: inline-flex; align-items: center; gap: 8px; padding: 14px 22px; font-size: 17px; background: var(--shell); color: var(--fg); font-weight: 800; --edge: var(--line-2); }

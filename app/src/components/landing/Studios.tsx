@@ -72,12 +72,16 @@ export function Studios() {
                   <picture>
                     <img src={g.src} alt="" width={768} height={768} loading="lazy" />
                   </picture>
+                  <span className={`lp-status${g.live ? " live" : ""}`}>{g.live ? "Live" : "Soon"}</span>
                   <span>{g.name}</span>
                 </li>
               ))}
               <li className="lp-slot cut cut-card">
-                <Plus aria-hidden />
-                <span>Your game</span>
+                <a href={`${OUTBOUND.docs}/developers`}>
+                  <Plus aria-hidden />
+                  <span>Your game</span>
+                  <small>Free to list</small>
+                </a>
               </li>
             </ul>
           </article>
