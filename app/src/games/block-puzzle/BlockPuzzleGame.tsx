@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { Button, CountUp, Label } from "@/components/ui";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAt, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
-import { Arena, Callout, MuteToggle, burstAt, prefersReducedMotion, sfx, shake } from "../fx";
+import { Arena, Callout, Countdown, MuteToggle, burst, burstAt, prefersReducedMotion, sfx, shake } from "../fx";
 import type { CalloutTone } from "../fx";
 import { clearCallout, comboHeat, wouldClear } from "./feel";
+import { readBest, writeBest } from "./best";
 import "./block-puzzle.css";
 
 const DURATION_MS = 90_000;
@@ -18,7 +19,7 @@ const GEM_HEX = ["#6af8d6", "#24d8a8", "#c8fff0"];
 const NO_COLOR = 255;
 const LIFT_TOUCH_PX = 64;
 
-type Phase = "idle" | "play" | "over";
+type Phase = "idle" | "count" | "play" | "over";
 type Reason = "time" | "stuck" | "limit";
 
 interface Ghost {
@@ -45,6 +46,7 @@ interface Game {
   gemsCleared: number;
 }
 
+const noSubscribe = () => () => {};
 const pad = (n: number) => String(n).padStart(2, "0");
 const fmtClock = (ms: number) => {
   const s = Math.ceil(Math.max(0, ms) / 1000);
@@ -97,14 +99,6 @@ export interface MatchRun {
 
 export type { Reason as RunEndReason };
 
-interface Clear {
-  id: number;
-  lines: number;
-  gained: number;
-  /** Clock time left (ms) when it happened; "ago" is this minus the clock now. */
-  at: number;
-}
-
 const fmtN = (n: number) => n.toLocaleString("en-US");
 const RING_R = 54;
 const RING_C = 2 * Math.PI * RING_R;
@@ -117,7 +111,6 @@ const RING_C = 2 * Math.PI * RING_R;
 export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPanel?: ReactNode }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [combo, setCombo] = useState(0);
-  const [recent, setRecent] = useState<Clear[]>([]);
   useGuideHidden(phase === "play");
   const [reason, setReason] = useState<Reason>("time");
   const [game, setGame] = useState<Game>(() => ({ st: newState(0n), colors: [], lines: 0, gemsCleared: 0 }));
@@ -130,6 +123,9 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const [moment, setMoment] = useState<Moment | null>(null);
   const [fizzle, setFizzle] = useState(0);
   const [runId, setRunId] = useState(0);
+  const [best, setBest] = useState({ value: 0, fresh: false, set: false });
+  const stored = useSyncExternalStore(noSubscribe, readBest, () => 0);
+  const bestShown = best.set ? best.value : stored;
   const [preview, setPreview] = useState<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<{ idx: number; px: number; py: number; cell: number } | null>(null);
   const [focusCell, setFocusCell] = useState(0);
@@ -156,6 +152,18 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     runRef.current?.onEnd({ score: st?.score ?? scoreRef.current.score, moves: st?.moves ?? scoreRef.current.moves, reason: why });
     setPhase("over");
     setReason(why);
+    if (!runRef.current) {
+      const score = st?.score ?? scoreRef.current.score;
+      const prev = readBest();
+      const fresh = score > prev;
+      if (fresh) writeBest(score);
+      setBest({ value: fresh ? score : prev, fresh, set: true });
+      if (fresh) {
+        sfx("win");
+        const box = boardRef.current?.getBoundingClientRect();
+        if (box) burst({ x: box.left + box.width / 2, y: box.top + box.height * 0.4, colors: BLOCK_HEX, kind: "confetti", count: 60, power: 1.4 });
+      }
+    }
     setPreview(null);
     setDrag(null);
     dragMeta.current = null;
@@ -168,6 +176,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     setSel(0);
     setGhosts([]);
     setBestCombo(0);
+    setBest((b) => ({ ...b, set: false, fresh: false }));
     setFresh(new Set());
     setSweeps([]);
     setMoment(null);
@@ -177,11 +186,22 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
     setFocusCell(0);
     setAnnounce("");
     setCombo(0);
-    setRecent([]);
     setRemaining(DURATION_MS);
-    endsAt.current = (run ? run.startedAt : performance.now()) + DURATION_MS;
-    setPhase("play");
+    if (run) {
+      endsAt.current = run.startedAt + DURATION_MS;
+      setPhase("play");
+      sfx("go");
+      setMoment({ id: -1, text: "Go!", tone: "up" });
+    } else {
+      setPhase("count");
+    }
   };
+
+  /** Practice: the clock starts the moment "Go!" shows. */
+  const beginPractice = useCallback(() => {
+    endsAt.current = performance.now() + DURATION_MS;
+    setPhase("play");
+  }, []);
 
   // A Match run starts as soon as the chain says `begin_run` landed.
   const started = useRef(false);
@@ -316,7 +336,6 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         celebrate(next.result.lines, next.result.gems, newCombo, next.result.gained, gone, next.result.cleared, id);
         setCombo(newCombo);
         setBestCombo((b) => Math.max(b, newCombo));
-        setRecent((r) => [{ id, lines: next.result.lines, gained: next.result.gained, at: endsAt.current - performance.now() }, ...r].slice(0, 3));
         setAnnounce(`Cleared ${next.result.lines} ${next.result.lines === 1 ? "line" : "lines"}, plus ${next.result.gained}`);
       }
       if (next.state.over) {
@@ -425,6 +444,12 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
 
   const ghostAt = useMemo(() => new Map(ghosts.map((g) => [g.i, g])), [ghosts]);
   const timeLow = remaining <= 10_000;
+  const secondsLeft = Math.ceil(remaining / 1000);
+  useEffect(() => {
+    if (phase === "play" && timeLow && secondsLeft > 0) sfx("tick");
+  }, [phase, timeLow, secondsLeft]);
+
+
 
   const board = (
     <div
@@ -491,11 +516,11 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
               r={RING_R}
               className="bpx-ring-fg"
               strokeDasharray={RING_C}
-              strokeDashoffset={RING_C * (1 - Math.max(0, Math.min(1, (phase === "idle" ? DURATION_MS : remaining) / DURATION_MS)))}
+              strokeDashoffset={RING_C * (1 - Math.max(0, Math.min(1, (phase === "idle" || phase === "count" ? DURATION_MS : remaining) / DURATION_MS)))}
               transform="rotate(-90 60 60)"
             />
           </svg>
-          <span className="mono">{fmtClock(phase === "idle" ? DURATION_MS : remaining)}</span>
+          <span className="mono">{fmtClock(phase === "idle" || phase === "count" ? DURATION_MS : remaining)}</span>
         </div>
         <div className="bpx-run" aria-label="Run">
           <span className={`bpx-combo${fizzle ? " fizzle" : ""}`} data-heat={comboHeat(combo)} aria-label={`Combo ${combo}`}>
@@ -521,32 +546,40 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         {board}
         {phase === "idle" && !run && (
           <div className="bp-overlay">
-            <div className="stack" style={{ justifyItems: "center", textAlign: "center" }}>
+            <div className="stack bp-intro">
               <h2 className="bp-title">Block Puzzle</h2>
-              <p className="meta">
-                Place pieces, clear full rows and columns. Clearing a gem block multiplies that clear. 90 seconds.
-              </p>
+              <ul className="bp-rules">
+                <li className="cut"><b>Place</b>Drag pieces onto the board</li>
+                <li className="cut"><b>Clear</b>Fill a whole row or column</li>
+                <li className="cut gem"><b>Gem</b>Clear one to multiply the clear</li>
+              </ul>
+              <p className="meta">90 seconds on the clock.{bestShown > 0 ? <> Your best <b className="tnum">{bestShown}</b></> : null}</p>
               <Button onClick={start}>Start practice</Button>
             </div>
           </div>
         )}
+        {phase === "count" && <Countdown from={3} onDone={beginPractice} />}
         {phase === "over" && (
           <div className="bp-overlay" role="dialog" aria-label="Game over">
-            <div className="stack" style={{ justifyItems: "center", textAlign: "center" }}>
+            <div className="stack bp-over">
               <Label>{reason === "time" ? "Time's up" : reason === "limit" ? "Move limit reached" : "No piece fits"}</Label>
-              <span className="bp-final tnum">{st.score}</span>
-              <p className="meta tnum">
-                {st.moves} moves · {game.lines} lines · {game.gemsCleared} gems cleared
-              </p>
-              {recent.length > 0 && (
-                <ul className="bpx-clears" aria-label="Recent clears">
-                  {recent.slice(0, 3).map((c) => (
-                    <li key={c.id}>
-                      {c.lines} {c.lines === 1 ? "line" : "lines"} cleared <b className="tnum">+{c.gained}</b>
-                    </li>
-                  ))}
-                </ul>
+              <span className="bp-final tnum"><CountUp value={st.score} from={0} format={String} duration={900} /></span>
+              {!run && (
+                <span className={`bp-best${best.fresh ? " new" : ""}`}>{best.fresh ? "New best!" : `Best ${best.value}`}</span>
               )}
+              <ul className="bp-stats" aria-label="Run stats">
+                {[
+                  ["Moves", st.moves],
+                  ["Lines", game.lines],
+                  ["Gems cleared", game.gemsCleared],
+                  ["Best combo", bestCombo],
+                ].map(([k, v], n) => (
+                  <li key={k} className="cut" style={{ animationDelay: `${500 + n * 110}ms` }}>
+                    <b className="tnum">{v}</b>
+                    <span>{k}</span>
+                  </li>
+                ))}
+              </ul>
               {run ? (
                 <p className="note">Run over. Sending it to the chain…</p>
               ) : (
