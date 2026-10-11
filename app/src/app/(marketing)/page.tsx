@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { TesoroLogo } from "@/components/brand";
 import { LINES, clipAbove, clipBelow } from "@/components/waitlist/geometry";
-import { GemDivider } from "@/components/waitlist/GemDivider";
+import { DissolveEdge } from "@/components/waitlist/DissolveEdge";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
 import { LAUNCH_STAGE, appHref } from "@/lib/landing/config";
@@ -32,7 +32,7 @@ export default async function Waitlist() {
       <div className="wl-floor" aria-hidden>
         <div className="wl-floor-in" />
       </div>
-      <GemDivider />
+      <DissolveEdge />
       <header className="wl-top">
         <Link href="/" className="wl-logo" aria-label="Tesoro">
           <TesoroLogo height={30} tone="dark" />

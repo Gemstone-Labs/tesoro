@@ -40,45 +40,28 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .vw-col-4 .vw-track { animation-duration: 190s; animation-delay: -20s; }
 .vw-col-5 .vw-track { animation-direction: reverse; animation-duration: 155s; animation-delay: -55s; }
 .vw-col-6 .vw-track { animation-duration: 180s; animation-delay: -90s; }
-.vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 9 / 16; object-fit: cover; margin-bottom: 8px; background: #0c1215; }
+.vw-clip { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; margin-bottom: 8px; background: #0c1215; }
 /* Tiles stay about 140-220px wide: seven columns on a wide screen, six on a laptop, five on a tablet, four on a phone. */
 @media (max-width: 1439px) { .vw-col-6 { display: none; } .vw-tilt { width: 90%; } }
 @media (max-width: 1099px) { .vw-col-5 { display: none; } .vw-tilt { width: 98%; } }
 @keyframes vw-drift { to { transform: translateY(-50%); } }
 
-/* The floor: solid below the diagonal, casting a soft shade onto the footage along it. */
-.wl-floor { position: absolute; inset: 0; z-index: 2; pointer-events: none; filter: drop-shadow(0 0 28px rgba(9, 13, 15, 0.95)) drop-shadow(0 0 70px rgba(9, 13, 15, 0.7)); }
-.wl-floor-in { position: absolute; inset: 0; clip-path: var(--below-wide); background: radial-gradient(120% 90% at 0% 100%, #0f161a 0, #090d0f 60%); }
+/* The floor: solid below the diagonal and carrying the landing's octagon texture (the same file as the landing's
+   `--lp-texture`, repeated here because the light theme redefines that variable and this frame stays dark), with a
+   soft shade on the footage along the edge. */
+.wl { --wl-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360' fill='none' stroke='%23eaefec' stroke-opacity='.045'%3E%3Cpath d='M70 40h180l40 40v120l-40 40H70l-40-40V80z'/%3E%3Cpath d='M98 68h124l28 28v88l-28 28H98l-28-28V96z'/%3E%3Cpath d='M250 40l60-40M290 200l70 40M70 240l-70 60M30 80L0 60'/%3E%3C/svg%3E"); }
+.wl-floor { position: absolute; inset: 0; z-index: 2; pointer-events: none; filter: drop-shadow(0 0 24px rgba(9, 13, 15, 0.6)); }
+.wl-floor-in { position: absolute; inset: 0; clip-path: var(--below-wide); background: var(--wl-texture) 0 0 / 360px 360px, #090d0f; }
 /* and a fade from the left so the top bar and headline never sit on footage */
 .vw::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0, rgba(9, 13, 15, 0.5) 30%, rgba(9, 13, 15, 0.12) 62%, rgba(9, 13, 15, 0.22) 100%); }
 
-/* Gem divider: octagon-cut jewels along the diagonal, thinning and shrinking into the footage. */
-.gd-defs { position: absolute; width: 0; height: 0; }
-.gd { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
-.gd-tall { display: none; }
-.gd-b {
-  position: absolute; aspect-ratio: 1; height: auto; translate: -50% -50%; overflow: visible;
-  animation: gd-pop 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.25) both, gd-glint 6s linear infinite;
-  animation-delay: calc(var(--i) * 14ms), calc(1.4s + var(--t) * 2.8s);
-}
-.gd-b[data-hue="amber"] { --k: #ffb43a; }
-.gd-b[data-hue="cyan"] { --k: #3fc6ff; }
-.gd-b[data-hue="pink"] { --k: #ff4d9b; }
-.gd-b[data-hue="violet"] { --k: #9d74ff; }
-.gd-b[data-hue="emerald"] { --k: #2fdcac; }
-/* bevels lit from above, like the Block Puzzle jewels */
-.gd-f0 { fill: color-mix(in oklab, var(--k) 46%, white); }
-.gd-f1 { fill: color-mix(in oklab, var(--k) 74%, white); }
-.gd-f2 { fill: color-mix(in oklab, var(--k) 70%, black); }
-.gd-f3 { fill: color-mix(in oklab, var(--k) 58%, black); }
-.gd-f4 { fill: color-mix(in oklab, var(--k) 48%, black); }
-.gd-f5 { fill: color-mix(in oklab, var(--k) 66%, black); }
-.gd-f6 { fill: color-mix(in oklab, var(--k) 76%, white); }
-.gd-f7 { fill: color-mix(in oklab, var(--k) 56%, white); }
-.gd-table { fill: color-mix(in oklab, var(--k) 88%, black); }
-.gd-glint { fill: #fff; fill-opacity: 0.26; }
-@keyframes gd-pop { from { scale: 0.5; opacity: 0; } to { scale: 1; opacity: 1; } }
-@keyframes gd-glint { 0%, 84%, 100% { filter: none; } 91% { filter: brightness(1.6) saturate(1.15); } }
+/* Dissolve: octagon cells in the page colour on the texture's grid, thinning and shrinking into the footage. */
+.de { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; pointer-events: none; overflow: hidden; animation: de-in 0.6s ease-out both; }
+.de-body { fill: #090d0f; stroke: rgba(234, 239, 236, 0.1); stroke-width: 1; }
+.de-line { fill: none; stroke: rgba(234, 239, 236, 0.1); stroke-width: 1; }
+.de-fade { animation: de-fade 7s ease-in-out infinite alternate; animation-delay: calc(var(--k) * -0.8s); }
+@keyframes de-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes de-fade { from { opacity: 1; } to { opacity: 0.3; } }
 
 /* Frame content */
 .wl-top::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -36px 0; background: linear-gradient(180deg, rgba(9, 13, 15, 0.82) 0, rgba(9, 13, 15, 0.5) 55%, transparent 100%); pointer-events: none; }
@@ -117,8 +100,6 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
   .wl { min-height: 680px; }
   .vw { clip-path: var(--above-tall); }
   .wl-floor-in { clip-path: var(--below-tall); }
-  .gd-wide { display: none; }
-  .gd-tall { display: block; }
   .vw-col-4 { display: none; }
   .vw-tilt { right: -26%; top: -14%; width: 150%; height: 120%; gap: 6px; }
   .vw-clip { margin-bottom: 6px; }
@@ -135,5 +116,5 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vw-track, .gd-b { animation: none; }
+  .vw-track, .de, .de-fade { animation: none; }
 }
