@@ -151,7 +151,7 @@ function PlayerCard({ r, mine }: { r: ChainRequest; mine: boolean }) {
 }
 
 /** The Player's P&L: the net figure, and the running total Match by Match, emerald above zero and red below. */
-function Pnl({ deltas }: { deltas: number[] }) {
+export function Pnl({ deltas }: { deltas: number[] }) {
   const id = useId().replace(/[^\w-]/g, "");
   const totals = deltas.reduce<number[]>((acc, d) => [...acc, (acc.at(-1) ?? 0) + d], []);
   const net = totals.at(-1) ?? 0;

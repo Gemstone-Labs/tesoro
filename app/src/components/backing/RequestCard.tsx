@@ -11,6 +11,10 @@ import { ClockIcon, GemaMark } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
 import "./request-card.css";
+import { usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { RQ_VARIANTS, RequestCardVariant } from "./RequestCard.prototype";
+
+const RQ_KEYS = RQ_VARIANTS.map((v) => v.key);
 
 const HERO = { "block-puzzle": art.blockPuzzleHero, holdem: art.holdemHero, "trading-duel": art.tradingDuelHero } as const;
 
@@ -31,9 +35,12 @@ export function RequestCard({
   selected?: boolean;
   id?: string;
 }) {
+  // PROTOTYPE: ?variant=now|A|B|C|D
+  const variant = usePrototypeVariant(RQ_KEYS);
   const name = usePlayerLabel(r.player);
   const { matches, wins } = r.record;
   const pct = matches ? Math.round((wins / matches) * 100) : 0;
+  if (variant !== "now") return <RequestCardVariant variant={variant} {...{ r, action, nowMs, selected, id }} />;
   return (
     <article id={id} className={`cut cut-card rq${selected ? " selected" : ""}`} aria-label={`${name}, ${GAME_NAMES[r.game]}`}>
       <div className="rq-art">

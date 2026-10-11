@@ -45,6 +45,8 @@ import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import { RequestCard } from "@/components/backing/RequestCard";
+import { RQ_VARIANTS } from "@/components/backing/RequestCard.prototype";
+import { PrototypeSwitcher } from "@/components/prototype/PrototypeSwitcher";
 import { BackingExample } from "./BackingExample";
 import "./backing.css";
 import { plainError } from "@/lib/errors";
@@ -181,6 +183,7 @@ export default function Backing() {
 
   return (
     <div className="bk">
+      <PrototypeSwitcher variants={RQ_VARIANTS} />
       <header className="page-head">
         <div>
           <h1 className="page-title">Back a player</h1>
