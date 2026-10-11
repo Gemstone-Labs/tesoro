@@ -8,8 +8,11 @@ import { backedSplit } from "@/lib/chain/ledger";
 import { LEADERBOARD_BPS } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 
-/** A worked Offer for the empty Requests tab. Fees are the test-mode registry's (2% Platform + 3% Studio) plus the 1% Leaderboard Fee. */
-const EXAMPLE = { entry: 1000, platformBps: 200, studioBps: 300, leaderboardBps: LEADERBOARD_BPS, shareBps: 5000 };
+/** The test-mode registry's Fees (2% Platform + 3% Studio) plus the 1% Leaderboard Fee. */
+export const FEES = { platformBps: 200, studioBps: 300, leaderboardBps: LEADERBOARD_BPS };
+
+/** A worked Offer for the empty Requests tab. */
+const EXAMPLE = { entry: 1000, ...FEES, shareBps: 5000 };
 
 /** Whether the viewer hid the card, remembered in this browser only. */
 const HIDDEN_KEY = "tesoro-backing-how-hidden";
