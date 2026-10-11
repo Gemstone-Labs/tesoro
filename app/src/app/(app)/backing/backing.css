@@ -40,38 +40,62 @@
 .bk-empty .bust-card-body b { font-size: 20px; }
 .bk-empty .bust-card-body p { font-size: 15px; margin-top: 4px; max-width: 46ch; }
 
-/* Offer modal: a native dialog in the top layer, centred over everything */
+/* Offer modal: a native dialog in the top layer, centred over everything. For a Request, the Player's
+   card on the left and the terms on the right (one column on phones); a public Offer is terms only. */
 dialog.bk-drawer { --c: var(--cut-frame); --edge: var(--edge-2); position: fixed; padding: 0; border: 0; color: var(--fg); background: var(--side);
   width: calc(100% - 24px); max-width: 560px; max-height: calc(100dvh - 24px); margin: auto; }
+dialog.bk-drawer.has-card { max-width: 940px; }
 dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: blur(6px); }
-.bk-drawer-in { padding: 18px 16px 20px; display: grid; gap: 12px; align-content: start; }
-.bk-drawer-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.bk-drawer-in { display: grid; grid-template-areas: "head" "card" "terms"; align-items: start; }
+.bk-drawer-card { grid-area: card; padding: 16px 16px 0; }
+.bk-drawer-card .rq, .bk-drawer-card .rq:hover { transform: none; --edge: var(--edge-1); }
+.bk-drawer-terms { grid-area: terms; display: grid; gap: 18px; align-content: start; min-width: 0; padding: 20px 16px 0; }
+.bk-drawer-head { grid-area: head; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 18px 16px 0; }
 .bk-drawer-head .h-section { font-size: clamp(30px, 2.6vw, 46px); }
-.bk-drawer-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-.bk-drawer-form { display: grid; gap: 12px; min-width: 0; }
-.bk-summary { display: grid; grid-template-columns: minmax(0, 1fr) 128px; gap: 10px; }
-.bk-summary-who { --edge: var(--edge-2); background: var(--surface); display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
-.bk-summary-art { --c: 10px; overflow: hidden; clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px); }
-.bk-summary-art img { width: 100%; height: 100%; object-fit: cover; }
-.bk-entry { --edge: var(--edge-2); background: var(--surface); padding: 10px 14px; display: grid; gap: 4px; }
-.bk-entry span { font-size: 15px; color: var(--fg-2); }
-.bk-entry b { display: inline-flex; align-items: center; gap: 10px; font-size: 30px; font-weight: 800; }
-.bk-entry small { font-size: 18px; font-weight: 500; color: var(--fg-2); }
-.bk-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.bk-split > div { --edge: var(--edge-2); background: var(--surface); padding: 10px 14px; display: grid; gap: 0; }
-.bk-split span { font-size: 14px; color: var(--fg-2); }
-.bk-split b { font-size: 30px; font-weight: 800; }
-.bk-split small { font-size: 14px; color: var(--fg-2); }
-.bk-explain { --edge: var(--edge-1); background: var(--surface); padding: 14px; display: grid; gap: 14px; }
-.bk-explain > div { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; }
-.bk-explain svg { width: 26px; height: 26px; color: var(--fg); }
-.bk-explain p { font-size: 15px; color: var(--fg); }
-.bk-x { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--fg); }
-.bk-x svg { width: 15px; height: 15px; }
-.bk-drawer-actions { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; }
-.bk-drawer-actions .btn { min-height: 56px; font-size: 18px; }
 
-@media (min-width: 640px) { .bk-drawer-in { padding: 28px 28px 32px; } }
+.bk-outcomes { width: 100%; border-collapse: collapse; }
+.bk-outcomes th, .bk-outcomes td { padding: 12px 10px; text-align: left; vertical-align: top; }
+.bk-outcomes thead th { padding-top: 0; max-width: 16ch; overflow: hidden; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-2); }
+.bk-outcomes tbody tr { border-top: 1px solid var(--line); }
+.bk-outcomes tbody th { font-size: 15px; white-space: nowrap; }
+.bk-outcomes td b { display: block; font-family: var(--f-display); font-size: 34px; font-weight: 800; line-height: 1; }
+.bk-outcomes td small { font-size: 12.5px; color: var(--fg-2); }
+.bk-outcomes .won td:nth-child(2) b { color: var(--em-hi); }
+.bk-outcomes .lost td:nth-child(2) b { color: var(--danger); }
+.bk-ico { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 8px; vertical-align: middle; border-radius: 50%; }
+.bk-ico svg { width: 15px; height: 15px; }
+.bk-ico.won { background: rgba(36, 216, 168, 0.14); color: var(--em-hi); }
+.bk-ico.lost { background: rgba(242, 104, 90, 0.14); color: var(--danger); }
+
+/* pinned to the bottom of the scrolling box, so the action stays in view */
+.bk-drawer-foot { position: sticky; bottom: 0; z-index: 1; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 16px;
+  margin: 0 -16px; padding: 14px 16px 18px; background: var(--side); border-top: 1px solid var(--line); }
+.bk-reserve { display: grid; gap: 2px; }
+.bk-reserve b { display: inline-flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; }
+.bk-reserve .meta { font-size: 12px; }
+.bk-drawer-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
+.bk-drawer-actions .btn { min-height: 54px; font-size: 17px; }
+
+@media (min-width: 640px) {
+  .bk-drawer-head { padding: 28px 28px 0; }
+  .bk-drawer-terms { padding: 20px 28px 0; }
+  .bk-drawer-foot { margin: 0 -28px; padding: 16px 28px 24px; }
+}
+@media (min-width: 860px) {
+  .has-card .bk-drawer-in { grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: auto 1fr; grid-template-areas: "card head" "card terms"; }
+  .bk-drawer-card { position: sticky; top: 0; padding: 24px 0 24px 24px; }
+  .has-card :is(.bk-drawer-head, .bk-drawer-terms) { padding-left: 24px; }
+}
+/* stacked, the card is a shorter poster so the terms are close */
+@media (max-width: 859px) {
+  .bk-drawer-card .rq-face { height: 176px; }
+  .bk-drawer-card .rq-avatar { width: 104px; height: 104px; --c: 18px; }
+}
+@media (max-width: 520px) {
+  .bk-drawer-foot { grid-template-columns: 1fr; }
+  .bk-reserve { display: none; }
+  .bk-outcomes td b { font-size: 26px; }
+}
 
 dialog.bk-drawer[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
 dialog.bk-drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }

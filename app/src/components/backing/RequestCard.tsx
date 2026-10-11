@@ -25,7 +25,8 @@ export function RequestCard({
   id,
 }: {
   r: ChainRequest;
-  action: ReactNode;
+  /** Beside "Asks for"; left out where the card only shows who is being backed (the Offer drawer). */
+  action?: ReactNode;
   nowMs?: number;
   selected?: boolean;
   id?: string;

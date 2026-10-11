@@ -1,10 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { Trophy, X as XMark } from "lucide-react";
+import { X as XMark } from "lucide-react";
 import {
   AssetPicker,
   Button,
@@ -19,12 +18,12 @@ import {
   Sheet,
   SkeletonCards,
   Slider,
+  XIcon,
 } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 import { useGuideTip } from "@/components/guide/Guide";
 import { useAccount } from "@/lib/account";
-import { art } from "@/lib/art";
 import {
   acceptApplicant,
   acceptDirected,
@@ -38,14 +37,14 @@ import {
   type ChainRequest,
   type PlayerRecord,
 } from "@/lib/chain/backing";
-import { EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
-import { recordFromMatches, recordShort, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
+import { backedSplit, EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { recordFromMatches, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
 import { RequestCard } from "@/components/backing/RequestCard";
-import { BackingExample } from "./BackingExample";
+import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
 import { plainError } from "@/lib/errors";
 
@@ -405,6 +404,7 @@ export default function Backing() {
             key={offerFor === "public" ? "public" : offerFor.address.toBase58()}
             target={offerFor}
             available={onChain ? gemas.available : null}
+            nowMs={nowMs}
             busy={busy !== null}
             onClose={() => setOfferFor(null)}
             onSend={(game, entry, share, request) => {
@@ -662,27 +662,31 @@ function MyOffer({
 }
 
 
-/** MAKE AN OFFER: a right-hand drawer on desktop, a bottom sheet below 1024px. Same terms as before: 24-hour Offer, Player's share 10 to 90%. */
+/**
+ * MAKE AN OFFER: a modal over the page. For a Request, the Player's card (as on the board) beside the
+ * terms; a public Offer picks its Game and entry instead. The Player keeps 10 to 90% of the surplus; the Offer lasts 24 hours.
+ */
 function OfferDrawer({
   target,
   available,
+  nowMs,
   busy,
   onClose,
   onSend,
 }: {
   target: ChainRequest | "public";
   available: number | null;
+  nowMs: number;
   busy: boolean;
   onClose: () => void;
   onSend: (game: GameId, entry: EntrySize, share: number, request: ChainRequest | null) => void;
 }) {
-  const isPublic = target === "public";
-  const [game, setGame] = useState<GameId>(isPublic ? "block-puzzle" : target.game);
-  const [entry, setEntry] = useState<EntrySize>(isPublic ? 1000 : (target.entry as EntrySize));
+  const request = target === "public" ? null : target;
+  const [game, setGame] = useState<GameId>(request?.game ?? "block-puzzle");
+  const [entry, setEntry] = useState<EntrySize>((request?.entry as EntrySize) ?? 1000);
   const [share, setShare] = useState(40);
+  const win = backedSplit({ entry, ...FEES, shareBps: share * 100, won: true });
   const short = available !== null && available < entry;
-  const request = isPublic ? null : target;
-  const player = request?.player ?? null;
 
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -693,114 +697,93 @@ function OfferDrawer({
   return (
     <dialog
       ref={ref}
-      className="cut cut-frame bk-drawer"
-      aria-label={isPublic ? "New public Offer" : "Make an Offer"}
+      className={`cut cut-frame bk-drawer${request ? " has-card" : ""}`}
+      aria-label={request ? "Make an Offer" : "New public Offer"}
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
     >
       <div className="bk-drawer-in">
         <div className="bk-drawer-head">
-          <h2 className="h-section">{isPublic ? "New public offer" : "Make an offer"}</h2>
+          <h2 className="h-section">{request ? "Make an offer" : "New public offer"}</h2>
           <button type="button" className="cut icon-btn" onClick={onClose} aria-label="Close">
             <XMark aria-hidden="true" />
           </button>
         </div>
+        {request && (
+          <aside className="bk-drawer-card">
+            <RequestCard r={request} nowMs={nowMs} />
+          </aside>
+        )}
+        <div className="bk-drawer-terms">
 
-        <div className="bk-drawer-grid">
-          <div className="bk-drawer-form">
-            {player ? (
-              <div className="bk-summary">
-                <div className="cut cut-card bk-summary-who">
-                  <span className="cut cut-btn avatar bk-avatar">
-                    <PlayerAvatar account={player} size={78} />
-                  </span>
-                  <div className="bk-who">
-                    <strong>
-                      <AccountLink account={player} newTab />
-                    </strong>
-                    <span>{GAME_NAMES[game]}</span>
-                    <span className="bk-rec">{recordShort(request!.record)}</span>
-                  </div>
-                </div>
-                <div className="bk-summary-art" aria-hidden="true">
-                  <Image src={art.thumb[game]} alt="" width={200} height={200} />
-                </div>
+          {!request && (
+            <div className="stack">
+              <p className="meta">Post terms; Players apply and you accept one.</p>
+              <div className="field">
+                <label className="label" htmlFor="off-game">Game</label>
+                <select id="off-game" className="cut cut-chip select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
+                  <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
+                  <option value="holdem">{GAME_NAMES.holdem}</option>
+                  <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
+                </select>
               </div>
-            ) : (
-              <div className="stack">
-                <p className="meta">Post terms; Players apply and you accept one.</p>
-                <div className="field">
-                  <label className="label" htmlFor="off-game">Game</label>
-                  <select id="off-game" className="cut cut-chip select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-                    <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
-                    <option value="holdem">{GAME_NAMES.holdem}</option>
-                    <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
-                  </select>
-                </div>
-                <EntryPicker value={entry} onChange={setEntry} legend="Entry you fund" name="off-entry" />
-              </div>
-            )}
-
-            {player && (
-              <div className="cut cut-card bk-entry">
-                <span>Entry amount</span>
-                <b>
-                  <GemaMark size={30} /> {fmtGemas(entry)} <small>Gemas</small>
-                </b>
-              </div>
-            )}
-
-            <Slider
-              label="Player's share of the surplus"
-              value={share}
-              min={10}
-              max={90}
-              step={5}
-              onChange={setShare}
-              display={`${share}%`}
-              format={(v) => `${v}%`}
-            />
-            <div className="bk-split">
-              <div className="cut cut-card">
-                <span>You (Backer)</span>
-                <b>{100 - share}%</b>
-                <small>of surplus</small>
-              </div>
-              <div className="cut cut-card">
-                <span>Player{player ? <> (<PlayerName account={player} />)</> : ""}</span>
-                <b>{share}%</b>
-                <small>of surplus</small>
-              </div>
+              <EntryPicker value={entry} onChange={setEntry} legend="Entry you fund" name="off-entry" />
             </div>
+          )}
 
-            <div className="cut cut-card bk-explain">
-              <div>
-                <Trophy aria-hidden="true" />
-                <p>
-                  <b>If they win:</b> your {fmtGemas(entry)} back first, then you keep {100 - share}% of the surplus.
-                </p>
-              </div>
-              <div>
-                <span className="bk-x" aria-hidden="true"><XMark /></span>
-                <p>
-                  <b>If they lose:</b> you lose {fmtGemas(entry)}. They never owe anything.
-                </p>
-              </div>
+          <Slider
+            label="They keep of the surplus"
+            value={share}
+            min={10}
+            max={90}
+            step={5}
+            onChange={setShare}
+            display={`${share}%`}
+            format={(v) => `${v}%`}
+          />
+          <table className="bk-outcomes">
+            <thead>
+              <tr>
+                <th />
+                <th scope="col">You</th>
+                <th scope="col">{request ? <PlayerName account={request.player} /> : "Player"}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="won">
+                <th scope="row"><span className="bk-ico won"><CheckIcon /></span> They win</th>
+                <td><b className="tnum">+{fmtGemas(win.backerSurplus)}</b><small>entry back, then {100 - share}%</small></td>
+                <td><b className="tnum">+{fmtGemas(win.playerShare)}</b><small>{share}% of the surplus</small></td>
+              </tr>
+              <tr className="lost">
+                <th scope="row"><span className="bk-ico lost"><XIcon /></span> They lose</th>
+                <td><b className="tnum">−{fmtGemas(entry)}</b><small>your entry</small></td>
+                <td><b className="tnum">0</b><small>never owe anything</small></td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="meta">
+            On a win the Pot is {fmtGemas(entry * 2)} Gemas; {fmtGemas(win.fees)} go to Fees. A Backing cannot be revoked once the Match starts.
+          </p>
+
+          {short && (
+            <p className="status err" role="alert">
+              You have {fmtGemas(available)} Gemas available. <Link href="/wallet">Get Gemas in your Wallet</Link>
+            </p>
+          )}
+          <footer className="bk-drawer-foot">
+            <div className="bk-reserve">
+              <span className="label">You reserve</span>
+              <b><GemaMark size={22} glint /> {fmtGemas(entry)}</b>
+              <span className="meta">for 24 hours</span>
             </div>
-
-            {short && (
-              <p className="status err" role="alert">
-                You have {fmtGemas(available)} Gemas available. <Link href="/wallet">Get Gemas in your Wallet</Link>
-              </p>
-            )}
-            <p className="note">You reserve {fmtGemas(entry)} Gemas. The Offer lasts 24 hours. A Backing cannot be revoked once the Match starts.</p>
             <div className="bk-drawer-actions">
               <Button onClick={onClose}>Cancel</Button>
-              <Button variant="money" disabled={short || busy} onClick={() => onSend(game, entry, share, isPublic ? null : target)}>
-                {isPublic ? "Post Offer" : "Make an Offer"}
+              <Button variant="money" disabled={short || busy} onClick={() => onSend(game, entry, share, request)}>
+                {request ? "Make an Offer" : "Post Offer"}
               </Button>
             </div>
-          </div>
+          </footer>
         </div>
       </div>
     </dialog>
