@@ -103,7 +103,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const total = t.phase === PHASE.shuffle ? 60 : 30;
   const expired = !practice && !ended && t.status === STATUS.live && remaining < -1;
   const log = useHandLog(t, seat);
-  const feed = useTableFeed(t, seat);
+  const feed = useTableFeed(t);
   useGuideHidden(!ended);
 
   const board = playing ? t.board : showLast ? lh.board : t.board;
@@ -128,9 +128,15 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const betSpots = useRef<[{ amount: bigint; at: { x: number; y: number } } | null, { amount: bigint; at: { x: number; y: number } } | null]>([null, null]);
   const sweptBatch = useRef(0);
   const wonBatch = useRef(0);
-  const dealerAt = useRef<{ x: number; y: number } | null>(null);
+  const dealerAt = useRef<{ seat: number; x: number; y: number } | null>(null);
   const [ghosts, setGhosts] = useState<{ id: number; amount: bigint; x: number; y: number; dx: number; dy: number; delay: number }[]>([]);
   const batch = feed.batch;
+
+  // Spots are kept relative to the table, so scrolling or resizing between reads cannot leave them stale.
+  const origin = () => {
+    const r = tableRef.current?.getBoundingClientRect();
+    return { x: r?.left ?? 0, y: r?.top ?? 0 };
+  };
 
   useLayoutEffect(() => {
     // Chips that were in front of a seat before this read go to the pot (the bets are already gone from the DOM).
@@ -139,9 +145,13 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
     if (batch && batch.id !== sweptBatch.current && sweeps && pot && !prefersReducedMotion()) {
       sweptBatch.current = batch.id;
       const to = centre(pot);
+      const o = origin();
       const made = ([0, 1] as const).flatMap((i) => {
         const b = betSpots.current[i];
-        return b ? [{ id: batch.id * 10 + i, amount: b.amount, x: b.at.x, y: b.at.y, dx: to.x - b.at.x, dy: to.y - b.at.y, delay: 80 }] : [];
+        if (!b) return [];
+        const x = b.at.x + o.x;
+        const y = b.at.y + o.y;
+        return [{ id: batch.id * 10 + i, amount: b.amount, x, y, dx: to.x - x, dy: to.y - y, delay: 80 }];
       });
       if (made.length) {
         setGhosts((g) => [...g, ...made]);
@@ -168,17 +178,21 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
         setTimeout(() => setGhosts((g) => g.filter((x) => !ids.includes(x.id))), delay + 900);
       }
     }
+    const o = origin();
     betSpots.current = [0, 1].map((i) => {
       const el = tableRef.current?.querySelector<HTMLElement>(`[data-bet="${i}"]`);
-      return el && t.bets[i] > 0n ? { amount: t.bets[i], at: centre(el.getBoundingClientRect()) } : null;
+      if (!el || t.bets[i] <= 0n) return null;
+      const c = centre(el.getBoundingClientRect());
+      return { amount: t.bets[i], at: { x: c.x - o.x, y: c.y - o.y } };
     }) as typeof betSpots.current;
 
     // The dealer button slides to the new dealer.
     const d = tableRef.current?.querySelector<HTMLElement>(".hd-btn");
     if (d) {
-      const at = centre(d.getBoundingClientRect());
-      if (dealerAt.current && Math.hypot(at.x - dealerAt.current.x, at.y - dealerAt.current.y) > 24) flyFrom(d, dealerAt.current, { duration: 600, spin: 180, scale: 1 });
-      dealerAt.current = at;
+      const c = centre(d.getBoundingClientRect());
+      const prev = dealerAt.current;
+      if (prev && prev.seat !== t.dealer) flyFrom(d, { x: prev.x + o.x, y: prev.y + o.y }, { duration: 600, spin: 180, scale: 1 });
+      dealerAt.current = { seat: t.dealer, x: c.x - o.x, y: c.y - o.y };
     }
   }, [batch, t]);
 
@@ -286,7 +300,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
         )}
       </header>
 
-      <div className="hdx-stage">
+      <div className="hdx-stage" style={{ ["--rv" as string]: `${revealAt}ms` }}>
         <div className="hdx-table" ref={tableRef}>
           <div className="hdx-surface" aria-hidden="true">
             <div className="hdx-rim">
@@ -298,7 +312,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
             <i />
             <i />
           </div>
-          <div className="hdx-felt" style={{ ["--rv" as string]: `${revealAt}ms` }} data-how={showdown ? "showdown" : "fold"}>
+          <div className="hdx-felt" data-how={showdown ? "showdown" : "fold"}>
             <Seat
               who="Opponent"
               address={practice ? "Bot" : undefined}

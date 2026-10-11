@@ -34,7 +34,7 @@ const view = (events: TableEvent[]) =>
         return e.type;
     }
   });
-const diff = (a: Practice, b: Practice, seat: 0 | 1 = 0) => view(diffTable(a.table, b.table, seat));
+const diff = (a: Practice, b: Practice) => view(diffTable(a.table, b.table));
 
 describe("diffTable, read by read", () => {
   it("tells a whole hand: deal, calls, checks, streets, showdown", () => {
@@ -64,7 +64,7 @@ describe("diffTable, read by read", () => {
   it("describes the same hand from the other seat only by the seat index it reports", () => {
     const p1 = deal(start(), NOW);
     const p2 = step(p1, 0, raise(300));
-    expect(view(diffTable(p1.table, p2.table, 1))).toEqual(["0:raise 300"]);
+    expect(view(diffTable(p1.table, p2.table))).toEqual(["0:raise 300"]);
   });
 
   it("reports the opponent folding to a raise as a bet, a fold and a result", () => {
@@ -107,14 +107,14 @@ describe("diffTable, merged reads", () => {
 
   it("reports nothing for a repeated read and nothing on a first read", () => {
     const p1 = deal(start(), NOW);
-    expect(diffTable(p1.table, p1.table, 0)).toEqual([]);
-    expect(diffTable(null, p1.table, 0)).toEqual([]);
+    expect(diffTable(p1.table, p1.table)).toEqual([]);
+    expect(diffTable(null, p1.table)).toEqual([]);
   });
 
   it("flags blinds going up only when the level changed", () => {
     const p1 = deal(start(), NOW);
     const p3 = step(step(p1, 0, raise(300)), 1, fold());
-    const events = diffTable(p1.table, p3.table, 0);
+    const events = diffTable(p1.table, p3.table);
     const hand2 = events.find((e) => e.type === "newHand");
     expect(hand2).toMatchObject({ handNo: 2, blindsUp: true, smallBlind: 100n, bigBlind: 200n });
     expect(NO_CARD).toBe(255);

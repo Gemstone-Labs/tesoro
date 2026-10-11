@@ -40,7 +40,21 @@ export function ActionBar({
     </button>
   );
 
-  const act = { fold: () => onAct(fold(), "fold"), pass: () => (facing ? onAct(call(), `call ${lg.toCall}`) : onAct(check(), "check")), raise: () => onAct(raise(value), `${verb.toLowerCase()} to ${value}`) };
+  // One move per turn: `busy` only arrives after the click, so a second key press or click in between is dropped.
+  const sent = useRef(false);
+  useEffect(() => {
+    sent.current = false;
+  }, [t, busy]);
+  const once = (go: () => void) => () => {
+    if (sent.current) return;
+    sent.current = true;
+    go();
+  };
+  const act = {
+    fold: once(() => onAct(fold(), "fold")),
+    pass: once(() => (facing ? onAct(call(), `call ${lg.toCall}`) : onAct(check(), "check"))),
+    raise: once(() => onAct(raise(value), `${verb.toLowerCase()} to ${value}`)),
+  };
   const latest = useRef({ act, enabled, raiseOk, max });
   useEffect(() => {
     latest.current = { act, enabled, raiseOk, max };
@@ -48,7 +62,8 @@ export function ActionBar({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
-      if (e.metaKey || e.ctrlKey || e.altKey || el?.closest("input[type=number], input[type=text], textarea, select, [contenteditable]")) return;
+      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || el?.closest("input:not([type=range], [type=checkbox], [type=radio]), textarea, select, [contenteditable]")) return;
+      if (el?.closest("[role=dialog], [aria-modal=true]") || document.querySelector("[role=dialog], [aria-modal=true]")) return;
       const cur = latest.current;
       const k = e.key.toLowerCase();
       if (!cur.enabled) return;

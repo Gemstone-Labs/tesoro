@@ -27,7 +27,7 @@ const specs: Spec[] = [
   {
     name: "bp-pop",
     file: B,
-    line: 163,
+    line: 161,
     note: "A block flashing bright, then spinning small and away when its line clears.",
     dur: 380,
     ease: "ease-out",
@@ -51,23 +51,9 @@ const specs: Spec[] = [
     ),
   },
   {
-    name: "score-bump",
-    file: B,
-    line: 147,
-    note: "The score swelling when it goes up.",
-    dur: 320,
-    ease: "cubic-bezier(0.2, 1.6, 0.4, 1)",
-    iter: 1,
-    stage: (s) => (
-      <span className="bp-score-n tnum bump" style={s}>
-        1,240
-      </span>
-    ),
-  },
-  {
     name: "op-spin",
     file: "src/app/(app)/wallet/opening/opening.css",
-    line: 20,
+    line: 47,
     note: "The spinner on the current step when an ETH Position is opening.",
     dur: 1400,
     ease: "linear",
@@ -77,7 +63,7 @@ const specs: Spec[] = [
   {
     name: "bp-drop",
     file: B,
-    line: 151,
+    line: 149,
     note: "A placed piece dropping into its cells and settling.",
     dur: 420,
     ease: "cubic-bezier(0.2, 0.9, 0.3, 1.2)",
@@ -87,7 +73,7 @@ const specs: Spec[] = [
   {
     name: "bp-hint",
     file: B,
-    line: 160,
+    line: 158,
     note: "Cells of a row or column the held piece would complete, pulsing in its colour.",
     dur: 700,
     ease: "ease-in-out",
@@ -97,7 +83,7 @@ const specs: Spec[] = [
   {
     name: "bp-sweep-x",
     file: B,
-    line: 171,
+    line: 169,
     note: "A white light running along a row that just cleared.",
     dur: 520,
     ease: "ease-out",
@@ -111,7 +97,7 @@ const specs: Spec[] = [
   {
     name: "bp-sweep-y",
     file: B,
-    line: 172,
+    line: 170,
     note: "The same light running down a column that just cleared.",
     dur: 520,
     ease: "ease-out",
@@ -125,7 +111,7 @@ const specs: Spec[] = [
   {
     name: "bpx-flame",
     file: B,
-    line: 185,
+    line: 183,
     note: "The combo meter pips flickering at the hottest heat.",
     dur: 520,
     ease: "ease-in-out",
@@ -145,7 +131,7 @@ const specs: Spec[] = [
   {
     name: "bpx-fizzle",
     file: B,
-    line: 188,
+    line: 186,
     note: "The combo number kicking when a move clears nothing and the chain breaks.",
     dur: 600,
     ease: "ease-out",
@@ -160,7 +146,7 @@ const specs: Spec[] = [
   {
     name: "bpx-fizzle-ring",
     file: B,
-    line: 189,
+    line: 187,
     note: "The ring that spreads from the combo when the chain breaks.",
     dur: 600,
     ease: "ease-out",
@@ -175,7 +161,7 @@ const specs: Spec[] = [
   {
     name: "bp-deal",
     file: B,
-    line: 192,
+    line: 190,
     note: "A new piece sliding up into the tray.",
     dur: 360,
     ease: "cubic-bezier(0.2, 0.9, 0.3, 1.15)",
@@ -186,7 +172,7 @@ const specs: Spec[] = [
   {
     name: "bpx-pulse",
     file: B,
-    line: 210,
+    line: 208,
     note: "The timer ring swelling and glowing amber in the last 10 seconds.",
     dur: 1000,
     ease: "ease-in-out",
@@ -196,7 +182,7 @@ const specs: Spec[] = [
   {
     name: "bp-edge",
     file: B,
-    line: 212,
+    line: 210,
     note: "The board edge pulsing amber in the last 10 seconds.",
     dur: 1000,
     ease: "ease-in-out",
@@ -206,7 +192,7 @@ const specs: Spec[] = [
   {
     name: "bp-best",
     file: B,
-    line: 216,
+    line: 214,
     note: "The 'New best!' line popping in on the game-over card.",
     dur: 700,
     ease: "cubic-bezier(0.2, 1.6, 0.4, 1)",
@@ -217,7 +203,7 @@ const specs: Spec[] = [
   {
     name: "bp-stat",
     file: B,
-    line: 221,
+    line: 219,
     note: "A run stat plaque rising in on the game-over card.",
     dur: 380,
     ease: "cubic-bezier(0.2, 0.9, 0.3, 1.1)",
@@ -233,7 +219,7 @@ const specs: Spec[] = [
   {
     name: "fx-callout",
     file: F,
-    line: 64,
+    line: 57,
     note: "The punchy line over a board ('Double!', 'Long 5x opened'): scales in, holds, floats off.",
     dur: 1100,
     ease: "cubic-bezier(0.2, 0.9, 0.3, 1)",
@@ -244,7 +230,7 @@ const specs: Spec[] = [
   {
     name: "fx-count",
     file: F,
-    line: 75,
+    line: 68,
     note: "The big 3-2-1 before a round; Go! is the same motion in sapphire.",
     dur: 800,
     ease: "cubic-bezier(0.2, 0.9, 0.3, 1)",
@@ -287,7 +273,7 @@ const specs: Spec[] = [
   {
     name: "hd-win-in",
     file: H,
-    line: 148,
+    line: 149,
     note: "The showdown result plaque and the turn tag rising in once the cards are shown.",
     dur: 520,
     ease: "cubic-bezier(0.2, 1.1, 0.3, 1)",

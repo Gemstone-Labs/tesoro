@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export type CalloutTone = "plain" | "up" | "down" | "gem" | "warn";
 
@@ -11,11 +11,16 @@ export type CalloutTone = "plain" | "up" | "down" | "gem" | "warn";
  * under reduced motion it just shows for the same time. `tone="gem"` is emerald: only where Gemas move.
  */
 export function Callout({ text, tone = "plain", duration = 1100, onDone, className = "" }: { text: string; tone?: CalloutTone; duration?: number; onDone?: () => void; className?: string }) {
+  const done = useRef(onDone);
   useEffect(() => {
-    if (!onDone) return;
-    const t = setTimeout(onDone, duration);
+    done.current = onDone;
+  });
+  const timed = !!onDone;
+  useEffect(() => {
+    if (!timed) return;
+    const t = setTimeout(() => done.current?.(), duration);
     return () => clearTimeout(t);
-  }, [text, duration, onDone]);
+  }, [text, duration, timed]);
   return (
     <div className={`fx-callout-host ${className}`} role="status" aria-live="polite" style={{ "--fx-dur": `${duration}ms` } as React.CSSProperties}>
       <span key={text} className={`cut fx-callout ${tone}`}>

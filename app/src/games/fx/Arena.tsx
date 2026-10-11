@@ -6,15 +6,14 @@ export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel";
 
 /**
  * The stage a game sits on: a dark backdrop with colour at the edges and a quiet, dark centre, kept
- * inside the content column (the app shell is untouched). Uses `art.arena[game]` when the Astra art
- * exists, otherwise a CSS gradient per game. Also mounts the `FxLayer` bursts draw on.
+ * inside the content column (the app shell is untouched). Paints `art.arena[game]` over a CSS
+ * gradient per game, which shows if the art fails to load. Also mounts the `FxLayer` bursts draw on.
  * `<Arena game="holdem">...the game...</Arena>`.
  */
 export function Arena({ game, children, className = "" }: { game: ArenaGame; children: ReactNode; className?: string }) {
-  const src = art.arena[game];
   return (
-    <div className={`fx-arena ${className}`} data-game={game} style={src ? ({ "--fx-arena-art": `url(${src})` } as CSSProperties) : undefined}>
-      <div className={`fx-arena-bg${src ? " art" : ""}`} aria-hidden="true" />
+    <div className={`fx-arena ${className}`} data-game={game} style={{ "--fx-arena-art": `url(${art.arena[game]})` } as CSSProperties}>
+      <div className="fx-arena-bg" aria-hidden="true" />
       <div className="fx-arena-shade" aria-hidden="true" />
       <div className="fx-arena-body">{children}</div>
       <FxLayer />

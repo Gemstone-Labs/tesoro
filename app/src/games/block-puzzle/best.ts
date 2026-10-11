@@ -1,14 +1,6 @@
+import { browserStore, type Store } from "@/lib/storage";
+
 const KEY = "tesoro.bp.best";
-
-type Store = Pick<Storage, "getItem" | "setItem">;
-
-function browserStore(): Store | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
 
 /** Personal best of practice runs in this browser; 0 when none, or when storage is blocked. */
 export function readBest(store: Store | null = browserStore()): number {
