@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpen, CircleHelp, Gamepad2, HandCoins, House, Trophy, Wallet, type LucideIcon } from "lucide-react";
 import { TesoroLogo } from "@/components/brand";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { SIDEBAR_VARIANTS, SidebarPrototype } from "./Sidebar.prototype";
 
 export const NAV: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/lobby", label: "Lobby", Icon: House },
@@ -28,8 +30,20 @@ export function Wordmark({ onNavigate }: { onNavigate?: () => void }) {
 /** The sidebar content: shared by the fixed desktop sidebar and the mobile/tablet drawer. */
 export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   const path = usePathname();
+  // PROTOTYPE: ?variant=now|A|B|C|D (switcher rendered by the desktop instance only)
+  const variant = usePrototypeVariant(SIDEBAR_VARIANTS.map((v) => v.key));
+  const switcher = !onNavigate && <PrototypeSwitcher variants={SIDEBAR_VARIANTS} />;
+  if (variant !== "now") {
+    return (
+      <>
+        <SidebarPrototype variant={variant} onNavigate={onNavigate} />
+        {switcher}
+      </>
+    );
+  }
   return (
     <>
+      {switcher}
       <div className="side-top">
         <Wordmark onNavigate={onNavigate} />
       </div>
@@ -45,7 +59,7 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </nav>
       <hr className="side-rule" />
-      <div className="side-nav docs">
+      <div className="side-nav side-lower">
         <Link href="/docs" className="cut cut-card side-link" onClick={onNavigate}>
           <BookOpen aria-hidden="true" />
           Docs
