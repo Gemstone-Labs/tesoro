@@ -14,6 +14,17 @@ import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 import "./leaderboard.css";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { VariantA, VariantB, VariantC, VariantD } from "./Leaderboard.prototype";
+
+// PROTOTYPE: ?variant=now|A|B|C|D swaps the table + Payout scale + How points work.
+const VARIANTS = [
+  { key: "now", name: "Current" },
+  { key: "A", name: "Podium" },
+  { key: "B", name: "Your race" },
+  { key: "C", name: "Ledger" },
+  { key: "D", name: "Prize ladder" },
+] as const;
 
 /** Prize of rank `i` from a pool, floored as in the program. */
 const prize = (pool: number, i: number) => Math.floor((pool * PRIZE_BPS[i]) / 10_000);
@@ -80,6 +91,8 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
   const mine = useMemo(() => data.standings.find((r) => r.account === me) ?? null, [data.standings, me]);
   const remaining = now === null ? null : data.season.end - now;
   const pool = usePool() ?? data.poolGemas;
+  const variant = usePrototypeVariant(VARIANTS.map((x) => x.key));
+  const Proto = variant === "now" || data.standings.length === 0 ? null : { A: VariantA, B: VariantB, C: VariantC, D: VariantD }[variant];
 
   return (
     <>
@@ -123,6 +136,8 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
         </p>
       )}
 
+      <PrototypeSwitcher variants={VARIANTS} />
+      {Proto ? <Proto data={data} pool={pool} me={me} /> : (
       <div className="lb-grid">
         <section className="lb-table" aria-labelledby="lb-table-h">
           <header className="lb-sec-head">
@@ -153,6 +168,7 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
           <Points />
         </aside>
       </div>
+      )}
 
       {data.last && <Last last={data.last} me={me} />}
 
