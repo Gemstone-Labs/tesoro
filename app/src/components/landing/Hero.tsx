@@ -1,9 +1,15 @@
 import { landingArt } from "@/lib/landing/art";
 import { appHref } from "@/lib/landing/config";
 import { Glints, Motes } from "./Fx";
+import { HeroA, HeroB, HeroC, HeroD, HeroPrototype } from "./Hero.prototype";
 import { Picture } from "./Picture";
 
+/** PROTOTYPE: `?variant=` picks a take on the hero (branch proto/landing-hero-11-10-2026). */
 export function Hero() {
+  return <HeroPrototype now={<HeroNow />} A={<HeroA />} B={<HeroB />} C={<HeroC />} D={<HeroD />} />;
+}
+
+export function HeroNow() {
   const light = landingArt("heroLight");
   return (
     <section id="top" className={light ? "lp-hero has-light-art" : "lp-hero"} aria-labelledby="hero-title">

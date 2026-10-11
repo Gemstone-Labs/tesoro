@@ -1,0 +1,92 @@
+/* PROTOTYPE ONLY: the hero takes in Hero.prototype.tsx. The hero is dark in both themes, so colours here are fixed. */
+.ph-dim::after { background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0, rgba(9, 13, 15, 0.7) 45%, rgba(9, 13, 15, 0.45) 100%) !important; }
+.ph-chip { padding: 8px 14px; font: 600 14px/1 var(--f-body); color: #eaefec; background: rgba(234, 239, 236, 0.06); --edge: rgba(234, 239, 236, 0.18); cursor: pointer; border: 0; }
+.ph-chip.on { background: #eaefec; color: #0b1012; }
+.lp-hero .label { color: rgba(234, 239, 236, 0.62); }
+
+/* A — Game first */
+.ph-a-grid { position: relative; z-index: 2; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(32px, 5vw, 80px); align-items: center; padding-top: 72px; }
+.ph-a-h1 { font-size: clamp(40px, 4.6vw, 76px); max-width: 12ch; }
+.ph-a .lp-lede { color: rgba(234, 239, 236, 0.76); margin: 22px 0 32px; max-width: 38ch; }
+.ph-a-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.ph-a-tab { padding: 9px 14px; font: 600 14px/1 var(--f-body); color: #eaefec; background: rgba(17, 22, 26, 0.7); --edge: rgba(234, 239, 236, 0.2); cursor: pointer; border: 0; }
+.ph-a-tab.on { background: #eaefec; color: #0b1012; }
+.ph-a-screen {
+  position: relative; aspect-ratio: 1.18; overflow: clip; --edge: rgba(234, 239, 236, 0.22);
+  background: linear-gradient(rgba(9, 13, 15, 0.72), rgba(9, 13, 15, 0.72)), var(--art) center / cover;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6), 0 0 120px rgba(36, 216, 168, 0.12);
+}
+.ph-a-loop { position: absolute; inset: 0 0 64px; width: 100%; height: calc(100% - 64px); object-fit: contain; }
+.ph-a-strip {
+  position: absolute; inset: auto 0 0; height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 0 22px; background: rgba(9, 13, 15, 0.9); border-top: 1px solid rgba(234, 239, 236, 0.12);
+}
+.ph-a-strip b { display: block; font: 800 20px/1 var(--f-display); text-transform: uppercase; }
+.ph-a-strip small { display: block; margin-top: 4px; font-size: 13px; color: rgba(234, 239, 236, 0.6); }
+.ph-a-entry { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: rgba(234, 239, 236, 0.85); white-space: nowrap; }
+
+/* B — Deposit line */
+.ph-b-copy { position: relative; z-index: 2; padding-top: 80px; padding-bottom: 32px; }
+.ph-b-h1 { font-size: clamp(38px, 4vw, 64px); max-width: 12ch; margin-bottom: 24px; }
+.ph-b-card {
+  width: min(480px, 100%); padding: 18px 20px 16px; display: grid; gap: 12px;
+  background: rgba(11, 16, 18, 0.82); backdrop-filter: blur(10px); --edge: rgba(234, 239, 236, 0.18); color: #eaefec;
+}
+.ph-b-row { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 8px 12px; }
+.ph-b-row:has(.lp-range) { grid-template-columns: 1fr; }
+.ph-b-row .label b { color: #eaefec; margin-left: 6px; }
+.ph-b-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ph-b-out { display: flex; align-items: baseline; justify-content: space-between; padding-top: 14px; border-top: 1px solid rgba(234, 239, 236, 0.12); }
+.ph-b-gemas { display: inline-flex; align-items: center; gap: 10px; font: 800 40px/1 var(--f-display); font-variant-numeric: tabular-nums; }
+.ph-b-card .btn { gap: 8px; justify-content: center; }
+.ph-b-small { font-size: 13px; line-height: 1.5; color: rgba(234, 239, 236, 0.58); }
+
+/* C — Product shot */
+.ph-c { align-items: flex-start; }
+.ph-c-in { position: relative; z-index: 2; padding-top: 128px; text-align: center; display: flex; flex-direction: column; align-items: center; }
+.ph-c-h1 { font-size: clamp(42px, 5vw, 84px); max-width: 16ch; }
+.ph-c .lp-lede { color: rgba(234, 239, 236, 0.76); margin: 20px 0 30px; }
+.ph-c-ctas { justify-content: center; }
+.ph-c-shot { position: relative; width: min(1080px, 100%); margin-top: 56px; perspective: 1600px; margin-bottom: -180px; }
+.ph-c-halo { position: absolute; left: 50%; top: 40%; width: 90%; aspect-ratio: 1; translate: -50% -50%; background: radial-gradient(closest-side, rgba(36, 216, 168, 0.22), rgba(36, 216, 168, 0.05) 60%, transparent); pointer-events: none; }
+.ph-c-frame { position: relative; transform: rotateX(16deg); transform-origin: 50% 0; padding: 10px; background: rgba(17, 22, 26, 0.9); --edge: rgba(234, 239, 236, 0.22); box-shadow: 0 -10px 120px rgba(0, 0, 0, 0.5); }
+.ph-c-frame img { display: block; width: 100%; height: auto; }
+.ph-c::after { content: ""; position: absolute; inset: auto 0 0; height: 200px; z-index: 3; background: linear-gradient(transparent, var(--shell)); pointer-events: none; }
+
+/* D — Game banner */
+.ph-d { align-items: flex-end; }
+.ph-d-art { position: absolute; inset: 0; }
+.ph-d-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 70% 50%; opacity: 0; transition: opacity 0.8s ease; }
+.ph-d-art img.on { opacity: 1; }
+.ph-d-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.9) 0, rgba(9, 13, 15, 0.5) 40%, transparent 65%), linear-gradient(0deg, rgba(9, 13, 15, 0.95) 0, transparent 45%); }
+.ph-d-in { position: relative; z-index: 2; padding-top: 120px; padding-bottom: 48px; }
+.ph-d-kicker { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(234, 239, 236, 0.7); margin-bottom: 14px; }
+.ph-d-h1 { font-size: clamp(40px, 5vw, 84px); max-width: 12ch; }
+.ph-d-line { margin: 20px 0 28px; font-size: clamp(16px, 1.3vw, 20px); color: rgba(234, 239, 236, 0.8); max-width: 44ch; }
+.ph-d-line i { font-style: normal; color: rgba(234, 239, 236, 0.45); margin: 0 4px; }
+.ph-d-rail { display: flex; gap: 14px; margin-top: 48px; }
+.ph-d-tile { position: relative; width: 168px; aspect-ratio: 1; overflow: clip; padding: 0; border: 0; cursor: pointer; background: #11161a; --edge: rgba(234, 239, 236, 0.2); }
+.ph-d-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ph-d-tile span { position: absolute; inset: auto 0 0; padding: 22px 12px 10px; text-align: left; font: 800 15px/1.1 var(--f-display); text-transform: uppercase; color: #eaefec; background: linear-gradient(transparent, rgba(9, 13, 15, 0.92)); }
+.ph-d-tile.on { --edge: #eaefec; outline: 2px solid #eaefec; outline-offset: 3px; }
+.ph-d-tile.soon { cursor: default; filter: grayscale(0.7) brightness(0.6); }
+
+@media (max-width: 1023px) {
+  .ph-a-grid { grid-template-columns: 1fr; padding-top: 104px; padding-bottom: 40px; }
+  .ph-c-shot { margin-bottom: -60px; }
+  .ph-d-tile { width: 120px; }
+}
+@media (max-width: 767px) {
+  .ph-a-strip { padding: 0 14px; }
+  .ph-a-strip small { display: none; }
+  .ph-b-copy { padding-top: 96px; }
+  .ph-b-gemas { font-size: 34px; }
+  .ph-d .lp-ctas { flex-direction: column; }
+  .ph-c-in { padding-top: 104px; }
+  .ph-c-frame { transform: rotateX(8deg); padding: 6px; }
+  .ph-d-art img { object-position: 78% 50%; }
+  .ph-d-art::after { background: linear-gradient(0deg, rgba(9, 13, 15, 0.97) 0, rgba(9, 13, 15, 0.7) 55%, rgba(9, 13, 15, 0.2) 100%); }
+  .ph-d-rail { gap: 10px; margin-top: 32px; overflow-x: auto; }
+  .ph-d-tile { width: 96px; flex: none; }
+  .ph-d-tile span { font-size: 12px; padding: 16px 8px 8px; }
+}
