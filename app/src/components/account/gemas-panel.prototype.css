@@ -1,0 +1,122 @@
+/* PROTOTYPE ONLY (proto/gemas-panel-11-10-2026): styles for GemasPanel.prototype.tsx variants A–D. */
+
+.gx-won { color: var(--em); }
+.gx-lost { color: var(--danger); }
+.gx-sub { color: var(--fg-2); font-size: 14.5px; line-height: 1.45; }
+.gx-line { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.gx-zero { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+.gx-cross { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-2); pointer-events: none; }
+.gx-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 3px var(--raised); pointer-events: none; }
+.gx-pulse::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--fg); opacity: 0; animation: gx-pulse 2.2s ease-out infinite; }
+@keyframes gx-pulse { 0% { transform: scale(0.4); opacity: 0.7; } 100% { transform: scale(1.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .gx-pulse::after { animation: none; } }
+[class^="gx-"][tabindex]:focus-visible { outline: 2px solid var(--fg); outline-offset: 6px; }
+
+/* ——— A: Lit curve ——— */
+.gx-a { grid-template-rows: auto auto auto minmax(0, 1fr); gap: 18px; }
+.gx-a-head { display: grid; gap: 6px; }
+.gx-a-split { display: grid; gap: 8px; }
+.gx-a-split-labels { display: flex; justify-content: space-between; gap: 16px; }
+.gx-a-split-labels span { display: grid; gap: 2px; }
+.gx-a-split-labels span:last-child { text-align: right; }
+.gx-a-split-labels small { font-size: 13px; color: var(--fg-2); }
+.gx-a-split-labels b { font-size: 20px; font-weight: 800; }
+.gx-a-bar { display: block; height: 8px; background: color-mix(in srgb, var(--danger) 70%, transparent); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.gx-a-bar i { display: block; height: 100%; background: var(--em); box-shadow: 2px 0 0 var(--raised); }
+.gx-a-chart { margin: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
+.gx-a-chart figcaption { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; color: var(--fg-2); }
+.gx-a-chart figcaption > span:first-child { color: var(--fg); font-weight: 700; }
+.gx-a-read { text-align: right; }
+.gx-a-plot { position: relative; min-height: 200px; margin: 22px 76px 0 18px; cursor: crosshair; touch-action: pan-y; }
+.gx-a-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.gx-a-tag { position: absolute; transform: translate(-50%, calc(-100% - 10px)); font-size: 12px; font-weight: 700; color: var(--fg-2); white-space: nowrap; pointer-events: none; }
+.gx-a-tag i { display: inline-block; width: 6px; height: 6px; transform: rotate(45deg); background: var(--fg-2); margin-right: 4px; vertical-align: 1px; }
+.gx-a-end { position: absolute; left: calc(100% + 10px); transform: translateY(-50%); display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; white-space: nowrap; pointer-events: none; }
+.gx-a-end i { width: 8px; height: 8px; border-radius: 50%; background: var(--fg); margin-left: -14px; }
+.gx-a-val { position: absolute; transform: translate(-50%, calc(-100% - 12px)); padding: 3px 7px; background: var(--fg); color: var(--shell, #0c0e10); font-size: 12px; font-weight: 800; white-space: nowrap; pointer-events: none; clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px); }
+.gx-a-zero { position: absolute; right: calc(100% + 6px); transform: translateY(-50%); font-size: 12px; color: var(--fg-2); }
+.gx-a-x { display: flex; justify-content: space-between; margin: 0 76px 0 18px; font-size: 12px; color: var(--fg-2); }
+
+/* ——— B: Match by Match ——— */
+.gx-b { grid-template-rows: auto minmax(0, 1fr) auto; gap: 18px; }
+.gx-b-head { display: grid; grid-template-columns: minmax(0, 1fr) 180px; align-items: end; gap: 20px; }
+.gx-b-head > div { display: grid; gap: 8px; }
+.gx-b-spark { width: 180px; height: 56px; overflow: visible; opacity: 0.8; }
+.gx-b-chart { margin: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 10px; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
+.gx-b-chart figcaption { font-size: 13.5px; color: var(--fg-2); min-height: 1.4em; }
+.gx-b-plot { position: relative; min-height: 190px; cursor: crosshair; touch-action: pan-y; }
+.gx-b-axis { position: absolute; left: 0; right: 0; height: 1px; background: var(--line-2); }
+.gx-b-col { position: absolute; padding: 0 1.5px; background-clip: content-box; transition: opacity 0.15s; }
+.gx-b-col.up { background-color: var(--em); background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.35), transparent 40%); background-clip: content-box; }
+.gx-b-col.down { background-color: color-mix(in srgb, var(--danger) 85%, transparent); background-clip: content-box; }
+.gx-b-col.dim { opacity: 0.35; }
+.gx-b-col.on { outline: 1px solid var(--fg); outline-offset: 1px; }
+.gx-b-foot { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 16px 28px; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
+.gx-b-form { display: grid; gap: 8px; }
+.gx-b-form small, .gx-b-rec dt { font-size: 13px; color: var(--fg-2); }
+.gx-b-form > span { display: flex; gap: 4px; }
+.gx-pip { display: grid; place-items: center; width: 24px; height: 24px; font-size: 11px; font-weight: 800; font-style: normal; clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+.gx-pip.w { background: var(--facet); color: var(--em-ink, #04261c); }
+.gx-pip.l { background: rgba(242, 104, 90, 0.16); color: var(--danger); }
+.gx-b-rec { margin: 0; display: flex; justify-content: flex-end; gap: 28px; flex-wrap: wrap; }
+.gx-b-rec div { display: grid; gap: 2px; }
+.gx-b-rec dd { margin: 0; font-size: 17px; font-weight: 800; }
+
+/* ——— C: Where it came from ——— */
+.gx-c { gap: 18px; }
+.gx-c-head { display: grid; grid-template-columns: minmax(0, 1fr) 160px; align-items: center; gap: 20px; }
+.gx-c-head > div { display: grid; gap: 8px; }
+.gx-c-spark { width: 160px; height: 60px; overflow: visible; }
+.gx-c-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.gx-c-tile { --edge: var(--edge-1); background: var(--surface-2); padding: 14px 16px; display: grid; gap: 2px; }
+.gx-c-tile small { font-size: 13px; color: var(--fg-2); }
+.gx-c-tile b { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
+.gx-c-tile span { font-size: 13px; color: var(--fg-2); }
+.gx-c-games { display: grid; gap: 10px; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
+.gx-c-games h4, .gx-c-big small { font-size: 13px; font-weight: 700; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.gx-c-game { display: grid; grid-template-columns: 40px minmax(110px, auto) minmax(0, 1fr) 80px; align-items: center; gap: 14px; }
+.gx-c-game > b { text-align: right; font-size: 16px; font-weight: 800; }
+.gx-c-thumb { width: 40px; height: 40px; object-fit: cover; clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+.gx-c-name { display: grid; }
+.gx-c-name b { font-size: 15px; }
+.gx-c-name small { font-size: 12.5px; color: var(--fg-2); }
+.gx-c-track { position: relative; height: 10px; background: linear-gradient(90deg, transparent calc(50% - 0.5px), var(--line-2) calc(50% - 0.5px), var(--line-2) calc(50% + 0.5px), transparent calc(50% + 0.5px)); }
+.gx-c-track i { position: absolute; top: 0; bottom: 0; }
+.gx-c-track i.up { left: 50%; background: var(--em); }
+.gx-c-track i.down { right: 50%; background: var(--danger); }
+.gx-c-big { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
+.gx-c-big-row { display: grid; gap: 4px; padding: 4px 0; color: inherit; }
+.gx-c-big-row span { font-size: 14px; color: var(--fg-2); }
+.gx-c-big-row b { font-size: 22px; font-weight: 800; }
+.gx-c-big-row:hover span { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ——— D: Scrub ——— */
+.gx-d { grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding-bottom: 22px; }
+.gx-d-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.gx-d-head > div:first-child { display: grid; gap: 8px; min-width: 0; }
+.gx-d-big { min-width: 0; }
+.gx-d-range { display: flex; gap: 6px; }
+.gx-d-range button { all: unset; cursor: pointer; padding: 7px 12px; font-size: 13px; font-weight: 700; color: var(--fg-2); --edge: var(--edge-2); background: var(--surface-2); }
+.gx-d-range button.on { color: var(--fg); background: rgba(234, 239, 236, 0.14); }
+.gx-d-plot { position: relative; min-height: 250px; margin: 18px -28px 0; cursor: crosshair; touch-action: pan-y; }
+.gx-d-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.gx-d-peak { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; transform: rotate(45deg); background: var(--fg-2); pointer-events: none; }
+.gx-d-strip { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
+.gx-d-strip div { display: grid; gap: 2px; }
+.gx-d-strip dt { font-size: 13px; color: var(--fg-2); }
+.gx-d-strip dd { margin: 0; font-size: 18px; font-weight: 800; }
+
+@media (max-width: 600px) {
+  .gx-a-plot { margin-right: 62px; margin-left: 14px; min-height: 160px; }
+  .gx-a-x { margin-right: 62px; margin-left: 14px; }
+  .gx-a-chart figcaption { flex-direction: column; }
+  .gx-a-read { text-align: left; }
+  .gx-b-head, .gx-c-head { grid-template-columns: minmax(0, 1fr) 96px; }
+  .gx-b-spark, .gx-c-spark { width: 96px; height: 44px; }
+  .gx-b-foot { grid-template-columns: 1fr; }
+  .gx-b-rec { justify-content: flex-start; }
+  .gx-c-game { grid-template-columns: 36px minmax(0, 1fr) 72px; }
+  .gx-c-track { display: none; }
+  .gx-d-plot { margin: 14px -18px 0; min-height: 190px; }
+  .gx-d-strip { grid-template-columns: 1fr 1fr; }
+}

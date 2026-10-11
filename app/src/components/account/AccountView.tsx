@@ -7,7 +7,7 @@ import { Check, Copy, Link2, Pencil } from "lucide-react";
 import { PlayerAvatar, PlayerName, VerifiedMark } from "@/components/account/Player";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
-import { AssetPicker, Bust, Button, EntryPicker, GemaMark, Label, Sheet, Notice } from "@/components/ui";
+import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ago } from "@/lib/catalogue";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
@@ -23,7 +23,7 @@ import { AccountSkeleton } from "./AccountSkeleton";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
-import { RunningTotalChart } from "./RunningTotalChart";
+import { GemasPanelPrototype } from "./GemasPanel.prototype";
 import "./account.css";
 
 /**
@@ -234,25 +234,8 @@ function Scoreboard({ s, series }: { s: PlayerSummary; series: ReturnType<typeof
   const { record, backings } = s;
   return (
     <div className="pa-board">
-      <section className="cut cut-card pa-panel pa-gemas" aria-label="Gemas won and lost">
-        <Label>Gemas won and lost</Label>
-        <b className="pa-big">
-          <GemaMark size={34} />
-          {signed(s.net)}
-        </b>
-        <dl className="pa-split">
-          <div>
-            <dt>Won</dt>
-            <dd>{signed(s.won)}</dd>
-          </div>
-          <div>
-            <dt>Lost</dt>
-            <dd>{signed(-s.lost)}</dd>
-          </div>
-          <p>After Fees</p>
-        </dl>
-        {series.length >= 2 && <RunningTotalChart series={series} />}
-      </section>
+      {/* PROTOTYPE: ?variant=now|A|B|C|D */}
+      <GemasPanelPrototype s={s} series={series} />
 
       <section className="cut cut-card pa-panel" aria-label="Matches">
         <Label>Matches</Label>
