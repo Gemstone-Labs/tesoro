@@ -6,11 +6,24 @@ import { quoteAdvance } from "@/lib/advance";
 import { fmtAsset, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { MOCK_NOW } from "@/lib/mock";
 import type { Position } from "@/lib/mock";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { ADVANCE_VARIANTS, AdvanceFormPrototype } from "./AdvanceSheet.prototype";
 
 export function AdvanceSheet({ position, onClose }: { position: Position | null; onClose: () => void }) {
+  // PROTOTYPE: ?variant=now|A|B|C|D
+  const variant = usePrototypeVariant(ADVANCE_VARIANTS.map((v) => v.key));
+  if (variant !== "now") {
+    return (
+      <Sheet open={position !== null} onClose={onClose} title="Take an Advance" className="adv-proto">
+        {position && <AdvanceFormPrototype key={`${position.id}-${variant}`} variant={variant} position={position} onClose={onClose} />}
+        {position && <PrototypeSwitcher variants={ADVANCE_VARIANTS} inDialog />}
+      </Sheet>
+    );
+  }
   return (
     <Sheet open={position !== null} onClose={onClose} title="Take an Advance">
       {position && <AdvanceForm key={position.id} position={position} onClose={onClose} />}
+      {position && <PrototypeSwitcher variants={ADVANCE_VARIANTS} inDialog />}
     </Sheet>
   );
 }
