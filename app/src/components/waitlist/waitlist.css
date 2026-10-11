@@ -48,9 +48,9 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 /* The floor: solid below the diagonal and carrying the landing's octagon texture (the same file as the landing's
    `--lp-texture`, repeated here because the light theme redefines that variable and this frame stays dark), with a
    soft shade on the footage along the edge. */
-.wl { --wl-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360' fill='none' stroke='%23eaefec' stroke-opacity='.045'%3E%3Cpath d='M70 40h180l40 40v120l-40 40H70l-40-40V80z'/%3E%3Cpath d='M98 68h124l28 28v88l-28 28H98l-28-28V96z'/%3E%3Cpath d='M250 40l60-40M290 200l70 40M70 240l-70 60M30 80L0 60'/%3E%3C/svg%3E"); }
+.wl { --wl-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='300' fill='none' stroke='%23eaefec' stroke-opacity='.045'%3E%3Cpath d='M70 40h180l40 40v120l-40 40H70l-40-40V80z'/%3E%3Cpath d='M98 68h124l28 28v88l-28 28H98l-28-28V96z'/%3E%3Cpath d='M270 220l80 80M350 0l10 10M0 10l50 50M50 220L0 270M360 270l-30 30M330 0l-60 60'/%3E%3C/svg%3E"); }
 .wl-floor { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-.wl-floor-in { position: absolute; inset: 0; clip-path: var(--in-wide); background: var(--wl-texture) 0 0 / 360px 360px, #090d0f; }
+.wl-floor-in { position: absolute; inset: 0; clip-path: var(--in-wide); background: var(--wl-texture) 0 0 / 360px 300px, #090d0f; }
 /* and a fade from the left so the top bar and headline never sit on footage */
 .vw::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.92) 0, rgba(9, 13, 15, 0.5) 30%, rgba(9, 13, 15, 0.12) 62%, rgba(9, 13, 15, 0.22) 100%); }
 
@@ -62,6 +62,8 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .dv-live { animation: dv-in 0.6s ease-out both; }
 .wl:has(.dv-live) .dv-ssr { opacity: 0; }
 @keyframes dv-in { from { opacity: 0; } to { opacity: 1; } }
+/* Light on the texture (LivingTexture): above the divider so its band and gems take it too, masked to the panel. */
+.wl-light { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; pointer-events: none; }
 
 /* Frame content */
 .wl-top::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -36px 0; background: linear-gradient(180deg, rgba(9, 13, 15, 0.82) 0, rgba(9, 13, 15, 0.5) 55%, transparent 100%); pointer-events: none; }

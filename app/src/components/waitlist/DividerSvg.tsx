@@ -11,12 +11,12 @@ export function DividerSvg({ frame, id, className, stretch = false }: { frame: F
   return (
     <svg className={className} viewBox={`0 0 ${frame.w} ${frame.h}`} preserveAspectRatio={stretch ? "none" : undefined} aria-hidden focusable="false">
       <defs>
-        <pattern id={id} width="360" height="360" patternUnits="userSpaceOnUse">
-          <rect width="360" height="360" fill="#090d0f" />
+        <pattern id={id} width="360" height="300" patternUnits="userSpaceOnUse">
+          <rect width="360" height="300" fill="#090d0f" />
           <g fill="none" stroke="#eaefec" strokeOpacity="0.045">
             <path d="M70 40h180l40 40v120l-40 40H70l-40-40V80z" />
             <path d="M98 68h124l28 28v88l-28 28H98l-28-28V96z" />
-            <path d="M250 40l60-40M290 200l70 40M70 240l-70 60M30 80L0 60" />
+            <path d="M270 220l80 80M350 0l10 10M0 10l50 50M50 220L0 270M360 270l-30 30M330 0l-60 60" />
           </g>
         </pattern>
       </defs>

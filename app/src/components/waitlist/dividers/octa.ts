@@ -2,7 +2,7 @@ import { along, bed, dist, geo, polyD, type Frame, type Geo, type Pt } from "./g
 
 /**
  * The divider: small flat octagon gems in the panel's own colour and texture, growing from the panel into the footage as
- * connected clumps and fingers of fused gems, with a few breakaway gems ahead of the tips. The grid divides the 360px
+ * connected clumps and fingers of fused gems, with a few breakaway gems ahead of the tips. The grid divides the 360 x 300
  * texture tile (30px, 20px on a phone) and is centred on the texture's octagon centres, so the texture lines run along
  * the gem rows. The growth is deterministic: a seeded reach profile along the diagonal says how far each stretch may
  * grow, and only sites connected to the solid band count (Eden-like: ragged, gem-shaped tips).
