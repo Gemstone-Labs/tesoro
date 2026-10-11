@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import "@/components/waitlist/waitlist.css";
+import "@/components/waitlist/pack.css";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
 import { setNextJoin } from "../../../.storybook/mocks/src/app/(marketing)/waitlist-action";
 
@@ -32,24 +33,23 @@ const join = async (canvasElement: HTMLElement, email = "ana@example.com") => {
 /** Empty: type any email and join to try it by hand (the mock hands out spot #7). */
 export const Empty: Story = { beforeEach: () => setNextJoin(7) };
 
-/** Joined: spot #7 draws the Amethyst Owl. "Share your gem on X" opens the real post composer. */
+/** Joined: the pack for spot #7 (the Amethyst Owl) comes up over the page. Rip it; Share opens the real post composer. */
 export const Joined: Story = {
   beforeEach: () => setNextJoin(7),
   play: async ({ canvasElement }) => {
-    const c = await join(canvasElement);
-    await expect(await c.findByText("You drew the Amethyst Owl.")).toBeInTheDocument();
-    const share = c.getByRole("link", { name: "Share your gem on X" });
-    await expect(share.getAttribute("href")).toContain(encodeURIComponent("/spot/7"));
+    await join(canvasElement);
+    await expect(await within(document.body).findByRole("button", { name: "Rip it open" })).toBeInTheDocument();
   },
 };
 
-/** The first spot draws the Ruby Jaguar. */
-export const JoinedFirst: Story = {
-  name: "Joined (spot #1)",
-  beforeEach: () => setNextJoin(1),
+/** Behind the pack once it is closed: the spot, Try it now and See your card. */
+export const JoinedClosed: Story = {
+  name: "Joined (pack closed)",
+  beforeEach: () => setNextJoin(7),
   play: async ({ canvasElement }) => {
     const c = await join(canvasElement);
-    await c.findByText("You drew the Ruby Jaguar.");
+    await userEvent.click(await within(document.body).findByRole("button", { name: "Close" }));
+    await expect(await c.findByText("You pulled the Amethyst Owl.")).toBeInTheDocument();
   },
 };
 
@@ -59,8 +59,8 @@ export const JoinedPhone: Story = {
   globals: { viewport: { value: "phone390", isRotated: false } },
   beforeEach: () => setNextJoin(128450),
   play: async ({ canvasElement }) => {
-    const c = await join(canvasElement);
-    await c.findByText(/Spot #128450/);
+    await join(canvasElement);
+    await within(document.body).findByText("Spot #128450");
   },
 };
 

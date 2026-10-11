@@ -1,0 +1,192 @@
+/* The waitlist pack (PackReveal.tsx): a sealed foil pack, torn across the top, its gem's light bursting
+   out in rays and shards before the card settles in a modal. Every colour of the burst is the gem's
+   own (--gem), never emerald. Reduced motion skips straight to the card. */
+@property --shine { syntax: "<percentage>"; inherits: true; initial-value: 30%; }
+
+.pk {
+  --tear: 19%;
+  position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px; overflow: hidden auto;
+  color: var(--fg); color-scheme: dark; font-family: var(--f-body); font-size: 16px; line-height: 1.5;
+  background: radial-gradient(closest-side at 50% 45%, rgba(18, 24, 28, 0.82), rgba(5, 7, 8, 0.94));
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  animation: pk-fade 300ms ease-out both;
+}
+.pk-x {
+  position: fixed; top: 16px; right: 16px; z-index: 3; display: grid; place-items: center; width: 40px; height: 40px;
+  border: 1px solid var(--line); background: rgba(234, 239, 236, 0.05); color: var(--fg-2); cursor: pointer;
+}
+.pk-x:hover, .pk-x:focus-visible { color: var(--fg); border-color: var(--line-2); }
+.pk-x:focus-visible, .pk-rip:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+/* the stage: pack, its shadow, the hint and the keyboard button */
+.pk-stage { position: relative; display: grid; justify-items: center; }
+.pk-pack {
+  --rx: 0deg; --ry: 0deg; --p: 0; --sx: 38%;
+  position: relative; z-index: 2; width: min(270px, 62vw); aspect-ratio: 5 / 7; perspective: 1000px;
+  touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none;
+}
+.pk-pack.dragging { cursor: grabbing; }
+.pk-tilt {
+  position: absolute; inset: 0; transform-style: preserve-3d;
+  transform: rotateX(var(--rx)) rotateY(var(--ry)); transition: transform 0.25s ease-out;
+  animation: pk-float 4.2s ease-in-out infinite;
+}
+.pk-body, .pk-strip {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(118deg, transparent calc(var(--sx) - 16%), rgba(255, 255, 255, 0.13) var(--sx), transparent calc(var(--sx) + 16%)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='100' fill='none' stroke='%23eaefec' stroke-opacity='.07'%3E%3Cpath d='M23 13h60l14 14v40L83 81H23L9 67V27z'/%3E%3Cpath d='M90 73l27 27M117 0l3 3'/%3E%3C/svg%3E") 0 0 / 120px 100px,
+    linear-gradient(165deg, #2b353a 0%, #141a1d 36%, #0b0f11 64%, #1e272b 100%);
+  box-shadow: inset 1px 0 rgba(255, 255, 255, 0.14), inset -1px 0 rgba(255, 255, 255, 0.06);
+}
+/* crimped seals: fine ridges along the top and bottom */
+.pk-strip::before, .pk-body::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 6.5%;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.09) 0 2px, rgba(0, 0, 0, 0.28) 2px 5px);
+}
+.pk-strip::before { top: 0; }
+.pk-body::after { bottom: 0; }
+/* the dashed tear line and its label */
+.pk-strip::after {
+  content: ""; position: absolute; left: 7%; right: 7%; top: calc(var(--tear) - 9px);
+  border-top: 1.5px dashed rgba(234, 239, 236, 0.32);
+}
+.pk-tear-here {
+  position: absolute; left: 9%; top: calc(var(--tear) - 30px); font-size: 10px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--fg-2);
+}
+.pk-tear-here::after { content: " →"; display: inline-block; animation: pk-nudge 1.6s ease-in-out infinite; }
+.pk-strip { transform-origin: 100% var(--tear); transform: rotate(calc(var(--p) * 7deg)) translateY(calc(var(--p) * -9px)); transition: transform 0.3s ease-out; }
+.pk-pack.dragging .pk-strip { transition: none; }
+
+.pk-face {
+  position: absolute; left: 0; right: 0; top: calc(var(--tear) + 5%); bottom: 9%;
+  display: grid; justify-items: center; align-content: center; gap: 4px; text-align: center; padding: 0 12px;
+}
+.pk-kicker { margin-top: 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--fg-2); }
+.pk-name { font-family: var(--f-display); font-weight: 800; font-size: clamp(26px, 7.5vw, 34px); line-height: 0.95; text-transform: uppercase; }
+.pk-emblem {
+  display: grid; place-items: center; width: 92px; aspect-ratio: 1; margin: 12px 0 8px;
+  clip-path: polygon(27% 0, 73% 0, 100% 27%, 100% 73%, 73% 100%, 27% 100%, 0 73%, 0 27%);
+  background: linear-gradient(160deg, #46525a 0%, #222a2f 46%, #151b1f 46.5%, #0d1215 100%);
+  font-family: var(--f-display); font-weight: 800; font-size: 54px; color: rgba(234, 239, 236, 0.6);
+}
+.pk-count { font-size: 12.5px; color: var(--fg-2); }
+.pk-spot { font-size: 11px; letter-spacing: 0.08em; color: var(--fg-3); }
+
+/* light through the tear while it is being ripped */
+.pk-leak {
+  position: absolute; left: 0; top: var(--tear); height: 3px; width: calc(var(--p) * 100%); translate: 0 -50%;
+  background: linear-gradient(90deg, #fff, var(--gem)); opacity: min(1, calc(var(--p) * 5));
+  box-shadow: 0 0 12px 2px var(--gem), 0 0 46px 10px color-mix(in srgb, var(--gem) 55%, transparent);
+}
+.pk-beam {
+  position: absolute; left: -10%; right: -10%; bottom: calc(100% - var(--tear)); height: 130%; transform-origin: 50% 100%;
+  clip-path: polygon(30% 100%, 70% 100%, 100% 0, 0 0);
+  background: linear-gradient(to top, color-mix(in srgb, var(--gem) 70%, white), color-mix(in srgb, var(--gem) 25%, transparent) 50%, transparent);
+  filter: blur(6px); opacity: 0; scale: 1 0; pointer-events: none;
+}
+.pk-rising { position: absolute; left: 5%; right: 5%; top: calc(var(--tear) + 3%); opacity: 0; }
+
+.pk-shadow {
+  width: min(230px, 54vw); height: 28px; margin-top: 18px;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.75), transparent); animation: pk-shadow 4.2s ease-in-out infinite;
+}
+.pk-hint { margin: 14px 0 0; max-width: 300px; text-align: center; font-size: 15px; color: var(--fg); }
+.pk-rip {
+  margin-top: 10px; padding: 8px 16px; border: 1px solid var(--line-2); background: transparent; color: var(--fg-2);
+  font: 600 14px/1 var(--f-body); cursor: pointer;
+}
+.pk-rip:hover { color: var(--fg); }
+
+/* the burst */
+.pk-rays {
+  position: absolute; left: 50%; top: 42%; width: min(1200px, 220vw); aspect-ratio: 1; translate: -50% -50%; pointer-events: none; opacity: 0;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--gem) 34%, transparent) 0deg 6deg, transparent 6deg 17deg);
+  -webkit-mask-image: radial-gradient(closest-side, #000 8%, rgba(0, 0, 0, 0.55) 30%, transparent 62%);
+  mask-image: radial-gradient(closest-side, #000 8%, rgba(0, 0, 0, 0.55) 30%, transparent 62%);
+}
+.pk-glow {
+  position: absolute; left: 50%; top: 40%; width: min(560px, 120vw); aspect-ratio: 1; translate: -50% -50%; pointer-events: none; opacity: 0;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--gem) 70%, transparent), color-mix(in srgb, var(--gem) 18%, transparent) 55%, transparent);
+}
+.pk-flash {
+  position: fixed; inset: 0; z-index: 4; pointer-events: none; opacity: 0;
+  background: radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.9), color-mix(in srgb, var(--gem) 35%, transparent) 30%, transparent 65%);
+}
+.pk-shards { position: absolute; left: 50%; top: 34%; z-index: 3; pointer-events: none; }
+.pk-shards i {
+  position: absolute; left: 0; top: 0; width: var(--s); aspect-ratio: 1; opacity: 0;
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  background: linear-gradient(150deg, #fff 0%, var(--gem) 46%, color-mix(in srgb, var(--gem) 55%, black) 100%);
+}
+
+.pk.is-torn .pk-pack { cursor: default; }
+.pk.is-torn .pk-tilt { animation: none; transform: none; transition: transform 0.4s ease-out; }
+.pk.is-torn .pk-strip { animation: pk-strip-off 720ms cubic-bezier(0.3, 0.6, 0.4, 1) forwards; }
+.pk.is-torn .pk-leak { animation: pk-leak-out 500ms ease-out forwards; }
+.pk.is-torn .pk-beam { animation: pk-beam 1000ms ease-out 60ms both; }
+.pk.is-torn .pk-rising { animation: pk-rise 950ms cubic-bezier(0.2, 0.9, 0.25, 1) 220ms both; }
+.pk.is-torn .pk-body { animation: pk-body-drop 760ms cubic-bezier(0.5, 0, 0.8, 0.4) 380ms forwards; }
+.pk.is-torn .pk-flash { animation: pk-flash 620ms ease-out both; }
+.pk.is-torn .pk-glow { animation: pk-glow 1250ms ease-out both; }
+.pk.is-torn .pk-rays { animation: pk-rays-in 700ms ease-out 100ms both, spin 14s linear infinite; }
+.pk.is-torn .pk-shards i { animation: pk-shard 1300ms cubic-bezier(0.1, 0.7, 0.3, 1) calc(var(--d) + 120ms) both; }
+.pk.is-torn .pk-shadow, .pk.is-torn .pk-hint, .pk.is-torn .pk-rip { animation: pk-out 300ms ease-in forwards; }
+
+/* the card, scaled to its box; it tilts toward the pointer under a foil sheen */
+.pk-card { width: 100%; min-width: 0; perspective: 900px; }
+.pk-card-in {
+  position: relative; overflow: hidden; transform: rotateX(var(--tx, 0deg)) rotateY(var(--ty, 0deg)); transition: transform 0.2s ease-out;
+  box-shadow: 0 30px 90px -24px color-mix(in srgb, var(--gem) 55%, transparent), 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+.pk-card-sheen {
+  position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen;
+  background: linear-gradient(115deg, transparent calc(var(--shine) - 22%), rgba(255, 255, 255, 0.16) var(--shine), color-mix(in srgb, var(--gem) 22%, transparent) calc(var(--shine) + 6%), transparent calc(var(--shine) + 24%));
+}
+
+/* the modal */
+.pk-open { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 12px; width: min(680px, 100%); text-align: center; margin: auto; }
+.pk-open > .pk-rays { top: 50%; z-index: -1; opacity: 0.55; }
+.pk-open-kicker { margin: 0; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-2); }
+.pk-open-title { margin: 0 0 6px; font-family: var(--f-display); font-weight: 800; font-size: clamp(28px, 5vw, 46px); line-height: 1; text-transform: uppercase; }
+.pk-open-title em { font-style: normal; color: var(--gem); }
+.pk-open-note { margin: 8px 0 0; max-width: 46ch; color: var(--fg-2); font-size: 15px; }
+.pk-open-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
+.pk-open-actions .btn { min-height: 48px; padding-inline: 20px; }
+.pk-share { display: inline-flex; align-items: center; gap: 10px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .pk-open > * { animation: pk-up 420ms ease-out both; }
+  .pk-open > .pk-open-title { animation-delay: 60ms; }
+  .pk-open > .pk-card { animation: pk-card-in 760ms cubic-bezier(0.2, 1.25, 0.3, 1) both; }
+  .pk-open > .pk-card .pk-card-sheen { animation: pk-sheen 1500ms ease-in-out 450ms both; }
+  .pk-open > .pk-open-note { animation-delay: 300ms; }
+  .pk-open > .pk-open-actions { animation-delay: 380ms; }
+  .pk-open > .pk-rays { animation: pk-rays-in 700ms ease-out both, spin 30s linear infinite; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pk, .pk-tilt, .pk-shadow, .pk-tear-here::after { animation: none; }
+  .pk-card-in { transform: none; }
+}
+
+@keyframes pk-fade { from { opacity: 0; } }
+@keyframes pk-float { 50% { translate: 0 -8px; } }
+@keyframes pk-shadow { 50% { scale: 0.86; opacity: 0.7; } }
+@keyframes pk-nudge { 50% { translate: 4px 0; } }
+@keyframes pk-strip-off { to { transform: translate(-70px, -280px) rotate(-34deg); opacity: 0; } }
+@keyframes pk-leak-out { to { width: 100%; height: 14px; opacity: 0; } }
+@keyframes pk-beam { 0% { opacity: 1; scale: 0.6 0; } 35% { opacity: 0.95; scale: 1 1; } 100% { opacity: 0; scale: 1.4 1.25; } }
+@keyframes pk-rise { 0% { opacity: 1; transform: translateY(25%); } 100% { opacity: 1; transform: translateY(-120%) scale(1.2); } }
+@keyframes pk-body-drop { to { transform: translateY(60%); opacity: 0; } }
+@keyframes pk-flash { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes pk-glow { 0% { opacity: 0; scale: 0.4; } 30% { opacity: 1; scale: 1.1; } 100% { opacity: 0.7; scale: 1; } }
+@keyframes pk-rays-in { from { opacity: 0; scale: 0.4; } to { opacity: 1; } }
+@keyframes pk-shard {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(0.2); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(var(--r)) scale(1); }
+}
+@keyframes pk-out { to { opacity: 0; } }
+@keyframes pk-up { from { opacity: 0; transform: translateY(14px); } }
+@keyframes pk-card-in { from { opacity: 0; transform: translateY(40px) rotateX(24deg) scale(0.55); } }
+@keyframes pk-sheen { from { --shine: -30%; } to { --shine: 130%; } }

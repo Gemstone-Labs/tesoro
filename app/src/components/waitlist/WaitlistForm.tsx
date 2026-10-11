@@ -1,10 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { joinWaitlist, type WaitlistState } from "@/app/(marketing)/waitlist-action";
 import { art } from "@/lib/art";
 import { appHref } from "@/lib/landing/config";
 import { gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
+import { PackReveal } from "./PackReveal";
+import { CARD_VARIANTS, SHARE_CARD, type CardVariant } from "./SpotCard";
 
 const IDLE: WaitlistState = { status: "idle" };
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://tesoro-fawn.vercel.app";
@@ -18,6 +20,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
   const [state, action, pending] = useActionState(joinWaitlist, IDLE);
   const source = useRef<HTMLInputElement>(null);
   const referrer = useRef<HTMLInputElement>(null);
+  const [pack, setPack] = useState<"sealed" | "open" | "closed">("sealed");
 
   useEffect(() => {
     const utm = new URLSearchParams(location.search).get("utm_source");
@@ -27,6 +30,8 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
 
   if (state.status === "ok") {
     const gem = state.spot ? gemFor(state.spot) : null;
+    const look = new URLSearchParams(location.search).get("card") as CardVariant | null;
+    const card = look && CARD_VARIANTS.includes(look) ? look : SHARE_CARD;
     const share = gem ? postUrl(shareText(gem), SITE + spotPath(gem.spot)) : postUrl(SHARE_TEXT, SITE);
     return (
       <div className="wl-done" role="status">
@@ -37,7 +42,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
             <img className="wl-gem-art" src={art.avatars[gem.avatar - 1]} alt="" width={72} height={72} />
             <div>
               <p className="wl-gem-spot mono">Spot #{gem.spot}</p>
-              <p className="wl-gem-name">You drew the {gem.name}.</p>
+              <p className="wl-gem-name">You pulled the {gem.name}.</p>
             </div>
           </div>
         ) : null}
@@ -46,10 +51,19 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
           <a className="btn money cut cut-btn" href={appHref()}>
             Try it now
           </a>
-          <a className="btn neutral cut cut-btn" href={share} target="_blank" rel="noopener noreferrer">
-            {gem ? "Share your gem on X" : "Share on X"}
-          </a>
+          {gem ? (
+            <button type="button" className="btn neutral cut cut-btn" onClick={() => setPack("open")}>
+              See your card
+            </button>
+          ) : (
+            <a className="btn neutral cut cut-btn" href={share} target="_blank" rel="noopener noreferrer">
+              Share on X
+            </a>
+          )}
         </div>
+        {gem && pack !== "closed" ? (
+          <PackReveal gem={gem} variant={card} shareHref={share} tryHref={appHref()} sealed={pack === "sealed"} onClose={() => setPack("closed")} />
+        ) : null}
       </div>
     );
   }

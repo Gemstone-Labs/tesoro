@@ -1,7 +1,7 @@
 /* The waitlist (/): the form bottom left, a band of jewel blocks along a diagonal, casual-game clips behind it
-   top right. An art surface, dark in both themes, so the frame carries the dark tokens itself. */
+   top right. An art surface, dark in both themes, so the frame (and the pack over it) carries the dark tokens itself. */
 html:has(.wl), body:has(.wl) { background: #090d0f; }
-.wl {
+.wl, .pk {
   --shell: #090d0f; --raised: #11161a; --raised-2: #171e25;
   --line: rgba(234, 239, 236, 0.13); --line-2: rgba(234, 239, 236, 0.22);
   --edge-1: linear-gradient(180deg, rgba(234, 239, 236, 0.24) 0, rgba(234, 239, 236, 0.1) 32%, rgba(234, 239, 236, 0.06) 100%);
@@ -15,6 +15,8 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
   --money-rim: linear-gradient(180deg, rgba(225, 255, 246, 0.95), rgba(225, 255, 246, 0) 55%);
   --money-base: rgba(3, 32, 26, 0.28);
   --money-off: linear-gradient(180deg, #15201d, #101816);
+}
+.wl {
   --sweep: #ffffff;
   --pad: clamp(22px, 4vw, 64px);
   position: relative; isolation: isolate; overflow: clip;

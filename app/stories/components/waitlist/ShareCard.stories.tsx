@@ -86,7 +86,7 @@ export const Card1200: Story = { name: "Card (full size)", render: (a) => <Card 
 /** The share as it lands in a timeline. */
 export const OnX: Story = { name: "On X", render: (a) => <XPost {...a} /> };
 
-/** A Collectible, B Ticket, C Poster, side by side as posts. */
+/** A and the three takes built on it (A1 rays, A2 card frame, A3 foil), side by side as posts. */
 export const Compare: Story = { render: ({ spot }) => <CompareView spot={spot} /> };
 
 /** Spots 1 to 12 draw all twelve gems once, in this order. */
