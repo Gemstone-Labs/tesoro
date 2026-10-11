@@ -168,7 +168,7 @@ export function PoolChest() {
             {standing.rank === null ? "–" : <><small>#</small>{standing.rank}</>}
           </div>
           <div className="pc-you-txt">
-            {standing.rank === null ? <strong>No points</strong> : <strong><CountUp value={standing.points} /> <small>pts</small></strong>}
+            <strong><CountUp value={standing.points} /> <small>pts</small></strong>
             <small>{nextStep(standing)}</small>
           </div>
         </div>
