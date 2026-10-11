@@ -1,11 +1,13 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
 import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { art } from "@/lib/art";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
 import { historyPage } from "@/lib/chain/history";
 import { backingLine, playedRows, playerSummary, signed, type PlayedRow, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
@@ -175,44 +177,62 @@ function Scoreboard({ s, rows }: { s: PlayerSummary; rows: PlayedRow[] }) {
     <div className="pa-board">
       <GemasPanel rows={rows} />
 
-      <section className="cut cut-card pa-panel" aria-label="Matches">
+      <section className="cut cut-card pa-panel pa-matches" aria-label="Matches">
         <Label>Matches</Label>
         {record.matches === 0 ? (
           <b className="pa-fig">None with a winner</b>
         ) : (
-          <>
-            <b className="pa-fig">
-              {record.wins} of {record.matches} won
-            </b>
-            <Bar value={record.wins / record.matches} label={`${pct(record.wins, record.matches)}% won`} />
-          </>
+          <div className="pa-record">
+            <WinRing value={record.wins / record.matches} />
+            <dl className="pa-wl">
+              <div>
+                <dt>Won</dt>
+                <dd>{record.wins}</dd>
+              </div>
+              <div>
+                <dt>Lost</dt>
+                <dd>{record.matches - record.wins}</dd>
+              </div>
+              <p>of {record.matches} with a winner</p>
+            </dl>
+          </div>
         )}
-        <dl className="kv pa-kv">
-          {s.byGame.length > 1 &&
-            s.byGame.map((g) => (
-              <Fragment key={g.game}>
-                <dt>{GAME_NAMES[g.game]}</dt>
-                <dd>
-                  {g.wins} of {g.matches}
-                </dd>
-              </Fragment>
+        {s.byGame.length > 0 && (
+          <ul className="pa-bygame">
+            {s.byGame.map((g) => (
+              <li key={g.game}>
+                <Image className="cut cut-btn" src={art.thumb[g.game]} alt="" width={40} height={40} />
+                <span>
+                  <b>{GAME_NAMES[g.game]}</b>
+                  <i className="pa-meter" aria-hidden="true">
+                    <i style={{ width: `${pct(g.wins, g.matches)}%` }} />
+                  </i>
+                </span>
+                <span className="pa-gfig">
+                  {g.wins}
+                  <small>
+                    <span className="sr-only"> won of </span>
+                    <span aria-hidden="true">/</span>
+                    {g.matches}
+                  </small>
+                </span>
+              </li>
             ))}
-          {s.bestScore !== null && (
-            <>
-              <dt>Best {GAME_NAMES["block-puzzle"]} score</dt>
-              <dd>{fmtGemas(s.bestScore)}</dd>
-            </>
-          )}
-          {s.undecided > 0 && (
-            <>
-              <dt>Draws and refunds, not counted</dt>
-              <dd>{s.undecided}</dd>
-            </>
-          )}
-        </dl>
+          </ul>
+        )}
+        {(s.bestScore !== null || s.undecided > 0) && (
+          <div className="pa-chips">
+            {s.bestScore !== null && (
+              <span className="cut cut-chip pa-chip">
+                Best {GAME_NAMES["block-puzzle"]} score <b>{fmtGemas(s.bestScore)}</b>
+              </span>
+            )}
+            {s.undecided > 0 && <span className="cut cut-chip pa-chip quiet">{s.undecided} draws and refunds, not counted</span>}
+          </div>
+        )}
       </section>
 
-      <section className="cut cut-card pa-panel" aria-label="Backings">
+      <section className="cut cut-card pa-panel pa-backings" aria-label="Backings">
         <Label>Backings</Label>
         {backings.matches === 0 ? (
           <>
@@ -221,20 +241,33 @@ function Scoreboard({ s, rows }: { s: PlayerSummary; rows: PlayedRow[] }) {
           </>
         ) : (
           <>
-            <b className="pa-fig">
-              {backings.wins} of {backings.matches} won
-            </b>
-            <dl className="kv pa-kv">
-              <dt>Backers&apos; Gemas</dt>
-              <dd>
-                {signed(backings.won)} · {signed(-backings.lost)}
-              </dd>
-              <dt>Backers&apos; net</dt>
-              <dd>{signed(backings.net)}</dd>
-              <dt>Backers ahead</dt>
-              <dd>
-                {backings.ahead} of {backings.backers}
-              </dd>
+            <div className="pa-bhead">
+              <b className="pa-fig">
+                {backings.wins} of {backings.matches} won
+              </b>
+              <span className="pa-ahead">
+                <span aria-hidden="true">
+                  {Array.from({ length: backings.backers }, (_, i) => (
+                    <i key={i} className={i < backings.ahead ? "on" : undefined} />
+                  ))}
+                </span>
+                {backings.ahead} of {backings.backers} {backings.backers === 1 ? "Backer" : "Backers"} ahead
+              </span>
+            </div>
+            <BackersBalance won={backings.won} lost={backings.lost} />
+            <dl className="pa-balance-figs">
+              <div>
+                <dt>Backers lost</dt>
+                <dd className={backings.lost > 0 ? "lost" : undefined}>{signed(-backings.lost)}</dd>
+              </div>
+              <div className="net">
+                <dt>Backers&apos; net</dt>
+                <dd className={backings.net > 0 ? "won" : backings.net < 0 ? "lost" : undefined}>{signed(backings.net)}</dd>
+              </div>
+              <div>
+                <dt>Backers won</dt>
+                <dd className={backings.won > 0 ? "won" : undefined}>{signed(backings.won)}</dd>
+              </div>
             </dl>
             <p className="note">A loss under a Backing costs the Player nothing, so read their Gemas beside their Backers&apos;.</p>
           </>
@@ -244,14 +277,39 @@ function Scoreboard({ s, rows }: { s: PlayerSummary; rows: PlayedRow[] }) {
   );
 }
 
-/** A share as a neutral bar with its words: emerald is for Gemas, and a win rate is not one. */
-function Bar({ value, label }: { value: number; label: string }) {
+/** The win rate as an octagon ring filled clockwise from the top, with the share inside. Neutral: a win rate is not Gemas. */
+function WinRing({ value }: { value: number }) {
+  const share = Math.min(1, Math.max(0, value));
   return (
-    <div className="pa-bar">
-      <span className="pa-bar-track" aria-hidden="true">
-        <i style={{ width: `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%` }} />
+    <div className="pa-ring">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <path d={RING} className="track" pathLength={100} />
+        <path d={RING} className="fill" pathLength={100} strokeDasharray={`${share * 100} 100`} />
+      </svg>
+      <span>
+        <b>{Math.round(share * 100)}%</b>
+        <small>won</small>
       </span>
-      <span>{label}</span>
+    </div>
+  );
+}
+
+// An octagon in a 100-unit box, 6 in from its edges, starting and ending at the top centre.
+const RING = [[50, 6], [69, 6], [94, 31], [94, 69], [69, 94], [31, 94], [6, 69], [6, 31], [31, 6], [50, 6]]
+  .map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`)
+  .join(" ");
+
+/** What the Backers lost (left, red) against what they won (right, emerald), both on one scale. */
+function BackersBalance({ won, lost }: { won: number; lost: number }) {
+  const max = Math.max(won, lost, 1);
+  return (
+    <div className="pa-balance" aria-hidden="true">
+      <span className="lost">
+        <i style={{ width: `${(lost / max) * 100}%` }} />
+      </span>
+      <span className="won">
+        <i style={{ width: `${(won / max) * 100}%` }} />
+      </span>
     </div>
   );
 }
