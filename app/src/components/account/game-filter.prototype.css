@@ -1,0 +1,88 @@
+/* PROTOTYPE: game filter variants on the Gemas panel (GameFilter.prototype.tsx). Throwaway. */
+
+/* A Rail */
+.gf-rail { width: auto; flex: 0 1 auto; }
+.gf-rail label > span { display: flex; align-items: center; justify-content: center; min-height: 34px; padding: 0 14px; font-size: 13.5px; font-weight: 700; white-space: nowrap; }
+.gf-rail input:checked + span { color: var(--fg); }
+.gf-rail .rail-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
+
+/* B Tabs: full width under the label */
+.gf-tabs-row { margin: -2px -28px 0; padding: 0 28px; box-shadow: inset 0 -1px var(--line); }
+.gf-tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.gf-tabs::-webkit-scrollbar { display: none; }
+.gf-tabs button {
+  all: unset; cursor: pointer; display: inline-flex; align-items: baseline; gap: 7px;
+  padding: 10px 14px 11px; font-size: 15px; font-weight: 500; color: var(--fg-2); white-space: nowrap;
+  box-shadow: inset 0 -2px transparent; transition: color 0.15s ease, box-shadow 0.2s ease;
+}
+.gf-tabs button:first-child { padding-left: 0; }
+.gf-tabs button small { font-size: 12px; font-weight: 700; color: var(--fg-3); }
+.gf-tabs button:hover { color: var(--fg); }
+.gf-tabs button.on { color: var(--fg); font-weight: 700; box-shadow: inset 0 -2px var(--fg); }
+.gf-tabs button.on small { color: var(--fg-2); }
+.gf-tabs button:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
+
+/* C Game tiles */
+.gf-tiles { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.gf-tile { position: relative; display: block; min-width: 0; }
+.gf-tile input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
+.gf-tile > span {
+  --edge: var(--line); display: flex; align-items: center; gap: 9px; padding: 8px 10px 8px 8px; min-height: 54px;
+  background: #0b1013; transition: background-color 0.15s ease;
+}
+.gf-tile img { width: 36px; height: 36px; object-fit: cover; flex: none; clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); filter: grayscale(1) brightness(0.7); transition: filter 0.2s ease; }
+.gf-stack { position: relative; width: 36px; height: 36px; flex: none; }
+.gf-stack img { position: absolute; width: 24px; height: 24px; }
+.gf-stack img:nth-child(1) { left: 0; top: 0; }
+.gf-stack img:nth-child(2) { left: 12px; top: 6px; }
+.gf-stack img:nth-child(3) { left: 6px; top: 12px; }
+.gf-tile-txt { display: grid; gap: 2px; min-width: 0; }
+.gf-tile-txt b { font-size: 14px; font-weight: 700; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gf-tile-txt small { font-size: 12.5px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gf-tile-txt em { font-style: normal; font-weight: 700; color: var(--fg-2); }
+.gf-tile input:hover + span { background: #10171b; }
+.gf-tile input:checked + span { --edge: var(--edge-2); background: var(--surface-2); }
+.gf-tile input:checked + span img { filter: none; }
+.gf-tile input:checked + span b { color: var(--fg); }
+.gf-tile input:checked + span small { color: var(--fg-2); }
+.gf-tile input:checked + span em.up { color: var(--em); }
+.gf-tile input:checked + span em.down { color: var(--danger); }
+.gf-tile input:focus-visible + span::after { --t: 2px; background: var(--fg); }
+@media (max-width: 600px) {
+  .gf-tiles { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); overflow-x: auto; scrollbar-width: none; margin: 0 -28px; padding: 0 28px; }
+}
+
+/* D Menu */
+.gf-menu { position: relative; }
+.gf-menu-btn {
+  all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px 0 12px;
+  --edge: var(--edge-2); background: var(--surface-2); font-size: 14px; font-weight: 700; color: var(--fg);
+}
+.gf-menu-btn img { width: 22px; height: 22px; object-fit: cover; margin-left: -4px; clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px); }
+.gf-menu-btn svg { color: var(--fg-2); transition: transform 0.2s ease; }
+.gf-menu-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.gf-menu-btn:focus-visible::after { --t: 2px; background: var(--fg); }
+.gf-menu-list {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 260px; margin: 0; padding: 6px; list-style: none;
+  --edge: var(--edge-2); background: var(--raised-2); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+.gf-menu-list button { all: unset; cursor: pointer; box-sizing: border-box; display: grid; grid-template-columns: 28px 1fr auto 16px; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; font-size: 14.5px; color: var(--fg-2); }
+.gf-menu-list button:hover, .gf-menu-list button:focus-visible { background: rgba(234, 239, 236, 0.06); color: var(--fg); }
+.gf-menu-list img { width: 28px; height: 28px; object-fit: cover; clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px); }
+.gf-all-ico { width: 28px; height: 28px; background: conic-gradient(from 45deg, #2a3640 0 25%, #1c252c 0 50%, #2a3640 0 75%, #1c252c 0); clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px); }
+.gf-menu-list em { font-style: normal; font-weight: 700; font-size: 13.5px; }
+.gf-menu-list em.up { color: var(--em); }
+.gf-menu-list em.down { color: var(--danger); }
+.gf-check { opacity: 0; color: var(--fg); }
+.gf-menu-list li[aria-selected="true"] button { color: var(--fg); font-weight: 700; }
+.gf-menu-list li[aria-selected="true"] .gf-check { opacity: 1; }
+.pa-gemas:has(> .gf-tabs-row, > .gf-tiles) { grid-template-rows: auto auto auto auto auto minmax(0, 1fr); }
+.gf-tabs-row { min-width: 0; }
+.gf-menu-list { min-width: 290px; }
+.gf-menu-list button > span { white-space: nowrap; }
+@media (max-width: 600px) {
+  .gf-tabs-row { margin: -2px -18px 0; padding: 0 18px; }
+  .gf-rail { flex: 1 1 100%; }
+  .gf-rail label > span { padding: 0 4px; font-size: 12.5px; white-space: normal; text-align: center; line-height: 1.15; min-height: 40px; }
+  .gf-tiles { margin: 0 -18px; padding: 0 18px; grid-auto-columns: minmax(158px, 1fr); }
+}
