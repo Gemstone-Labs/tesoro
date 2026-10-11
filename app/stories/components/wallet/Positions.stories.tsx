@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { EthFaucet, EthOpenForm, EthOps, EthPositionCard } from "@/app/(app)/wallet/EthPositions";
-import { NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
+import { NativeAdvanceSheet, NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import { withScreen } from "../../screens/support/screen";
 import { withSigner } from "../../screens/support/signer";
@@ -22,6 +22,11 @@ export const SolWithDebt: Story = {
 export const SolRepaid: Story = {
   parameters: { data: { snapshot: nativeSnapshot("repaid") } },
   render: () => <NativePositionCard position={nativePosition("repaid")} market={NATIVE_MARKET} onRedeem={() => {}} />,
+};
+/** Debt is zero: Take another Advance on the same Principal, or Unlock. */
+export const SolTakeAnotherAdvance: Story = {
+  parameters: { data: { snapshot: nativeSnapshot("repaid") } },
+  render: () => <NativeAdvanceSheet info={nativePosition("repaid").native!} market={NATIVE_MARKET} open onClose={() => {}} />,
 };
 export const SolUnlocked: Story = {
   parameters: { data: { snapshot: nativeSnapshot("unlocked") } },

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Lock } from "lucide-react";
 import { Button, ChainGlyph, CountUp, CrossChainProgress, GemaMark, Sheet, Slider, SimulatedYieldLabel } from "@/components/ui";
 import { quoteAdvance } from "@/lib/advance";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import { MOCK_NOW } from "@/lib/mock";
-import type { Position } from "@/lib/mock";
+import type { Chain, Position } from "@/lib/mock";
 import { GemasLabel, UnlockTrack, YieldToGemas, monthsLabel } from "./AdvanceQuote";
 
 const GLYPH = { SOL: 0, ETH: 1, HYPE: 2 } as const;
@@ -19,6 +19,79 @@ export function AdvanceSheet({ position, onClose }: { position: Position | null;
   );
 }
 
+/** The Take an Advance body: the Position (locked), yield → Gemas, the Horizon, Now → Unlock and the money button. */
+export function AdvanceFormView({
+  chain,
+  title,
+  apy,
+  months,
+  onMonths,
+  yieldText,
+  gemas,
+  unlock,
+  alerts,
+  buttonLabel,
+  disabled = false,
+  onSubmit,
+}: {
+  chain: Chain;
+  /** "40.000 SOL Position". */
+  title: string;
+  /** "7.0% APY". */
+  apy: string;
+  months: number;
+  onMonths: (m: number) => void;
+  yieldText: string;
+  gemas: number;
+  unlock: string;
+  alerts?: ReactNode;
+  buttonLabel: ReactNode;
+  disabled?: boolean;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="adv">
+      <div className="adv-source cut cut-card">
+        <ChainGlyph asset={GLYPH[chain]} size={30} />
+        <div>
+          <strong>{title}</strong>
+          <span className="meta">{apy} · stays locked, never played</span>
+        </div>
+        <Lock size={16} className="adv-lock" aria-hidden />
+      </div>
+
+      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas} />
+
+      <Slider label="Horizon" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
+
+      <UnlockTrack now="Gemas in your balance" unlock={unlock} end="Unlock Estimate, Debt 0" />
+
+      {alerts}
+      <SimulatedYieldLabel />
+      <Button variant="money" size="lg" block disabled={disabled} onClick={onSubmit}>
+        {buttonLabel}
+      </Button>
+    </div>
+  );
+}
+
+/** Taken: a banknote counts the Gemas in; greyed and not counted while they are still on their way. */
+export function AdvanceTakenNote({ gemas, from, unlock, landed = true }: { gemas: number; from: string; unlock: string; landed?: boolean }) {
+  return (
+    <div className={`adv-note balance cut cut-frame${landed ? "" : " pending"}`}>
+      <span className="balance-label">{landed ? "Gemas issued" : "Gemas on the way"}</span>
+      <span className="balance-fig">
+        <GemaMark size={40} />
+        {landed ? <CountUp value={gemas} from={0} duration={1100} /> : fmtGemas(gemas)}
+      </span>
+      <span className="balance-foot">
+        <span>From your {from}</span>
+        <span>Unlock Estimate {unlock}</span>
+      </span>
+    </div>
+  );
+}
+
 function AdvanceForm({ position, onClose }: { position: Position; onClose: () => void }) {
   const [months, setMonths] = useState(3);
   const [taken, setTaken] = useState(false);
@@ -27,27 +100,18 @@ function AdvanceForm({ position, onClose }: { position: Position; onClose: () =>
   if (taken) return <Taken position={position} gemas={quote.gemasIssued} unlock={quote.unlockEstimate} onClose={onClose} />;
 
   return (
-    <div className="adv">
-      <div className="adv-source cut cut-card">
-        <ChainGlyph asset={GLYPH[position.asset]} size={30} />
-        <div>
-          <strong>{fmtAsset(position.principal, position.asset)} Position</strong>
-          <span className="meta">{(position.apy * 100).toFixed(1)}% APY · stays locked, never played</span>
-        </div>
-        <Lock size={16} className="adv-lock" aria-hidden />
-      </div>
-
-      <YieldToGemas months={months} yieldText={fmtAsset(quote.projectedYield, position.asset)} gemas={quote.gemasIssued} />
-
-      <Slider label="Horizon" value={months} min={1} max={12} onChange={setMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
-
-      <UnlockTrack now="Gemas in your balance" unlock={fmtWhen(quote.unlockEstimate)} end="Unlock Estimate, Debt 0" />
-
-      <SimulatedYieldLabel />
-      <Button variant="money" size="lg" block onClick={() => setTaken(true)}>
-        <GemasLabel action="Take Advance" gemas={quote.gemasIssued} />
-      </Button>
-    </div>
+    <AdvanceFormView
+      chain={position.chain}
+      title={`${fmtAsset(position.principal, position.asset)} Position`}
+      apy={`${(position.apy * 100).toFixed(1)}% APY`}
+      months={months}
+      onMonths={setMonths}
+      yieldText={fmtAsset(quote.projectedYield, position.asset)}
+      gemas={quote.gemasIssued}
+      unlock={fmtWhen(quote.unlockEstimate)}
+      buttonLabel={<GemasLabel action="Take Advance" gemas={quote.gemasIssued} />}
+      onSubmit={() => setTaken(true)}
+    />
   );
 }
 
@@ -63,17 +127,7 @@ function Taken({ position, gemas, unlock, onClose }: { position: Position; gemas
 
   return (
     <div className="adv">
-      <div className={`adv-note balance cut cut-frame${landed ? "" : " pending"}`}>
-        <span className="balance-label">{landed ? "Gemas issued" : "Gemas on the way"}</span>
-        <span className="balance-fig">
-          <GemaMark size={40} />
-          {landed ? <CountUp value={gemas} from={0} duration={1100} /> : fmtGemas(gemas)}
-        </span>
-        <span className="balance-foot">
-          <span>From your {fmtAsset(position.principal, position.asset)} Position</span>
-          <span>Unlock Estimate {fmtWhen(unlock)}</span>
-        </span>
-      </div>
+      <AdvanceTakenNote gemas={gemas} from={`${fmtAsset(position.principal, position.asset)} Position`} unlock={fmtWhen(unlock)} landed={landed} />
       {crossChain && <CrossChainProgress stage={stage} chain={position.chain} txHash="0x7be1…a09c" />}
       <Button block onClick={onClose}>{landed ? "Done" : "Close, it keeps going"}</Button>
     </div>
