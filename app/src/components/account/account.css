@@ -58,13 +58,58 @@
 .pa-split-bar { display: block; height: 8px; background: color-mix(in srgb, var(--danger) 72%, transparent); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 .pa-split-bar.none { background: rgba(255, 255, 255, 0.09); }
 .pa-split-bar i { display: block; height: 100%; background: var(--em); box-shadow: 2px 0 0 var(--raised); }
-.pa-kv { font-size: 14.5px; gap: 8px 16px; padding-top: 12px; box-shadow: inset 0 1px var(--line); }
-.pa-kv dd { font-variant-numeric: normal; }
-.pa-kv:empty { display: none; }
-.pa-bar { display: grid; gap: 6px; }
-.pa-bar-track { display: block; height: 6px; background: rgba(255, 255, 255, 0.09); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
-.pa-bar-track i { display: block; height: 100%; background: var(--fg); }
-.pa-bar > span:last-child { font-size: 14.5px; color: var(--fg-2); }
+/* Matches: the win rate as a neutral octagon ring, won and lost beside it, a row per game, then chips */
+.pa-matches, .pa-backings { gap: 16px; }
+.pa-record { display: flex; align-items: center; gap: 22px; }
+.pa-ring { position: relative; flex: none; width: 112px; height: 112px; }
+.pa-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.pa-ring path { fill: none; stroke-width: 7; stroke-linejoin: miter; }
+.pa-ring .track { stroke: rgba(234, 239, 236, 0.09); }
+.pa-ring .fill { stroke: var(--fg); filter: drop-shadow(0 0 6px rgba(234, 239, 236, 0.25)); }
+.pa-ring > span { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1; }
+.pa-ring b { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
+.pa-ring small { font-size: 12px; color: var(--fg-2); margin-top: 3px; }
+.pa-wl { margin: 0; display: grid; grid-template-columns: auto auto; gap: 4px 26px; }
+.pa-wl div { display: grid; gap: 2px; }
+.pa-wl dt { font-size: 12px; font-weight: 700; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.08em; }
+.pa-wl dd { margin: 0; font-size: 34px; font-weight: 800; line-height: 1; }
+.pa-wl div + div dd { color: var(--fg-2); }
+.pa-wl p { grid-column: 1 / -1; margin-top: 6px; font-size: 13.5px; color: var(--fg-2); }
+.pa-bygame { list-style: none; margin: 0; padding: 14px 0 0; display: grid; gap: 10px; box-shadow: inset 0 1px var(--line); }
+.pa-bygame li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.pa-bygame img { width: 40px; height: 40px; object-fit: cover; --c: 7px; }
+.pa-bygame li > span:first-of-type { display: grid; gap: 7px; min-width: 0; }
+.pa-bygame b { font-size: 14.5px; font-weight: 700; }
+.pa-meter { display: block; height: 4px; background: rgba(255, 255, 255, 0.08); }
+.pa-meter i { display: block; height: 100%; background: var(--fg); }
+.pa-gfig { font-size: 20px; font-weight: 800; }
+.pa-gfig small { font-size: 14px; font-weight: 700; color: var(--fg-2); }
+.pa-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.pa-chip { --edge: var(--edge-2); --c: 6px; background: var(--raised-2); padding: 7px 12px; font-size: 13px; color: var(--fg-2); }
+.pa-chip b { color: var(--fg); margin-left: 6px; }
+.pa-chip.quiet { --edge: var(--edge-1); background: transparent; }
+
+/* Backings: the Backers' losses against their wins on one scale, net in the middle */
+.pa-backings .won { color: var(--em-hi); }
+.pa-backings .lost { color: var(--danger); }
+.pa-bhead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 12px; }
+.pa-ahead { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; color: var(--fg-2); }
+.pa-ahead > span { display: inline-flex; gap: 5px; }
+.pa-ahead i { width: 12px; height: 12px; background: rgba(234, 239, 236, 0.14); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.pa-ahead i.on { background: var(--fg); }
+.pa-balance { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; height: 12px; }
+.pa-balance span { display: flex; background: rgba(255, 255, 255, 0.05); }
+.pa-balance i { display: block; height: 100%; }
+.pa-balance .lost { justify-content: flex-end; }
+.pa-balance .lost i { background: linear-gradient(270deg, var(--danger), rgba(242, 104, 90, 0.55)); clip-path: polygon(6px 0, 100% 0, 100% 100%, 6px 100%, 0 50%); }
+.pa-balance .won i { background: linear-gradient(90deg, var(--em), var(--em-hi)); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%); }
+.pa-balance-figs { margin: 0; display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; }
+.pa-balance-figs div { display: grid; gap: 2px; }
+.pa-balance-figs div:last-child { text-align: right; }
+.pa-balance-figs .net { text-align: center; }
+.pa-balance-figs dt { font-size: 12.5px; color: var(--fg-2); }
+.pa-balance-figs dd { margin: 0; font-size: 17px; font-weight: 800; }
+.pa-balance-figs .net dd { font-size: 24px; }
 
 /* running total: a step per Match, emerald above zero and red below; peak, low and the latest total marked */
 .pa-chart { margin: 4px 0 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; width: 100%; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
@@ -133,6 +178,7 @@
   .pa-hero { gap: 14px 16px; align-items: start; }
   .pa-facts { font-size: 14px; }
   .pa-panel, .pa-gemas { padding: 20px 18px; }
+  .pa-wl dd { font-size: 28px; }
   .pa-plot { min-height: 160px; margin-right: 66px; margin-left: 14px; }
   .pa-x { margin-right: 66px; margin-left: 14px; }
   .pa-chart figcaption { flex-direction: column; }
