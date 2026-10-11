@@ -21,6 +21,15 @@
 }
 .hd-card.empty { border: 1px dashed rgba(234, 239, 236, 0.18); background: rgba(255, 255, 255, 0.03); }
 
+/* a card that turns over: the back and the face are two sides of one box */
+.hd-flipc { --w: 44px; position: relative; display: inline-block; width: var(--w); aspect-ratio: 5 / 7; flex: none; perspective: 700px; }
+.hd-flipc.lg { --w: 58px; }
+.hd-flipc-in { position: relative; display: block; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 520ms cubic-bezier(0.3, 0.9, 0.3, 1); }
+.hd-flipc-in.up { transform: rotateY(180deg); }
+.hd-flipc .hd-card { --w: inherit; position: absolute; inset: 0; width: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.hd-flipc .hd-card.face, .hd-flipc .hd-card.empty { transform: rotateY(180deg); }
+.hd-flipc .hd-card .hd-rank { font-size: calc(var(--w) * 0.56); }
+
 /* layout: slim header, the table, the action bar, a collapsible hand log */
 .hdx { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; width: 100%; }
 .hdx-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 0 4px; }
@@ -30,61 +39,130 @@
 .hdx-entry { --edge: var(--edge-em); display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 6px 12px; background: linear-gradient(180deg, #0f3029, #0a2320); font-weight: 800; font-size: 14px; color: var(--em-hi); }
 .hdx-stage { display: grid; gap: 12px; min-width: 0; }
 
-/* the octagonal table: steel rim, dark navy surface */
-.hdx-table {
-  --oct: polygon(15% 0, 85% 0, 100% 24%, 100% 76%, 85% 100%, 15% 100%, 0 76%, 0 24%);
-  position: relative; clip-path: var(--oct); padding: 12px;
+/* the octagonal table, drawn in perspective: the steel rim and navy surface tilt back, the seats and cards stand on it */
+.hdx-table { --oct: polygon(15% 0, 85% 0, 100% 24%, 100% 76%, 85% 100%, 15% 100%, 0 76%, 0 24%); position: relative; }
+.hdx-surface {
+  position: absolute; inset: 0; transform: perspective(1500px) rotateX(13deg); transform-origin: 50% 100%;
+  filter: drop-shadow(0 28px 26px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 26px rgba(110, 150, 255, 0.22));
+}
+.hdx-rim {
+  position: absolute; inset: 0; clip-path: var(--oct); padding: 12px;
   background: linear-gradient(135deg, #93a6bb 0 12%, #34404f 12% 30%, #9db0c4 30% 48%, #2b3644 48% 66%, #8fa2b7 66% 84%, #3a4757 84%);
 }
-.hdx-felt {
-  clip-path: var(--oct); min-height: 420px; padding: 18px 16px 16px; display: grid; grid-template-rows: auto 1fr auto; gap: 8px; justify-items: center;
+.hdx-rim::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 38%); pointer-events: none; }
+.hdx-bed {
+  position: absolute; inset: 12px; clip-path: var(--oct);
   background:
-    radial-gradient(60% 45% at 50% 46%, rgba(120, 160, 255, 0.16), transparent 70%),
+    radial-gradient(60% 45% at 50% 46%, rgba(120, 160, 255, 0.2), transparent 70%),
     linear-gradient(115deg, transparent 0 38%, rgba(160, 190, 255, 0.05) 38% 44%, transparent 44%),
     linear-gradient(62deg, transparent 0 62%, rgba(160, 190, 255, 0.04) 62% 67%, transparent 67%),
     radial-gradient(120% 90% at 50% 40%, #17346a, #0a1631 78%);
   box-shadow: inset 0 0 60px rgba(2, 6, 18, 0.6);
 }
+.hdx-felt { position: relative; min-height: 420px; padding: 34px 28px 24px; display: grid; grid-template-rows: auto 1fr auto; gap: 8px; justify-items: center; }
+.hdx-deck { position: absolute; z-index: 1; right: 21%; top: 30%; width: 34px; aspect-ratio: 5 / 7; pointer-events: none; }
+.hdx-deck i { position: absolute; inset: 0; border-radius: 4px; background: #0c1836 url("/art/card-back.svg") center / 100% 100% no-repeat; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(157, 176, 196, 0.35); }
+.hdx-deck i:nth-child(2) { transform: translate(-2px, -2px); }
+.hdx-deck i:nth-child(3) { transform: translate(-4px, -4px); }
+.hdx-banner { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
+.hdx-banner .fx-callout { letter-spacing: 0.12em; }
+.hd-ghost { position: fixed; z-index: 60; transform: translate(-50%, -50%); pointer-events: none; animation: hd-sweep 620ms cubic-bezier(0.5, 0, 0.3, 1) 80ms both; }
+@keyframes hd-sweep { 0% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 85% { opacity: 1; } 100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.7); opacity: 0; } }
 .hdx-mid { display: grid; gap: 12px; justify-items: center; align-content: center; }
 .hdx-board { display: flex; gap: 6px; flex-wrap: nowrap; }
-.hdx-pot { --c: 10px; padding: 8px 20px; font-size: 14px; color: var(--fg-2); background: linear-gradient(180deg, rgba(14, 26, 54, 0.85), rgba(6, 12, 28, 0.85)); --edge: linear-gradient(180deg, rgba(190, 210, 255, 0.45), rgba(160, 190, 255, 0.12)); }
+.hdx-pot { --c: 10px; display: flex; align-items: center; gap: 12px; padding: 6px 20px 6px 14px; font-size: 14px; color: var(--fg-2); background: linear-gradient(180deg, rgba(14, 26, 54, 0.85), rgba(6, 12, 28, 0.85)); --edge: linear-gradient(180deg, rgba(190, 210, 255, 0.45), rgba(160, 190, 255, 0.12)); min-height: 44px; }
+.hdx-pot-t { display: grid; line-height: 1.05; }
+.hdx-pot-l { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
 .hdx-pot b { font-size: 24px; font-weight: 500; color: var(--fg); font-variant-numeric: tabular-nums; }
 
-/* seats: cards over a plaque */
+/* seats: cards over a plaque with the avatar, the turn ring, the bet stack and what they just did */
 .hdx-seat { display: grid; justify-items: center; gap: 0; position: relative; }
-.hdx-seat.mine { flex-direction: column-reverse; }
 .hd-cards { display: flex; gap: 6px; margin-bottom: -14px; position: relative; z-index: 0; }
 .hdx-seat.mine .hd-cards { margin-bottom: -10px; }
 .hdx-plaque {
-  --c: 10px; position: relative; z-index: 1; display: grid; gap: 2px; justify-items: center; text-align: center; padding: 8px 26px 9px; min-width: 190px;
+  --c: 10px; position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 7px 24px 7px 10px; width: 248px; box-sizing: border-box;
   background: linear-gradient(180deg, #131b26, #0b1119); --edge: rgba(190, 205, 225, 0.42);
 }
-.hdx-seat.active .hdx-plaque { --edge: var(--fg); }
-.hd-name { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 16px; flex-wrap: wrap; }
+.hdx-seat.active .hdx-plaque { --edge: var(--fg); background: linear-gradient(180deg, #19222f, #0d141d); }
+.hd-plaque-text { display: grid; gap: 1px; text-align: left; min-width: 0; }
+.hd-ava { position: relative; display: grid; place-items: center; width: 60px; height: 60px; flex: none; }
+.hd-ava-img { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; background: #0b1119; }
+.hd-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.hd-ring circle { fill: none; stroke-width: 3; }
+.hd-ring-track { stroke: rgba(190, 205, 225, 0.2); }
+.hd-ring-arc { stroke: var(--fg); stroke-linecap: butt; transition: stroke-dashoffset 250ms linear, opacity 200ms; opacity: 0; }
+.hd-ava.active .hd-ring-arc { opacity: 1; filter: drop-shadow(0 0 5px rgba(234, 239, 236, 0.55)); }
+.hd-ava.active.low .hd-ring-arc { stroke: var(--warn); filter: drop-shadow(0 0 5px var(--warn)); }
+.hd-ava.active { animation: hd-glow 1.6s ease-in-out infinite; }
+@keyframes hd-glow { 50% { filter: drop-shadow(0 0 8px rgba(234, 239, 236, 0.35)); } }
+.hd-name { display: flex; align-items: center; gap: 6px; font-size: 16px; flex-wrap: wrap; }
 .hd-addr { color: var(--fg-2); font-size: 11px; }
 .hd-btn {
-  display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
-  background: var(--fg); color: var(--shell); font-size: 10px; font-weight: 900;
+  position: absolute; left: 52px; bottom: 2px; z-index: 2; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, #c8d2de 70%); color: #0a1226; font-size: 12px; font-weight: 900; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(10, 18, 38, 0.18);
+  animation: hd-pop 360ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
 }
+@keyframes hd-pop { from { transform: scale(0.2); opacity: 0; } }
 .hd-stack { font-size: 16px; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--fg-2); }
 .hd-unit { font-size: 13px; }
 .hd-tag { margin-left: 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--warn); }
 .hd-missed { color: var(--warn); font-size: 12px; }
-.hd-bet { position: absolute; left: calc(50% + 116px); top: 50%; min-width: 44px; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--fg); }
-.hd-bet:not(:empty)::before { content: "Bet "; color: var(--fg-2); font-size: 10.5px; }
+.hd-bet { position: absolute; left: calc(50% + 126px); top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--fg); }
+.hd-bet-n { padding: 2px 8px; background: rgba(6, 12, 28, 0.7); }
 .hd-turn { font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--shell); background: var(--fg); padding: 1px 6px; }
 .hd-last { text-align: center; }
+.hd-handlabel {
+  animation: hd-win-in 400ms ease both; --c: 7px; position: absolute; z-index: 3; left: calc(50% + 74px); top: 8px; padding: 5px 12px; white-space: nowrap; font-size: 14px; font-weight: 700; color: var(--fg);
+  background: rgba(10, 16, 30, 0.9); --edge: rgba(190, 210, 255, 0.4);
+}
 
-/* hand result */
-.hd-result { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); background: var(--surface); }
-.hd-result-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; }
-.hd-show { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.hd-show .hd-card { --w: 34px; }
-.hd-show-l { font-size: 11px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.08em; }
-.hd-show-l:not(:first-child) { margin-left: 8px; }
+/* what a seat just did: a short callout beside the plaque, toward the centre of the table */
+.hd-say { position: absolute; z-index: 6; right: calc(50% + 124px); top: 50%; width: 220px; height: 44px; transform: translateY(-50%); pointer-events: none; }
+.hd-say .fx-callout { font-size: 15px; padding: 6px 14px; letter-spacing: 0.04em; }
+.hd-say .fx-callout-host { place-items: center end; }
+
+/* chips: neutral steel discs seen from above and to the side */
+.hd-stack-chips { display: inline-flex; align-items: flex-end; gap: 3px; }
+.hd-pile { position: relative; display: block; width: 30px; flex: none; }
+.hd-chip {
+  --c1: #c7d2e0; --c2: #8798ad; --side: #56667c;
+  position: absolute; left: 0; width: 30px; height: 15px; border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, var(--c1) 0 34%, var(--c2) 35% 100%);
+  box-shadow: 0 3px 0 var(--side), 0 4px 3px rgba(0, 0, 0, 0.5), inset 0 0 0 1.5px rgba(255, 255, 255, 0.35);
+}
+.hd-chip.d1 { --c1: #e6ebf2; --c2: #aeb9c8; --side: #6d7a8e; }
+.hd-chip.d10 { --c1: #9fb3cf; --c2: #5c7498; --side: #3b4d68; }
+.hd-chip.d50 { --c1: #c7d2e0; --c2: #8798ad; --side: #56667c; }
+.hd-chip.d100 { --c1: #33405a; --c2: #1a2336; --side: #0e1522; }
+.hd-chip.d500 { --c1: #f3f5f8; --c2: #c4cddb; --side: #7e8aa0; }
+.hd-chip.d1000 { --c1: #1c2740; --c2: #0c1424; --side: #05080f; }
+
+/* the end of a hand: both hands named, the winning five lifted, the pot to the winner */
+.hdx-potslot { display: grid; place-items: center; min-height: 62px; width: 100%; }
+.hdx-win {
+  --c: 12px; --edge: linear-gradient(180deg, rgba(220, 232, 255, 0.7), rgba(160, 190, 255, 0.2)); display: flex; align-items: center; gap: 12px; padding: 8px 22px 8px 16px; max-width: min(92%, 460px);
+  background: linear-gradient(180deg, rgba(20, 34, 68, 0.96), rgba(8, 14, 30, 0.96)); box-shadow: 0 0 36px -8px rgba(150, 185, 255, 0.5);
+  animation: hd-win-in 520ms cubic-bezier(0.2, 1.1, 0.3, 1) both; animation-delay: calc(var(--rv, 0ms) + 150ms);
+}
+.hdx-felt[data-how="showdown"] .hdx-win { animation-delay: calc(var(--rv, 0ms) + 850ms); }
+@keyframes hd-win-in { from { opacity: 0; transform: translateY(10px) scale(0.9); } }
+.hdx-win-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: none; background: rgba(234, 239, 236, 0.1); color: var(--fg); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.hdx-win.lose .hdx-win-icon { color: var(--fg-2); }
+.hdx-win-t { display: grid; gap: 1px; text-align: left; line-height: 1.15; min-width: 0; }
+.hdx-win-t b { white-space: nowrap; font-size: clamp(17px, 2.2vw, 22px); font-weight: 800; }
+.hdx-win-t span:last-child { font-size: 14px; color: var(--fg-2); }
+.hdx-win-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.hd-turn.won { background: #e6ebf2; color: #0a1226; animation: hd-win-in 400ms ease both; animation-delay: calc(var(--rv, 0ms) + 150ms); }
+.hdx-felt[data-how="showdown"] .hd-turn.won { animation-delay: calc(var(--rv, 0ms) + 850ms); }
+.hdx-plaque.won { --edge: #e6ebf2; }
+.hd-flipc { transition: transform 420ms cubic-bezier(0.2, 0.9, 0.3, 1), opacity 420ms, filter 420ms; transition-delay: calc(var(--rv, 0ms) + 800ms); }
+.hd-flipc.win { transform: translateY(-12px); filter: drop-shadow(0 0 10px rgba(200, 220, 255, 0.75)); }
+.hd-flipc.dim { opacity: 0.42; filter: saturate(0.6); }
+.hdx-end { position: absolute; inset: 0; z-index: 12; display: grid; place-items: center; background: rgba(6, 10, 22, 0.72); animation: hd-win-in 600ms ease both; animation-delay: calc(var(--rv, 0ms) + 2800ms); }
+.hdx-end .hd-practice-end { max-width: 520px; }
 
 /* turn timer */
-.hdx-clock { display: grid; gap: 6px; min-width: 220px; }
+.hdx-clock { display: grid; gap: 6px; min-width: 0; }
 .hdx-clock-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .hdx-who { font-weight: 700; font-size: 15px; }
 .hdx-secs { font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -93,6 +171,15 @@
 .hd-clock-bar i { display: block; height: 100%; background: var(--fg); transition: width 250ms linear; }
 .hd-clock-bar i.low { background: var(--warn); }
 .hd-claim { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* chips across the Match */
+.hdx-share { display: flex; align-items: center; gap: 10px; flex: 1 1 200px; max-width: 300px; font-size: 13px; color: var(--fg-2); }
+.hdx-share b { color: var(--fg); font-weight: 600; }
+.hdx-share-bar { flex: 1; height: 8px; background: #3a4757; position: relative; clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 50%, calc(100% - 4px) 100%, 4px 100%, 0 50%); }
+.hdx-share-bar i { position: absolute; inset: 0 auto 0 0; background: var(--fg); transition: width 700ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.hdx-toast { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
+.hdx-toast .fx-callout-host { place-items: start center; padding-top: 14px; }
+.hdx-toast .fx-callout { font-size: 15px; padding: 6px 16px; letter-spacing: 0.06em; }
 
 /* hand log: a quiet drawer under the action bar */
 .hdx-log { border-top: 1px solid var(--line); padding-top: 12px; }
@@ -107,11 +194,16 @@
 
 /* action bar */
 .hdx-actions { --edge: var(--edge-2); background: var(--shell); padding: 16px; display: grid; gap: 14px; }
-.hdx-btns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.hdx-btns { display: grid; grid-template-columns: minmax(0, 0.8fr) repeat(2, minmax(0, 1.2fr)); gap: 10px; }
 .hdx-btn {
   --c: 10px; --edge: var(--edge-2); min-height: 64px; display: grid; place-content: center; gap: 0; background: #141a20; border: 0; color: var(--fg); font-size: 20px; font-weight: 800;
 }
-.hdx-btn small { font-size: 14px; color: inherit; opacity: 0.7; }
+.hdx-btn { position: relative; }
+.hdx-btn kbd, .hd-preset kbd { display: none; font: 600 10.5px/1 var(--f-mono, monospace); opacity: 0.55; border: 1px solid currentColor; padding: 2px 4px; }
+@media (hover: hover) and (min-width: 1024px) {
+  .hdx-btn kbd { display: block; position: absolute; top: 6px; right: 8px; }
+  .hd-preset kbd { display: inline; margin-left: 4px; }
+}
 .hdx-btn:not(:disabled):hover { background: #1c242c; }
 .hdx-btn.primary { background: #eef0e9; color: #0a0d0f; }
 .hdx-btn.primary:hover { background: #fff !important; }
@@ -146,16 +238,29 @@
 
 /* phones: the table shrinks, the info panel becomes a one-line strip */
 @media (max-width: 719px) {
-  .hdx-felt { min-height: 360px; padding: 14px 8px 12px; }
-  .hd-card { --w: 36px; }
-  .hd-card.lg { --w: 44px; }
+  .hdx-felt { min-height: 360px; padding: 22px 12px 18px; }
+  .hdx-surface { transform: perspective(1200px) rotateX(9deg); }
+  .hdx-deck { right: 9%; top: 27%; width: 26px; }
+  .hd-card, .hd-flipc { --w: 36px; }
+  .hd-card.lg, .hd-flipc.lg { --w: 44px; }
   .hdx-board { gap: 4px; }
-  .hdx-plaque { min-width: 150px; padding: 6px 16px 7px; }
-  .hd-bet { left: calc(50% + 86px); }
-}
+  .hdx-plaque { width: 212px; padding: 6px 14px 6px 8px; gap: 8px; }
+  .hd-ava { width: 52px; height: 52px; }
+  .hd-ava-img { width: 40px; height: 40px; }
+  .hd-btn { left: 38px; }
+  .hd-bet { left: calc(50% + 58px); top: 6px; transform: none; }
+  .hd-say { right: auto; left: 50%; top: 0; transform: translate(-50%, -50%); width: 200px; }
+  .hd-handlabel { position: relative; left: auto; top: auto; order: 3; margin-top: 6px; }
+  .hd-turn:not(.won) { display: none; }
+  .hdx-win { padding: 6px 14px 6px 10px; gap: 8px; max-width: 98%; }
+  .hdx-win-icon { width: 30px; height: 30px; }
+  .hdx-win-icon svg { width: 17px; height: 17px; }
+  .hdx-win-t b { font-size: 16px; }
+  .hdx-win-t span:last-child { font-size: 12.5px; }
+  }
 @media (min-width: 720px) {
-  .hd-card { --w: 52px; }
-  .hd-card.lg { --w: 66px; }
+  .hd-card, .hd-flipc { --w: 52px; }
+  .hd-card.lg, .hd-flipc.lg { --w: 66px; }
 }
 @media (min-width: 1024px) {
   .hdx-actions { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
@@ -165,29 +270,26 @@
   /* Sized by viewport height too, so header, table and action bar fit one desktop screen. */
   .hdx { gap: clamp(12px, 2vh, 24px); }
   .hdx-felt { min-height: clamp(380px, 50vh, 500px); }
-  .hd-card { --w: clamp(44px, 5.4vh, 62px); }
-  .hd-card.lg { --w: clamp(54px, 6.8vh, 78px); }
+  .hd-card, .hd-flipc { --w: clamp(44px, 5.4vh, 62px); }
+  .hd-card.lg, .hd-flipc.lg { --w: clamp(54px, 6.8vh, 78px); }
 }
 
 /* Wide screens: the hand result sits in the empty left side of the table instead of under it, and the felt
    takes the height left after the top bar, header and action bar, so the whole table fits one screen. */
 @media (min-width: 1280px) {
   .hdx-stage { position: relative; }
-  .hdx-stage > .hd-result, .hdx-stage > .hd-last {
+  .hdx-stage > .hd-last {
     position: absolute; z-index: 2; left: 4.5%; top: 50%; transform: translateY(-50%); width: min(280px, 26%);
     text-align: left; background: rgba(8, 14, 28, 0.88); border: 1px solid rgba(190, 210, 255, 0.22);
   }
   .hdx-stage > .hd-last { padding: 10px 12px; }
-  .hd-result-top { flex-wrap: wrap; }
-  .hdx-stage > .hd-result .hd-show { display: grid; grid-template-columns: auto auto 1fr; justify-items: start; }
-  .hdx-stage > .hd-result .hd-show-l { margin-left: 0; }
   .hdx-felt { min-height: 0; height: clamp(360px, calc(100dvh - 318px), 520px); }
   .hdx-actions { padding: 12px 16px; gap: 10px; }
   .hdx-btn { min-height: 56px; }
 }
 
 @media (min-width: 1280px) and (max-height: 860px) {
-  .hdx-felt { padding: 10px 16px 8px; gap: 4px; }
+  .hdx-felt { padding: 20px 20px 12px; gap: 4px; }
   .hdx-mid { gap: 8px; }
   .hdx-plaque { padding: 5px 22px 6px; }
 }
@@ -195,3 +297,16 @@
 /* practice: end-of-Match panel under the table */
 .hd-practice-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 14px 20px; max-width: 1100px; margin: 0 auto; width: 100%; }
 .hd-practice-end .bp-actions { display: flex; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hdx-surface { transform: none; }
+  .hdx-flipc-in, .hd-flipc-in { transition: none; }
+  .hd-ghost { display: none; }
+  .hd-ava.active { animation: none; }
+}
+.hdx-felt[data-how="showdown"] .hd-handlabel { animation-delay: calc(var(--rv, 0ms) + 600ms); }
+.hd-practice-end { flex-direction: column; align-items: stretch; text-align: center; padding: 22px 26px; background: linear-gradient(180deg, #121b2c, #0a1019); }
+.hd-end-text { display: grid; gap: 8px; }
+.hd-end-chips { font-size: 18px; color: var(--fg-2); }
+.hd-end-chips b { color: var(--fg); font-weight: 600; }
+.hd-practice-end .bp-actions { justify-content: center; }
