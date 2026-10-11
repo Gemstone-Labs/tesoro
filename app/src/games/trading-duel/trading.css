@@ -77,15 +77,7 @@
 .td-order { gap: 12px; }
 .td-order-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 /* Chips are not Gemas: the shared Slider is emerald for Gema amounts, so it is made neutral here. */
-.td-sl .slider input[type="range"]::-webkit-slider-runnable-track { background: linear-gradient(90deg, #6b7780, var(--fg) var(--pct), rgba(255, 255, 255, 0.1) var(--pct)); }
-.td-sl .slider input[type="range"]::-moz-range-track { background: linear-gradient(90deg, #6b7780, var(--fg) var(--pct), rgba(255, 255, 255, 0.1) var(--pct)); }
-.td-sl .slider input[type="range"]::-webkit-slider-thumb {
-  background: linear-gradient(90deg, transparent 9px, #11161a 9px 11px, transparent 11px 13px, #11161a 13px 15px, transparent 15px 17px, #11161a 17px 19px, transparent 19px) center / 100% 10px no-repeat, linear-gradient(160deg, #fff, #cfd6d3 55%, #aeb7b3);
-}
-.td-sl .slider input[type="range"]::-moz-range-thumb {
-  background: linear-gradient(90deg, transparent 9px, #11161a 9px 11px, transparent 11px 13px, #11161a 13px 15px, transparent 15px 17px, #11161a 17px 19px, transparent 19px) center / 100% 10px no-repeat, linear-gradient(160deg, #fff, #cfd6d3 55%, #aeb7b3);
-}
-.td-sl .slider-notches i.on { background: var(--fg); opacity: 0.5; }
+.td-sl .slider { --fill: linear-gradient(90deg, #6b7780, var(--fg)); --mark-now: var(--fg); }
 .td-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .td-preset { --edge: var(--edge-2); padding: 9px 4px; font-size: 14px; font-weight: 700; background: #141a20; border: 0; color: var(--fg); }
 .td-preset:hover:not(:disabled) { background: #1c242c; }

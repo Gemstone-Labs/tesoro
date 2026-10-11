@@ -264,7 +264,7 @@ export function TradingScreen(p: ScreenProps) {
               ))}
             </div>
             <div className="td-sl">
-              <Slider label="Leverage" value={leverage} min={RULES.minLeverage} max={RULES.maxLeverage} step={1} onChange={setLeverage} display={<span className="mono">{leverage}x</span>} minLabel="1x" maxLabel="20x" />
+              <Slider label="Leverage" value={leverage} min={RULES.minLeverage} max={RULES.maxLeverage} step={1} onChange={setLeverage} display={<span className="mono">{leverage}x</span>} format={(v) => `${v}x`} />
             </div>
             <p className="meta td-preview">
               Notional <b className="mono">{chips(margin * BigInt(leverage))}</b>
