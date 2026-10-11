@@ -2,11 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { Stage3D } from "../Stage3D";
-import { ASPECT, CHAINS, toStage, type ChainsLayout } from "./layout";
+import { ASPECT, CHAINS, LEDGER, toStage, type ChainsLayout } from "./layout";
 
 const ChainsCanvas = dynamic(() => import("./ChainsCanvas"), { ssr: false });
 
 function Labels({ layout }: { layout: ChainsLayout }) {
+  const [lx, ly, lz] = LEDGER[layout];
   return (
     <ul className="lp-chain-labels" aria-hidden>
       {CHAINS.map((c) => {
@@ -18,6 +19,10 @@ function Labels({ layout }: { layout: ChainsLayout }) {
           </li>
         );
       })}
+      <li className="ledger" style={toStage([lx, ly - (layout === "wide" ? 1.15 : 0.95), lz], layout)}>
+        <b>Tesoro ledger</b>
+        <span>on Solana · Gemas, Matches, Backings</span>
+      </li>
     </ul>
   );
 }
