@@ -6,6 +6,8 @@ import { GemaAmount, Label } from "@/components/ui";
 import { backedSplit } from "@/lib/chain/ledger";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { BackingSplitPrototype, SPLIT_VARIANTS } from "./BackingSplit.prototype";
 
 /**
  * How a settled Backing paid out, for whichever party is looking (the backed Player or the Backer).
@@ -13,6 +15,18 @@ import { fmtGemas } from "@/lib/format";
  * A loss is the Backer's alone; the Player is never debited and gains no Debt.
  */
 export function BackingSplit({ m }: { m: ChainMatch }) {
+  // PROTOTYPE: ?variant=now|A|B|C|D
+  const variant = usePrototypeVariant(SPLIT_VARIANTS.map((v) => v.key));
+  if (!m.backing || m.status === "open" || m.status === "active") return null;
+  return (
+    <>
+      {variant === "now" ? <BackingSplitNow m={m} /> : <BackingSplitPrototype m={m} variant={variant} />}
+      <PrototypeSwitcher variants={SPLIT_VARIANTS} />
+    </>
+  );
+}
+
+function BackingSplitNow({ m }: { m: ChainMatch }) {
   const b = m.backing;
   const result = m.session ? m.session.result : m.winner;
   if (!b || m.status === "open" || m.status === "active") return null;
