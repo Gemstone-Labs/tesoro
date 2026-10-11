@@ -5,11 +5,16 @@ import { INSET, LINES, clipAbove, clipBelowInset } from "@/components/waitlist/g
 import { Divider } from "@/components/waitlist/Divider";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
-import { LAUNCH_STAGE, appHref } from "@/lib/landing/config";
+import { appHref } from "@/lib/landing/config";
 import { count } from "@/server/waitlist";
+
+const DESCRIPTION = "Join the Tesoro waitlist for early access.";
 
 export const metadata: Metadata = {
   title: "Tesoro · Join the waitlist",
+  description: DESCRIPTION,
+  openGraph: { title: "Tesoro · Join the waitlist", description: DESCRIPTION, siteName: "Tesoro", type: "website" },
+  twitter: { card: "summary_large_image", title: "Tesoro · Join the waitlist", description: DESCRIPTION },
   alternates: { canonical: "/" },
 };
 
@@ -53,7 +58,7 @@ export default async function Waitlist() {
           Play now with <em className="lp-hl">yield</em> you haven&apos;t earned yet.
         </h1>
         <p className="wl-lede">
-          Lock a staking token and play head-to-head casual games with its yield up front, as Gemas. Your Principal is never played.
+          Tesoro opens to a small group of players first. Join the waitlist for early access, and we&apos;ll email you the day it goes live.
         </p>
         <WaitlistForm />
         {waiting !== null && waiting >= SHOW_COUNT_FROM && <p className="wl-count mono">{waiting.toLocaleString("en-US")} players waiting</p>}
@@ -61,7 +66,6 @@ export default async function Waitlist() {
           <Link href="/welcome">How it works</Link>
           <Link href="/docs">Docs</Link>
         </p>
-        {LAUNCH_STAGE === "testnet" && <p className="wl-stage mono">test mode · no real value</p>}
       </main>
     </div>
   );

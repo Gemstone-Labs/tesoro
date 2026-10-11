@@ -6,7 +6,7 @@ import { appHref } from "@/lib/landing/config";
 
 const IDLE: WaitlistState = { status: "idle" };
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://tesoro-fawn.vercel.app";
-const SHARE_TEXT = "I joined the Tesoro waitlist: play now with yield you haven't earned yet.";
+const SHARE_TEXT = "I just joined the Tesoro waitlist: play casual games with yield you haven't earned yet.";
 
 export function WaitlistForm() {
   const [state, action, pending] = useActionState(joinWaitlist, IDLE);
