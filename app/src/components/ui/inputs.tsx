@@ -194,11 +194,16 @@ export function Sheet({
   open,
   onClose,
   title,
+  lead,
+  className,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  /** Shown above the title inside the header (e.g. the Tesoro mark on the Sign in sheet). */
+  lead?: ReactNode;
+  className?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -214,7 +219,7 @@ export function Sheet({
   return (
     <dialog
       ref={ref}
-      className="cut cut-frame sheet"
+      className={`cut cut-frame sheet${className ? ` ${className}` : ""}`}
       aria-labelledby={titleId}
       onClose={onClose}
       onClick={(e) => {
@@ -224,6 +229,7 @@ export function Sheet({
       {open && (
         <div className="sheet-in">
           <div className="sheet-head">
+            {lead}
             <h2 id={titleId}>{title}</h2>
             <button type="button" className="cut cut-chip icon-btn" onClick={onClose} aria-label="Close">
               <XIcon />

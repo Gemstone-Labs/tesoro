@@ -262,19 +262,45 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .app-main { animation: page-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 @keyframes page-in { from { opacity: 0; translate: 0 10px; } }
 
-/* ——— Sign in: wallets first, email below ——— */
-.signin-wallets { gap: 10px; }
-.signin-wallet {
-  --edge: var(--edge-2);
-  display: grid; gap: 2px; justify-items: start; text-align: left; width: 100%;
-  padding: 14px 16px; background: var(--shell); color: var(--fg); cursor: pointer; border: 0; font: inherit;
-  transition: background-color 0.15s ease;
-}
-.signin-wallet b { font-size: 17px; font-weight: 800; }
-.signin-wallet small { font-size: 13px; color: var(--fg-2); }
-.signin-wallet:hover { background: var(--raised-2); }
-.signin-or { display: flex; align-items: center; gap: 12px; margin: 4px 0 0; color: var(--fg-2); font-size: 13px; }
+/* ——— Sign in: centred mark and welcome, email first, wallets as a pair under it ——— */
+.signin .sheet-in { padding-top: 30px; }
+.signin .sheet-head { flex-direction: column; align-items: center; gap: 14px; text-align: center; padding: 0 44px; }
+.signin .sheet-head h2 { font-size: 26px; letter-spacing: -0.015em; text-wrap: balance; }
+.signin .sheet-head .icon-btn { position: absolute; top: 16px; right: 16px; }
+.signin-lede { margin: -8px 0 4px; text-align: center; color: var(--fg-2); font-size: 14.5px; }
+.signin-email { min-height: 52px; font-size: 16px; }
+/* the primary action: a light fill, neutral (no Gemas move when you sign in) */
+.btn.signin-go { min-height: 52px; font-size: 16px; font-weight: 800; background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
+.btn.signin-go:hover:not(:disabled) { filter: brightness(0.92); }
+.btn.signin-go:disabled { background: var(--raised-2); color: var(--fg-3); --edge: var(--edge-1); }
+.btn.signin-go:focus-visible::after { --t: 1px; --r: 2px; background: var(--shell); }
+.signin-or { display: flex; align-items: center; gap: 12px; margin: 2px 0; color: var(--fg-3); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .signin-or::before, .signin-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.signin-wallets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.signin-wallets .btn { min-height: 46px; gap: 9px; }
+.signin-wallets .btn svg { width: 18px; height: 18px; }
+.signin-marks { display: inline-flex; }
+.signin-marks .chain-glyph + .chain-glyph { margin-left: -4px; }
+.signin-sent { margin: 0; color: var(--fg-2); font-size: 14px; line-height: 1.45; }
+.signin-sent b { color: var(--fg); }
+.signin-link { all: unset; cursor: pointer; color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.signin-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.signin-resend { margin: 0; text-align: center; font-size: 13px; color: var(--fg-2); }
+.signin-foot { margin: 0; text-align: center; font-size: 12px; line-height: 1.6; color: var(--fg-3); }
+/* six code cells over one transparent input; the caret cell takes the focus ring */
+.signin-cells { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; cursor: text; }
+.signin-cells-input { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; border: 0; opacity: 0; caret-color: transparent; font-size: 16px; }
+.signin-cell { --edge: var(--edge-2); display: grid; place-items: center; height: 58px; background: var(--shell); font: 800 26px/1 var(--f-mono); color: var(--fg); }
+.signin-cell.on { background: var(--raised-2); }
+.signin-cells-input:focus-visible ~ .signin-cell.at { --edge: var(--fg); --t: 2px; }
+.signin-cells-input:focus-visible ~ .signin-cell.at::before { content: ""; width: 2px; height: 26px; background: var(--fg); animation: signin-caret 1s steps(1) infinite; }
+@keyframes signin-caret { 50% { opacity: 0; } }
+@media (max-width: 380px) {
+  .signin .sheet-head { padding: 0 36px; }
+  .signin-cells { gap: 6px; }
+  .signin-cell { height: 48px; font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .signin-cells-input:focus-visible ~ .signin-cell.at::before { animation: none; } }
 @media (max-width: 359px) {
   .pchest .pc-short { display: none; }
   .pchest { padding-right: 3px; }

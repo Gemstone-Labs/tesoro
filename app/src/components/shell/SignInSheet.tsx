@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useLoginWithEmail } from "@privy-io/react-auth";
-import { AlertIcon, Button, Label, Sheet } from "@/components/ui";
+import { TesoroMark } from "@/components/brand";
+import { AlertIcon, Button, ChainGlyph, Sheet } from "@/components/ui";
 
 export function SignInSheet({
   open,
@@ -19,23 +20,34 @@ export function SignInSheet({
   onWallet: (family: "solana" | "evm") => void;
 }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Sign in">
-      <SignInForm reason={reason} onSignedIn={onSignedIn} onWallet={onWallet} />
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={reason ? `Sign in to ${reason}` : "Welcome to Tesoro"}
+      lead={<TesoroMark size={52} />}
+      className="signin"
+    >
+      <SignInForm onSignedIn={onSignedIn} onWallet={onWallet} />
     </Sheet>
   );
 }
 
-function SignInForm({ reason, onSignedIn, onWallet }: { reason?: string; onSignedIn: () => void; onWallet: (family: "solana" | "evm") => void }) {
+/** Email is the main path; wallets sit under it as a pair. */
+function SignInForm({ onSignedIn, onWallet }: { onSignedIn: () => void; onWallet: (family: "solana" | "evm") => void }) {
   const { sendCode, loginWithCode, state } = useLoginWithEmail();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const codeStep = state.status === "awaiting-code-input" || state.status === "submitting-code" || (error !== null && code !== "");
-  const busy = state.status === "sending-code" || state.status === "submitting-code";
+  // "Change" goes back to the email form while Privy still waits for a code.
+  const [editing, setEditing] = useState(false);
+  const codeStep = !editing && (state.status === "awaiting-code-input" || state.status === "submitting-code" || (error !== null && code !== ""));
+  const sending = state.status === "sending-code";
+  const checking = state.status === "submitting-code";
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setEditing(false);
     try {
       await sendCode({ email: email.trim() });
     } catch {
@@ -43,87 +55,118 @@ function SignInForm({ reason, onSignedIn, onWallet }: { reason?: string; onSigne
     }
   }
 
-  async function verify(e: React.FormEvent) {
-    e.preventDefault();
+  async function verify(value: string) {
     setError(null);
     try {
-      await loginWithCode({ code: code.trim() });
+      await loginWithCode({ code: value });
       onSignedIn();
     } catch {
-      setError("That code did not work. Check it, or go back and send a new one.");
+      setError("That code did not work. Check it, or send a new one.");
     }
+  }
+
+  function resend() {
+    setCode("");
+    setError(null);
+    void sendCode({ email: email.trim() });
   }
 
   return (
     <>
-      <p className="meta">
-        {reason ? `Sign in to ${reason}. ` : ""}
-        Use a wallet or an email: either way you get one Tesoro Account that works with Solana and Ethereum, set up for you. Browsing needs no sign-in.
-      </p>
-      {!codeStep && (
-        <div className="stack signin-wallets">
-          <Label>Connect a wallet</Label>
-          <button type="button" className="cut cut-card signin-wallet" onClick={() => onWallet("solana")}>
-            <b>Solana wallet</b>
-            <small>Phantom, Solflare, Backpack</small>
+      <p className="signin-lede">{codeStep ? "Check your inbox." : "Sign in or create your Account. It takes a minute."}</p>
+      {codeStep ? (
+        <form
+          className="stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void verify(code);
+          }}
+        >
+          <p className="signin-sent">
+            We sent a 6-digit code to <b>{email}</b>.{" "}
+            <button type="button" className="signin-link" onClick={() => { setCode(""); setError(null); setEditing(true); }}>
+              Change
+            </button>
+          </p>
+          <CodeCells
+            email={email}
+            value={code}
+            onChange={(v) => {
+              setCode(v);
+              if (v.length === 6) void verify(v);
+            }}
+          />
+          <button type="submit" className="cut cut-btn btn block signin-go" disabled={checking || code.length < 6}>
+            {checking ? "Checking…" : "Sign in"}
           </button>
-          <button type="button" className="cut cut-card signin-wallet" onClick={() => onWallet("evm")}>
-            <b>Ethereum wallet</b>
-            <small>MetaMask, Rabby, WalletConnect</small>
-          </button>
-          <p className="signin-or"><span>or use email</span></p>
-        </div>
-      )}
-      {!codeStep ? (
-        <form className="stack" onSubmit={send}>
-          <div className="field">
-            <label className="label" htmlFor="signin-email">Email</label>
+          <p className="signin-resend">
+            No email? Check spam, or{" "}
+            <button type="button" className="signin-link" onClick={resend}>send a new code</button>.
+          </p>
+        </form>
+      ) : (
+        <>
+          <form className="stack" onSubmit={send}>
             <input
-              id="signin-email"
-              className="cut input"
+              className="cut input signin-email"
               type="email"
               inputMode="email"
               autoComplete="email"
-              placeholder="you@example.com"
+              placeholder="Your email"
+              aria-label="Email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
+            <button type="submit" className="cut cut-btn btn block signin-go" disabled={sending || email.trim() === ""}>
+              {sending ? "Sending code…" : "Continue with email"}
+            </button>
+          </form>
+          <p className="signin-or"><span>or use a wallet</span></p>
+          <div className="signin-wallets">
+            <Button onClick={() => onWallet("solana")}>
+              <ChainGlyph asset={0} /> Solana
+            </Button>
+            {/* one address serves Ethereum and HyperEVM, so the Ethereum button carries both marks */}
+            <Button onClick={() => onWallet("evm")}>
+              <span className="signin-marks"><ChainGlyph asset={1} /><ChainGlyph asset={2} /></span> Ethereum
+            </Button>
           </div>
-          <Button type="submit" block disabled={busy || email.trim() === ""}>
-            {state.status === "sending-code" ? "Sending code…" : "Email me a code"}
-          </Button>
-        </form>
-      ) : (
-        <form className="stack" onSubmit={verify}>
-          <div className="field">
-            <label className="label" htmlFor="signin-code">6-digit code sent to {email}</label>
-            <input
-              id="signin-code"
-              className="cut input mono"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              placeholder="000000"
-              required
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            />
-          </div>
-          <Button type="submit" block disabled={busy || code.length < 6}>
-            {state.status === "submitting-code" ? "Checking…" : "Sign in"}
-          </Button>
-          <Button type="button" size="sm" onClick={() => { setCode(""); setError(null); void sendCode({ email: email.trim() }); }}>
-            Send a new code
-          </Button>
-        </form>
+        </>
       )}
       {error && (
         <div className="status err" role="alert">
           <AlertIcon /> {error}
         </div>
       )}
-      <p className="note">Test mode: nothing here has real value.</p>
+      <p className="signin-foot">
+        One Account works on Solana, Ethereum and HYPE.
+        <br />
+        Browsing needs no sign-in · Test mode
+      </p>
     </>
+  );
+}
+
+/** Six cells drawn over one real input, so paste and one-time-code autofill keep working. */
+function CodeCells({ email, value, onChange }: { email: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="signin-cells">
+      <input
+        className="signin-cells-input"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        maxLength={6}
+        aria-label={`6-digit code sent to ${email}`}
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
+      />
+      {Array.from({ length: 6 }, (_, i) => (
+        <span key={i} className={`cut cut-chip signin-cell${i === value.length ? " at" : ""}${value[i] ? " on" : ""}`} aria-hidden="true">
+          {value[i] ?? ""}
+        </span>
+      ))}
+    </label>
   );
 }
