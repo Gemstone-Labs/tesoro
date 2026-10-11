@@ -1,0 +1,103 @@
+/* PROTOTYPE ONLY: variants of the How Backing works card (BackingExample.prototype.tsx). */
+.bxp-n { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); white-space: nowrap; }
+
+/* ——— A · Pot split ——— */
+.bxa { --edge: var(--edge-1); background: var(--surface); padding: 26px 28px 28px; display: grid; gap: 26px; }
+.bxa-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 32px; flex-wrap: wrap; }
+.bxa-head p { margin-top: 10px; color: var(--fg-2); font-size: 15.5px; line-height: 1.55; max-width: 62ch; }
+.bxa-lane { display: grid; gap: 10px; }
+.bxa-lane-h { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.bxa-lane-h .meta { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; font-size: 13.5px; }
+.bxa-ico { display: grid; place-items: center; width: 24px; height: 24px; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.bxa-ico svg { width: 14px; height: 14px; }
+.bxa-ico.won { background: var(--em); color: var(--em-ink); }
+.bxa-ico.lost { background: var(--danger); color: #2a0a06; }
+.bxa-bar { display: flex; gap: 3px; height: 30px; }
+.bxa-bar i { flex-basis: 0; min-width: 6px; }
+.bxa-bar i:first-child { clip-path: polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+.bxa-bar i:last-child { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%); }
+.bxa .back { --sw: linear-gradient(180deg, #5c6a70, #3c474c); }
+.bxa .you { --sw: var(--facet); }
+.bxa .player { --sw: linear-gradient(180deg, #1f9e7c, #0a7d5c); }
+.bxa .fees { --sw: repeating-linear-gradient(135deg, rgba(234,239,236,.28) 0 4px, rgba(234,239,236,.1) 4px 8px); }
+.bxa .lost { --sw: linear-gradient(180deg, #f2685a, #b8463b); }
+.bxa .opp { --sw: repeating-linear-gradient(135deg, rgba(234,239,236,.14) 0 4px, transparent 4px 8px); }
+.bxa-bar .opp { box-shadow: inset 0 0 0 1px var(--line-2); }
+.bxa-bar i { background: var(--sw); }
+.bxa-legend { display: flex; gap: 3px; list-style: none; margin: 0; padding: 0; }
+.bxa-legend li { flex-basis: 0; min-width: 120px; display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; align-items: center; font-size: 13px; color: var(--fg-2); }
+.bxa-legend .sw { width: 10px; height: 10px; background: var(--sw); grid-row: span 2; align-self: start; margin-top: 4px; }
+.bxa-legend .bxp-n { font-size: 15px; }
+.bxa-legend .lost .bxp-n { color: var(--danger); }
+@media (max-width: 760px) {
+  .bxa { padding: 20px; }
+  .bxa-legend { flex-wrap: wrap; row-gap: 10px; }
+  .bxa-legend li { flex: 1 1 40% !important; }
+}
+
+/* ——— B · Try it ——— */
+.bxb { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 24px 40px; padding: 26px 28px; align-items: center; }
+.bxb-lead { display: grid; gap: 14px; justify-items: start; }
+.bxb-lead p { color: var(--fg-2); font-size: 15.5px; line-height: 1.55; max-width: 50ch; }
+.bxb-sim { background: rgba(0,0,0,.28); box-shadow: inset 0 0 0 1px var(--line); padding: 16px; display: grid; gap: 14px; clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px); }
+.bxb-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: rgba(0,0,0,.35); }
+.bxb-seg button { display: inline-flex; justify-content: center; align-items: center; gap: 6px; height: 38px; border: 0; background: transparent; color: var(--fg-2); font-weight: 700; font-size: 14px; }
+.bxb-seg button svg { width: 15px; height: 15px; }
+.bxb-seg button.on { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
+.bxb-share { display: grid; grid-template-columns: auto 1fr 48px; gap: 12px; align-items: center; font-size: 14px; color: var(--fg-2); }
+.bxb-share input { accent-color: var(--em); }
+.bxb-share b { color: var(--fg); text-align: right; }
+.bxb-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bxb-side { display: grid; gap: 4px; padding: 14px; background: var(--surface-2); }
+.bxb-fig { font-family: var(--f-display); font-size: 40px; line-height: 1; letter-spacing: .01em; }
+.bxb-side.pos .bxb-fig { color: var(--em-hi); }
+.bxb-side.neg .bxb-fig { color: var(--danger); }
+.bxb-side .meta { font-size: 13px; }
+.bxb-fee { font-size: 13px; }
+@media (max-width: 860px) { .bxb { grid-template-columns: minmax(0, 1fr); padding: 20px; } }
+
+/* ——— C · Three steps + bust ——— */
+.bxc { --edge: var(--edge-1); background: var(--surface); display: flex; align-items: flex-end; gap: 8px; padding: 0 28px 0 8px; overflow: hidden; }
+.bxc-bust { flex: none; width: 210px; height: auto; margin-bottom: -1px; }
+.bxc-body { flex: 1; min-width: 0; display: grid; gap: 20px; padding: 26px 0; }
+.bxc-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.bxc-steps li { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; }
+.bxc-num { display: grid; place-items: center; width: 30px; height: 30px; font-family: var(--f-display); font-size: 17px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-2); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.bxc-steps b { font-size: 15px; }
+.bxc-steps p { margin-top: 3px; color: var(--fg-2); font-size: 14px; line-height: 1.5; }
+.bxc-out { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bxc-out > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 12px 14px; background: var(--surface-2); box-shadow: inset 3px 0 var(--bar); font-size: 14px; color: var(--fg-2); }
+.bxc-out .won { --bar: var(--em); }
+.bxc-out .lost { --bar: var(--danger); }
+.bxc-out .lost > span:nth-child(2) .bxp-n { color: var(--danger); }
+.bxc-out small { color: var(--fg-2); font-size: 12px; }
+.bxc-tag { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: var(--fg); min-width: 72px; }
+.bxc-tag svg { width: 15px; height: 15px; }
+.bxc-foot { display: flex; align-items: center; gap: 12px 18px; flex-wrap: wrap; }
+.bxc-foot .meta { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+@media (max-width: 1100px) { .bxc-bust { width: 150px; } .bxc-steps { grid-template-columns: minmax(0, 1fr); gap: 10px; } }
+@media (max-width: 760px) {
+  .bxc { padding: 0 20px; }
+  .bxc-bust { display: none; }
+  .bxc-out { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ——— D · Outcome posters ——— */
+.bxd { display: grid; gap: 18px; }
+.bxd-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 32px; flex-wrap: wrap; }
+.bxd-head p { margin-top: 10px; color: var(--fg-2); font-size: 15.5px; line-height: 1.55; }
+.bxd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.bxd-tile { --edge: var(--edge-1); position: relative; display: grid; gap: 6px; align-content: start; padding: 22px 24px; background: var(--surface); overflow: hidden; }
+.bxd-tile::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(80% 90% at 100% 0, var(--glow), transparent 70%); }
+.bxd-tile.won { --glow: rgba(36, 216, 168, .16); }
+.bxd-tile.lost { --glow: rgba(242, 104, 90, .12); }
+.bxd-kick { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-2); }
+.bxd-kick svg { width: 15px; height: 15px; }
+.bxd-fig { font-family: var(--f-display); font-weight: 800; font-size: clamp(56px, 6vw, 84px); line-height: .95; margin-top: 8px; }
+.bxd-tile.won .bxd-fig { background: var(--facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.bxd-tile.lost .bxd-fig { color: var(--danger); }
+.bxd-for { display: inline-flex; flex-wrap: wrap; gap: 5px; align-items: center; color: var(--fg-2); font-size: 15px; }
+.bxd-rows { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 14px; }
+.bxd-rows dt { color: var(--fg-2); }
+.bxd-rows dd { margin: 0; text-align: right; font-weight: 700; }
+@media (max-width: 760px) { .bxd-grid { grid-template-columns: minmax(0, 1fr); } }
