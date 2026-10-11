@@ -492,9 +492,18 @@ html.lenis, html.lenis body { height: auto; }
   .lp-final-duo.rope { display: none; }
 }
 
-/* Footer */
-.lp-footer { border-top: 1px solid var(--line); background: var(--side); padding-block: 36px; }
-.lp-footer-in { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
+/* Footer: the cave floor, the landing texture under an emerald seam that glows down into it */
+.lp-footer { position: relative; background-color: var(--side); background-image: var(--lp-texture); padding-block: 56px 36px; }
+.lp-footer::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--em) 70%, transparent) 30%, color-mix(in srgb, var(--em) 70%, transparent) 70%, transparent);
+  box-shadow: 0 0 18px 1px color-mix(in srgb, var(--em) 35%, transparent);
+}
+.lp-footer::after {
+  content: ""; position: absolute; inset: 0 0 auto; height: 120px; pointer-events: none;
+  background: radial-gradient(60% 100% at 50% 0, color-mix(in srgb, var(--em) 9%, transparent), transparent 70%);
+}
+.lp-footer-in { position: relative; z-index: 1; display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
 .lp-footer-links { display: flex; gap: 22px; font-size: 13px; }
 .lp-footer-links a { color: var(--fg-2); }
 .lp-footer-links a:hover { color: var(--fg); }
