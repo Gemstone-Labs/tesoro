@@ -18,6 +18,7 @@
 .bpx-run { grid-area: run; display: flex; justify-content: flex-end; gap: 20px; font-size: 14px; color: var(--fg-2); }
 .bpx-run b { color: var(--fg); font-size: 18px; font-weight: 800; margin-left: 4px; }
 .bpx-stake { grid-area: stake; font-size: 13.5px; color: var(--fg-2); padding-top: 8px; border-top: 1px solid var(--line); }
+.bpx-stake { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
 .bpx-stake b { color: var(--fg); font-weight: 700; }
 .bp-score-n { font-size: 36px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
 /* The board is square and as wide as .bpx-mid, so cap that width by the viewport height left after the

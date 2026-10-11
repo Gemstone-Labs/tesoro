@@ -9,6 +9,7 @@ import { isStale, midToUsd, type PriceFeed } from "./feed";
 import { chips, clock, describeFill, relativeLead, sideName, signedChips, tPlus, usdMid } from "./fmt";
 import { START_CHIPS, close, equity, liquidationMid, openProblem, previewOpen, type Ledger, type Lead } from "./math";
 import "./trading.css";
+import { Arena, MuteToggle } from "../fx";
 
 export function useNow(ms = 250): number {
   const [now, setNow] = useState(() => Date.now());
@@ -124,6 +125,7 @@ export function TradingScreen(p: ScreenProps) {
   const fills = ledger?.fills ?? [];
 
   return (
+    <Arena game="trading-duel">
     <section className="td" aria-label="Trading Duel">
       <header className="td-head">
         <div className="td-head-l">
@@ -133,6 +135,7 @@ export function TradingScreen(p: ScreenProps) {
             <span className="cut cut-btn td-entry">{chips(p.entry)} Gemas entry</span>
           )}
           {p.practice && <span className="cut cut-chip td-asset">Practice</span>}
+          <MuteToggle />
         </div>
         <div className="td-clock" role="timer" aria-live="off">
           <div className="td-clock-top">
@@ -317,5 +320,6 @@ export function TradingScreen(p: ScreenProps) {
         </aside>
       </div>
     </section>
+    </Arena>
   );
 }

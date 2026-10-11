@@ -5,6 +5,7 @@ import { useGuideHidden } from "@/components/guide/Guide";
 import { Button, Label } from "@/components/ui";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAt, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
+import { Arena, MuteToggle } from "../fx";
 import "./block-puzzle.css";
 
 const DURATION_MS = 90_000;
@@ -364,6 +365,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   );
 
   return (
+    <Arena game="block-puzzle">
     <div className="bpx">
       <header className="cut cut-card bpx-bar" aria-label={run ? "Match" : "Practice"}>
         <div className="bpx-score">
@@ -395,6 +397,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
           ) : (
             <span>Practice · nothing staked</span>
           )}
+          <MuteToggle />
         </div>
       </header>
 
@@ -499,6 +502,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
       )}
       <span className="sr-only" role="status" aria-live="polite">{announce}</span>
     </div>
+    </Arena>
   );
 }
 
