@@ -44,7 +44,7 @@
 .cut:focus-visible { outline: 0; }
 .cut:focus-visible::after,
 .cut:has(> :is(input, select, textarea, summary):not(.cut):focus-visible)::after,
-.rail input:focus-visible + span::after { --t: 2px; background: var(--fg); }
+.pick-rail input:focus-visible + span::after { --t: 2px; background: var(--fg); }
 /* light fills: a pale edge would not show, so they take an ink ring set inside the shape */
 .btn.money:focus-visible::after,
 .entry input:checked:focus-visible + span::after { --t: 1px; --r: 2px; background: var(--em-ink); }
@@ -238,39 +238,39 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .src-foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 
 /* ——— Rail: one recessed track, a lit piece slides to the chosen option (entry and asset pickers) ——— */
-.rail {
+.pick-rail {
   --c: var(--cut-chip); --edge: var(--edge-1); --n: 3;
   display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); padding: 4px; margin: 0; border: 0; min-width: 0;
   background: #05080a; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
 }
-.rail-thumb {
+.pick-thumb {
   --c: 6px;
   position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / var(--n));
   transform: translateX(calc(var(--i) * 100%)); transition: transform 0.32s cubic-bezier(0.3, 1.25, 0.5, 1);
   clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
 }
-@media (prefers-reduced-motion: reduce) { .rail-thumb { transition: none; } }
-.rail label { position: relative; display: block; }
-.rail input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
-.rail input:disabled { cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .pick-thumb { transition: none; } }
+.pick-rail label { position: relative; display: block; }
+.pick-rail input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 3; }
+.pick-rail input:disabled { cursor: not-allowed; }
 /* each option is cut like the thumb so its focus ring sits on the thumb's edge; no edge otherwise */
-.rail label > span { --c: 6px; --edge: transparent; position: relative; z-index: 1; color: var(--fg-2); transition: color 0.2s ease, background-color 0.15s ease; }
-.rail input:hover:not(:checked, :disabled) + span { color: var(--fg); background: rgba(234, 239, 236, 0.04); }
-.rail input:disabled + span { color: var(--fg-3); opacity: 0.55; }
+.pick-rail label > span { --c: 6px; --edge: transparent; position: relative; z-index: 1; color: var(--fg-2); transition: color 0.2s ease, background-color 0.15s ease; }
+.pick-rail input:hover:not(:checked, :disabled) + span { color: var(--fg); background: rgba(234, 239, 236, 0.04); }
+.pick-rail input:disabled + span { color: var(--fg-3); opacity: 0.55; }
 
 /* entry: the piece is the money fill */
-.entries .rail-thumb {
+.entries .pick-thumb {
   background: linear-gradient(180deg, rgba(225, 255, 246, 0.75), transparent 2px), linear-gradient(0deg, var(--money-base) 0 3px, transparent 3px), var(--money-fill);
 }
 .entry span { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 48px; font-weight: 800; font-size: 16px; }
 .entry input:checked + span { color: var(--em-ink); }
 .entry input:not(:checked) + span .gema-mark { filter: grayscale(1) brightness(0.85); opacity: 0.55; }
 /* the chosen entry the balance cannot cover: a dark green piece, never struck through */
-.entries.off .rail-thumb { background: linear-gradient(180deg, #1c3a32, #10221e); }
+.entries.off .pick-thumb { background: linear-gradient(180deg, #1c3a32, #10221e); }
 .entries.off .entry input:checked + span { color: rgba(234, 239, 236, 0.7); opacity: 1; }
 
 /* asset (Trading Duel): neutral, the piece is steel */
-.assets .rail-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
+.assets .pick-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
 .asset span { display: grid; grid-template-columns: auto auto; column-gap: 7px; row-gap: 1px; justify-content: center; align-content: center; align-items: center; min-height: 54px; }
 .asset b { font-size: 16px; font-weight: 800; line-height: 1.1; letter-spacing: 0.02em; }
 .asset small { grid-column: 1 / -1; justify-self: center; font-size: 11px; font-weight: 600; color: var(--fg-3); }

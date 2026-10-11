@@ -58,9 +58,9 @@ export function AssetPicker({ value, onChange, name, compact }: { value: 0 | 1 |
   const auto = useId();
   const group = name ?? auto;
   return (
-    <fieldset className={`cut rail assets${compact ? " compact" : ""}`} style={{ ["--i" as string]: value }}>
+    <fieldset className={`cut pick-rail assets${compact ? " compact" : ""}`} style={{ ["--i" as string]: value }}>
       <legend className="sr-only">Asset</legend>
-      <span className="rail-thumb" aria-hidden="true" />
+      <span className="pick-thumb" aria-hidden="true" />
       {DUEL_ASSETS.map((a) => (
         <label key={a.id} className="asset">
           <input type="radio" name={group} value={a.id} checked={value === a.id} onChange={() => onChange(a.id)} />
@@ -97,9 +97,9 @@ export function EntryPicker({
   const group = name ?? auto;
   const off = (size: EntrySize) => (maxAffordable !== undefined && size > maxAffordable) || (isDisabled?.(size) ?? false);
   return (
-    <fieldset className={`cut rail entries${off(value) ? " off" : ""}`} style={{ ["--i" as string]: Math.max(0, ENTRY_SIZES.indexOf(value)) }}>
+    <fieldset className={`cut pick-rail entries${off(value) ? " off" : ""}`} style={{ ["--i" as string]: Math.max(0, ENTRY_SIZES.indexOf(value)) }}>
       <legend className="sr-only">{legend}</legend>
-      <span className="rail-thumb" aria-hidden="true" />
+      <span className="pick-thumb" aria-hidden="true" />
       {ENTRY_SIZES.map((size) => (
         <label key={size} className="entry">
           <input type="radio" name={group} value={size} checked={value === size} disabled={off(size)} onChange={() => onChange(size)} />
