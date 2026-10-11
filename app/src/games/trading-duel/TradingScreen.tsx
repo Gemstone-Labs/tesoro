@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Label } from "@/components/ui";
 import { Slider } from "@/components/ui/inputs";
 import { FILL, RULES, SIDE, type Asset } from "./chain";
 import { Chart } from "./Chart";
 import { isStale, midToUsd, type PriceFeed } from "./feed";
-import { chips, clock, describeFill, relativeLead, sideName, signedChips, tPlus, usdMid } from "./fmt";
+import { chips, clock, usd, describeFill, relativeLead, sideName, signedChips, tPlus, usdMid } from "./fmt";
 import { START_CHIPS, close, equity, liquidationMid, openProblem, previewOpen, type Ledger, type Lead } from "./math";
 import "./trading.css";
-import { Arena, MuteToggle } from "../fx";
+import { Arena, Callout, MuteToggle, burstAt, shake, sfx, type CalloutTone } from "../fx";
+import { fillCallout, liquidationDistance, tickDirection, type Tick } from "./feel";
+import { Rolling } from "./Rolling";
 
 export function useNow(ms = 250): number {
   const [now, setNow] = useState(() => Date.now());
@@ -79,6 +81,44 @@ export function TradingScreen(p: ScreenProps) {
   const posValue = ledger && mid && holding ? eq! - ledger.cash : 0n;
   const unrealised = holding && ledger ? posValue - ledger.margin : 0n;
   const liq = ledger ? liquidationMid(ledger) : null;
+  const dist = ledger && mid && holding ? liquidationDistance(ledger, mid) : 1;
+
+  const prevMid = useRef<bigint | null>(null);
+  const [dir, setDir] = useState<{ d: Tick; n: number }>({ d: "flat", n: 0 });
+  useEffect(() => {
+    const d = tickDirection(prevMid.current, mid);
+    prevMid.current = mid;
+    if (d !== "flat") setDir((c) => ({ d, n: c.n + 1 }));
+  }, [mid]);
+
+  const chartCard = useRef<HTMLDivElement>(null);
+  const seenFills = useRef<number | null>(null);
+  const [moment, setMoment] = useState<{ text: string; tone: CalloutTone; n: number } | null>(null);
+  const nFills = ledger?.fills.length ?? null;
+  useEffect(() => {
+    if (nFills === null || !ledger) return;
+    const seen = seenFills.current;
+    seenFills.current = nFills;
+    if (seen === null || nFills <= seen) return;
+    const f = ledger.fills[nFills - 1];
+    const c = fillCallout(f);
+    setMoment((m) => ({ ...c, n: (m?.n ?? 0) + 1 }));
+    const el = chartCard.current;
+    if (f.kind === FILL.liquidated) {
+      sfx("lose");
+      if (el) {
+        shake(el, 0.8);
+        burstAt(el, { colors: ["#f2a63b", "#ffcd85", "#ffffff"], kind: "shards", count: 36 });
+      }
+    } else if (f.kind === FILL.open) {
+      sfx("fill");
+      if (el) burstAt(el, { colors: [f.side === SIDE.long ? "#5aa2ff" : "#f2a63b", "#eaefec"], kind: "sparks", count: 14 });
+    } else {
+      sfx(f.pnl > 0n ? "win" : "chip");
+    }
+    // the ledger object changes every read; only a new fill matters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nFills]);
 
   // Chips you can put to work: what is free, or (when flipping) what closing the position frees.
   const available = useMemo(() => {
@@ -157,17 +197,20 @@ export function TradingScreen(p: ScreenProps) {
           <div className="cut cut-card td-card td-ticker">
             <div className="td-px">
               <Label>{asset.symbol} live price</Label>
-              <b className="mono td-price">{mid ? usdMid(mid, asset) : "…"}</b>
+              <b key={dir.n} className={`mono td-price ${dir.d}`}>
+                {mid ? <Rolling value={midToUsd(mid)} format={(v) => usd(v, asset)} duration={250} /> : "…"}
+                {dir.d !== "flat" && <span className="td-tick" aria-hidden="true"> {dir.d === "up" ? "▲" : "▼"}</span>}
+              </b>
               <span className={`td-feed ${stale ? "stale" : "live"}`}>{feed.status === "waiting" ? "Connecting" : stale ? "Feed delayed" : "Live"}</span>
             </div>
             <div className="td-eq">
               <div>
                 <Label>Your equity</Label>
-                <b className="mono td-big">{eq !== null ? chips(eq) : "…"}</b>
+                <b className="mono td-big">{eq !== null ? <Rolling value={Number(eq)} format={(v) => chips(Math.round(v))} /> : "…"}</b>
               </div>
               <div>
                 <Label>PnL</Label>
-                <b className="mono td-big">{pnl !== null ? signedChips(pnl) : "…"}</b>
+                <b className={`mono td-big td-pnl-big ${pnl === null || pnl === 0n ? "" : pnl > 0n ? "up" : "down"}`}>{pnl !== null ? <Rolling value={Number(pnl)} format={(v) => signedChips(Math.round(v))} /> : "…"}</b>
               </div>
               <div>
                 <Label>Opponent</Label>
@@ -177,7 +220,7 @@ export function TradingScreen(p: ScreenProps) {
             </div>
           </div>
 
-          <div className="cut cut-card td-card td-chartcard">
+          <div ref={chartCard} className="cut cut-card td-card td-chartcard">
             <Chart
               asset={asset}
               series={feed.series}
@@ -189,7 +232,9 @@ export function TradingScreen(p: ScreenProps) {
               entry={holding && ledger ? { price: Number(ledger.entry) / 1e8, side: ledger.side } : null}
               liquidation={liq ? midToUsd(liq) : null}
               now={now}
+              dir={dir.d}
             />
+            {moment && <Callout key={moment.n} text={moment.text} tone={moment.tone} onDone={() => setMoment(null)} />}
           </div>
 
           <div className="cut cut-card td-card">
@@ -218,7 +263,16 @@ export function TradingScreen(p: ScreenProps) {
                 <span className="td-badge">
                   <span aria-hidden="true">{ledger.side === SIDE.long ? "▲" : "▼"}</span> {sideName(ledger.side)} {ledger.leverage}x
                 </span>
-                <b className="mono td-big">{signedChips(unrealised)}</b>
+                <b className="mono td-big"><Rolling value={Number(unrealised)} format={(v) => signedChips(Math.round(v))} /></b>
+              </div>
+              <div className={`td-liqmeter${dist < 0.25 ? " danger" : ""}`} role="meter" aria-label="Distance to liquidation" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(dist * 100)} aria-valuetext={dist < 0.25 ? "Close to liquidation" : `${Math.round(dist * 100)}% from liquidation`}>
+                <div className="td-liqmeter-top">
+                  <span>{dist < 0.25 ? "Close to liquidation" : "Room before liquidation"}</span>
+                  <b className="mono">{Math.round(dist * 100)}%</b>
+                </div>
+                <div className="td-liqmeter-bar" aria-hidden="true">
+                  <i style={{ width: `${Math.round(dist * 100)}%` }} />
+                </div>
               </div>
               <dl className="td-kv">
                 <dt>Size</dt>

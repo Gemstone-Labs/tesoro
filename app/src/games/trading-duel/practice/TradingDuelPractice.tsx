@@ -11,6 +11,7 @@ import { TradingScreen, useNow } from "../TradingScreen";
 import { seededRng } from "./bot";
 import { marked, newSession, playerOrder, stepSession, type Session } from "./session";
 import "../trading.css";
+import { Arena, MuteToggle } from "../../fx";
 import { plainError } from "@/lib/errors";
 
 const MODES = [
@@ -118,9 +119,13 @@ function Picker({ asset, setAsset, mode, setMode, onStart }: { asset: Asset; set
   const ready = !!feed.tick && feed.status === "live" && now - feed.tick.receivedAt < 5000;
   const price = useMemo(() => (feed.tick ? usd(midToUsd(feed.tick.mid), asset) : "…"), [feed.tick, asset]);
   return (
+    <Arena game="trading-duel">
     <section className="td" aria-label="Trading Duel practice">
       <div className="cut cut-frame td-card" style={{ maxWidth: 560, margin: "0 auto", width: "100%", gap: 16 }}>
-        <h1 className="td-title">Trading Duel practice</h1>
+        <div className="td-head-l">
+          <h1 className="td-title">Trading Duel practice</h1>
+          <MuteToggle />
+        </div>
         <p className="meta">
           Trade the live price against a bot for {mode.secs >= 120 ? "five minutes" : "a minute"}: long or short, 1x to 20x, one position at a time. Higher equity at
           the end wins. Nothing is staked and no Gemas move.
@@ -153,6 +158,7 @@ function Picker({ asset, setAsset, mode, setMode, onStart }: { asset: Asset; set
         <p className="note">Live market prices, updated every second. Fills carry a {RULES.spreadBps / 100}% spread.</p>
       </div>
     </section>
+    </Arena>
   );
 }
 
