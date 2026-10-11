@@ -12,7 +12,7 @@ const NOW = Date.now();
 const meta = {
   title: "Components/match/MatchBanner",
   component: MatchBanner,
-  args: { r: row(match("block-puzzle", 1000, true, 4, [171, 55])), player: PLAYER, now: NOW },
+  args: { r: row(match("block-puzzle", 1000, true, 4, [171, 55])), account: PLAYER, now: NOW },
   argTypes: { r: { control: "object" }, now: { control: false } },
   decorators: [(Story) => <div className="mb-list" style={{ maxWidth: 980 }}><Story /></div>],
 } satisfies Meta<typeof MatchBanner>;
@@ -33,3 +33,5 @@ export const Refunded: Story = { args: { r: row({ ...match("holdem", 1000, false
 export const BackedWon: Story = { args: { r: row(backed(match("block-puzzle", 1000, true, 35, [150, 88]), BACKER)), backing: "Backed by 9WzD…AWWM · Backer +540" } };
 export const BackedLost: Story = { args: { r: row(backed(match("block-puzzle", 1000, false, 900, [96, 140]), BACKER)), backing: "Backer 9WzD…AWWM bore the loss · −1,000" } };
 export const TradingDuel: Story = { args: { r: row(match("trading-duel", 1000, true, 12, [0, 0])) } };
+/** A Match this Account backed: the Player it backed takes the left seat. */
+export const AsBacker: Story = { args: { r: row(backed(match("block-puzzle", 2500, true, 300, [164, 97]), BACKER, 3000, true)) } };

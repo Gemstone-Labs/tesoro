@@ -450,7 +450,7 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 
 /* lists and grids rise in as they scroll into view */
 @supports (animation-timeline: view()) {
-  .rail-track > *, .bk-cards > *, .wl-grid > *, .mh-list > *, .gp-grid > * {
+  .rail-track > *, .bk-cards > *, .wl-grid > *, .mb-list > *, .gp-grid > * {
     animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 30%;
   }
   @keyframes reveal { from { opacity: 0; translate: 0 32px; } }
