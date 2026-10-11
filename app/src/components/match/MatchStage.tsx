@@ -202,7 +202,7 @@ function arenaMotion(m: StageInfo): { me: SeatState; opp: SeatState; left: RailF
   }
 }
 
-const TOKEN: Record<GameId, string> = { "block-puzzle": "bp", holdem: "card", "trading-duel": "chip" };
+const TOKEN: Record<GameId, string> = { "block-puzzle": "bp", holdem: "deal", "trading-duel": "chip" };
 
 /** The line between a seat and the Pot: Gemas flow in, hidden pieces are dealt out, or a scan looks for the opponent. */
 function Rail({ flow, side, game }: { flow: RailFlow; side: "l" | "r"; game: GameId }) {

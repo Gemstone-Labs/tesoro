@@ -151,8 +151,17 @@
 @keyframes stage-to-r { 0% { left: 0; opacity: 0; scale: 0.6; } 15%, 80% { opacity: 1; scale: 1; } 100% { left: 100%; opacity: 0; scale: 0.5; } }
 @keyframes stage-to-l { 0% { left: 100%; opacity: 0; scale: 0.6; } 15%, 80% { opacity: 1; scale: 1; } 100% { left: 0; opacity: 0; scale: 0.5; } }
 .stage-tok { width: 12px; height: 12px; }
-.stage-tok.bp { background: linear-gradient(135deg, #9ec4ff, #3f6fd6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
-.stage-tok.card { width: 12px; height: 17px; border-radius: 2px; background: repeating-linear-gradient(45deg, #2a3646 0 3px, #3a4a60 3px 6px); box-shadow: inset 0 0 0 1.5px #dbe4f2; }
+/* Block Puzzle: one square per piece colour, as on the board */
+.stage-tok.bp { --k: #ffb43a; border-radius: 2px; background: linear-gradient(150deg, color-mix(in oklab, var(--k) 70%, white), var(--k) 45%, color-mix(in oklab, var(--k) 84%, black)); box-shadow: 0 0 10px -3px var(--k), inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
+.stage-tok.bp:nth-of-type(4n + 2) { --k: #3fc6ff; }
+.stage-tok.bp:nth-of-type(4n + 3) { --k: #ff4d9b; }
+.stage-tok.bp:nth-of-type(4n + 4) { --k: #9d74ff; }
+/* Hold'em: a face-down playing card (5:7), tilting rather than spinning so it reads as a card */
+.stage-tok.deal { width: 16px; height: 23px; border-radius: 2.5px; background: #0c1836 url("/art/card-back.svg") center / 100% 100% no-repeat; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 0 0 1.5px rgba(220, 230, 245, 0.85); }
+.stage-rail.l.out i.deal { animation-name: stage-card-l; }
+.stage-rail.r.out i.deal { animation-name: stage-card-r; }
+@keyframes stage-card-l { 0% { left: 100%; opacity: 0; rotate: 14deg; } 15%, 80% { opacity: 1; } 100% { left: 0; opacity: 0; rotate: -14deg; } }
+@keyframes stage-card-r { 0% { left: 0; opacity: 0; rotate: -14deg; } 15%, 80% { opacity: 1; } 100% { left: 100%; opacity: 0; rotate: 14deg; } }
 .stage-tok.chip { border-radius: 50%; background: radial-gradient(circle, #ffd28a 0 35%, #d98c22 36% 100%); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35); }
 @keyframes stage-deal-l { 0% { left: 100%; opacity: 0; rotate: 0deg; } 15%, 80% { opacity: 1; } 100% { left: 0; opacity: 0; rotate: -180deg; } }
 @keyframes stage-deal-r { 0% { left: 0; opacity: 0; rotate: 0deg; } 15%, 80% { opacity: 1; } 100% { left: 100%; opacity: 0; rotate: 180deg; } }
