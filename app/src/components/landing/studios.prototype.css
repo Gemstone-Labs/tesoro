@@ -1,0 +1,60 @@
+/* PROTOTYPE ONLY (branch proto/studios-11-10-2026): add-ons for the Built for studios bento. */
+.lp-studios .em { color: var(--em); }
+
+/* every add-on variant: the travelling Gema stops at the last arrow instead of covering "Your game" */
+@keyframes sp-arrive { 0% { left: 2%; opacity: 0; } 10% { opacity: 1; } 70% { left: calc(100% - 170px); opacity: 1; } 85%, 100% { left: calc(100% - 170px); opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) { .sp-fixed .lp-arrive-token { animation-name: sp-arrive; } }
+
+/* A: real numbers + slider */
+.sp-pot-unit { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.sp-legend-num li em { margin-left: auto; font-style: normal; font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 700; }
+.sp-legend-num li em.em { color: var(--em); }
+.lp-pot-ring circle { transition: stroke-dasharray 0.35s ease, stroke-dashoffset 0.35s ease; }
+.sp-slider { display: grid; gap: 8px; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sp-slider label { display: flex; justify-content: space-between; font-weight: 800; }
+.sp-slider label b { color: var(--em); font-variant-numeric: tabular-nums; }
+.sp-slider input { width: 100%; accent-color: var(--em); }
+.sp-slider p { margin: 0; font-size: 14px; color: var(--fg-2); }
+
+/* B: Live / Soon tags, slot as a link */
+.lp-catalogue li > .sp-tag { position: absolute; left: 8px; top: 8px; right: auto; bottom: auto; padding: 3px 8px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; background: rgba(9, 13, 15, 0.72); color: #eaefec; text-shadow: none; display: inline-flex; align-items: center; gap: 6px; }
+.lp-catalogue li > .sp-tag.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #33e3b4; box-shadow: 0 0 8px #33e3b4; }
+.lp-catalogue .sp-slot-link a { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 4px; color: var(--em); text-decoration: none; }
+.lp-catalogue .sp-slot-link a span { font-size: 12.5px; font-weight: 800; }
+.lp-catalogue .sp-slot-link small { font-size: 11.5px; color: var(--fg-2); }
+.lp-catalogue .sp-slot-link:hover { background: color-mix(in srgb, var(--em) 14%, transparent); }
+
+/* C: three steps */
+.sp-steps { list-style: none; padding: 0; margin: 28px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.sp-steps li { display: flex; gap: 14px; align-items: flex-start; padding-top: 16px; border-top: 1px solid var(--line-2); }
+.sp-steps .n { flex: none; display: grid; place-items: center; width: 32px; height: 32px; font-family: var(--f-display); font-weight: 800; font-size: 18px; color: var(--em-ink); background: var(--facet); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.sp-steps b { display: block; font-size: 16px; }
+.sp-steps p { margin: 4px 0 0; color: var(--fg-2); font-size: 14px; }
+@media (max-width: 767px) { .sp-steps { grid-template-columns: 1fr; } }
+
+/* D: footer call */
+.sp-call { padding: 20px 26px; background: var(--raised); border: 1px solid var(--line); }
+.sp-facts { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--fg-2); font-size: 14px; }
+.sp-facts li { display: flex; align-items: center; gap: 8px; }
+.sp-facts li::before { content: ""; width: 7px; height: 7px; background: var(--em); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.sp-call-btns { display: flex; gap: 12px; flex-wrap: wrap; }
+
+/* E: example Pots feed */
+.sp-feed { margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.sp-feed-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.sp-feed ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.sp-feed li { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; font-size: 13.5px; padding: 8px 10px; background: var(--shell); }
+.sp-feed li .pot { color: var(--fg-2); }
+.sp-feed li.new { animation: sp-in 0.5s ease; outline: 1px solid color-mix(in srgb, var(--em) 45%, transparent); }
+@keyframes sp-in { from { opacity: 0; translate: 0 -6px; } }
+
+/* add-ons that make the fee tile taller: the catalogue keeps its height, the Players tile takes the rest; smaller ring */
+.sp-fixed .lp-bento { grid-template-rows: auto 1fr; }
+.sp-fixed .lp-tile-fee .lp-pot-ring { width: min(100%, 170px); }
+.sp-fixed .lp-tile-fee .lp-pot { gap: 12px; margin-top: 6px; }
+.sp-fixed .lp-pot-legend { gap: 6px; }
+.sp-fixed .lp-tile-players { grid-template-rows: auto auto 1fr; }
+.sp-fixed .lp-tile-players .lp-arrive { align-self: center; }
+.sp-fixed .lp-pot-center { gap: 2px; }
+.sp-fixed .lp-pot-center b { font-size: 20px; }
+.sp-call .btn.neutral { background: var(--shell); color: var(--fg); --edge: var(--line-2); }
