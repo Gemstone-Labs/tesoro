@@ -1,5 +1,6 @@
 "use client";
 
+import { PendingBySourcePrototype } from "@/components/ui/PendingBySource.prototype";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, Card, ChainChip, FacetCrown, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
@@ -175,9 +176,11 @@ export default function Wallet() {
           </p>
         )}
         <SimulatedYieldLabel className="wl-hero-sim" />
-        <details className="wl-pbs">
+        <details className="wl-pbs" open>
           <summary>Pending by Source</summary>
           <p className="meta">Each Source becomes redeemable as its Position&apos;s yield lands.</p>
+          {/* PROTOTYPE: ?variant=now|A|B|C|D swaps the rows below for a PendingBySource take */}
+          <PendingBySourcePrototype titled={false} items={pendingRows.map((s) => ({ ...s, id: shortId(s.positionId) }))}>
           {pendingRows.length === 0 && <p className="meta">Nothing pending.</p>}
           {pendingRows.map((s) => {
             const accrued = Math.round(s.accruedShare * 100);
@@ -194,6 +197,7 @@ export default function Wallet() {
               </div>
             );
           })}
+          </PendingBySourcePrototype>
         </details>
       </section>
 

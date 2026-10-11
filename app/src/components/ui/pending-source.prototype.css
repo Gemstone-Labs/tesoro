@@ -1,0 +1,102 @@
+/* PROTOTYPE ONLY (proto/pending-by-source-11-10-2026): four takes on PendingBySource. Pending never goes emerald:
+   chain colours say where a Source sits, light steel says how much of its yield has landed. */
+:root { --pbs-sol: #9945ff; --pbs-eth: #627eea; --pbs-hype: #97fce4; --pbs-lit: linear-gradient(180deg, #f3f6f4, #b9c3c0); }
+
+.pbs-a, .pbs-b, .pbs-c, .pbs-d { display: grid; gap: 14px; min-width: 0; }
+.pbs-who { display: grid; min-width: 0; line-height: 1.25; }
+.pbs-who > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pbs-who small { font-family: var(--f-mono); font-size: 11px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbs-note { margin: 0; font-size: 12px; color: var(--fg-3); }
+
+.pbs-empty { display: flex; align-items: center; gap: 12px; padding: 14px; background: rgba(255, 255, 255, 0.03); color: var(--fg-2); font-size: 13px; }
+.pbs-empty b { display: block; color: var(--fg); font-weight: 700; }
+.pbs-empty-ring { display: grid; place-items: center; width: 40px; height: 40px; flex: none; background: var(--raised-2); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+
+/* —— A Share bar —— */
+.pbs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.pbs-head-fig { font-family: var(--f-display); font-size: 26px; font-weight: 800; line-height: 1; }
+.pbs-a-bar { display: flex; gap: 3px; height: 18px; clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
+.pbs-a-bar i { position: relative; flex: 0 0 0; min-width: 8px; overflow: hidden;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--chain) 42%, transparent) 0 3px, color-mix(in srgb, var(--chain) 14%, transparent) 3px 7px); }
+.pbs-a-bar i::before { content: ""; position: absolute; inset: 0 0 auto; height: 2px; background: var(--chain); }
+.pbs-a-bar em { position: absolute; inset: 0 auto 0 0; background: linear-gradient(180deg, color-mix(in srgb, var(--chain) 90%, #fff), var(--chain)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+.pbs-a-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.pbs-a-list li { display: grid; grid-template-columns: 10px 18px minmax(0, 1fr) auto auto; grid-template-rows: auto auto; align-items: center; gap: 2px 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.pbs-a-swatch { grid-row: 1 / 3; align-self: stretch; width: 3px; background: var(--chain); justify-self: center; }
+.pbs-a-list .chain-glyph { grid-row: 1 / 3; }
+.pbs-a-list .pbs-who { grid-row: 1 / 3; }
+.pbs-a-share { grid-row: 1 / 3; font-size: 12px; color: var(--fg-3); font-family: var(--f-mono); }
+.pbs-a-list b { font-family: var(--f-display); font-size: 22px; font-weight: 800; text-align: right; line-height: 1; }
+.pbs-a-acc { grid-column: 5; font-size: 11.5px; color: var(--fg-2); text-align: right; }
+
+/* —— B Source tiles —— */
+.pbs-b-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 128px), 1fr)); gap: 10px; }
+.pbs-b-grid li { --edge: var(--edge-1); display: grid; justify-items: start; gap: 8px; padding: 14px 14px 12px; background: var(--surface); min-width: 0;
+  background-image: radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--chain) 16%, transparent), transparent 60%), var(--surface); }
+.pbs-ring { position: relative; display: grid; place-items: center; width: 60px; height: 60px; }
+.pbs-ring-svg { position: absolute; inset: 0; }
+.pbs-ring line { stroke: rgba(234, 239, 236, 0.2); stroke-width: 4; stroke-linecap: butt; }
+.pbs-ring line.on { stroke: var(--chain); filter: drop-shadow(0 0 3px color-mix(in srgb, var(--chain) 70%, transparent)); }
+.pbs-b-grid b { font-family: var(--f-display); font-size: 32px; font-weight: 800; line-height: 1; }
+.pbs-b-grid .pbs-who { width: 100%; font-size: 13px; }
+.pbs-b-acc { position: relative; display: block; width: 100%; padding-top: 8px; font-size: 11.5px; color: var(--fg-2); }
+.pbs-b-acc::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: rgba(255, 255, 255, 0.08); }
+.pbs-b-acc i { position: absolute; inset: 0 auto auto 0; height: 3px; background: var(--pbs-lit); }
+
+/* —— C Ledger —— */
+.pbs-c table { width: 100%; font: inherit; border-collapse: collapse; font-size: 13.5px; }
+.pbs-c thead th { font-family: var(--f-mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); text-align: left; padding: 0 0 8px; border-bottom: 1px solid var(--line-2); }
+.pbs-c th:last-child, .pbs-c td:last-child { text-align: right; }
+.pbs-c tbody th, .pbs-c tbody td { padding: 11px 0; border-bottom: 1px dashed var(--line); text-align: left; font-weight: 400; vertical-align: middle; }
+.pbs-c tbody td:last-child { font-family: var(--f-display); font-size: 21px; font-weight: 800; text-align: right; }
+.pbs-c tbody th { width: 52%; max-width: 0; }
+.pbs-c-src { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pbs-c-glyph { display: grid; place-items: center; width: 30px; height: 30px; flex: none; background: color-mix(in srgb, var(--chain) 14%, var(--raised)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chain) 40%, transparent);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.pbs-c-acc { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-2); }
+.pbs-pips { display: inline-flex; gap: 2px; }
+.pbs-pips i { width: 5px; height: 12px; background: rgba(255, 255, 255, 0.1); transform: skewX(-14deg); }
+.pbs-pips i.on { background: var(--pbs-lit); }
+.pbs-c tfoot th, .pbs-c tfoot td { padding: 12px 0 0; text-align: left; font-size: 12px; color: var(--fg-2); font-weight: 500; }
+.pbs-c tfoot td:last-child { font-family: var(--f-display); font-size: 24px; font-weight: 800; color: var(--fg); text-align: right; }
+@media (max-width: 479px) { .pbs-c-acc .pbs-pips { display: none; } }
+
+/* —— D Next to land —— */
+.pbs-d-lead { position: relative; display: grid; gap: 10px; padding: 16px 16px 14px; overflow: hidden;
+  background: radial-gradient(90% 120% at 100% 0%, color-mix(in srgb, var(--chain) 18%, transparent), transparent 60%), var(--surface);
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px); }
+.pbs-d-kicker { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--chain); }
+.pbs-d-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.pbs-d-mark { display: grid; place-items: center; width: 48px; height: 48px; background: rgba(0, 0, 0, 0.3); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chain) 50%, transparent);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.pbs-d-fig { display: grid; min-width: 0; }
+.pbs-d-fig b { font-family: var(--f-display); font-size: 34px; font-weight: 800; line-height: 1; }
+.pbs-d-fig span { font-size: 12.5px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbs-d-pct { font-family: var(--f-display); font-size: 44px; font-weight: 800; line-height: 1; color: var(--fg); }
+.pbs-d-pct small { font-size: 0.5em; color: var(--fg-2); margin-left: 1px; }
+.pbs-d-gauge { position: relative; height: 10px; background: rgba(255, 255, 255, 0.07); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.pbs-d-gauge i { position: absolute; inset: 0 auto 0 0; background: var(--pbs-lit); box-shadow: 6px 0 14px color-mix(in srgb, var(--chain) 80%, transparent); }
+.pbs-d-gauge i::after { content: ""; position: absolute; inset: 0 0 0 auto; width: 3px; background: var(--chain); }
+.pbs-d-gauge s { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(9, 13, 15, 0.6); }
+.pbs-d-foot { font-size: 12px; color: var(--fg-2); }
+.pbs-d-queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.pbs-d-queue li { display: grid; grid-template-columns: 18px 16px minmax(0, 1fr) 64px 36px auto; align-items: center; gap: 10px; padding: 9px 12px; background: rgba(255, 255, 255, 0.03); font-size: 13px; border-left: 2px solid var(--chain); }
+.pbs-d-n { font-family: var(--f-mono); font-size: 11px; color: var(--fg-3); }
+.pbs-d-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbs-d-mini { position: relative; height: 4px; background: rgba(255, 255, 255, 0.08); }
+.pbs-d-mini i { position: absolute; inset: 0 auto 0 0; background: var(--pbs-lit); }
+.pbs-d-p { font-size: 12px; color: var(--fg-2); text-align: right; }
+.pbs-d-queue b { font-family: var(--f-display); font-size: 19px; font-weight: 800; text-align: right; min-width: 52px; }
+@media (max-width: 479px) {
+  .pbs-d-queue li { grid-template-columns: 16px minmax(0, 1fr) 36px auto; }
+  .pbs-d-n, .pbs-d-mini { display: none; }
+  .pbs-d-pct { font-size: 34px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pbs-d-gauge i, .pbs-b-acc i, .pbs-a-bar em { transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+}
+
+/* Wallet: the toggle already says "Pending by Source" and the hero shows the total */
+.pbs-untitled .pbs-b > .label, .pbs-untitled .pbs-c > .label, .pbs-untitled .pbs-d > .label, .pbs-untitled .pbs-head { display: none; }
+.pbs-c th, .pbs-c td { font-family: var(--f-body); }
+.pbs-c tbody td:last-child, .pbs-c tfoot td:last-child { font-family: var(--f-display); }

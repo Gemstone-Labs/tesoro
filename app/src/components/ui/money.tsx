@@ -4,6 +4,7 @@ import { CountUp } from "./CountUp";
 import { GemaMark, SimulatedYieldLabel } from "./gema";
 import { CheckIcon, ClockIcon, MinusIcon, XIcon } from "./icons";
 import { ChainChip, Label, Meter } from "./primitives";
+import { PendingBySourcePrototype, type PbsItem } from "./PendingBySource.prototype";
 
 /** The balance as a banknote: the card is the money fill, figure and Gema mark in ink. The only place the glint runs. */
 export function BalanceCard({ total, title = "Your Gemas" }: { total: number; title?: string }) {
@@ -77,8 +78,10 @@ export interface PendingSourceItem {
   accruedShare: number;
 }
 
-export function PendingBySource({ items }: { items: PendingSourceItem[] }) {
+export function PendingBySource({ items }: { items: (PendingSourceItem & Pick<PbsItem, "id">)[] }) {
+  // PROTOTYPE: ?variant=now|A|B|C|D
   return (
+    <PendingBySourcePrototype items={items}>
     <div className="src">
       <Label>Pending by Source</Label>
       {items.length === 0 && <p className="meta">Nothing pending.</p>}
@@ -97,6 +100,7 @@ export function PendingBySource({ items }: { items: PendingSourceItem[] }) {
         </div>
       ))}
     </div>
+    </PendingBySourcePrototype>
   );
 }
 
