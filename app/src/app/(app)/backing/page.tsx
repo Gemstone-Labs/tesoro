@@ -194,7 +194,7 @@ export default function Backing() {
             )}
           </p>
         </div>
-        <Button onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
+        <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
       </header>
 
       {error && <p className="status err" role="alert">{error}</p>}
