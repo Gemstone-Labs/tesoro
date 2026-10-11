@@ -1,45 +1,146 @@
 import { along, bed, dist, geo, polyD, type Frame, type Geo, type Pt } from "./geo";
 
 /**
- * The divider: small flat octagon gems in the panel's own colour and texture, spreading from the panel into the footage.
- * Solid and fused next to the panel; past the front they come apart into separate gems in a regular checker-like pattern
- * (ordered dither), thinning to a few lone ones. The grid divides the 360px texture tile (30px, 20px on a phone) and is
- * centred on the texture's octagon centres, so the texture lines run along the gem rows.
+ * The divider: small flat octagon gems in the panel's own colour and texture, growing from the panel into the footage as
+ * connected clumps and fingers of fused gems, with a few breakaway gems ahead of the tips. The grid divides the 360px
+ * texture tile (30px, 20px on a phone) and is centred on the texture's octagon centres, so the texture lines run along
+ * the gem rows. The growth is deterministic: a seeded reach profile along the diagonal says how far each stretch may
+ * grow, and only sites connected to the solid band count (Eden-like: ragged, gem-shaped tips).
  */
 export const TILE_CENTRE = { x: 160, y: 140 };
 
-export type Field = { g: Geo; frame: Frame; pitch: number; /** solid up to this distance past the diagonal */ solid: number; /** nothing beyond */ reach: number };
+/** 1 fingers, 2 clumps, 3 mixed. */
+export type Tuning = 1 | 2 | 3;
+
+export type Field = { g: Geo; frame: Frame; pitch: number; /** solid band, px past the diagonal */ band: number; /** size factor against 1440 wide */ unit: number };
 
 export function field(frame: Frame): Field {
   const g = geo(frame);
   const tall = frame.kind === "tall";
-  return { g, frame, pitch: tall ? 20 : 30, solid: tall ? 18 : 36, reach: tall ? 130 : Math.min(Math.max(frame.w * 0.28, 300), 440) };
+  return { g, frame, pitch: tall ? 20 : 30, band: tall ? 32 : 76, unit: tall ? 0.42 : Math.min(Math.max(frame.w / 1440, 0.85), 1.1) };
 }
 
-const smooth = (t: number) => {
-  const c = Math.min(Math.max(t, 0), 1);
-  return c * c * (3 - 2 * c);
-};
+/** A stable 0..1 per (a, b, salt). */
+export function hash(a: number, b: number, salt = 0) {
+  let h = (Math.imul(a | 0, 73856093) ^ Math.imul(b | 0, 19349663) ^ Math.imul(salt, 83492791)) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 2246822519) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 3266489917) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
-/** Share of lattice sites with a gem past the solid zone: at most half (a checker), falling smoothly to none at the reach. */
-const density = (fl: Field, d: number) => 0.5 * (1 - smooth((d - fl.solid) / (fl.reach - fl.solid))) ** 1.15;
+type Bump = { c: number; w: number; a: number };
 
-/** Bayer matrix of order n (a power of two): 0..n*n-1, an ordered-dither threshold map. */
-export function bayer(n: number): number[][] {
-  if (n === 1) return [[0]];
-  const h = bayer(n / 2);
-  const m: number[][] = [];
-  for (let y = 0; y < n; y++) {
-    m.push([]);
-    for (let x = 0; x < n; x++) {
-      m[y].push(h[y % (n / 2)][x % (n / 2)] * 4 + [[0, 2], [3, 1]][Math.floor(y / (n / 2))][Math.floor(x / (n / 2))]);
+/** How far past the band each stretch of the diagonal may grow, px: a few seeded bumps over a small base. */
+function reachProfile(fl: Field, tuning: Tuning): (s: number) => number {
+  const { len } = fl.g;
+  const u = fl.unit;
+  const tall = fl.frame.kind === "tall";
+  const bumps: Bump[] = [];
+  const spread = (n: number, salt: number, width: (r: number) => number, amp: (r: number) => number) => {
+    for (let k = 0; k < n; k++) {
+      const r = hash(k, salt, 7);
+      bumps.push({ c: (len * (k + 0.5 + (hash(k, salt, 8) - 0.5) * 0.5)) / n, w: width(r) * u, a: amp(r) * u });
+    }
+  };
+  let base = 14;
+  if (tuning === 1) {
+    // Fewer, longer fingers: 5 to 7 across the diagonal.
+    spread(tall ? 3 : 6, 1, (r) => 34 + r * 20, (r) => 115 + r * 70);
+    base = 10;
+  } else if (tuning === 2) {
+    // Rounded lumps along the front, shorter reach.
+    spread(tall ? 5 : 9, 2, (r) => 62 + r * 30, (r) => 40 + r * 55);
+    base = 18;
+  } else {
+    // Lumps with a couple of longer fingers.
+    spread(tall ? 4 : 7, 3, (r) => 56 + r * 26, (r) => 36 + r * 50);
+    const fingers = tall ? [0.3, 0.72] : [0.22, 0.63];
+    fingers.forEach((f, k) => bumps.push({ c: len * (f + (hash(k, 4, 9) - 0.5) * 0.08), w: 30 * u, a: (150 + hash(k, 5, 9) * 40) * u }));
+    base = 14;
+  }
+  return (s) => {
+    let r = base * u;
+    for (const b of bumps) r = Math.max(r, b.a * Math.exp(-(((s - b.c) / b.w) ** 2)));
+    return r;
+  };
+}
+
+export type Site = { i: number; j: number; x: number; y: number; d: number; s: number };
+/** 1 solid band, 2 grown (connected), 3 breakaway. */
+export type Growth = { fl: Field; state: Map<number, 1 | 2 | 3>; sites: Site[]; at: (i: number, j: number) => 0 | 1 | 2 | 3 };
+
+/** The grown layout for a frame: which lattice sites carry a gem and of which kind. */
+export function growth(frame: Frame, tuning: Tuning = 1): Growth {
+  const fl = field(frame);
+  const { g, pitch, band } = fl;
+  const profile = reachProfile(fl, tuning);
+  const i0 = Math.floor((-TILE_CENTRE.x - pitch) / pitch);
+  const j0 = Math.floor((-TILE_CENTRE.y - pitch) / pitch);
+  const key = (i: number, j: number) => (i + 4096) * 8192 + (j + 4096);
+  const sites: Site[] = [];
+  const candidate = new Map<number, Site>();
+  const state = new Map<number, 1 | 2 | 3>();
+  for (let i = i0; TILE_CENTRE.x + i * pitch < frame.w + pitch; i++) {
+    for (let j = j0; TILE_CENTRE.y + j * pitch < frame.h + pitch; j++) {
+      const x = TILE_CENTRE.x + i * pitch;
+      const y = TILE_CENTRE.y + j * pitch;
+      const d = dist(g, x, y);
+      const s = along(g, x, y);
+      if (d < -g.inset * 0.5 || s < -pitch * 2 || s > g.len + pitch * 2) continue;
+      const site = { i, j, x, y, d, s };
+      if (d <= band) {
+        state.set(key(i, j), 1);
+        sites.push(site);
+      } else if (d - band <= profile(s) * (0.78 + 0.42 * hash(i, j, 11))) {
+        candidate.set(key(i, j), site);
+      }
     }
   }
-  return m;
+  // Keep only what is connected to the band, orthogonal neighbours (octagons share an edge): Eden-like growth.
+  const queue = sites.filter((s) => s.d > band - pitch * 1.6);
+  const NB = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (let q = 0; q < queue.length; q++) {
+    const c = queue[q];
+    for (const [di, dj] of NB) {
+      const k = key(c.i + di, c.j + dj);
+      const n = candidate.get(k);
+      if (!n || state.has(k)) continue;
+      state.set(k, 2);
+      sites.push(n);
+      queue.push(n);
+    }
+  }
+  // Breakaway gems: a few, one empty cell beyond a clump tip, never touching one.
+  const grown = sites.filter((s) => state.get(key(s.i, s.j)) === 2).length;
+  const share = tuning === 2 ? 0.04 : tuning === 3 ? 0.08 : 0.06;
+  const want = Math.max(tuning === 2 ? 2 : 3, Math.round(grown * share));
+  const near = new Set<number>();
+  const taken = (i: number, j: number) => state.has(key(i, j));
+  const fused = sites.filter((s) => s.d > band + pitch);
+  const picks: { site: Site; h: number }[] = [];
+  for (const f of fused) {
+    for (const [di, dj] of NB) {
+      const i = f.i + di * 2;
+      const j = f.j + dj * 2;
+      const k = key(i, j);
+      if (near.has(k) || taken(i, j)) continue;
+      near.add(k);
+      // No fused neighbour, so it stands apart.
+      if ([-1, 0, 1].some((a) => [-1, 0, 1].some((b) => taken(i + a, j + b)))) continue;
+      const x = TILE_CENTRE.x + i * pitch;
+      const y = TILE_CENTRE.y + j * pitch;
+      const d = dist(g, x, y);
+      if (d <= band + pitch * 1.5) continue;
+      picks.push({ site: { i, j, x, y, d, s: along(g, x, y) }, h: hash(i, j, 13) });
+    }
+  }
+  picks.sort((a, b) => a.h - b.h);
+  for (const p of picks.slice(0, want)) {
+    state.set(key(p.site.i, p.site.j), 3);
+    sites.push(p.site);
+  }
+  return { fl, state, sites, at: (i, j) => state.get(key(i, j)) ?? 0 };
 }
-const B8 = bayer(8);
-/** Ordered-dither threshold for lattice site (i, j), strictly inside (0, 1). */
-export const threshold = (i: number, j: number) => (B8[((j % 8) + 8) % 8][((i % 8) + 8) % 8] + 0.5) / 64;
 
 /** A regular octagon centred at cx, cy measuring `flats` across its flat sides. */
 export function octagon(cx: number, cy: number, flats: number): Pt[] {
@@ -47,38 +148,33 @@ export function octagon(cx: number, cy: number, flats: number): Pt[] {
   return Array.from({ length: 8 }, (_, k): Pt => [cx + r * Math.cos(Math.PI / 8 + (k * Math.PI) / 4), cy + r * Math.sin(Math.PI / 8 + (k * Math.PI) / 4)]);
 }
 
-/** Does lattice site (i, j) carry a gem, and is it part of the solid zone? One rule per site, so neighbours agree. */
-export function siteAt(fl: Field, i: number, j: number) {
-  const x = TILE_CENTRE.x + i * fl.pitch;
-  const y = TILE_CENTRE.y + j * fl.pitch;
-  const d = dist(fl.g, x, y);
-  const solid = d <= fl.solid;
-  return { x, y, d, solid, on: solid || density(fl, d) > threshold(i, j) };
-}
-
-/** The little diamond between four sites, where three or more of them are solid gems: octagons leave a hole there. */
-function chip(fl: Field, i: number, j: number): string {
-  const cells = [siteAt(fl, i, j), siteAt(fl, i + 1, j), siteAt(fl, i, j + 1), siteAt(fl, i + 1, j + 1)];
-  if (cells.filter((c) => c.solid).length < 3) return "";
-  const cx = cells[0].x + fl.pitch / 2;
-  const cy = cells[0].y + fl.pitch / 2;
-  const r = fl.pitch * 0.2929 * 1.08;
-  return polyD([[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]]);
-}
-
-/** The ground strip and every gem (as one path each), for a frame of this size. */
-export function dividerScene(frame: Frame): { ground: string; gems: string } {
-  const fl = field(frame);
-  const { g, pitch, reach } = fl;
+/** The ground strip and every gem (as one path), for a frame of this size. Fused gems get the diamonds between them filled. */
+export function dividerScene(frame: Frame, tuning: Tuning = 1): { ground: string; gems: string } {
+  const gr = growth(frame, tuning);
+  const { pitch } = gr.fl;
+  const solid = (i: number, j: number) => {
+    const s = gr.at(i, j);
+    return s === 1 || s === 2;
+  };
   let gems = "";
-  for (let i = Math.floor((-TILE_CENTRE.x - pitch) / pitch); TILE_CENTRE.x + i * pitch < frame.w + pitch; i++) {
-    for (let j = Math.floor((-TILE_CENTRE.y - pitch) / pitch); TILE_CENTRE.y + j * pitch < frame.h + pitch; j++) {
-      const s = siteAt(fl, i, j);
-      const a = along(g, s.x, s.y);
-      if (s.d < -g.inset * 0.5 || s.d > reach + pitch || a < -pitch * 2 || a > g.len + pitch * 2) continue;
-      if (s.on) gems += polyD(octagon(s.x, s.y, pitch * (s.solid ? 1.04 : 0.86)));
-      if (s.d <= fl.solid + pitch) gems += chip(fl, i, j);
+  const done = new Set<string>();
+  for (const s of gr.sites) {
+    const kind = gr.at(s.i, s.j);
+    gems += polyD(octagon(s.x, s.y, pitch * (kind === 3 ? 0.86 : 1.04)));
+    if (kind === 3) continue;
+    // The four diamonds around this gem: filled where three or more of the four sites around them are fused.
+    for (const [a, b] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+      const i = s.i + a;
+      const j = s.j + b;
+      const id = `${i},${j}`;
+      if (done.has(id)) continue;
+      done.add(id);
+      if ([solid(i, j), solid(i + 1, j), solid(i, j + 1), solid(i + 1, j + 1)].filter(Boolean).length < 3) continue;
+      const cx = TILE_CENTRE.x + (i + 0.5) * pitch;
+      const cy = TILE_CENTRE.y + (j + 0.5) * pitch;
+      const r = pitch * 0.2929 * 1.08;
+      gems += polyD([[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]]);
     }
   }
-  return { ground: polyD(bed(g, pitch * 0.2)), gems };
+  return { ground: polyD(bed(gr.fl.g, pitch * 0.2)), gems };
 }

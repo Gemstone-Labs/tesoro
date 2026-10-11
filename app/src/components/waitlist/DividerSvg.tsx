@@ -1,4 +1,4 @@
-import { dividerScene } from "./dividers/octa";
+import { dividerScene, type Tuning } from "./dividers/octa";
 import type { Frame } from "./dividers/geo";
 
 /**
@@ -6,8 +6,8 @@ import type { Frame } from "./dividers/geo";
  * origin so the texture runs on across them. Plain markup (no hooks), so the server can draw it too. `stretch` fits a
  * design-size layout to whatever frame it lands in (used for the first paint and without JavaScript).
  */
-export function DividerSvg({ frame, id, className, stretch = false }: { frame: Frame; id: string; className: string; stretch?: boolean }) {
-  const { ground, gems } = dividerScene(frame);
+export function DividerSvg({ frame, id, className, stretch = false, tuning = 1 }: { frame: Frame; id: string; className: string; stretch?: boolean; tuning?: Tuning }) {
+  const { ground, gems } = dividerScene(frame, tuning);
   return (
     <svg className={className} viewBox={`0 0 ${frame.w} ${frame.h}`} preserveAspectRatio={stretch ? "none" : undefined} aria-hidden focusable="false">
       <defs>
