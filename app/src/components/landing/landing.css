@@ -440,11 +440,30 @@ html.lenis, html.lenis body { height: auto; }
 /* catalogue: tiles lift and glow; the empty slot breathes */
 .lp-catalogue li { transition: translate 0.3s, filter 0.3s; }
 .lp-catalogue li:not(.lp-slot):hover { translate: 0 -4px; filter: drop-shadow(0 8px 18px rgba(36, 216, 168, 0.25)); }
-/* players: a Gema runs along the path and rests on the last arrow, short of "Your game" */
+/* players: the Gema in the first pill travels into the slot in "Your game" (hopping over Entry), rests, then starts
+   again. ArriveFlow sets --x0/--y0 (home slot), --dx/--dy (to the slot) and --hop; .is-live only when motion is allowed. */
 .lp-arrive { position: relative; width: fit-content; }
-.lp-arrive-token { position: absolute; left: 0; top: 50%; translate: 0 -50%; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(closest-side, rgba(106, 248, 214, 0.5), transparent); opacity: 0; }
-@media (prefers-reduced-motion: no-preference) { .lp-arrive-token { animation: lp-arrive 3.6s ease-in-out infinite; } }
-@keyframes lp-arrive { 0% { left: 2%; opacity: 0; } 10% { opacity: 1; } 70% { left: calc(100% - 170px); opacity: 1; } 85%, 100% { left: calc(100% - 170px); opacity: 0; } }
+.lp-arrive-slot { display: grid; width: 18px; height: 18px; }
+.lp-arrive-dest .lp-arrive-slot { opacity: 0.2; }
+.lp-arrive-gem { display: none; position: absolute; left: var(--x0); top: var(--y0); z-index: 2; pointer-events: none; }
+.lp-arrive-gem > span { display: grid; filter: drop-shadow(0 0 6px var(--em)); }
+.lp-arrive.is-live .home { opacity: 0.2; }
+.lp-arrive.is-live .lp-arrive-gem { display: block; animation: lp-arrive-move 4.2s infinite; }
+.lp-arrive.is-live .lp-arrive-gem > span { animation: lp-arrive-hop 4.2s infinite; }
+.lp-arrive.is-live .lp-arrive-dest { animation: lp-arrive-land 4.2s infinite; }
+@keyframes lp-arrive-move {
+  0%, 16% { translate: 0 0; opacity: 1; animation-timing-function: cubic-bezier(0.45, 0, 0.3, 1); }
+  60%, 80% { translate: var(--dx) var(--dy); opacity: 1; }
+  88% { translate: var(--dx) var(--dy); opacity: 0; }
+  89% { translate: 0 0; opacity: 0; }
+  100% { translate: 0 0; opacity: 1; }
+}
+@keyframes lp-arrive-hop {
+  0%, 16% { translate: 0 0; animation-timing-function: ease-out; }
+  38% { translate: 0 var(--hop); animation-timing-function: ease-in; }
+  60%, 100% { translate: 0 0; }
+}
+@keyframes lp-arrive-land { 0%, 58%, 90%, 100% { background: var(--shell); } 64%, 80% { background: color-mix(in srgb, var(--em) 16%, var(--shell)); } }
 .lp-arrive { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; color: var(--fg-2); }
 .lp-arrive > svg { width: 18px; height: 18px; }
 .lp-pill { display: inline-flex; align-items: center; gap: 8px; padding: 14px 22px; font-size: 17px; background: var(--shell); color: var(--fg); font-weight: 800; --edge: var(--line-2); }
@@ -674,18 +693,13 @@ html.lenis, html.lenis body { height: auto; }
   @keyframes lp-mote { 0% { opacity: 0; transform: translate(0, 0); } 15% { opacity: 0.8; } 85% { opacity: 0.6; } 100% { opacity: 0; transform: translate(var(--dx), -90px); } }
 }
 
-/* Phones: Gemas → Entry → Your game runs top to bottom; the Gema drops out of each card into the next, visible in
-   the gaps along a faint guide line (the cards sit above it). */
+/* Phones: Gemas → Entry → Your game runs top to bottom along a faint guide line; the Gema drops straight down. */
 @media (max-width: 767px) {
   .lp-arrive { flex-direction: column; align-items: center; gap: 26px; width: 100%; margin-top: 18px; }
   .lp-arrive::before { content: ""; position: absolute; left: 50%; top: 20px; bottom: 20px; width: 0; border-left: 2px dashed color-mix(in srgb, var(--em) 45%, transparent); }
   .lp-arrive > svg { display: none; }
   .lp-arrive .lp-pill { position: relative; z-index: 1; width: min(100%, 220px); justify-content: center; background: var(--shell); }
-  .lp-arrive-token { left: 50%; top: 10px; translate: -50% 0; width: 22px; height: 22px; z-index: 0; background: none; }
-  .lp-arrive-token .gema-mark { width: 18px; height: 18px; filter: drop-shadow(0 0 6px var(--em)); }
-  @media (prefers-reduced-motion: no-preference) { .lp-arrive-token { animation: lp-arrive-v 3.2s cubic-bezier(0.55, 0, 0.6, 1) infinite; } }
 }
-@keyframes lp-arrive-v { 0% { top: 12px; opacity: 1; } 85% { top: calc(100% - 34px); opacity: 1; } 100% { top: calc(100% - 34px); opacity: 0; } }
 
 /* Final CTA, phones: an effects box that matches the phone art's cover crop (anchored top), so the glows sit on the
    baked-in lanterns and the dust in the shaft. */

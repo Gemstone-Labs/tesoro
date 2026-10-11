@@ -1,7 +1,8 @@
-import { ArrowRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { GemaMark } from "@/components/ui/gema";
 import { art } from "@/lib/art";
 import { OUTBOUND } from "@/lib/landing/config";
+import { ArriveFlow } from "./ArriveFlow";
 
 const CATALOGUE = [
   { src: art.blockPuzzleTile, name: "Block Puzzle", live: true },
@@ -92,18 +93,7 @@ export function Studios() {
           <article className="lp-tile lp-tile-players cut cut-frame" data-reveal>
             <h3 className="lp-h3">Players arrive with Gemas already in hand.</h3>
             <p className="lp-body">No deposit flow to build: they pick an entry and play.</p>
-            <div className="lp-arrive" aria-hidden>
-              <span className="lp-arrive-token">
-                <GemaMark size={14} />
-              </span>
-              <span className="lp-pill cut cut-btn">
-                <GemaMark size={18} /> Gemas
-              </span>
-              <ArrowRight />
-              <span className="lp-pill cut cut-btn">Entry</span>
-              <ArrowRight />
-              <span className="lp-pill strong cut cut-btn">Your game</span>
-            </div>
+            <ArriveFlow />
           </article>
         </div>
         {OUTBOUND.x && (
