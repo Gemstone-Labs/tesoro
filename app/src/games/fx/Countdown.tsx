@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { sfx } from "./sfx";
 
 /**
  * Big 3-2-1-Go overlay, centred in the nearest positioned parent. `onDone` fires the moment "Go!" appears
- * (start the clock then); the overlay clears itself shortly after. Ticks and a go cue play unless muted.
+ * (start the clock then); the overlay clears itself shortly after and calls `onEnd`. Keep it mounted until `onEnd`. Ticks and a go cue play unless muted.
  * `<Countdown from={3} onDone={start} />`. Under reduced motion the numbers still change, just without scaling.
  */
-export function Countdown({ from = 3, goText = "Go!", onDone, className = "" }: { from?: number; goText?: string; onDone?: () => void; className?: string }) {
+export function Countdown({ from = 3, goText = "Go!", onDone, onEnd, className = "" }: { from?: number; goText?: string; onDone?: () => void; onEnd?: () => void; className?: string }) {
   const [n, setN] = useState(from);
+  const cbs = useRef({ onDone, onEnd });
+  useEffect(() => {
+    cbs.current = { onDone, onEnd };
+  });
 
   useEffect(() => {
     if (n > 0) {
@@ -18,11 +22,13 @@ export function Countdown({ from = 3, goText = "Go!", onDone, className = "" }: 
       return () => clearTimeout(t);
     }
     sfx("go");
-    onDone?.();
+    cbs.current.onDone?.();
     const t = setTimeout(() => setN(-1), 700);
     return () => clearTimeout(t);
-    // onDone is read once when Go appears
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [n]);
+
+  useEffect(() => {
+    if (n < 0) cbs.current.onEnd?.();
   }, [n]);
 
   if (n < 0) return null;

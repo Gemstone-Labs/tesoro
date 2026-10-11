@@ -130,6 +130,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
   const [drag, setDrag] = useState<{ idx: number; px: number; py: number; cell: number } | null>(null);
   const [focusCell, setFocusCell] = useState(0);
   const [announce, setAnnounce] = useState("");
+  const [goOn, setGoOn] = useState(false);
 
   const endsAt = useRef(0);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -466,7 +467,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
         const filled = (st.occ >> BigInt(i)) & 1n;
         const isGem = (st.gems >> BigInt(i)) & 1n;
         const color = game.colors[i];
-        const gh = ghostAt.get(i);
+        const gh = filled ? undefined : ghostAt.get(i);
         const pv = previewInfo?.cells.has(i);
         const cls = ["bp-cell"];
         if (filled) cls.push(`k${color}`, "on");
@@ -558,7 +559,16 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             </div>
           </div>
         )}
-        {phase === "count" && <Countdown from={3} onDone={beginPractice} />}
+        {(phase === "count" || goOn) && (
+          <Countdown
+            from={3}
+            onDone={() => {
+              setGoOn(true);
+              beginPractice();
+            }}
+            onEnd={() => setGoOn(false)}
+          />
+        )}
         {phase === "over" && (
           <div className="bp-overlay" role="dialog" aria-label="Game over">
             <div className="stack bp-over">
