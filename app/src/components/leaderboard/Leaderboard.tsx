@@ -14,6 +14,67 @@ import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 import "./leaderboard.css";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { HeroA, HeroB, HeroC, HeroD, HeroE, type HeroProps } from "./LeaderboardHero.prototype";
+
+// PROTOTYPE: ?variant=now|A|B|C|D|E
+const VARIANTS = [
+  { key: "now", name: "Current" },
+  { key: "A", name: "Treasure poster" },
+  { key: "B", name: "Season track" },
+  { key: "C", name: "Prize steps" },
+  { key: "D", name: "Vault banner" },
+  { key: "E", name: "Compact strip" },
+] as const;
+
+function Hero(props: HeroProps) {
+  const v = usePrototypeVariant(VARIANTS.map((x) => x.key));
+  const View = { now: HeroNow, A: HeroA, B: HeroB, C: HeroC, D: HeroD, E: HeroE }[v];
+  return (
+    <>
+      <View {...props} />
+      <PrototypeSwitcher variants={VARIANTS} />
+    </>
+  );
+}
+
+function HeroNow({ data, pool, remaining }: HeroProps) {
+  return (
+  <section className="cut cut-frame lb-hero" aria-label="This season">
+    <div className="lb-pool">
+      <Image className="pool-art" src={art.poolChest} alt="" width={200} height={200} priority />
+      <div className="lb-pool-text">
+        <Label>Leaderboard Pool</Label>
+        <b className="lb-pool-fig pool-fig">
+          <CountUp value={pool} duration={1200} />
+        </b>
+        <small>
+          {data.feeBps > 0
+            ? `${data.feeBps / 100}% of every Pot goes in, from every Game.`
+            : "The pool opens with the next upgrade."}
+        </small>
+      </div>
+    </div>
+    <dl className="lb-facts">
+      <div>
+        <dt>Season</dt>
+        <dd>{data.season.number}</dd>
+      </div>
+      <div>
+        <dt>Time left</dt>
+        <dd className="mono" aria-live="off">{remaining === null ? "—" : left(remaining)}</dd>
+      </div>
+      <div>
+        <dt>Players with points</dt>
+        <dd>{data.players}</dd>
+      </div>
+    </dl>
+    <p className="lb-hero-note">
+      Seasons run Monday to Monday, UTC. Prizes are paid in Gemas, with the Sources they came from, shortly after a season ends.
+    </p>
+  </section>
+  );
+}
 
 /** Prize of rank `i` from a pool, floored as in the program. */
 const prize = (pool: number, i: number) => Math.floor((pool * PRIZE_BPS[i]) / 10_000);
@@ -83,39 +144,7 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
 
   return (
     <>
-      <section className="cut cut-frame lb-hero" aria-label="This season">
-        <div className="lb-pool">
-          <Image className="pool-art" src={art.poolChest} alt="" width={200} height={200} priority />
-          <div className="lb-pool-text">
-            <Label>Leaderboard Pool</Label>
-            <b className="lb-pool-fig pool-fig">
-              <CountUp value={pool} duration={1200} />
-            </b>
-            <small>
-              {data.feeBps > 0
-                ? `${data.feeBps / 100}% of every Pot goes in, from every Game.`
-                : "The pool opens with the next upgrade."}
-            </small>
-          </div>
-        </div>
-        <dl className="lb-facts">
-          <div>
-            <dt>Season</dt>
-            <dd>{data.season.number}</dd>
-          </div>
-          <div>
-            <dt>Time left</dt>
-            <dd className="mono" aria-live="off">{remaining === null ? "—" : left(remaining)}</dd>
-          </div>
-          <div>
-            <dt>Players with points</dt>
-            <dd>{data.players}</dd>
-          </div>
-        </dl>
-        <p className="lb-hero-note">
-          Seasons run Monday to Monday, UTC. Prizes are paid in Gemas, with the Sources they came from, shortly after a season ends.
-        </p>
-      </section>
+      <Hero data={data} pool={pool} remaining={remaining} now={now} />
 
       {data.settling !== null && (
         <p className="note" role="status">
