@@ -1,16 +1,15 @@
 "use client";
 
-import { useState } from "react";
 import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import type { ChainMatch } from "@/lib/chain/read";
-import { fmtGemas } from "@/lib/format";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { Receipts } from "@/components/match/Receipts";
+import { MatchStage, StageAction } from "@/components/match/MatchStage";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
 import { useHoldemMatch } from "./useHoldemMatch";
@@ -25,7 +24,7 @@ function fmtFee(m: ChainMatch): string {
  * settlement and result. Everything is read from chain, so a reload resumes where you were.
  */
 export function HoldemMatchView({ matchId }: { matchId: string }) {
-  const { auth, refresh } = useAccount();
+  const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
   const id = (() => {
     try {
@@ -35,7 +34,6 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
     }
   })();
   const { view, act, claimTimeout, run } = useHoldemMatch(id, signer, refresh);
-  const [copied, setCopied] = useState(false);
   const { stage, match: m, table: t, seat } = view;
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
@@ -75,6 +73,35 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
     );
   }
 
+  const kind = !showTable && (stage === "waiting" || stage === "setup" || stage === "closing") ? stage : null;
+  if (kind && m) {
+    return (
+      <MatchStage
+        game="holdem"
+        kind={kind}
+        entry={m.entry}
+        pot={m.entry * 2 - matchFee(m)}
+        me={snapshot?.accountKey.toBase58() ?? null}
+        opponent={m.opponent}
+        step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" ? view.note || "Saving the result" : undefined}
+        deadline={m.deadline || undefined}
+        challengeLink={m.challenge && kind === "waiting" ? link : null}
+        backedShareBps={m.backing && m.seat !== null ? m.backing.shareBps : null}
+        error={view.error}
+        actions={
+          (kind === "waiting" || view.refundable) && (
+            <StageAction disabled={view.busy !== null} onClick={() => void run("refund", () => refundMatch(signer, m.id))}>
+              {view.busy === "refund" ? "Refunding…" : kind === "waiting" ? "Cancel and refund" : "Refund Match"}
+            </StageAction>
+          )
+        }
+      >
+        <Receipts items={view.sigs} className="hd-sigs" />
+        <p className="note hd-note">Test mode · Gemas come from simulated yield and have no real value.</p>
+      </MatchStage>
+    );
+  }
+
   return (
     <div className="stack-lg" style={showTable ? undefined : { maxWidth: 480, margin: "0 auto" }}>
       {!showTable && (
@@ -86,51 +113,6 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
             </Chip>
           )}
         </div>
-      )}
-
-      {stage === "waiting" && m && (
-        <Card large>
-          <div className="stack">
-            <Label>Waiting for an opponent</Label>
-            <p className="meta">
-              Your entry of {fmtGemas(m.entry)} Gemas is held in escrow. Both Players must be at the table: the hand is dealt the moment
-              an opponent joins. Keep this page open, or come back from the Lobby.
-            </p>
-            {m.challenge && (
-              <div className="stack">
-                <Label>Challenge link</Label>
-                <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>{link}</code>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(link).then(() => setCopied(true));
-                  }}
-                >
-                  {copied ? "Copied" : "Copy link"}
-                </Button>
-                <p className="note">Whoever opens this link joins with the same entry. Send it to the person you want to play.</p>
-              </div>
-            )}
-            <Button
-              disabled={view.busy !== null}
-              onClick={() => run("refund", () => refundMatch(signer, m.id))}
-            >
-              {view.busy === "refund" ? "Refunding…" : "Cancel and refund entry"}
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {stage === "setup" && (
-        <Card large>
-          <div className="stack">
-            <Label>Opponent found · getting the table ready</Label>
-            <Busy>{view.note || "Creating your session"}…</Busy>
-            <p className="note">
-              Your cards stay hidden from your opponent, and from us. Turbo blinds (50/100, rising every hand). About 30 seconds.
-            </p>
-          </div>
-        </Card>
       )}
 
       {showTable && t && seat !== null && (
@@ -148,7 +130,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
       )}
 
 
-      {m && refundable && (stage === "setup" || stage === "closing") && (
+      {m && refundable && stage === "closing" && (
         <Button disabled={view.busy !== null} onClick={() => run("refund", () => refundMatch(signer, m.id))}>
           Refund Match
         </Button>
