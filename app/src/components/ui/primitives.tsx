@@ -5,6 +5,7 @@ import { art } from "@/lib/art";
 import { fmtGemas } from "@/lib/format";
 import type { Chain, GameId } from "@/lib/mock/types";
 import { ArrowIcon, CheckIcon, MinusIcon, XIcon } from "./icons";
+import { ChainGlyph } from "./inputs";
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -114,8 +115,15 @@ export function Chip({
   );
 }
 
+const CHAIN_GLYPH = { SOL: 0, ETH: 1, HYPE: 2 } as const;
+
 export function ChainChip({ chain }: { chain: Chain }) {
-  return <span className="cut chip chain">{chain}</span>;
+  return (
+    <span className="cut chip chain">
+      <ChainGlyph asset={CHAIN_GLYPH[chain]} />
+      {chain}
+    </span>
+  );
 }
 
 /* ——— Button ——— */
