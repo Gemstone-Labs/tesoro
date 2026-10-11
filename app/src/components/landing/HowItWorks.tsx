@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { art } from "@/lib/art";
 import { landingArt, type LandingKey } from "@/lib/landing/art";
+import { HowA, HowB, HowC, HowD, HowItWorksPrototype } from "./HowItWorks.prototype";
 import { Picture } from "./Picture";
 
 /** The diagram's coordinate space (px); nodes and labels are placed in % of it so it scales with the column. */
@@ -129,7 +130,12 @@ function FlowPhone() {
   );
 }
 
+/** PROTOTYPE: `?variant=` picks a take on the section (branch proto/how-it-works-11-10-2026). */
 export function HowItWorks() {
+  return <HowItWorksPrototype now={<HowItWorksNow />} A={<HowA />} B={<HowB />} C={<HowC />} D={<HowD />} />;
+}
+
+export function HowItWorksNow() {
   const guide = landingArt("himGuide");
   return (
     <section id="how-it-works" className="lp-section lp-how" aria-labelledby="how-title">
