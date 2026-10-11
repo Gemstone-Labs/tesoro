@@ -35,3 +35,10 @@
 @media (prefers-reduced-motion: reduce) { .help-q summary svg { transition: none; } }
 
 .help-still { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+/* ——— Search: matches replace the page below while it has text ——— */
+.help-search { display: flex; grid-row: auto; grid-column: auto; height: 56px; margin-top: -16px; background: var(--surface); }
+.help-search input { font-size: 17px; }
+.help-hit { display: flex; flex-direction: column; gap: 4px; }
+.help-hit .label { font-size: 10px; }
+.help-q mark { background: color-mix(in srgb, var(--fg) 22%, transparent); color: var(--fg); padding: 0 1px; }
