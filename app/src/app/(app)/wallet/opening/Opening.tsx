@@ -1,21 +1,23 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, Clock, LoaderCircle } from "lucide-react";
+import { ArrowRight, Check, ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
 import { useGuideTip } from "@/components/guide/Guide";
-import { Button, ChainChip, SimulatedYieldLabel } from "@/components/ui";
+import { Button, SimulatedYieldLabel } from "@/components/ui";
+import { GemaMark } from "@/components/ui/gema";
+import { ChainGlyph } from "@/components/ui/inputs";
 import { useAccount } from "@/lib/account";
-import { fmtEth, lzScanUrl, netOfVault } from "@/lib/chain/eth";
+import { fmtEth, lzScanUrl, netOfVault, shortHex } from "@/lib/chain/eth";
 import { OPS_EVENT, loadOps, type EthOp } from "@/lib/chain/eth-track";
-import { fmtGemas } from "@/lib/format";
+import { fmtGemas, fmtWhen } from "@/lib/format";
 import { useEthCtx, useOpTracker } from "../EthPositions";
 import "./opening.css";
 
 const stepsFor = (label: string) => [`${label} confirmed`, "Reached Solana", "Position recorded", "Gemas available"];
 /** Steps of the five-step `open` op that must be done for each of the four shown steps. */
 const NEEDS = [1, 2, 3, 5];
+const notesFor = (label: string) => [`Your Position is open on ${label}`, "Tesoro received it on Solana", "Added to your Account", "Your Advance lands as Gemas"];
 const ACTIVE = ["Confirming…", "Delivering…", "Recording…", "Taking your Advance…"];
 
 function useOps(address: string | null): EthOp[] {
@@ -45,95 +47,120 @@ export function Opening() {
 function Empty({ signedIn }: { signedIn: boolean }) {
   return (
     <div className="op">
-      <h1 className="page-title">Opening your Position</h1>
-      <p className="page-sub">{signedIn ? "No ETH or HYPE Position is opening in this browser." : "Sign in to see a Position that is opening."}</p>
-      <div className="op-actions">
-        <Button href="/wallet">Back to Wallet</Button>
+      <div className="cut cut-frame op-ticket">
+        <h1 className="op-empty-title">Opening your Position</h1>
+        <p className="op-sub">{signedIn ? "No ETH or HYPE Position is opening in this browser." : "Sign in to see a Position that is opening."}</p>
+        <div className="op-actions">
+          <Button href="/wallet">Back to Wallet</Button>
+        </div>
       </div>
     </div>
   );
 }
 
+function useElapsed(since: number, running: boolean): string {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  const s = Math.max(0, Math.floor((now - since) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+const clock = (t: number) => new Date(t).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+
 function Tracker({ op, address }: { op: EthOp; address: string }) {
   const net = netOfVault(op.vault);
   const STEPS = stepsFor(net.label);
-  const noun = `${net.native} Position`;
+  const NOTES = notesFor(net.label);
   const { refresh } = useAccount();
   const ctx = useEthCtx()!;
   const { stage, note, error, scan, state, finished } = useOpTracker(op, ctx, address, refresh);
+  const elapsed = useElapsed(op.createdAt, !finished);
   useGuideTip({ id: "xc-open", pose: "herWaitingCrosschain", title: "Crossing chains", text: "Crossing chains usually takes 2–5 minutes. You can leave this page. Taking your Advance is the last step and needs your signature: it continues when you come back to your Wallet." }, !finished);
 
   const done = STEPS.map((_, i) => finished || stage >= NEEDS[i]);
   const active = done.findIndex((d) => !d);
-  const core = state?.core ?? null;
+  const principal = state?.core?.principalWei ?? state?.bridge?.principal ?? null;
   const issued = state?.source?.math.issued ?? null;
-  const scanKey = op.hash;
+  const months = op.months ?? state?.bridge?.horizonMonths ?? null;
+  const live = (i: number) => (i === 1 && scan ? scan.name.charAt(0) + scan.name.slice(1).toLowerCase() + "…" : ACTIVE[i]);
 
   return (
     <div className="op">
-      <header className="page-head">
-        <div>
-          <h1 className="page-title">{finished ? `Your ${noun} is open` : `Opening your ${noun}`}</h1>
-          <p className="page-sub">{finished ? "Your Gemas are available." : "Your Position is crossing chains. Gemas become available after confirmation."}</p>
-        </div>
-      </header>
+      <h1 className="sr-only">{finished ? `Your ${net.native} Position is open` : `Opening your ${net.native} Position`}</h1>
+      <article className={`cut cut-frame op-ticket${finished ? " is-done" : ""}`}>
+        <header className="op-top">
+          <span className={`op-status${finished ? " ok" : error ? " bad" : ""}`} role="status">
+            {finished ? <Check aria-hidden="true" /> : error ? <TriangleAlert aria-hidden="true" /> : <LoaderCircle className="op-spin" aria-hidden="true" />}
+            {finished ? "Position open" : error ? "Retrying" : `Opening · ${elapsed}`}
+          </span>
+          <div className="op-swap">
+            <div>
+              <span className="label">You locked</span>
+              <b><ChainGlyph asset={net.native === "ETH" ? 1 : 2} size={30} /> {principal !== null ? fmtEth(principal, 2) : "—"} <small>{net.native}</small></b>
+            </div>
+            <ArrowRight className="op-arrow" aria-hidden="true" />
+            <div>
+              <span className="label">You get</span>
+              <b className={finished ? "em" : "pending"}>
+                <GemaMark size={30} /> {issued !== null ? <>{fmtGemas(Number(issued))} <small>Gemas</small></> : <small>Counting…</small>}
+              </b>
+            </div>
+          </div>
+          <p className="op-sub">{finished ? "In your balance now. Your Principal stays locked and is never played." : "Gemas arrive once your Position has crossed to Solana."}</p>
+        </header>
 
-      <section className="cut cut-frame op-track" aria-label="Cross-chain progress">
-        <span className={`cut cut-card op-status${finished ? " ok" : ""}`}>
-          {finished ? <Check aria-hidden="true" /> : <LoaderCircle className="op-spin" aria-hidden="true" />}
-          {finished ? "GEMAS AVAILABLE" : error ? "RETRYING" : "IN PROGRESS"}
-        </span>
-        <ol className="op-steps">
+        <div className="op-perf" aria-hidden="true" />
+
+        <ol className="op-line" aria-label="Cross-chain progress">
           {STEPS.map((title, i) => {
-            const state = done[i] ? "done" : i === active ? "active" : "waiting";
-            const sub = state === "done" ? (i === STEPS.length - 1 ? "Available" : "Confirmed") : state === "active" ? (i === 1 && scan ? scan.name.charAt(0) + scan.name.slice(1).toLowerCase() + "…" : ACTIVE[i]) : "Waiting";
+            const s = done[i] ? "done" : i === active ? (error ? "failed" : "active") : "waiting";
+            const now = s === "active" || s === "failed";
             return (
-              <li key={title} className={`cut cut-card op-step ${state}`} aria-current={state === "active" ? "step" : undefined}>
-                <span className="op-mark" aria-hidden="true">
-                  {state === "done" ? <Check /> : state === "active" ? <LoaderCircle className="op-spin" /> : i + 1}
-                </span>
-                <b>{title}</b>
-                <span>{sub}</span>
+              <li key={title} className={s} aria-current={now ? "step" : undefined}>
+                <span className="op-dot">{s === "done" ? <Check aria-hidden="true" /> : s === "active" ? <LoaderCircle className="op-spin" aria-hidden="true" /> : s === "failed" ? <TriangleAlert aria-hidden="true" /> : i + 1}</span>
+                <div>
+                  <b>{title}</b>
+                  <span>{s === "failed" ? `${error?.replace(/\.$/, "")} · retrying` : now ? (note ?? live(i)) : NOTES[i]}</span>
+                </div>
+                <time>{i === 0 ? clock(op.createdAt) : s === "done" ? "Done" : now ? "Now" : ""}</time>
               </li>
             );
           })}
         </ol>
-      </section>
 
-      <section className="cut cut-frame op-summary" aria-labelledby="op-sum">
-        <h2 id="op-sum" className="sr-only">Position summary</h2>
-        <p className="op-line">
-          <ChainChip chain={net.native} />
-          <span>{core ? `${fmtEth(core.principalWei)} ${noun}` : "Position amount pending"}</span>
-          <span>{issued !== null ? `${fmtGemas(Number(issued))} Gemas Advance` : "Advance pending"}</span>
-          {finished && <span>Unlock Estimate in your Wallet</span>}
-        </p>
+        <div className="op-perf" aria-hidden="true" />
+
+        <dl className="op-rows">
+          <div><dt>Route</dt><dd>{net.label} → Solana</dd></div>
+          <div><dt>Horizon</dt><dd>{months ? `${months} month${months === 1 ? "" : "s"}` : "—"}</dd></div>
+          <div><dt>Started</dt><dd>{fmtWhen(op.createdAt)}</dd></div>
+          {op.hash && (
+            <div>
+              <dt>Transaction</dt>
+              <dd><a className="mono" href={lzScanUrl(op.hash)} target="_blank" rel="noreferrer">{shortHex(op.hash)} <ExternalLink aria-hidden="true" /></a></dd>
+            </div>
+          )}
+          {finished && <div><dt>Unlock Estimate</dt><dd>In your Wallet</dd></div>}
+        </dl>
         <SimulatedYieldLabel />
-        <div className={`cut cut-card op-note${finished ? " ok" : ""}`} role="status">
-          <span className="op-note-icon" aria-hidden="true">{finished ? <Check /> : <Clock />}</span>
-          <div>
-            <b>{finished ? "Gemas are available." : "Gemas are not available yet."}</b>
-            <p>
-              {finished
-                ? "They are in your balance and ready to play. Your Principal stays locked and is never played."
-                : note ?? "Your Position is crossing chains. Stay here or go to your Wallet: your Advance is taken while one of them is open."}
-            </p>
-            {error && !finished && <p className="op-err" role="alert">{error} · retrying</p>}
-          </div>
-        </div>
         <div className="op-actions">
-          <Link className="btn cut cut-btn neutral" href="/wallet">Back to Wallet</Link>
-          {scanKey ? (
-            <a className="btn cut cut-btn neutral" href={lzScanUrl(scanKey)} target="_blank" rel="noreferrer">
-              View progress <ArrowRight aria-hidden="true" />
-            </a>
-          ) : (
-            <Button href="/wallet">
-              View progress <ArrowRight aria-hidden="true" />
+          {finished && (
+            <Button variant="money" href="/lobby">
+              Play now <ArrowRight aria-hidden="true" />
             </Button>
           )}
+          <Button href="/wallet">Back to Wallet</Button>
+          {!finished && op.hash && (
+            <a className="btn cut cut-btn neutral" href={lzScanUrl(op.hash)} target="_blank" rel="noreferrer">
+              Track the crossing <ExternalLink aria-hidden="true" />
+            </a>
+          )}
         </div>
-      </section>
+      </article>
     </div>
   );
 }
