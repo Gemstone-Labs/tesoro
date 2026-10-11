@@ -64,12 +64,26 @@
   .mb-word small { grid-area: line; font-size: 13px; }
   .mb-fig { align-self: center; padding: 7px 11px; font-size: 15px; }
   .mb-fig.even { font-size: 13px; }
-  .mb-face { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 10px; }
+  .mb-face { display: grid; grid-template-columns: minmax(0, max-content) auto minmax(0, max-content); justify-content: start; align-items: center; gap: 6px; margin-top: 10px; }
   .mb-seat-link { min-width: 0; }
-  .mb-seat { grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: start; min-width: 0; }
-  .mb-av { width: 34px; height: 34px; }
-  .mb-plate { max-width: 100%; min-width: 0; padding: 3px 7px; font-size: 12.5px; }
-  .mb-plate b { font-size: 13px; }
-  .mb-vs { margin-top: 0; font-size: 14px; }
+  .mb-seat { grid-template-columns: auto minmax(0, max-content); align-items: center; justify-items: start; gap: 6px; min-width: 0; }
+  .mb-av { width: 30px; height: 30px; }
+  .mb-plate { max-width: 100%; min-width: 0; gap: 5px; padding: 3px 6px; font-size: 12px; }
+  .mb-plate b { font-size: 12.5px; }
+  .mb-vs { margin-top: 0; padding: 0 2px; font-size: 13px; }
 }
+/* very narrow (small phones): smaller avatars, the seats side by side without the "vs", so both names fit */
+@container (max-width: 390px) {
+  .mb { padding: 12px 14px; }
+  .mb-av { width: 26px; height: 26px; }
+  .mb-vs { display: none; }
+  .mb-face { display: flex; gap: 10px; }
+  .mb-face > * { flex: 0 1 auto; min-width: 0; }
+}
+
+/* loading */
+.mb.skel { background: var(--surface); }
+.mb.skel .mb-word { gap: 10px; }
+.mb.skel .mb-av { display: block; }
+
 @media (prefers-reduced-motion: reduce) { .mb-art img { transition: none; } }

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ArrowRight, Dumbbell, UserPlus, Users } from "lucide-react";
 import { AccountLink } from "@/components/account/AccountLink";
-import { MatchRow } from "@/components/match/MatchRow";
+import { MatchBanner } from "@/components/match/MatchBanner";
 import { AssetPicker, BustCard, Button, EntryPicker } from "@/components/ui";
 import { gameQuery, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
@@ -120,7 +120,7 @@ export function GamePage({ game }: { game: GameId }) {
               </Link>
             )}
           </header>
-          {mine.length === 0 ? (
+          {mine.length === 0 || !me ? (
             <p className="meta gp-empty">
               {onChain
                 ? `No finished ${name} Matches yet. Yours appear here when they finish.`
@@ -129,9 +129,9 @@ export function GamePage({ game }: { game: GameId }) {
                   : "Loading your Matches…"}
             </p>
           ) : (
-            <div className="mh-list">
+            <div className="mb-list">
               {mine.map((r) => (
-                <MatchRow key={r.id} r={r} now={now} />
+                <MatchBanner key={r.id} r={r} account={me} now={now} />
               ))}
             </div>
           )}

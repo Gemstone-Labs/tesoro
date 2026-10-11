@@ -1,4 +1,4 @@
-import { SkeletonCards } from "@/components/ui";
+import { MatchBannerSkeleton } from "@/components/match/MatchBanner";
 
 /** The Account page's own shape while it loads: banner hero, the three figure panels, then history rows. */
 export function AccountSkeleton() {
@@ -28,9 +28,7 @@ export function AccountSkeleton() {
           </div>
         ))}
       </div>
-      <div className="mh-list">
-        <SkeletonCards count={3} avatar={false} className="mh-skel" label="Loading this Account…" />
-      </div>
+      <MatchBannerSkeleton count={3} label="Loading this Account…" />
     </div>
   );
 }

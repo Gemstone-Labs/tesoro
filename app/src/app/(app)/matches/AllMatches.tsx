@@ -3,8 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
-import { MatchRow } from "@/components/match/MatchRow";
-import { Button, Card, SkeletonCards } from "@/components/ui";
+import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
+import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
 import { accountHistory, historyPage } from "@/lib/chain/history";
@@ -50,9 +50,7 @@ export function AllMatches() {
             <Button size="sm" onClick={() => void refresh()}>Try again</Button>
           </div>
         ) : (
-          <div className="mh-list">
-            <SkeletonCards count={4} avatar={false} className="mh-skel" label="Loading your Matches…" />
-          </div>
+          <MatchBannerSkeleton count={4} label="Loading your Matches…" />
         )
       ) : rows.length === 0 ? (
         <div className="mh-state">
@@ -61,10 +59,10 @@ export function AllMatches() {
         </div>
       ) : (
         <>
-          <div className="mh-list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`} role="list">
+          <div className="mb-list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`} role="list">
             {view.rows.map((r) => (
               <div key={r.id} role="listitem">
-                <MatchRow r={r} now={now} showGame={!game} />
+                <MatchBanner r={r} account={snapshot.accountKey.toBase58()} now={now} />
               </div>
             ))}
           </div>
