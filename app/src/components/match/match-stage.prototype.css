@@ -38,29 +38,148 @@
 .ms-how[open] summary::after { content: " −"; }
 .ms-how p { margin: 10px 0 0; line-height: 1.5; text-align: left; }
 
-/* A: versus arena */
-.ms-a { justify-items: center; text-align: center; }
+/* A: versus arena, animated */
+@property --ms-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.ms-a { position: relative; isolation: isolate; justify-items: center; text-align: center; }
+.ms-a::before {
+  content: ""; position: absolute; z-index: -1; left: 50%; top: 34%; width: min(120%, 980px); aspect-ratio: 2.2; translate: -50% -50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(126, 160, 210, 0.13), transparent 70%); animation: ms-breathe 6s ease-in-out infinite;
+}
+@keyframes ms-breathe { 50% { opacity: 0.55; scale: 1.08; } }
 .ms-a .ms-head { display: grid; gap: 10px; justify-items: center; }
-.ms-arena { width: 100%; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: clamp(12px, 3vw, 32px); }
+.ms-a .ms-head > * { animation: ms-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ms-a .ms-head > :nth-child(2) { animation-delay: 0.06s; }
+.ms-a .ms-head > :nth-child(3) { animation-delay: 0.14s; }
+.ms-a .ms-foot { animation: ms-rise 0.6s 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes ms-rise { from { opacity: 0; translate: 0 14px; } }
+
+.ms-arena { width: 100%; display: grid; grid-template-columns: auto minmax(20px, 1fr) auto minmax(20px, 1fr) auto; align-items: center; gap: 10px; }
+
+/* Seats */
 .ms-seat { margin: 0; display: grid; justify-items: center; gap: 8px; }
-.ms-seat figcaption { font-size: 15px; font-weight: 700; color: var(--fg); }
+.ms-seat.l { animation: ms-in-l 0.7s 0.1s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ms-seat.r { animation: ms-in-r 0.7s 0.1s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes ms-in-l { from { opacity: 0; translate: -40px 0; } }
+@keyframes ms-in-r { from { opacity: 0; translate: 40px 0; } }
+.ms-seat figcaption { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--fg); }
 .ms-seat.seeking figcaption { color: var(--fg-2); }
-.ms-av { --c: 14px; --edge: var(--edge-2); width: clamp(84px, 16vw, 132px); aspect-ratio: 1; display: grid; place-items: center; background: var(--surface); padding: 10px; }
+.ms-av-wrap { position: relative; display: grid; place-items: center; }
+.ms-av-wrap::after { /* light on the floor under the seat */
+  content: ""; position: absolute; z-index: -1; left: 50%; bottom: -16px; width: 130%; height: 26px; translate: -50% 0;
+  background: radial-gradient(closest-side, rgba(220, 232, 255, 0.22), transparent); transition: opacity 0.4s;
+}
+.ms-seat.seeking .ms-av-wrap::after, .ms-seat.idle .ms-av-wrap::after { opacity: 0.45; }
+.ms-av { --c: 14px; --edge: var(--edge-2); position: relative; z-index: 1; width: clamp(84px, 16vw, 132px); aspect-ratio: 1; display: grid; place-items: center; background: var(--surface); padding: 10px; overflow: clip; }
 .ms-av img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-.ms-seat.seeking .ms-av { animation: ms-seek 1.8s ease-in-out infinite; }
-@keyframes ms-seek { 50% { filter: brightness(1.3); } }
-.ms-q { font-family: var(--f-display); font-size: 56px; font-weight: 800; color: var(--fg-3); }
+.ms-seat.ready .ms-av img, .ms-seat.working .ms-av img { animation: ms-bob 2.4s ease-in-out infinite; }
+@keyframes ms-bob { 50% { translate: 0 -4px; } }
+.ms-q { font-family: var(--f-display); font-size: 56px; font-weight: 800; color: var(--fg-3); animation: ms-q 1.8s ease-in-out infinite; }
+@keyframes ms-q { 50% { color: var(--fg-2); scale: 1.08; } }
+
+/* the octagon ring behind a seat: a light that runs around it */
+.ms-ring {
+  position: absolute; inset: -7px; opacity: 0; transition: opacity 0.4s;
+  clip-path: polygon(21px 0, calc(100% - 21px) 0, 100% 21px, 100% calc(100% - 21px), calc(100% - 21px) 100%, 21px 100%, 0 calc(100% - 21px), 0 21px);
+  background: conic-gradient(from var(--ms-a), transparent 0 55%, rgba(255, 255, 255, 0.9) 85%, transparent 100%);
+  animation: ms-turn 2.2s linear infinite;
+}
+@keyframes ms-turn { to { --ms-a: 360deg; } }
+.ms-seat.ready .ms-ring { opacity: 1; animation-duration: 1.6s; background: conic-gradient(from var(--ms-a), rgba(255, 255, 255, 0.25), #fff 25%, rgba(255, 255, 255, 0.25) 50%, #fff 75%, rgba(255, 255, 255, 0.25)); }
+.ms-seat.working .ms-ring, .ms-seat.playing .ms-ring { opacity: 1; }
+.ms-seat.playing .ms-ring { animation-duration: 3.2s; }
+.ms-seat.done .ms-ring { opacity: 1; animation: none; background: rgba(255, 255, 255, 0.55); }
+
+/* empty seat: radar pulses outward, a scanner sweeps inside */
+.ms-radar { position: absolute; inset: 0; pointer-events: none; }
+.ms-radar i {
+  position: absolute; inset: 0; background: rgba(200, 216, 240, 0.16); animation: ms-ping 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+}
+.ms-radar i:nth-child(2) { animation-delay: 1.2s; }
+@keyframes ms-ping { from { scale: 1; opacity: 1; } to { scale: 1.45; opacity: 0; } }
+.ms-sweep { position: absolute; inset: 0; background: conic-gradient(from var(--ms-a), transparent 0 75%, rgba(200, 216, 240, 0.28) 100%); animation: ms-turn 2.4s linear infinite; }
+
+.ms-badge {
+  position: absolute; z-index: 2; right: -6px; bottom: -6px; display: grid; place-items: center; width: 30px; height: 30px; color: var(--shell); background: var(--fg);
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+  animation: ms-pop 0.5s 0.6s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+.ms-badge svg { width: 17px; height: 17px; stroke-width: 3; }
+@keyframes ms-pop { from { scale: 0; } }
+.ms-dots { display: inline-flex; gap: 3px; }
+.ms-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--fg-2); animation: ms-dot 1.2s ease-in-out infinite; }
+.ms-dots i:nth-child(2) { animation-delay: 0.15s; }
+.ms-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ms-dot { 30% { translate: 0 -4px; background: #fff; } 60% { translate: 0 0; } }
+
 .ms-score { font-family: var(--f-display); font-size: 40px; font-weight: 800; line-height: 1; color: #fff; }
 .ms-score-q { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--fg-2); }
 .ms-score-q svg { width: 14px; height: 14px; }
-.ms-plaque { --edge: var(--edge-em); display: grid; gap: 4px; justify-items: center; padding: 14px 22px; background: var(--surface); }
+.ms-spin-glass { animation: ms-glass 2.4s ease-in-out infinite; }
+@keyframes ms-glass { 0%, 40% { rotate: 0deg; } 60%, 100% { rotate: 180deg; } }
+
+/* Rails between seats and the Pot */
+.ms-rail { position: relative; height: 24px; align-self: center; margin-bottom: 30px; animation: ms-draw 0.6s 0.45s ease-out both; transform-origin: left; }
+.ms-rail.r { transform-origin: right; }
+@keyframes ms-draw { from { scale: 0 1; opacity: 0; } }
+.ms-rail-line { position: absolute; left: 0; right: 0; top: 50%; height: 2px; translate: 0 -50%; background: repeating-linear-gradient(90deg, var(--line-2) 0 6px, transparent 6px 12px); }
+.ms-rail.lit .ms-rail-line, .ms-rail.in .ms-rail-line, .ms-rail.out .ms-rail-line { background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.12)); }
+.ms-rail.lit .ms-rail-line { animation: ms-glow 2.4s ease-in-out infinite; }
+@keyframes ms-glow { 50% { filter: brightness(1.8); } }
+.ms-rail.off { opacity: 0.4; }
+.ms-rail.scan .ms-rail-line { animation: ms-march 0.9s linear infinite; }
+.ms-rail.r.scan .ms-rail-line { animation-direction: reverse; }
+@keyframes ms-march { to { background-position: 12px 0; } }
+.ms-rail.scan b { position: absolute; top: 50%; width: 40px; height: 2px; translate: 0 -50%; background: linear-gradient(90deg, transparent, rgba(220, 232, 255, 0.9), transparent); animation: ms-scan 1.8s ease-in-out infinite alternate; }
+@keyframes ms-scan { from { left: 0; } to { left: calc(100% - 40px); } }
+.ms-rail i { position: absolute; top: 50%; translate: -50% -50%; display: grid; place-items: center; opacity: 0; }
+/* Gemas travel from a seat into the Pot */
+.ms-rail.l.in i { animation: ms-to-r 2.1s ease-in infinite; }
+.ms-rail.r.in i { animation: ms-to-l 2.1s ease-in infinite; }
+/* hidden pieces are dealt from the Pot out to each seat */
+.ms-rail.l.out i { animation: ms-deal-l 1.8s ease-out infinite; }
+.ms-rail.r.out i { animation: ms-deal-r 1.8s ease-out infinite; }
+@keyframes ms-to-r { 0% { left: 0; opacity: 0; scale: 0.6; } 15%, 80% { opacity: 1; scale: 1; } 100% { left: 100%; opacity: 0; scale: 0.5; } }
+@keyframes ms-to-l { 0% { left: 100%; opacity: 0; scale: 0.6; } 15%, 80% { opacity: 1; scale: 1; } 100% { left: 0; opacity: 0; scale: 0.5; } }
+.ms-tok { width: 12px; height: 12px; }
+.ms-tok.bp { background: linear-gradient(135deg, #9ec4ff, #3f6fd6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
+.ms-tok.card { width: 12px; height: 17px; border-radius: 2px; background: repeating-linear-gradient(45deg, #2a3646 0 3px, #3a4a60 3px 6px); box-shadow: inset 0 0 0 1.5px #dbe4f2; }
+.ms-tok.chip { border-radius: 50%; background: radial-gradient(circle, #ffd28a 0 35%, #d98c22 36% 100%); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35); }
+@keyframes ms-deal-l { 0% { left: 100%; opacity: 0; rotate: 0deg; } 15%, 80% { opacity: 1; } 100% { left: 0; opacity: 0; rotate: -180deg; } }
+@keyframes ms-deal-r { 0% { left: 0; opacity: 0; rotate: 0deg; } 15%, 80% { opacity: 1; } 100% { left: 100%; opacity: 0; rotate: 180deg; } }
+
+/* The Pot */
+.ms-pot { position: relative; animation: ms-drop 0.7s 0.3s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+@keyframes ms-drop { from { opacity: 0; scale: 0.7; } }
+.ms-plaque { --edge: var(--edge-em); position: relative; overflow: clip; display: grid; gap: 4px; justify-items: center; padding: 14px 22px; background: var(--surface); }
 .ms-plaque small { font-size: 12px; color: var(--fg-2); }
+.ms-plaque .gema-amount.lg { font-size: 26px; }
+.ms-sheen { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(105deg, transparent 35%, rgba(143, 245, 207, 0.16) 50%, transparent 65%); translate: -100% 0; animation: ms-sheen 3.6s 1.2s ease-in-out infinite; }
+@keyframes ms-sheen { 0% { translate: -100% 0; } 40%, 100% { translate: 100% 0; } }
+.k-closing .ms-plaque { animation: ms-pulse 1.4s ease-in-out infinite; }
+@keyframes ms-pulse { 50% { filter: brightness(1.35); } }
+.ms-fountain { position: absolute; left: 50%; top: 0; width: 0; height: 0; pointer-events: none; }
+.ms-fountain i { position: absolute; left: var(--x); top: 0; opacity: 0; animation: ms-rise-gem 1.7s ease-out infinite; }
+@keyframes ms-rise-gem { 0% { opacity: 0; translate: -50% 10px; scale: 0.6; } 20% { opacity: 1; } 100% { opacity: 0; translate: -50% -70px; scale: 1.1; } }
+
+/* Start: the one button breathes */
+.ms-go { display: block; width: 100%; filter: drop-shadow(0 0 0 rgba(63, 214, 159, 0)); }
+.k-ready .ms-go { animation: ms-go 2s ease-in-out infinite; }
+@keyframes ms-go { 50% { filter: drop-shadow(0 0 18px rgba(63, 214, 159, 0.55)); } }
+
 @media (max-width: 639px) {
-  .ms-arena { grid-template-columns: 1fr 1fr; }
-  .ms-plaque { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  .ms-arena { grid-template-columns: auto minmax(8px, 1fr) auto minmax(8px, 1fr) auto; gap: 4px; }
+  .ms-av { width: 84px; }
+  .ms-plaque { padding: 10px 12px; }
+  .ms-plaque small { display: none; }
+  .ms-plaque .gema-amount.lg { font-size: 20px; }
+  .ms-rail { margin-bottom: 26px; }
+  .ms-q { font-size: 40px; }
+  .ms-score { font-size: 32px; }
 }
 
 /* B: poster + journey */
+@keyframes ms-seek { 50% { filter: brightness(1.3); } }
 .ms-b { width: min(100%, 1040px); }
 .ms-poster { --edge: var(--edge-2); position: relative; overflow: hidden; background: #060a10; min-height: clamp(300px, 42vh, 420px); display: grid; align-items: end; }
 .ms-poster-art { object-fit: cover; object-position: 70% 50%; }
@@ -105,5 +224,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ms-seat.seeking .ms-av, .ms-journey li.now .ms-dot { animation: none; }
+  .ms-journey li.now .ms-dot, .ms-a *, .ms-a::before { animation: none !important; }
+  .ms-rail i, .ms-fountain, .ms-sweep { display: none; }
 }

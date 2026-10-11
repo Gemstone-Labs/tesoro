@@ -9,7 +9,7 @@
 import Image from "next/image";
 import { useEffect, useState, type ReactNode } from "react";
 import { Check, Clock, Copy, EyeOff, Hourglass, Link2, Lock, Swords } from "lucide-react";
-import { Busy, GemaAmount, GemaMark } from "@/components/ui";
+import { Busy, CountUp, GemaMark } from "@/components/ui";
 import { Bust, type BustName } from "@/components/ui/Character";
 import { PlayerAvatar } from "@/components/account/Player";
 import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
@@ -185,9 +185,11 @@ function Actions({ m }: { m: StageModel }) {
     <>
       {m.step && <Busy>{m.step}…</Busy>}
       {m.primary && (
-        <button type="button" className="cut cut-btn btn money lg block ms-primary" disabled={m.primary.disabled || !!m.primary.busy} onClick={m.primary.onClick}>
-          {m.primary.busy || m.primary.label}
-        </button>
+        <span className="ms-go">
+          <button type="button" className="cut cut-btn btn money lg block ms-primary" disabled={m.primary.disabled || !!m.primary.busy} onClick={m.primary.onClick}>
+            {m.primary.busy || m.primary.label}
+          </button>
+        </span>
       )}
       {m.actions && m.actions.length > 0 && (
         <div className="ms-quiet">
@@ -214,16 +216,6 @@ function HowItWorks({ m }: { m: StageModel }) {
   );
 }
 
-function Seat({ account, label, seeking, score }: { account: string | null; label: string; seeking?: boolean; score?: ReactNode }) {
-  return (
-    <figure className={`ms-seat${seeking ? " seeking" : ""}`}>
-      <span className="cut ms-av">{account ? <PlayerAvatar account={account} size={128} /> : <span className="ms-q">?</span>}</span>
-      <figcaption>{label}</figcaption>
-      {score}
-    </figure>
-  );
-}
-
 /* ——— the switch ——— */
 
 export function MatchStage({ model, current }: { model: StageModel; current: ReactNode }) {
@@ -238,27 +230,133 @@ export function MatchStage({ model, current }: { model: StageModel; current: Rea
 
 /* ——— A: versus arena ——— */
 
+type SeatState = "idle" | "seeking" | "working" | "ready" | "playing" | "done";
+type RailFlow = "in" | "out" | "scan" | "lit" | "off";
+
+/** What each side of the arena is doing in this state: drives the rings, rails and particles. */
+function arenaMotion(m: StageModel): { me: SeatState; opp: SeatState; left: RailFlow; right: RailFlow; fountain: boolean } {
+  const opp = !!m.opponent;
+  switch (m.kind) {
+    case "waiting":
+    case "waiting-run":
+      return { me: m.score != null ? "done" : "idle", opp: opp ? "idle" : "seeking", left: "in", right: opp ? "in" : "scan", fountain: false };
+    case "setup":
+      return { me: "working", opp: opp ? "working" : "seeking", left: "out", right: opp ? "out" : "scan", fountain: false };
+    case "ready":
+      return { me: "ready", opp: opp ? "idle" : "seeking", left: "lit", right: opp ? "lit" : "scan", fountain: false };
+    case "saving-run":
+      return { me: "working", opp: opp ? "idle" : "seeking", left: "in", right: opp ? "lit" : "off", fountain: false };
+    case "awaiting":
+    case "backer-watch":
+      return { me: m.score != null ? "done" : "playing", opp: opp ? "playing" : "seeking", left: "lit", right: opp ? "in" : "scan", fountain: false };
+    case "closing":
+      return { me: "done", opp: "done", left: "lit", right: "lit", fountain: true };
+  }
+}
+
+const TOKEN: Record<GameId, string> = { "block-puzzle": "bp", holdem: "card", "trading-duel": "chip" };
+
+/** The line between a seat and the Pot: Gemas flow in, hidden pieces are dealt out, or a scan looks for the opponent. */
+function Rail({ flow, side, game }: { flow: RailFlow; side: "l" | "r"; game: GameId }) {
+  return (
+    <span className={`ms-rail ${side} ${flow}`} aria-hidden="true">
+      <span className="ms-rail-line" />
+      {flow === "in" && [0, 1, 2].map((i) => <i key={i} style={{ animationDelay: `${i * 0.7}s` }}><GemaMark size={14} /></i>)}
+      {flow === "out" && [0, 1, 2, 3].map((i) => <i key={i} className={`ms-tok ${TOKEN[game]}`} style={{ animationDelay: `${i * 0.45}s` }} />)}
+      {flow === "scan" && <b />}
+    </span>
+  );
+}
+
+function ArenaSeat({ account, label, state, side, score }: { account: string | null; label: string; state: SeatState; side: "l" | "r"; score?: ReactNode }) {
+  return (
+    <figure className={`ms-seat ${side} ${state}`}>
+      <span className="ms-av-wrap">
+        <span className="ms-ring" aria-hidden="true" />
+        {state === "seeking" && (
+          <span className="ms-radar" aria-hidden="true">
+            <i />
+            <i />
+          </span>
+        )}
+        <span className="cut ms-av">
+          {account ? <PlayerAvatar account={account} size={128} /> : <span className="ms-q">?</span>}
+          {state === "seeking" && <span className="ms-sweep" aria-hidden="true" />}
+        </span>
+        {state === "done" && (
+          <span className="ms-badge" aria-hidden="true">
+            <Check />
+          </span>
+        )}
+      </span>
+      <figcaption>
+        {label}
+        {state === "playing" && (
+          <span className="ms-dots" aria-label="playing">
+            <i />
+            <i />
+            <i />
+          </span>
+        )}
+      </figcaption>
+      {score}
+    </figure>
+  );
+}
+
 export function StageArena({ m }: { m: StageModel }) {
   const now = useNow(!!m.deadline);
   const c = copy(m);
-  const you = m.score != null ? <span className="ms-score tnum">{m.score}</span> : m.kind === "awaiting" ? <span className="ms-score-q">Score in</span> : null;
-  const oppScore = m.kind === "awaiting" ? <span className="ms-score-q"><Hourglass aria-hidden="true" /> Playing</span> : null;
-  const seeking = m.kind === "waiting" || m.kind === "waiting-run";
+  const mo = arenaMotion(m);
+  const you =
+    m.score != null ? (
+      <span className="ms-score tnum">
+        <CountUp value={m.score} from={0} format={String} duration={1100} />
+      </span>
+    ) : m.kind === "awaiting" ? (
+      <span className="ms-score-q">Score in</span>
+    ) : null;
+  const oppScore =
+    m.kind === "awaiting" ? (
+      <span className="ms-score-q">
+        <Hourglass className="ms-spin-glass" aria-hidden="true" /> Playing
+      </span>
+    ) : null;
   return (
-    <section className="ms ms-a" aria-label={c.title}>
+    <section key={m.kind} className={`ms ms-a k-${m.kind}`} aria-label={c.title}>
       <header className="ms-head">
         <span className="ms-kicker">{c.kicker}</span>
         <h1 className="ms-title">{c.title}</h1>
         <p className="ms-line">{c.line}</p>
       </header>
       <div className="ms-arena">
-        <Seat account={m.me} label={m.kind === "backer-watch" ? "Your Player" : "You"} score={you} />
-        <div className="cut cut-card ms-plaque">
-          <span className="ms-label">Pot</span>
-          <GemaAmount value={m.pot} size="lg" />
-          <small>{fmtGemas(m.entry)} each · after Fees</small>
+        <ArenaSeat account={m.me} label={m.kind === "backer-watch" ? "Your Player" : "You"} state={mo.me} side="l" score={you} />
+        <Rail flow={mo.left} side="l" game={m.game} />
+        <div className={`ms-pot${mo.fountain ? " pay" : ""}`}>
+          <div className="cut cut-card ms-plaque">
+            <span className="ms-sheen" aria-hidden="true" />
+            <span className="ms-label">Pot</span>
+            <span className="gema-amount lg">
+              <GemaMark size={20} glint />
+              <span>
+                <CountUp value={m.pot} from={0} duration={1400} />
+                <span className="sr-only"> Gemas</span>
+              </span>
+            </span>
+            <small>{fmtGemas(m.entry)} each · after Fees</small>
+          </div>
+          {mo.fountain && (
+            <span className="ms-fountain" aria-hidden="true">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <i key={i} style={{ "--x": `${(i - 2.5) * 22}px`, animationDelay: `${i * 0.28}s` } as React.CSSProperties}>
+                  <GemaMark size={16} />
+                </i>
+              ))}
+            </span>
+          )}
         </div>
-        <Seat account={m.opponent} label={m.opponent ? "Opponent" : m.challengeLink ? "Your friend" : "Open seat"} seeking={seeking} score={oppScore} />
+        <Rail flow={mo.right} side="r" game={m.game} />
+        <ArenaSeat account={m.opponent} label={m.opponent ? "Opponent" : m.challengeLink ? "Your friend" : "Open seat"} state={mo.opp} side="r" score={oppScore} />
       </div>
       <div className="ms-foot">
         <Actions m={m} />
