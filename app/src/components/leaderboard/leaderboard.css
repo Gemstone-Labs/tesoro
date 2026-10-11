@@ -38,6 +38,19 @@
 @keyframes lb-bob { 50% { translate: 0 -8px; } }
 @media (prefers-reduced-motion: reduce) { .lb-hero-rays, .lb-hero-chest { animation: none; } }
 
+/* the season before is still paying out: a gold tab clipped onto the hero's top edge (its margin eats the grid gap) */
+.lb-paying {
+  justify-self: start; margin: 0 0 -22px 28px; position: relative; z-index: 1;
+  display: inline-flex; align-items: center; gap: 10px; padding: 9px 20px 8px 14px; font-size: 14px; color: #2a1702;
+  background: var(--gold-facet);
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%, 0 10px);
+}
+.lb-paying b { font-weight: 800; }
+.lb-paying-sub { color: rgba(42, 23, 2, 0.78); }
+.lb-paying-gem { display: grid; place-items: center; animation: lb-turn 2.4s ease-in-out infinite; }
+@keyframes lb-turn { 0%, 60% { rotate: y 0deg; } 100% { rotate: y 360deg; } }
+@media (prefers-reduced-motion: reduce) { .lb-paying-gem { animation: none; } }
+
 .lb-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 
 /* this season: tools, the Payout scale band, the table and its pages */
@@ -123,6 +136,8 @@
   .lb-hero-kicker { font-size: 12px; }
 }
 @media (max-width: 640px) {
+  .lb-paying { margin-left: 14px; font-size: 13px; }
+  .lb-paying-sub { display: none; }
   .lb-payout { padding: 16px; gap: 20px; }
   .lb-chart ol { height: 130px; gap: 3px; }
   .lb-col small { font-size: 9.5px; }

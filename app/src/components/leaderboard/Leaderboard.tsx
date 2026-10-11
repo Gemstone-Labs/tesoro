@@ -139,13 +139,18 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
 
   return (
     <>
-      <Hero data={data} pool={pool} remaining={remaining} />
-
       {data.settling !== null && (
-        <p className="note" role="status">
-          Season {data.settling} has ended and its prizes are being paid.
-        </p>
+        <div className="lb-paying" role="status">
+          <span className="lb-paying-gem" aria-hidden="true">
+            <GemaMark size={16} />
+          </span>
+          <span>
+            <b>Season {data.settling} is paying out</b>
+            <span className="lb-paying-sub"> · Season {data.season.number} is on, every win counts</span>
+          </span>
+        </div>
       )}
+      <Hero data={data} pool={pool} remaining={remaining} />
 
       <Season data={data} pool={pool} me={me} />
 
