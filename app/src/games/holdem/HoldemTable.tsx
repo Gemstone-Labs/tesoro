@@ -2,17 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { AccountLink } from "@/components/account/AccountLink";
-import { Button, GemaMark } from "@/components/ui";
+import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { fmtGemas } from "@/lib/format";
-import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, call, check, fold, raise, tesoroAccountPda, type Action, type Table } from "./chain";
+import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, tesoroAccountPda, type Action, type Table } from "./chain";
 import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
 import { PlayingCard } from "./cards";
-import { inPlay, legalMoves } from "./rules";
-import { Arena, MuteToggle } from "../fx";
+import { inPlay } from "./rules";
+import { ActionBar } from "./ActionBar";
+import { ChipStack } from "./ChipStack";
+import { Seat } from "./Seat";
+import { bestHand } from "./reading";
+import { useTableFeed } from "./useTableFeed";
+import { Arena, Callout, MuteToggle } from "../fx";
+import { art } from "@/lib/art";
 import "./holdem.css";
-import { PlayerName } from "@/components/account/Player";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 const STREET = ["Shuffling", "Preflop", "Flop", "Turn", "River", ""];
@@ -53,10 +57,29 @@ interface Props {
   practice?: boolean;
 }
 
+/** Your Chips against theirs across the Match, as a bar that leans to whoever has more. */
+function ShareBar({ mine, theirs }: { mine: bigint; theirs: bigint }) {
+  const total = Number(mine + theirs) || 1;
+  const pct = Math.round((Number(mine) / total) * 100);
+  return (
+    <div className="hdx-share" role="img" aria-label={`Chips: you ${chips(mine)}, opponent ${chips(theirs)}`}>
+      <span className="mono hdx-share-n">
+        You <b>{chips(mine)}</b>
+      </span>
+      <span className="hdx-share-bar" aria-hidden="true">
+        <i style={{ width: `${pct}%` }} />
+      </span>
+      <span className="mono hdx-share-n">
+        <b>{chips(theirs)}</b> Opponent
+      </span>
+    </div>
+  );
+}
+
 /**
- * The Hold'em table for one Player (take-1: play-holdem): info panel left, the octagonal table in
- * the centre, the turn timer and hand log right, the action bar below. Chips are plain numbers in
- * mono: they are scorekeeping, not Gemas. No character anywhere.
+ * The Hold'em table for one Player: the octagonal table in the centre with both seats, the pot and
+ * the board, a share bar and turn timer in the header, the action bar below. Chips are neutral steel
+ * discs and mono numbers: they are scorekeeping, not Gemas. No character anywhere.
  */
 export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim, practice }: Props) {
   const opp = 1 - seat;
@@ -76,6 +99,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const total = t.phase === PHASE.shuffle ? 60 : 30;
   const expired = !practice && !ended && t.status === STATUS.live && remaining < -1;
   const log = useHandLog(t, seat);
+  const feed = useTableFeed(t, seat);
   useGuideHidden(!ended);
 
   const board = playing ? t.board : showLast ? lh.board : t.board;
@@ -87,9 +111,13 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
       ? lh.shown[opp]
       : null;
   const oppBacks = playing;
+  const myHand = myCards && (playing || showLast) ? bestHand(myCards, board).name : null;
 
   const level = `${chips(t.smallBlind)} / ${chips(t.bigBlind)}`;
   const sbSeat = t.dealer;
+  const ringFraction = practice ? 1 : Math.min(1, Math.max(0, remaining / total));
+  const ringLow = !practice && remaining <= 10;
+  const bots = art.avatars;
 
   return (
     <Arena game="holdem">
@@ -107,6 +135,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           )}
           <MuteToggle />
         </div>
+        <ShareBar mine={t.stacks[seat] + t.committed[seat]} theirs={t.stacks[opp] + t.committed[opp]} />
         {!ended && t.status === STATUS.live && (
           <div className="hdx-clock" role="timer" aria-live="off">
             <div className="hdx-clock-top">
@@ -118,11 +147,6 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
                 <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
               )}
             </div>
-            {!practice && (
-              <div className="hd-clock-bar" aria-hidden="true">
-                <i style={{ width: `${Math.min(100, Math.max(0, (remaining / total) * 100))}%` }} className={remaining <= 10 ? "low" : ""} />
-              </div>
-            )}
             {expired && !myTurn && (
               <div className="hd-claim">
                 <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
@@ -143,13 +167,17 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
               who="Opponent"
               address={practice ? "Bot" : undefined}
               account={practice ? undefined : accounts[opp]}
+              picture={practice ? bots[6] : undefined}
               linked={ended}
               stack={t.stacks[opp]}
               bet={t.bets[opp]}
               dealer={sbSeat === opp}
               active={playing && t.toAct === opp}
+              fraction={ringFraction}
+              low={ringLow}
               allIn={playing && t.stacks[opp] === 0n}
               missed={t.missed[opp]}
+              say={feed.say[opp]}
             >
               {oppCards ? (
                 <>
@@ -166,7 +194,13 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
 
             <div className="hdx-mid">
               <div className="cut hdx-pot mono" aria-label={`Pot ${chips(t.pot)} Chips`}>
-                Pot <b>{chips(t.pot)}</b> Chips
+                <ChipStack amount={t.pot} piles={t.pot > 1500n ? 3 : t.pot > 400n ? 2 : 1} />
+                <span className="hdx-pot-t">
+                  <span className="hdx-pot-l">Pot</span>
+                  <b>
+                    <CountUp value={Number(t.pot)} format={chips} />
+                  </b>
+                </span>
               </div>
               <div className="hdx-board" aria-label="Board">
                 {[0, 1, 2, 3, 4].map((i) => (
@@ -178,18 +212,28 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
             <Seat
               who="You"
               account={practice ? undefined : accounts[seat]}
+              picture={practice ? bots[2] : undefined}
               stack={t.stacks[seat]}
               bet={t.bets[seat]}
               dealer={sbSeat === seat}
               active={myTurn}
+              fraction={ringFraction}
+              low={ringLow}
               allIn={playing && t.stacks[seat] === 0n}
               missed={t.missed[seat]}
+              say={feed.say[seat]}
+              label={myHand}
               mine
             >
               <PlayingCard card={myCards?.[0]} size="lg" />
               <PlayingCard card={myCards?.[1]} size="lg" />
             </Seat>
           </div>
+          {feed.toast && (
+            <div className="hdx-toast">
+              <Callout key={feed.toast.id} text={feed.toast.text} tone="warn" duration={2400} className="hdx-toast-host" />
+            </div>
+          )}
         </div>
         {showLast && <HandResult t={t} seat={seat} ended={ended} />}
         {!showLast && playing && lh.handNo > 0 && lh.result !== NO_WINNER && (
@@ -233,59 +277,6 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   );
 }
 
-function Seat({
-  who,
-  address,
-  account,
-  linked,
-  stack,
-  bet,
-  dealer,
-  active,
-  allIn,
-  missed,
-  mine,
-  children,
-}: {
-  who: string;
-  /** A plain label in place of a Player (the practice bot). */
-  address?: string;
-  /** The Player's Account key, as shown everywhere else (the table itself holds wallets). */
-  account?: string;
-  /** Link the key to the Account: only once the Match has ended, never during a hand. */
-  linked?: boolean;
-  stack: bigint;
-  bet: bigint;
-  dealer: boolean;
-  active: boolean;
-  allIn: boolean;
-  missed: number;
-  mine?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`hdx-seat${mine ? " mine" : ""}${active ? " active" : ""}`}>
-      <div className="hd-cards">{children}</div>
-      <div className="cut hdx-plaque">
-        <div className="hd-name">
-          <strong>{who}</strong>
-          {dealer && <span className="hd-btn" title="Button, posts the small blind" aria-label="Dealer button">D</span>}
-          {active && <span className="hd-turn">To act</span>}
-          <span className="mono hd-addr">{account ? linked ? <AccountLink account={account} newTab /> : <PlayerName account={account} /> : address}</span>
-        </div>
-        <div className="hd-stack mono" aria-label={`${who} stack ${chips(stack)} Chips`}>
-          {chips(stack)} <span className="hd-unit">Chips</span>
-          {allIn && <span className="hd-tag">All-in</span>}
-        </div>
-        {missed > 0 && <span className="meta hd-missed">Missed {missed} of 3 turns</span>}
-      </div>
-      <div className="hd-bet mono" aria-label={bet > 0n ? `Bet ${chips(bet)}` : undefined}>
-        {bet > 0n ? chips(bet) : ""}
-      </div>
-    </div>
-  );
-}
-
 function HandResult({ t, seat, ended }: { t: Table; seat: number; ended: boolean }) {
   const lh = t.lastHand;
   if (lh.result === NO_WINNER) return null;
@@ -319,97 +310,6 @@ function HandResult({ t, seat, ended }: { t: Table; seat: number; ended: boolean
           <PlayingCard card={lh.shown[1 - seat][1]} />
         </div>
       )}
-    </div>
-  );
-}
-
-/** Fold / Check / Call / Raise, then Raise to with a slider, presets and All-in (take-1: bottom action bar). */
-function ActionBar({
-  table: t,
-  seat,
-  enabled,
-  busy,
-  onAct,
-}: {
-  table: Table;
-  seat: number;
-  enabled: boolean;
-  busy: string | null;
-  onAct: (a: Action, label: string) => void;
-}) {
-  const lg = legalMoves(t, seat);
-  const min = Number(lg.minTo);
-  const max = Number(lg.maxTo);
-  const [to, setTo] = useState<number>(min);
-  const value = Math.min(max, Math.max(min, Number.isFinite(to) ? to : min));
-  const facing = lg.toCall > 0n;
-  const pot = Number(t.pot);
-  const current = Number(t.bets[0] > t.bets[1] ? t.bets[0] : t.bets[1]);
-  const raiseOk = enabled && lg.canRaise;
-  const verb = lg.isBet ? "Bet" : "Raise";
-  const preset = (label: string, target: number) => (
-    <button key={label} type="button" className="cut cut-chip hd-preset" disabled={!raiseOk} onClick={() => setTo(Math.min(max, Math.max(min, Math.round(target))))}>
-      {label === "All-in" ? "All-in" : label}
-    </button>
-  );
-
-  return (
-    <div className="cut cut-frame hdx-actions" role="group" aria-label="Actions">
-      <div className="hdx-btns">
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!enabled} onClick={() => onAct(fold(), "fold")}>
-          Fold
-        </button>
-        <button type="button" className={`cut cut-btn hdx-btn${enabled && !facing ? " primary" : ""}`} disabled={!enabled || facing} onClick={() => onAct(check(), "check")}>
-          Check
-        </button>
-        <button type="button" className={`cut cut-btn hdx-btn${enabled && facing ? " primary" : ""}`} disabled={!enabled || !facing} onClick={() => onAct(call(), `call ${lg.toCall}`)}>
-          <span>Call</span>
-          {facing && <small className="mono">{chips(lg.toCall)}</small>}
-        </button>
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!raiseOk} onClick={() => onAct(raise(value), `${verb.toLowerCase()} to ${value}`)}>
-          {verb}
-        </button>
-      </div>
-      <div className="hdx-raise">
-        <div className="hdx-raise-in">
-          <label className="label" htmlFor="hd-to">
-            {verb} to
-          </label>
-          <input
-            id="hd-to"
-            className="tnum mono"
-            type="number"
-            inputMode="numeric"
-            min={min}
-            max={max}
-            value={value}
-            disabled={!raiseOk}
-            onChange={(e) => setTo(Number(e.target.value))}
-          />
-        </div>
-        <div className="hdx-raise-ctl">
-          <input
-            className="hd-range"
-            type="range"
-            aria-label={`${verb} to`}
-            min={min}
-            max={max}
-            step={1}
-            value={value}
-            disabled={!raiseOk || min === max}
-            style={{ ["--pct" as string]: max === min ? "100%" : `${((value - min) / (max - min)) * 100}%` }}
-            onChange={(e) => setTo(Number(e.target.value))}
-          />
-          <div className="hd-presets">
-            {preset("Min", min)}
-            {preset("½ pot", current + pot / 2)}
-            {preset("Pot", current + pot)}
-            {preset("All-in", max)}
-          </div>
-        </div>
-      </div>
-      {!enabled && busy === null && <span className="hd-hint meta">Actions unlock on your turn.</span>}
-      {busy && busy !== "claim_timeout" && <span className="hd-hint meta">Sending {busy.split(" ")[0]}…</span>}
     </div>
   );
 }
