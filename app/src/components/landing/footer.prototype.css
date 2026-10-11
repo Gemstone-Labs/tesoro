@@ -1,0 +1,60 @@
+/* PROTOTYPE ONLY (branch proto/landing-footer-11-10-2026): add-ons for the landing footer, see Footer.prototype.tsx. */
+
+/* Room for the floating variant bar, so it never covers the footer's last line. */
+.lp-footer { padding-bottom: 96px !important; }
+
+/* A / B / C: brand block left, columns right */
+.fp-in { display: grid; gap: 32px; grid-template-columns: minmax(0, 1fr); padding-block: 12px 4px; }
+.fp-brand { display: grid; gap: 16px; align-content: start; justify-items: start; max-width: 420px; }
+.fp-pitch { color: var(--fg-2); font-size: 15px; line-height: 1.5; margin: 0; }
+.fp-stage { margin: 0; }
+.fp-copy { margin: 0; font-size: 12px; color: var(--fg-2); }
+@media (min-width: 900px) {
+  .fp-in { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); column-gap: 64px; }
+  .fp-in > .fp-stage, .fp-in > .fp-copy { grid-column: 1; }
+}
+
+/* C: chain chips */
+.fp-chains { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.fp-chains li {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; font-size: 12px; font-weight: 600;
+  background: color-mix(in srgb, var(--fg) 6%, transparent); --edge: var(--edge-1); color: var(--fg-2);
+}
+
+/* B: link columns */
+.fp-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.fp-cols > div { display: grid; gap: 12px; align-content: start; }
+.fp-h { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; font-size: 15px; color: var(--fg); margin: 0 0 4px; }
+.fp-cols a, .fp-cols span { width: fit-content; font-size: 14.5px; font-weight: 600; color: var(--fg-2); }
+.fp-cols a:hover { color: var(--fg); }
+
+/* D: mono strip */
+.fp-strip {
+  margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 28px;
+  font-size: 12px; color: var(--fg-2);
+}
+.fp-strip > span { display: inline-flex; align-items: center; gap: 8px; }
+.fp-fair::before {
+  content: ""; width: 8px; height: 8px; background: var(--em);
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+}
+.fp-test { padding: 4px 10px; border: 1px dashed rgba(242, 185, 75, 0.45); color: var(--warn); }
+.fp-test::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+
+/* E: cave floor */
+.lp-footer.fp-floor { position: relative; border-top: 0; background-color: var(--side); background-image: var(--lp-texture); padding-block: 56px 36px; }
+.lp-footer.fp-floor::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--em) 70%, transparent) 30%, color-mix(in srgb, var(--em) 70%, transparent) 70%, transparent);
+  box-shadow: 0 0 18px 1px color-mix(in srgb, var(--em) 35%, transparent);
+}
+.lp-footer.fp-floor::after {
+  content: ""; position: absolute; inset: 0 0 auto; height: 120px; pointer-events: none;
+  background: radial-gradient(60% 100% at 50% 0, color-mix(in srgb, var(--em) 9%, transparent), transparent 70%);
+}
+.lp-footer.fp-floor > * { position: relative; z-index: 1; }
+
+/* Light theme: amber needs more ink on the pale floor */
+:root[data-theme="light"] .fp-test { color: #8a5a00; border-color: rgba(138, 90, 0, 0.45); }
+:root[data-theme="light"] .fp-test::before { background: #8a5a00; }
