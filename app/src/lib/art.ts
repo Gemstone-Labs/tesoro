@@ -23,6 +23,8 @@ export const art = {
     "pocket-pool": f("coming-soon-pocket-pool"),
     "trivia-sprint": f("coming-soon-trivia-sprint"),
   },
+  /** Default profile banner (2400x800) on every Account page until Players can set their own. Left side dark for the avatar and name. */
+  profileBanner: f("profile-banner"),
   /** The Leaderboard Pool as a gold stone chest (1024 square, opaque dark ground: fade its edges in CSS). */
   poolChest: f("pool-chest"),
   /** The wide hero art by Game (list rows, result poster, Request cards). */

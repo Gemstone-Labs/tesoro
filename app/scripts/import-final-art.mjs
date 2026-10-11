@@ -10,7 +10,7 @@ const OUT = resolve(here, "../public/art/final");
 const POSES = process.env.POSES_SRC ?? resolve(here, "../../../art-source/ui-redesign/character/poses");
 const POSES_OUT = resolve(here, "../public/art/final/characters");
 const isAvatar = (name) => /^avatar-\d+$/.test(name);
-const width = (name) => (name.endsWith("-hero") ? 2400 : isAvatar(name) ? 256 : 768);
+const width = (name) => (name.endsWith("-hero") || name.endsWith("-banner") ? 2400 : isAvatar(name) ? 256 : 768);
 // Avatars are drawn with a wide dark margin; keep the central 84% so the head reads at 28px.
 const AVATAR_CROP = 0.84;
 // Avatars live in their own folder: the image optimizer caches by URL, so a new set needs new URLs.
