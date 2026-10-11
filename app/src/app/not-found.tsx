@@ -5,24 +5,15 @@ import "@/components/lobby/lobby.css";
 import { AccountProvider } from "@/lib/auth/AccountProvider";
 import { ChainDataProvider } from "@/lib/chain/ChainDataProvider";
 import { AppShell } from "@/components/shell/AppShell";
-import { Button, EmptyState } from "@/components/ui";
+import { PageNotFound } from "@/components/shell/PageNotFound";
 
-/** Any address with no page: the app shell around one sentence and the two ways back in. */
+/** Not-found renders outside the (app) layout, so it brings the app shell itself. */
 export default function NotFound() {
   return (
     <AccountProvider>
       <ChainDataProvider>
         <AppShell>
-          <EmptyState
-            title="Page not found"
-            body="There is nothing at this address. It may have moved, or the link is incomplete."
-            action={
-              <>
-                <Button variant="money" href="/lobby">Lobby</Button>
-                <Button href="/play">Play</Button>
-              </>
-            }
-          />
+          <PageNotFound />
         </AppShell>
       </ChainDataProvider>
     </AccountProvider>
