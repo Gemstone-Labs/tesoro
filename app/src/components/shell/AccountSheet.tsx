@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Button, ChainChip, CheckIcon, CopyIcon, Label, Sheet } from "@/components/ui";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy, LogOut, Plus } from "lucide-react";
+import { PlayerAvatar, PlayerName } from "@/components/account/Player";
+import { ChainGlyph, Sheet } from "@/components/ui";
+import { art } from "@/lib/art";
 import { useAuth } from "@/lib/auth/context";
+import type { LinkedWallet } from "@/lib/auth/types";
+import { accountKeyOf } from "@/lib/chain/account-key";
 import { getChain } from "@/lib/chain/client";
 import { fetchLinkState } from "@/lib/chain/eth";
-import type { Chain } from "@/lib/mock";
+import "./account-sheet.css";
 
+/** The Account's details: who is signed in, the addresses Tesoro made for it, the wallets linked to it, Sign out. */
 export function AccountSheet({
   open,
   onClose,
@@ -18,88 +25,87 @@ export function AccountSheet({
 }) {
   const { email, addresses, linked, linkWallet, signOut, evm, signer } = useAuth();
   const link = useEvmLink(open, signer?.publicKey.toBase58() ?? null, evm?.address ?? null);
-  const solanaLinked = linked.filter((w) => w.family === "solana");
-  const evmLinked = linked.filter((w) => w.family === "evm");
+  // The Account key, which every screen shows this Player by (the sheet sits outside ChainDataProvider).
+  const me = useMemo(() => (addresses.solana ? accountKeyOf(addresses.solana) : null), [addresses.solana]);
+  const wallets = [...linked.filter((w) => w.family === "solana"), ...linked.filter((w) => w.family === "evm")];
+
   return (
     <Sheet open={open} onClose={onClose} title="Account">
-      <div className="stack">
-        <span className="meta">{email ?? (linked[0] ? `Signed in with ${linked[0].client.replace(/_/g, " ")}` : "Signed in")}</span>
-        <AddressCard title="Solana address" chains={["SOL"]} address={addresses.solana} />
-        <AddressCard title="ETH & HYPE address" chains={["ETH", "HYPE"]} address={evm?.address ?? addresses.evm} />
-        {evm && (
-          <p className="meta">
-            {link === "linked"
-              ? "Linked to your Account: ETH and HYPE Positions and payouts use this address."
-              : link === "unlinked"
-                ? "Not linked yet. It links (one signature) the first time you open an ETH or HYPE Position."
-                : "Checking link…"}
-          </p>
-        )}
-        <p className="note">The same address works for ETH and HYPE. Test mode.</p>
-      </div>
-
-      <div className="stack">
-        <Label>Linked wallets</Label>
-        {linked.length === 0 && <p className="meta">No external wallets linked.</p>}
-        {[...solanaLinked, ...evmLinked].map((w) => (
-          <div key={`${w.family}-${w.address}`} className="addr">
-            <div className="addr-line">
-              <span className="hstack">
-                <ChainChip chain={w.family === "solana" ? "SOL" : "ETH"} />
-                <strong style={{ textTransform: "capitalize" }}>{w.client.replace(/_/g, " ")}</strong>
-              </span>
-              <CopyButton value={w.address} label={`Copy ${w.client} address`} />
-            </div>
-            <code>{w.address}</code>
+      <div className="cut cut-card as-card">
+        <Image className="as-banner" src={art.profileBanner} alt="" width={960} height={400} />
+        <div className="as-who">
+          <span className="cut cut-btn as-avatar">{me && <PlayerAvatar account={me} size={64} />}</span>
+          <div className="as-name">
+            <strong>{me ? <PlayerName account={me} /> : "Your Account"}</strong>
+            <span className="meta">{email ?? (linked[0] ? `Signed in with ${walletName(linked[0])}` : "Signed in")}</span>
           </div>
-        ))}
-        <div className="hstack wrap">
-          <Button size="sm" onClick={() => linkWallet("solana")}>Link Solana wallet</Button>
-          <Button size="sm" onClick={() => linkWallet("evm")}>Link ETH wallet</Button>
         </div>
-        <p className="note">Phantom, Solflare or Backpack for Solana; MetaMask or Rabby for ETH and HYPE. Your Account, not the wallet, holds Positions and Gemas. A linked wallet can show its .sol, .eth or .hl name on your profile.</p>
       </div>
 
-      <Button
-        block
-        onClick={async () => {
-          await signOut();
-          onSignedOut();
-        }}
-      >
-        Sign out
-      </Button>
+      <section className="as-sec">
+        <h3 className="label">Your addresses</h3>
+        <div className="cut cut-card as-list">
+          <AddressRow chains={[0]} title="Solana" address={addresses.solana} />
+          <AddressRow
+            chains={[1, 2]}
+            title="ETH & HYPE"
+            address={evm?.address ?? addresses.evm}
+            note={link === "linked" ? "Linked: ETH and HYPE payouts go here" : link === "unlinked" ? "Links with one signature on your first ETH or HYPE Position" : undefined}
+          />
+        </div>
+      </section>
+
+      <section className="as-sec">
+        <h3 className="label">Linked wallets</h3>
+        <div className="cut cut-card as-list">
+          {wallets.map((w) => (
+            <AddressRow key={`${w.family}-${w.address}`} chains={[w.family === "solana" ? 0 : 1]} title={walletName(w)} address={w.address} />
+          ))}
+          <div className="as-add">
+            <button type="button" className="cut cut-btn" onClick={() => linkWallet("solana")}>
+              <Plus aria-hidden="true" /> Solana wallet
+            </button>
+            <button type="button" className="cut cut-btn" onClick={() => linkWallet("evm")}>
+              <Plus aria-hidden="true" /> Ethereum wallet
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div className="as-foot">
+        <span className="meta">Test mode</span>
+        <button
+          type="button"
+          className="as-out"
+          onClick={async () => {
+            await signOut();
+            onSignedOut();
+          }}
+        >
+          <LogOut aria-hidden="true" /> Sign out
+        </button>
+      </div>
     </Sheet>
   );
 }
 
-function AddressCard({ title, chains, address }: { title: string; chains: Chain[]; address: string | null }) {
-  return (
-    <div className="addr">
-      <div className="addr-line">
-        <span className="hstack">
-          {chains.map((c) => (
-            <ChainChip key={c} chain={c} />
-          ))}
-          <strong>{title}</strong>
-        </span>
-        {address && <CopyButton value={address} label={`Copy ${title}`} />}
-      </div>
-      {address ? <code>{address}</code> : <span className="meta">Creating your wallet…</span>}
-    </div>
-  );
-}
+const walletName = (w: LinkedWallet) => w.client.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const short = (a: string) => `${a.slice(0, a.startsWith("0x") ? 7 : 5)}…${a.slice(-5)}`;
 
-function CopyButton({ value, label }: { value: string; label: string }) {
+/** One address as a row: the whole row copies it. */
+function AddressRow({ chains, title, address, note }: { chains: (0 | 1 | 2)[]; title: string; address: string | null; note?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
-      className="cut cut-chip icon-btn"
-      aria-label={copied ? "Copied" : label}
+      className="as-row"
+      disabled={!address}
+      title={address ?? undefined}
+      aria-label={address ? `${copied ? "Copied" : "Copy"} ${title} address ${address}` : `${title}: creating your wallet`}
       onClick={async () => {
+        if (!address) return;
         try {
-          await navigator.clipboard.writeText(value);
+          await navigator.clipboard.writeText(address);
           setCopied(true);
           setTimeout(() => setCopied(false), 1600);
         } catch {
@@ -107,7 +113,20 @@ function CopyButton({ value, label }: { value: string; label: string }) {
         }
       }}
     >
-      {copied ? <CheckIcon /> : <CopyIcon />}
+      <span className="as-chains">
+        {chains.map((c) => (
+          <ChainGlyph key={c} asset={c} size={20} />
+        ))}
+      </span>
+      <span className="as-text">
+        <strong>{title}</strong>
+        {note && <small>{note}</small>}
+      </span>
+      <code>{address ? short(address) : "Creating…"}</code>
+      <span className={`as-copy${copied ? " done" : ""}`} aria-hidden="true">
+        {copied ? <Check /> : <Copy />}
+        <span>{copied ? "Copied" : "Copy"}</span>
+      </span>
     </button>
   );
 }

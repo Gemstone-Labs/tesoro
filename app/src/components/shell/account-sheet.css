@@ -1,0 +1,55 @@
+/* ——— Account sheet: profile card over the default banner, address rows that copy themselves ——— */
+.as-card { --edge: var(--edge-2); background: var(--raised); overflow: hidden; }
+.as-banner {
+  display: block; width: 100%; height: 96px; object-fit: cover; object-position: 60% 40%;
+  mask-image: linear-gradient(180deg, #000 40%, transparent 100%);
+}
+.as-who { position: relative; display: flex; align-items: end; gap: 14px; padding: 0 16px 16px; margin-top: -36px; }
+.as-avatar { --c: 10px; --edge: var(--edge-2); display: block; width: 72px; height: 72px; padding: 4px; background: var(--raised-2); flex: none; }
+.as-avatar img {
+  display: block; width: 64px; height: 64px;
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+}
+.as-name { display: grid; gap: 2px; min-width: 0; padding-bottom: 4px; }
+.as-name strong { font-size: 19px; font-weight: 900; letter-spacing: -0.01em; }
+
+.as-sec { display: grid; gap: 8px; }
+.as-list { --edge: var(--edge-1); background: var(--shell); display: grid; padding: 4px; }
+.as-row {
+  all: unset; cursor: pointer; display: grid; grid-template-columns: 40px 1fr auto auto; align-items: center; gap: 12px;
+  padding: 12px;
+}
+.as-row + .as-row { box-shadow: inset 0 1px 0 var(--line); }
+.as-row:hover { background: var(--raised); }
+.as-row:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
+.as-row:disabled { cursor: default; }
+.as-chains { display: inline-flex; align-items: center; }
+.as-chains .chain-glyph + .chain-glyph { margin-left: -5px; }
+.as-text { display: grid; gap: 3px; min-width: 0; }
+.as-text strong { font-size: 14px; }
+.as-text small { font-size: 12px; color: var(--fg-2); }
+.as-row > code { font-family: var(--f-mono); font-size: 12.5px; color: var(--fg); }
+.as-copy { display: inline-flex; align-items: center; justify-content: end; gap: 5px; min-width: 64px; font-size: 12px; font-weight: 700; color: var(--fg-2); }
+.as-copy svg { width: 15px; height: 15px; }
+.as-row:hover .as-copy, .as-copy.done { color: var(--fg); }
+
+.as-add { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px 4px 4px; box-shadow: inset 0 1px 0 var(--line); }
+.as-add button {
+  all: unset; cursor: pointer; --c: var(--cut-btn); --edge: var(--edge-1);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px; font-size: 13px; font-weight: 700; color: var(--fg-2); background: var(--raised);
+}
+.as-add button:hover { color: var(--fg); background: var(--raised-2); }
+.as-add svg { width: 15px; height: 15px; }
+
+.as-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid var(--line); }
+.as-out { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 6px 2px; font-size: 13px; font-weight: 700; color: var(--fg-2); }
+.as-out svg { width: 16px; height: 16px; }
+.as-out:hover { color: var(--fg); }
+.as-out:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+@media (max-width: 440px) {
+  .as-row { grid-template-columns: 28px 1fr auto auto; gap: 10px; padding: 12px 10px; }
+  .as-copy { min-width: 0; }
+  .as-copy span { display: none; }
+}
