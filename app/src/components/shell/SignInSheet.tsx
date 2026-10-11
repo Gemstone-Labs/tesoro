@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLoginWithEmail } from "@privy-io/react-auth";
 import { AlertIcon, Button, Label, Sheet } from "@/components/ui";
+import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { SignInSheetPrototype, SIGNIN_VARIANTS } from "./SignInSheet.prototype";
 
 export function SignInSheet({
   open,
@@ -18,10 +20,45 @@ export function SignInSheet({
   /** Hands over to the wallet picker for one chain family. */
   onWallet: (family: "solana" | "evm") => void;
 }) {
+  // PROTOTYPE: ?variant=now|A|B|C|D
+  const variant = usePrototypeVariant(SIGNIN_VARIANTS.map((v) => v.key));
+  if (variant !== "now") {
+    return (
+      <ProtoDialog open={open} onClose={onClose} wide={variant === "C"}>
+        <SignInSheetPrototype variant={variant} reason={reason} onClose={onClose} onSignedIn={onSignedIn} onWallet={onWallet} />
+        {open && <PrototypeSwitcher variants={SIGNIN_VARIANTS} inDialog />}
+      </ProtoDialog>
+    );
+  }
   return (
     <Sheet open={open} onClose={onClose} title="Sign in">
+      {open && <PrototypeSwitcher variants={SIGNIN_VARIANTS} inDialog />}
       <SignInForm reason={reason} onSignedIn={onSignedIn} onWallet={onWallet} />
     </Sheet>
+  );
+}
+
+/** PROTOTYPE: the Sheet's dialog without its header, so each variant lays out its own top. */
+function ProtoDialog({ open, onClose, wide, children }: { open: boolean; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      className={`cut cut-frame sheet si-proto${wide ? " wide" : ""}`}
+      aria-label="Sign in"
+      onClose={onClose}
+      onClick={(e) => {
+        if (e.target === ref.current) onClose();
+      }}
+    >
+      {open && children}
+    </dialog>
   );
 }
 
