@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, Clock, Copy, EyeOff, Hourglass, Link2, Lock } from "lucide-react";
+import { ChartCandlestick, Check, ChevronDown, Clock, Copy, EyeOff, Hourglass, Link2, Lock, Puzzle, RotateCcw, Spade, type LucideIcon } from "lucide-react";
 import { Busy, CountUp, GemaMark } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { fmtGemas } from "@/lib/format";
@@ -68,14 +68,22 @@ function copy(m: StageInfo): { kicker: string; title: string; line: string } {
 }
 
 /** Long-form detail, out of the way. */
-function details(m: StageInfo): string[] {
+const GAME_ICON: Record<GameId, LucideIcon> = { "block-puzzle": Puzzle, holdem: Spade, "trading-duel": ChartCandlestick };
+
+function details(m: StageInfo): { icon: LucideIcon; title: string; text: string }[] {
   const out = [
-    m.backedShareBps != null ? `Your Backer's ${fmtGemas(m.entry)} Gemas are your entry. Win and you keep ${m.backedShareBps / 100}% of what is won above it; lose and it costs you nothing.` : `Your ${fmtGemas(m.entry)} Gemas are held for the Match. The winner takes ${fmtGemas(m.pot)}.`,
+    m.backedShareBps != null
+      ? { icon: Lock, title: "Your entry", text: `Your Backer's ${fmtGemas(m.entry)} Gemas are your entry. Win and you keep ${m.backedShareBps / 100}% of what is won above it; lose and it costs you nothing.` }
+      : { icon: Lock, title: "Your entry", text: `Your ${fmtGemas(m.entry)} Gemas are held for the Match. The winner takes ${fmtGemas(m.pot)}.` },
   ];
-  if (m.game === "block-puzzle") out.push("You and your opponent get the same pieces, 90 seconds each, one after the other. Nobody sees a move until both runs are closed.");
-  if (m.game === "holdem") out.push("1,500 Chips each, blinds rise every hand, 30 seconds per action. Your cards stay hidden from your opponent, and from us.");
-  if (m.game === "trading-duel") out.push("Long or short, 1 to 20x, one position at a time. Higher final equity takes the Pot. Your trades stay hidden until the end.");
-  if (m.deadline && (m.kind === "waiting" || m.kind === "waiting-run")) out.push(`If nobody joins by ${new Date(m.deadline * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}, your entry is refunded. You can leave this page and come back from the Lobby.`);
+  const play = {
+    "block-puzzle": "You and your opponent get the same pieces, 90 seconds each, one after the other. Nobody sees a move until both runs are closed.",
+    holdem: "1,500 Chips each, blinds rise every hand, 30 seconds per action. Your cards stay hidden from your opponent, and from us.",
+    "trading-duel": "Long or short, 1 to 20x, one position at a time. Higher final equity takes the Pot. Your trades stay hidden until the end.",
+  }[m.game];
+  out.push({ icon: GAME_ICON[m.game], title: "The game", text: play });
+  if (m.deadline && (m.kind === "waiting" || m.kind === "waiting-run"))
+    out.push({ icon: RotateCcw, title: "If nobody joins", text: `By ${new Date(m.deadline * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} your entry is refunded. You can leave this page and come back from the Lobby.` });
   return out;
 }
 
@@ -153,10 +161,18 @@ function ChallengeLink({ link }: { link: string }) {
 function HowItWorks({ m }: { m: StageInfo }) {
   return (
     <details className="stage-how">
-      <summary>How this works</summary>
-      {details(m).map((d) => (
-        <p key={d}>{d}</p>
-      ))}
+      <summary>
+        How this works <ChevronDown aria-hidden="true" />
+      </summary>
+      <ul className="cut stage-how-list">
+        {details(m).map(({ icon: Icon, title, text }) => (
+          <li key={title}>
+            <Icon aria-hidden="true" />
+            <b>{title}</b>
+            <p>{text}</p>
+          </li>
+        ))}
+      </ul>
     </details>
   );
 }

@@ -33,11 +33,19 @@
 .stage-link-row .btn { min-height: 40px; gap: 7px; }
 
 .stage-how { width: 100%; font-size: 14px; color: var(--fg-2); }
-.stage-how summary { cursor: pointer; justify-self: center; width: max-content; margin: 0 auto; font-weight: 700; color: var(--fg-2); list-style: none; }
+.stage-how summary { cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; width: max-content; margin: 0 auto; padding: 4px 8px; font-weight: 700; color: var(--fg-2); list-style: none; transition: color 0.2s; }
 .stage-how summary::-webkit-details-marker { display: none; }
-.stage-how summary::after { content: " +"; }
-.stage-how[open] summary::after { content: " −"; }
-.stage-how p { margin: 10px 0 0; line-height: 1.5; text-align: left; }
+.stage-how summary:hover, .stage-how[open] summary { color: var(--fg); }
+.stage-how summary:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.stage-how summary svg { width: 16px; height: 16px; transition: rotate 0.2s; }
+.stage-how[open] summary svg { rotate: 180deg; }
+.stage-how-list { --c: 12px; list-style: none; margin: 12px 0 0; padding: 6px 18px; background: rgba(14, 19, 24, 0.78); text-align: left; }
+.stage-how-list li { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 14px; row-gap: 3px; padding: 14px 0; }
+.stage-how-list li + li { border-top: 1px solid var(--line); }
+.stage-how-list svg { grid-row: span 2; width: 18px; height: 18px; margin-top: 1px; color: var(--fg-2); }
+.stage-how-list b { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); }
+.stage-how-list p { margin: 0; line-height: 1.5; color: var(--fg-2); text-wrap: pretty; }
+.stage-how[open] .stage-how-list { animation: stage-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
 /* The arena */
 @property --stage-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
