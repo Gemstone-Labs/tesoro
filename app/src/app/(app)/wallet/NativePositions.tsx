@@ -26,6 +26,8 @@ import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
 import { OpenFormView } from "./OpenPanel";
+import { RedeemProto, useSheetVariant, type RedeemModel } from "./MoneySheets.prototype";
+import { gemasToAsset } from "@/lib/advance";
 import { PositionTile, sampledSeries } from "./PositionTile";
 
 const fmtSol = (lamports: bigint | number, digits = 4) => (Number(lamports) / LAMPORTS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -320,19 +322,25 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
   };
   const total = [...rows, ...ethRows].reduce((s, h) => s + Number(h.redeemable), 0);
 
-  const redeem = async () => {
+  const variant = useSheetVariant();
+  const [paid, setPaid] = useState<string[]>([]);
+  const idOf = (h: ChainHolding) => h.holding.toBase58();
+  const redeem = async (ids?: string[]) => {
     if (!auth.signer) return;
+    const pick = (hs: ChainHolding[]) => (ids ? hs.filter((h) => ids.includes(idOf(h))) : hs);
     setBusy(true);
     setError(null);
     try {
-      for (const h of rows) {
+      for (const h of pick(rows)) {
         const sig = await redeemNative(auth.signer, h.position, h.source, h.redeemable);
         setSigs((s) => [...s, sig]);
+        setPaid((p) => [...p, idOf(h)]);
       }
-      if (ethRows.length > 0) {
+      if (pick(ethRows).length > 0) {
         if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-        await redeemEthHoldings(ethCtx, snapshot?.holdings ?? []);
-        if (rows.length === 0) onClose();
+        await redeemEthHoldings(ethCtx, pick(ethRows));
+        setPaid((p) => [...p, ...pick(ethRows).map(idOf)]);
+        if (variant === "now" && rows.length === 0) onClose();
       }
       await refresh();
     } catch (e) {
@@ -342,7 +350,30 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     }
   };
 
-  return (
+  const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
+  const model: RedeemModel = {
+    lines: [
+      ...rows.map((h) => {
+        const p = payout(h);
+        const g = Number(h.redeemable);
+        return { id: idOf(h), asset: "SOL" as const, from: h.isOwn ? "Your SOL Position" : `Won · ${short(h.sourceOwner)}`, gemas: g, payout: p !== null ? Number(p) / 1e9 : gemasToAsset(g, "SOL"), approx: p === null, later: false };
+      }),
+      ...ethRows.map((h) => {
+        const a = h.asset === "HYPE" ? ("HYPE" as const) : ("ETH" as const);
+        const g = Number(h.redeemable);
+        return { id: idOf(h), asset: a, from: h.isOwn ? `Your ${a} Position` : `Won · ${short(h.sourceOwner)}`, gemas: g, payout: gemasToAsset(g, a), approx: true, later: true };
+      }),
+    ],
+    phase: busy ? "busy" : error ? "error" : paid.length > 0 ? "done" : "idle",
+    error,
+    paid,
+    receipts: sigs.map((sig) => ({ label: "redeem", sig })),
+    canSign: Boolean(auth.signer),
+    onRedeem: (ids) => void redeem(ids),
+    onClose,
+  };
+
+  const now = (
     <>
       <p className="meta">
         Each Gema redeems for its Source asset, only as far as that Source Position&apos;s yield has actually accrued.
@@ -378,7 +409,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
       {sigs.map((s) => <Sig key={s} label="redeem" sig={s} />)}
       {error && <p className="status err" role="alert">{error}</p>}
       {rows.length + ethRows.length > 0 ? (
-        <Button variant="money" block disabled={busy || !auth.signer} onClick={redeem}>
+        <Button variant="money" block disabled={busy || !auth.signer} onClick={() => redeem()}>
           {busy ? "Redeeming…" : `Redeem ${fmtGemas(total)}`}
         </Button>
       ) : (
@@ -386,4 +417,5 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
       )}
     </>
   );
+  return <RedeemProto model={model} now={now} />;
 }

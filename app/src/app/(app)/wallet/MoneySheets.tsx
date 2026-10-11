@@ -9,6 +9,7 @@ import type { ChainPosition } from "@/lib/chain/read";
 import { returnOwn, returnRows } from "@/lib/chain/return-own";
 import { fmtAsset, fmtGemas } from "@/lib/format";
 import type { Position } from "@/lib/mock";
+import { ReturnProto, type Asset3, type ReturnModel } from "./MoneySheets.prototype";
 
 export function RedeemSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { holdings, gemas } = useAccount();
@@ -132,8 +133,7 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ sig: string; amount: number } | null>(null);
 
-  if (done) {
-    return (
+  const doneView = done && (
       <>
         <div className="status ok" role="status">
           <CheckIcon /> Returned {fmtGemas(done.amount)} Gemas · Debt lowered
@@ -143,23 +143,20 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
         </a>
         <Button block onClick={onClose}>Done</Button>
       </>
-    );
-  }
+  );
 
-  if (!row) {
-    return (
+  const emptyView = !row && (
       <>
         <p className="meta">You hold no unspent Gemas Sourced from this Position. Won Gemas and Gemas reserved for Offers cannot be returned.</p>
         <Button block onClick={onClose}>Close</Button>
       </>
-    );
-  }
+  );
 
-  const max = Number(row.max);
+  const max = Number(row?.max ?? 0n);
   const value = Math.min(amount, max);
-  const debt = Number(row.holding.sourceDebt);
+  const debt = Number(row?.holding.sourceDebt ?? 0n);
   const submit = async () => {
-    if (!auth.signer || value <= 0) return;
+    if (!row || !auth.signer || value <= 0) return;
     setBusy(true);
     setError(null);
     try {
@@ -174,7 +171,27 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
     }
   };
 
-  return (
+  const model: ReturnModel = {
+    asset: position.asset as Asset3,
+    sources: rows.map((r, i) => {
+      const d = Number(r.holding.sourceDebt);
+      const issued = position.advance?.source.equals(r.holding.source) ? position.advance.gemasIssued : position.native?.source?.key.equals(r.holding.source) ? Number(position.native.source.math.issued) : d;
+      return { id: r.holding.source.toBase58(), label: `Advance ${i + 1}`, max: Number(r.max), debt: d, issued: Math.max(issued, d, 1) };
+    }),
+    pick: Math.min(pick, Math.max(0, rows.length - 1)),
+    onPick: (i) => { setPick(i); setAmount(Number(rows[i].max)); },
+    value,
+    onChange: setAmount,
+    phase: busy ? "busy" : done ? "done" : error ? "error" : "idle",
+    error,
+    returned: done?.amount ?? null,
+    receipts: done ? [{ label: "return_own", sig: done.sig }] : [],
+    canSign: Boolean(auth.signer),
+    onReturn: () => void submit(),
+    onClose,
+  };
+
+  const now = doneView || emptyView || (
     <>
       <p className="meta">
         Returning Gemas Sourced from this {position.asset} Position cancels that much of its Debt. Only your own unspent Gemas count:
@@ -211,4 +228,5 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
       </Button>
     </>
   );
+  return <ReturnProto model={model} now={now} />;
 }

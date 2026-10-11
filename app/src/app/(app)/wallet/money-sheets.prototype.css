@@ -1,0 +1,177 @@
+/* PROTOTYPE ONLY (branch proto/money-sheets-11-10-2026): styles for MoneySheets.prototype.tsx. */
+
+.ms-proto-state {
+  inset: auto auto 64px 50%; margin: 0; border: 0; position: fixed; transform: translateX(-50%); z-index: 9999;
+  display: flex; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 999px;
+  background: #14001a; color: #ff9cf6; font: 700 12px/1 system-ui, sans-serif; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.ms-proto-state button { all: unset; cursor: pointer; padding: 5px 9px; border-radius: 999px; color: #ffd6fb; }
+.ms-proto-state button[aria-pressed="true"] { background: #ff3df0; color: #14001a; }
+
+.ms-foot { display: grid; gap: 10px; }
+.ms-foot .btn .gema-amount { color: inherit; }
+.ms-link { all: unset; cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--fg-2); text-decoration: underline; text-underline-offset: 3px; }
+.ms-link:hover { color: var(--fg); }
+.ms-link:disabled { opacity: 0.4; cursor: default; }
+
+.ms-empty { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 10px 0 0; }
+.ms-empty > b { font-family: var(--f-display); font-size: 26px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.01em; }
+.ms-empty .meta { max-width: 34ch; }
+.ms-empty .btn { justify-self: stretch; }
+.ms-empty-mark { --c: 14px; width: 72px; height: 72px; display: grid; place-items: center; background: var(--surface-2); opacity: 0.8; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+
+/* segmented Advance picker (Return, 2+ Sources) */
+.ms-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.ms-seg button { all: unset; box-sizing: border-box; --c: var(--cut-chip); cursor: pointer; padding: 8px 10px; background: var(--shell); display: grid; gap: 2px; font-weight: 800; font-size: 13.5px; text-align: center; }
+.ms-seg button small { font-size: 11px; font-weight: 600; color: var(--fg-2); }
+.ms-seg button[aria-checked="true"] { background: var(--surface-2); --edge: var(--edge-2); }
+.ms-seg button[aria-checked="false"] { color: var(--fg-2); }
+
+/* ——— A · Payout slip ——— */
+.ms-a { display: grid; gap: 14px; }
+.ms-a-slip { --c: var(--cut-card); background: var(--shell); display: grid; gap: 0; padding: 0; }
+.ms-a-slip > .slider { padding: 0 18px 16px; }
+.ms-a-top { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 22px 18px 18px; }
+.ms-a-fig { display: inline-flex; align-items: center; gap: 10px; font-family: var(--f-display); font-size: 60px; font-weight: 800; line-height: 0.9; letter-spacing: -0.01em; color: var(--em-hi); font-variant-numeric: proportional-nums; }
+/* perforation: two half-octagon notches cut into the slip's sides and a dashed tear line between them */
+.ms-a-perf { position: relative; height: 18px; margin: 0 -1px; }
+.ms-a-perf::before { content: ""; position: absolute; left: 14px; right: 14px; top: 50%; border-top: 2px dashed var(--line-2); }
+.ms-a-perf::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    linear-gradient(var(--surface), var(--surface)) left / 9px 100% no-repeat,
+    linear-gradient(var(--surface), var(--surface)) right / 9px 100% no-repeat;
+  clip-path: polygon(0 0, 4px 0, 9px 5px, 9px 13px, 4px 18px, 0 18px, 0 0, 100% 0, 100% 18px, calc(100% - 4px) 18px, calc(100% - 9px) 13px, calc(100% - 9px) 5px, calc(100% - 4px) 0, 100% 0);
+}
+.ms-a-pay, .ms-a-debt { display: grid; gap: 10px; padding: 14px 18px 18px; }
+.ms-a-group { display: grid; gap: 6px; }
+.ms-a-gtitle { font-size: 11.5px; color: var(--fg-3); font-weight: 600; }
+.ms-a-line { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 6px 0; }
+.ms-a-line + .ms-a-line { border-top: 1px solid var(--line); padding-top: 10px; }
+.ms-a-glyph { --c: 8px; width: 38px; height: 38px; display: grid; place-items: center; background: var(--surface-2); }
+.ms-a-what { display: grid; gap: 2px; min-width: 0; }
+.ms-a-what b { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ms-a-what small { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fg-2); }
+.ms-a-what small .gema-amount { color: var(--fg-2); font-weight: 700; }
+.ms-a-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; color: var(--fg-2); white-space: nowrap; }
+.ms-a-tag svg { width: 14px; height: 14px; }
+.ms-a-line.paid .ms-a-tag { color: var(--em-hi); }
+.ms-a-debtrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--f-display); font-weight: 800; line-height: 1; }
+.ms-a-debtrow s { font-size: 28px; color: var(--fg-3); text-decoration-thickness: 2px; }
+.ms-a-debtrow svg { transform: rotate(-90deg); color: var(--fg-3); }
+.ms-a-debtrow b { font-size: 40px; }
+.ms-a-debtrow b.clear { color: var(--em-hi); }
+.ms-a-minus { margin-left: auto; font-family: var(--f-body); font-size: 13px; font-weight: 800; color: var(--em-hi); padding: 5px 9px; background: rgba(36, 216, 168, 0.1); clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+
+/* ——— B · Exchange ——— */
+.ms-b { display: grid; gap: 14px; }
+.ms-b-pair { display: grid; gap: 0; }
+.ms-b-panel { --c: var(--cut-card); background: var(--shell); padding: 14px 16px 16px; display: grid; gap: 10px; }
+.ms-b-panel.get { background: var(--surface-2); }
+.ms-b-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.ms-b-give { display: flex; align-items: center; gap: 10px; }
+.ms-b-give b, .ms-b-give input { font-family: var(--f-display); font-size: 46px; font-weight: 800; line-height: 1; color: var(--em-hi); font-variant-numeric: proportional-nums; }
+.ms-b-give b.clear { color: var(--em-hi); }
+.ms-b-panel.get .ms-b-give b:not(.clear) { color: var(--fg); }
+.ms-b-give > span { font-size: 14px; font-weight: 700; color: var(--fg-2); margin-top: 12px; }
+.ms-b-give input { all: unset; box-sizing: border-box; width: 0; flex: 1 1 auto; min-width: 0; font-family: var(--f-display); font-size: 46px; font-weight: 800; color: var(--em-hi); caret-color: var(--em-hi); }
+.input-like { cursor: text; border-bottom: 1px solid var(--line-2); padding-bottom: 6px; }
+.input-like:focus-within { border-bottom-color: var(--fg); }
+.ms-b-quick { display: flex; gap: 6px; }
+.ms-b-quick button { all: unset; box-sizing: border-box; --c: 6px; cursor: pointer; flex: 1; text-align: center; padding: 7px 0; font-size: 12.5px; font-weight: 800; background: var(--surface); color: var(--fg-2); }
+.ms-b-quick button:hover { color: var(--fg); }
+.ms-b-quick button[aria-pressed="true"] { color: var(--fg); --edge: var(--edge-2); background: var(--surface-2); }
+.ms-b-swap { --c: 9px; justify-self: center; margin: -14px 0; z-index: 3; width: 40px; height: 40px; display: grid; place-items: center; background: var(--raised-2); color: var(--fg); --edge: var(--edge-2); }
+.ms-b-asset { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 6px 0; }
+.ms-b-asset + .ms-b-asset { border-top: 1px solid var(--line); padding-top: 10px; }
+.ms-b-asset .chain-glyph { grid-row: span 2; }
+.ms-b-amt { font-size: 14px; font-weight: 700; color: var(--fg-2); }
+.ms-b-amt b { font-family: var(--f-display); font-size: 30px; font-weight: 800; color: var(--fg); line-height: 1; margin-right: 4px; }
+.ms-b-when { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-2); }
+.ms-b-when svg { width: 13px; height: 13px; }
+.ms-b-from summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--fg-2); }
+.ms-b-from[open] summary { margin-bottom: 10px; }
+
+/* ——— C · Pick Sources ——— */
+.ms-c { display: grid; gap: 12px; }
+.ms-c-tools { display: flex; justify-content: space-between; align-items: baseline; }
+.ms-c-list { display: grid; gap: 8px; }
+.ms-c-card { --c: var(--cut-card); display: grid; grid-template-columns: auto auto 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; background: var(--shell); cursor: pointer; }
+.ms-c-card input { position: absolute; opacity: 0; pointer-events: none; }
+.ms-c-card:has(input:focus-visible)::after { --r: 2px; }
+.ms-c-card.on { background: var(--surface-2); --edge: var(--edge-em); }
+.ms-c-card:not(.on) { opacity: 0.62; }
+.ms-c-card:not(.on) .gema-amount { color: var(--fg-2); }
+.ms-c-card.paid { --edge: var(--edge-2); }
+.ms-c-tick { width: 20px; height: 20px; display: grid; place-items: center; background: var(--line-2); color: var(--em-ink); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.ms-c-card.on .ms-c-tick { background: var(--facet); }
+.ms-c-tick svg { width: 14px; height: 14px; stroke-width: 3; }
+.ms-c-chain { --c: 7px; width: 36px; height: 36px; display: grid; place-items: center; background: var(--raised); }
+.ms-c-txt { display: grid; gap: 2px; min-width: 0; }
+.ms-c-txt b { font-size: 14.5px; }
+.ms-c-txt small { font-size: 12px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-c-card.on .gema-amount { color: var(--em-hi); }
+.ms-c-sum { display: flex; justify-content: space-between; align-items: center; padding: 10px 2px 0; border-top: 1px solid var(--line); font-size: 13px; font-weight: 700; color: var(--fg-2); }
+.ms-c-sum .gema-amount { color: var(--em-hi); }
+/* Return: cards that open */
+.ms-c-open { grid-template-columns: 1fr; gap: 10px; cursor: default; }
+.ms-c-row { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+.ms-c-tick.round i { width: 8px; height: 8px; background: var(--em-ink); clip-path: inherit; }
+.ms-c-open.on .ms-c-tick { background: var(--facet); }
+.ms-c-max { font-size: 16px; font-weight: 800; text-align: right; display: grid; }
+.ms-c-max small { font-size: 11px; font-weight: 600; color: var(--fg-2); }
+.ms-c-meter { --c: 0; height: 6px; display: flex; background: rgba(234, 239, 236, 0.08); }
+.ms-c-meter i { display: block; height: 100%; transition: flex-basis 0.2s ease; }
+.ms-c-meter .r { flex: 0 0 calc(var(--r) * 100%); background: rgba(234, 239, 236, 0.42); }
+.ms-c-meter .p { flex: 0 0 calc(var(--p) * 100%); background: var(--facet); }
+.ms-c-inline { display: grid; gap: 8px; padding-top: 4px; }
+
+/* ——— D · Route / ring ——— */
+.ms-d { display: grid; gap: 14px; }
+.ms-d-sum { display: grid; gap: 6px; }
+.ms-d-sum .gema-amount { color: var(--em-hi); }
+.ms-d-route { list-style: none; margin: 0; padding: 0; display: grid; }
+.ms-d-route li { display: grid; grid-template-columns: 36px 1fr auto; gap: 12px; align-items: center; padding: 8px 0; position: relative; }
+.ms-d-route li:not(:last-child)::before { content: ""; position: absolute; left: 17px; top: 44px; bottom: -8px; width: 2px; background: var(--line); }
+.ms-d-route li.paid:not(:last-child)::before, .ms-d-route li.crossing:not(:last-child)::before { background: var(--em-deep); }
+.ms-d-node { --c: 8px; width: 36px; height: 36px; display: grid; place-items: center; background: var(--surface-2); color: var(--fg); }
+.ms-d-node svg { width: 18px; height: 18px; }
+.ms-d-route li.paid .ms-d-node { background: var(--money-fill); color: var(--em-ink); --edge: var(--money-rim); }
+.ms-d-route li.active .ms-d-node { --edge: var(--edge-em); }
+.ms-d-route li.crossing .ms-d-node { --edge: rgba(242, 185, 75, 0.6); }
+.ms-d-txt { display: grid; gap: 2px; min-width: 0; }
+.ms-d-txt b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.ms-d-txt small { font-size: 12px; color: var(--fg-2); }
+.ms-d-state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; color: var(--fg-2); white-space: nowrap; }
+.ms-d-state svg { width: 13px; height: 13px; }
+.ms-d-route li.paid .ms-d-state { color: var(--em-hi); }
+.ms-d-route li.active .ms-d-state { color: var(--fg); }
+.ms-d-route li.crossing .ms-d-state { color: var(--warn); }
+
+.ms-d-ring { position: relative; width: min(240px, 70vw); aspect-ratio: 1; justify-self: center; }
+.ms-d-ring svg { width: 100%; height: 100%; display: block; }
+.ms-d-ring path { fill: none; stroke-width: 9; stroke-linejoin: miter; }
+.ms-d-ring .track { stroke: rgba(234, 239, 236, 0.08); }
+.ms-d-ring .repaid { stroke: rgba(234, 239, 236, 0.45); }
+.ms-d-ring .preview { stroke: var(--em); transition: stroke-dasharray 0.2s ease; filter: drop-shadow(0 0 4px rgba(36, 216, 168, 0.45)); }
+.ms-d-center { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px; text-align: center; }
+.ms-d-center b { font-family: var(--f-display); font-size: 48px; font-weight: 800; line-height: 1; font-variant-numeric: proportional-nums; }
+.ms-d-center b.clear { color: var(--em-hi); }
+.ms-d-center b svg { width: 44px; height: 44px; stroke-width: 2.5; }
+.ms-d-legend { display: flex; justify-content: center; gap: 22px; margin: 0; font-size: 12.5px; }
+.ms-d-legend div { display: grid; gap: 2px; justify-items: center; }
+.ms-d-legend dt { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); }
+.ms-d-legend dd { margin: 0; font-weight: 800; font-size: 15px; }
+.ms-d-legend i { width: 10px; height: 10px; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.ms-d-legend i.repaid { background: rgba(234, 239, 236, 0.45); }
+.ms-d-legend i.preview { background: var(--facet); }
+
+@media (max-width: 420px) {
+  .ms-a-fig { font-size: 50px; }
+  .ms-b-give b, .ms-b-give input { font-size: 38px; }
+  .ms-c-card { grid-template-columns: auto 1fr auto; }
+  .ms-c-card .ms-c-chain { display: none; }
+}
+
+/* room for the two prototype bars under the last button */
+dialog.sheet .sheet-in:has(.ms-proto-state), dialog.sheet .sheet-in:has(.ms-foot) { padding-bottom: 130px; }
