@@ -103,6 +103,8 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
   const walletsChanged = (useSol !== null && useSol !== attachedSol) || (useEvm !== null && useEvm !== attachedEvm);
   const unchanged = id.profile !== null && id.profile.name === trimmed && pickEquals(id.profile.avatar, pick) && !walletsChanged;
   const preview = shownIdentity(me ?? "", { ...pendingId, profile: valid ? { name: trimmed, avatar: pick } : null });
+  // The picture follows the pick right away, even before the name is valid.
+  const previewAvatar = shownIdentity(me ?? "", { ...pendingId, profile: { name: trimmed, avatar: pick } }).avatar;
 
   async function save() {
     if (!auth.signer || !me || !valid) return;
@@ -134,7 +136,7 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
     >
       <div className="cut cut-card ep-preview" aria-label="Preview">
         <span className="cut cut-btn avatar ep-preview-av">
-          <PlayerPreview src={preview.avatar} />
+          <PlayerPreview src={previewAvatar} />
         </span>
         <div>
           <b>{preview.label}</b>
