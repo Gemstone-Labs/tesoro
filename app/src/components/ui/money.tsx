@@ -2,7 +2,7 @@ import { fmtGemas, fmtUsd, gemasToUsd } from "@/lib/format";
 import type { Chain } from "@/lib/mock/types";
 import { CountUp } from "./CountUp";
 import { GemaMark, SimulatedYieldLabel } from "./gema";
-import { CheckIcon, ClockIcon, MinusIcon, XIcon } from "./icons";
+import { ChainGlyph } from "./inputs";
 import { ChainChip, Label, Meter } from "./primitives";
 
 /** The balance as a banknote: the card is the money fill, figure and Gema mark in ink. The only place the glint runs. */
@@ -111,15 +111,31 @@ const STEPS: CrossChainStep[] = [
   { title: "Gemas available", note: "Gemas credited to your Account" },
 ];
 
+/** One end of a cross-chain route: a chain, or the player's Account on Solana. */
+export type CrossChainEnd = Chain | "account";
+
+const END_NAME: Record<CrossChainEnd, string> = { SOL: "Solana", ETH: "Ethereum", HYPE: "HyperEVM", account: "Your Account" };
+const END_ASSET = { SOL: 0, ETH: 1, HYPE: 2 } as const;
+
+function EndMark({ end }: { end: CrossChainEnd }) {
+  return end === "account" ? <GemaMark size={26} /> : <ChainGlyph asset={END_ASSET[end]} size={26} />;
+}
+
+type StepState = "done" | "available" | "active" | "waiting" | "failed";
+
 /**
- * Cross-chain transfer progress. `stage` is the number of steps completed (0..steps.length).
- * Success is only ever shown at the last stage: pending never shows success early. `steps` defaults
- * to the three-step Advance; the last step reads "Available" (Gemas) unless `finalState` says otherwise.
+ * Cross-chain transfer progress as a route: the source and destination as tiles, the steps between them as
+ * stations on a track, and a packet travelling the leg being worked on. `stage` is the number of steps completed
+ * (0..steps.length). The first step lights the source tile, the last the destination; success is only ever shown
+ * at the last stage, so pending never shows success early. `steps` defaults to the three-step Advance; the last
+ * step reads "Available" (Gemas) unless `finalState` says otherwise. `from` defaults to `chain`, `to` to the Account.
  */
 export function CrossChainProgress({
   stage,
   failed = false,
   chain,
+  from = chain ?? "ETH",
+  to = "account",
   txHash,
   steps = STEPS,
   label,
@@ -132,6 +148,8 @@ export function CrossChainProgress({
   /** The current step failed. */
   failed?: boolean;
   chain?: Chain;
+  from?: CrossChainEnd;
+  to?: CrossChainEnd;
   txHash?: string;
   steps?: CrossChainStep[];
   label?: string;
@@ -141,38 +159,55 @@ export function CrossChainProgress({
   failedText?: string;
 }) {
   const last = steps.length;
+  const legs = Math.max(1, last - 1);
   const allDone = stage >= last && !failed;
+  const current = Math.min(stage, last - 1);
+  const states: StepState[] = steps.map((_, i) => {
+    if (i < stage) return i === last - 1 ? "available" : "done";
+    if (i === stage) return failed ? "failed" : "active";
+    return "waiting";
+  });
+  const word = (s: StepState) => ({ done: "Done", available: finalState, active: "In progress", waiting: "Waiting", failed: "Failed" })[s];
+  const step = steps[current];
+  // the packet sits on the leg leading to the step being worked on, or on the source while it confirms
+  const packet = stage === 0 ? 0 : (current - 0.5) / legs;
+
   return (
-    <div className="stack">
+    <div className={`xc${allDone ? " is-done" : failed ? " is-failed" : ""}`}>
       <div className="spread">
         <Label>{label ?? (chain ? `${chain} → Gemas` : "Cross-chain")}</Label>
         {txHash && <span className="mono meta">{txHash}</span>}
       </div>
-      <ol className="xc" aria-label="Cross-chain progress">
-        {steps.map(({ title, note }, i) => {
-          const isLast = i === last - 1;
-          let state: "done" | "active" | "waiting" | "failed" | "available";
-          if (i < stage) state = isLast ? "available" : "done";
-          else if (i === stage) state = failed ? "failed" : "active";
-          else state = "waiting";
-          const stateText = { done: "Done", available: finalState, active: "In progress", waiting: "Waiting", failed: "Failed" }[state];
-          const Icon = { done: CheckIcon, available: CheckIcon, active: ClockIcon, waiting: MinusIcon, failed: XIcon }[state];
-          return (
-            <li key={title} className={state} aria-current={state === "active" ? "step" : undefined}>
-              <span className="cut cut-chip xc-icon"><Icon /></span>
-              <span>
-                <span className="xc-title">{title}</span>
-                <br />
-                <span className="xc-note">{note}</span>
-              </span>
-              <span className="xc-state">{stateText}</span>
-            </li>
-          );
-        })}
+      <div className="xc-route" aria-hidden="true">
+        <span className={`xc-end cut cut-card ${states[0]}`}><EndMark end={from} /></span>
+        <span className="xc-track">
+          {states.slice(1).map((s, i) => (
+            <span key={i} className={`xc-leg ${s}`} />
+          ))}
+          {states.slice(1, -1).map((s, i) => (
+            <span key={i} className={`xc-stop cut ${s}`} style={{ left: `${((i + 1) / legs) * 100}%` }} title={steps[i + 1].title} />
+          ))}
+          {!allDone && <span className={`xc-packet${failed ? " failed" : ""}`} style={{ left: `${packet * 100}%` }} />}
+        </span>
+        <span className={`xc-end cut cut-card ${states[last - 1]}`}><EndMark end={to} /></span>
+      </div>
+      <div className="xc-names" aria-hidden="true">
+        <span>{END_NAME[from]}</span>
+        <span>{END_NAME[to]}</span>
+      </div>
+      <ol className="sr-only" aria-label="Cross-chain progress">
+        {steps.map(({ title }, i) => (
+          <li key={title} aria-current={states[i] === "active" ? "step" : undefined}>
+            {title}: {word(states[i])}
+          </li>
+        ))}
       </ol>
-      <p className="note" role="status">
-        {allDone ? doneText : failed ? failedText : pendingText}
-      </p>
+      <div className="xc-now" role="status">
+        <span className="xc-state">{allDone ? finalState : `Step ${current + 1} of ${last} · ${word(states[current])}`}</span>
+        <strong>{step.title}</strong>
+        <span className="xc-note">{allDone ? doneText : failed ? failedText : step.note}</span>
+      </div>
+      {!allDone && !failed && <p className="note">{pendingText}</p>}
     </div>
   );
 }

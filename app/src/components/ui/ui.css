@@ -351,25 +351,50 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .slider-marks button:first-child { transform: translateX(-25%); }
 .slider-marks button:last-child:not(:first-child) { transform: translateX(-75%); }
 
-/* ——— Cross-chain progress ——— */
-.xc { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
-.xc li { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: start; padding-bottom: 14px; position: relative; }
-.xc li:last-child { padding-bottom: 0; }
-.xc li:not(:last-child)::before { content: ""; position: absolute; left: 13px; top: 26px; bottom: 2px; width: 2px; background: var(--line); }
-.xc li.done:not(:last-child)::before { background: var(--fg-3); }
-.xc-icon { --c: 6px; width: 28px; height: 28px; display: grid; place-items: center; background: var(--surface); color: var(--fg-2); }
-.xc-icon svg { width: 16px; height: 16px; }
-.xc li.done .xc-icon { color: var(--fg); --edge: var(--fg-3); }
-.xc li.active .xc-icon { color: var(--warn); --edge: rgba(242, 185, 75, 0.5); }
-.xc li.failed .xc-icon { color: var(--danger); --edge: rgba(242, 104, 90, 0.5); }
-.xc li.available .xc-icon { background: var(--money-fill); color: var(--em-ink); --edge: var(--money-rim); }
-.xc-title { font-weight: 700; font-size: 14px; }
-.xc-note { font-size: 12px; color: var(--fg-2); }
-.xc-state { font-size: 12px; font-weight: 700; color: var(--fg-2); white-space: nowrap; padding-top: 4px; }
-.xc li.done .xc-state { color: var(--fg); }
-.xc li.active .xc-state { color: var(--warn); }
-.xc li.failed .xc-state { color: var(--danger); }
-.xc li.available .xc-state { color: var(--em); }
+/* ——— Cross-chain progress: a route from source to destination ——— */
+.xc { display: grid; gap: 12px; --live: var(--warn); --live-soft: rgba(242, 185, 75, 0.2); }
+.xc-route { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; }
+.xc-end { --c: 12px; width: 52px; height: 52px; display: grid; place-items: center; background: var(--surface-2); --edge: var(--edge-2); transition: background 0.4s, filter 0.4s; }
+.xc-end.waiting { filter: grayscale(1) brightness(0.7); --edge: var(--edge-1); }
+.xc-end.active { --edge: linear-gradient(180deg, rgba(242, 185, 75, 0.9), rgba(242, 185, 75, 0.3)); }
+.xc-end.failed { --edge: var(--danger); }
+.xc-end.available { background: var(--money-fill); --edge: var(--money-rim); }
+.xc-track { position: relative; display: flex; align-items: center; height: 52px; }
+.xc-leg { flex: 1; height: 4px; background: repeating-linear-gradient(90deg, var(--line-2) 0 6px, transparent 6px 11px); transition: background 0.4s; }
+.xc-leg:is(.done, .available) { background: linear-gradient(180deg, rgba(234, 239, 236, 0.75), rgba(234, 239, 236, 0.35)); }
+.xc-leg.active {
+  background: linear-gradient(90deg, transparent 0, var(--live) 45%, transparent 60%) 0 0 / 220% 100%, var(--line-2);
+  animation: xc-flow 1.4s linear infinite;
+}
+.xc-leg.failed { background: repeating-linear-gradient(90deg, var(--danger) 0 6px, transparent 6px 11px); }
+.xc.is-done .xc-leg { background: var(--money-fill); }
+@keyframes xc-flow { from { background-position: 120% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
+.xc-stop { --c: 4px; position: absolute; top: 50%; width: 16px; height: 16px; transform: translate(-50%, -50%); background: var(--raised-2); --edge: var(--edge-2); transition: background 0.4s; }
+.xc-stop:is(.done, .active, .failed) { --edge: transparent; }
+.xc-stop.done { background: var(--fg); }
+.xc-stop.active { background: var(--live); }
+.xc-stop.failed { background: var(--danger); }
+.xc.is-done .xc-stop { background: var(--em); }
+.xc-packet {
+  position: absolute; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--live); box-shadow: 0 0 0 4px var(--live-soft), 0 0 18px rgba(242, 185, 75, 0.7);
+  transition: left 0.9s cubic-bezier(0.5, 0, 0.2, 1); animation: xc-beat 1.4s ease-in-out infinite;
+}
+.xc-packet.failed { background: var(--danger); box-shadow: 0 0 0 4px rgba(242, 104, 90, 0.2); animation: none; }
+@keyframes xc-beat { 50% { box-shadow: 0 0 0 7px rgba(242, 185, 75, 0.06), 0 0 26px rgba(242, 185, 75, 0.9); } }
+.xc-names { display: flex; justify-content: space-between; gap: 12px; margin-top: -4px; font-size: 12px; color: var(--fg-2); }
+.xc-now { display: grid; gap: 2px; padding: 12px 14px; background: var(--shell); border-left: 2px solid var(--live); }
+.xc-now strong { font-size: 17px; font-weight: 800; }
+.xc-note { font-size: 13px; color: var(--fg-2); }
+.xc-state { font-family: var(--f-display); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--live); }
+.xc.is-done .xc-now { border-left-color: var(--em); }
+.xc.is-done .xc-state { color: var(--em); }
+.xc.is-failed .xc-now { border-left-color: var(--danger); }
+.xc.is-failed .xc-state { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .xc-leg.active, .xc-packet { animation: none; }
+  .xc-packet { transition: none; }
+}
 
 /* ——— Sheet (native dialog) ——— */
 dialog.sheet {

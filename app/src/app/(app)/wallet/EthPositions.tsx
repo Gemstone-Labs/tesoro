@@ -438,6 +438,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
   const steps = opSteps(op.kind, op.vault);
   const copy = opCopy(op.kind, op.vault);
   const net = netOfVault(op.vault);
+  const outbound = op.kind === "redeem" || op.kind === "unlock";
   const scanText = scan ? `Transfer: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "Transfer: waiting for the first update" : null;
 
   return (
@@ -455,6 +456,8 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
         <CrossChainProgress
           stage={finished ? steps.length : stage}
           steps={steps}
+          from={outbound ? "account" : net.native}
+          to={outbound ? net.native : "account"}
           label={copy.label}
           finalState={copy.finalState}
           doneText={copy.done}
