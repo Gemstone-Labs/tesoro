@@ -3,7 +3,7 @@
 /* PROTOTYPE ONLY: five takes on the Lobby "Back a player" rail (?variant=now|A|B|C|D|E). Branch proto/back-player-rail-11-10-2026. */
 import Image from "next/image";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { ChainRequest } from "@/lib/chain/backing";
 import { backedSplit } from "@/lib/chain/ledger";
@@ -240,7 +240,7 @@ export function RailB({ items }: { items: Item[] }) {
 }
 
 /* ——— C · Trading cards: portrait cards on a scrolling shelf, the Player's animal as the face, an explainer card first ——— */
-export function RailC({ items }: { items: Item[] }) {
+export function RailC({ items, pnl = "spark" }: { items: Item[]; pnl?: PnlStyle }) {
   const track = useRef<HTMLDivElement>(null);
   const nudge = (d: number) => track.current?.scrollBy({ left: d * 300, behavior: "smooth" });
   return (
@@ -307,7 +307,7 @@ export function RailC({ items }: { items: Item[] }) {
                     </div>
                   </dl>
                 ) : null}
-                {it.r.record.matches ? <Pips r={it.r} max={20} /> : (
+                {it.r.record.matches ? <Pnl r={it.r} style={pnl} /> : (
                   <p className="bpc-new">New Player · no settled Matches yet</p>
                 )}
                 <Act it={it} block>
@@ -319,6 +319,103 @@ export function RailC({ items }: { items: Item[] }) {
         })}
       </div>
     </Rail>
+  );
+}
+
+/* P&L: the Player's Gemas won minus lost over their decided Matches (the Account page's figure), three ways. */
+export type PnlStyle = "spark" | "split" | "figures" | "dots";
+const signedG = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${fmtGemas(Math.abs(n))}`;
+function Pnl({ r, style }: { r: ChainRequest; style: PnlStyle }) {
+  const d = r.record.deltas ?? [];
+  const won = d.filter((x) => x > 0).reduce((a, b) => a + b, 0);
+  const lost = d.filter((x) => x < 0).reduce((a, b) => a - b, 0);
+  const net = won - lost;
+  const tone = net > 0 ? "up" : net < 0 ? "down" : "";
+  const head = (
+    <div className="bpc-pnl-head">
+      <span>P&amp;L</span>
+      <b className={tone}>
+        <GemaMark size={16} />
+        {signedG(net)}
+      </b>
+    </div>
+  );
+  if (style === "dots") return <Pips r={r} max={20} />;
+  if (style === "spark")
+    return (
+      <div className="bpc-pnl spark">
+        {head}
+        <Spark deltas={d} />
+      </div>
+    );
+  if (style === "split") {
+    const total = won + lost || 1;
+    return (
+      <div className="bpc-pnl bar">
+        {head}
+        <span className="bpc-split" aria-hidden="true">
+          <i className="down" style={{ width: `${(lost / total) * 100}%` }} />
+          <i className="up" style={{ width: `${(won / total) * 100}%` }} />
+        </span>
+        <span className="bpc-split-legend">
+          <span>Lost {fmtGemas(lost)}</span>
+          <span>Won {fmtGemas(won)}</span>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <dl className="bpc-pnl figures">
+      <div>
+        <dd className="up">{fmtGemas(won)}</dd>
+        <dt>Won</dt>
+      </div>
+      <div>
+        <dd className="down">{fmtGemas(lost)}</dd>
+        <dt>Lost</dt>
+      </div>
+      <div>
+        <dd className={tone}>{signedG(net)}</dd>
+        <dt>P&amp;L</dt>
+      </div>
+    </dl>
+  );
+}
+
+/** Running total as a step line: emerald above zero, red below. */
+function Spark({ deltas }: { deltas: number[] }) {
+  const totals = deltas.reduce<number[]>((acc, x) => [...acc, (acc.at(-1) ?? 0) + x], []);
+  const hi = Math.max(0, ...totals);
+  const lo = Math.min(0, ...totals);
+  const span = hi - lo || 1;
+  const n = totals.length || 1;
+  const W = 240;
+  const H = 44;
+  const x = (i: number) => ((i + 1) / n) * W;
+  const y = (v: number) => 2 + ((hi - v) / span) * (H - 4);
+  const zero = y(0);
+  const line = `M0,${zero}` + totals.map((v, i) => ` H${x(i)} V${y(v)}`).join("");
+  const id = useId().replace(/[^\w-]/g, "");
+  return (
+    <svg className="bpc-spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <clipPath id={`${id}u`}>
+          <rect x="0" y="0" width={W} height={zero} />
+        </clipPath>
+        <clipPath id={`${id}d`}>
+          <rect x="0" y={zero} width={W} height={H - zero} />
+        </clipPath>
+      </defs>
+      <line x1="0" x2={W} y1={zero} y2={zero} className="zero" />
+      <g clipPath={`url(#${id}u)`}>
+        <path d={`${line} V${zero} Z`} className="area up" />
+        <path d={line} className="ln up" />
+      </g>
+      <g clipPath={`url(#${id}d)`}>
+        <path d={`${line} V${zero} Z`} className="area down" />
+        <path d={line} className="ln down" />
+      </g>
+    </svg>
   );
 }
 

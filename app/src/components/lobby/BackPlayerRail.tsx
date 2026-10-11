@@ -10,17 +10,24 @@ import { usePlayerLabel } from "@/components/account/Player";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { Rail } from "./Rail";
 import { PrototypeSwitcher, usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
-import { RailA, RailB, RailC, RailD, RailE } from "./BackPlayerRail.prototype";
+import { RailA, RailB, RailC, RailD, RailE, type Item } from "./BackPlayerRail.prototype";
 
 const VARIANTS = [
+  { key: "C1", name: "Cards · P&L line" },
+  { key: "C2", name: "Cards · P&L won/lost bar" },
+  { key: "C3", name: "Cards · P&L figures" },
+  { key: "C", name: "Cards · W/L dots (round 1)" },
   { key: "now", name: "Current" },
   { key: "A", name: "Spotlight + bench" },
   { key: "B", name: "Scouting ledger" },
-  { key: "C", name: "Trading cards shelf" },
   { key: "D", name: "Deal desk" },
   { key: "E", name: "Payoff tickets" },
 ] as const;
-const PROTO = { A: RailA, B: RailB, C: RailC, D: RailD, E: RailE } as const;
+const C1 = (p: { items: Item[] }) => <RailC {...p} pnl="spark" />;
+const C2 = (p: { items: Item[] }) => <RailC {...p} pnl="split" />;
+const C3 = (p: { items: Item[] }) => <RailC {...p} pnl="figures" />;
+const CDots = (p: { items: Item[] }) => <RailC {...p} pnl="dots" />;
+const PROTO = { A: RailA, B: RailB, C: CDots, C1, C2, C3, D: RailD, E: RailE } as const;
 
 /** BACK A PLAYER: live Requests from Solana devnet with the Player's real record. The avatar and name lead to their Account; Offer opens the Backing flow. */
 export function BackPlayerRail() {

@@ -28,6 +28,8 @@ export interface PlayerRecord {
   /** Settled Matches with a winner (draws and refunds are not counted). */
   matches: number;
   wins: number;
+  /** PROTOTYPE (proto/back-player-rail): the Player's Gema change per decided Match, oldest first (fixture only). */
+  deltas?: number[];
 }
 
 export interface ChainRequest {

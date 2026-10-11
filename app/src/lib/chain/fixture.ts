@@ -127,6 +127,18 @@ export function demoSnapshot(address: string): AccountSnapshot {
   };
 }
 
+/** PROTOTYPE: a seeded Match-by-Match Gema change for a Request's record (win = entry minus 12% Fees, loss = entry). `behind` loses the big entries. */
+function demoDeltas(seed: number, matches: number, wins: number, behind = false): number[] {
+  let x = seed * 9301 + 49297;
+  const rnd = () => ((x = (x * 9301 + 49297) % 233280) / 233280);
+  const entries = [500, 1000, 2500];
+  const res = Array.from({ length: matches }, (_, i) => i < wins).sort(() => rnd() - 0.5);
+  return res.map((won) => {
+    const e = behind ? (won ? 500 : entries[1 + Math.floor(rnd() * 2)]) : entries[Math.floor(rnd() * 3)];
+    return won ? Math.round(e * 0.88) : -e;
+  });
+}
+
 export function demoBoard(): BackingBoard {
   const req = (n: number, game: "block-puzzle" | "holdem" | "trading-duel", entry: number, matches: number, wins: number, mins = 60): ChainRequest => ({
     address: key(600 + n),
@@ -137,7 +149,7 @@ export function demoBoard(): BackingBoard {
     expiresAt: Math.floor(Date.now() / 1000) + mins * 60,
     status: "open",
     live: true,
-    record: { matches, wins },
+    record: { matches, wins, deltas: demoDeltas(n, matches, wins, n === 4) },
   });
   return {
     // PROTOTYPE (proto/back-player-rail): more Requests so the rail variants meet a new Player, a Duel and varied time left.
