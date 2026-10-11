@@ -1,20 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { fmtGemas } from "@/lib/format";
 import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, tesoroAccountPda, type Action, type Table } from "./chain";
 import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
-import { PlayingCard } from "./cards";
+import { FlipCard, PlayingCard, type FlipState } from "./cards";
+import { centre, flyFrom } from "./motion";
 import { inPlay } from "./rules";
 import { ActionBar } from "./ActionBar";
 import { ChipStack } from "./ChipStack";
 import { Seat } from "./Seat";
 import { bestHand } from "./reading";
 import { useTableFeed } from "./useTableFeed";
-import { Arena, Callout, MuteToggle } from "../fx";
+import { Arena, Callout, MuteToggle, prefersReducedMotion, sfx } from "../fx";
 import { art } from "@/lib/art";
 import "./holdem.css";
 
@@ -110,14 +111,94 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
     : showLast && lh.showdown && lh.shown[opp][0] !== NO_CARD
       ? lh.shown[opp]
       : null;
-  const oppBacks = playing;
-  const myHand = myCards && (playing || showLast) ? bestHand(myCards, board).name : null;
+  const myHand = myCards && (playing || showLast) && !(feed.dealing && playing) ? bestHand(myCards, board).name : null;
 
   const level = `${chips(t.smallBlind)} / ${chips(t.bigBlind)}`;
   const sbSeat = t.dealer;
   const ringFraction = practice ? 1 : Math.min(1, Math.max(0, remaining / total));
   const ringLow = !practice && remaining <= 10;
   const bots = art.avatars;
+
+  // Where things are on screen, so cards leave the deck, chips sweep into the pot and the dealer button slides.
+  const deckRef = useRef<HTMLDivElement>(null);
+  const potRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const betSpots = useRef<[{ amount: bigint; at: { x: number; y: number } } | null, { amount: bigint; at: { x: number; y: number } } | null]>([null, null]);
+  const sweptBatch = useRef(0);
+  const dealerAt = useRef<{ x: number; y: number } | null>(null);
+  const [ghosts, setGhosts] = useState<{ id: number; seat: number; amount: bigint; x: number; y: number; dx: number; dy: number }[]>([]);
+  const batch = feed.batch;
+
+  useLayoutEffect(() => {
+    // Chips that were in front of a seat before this read go to the pot (the bets are already gone from the DOM).
+    const sweeps = batch?.events.some((e) => e.type === "sweep");
+    const pot = potRef.current?.getBoundingClientRect();
+    if (batch && batch.id !== sweptBatch.current && sweeps && pot && !prefersReducedMotion()) {
+      sweptBatch.current = batch.id;
+      const to = centre(pot);
+      const made = ([0, 1] as const).flatMap((i) => {
+        const b = betSpots.current[i];
+        return b ? [{ id: batch.id * 2 + i, seat: i, amount: b.amount, x: b.at.x, y: b.at.y, dx: to.x - b.at.x, dy: to.y - b.at.y }] : [];
+      });
+      if (made.length) {
+        setGhosts((g) => [...g, ...made]);
+        const ids = made.map((m) => m.id);
+        setTimeout(() => setGhosts((g) => g.filter((x) => !ids.includes(x.id))), 800);
+      }
+    }
+    betSpots.current = [0, 1].map((i) => {
+      const el = tableRef.current?.querySelector<HTMLElement>(`[data-bet="${i}"]`);
+      return el && t.bets[i] > 0n ? { amount: t.bets[i], at: centre(el.getBoundingClientRect()) } : null;
+    }) as typeof betSpots.current;
+
+    // The dealer button slides to the new dealer.
+    const d = tableRef.current?.querySelector<HTMLElement>(".hd-btn");
+    if (d) {
+      const at = centre(d.getBoundingClientRect());
+      if (dealerAt.current && Math.hypot(at.x - dealerAt.current.x, at.y - dealerAt.current.y) > 24) flyFrom(d, dealerAt.current, { duration: 600, spin: 180, scale: 1 });
+      dealerAt.current = at;
+    }
+  }, [batch, t]);
+
+  // Sound follows the same events as the motion.
+  useEffect(() => {
+    if (!batch) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, cue: Parameters<typeof sfx>[0]) => timers.push(setTimeout(() => sfx(cue), ms));
+    for (const e of batch.events) {
+      if (e.type === "action") at(0, e.kind === "check" ? "check" : e.kind === "fold" ? "fold" : "chip");
+      else if (e.type === "sweep") at(120, "chip");
+      else if (e.type === "deal") {
+        [0, 110, 220, 330].forEach((ms) => at(ms, "deal"));
+        at(1000, "flip");
+      } else if (e.type === "street") {
+        e.cards.forEach((_, k) => {
+          at(350 + k * 140, "deal");
+          at(350 + k * 140 + 440, "flip");
+        });
+      }
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [batch]);
+
+  const fresh = batch?.events ?? [];
+  const dealtNow = fresh.some((e) => e.type === "deal");
+  const holeFly = (order: number) => (dealtNow ? { deck: deckRef, delay: order * 110 } : null);
+  const streetCards = (() => {
+    const s = fresh.find((e) => e.type === "street");
+    // The board index the first dealt card of the latest street lands on, and how many land.
+    if (!s || s.type !== "street") return null;
+    return s.street === "flop" ? { from: 0, n: 3 } : s.street === "turn" ? { from: 3, n: 1 } : { from: 4, n: 1 };
+  })();
+  const boardFly = (i: number) => {
+    if (!streetCards || i < streetCards.from || i >= streetCards.from + streetCards.n) return null;
+    // After the chips sweep in, the cards leave the deck one by one.
+    const k = i - streetCards.from;
+    return { fly: { deck: deckRef, delay: 350 + k * 140 }, turn: 350 + k * 140 + 440 };
+  };
+  const dealingMine = feed.dealing && playing;
+  const dealtHand = playing ? t.handNo : lh.handNo;
+  const oppState: FlipState = oppCards ? "up" : playing ? "down" : "empty";
 
   return (
     <Arena game="holdem">
@@ -161,7 +242,17 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
       </header>
 
       <div className="hdx-stage">
-        <div className="hdx-table">
+        <div className="hdx-table" ref={tableRef}>
+          <div className="hdx-surface" aria-hidden="true">
+            <div className="hdx-rim">
+              <div className="hdx-bed" />
+            </div>
+          </div>
+          <div className="hdx-deck" ref={deckRef} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </div>
           <div className="hdx-felt">
             <Seat
               who="Opponent"
@@ -178,22 +269,15 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
               allIn={playing && t.stacks[opp] === 0n}
               missed={t.missed[opp]}
               say={feed.say[opp]}
+              index={opp}
             >
-              {oppCards ? (
-                <>
-                  <PlayingCard card={oppCards[0]} />
-                  <PlayingCard card={oppCards[1]} />
-                </>
-              ) : (
-                <>
-                  <PlayingCard back={oppBacks} />
-                  <PlayingCard back={oppBacks} />
-                </>
-              )}
+              {[0, 1].map((i) => (
+                <FlipCard key={`o${dealtHand}-${i}`} card={oppCards?.[i]} state={oppState} fly={holeFly(i === 0 ? 0 : 2)} turnDelay={i * 120} />
+              ))}
             </Seat>
 
             <div className="hdx-mid">
-              <div className="cut hdx-pot mono" aria-label={`Pot ${chips(t.pot)} Chips`}>
+              <div ref={potRef} className="cut hdx-pot mono" aria-label={`Pot ${chips(t.pot)} Chips`}>
                 <ChipStack amount={t.pot} piles={t.pot > 1500n ? 3 : t.pot > 400n ? 2 : 1} />
                 <span className="hdx-pot-t">
                   <span className="hdx-pot-l">Pot</span>
@@ -203,9 +287,11 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
                 </span>
               </div>
               <div className="hdx-board" aria-label="Board">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <PlayingCard key={i} card={board[i]} size="lg" />
-                ))}
+                {[0, 1, 2, 3, 4].map((i) => {
+                  const f = boardFly(i);
+                  const known = board[i] !== undefined && board[i] < 52;
+                  return <FlipCard key={`b${t.handNo}-${i}`} card={board[i]} state={known ? "up" : "empty"} size="lg" fly={f?.fly} turnDelay={f?.turn ?? 0} />;
+                })}
               </div>
             </div>
 
@@ -223,18 +309,37 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
               missed={t.missed[seat]}
               say={feed.say[seat]}
               label={myHand}
+              index={seat}
               mine
             >
-              <PlayingCard card={myCards?.[0]} size="lg" />
-              <PlayingCard card={myCards?.[1]} size="lg" />
+              {[0, 1].map((i) => (
+                <FlipCard
+                  key={`m${hole?.handNo ?? 0}-${i}`}
+                  card={myCards?.[i]}
+                  state={myCards ? (dealingMine ? "down" : "up") : playing ? "down" : "empty"}
+                  size="lg"
+                  fly={holeFly(i === 0 ? 1 : 3)}
+                  turnDelay={i * 140}
+                />
+              ))}
             </Seat>
           </div>
+          {feed.banner && (
+            <div className="hdx-banner">
+              <Callout key={feed.banner.id} text={feed.banner.text} duration={1100} className="hdx-banner-host" />
+            </div>
+          )}
           {feed.toast && (
             <div className="hdx-toast">
               <Callout key={feed.toast.id} text={feed.toast.text} tone="warn" duration={2400} className="hdx-toast-host" />
             </div>
           )}
         </div>
+        {ghosts.map((g) => (
+          <div key={g.id} className="hd-ghost" style={{ left: g.x, top: g.y, ["--dx" as string]: `${g.dx}px`, ["--dy" as string]: `${g.dy}px` }} aria-hidden="true">
+            <ChipStack amount={g.amount} />
+          </div>
+        ))}
         {showLast && <HandResult t={t} seat={seat} ended={ended} />}
         {!showLast && playing && lh.handNo > 0 && lh.result !== NO_WINNER && (
           <p className="meta hd-last">

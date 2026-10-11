@@ -21,6 +21,15 @@
 }
 .hd-card.empty { border: 1px dashed rgba(234, 239, 236, 0.18); background: rgba(255, 255, 255, 0.03); }
 
+/* a card that turns over: the back and the face are two sides of one box */
+.hd-flipc { --w: 44px; position: relative; display: inline-block; width: var(--w); aspect-ratio: 5 / 7; flex: none; perspective: 700px; }
+.hd-flipc.lg { --w: 58px; }
+.hd-flipc-in { position: relative; display: block; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 520ms cubic-bezier(0.3, 0.9, 0.3, 1); }
+.hd-flipc-in.up { transform: rotateY(180deg); }
+.hd-flipc .hd-card { --w: inherit; position: absolute; inset: 0; width: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.hd-flipc .hd-card.face, .hd-flipc .hd-card.empty { transform: rotateY(180deg); }
+.hd-flipc .hd-card .hd-rank { font-size: calc(var(--w) * 0.56); }
+
 /* layout: slim header, the table, the action bar, a collapsible hand log */
 .hdx { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; width: 100%; }
 .hdx-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 0 4px; }
@@ -30,21 +39,35 @@
 .hdx-entry { --edge: var(--edge-em); display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 6px 12px; background: linear-gradient(180deg, #0f3029, #0a2320); font-weight: 800; font-size: 14px; color: var(--em-hi); }
 .hdx-stage { display: grid; gap: 12px; min-width: 0; }
 
-/* the octagonal table: steel rim, dark navy surface */
-.hdx-table {
-  --oct: polygon(15% 0, 85% 0, 100% 24%, 100% 76%, 85% 100%, 15% 100%, 0 76%, 0 24%);
-  position: relative; clip-path: var(--oct); padding: 12px;
+/* the octagonal table, drawn in perspective: the steel rim and navy surface tilt back, the seats and cards stand on it */
+.hdx-table { --oct: polygon(15% 0, 85% 0, 100% 24%, 100% 76%, 85% 100%, 15% 100%, 0 76%, 0 24%); position: relative; }
+.hdx-surface {
+  position: absolute; inset: 0; transform: perspective(1500px) rotateX(13deg); transform-origin: 50% 100%;
+  filter: drop-shadow(0 28px 26px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 26px rgba(110, 150, 255, 0.22));
+}
+.hdx-rim {
+  position: absolute; inset: 0; clip-path: var(--oct); padding: 12px;
   background: linear-gradient(135deg, #93a6bb 0 12%, #34404f 12% 30%, #9db0c4 30% 48%, #2b3644 48% 66%, #8fa2b7 66% 84%, #3a4757 84%);
 }
-.hdx-felt {
-  clip-path: var(--oct); min-height: 420px; padding: 18px 16px 16px; display: grid; grid-template-rows: auto 1fr auto; gap: 8px; justify-items: center;
+.hdx-rim::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 38%); pointer-events: none; }
+.hdx-bed {
+  position: absolute; inset: 12px; clip-path: var(--oct);
   background:
-    radial-gradient(60% 45% at 50% 46%, rgba(120, 160, 255, 0.16), transparent 70%),
+    radial-gradient(60% 45% at 50% 46%, rgba(120, 160, 255, 0.2), transparent 70%),
     linear-gradient(115deg, transparent 0 38%, rgba(160, 190, 255, 0.05) 38% 44%, transparent 44%),
     linear-gradient(62deg, transparent 0 62%, rgba(160, 190, 255, 0.04) 62% 67%, transparent 67%),
     radial-gradient(120% 90% at 50% 40%, #17346a, #0a1631 78%);
   box-shadow: inset 0 0 60px rgba(2, 6, 18, 0.6);
 }
+.hdx-felt { position: relative; min-height: 420px; padding: 34px 28px 24px; display: grid; grid-template-rows: auto 1fr auto; gap: 8px; justify-items: center; }
+.hdx-deck { position: absolute; z-index: 1; right: 21%; top: 30%; width: 34px; aspect-ratio: 5 / 7; pointer-events: none; }
+.hdx-deck i { position: absolute; inset: 0; border-radius: 4px; background: #0c1836 url("/art/card-back.svg") center / 100% 100% no-repeat; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(157, 176, 196, 0.35); }
+.hdx-deck i:nth-child(2) { transform: translate(-2px, -2px); }
+.hdx-deck i:nth-child(3) { transform: translate(-4px, -4px); }
+.hdx-banner { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
+.hdx-banner .fx-callout { letter-spacing: 0.12em; }
+.hd-ghost { position: fixed; z-index: 60; transform: translate(-50%, -50%); pointer-events: none; animation: hd-sweep 620ms cubic-bezier(0.5, 0, 0.3, 1) 80ms both; }
+@keyframes hd-sweep { 0% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 85% { opacity: 1; } 100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.7); opacity: 0; } }
 .hdx-mid { display: grid; gap: 12px; justify-items: center; align-content: center; }
 .hdx-board { display: flex; gap: 6px; flex-wrap: nowrap; }
 .hdx-pot { --c: 10px; display: flex; align-items: center; gap: 12px; padding: 6px 20px 6px 14px; font-size: 14px; color: var(--fg-2); background: linear-gradient(180deg, rgba(14, 26, 54, 0.85), rgba(6, 12, 28, 0.85)); --edge: linear-gradient(180deg, rgba(190, 210, 255, 0.45), rgba(160, 190, 255, 0.12)); min-height: 44px; }
@@ -200,9 +223,11 @@
 
 /* phones: the table shrinks, the info panel becomes a one-line strip */
 @media (max-width: 719px) {
-  .hdx-felt { min-height: 360px; padding: 14px 8px 12px; }
-  .hd-card { --w: 36px; }
-  .hd-card.lg { --w: 44px; }
+  .hdx-felt { min-height: 360px; padding: 22px 12px 18px; }
+  .hdx-surface { transform: perspective(1200px) rotateX(9deg); }
+  .hdx-deck { right: 9%; top: 27%; width: 26px; }
+  .hd-card, .hd-flipc { --w: 36px; }
+  .hd-card.lg, .hd-flipc.lg { --w: 44px; }
   .hdx-board { gap: 4px; }
   .hdx-plaque { width: 212px; padding: 6px 14px 6px 8px; gap: 8px; }
   .hd-ava { width: 52px; height: 52px; }
@@ -215,8 +240,8 @@
   .hdx-seat:not(.mine) .hd-handlabel { display: none; }
 }
 @media (min-width: 720px) {
-  .hd-card { --w: 52px; }
-  .hd-card.lg { --w: 66px; }
+  .hd-card, .hd-flipc { --w: 52px; }
+  .hd-card.lg, .hd-flipc.lg { --w: 66px; }
 }
 @media (min-width: 1024px) {
   .hdx-actions { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; }
@@ -226,8 +251,8 @@
   /* Sized by viewport height too, so header, table and action bar fit one desktop screen. */
   .hdx { gap: clamp(12px, 2vh, 24px); }
   .hdx-felt { min-height: clamp(380px, 50vh, 500px); }
-  .hd-card { --w: clamp(44px, 5.4vh, 62px); }
-  .hd-card.lg { --w: clamp(54px, 6.8vh, 78px); }
+  .hd-card, .hd-flipc { --w: clamp(44px, 5.4vh, 62px); }
+  .hd-card.lg, .hd-flipc.lg { --w: clamp(54px, 6.8vh, 78px); }
 }
 
 /* Wide screens: the hand result sits in the empty left side of the table instead of under it, and the felt
@@ -248,7 +273,7 @@
 }
 
 @media (min-width: 1280px) and (max-height: 860px) {
-  .hdx-felt { padding: 10px 16px 8px; gap: 4px; }
+  .hdx-felt { padding: 20px 20px 12px; gap: 4px; }
   .hdx-mid { gap: 8px; }
   .hdx-plaque { padding: 5px 22px 6px; }
 }
@@ -256,3 +281,10 @@
 /* practice: end-of-Match panel under the table */
 .hd-practice-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 14px 20px; max-width: 1100px; margin: 0 auto; width: 100%; }
 .hd-practice-end .bp-actions { display: flex; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hdx-surface { transform: none; }
+  .hdx-flipc-in, .hd-flipc-in { transition: none; }
+  .hd-ghost { display: none; }
+  .hd-ava.active { animation: none; }
+}

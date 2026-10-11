@@ -40,6 +40,7 @@ export function Seat({
   say,
   label,
   mine,
+  index,
   children,
 }: {
   who: string;
@@ -65,6 +66,8 @@ export function Seat({
   /** The plain-words name of the hand, under the cards. */
   label?: string | null;
   mine?: boolean;
+  /** Seat number, for finding the bet on screen. */
+  index: number;
   children: React.ReactNode;
 }) {
   return (
@@ -95,7 +98,7 @@ export function Seat({
           </span>
         )}
       </div>
-      <div className={`hd-bet mono${bet > 0n ? " has" : ""}`} role={bet > 0n ? "img" : undefined} aria-label={bet > 0n ? `Bet ${chips(bet)} Chips` : undefined}>
+      <div data-bet={index} className={`hd-bet mono${bet > 0n ? " has" : ""}`} role={bet > 0n ? "img" : undefined} aria-label={bet > 0n ? `Bet ${chips(bet)} Chips` : undefined}>
         {bet > 0n && (
           <>
             <ChipStack amount={bet} />
