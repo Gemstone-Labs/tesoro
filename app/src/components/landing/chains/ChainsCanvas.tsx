@@ -12,6 +12,7 @@ import type { Theme } from "../theme";
 import { useTheme } from "../useTheme";
 import { CAMERA, CHAINS, LEDGER, type ChainLabel, type ChainsLayout } from "./layout";
 import { chainLogo } from "./logos";
+import { chainsProto } from "./proto";
 
 const PARTICLES = 16;
 
@@ -61,7 +62,10 @@ function Logo({ label, color, pace, animate }: { label: ChainLabel; color: strin
 }
 
 /** Light travelling from one source to the ledger: a faint path and particles running along it. */
-function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: THREE.Vector3; color: string; phase: number; animate: boolean }) {
+function Stream({ from, to, color, phase, animate, index = -1, count = PARTICLES }: { from: THREE.Vector3; to: THREE.Vector3; color: string; phase: number; animate: boolean; index?: number; count?: number }) {
+  const path = useRef<THREE.MeshBasicMaterial>(null);
+  const dot = useRef<THREE.MeshBasicMaterial>(null);
+  const grow = useRef(1);
   const curve = useMemo(() => {
     const mid = from.clone().lerp(to, 0.5);
     mid.y += (from.y - to.y) * 0.25;
@@ -75,11 +79,16 @@ function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: 
   useEffect(() => () => tube.dispose(), [tube]);
   useFrame((_, delta) => {
     if (!dots.current) return;
-    if (animate) time.current += delta * 0.16;
-    for (let i = 0; i < PARTICLES; i++) {
-      const t = (time.current + i / PARTICLES) % 1;
+    const f = chainsProto.focus;
+    const target = f < 0 || index < 0 ? 1 : f === index ? 1.6 : 0.25;
+    grow.current += (target - grow.current) * Math.min(1, delta * 6);
+    if (path.current) path.current.opacity = 0.32 * Math.min(1.4, grow.current);
+    if (dot.current) dot.current.opacity = Math.min(1, grow.current);
+    if (animate) time.current += delta * 0.16 * (f === index ? 2 : 1);
+    for (let i = 0; i < count; i++) {
+      const t = (time.current + i / count) % 1;
       tmp.position.copy(curve.getPointAt(t));
-      tmp.scale.setScalar(0.35 + Math.sin(t * Math.PI) * 0.9);
+      tmp.scale.setScalar((0.35 + Math.sin(t * Math.PI) * 0.9) * Math.max(0.6, Math.min(1.3, grow.current)));
       tmp.rotation.set(t * 6, t * 4, 0);
       tmp.updateMatrix();
       dots.current.setMatrixAt(i, tmp.matrix);
@@ -89,11 +98,11 @@ function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: 
   return (
     <group>
       <mesh geometry={tube}>
-        <meshBasicMaterial color={color} transparent opacity={0.32} toneMapped={false} />
+        <meshBasicMaterial ref={path} color={color} transparent opacity={0.32} toneMapped={false} />
       </mesh>
-      <instancedMesh ref={dots} args={[undefined, undefined, PARTICLES]}>
+      <instancedMesh ref={dots} args={[undefined, undefined, count]}>
         <octahedronGeometry args={[0.05]} />
-        <meshBasicMaterial color={color} toneMapped={false} />
+        <meshBasicMaterial ref={dot} color={color} transparent toneMapped={false} />
       </instancedMesh>
     </group>
   );
@@ -129,7 +138,7 @@ function Scene({ layout, animate, theme }: { layout: ChainsLayout; animate: bool
             <group position={sources[i]}>
               <Logo label={c.label} color={color} pace={0.22 + i * 0.03} animate={animate} />
             </group>
-            <Stream from={sources[i].clone().add(outlet)} to={inlet(sources[i])} color={color} phase={i * 0.21} animate={animate} />
+            <Stream from={sources[i].clone().add(outlet)} to={inlet(sources[i])} color={color} phase={i * 0.21} animate={animate} index={i} />
           </group>
         );
       })}
@@ -144,9 +153,23 @@ function Scene({ layout, animate, theme }: { layout: ChainsLayout; animate: bool
           </group>
         </group>
       </group>
+      {layout === "wide" && <OutStream ledgerAt={ledgerAt} animate={animate} color={theme === "light" ? "#0a9d74" : "#36f0be"} />}
       <ambientLight intensity={0.7} />
       <directionalLight position={[3, 4, 5]} intensity={2} />
       <pointLight position={[0, 0, 3]} intensity={2} color="#6af8d6" />
+    </group>
+  );
+}
+
+/** PROTOTYPE: Gemas leaving the ledger to the right, shown while `chainsProto.out` is on. */
+function OutStream({ ledgerAt, animate, color }: { ledgerAt: THREE.Vector3; animate: boolean; color: string }) {
+  const g = useRef<THREE.Group>(null);
+  const from = useMemo(() => ledgerAt.clone().add(new THREE.Vector3(1.0, 0, 0.1)), [ledgerAt]);
+  const to = useMemo(() => new THREE.Vector3(4.35, 0, 0), []);
+  useFrame(() => g.current && (g.current.visible = chainsProto.out));
+  return (
+    <group ref={g} visible={false}>
+      <Stream from={from} to={to} color={color} phase={0.1} animate={animate} count={4} />
     </group>
   );
 }
