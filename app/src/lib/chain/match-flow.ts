@@ -10,7 +10,7 @@ import { MIN_SOL_LAMPORTS } from "./config";
 import { ensureSol, type GetToken } from "./demo-client";
 import { EntryError, planEntry } from "./ledger";
 import { queueEntry, type Entered, type QueueDeps } from "./queue";
-import { fetchMatch, fetchSnapshot, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
+import { fetchAccountState, fetchMatch, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
 import { plainError } from "@/lib/errors";
 import { RunSubmitter } from "./run-submitter";
 
@@ -54,10 +54,10 @@ export const createAccountIx = (authority: PublicKey): Promise<TransactionInstru
 /** SOL for fees and rent (demo faucet if needed) and the TesoroAccount itself. */
 export async function ensureReady(signer: ChainSigner, getToken: GetToken): Promise<AccountSnapshot> {
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
-  let snap = await fetchSnapshot(signer.publicKey);
+  let snap = await fetchAccountState(signer.publicKey);
   if (!snap.exists) {
     await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
-    snap = await fetchSnapshot(signer.publicKey);
+    snap = await fetchAccountState(signer.publicKey);
   }
   return snap;
 }

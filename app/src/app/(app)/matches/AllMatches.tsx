@@ -43,7 +43,7 @@ export function AllMatches() {
         <GameTabs base="/matches" game={game} />
       </header>
 
-      {!snapshot ? (
+      {!snapshot?.matchesLoaded ? (
         error ? (
           <div className="mh-state" role="alert">
             <p>Your Matches couldn’t be loaded.</p>

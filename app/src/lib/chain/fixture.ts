@@ -126,6 +126,7 @@ export function demoSnapshot(address: string): AccountSnapshot {
     ],
     market: null,
     funded: [backed(match("block-puzzle", 2500, true, 30, [150, 88]), key(802).toBase58(), 4000, true)],
+    matchesLoaded: true,
     fetchedAt: Date.now(),
   };
 }

@@ -37,9 +37,11 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
   });
   const inflight = useRef<Promise<void> | null>(null);
   const again = useRef(false);
+  const reads = useRef(0);
 
   const readOnce = useCallback(async () => {
     if (!address) return;
+    const read = ++reads.current;
     try {
       const { demoMode, demoSnapshot } = await import("./fixture");
       if (demoMode()) {
@@ -47,7 +49,15 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
         return;
       }
       const [{ PublicKey }, { fetchSnapshot }] = await Promise.all([import("@solana/web3.js"), import("./read")]);
-      const snapshot = await withTimeout(fetchSnapshot(new PublicKey(address)), READ_TIMEOUT_MS);
+      // Gemas and Positions show as soon as they are read; until the Matches follow, the last read's Matches stay on screen.
+      const early = (next: AccountSnapshot) => {
+        if (read !== reads.current) return;
+        setState((s) => {
+          const prev = s.address === address ? s.snapshot : null;
+          return { address, snapshot: prev?.matchesLoaded ? { ...next, matches: prev.matches, funded: prev.funded, matchesLoaded: true } : next, error: null };
+        });
+      };
+      const snapshot = await withTimeout(fetchSnapshot(new PublicKey(address), early), READ_TIMEOUT_MS);
       setState({ address, snapshot, error: null });
     } catch (e) {
       console.warn("[chain] Account read failed", e);
