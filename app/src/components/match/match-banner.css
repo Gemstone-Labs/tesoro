@@ -4,7 +4,7 @@
 .mb-list { display: grid; gap: 12px; container-type: inline-size; }
 .mb {
   --edge: var(--edge-1); position: relative; isolation: isolate; overflow: hidden; background: #0b1013;
-  display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 1fr); grid-template-areas: "word face fig";
+  display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); grid-template-areas: "word face fig";
   align-items: center; gap: 20px; min-height: 124px; padding: 16px 22px;
 }
 .mb.won { --edge: var(--edge-em); }
@@ -27,10 +27,17 @@
 .mb.lost .mb-word b { color: var(--danger); }
 .mb-word small { font-size: 14px; color: var(--fg); opacity: 0.86; line-height: 1.35; }
 
-.mb-face { grid-area: face; display: flex; align-items: flex-start; gap: 14px; }
-.mb-seat-link { position: relative; z-index: 2; border-radius: 6px; }
-.mb-seat { display: grid; justify-items: center; gap: 6px; }
-.mb-av { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; border: 2px solid var(--line-2); background: var(--raised-2); }
+/* fixed seat columns, so the avatars sit at the same place on every banner whatever the names and scores */
+.mb-face { grid-area: face; display: grid; grid-template-columns: 150px auto 150px; align-items: start; gap: 14px; }
+.mb-seat-link { position: relative; z-index: 2; border-radius: 6px; justify-self: center; max-width: 100%; }
+.mb-seat { display: grid; justify-items: center; gap: 8px; min-width: 0; }
+.mb-face > .mb-seat { justify-self: center; }
+.mb-av-wrap { position: relative; display: block; line-height: 0; }
+.mb-you {
+  position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); padding: 2px 6px; border-radius: 3px;
+  background: #eef3f1; color: #0b1013; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.2;
+}
+.mb-av { display: block; width: 52px; height: 52px; border-radius: 50%; object-fit: cover; border: 2px solid var(--line-2); background: var(--raised-2); }
 .mb-seat.lit .mb-av { border-color: var(--em-hi); box-shadow: 0 0 0 4px rgba(36, 216, 168, 0.2); }
 .mb-seat.dim .mb-av { filter: grayscale(0.7) brightness(0.75); }
 .mb-plate {
@@ -64,10 +71,11 @@
   .mb-word small { grid-area: line; font-size: 13px; }
   .mb-fig { align-self: center; padding: 7px 11px; font-size: 15px; }
   .mb-fig.even { font-size: 13px; }
-  .mb-face { display: grid; grid-template-columns: minmax(0, max-content) auto minmax(0, max-content); justify-content: start; align-items: center; gap: 6px; margin-top: 10px; }
-  .mb-seat-link { min-width: 0; }
+  .mb-face { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; margin-top: 10px; }
+  .mb-seat-link, .mb-face > .mb-seat { justify-self: start; min-width: 0; }
   .mb-seat { grid-template-columns: auto minmax(0, max-content); align-items: center; justify-items: start; gap: 6px; min-width: 0; }
   .mb-av { width: 30px; height: 30px; }
+  .mb-you { bottom: -5px; padding: 1px 4px; font-size: 8.5px; letter-spacing: 0.05em; }
   .mb-plate { max-width: 100%; min-width: 0; gap: 5px; padding: 3px 6px; font-size: 12px; }
   .mb-plate b { font-size: 12.5px; }
   .mb-vs { margin-top: 0; padding: 0 2px; font-size: 13px; }
@@ -77,13 +85,14 @@
   .mb { padding: 12px 14px; }
   .mb-av { width: 26px; height: 26px; }
   .mb-vs { display: none; }
-  .mb-face { display: flex; gap: 10px; }
-  .mb-face > * { flex: 0 1 auto; min-width: 0; }
+  .mb-face { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .mb.skel .mb-face > .mb-av + .mb-av { grid-column: 2; }
 }
 
 /* loading */
 .mb.skel { background: var(--surface); }
 .mb.skel .mb-word { gap: 10px; }
-.mb.skel .mb-av { display: block; }
+.mb.skel .mb-face > .mb-av { justify-self: center; }
+.mb.skel .mb-face > .mb-av + .mb-av { grid-column: 3; }
 
 @media (prefers-reduced-motion: reduce) { .mb-art img { transition: none; } }

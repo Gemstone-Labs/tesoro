@@ -12,7 +12,7 @@ const NOW = Date.now();
 const meta = {
   title: "Components/match/MatchBanner",
   component: MatchBanner,
-  args: { r: row(match("block-puzzle", 1000, true, 4, [171, 55])), account: PLAYER, now: NOW },
+  args: { r: row(match("block-puzzle", 1000, true, 4, [171, 55])), account: PLAYER, me: PLAYER, now: NOW },
   argTypes: { r: { control: "object" }, now: { control: false } },
   decorators: [(Story) => <div className="mb-list" style={{ maxWidth: 980 }}><Story /></div>],
 } satisfies Meta<typeof MatchBanner>;

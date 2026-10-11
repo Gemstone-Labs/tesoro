@@ -131,7 +131,7 @@ export function GamePage({ game }: { game: GameId }) {
           ) : (
             <div className="mb-list">
               {mine.map((r) => (
-                <MatchBanner key={r.id} r={r} account={me} now={now} />
+                <MatchBanner key={r.id} r={r} account={me} now={now} me={me} />
               ))}
             </div>
           )}

@@ -18,9 +18,10 @@ const RESULT = { won: { text: "Won", Icon: CheckIcon }, lost: { text: "Lost", Ic
  * sits on the dark side of the art or on a plate. The banner opens the Match; the opponent's seat
  * leads to their Account (a separate link above it, never nested).
  * `account` is the Account whose history this is: its own seat, or, on a Match it backed, the
- * Player it backed. `backing` replaces the default Backing line under the entry.
+ * Player it backed. `backing` replaces the default Backing line under the entry. `me` is the
+ * signed-in Account: its seat, when it played, carries a "You" tag.
  */
-export function MatchBanner({ r, account, now, backing }: { r: HistoryRow; account: string; now: number; backing?: string | null }) {
+export function MatchBanner({ r, account, now, backing, me }: { r: HistoryRow; account: string; now: number; backing?: string | null; me?: string | null }) {
   const res = RESULT[r.result];
   const note = backing === undefined ? backingText(r) : backing;
   const player = r.role === "backer" && r.backing ? r.backing.other : account;
@@ -44,20 +45,22 @@ export function MatchBanner({ r, account, now, backing }: { r: HistoryRow; accou
       </div>
       <div className="mb-face">
         {player === account ? (
-          <Seat account={player} score={r.scores?.[0]} lit={r.result === "won"} dim={r.result === "lost"} />
+          <Seat account={player} score={r.scores?.[0]} lit={r.result === "won"} dim={r.result === "lost"} you={player === me} />
         ) : (
           <AccountLink account={player} className="mb-seat-link">
-            <Seat account={player} score={r.scores?.[0]} lit={r.result === "won"} dim={r.result === "lost"} />
+            <Seat account={player} score={r.scores?.[0]} lit={r.result === "won"} dim={r.result === "lost"} you={player === me} />
           </AccountLink>
         )}
         <span className="mb-vs" aria-hidden="true">vs</span>
         {r.opp ? (
           <AccountLink account={r.opp} className="mb-seat-link">
-            <Seat account={r.opp} score={r.scores?.[1]} lit={r.result === "lost"} dim={r.result === "won"} />
+            <Seat account={r.opp} score={r.scores?.[1]} lit={r.result === "lost"} dim={r.result === "won"} you={r.opp === me} />
           </AccountLink>
         ) : (
           <span className="mb-seat empty">
-            <span className="mb-av" />
+            <span className="mb-av-wrap">
+              <span className="mb-av" />
+            </span>
             <span className="mb-plate">No opponent</span>
           </span>
         )}
@@ -70,10 +73,13 @@ export function MatchBanner({ r, account, now, backing }: { r: HistoryRow; accou
   );
 }
 
-function Seat({ account, score, lit, dim }: { account: string; score?: number; lit: boolean; dim: boolean }) {
+function Seat({ account, score, lit, dim, you }: { account: string; score?: number; lit: boolean; dim: boolean; you: boolean }) {
   return (
     <span className={`mb-seat${lit ? " lit" : ""}${dim ? " dim" : ""}`}>
-      <PlayerAvatar account={account} size={52} className="mb-av" />
+      <span className="mb-av-wrap">
+        <PlayerAvatar account={account} size={52} className="mb-av" />
+        {you && <span className="mb-you">You</span>}
+      </span>
       <span className="mb-plate">
         <PlayerName account={account} />
         {score !== undefined && <b className="tnum">{fmtGemas(score)}</b>}

@@ -141,7 +141,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
               <div className="mb-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
                 {view.rows.map((r) => (
                   <div key={r.id} role="listitem">
-                    <MatchBanner r={r} account={address} now={now} backing={backingLine(r)} />
+                    <MatchBanner r={r} account={address} now={now} backing={backingLine(r)} me={me} />
                   </div>
                 ))}
               </div>

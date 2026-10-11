@@ -62,7 +62,7 @@ export function AllMatches() {
           <div className="mb-list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`} role="list">
             {view.rows.map((r) => (
               <div key={r.id} role="listitem">
-                <MatchBanner r={r} account={snapshot.accountKey.toBase58()} now={now} />
+                <MatchBanner r={r} account={snapshot.accountKey.toBase58()} now={now} me={snapshot.accountKey.toBase58()} />
               </div>
             ))}
           </div>
