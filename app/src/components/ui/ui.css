@@ -375,10 +375,11 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 @keyframes skel { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 
 /* the big money action catches a passing light every few seconds; the cut only clips its paint,
-   so the button clips its overflow too or the light widens the page as it leaves */
+   so the button clips its overflow too or the light widens the page as it leaves. z-index -1 keeps
+   it under the label (the cut's clip-path makes the button a stacking context) */
 .btn.money.lg { overflow: clip; }
 .btn.money.lg:not(:disabled)::before {
-  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.5) 50%, transparent 62%);
   translate: -110% 0; animation: btn-sweep 6s ease-in-out 1.6s infinite;
 }

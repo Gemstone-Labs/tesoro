@@ -122,7 +122,6 @@
 .mr-tile.on::before { content: ""; position: absolute; left: 18px; right: 18px; top: 0; height: 3px; background: var(--fg); }
 .mr-split { width: 100%; }
 .mr .mr-actions { max-width: none; }
-.mr .mr-actions .btn.money { position: relative; overflow: clip; }
 
 /* odometer figures and emerald shards (ResultMotion.tsx) */
 .odo { display: inline-flex; align-items: flex-end; line-height: 1; }
@@ -153,7 +152,6 @@
   .mr-fig small { animation: mr-in 500ms ease-out 1300ms both; }
   .mr.lost .mr-fig { animation: mr-redden 900ms ease-in-out 1500ms both; }
   .mr-tile.on::before { transform-origin: left; animation: mr-bar 520ms cubic-bezier(0.2, 0.8, 0.2, 1) 2300ms both; }
-  .mr .mr-actions .btn.money::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.55) 50%, transparent 65%); transform: translateX(-120%); animation: mr-shine 3.2s ease-in-out 2.4s infinite; pointer-events: none; }
   .odo-strip { animation: odo-roll var(--dur) cubic-bezier(0.12, 0.75, 0.18, 1) var(--d) both; }
   .shards { display: block; }
   .shards.burst i { animation: shard-burst 1300ms cubic-bezier(0.1, 0.7, 0.3, 1) var(--d) both; }
@@ -172,7 +170,6 @@
 @keyframes mr-gem { from { opacity: 0; transform: translateY(-120px) rotate(-200deg) scale(0.4); } }
 @keyframes mr-redden { from { color: #fff; } }
 @keyframes mr-bar { from { transform: scaleX(0); } }
-@keyframes mr-shine { 0% { transform: translateX(-120%); } 30%, 100% { transform: translateX(120%); } }
 @keyframes odo-roll { from { transform: translateY(0); } }
 @keyframes shard-burst {
   0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
