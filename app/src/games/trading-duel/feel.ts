@@ -43,3 +43,9 @@ export function leadChange(prev: Lead | null, next: Lead | null, seat: 0 | 1): "
   if (next === "level") return "level";
   return (next === "seat0") === (seat === 0) ? "took" : "lost";
 }
+
+/** Where the duel marker sits, 0 (You end) to 1 (Opponent end): mid when level, leaning to whoever leads. */
+export function duelPosition(lead: Lead, seat: 0 | 1): number {
+  if (lead === "level") return 0.5;
+  return (lead === "seat0") === (seat === 0) ? 0.18 : 0.82;
+}

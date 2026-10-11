@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FILL, SIDE, type Fill } from "./chain";
-import { fillCallout, leadChange, liquidationDistance, tickDirection } from "./feel";
+import { duelPosition, fillCallout, leadChange, liquidationDistance, tickDirection } from "./feel";
 import { newLedger, open } from "./math";
 import { usdToMid } from "./feed";
 
@@ -64,5 +64,14 @@ describe("leadChange", () => {
     expect(leadChange("seat0", "level", 0)).toBe("level");
     expect(leadChange("seat0", "seat0", 0)).toBeNull();
     expect(leadChange(null, "seat0", 0)).toBeNull();
+  });
+});
+
+describe("duelPosition", () => {
+  it("sits mid when level and leans to the leader (You on the left)", () => {
+    expect(duelPosition("level", 0)).toBe(0.5);
+    expect(duelPosition("seat0", 0)).toBeLessThan(0.5);
+    expect(duelPosition("seat1", 0)).toBeGreaterThan(0.5);
+    expect(duelPosition("seat1", 1)).toBeLessThan(0.5);
   });
 });

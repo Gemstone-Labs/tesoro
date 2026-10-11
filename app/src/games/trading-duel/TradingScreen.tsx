@@ -10,7 +10,7 @@ import { chips, clock, usd, describeFill, relativeLead, sideName, signedChips, t
 import { START_CHIPS, close, equity, liquidationMid, openProblem, previewOpen, type Ledger, type Lead } from "./math";
 import "./trading.css";
 import { Arena, Callout, MuteToggle, burstAt, shake, sfx, type CalloutTone } from "../fx";
-import { fillCallout, liquidationDistance, tickDirection, type Tick } from "./feel";
+import { duelPosition, fillCallout, leadChange, liquidationDistance, tickDirection, type Tick } from "./feel";
 import { Rolling } from "./Rolling";
 
 export function useNow(ms = 250): number {
@@ -138,6 +138,39 @@ export function TradingScreen(p: ScreenProps) {
   const margin = BigInt(sizeNow);
   const problem = ledger ? openProblem({ ...ledger, cash: available }, margin, leverage) : "not-enough-chips";
 
+  const prevLead = useRef<Lead | null>(null);
+  const [leadMoment, setLeadMoment] = useState<{ text: string; tone: CalloutTone; n: number } | null>(null);
+  const leadNow = opponent?.lead ?? null;
+  useEffect(() => {
+    const change = leadChange(prevLead.current, leadNow, seat);
+    prevLead.current = leadNow;
+    if (!change || phase !== "live") return;
+    const text = change === "took" ? "You took the lead" : change === "lost" ? "Opponent took the lead" : "Level again";
+    setLeadMoment((m) => ({ text, tone: change === "took" ? "up" : change === "lost" ? "down" : "plain", n: (m?.n ?? 0) + 1 }));
+    sfx(change === "took" ? "win" : change === "lost" ? "lose" : "chip");
+  }, [leadNow, seat, phase]);
+
+  const prevPhase = useRef(phase);
+  const [timesUp, setTimesUp] = useState(false);
+  useEffect(() => {
+    if (prevPhase.current === "live" && phase === "ended") {
+      setTimesUp(true);
+      sfx("go");
+    }
+    prevPhase.current = phase;
+  }, [phase]);
+
+  const lastTick = useRef<number | null>(null);
+  const finalSecs = phase === "live" && remaining <= 10 ? remaining : null;
+  const countSecs = phase === "countdown" && countdown <= 3 ? countdown : null;
+  const showGo = phase === "live" && now - p.startsAt < 700;
+  useEffect(() => {
+    const n = countSecs ?? finalSecs;
+    if (n === null || n === lastTick.current) return;
+    lastTick.current = n;
+    sfx("tick");
+  }, [countSecs, finalSecs]);
+
   const tradable = phase === "live" && !stale && !!mid && !p.busy && !!ledger;
   const reason = !ledger
     ? "Loading your trades…"
@@ -195,6 +228,7 @@ export function TradingScreen(p: ScreenProps) {
       <div className="td-grid2">
         <div className="td-main">
           <div className="cut cut-card td-card td-ticker">
+            {leadMoment && <Callout key={leadMoment.n} text={leadMoment.text} tone={leadMoment.tone} duration={1600} onDone={() => setLeadMoment(null)} />}
             <div className="td-px">
               <Label>{asset.symbol} live price</Label>
               <b key={dir.n} className={`mono td-price ${dir.d}`}>
@@ -212,8 +246,15 @@ export function TradingScreen(p: ScreenProps) {
                 <Label>PnL</Label>
                 <b className={`mono td-big td-pnl-big ${pnl === null || pnl === 0n ? "" : pnl > 0n ? "up" : "down"}`}>{pnl !== null ? <Rolling value={Number(pnl)} format={(v) => signedChips(Math.round(v))} /> : "…"}</b>
               </div>
-              <div>
-                <Label>Opponent</Label>
+              <div className="td-duel">
+                <Label>Duel</Label>
+                <div key={leadMoment?.n ?? 0} className={`td-duel-track${leadMoment ? " pulse" : ""}`} aria-hidden="true">
+                  <i style={{ left: `${(opponent ? duelPosition(opponent.lead, seat) : 0.5) * 100}%` }} />
+                </div>
+                <div className="td-duel-ends" aria-hidden="true">
+                  <span>You</span>
+                  <span>Opponent</span>
+                </div>
                 <b className="td-lead" aria-live="polite">{rel ?? "…"}</b>
                 <span className="meta">{opponent ? `${opponent.trades} ${opponent.trades === 1 ? "trade" : "trades"}` : ""}</span>
               </div>
@@ -234,6 +275,22 @@ export function TradingScreen(p: ScreenProps) {
               now={now}
               dir={dir.d}
             />
+            {countSecs !== null && (
+              <div className="fx-countdown" role="timer" aria-live="assertive">
+                <span key={countSecs} className="fx-count-n">{countSecs}</span>
+              </div>
+            )}
+            {showGo && (
+              <div className="fx-countdown clear" role="timer" aria-live="assertive">
+                <span className="fx-count-n go">Go!</span>
+              </div>
+            )}
+            {finalSecs !== null && finalSecs > 0 && (
+              <div className="td-final" aria-hidden="true">
+                <span key={finalSecs}>{finalSecs}</span>
+              </div>
+            )}
+            {timesUp && <Callout text="Time’s up" tone="warn" duration={1800} onDone={() => setTimesUp(false)} />}
             {moment && <Callout key={moment.n} text={moment.text} tone={moment.tone} onDone={() => setMoment(null)} />}
           </div>
 
@@ -275,16 +332,11 @@ export function TradingScreen(p: ScreenProps) {
                 </div>
               </div>
               <dl className="td-kv">
-                <dt>Size</dt>
-                <dd className="mono">{chips(ledger.margin)} Chips</dd>
-                <dt>Notional</dt>
-                <dd className="mono">{chips(ledger.notional)}</dd>
-                <dt>Entry</dt>
-                <dd className="mono">{usdMid(ledger.entry, asset)}</dd>
-                <dt>Mark</dt>
-                <dd className="mono">{mid ? usdMid(mid, asset) : "…"}</dd>
-                <dt>Liquidation</dt>
-                <dd className="mono">{liq ? usdMid(liq, asset) : "none"}</dd>
+                <div><dt>Size</dt><dd className="mono">{chips(ledger.margin)}</dd></div>
+                <div><dt>Notional</dt><dd className="mono">{chips(ledger.notional)}</dd></div>
+                <div><dt>Entry</dt><dd className="mono">{usdMid(ledger.entry, asset)}</dd></div>
+                <div><dt>Mark</dt><dd className="mono">{mid ? usdMid(mid, asset) : "…"}</dd></div>
+                <div><dt>Liquidation</dt><dd className="mono">{liq ? usdMid(liq, asset) : "none"}</dd></div>
               </dl>
             </div>
           )}
@@ -361,8 +413,8 @@ export function TradingScreen(p: ScreenProps) {
             {p.error && <p className="status err" role="alert">{p.error}</p>}
           </div>
 
-          <div className="cut cut-card td-card td-rules">
-            <Label>The rules</Label>
+          <details className="cut cut-card td-card td-rules">
+            <summary><Label>How this works</Label></summary>
             <ul className="td-ul">
               <li>One position at a time, 1x to 20x.</li>
               <li>Fills use the live price with a {RULES.spreadBps / 100}% spread. If the price feed pauses for more than {RULES.maxStaleSecs} s, trading waits for a fresh price.</li>
@@ -370,7 +422,7 @@ export function TradingScreen(p: ScreenProps) {
               <li>Open positions close at the final price; higher equity wins, equal equity is a draw.</li>
               <li>Your positions stay hidden from your opponent until the Match ends.</li>
             </ul>
-          </div>
+          </details>
         </aside>
       </div>
     </section>
