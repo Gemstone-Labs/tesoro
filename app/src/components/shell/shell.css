@@ -21,8 +21,8 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 /* the active item carries a short lit bar on its left chamfer */
 .side-link.here::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; background: var(--fg); clip-path: polygon(0 0, 100% 3px, 100% calc(100% - 3px), 0 100%); }
 .side-rule { border: 0; height: 1px; background: var(--line-2); margin: 19px 10px 19px; }
-.side-nav.docs { gap: 0; }
-.side-nav.docs .side-link { height: 49px; }
+.side-nav.side-lower { gap: 0; }
+.side-nav.side-lower .side-link { height: 49px; }
 
 
 /* ——— Top bar ——— */
