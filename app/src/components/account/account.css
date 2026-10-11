@@ -7,22 +7,45 @@
 .pa-p, .pa-none { color: var(--fg-2); font-size: 15px; line-height: 1.5; }
 .pa-h { font-size: 20px; font-weight: 800; }
 
-/* hero: who this is, since when, and what a visitor can do */
-.pa-hero {
-  --edge: var(--edge-1);
-  background: radial-gradient(90% 150% at 0% 0%, rgba(234, 239, 236, 0.07), transparent 62%), var(--surface);
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px 26px; padding: 28px 32px;
+/* hero: the profile banner, the Player over its edge, then the facts with their labels */
+.pa-hero { --edge: var(--edge-1); background: var(--surface); display: grid; overflow: hidden; }
+.pa-banner { position: relative; height: 168px; overflow: hidden; background: var(--shell); }
+.pa-banner img { object-fit: cover; object-position: 50% 50%; }
+.pa-banner::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.6) 0%, transparent 50%), linear-gradient(0deg, #12181c 0%, transparent 70%); }
+.pa-seen {
+  position: absolute; z-index: 1; right: 18px; top: 16px; display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px;
+  font-family: var(--f-mono); font-size: 12.5px; color: var(--fg-2); white-space: nowrap; background: rgba(6, 9, 12, 0.72);
+  clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
 }
-.pa-avatar { width: 120px; height: 120px; --c: 22px; }
-.pa-who { display: grid; gap: 6px; min-width: 0; justify-items: start; }
-.pa-who .page-title { font-size: clamp(40px, 4vw, 60px); line-height: 0.95; white-space: nowrap; text-transform: none; }
-.pa-key { font-size: 13px; color: var(--fg-2); overflow-wrap: anywhere; }
-.pa-facts { list-style: none; margin: 6px 0 0; padding: 0; font-size: 15px; line-height: 1.6; color: var(--fg); }
-.pa-facts li { display: inline-block; white-space: nowrap; }
-.pa-facts li:not(:last-child)::after { content: "·"; margin: 0 10px; color: var(--fg-2); }
-.pa-hero-actions { display: grid; gap: 10px; justify-items: stretch; align-self: center; }
-.pa-hero-note { grid-column: 1 / -1; padding-top: 16px; box-shadow: inset 0 1px var(--line); color: var(--fg-2); font-size: 15px; line-height: 1.5; }
-.pa-hero-note a { color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.pa-seen i { width: 7px; height: 7px; background: var(--fg-3); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.pa-seen.fresh { color: var(--fg); }
+.pa-seen.fresh i { background: var(--fg); }
+.pa-id { position: relative; z-index: 1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 24px; margin-top: -70px; padding: 0 32px; }
+.pa-avatar { width: 140px; height: 140px; --c: 24px; --edge: var(--edge-2); --t: 2px; background: var(--shell); }
+.pa-who { display: grid; gap: 10px; min-width: 0; padding-bottom: 4px; }
+.pa-who .page-title { font-size: clamp(38px, 4vw, 56px); line-height: 0.95; white-space: nowrap; text-transform: none; overflow: hidden; text-overflow: ellipsis; }
+.pa-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 15px; color: var(--fg-2); }
+.pa-key { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border: 0; background: var(--raised); --edge: var(--edge-1); color: var(--fg-2); font-size: 12.5px; cursor: pointer; }
+.pa-key:hover { color: var(--fg); background: var(--raised-2); }
+.pa-key svg { width: 14px; height: 14px; }
+.pa-own { font-size: 13.5px; }
+.pa-hero-actions { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }
+.pa-hero-actions .btn svg { width: 18px; height: 18px; }
+/* Challenge: the one action a visitor came for, a light fill but neutral (emerald stays with Gemas) */
+.pa-hero-actions > .btn.neutral:first-child { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.9); }
+.pa-hero-actions > .btn.neutral:first-child:hover { filter: brightness(0.92); }
+.pa-icon { width: 44px; padding: 0; background: var(--surface); color: var(--fg); --edge: var(--edge-2); }
+.pa-icon:hover { background: var(--surface-2); }
+.pa-facts { margin: 22px 0 0; padding: 18px 32px 22px; display: flex; flex-wrap: wrap; gap: 16px 40px; box-shadow: inset 0 1px var(--line); }
+.pa-facts div { display: grid; gap: 6px; }
+.pa-facts dt { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.pa-facts dt svg { width: 13px; height: 13px; }
+.pa-facts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 16px; font-weight: 700; }
+.pa-facts dd a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+.pa-quiet { color: var(--fg-2); font-weight: 400; }
+.pa-game { display: inline-flex; align-items: center; gap: 8px; }
+.pa-thumb { --c: 6px; display: block; width: 28px; height: 28px; overflow: hidden; }
+.pa-thumb img { width: 100%; height: 100%; object-fit: cover; }
 
 /* live Requests: the one emerald action on the page */
 .pa-asks { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 14px 32px; padding: 20px 28px; }
@@ -162,8 +185,8 @@
 @media (max-width: 900px) {
   .pa-board, .pa-asks { grid-template-columns: minmax(0, 1fr); }
   .pa-gemas { grid-row: auto; }
-  .pa-hero { grid-template-columns: auto minmax(0, 1fr); padding: 22px 20px; }
-  .pa-hero-actions { grid-column: 1 / -1; grid-auto-flow: column; justify-content: start; }
+  .pa-id { grid-template-columns: auto minmax(0, 1fr); }
+  .pa-hero-actions { grid-column: 1 / -1; }
   .pa-empty { grid-template-columns: auto minmax(0, 1fr); padding: 0 20px; column-gap: 18px; grid-template-areas: "lead lead" "list list" "bust cta"; }
   .pa-empty-bust { width: 110px; }
   .pa-empty-lead { padding: 22px 0 18px; }
@@ -174,9 +197,12 @@
 }
 @media (max-width: 639px) {
   .pa { gap: 16px; }
-  .pa-avatar { width: 76px; height: 76px; --c: 14px; }
-  .pa-hero { gap: 14px 16px; align-items: start; }
-  .pa-facts { font-size: 14px; }
+  .pa-banner { height: 120px; }
+  .pa-id { grid-template-columns: auto minmax(0, 1fr); margin-top: -46px; padding: 0 18px; gap: 14px; }
+  .pa-avatar { width: 92px; height: 92px; --c: 16px; }
+  .pa-hero-actions { grid-column: 1 / -1; }
+  .pa-hero-actions > .btn:first-child { flex: 1; }
+  .pa-facts { padding: 16px 18px 18px; gap: 14px 24px; }
   .pa-panel, .pa-gemas { padding: 20px 18px; }
   .pa-wl dd { font-size: 28px; }
   .pa-plot { min-height: 160px; margin-right: 66px; margin-left: 14px; }
@@ -207,7 +233,6 @@
 .ep-pic input:focus-visible + .avatar::after { --t: 2px; background: var(--fg); }
 .ep-pic input:disabled { cursor: not-allowed; }
 .ep-pic small { font-size: 11px; color: var(--fg-2); max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pa-names { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; font-size: 15px; color: var(--fg-2); }
 .ep-wallets { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
 .ep-wallet { display: flex; align-items: center; gap: 12px; padding: 10px 12px; cursor: pointer; background: var(--shell); box-shadow: inset 0 0 0 1px var(--line); }
 .ep-wallet span { display: grid; gap: 2px; min-width: 0; }

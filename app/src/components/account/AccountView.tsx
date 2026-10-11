@@ -1,16 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Link2, Pencil } from "lucide-react";
-import { PlayerAvatar, PlayerName, VerifiedMark } from "@/components/account/Player";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
 import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { ago } from "@/lib/catalogue";
 import { art } from "@/lib/art";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
 import { historyPage } from "@/lib/chain/history";
@@ -21,8 +17,8 @@ import { fmtGemas } from "@/lib/format";
 import { gameQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
+import { AccountHero } from "./AccountHero";
 import { AccountSkeleton } from "./AccountSkeleton";
-import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
 import { GemasPanel } from "./GemasPanel";
@@ -65,7 +61,6 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
   const { auth, snapshot, gemas } = useAccount();
   const params = useSearchParams();
   const [now] = useState(() => Date.now());
-  const [copied, setCopied] = useState(false);
   const [challenge, setChallenge] = useState(false);
 
   const rows = useMemo(() => playedRows(data.played), [data.played]);
@@ -89,73 +84,19 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
     return auth.status === "loading" ? null : <Notice title="Account not found" body="There is no Tesoro Account at this address." />;
   }
 
-  const copy = () => {
-    void navigator.clipboard?.writeText(`${window.location.origin}${base}`).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
 
   return (
     <div className="pa">
-      <header className="cut cut-frame pa-hero">
-        <span className="cut cut-btn avatar pa-avatar">
-          <PlayerAvatar account={address} size={120} />
-        </span>
-        <div className="pa-who">
-          <Label>{own ? "Your Account" : "Account"}</Label>
-          <h1 className="page-title"><PlayerName account={address} /></h1>
-          {otherNames.length > 0 && (
-            <span className="pa-names">
-              {otherNames.map((n) => (
-                <span key={n.suffix} className="pn">
-                  <span className="pn-label">{n.name}</span>
-                  <VerifiedMark suffix={n.suffix} />
-                </span>
-              ))}
-            </span>
-          )}
-          <span className="mono pa-key">{address}</span>
-          {summary.first !== null && (
-            <ul className="pa-facts">
-              <li>Playing since {day(summary.first)}</li>
-              <li>Last Match {ago(summary.latest as number, now)}</li>
-              {summary.byGame.map((g) => (
-                <li key={g.game}>{GAME_NAMES[g.game]}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="pa-hero-actions">
-          {visitor && (
-            <Button onClick={() => setChallenge(true)}>
-              Challenge <Link2 aria-hidden="true" />
-            </Button>
-          )}
-          {own && (
-            <Button onClick={() => setEditProfileOpen(true)} icon={<Pencil aria-hidden="true" />}>
-              Edit profile
-            </Button>
-          )}
-          <Button size={visitor || own ? "sm" : "md"} onClick={copy} icon={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
-            {copied ? "Link copied" : "Copy link"}
-          </Button>
-          <span className="sr-only" role="status">
-            {copied ? "Link copied" : ""}
-          </span>
-        </div>
-        {own && (
-          <p className="pa-hero-note">
-            This is your Account as other Players see it. Your Gemas and Positions stay in your <Link href="/wallet">Wallet</Link>; Matches you backed are in{" "}
-            <Link href="/matches">All Matches</Link>.
-          </p>
-        )}
-        {visitor && data.requests.length === 0 && (
-          <p className="pa-hero-note">
-            Not asking to be backed right now. A Backing answers a Request: <Link href="/backing">see open Requests</Link>.
-          </p>
-        )}
-      </header>
+      <AccountHero
+        address={address}
+        own={own}
+        visitor={visitor}
+        s={summary}
+        now={now}
+        otherNames={otherNames}
+        asking={data.requests.length}
+        onChallenge={() => setChallenge(true)}
+      />
 
       {visitor && data.requests.length > 0 && (
         <section className="cut cut-card pa-asks" aria-labelledby="pa-asks">
@@ -224,7 +165,6 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
 }
 
 const pct = (wins: number, of: number) => Math.round((wins / of) * 100);
-const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 /**
  * The figures. Gemas won and lost lead, with the running total inside the same panel; Matches and
