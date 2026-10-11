@@ -24,6 +24,7 @@ import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
 import { RunningTotalChart } from "./RunningTotalChart";
+import { ScoreboardPrototype } from "./Scoreboard.prototype";
 import "./account.css";
 
 /**
@@ -254,71 +255,80 @@ function Scoreboard({ s, series }: { s: PlayerSummary; series: ReturnType<typeof
         {series.length >= 2 && <RunningTotalChart series={series} />}
       </section>
 
-      <section className="cut cut-card pa-panel" aria-label="Matches">
-        <Label>Matches</Label>
-        {record.matches === 0 ? (
-          <b className="pa-fig">None with a winner</b>
-        ) : (
+      {/* PROTOTYPE: ?variant=now|A|B|C|D */}
+      <ScoreboardPrototype
+        s={s}
+        series={series}
+        current={
           <>
-            <b className="pa-fig">
-              {record.wins} of {record.matches} won
-            </b>
-            <Bar value={record.wins / record.matches} label={`${pct(record.wins, record.matches)}% won`} />
-          </>
-        )}
-        <dl className="kv pa-kv">
-          {s.byGame.length > 1 &&
-            s.byGame.map((g) => (
-              <Fragment key={g.game}>
-                <dt>{GAME_NAMES[g.game]}</dt>
-                <dd>
-                  {g.wins} of {g.matches}
-                </dd>
-              </Fragment>
-            ))}
-          {s.bestScore !== null && (
-            <>
-              <dt>Best {GAME_NAMES["block-puzzle"]} score</dt>
-              <dd>{fmtGemas(s.bestScore)}</dd>
-            </>
-          )}
-          {s.undecided > 0 && (
-            <>
-              <dt>Draws and refunds, not counted</dt>
-              <dd>{s.undecided}</dd>
-            </>
-          )}
-        </dl>
-      </section>
-
-      <section className="cut cut-card pa-panel" aria-label="Backings">
-        <Label>Backings</Label>
-        {backings.matches === 0 ? (
-          <>
-            <b className="pa-fig">None yet</b>
-            <p className="pa-p">No Match with a winner was played under a Backing.</p>
-          </>
-        ) : (
-          <>
-            <b className="pa-fig">
-              {backings.wins} of {backings.matches} won
-            </b>
+          <section className="cut cut-card pa-panel" aria-label="Matches">
+            <Label>Matches</Label>
+            {record.matches === 0 ? (
+              <b className="pa-fig">None with a winner</b>
+            ) : (
+              <>
+                <b className="pa-fig">
+                  {record.wins} of {record.matches} won
+                </b>
+                <Bar value={record.wins / record.matches} label={`${pct(record.wins, record.matches)}% won`} />
+              </>
+            )}
             <dl className="kv pa-kv">
-              <dt>Backers&apos; Gemas</dt>
-              <dd>
-                {signed(backings.won)} · {signed(-backings.lost)}
-              </dd>
-              <dt>Backers&apos; net</dt>
-              <dd>{signed(backings.net)}</dd>
-              <dt>Backers ahead</dt>
-              <dd>
-                {backings.ahead} of {backings.backers}
-              </dd>
+              {s.byGame.length > 1 &&
+                s.byGame.map((g) => (
+                  <Fragment key={g.game}>
+                    <dt>{GAME_NAMES[g.game]}</dt>
+                    <dd>
+                      {g.wins} of {g.matches}
+                    </dd>
+                  </Fragment>
+                ))}
+              {s.bestScore !== null && (
+                <>
+                  <dt>Best {GAME_NAMES["block-puzzle"]} score</dt>
+                  <dd>{fmtGemas(s.bestScore)}</dd>
+                </>
+              )}
+              {s.undecided > 0 && (
+                <>
+                  <dt>Draws and refunds, not counted</dt>
+                  <dd>{s.undecided}</dd>
+                </>
+              )}
             </dl>
-            <p className="note">A loss under a Backing costs the Player nothing, so read their Gemas beside their Backers&apos;.</p>
+          </section>
+
+          <section className="cut cut-card pa-panel" aria-label="Backings">
+            <Label>Backings</Label>
+            {backings.matches === 0 ? (
+              <>
+                <b className="pa-fig">None yet</b>
+                <p className="pa-p">No Match with a winner was played under a Backing.</p>
+              </>
+            ) : (
+              <>
+                <b className="pa-fig">
+                  {backings.wins} of {backings.matches} won
+                </b>
+                <dl className="kv pa-kv">
+                  <dt>Backers&apos; Gemas</dt>
+                  <dd>
+                    {signed(backings.won)} · {signed(-backings.lost)}
+                  </dd>
+                  <dt>Backers&apos; net</dt>
+                  <dd>{signed(backings.net)}</dd>
+                  <dt>Backers ahead</dt>
+                  <dd>
+                    {backings.ahead} of {backings.backers}
+                  </dd>
+                </dl>
+                <p className="note">A loss under a Backing costs the Player nothing, so read their Gemas beside their Backers&apos;.</p>
+              </>
+            )}
+          </section>
           </>
-        )}
-      </section>
+        }
+      />
     </div>
   );
 }
