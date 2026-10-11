@@ -311,7 +311,7 @@ export function projectedDebtGemas(source: SourceMath | null, vaultShares: bigin
 }
 
 /** simSOL base units that redeeming `gemas` of a Source pays now (floor, as the program computes it). */
-export function redeemPayoutShares(source: SourceMath, gemas: bigint, rate: bigint): bigint {
+export function redeemPayoutShares(source: Pick<SourceMath, "unitNum" | "unitDen">, gemas: bigint, rate: bigint): bigint {
   const units = (gemas * source.unitNum) / source.unitDen;
   return (units * RATE_SCALE) / rate;
 }

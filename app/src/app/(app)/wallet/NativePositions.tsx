@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Button, CheckIcon, Chip, ClockIcon, GemaAmount, Sheet, SimulatedYieldLabel } from "@/components/ui";
+import { useEffect, useRef, useState } from "react";
+import { Button, CheckIcon, Chip, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
-import { covered, live } from "@/lib/chain/ledger";
+import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
 import {
   LAMPORTS,
   MAX_PRICE_AGE_SECS,
@@ -24,7 +24,7 @@ import {
 import { friendlyError, getTestSimSol, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, unlockNative } from "@/lib/chain/native-flow";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
-import { ReturnOwnSheet, useReturnable } from "./MoneySheets";
+import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, sampledSeries } from "./PositionTile";
 
@@ -295,83 +295,54 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
   const { auth, snapshot, refresh } = useAccount();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sigs, setSigs] = useState<string[]>([]);
+  const [done, setDone] = useState<RedeemDone | null>(null);
+  const sigs = useRef<string[]>([]);
   const rows = nativeRedeemables(snapshot?.holdings ?? []);
   const ethRows = ethRedeemables(snapshot?.holdings ?? []);
   const ethCtx = useEthCtx();
   const pool = snapshot?.market?.pool ?? null;
-  const infoOf = (h: ChainHolding) => snapshot?.positions.find((p) => p.address.equals(h.position))?.native ?? null;
-  const payout = (h: ChainHolding) => {
-    const src = infoOf(h)?.source;
-    if (!pool || !src || !src.key.equals(h.source)) return null;
-    return redeemPayoutShares(src.math, h.redeemable, rateAt(pool));
-  };
-  const total = [...rows, ...ethRows].reduce((s, h) => s + Number(h.redeemable), 0);
+  const from = (h: ChainHolding) => (h.isOwn ? `Your ${h.asset} Position` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
+  const payouts: RedeemPayout[] = [
+    ...rows.map((h) => ({
+      key: h.holding.toBase58(),
+      asset: "SOL" as const,
+      from: from(h),
+      gemas: Number(h.redeemable),
+      amount: pool ? Number(redeemPayoutShares(h, h.redeemable, rateAt(pool))) / LAMPORTS : null,
+      token: "simSOL",
+      later: false,
+    })),
+    ...ethRows.map((h) => ({
+      key: h.holding.toBase58(),
+      asset: h.asset,
+      from: from(h),
+      gemas: Number(h.redeemable),
+      amount: gemasInAsset(h.redeemable, h),
+      token: h.asset,
+      later: true,
+    })),
+  ];
 
   const redeem = async () => {
     if (!auth.signer) return;
+    const gemas = payouts.reduce((s, p) => s + p.gemas, 0);
     setBusy(true);
     setError(null);
     try {
-      for (const h of rows) {
-        const sig = await redeemNative(auth.signer, h.position, h.source, h.redeemable);
-        setSigs((s) => [...s, sig]);
-      }
+      for (const h of rows) sigs.current.push(await redeemNative(auth.signer, h.position, h.source, h.redeemable));
       if (ethRows.length > 0) {
         if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
         await redeemEthHoldings(ethCtx, snapshot?.holdings ?? []);
-        if (rows.length === 0) onClose();
       }
+      setDone({ gemas, later: ethRows.length > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
       await refresh();
     } catch (e) {
       setError(friendlyError(e));
+      await refresh();
     } finally {
       setBusy(false);
     }
   };
 
-  return (
-    <>
-      <p className="meta">
-        Each Gema redeems for its Source asset, only as far as that Source Position&apos;s yield has actually accrued.
-        Winning Gemas never shorten your own lock. Paid in simSOL (Simulated) to your wallet, simETH (Simulated) on Hoodi for ETH Positions, or simHYPE (Simulated) on HyperEVM for HYPE Positions.
-      </p>
-      <dl className="kv">
-        {rows.map((h) => {
-          const p = payout(h);
-          return (
-            <div key={h.holding.toBase58()} style={{ display: "contents" }}>
-              <dt>{h.isOwn ? "Your Position" : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`}</dt>
-              <dd>
-                {fmtGemas(Number(h.redeemable))} → {p !== null ? `${fmtSol(p, 5)} simSOL` : "simSOL"}
-              </dd>
-            </div>
-          );
-        })}
-        {ethRows.map((h) => (
-          <div key={h.holding.toBase58()} style={{ display: "contents" }}>
-            <dt>{h.isOwn ? `Your ${h.asset} Position` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`}</dt>
-            <dd>{fmtGemas(Number(h.redeemable))} → {h.asset === "HYPE" ? "simHYPE on HyperEVM" : "simETH on Hoodi"}</dd>
-          </div>
-        ))}
-      </dl>
-      {rows.length + ethRows.length > 0 && <SimulatedYieldLabel />}
-      {ethRows.length > 0 && <p className="meta">ETH- and HYPE-Sourced Gemas pay out on their own chain: the simETH (Hoodi) or simHYPE (HyperEVM) arrives a few minutes later, with progress shown on the Wallet.</p>}
-      {rows.length + ethRows.length === 0 && sigs.length === 0 && <p className="meta">Nothing is redeemable yet. Yield accrues on the Source Position over time.</p>}
-      {sigs.length > 0 && (
-        <div className="status ok" role="status">
-          <CheckIcon /> Redeemed {sigs.length} {sigs.length === 1 ? "Source" : "Sources"} into simSOL
-        </div>
-      )}
-      {sigs.map((s) => <Sig key={s} label="redeem" sig={s} />)}
-      {error && <p className="status err" role="alert">{error}</p>}
-      {rows.length + ethRows.length > 0 ? (
-        <Button variant="money" block disabled={busy || !auth.signer} onClick={redeem}>
-          {busy ? "Redeeming…" : `Redeem ${fmtGemas(total)}`}
-        </Button>
-      ) : (
-        <Button block onClick={onClose}>Close</Button>
-      )}
-    </>
-  );
+  return <RedeemExchange payouts={payouts} busy={busy} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onClose={onClose} />;
 }
