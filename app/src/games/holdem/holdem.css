@@ -112,10 +112,9 @@
 .hd-turn { font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--shell); background: var(--fg); padding: 1px 6px; }
 .hd-last { text-align: center; }
 .hd-handlabel {
-  --c: 7px; position: absolute; z-index: 3; left: calc(50% + 74px); top: 8px; padding: 5px 12px; white-space: nowrap; font-size: 14px; font-weight: 700; color: var(--fg);
+  animation: hd-win-in 400ms ease both; --c: 7px; position: absolute; z-index: 3; left: calc(50% + 74px); top: 8px; padding: 5px 12px; white-space: nowrap; font-size: 14px; font-weight: 700; color: var(--fg);
   background: rgba(10, 16, 30, 0.9); --edge: rgba(190, 210, 255, 0.4);
 }
-.hdx-seat:not(.mine) .hd-handlabel { display: none; }
 
 /* what a seat just did: a short callout beside the plaque, toward the centre of the table */
 .hd-say { position: absolute; z-index: 6; right: calc(50% + 124px); top: 50%; width: 220px; height: 44px; transform: translateY(-50%); pointer-events: none; }
@@ -138,13 +137,29 @@
 .hd-chip.d500 { --c1: #f3f5f8; --c2: #c4cddb; --side: #7e8aa0; }
 .hd-chip.d1000 { --c1: #1c2740; --c2: #0c1424; --side: #05080f; }
 
-/* hand result */
-.hd-result { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); background: var(--surface); }
-.hd-result-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; }
-.hd-show { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.hd-show .hd-card { --w: 34px; }
-.hd-show-l { font-size: 11px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.08em; }
-.hd-show-l:not(:first-child) { margin-left: 8px; }
+/* the end of a hand: both hands named, the winning five lifted, the pot to the winner */
+.hdx-potslot { display: grid; place-items: center; min-height: 62px; width: 100%; }
+.hdx-win {
+  --c: 12px; --edge: linear-gradient(180deg, rgba(220, 232, 255, 0.7), rgba(160, 190, 255, 0.2)); display: flex; align-items: center; gap: 12px; padding: 8px 22px 8px 16px; max-width: min(92%, 460px);
+  background: linear-gradient(180deg, rgba(20, 34, 68, 0.96), rgba(8, 14, 30, 0.96)); box-shadow: 0 0 36px -8px rgba(150, 185, 255, 0.5);
+  animation: hd-win-in 520ms cubic-bezier(0.2, 1.1, 0.3, 1) both; animation-delay: calc(var(--rv, 0ms) + 150ms);
+}
+.hdx-felt[data-how="showdown"] .hdx-win { animation-delay: calc(var(--rv, 0ms) + 850ms); }
+@keyframes hd-win-in { from { opacity: 0; transform: translateY(10px) scale(0.9); } }
+.hdx-win-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: none; background: rgba(234, 239, 236, 0.1); color: var(--fg); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.hdx-win.lose .hdx-win-icon { color: var(--fg-2); }
+.hdx-win-t { display: grid; gap: 1px; text-align: left; line-height: 1.15; min-width: 0; }
+.hdx-win-t b { white-space: nowrap; font-size: clamp(17px, 2.2vw, 22px); font-weight: 800; }
+.hdx-win-t span:last-child { font-size: 14px; color: var(--fg-2); }
+.hdx-win-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.hd-turn.won { background: #e6ebf2; color: #0a1226; animation: hd-win-in 400ms ease both; animation-delay: calc(var(--rv, 0ms) + 150ms); }
+.hdx-felt[data-how="showdown"] .hd-turn.won { animation-delay: calc(var(--rv, 0ms) + 850ms); }
+.hdx-plaque.won { --edge: #e6ebf2; }
+.hd-flipc { transition: transform 420ms cubic-bezier(0.2, 0.9, 0.3, 1), opacity 420ms, filter 420ms; transition-delay: calc(var(--rv, 0ms) + 800ms); }
+.hd-flipc.win { transform: translateY(-12px); filter: drop-shadow(0 0 10px rgba(200, 220, 255, 0.75)); }
+.hd-flipc.dim { opacity: 0.42; filter: saturate(0.6); }
+.hdx-end { position: absolute; inset: 0; z-index: 12; display: grid; place-items: center; background: rgba(6, 10, 22, 0.72); animation: hd-win-in 600ms ease both; animation-delay: calc(var(--rv, 0ms) + 2800ms); }
+.hdx-end .hd-practice-end { max-width: 520px; }
 
 /* turn timer */
 .hdx-clock { display: grid; gap: 6px; min-width: 0; }
@@ -236,9 +251,13 @@
   .hd-bet { left: calc(50% + 58px); top: 6px; transform: none; }
   .hd-say { right: auto; left: 50%; top: 0; transform: translate(-50%, -50%); width: 200px; }
   .hd-handlabel { position: relative; left: auto; top: auto; order: 3; margin-top: 6px; }
-  .hd-turn { display: none; }
-  .hdx-seat:not(.mine) .hd-handlabel { display: none; }
-}
+  .hd-turn:not(.won) { display: none; }
+  .hdx-win { padding: 6px 14px 6px 10px; gap: 8px; max-width: 98%; }
+  .hdx-win-icon { width: 30px; height: 30px; }
+  .hdx-win-icon svg { width: 17px; height: 17px; }
+  .hdx-win-t b { font-size: 16px; }
+  .hdx-win-t span:last-child { font-size: 12.5px; }
+  }
 @media (min-width: 720px) {
   .hd-card, .hd-flipc { --w: 52px; }
   .hd-card.lg, .hd-flipc.lg { --w: 66px; }
@@ -259,14 +278,11 @@
    takes the height left after the top bar, header and action bar, so the whole table fits one screen. */
 @media (min-width: 1280px) {
   .hdx-stage { position: relative; }
-  .hdx-stage > .hd-result, .hdx-stage > .hd-last {
+  .hdx-stage > .hd-last {
     position: absolute; z-index: 2; left: 4.5%; top: 50%; transform: translateY(-50%); width: min(280px, 26%);
     text-align: left; background: rgba(8, 14, 28, 0.88); border: 1px solid rgba(190, 210, 255, 0.22);
   }
   .hdx-stage > .hd-last { padding: 10px 12px; }
-  .hd-result-top { flex-wrap: wrap; }
-  .hdx-stage > .hd-result .hd-show { display: grid; grid-template-columns: auto auto 1fr; justify-items: start; }
-  .hdx-stage > .hd-result .hd-show-l { margin-left: 0; }
   .hdx-felt { min-height: 0; height: clamp(360px, calc(100dvh - 318px), 520px); }
   .hdx-actions { padding: 12px 16px; gap: 10px; }
   .hdx-btn { min-height: 56px; }
@@ -288,3 +304,9 @@
   .hd-ghost { display: none; }
   .hd-ava.active { animation: none; }
 }
+.hdx-felt[data-how="showdown"] .hd-handlabel { animation-delay: calc(var(--rv, 0ms) + 600ms); }
+.hd-practice-end { flex-direction: column; align-items: stretch; text-align: center; padding: 22px 26px; background: linear-gradient(180deg, #121b2c, #0a1019); }
+.hd-end-text { display: grid; gap: 8px; }
+.hd-end-chips { font-size: 18px; color: var(--fg-2); }
+.hd-end-chips b { color: var(--fg); font-weight: 600; }
+.hd-practice-end .bp-actions { justify-content: center; }

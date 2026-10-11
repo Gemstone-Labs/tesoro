@@ -31,7 +31,7 @@ export function HoldemPractice() {
   useEffect(() => {
     if (!game || !t || t.status !== STATUS.live) return;
     if (t.phase === PHASE.shuffle) {
-      const pause = t.lastHand.handNo === 0 ? 400 : t.lastHand.showdown ? 3200 : 1800;
+      const pause = t.lastHand.handNo === 0 ? 400 : t.lastHand.showdown ? 3900 : 2100;
       const id = setTimeout(() => setGame((g) => (g ? deal(g, nowSecs()) : g)), pause);
       return () => clearTimeout(id);
     }
@@ -52,19 +52,35 @@ export function HoldemPractice() {
 
   return (
     <div className="stack-lg">
-      {over && (
-        <div className="cut cut-frame hd-practice-end" role="dialog" aria-label="Practice over">
-          <div>
-            <Label>{t.winner === YOU ? "You won the practice Match" : "The bot won the practice Match"}</Label>
-            <p className="note">Practice: nothing was staked and no Gemas moved.</p>
-          </div>
-          <div className="bp-actions">
-            <Button onClick={() => setGame(newPractice(nowSecs()))}>Play again</Button>
-            <Button href="/lobby">Lobby</Button>
-          </div>
-        </div>
-      )}
-      <HoldemTable table={t} seat={YOU} hole={hole} busy={null} ended={over} onAct={onAct} onClaim={() => {}} practice />
+      <HoldemTable
+        table={t}
+        seat={YOU}
+        hole={hole}
+        busy={null}
+        ended={over}
+        onAct={onAct}
+        onClaim={() => {}}
+        practice
+        endPanel={
+          over && (
+            <div className="cut cut-frame hd-practice-end">
+              <div className="hd-end-text">
+                <Label>{t.winner === YOU ? "You won the practice Match" : "The bot won the practice Match"}</Label>
+                <p className="hd-end-chips mono">
+                  You <b>{Number(t.stacks[YOU]).toLocaleString("en-US")}</b> · Bot <b>{Number(t.stacks[BOT]).toLocaleString("en-US")}</b> Chips
+                </p>
+                <p className="note">
+                  {t.handNo} {t.handNo === 1 ? "hand" : "hands"} played. Practice: nothing was staked and no Gemas moved.
+                </p>
+              </div>
+              <div className="bp-actions">
+                <Button onClick={() => setGame(newPractice(nowSecs()))}>Play again</Button>
+                <Button href="/lobby">Lobby</Button>
+              </div>
+            </div>
+          )
+        }
+      />
       {!over && <p className="note hd-note">Practice · nothing staked · heads-up against a bot, turbo blinds rising every hand, no turn clock.</p>}
     </div>
   );

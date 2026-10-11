@@ -39,6 +39,7 @@ export function Seat({
   missed,
   say,
   label,
+  tag,
   mine,
   index,
   children,
@@ -65,6 +66,8 @@ export function Seat({
   say: Say | null;
   /** The plain-words name of the hand, under the cards. */
   label?: string | null;
+  /** The hand's outcome for this seat, in words ("Winner", "Split"). */
+  tag?: string | null;
   mine?: boolean;
   /** Seat number, for finding the bet on screen. */
   index: number;
@@ -78,12 +81,13 @@ export function Seat({
           {label}
         </span>
       )}
-      <div className="cut hdx-plaque">
+      <div className={`cut hdx-plaque${tag ? " won" : ""}`} data-seat={index}>
         <Avatar account={account} picture={picture} active={active} fraction={fraction} low={low} />
         <div className="hd-plaque-text">
           <div className="hd-name">
             <strong>{who}</strong>
             {active && <span className="hd-turn">To act</span>}
+            {tag && <span className="hd-turn won">{tag}</span>}
             <span className="mono hd-addr">{account ? linked ? <AccountLink account={account} newTab /> : <PlayerName account={account} /> : address}</span>
           </div>
           <div className="hd-stack mono" aria-label={`${who} stack ${chips(stack)} Chips`}>

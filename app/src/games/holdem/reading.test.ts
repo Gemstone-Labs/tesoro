@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bestHand, compareHands } from "./reading";
+import { SPLIT } from "./chain";
+import { bestHand, compareHands, resultSummary } from "./reading";
 
 const card = (s: string) => "cdhs".indexOf(s[1]) * 13 + "23456789TJQKA".indexOf(s[0]);
 const hand = (s: string) => (s ? s.split(" ").map(card) : []);
@@ -87,5 +88,24 @@ describe("compareHands", () => {
     const t1 = read("2s 3d", "As Ks Qh Jd 9c");
     const t2 = read("2h 3c", "As Ks Qh Jd 9c");
     expect(compareHands(t1, t2)).toEqual({ result: 0, text: "Both have Ace high" });
+  });
+});
+
+describe("resultSummary", () => {
+  const flush = read("As 9s", "7s 5s 3s Kd 2c");
+  const two = read("Kc Kh", "7d 5h 3d Ad 7h");
+  it("says who won and why after a showdown", () => {
+    const lh = { result: 0, pot: 1200n, showdown: true };
+    expect(resultSummary(lh, 0, [flush, two])).toEqual({ outcome: "win", title: "You win 1,200 Chips", detail: "Flush beats Two pair" });
+    expect(resultSummary({ ...lh, result: 1 }, 0, [two, flush])).toEqual({ outcome: "lose", title: "Opponent wins 1,200 Chips", detail: "Flush beats Two pair" });
+  });
+  it("says who folded", () => {
+    expect(resultSummary({ result: 0, pot: 300n, showdown: false }, 0, null)).toEqual({ outcome: "win", title: "You win 300 Chips", detail: "Opponent folded" });
+    expect(resultSummary({ result: 1, pot: 300n, showdown: false }, 0, null)).toEqual({ outcome: "lose", title: "Opponent wins 300 Chips", detail: "You folded" });
+  });
+  it("describes a split pot with both hands", () => {
+    const a = read("2s 3d", "As Ks Qh Jd Th");
+    const b = read("2h 3c", "As Ks Qh Jd Th");
+    expect(resultSummary({ result: SPLIT, pot: 3000n, showdown: true }, 0, [a, b])).toEqual({ outcome: "split", title: "Split pot", detail: "Both have Straight, Ace high · 1,500 Chips each" });
   });
 });

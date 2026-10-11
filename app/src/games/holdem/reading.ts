@@ -1,4 +1,4 @@
-import { NO_CARD } from "./chain";
+import { NO_CARD, SPLIT } from "./chain";
 import { FLUSH, FULL_HOUSE, HIGH_CARD, PAIR, QUADS, STRAIGHT, STRAIGHT_FLUSH, TRIPS, TWO_PAIR, category, eval7 } from "./practice/eval";
 
 export interface BestHand {
@@ -92,4 +92,22 @@ export function compareHands(a: BestHand, b: BestHand): { result: 1 | -1 | 0; te
   if (w.category !== l.category) return { result, text: `${w.kind} beats ${l.kind}` };
   if (w.name === l.name) return { result, text: `${w.name} wins on the kicker` };
   return { result, text: `${w.name} beats ${l.name}` };
+}
+
+const chips = (n: bigint) => Number(n).toLocaleString("en-US");
+
+/** The headline and the reason for a finished hand, from `seat`'s point of view. `hands` are both players' best hands at a showdown. */
+export function resultSummary(
+  lh: { result: number; pot: bigint; showdown: boolean },
+  seat: number,
+  hands: readonly [BestHand, BestHand] | null,
+): { outcome: "win" | "lose" | "split"; title: string; detail: string } {
+  if (lh.result === SPLIT) {
+    const both = hands ? `Both have ${hands[0].name} · ` : "";
+    return { outcome: "split", title: "Split pot", detail: `${both}${chips(lh.pot / 2n)} Chips each` };
+  }
+  const won = lh.result === seat;
+  const title = won ? `You win ${chips(lh.pot)} Chips` : `Opponent wins ${chips(lh.pot)} Chips`;
+  const detail = lh.showdown && hands ? compareHands(hands[lh.result], hands[1 - lh.result]).text : won ? "Opponent folded" : "You folded";
+  return { outcome: won ? "win" : "lose", title, detail };
 }

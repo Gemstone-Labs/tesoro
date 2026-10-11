@@ -46,6 +46,7 @@ export function FlipCard({
   size = "md",
   fly,
   turnDelay = 0,
+  mark = null,
 }: {
   card?: number | null;
   state: FlipState;
@@ -54,6 +55,8 @@ export function FlipCard({
   fly?: { deck: React.RefObject<HTMLElement | null>; delay: number } | null;
   /** Extra wait before turning face up after appearing, ms. */
   turnDelay?: number;
+  /** At a showdown: part of the winning five (`win`) or not (`dim`). */
+  mark?: "win" | "dim" | null;
 }) {
   const reduced = useReducedMotion();
   const ref = useRef<HTMLSpanElement>(null);
@@ -80,7 +83,7 @@ export function FlipCard({
   if (!present) return <span className={`hd-card ${size} empty`} aria-hidden="true" />;
   const label = wantsUp && up && card !== null && card !== undefined ? cardText(card) : "Face-down card";
   return (
-    <span ref={ref} className={`hd-flipc ${size}`} role="img" aria-label={label}>
+    <span ref={ref} className={`hd-flipc ${size}${mark ? ` ${mark}` : ""}`} role="img" aria-label={label}>
       <span className={`hd-flipc-in${up ? " up" : ""}`}>
         <PlayingCard back />
         {card !== null && card !== undefined && card < NO_CARD ? <PlayingCard card={card} /> : <span className="hd-card empty" />}
