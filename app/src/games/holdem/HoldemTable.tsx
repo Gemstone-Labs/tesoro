@@ -103,7 +103,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const total = t.phase === PHASE.shuffle ? 60 : 30;
   const expired = !practice && !ended && t.status === STATUS.live && remaining < -1;
   const log = useHandLog(t, seat);
-  const feed = useTableFeed(t, seat);
+  const feed = useTableFeed(t);
   useGuideHidden(!ended);
 
   const board = playing ? t.board : showLast ? lh.board : t.board;

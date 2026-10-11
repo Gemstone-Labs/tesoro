@@ -64,10 +64,10 @@ interface State extends Feed {
  * What a Player should notice between table reads: the action on each seat and the blinds going up.
  * Derived while rendering from `diffTable`, so a repeated read changes nothing; callouts clear on a timer.
  */
-export function useTableFeed(t: Table, seat: 0 | 1): Feed {
+export function useTableFeed(t: Table): Feed {
   const [st, setSt] = useState<State>({ t: null, n: 0, batch: null, say: [null, null], toast: null, banner: null, dealing: false, settle: null });
   if (st.t !== t) {
-    const events = diffTable(st.t, t, seat);
+    const events = diffTable(st.t, t);
     if (events.length === 0) {
       setSt({ ...st, t });
     } else {

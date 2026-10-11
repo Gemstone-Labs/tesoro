@@ -74,8 +74,7 @@ const sweep = (amount: bigint): TableEvent[] => (amount > 0n ? [{ type: "sweep",
  * actions are inferred from how bets, stacks and the pot moved; a poll can merge several reads, in
  * which case the best single description is given and never a wrong one. Pure.
  */
-export function diffTable(prev: TableState | null, next: TableState, seat: 0 | 1): TableEvent[] {
-  void seat;
+export function diffTable(prev: TableState | null, next: TableState): TableEvent[] {
   if (!prev) return [];
   const out: TableEvent[] = [];
   const lh = next.lastHand;
@@ -115,7 +114,7 @@ export function diffTable(prev: TableState | null, next: TableState, seat: 0 | 1
   if (next.handNo > prev.handNo) {
     out.push({ type: "newHand", handNo: next.handNo, dealer: next.dealer, smallBlind: next.smallBlind, bigBlind: next.bigBlind, blindsUp: prev.handNo > 0 && next.bigBlind > prev.bigBlind });
   }
-  if (isLive(next.phase) && (!isLive(prev.phase) || next.handNo > prev.handNo) && !(isLive(prev.phase) && next.handNo === prev.handNo)) {
+  if (isLive(next.phase) && (!isLive(prev.phase) || next.handNo > prev.handNo)) {
     out.push({ type: "deal" });
     const blinds: [bigint, bigint] = next.dealer === 0 ? [next.smallBlind, next.bigBlind] : [next.bigBlind, next.smallBlind];
     for (let ph = PHASE.flop; ph <= next.phase; ph++) out.push(streetEvent(ph, next.board));
