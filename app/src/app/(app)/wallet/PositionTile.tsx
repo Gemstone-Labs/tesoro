@@ -4,6 +4,10 @@ import type { ReactNode } from "react";
 import { SimulatedYieldLabel } from "@/components/ui";
 import type { Chain } from "@/lib/mock/types";
 import "./wallet.css";
+import { usePrototypeVariant } from "@/components/prototype/PrototypeSwitcher";
+import { PT_VARIANTS, PositionTileVariant } from "./PositionTile.prototype";
+
+const PT_KEYS = PT_VARIANTS.map((v) => v.key);
 
 /** Debt over time, projected from the live yield rate: `vals[i]` is the Debt at `labels[i]`. */
 export interface DebtSeries {
@@ -111,6 +115,9 @@ export function PositionTile({
   children?: ReactNode;
   label: string;
 }) {
+  // PROTOTYPE: ?variant=now|A|B|C|D
+  const variant = usePrototypeVariant(PT_KEYS);
+  if (variant !== "now") return <PositionTileVariant variant={variant} {...{ chain, status, rows, chartTitle, series, fmt, children, label }} />;
   return (
     <article className={`cut cut-card wl-tile ${status}`} aria-label={label}>
       <header>

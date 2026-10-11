@@ -18,6 +18,8 @@ import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPosit
 import { vaultsOn } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
+import { PT_VARIANTS } from "./PositionTile.prototype";
+import { PrototypeSwitcher } from "@/components/prototype/PrototypeSwitcher";
 import "./wallet.css";
 
 const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
@@ -140,6 +142,7 @@ export default function Wallet() {
 
   return (
     <div className="wl">
+      <PrototypeSwitcher variants={PT_VARIANTS} />
       <header className="page-head wl-head">
         <div>
           <h1 className="page-title">Wallet</h1>
