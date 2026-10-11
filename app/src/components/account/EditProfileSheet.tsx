@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertIcon, Button, Label, Sheet } from "@/components/ui";
+import { AlertIcon, Button, Sheet } from "@/components/ui";
 import { art, avatarFor } from "@/lib/art";
 import { useAuth } from "@/lib/auth/context";
 import { accountKeyOf } from "@/lib/chain/account-key";
@@ -254,8 +254,6 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
           {busy ?? "Save"}
         </Button>
       )}
-      <Label>On chain</Label>
-      <p className="note">Your name and picture are saved on Solana and public. A .sol or .eth name shows with a check when you have no profile name.</p>
     </form>
   );
 }
