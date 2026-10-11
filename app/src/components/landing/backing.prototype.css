@@ -1,0 +1,61 @@
+/* PROTOTYPE ONLY (branch proto/back-a-player-11-10-2026): add-ons for the Back a Player section. */
+
+/* Outcome rows: lit / dim from hover or a promise (B, C). */
+.lp-backing .lp-oc { transition: opacity 0.2s; }
+.lp-backing .lp-oc.bp-dim { opacity: 0.35; }
+.lp-backing .lp-oc.bp-lit .lp-oc-head { color: var(--em); }
+.lp-backing .lp-oc.lose.bp-lit .lp-oc-head { color: var(--danger); }
+
+/* A: Player strip on top of the card. */
+.bp-player { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.bp-avatar { width: 56px; height: 56px; object-fit: cover; background: var(--shell); display: block; }
+.bp-who { display: grid; gap: 3px; min-width: 0; }
+.bp-who b { font-size: 17px; font-weight: 800; }
+.bp-rec { font-size: 12.5px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bp-rec em { font-style: normal; color: var(--em); font-weight: 800; }
+.bp-asks { display: grid; justify-items: end; gap: 2px; }
+.bp-asks span { font-size: 11px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+.bp-asks b { display: inline-flex; align-items: center; gap: 5px; font-weight: 900; font-variant-numeric: tabular-nums; }
+
+/* B: one plain line under each outcome. */
+.bp-line { grid-column: 2; margin: -4px 0 0; font-size: 13px; line-height: 1.4; color: var(--fg-2); }
+.bp-line b { color: var(--fg); font-weight: 800; font-variant-numeric: tabular-nums; }
+.bp-has-lines .lp-offer-note { display: none; }
+
+/* C: three promises in the left column. */
+.bp-promises { list-style: none; margin: 24px 0 8px; padding: 0; display: grid; gap: 4px; max-width: 420px; }
+.bp-promises li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; padding: 10px 12px; margin-left: -12px; cursor: default; outline: none; transition: background 0.2s; }
+.bp-promises li:hover, .bp-promises li:focus-visible { background: var(--raised); }
+.bp-promises svg { width: 18px; height: 18px; color: var(--em); margin-top: 2px; }
+.bp-promises b { display: block; font-weight: 800; font-size: 16px; }
+.bp-promises small { display: block; color: var(--fg-2); font-size: 14px; margin-top: 2px; }
+.bp-browse { margin-top: 16px; min-width: 220px; }
+
+/* D: the flying Gema. */
+.bp-fly {
+  position: fixed; z-index: 50; width: 18px; height: 18px; pointer-events: none;
+  background: var(--em); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  filter: drop-shadow(0 0 10px var(--em));
+}
+[data-proto="D"] .lp-backing-her img { animation: bp-glow 2.8s ease-in-out infinite; }
+@keyframes bp-glow { 50% { filter: drop-shadow(-6px 0 18px color-mix(in srgb, var(--em) 35%, transparent)); } }
+
+/* E: Requests fanned behind the card. */
+.bp-card-slot { position: relative; width: 100%; }
+.bp-card-slot.bp-boarded { padding-top: 56px; }
+.bp-card-slot > .lp-offer { position: relative; z-index: 2; }
+.bp-ghost {
+  position: absolute; left: 0; right: 0; height: 80px; z-index: 1; display: flex; gap: 8px; align-items: flex-start;
+  background: var(--raised-2); padding: 7px 18px; font-size: 12px; color: var(--fg-2);
+}
+.bp-ghost.g0 { top: 0; transform: scaleX(0.88); opacity: 0.5; }
+.bp-ghost.g1 { top: 26px; transform: scaleX(0.94); opacity: 0.8; }
+.bp-ghost img { width: 16px; height: 16px; object-fit: cover; }
+.bp-ghost b { color: var(--fg); font-size: 12px; }
+.bp-ghost small { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.bp-board-count { position: absolute; top: -24px; left: 0; font-size: 11.5px; color: var(--fg-2); }
+.bp-board-count::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--em); margin-right: 6px; box-shadow: 0 0 8px var(--em); }
+
+@media (max-width: 1023px) {
+  .bp-promises { max-width: none; }
+}

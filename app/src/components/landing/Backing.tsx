@@ -3,8 +3,14 @@ import { landingArt } from "@/lib/landing/art";
 import { appHref } from "@/lib/landing/config";
 import { OfferDemo } from "./OfferDemo";
 import { Picture } from "./Picture";
+import { BackingPrototype } from "./Backing.prototype";
 
+/** PROTOTYPE: `?variant=` layers add-ons on the section (branch proto/back-a-player-11-10-2026). */
 export function Backing() {
+  return <BackingPrototype />;
+}
+
+export function BackingNow() {
   const her = landingArt("herBacker");
   return (
     <section id="backing" className="lp-section lp-backing" aria-labelledby="backing-title">
