@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import type { Chain } from "@/lib/mock/types";
-import { ArrowIcon } from "./icons";
+import { RowProto, type RowProtoProps } from "./Row.prototype";
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -44,27 +44,9 @@ interface RowProps {
   children?: ReactNode;
 }
 
-export function Row({ thumb, title, meta, cta, ctaTone = "neutral", href, onClick, children }: RowProps) {
-  const inner = (
-    <>
-      {thumb}
-      <span className="row-body">
-        <span className="row-title">{title}</span>
-        {meta && <span className="row-meta">{meta}</span>}
-      </span>
-      {children}
-      {cta && (
-        <span className={cx("row-cta", ctaTone === "money" && "money")}>
-          {cta}
-          <ArrowIcon width={12} height={12} />
-        </span>
-      )}
-    </>
-  );
-  const cls = "cut cut-card row";
-  if (href) return <Link href={href} className={cls}>{inner}</Link>;
-  if (onClick) return <button type="button" className={cls} onClick={onClick}>{inner}</button>;
-  return <div className={cls}>{inner}</div>;
+// PROTOTYPE (branch proto/rows-11-10-2026): every Row renders through the variant switch.
+export function Row(props: RowProps & Omit<RowProtoProps, keyof RowProps>) {
+  return <RowProto {...props} />;
 }
 
 /* ——— Chip / ChainChip ——— */

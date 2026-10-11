@@ -4,6 +4,8 @@ import { AssetPicker, Button, Chip, EntryPicker, Row, Slider } from "@/component
 import type { EntrySize } from "@/lib/mock";
 import { PlayNowRail } from "@/components/lobby/PlayNowRail";
 import { SearchProvider } from "@/components/shell/SearchContext";
+import { PrototypeSwitcher } from "@/components/prototype/PrototypeSwitcher";
+import { ROW_VARIANTS, RowList } from "@/components/ui/Row.prototype";
 import "./motion.css";
 
 function Demo({ ms }: { ms: number }) {
@@ -12,6 +14,7 @@ function Demo({ ms }: { ms: number }) {
   const [h, setH] = useState(3);
   return (
     <div className="sbm sbm-trans">
+      <PrototypeSwitcher variants={ROW_VARIANTS} />
       {ms >= 0 && <style>{`.sbm-trans *, .sbm-trans *::before, .sbm-trans *::after { transition-duration: ${ms}ms !important; }`}</style>}
       <div className="sbm-panel">
         <h3>Buttons (ui.css:116: filter, background and press, 0.15 s)</h3>
@@ -34,8 +37,10 @@ function Demo({ ms }: { ms: number }) {
       </div>
       <div className="sbm-panel">
         <h3>Rows (shell.css:177, block-puzzle.css:128, lobby.css:202: background, 0.15 to 0.2 s)</h3>
-        <Row title="Block Puzzle" meta="Won 900 · 2 min ago" cta="Open" href="#row" />
-        <Row title="Hold'em" meta="Lost 500 · 1 h ago" cta="Open" href="#row2" />
+        <RowList>
+          <Row title="Block Puzzle" meta="vs Otter · 171 – 140" cta="Open" href="#row" game="block-puzzle" delta={900} when="2 min ago" />
+          <Row title="Hold'em" meta="vs Lynx · Entry 500" cta="Open" href="#row2" game="holdem" delta={-500} when="1 h ago" />
+        </RowList>
       </div>
       <div className="sbm-panel">
         <h3>Game tiles (lobby.css:195: tilt follows the mouse, 0.6 s back to flat, 0.15 s while hovered; art zoom 0.6 s)</h3>
