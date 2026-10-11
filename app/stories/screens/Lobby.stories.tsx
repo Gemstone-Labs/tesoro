@@ -37,6 +37,9 @@ export const NewAccount: Story = {
   },
 };
 
-export const Loading: Story = { parameters: { data: { snapshot: null } } };
+/** First load: the Account, the Requests and the leaderboard are still being read; recent wins stay hidden until some arrive. */
+export const Loading: Story = {
+  parameters: { data: { snapshot: null, settled: [] }, screen: { board: "loading", leaderboard: "loading" } },
+};
 
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };

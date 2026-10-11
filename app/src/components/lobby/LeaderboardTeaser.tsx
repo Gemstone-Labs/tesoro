@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PlayerAvatar } from "@/components/account/Player";
-import { CountUp, SkeletonCards } from "@/components/ui";
+import { CountUp } from "@/components/ui";
 import { art } from "@/lib/art";
 import { shortKey } from "@/lib/chain/history";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
@@ -48,7 +48,7 @@ export function LeaderboardTeaser() {
   return (
     <Rail id="leaderboard" title="Leaderboard" cols={2} className="lb-teaser">
       {!data ? (
-        <SkeletonCards count={1} avatar={false} label="Loading the leaderboard…" />
+        <TeaserSkeleton />
       ) : (
         <Link href="/leaderboard" className="cut cut-card lbt">
           <div className="lbt-art" aria-hidden="true">
@@ -84,5 +84,32 @@ export function LeaderboardTeaser() {
         </Link>
       )}
     </Rail>
+  );
+}
+
+/** Loading: the teaser in outline (season line, Pool figure, title, top three, chest), not a row of bars. */
+function TeaserSkeleton() {
+  return (
+    <>
+      <span className="sr-only" role="status">
+        Loading the leaderboard…
+      </span>
+      <div className="cut cut-card lbt skel" aria-hidden="true">
+        <div className="lbt-art">
+          <span className="lbt-skel-chest" />
+        </div>
+        <div className="lbt-copy">
+          <span className="skel-line lbt-skel-kicker" />
+          <span className="skel-line lbt-skel-fig" />
+          <span className="skel-line lg lbt-skel-title" />
+          <span className="lbt-top">
+            {[0, 1, 2].map((i) => (
+              <span key={i} className="lbt-skel-chip" />
+            ))}
+          </span>
+          <span className="skel-line lbt-skel-cta" />
+        </div>
+      </div>
+    </>
   );
 }

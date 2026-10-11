@@ -45,7 +45,19 @@
 .bp-body .btn { gap: 6px; min-height: 46px; margin-top: auto; }
 
 /* loading, failed and empty sit in the shelf as cards */
-.skel.bp-card { min-height: 460px; background: linear-gradient(rgba(234, 239, 236, 0.04) 0 230px, transparent 230px), var(--surface); }
+.skel.bp-card:hover { --edge: var(--edge-1); transform: none; }
+.skel .bp-face { background: radial-gradient(70% 70% at 50% 62%, rgba(234, 239, 236, 0.06), transparent 75%), rgba(234, 239, 236, 0.025); }
+.skel .bp-game { width: 46%; height: 16px; }
+.skel .bp-avatar { background: rgba(234, 239, 236, 0.07); --edge: var(--edge-1); box-shadow: none; }
+.bp-skel-name { width: 62%; margin: 4px auto 0; }
+.skel .bp-stats div { justify-items: center; gap: 8px; padding: 2px 0; }
+.bp-skel-fig { width: 44%; height: 30px; }
+.bp-skel-label { width: 26%; height: 8px; }
+.bp-skel-pnl { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.bp-skel-pnl > .skel-line:first-child { width: 34px; height: 9px; }
+.bp-skel-pnl > .skel-line.lg { width: 84px; height: 22px; }
+.bp-skel-spark { grid-column: 1 / -1; height: 44px; background: linear-gradient(0deg, rgba(234, 239, 236, 0.06), transparent); clip-path: polygon(0 88%, 14% 76%, 26% 82%, 40% 58%, 52% 66%, 66% 40%, 78% 48%, 100% 16%, 100% 100%, 0 100%); }
+.bp-skel-btn { display: block; min-height: 46px; margin-top: auto; background: rgba(234, 239, 236, 0.07); --edge: transparent; }
 .bp-note { display: grid; place-content: center; min-height: 460px; margin: 0; padding: 24px; text-align: center; color: var(--fg-2); background: var(--surface); --edge: var(--edge-1); }
 .bp-note button { padding: 0; font: inherit; font-weight: 700; color: var(--fg); text-decoration: underline; text-underline-offset: 2px; background: none; border: 0; cursor: pointer; }
 

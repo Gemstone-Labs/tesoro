@@ -10,7 +10,7 @@ import type { ChainRequest } from "@/lib/chain/backing";
 import { timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
-import { Bust, ClockIcon, GemaMark, SkeletonCards } from "@/components/ui";
+import { Bust, ClockIcon, GemaMark } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
 import { Pnl } from "@/components/backing/Pnl";
@@ -57,7 +57,7 @@ export function BackPlayerRail() {
     >
       <div className="bp-shelf" ref={shelfRef}>
         <BackingIntro />
-        {loading && !board && <SkeletonCards className="bp-card" label="Loading Requests…" />}
+        {loading && !board && <PlayerCardSkeletons />}
         {error && !board && (
           <p className="cut cut-card bp-note">
             Requests couldn’t be loaded. <button type="button" onClick={() => void refresh()}>Try again</button>
@@ -86,6 +86,42 @@ function BackingIntro() {
       </Link>
       <Bust name="herBacking" width={190} className="bp-intro-bust" />
     </div>
+  );
+}
+
+/** Loading: three Player cards in outline (animal, name, record, P&L, Back for), so the shelf keeps its shape. */
+function PlayerCardSkeletons() {
+  return (
+    <>
+      <span className="sr-only" role="status">
+        Loading Requests…
+      </span>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="cut cut-card bp-card skel" aria-hidden="true">
+          <div className="bp-face">
+            <span className="skel-line bp-game" />
+            <span className="cut cut-btn bp-avatar" />
+          </div>
+          <div className="bp-body">
+            <span className="skel-line lg bp-skel-name" />
+            <div className="bp-stats">
+              {[0, 1, 2].map((j) => (
+                <div key={j}>
+                  <span className="skel-line bp-skel-fig" />
+                  <span className="skel-line bp-skel-label" />
+                </div>
+              ))}
+            </div>
+            <div className="bp-skel-pnl">
+              <span className="skel-line" />
+              <span className="skel-line lg" />
+              <span className="bp-skel-spark" />
+            </div>
+            <span className="cut cut-btn bp-skel-btn" />
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
 

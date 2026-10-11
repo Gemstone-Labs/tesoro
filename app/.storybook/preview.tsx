@@ -15,6 +15,7 @@ import { GemaDefs } from "../src/components/ui/gema";
 import { AuthContext } from "../src/lib/auth/context";
 import { authFor } from "../stories/support/auth";
 import { setStoryData, type AuthMode, type StoryData } from "../stories/support/data";
+import { setScreenData, type ScreenData } from "../stories/screens/support/screen";
 import { FONT_CLASSES } from "../stories/support/fonts";
 import { blockNetwork } from "../stories/support/network";
 import { ShellFor, type Shell } from "../stories/support/shells";
@@ -59,6 +60,8 @@ const withTesoro: Decorator = (Story, ctx) => {
   reducedMotion = ctx.globals.motion === "reduced";
   const guide = (ctx.parameters.guide ?? ctx.globals.guide) === "on";
   setStoryData({ data, auth, guide });
+  // The shell's top bar (Pool, season points) renders before the story's `withScreen` decorator runs.
+  setScreenData((ctx.parameters.screen ?? {}) as ScreenData);
   if (guide) {
     try {
       localStorage.removeItem("tesoro-guide-dismissed");

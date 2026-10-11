@@ -198,6 +198,13 @@ a.tile:hover .tile-glare { opacity: 1; }
   clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
 }
 .lbt-top b { color: var(--fg); }
+.lbt.skel { --edge: var(--edge-1); background: radial-gradient(50% 130% at 84% 50%, rgba(234, 239, 236, 0.05), transparent 70%), var(--surface); }
+.lbt-skel-chest { width: 72%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(closest-side, rgba(234, 239, 236, 0.09), rgba(234, 239, 236, 0.03) 70%, transparent); }
+.lbt-skel-kicker { width: 240px; max-width: 70%; height: 11px; }
+.lbt-skel-fig { width: 300px; max-width: 80%; height: clamp(48px, 6vw, 80px); margin: 4px 0; }
+.lbt-skel-title { width: 320px; max-width: 86%; height: 20px; }
+.lbt-skel-chip { display: block; width: 168px; height: 38px; background: rgba(234, 239, 236, 0.06); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+.lbt-skel-cta { width: 104px; height: 11px; margin-top: 8px; }
 .lbt-top img { width: 26px; height: 26px; border-radius: 50%; }
 .lbt-rank { font-family: var(--f-display); font-weight: 800; font-size: 15px; color: var(--fg); min-width: 10px; text-align: center; }
 .lbt-top li:first-child .lbt-rank { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
