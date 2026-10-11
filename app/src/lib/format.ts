@@ -29,6 +29,12 @@ export function fmtAsset(amount: number, asset: Asset): string {
   })} ${asset}`;
 }
 
+/** Time left until an Unlock Estimate: "in ~8 min", or "any moment now" under 45 s. */
+export function fmtInMinutes(targetMs: number, nowMs: number): string {
+  const s = Math.max(0, Math.round((targetMs - nowMs) / 1000));
+  return s < 45 ? "any moment now" : `in ~${Math.round(s / 60)} min`;
+}
+
 /** The viewer's local time, e.g. "Oct 3, 17:05". Only for values read in the browser (Unlock Estimates). */
 export function fmtWhen(at: string | number): string {
   return new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });

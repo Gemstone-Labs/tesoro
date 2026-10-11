@@ -1,7 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { SimulatedYieldLabel } from "@/components/ui";
+import { type ReactNode, useId } from "react";
+import { Lock, LockOpen } from "lucide-react";
+import { ChainGlyph, SimulatedYieldLabel } from "@/components/ui";
+import { fmtInMinutes } from "@/lib/format";
 import type { Chain } from "@/lib/mock/types";
 import "./wallet.css";
 
@@ -34,109 +36,148 @@ export function sampledSeries(sample: (atMs: number) => number, nowMs: number, s
   return { vals, labels };
 }
 
-const W = 300;
-const H = 120;
-const PAD = { l: 34, r: 8, t: 8, b: 4 };
+/**
+ * `repaying`: Debt is open and yield pays it down. `paid`: Debt is zero, the Principal can be unlocked.
+ * `idle`: locked, no Advance taken. `unlocked`: the Principal is back.
+ */
+export type PositionState = "repaying" | "paid" | "idle" | "unlocked";
 
-/** Small projected-Debt chart. No series: an empty dashed axis (no Position). */
-export function DebtChart({ title, series, fmt }: { title: string; series: DebtSeries | null; fmt: (n: number) => string }) {
-  const max = series ? Math.max(...series.vals, 1e-9) : 1;
-  const x = (i: number) => PAD.l + (i / TICKS) * (W - PAD.l - PAD.r);
-  const y = (v: number) => PAD.t + (1 - v / max) * (H - PAD.t - PAD.b);
-  const ticks = [max, max / 2, 0];
+const GLYPH = { SOL: 0, ETH: 1, HYPE: 2 } as const;
+
+/** "17:02" big, "Today" / "Tomorrow" / "Oct 12" beside the time left. */
+function backAt(at: number, now: number) {
+  const d = new Date(at);
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(d) - day(new Date(now))) / 86_400_000);
+  const date = days === 0 ? "Today" : days === 1 ? "Tomorrow" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return { time: d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }), when: `${date} · ${fmtInMinutes(at, now)}` };
+}
+
+function hero(state: PositionState, unlockAt: number | null, now: number) {
+  if (state === "repaying") {
+    if (!unlockAt) return { k: "Principal back", big: "Soon", note: "Once yield accrues" };
+    const b = backAt(unlockAt, now);
+    return { k: "Principal back", big: b.time, note: b.when };
+  }
+  if (state === "paid") return { k: "Principal back", big: "Now", note: "Debt is zero: unlock any time" };
+  if (state === "unlocked") return { k: "Principal", big: "Returned", note: "This Position is closed" };
+  return { k: "Principal", big: "Locked", note: "Earning yield · no Advance taken" };
+}
+
+/** Projected Debt draining to zero, across the card. */
+function BurnDown({ series, debt }: { series: DebtSeries; debt: string }) {
+  const id = useId();
+  const W = 240;
+  const H = 70;
+  const max = Math.max(...series.vals, 1e-9);
+  const n = series.vals.length - 1;
+  const line = series.vals.map((v, i) => `${i ? "L" : "M"}${((i / n) * W).toFixed(1)},${(2 + (1 - v / max) * (H - 4)).toFixed(1)}`).join("");
+  const last = series.labels.length - 1;
   return (
-    <figure className="wl-chart">
+    <figure className="wl-burn">
       <figcaption>
-        {title} <span>· projected</span>
+        <b>{debt}</b> of Debt now · yield pays it to zero <span>· projected</span>
       </figcaption>
-      <svg viewBox={`0 0 ${W} ${H + 18}`} role="img" aria-label={series ? `${title}, projected: ${fmt(series.vals[0])} now, ${fmt(series.vals[series.vals.length - 1])} at the end` : `${title}: no data`}>
-        {ticks.map((t, i) => (
-          <g key={i}>
-            <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} className="grid" />
-            <text x={PAD.l - 5} y={y(t) + 3.5} textAnchor="end">{series ? fmt(t) : ["1.0", "0.5", "0"][i]}</text>
-          </g>
-        ))}
-        {series ? (
-          <>
-            <polyline points={series.vals.map((v, i) => `${x(i)},${y(v)}`).join(" ")} className="line" />
-            {series.vals.map((v, i) => (
-              <circle key={i} cx={x(i)} cy={y(v)} r={2.4} className="dot" />
-            ))}
-            {series.labels.map((l, i) => (
-              <text key={i} x={x(i)} y={H + 12} textAnchor={i === TICKS ? "end" : i === 0 ? "start" : "middle"}>{l}</text>
-            ))}
-          </>
-        ) : (
-          <>
-            <line x1={PAD.l} x2={W - PAD.r} y1={y(0.5)} y2={y(0.5)} className="empty" />
-            {["Now", "7d", "14d", "21d", "28d"].map((l, i) => (
-              <text key={i} x={x(i)} y={H + 12} textAnchor={i === TICKS ? "end" : i === 0 ? "start" : "middle"}>{l}</text>
-            ))}
-          </>
-        )}
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Debt, projected: ${debt} now, zero at ${series.labels[last]}`}>
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="currentColor" stopOpacity="0.28" />
+            <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={`${line}L${W},${H}L0,${H}Z`} fill={`url(#${id})`} />
+        <path d={line} fill="none" stroke="currentColor" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
       </svg>
+      <div className="wl-burn-axis" aria-hidden="true">
+        {series.labels.map((l, i) => (
+          <span key={i}>{i === last ? `${l} · 0` : l}</span>
+        ))}
+      </div>
     </figure>
   );
 }
 
-export interface TileRows {
-  principal: string;
-  debt: string;
-  apy: string;
-  unlock: string;
-}
-
-const DASH = "—";
-export const emptyRows: TileRows = { principal: DASH, debt: DASH, apy: DASH, unlock: DASH };
-
-const STATUS_TEXT = { active: "Active", unlocked: "Unlocked", none: "No Position", soon: "Coming soon" } as const;
-
-/** One Position (or the empty slot for a chain): status, the four figures, the chart, then actions. */
+/**
+ * One Position as a countdown: when the Principal comes back, the projected Debt burning down to zero, then
+ * Principal / Debt / Yield, the actions, and the card's small print behind Details.
+ */
 export function PositionTile({
   chain,
-  status,
-  rows,
-  chartTitle,
-  series,
-  fmt = (n) => n.toLocaleString("en-US", { maximumFractionDigits: 3 }),
-  children,
   label,
+  state,
+  principal,
+  debt,
+  debtAsset,
+  apy,
+  unlockAt,
+  now,
+  series,
+  notes,
+  children,
 }: {
   chain: Chain;
-  status: keyof typeof STATUS_TEXT;
-  rows: TileRows;
-  chartTitle: string;
-  series: DebtSeries | null;
-  fmt?: (n: number) => string;
-  children?: ReactNode;
   label: string;
+  state: PositionState;
+  principal: string;
+  /** Debt in Gemas (or the asset, offline); null without an Advance. */
+  debt: string | null;
+  /** The same Debt in the Position's asset, under the Gemas figure. */
+  debtAsset?: string;
+  apy: string;
+  /** Unlock Estimate (ms) while repaying. */
+  unlockAt: number | null;
+  now: number;
+  series: DebtSeries | null;
+  notes?: ReactNode;
+  children?: ReactNode;
 }) {
+  const h = hero(state, unlockAt, now);
+  const open = state === "unlocked";
   return (
-    <article className={`cut cut-card wl-tile ${status}`} aria-label={label}>
-      <header>
-        <span className="cut cut-chip wl-chain">{chain}</span>
-        <span className="wl-status">
-          {STATUS_TEXT[status]} <i aria-hidden="true" />
+    <article className={`cut cut-card wl-tile ${state}`} aria-label={label}>
+      <header className="wl-tile-head">
+        <ChainGlyph asset={GLYPH[chain]} size={20} />
+        <b>{label}</b>
+        <span className="wl-tile-lock">
+          {open ? <LockOpen size={14} aria-hidden="true" /> : <Lock size={14} aria-hidden="true" />}
+          <span className="sr-only">{open ? "Unlocked:" : "Locked:"}</span> {principal}
         </span>
       </header>
-      <dl>
-        <dt>Principal</dt>
-        <dd className="tnum">{rows.principal}</dd>
-        <dt>Debt</dt>
-        <dd className="tnum">{rows.debt}</dd>
-        <dt>Unlock Estimate</dt>
-        <dd>{rows.unlock}</dd>
+      <div className="wl-back">
+        <span className="label">{h.k}</span>
+        <b>{h.big}</b>
+        <span>{h.note}</span>
+      </div>
+      {series && debt ? (
+        <BurnDown series={series} debt={debt} />
+      ) : (
+        <p className="wl-burn-flat">{state === "repaying" ? "Waiting for the first yield" : "No Debt"}</p>
+      )}
+      <dl className="wl-facts">
+        <div>
+          <dt>Principal</dt>
+          <dd>{principal}</dd>
+        </div>
+        <div>
+          <dt>Debt</dt>
+          <dd>
+            {debt ?? "None"}
+            {debtAsset && <small>{debtAsset}</small>}
+          </dd>
+        </div>
+        <div>
+          <dt>Yield</dt>
+          <dd>{apy}</dd>
+        </div>
       </dl>
       <SimulatedYieldLabel />
       <div className="wl-actions">{children}</div>
-      <details className="wl-more">
-        <summary>Details</summary>
-        <dl>
-          <dt>APY</dt>
-          <dd className="tnum">{rows.apy}</dd>
-        </dl>
-        <DebtChart title={chartTitle} series={series} fmt={fmt} />
-      </details>
+      {notes && (
+        <details className="wl-more">
+          <summary>Details</summary>
+          {notes}
+        </details>
+      )}
     </article>
   );
 }

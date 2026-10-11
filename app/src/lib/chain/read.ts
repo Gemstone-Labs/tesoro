@@ -76,6 +76,9 @@ export interface ChainHolding {
   redeemable: bigint;
   /** The Source's Debt in Gemas: what `return_own` can still cancel. */
   sourceDebt: bigint;
+  /** The Source's price at its Advance: one Gema is `unitNum / unitDen` Source-asset base units (`unitDen` = price in micro-USD). */
+  unitNum: bigint;
+  unitDen: bigint;
   /** Owner Account key of the Source's Position. */
   sourceOwner: string;
   asset: "SOL" | "ETH" | "HYPE";
@@ -460,6 +463,8 @@ export async function fetchSnapshot(authority: PublicKey): Promise<AccountSnapsh
       free,
       redeemable: redeemableFor(sourceMath(src.inner), free),
       sourceDebt: debtGemas(sourceMath(src.inner)),
+      unitNum: big(src.inner.unitNum),
+      unitDen: big(src.inner.unitDen),
       sourceOwner: pk(src.inner.owner).toBase58(),
       native: !!nativeInfo.get(pk(src.inner.position).toBase58()),
       eth: pos && ["ethereum", "hyperEvm"].includes(enumKey(pos.inner.sourceChain)) ? parseEthPositionId(Uint8Array.from(pos.positionId)) : null,

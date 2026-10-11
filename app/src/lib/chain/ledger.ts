@@ -47,6 +47,11 @@ export function redeemableFor(s: SourceMath, held: bigint): bigint {
   return min((held * redeemable(s)) / out, held);
 }
 
+/** Whole Source-asset units `gemas` are worth at the Source's Advance price (1 Gema = $0.01, `unitDen` = price in micro-USD). */
+export function gemasInAsset(gemas: bigint, s: Pick<SourceMath, "unitDen">): number {
+  return s.unitDen === 0n ? 0 : (Number(gemas) * 10_000) / Number(s.unitDen);
+}
+
 /** Source-asset units still needed from yield to repay everything live (rounded up). */
 export function unitsToRepay(s: SourceMath): bigint {
   if (s.unitDen === 0n) return 0n;

@@ -70,7 +70,7 @@ import {
   type ScanStatus,
 } from "@/lib/chain/eth-track";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { fmtGemas, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
+import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 
 const solscan = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -83,11 +83,6 @@ function useNow(ms: number) {
   return now;
 }
 
-function inMinutes(targetMs: number, nowMs: number): string {
-  const s = Math.max(0, Math.round((targetMs - nowMs) / 1000));
-  if (s < 45) return "any moment now";
-  return `in ~${Math.round(s / 60)} min`;
-}
 
 /** The Account's Solana signer and EVM wallet together, or null until both exist. */
 export function useEthCtx(): EthCtx | null {
@@ -264,7 +259,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       months={months}
       onMonths={setMonths}
       gemas={gemas}
-      estimate={estimate ? `${fmtWhen(estimate)} (${inMinutes(estimate, now)})` : "—"}
+      estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtEth(principal)} ${unit}`],
@@ -594,24 +589,26 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
     <PositionTile
       chain={net.native}
       label={`${net.native} Position`}
-      status={locked ? "active" : "unlocked"}
-      rows={{
-        principal: `${fmtEth(position.principal * 1e18, 4)} ${net.native}`,
-        debt: onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas · ${fmtEth(debtWei, 4)} ${net.native}` : "0",
-        apy: `${(position.apy * 100).toFixed(1)}%`,
-        unlock: !locked
-          ? "Unlocked"
-          : !src
-            ? "No open Advance"
-            : onChainDebt === 0n
-              ? "Debt is zero"
-              : estimate
-                ? `${fmtWhen(estimate)} (${inMinutes(estimate, now)})`
-                : "Once yield accrues",
-      }}
-      chartTitle="Debt (Gemas)"
+      state={!locked ? "unlocked" : !src ? "idle" : onChainDebt === 0n ? "paid" : "repaying"}
+      principal={`${fmtEth(position.principal * 1e18, 4)} ${net.native}`}
+      debt={!src ? null : onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas` : "0"}
+      debtAsset={onChainDebt > 0n ? `${fmtEth(debtWei, 4)} ${net.native}` : undefined}
+      apy={`${(position.apy * 100).toFixed(1)}%`}
+      unlockAt={estimate}
+      now={now}
       series={series}
-      fmt={(n) => fmtGemas(n)}
+      notes={
+        <>
+          {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol} (simulated) to your wallet on {net.label}.</p>}
+          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated).</p>
+          {unreported > 0n && locked && (
+            <p className="note">
+              <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to apply it (a small cross-chain fee).
+            </p>
+          )}
+          {locked && !canUnlock && <p className="note">Unlock returns the Principal on {net.label} once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
+        </>
+      }
     >
       {locked && (
         <>
@@ -632,14 +629,6 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} onReturned={load} />
         </>
       )}
-      {redeemable > 0n && <p className="note wl-tile-note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol} (simulated) to your wallet on {net.label}.</p>}
-      <p className="note wl-tile-note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated).</p>
-      {unreported > 0n && locked && (
-        <p className="note wl-tile-note">
-          <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to apply it (a small cross-chain fee).
-        </p>
-      )}
-      {locked && !canUnlock && <p className="note wl-tile-note">Unlock returns the Principal on {net.label} once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
     </PositionTile>
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EntryError, MAX_ENTRY_SOURCES, backedSplit, backerDelta, covered, debtGemas, feeGemas, entryProblem, matchDelta, planEntry, redeemableFor, returnableGemas, seatResult, unitsToRepay, type SourceMath } from "./ledger";
+import { EntryError, MAX_ENTRY_SOURCES, backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, entryProblem, matchDelta, planEntry, redeemableFor, returnableGemas, seatResult, unitsToRepay, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -193,5 +193,13 @@ describe("backed Player's result", () => {
     expect(seatResult({ session: null, winner: null }, 0)).toBeNull();
     expect(seatResult({ session: null, winner: "joiner" }, 1)).toBe("won");
     expect(seatResult({ session: { settled: true, result: "draw" } }, 1)).toBe("draw");
+  });
+});
+
+describe("gemasInAsset", () => {
+  it("values Gemas at the Advance price, $0.01 each", () => {
+    expect(gemasInAsset(7500n, { unitDen: 150_000_000n })).toBeCloseTo(0.5); // $75 of SOL at $150
+    expect(gemasInAsset(620n, { unitDen: 3_000_000_000n })).toBeCloseTo(0.0020667, 6); // $6.20 of ETH at $3,000
+    expect(gemasInAsset(100n, { unitDen: 0n })).toBe(0);
   });
 });
