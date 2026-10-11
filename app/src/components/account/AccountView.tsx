@@ -7,12 +7,12 @@ import { Check, Copy, Link2, Pencil } from "lucide-react";
 import { PlayerAvatar, PlayerName, VerifiedMark } from "@/components/account/Player";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { MatchRow } from "@/components/match/MatchRow";
-import { AssetPicker, Bust, Button, EntryPicker, GemaMark, Label, Sheet, Notice } from "@/components/ui";
+import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ago } from "@/lib/catalogue";
 import { accountKeyOf, parseAccountKey } from "@/lib/chain/account-key";
 import { historyPage } from "@/lib/chain/history";
-import { backingLine, playedRows, playerSummary, runningTotal, signed, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
+import { backingLine, playedRows, playerSummary, signed, type PlayedRow, type PlayerAccount, type PlayerSummary } from "@/lib/chain/player-account";
 import { timeLeft } from "@/lib/chain/useBackingBoard";
 import { usePlayerAccount } from "@/lib/chain/usePlayerAccount";
 import { fmtGemas } from "@/lib/format";
@@ -23,7 +23,7 @@ import { AccountSkeleton } from "./AccountSkeleton";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
-import { RunningTotalChart } from "./RunningTotalChart";
+import { GemasPanel } from "./GemasPanel";
 import "./account.css";
 
 /**
@@ -68,7 +68,6 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
 
   const rows = useMemo(() => playedRows(data.played), [data.played]);
   const summary = useMemo(() => playerSummary(data.played), [data.played]);
-  const series = useMemo(() => runningTotal(rows), [rows]);
   const game = gameFilter(params.get("game"));
   const shown = game ? rows.filter((r) => r.game === game) : rows;
   const view = historyPage(shown, Number(params.get("page") ?? 1));
@@ -181,7 +180,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
       )}
 
       {played ? (
-        <Scoreboard s={summary} series={series} />
+        <Scoreboard s={summary} rows={rows} />
       ) : (
         <NoMatches own={own} name={who.label} hasGemas={snapshot ? gemas.total > 0 : null} />
       )}
@@ -230,29 +229,11 @@ const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "s
  * Backings sit beside it. Every rate carries its sample size, and the Player's Gemas are never
  * shown without their Backers'.
  */
-function Scoreboard({ s, series }: { s: PlayerSummary; series: ReturnType<typeof runningTotal> }) {
+function Scoreboard({ s, rows }: { s: PlayerSummary; rows: PlayedRow[] }) {
   const { record, backings } = s;
   return (
     <div className="pa-board">
-      <section className="cut cut-card pa-panel pa-gemas" aria-label="Gemas won and lost">
-        <Label>Gemas won and lost</Label>
-        <b className="pa-big">
-          <GemaMark size={34} />
-          {signed(s.net)}
-        </b>
-        <dl className="pa-split">
-          <div>
-            <dt>Won</dt>
-            <dd>{signed(s.won)}</dd>
-          </div>
-          <div>
-            <dt>Lost</dt>
-            <dd>{signed(-s.lost)}</dd>
-          </div>
-          <p>After Fees</p>
-        </dl>
-        {series.length >= 2 && <RunningTotalChart series={series} />}
-      </section>
+      <GemasPanel rows={rows} />
 
       <section className="cut cut-card pa-panel" aria-label="Matches">
         <Label>Matches</Label>

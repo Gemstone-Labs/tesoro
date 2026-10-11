@@ -41,11 +41,23 @@
 .pa-gemas { grid-row: span 2; padding: 26px 28px; gap: 14px; grid-template-rows: auto auto auto minmax(0, 1fr); }
 .pa-big { display: inline-flex; align-items: center; gap: 12px; font-size: clamp(44px, 5vw, 68px); font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
 .pa-fig { font-size: clamp(26px, 2.4vw, 32px); font-weight: 800; line-height: 1.1; letter-spacing: -0.01em; }
-.pa-split { margin: 0; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 32px; }
-.pa-split p { color: var(--fg-2); font-size: 14px; padding-bottom: 2px; }
-.pa-split div { display: grid; gap: 2px; }
-.pa-split dt { font-size: 13px; color: var(--fg-2); }
-.pa-split dd { margin: 0; font-size: 19px; font-weight: 700; }
+.pa-gemas-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; min-height: 34px; }
+.pa-filter { display: flex; flex-wrap: wrap; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.pa-filter .asset span { min-height: 34px; padding: 0 12px; font-size: 13.5px; font-weight: 700; white-space: nowrap; }
+.pa-net { display: grid; gap: 6px; }
+.pa-net p { color: var(--fg-2); font-size: 14.5px; }
+.pa-won { color: var(--em); }
+.pa-lost { color: var(--danger); }
+/* won against lost as one bar: emerald for Gemas won, red for Gemas lost */
+.pa-split { display: grid; gap: 8px; }
+.pa-split-figs { display: flex; justify-content: space-between; gap: 16px; }
+.pa-split-figs span { display: grid; gap: 2px; }
+.pa-split-figs span:last-child { text-align: right; }
+.pa-split-figs small { font-size: 13px; color: var(--fg-2); }
+.pa-split-figs b { font-size: 20px; font-weight: 800; }
+.pa-split-bar { display: block; height: 8px; background: color-mix(in srgb, var(--danger) 72%, transparent); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.pa-split-bar.none { background: rgba(255, 255, 255, 0.09); }
+.pa-split-bar i { display: block; height: 100%; background: var(--em); box-shadow: 2px 0 0 var(--raised); }
 .pa-kv { font-size: 14.5px; gap: 8px 16px; padding-top: 12px; box-shadow: inset 0 1px var(--line); }
 .pa-kv dd { font-variant-numeric: normal; }
 .pa-kv:empty { display: none; }
@@ -54,30 +66,34 @@
 .pa-bar-track i { display: block; height: 100%; background: var(--fg); }
 .pa-bar > span:last-child { font-size: 14.5px; color: var(--fg-2); }
 
-/* running total: one neutral step line around a zero baseline; the sign is in the text, not a colour */
-.pa-chart { margin: 6px 0 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; width: 100%; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
-.pa-chart figcaption { color: var(--fg-2); font-size: 14px; }
-.pa-plot { position: relative; min-height: 176px; margin: 8px 62px 8px 54px; }
-.pa-area { position: absolute; inset: 0; cursor: crosshair; touch-action: pan-y; }
-.pa-area:focus-visible { outline: 2px solid var(--fg); outline-offset: 8px; }
-.pa-area svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.pa-area .grid, .pa-area .zero { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.pa-area .zero { stroke: var(--line-2); }
-.pa-area .line { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.pa-tick, .pa-end { position: absolute; transform: translateY(-50%); font-size: 12px; color: var(--fg-2); white-space: nowrap; }
-.pa-tick { right: calc(100% + 10px); }
-.pa-end { left: calc(100% + 10px); color: var(--fg); font-weight: 700; }
-.pa-cross { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-2); pointer-events: none; }
-.pa-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 2px var(--raised); pointer-events: none; }
-.pa-tip {
-  position: absolute; top: -6px; z-index: 2; display: none; gap: 2px; padding: 8px 10px; pointer-events: none; white-space: nowrap;
-  background: var(--raised-2); box-shadow: 0 0 0 1px var(--line-2), 0 8px 24px rgba(0, 0, 0, 0.4); font-size: 13px;
+/* running total: a step per Match, emerald above zero and red below; peak, low and the latest total marked */
+.pa-chart { margin: 4px 0 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; width: 100%; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
+.pa-chart figcaption { display: flex; justify-content: space-between; gap: 4px 12px; font-size: 13.5px; color: var(--fg-2); }
+.pa-chart figcaption > span:first-child { color: var(--fg); font-weight: 700; }
+.pa-read { text-align: right; }
+.pa-plot { position: relative; min-height: 200px; margin: 24px 76px 22px 18px; cursor: crosshair; touch-action: pan-y; }
+.pa-plot:focus-visible { outline: 2px solid var(--fg); outline-offset: 8px; }
+.pa-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.pa-plot .zero { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+.pa-plot .line { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.pa-zero, .pa-end, .pa-mark, .pa-val { position: absolute; font-size: 12px; white-space: nowrap; pointer-events: none; }
+.pa-zero { right: calc(100% + 6px); transform: translateY(-50%); color: var(--fg-2); }
+.pa-end { left: calc(100% + 12px); transform: translateY(-50%); font-size: 13px; font-weight: 800; }
+.pa-end::before { content: ""; position: absolute; left: -16px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--fg); }
+.pa-mark { --tx: -50%; font-weight: 700; color: var(--fg-2); }
+.pa-mark.peak { transform: translate(var(--tx), calc(-100% - 8px)); }
+.pa-mark.low { transform: translate(var(--tx), 8px); }
+.pa-mark::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; vertical-align: 1px; transform: rotate(45deg); background: currentColor; }
+.pa-val {
+  --tx: -50%; transform: translate(var(--tx), calc(-100% - 12px)); padding: 3px 7px; background: var(--fg); color: var(--shell); font-weight: 800;
+  clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
 }
-.pa-tip.on { display: grid; }
-.pa-tip[data-side="right"] { transform: translateX(12px); }
-.pa-tip[data-side="left"] { transform: translateX(calc(-100% - 12px)); }
-.pa-tip b { font-size: 15px; }
-.pa-tip span { color: var(--fg-2); }
+:is(.pa-mark, .pa-val)[data-edge="start"] { --tx: -8px; }
+:is(.pa-mark, .pa-val)[data-edge="end"] { --tx: calc(-100% + 8px); }
+.pa-cross { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-2); pointer-events: none; }
+.pa-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 3px var(--raised); pointer-events: none; }
+.pa-x { display: flex; justify-content: space-between; margin: 0 76px 0 18px; font-size: 12px; color: var(--fg-2); }
+.pa-chart-none { color: var(--fg-2); font-size: 14px; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
 
 /* no finished Match yet: what the Account will show, with the guide's bust flush to the card's edge */
 .pa-empty {
@@ -117,8 +133,11 @@
   .pa-hero { gap: 14px 16px; align-items: start; }
   .pa-facts { font-size: 14px; }
   .pa-panel, .pa-gemas { padding: 20px 18px; }
-  .pa-plot { min-height: 140px; margin: 8px 54px 8px 46px; }
-  .pa-tick, .pa-end { font-size: 11px; }
+  .pa-plot { min-height: 160px; margin-right: 66px; margin-left: 14px; }
+  .pa-x { margin-right: 66px; margin-left: 14px; }
+  .pa-chart figcaption { flex-direction: column; }
+  .pa-read { text-align: left; }
+  .pa-end { font-size: 12px; }
 }
 
 /* ——— A Player's name with its verified mark ——— */

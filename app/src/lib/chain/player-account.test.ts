@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { backed, match } from "./fixture";
-import { backingLine, playedRows, playerSummary, runningTotal, signed } from "./player-account";
+import { backingLine, gemasRecord, playedRows, playerSummary, runningTotal, signed } from "./player-account";
 import type { ChainMatch } from "./read";
 
 const BACKER_A = "BackerA111111111111111111111111111111111111";
@@ -103,6 +103,32 @@ describe("runningTotal", () => {
     const series = runningTotal(playedRows([win(10), win(20), draw(30), loss(40)]));
     expect(series.map((p) => p.total)).toEqual([-1000, -100, 800]);
     expect(series.map((p) => p.row.result)).toEqual(["lost", "won", "won"]);
+  });
+});
+
+describe("gemasRecord", () => {
+  const duelWin = (mins: number) => match("trading-duel", 1000, true, mins, [0, 0]);
+  const rows = playedRows([win(10), duelWin(20), backed(loss(30), BACKER_A), loss(40), draw(50)]);
+
+  it("adds up every game with the summary's figures", () => {
+    const r = gemasRecord(rows, null);
+    expect(r).toMatchObject({ won: 1800, lost: 1000, net: 800, wins: 2, losses: 2 });
+    expect(r.series.map((p) => p.total)).toEqual([-1000, -1000, -100, 800]);
+    expect(r.net).toBe(playerSummary([win(10), duelWin(20), backed(loss(30), BACKER_A), loss(40), draw(50)]).net);
+    expect(r.games).toEqual(["block-puzzle", "trading-duel"]);
+  });
+
+  it("restarts the running total from 0 for one game and keeps every game as a choice", () => {
+    const r = gemasRecord(rows, "block-puzzle");
+    // loss, backed loss (costs the Player nothing), win
+    expect(r.series.map((p) => p.total)).toEqual([-1000, -1000, -100]);
+    expect(r).toMatchObject({ won: 900, lost: 1000, net: -100, wins: 1, losses: 2 });
+    expect(r.games).toEqual(["block-puzzle", "trading-duel"]);
+  });
+
+  it("is empty for a game with only draws and refunds, or none played", () => {
+    expect(gemasRecord(playedRows([draw(5)]), null)).toMatchObject({ series: [], net: 0, wins: 0, losses: 0, games: [] });
+    expect(gemasRecord(rows, "holdem")).toMatchObject({ series: [], won: 0, lost: 0, net: 0 });
   });
 });
 

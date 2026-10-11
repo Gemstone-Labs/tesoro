@@ -122,6 +122,35 @@ export function runningTotal(rows: PlayedRow[]): { row: PlayedRow; total: number
     .map((row) => ({ row, total: (total += row.delta) }));
 }
 
+/** Gemas won and lost over the Matches with a winner, for one game or all of them. */
+export interface GemasRecord {
+  /** The running total of the Matches counted, oldest first. */
+  series: { row: PlayedRow; total: number }[];
+  won: number;
+  lost: number;
+  net: number;
+  wins: number;
+  losses: number;
+  /** Every game with a Match that had a winner, whatever `game` asked for: the choices of a game filter. */
+  games: GameId[];
+}
+
+export function gemasRecord(rows: PlayedRow[], game: GameId | null): GemasRecord {
+  const all = runningTotal(rows);
+  const series = game ? runningTotal(rows.filter((r) => r.game === game)) : all;
+  const deltas = series.map((p) => p.row.delta);
+  const wins = series.filter((p) => p.row.result === "won").length;
+  return {
+    series,
+    won: deltas.filter((d) => d > 0).reduce((a, b) => a + b, 0),
+    lost: deltas.filter((d) => d < 0).reduce((a, d) => a - d, 0),
+    net: series.length ? series[series.length - 1].total : 0,
+    wins,
+    losses: series.length - wins,
+    games: GAMES.filter((g) => all.some((p) => p.row.game === g)),
+  };
+}
+
 /** A signed Gema amount: "+540", "−1,000", "0". */
 export function signed(n: number): string {
   return `${n > 0 ? "+" : n < 0 ? "−" : ""}${fmtGemas(Math.abs(n))}`;
