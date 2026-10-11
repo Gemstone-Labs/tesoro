@@ -50,7 +50,7 @@ const config: StorybookConfig = {
   framework: { name: "@storybook/nextjs-vite", options: {} },
   stories: ["../stories/**/*.mdx", "../stories/**/*.stories.@(ts|tsx)"],
   addons: ["@storybook/addon-docs"],
-  staticDirs: ["../public"],
+  staticDirs: ["../public", { from: "../assets/share", to: "/share-assets" }],
   core: { disableTelemetry: true },
   async viteFinal(cfg) {
     cfg.plugins = [...(cfg.plugins ?? []), mirrorMocks(), nodePolyfills({ include: ["buffer", "process", "crypto", "stream", "util"], globals: { Buffer: true, process: true } })];
