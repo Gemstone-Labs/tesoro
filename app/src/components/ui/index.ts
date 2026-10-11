@@ -6,3 +6,4 @@ export * from "./icons";
 export * from "./Character";
 export * from "./CountUp";
 export * from "./EmptyState";
+export * from "./FacetCrown";

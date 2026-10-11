@@ -17,15 +17,16 @@
 .page-head-side .sim { font-size: 12px; }
 @media (max-width: 639px) { .page-head-side { text-align: left; } }
 
-/* ——— Facet panel: hard-stop light on a dark emerald ground (money surfaces only) ——— */
+/* ——— Facet panel: dark emerald ground cut as a step cut by <FacetCrown> (money surfaces only) ——— */
 .facet-panel {
   background:
-    url("/brand/facet-crown.svg") no-repeat right 40px bottom -300px / auto 400px,
     radial-gradient(90% 70% at 30% 0%, rgba(126, 250, 218, 0.1), transparent 70%),
     linear-gradient(170deg, #0f3d33 0%, #0b2c26 55%, #08211c 100%);
   --edge: var(--edge-em);
 }
-@media (max-width: 639px) { .facet-panel { background-position: right -90px bottom -320px, 0 0, 0 0; background-size: auto 380px, auto, auto; } }
+.facet-panel > :not(.facet-crown) { position: relative; z-index: 1; }
+.facet-crown { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.facet-crown svg { display: block; }
 
 /* EmptyState: not found, nothing to show; the bust sits flush to the card's bottom edge */
 .empty-state { --edge: var(--edge-1); background: var(--surface); display: flex; align-items: flex-end; gap: 28px; width: min(100%, 620px); margin: clamp(24px, 8vh, 96px) auto 0; padding: 0 36px 0 24px; overflow: hidden; }

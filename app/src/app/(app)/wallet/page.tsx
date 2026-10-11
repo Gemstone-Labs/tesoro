@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Card, ChainChip, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
+import { Button, Card, ChainChip, FacetCrown, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
@@ -149,6 +149,7 @@ export default function Wallet() {
       </header>
 
       <section className="cut cut-frame facet-panel wl-hero" aria-label="Balance">
+        <FacetCrown />
         <div className="wl-total">
           <h2>Total Balance</h2>
           <div className="wl-total-fig">

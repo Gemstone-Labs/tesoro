@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Kit, Quote, Section } from "../kit/Kit";
 import { GemaAmount, GemaMark, SimulatedYieldLabel } from "@/components/ui/gema";
+import { FacetCrown as FacetCrownLayer } from "@/components/ui/FacetCrown";
 
 const meta = { title: "Foundations/Gema mark and money art", parameters: { layout: "padded" } } satisfies Meta;
 export default meta;
@@ -61,21 +62,20 @@ export const OnMoneyFills: Story = {
   ),
 };
 
-/** The facet crown: an emerald step cut seen from above, shown low in the Wallet balance panel. Money surfaces only. */
+/** The facet crown: the balance panel itself cut as an emerald step cut. Money surfaces only. */
 export const FacetCrown: Story = {
   render: () => (
     <Kit>
-      <Quote>public/brand/facet-crown.svg sits low in the Wallet balance panel (.facet-panel), showing only its lit upper facets, clear of every figure. Money surfaces only. (DESIGN.md, Money art)</Quote>
-      <Section title="In the panel">
-        <section className="cut cut-frame facet-panel" style={{ minHeight: 220, padding: 24, maxWidth: 720 }}>
-          <span className="label">Balance</span>
-          <div style={{ marginTop: 8 }}><GemaAmount value={12480} size="xl" /></div>
-        </section>
-      </Section>
-      <Section title="The whole file">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/facet-crown.svg" alt="" style={{ height: 240, background: "#0b2c26", padding: 12 }} />
-      </Section>
+      <Quote>Three thin bevels follow the panel&apos;s chamfers, lit from above; the figures sit on the table, crossed by two hard-stop light bands. Money surfaces only. (DESIGN.md, Money art)</Quote>
+      {[{ title: "Desktop", width: 720 }, { title: "Phone width", width: 358 }].map((v) => (
+        <Section key={v.title} title={v.title}>
+          <section className="cut cut-frame facet-panel" style={{ minHeight: 220, padding: v.width < 600 ? 18 : 40, maxWidth: v.width }}>
+            <FacetCrownLayer />
+            <span className="label">Balance</span>
+            <div style={{ marginTop: 8 }}><GemaAmount value={12480} size="xl" /></div>
+          </section>
+        </Section>
+      ))}
     </Kit>
   ),
 };
