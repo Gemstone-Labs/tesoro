@@ -47,7 +47,7 @@ const HERO: Record<GameId, string> = { "block-puzzle": art.blockPuzzleHero, hold
 
 type Css = CSSProperties & Record<`--${string}`, string | number>;
 
-/** The moment overlay's bust: only for wins (a Player's, or a Backer's backed win). Nothing else has a character. */
+/** The moment overlay's bust: only for wins (a Player's, or a Backer's backed win). Nothing else gets the overlay. */
 function momentBust(p: MatchResultProps): { bust: BustName; title: string } | null {
   if (p.outcome !== "won") return null;
   if (p.role === "backer" && p.backed) return { bust: "duoWin", title: "Backed win" };
@@ -70,7 +70,8 @@ function Score({ value, run, delay }: { value: string; run: boolean; delay: numb
 /**
  * The Match result, every game: a poster over the game's key art (the outcome in giant letters, the Gema change rolling
  * in), a strip of tiles (scores, entry, fee, Season points) and the actions. A win first gets the short character
- * overlay (MomentOverlay); the poster's motion waits for it to close. Won Gemas are claims on the loser's Source, so a
+ * overlay (MomentOverlay); the poster's motion waits for it to close. A Player's loss has the calm `him-lose` bust on
+ * the poster itself, in colour over the drained art: no overlay, nothing between the Player and Play again. Won Gemas are claims on the loser's Source, so a
  * win always says so and links to the Wallet: never implies cash in hand. Reduced motion shows the finished screen.
  */
 export function MatchResult(p: MatchResultProps) {
@@ -111,6 +112,9 @@ export function MatchResult(p: MatchResultProps) {
           <Image className="mr-art" src={HERO[p.game]} alt="" fill sizes="(min-width: 1024px) 1100px, 100vw" priority />
           <span className="mr-shade" aria-hidden="true" />
           {won && <Shards n={34} kind="rain" delay={600} />}
+          {lost && role === "player" && (
+            <Image className="mr-char" src={art.guide.himLose.src} alt="" width={art.guide.himLose.w} height={art.guide.himLose.h} sizes="(min-width: 640px) 420px, 140px" />
+          )}
           <div className="mr-copyblock">
             <span className="mr-kicker mr-in" style={{ "--d": "100ms" } as Css}>
               <span className={`mr-status-icon ${outcome}`}><Icon /></span>
