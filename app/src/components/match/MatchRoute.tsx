@@ -7,6 +7,7 @@ import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { getChain } from "@/lib/chain/client";
 import { gameOf } from "@/lib/chain/read";
 import { PublicKey } from "@solana/web3.js";
+import { Notice } from "@/components/ui";
 import type { GameId } from "@/lib/mock";
 import { MatchView } from "./MatchView";
 
@@ -33,5 +34,5 @@ export function MatchRoute({ matchId }: { matchId: string }) {
   if (game === "holdem") return <HoldemMatchView matchId={matchId} />;
   if (game === "trading-duel") return <TradingDuelMatchView matchId={matchId} />;
   if (game === "block-puzzle") return <MatchView matchId={matchId} />;
-  return null;
+  return <Notice title="Match" body="Loading the Match…" />;
 }
