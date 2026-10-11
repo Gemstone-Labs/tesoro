@@ -9,6 +9,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, "..");
 const MOCKS = path.join(HERE, "mocks");
 const EXTS = [".ts", ".tsx"];
+/** Packages are not mirrored by path: Privy's email login is swapped by name. */
+const PRIVY_MOCK = path.join(MOCKS, "privy.ts");
 
 function walk(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -34,6 +36,7 @@ export function mirrorMocks(): Plugin {
     enforce: "pre",
     async resolveId(source, importer, options) {
       if (!importer || source.startsWith("\0")) return null;
+      if (source === "@privy-io/react-auth" && importer.split("?")[0] !== PRIVY_MOCK) return PRIVY_MOCK;
       const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
       if (!resolved) return null;
       const mock = byTarget.get(resolved.id.split("?")[0]);
