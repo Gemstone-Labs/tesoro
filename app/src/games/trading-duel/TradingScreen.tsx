@@ -150,12 +150,21 @@ export function TradingScreen(p: ScreenProps) {
     sfx(change === "took" ? "win" : change === "lost" ? "lose" : "chip");
   }, [leadNow, seat, phase]);
 
+  const priceRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = priceRef.current;
+    if (!el) return;
+    el.style.animation = "none";
+    void el.offsetWidth;
+    el.style.animation = "";
+  }, [dir.n]);
+
   const prevPhase = useRef(phase);
   const [timesUp, setTimesUp] = useState(false);
   useEffect(() => {
     if (prevPhase.current === "live" && phase === "ended") {
       setTimesUp(true);
-      sfx("go");
+      sfx("check");
     }
     prevPhase.current = phase;
   }, [phase]);
@@ -231,7 +240,7 @@ export function TradingScreen(p: ScreenProps) {
             {leadMoment && <Callout key={leadMoment.n} text={leadMoment.text} tone={leadMoment.tone} duration={1600} onDone={() => setLeadMoment(null)} />}
             <div className="td-px">
               <Label>{asset.symbol} live price</Label>
-              <b key={dir.n} className={`mono td-price ${dir.d}`}>
+              <b ref={priceRef} className={`mono td-price ${dir.d}`}>
                 {mid ? <Rolling value={midToUsd(mid)} format={(v) => usd(v, asset)} duration={250} /> : "…"}
                 {dir.d !== "flat" && <span className="td-tick" aria-hidden="true"> {dir.d === "up" ? "▲" : "▼"}</span>}
               </b>
