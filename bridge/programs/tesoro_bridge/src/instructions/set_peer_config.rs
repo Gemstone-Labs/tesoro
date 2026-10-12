@@ -15,6 +15,15 @@ pub struct SetPeerConfig<'info> {
         bump
     )]
     pub peer: Account<'info, PeerConfig>,
+    /// The mirror of the vault's treasury that caps Instant Redeems on it.
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + VaultTreasury::INIT_SPACE,
+        seeds = [TREASURY_SEED, &params.remote_eid.to_be_bytes(), &params.peer_address],
+        bump
+    )]
+    pub vault_treasury: Account<'info, VaultTreasury>,
     #[account(seeds = [STORE_SEED], bump = store.bump)]
     pub store: Account<'info, Store>,
     pub system_program: Program<'info, System>,
@@ -30,6 +39,10 @@ impl SetPeerConfig<'_> {
         peer.rate_bps = params.rate_bps;
         peer.enforced_send_options = params.enforced_send_options.clone();
         peer.bump = ctx.bumps.peer;
+        let treasury = &mut ctx.accounts.vault_treasury;
+        treasury.eid = params.remote_eid;
+        treasury.peer_address = params.peer_address;
+        treasury.bump = ctx.bumps.vault_treasury;
         Ok(())
     }
 }

@@ -19,6 +19,11 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRat
 /// vault by `accrue`. The rate is constant, so the accounting above is unchanged. With `yieldMinter == address(0)`
 /// (real wstETH) yield comes from the rate only.
 ///
+/// Yield Fee: `yieldFeeBps` of every simulated yield mint goes to the Treasury instead of the Position, so only
+/// the rest counts as the Position's accrued yield. Instant Redeems are paid out of the Treasury (see
+/// `_onPayInstant`); a PayYield addressed to the vault itself refills it. Rate-based vaults mint nothing and
+/// take no fee.
+///
 /// Messaging seam: outbound goes through `_send(bytes)`; inbound enters through `receiveMessage(bytes)`, which is
 /// authorised to the endpoint and forwards to `_receive(bytes)`. A LayerZero OApp subclass overrides `_send` and
 /// calls `_receive` from `_lzReceive` (after its own peer check); the payload format does not change.
@@ -28,6 +33,8 @@ contract PositionVault {
     uint8 public constant MSG_YIELD_ACCRUED = 2;
     uint8 public constant MSG_UNLOCK = 3;
     uint8 public constant MSG_PAY_YIELD = 4;
+    uint8 public constant MSG_PAY_INSTANT = 5;
+    uint16 public constant MAX_YIELD_FEE_BPS = 5000;
 
     struct Position {
         address owner;
@@ -51,8 +58,20 @@ contract PositionVault {
     uint32 public immutable sourceChain;
     /// @notice SimLST that mints simulated yield into this vault; address(0) for rate-based LSTs.
     address public immutable yieldMinter;
+    /// @notice Account allowed to set the Yield Fee and fund the Treasury (the deployer; the owner in the OApp).
+    address public immutable admin = msg.sender;
     uint256 internal constant BPS = 10_000;
     uint256 internal constant YEAR = 365 days;
+
+    /// @notice Share of each simulated yield mint kept by the Treasury, in basis points.
+    uint16 public yieldFeeBps = 2000;
+    /// @notice LST shares held for the Treasury, separate from every Position's heldShares.
+    uint256 public treasuryShares;
+    /// @notice Cumulative underlying ever credited to the Treasury (fees, funding, refills). Monotonic: Solana caps
+    ///         Instant Redeems against it.
+    uint256 public treasuryIn;
+    /// @notice Cumulative underlying paid out by Instant Redeem.
+    uint256 public instantPaid;
 
     /// @notice Last time `accrue` converted time to shares, per position.
     mapping(uint64 => uint64) public lastAccrual;
@@ -67,11 +86,20 @@ contract PositionVault {
     event PositionLocked(
         uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq
     );
-    event YieldAccrued(uint64 indexed positionId, uint256 cumulativeAccrued, uint256 rate, uint64 seq);
+    event YieldAccrued(
+        uint64 indexed positionId, uint256 cumulativeAccrued, uint256 rate, uint64 seq, uint256 treasuryIn
+    );
     event PositionUnlocked(uint64 indexed positionId, address indexed owner, uint256 sharesReleased, uint64 seq);
     event YieldPaid(
         uint64 indexed positionId, address indexed to, uint256 amountUnderlying, uint256 shares, uint64 seq
     );
+    event YieldFeeTaken(uint64 indexed positionId, uint256 shares, uint256 underlying);
+    event TreasuryFunded(address indexed from, uint256 shares, uint256 underlying);
+    event TreasuryRefilled(uint64 indexed positionId, uint256 amountUnderlying, uint256 shares, uint64 seq);
+    event InstantPaid(
+        uint64 indexed positionId, address indexed to, uint256 amountUnderlying, uint256 shares, uint64 seq
+    );
+    event YieldFeeSet(uint16 bps);
     event YieldMinted(uint64 indexed positionId, uint256 shares, uint256 underlying);
     event MessageIgnored(uint64 indexed positionId, uint8 msgType, uint64 seq, string reason);
 
@@ -84,6 +112,9 @@ contract PositionVault {
     error ExceedsAccruedYield(uint256 requested, uint256 available);
     error InsufficientShares(uint256 needed, uint256 spendable);
     error PrincipalTooLarge();
+    error NotAdmin();
+    error FeeTooHigh();
+    error InsufficientTreasury(uint256 needed, uint256 available);
 
     constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_, address yieldMinter_) {
         lst = IERC20Minimal(lst_);
@@ -93,7 +124,38 @@ contract PositionVault {
         yieldMinter = yieldMinter_;
     }
 
+    // ---------------------------------------------------------------- admin
+
+    function setYieldFeeBps(uint16 bps) external {
+        _checkAdmin();
+        if (bps > MAX_YIELD_FEE_BPS) revert FeeTooHigh();
+        yieldFeeBps = bps;
+        emit YieldFeeSet(bps);
+    }
+
+    /// @notice Moves LST shares from the admin into the Treasury. There is deliberately no way to withdraw: Solana
+    ///         caps Instant Redeems against `treasuryIn`, which is only safe while it never decreases and nothing
+    ///         but Instant Redeem spends the Treasury.
+    function fundTreasury(uint256 shares) external {
+        _checkAdmin();
+        if (shares == 0) revert ZeroAmount();
+        if (!lst.transferFrom(msg.sender, address(this), shares)) revert TransferFailed();
+        uint256 underlying = _value(shares, rateSource.underlyingPerShare());
+        treasuryShares += shares;
+        treasuryIn += underlying;
+        emit TreasuryFunded(msg.sender, shares, underlying);
+    }
+
+    function _checkAdmin() internal view virtual {
+        if (msg.sender != admin) revert NotAdmin();
+    }
+
     // ---------------------------------------------------------------- views
+
+    /// @notice Underlying value of the Treasury's shares at the current rate.
+    function treasuryBalance() external view returns (uint256) {
+        return _value(treasuryShares, rateSource.underlyingPerShare());
+    }
 
     function getPosition(uint64 id) external view returns (Position memory) {
         return _positions[id];
@@ -160,8 +222,8 @@ contract PositionVault {
         uint256 rate = rateSource.underlyingPerShare();
         uint256 accrued = _accrued(p, rate);
         uint64 seq = ++p.outSeq;
-        emit YieldAccrued(id, accrued, rate, seq);
-        _send(abi.encode(MSG_YIELD_ACCRUED, sourceChain, id, seq, accrued, rate, block.timestamp));
+        emit YieldAccrued(id, accrued, rate, seq, treasuryIn);
+        _send(abi.encode(MSG_YIELD_ACCRUED, sourceChain, id, seq, accrued, rate, block.timestamp, treasuryIn));
     }
 
     /// @notice Permissionless: mints the simulated yield earned since the last accrual into the vault.
@@ -171,8 +233,8 @@ contract PositionVault {
         _accrue(id, p);
     }
 
-    /// @dev No-op for rate-based LSTs and after Unlock. If the elapsed time is worth less than one share the
-    ///      timestamp is kept so the time carries over.
+    /// @dev Gross simulated yield since the last accrual, before the Yield Fee. No-op for rate-based LSTs and
+    ///      after Unlock.
     function _pending(uint64 id, Position storage p) internal view returns (uint256 shares, uint256 underlying) {
         if (yieldMinter == address(0) || p.unlocked) return (0, 0);
         uint256 dt = block.timestamp - lastAccrual[id];
@@ -185,19 +247,33 @@ contract PositionVault {
     function _accruedWithPending(uint64 id, Position storage p, uint256 rate) internal view returns (uint256) {
         if (p.unlocked) return p.frozenAccrued;
         (uint256 shares,) = _pending(id, p);
-        uint256 held = p.heldShares + shares;
+        uint256 held = p.heldShares + (shares - _fee(shares));
         uint256 reserve = _principalReserve(p, rate);
         reserve = reserve > held ? held : reserve;
         return p.paidUnderlying + ((held - reserve) * rate) / RATE_SCALE;
     }
 
+    function _fee(uint256 shares) internal view returns (uint256) {
+        return (shares * yieldFeeBps) / BPS;
+    }
+
+    /// @dev Mints the gross yield into the vault and splits it: the Yield Fee to the Treasury, the rest to the
+    ///      Position. If the Position's part is worth less than one share the timestamp is kept so the time
+    ///      carries over.
     function _accrue(uint64 id, Position storage p) internal {
         (uint256 shares, uint256 underlying) = _pending(id, p);
-        if (shares == 0) return;
+        uint256 feeShares = _fee(shares);
+        if (shares - feeShares == 0) return;
         lastAccrual[id] = uint64(block.timestamp);
-        p.heldShares += shares;
+        p.heldShares += shares - feeShares;
         IYieldMinter(yieldMinter).mint(address(this), shares);
         emit YieldMinted(id, shares, underlying);
+        if (feeShares > 0) {
+            uint256 feeUnderlying = _value(feeShares, rateSource.underlyingPerShare());
+            treasuryShares += feeShares;
+            treasuryIn += feeUnderlying;
+            emit YieldFeeTaken(id, feeShares, feeUnderlying);
+        }
     }
 
     // ---------------------------------------------------------------- inbound
@@ -210,7 +286,7 @@ contract PositionVault {
 
     function _receive(bytes memory payload) internal virtual {
         (uint8 msgType, uint32 chain, uint64 id, uint64 seq) = abi.decode(payload, (uint8, uint32, uint64, uint64));
-        if (msgType != MSG_UNLOCK && msgType != MSG_PAY_YIELD) revert UnknownMessage();
+        if (msgType != MSG_UNLOCK && msgType != MSG_PAY_YIELD && msgType != MSG_PAY_INSTANT) revert UnknownMessage();
 
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
@@ -224,7 +300,8 @@ contract PositionVault {
             _onUnlock(id, p, seq);
         } else {
             (,,,, bytes32 to, uint256 amount) = abi.decode(payload, (uint8, uint32, uint64, uint64, bytes32, uint256));
-            _onPayYield(id, p, seq, address(uint160(uint256(to))), amount);
+            if (msgType == MSG_PAY_YIELD) _onPayYield(id, p, seq, address(uint160(uint256(to))), amount);
+            else _onPayInstant(id, seq, address(uint160(uint256(to))), amount);
         }
     }
 
@@ -261,8 +338,26 @@ contract PositionVault {
 
         p.paidUnderlying += amount;
         p.heldShares -= shares;
+        if (to == address(this)) {
+            // Tesoro redeemed the Gemas it bought with Instant Redeems: the yield goes back to the Treasury.
+            treasuryShares += shares;
+            treasuryIn += _value(shares, rate);
+            emit TreasuryRefilled(id, amount, shares, seq);
+            return;
+        }
         if (!lst.transfer(to, shares)) revert TransferFailed();
         emit YieldPaid(id, to, amount, shares, seq);
+    }
+
+    /// @dev Pays `amount` underlying out of the Treasury, independent of the Position's own shares and lock state.
+    ///      Reverting when short keeps the message retryable, like `_onPayYield`.
+    function _onPayInstant(uint64 id, uint64 seq, address to, uint256 amount) internal {
+        uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
+        if (shares > treasuryShares) revert InsufficientTreasury(shares, treasuryShares);
+        treasuryShares -= shares;
+        instantPaid += amount;
+        if (!lst.transfer(to, shares)) revert TransferFailed();
+        emit InstantPaid(id, to, amount, shares, seq);
     }
 
     function _ignore(uint64 id, uint8 msgType, uint64 seq, string memory reason) internal {
@@ -270,6 +365,10 @@ contract PositionVault {
     }
 
     // ---------------------------------------------------------------- math
+
+    function _value(uint256 shares, uint256 rate) internal pure returns (uint256) {
+        return (shares * rate) / RATE_SCALE;
+    }
 
     function _accrued(Position storage p, uint256 rate) internal view returns (uint256) {
         if (p.unlocked) return p.frozenAccrued;

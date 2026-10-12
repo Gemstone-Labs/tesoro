@@ -77,6 +77,8 @@ const hex32 = (h: string) => {
 }
 const peerPda = (eid: number, peer: Buffer) =>
     PublicKey.findProgramAddressSync([Buffer.from('Peer'), store.toBuffer(), u32be(eid), peer], PROGRAM_ID)[0]
+const vaultTreasuryPda = (eid: number, peer: Buffer) =>
+    PublicKey.findProgramAddressSync([Buffer.from('treasury'), u32be(eid), peer], PROGRAM_ID)[0]
 const um2web = (w: any) => toWeb3JsInstruction(w.instruction ?? w)
 
 async function run(name: string, ixs: TransactionInstruction[], cu = 400_000) {
@@ -121,6 +123,7 @@ function setPeerIx(eid: number, peer: Buffer, decimals: number, rateBps: number)
         keys: [
             { pubkey: payer.publicKey, isSigner: true, isWritable: true },
             { pubkey: peerPda(eid, peer), isSigner: false, isWritable: true },
+            { pubkey: vaultTreasuryPda(eid, peer), isSigner: false, isWritable: true },
             { pubkey: store, isSigner: false, isWritable: false },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],

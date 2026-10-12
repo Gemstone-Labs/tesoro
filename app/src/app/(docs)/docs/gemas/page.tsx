@@ -44,10 +44,22 @@ export default function Page() {
       />
       <p>
         Redeem pays out in the Source asset: simSOL on Solana, simETH on Ethereum or simHYPE on HyperEVM. Redeeming an
-        Ethereum or HyperEVM Gema sends a message to that chain, which takes a few minutes (see <Link href="/docs/chains">Chains</Link>).
+        Ethereum or HyperEVM Gema, now or later, sends a message to that chain, which takes a few minutes (see <Link href="/docs/chains">Chains</Link>).
       </p>
 
       <Shot name="wallet" url="playtesoro.com/wallet" alt="The Wallet listing Gemas by Source, redeemable now and pending" caption="Gemas by Source in the Wallet, split into redeemable now and pending. Sample data." />
+
+      <H2 id="instant-redeem">Redeem now</H2>
+      <p>
+        If you do not want to wait for a Source&apos;s yield, you can <b>Redeem now</b> Gemas you won. You receive <b>65%</b> of their value in the
+        Source asset today. Tesoro keeps the other <b>35%</b>, takes the Gemas and waits for the yield itself, so you never have to.
+      </p>
+      <ul>
+        <li>It works for SOL, ETH and HYPE Gemas you won. Your own Gemas, the ones from your own Positions, cannot be redeemed this way.</li>
+        <li>It is optional. A normal Redeem pays 100% once the yield has landed.</li>
+        <li>It is limited by what Tesoro holds for that asset. If it holds less than your payout, the Redeem now is refused and nothing moves.</li>
+        <li>The Source and its Debt are untouched: Tesoro simply becomes the holder of those Gemas.</li>
+      </ul>
 
       <H2 id="own-first">Which Gemas an entry uses</H2>
       <p>

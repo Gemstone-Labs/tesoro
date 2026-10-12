@@ -29,7 +29,7 @@ const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 export async function fetchEthState(_c: unknown, vault: string, id: bigint): Promise<EthState> {
   const { advance = "open", opening } = screenData().eth ?? {};
   const price = PRICE[netOfVault(vault).native];
-  const bridge = { lastInSeq: 1n, lockedSeq: 1n, ownerEvm: "0x4ce2a8b91f0d3e57c1a6d9f2b08e7a3d51c6f9a2", principal: 2n * E, horizonMonths: 3, opened: true, lastYieldSeq: 0n, yieldCumulative: 0n, appliedYieldSeq: 0n, outSeq: 0n, unlockSent: false };
+  const bridge = { lastInSeq: 1n, lockedSeq: 1n, ownerEvm: "0x4ce2a8b91f0d3e57c1a6d9f2b08e7a3d51c6f9a2", principal: 2n * E, horizonMonths: 3, opened: true, lastYieldSeq: 0n, yieldCumulative: 0n, appliedYieldSeq: 0n, outSeq: 0n, unlockSent: false, treasuryIn: 0n };
   const core = { position: key(Number(id)), principalWei: 2n * E, rateBps: 700, status: "locked" as const, advances: 1, openAdvance: advance === "open" ? 0 : null, cumulativeYield: 0n };
   const issued = 6200n;
   const unitNum = 10n ** 22n;
@@ -40,10 +40,10 @@ export async function fetchEthState(_c: unknown, vault: string, id: bigint): Pro
     math: { issued, returned: advance === "paid" ? issued : 0n, redeemed: 0n, yieldUnits: advance === "paid" ? (issued * unitNum) / price : 4_000_000_000_000_000n, unitNum, unitDen: price },
   };
   const holderEvm = bridge.ownerEvm;
-  if (opening === "sent") return { bridge: null, core: null, source: null, claim: null, holderEvm, fetchedAt: Date.now() };
-  if (opening === "delivered" || opening === "failed") return { bridge, core: null, source: null, claim: null, holderEvm, fetchedAt: Date.now() };
-  if (opening === "recorded") return { bridge, core: { ...core, advances: 0, openAdvance: null }, source: null, claim: null, holderEvm, fetchedAt: Date.now() };
-  return { bridge, core, source, claim: null, holderEvm, fetchedAt: Date.now() };
+  if (opening === "sent") return { bridge: null, core: null, source: null, claim: null, instantClaim: null, holderEvm, fetchedAt: Date.now() };
+  if (opening === "delivered" || opening === "failed") return { bridge, core: null, source: null, claim: null, instantClaim: null, holderEvm, fetchedAt: Date.now() };
+  if (opening === "recorded") return { bridge, core: { ...core, advances: 0, openAdvance: null }, source: null, claim: null, instantClaim: null, holderEvm, fetchedAt: Date.now() };
+  return { bridge, core, source, claim: null, instantClaim: null, holderEvm, fetchedAt: Date.now() };
 }
 
 export async function fetchVaultPosition(vault: string): Promise<VaultPosition> {

@@ -1,5 +1,7 @@
 use crate::*;
-use msg_codec::{encode_pay_yield, encode_unlock, MSG_PAY_YIELD, MSG_UNLOCK};
+use msg_codec::{
+    encode_pay_instant, encode_pay_yield, encode_unlock, MSG_PAY_INSTANT, MSG_PAY_YIELD, MSG_UNLOCK,
+};
 use oapp::endpoint::{
     instructions::QuoteParams, state::EndpointSettings, ENDPOINT_SEED, ID as ENDPOINT_ID,
 };
@@ -24,6 +26,7 @@ impl QuoteSend<'_> {
         let message = match params.msg_type {
             MSG_UNLOCK => encode_unlock(params.dst_eid, [0u8; 32], 1),
             MSG_PAY_YIELD => encode_pay_yield(params.dst_eid, [0u8; 32], 1, [0u8; 32], 0),
+            MSG_PAY_INSTANT => encode_pay_instant(params.dst_eid, [0u8; 32], 1, [0u8; 32], 0),
             _ => return err!(BridgeError::InvalidMessageType),
         };
         oapp::endpoint_cpi::quote(
@@ -45,7 +48,7 @@ impl QuoteSend<'_> {
 pub struct QuoteSendParams {
     pub dst_eid: u32,
     pub peer_address: [u8; 32],
-    /// 3 = Unlock, 4 = PayYield.
+    /// 3 = Unlock, 4 = PayYield, 5 = PayInstant.
     pub msg_type: u8,
     pub options: Vec<u8>,
     pub pay_in_lz_token: bool,

@@ -23,7 +23,7 @@ export default function Page() {
 
       <H2 id="principal">What &ldquo;Principal is never played&rdquo; means, and does not</H2>
       <p>
-        It means that no Match entry, Fee or Backing ever draws on your Principal, and that Principal never pays Debt. The ledger is built and tested so
+        It means that no Match entry, Fee (including the Yield Fee, which is taken from yield only) or Backing ever draws on your Principal, and that Principal never pays Debt. The ledger is built and tested so
         that nothing reads Principal after an Advance is sized. It does not mean your Principal is protected or risk-free. It is still:
       </p>
       <ul>
@@ -35,6 +35,7 @@ export default function Page() {
       <H2 id="economic">Limits of the model</H2>
       <ul>
         <li><b>Won Gemas wait for real yield.</b> If a loser&apos;s staking yield collapses, the Gemas you won from them stay pending with no end date. This is by design.</li>
+        <li><b>Redeem now is limited by Tesoro&apos;s holdings.</b> It pays from Tesoro&apos;s own balance for that asset. When the balance is short, the request is refused until it is topped up or refilled, and you can always wait for a normal Redeem instead.</li>
         <li><b>Many small Sources.</b> An entry draws on at most 8 Sources. If your Gemas are spread over more, redeem some small balances first.</li>
         <li><b>You can lose your entry.</b> Every Match is a contest of skill against another Player, and you can lose what you enter. A Backer can lose the whole entry they fund.</li>
         <li><b>Skill is not luck-free.</b> Block Puzzle shares the same pieces between Players, but Hold&apos;em has chance in every hand.</li>
@@ -47,7 +48,7 @@ export default function Page() {
           ["The price key", "The issuance price of an Advance.", "A wrong price mis-sizes an Advance at issuance."],
           ["MagicBlock's secure environment", "Keeping hidden cards, pieces and positions hidden.", "Hidden information could be seen early."],
           ["LayerZero's verification network", "Delivering cross-chain messages truthfully.", "A false message could report false yield. A vault still pays out no more than the yield it has accrued."],
-          ["The admin key", "Registering Games, setting fees, upgrading programs.", "A single key can change the rules or the programs."],
+          ["The admin key", "Registering Games, setting fees (Platform, Yield and Instant Redeem), funding Tesoro&apos;s holdings, upgrading programs.", "A single key can change the rules or the programs."],
           ["The keeper", "Liveness only: cranking yield, relaying messages, expiring offers.", "If it stops, anyone can send the same transactions, but things go slower."],
         ]}
       />

@@ -62,7 +62,8 @@ contract PositionVaultOAppTest is Test {
     function setUp() public {
         ep = new MockLzEndpoint();
         lst = new SimLST(address(this), "Simulated Staked ETH", "simETH");
-        vault = new PositionVaultOApp(address(lst), address(lst), address(ep), HOODI, SOLANA, address(this), address(lst));
+        vault =
+            new PositionVaultOApp(address(lst), address(lst), address(ep), HOODI, SOLANA, address(this), address(lst));
         lst.setMinter(address(vault));
         vault.setPeer(SOLANA, STORE);
         lst.faucet(alice);
@@ -125,10 +126,55 @@ contract PositionVaultOAppTest is Test {
         assertGt(accrued, 0);
         vault.reportYield{value: 0.0001 ether}(id);
         bytes memory m = ep.lastMessage();
-        assertEq(m.length, 61);
+        assertEq(m.length, 77);
         assertEq(uint8(m[0]), 2);
         assertEq(bytes8(_slice(m, 37, 8)), bytes8(uint64(2)));
         assertEq(bytes16(_slice(m, 45, 16)), bytes16(uint128(accrued)));
+        assertGt(vault.treasuryIn(), 0);
+        assertEq(bytes16(_slice(m, 61, 16)), bytes16(uint128(vault.treasuryIn())));
+    }
+
+    function _instant(uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
+        return abi.encodePacked(uint8(5), HOODI, _key(id), seq, bytes32(uint256(uint160(to))), amt);
+    }
+
+    function test_pay_instant_pays_from_the_treasury() public {
+        uint64 id = _open(1e18);
+        vm.warp(block.timestamp + 600);
+        vault.accrue(id);
+        uint256 treasury = vault.treasuryShares();
+        assertGt(treasury, 1000);
+        _recv(_instant(id, 1, redeemer, uint128(treasury / 2)));
+        assertEq(lst.balanceOf(redeemer), treasury / 2);
+        assertEq(vault.instantPaid(), treasury / 2);
+        assertEq(vault.treasuryShares(), treasury - treasury / 2);
+        _recv(_instant(id, 1, redeemer, uint128(treasury / 2))); // replay
+        assertEq(lst.balanceOf(redeemer), treasury / 2);
+    }
+
+    function test_pay_instant_short_reverts_then_succeeds_after_funding() public {
+        uint64 id = _open(1e18);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1e17, 0));
+        _recv(_instant(id, 1, redeemer, 1e17));
+        lst.faucet(address(this));
+        lst.approve(address(vault), type(uint256).max);
+        vault.fundTreasury(1e17);
+        _recv(_instant(id, 1, redeemer, 1e17));
+        assertEq(lst.balanceOf(redeemer), 1e17);
+    }
+
+    function test_pay_instant_rejects_wrong_length() public {
+        uint64 id = _open(1e18);
+        vm.expectRevert(PositionVaultOApp.InvalidMessageLength.selector);
+        _recv(abi.encodePacked(uint8(5), HOODI, _key(id), uint64(1), uint128(0)));
+    }
+
+    function test_treasury_admin_is_the_owner() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        vault.setYieldFeeBps(100);
+        vault.setYieldFeeBps(100);
+        assertEq(vault.yieldFeeBps(), 100);
     }
 
     function test_quotes() public view {
@@ -161,8 +207,9 @@ contract PositionVaultOAppTest is Test {
 
     function test_rejects_other_vaults_positions_unknown_peers_and_bad_lengths() public {
         uint64 id = _open(1e18);
-        bytes memory foreign =
-            abi.encodePacked(uint8(3), HOODI, bytes32((uint256(0xdead) << 96) | (uint256(id) << 32)), uint64(1), uint128(0));
+        bytes memory foreign = abi.encodePacked(
+            uint8(3), HOODI, bytes32((uint256(0xdead) << 96) | (uint256(id) << 32)), uint64(1), uint128(0)
+        );
         vm.expectRevert(PositionVaultOApp.WrongVault.selector);
         _recv(foreign);
 

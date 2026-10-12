@@ -46,6 +46,10 @@ pub const MATCH_TIMEOUT_SECS: i64 = 60 * 60;
 pub const MAX_MATCH_EXTENSION_SECS: i64 = 7 * 24 * 60 * 60;
 /// Upper bound on Platform Fee + Studio Fee together, in basis points of the Pot.
 pub const MAX_TOTAL_FEE_BPS: u16 = 5_000;
+/// Upper bound on the Yield Fee, in basis points of every yield increment.
+pub const MAX_YIELD_FEE_BPS: u16 = 5_000;
+/// Upper bound on the Instant Redeem Fee, in basis points of the redeemed Gemas' value.
+pub const MAX_INSTANT_FEE_BPS: u16 = 5_000;
 
 macro_rules! core_errors {
     ($($name:ident => $msg:literal),* $(,)?) => {
@@ -104,6 +108,7 @@ core_errors! {
     PrizeShortfall => "the supplied pool holdings do not cover the prize",
     NonCanonicalPrize => "pool holdings must be non-empty, ascending by source, each drained but the last",
     LeaderboardOff => "the leaderboard is not set up",
+    NotWonGemas => "only won Gemas can be redeemed instantly",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -129,6 +134,16 @@ pub(crate) fn mul_div_ceil(a: u128, b: u128, d: u128) -> CoreResult<u128> {
 
 pub(crate) fn to_u64(v: u128) -> CoreResult<u64> {
     u64::try_from(v).map_err(|_| CoreError::Math)
+}
+
+/// Splits a yield increment into what the Position keeps and the Yield Fee (floored, so rounding
+/// favours the Position). `fee_bps` above `MAX_YIELD_FEE_BPS` is refused.
+pub fn split_yield_fee(units: u64, fee_bps: u16) -> CoreResult<(u64, u64)> {
+    if fee_bps > MAX_YIELD_FEE_BPS {
+        return Err(CoreError::InvalidBps);
+    }
+    let fee = to_u64(mul_div_floor(units as u128, fee_bps as u128, BPS)?)?;
+    Ok((units.checked_sub(fee).ok_or(CoreError::Math)?, fee))
 }
 
 pub fn is_ladder_entry(entry: u64) -> bool {

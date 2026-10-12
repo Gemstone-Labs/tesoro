@@ -5,10 +5,10 @@
 Tesoro lets stakers play head-to-head skill games with their future staking yield:
 
 1. Lock a **Position**: a SOL or ETH liquid staking token.
-2. Take an **Advance** of 100% of the Position's projected yield over a 1–12 month **Horizon**. It is issued as **Gemas**, worth $0.01 each at issuance.
+2. Take an **Advance** of 80% of the Position's projected yield (100% minus Tesoro's 20% **Yield Fee**) over a 1–12 month **Horizon**. It is issued as **Gemas**, worth $0.01 each at issuance.
 3. Play **Matches**: async Block Puzzle, real-time heads-up Hold'em, or Trading Duel (a real-time price grid: pick where the live price will be and score when the line hits your box).
 
-The **Principal is never played** and never pays Debt. Accrued yield repays the Advance automatically, and winners Redeem the Gemas they won as the loser's yield actually accrues.
+The **Principal is never played** and never pays Debt. Accrued yield repays the Advance automatically, and winners Redeem the Gemas they won as the loser's yield actually accrues, or **Instant Redeem** them now for 65% of their value (Tesoro's Treasury pays and waits for the yield; ADR 0007). Tesoro earns the Platform Fee on Matches, the Yield Fee and the Instant Redeem Fee; nothing is ever charged on Principal.
 
 > **Status: testnets only.** Solana devnet and Ethereum Hoodi. Yield is **Simulated** (1 month = about 10 minutes). Nothing has value. The security review is internal, not an external audit.
 
@@ -82,7 +82,7 @@ Both vaults are owned by the EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f4
 
 | Contract | Address | Notes |
 |---|---|---|
-| `PositionVaultOApp`, SimLST (simETH, **Simulated**) | [`0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`](https://hoodi.etherscan.io/address/0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3) | The vault the app uses. Redeployed 2026-10-03 for per-Position yield (`docs/yield-model.md`). |
+| `PositionVaultOApp`, SimLST (simETH, **Simulated**) | [`0x191700BA53C9437F3a31E082bcfd8bB85C865d26`](https://hoodi.etherscan.io/address/0x191700BA53C9437F3a31E082bcfd8bB85C865d26) | The vault the app uses. Redeployed 2026-10-12 for the Yield Fee and Instant Redeem (ADR 0007). |
 | `PositionVaultOApp`, real Lido wstETH | [`0x61B46f64CDB75930a87955487aAb8A7711F757b5`](https://hoodi.etherscan.io/address/0x61B46f64CDB75930a87955487aAb8A7711F757b5) | Deployed and wired, not run end to end. Redeployed 2026-10-01. |
 | SimLST (simETH, **Simulated**, 5% APY) | [`0xD82840623A7a00C37b0883d221Fa84e39ddA2a28`](https://hoodi.etherscan.io/address/0xD82840623A7a00C37b0883d221Fa84e39ddA2a28) | |
 | `WstETHRateAdapter` | [`0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37`](https://hoodi.etherscan.io/address/0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37) | The wstETH vault's rate source. Reads wstETH `stEthPerToken()`. |
@@ -95,7 +95,7 @@ Owned by the same EVM deployer and peered to the same Solana OApp Store. Deploye
 
 | Contract | Address | Notes |
 |---|---|---|
-| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316` | The vault the app uses for HYPE Positions (redeployed 2026-10-03). |
+| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0x61B46f64CDB75930a87955487aAb8A7711F757b5` | The vault the app uses for HYPE Positions (redeployed 2026-10-12, ADR 0007). |
 | SimLST (simHYPE, **Simulated**, 5% APY) | `0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3` | Unbacked faucet, 1 month = 10 min. |
 | LayerZero EndpointV2 (external) | `0xf9e1815f151024bde4b7c10bac10e8ba9f6b53e1` | Explorer: `https://testnet.purrsec.com`. |
 

@@ -349,6 +349,34 @@
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
+          "name": "treasury",
+          "docs": [
+            "Receives the Yield Fee."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_vault",
+          "writable": true
+        },
+        {
           "name": "source",
           "docs": [
             "The Position's open Advance, when it has one."
@@ -1321,6 +1349,85 @@
       ]
     },
     {
+      "name": "fund_treasury",
+      "discriminator": [
+        71,
+        154,
+        45,
+        220,
+        206,
+        32,
+        174,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_vault",
+          "writable": true
+        },
+        {
+          "name": "admin_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "shares",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "init_leaderboard",
       "docs": [
         "Extends a Config that predates the Leaderboard, creates the pool Account and sets the fee."
@@ -1423,6 +1530,144 @@
       ]
     },
     {
+      "name": "init_treasury",
+      "docs": [
+        "Creates the Treasury (config, Treasury Account, simSOL vault) or changes its fee rates."
+      ],
+      "discriminator": [
+        105,
+        152,
+        173,
+        51,
+        158,
+        151,
+        49,
+        14
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "address": "3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ"
+        },
+        {
+          "name": "treasury_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "yield_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "instant_fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "initialize_config",
       "discriminator": [
         208,
@@ -1498,6 +1743,474 @@
           "type": "u16"
         }
       ]
+    },
+    {
+      "name": "instant_redeem",
+      "discriminator": [
+        187,
+        107,
+        208,
+        125,
+        224,
+        237,
+        40,
+        93
+      ],
+      "accounts": [
+        {
+          "name": "holder_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "holder_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position"
+        },
+        {
+          "name": "source",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "holder_token",
+          "writable": true
+        },
+        {
+          "name": "pool",
+          "docs": [
+            "The canonical sim_lst Pool, whose rate converts the payout to simSOL."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "instant_redeem_from_source",
+      "discriminator": [
+        166,
+        149,
+        174,
+        49,
+        1,
+        173,
+        107,
+        189
+      ],
+      "accounts": [
+        {
+          "name": "holder_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
+        },
+        {
+          "name": "holder_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position"
+        },
+        {
+          "name": "source",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ],
+      "returns": "u64"
     },
     {
       "name": "join_match",
@@ -2952,6 +3665,261 @@
       ]
     },
     {
+      "name": "redeem_treasury",
+      "discriminator": [
+        16,
+        151,
+        152,
+        224,
+        27,
+        91,
+        185,
+        205
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position"
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "redeem_treasury_from_source",
+      "discriminator": [
+        64,
+        14,
+        0,
+        119,
+        84,
+        142,
+        253,
+        250
+      ],
+      "accounts": [
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position"
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "refund_match",
       "discriminator": [
         70,
@@ -4016,6 +4984,29 @@
           }
         },
         {
+          "name": "treasury",
+          "docs": [
+            "Its Yield Fee sizes the Advance."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "owner_account",
           "writable": true,
           "pda": {
@@ -4210,6 +5201,29 @@
                   15,
                   209,
                   93
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Its Yield Fee sizes the Advance."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
                 ]
               }
             ]
@@ -4590,6 +5604,19 @@
       ]
     },
     {
+      "name": "Treasury",
+      "discriminator": [
+        238,
+        239,
+        123,
+        238,
+        89,
+        1,
+        168,
+        253
+      ]
+    },
+    {
       "name": "YieldConfig",
       "discriminator": [
         249,
@@ -4615,6 +5642,19 @@
         108,
         78,
         113
+      ]
+    },
+    {
+      "name": "InstantRedeemed",
+      "discriminator": [
+        213,
+        181,
+        0,
+        40,
+        172,
+        14,
+        161,
+        56
       ]
     },
     {
@@ -4748,6 +5788,19 @@
       ]
     },
     {
+      "name": "TreasuryFunded",
+      "discriminator": [
+        172,
+        66,
+        241,
+        101,
+        216,
+        219,
+        147,
+        130
+      ]
+    },
+    {
       "name": "YieldApplied",
       "discriminator": [
         61,
@@ -4771,6 +5824,19 @@
         200,
         227,
         27
+      ]
+    },
+    {
+      "name": "YieldFeeTaken",
+      "discriminator": [
+        177,
+        135,
+        154,
+        146,
+        74,
+        152,
+        82,
+        23
       ]
     }
   ],
@@ -4859,6 +5925,11 @@
       "code": 6016,
       "name": "LeaderboardOff",
       "msg": "the leaderboard is not set up"
+    },
+    {
+      "code": 6017,
+      "name": "TreasuryShort",
+      "msg": "the treasury cannot pay this instant redeem now"
     }
   ],
   "types": [
@@ -5135,6 +6206,42 @@
                 "name": "Holding"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "InstantRedeemed",
+      "docs": [
+        "Won Gemas sold to the Treasury: `payout_units` is paid now (on Solana in the same transaction,",
+        "on an EVM chain by the vault's treasury through the bridge), `source_units` is their full value."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          },
+          {
+            "name": "source_units",
+            "type": "u64"
+          },
+          {
+            "name": "payout_units",
+            "type": "u64"
           }
         ]
       }
@@ -6555,6 +7662,93 @@
       }
     },
     {
+      "name": "Treasury",
+      "docs": [
+        "Tesoro's Treasury (CONTEXT.md): collects the Yield Fee on Solana-native Positions (simSOL in",
+        "`vault`), pays Solana Instant Redeems from it, and holds the Gemas it bought in `account`, a",
+        "`TesoroAccount` whose authority is this PDA. Seeds `[\"treasury\"]`. Its fee rates apply on every",
+        "chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          },
+          {
+            "name": "account_bump",
+            "type": "u8"
+          },
+          {
+            "name": "yield_fee_bps",
+            "docs": [
+              "Yield Fee, basis points of every yield increment (2,000 at launch)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "instant_fee_bps",
+            "docs": [
+              "Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 at launch)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "account",
+            "docs": [
+              "The Treasury Account (`[\"account\", treasury]`)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "simSOL token account (`[\"treasury_vault\"]`), authority = this PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_units",
+            "docs": [
+              "SOL units minted into the vault as Yield Fee, cumulative."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "instant_units",
+            "docs": [
+              "SOL units paid out by Solana Instant Redeems, cumulative."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "funded_shares",
+            "docs": [
+              "simSOL shares the admin funded the vault with, cumulative."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "YieldApplied",
       "type": {
         "kind": "struct",
@@ -6609,6 +7803,29 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "YieldFeeTaken",
+      "docs": [
+        "The Yield Fee on one `accrue_native_yield`, minted into the treasury vault."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "units",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
           }
         ]
       }

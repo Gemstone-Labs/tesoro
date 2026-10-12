@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { PublicKey } from "@solana/web3.js";
+import { userEvent, within } from "storybook/test";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "@/app/(app)/wallet/MoneySheets";
 import { NativeRedeemSheet } from "@/app/(app)/wallet/NativePositions";
 import { demoSnapshot } from "@/lib/chain/fixture";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import type { AccountSnapshot, ChainHolding } from "@/lib/chain/read";
 import { positions } from "@/lib/mock";
-import { demoKey } from "../../screens/support/screen";
+import { demoKey, withScreen } from "../../screens/support/screen";
 import { withSigner } from "../../screens/support/signer";
 import { nativePosition, nativeSnapshot } from "./support";
 
@@ -81,4 +82,70 @@ export const ReturnNothing: Story = {
   decorators: [withSigner],
   parameters: { data: { snapshot: nativeSnapshot("debt") } },
   render: () => <ReturnOwnSheet position={nativePosition("debt")} open onClose={() => {}} />,
+};
+
+/** Opens the "Redeem now" side of the sheet (it renders in a portal). */
+const openRedeemNow = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+  await userEvent.click(await within(canvasElement.ownerDocument.body).findByRole("radio", { name: /Redeem now/ }));
+};
+
+const onlySol = (a: string): AccountSnapshot => {
+  const s = redeemSnapshot(a);
+  return { ...s, holdings: s.holdings.slice(0, 2) };
+};
+const onlyEth = (a: string): AccountSnapshot => {
+  const s = redeemSnapshot(a);
+  return { ...s, holdings: [s.holdings[2], s.holdings[3]] };
+};
+const withMarket = (snapshot: (a: string) => AccountSnapshot, market: Partial<NonNullable<AccountSnapshot["market"]>>) => (a: string): AccountSnapshot => {
+  const s = snapshot(a);
+  return { ...s, market: { ...s.market!, ...market } };
+};
+
+/** Won SOL Gemas sold now: 65% in simSOL in the same transaction, the 35% Tesoro keeps said plainly, and the most the treasury can pay. */
+export const RedeemNowSol: Story = {
+  decorators: [withSigner],
+  parameters: { data: { snapshot: onlySol } },
+  render: (args) => <NativeRedeemSheet {...args} />,
+  play: openRedeemNow,
+};
+
+/** Won SOL and HYPE Gemas and an ETH Position's Gemas: ETH and HYPE are paid on their own chains a few minutes later. */
+export const RedeemNowEthAndHype: Story = {
+  decorators: [withSigner, withScreen],
+  parameters: { data: { snapshot: redeemSnapshot }, screen: { vaultTreasury: "ready" } },
+  render: (args) => <NativeRedeemSheet {...args} />,
+  play: openRedeemNow,
+};
+
+/** The Solana treasury holds only 0.00005 simSOL: Redeem now sells as many Gemas as it can pay and no more. */
+export const RedeemNowTreasuryShort: Story = {
+  decorators: [withSigner],
+  parameters: { data: { snapshot: withMarket(onlySol, { treasuryShares: 50_000n }) } },
+  render: (args) => <NativeRedeemSheet {...args} />,
+  play: openRedeemNow,
+};
+
+/** Before the Treasury exists on chain: the plain reason instead of an offer. */
+export const RedeemNowNotSetUp: Story = {
+  decorators: [withSigner],
+  parameters: { data: { snapshot: withMarket(onlySol, { treasury: null, treasuryShares: null }) } },
+  render: (args) => <NativeRedeemSheet {...args} />,
+  play: openRedeemNow,
+};
+
+/** ETH and HYPE vaults that have no treasury mirror (old vaults): nothing can be paid on them. */
+export const RedeemNowOldVaults: Story = {
+  decorators: [withSigner, withScreen],
+  parameters: { data: { snapshot: onlyEth }, screen: { vaultTreasury: "none" } },
+  render: (args) => <NativeRedeemSheet {...args} />,
+  play: openRedeemNow,
+};
+
+/** The EVM vault treasuries are nearly empty. */
+export const RedeemNowEvmTreasuryShort: Story = {
+  decorators: [withSigner, withScreen],
+  parameters: { data: { snapshot: onlyEth }, screen: { vaultTreasury: "short" } },
+  render: (args) => <NativeRedeemSheet {...args} />,
+  play: openRedeemNow,
 };

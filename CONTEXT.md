@@ -19,7 +19,7 @@ Gemas issued upfront against the projected yield of a Position over a chosen per
 _Avoid_: loan, credit line, borrow, PNPL credit
 
 **Horizon**:
-The period (1–12 months) a staker chooses when taking an Advance; the Advance is 100% of the Position's projected yield over it. A Position holds at most one open Advance.
+The period (1–12 months) a staker chooses when taking an Advance; the Advance is 80% of the Position's projected yield over it: the yield net of the Yield Fee, so the Unlock Estimate still lands at the Horizon. A Position holds at most one open Advance.
 _Avoid_: term, lock period, maturity
 
 **Unlock Estimate**:
@@ -83,8 +83,12 @@ In-match score units in Hold'em with no value outside the Match: the stack a Pla
 _Avoid_: in-game Gemas, bets
 
 **Platform Fee**:
-Tesoro's fixed share of every Pot on every game, taken in Gemas at settlement. Tesoro's only revenue; nothing is ever charged on Principal, Advances or redemption.
+Tesoro's fixed share of every Pot on every game, taken in Gemas at settlement. One of Tesoro's three revenues, with the Yield Fee and the Instant Redeem Fee. Nothing is ever charged on Principal.
 _Avoid_: rake, commission, house edge
+
+**Yield Fee**:
+Tesoro's 20% of every increment of yield a Position earns (SOL, ETH and HYPE alike), taken before the yield counts toward Debt, redemption or free yield. Never charged on Principal.
+_Avoid_: performance fee, staking commission, interest
 
 **Studio Fee**:
 The additional share of the Pot a game's studio sets for itself on top of the Platform Fee, taken in Gemas at settlement.
@@ -96,7 +100,7 @@ _Avoid_: tournament fee, jackpot contribution, rake
 
 **Leaderboard Pool**:
 The Gemas collected from Leaderboard Fees, held by a Tesoro Account that no person controls and paid out to the top Players of each Season. Gemas in it keep their Source. Not a Pot: a Pot belongs to one Match.
-_Avoid_: prize fund, jackpot, treasury
+_Avoid_: prize fund, jackpot, treasury (a Treasury is Tesoro's own holdings)
 
 **Season**:
 One week of the Leaderboard, Monday 00:00 UTC to the next Monday, numbered from 1 (Season 1 starts on 2026-10-05). The Leaderboard Pool is paid out when a Season ends, and what is not paid rolls into the next.
@@ -135,5 +139,13 @@ _Avoid_: user, gamer, backee
 ### Redemption
 
 **Redeem**:
-To turn Gemas into their Source asset, possible only as far as the Source Position's yield has actually accrued. Winning Gemas never shortens the winner's own lock.
+To turn Gemas into their Source asset, possible only as far as the Source Position's yield has actually accrued. Winning Gemas never shortens the winner's own lock. Won Gemas can instead be Instant Redeemed.
 _Avoid_: withdraw, cash out, claim
+
+**Instant Redeem**:
+Turning won Gemas into their Source asset now, before the Source's yield has landed, for 65% of their value. The Treasury pays it and takes the Gemas; Tesoro keeps the other 35% (the **Instant Redeem Fee**). Only free Gemas the holder won, never their own-Sourced ones; the Source's Debt and counts are untouched.
+_Avoid_: early withdrawal, cash out, sell
+
+**Treasury**:
+Tesoro's own holdings, one per asset (simSOL on Solana, a balance inside each EVM vault). It collects the Yield Fee, pays Instant Redeems, and is refilled when the Gemas it bought are redeemed at full value as the Source's yield lands. Not the Leaderboard Pool, and not a Position.
+_Avoid_: reserve, vault (a Position's custody), pool

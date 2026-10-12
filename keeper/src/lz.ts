@@ -46,6 +46,8 @@ export const STORE = pda([Buffer.from("Store")], BRIDGE);
 export const AUTHORITY = pda([Buffer.from("authority")], BRIDGE);
 export const peerPda = (eid: number, positionId: Uint8Array) => pda([Buffer.from("Peer"), STORE.toBuffer(), u32be(eid), vaultWord(positionId)], BRIDGE);
 export const bridgePositionPda = (eid: number, positionId: Uint8Array) => pda([Buffer.from("Position"), u32be(eid), Buffer.from(positionId)], BRIDGE);
+/** The bridge's mirror of the vault's treasury (`set_peer_config` creates it; `apply_yield` raises it). */
+export const vaultTreasuryPda = (eid: number, positionId: Uint8Array) => pda([Buffer.from("treasury"), u32be(eid), vaultWord(positionId)], BRIDGE);
 export const evmLinkPda = (evm: Uint8Array) => pda([Buffer.from("evm"), Buffer.from(evm)], BRIDGE);
 export const corePda = (...seeds: Buffer[]) => pda(seeds, CORE);
 export const sourceAuthPda = (eid: number) => corePda(Buffer.from("source_auth"), Buffer.from([chainByte(eid) ?? 255]));
@@ -78,6 +80,7 @@ export const applyYieldIx = (eid: number, positionId: Uint8Array, openSource: Pu
     keys: [
       meta(STORE),
       meta(bridgePositionPda(eid, positionId), false, true),
+      meta(vaultTreasuryPda(eid, positionId), false, true),
       meta(AUTHORITY),
       meta(sourceAuthPda(eid)),
       meta(corePositionPda(eid, positionId), false, true),
@@ -86,6 +89,33 @@ export const applyYieldIx = (eid: number, positionId: Uint8Array, openSource: Pu
     ],
     data: Buffer.concat([disc("apply_yield"), u32le(eid), Buffer.from(positionId)]),
   });
+
+/**
+ * `redeem_treasury_to_evm`: the Treasury Account redeems Gemas of an ETH or HYPE Source it bought and the payout is
+ * recorded in its Claim; `send_pay_yield` then pays that Claim into the vault's own treasury. Permissionless.
+ */
+export const redeemTreasuryToEvmIx = (payer: PublicKey, eid: number, positionId: Uint8Array, source: PublicKey, gemas: bigint) => {
+  const treasury = corePda(Buffer.from("treasury"));
+  const account = corePda(Buffer.from("account"), treasury.toBuffer());
+  return new TransactionInstruction({
+    programId: BRIDGE,
+    keys: [
+      meta(payer, true, true),
+      meta(STORE),
+      meta(AUTHORITY),
+      meta(sourceAuthPda(eid)),
+      meta(treasury),
+      meta(account, false, true),
+      meta(corePositionPda(eid, positionId)),
+      meta(source, false, true),
+      meta(corePda(Buffer.from("holding"), account.toBuffer(), source.toBuffer()), false, true),
+      meta(pda([Buffer.from("claim"), account.toBuffer(), source.toBuffer()], BRIDGE), false, true),
+      meta(CORE),
+      meta(SystemProgram.programId),
+    ],
+    data: Buffer.concat([disc("redeem_treasury_to_evm"), u64le(gemas)]),
+  });
+};
 
 // ---- LayerZero sends (Solana to the EVM vault) ------------------------------------------------
 

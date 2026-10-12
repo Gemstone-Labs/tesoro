@@ -183,7 +183,7 @@ export function Compare({ left, right }: { left: { title: string; icon: LucideIc
 
 const FLOW = [
   { n: 1, title: "Position", body: "Lock a staking token. The Principal is never played.", img: "step1", ratio: "320 / 437" },
-  { n: 2, title: "Advance", body: "Receive the projected yield, upfront.", img: "step2", ratio: "320 / 260" },
+  { n: 2, title: "Advance", body: "Receive 80% of the projected yield, upfront.", img: "step2", ratio: "320 / 260" },
   { n: 3, title: "Gemas", body: "Worth $0.01 each when issued.", img: "step3", ratio: "320 / 260" },
   { n: 4, title: "Match", body: "Enter a head-to-head game. Winner takes the Pot.", img: "step4", ratio: "320 / 260" },
   { n: 5, title: "Redeem", body: "Won Gemas turn into the Source asset as yield lands.", img: "step5", ratio: "320 / 260" },

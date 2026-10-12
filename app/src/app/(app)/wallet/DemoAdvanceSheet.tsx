@@ -5,8 +5,12 @@ import { Button, CheckIcon, Chip, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ensureReady } from "@/lib/chain/match-flow";
 import { takeDemoAdvance } from "@/lib/chain/demo-client";
+import { quoteNativeAdvance } from "@/lib/chain/native";
 import { fmtUsd, gemasToUsd } from "@/lib/format";
 import { plainError } from "@/lib/errors";
+
+/** The demo Position: 10 SOL at 10% APY, 6-month Horizon, SOL at $150, net of the launch Yield Fee. */
+const DEMO_GEMAS = Number(quoteNativeAdvance(10_000_000_000n, 1000, 6, 150_000_000n).gemas);
 
 const STEPS = ["Adding SOL for network fees", "Creating your Account", "Opening a simulated Position", "Signing the Advance"];
 
@@ -55,9 +59,9 @@ export function DemoAdvanceSheet({ open, onClose }: { open: boolean; onClose: ()
       </p>
       <dl className="kv">
         <dt>Gemas issued</dt>
-        <dd><GemaAmount value={7500} size="lg" /></dd>
+        <dd><GemaAmount value={DEMO_GEMAS} size="lg" /></dd>
         <dt>Worth at issuance</dt>
-        <dd>{fmtUsd(gemasToUsd(7500))}</dd>
+        <dd>{fmtUsd(gemasToUsd(DEMO_GEMAS))}</dd>
         <dt>Redeemable now</dt>
         <dd>20% (simulated yield already accrued)</dd>
       </dl>
@@ -76,7 +80,7 @@ export function DemoAdvanceSheet({ open, onClose }: { open: boolean; onClose: ()
           {step !== null && <p className="status" role="status">{STEPS[Math.min(step, STEPS.length - 1)]}…</p>}
           {error && <p className="status err" role="alert">{error}</p>}
           <Button variant="money" block disabled={!signer || step !== null} onClick={take}>
-            {step !== null ? "Working…" : "Take demo Advance · 7,500 Gemas"}
+            {step !== null ? "Working…" : `Take demo Advance · ${DEMO_GEMAS.toLocaleString("en-US")} Gemas`}
           </Button>
         </>
       )}

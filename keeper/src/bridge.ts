@@ -20,11 +20,12 @@ import {
   sendParams,
 } from "./lz.ts";
 import { simulate } from "./tee.ts";
+import { treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
 
 const status = (o: object) => Object.keys(o)[0];
 
 // Account sizes: 8-byte discriminator + `InitSpace` of the Anchor account (bridge/programs/tesoro_bridge/src/state).
-const BRIDGE_POSITION_SIZE = 8 + 164;
+const BRIDGE_POSITION_SIZE = 8 + 164 + 16; // `treasury_in: u128` was appended at the end
 const CLAIM_SIZE = 8 + 121;
 
 export interface BridgePosition {
@@ -102,7 +103,8 @@ export async function fetchBridgePositions(ctx: Ctx): Promise<BridgePosition[]> 
  *   - a delivered PositionLocked not yet applied: `apply_locked` (needs the owner's EvmLink; the keeper pays rent);
  *   - a delivered YieldAccrued newer than the applied one: `apply_yield`;
  *   - an unlocked Position (Debt zero) whose Unlock was not sent: `send_unlock`;
- *   - a redemption Claim with units not yet sent: `send_pay_yield`.
+ *   - a redemption Claim with units not yet sent: `send_pay_yield`. The Treasury Account's own Claim (`redeem_treasury_to_evm`,
+ *     see treasury.ts) is paid to the vault itself, so it carries no EvmLink.
  * The two sends cost a LayerZero fee in SOL from the keeper payer: capped per message and per hour.
  */
 export async function bridgeJob(ctx: Ctx): Promise<number> {
@@ -201,9 +203,12 @@ export async function bridgeJob(ctx: Ctx): Promise<number> {
         log("bridge", subject, "SKIP: claim's Position is not opened on the bridge");
         continue;
       }
-      const holder: any = await ctx.core.account.tesoroAccount.fetchNullable(c.holderAccount);
-      if (!holder) continue;
-      const evmLink = evmLinkPda(Uint8Array.from(holder.evmAddress));
+      let evmLink = BRIDGE; // the program id stands for `None`
+      if (!c.holderAccount.equals(treasuryAccountPda())) {
+        const holder: any = await ctx.core.account.tesoroAccount.fetchNullable(c.holderAccount);
+        if (!holder) continue;
+        evmLink = evmLinkPda(Uint8Array.from(holder.evmAddress));
+      }
       actions += await lzSend(ctx, `${subject} ${label(p.eid, p.positionId)}`, p.eid, p.positionId, 4, `send_pay_yield (${c.unitsTotal - c.unitsSent} units)`, (fee, send) =>
         new TransactionInstruction({
           programId: BRIDGE,

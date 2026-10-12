@@ -191,6 +191,22 @@ impl Env {
             &[],
         )
         .expect("register the bridge authority");
+        env.init_core_treasury(&admin);
+        env.put(
+            env.vault_treasury(),
+            crate::ID,
+            &VaultTreasury {
+                eid: EID_HOODI,
+                peer_address: msg_codec::pad_address(&VAULT),
+                reported_in: 0,
+                instant_recorded: 0,
+                bump: Pubkey::find_program_address(
+                    &[TREASURY_SEED, &EID_HOODI.to_be_bytes(), &msg_codec::pad_address(&VAULT)],
+                    &crate::ID,
+                )
+                .1,
+            },
+        );
         env.put(
             env.peer(),
             crate::ID,
@@ -212,6 +228,60 @@ impl Env {
             },
         );
         env
+    }
+
+    fn vault_treasury(&self) -> Pubkey {
+        bridge_pda(&[TREASURY_SEED, &EID_HOODI.to_be_bytes(), &msg_codec::pad_address(&VAULT)])
+    }
+
+    /// tesoro_core's Treasury at the launch rates (20% Yield Fee, 35% Instant Redeem Fee), with a
+    /// stand-in simSOL mint for its vault.
+    fn init_core_treasury(&mut self, admin: &Keypair) {
+        use anchor_lang::solana_program::{program_option::COption, program_pack::Pack};
+        use anchor_spl::token::{spl_token, ID as TOKEN_PROGRAM_ID};
+        let mut data = vec![0u8; spl_token::state::Mint::LEN];
+        spl_token::state::Mint {
+            mint_authority: COption::None,
+            supply: 0,
+            decimals: 9,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        }
+        .pack_into_slice(&mut data);
+        self.svm
+            .set_account(
+                s(tesoro_core::state::SIM_SOL_MINT),
+                solana_sdk::account::Account {
+                    lamports: 10_000_000,
+                    data,
+                    owner: s(TOKEN_PROGRAM_ID),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("mint");
+        self.send(
+            &[ix(
+                tesoro_core::ID,
+                tesoro_core::accounts::InitTreasury {
+                    admin: a(admin.pubkey()),
+                    config: core_pda(&[CONFIG_SEED]),
+                    treasury: core_pda(&[TREASURY_SEED]),
+                    treasury_account: core_treasury_account(),
+                    mint: tesoro_core::state::SIM_SOL_MINT,
+                    treasury_vault: core_pda(&[tesoro_core::state::TREASURY_VAULT_SEED]),
+                    token_program: TOKEN_PROGRAM_ID,
+                    system_program: anchor_lang::system_program::ID,
+                },
+                tesoro_core::instruction::InitTreasury {
+                    yield_fee_bps: 2_000,
+                    instant_fee_bps: 3_500,
+                },
+            )],
+            admin,
+            &[],
+        )
+        .expect("init treasury");
     }
 
     fn peer(&self) -> Pubkey {
@@ -323,16 +393,18 @@ impl Env {
                 applied_yield_seq: 0,
                 out_seq: 0,
                 unlock_sent: false,
+                treasury_in: 0,
             },
         );
     }
 
-    /// The inbox after a YieldAccrued with `seq` and `cumulative`.
-    fn receive_yield(&mut self, id: u64, seq: u64, cumulative: u128) {
+    /// The inbox after a YieldAccrued with `seq`, `cumulative` and the vault's `treasury_in`.
+    fn receive_yield(&mut self, id: u64, seq: u64, cumulative: u128, treasury_in: u128) {
         let key = self.bridge_position(id);
         let mut p: BridgePosition = self.load(key);
         p.last_yield_seq = seq;
         p.yield_cumulative = cumulative;
+        p.treasury_in = treasury_in;
         p.last_in_seq = p.last_in_seq.max(seq);
         self.put(key, crate::ID, &p);
     }
@@ -389,6 +461,7 @@ impl Env {
                 oracle: a(oracle.pubkey()),
                 owner_authority: a(owner.pubkey()),
                 config: core_pda(&[CONFIG_SEED]),
+                treasury: core_pda(&[TREASURY_SEED]),
                 owner_account: self.owner_account,
                 position,
                 source,
@@ -412,6 +485,7 @@ impl Env {
             crate::accounts::ApplyYield {
                 store: self.store,
                 bridge_position: self.bridge_position(id),
+                vault_treasury: self.vault_treasury(),
                 authority: self.authority,
                 core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
                 core_position: position,
@@ -461,24 +535,26 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     let err = env.apply_locked(id).expect_err("a Position opens once");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::AlreadyOpened)));
 
-    // Advance (oracle price): 5% of 1 ETH over 3 months = 0.0125 ETH = $37.50 = 3,750 Gemas.
+    // Advance (oracle price): 5% of 1 ETH over 3 months = 0.0125 ETH, 80% of it after the Yield
+    // Fee = 0.01 ETH = $30 = 3,000 Gemas.
     env.take_advance(id);
     let source_key = core_pda(&[SOURCE_SEED, env.core_position(id).as_ref(), &0u32.to_le_bytes()]);
     let source: SourceState = env.load(source_key);
-    assert_eq!(source.inner.issued, 3_750);
-    assert_eq!(source.inner.debt(), 3_750);
+    assert_eq!(source.inner.issued, 3_000);
+    assert_eq!(source.inner.debt(), 3_000);
 
     // No yield reported yet.
     let err = env.apply_yield(id, true).expect_err("nothing to apply");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::NothingToApply)));
 
-    // Half of the projected yield arrives: Debt halves.
-    env.receive_yield(id, 2, 6_250_000_000_000_000);
+    // Half of the projected net yield arrives (the vault reports yield after its Yield Fee): Debt
+    // halves.
+    env.receive_yield(id, 2, 5_000_000_000_000_000, 0);
     env.apply_yield(id, false).expect_err("the open Advance's Source is required");
     env.apply_yield(id, true).expect("apply yield");
     let source: SourceState = env.load(source_key);
-    assert_eq!(source.inner.debt(), 1_875);
-    assert_eq!(source.inner.redeemable(), 1_875);
+    assert_eq!(source.inner.debt(), 1_500);
+    assert_eq!(source.inner.redeemable(), 1_500);
     let err = env.apply_yield(id, true).expect_err("applied once");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::NothingToApply)));
 
@@ -500,7 +576,7 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
         let err = env.send(&[plain], &owner, &[]).expect_err("plain redeem is refused");
         assert_eq!(custom_code(&err), Some(6012), "BridgedSource");
         let holding: HoldingState = env.load(holding);
-        assert_eq!(holding.inner.amount, 3_750, "nothing was burned");
+        assert_eq!(holding.inner.amount, 3_000, "nothing was burned");
     }
 
     // Redeem 1,000 Gemas through the bridge: recorded as a claim of source units.
@@ -539,17 +615,17 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
     assert_eq!(claim.units_sent, 0);
     assert_eq!(claim.position, env.core_position(id));
 
-    redeem(&mut env, 875).expect("redeem the rest of what is redeemable");
+    redeem(&mut env, 500).expect("redeem the rest of what is redeemable");
     let claim: Claim = env.load(claim_key);
-    assert_eq!(claim.gemas_total, 1_875);
+    assert_eq!(claim.gemas_total, 1_500);
     redeem(&mut env, 1).expect_err("nothing redeemable beyond accrued yield");
 
     // Gemas holders are credited nothing on Solana: the Gemas are burned by the redeem.
     let holding: HoldingState =
         env.load(core_pda(&[HOLDING_SEED, env.owner_account.as_ref(), source_key.as_ref()]));
-    assert_eq!(holding.inner.amount, 3_750 - 1_875);
+    assert_eq!(holding.inner.amount, 3_000 - 1_500);
     let account: TesoroAccount = env.load(env.owner_account);
-    assert_eq!(account.inner.own_total, 3_750 - 1_875);
+    assert_eq!(account.inner.own_total, 3_000 - 1_500);
 }
 
 #[test]
@@ -588,6 +664,7 @@ fn peer_ix(env: &Env, admin: &Keypair) -> Instruction {
         crate::accounts::SetPeerConfig {
             admin: a(admin.pubkey()),
             peer,
+            vault_treasury: bridge_pda(&[TREASURY_SEED, &EID_HOODI.to_be_bytes(), &vault]),
             store: env.store,
             system_program: anchor_lang::system_program::ID,
         },
@@ -684,4 +761,272 @@ fn rotation_moves_the_store_admin_and_the_endpoint_delegate() {
     assert!(env.send(&[peer_ix(&env, &old)], &old, &[]).is_err());
     env.send(&[peer_ix(&env, &new_admin)], &new_admin, &[])
         .expect("the new admin acts");
+}
+
+// --- Instant Redeem and the Treasury (ADR 0007) ----------------------------------------------
+
+impl Env {
+    /// An Account with an EVM address that holds `n` of the owner's Gemas of Position `id`'s first
+    /// Source as won Gemas (as after a Match; settlement is covered in tesoro_core).
+    fn winner_with(&mut self, id: u64, n: u64) -> (Keypair, Pubkey, Pubkey) {
+        let winner = Keypair::new();
+        self.svm.airdrop(&winner.pubkey(), 10 * SOL).expect("airdrop");
+        let account = self.create_core_account(&winner, [0x77; 20]);
+        let source = core_pda(&[SOURCE_SEED, self.core_position(id).as_ref(), &0u32.to_le_bytes()]);
+        let owner_holding_key =
+            core_pda(&[HOLDING_SEED, self.owner_account.as_ref(), source.as_ref()]);
+        let mut owner_account: TesoroAccount = self.load(self.owner_account);
+        let mut owner_holding: HoldingState = self.load(owner_holding_key);
+        owner_holding.inner.debit(&mut owner_account.inner, n).expect("debit");
+        let mut winner_account: TesoroAccount = self.load(account);
+        let holding_key = core_pda(&[HOLDING_SEED, account.as_ref(), source.as_ref()]);
+        let mut holding = HoldingState {
+            bump: Pubkey::find_program_address(
+                &[HOLDING_SEED, account.as_ref(), source.as_ref()],
+                &tesoro_core::ID,
+            )
+            .1,
+            account,
+            inner: tesoro_core::ledger::Holding::new(source.to_bytes(), false),
+        };
+        holding.inner.credit(&mut winner_account.inner, n).expect("credit");
+        self.put_padded(self.owner_account, &owner_account, TesoroAccount::SPACE);
+        self.put_padded(owner_holding_key, &owner_holding, HoldingState::SPACE);
+        self.put_padded(account, &winner_account, TesoroAccount::SPACE);
+        self.put_padded(holding_key, &holding, HoldingState::SPACE);
+        (winner, account, source)
+    }
+
+    fn put_padded<T: AccountSerialize>(&mut self, key: Pubkey, account: &T, len: usize) {
+        let mut data = Vec::new();
+        account.try_serialize(&mut data).expect("serialize");
+        data.resize(len, 0);
+        let lamports = self.svm.minimum_balance_for_rent_exemption(len);
+        self.svm
+            .set_account(
+                s(key),
+                solana_sdk::account::Account {
+                    lamports,
+                    data,
+                    owner: s(tesoro_core::ID),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("set account");
+    }
+
+    fn treasury_holding(&self, source: Pubkey) -> Pubkey {
+        core_pda(&[HOLDING_SEED, core_treasury_account().as_ref(), source.as_ref()])
+    }
+
+    fn instant_redeem(
+        &mut self,
+        id: u64,
+        holder: &Keypair,
+        account: Pubkey,
+        source: Pubkey,
+        gemas: u64,
+    ) -> std::result::Result<(), Failed> {
+        let instant = ix(
+            crate::ID,
+            crate::accounts::InstantRedeemToEvm {
+                holder_authority: a(holder.pubkey()),
+                store: self.store,
+                authority: self.authority,
+                core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+                holder_account: account,
+                core_position: self.core_position(id),
+                core_source: source,
+                core_holding: core_pda(&[HOLDING_SEED, account.as_ref(), source.as_ref()]),
+                core_treasury: core_pda(&[TREASURY_SEED]),
+                core_treasury_account: core_treasury_account(),
+                core_treasury_holding: self.treasury_holding(source),
+                vault_treasury: self.vault_treasury(),
+                instant_claim: bridge_pda(&[INSTANT_SEED, account.as_ref(), source.as_ref()]),
+                core_program: tesoro_core::ID,
+                system_program: anchor_lang::system_program::ID,
+            },
+            crate::instruction::InstantRedeemToEvm { gemas },
+        );
+        self.send(&[instant], holder, &[])
+    }
+
+    fn sync_treasury(&mut self, id: u64) -> std::result::Result<(), Failed> {
+        let payer = self.admin.insecure_clone();
+        let sync = ix(
+            crate::ID,
+            crate::accounts::SyncTreasury {
+                bridge_position: self.bridge_position(id),
+                vault_treasury: self.vault_treasury(),
+            },
+            crate::instruction::SyncTreasury {
+                params: PositionRef { eid: EID_HOODI, position_id: position_id(id) },
+            },
+        );
+        self.send(&[sync], &payer, &[])
+    }
+
+    /// An opened Position `id` with its 3,000-Gema Advance.
+    fn opened_with_advance(&mut self, id: u64) {
+        self.receive_locked(id, ETH);
+        self.link(EVM_ADDRESS, &hex(LINK_SIGNATURE)).expect("link");
+        self.apply_locked(id).expect("open");
+        self.take_advance(id);
+    }
+}
+
+#[test]
+fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    // 1,000 Gemas at $3,000/ETH are worth 0.003333... ETH; 65% of it is paid now.
+    let units: u64 = 3_333_333_333_333_333;
+    let payout = (u128::from(units) * 6_500 / 10_000) as u64;
+
+    // The vault has reported no treasury yet: refused, and nothing moved.
+    let err = env.instant_redeem(id, &bob, bob_account, source, 1_000).expect_err("empty");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::TreasuryShort)));
+    let holding: HoldingState =
+        env.load(core_pda(&[HOLDING_SEED, bob_account.as_ref(), source.as_ref()]));
+    assert_eq!(holding.inner.amount, 1_000);
+    assert!(env.svm.get_account(&s(env.treasury_holding(source))).is_none());
+
+    // A yield report carries a treasury just short of the payout: still refused.
+    env.receive_yield(id, 2, 1_000_000_000_000_000, u128::from(payout) - 1);
+    env.apply_yield(id, true).expect("apply yield");
+    assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).reported_in, u128::from(payout) - 1);
+    let err = env.instant_redeem(id, &bob, bob_account, source, 1_000).expect_err("short");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::TreasuryShort)));
+
+    // A later report (synced without applying) covers it: accepted and recorded.
+    env.receive_yield(id, 3, 1_000_000_000_000_000, u128::from(payout) + 100);
+    env.sync_treasury(id).expect("sync");
+    env.instant_redeem(id, &bob, bob_account, source, 1_000)
+        .expect("instant redeem");
+    let treasury: VaultTreasury = env.load(env.vault_treasury());
+    assert_eq!(treasury.instant_recorded, u128::from(payout));
+    assert_eq!(treasury.available(), 100);
+    let claim: InstantClaim =
+        env.load(bridge_pda(&[INSTANT_SEED, bob_account.as_ref(), source.as_ref()]));
+    assert_eq!((claim.gemas_total, claim.units_total, claim.units_sent), (1_000, payout, 0));
+    assert_eq!(claim.position, env.core_position(id));
+    let bought: HoldingState = env.load(env.treasury_holding(source));
+    assert_eq!((bought.inner.amount, bought.inner.is_own), (1_000, false));
+    let source_state: SourceState = env.load(source);
+    assert_eq!(source_state.inner.redeemed, 0, "the Source's counts are untouched");
+
+    // The rest of the treasury cannot pay another 1,000; an older, smaller report cannot raise it.
+    let (carol, carol_account, _) = env.winner_with(id, 1_000);
+    let err = env.instant_redeem(id, &carol, carol_account, source, 1_000).expect_err("spent");
+    assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::TreasuryShort)));
+    env.receive_yield(id, 4, 1_000_000_000_000_000, 5);
+    env.sync_treasury(id).expect("sync");
+    assert_eq!(
+        env.load::<VaultTreasury>(env.vault_treasury()).reported_in,
+        u128::from(payout) + 100
+    );
+
+    // The owner's own Gemas never redeem instantly.
+    let owner = env.owner.insecure_clone();
+    let owner_account = env.owner_account;
+    let err = env
+        .instant_redeem(id, &owner, owner_account, source, 10)
+        .expect_err("own Gemas");
+    assert_eq!(
+        custom_code(&err),
+        Some(
+            tesoro_core::error::CORE_ERROR_OFFSET
+                + tesoro_core::ledger::CoreError::NotWonGemas.code()
+        )
+    );
+}
+
+#[test]
+fn the_treasury_redeems_what_it_bought_into_a_claim_paid_to_the_vault() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    env.receive_yield(id, 2, 0, ETH);
+    env.sync_treasury(id).expect("sync");
+    env.instant_redeem(id, &bob, bob_account, source, 1_000)
+        .expect("instant redeem");
+
+    let payer = env.admin.insecure_clone();
+    let treasury_account = core_treasury_account();
+    let claim_key = bridge_pda(&[CLAIM_SEED, treasury_account.as_ref(), source.as_ref()]);
+    let redeem = |env: &mut Env, gemas: u64| {
+        let redeem = ix(
+            crate::ID,
+            crate::accounts::RedeemTreasuryToEvm {
+                payer: a(payer.pubkey()),
+                store: env.store,
+                authority: env.authority,
+                core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+                core_treasury: core_pda(&[TREASURY_SEED]),
+                core_treasury_account: treasury_account,
+                core_position: env.core_position(id),
+                core_source: source,
+                core_treasury_holding: env.treasury_holding(source),
+                claim: claim_key,
+                core_program: tesoro_core::ID,
+                system_program: anchor_lang::system_program::ID,
+            },
+            crate::instruction::RedeemTreasuryToEvm { gemas },
+        );
+        env.send(&[redeem], &payer, &[])
+    };
+    // Nothing has accrued: the Treasury waits like every other holder.
+    redeem(&mut env, 1).expect_err("not redeemable yet");
+
+    // All the net yield lands: the Treasury redeems its 1,000 Gemas at full value.
+    env.receive_yield(id, 3, 10_000_000_000_000_000, ETH);
+    env.apply_yield(id, true).expect("apply yield");
+    redeem(&mut env, 1_000).expect("treasury redeems");
+    let claim: Claim = env.load(claim_key);
+    assert_eq!(claim.holder_account, treasury_account);
+    assert_eq!(claim.units_total, 3_333_333_333_333_333, "full value, not 65%");
+    assert_eq!(env.load::<HoldingState>(env.treasury_holding(source)).inner.amount, 0);
+    // The Treasury Account is the one whose PayYield goes to the vault itself.
+    let treasury_state: TesoroAccount = env.load(treasury_account);
+    assert_eq!(treasury_state.authority, core_pda(&[TREASURY_SEED]));
+    assert_eq!(core_treasury_account(), treasury_account);
+}
+
+#[test]
+fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    env.receive_yield(id, 2, 10_000_000_000_000_000, ETH);
+    env.apply_yield(id, true).expect("apply yield");
+    env.instant_redeem(id, &bob, bob_account, source, 400)
+        .expect("instant redeem 400");
+    // Bob redeems his other 600 at full value through the normal path.
+    let claim = bridge_pda(&[CLAIM_SEED, bob_account.as_ref(), source.as_ref()]);
+    let redeem = ix(
+        crate::ID,
+        crate::accounts::RedeemToEvm {
+            holder_authority: a(bob.pubkey()),
+            store: env.store,
+            authority: env.authority,
+            core_source_authority: core_pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            holder_account: bob_account,
+            core_position: env.core_position(id),
+            core_source: source,
+            core_holding: core_pda(&[HOLDING_SEED, bob_account.as_ref(), source.as_ref()]),
+            claim,
+            core_program: tesoro_core::ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        crate::instruction::RedeemToEvm { gemas: 600 },
+    );
+    env.send(&[redeem], &bob, &[]).expect("normal redeem");
+    let claim: Claim = env.load(claim);
+    // 600 Gemas at $3,000/ETH = $6 = 0.002 ETH.
+    assert_eq!(claim.units_total, 2_000_000_000_000_000);
 }

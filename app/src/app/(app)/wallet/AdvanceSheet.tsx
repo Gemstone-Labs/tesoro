@@ -29,6 +29,7 @@ export function AdvanceFormView({
   yieldText,
   gemas,
   unlock,
+  yieldFeeBps,
   alerts,
   buttonLabel,
   disabled = false,
@@ -44,6 +45,8 @@ export function AdvanceFormView({
   yieldText: string;
   gemas: number;
   unlock: string;
+  /** The Yield Fee the quote is net of (the launch rate while the Treasury is unread). */
+  yieldFeeBps?: number;
   alerts?: ReactNode;
   buttonLabel: ReactNode;
   disabled?: boolean;
@@ -60,7 +63,7 @@ export function AdvanceFormView({
         <Lock size={16} className="adv-lock" aria-hidden />
       </div>
 
-      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas} />
+      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas} yieldFeeBps={yieldFeeBps} />
 
       <Slider label="Horizon" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
 

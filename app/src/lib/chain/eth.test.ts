@@ -5,6 +5,7 @@ import {
   NETS,
   bridgePeerPda,
   bridgePositionPda,
+  BRIDGE_POSITION_LEN,
   claimPda,
   coreAccountPda,
   corePositionPda,
@@ -14,7 +15,10 @@ import {
   ethUnlockEstimateMs,
   initPositionIdAllowed,
   netOfVault,
+  parseBridgePosition,
+  parseClaim,
   sourceAuthPda,
+  vaultTreasuryPda,
   vaultsOn,
   parseEthPositionId,
   projectedEthDebt,
@@ -37,9 +41,10 @@ describe("position id", () => {
 });
 
 describe("advance quote", () => {
-  it("matches the proven flow: 1 month of 1.0749 ETH at 5% and $3,000 is 1,343 Gemas", () => {
+  it("is the yield net of the 20% Yield Fee: 1 month of 1.0749 ETH at 5% and $3,000 is 1,074 Gemas (1,343 before the fee)", () => {
     const q = quoteEthAdvance(1_074_900_000_000_000_000n, 500, 1, 3_000_000_000n);
-    expect(q.gemas).toBe(1343n);
+    expect(q.gemas).toBe(1074n);
+    expect(quoteEthAdvance(1_074_900_000_000_000_000n, 500, 1, 3_000_000_000n, 0).gemas).toBe(1343n);
   });
 });
 
@@ -51,8 +56,8 @@ describe("SimLST clock", () => {
 
   it("estimates a fresh 1-month Advance at 10 minutes, whatever the Principal", () => {
     for (const principal of [10n ** 18n, 4n * 10n ** 18n]) {
-      // Advance = principal * 5% / 12; one Gema = a fixed share of it
-      const units = (principal * 500n) / (10_000n * 12n);
+      // Advance = principal * 5% / 12, net of the 20% Yield Fee; one Gema = a fixed share of it
+      const units = (principal * 500n * 8_000n) / (10_000n * 12n * 10_000n);
       const source = { issued: 1000n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: units, unitDen: 1000n };
       const position = { heldShares: principal, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n };
       const at = ethUnlockEstimateMs({ source, position, rate, nowMs: 0 })!;
@@ -87,10 +92,11 @@ const bridge = (over: Partial<NonNullable<EthState["bridge"]>> = {}): NonNullabl
   appliedYieldSeq: 0n,
   outSeq: 0n,
   unlockSent: false,
+  treasuryIn: 0n,
   ...over,
 });
 const core = (advances = 0): NonNullable<EthState["core"]> => ({ position: pos, principalWei: 1n, rateBps: 500, status: "locked", advances, openAdvance: null, cumulativeYield: 0n });
-const st = (over: Partial<EthState>): EthState => ({ bridge: null, core: null, source: null, claim: null, holderEvm: null, fetchedAt: 0, ...over });
+const st = (over: Partial<EthState>): EthState => ({ bridge: null, core: null, source: null, claim: null, instantClaim: null, holderEvm: null, fetchedAt: 0, ...over });
 const op = (kind: EthOp["kind"], extra: Partial<EthOp> = {}): EthOp => ({ key: "k", kind, vault: VAULT, id: "1", createdAt: 0, ...extra });
 
 describe("opProgress: pending never shows success early", () => {
@@ -135,6 +141,15 @@ describe("opProgress: pending never shows success early", () => {
       const second = op("redeem", { sourceIndex: 0, baseline: "800", units: "300", fromBlock: "10" });
       expect(opProgress(second, st({ claim: { gemasTotal: 1n, unitsTotal: 800n, unitsSent: 500n } }), null, 300n)).toEqual({ stage: 1, next: "send-pay-yield" });
     });
+  });
+
+  it("instant: tracked against the Instant Claim and paid by InstantPaid", () => {
+    const o = op("instant", { sourceIndex: 0, baseline: "650", units: "650", fromBlock: "1" });
+    const instantClaim = (sent: bigint) => ({ gemasTotal: 1n, unitsTotal: 650n, unitsSent: sent });
+    expect(opProgress(o, st({ claim: instantClaim(650n) }), null, 650n)).toEqual({ stage: 1, next: "send-pay-instant" });
+    expect(opProgress(o, st({ instantClaim: instantClaim(0n) }), null, 0n)).toEqual({ stage: 1, next: "send-pay-instant" });
+    expect(opProgress(o, st({ instantClaim: instantClaim(650n) }), null, 0n)).toEqual({ stage: 2, next: null });
+    expect(opProgress(o, st({ instantClaim: instantClaim(650n) }), null, 650n)).toEqual({ stage: 3, next: null });
   });
 
   it("unlock: send, then Principal on Hoodi", () => {
@@ -259,5 +274,30 @@ describe("HyperEVM vault (smoke Position 1, devnet)", () => {
     expect(opSteps("open", VAULT)[0].title).toBe("Hoodi confirmed");
     expect(opCopy("open", HYPE_VAULT).label).toBe("HYPE → Gemas");
     expect(opCopy("unlock", HYPE_VAULT).done).toBe("Principal is back on HyperEVM.");
+  });
+});
+
+describe("old accounts are absent, not crashes", () => {
+  it("reads a BridgePosition only in the new layout (treasury_in appended)", () => {
+    const d = Buffer.alloc(BRIDGE_POSITION_LEN);
+    d.writeBigUInt64LE(5n, 45);
+    d[130] = 1;
+    d.writeBigUInt64LE(77n, 172);
+    expect(parseBridgePosition(d)).toMatchObject({ lastInSeq: 5n, opened: true, treasuryIn: 77n });
+    expect(parseBridgePosition(d.subarray(0, 172))).toBeNull();
+    expect(parseBridgePosition(Buffer.alloc(0))).toBeNull();
+  });
+
+  it("reads a Claim only when it is whole", () => {
+    const d = Buffer.alloc(136);
+    d.writeBigUInt64LE(9n, 112);
+    expect(parseClaim(d)).toEqual({ gemasTotal: 0n, unitsTotal: 9n, unitsSent: 0n });
+    expect(parseClaim(d.subarray(0, 100))).toBeNull();
+  });
+
+  it("derives the bridge's treasury mirror per network and vault", () => {
+    const hoodi = vaultTreasuryPda(NETS.hoodi.eid, VAULT);
+    expect(vaultTreasuryPda(NETS.hyperevm.eid, VAULT).equals(hoodi)).toBe(false);
+    expect(vaultTreasuryPda(NETS.hoodi.eid, VAULT.toLowerCase()).equals(hoodi)).toBe(true);
   });
 });

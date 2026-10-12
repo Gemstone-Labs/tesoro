@@ -9,6 +9,7 @@ import {
   accrueNativeYieldIx,
   createSimSolAtaIx,
   faucetIx,
+  instantRedeemIx,
   openNativePositionIx,
   positionPda,
   redeemIx,
@@ -85,6 +86,10 @@ export const refreshYield = (signer: ChainSigner, info: NativeInfo) => send(sign
 /** Redeem Gemas of one native Source into simSOL. The token account is created if the holder has none. */
 export const redeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint) =>
   send(signer, [createSimSolAtaIx(signer.publicKey, signer.publicKey), redeemIx(signer.publicKey, position, source, gemas)]);
+
+/** Instant Redeem of won Gemas of one native Source: the treasury vault pays simSOL into the holder's token account in the same transaction. */
+export const instantRedeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint) =>
+  send(signer, [createSimSolAtaIx(signer.publicKey, signer.publicKey), instantRedeemIx(signer.publicKey, position, source, gemas)]);
 
 /** Unlock: crank first so the Debt the program sees is current, then return the Principal. */
 export const unlockNative = (signer: ChainSigner, info: NativeInfo) =>

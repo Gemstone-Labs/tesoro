@@ -22,7 +22,7 @@ export function HowGemasWork() {
 
 const HOW_STEPS: [string, string][] = [
   ["Lock a Position", "Your Principal is locked, never played."],
-  ["Take an Advance", "Its projected yield for 1 to 12 months, upfront as Gemas."],
+  ["Take an Advance", "Its projected yield for 1 to 12 months, less Tesoro's Yield Fee, upfront as Gemas."],
   ["Yield repays it", "The Position unlocks when its Debt reaches zero."],
 ];
 
@@ -73,6 +73,7 @@ export function OpenFormView({
   yieldText,
   estimate,
   arrival = "Position opens, Gemas in your balance",
+  yieldFeeBps,
   details,
   alerts,
   note,
@@ -100,6 +101,8 @@ export function OpenFormView({
   estimate: string;
   /** What happens now, on the left of the Unlock line. */
   arrival?: string;
+  /** The Yield Fee the quote is net of (the launch rate while the Treasury is unread). */
+  yieldFeeBps?: number;
   details?: [string, ReactNode][];
   alerts?: ReactNode;
   note?: ReactNode;
@@ -143,7 +146,7 @@ export function OpenFormView({
           </div>
         )}
       </div>
-      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas ?? 0} />
+      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas ?? 0} yieldFeeBps={yieldFeeBps} />
       <Slider label="Horizon" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
       <UnlockTrack now={arrival} unlock={estimate} end={`Unlock Estimate, your ${chain} back`} />
       {alerts}

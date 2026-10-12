@@ -80,6 +80,7 @@ export default function Page() {
         <li>They are taken in Gemas from the <b>loser&apos;s lines</b>: Platform Fee first, then Studio Fee, then Leaderboard Fee, then (for a backed win) the Player&apos;s share of what remains. Lines are merged by Source and drained in ascending Source-address order.</li>
         <li>The Leaderboard Fee is paid to the Leaderboard Pool, a Tesoro Account owned by the address <code>[&quot;leaderboard&quot;]</code>, as one more <code>(recipient, source)</code> payout line. Each decisive settlement also emits <code>MatchWon</code> (Player, entry, points, season).</li>
         <li>Fees are floored, so the winner gets the dust. A Draw, abandonment or no-show takes none.</li>
+        <li>Match Fees are separate from Tesoro&apos;s other two revenues, which never touch a Pot: the Yield Fee (20% of the yield every Position earns) and the Instant Redeem Fee (35% of won Gemas redeemed early). Both are kept by the Treasury.</li>
       </ul>
 
       <H3 id="allocation">Entry draw and bounds</H3>

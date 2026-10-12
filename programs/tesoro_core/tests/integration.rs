@@ -15,6 +15,8 @@ use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain};
 use tesoro_core::state::*;
 use tesoro_core::{accounts, instruction};
 
+mod common;
+
 const GAME: APk = APk::new_from_array([9; 32]);
 const ENTRY: u64 = 1_000;
 const SOL: u64 = 1_000_000_000;
@@ -168,6 +170,11 @@ impl Env {
         );
         let admin = env.admin.insecure_clone();
         env.send(&[init], &admin, &[]).expect("init config");
+        // Oracle-reported yield is already net of the Yield Fee (the vault takes it at the
+        // source); these suites size Advances without it.
+        common::put_sim_sol_mint(&mut env.svm);
+        let treasury = common::init_treasury_ix(a(admin.pubkey()), 0, 3_500);
+        env.send(&[treasury], &admin, &[]).expect("init treasury");
         let register = ix(
             accounts::RegisterGame {
                 admin: a(admin.pubkey()),
@@ -302,6 +309,7 @@ impl Env {
                 oracle: a(self.oracle.pubkey()),
                 owner_authority: p.key,
                 config: pda(&[CONFIG_SEED]),
+                treasury: common::treasury(),
                 owner_account: p.account,
                 position,
                 source,

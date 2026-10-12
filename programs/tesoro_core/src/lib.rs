@@ -185,6 +185,46 @@ pub mod tesoro_core {
         instructions::native::migrate_native_custody(ctx)
     }
 
+    // --- Treasury: Yield Fee and Instant Redeem (ADR 0007) ----------------------------------
+
+    /// Creates the Treasury (config, Treasury Account, simSOL vault) or changes its fee rates.
+    pub fn init_treasury(
+        ctx: Context<InitTreasury>,
+        yield_fee_bps: u16,
+        instant_fee_bps: u16,
+    ) -> Result<()> {
+        instructions::treasury::init_treasury(ctx, yield_fee_bps, instant_fee_bps)
+    }
+
+    pub fn fund_treasury(ctx: Context<FundTreasury>, shares: u64) -> Result<()> {
+        instructions::treasury::fund_treasury(ctx, shares)
+    }
+
+    pub fn instant_redeem(ctx: Context<InstantRedeem>, amount: u64) -> Result<()> {
+        instructions::treasury::instant_redeem(ctx, amount)
+    }
+
+    pub fn instant_redeem_from_source(
+        ctx: Context<InstantRedeemFromSource>,
+        amount: u64,
+    ) -> Result<u64> {
+        instructions::treasury::instant_redeem_from_source(ctx, amount)
+    }
+
+    pub fn redeem_treasury<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RedeemTreasury<'info>>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::treasury::redeem_treasury(ctx, amount)
+    }
+
+    pub fn redeem_treasury_from_source(
+        ctx: Context<RedeemTreasuryFromSource>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::treasury::redeem_treasury_from_source(ctx, amount)
+    }
+
     // --- Source authorities (cross-chain bridge) --------------------------------------------
 
     pub fn set_source_authority(

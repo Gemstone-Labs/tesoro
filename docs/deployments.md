@@ -2,6 +2,28 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Yield Fee and Instant Redeem (2026-10-12)
+
+ADR 0007. Deployer / upgrade authority `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`; EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f479d1C`. Runbook: `.scratch/yield-fees/runbook.md`. The previous SimLST vaults (Hoodi `0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`, HyperEVM `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316`) are abandoned with their Positions: they speak the 61-byte `YieldAccrued`, which the new bridge refuses, and their SimLSTs now mint only for the new vaults.
+
+The HyperEVM vault no longer fits a small block (deploy gas about 3.37M, limit 3M): the deployer was switched to big blocks for the deploy (`evmUserModify usingBigBlocks`, Hyperliquid Python SDK) and back right after.
+
+| Item | Hoodi (560048) | HyperEVM (998) |
+|---|---|---|
+| New simETH / simHYPE vault | `0x191700BA53C9437F3a31E082bcfd8bB85C865d26`, deploy `0x921295122a4dd56a874b1a1418fb4ec3bbfb41421f4aa20a66ddc7c82a69e359` | `0x61B46f64CDB75930a87955487aAb8A7711F757b5`, deploy `0xfba9e35df6a831512ca17e7392ee12dfb27974be789b6b22f790d9d477eab046` |
+| `SimLST.setMinter(vault)` | `0x41dfb907190fe0858c35081cf8d0eadc194d2169cef9d266ca4e396d1bb386e9` | `0x413987063e62dd4be10f9bc2b25b5f379b02b56d8cfdd8b86f6e44e0ee7bad9c` |
+| `setPeer(40168, Store)` | `0x437ef4e42572a1ba45d4dbc7de4dd82c1a705a8eba68483846f19bbb67d3cf3c` | `0x7f460c8a1c549b9b4ac99a9218b41b4cb9d4bdeeed8e5f2db40e08573a070b32` |
+| Solana `set_peer_config` (also creates the `VaultTreasury`) | `dJkyavEX…AErKria` (VaultTreasury `4HdiKXa9ATujkaKeVuMLdXYtPaSNbqf6g2x5SikXxRs2`) | `56rLGBi8…kHHQ2RAW5` (VaultTreasury `3ZF8wmVAtudd8psmVPcGRJk7L4HXesrho3U35rNFi7j5`) |
+| Solana `endpoint_init_oapp_pathway` | `22cK2a58…TJ7pBPejm2` | `4Mkbzojb…hLkfx8d8N3p` |
+| `fundTreasury` | 2 simETH `0x7bf714ae434612153de8ba2ecbb3f321f61e27fe32017a289b72d002bd798705` | 7 simHYPE `0xb8e1d189fa3e8fd692dcf6cc7e0727036dda8b49b90abf0859e37d21206126fb` |
+
+| Item (Solana) | Tx |
+|---|---|
+| `tesoro_core` extend +140,000 bytes, upgrade (1,292,656-byte .so; program data 1,298,360) | `g1cJa2qd…VR16sUgxoFKx` (slot 510206563) |
+| `init_treasury(2000, 3500)` (Treasury `BuWgG4Q7DYND13twkfu5gHVGpoK78GbWJzAeEgv6aDQr`, vault `7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4`, Treasury Account `71hCesb8eED3yoFjgxDG8fSfqgZV4Ngfnr2sX3jHL5Yg`) | `5sNUnoUs…pTkDRvoqCyzno7` |
+| `fund_treasury` 10 simSOL | `5s3pjNU3…AC73DTYjLkx8` |
+| `tesoro_bridge` extend +115,000 bytes, upgrade (797,920-byte .so; program data 801,648) | `31dA5GFe…GixU4FGWVekv6m` (slot 510206833) |
+
 ## Per-Position yield: EVM redeploy (2026-10-03)
 
 Model: `docs/yield-model.md`, ADR 0005. `SimLST` now has a constant rate and a `minter`; `PositionVaultOApp` takes a fifth constructor argument `yieldMinter` (the SimLST) and mints `principalUnderlying * apyBps * simElapsed / (BPS * YEAR)` into itself on `reportYield` / `accrue` / Unlock / PayYield. Deployer `0x96137cB99Fe2878299b672Ac967e88279f479d1C`, Store PDA peer `0x60ae58df…c792`, 500 bps on Solana, same deploy commands as before (`script/deploy-oapp.sh`, now passing `yieldMinter`).

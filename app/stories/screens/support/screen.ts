@@ -22,6 +22,8 @@ export interface ScreenData {
   run?: { stage: RunStage; timeout?: boolean; step?: string };
   /** Ethereum / HyperEVM Positions: the Advance on every Position card, and how far an opening Position has got. */
   eth?: { advance?: "open" | "paid"; opening?: "sent" | "delivered" | "recorded" | "arrived" | "failed" };
+  /** The bridge's mirror of the EVM vaults' treasuries (Redeem now on ETH and HYPE): enough to pay, nearly empty, or no mirror (old vault). Default: ready. */
+  vaultTreasury?: "ready" | "short" | "none";
   /** Hold'em Match: what the driver reports (merged over a "waiting" view). */
   holdem?: Partial<HoldemView>;
   /** Trading Duel Match: what the driver reports (merged over a "waiting" view). */

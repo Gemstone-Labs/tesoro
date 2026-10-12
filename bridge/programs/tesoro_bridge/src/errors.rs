@@ -26,4 +26,5 @@ pub enum BridgeError {
     InvalidEvmSignature,
     InvalidAccount,
     Unauthorized,
+    TreasuryShort,
 }

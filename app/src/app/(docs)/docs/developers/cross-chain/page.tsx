@@ -32,7 +32,7 @@ export default function Page() {
       <DataTable
         head={["Piece", "Role"]}
         rows={[
-          [<code key="1">PositionVaultOApp</code>, "A PositionVault that is a LayerZero OApp. openPosition sends PositionLocked, reportYield sends YieldAccrued, and _lzReceive feeds Unlock and PayYield to the vault."],
+          [<code key="1">PositionVaultOApp</code>, "A PositionVault that is a LayerZero OApp. openPosition sends PositionLocked, reportYield sends YieldAccrued (cumulative yield and the vault Treasury's cumulative credits, 77 bytes), and _lzReceive feeds Unlock, PayYield and PayInstant to the vault. The vault takes the 20% Yield Fee itself as yield accrues."],
           [<code key="2">tesoro_bridge</code>, "Solana OApp: an inbox for inbound facts, permissionless CPIs into tesoro_core, permissionless outbound sends."],
           [<code key="3">SourceAuthority</code>, "A tesoro_core PDA per source chain naming the signer allowed to report PositionLocked and YieldAccrued. The bridge authority PDA is registered for Ethereum and HyperEVM, so an Ethereum authority cannot touch a HyperEVM Position."],
         ]}
@@ -65,6 +65,12 @@ export default function Page() {
           <b>Redeem.</b> The holder calls <code>tesoro_bridge::redeem_to_evm</code>, which CPIs <code>redeem_from_source</code> and records the units in a <code>Claim</code>.
           Anyone then calls <code>send_pay_yield</code>, which advances <code>units_sent</code> in the same transaction so a unit is paid once. Plain <code>redeem</code> refuses
           EVM-sourced Sources.
+        </li>
+        <li>
+          <b>Redeem now.</b> The holder calls <code>tesoro_bridge::instant_redeem_to_evm</code>, which moves their won Gemas to Tesoro&apos;s Treasury Account and
+          pays 65% of their value. The bridge keeps a mirror of each vault&apos;s Treasury (<code>VaultTreasury</code>) and refuses a payout the vault has not reported
+          funds for. Anyone then calls <code>send_pay_instant</code> (message type 5), and the vault pays from its Treasury. To refill, the Treasury Account redeems the
+          Gemas it bought as the yield lands (<code>redeem_treasury_to_evm</code>) and a <code>PayYield</code> to the vault&apos;s own address books the proceeds into its Treasury.
         </li>
         <li>
           <b>Unlock.</b> After <code>tesoro_core::unlock</code>, anyone calls <code>send_unlock</code>. Yield still owed to redeemers stays in the vault.

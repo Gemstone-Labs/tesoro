@@ -12,6 +12,8 @@ export const NATIVE_MARKET: NativeMarket = {
   pool: { baseRate: 1_000_000_000n, baseTs: Math.floor(Date.now() / 1000) - 86_400, apyBps: 700, speedup: 4380 },
   price: { microUsd: 110_000_000n, updatedTs: Math.floor(Date.now() / 1000) },
   simSol: 12_500_000_000n,
+  treasury: { yieldFeeBps: 2000, instantFeeBps: 3500 },
+  treasuryShares: 8_000_000_000n,
 };
 
 /** A SOL Position of 40 SOL with an Advance that is half repaid (or fully repaid, or unlocked). */

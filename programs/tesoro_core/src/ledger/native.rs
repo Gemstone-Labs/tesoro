@@ -139,7 +139,7 @@ mod tests {
         }
 
         fn advance(&mut self, months: u8, price: u64) {
-            if let Ok(src) = self.position.open_advance([9; 32], months, price) {
+            if let Ok(src) = self.position.open_advance([9; 32], months, price, 0) {
                 // Gemas of earlier Sources stay owed (reserved) but the model redeems only the latest.
                 self.held = src.issued;
                 self.source = Some(src);

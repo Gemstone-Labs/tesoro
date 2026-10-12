@@ -109,6 +109,7 @@ export function PositionTile({
   debt,
   debtAsset,
   apy,
+  yieldFeeBps,
   unlockAt,
   now,
   series,
@@ -123,7 +124,10 @@ export function PositionTile({
   debt: string | null;
   /** The same Debt in the Position's asset, under the Gemas figure. */
   debtAsset?: string;
+  /** The Position's yield rate after the Yield Fee. */
   apy: string;
+  /** Shows "after the N% Yield Fee" under the rate. */
+  yieldFeeBps?: number;
   /** Unlock Estimate (ms) while repaying. */
   unlockAt: number | null;
   now: number;
@@ -167,7 +171,10 @@ export function PositionTile({
         </div>
         <div>
           <dt>Yield</dt>
-          <dd>{apy}</dd>
+          <dd>
+            {apy}
+            {yieldFeeBps !== undefined && <small>after the {yieldFeeBps / 100}% Yield Fee</small>}
+          </dd>
         </div>
       </dl>
       <SimulatedYieldLabel />

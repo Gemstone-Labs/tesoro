@@ -12,19 +12,25 @@ use crate::errors::BridgeError;
 //
 // Bodies:
 //   1 PositionLocked (EVM -> Solana): owner [32] | asset [32] | principal u128 | horizon u8
-//   2 YieldAccrued   (EVM -> Solana): cumulative u128
+//   2 YieldAccrued   (EVM -> Solana): cumulative u128 | treasury_in u128
 //   3 Unlock         (Solana -> EVM): amount u128 (always 0)
 //   4 PayYield       (Solana -> EVM): to [32] | amount u128
+//   5 PayInstant     (Solana -> EVM): to [32] | amount u128   paid from the vault's treasury
+//
+// `cumulative` is the Position's accrued yield net of the Yield Fee; `treasury_in` is everything
+// the vault's treasury has ever been credited (Yield Fees, funding, refills), which only grows.
 pub const HEADER_LEN: usize = 1 + 4 + 32 + 8;
 pub const LOCKED_LEN: usize = HEADER_LEN + 32 + 32 + 16 + 1;
-pub const YIELD_LEN: usize = HEADER_LEN + 16;
+pub const YIELD_LEN: usize = HEADER_LEN + 16 + 16;
 pub const UNLOCK_LEN: usize = HEADER_LEN + 16;
 pub const PAY_YIELD_LEN: usize = HEADER_LEN + 32 + 16;
+pub const PAY_INSTANT_LEN: usize = PAY_YIELD_LEN;
 
 pub const MSG_POSITION_LOCKED: u8 = 1;
 pub const MSG_YIELD_ACCRUED: u8 = 2;
 pub const MSG_UNLOCK: u8 = 3;
 pub const MSG_PAY_YIELD: u8 = 4;
+pub const MSG_PAY_INSTANT: u8 = 5;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Header {
@@ -37,7 +43,7 @@ pub struct Header {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Inbound {
     Locked { owner: [u8; 32], asset: [u8; 32], principal: u128, horizon: u8 },
-    Yield { cumulative: u128 },
+    Yield { cumulative: u128, treasury_in: u128 },
 }
 
 pub fn encode_header(h: &Header, buf: &mut Vec<u8>) {
@@ -61,8 +67,29 @@ pub fn encode_pay_yield(
     to: [u8; 32],
     amount: u128,
 ) -> Vec<u8> {
+    encode_payment(MSG_PAY_YIELD, source_chain, position_id, seq, to, amount)
+}
+
+pub fn encode_pay_instant(
+    source_chain: u32,
+    position_id: [u8; 32],
+    seq: u64,
+    to: [u8; 32],
+    amount: u128,
+) -> Vec<u8> {
+    encode_payment(MSG_PAY_INSTANT, source_chain, position_id, seq, to, amount)
+}
+
+fn encode_payment(
+    msg_type: u8,
+    source_chain: u32,
+    position_id: [u8; 32],
+    seq: u64,
+    to: [u8; 32],
+    amount: u128,
+) -> Vec<u8> {
     let mut buf = Vec::with_capacity(PAY_YIELD_LEN);
-    encode_header(&Header { msg_type: MSG_PAY_YIELD, source_chain, position_id, seq }, &mut buf);
+    encode_header(&Header { msg_type, source_chain, position_id, seq }, &mut buf);
     buf.extend_from_slice(&to);
     buf.extend_from_slice(&amount.to_be_bytes());
     buf
@@ -106,7 +133,10 @@ pub fn decode_inbound(buf: &[u8]) -> Result<(Header, Inbound)> {
         },
         MSG_YIELD_ACCRUED => {
             require!(buf.len() == YIELD_LEN, BridgeError::InvalidMessageLength);
-            Inbound::Yield { cumulative: u128::from_be_bytes(read(buf, HEADER_LEN)?) }
+            Inbound::Yield {
+                cumulative: u128::from_be_bytes(read(buf, HEADER_LEN)?),
+                treasury_in: u128::from_be_bytes(read(buf, HEADER_LEN + 16)?),
+            }
         },
         _ => return err!(BridgeError::InvalidMessageType),
     };
@@ -180,10 +210,14 @@ mod tests {
             &mut buf,
         );
         buf.extend_from_slice(&123_456_789u128.to_be_bytes());
+        buf.extend_from_slice(&42_000u128.to_be_bytes());
         assert_eq!(buf.len(), YIELD_LEN);
+        assert_eq!(YIELD_LEN, 77);
         let (h, body) = decode_inbound(&buf).unwrap();
         assert_eq!(h.seq, 9);
-        assert_eq!(body, Inbound::Yield { cumulative: 123_456_789 });
+        assert_eq!(body, Inbound::Yield { cumulative: 123_456_789, treasury_in: 42_000 });
+        // The 61-byte message of the old vaults is refused.
+        assert!(decode_inbound(&buf[..HEADER_LEN + 16]).is_err());
     }
 
     #[test]
@@ -211,6 +245,21 @@ mod tests {
         assert_eq!(&pay[37..45], &5u64.to_be_bytes());
         assert_eq!(&pay[45..77], &pad_address(&[0xCC; 20]));
         assert_eq!(&pay[77..93], &42u128.to_be_bytes());
+    }
+
+    #[test]
+    fn pay_instant_layout_matches_the_solidity_side() {
+        let pay = encode_pay_instant(40362, [3; 32], 7, pad_address(&[0xDD; 20]), 65);
+        assert_eq!(pay.len(), PAY_INSTANT_LEN);
+        assert_eq!(PAY_INSTANT_LEN, 93);
+        assert_eq!(pay[0], MSG_PAY_INSTANT);
+        assert_eq!(&pay[1..5], &40362u32.to_be_bytes());
+        assert_eq!(&pay[5..37], &[3; 32]);
+        assert_eq!(&pay[37..45], &7u64.to_be_bytes());
+        assert_eq!(&pay[45..77], &pad_address(&[0xDD; 20]));
+        assert_eq!(&pay[77..93], &65u128.to_be_bytes());
+        // Outbound only: never accepted inbound.
+        assert!(decode_inbound(&pay).is_err());
     }
 
     #[test]

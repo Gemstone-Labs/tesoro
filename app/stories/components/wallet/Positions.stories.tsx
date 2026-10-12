@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { userEvent, within } from "storybook/test";
 import { EthFaucet, EthOpenForm, EthOps, EthPositionCard } from "@/app/(app)/wallet/EthPositions";
 import { NativeAdvanceSheet, NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
 import { ETH_VAULTS } from "@/lib/chain/eth";
@@ -18,6 +19,18 @@ type Story = StoryObj<typeof meta>;
 export const SolWithDebt: Story = {
   parameters: { data: { snapshot: nativeSnapshot("debt") } },
   render: () => <NativePositionCard position={nativePosition("debt")} market={NATIVE_MARKET} onRedeem={() => {}} />,
+};
+/** The card's small print says Tesoro keeps 20% of the yield (the Yield Fee). */
+export const SolYieldFeeNote: Story = {
+  ...SolWithDebt,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByText("Details"));
+  },
+};
+/** No Treasury on chain yet: quotes use the launch Yield Fee (20%). */
+export const SolOpenFormNoTreasury: Story = {
+  parameters: { data: { snapshot: nativeSnapshot() } },
+  render: () => <NativeOpenForm market={{ ...NATIVE_MARKET, treasury: null, treasuryShares: null }} loading={false} />,
 };
 export const SolRepaid: Story = {
   parameters: { data: { snapshot: nativeSnapshot("repaid") } },

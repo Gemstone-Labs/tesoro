@@ -226,6 +226,9 @@ pub struct TakeNativeAdvance<'info> {
         constraint = price_feed.asset.to_bytes() == position.inner.source_asset @ TesoroError::InvalidAccount
     )]
     pub price_feed: Account<'info, PriceFeed>,
+    /// Its Yield Fee sizes the Advance.
+    #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
+    pub treasury: Box<Account<'info, Treasury>>,
     #[account(
         init,
         payer = owner_authority,
@@ -266,14 +269,16 @@ pub(crate) fn take_native_advance(
         ctx.bumps.holding,
         horizon_months,
         a.price_feed.price_micro_usd,
+        a.treasury.yield_fee_bps,
     )
 }
 
 // --- Yield crank -----------------------------------------------------------------------------
 
 /// Anyone can call. First mints the simulated yield the Position earned since `last_accrual_ts`
-/// (`principal * apy * dt * speedup / year`) into its vault through `sim_lst::mint_yield`, then
-/// reads cumulative accrued yield from the vault's shares and applies it like the oracle's
+/// (`principal * apy * dt * speedup / year`) through `sim_lst::mint_yield`: the Yield Fee into the
+/// treasury vault, the rest into the Position's vault. Then reads cumulative accrued yield from the
+/// vault's shares (so only the Position's share counts) and applies it like the oracle's
 /// `YieldAccrued`: Debt is repaid first, the rest is free yield. Nothing accrues after Unlock.
 #[derive(Accounts)]
 pub struct AccrueNativeYield<'info> {
@@ -304,6 +309,11 @@ pub struct AccrueNativeYield<'info> {
     pub yield_authority: UncheckedAccount<'info>,
     pub sim_lst_program: Program<'info, sim_lst::program::SimLst>,
     pub token_program: Program<'info, Token>,
+    /// Receives the Yield Fee.
+    #[account(mut, seeds = [TREASURY_SEED], bump = treasury.bump)]
+    pub treasury: Box<Account<'info, Treasury>>,
+    #[account(mut, address = treasury.vault @ TesoroError::InvalidAccount)]
+    pub treasury_vault: Box<Account<'info, TokenAccount>>,
     /// The Position's open Advance, when it has one.
     #[account(
         mut,
@@ -353,8 +363,9 @@ pub(crate) fn accrue_native_yield(mut ctx: Context<AccrueNativeYield>) -> Result
     Ok(())
 }
 
-/// Mints the yield earned since `last_accrual_ts` into the vault. When the amount is under one
-/// share the timestamp stays put, so the time carries into the next crank instead of being lost.
+/// Mints the yield earned since `last_accrual_ts`: the Yield Fee into the treasury vault, the rest
+/// into the Position's vault. When the Position's part is under one share nothing is minted and the
+/// timestamp stays put, so the time carries into the next crank instead of being lost.
 fn mint_accrued_yield(a: &mut AccrueNativeYield, now: i64, rate: u64, bump: u8) -> Result<()> {
     let dt = now.saturating_sub(a.custody.last_accrual_ts);
     if dt <= 0 {
@@ -366,10 +377,47 @@ fn mint_accrued_yield(a: &mut AccrueNativeYield, now: i64, rate: u64, bump: u8) 
         dt,
         a.pool.speedup,
     )?;
-    let shares = native::shares_for_units_floor(units, rate).map_err(core_err)?;
+    let (keep_units, fee_units) =
+        ledger::split_yield_fee(units, a.treasury.yield_fee_bps).map_err(core_err)?;
+    let shares = native::shares_for_units_floor(keep_units, rate).map_err(core_err)?;
     if shares == 0 {
         return Ok(());
     }
+    let fee_shares = native::shares_for_units_floor(fee_units, rate).map_err(core_err)?;
+    let vault = a.vault.to_account_info();
+    mint_yield_to(a, &vault, shares, bump)?;
+    a.vault.reload()?;
+    if fee_shares > 0 {
+        let treasury_vault = a.treasury_vault.to_account_info();
+        mint_yield_to(a, &treasury_vault, fee_shares, bump)?;
+        a.treasury_vault.reload()?;
+        let fee_value = native::shares_value(fee_shares, rate).map_err(core_err)?;
+        a.treasury.fee_units = a
+            .treasury
+            .fee_units
+            .checked_add(fee_value)
+            .ok_or(TesoroError::InvalidAccount)?;
+        emit!(YieldFeeTaken {
+            position: a.position.key(),
+            units: fee_value,
+            shares: fee_shares,
+        });
+    }
+    a.custody.tracked_shares = a
+        .custody
+        .tracked_shares
+        .checked_add(shares)
+        .ok_or(TesoroError::InvalidAccount)?;
+    a.custody.last_accrual_ts = now;
+    Ok(())
+}
+
+fn mint_yield_to<'info>(
+    a: &AccrueNativeYield<'info>,
+    destination: &AccountInfo<'info>,
+    shares: u64,
+    bump: u8,
+) -> Result<()> {
     let seeds: &[&[u8]] = &[YIELD_SEED, &[bump]];
     sim_lst::cpi::mint_yield(
         CpiContext::new_with_signer(
@@ -379,21 +427,13 @@ fn mint_accrued_yield(a: &mut AccrueNativeYield, now: i64, rate: u64, bump: u8) 
                 config: a.yield_config.to_account_info(),
                 pool: a.pool.to_account_info(),
                 mint: a.mint.to_account_info(),
-                destination: a.vault.to_account_info(),
+                destination: destination.clone(),
                 token_program: a.token_program.to_account_info(),
             },
             &[seeds],
         ),
         shares,
-    )?;
-    a.vault.reload()?;
-    a.custody.tracked_shares = a
-        .custody
-        .tracked_shares
-        .checked_add(shares)
-        .ok_or(TesoroError::InvalidAccount)?;
-    a.custody.last_accrual_ts = now;
-    Ok(())
+    )
 }
 
 // --- Payouts ---------------------------------------------------------------------------------

@@ -4,9 +4,9 @@ import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 
 export const STEPS: { title: string; text: string; href: string; cta: string }[] = [
   { title: "Open a Position", text: "Lock a staking token in your Wallet. Its Principal is never played.", href: "/wallet", cta: "Wallet" },
-  { title: "Take an Advance", text: "Get its projected yield for 1–12 months upfront, as Gemas.", href: "/wallet", cta: "Wallet" },
+  { title: "Take an Advance", text: "Get 80% of its projected yield for 1–12 months upfront, as Gemas.", href: "/wallet", cta: "Wallet" },
   { title: "Play a Match", text: "Pick a game and an entry. Win the Pot minus Fees.", href: "/play", cta: "Play" },
-  { title: "Redeem", text: "Turn Gemas into their Source asset as its yield lands.", href: "/wallet", cta: "Wallet" },
+  { title: "Redeem", text: "Turn Gemas into their Source asset as its yield lands, or now for 65%.", href: "/wallet", cta: "Wallet" },
 ];
 
 export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[] = [
@@ -28,8 +28,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Where do my Gemas come from?",
         a: (
           <p>
-            Open a Position in your <Link href="/wallet">Wallet</Link> by locking a staking token, then take an Advance: 100% of the Position&apos;s
-            projected yield over a Horizon of 1 to 12 months, paid upfront as Gemas.
+            Open a Position in your <Link href="/wallet">Wallet</Link> by locking a staking token, then take an Advance: 80% of the Position&apos;s
+            projected yield over a Horizon of 1 to 12 months (the yield after Tesoro&apos;s 20% Yield Fee), paid upfront as Gemas.
           </p>
         ),
       },
@@ -137,9 +137,47 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "What are the Fees?",
         a: (
           <p>
-            Three, taken in Gemas from the loser&apos;s entry when a Match settles: a Platform Fee for Tesoro, a Studio Fee for the game&apos;s
+            On every Match, three, taken in Gemas from the loser&apos;s entry when it settles: a Platform Fee for Tesoro, a Studio Fee for the game&apos;s
             maker, and a Leaderboard Fee that fills the weekly prize pool. In test mode they are 2%, 3% and 1% of the Pot, 6% together. A draw
-            or a refund pays none of them. Nothing is ever charged on your Principal, your Advance or a Redeem.
+            or a refund pays none of them. Tesoro also keeps a Yield Fee on your Positions and a fee on Redeem now (below). Nothing is ever charged on your
+            Principal.
+          </p>
+        ),
+      },
+      {
+        q: "What is the Yield Fee?",
+        a: (
+          <p>
+            Tesoro keeps 20% of the yield your Position earns, on SOL, ETH and HYPE alike. Your Position keeps the other 80%, and your Advance is
+            sized on that 80%, so it is still repaid in the same time and your Unlock Estimate does not change. See <Link href="/docs/fees">Fees</Link>.
+          </p>
+        ),
+      },
+      {
+        q: "Is my Principal ever charged?",
+        a: (
+          <p>
+            No. The Yield Fee is taken from yield only, and no fee of any kind touches your Principal. It stays locked until your Debt is repaid, then
+            it is yours to Unlock.
+          </p>
+        ),
+      },
+      {
+        q: "Can I redeem won Gemas now?",
+        a: (
+          <p>
+            Yes. Redeem now pays you 65% of the Gemas&apos; value in their Source asset today, instead of waiting for that Source&apos;s yield to
+            land. It works for Gemas you won in SOL, ETH or HYPE. Your own Gemas cannot be redeemed this way.
+          </p>
+        ),
+      },
+      {
+        q: "Why only 65% when I redeem now?",
+        a: (
+          <p>
+            Because Tesoro pays you today and waits for the yield itself. It takes your Gemas, keeps 35% for the wait and the risk, and redeems the
+            Gemas at full value later. If you can wait, a normal Redeem pays 100%. If Tesoro&apos;s balance for that asset is short, Redeem now is
+            refused and nothing moves.
           </p>
         ),
       },

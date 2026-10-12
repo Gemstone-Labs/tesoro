@@ -311,7 +311,9 @@ impl World {
         match *op {
             Op::Advance { a, horizon, price } => {
                 let mut pos = self.positions[a].clone();
-                let src = pos.open_advance(pkey(a), horizon, price).map_err(|_| ())?;
+                let src = pos
+                    .open_advance(pkey(a), horizon, price, 0)
+                    .map_err(|_| ())?;
                 let issued = src.issued;
                 self.positions[a] = pos;
                 self.sources.push(src);
@@ -857,23 +859,23 @@ fn locked_position() -> Position {
 fn advance_sizing_matches_glossary() {
     let mut p = locked_position();
     // Projected yield over 6 months: 5 SOL. At $150 => $750 => 75_000 Gemas.
-    let s = p.open_advance(pkey(0), 6, 150_000_000).unwrap();
+    let s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
     assert_eq!(s.issued, 75_000);
     assert_eq!(p.open_advance, Some(0));
     assert_eq!(
-        p.open_advance(pkey(0), 6, 150_000_000),
+        p.open_advance(pkey(0), 6, 150_000_000, 0),
         Err(CoreError::AdvanceAlreadyOpen)
     );
     assert_eq!(
-        locked_position().open_advance(pkey(0), 0, 1),
+        locked_position().open_advance(pkey(0), 0, 1, 0),
         Err(CoreError::InvalidHorizon)
     );
     assert_eq!(
-        locked_position().open_advance(pkey(0), 13, 1),
+        locked_position().open_advance(pkey(0), 13, 1, 0),
         Err(CoreError::InvalidHorizon)
     );
     assert_eq!(
-        locked_position().open_advance(pkey(0), 6, 0),
+        locked_position().open_advance(pkey(0), 6, 0, 0),
         Err(CoreError::InvalidPrice)
     );
 }
@@ -881,11 +883,11 @@ fn advance_sizing_matches_glossary() {
 #[test]
 fn yield_repays_debt_then_unlocks_and_new_advance_needs_zero_debt() {
     let mut p = locked_position();
-    let mut s = p.open_advance(pkey(0), 6, 150_000_000).unwrap();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
     assert!(p.apply_yield(Some(&mut s), 1, 2_500_000_000).unwrap());
     assert_eq!(s.debt(), 37_500);
     assert_eq!(
-        p.open_advance(pkey(0), 3, 150_000_000),
+        p.open_advance(pkey(0), 3, 150_000_000, 0),
         Err(CoreError::AdvanceAlreadyOpen)
     );
     assert_eq!(p.unlock(), Err(CoreError::DebtOutstanding));
@@ -1453,5 +1455,152 @@ fn a_prize_drains_pool_holdings_in_source_order() {
     assert_eq!(
         plan_prize(&[h(2, 50), h(1, 500)], 120),
         Err(CoreError::NonCanonicalPrize)
+    );
+}
+
+// --- Yield Fee and Instant Redeem -------------------------------------------------------------
+
+#[test]
+fn advance_is_net_of_the_yield_fee_and_repaid_at_the_horizon() {
+    let mut p = locked_position();
+    // Gross yield over 6 months: 5 SOL; net of the 20% Yield Fee: 4 SOL. At $150 => 60_000 Gemas.
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
+    assert_eq!(s.issued, 60_000);
+    // The Position earns 80% of its gross yield; at the Horizon it has earned exactly the Advance.
+    let gross_at_horizon = 5_000_000_000u64;
+    let (net, fee) = split_yield_fee(gross_at_horizon, 2_000).unwrap();
+    assert_eq!((net, fee), (4_000_000_000, 1_000_000_000));
+    let (half, _) = split_yield_fee(gross_at_horizon / 2, 2_000).unwrap();
+    assert!(p.apply_yield(Some(&mut s), 1, half).unwrap());
+    assert_eq!(s.debt(), 30_000, "half the Horizon repays half the Advance");
+    assert!(p.apply_yield(Some(&mut s), 2, net).unwrap());
+    assert_eq!(s.debt(), 0);
+    assert_eq!(p.free_yield, 0, "nothing left over at the Horizon");
+    assert_eq!(p.open_advance, None);
+    assert_eq!(
+        locked_position().open_advance(pkey(0), 6, 150_000_000, MAX_YIELD_FEE_BPS + 1),
+        Err(CoreError::InvalidBps)
+    );
+}
+
+#[test]
+fn yield_fee_split_floors_the_fee() {
+    assert_eq!(split_yield_fee(9, 2_000).unwrap(), (8, 1));
+    assert_eq!(split_yield_fee(4, 2_000).unwrap(), (4, 0));
+    assert_eq!(split_yield_fee(1_000, 0).unwrap(), (1_000, 0));
+    assert_eq!(split_yield_fee(1, 5_001), Err(CoreError::InvalidBps));
+}
+
+#[test]
+fn instant_redeem_moves_won_gemas_to_the_treasury_and_pays_65_percent() {
+    let mut p = locked_position();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
+    let mut holder = Account::default();
+    let mut won = Holding::new(skey(0, 0), false);
+    won.credit(&mut holder, 1_000).unwrap();
+    let mut treasury = Account::default();
+    let mut bought = Holding::new(skey(0, 0), false);
+    let before = s.clone();
+
+    let (units, payout) = instant_redeem(
+        &s,
+        &mut holder,
+        &mut won,
+        &mut treasury,
+        &mut bought,
+        1_000,
+        3_500,
+    )
+    .unwrap();
+    // 1,000 Gemas at $150/SOL = $10 = 0.0666... SOL; 65% of it now.
+    assert_eq!(units, s.units_for(1_000).unwrap());
+    assert_eq!(payout, units * 6_500 / 10_000);
+    assert_eq!((won.amount, holder.won_total), (0, 0));
+    assert_eq!((bought.amount, treasury.won_total), (1_000, 1_000));
+    assert_eq!(s, before, "the Source's counts are untouched");
+
+    // The Treasury redeems at full value once the yield lands.
+    assert!(p.apply_yield(Some(&mut s), 1, 4_000_000_000).unwrap());
+    let free = bought.free();
+    let full = redeem(&mut s, &mut treasury, &mut bought, free).unwrap();
+    assert_eq!(full, units);
+    assert!(full > payout);
+}
+
+#[test]
+fn instant_redeem_refuses_own_gemas_reserved_gemas_and_zero_payouts() {
+    let p = &mut locked_position();
+    let s = p.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
+    let mut holder = Account::default();
+    let mut own = Holding::new(skey(0, 0), true);
+    own.credit(&mut holder, 500).unwrap();
+    let mut treasury = Account::default();
+    let mut bought = Holding::new(skey(0, 0), false);
+    assert_eq!(
+        instant_redeem(
+            &s,
+            &mut holder,
+            &mut own,
+            &mut treasury,
+            &mut bought,
+            100,
+            3_500
+        ),
+        Err(CoreError::NotWonGemas)
+    );
+
+    let mut won = Holding::new(skey(0, 0), false);
+    won.credit(&mut holder, 100).unwrap();
+    won.reserved = 60;
+    holder.won_reserved = 60;
+    assert_eq!(
+        instant_redeem(
+            &s,
+            &mut holder,
+            &mut won,
+            &mut treasury,
+            &mut bought,
+            50,
+            3_500
+        ),
+        Err(CoreError::InsufficientGemas)
+    );
+    assert_eq!(bought.amount, 0, "nothing moves on failure");
+    assert_eq!(
+        instant_redeem(
+            &s,
+            &mut holder,
+            &mut won,
+            &mut treasury,
+            &mut bought,
+            0,
+            3_500
+        ),
+        Err(CoreError::ZeroAmount)
+    );
+    let mut other = Holding::new(skey(1, 0), false);
+    assert_eq!(
+        instant_redeem(
+            &s,
+            &mut holder,
+            &mut won,
+            &mut treasury,
+            &mut other,
+            10,
+            3_500
+        ),
+        Err(CoreError::HoldingMismatch)
+    );
+    assert_eq!(
+        instant_redeem(
+            &s,
+            &mut holder,
+            &mut won,
+            &mut treasury,
+            &mut bought,
+            10,
+            5_001
+        ),
+        Err(CoreError::InvalidBps)
     );
 }

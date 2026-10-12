@@ -1,6 +1,7 @@
 import type { AccountInfo, PublicKey } from "@solana/web3.js";
 import { debtGemas, unitsToRepay, type SourceMath } from "../../app/src/lib/chain/ledger.ts";
 import { accrueNativeYieldIx, accruedAt, custodyPda, fetchNativeMarket, parseSource, rdI64, rdU64, sourcePda, SIM_SOL_MINT, type PoolParams } from "../../app/src/lib/chain/native.ts";
+import { DEFAULT_YIELD_FEE_BPS } from "../../app/src/lib/chain/yield.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
 import { pk } from "./runtime.ts";
@@ -42,10 +43,10 @@ export interface Reading {
 
 /**
  * Gemas of Debt one `accrue_native_yield` would repay at `nowMs`, as the program applies it: the yield minted since
- * `last_accrual_ts` (per-Position model) plus what the vault already holds, past the Position's `cumulative_yield`,
- * capped at what repays the open Source. Null when it cannot be computed.
+ * `last_accrual_ts` (per-Position model, net of the Treasury's Yield Fee) plus what the vault already holds, past the
+ * Position's `cumulative_yield`, capped at what repays the open Source. Null when it cannot be computed.
  */
-export function crankGain(r: Reading, pool: PoolParams, nowMs: number): { gain: bigint; clears: boolean } | null {
+export function crankGain(r: Reading, pool: PoolParams, nowMs: number, yieldFeeBps = DEFAULT_YIELD_FEE_BPS): { gain: bigint; clears: boolean } | null {
   if (r.trackedShares === null || r.lastAccrualTs === null || !r.source) return null;
   const accrued = accruedAt({
     vaultShares: r.trackedShares,
@@ -54,6 +55,7 @@ export function crankGain(r: Reading, pool: PoolParams, nowMs: number): { gain: 
     pool,
     clock: { rateBps: r.rateBps, lastAccrualTs: r.lastAccrualTs },
     nowMs,
+    yieldFeeBps,
   });
   if (accrued <= r.cumulative) return { gain: 0n, clears: false };
   const need = unitsToRepay(r.source);
@@ -115,7 +117,14 @@ export async function yieldJob(ctx: Ctx): Promise<number> {
     return 0;
   }
 
-  const pool = (await fetchNativeMarket(ctx.conn, ctx.payer.publicKey)).pool;
+  const market = await fetchNativeMarket(ctx.conn, ctx.payer.publicKey);
+  const treasury = market.treasury;
+  if (!treasury) {
+    log("yield", "-", `SKIP ${owing.length} Position(s) with Debt: the Treasury is not set up (accrue_native_yield needs it; run keeper/scripts/fund-treasury.ts)`);
+    return 0;
+  }
+  const pool = market.pool;
+  const yieldFeeBps = treasury.yieldFeeBps;
   const keys = owing.flatMap(({ publicKey, account }) => [custodyPda(publicKey), sourcePda(publicKey, Number(account.inner.openAdvance))]);
   const infos: (AccountInfo<Buffer> | null)[] = [];
   for (let i = 0; i < keys.length; i += 100) infos.push(...(await ctx.conn.getMultipleAccountsInfo(keys.slice(i, i + 100))));
@@ -138,6 +147,7 @@ export async function yieldJob(ctx: Ctx): Promise<number> {
           },
           pool,
           nowMs,
+          yieldFeeBps,
         )
       : null;
     if ((retryAt.get(key) ?? 0) > nowMs) return;

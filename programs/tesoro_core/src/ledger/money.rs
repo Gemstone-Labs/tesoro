@@ -88,14 +88,17 @@ impl Position {
         })
     }
 
-    /// Takes an Advance: 100% of the projected yield over `horizon_months`, as Gemas at $0.01
-    /// with `price_micro_usd` (USD per whole asset, micro-USD) fixed for this Source.
-    /// The caller credits `source.issued` Gemas to the owner's Holding of the returned Source.
+    /// Takes an Advance: the projected yield over `horizon_months` net of the Yield Fee
+    /// (`yield_fee_bps`), as Gemas at $0.01 with `price_micro_usd` (USD per whole asset, micro-USD)
+    /// fixed for this Source. The Position earns its yield net of the same fee, so the Advance is
+    /// repaid at the Horizon. The caller credits `source.issued` Gemas to the owner's Holding of the
+    /// returned Source.
     pub fn open_advance(
         &mut self,
         position: Key,
         horizon_months: u8,
         price_micro_usd: u64,
+        yield_fee_bps: u16,
     ) -> CoreResult<Source> {
         if self.status != PositionStatus::Locked {
             return Err(CoreError::PositionNotLocked);
@@ -109,12 +112,17 @@ impl Position {
         if price_micro_usd == 0 {
             return Err(CoreError::InvalidPrice);
         }
+        if yield_fee_bps > MAX_YIELD_FEE_BPS {
+            return Err(CoreError::InvalidBps);
+        }
         let projected_units = mul_div_floor(
             (self.principal as u128)
                 .checked_mul(self.rate_bps as u128)
+                .and_then(|x| x.checked_mul(horizon_months as u128))
                 .ok_or(CoreError::Math)?,
-            horizon_months as u128,
-            BPS * 12,
+            BPS.checked_sub(yield_fee_bps as u128)
+                .ok_or(CoreError::Math)?,
+            BPS * BPS * 12,
         )?;
         let unit_num = 10u128
             .checked_pow(self.decimals as u32 + 4)
@@ -465,6 +473,49 @@ pub fn redeem(
     source.redeemed = redeemed;
     source.redeemed_units = redeemed_units;
     Ok(units)
+}
+
+/// Instant Redeem: `amount` won Gemas of `source` move from the holder to the Treasury Account's
+/// Holding of the same Source, and the holder is owed `payout` source units now: the Gemas' full
+/// value less the Instant Redeem Fee. The Source's counts do not change (the Treasury redeems
+/// the Gemas later, as the yield lands), so Debt and every other holder's share are untouched.
+/// Returns `(units, payout)`: the Gemas' full value and what the Treasury pays now.
+pub fn instant_redeem(
+    source: &Source,
+    account: &mut Account,
+    holding: &mut Holding,
+    treasury_account: &mut Account,
+    treasury_holding: &mut Holding,
+    amount: u64,
+    instant_fee_bps: u16,
+) -> CoreResult<(u64, u64)> {
+    if amount == 0 {
+        return Err(CoreError::ZeroAmount);
+    }
+    if instant_fee_bps > MAX_INSTANT_FEE_BPS {
+        return Err(CoreError::InvalidBps);
+    }
+    if holding.is_own || treasury_holding.is_own {
+        return Err(CoreError::NotWonGemas);
+    }
+    if holding.source != treasury_holding.source {
+        return Err(CoreError::HoldingMismatch);
+    }
+    let units = source.units_for(amount)?;
+    let keep = BPS
+        .checked_sub(instant_fee_bps as u128)
+        .ok_or(CoreError::Math)?;
+    let payout = to_u64(mul_div_floor(units as u128, keep, BPS)?)?;
+    if payout == 0 {
+        return Err(CoreError::ZeroAmount);
+    }
+    let mut to = treasury_holding.clone();
+    let mut to_account = treasury_account.clone();
+    to.credit(&mut to_account, amount)?;
+    holding.debit(account, amount)?;
+    *treasury_holding = to;
+    *treasury_account = to_account;
+    Ok((units, payout))
 }
 
 // ---------------------------------------------------------------------------------------------

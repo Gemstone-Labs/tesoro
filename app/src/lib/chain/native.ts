@@ -7,7 +7,8 @@ import {
   type AccountMeta,
 } from "@solana/web3.js";
 import { covered, live, unitsToRepay, type SourceMath } from "./ledger";
-import { accruedYield, secondsToAccrue } from "./yield";
+import { parseTreasury, parseVaultShares, type TreasuryRates } from "./fees";
+import { DEFAULT_YIELD_FEE_BPS, advanceUnits, accruedYield, netOfYieldFee, secondsToAccrue } from "./yield";
 
 /**
  * Solana-native Positions (simSOL custody, tesoro_core) and the SIMULATED sim_lst pool. Instructions
@@ -50,6 +51,10 @@ const DISC = {
   redeem: "b80c569546c461e1",
   unlock: "659b28159ebd38cb",
   sweep_native_surplus: "01150d37eb622670",
+  init_treasury: "6998ad339e97310e",
+  fund_treasury: "479a2ddcce20aeef",
+  instant_redeem: "bb6bd07de0ed285d",
+  redeem_treasury: "109798e01b5bb9cd",
 } as const;
 const disc = (name: keyof typeof DISC) => Buffer.from(DISC[name], "hex");
 
@@ -62,6 +67,12 @@ export const PRICE_FEED = pda([s("price"), SIM_SOL_MINT.toBuffer()]);
 export const yieldAuthorityPda = () => pda([s("yield")]);
 /** sim_lst `["yield_config"]`: records the one authority allowed to mint simulated yield. */
 export const yieldConfigPda = () => pda([s("yield_config")], SIM_LST_ID);
+
+/** tesoro_core `["treasury"]`: Tesoro's Yield Fee and Instant Redeem rates, and the owner of the Treasury Account and vault. */
+export const treasuryPda = () => pda([s("treasury")]);
+/** The treasury simSOL token account: collects the Yield Fee, pays Instant Redeems. */
+export const treasuryVaultPda = () => pda([s("treasury_vault")]);
+export const treasuryAccountPda = () => pda([s("account"), treasuryPda().toBuffer()]);
 
 export const accountPda = (authority: PublicKey) => pda([s("account"), authority.toBuffer()]);
 /** Same derivation as `native_position_id` on chain: sha256("native" || owner || nonce_le). */
@@ -156,6 +167,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
       meta(accountPda(owner), true),
       meta(position, true),
       meta(PRICE_FEED),
+      meta(treasuryPda()),
       meta(source, true),
       meta(holdingPda(accountPda(owner), source), true),
       meta(SystemProgram.programId),
@@ -165,7 +177,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
   );
 }
 
-/** Permissionless. `openAdvance` is the Position's open Advance index, if any (the optional account). */
+/** Permissionless; mints the Yield Fee into the treasury vault. `openAdvance` is the Position's open Advance index, if any (the optional account). */
 export const accrueNativeYieldIx = (position: PublicKey, openAdvance: number | null) =>
   core(
     [
@@ -178,6 +190,8 @@ export const accrueNativeYieldIx = (position: PublicKey, openAdvance: number | n
       meta(yieldAuthorityPda()),
       meta(SIM_LST_ID),
       meta(TOKEN_PROGRAM_ID),
+      meta(treasuryPda(), true),
+      meta(treasuryVaultPda(), true),
       // Optional account: the program id stands for `None`.
       meta(openAdvance === null ? TESORO_CORE_ID : sourcePda(position, openAdvance), openAdvance !== null),
     ],
@@ -203,6 +217,75 @@ export function redeemIx(holder: PublicKey, position: PublicKey, source: PublicK
   i.keys.push(...payoutRemaining(position, simSolAta(holder)));
   return i;
 }
+
+/**
+ * Instant Redeem: the holder sells won Gemas of a native Source and the treasury vault pays simSOL into
+ * their token account in the same transaction (fails when the vault holds less).
+ */
+export function instantRedeemIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint) {
+  const account = accountPda(holder);
+  const treasuryAccount = treasuryAccountPda();
+  return core(
+    [
+      meta(holder, true, true),
+      meta(account, true),
+      meta(position),
+      meta(source),
+      meta(holdingPda(account, source), true),
+      meta(treasuryPda(), true),
+      meta(treasuryAccount, true),
+      meta(holdingPda(treasuryAccount, source), true),
+      meta(treasuryVaultPda(), true),
+      meta(simSolAta(holder), true),
+      meta(POOL),
+      meta(TOKEN_PROGRAM_ID),
+      meta(SystemProgram.programId),
+    ],
+    "instant_redeem",
+    u64(gemas),
+  );
+}
+
+/** Permissionless: the Treasury Account redeems Gemas it bought; the simSOL goes into the treasury vault. */
+export function redeemTreasuryIx(position: PublicKey, source: PublicKey, gemas: bigint) {
+  const treasuryAccount = treasuryAccountPda();
+  const i = core(
+    [meta(treasuryPda()), meta(treasuryAccount, true), meta(position), meta(source, true), meta(holdingPda(treasuryAccount, source), true)],
+    "redeem_treasury",
+    u64(gemas),
+  );
+  i.keys.push(...payoutRemaining(position, treasuryVaultPda()));
+  return i;
+}
+
+/** Admin: creates the Treasury or changes its rates (basis points of yield / of the Gemas' value). */
+export const initTreasuryIx = (admin: PublicKey, yieldFeeBps: number, instantFeeBps: number) => {
+  const bps = Buffer.alloc(4);
+  view(bps).setUint16(0, yieldFeeBps, true);
+  view(bps).setUint16(2, instantFeeBps, true);
+  return core(
+    [
+      meta(admin, true, true),
+      meta(CONFIG),
+      meta(treasuryPda(), true),
+      meta(treasuryAccountPda(), true),
+      meta(SIM_SOL_MINT),
+      meta(treasuryVaultPda(), true),
+      meta(TOKEN_PROGRAM_ID),
+      meta(SystemProgram.programId),
+    ],
+    "init_treasury",
+    bps,
+  );
+};
+
+/** Admin: moves simSOL from the admin's token account into the treasury vault. */
+export const fundTreasuryIx = (admin: PublicKey, shares: bigint) =>
+  core(
+    [meta(admin, false, true), meta(CONFIG), meta(treasuryPda(), true), meta(treasuryVaultPda(), true), meta(simSolAta(admin), true), meta(TOKEN_PROGRAM_ID)],
+    "fund_treasury",
+    u64(shares),
+  );
 
 /** Debt must be zero on chain (send `accrueNativeYieldIx` first). Returns the Principal shares to the owner. */
 export function unlockIx(owner: PublicKey, position: PublicKey) {
@@ -251,17 +334,20 @@ export interface YieldClock {
 export const yieldClockOf = (info: Pick<NativeInfo, "status" | "rateBps" | "lastAccrualTs">): YieldClock | null =>
   info.status === "locked" && info.lastAccrualTs !== null ? { rateBps: info.rateBps, lastAccrualTs: info.lastAccrualTs } : null;
 
-/** Cumulative accrued yield (SOL units) as the program would read it after a crank at `nowMs`. */
-export function accruedAt(args: { vaultShares: bigint; redeemedUnits: bigint; principalLamports: bigint; pool: PoolParams; clock?: YieldClock | null; nowMs: number }): bigint {
+/** Cumulative accrued yield (SOL units, net of the Yield Fee) as the program would read it after a crank at `nowMs`. */
+export function accruedAt(args: { vaultShares: bigint; redeemedUnits: bigint; principalLamports: bigint; pool: PoolParams; clock?: YieldClock | null; nowMs: number; yieldFeeBps?: number }): bigint {
   const { vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs } = args;
   const minted = sharesValue(vaultShares, rateAt(pool)) + redeemedUnits - principalLamports;
   const pending = clock
-    ? accruedYield({
-        principal: principalLamports,
-        rateBps: clock.rateBps,
-        elapsedSec: BigInt(Math.max(0, Math.floor(nowMs / 1000) - clock.lastAccrualTs)),
-        speedup: BigInt(pool.speedup),
-      })
+    ? netOfYieldFee(
+        accruedYield({
+          principal: principalLamports,
+          rateBps: clock.rateBps,
+          elapsedSec: BigInt(Math.max(0, Math.floor(nowMs / 1000) - clock.lastAccrualTs)),
+          speedup: BigInt(pool.speedup),
+        }),
+        args.yieldFeeBps ?? DEFAULT_YIELD_FEE_BPS,
+      )
     : 0n;
   return (minted > 0n ? minted : 0n) + pending;
 }
@@ -269,9 +355,9 @@ export function accruedAt(args: { vaultShares: bigint; redeemedUnits: bigint; pr
 /** SOL base units a simSOL amount is worth at `rate`. */
 export const sharesValue = (shares: bigint, rate: bigint) => (shares * rate) / RATE_SCALE;
 
-/** Advance sizing exactly as `Position::open_advance`: 100% of the projected yield, floored to whole Gemas. */
-export function quoteNativeAdvance(principalLamports: bigint, rateBps: number, months: number, priceMicroUsd: bigint) {
-  const projectedUnits = (principalLamports * BigInt(rateBps) * BigInt(months)) / (12n * 10_000n);
+/** Advance sizing exactly as `Position::open_advance`: the projected yield net of the Yield Fee, floored to whole Gemas. */
+export function quoteNativeAdvance(principalLamports: bigint, rateBps: number, months: number, priceMicroUsd: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) {
+  const projectedUnits = advanceUnits(principalLamports, rateBps, months, yieldFeeBps);
   const gemas = (projectedUnits * priceMicroUsd) / 10n ** 13n;
   return { projectedUnits, gemas };
 }
@@ -289,21 +375,22 @@ export function unlockEstimateMs(args: {
   pool: PoolParams;
   clock: YieldClock;
   nowMs: number;
+  yieldFeeBps?: number;
 }): number | null {
-  const { source, vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs } = args;
+  const { source, vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs, yieldFeeBps } = args;
   if (!source) return null;
   const needed = unitsToRepay(source) + source.yieldUnits; // total yield units that repay every live Gema
-  const accrued = accruedAt({ vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs });
+  const accrued = accruedAt({ vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs, yieldFeeBps });
   const have = accrued > source.yieldUnits ? accrued : source.yieldUnits;
   if (have >= needed) return nowMs;
-  const secs = secondsToAccrue({ principal: principalLamports, rateBps: clock.rateBps, units: needed - have, speedup: BigInt(pool.speedup) });
+  const secs = secondsToAccrue({ principal: principalLamports, rateBps: clock.rateBps, units: needed - have, speedup: BigInt(pool.speedup), yieldFeeBps });
   return secs === null ? null : nowMs + secs * 1000;
 }
 
 /** Debt in Gemas if the Position's yield were applied now (what a crank would leave). */
-export function projectedDebtGemas(source: SourceMath | null, vaultShares: bigint, redeemedUnits: bigint, principalLamports: bigint, pool: PoolParams, nowMs: number, clock: YieldClock | null = null): bigint {
+export function projectedDebtGemas(source: SourceMath | null, vaultShares: bigint, redeemedUnits: bigint, principalLamports: bigint, pool: PoolParams, nowMs: number, clock: YieldClock | null = null, yieldFeeBps?: number): bigint {
   if (!source) return 0n;
-  const accrued = accruedAt({ vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs });
+  const accrued = accruedAt({ vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs, yieldFeeBps });
   const y = accrued > source.yieldUnits ? accrued : source.yieldUnits;
   const l = live(source);
   const c = covered({ ...source, yieldUnits: y });
@@ -340,6 +427,10 @@ export interface NativeMarket {
   price: PriceFeedView | null;
   /** The wallet's simSOL balance, base units. */
   simSol: bigint;
+  /** Yield Fee and Instant Redeem Fee rates; null until `init_treasury` has run (use `ratesOf` for the launch rates). */
+  treasury: TreasuryRates | null;
+  /** simSOL the treasury vault holds to pay Instant Redeems; null while there is no Treasury. */
+  treasuryShares: bigint | null;
 }
 
 export interface NativeInfo {
@@ -361,7 +452,7 @@ export interface NativeInfo {
 }
 
 export async function fetchNativeMarket(c: Connection, wallet: PublicKey): Promise<NativeMarket> {
-  const [pool, feed, ata] = await c.getMultipleAccountsInfo([POOL, PRICE_FEED, simSolAta(wallet)], "confirmed");
+  const [pool, feed, ata, treasuryInfo, treasuryVault] = await c.getMultipleAccountsInfo([POOL, PRICE_FEED, simSolAta(wallet), treasuryPda(), treasuryVaultPda()], "confirmed");
   if (!pool) throw new Error("sim_lst pool not initialized");
   const d = Buffer.from(pool.data);
   let simSol = 0n;
@@ -372,10 +463,13 @@ export async function fetchNativeMarket(c: Connection, wallet: PublicKey): Promi
     // disc 8, bump 1, asset 32, price u64, updated_ts i64
     price = { microUsd: rdU64(f, 41), updatedTs: Number(rdI64(f, 49)) };
   }
+  const treasury = treasuryInfo && treasuryInfo.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasuryInfo.data) : null;
   return {
     pool: { baseRate: rdU64(d, 72), baseTs: Number(rdI64(d, 80)), apyBps: rdU32(d, 88), speedup: rdU32(d, 92) },
     price,
     simSol,
+    treasury,
+    treasuryShares: treasury ? (treasuryVault && parseVaultShares(treasuryVault.data)) ?? 0n : null,
   };
 }
 
