@@ -56,7 +56,7 @@ import {
   type Layout,
   type Mark,
 } from "./gridView";
-import { LiveButton, useLiveVariant, type LiveDir, type LiveState } from "./LiveButton";
+import { LiveButton, type LiveDir, type LiveState } from "./LiveButton";
 import "./grid.css";
 
 export interface GridSide {
@@ -520,13 +520,10 @@ export function GridScreen(p: GridScreenProps) {
       live.current.redraw();
     }
   };
-  const liveVariant = useLiveVariant();
   const bindLive = useCallback((f: ((s: LiveState) => void) | null) => {
     live.current.liveTo = f;
-  }, []);
-  useEffect(() => {
     live.current.redraw();
-  }, [liveVariant]);
+  }, []);
   const atMin = cw * MIN_COLS >= viewW - 0.5;
   const atMax = viewW / cw >= maxCols(viewW) - 0.05;
 
@@ -890,16 +887,6 @@ export function GridScreen(p: GridScreenProps) {
             </div>
           </div>
 
-          {liveVariant !== "D" && (
-            <div className="tg-tools">
-              <button type="button" className="tg-tool" aria-label="Zoom out" title="Zoom out (minus key)" aria-disabled={atMax} onClick={() => zoomBy(1 / ZOOM_STEP)}>
-                &minus;
-              </button>
-              <button type="button" className="tg-tool" aria-label="Zoom in" title="Zoom in (plus key)" aria-disabled={atMin} onClick={() => zoomBy(ZOOM_STEP)}>
-                +
-              </button>
-            </div>
-          )}
 
           <div
             className="tg-view"
@@ -1039,7 +1026,6 @@ export function GridScreen(p: GridScreenProps) {
               </div>
             </div>
             <LiveButton
-              variant={liveVariant}
               away={panned}
               onGo={goLive}
               bind={bindLive}

@@ -80,11 +80,6 @@
 .tg-ptr-t[data-dir="up"] { border-right-color: var(--up); color: #bcd8ff; }
 .tg-ptr-t[data-dir="down"] { border-right-color: var(--down); color: #ffd9a0; }
 .tg-view { position: relative; flex: 1 1 0; min-width: 0; overflow: clip; contain: layout paint; touch-action: none; }
-.tg-tools { position: absolute; left: 6px; top: 6px; z-index: 5; display: flex; gap: 4px; }
-.tg-tool { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line-2); background: rgba(8, 11, 14, 0.8); color: var(--fg); font: inherit; font-size: 18px; font-weight: 800; line-height: 1; cursor: pointer; }
-.tg-tool:hover { background: var(--raised); }
-.tg-tool[aria-disabled="true"] { opacity: 0.35; cursor: default; }
-.tg-tool:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
 .tg-world { position: absolute; left: 0; top: 0; bottom: 0; will-change: transform; }
 .tg-cols { display: flex; height: 100%; }
 /* the band area: its layer slides up and down under the fixed column heads */
@@ -95,56 +90,29 @@
 .tg-fade.l { left: 0; background: linear-gradient(90deg, rgba(8, 11, 14, 0.9), transparent); }
 .tg-fade.r { right: 0; background: linear-gradient(270deg, rgba(8, 11, 14, 0.9), transparent); }
 
-/* Back to live. Four takes, picked with ?live=A|B|C|D (LiveButton.tsx): delete the ones not chosen with their component branch.
-   --lv-x / --lv-y are the head's place in the band area, kept clear of the edges; data-dir says where it went. */
+/* The view's controls (LiveButton.tsx): the zoom bar at the bottom left, and Back to live at the bottom while the view is off the line; both sit above the bottom edge markers.
+   data-dir says where the line went; data-narrow moves the plaque right so it clears the zoom bar. */
 .tg-lv { position: absolute; left: 0; right: 0; z-index: 6; pointer-events: none; --lv-h: 40px; }
 .tg-lv > * { pointer-events: auto; }
-.lv-btn { --edge: linear-gradient(180deg, var(--up), rgba(90, 162, 255, 0.3)); --c: 8px; position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 8px; min-height: var(--lv-h); padding: 0 16px; border: 0; background: rgba(8, 11, 14, 0.94); color: var(--fg); font: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; cursor: pointer; transition: opacity 220ms ease, translate 260ms cubic-bezier(0.2, 0.9, 0.3, 1), visibility 0s 260ms; }
+.lv-btn { --edge: linear-gradient(180deg, var(--up), rgba(90, 162, 255, 0.3)); --c: 8px; position: absolute; left: 50%; bottom: 34px; translate: -50% 0; display: inline-flex; align-items: center; gap: 8px; min-height: var(--lv-h); padding: 0 18px 0 14px; border: 0; background: rgba(8, 11, 14, 0.94); color: var(--fg); font: inherit; font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; cursor: pointer; transition: opacity 220ms ease, translate 260ms cubic-bezier(0.2, 0.9, 0.3, 1), visibility 0s 260ms; }
 .lv-btn:hover { background: #121a22; }
-.tg-lv[data-on="false"] .lv-btn { opacity: 0; visibility: hidden; }
+.lv-btn:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.tg-lv[data-on="false"] .lv-btn { opacity: 0; visibility: hidden; translate: -50% 16px; }
 .tg-lv[data-on="true"] .lv-btn { transition-delay: 0s; }
+.tg-lv[data-narrow="true"] .lv-btn { left: auto; right: 10px; translate: 0 0; padding: 0 14px 0 12px; }
+.tg-lv[data-narrow="true"][data-on="false"] .lv-btn { translate: 0 16px; }
+.tg-lv[data-narrow="true"] .lv-px { display: none; }
 .lv-arrow { flex: none; color: var(--up); transition: transform 240ms cubic-bezier(0.2, 0.9, 0.3, 1); }
 .tg-lv[data-dir="down"] .lv-arrow { transform: rotate(90deg); }
 .tg-lv[data-dir="left"] .lv-arrow { transform: rotate(180deg); }
 .tg-lv[data-dir="up"] .lv-arrow { transform: rotate(-90deg); }
-.lv-dia { flex: none; width: 8px; height: 8px; background: var(--up); transform: rotate(45deg); }
-.lv-px { font-family: var(--f-mono); font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; color: #bcd8ff; }
-
-/* A: a plaque centred at the bottom, an arrow to where the line is, and its price */
-.tg-lv[data-v="A"] .lv-btn { left: 50%; top: auto; bottom: 14px; translate: -50% 0; padding: 0 18px 0 14px; }
-.tg-lv[data-v="A"][data-on="false"] .lv-btn { translate: -50% 16px; }
-.tg-lv[data-v="A"] .lv-px { padding-left: 10px; border-left: 1px solid var(--line-2); }
-
-/* B: a chip beside the gutter at the line's price level; at the top or bottom edge when the line is out of view */
-.tg-lv[data-v="B"] .lv-btn { left: 8px; transform: translate3d(0, calc(var(--lv-y, 50%) - 50%), 0); padding: 0 14px 0 10px; gap: 7px; }
-.tg-lv[data-v="B"][data-on="false"] .lv-btn { translate: -14px 0; }
-
-/* C: a beacon on the edge the line left through, with a pulsing glow */
-.tg-lv[data-v="C"] { --lv-bar: 3px; }
-.tg-lv[data-v="C"] .lv-btn { padding: 0 16px 0 12px; transform: translate3d(calc(var(--lv-x, 50%) - 50%), calc(var(--lv-y, 50%) - 50%), 0); background-repeat: no-repeat; }
-.tg-lv[data-v="C"][data-dir="up"] .lv-btn { transform: translate3d(calc(var(--lv-x) - 50%), 58px, 0); background-image: linear-gradient(var(--up), var(--up)); background-size: 100% var(--lv-bar); background-position: top; }
-.tg-lv[data-v="C"][data-dir="down"] .lv-btn { transform: translate3d(calc(var(--lv-x) - 50%), calc(var(--lv-bh) - 100% - 58px), 0); background-image: linear-gradient(var(--up), var(--up)); background-size: 100% var(--lv-bar); background-position: bottom; }
-.tg-lv[data-v="C"][data-dir="right"] .lv-btn { transform: translate3d(calc(var(--lv-w) - 100% - 10px), calc(var(--lv-y) - 50%), 0); background-image: linear-gradient(var(--up), var(--up)); background-size: var(--lv-bar) 100%; background-position: right; }
-.tg-lv[data-v="C"][data-dir="left"] .lv-btn { transform: translate3d(10px, calc(var(--lv-y) - 50%), 0); background-image: linear-gradient(var(--up), var(--up)); background-size: var(--lv-bar) 100%; background-position: left; }
-.tg-lv[data-v="C"][data-dir="in"] .lv-btn { transform: translate3d(calc(var(--lv-x) - 50%), calc(var(--lv-y) - 100% - 34px), 0); }
-.tg-lv[data-v="C"][data-on="false"] .lv-btn { scale: 0.9; }
-.lv-glow { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(70% 140% at 50% 50%, rgba(90, 162, 255, 0.4), transparent 75%); animation: lv-pulse 1.6s ease-in-out infinite; }
-@keyframes lv-pulse { 50% { opacity: 0.25; } }
-
-/* D: one toolbar with the zoom buttons, always there, lit while you are looking away */
-.lv-bar { --edge: var(--edge-2); --c: 8px; position: absolute; left: 10px; bottom: 10px; display: flex; background: rgba(8, 11, 14, 0.94); }
-.lv-seg { min-width: var(--lv-h); min-height: var(--lv-h); padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-left: 1px solid var(--line-2); background: transparent; color: var(--fg); font: inherit; font-size: 20px; font-weight: 800; line-height: 1; cursor: pointer; transition: background 200ms, color 200ms; }
+.lv-px { padding-left: 10px; border-left: 1px solid var(--line-2); font-family: var(--f-mono); font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; color: #bcd8ff; }
+.lv-bar { --edge: var(--edge-2); --c: 8px; position: absolute; left: 10px; bottom: 34px; display: flex; background: rgba(8, 11, 14, 0.94); }
+.lv-seg { min-width: var(--lv-h); min-height: var(--lv-h); padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-left: 1px solid var(--line-2); background: transparent; color: var(--fg); font: inherit; font-size: 20px; font-weight: 800; line-height: 1; cursor: pointer; transition: background 200ms; }
 .lv-seg:first-child { border-left: 0; }
 .lv-seg:hover { background: var(--raised); }
 .lv-seg:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
 .lv-seg[aria-disabled="true"] { opacity: 0.4; cursor: default; }
-.lv-seg.lv-live { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; padding: 0 14px; color: var(--fg-3); opacity: 1; }
-.lv-live .lv-dia { background: transparent; box-shadow: inset 0 0 0 2px var(--fg-3); transition: background 200ms, box-shadow 200ms; }
-.lv-live .lv-px { max-width: 0; overflow: hidden; opacity: 0; transition: max-width 260ms ease, opacity 200ms; }
-.tg-lv[data-v="D"][data-on="true"] .lv-live { background: rgba(90, 162, 255, 0.24); color: #fff; }
-.tg-lv[data-v="D"][data-on="true"] .lv-live:hover { background: rgba(90, 162, 255, 0.34); }
-.tg-lv[data-v="D"][data-on="true"] .lv-dia { background: var(--up); box-shadow: none; animation: lv-pulse 1.4s ease-in-out infinite; }
-.tg-lv[data-v="D"][data-on="true"] .lv-px { max-width: 90px; opacity: 1; }
 
 @media (max-width: 720px), (pointer: coarse) {
   .tg-lv { --lv-h: 44px; }
