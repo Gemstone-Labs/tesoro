@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { Button, CheckIcon, GemaMark, LockIcon, XIcon } from "@/components/ui";
-import { Arena, Callout, Countdown, MuteToggle, burst, burstAt, sfx, useReducedMotion, type CalloutTone } from "../fx";
+import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, burst, burstAt, sfx, useReducedMotion, type CalloutTone } from "../fx";
 import {
   COLUMNS,
   COLUMN_SECS,
@@ -790,6 +790,7 @@ export function GridScreen(p: GridScreenProps) {
       <div className="tg-bar-r">
         {p.practice ? <span className="meta">Practice · nothing staked</span> : p.entry !== undefined && <span className="meta">Entry <b className="tnum">{p.entry}</b>{p.pot !== undefined && <> · Pot <b className="tnum">{p.pot}</b></>}</span>}
         <MuteToggle />
+        <FullScreenToggle />
       </div>
     </header>
   );

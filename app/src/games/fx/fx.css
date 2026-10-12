@@ -39,6 +39,12 @@
 .fx-mute:hover { color: var(--fg); }
 .fx-mute:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .fx-mute[aria-pressed="true"] { color: var(--warn); }
+.fx-full[aria-pressed="true"] { color: var(--fg); }
+
+/* Full screen (full-screen.ts): the Arena covers the window, the shell stays underneath. */
+html.game-full { overflow: hidden; }
+html.game-full .fx-arena { position: fixed; inset: 0; z-index: 60; min-height: 0; background: var(--shell); height: 100dvh; overflow-y: auto; overscroll-behavior: contain; padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+html.game-full .fx-arena-body { max-width: 1600px; margin: 0 auto; }
 
 .fx-layer { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 70; }
 

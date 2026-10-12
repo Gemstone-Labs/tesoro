@@ -16,7 +16,7 @@ import { Seat } from "./Seat";
 import { bestHand, resultSummary } from "./reading";
 import { FOLD_CHIPS_AT, SHOWDOWN_CHIPS_AT, STREET_MS, runoutOffset, useTableFeed } from "./useTableFeed";
 import { Handshake, Trophy, Flag } from "lucide-react";
-import { Arena, Callout, MuteToggle, prefersReducedMotion, sfx } from "../fx";
+import { Arena, Callout, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx } from "../fx";
 import { art } from "@/lib/art";
 import "./holdem.css";
 
@@ -274,6 +274,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
             </span>
           )}
           <MuteToggle />
+          <FullScreenToggle />
         </div>
         <ShareBar mine={t.stacks[seat] + t.committed[seat]} theirs={t.stacks[opp] + t.committed[opp]} />
         {!ended && t.status === STATUS.live && (

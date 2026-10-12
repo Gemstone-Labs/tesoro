@@ -68,7 +68,7 @@
 .tg-error { margin: 0; color: var(--warn); font-size: 14px; }
 
 /* the stage */
-.tg-stage { --edge: var(--edge-2); position: relative; display: flex; background: linear-gradient(180deg, rgba(13, 18, 22, 0.9), rgba(8, 11, 14, 0.94)); padding: 0; min-width: 0; }
+.tg-stage { --edge: var(--edge-2); position: relative; display: flex; background: linear-gradient(180deg, rgba(13, 18, 22, 0.9), rgba(8, 11, 14, 0.94)); padding: 0; min-width: 0; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .tg-gutter { position: relative; flex: none; width: clamp(66px, 7vw, 88px); border-right: 1px solid var(--line); z-index: 3; background: rgba(8, 11, 14, 0.7); }
 .tg-gbody { position: absolute; left: 0; right: 0; overflow: clip; contain: layout paint; }
 .tg-gvl { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }

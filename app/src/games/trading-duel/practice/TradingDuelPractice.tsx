@@ -12,7 +12,7 @@ import { GridScreen } from "../GridScreen";
 import { seededRng } from "./bot";
 import { elapsed, newGridSession, setPick, stepGridSession, type GridSession } from "./gridSession";
 import "../trading.css";
-import { Arena, MuteToggle } from "../../fx";
+import { Arena, FullScreenToggle, MuteToggle } from "../../fx";
 
 /** The bot's face in practice: a fixed gemstone animal, labelled "Bot". */
 const YOU = { name: "You", avatar: art.avatars[0] };
@@ -136,6 +136,7 @@ function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a
           <div className="td-head-l">
             <h1 className="td-title">Trading Duel practice</h1>
             <MuteToggle />
+            <FullScreenToggle />
           </div>
           <p className="meta">
             Pick where the price will be. Each box is a stretch of price and a ten second column: when the live line passes through your box, you score 100
