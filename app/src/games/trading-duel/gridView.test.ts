@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MATCH_SECS, NO_PICK, newTrack, record } from "./grid";
-import { cameraX, hitCount, layoutFor, marks, priceDigits, runEndingAt, snakePath, snakePoints, xOf, yOf } from "./gridView";
+import { cameraAfterZoom, cameraX, clampCamera, clampCols, hitCount, layoutFor, marks, maxCamera, maxCols, priceDigits, runEndingAt, snakeWindow, xOf, yOf } from "./gridView";
 
 const A = 100_00000000n;
 const STEP = 25_000000n; // 0.25
@@ -22,18 +22,22 @@ describe("camera", () => {
 
 describe("snake", () => {
   const l = layoutFor(1000);
-  it("starts at the anchor, drops samples from before the start, keeps time order", () => {
-    const pts = snakePoints(
+  it("starts at the anchor, drops samples from before the start and from after the end", () => {
+    const r = snakeWindow(
       [
         { t: 500, p: 99 },
         { t: 3000, p: 100.1 },
-        { t: 2000, p: 100.2 },
         { t: 4000, p: 100.3 },
+        { t: 1000 + (MATCH_SECS + 5) * 1000, p: 120 },
       ],
       1000,
       100,
+      l,
+      0.25,
     );
-    expect(pts.map((p) => p.t)).toEqual([0, 2, 3]);
+    expect(r.p).toBe(100.3);
+    expect(r.x).toBeCloseTo(xOf(3, l.cw));
+    expect(r.d.match(/Q/g)).toHaveLength(1);
   });
   it("keeps the line inside the frame", () => {
     expect(yOf(500, 100, 0.25, l.rh)).toBeLessThan(10);
@@ -41,9 +45,18 @@ describe("snake", () => {
     expect(yOf(100, 100, 0.25, l.rh)).toBeCloseTo(4 * l.rh);
   });
   it("draws one path and reports its end", () => {
-    const p = snakePath(snakePoints([{ t: 1000, p: 100.1 }], 0, 100), l, 100, 0.25);
+    const p = snakeWindow([{ t: 1000, p: 100.1 }], 0, 100, l, 0.25);
     expect(p.d.startsWith("M")).toBe(true);
     expect(p.x).toBeCloseTo(xOf(1, l.cw), 0);
+  });
+  it("draws just the window of a dense series, and thins points a pixel apart", () => {
+    const series = Array.from({ length: 3000 }, (_, i) => ({ t: 1 + i * 50, p: 100 + Math.sin(i / 7) * 0.2 }));
+    const all = snakeWindow(series, 0, 100, l, 0.25);
+    const part = snakeWindow(series, 0, 100, l, 0.25, xOf(60, l.cw), xOf(80, l.cw));
+    expect(part.d.length).toBeLessThan(all.d.length / 3);
+    expect(part.d.startsWith("M")).toBe(true);
+    expect(part.x).toBe(all.x);
+    expect(all.d.match(/Q/g)!.length).toBeLessThan(3000);
   });
   it("prints enough decimals", () => {
     expect([priceDigits(0.6), priceDigits(0.035), priceDigits(0.0108), priceDigits(0.004)]).toEqual([2, 3, 3, 4]);
@@ -76,5 +89,33 @@ describe("marks", () => {
   it("counts a run of hits", () => {
     expect(runEndingAt(["hit", "hit", "miss", "hit", "hit", "hit"], 5)).toBe(3);
     expect(runEndingAt(["hit", "hit", "miss"], 2)).toBe(0);
+  });
+});
+
+describe("zoom", () => {
+  it("shows 3 to 12 columns, fewer at the wide end on a phone, rows never change", () => {
+    expect(layoutFor(1000, 3).cw).toBeCloseTo(1000 / 3);
+    expect(layoutFor(1000, 99).cw).toBeCloseTo(1000 / 12);
+    expect(layoutFor(1000, 1).cw).toBeCloseTo(1000 / 3);
+    expect(maxCols(316)).toBe(7);
+    expect(clampCols(12, 316)).toBe(7);
+    expect(layoutFor(1000, 3).rh).toBe(layoutFor(1000, 12).rh);
+    expect(layoutFor(1000).cw).toBeCloseTo(1000 / 7.6);
+  });
+  it("keeps the time under the anchor where it was", () => {
+    const a = layoutFor(1000, 6);
+    const b = layoutFor(1000, 3);
+    const cam = 400;
+    const secsAt = (c: number, l: typeof a, f: number) => ((c + l.viewW * f) / l.cw) * 10;
+    for (const f of [0, 0.5, 1]) {
+      const next = cameraAfterZoom(cam, a, b, f);
+      if (next > 0 && next < maxCamera(b)) expect(secsAt(next, b, f)).toBeCloseTo(secsAt(cam, a, f));
+    }
+  });
+  it("keeps a panned camera inside the world", () => {
+    const l = layoutFor(1000);
+    expect(clampCamera(-50, l)).toBe(0);
+    expect(clampCamera(1e9, l)).toBe(maxCamera(l));
+    expect(maxCamera(l)).toBeCloseTo(15 * l.cw - 1000);
   });
 });

@@ -138,7 +138,6 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
           startsAt={duel.startsAt * 1000}
           track={duel.track}
           series={feed.series}
-          price={feed.tick?.mid ?? null}
           stale={feed.status === "stale"}
           {...gridInputs(duel, seat, book, view.pending)}
           me={meSide}
