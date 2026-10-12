@@ -453,9 +453,10 @@ export class TradingDuelChain {
     return this.sendTee("tick", [ix], payer);
   }
 
-  /** Rollup, permissionless. After the window: takes the end price, scores every column and decides the Match. */
-  async end(payer: PlayerSigner, matchId: bigint | number, asset: Asset): Promise<string> {
-    const ix = await this.program.methods.endMatch().accountsPartial(this.crankAccounts(payer.publicKey, matchId, asset)).instruction();
+  /** Rollup, permissionless. After the window: carries the line through any column it missed, scores every column and decides the Match. Reads no price. */
+  async end(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
+    const ad = addresses(matchId);
+    const ix = await this.program.methods.endMatch().accountsPartial({ caller: payer.publicKey, duel: ad.duel, book0: ad.book0, book1: ad.book1 } as any).instruction();
     return this.sendTee("end_match", [ix], payer);
   }
 

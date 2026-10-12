@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ASSETS, type Asset } from "../chain";
-import { assetBySymbol, midToUsd, usePriceFeed } from "../feed";
+import { assetBySymbol, midToUsd, usePriceFeed, type PriceFeed } from "../feed";
 import { usd } from "../fmt";
 import { MATCH_SECS, revealed, type GridAsset } from "../grid";
 import { GridScreen } from "../GridScreen";
@@ -27,6 +27,12 @@ export function TradingDuelPractice() {
   const [asset, setAsset] = useState<Asset>(() => assetBySymbol(sp.get("asset")));
   const [session, setSession] = useState<GridSession | null>(null);
   const [clock, setClock] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const sessionRef = useRef<GridSession | null>(null);
+  const commit = (next: GridSession | null) => {
+    sessionRef.current = next;
+    setSession(next);
+  };
   const feed = usePriceFeed(asset);
   const seed = sp.get("seed");
   const rng = useRef<() => number>(() => Math.random());
@@ -36,6 +42,12 @@ export function TradingDuelPractice() {
     latest.current = { mid: feed.tick?.mid ?? null, prices: feed.series.map((p) => p.p) };
   }, [feed]);
 
+  useEffect(() => {
+    if (!error) return;
+    const i = setTimeout(() => setError(null), 4000);
+    return () => clearTimeout(i);
+  }, [error]);
+
   const startsAt = session?.startsAt;
   useEffect(() => {
     if (!startsAt) return;
@@ -43,7 +55,8 @@ export function TradingDuelPractice() {
       const { mid, prices } = latest.current;
       const now = Date.now();
       setClock(now);
-      if (mid !== null) setSession((s) => (s ? stepGridSession(s, mid, now, rng.current, prices) : s));
+      const s = sessionRef.current;
+      if (mid !== null && s) commit(stepGridSession(s, mid, now, rng.current, prices));
     }, 500);
     return () => clearInterval(i);
   }, [startsAt]);
@@ -52,12 +65,13 @@ export function TradingDuelPractice() {
     const mid = latest.current.mid;
     if (mid === null) return;
     rng.current = seed ? seededRng(Number(seed) || 1) : () => Math.random();
-    setSession(newGridSession(Date.now(), mid, asset.symbol as GridAsset, rng.current));
+    setError(null);
+    commit(newGridSession(Date.now(), mid, asset.symbol as GridAsset, rng.current));
   };
 
   const series = useMemo(() => feed.series, [feed.series]);
 
-  if (!session) return <Picker asset={asset} setAsset={setAsset} onStart={start} />;
+  if (!session) return <Picker asset={asset} setAsset={setAsset} feed={feed} onStart={start} />;
 
   const t = elapsed(session, clock || session.startsAt);
   const final = session.final;
@@ -78,21 +92,20 @@ export function TradingDuelPractice() {
       final={final ? { you: final.scores[0], them: final.scores[1] } : null}
       practice
       title="Trading Duel practice"
+      error={error}
       onPick={(c, r) => {
-        try {
-          setSession((s) => (s ? setPick(s, c, r, Date.now()) : s));
-        } catch {
-          // the column locked a moment ago: the screen already shows it
-        }
+        const cur = sessionRef.current;
+        const next = cur && setPick(cur, c, r, Date.now());
+        setError(next ? null : "That column just locked, so the pick didn’t count.");
+        if (next) commit(next);
       }}
-      onPlayAgain={() => setSession(null)}
+      onPlayAgain={() => commit(null)}
       exitHref="/lobby"
     />
   );
 }
 
-function Picker({ asset, setAsset, onStart }: { asset: Asset; setAsset: (a: Asset) => void; onStart: () => void }) {
-  const feed = usePriceFeed(asset);
+function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a: Asset) => void; feed: PriceFeed; onStart: () => void }) {
   const ready = !!feed.tick && feed.status === "live";
   const price = feed.tick ? usd(midToUsd(feed.tick.mid), asset) : "…";
   return (

@@ -29,9 +29,6 @@ pub const TABLE_WINDOW_SECS: i64 = 24 * 60 * 60;
 /// Oldest accepted oracle publish time, seconds before the rollup clock. The feed's timestamp has
 /// one-second resolution.
 pub const MAX_STALE_SECS: i64 = 2;
-/// `end_match` accepts only a price published within this many seconds after the window closes.
-/// A later call settles at the last price recorded during the window (`Track.last`).
-pub const END_GRACE_SECS: i64 = 4;
 /// A feed timestamp may run at most this far ahead of the rollup clock.
 pub const MAX_FUTURE_SECS: i64 = 10;
 
@@ -101,6 +98,8 @@ pub struct Duel {
     pub anchor: u64,
     /// Row height, 1e-8 USD.
     pub step: u64,
+    /// Informational: the time of the last sample. No instruction reads it; clients use it to
+    /// notice that the Duel changed.
     pub last_tick: i64,
     pub track: Track,
     /// Picks per seat, public once their column has locked; `NO_PICK` before and for no pick.

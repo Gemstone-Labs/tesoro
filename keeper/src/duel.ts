@@ -23,8 +23,8 @@ export type DuelStep = { do: "finalize" | "claim_timeout" | "tick" | "end_match"
 /**
  * What to do with a Duel. `layer` says where its state was read:
  *  - "base": owned by the Game (never delegated, or committed back): only `finalize` moves it.
- *  - "tee": delegated; the rollup enforces its own clocks (`end_match` also needs a price published at or after the
- *    end, so the caller simulates it and waits when none has landed yet). While the grid runs the keeper adds one
+ *  - "tee": delegated; the rollup enforces its own clocks (`end_match` is refused before its `ends_at`, so the caller
+ *    simulates it and waits when the rollup clock is behind). While the grid runs the keeper adds one
  *    `tick` per pass: the Players' apps tick about once a second, this only keeps the line from going quiet when
  *    both are away.
  * A Duel left Created is finalized (refund) or cancelled once its 5-minute start deadline passes; tesoro_core's own
@@ -103,14 +103,14 @@ export async function tradingDuel(ctx: Ctx, id: bigint, m: any, st: string, subj
   if (step.do === "end_match") {
     const endIx = await ctx.duel.program.methods
       .endMatch()
-      .accountsPartial({ caller: ctx.payer.publicKey, duel: ad.duel, book0: ad.book0, book1: ad.book1, priceFeed: asset.feed } as any)
+      .accountsPartial({ caller: ctx.payer.publicKey, duel: ad.duel, book0: ad.book0, book1: ad.book1 } as any)
       .instruction();
     const why = await simulate(tee, ctx.payer, [endIx]);
     if (why) {
       log("match", subject, `${tag} wait: end_match not yet possible (${why.slice(0, 120)}), retrying next pass`);
       return 0;
     }
-    return +(await act(ctx, "match", subject, `end_match (${step.why})`, () => ctx.duel.end(ctx.hsigner, id, asset))).ok;
+    return +(await act(ctx, "match", subject, `end_match (${step.why})`, () => ctx.duel.end(ctx.hsigner, id))).ok;
   }
   if (step.do === "close_match") {
     return +(

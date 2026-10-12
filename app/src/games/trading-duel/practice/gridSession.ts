@@ -10,11 +10,7 @@ export interface GridSession {
   picks: [number[], number[]];
   botAt: number[];
   final: GridResult | null;
-  /** Price at the end of the window, once finished. */
-  endPrice: bigint | null;
 }
-
-export class PickError extends Error {}
 
 const blank = () => Array.from({ length: COLUMNS }, () => NO_PICK);
 
@@ -28,17 +24,16 @@ export function newGridSession(startsAt: number, anchor: bigint, asset: GridAsse
     picks: [blank(), blank()],
     botAt: botPickTimes(rng),
     final: null,
-    endPrice: null,
   };
 }
 
 /** Seconds since the start (fractional). */
 export const elapsed = (s: GridSession, nowMs: number): number => (nowMs - s.startsAt) / 1000;
 
-/** Your pick (or `NO_PICK` to clear it). Throws `PickError` once the column is locked. */
-export function setPick(s: GridSession, column: number, row: number, nowMs: number): GridSession {
+/** Your pick (or `NO_PICK` to clear it), or null when it is refused: the column has locked or the game is over. */
+export function setPick(s: GridSession, column: number, row: number, nowMs: number): GridSession | null {
   const t = elapsed(s, nowMs);
-  if (s.final || !canPick(column, t) || (row !== NO_PICK && (row < 0 || row > 7))) throw new PickError("column locked");
+  if (s.final || !canPick(column, t) || (row !== NO_PICK && (row < 0 || row > 7))) return null;
   const mine = [...s.picks[0]];
   mine[column] = row;
   return { ...s, picks: [mine, s.picks[1]] };
@@ -54,8 +49,8 @@ export function stepGridSession(s: GridSession, mid: bigint, nowMs: number, rng:
   const t = elapsed(s, nowMs);
   if (t < 0) return s;
   if (t >= MATCH_SECS) {
-    const track = finish(s.track, mid);
-    return { ...s, track, endPrice: mid, final: settle(track, s.picks, s.anchor, s.step) };
+    const track = finish(s.track);
+    return { ...s, track, final: settle(track, s.picks, s.anchor, s.step) };
   }
   const bot = [...s.picks[1]];
   for (let c = 0; c < COLUMNS; c++) {

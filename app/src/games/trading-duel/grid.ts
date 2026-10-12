@@ -101,7 +101,7 @@ function extend(tr: Track, c: number, price: bigint) {
  * Records a price sample at time `t`. A sample inside column `c` first gives every column that
  * got no sample of its own (and has a line to carry) the last price recorded before it, then
  * starts `c` from that price (the line enters the column there) and extends it. Samples during
- * the head start only set the carried price; samples at or after the end are `finish`'s job.
+ * the head start only set the carried price; samples at or after the end are ignored.
  * Returns a new track.
  */
 export function record(track: Track, t: number, price: bigint): Track {
@@ -121,12 +121,15 @@ export function record(track: Track, t: number, price: bigint): Track {
 }
 
 /**
- * Closes the window with the end-of-window price: it is the final sample of the last column, and
- * every column still without a sample takes the last price recorded before it as both bounds. A
+ * Closes the window: every column still without a sample takes the last price recorded before it as
+ * both bounds. No end price is added, so the result is the same whoever ends the Match and when. A
  * column with no line behind it at all (no sample before its window) stays without data.
  */
-export function finish(track: Track, endPrice: bigint): Track {
-  return record(track, MATCH_SECS - 1, endPrice);
+export function finish(track: Track): Track {
+  const tr: Track = { lo: [...track.lo], hi: [...track.hi], seen: [...track.seen], last: track.last, lastCol: track.lastCol };
+  if (tr.last === null) return tr;
+  for (let k = tr.lastCol + 1; k < COLUMNS; k++) if (!tr.seen[k]) extend(tr, k, tr.last);
+  return tr;
 }
 
 /** True when the pick `row` lies within the rows the line crossed in column `c`. */

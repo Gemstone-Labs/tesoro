@@ -5,7 +5,7 @@ import { Connection } from "@solana/web3.js";
 import idl from "../../lib/chain/idl/trading_duel.json";
 import { ASSETS, DRAW, NO_WINNER, STATUS, decodeBook, decodeDuel, type Book, type Duel } from "./chain";
 import { NO_PICK, newTrack, record } from "./grid";
-import { gridInputs, mergePicks, pickOpen, settlePending } from "./matchView";
+import { addSighting, clockOffsetMs, gridInputs, mergePicks, settlePending } from "./matchView";
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const blank = () => Array.from({ length: 12 }, () => NO_PICK);
@@ -109,11 +109,34 @@ describe("decoding accounts with the program IDL", () => {
   });
 });
 
-describe("pick window", () => {
-  it("closes ten seconds before the column starts, by the rollup clock", () => {
-    const d = duel({ startsAt: 1000 });
-    expect(pickOpen(d, 0, 1019_900)).toBe(true);
-    expect(pickOpen(d, 0, 1020_000)).toBe(false);
-    expect(pickOpen(d, 1, 1020_000)).toBe(true);
+describe("the rollup clock", () => {
+  it("is zero until something has been seen", () => {
+    expect(clockOffsetMs([])).toBe(0);
+  });
+
+  it("is read from the freshest sighting and tolerates slow ones", () => {
+    // The browser runs 3 s behind: stamps of 1000..1004 are seen at about 997..1001 (+ delays of 0.3 to 1.2 s).
+    let s: ReturnType<typeof addSighting> = [];
+    for (const [stamp, delay] of [[1000, 1200], [1001, 300], [1002, 900], [1003, 700]]) s = addSighting(s, { rollupS: stamp, seenMs: (stamp - 3) * 1000 + delay });
+    expect(clockOffsetMs(s)).toBeGreaterThan(2500);
+    expect(clockOffsetMs(s)).toBeLessThan(3500);
+  });
+
+  it("keeps a window and ignores a repeated stamp", () => {
+    let s: ReturnType<typeof addSighting> = [];
+    for (let i = 0; i < 30; i++) s = addSighting(s, { rollupS: 1000 + i, seenMs: (1000 + i) * 1000 + 400 });
+    expect(s).toHaveLength(12);
+    expect(addSighting(s, { rollupS: 1029, seenMs: 0 })).toBe(s);
+  });
+
+  it("follows a browser clock that jumps, once the old sightings leave the window", () => {
+    let s: ReturnType<typeof addSighting> = [];
+    for (let i = 0; i < 12; i++) s = addSighting(s, { rollupS: 1000 + i, seenMs: (1000 + i) * 1000 + 100 });
+    for (let i = 12; i < 24; i++) s = addSighting(s, { rollupS: 1000 + i, seenMs: (1000 + i) * 1000 + 8100 });
+    expect(clockOffsetMs(s)).toBeLessThan(-7000);
+  });
+
+  it("is clamped", () => {
+    expect(clockOffsetMs([{ rollupS: 5000, seenMs: 0 }])).toBe(30_000);
   });
 });

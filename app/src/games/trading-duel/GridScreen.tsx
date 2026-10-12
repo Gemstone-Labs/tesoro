@@ -78,11 +78,17 @@ export interface GridScreenProps {
   banner?: ReactNode;
   /** Freeze the clock at this time in ms (stories and screenshots). */
   nowMs?: number;
+  /** How far the clock that `startsAt` is on runs ahead of this browser's, ms (a Match runs on the rollup's clock). */
+  clockOffsetMs?: number;
+  /** The Match is over in the game but the Pot has not been paid out yet. */
+  payingOut?: boolean;
 }
 
 type Floater = { id: number; c: number; r: number; who: "me" | "foe" };
 type Moment = { id: number; text: string; tone: CalloutTone };
 
+/** The browser time now, read when a box is tapped. */
+const wallNow = () => Date.now();
 const usdOf = (v: bigint) => Number(v) / 1e8;
 const fmtClock = (secs: number) => {
   const s = Math.max(0, Math.ceil(secs));
@@ -92,13 +98,20 @@ const BURST_ME = ["#eaf1fb", "#9fc4ff", "#ffffff", "#c9dcf6"];
 const BURST_FOE = ["#b99bff", "#e1d4ff", "#8d6bf0"];
 const ordinalRun = (n: number) => (n >= 4 ? `On fire · ${n} in a row` : n === 3 ? "3 in a row!" : "2 in a row");
 
-function useClock(frozen: number | undefined): number {
+/** The browser time, refreshed just after each whole second of the game (`startsAt` is a browser time), which is when the screen's text and column states change. */
+function useClock(frozen: number | undefined, startsAt: number): number {
   const [now, setNow] = useState(() => frozen ?? Date.now());
   useEffect(() => {
     if (frozen !== undefined) return;
-    const i = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(i);
-  }, [frozen]);
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      setNow(Date.now());
+      const into = (((Date.now() - startsAt) % 1000) + 1000) % 1000;
+      timer = setTimeout(next, 1000 - into + 20);
+    };
+    next();
+    return () => clearTimeout(timer);
+  }, [frozen, startsAt]);
   return frozen ?? now;
 }
 
@@ -108,9 +121,12 @@ function useClock(frozen: number | undefined): number {
  * You are the steel diamond, the opponent the violet outline; a hit lights the box, a miss dims it.
  */
 export function GridScreen(p: GridScreenProps) {
-  const { asset, anchor, step, startsAt, track, mine, theirs, onPick } = p;
+  const { asset, anchor, step, track, mine, theirs, onPick } = p;
+  const offsetMs = p.clockOffsetMs ?? 0;
+  // Everything below runs on this browser's clock: the game's start, seen from here.
+  const startsAt = p.startsAt - offsetMs;
   const reduced = useReducedMotion();
-  const now = useClock(p.nowMs);
+  const now = useClock(p.nowMs, startsAt);
   const t = (now - startsAt) / 1000;
   const anchorUsd = usdOf(anchor);
   const stepUsd = usdOf(step);
@@ -140,6 +156,17 @@ export function GridScreen(p: GridScreenProps) {
 
   const pts = useMemo(() => snakePoints(p.series, startsAt, anchorUsd), [p.series, startsAt, anchorUsd]);
   const base = useMemo(() => snakePath(pts, layout, anchorUsd, stepUsd), [pts, layout, anchorUsd, stepUsd]);
+  // The official line: what the game recorded in each column, as a band from its lowest to its highest price.
+  const bands = useMemo(
+    () =>
+      Array.from({ length: COLUMNS }, (_, c) => {
+        if (!track.seen[c]) return null;
+        const top = yOf(usdOf(track.hi[c]), anchorUsd, stepUsd, rh);
+        const bottom = yOf(usdOf(track.lo[c]), anchorUsd, stepUsd, rh);
+        return { x: columnX(c, cw) + 1, y: top, w: cw - 2, h: Math.max(4, bottom - top) };
+      }),
+    [track, anchorUsd, stepUsd, rh, cw],
+  );
   const dir: "up" | "down" | "flat" = useMemo(() => {
     const last = pts[pts.length - 1];
     for (let i = pts.length - 2; i >= 0 && i > pts.length - 10; i--) if (pts[i].p !== last.p) return last.p > pts[i].p ? "up" : "down";
@@ -217,10 +244,13 @@ export function GridScreen(p: GridScreenProps) {
 
   // ---- picking ----
   const [fc, setFc] = useState<{ c: number; r: number } | null>(null);
-  const firstOpen = Math.max(0, Math.min(COLUMNS - 1, nextLock(t)?.column ?? COLUMNS - 1));
-  const tab = fc ?? { c: firstOpen, r: mine[firstOpen] !== NO_PICK ? mine[firstOpen] : 3 };
+  // The arrow keys only visit columns you can still pick that are on screen.
+  const cam = cameraX(t, layout, reduced);
+  const reachable = (c: number) => canPick(c, t) && columnX(c, cw) + cw / 2 > cam && columnX(c, cw) + cw / 2 < cam + viewW;
+  const firstOpen = Math.max(0, Math.min(COLUMNS - 1, Array.from({ length: COLUMNS }, (_, c) => c).find(reachable) ?? nextLock(t)?.column ?? COLUMNS - 1));
+  const tab = fc && reachable(fc.c) ? fc : { c: firstOpen, r: mine[firstOpen] !== NO_PICK ? mine[firstOpen] : 3 };
   const pick = (c: number, r: number) => {
-    if (!canPick(c, t) || settled) return;
+    if (!canPick(c, (wallNow() - startsAt) / 1000) || settled) return;
     sfx("chip");
     onPick(c, mine[c] === r ? NO_PICK : r);
   };
@@ -229,7 +259,12 @@ export function GridScreen(p: GridScreenProps) {
     const m = move[e.key];
     if (!m) return;
     e.preventDefault();
-    const nc = Math.max(0, Math.min(COLUMNS - 1, c + m[0]));
+    let nc = c;
+    if (m[0]) {
+      nc = c + m[0];
+      while (nc >= 0 && nc < COLUMNS && !reachable(nc)) nc += m[0];
+      if (nc < 0 || nc >= COLUMNS) return;
+    }
     const nr = Math.max(0, Math.min(ROWS - 1, r + m[1]));
     setFc({ c: nc, r: nr });
     worldRef.current?.querySelector<HTMLElement>(`[data-cell="${nc}-${nr}"]`)?.focus();
@@ -241,6 +276,11 @@ export function GridScreen(p: GridScreenProps) {
   const [announce, setAnnounce] = useState("");
   const [count, setCount] = useState<"off" | "on" | "done">("off");
   const nid = useRef(0);
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const open = timers.current;
+    return () => open.forEach(clearTimeout);
+  }, []);
   const prev = useRef<{ me: Mark[]; foe: Mark[]; revealed: number; locked: number; sec: number } | null>(null);
   const sec = Math.floor(t);
   const revealedN = theirs.filter((r) => r !== NO_PICK).length;
@@ -277,7 +317,11 @@ export function GridScreen(p: GridScreenProps) {
     if (born.length) {
       setFloaters((f) => [...f, ...born]);
       const ids = born.map((b) => b.id);
-      setTimeout(() => setFloaters((f) => f.filter((x) => !ids.includes(x.id))), 1300);
+      const timer = setTimeout(() => {
+        timers.current.delete(timer);
+        setFloaters((f) => f.filter((x) => !ids.includes(x.id)));
+      }, 1300);
+      timers.current.add(timer);
     }
     if (revealedN > before.revealed) sfx("flip");
     if (lockedN > before.locked && mine[lockedN - 1] !== NO_PICK) sfx("fill");
@@ -417,7 +461,7 @@ export function GridScreen(p: GridScreenProps) {
         {strip}
         {p.error && <p className="tg-error" role="alert">{p.error}</p>}
 
-        <div ref={stageRef} className="cut cut-frame tg-stage" role="group" aria-label={`Price grid, ${asset}. Pick a box in a column that is still open.`}>
+        <div ref={stageRef} className="cut cut-frame tg-stage" role="group" aria-label={`Price grid, ${asset}. Pick a box in a column that is still open. Arrow keys move between boxes, Enter or Space picks.`}>
           <div className="tg-gutter" style={{ height: HEADER_PX + ROWS * rh }} aria-hidden="true">
             <span className="tg-gl-end" style={{ top: HEADER_PX + rh * 0.5 }}>above</span>
             <span className="tg-gl-end" style={{ top: HEADER_PX + rh * (ROWS - 0.5) }}>below</span>
@@ -509,6 +553,7 @@ export function GridScreen(p: GridScreenProps) {
                       <stop offset="1" stopColor="#ffffff" stopOpacity="1" />
                     </linearGradient>
                   </defs>
+                  {bands.map((b, c) => b && <rect key={c} className={`tg-band ${states[c]}`} x={b.x} y={b.y} width={b.w} height={b.h} />)}
                   <path ref={glowRef} className="tg-snake-glow" d={base.d} stroke={`url(#g${gradId})`} />
                   <path ref={pathRef} className="tg-snake-core" d={base.d} stroke={`url(#g${gradId})`} />
                 </svg>
@@ -545,6 +590,7 @@ export function GridScreen(p: GridScreenProps) {
                 <p className="meta">
                   You hit {hitCount(myMarks)} of {COLUMNS} columns · {p.opponent.name} hit {hitCount(foeMarks)}
                 </p>
+                {p.payingOut && <p className="meta" role="status">Paying out…</p>}
                 {p.practice ? (
                   <p className="meta">Practice: nothing was staked and no Gemas moved.</p>
                 ) : (

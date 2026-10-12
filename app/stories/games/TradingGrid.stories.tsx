@@ -22,7 +22,7 @@ function walk(seed: number, secs: number) {
     p *= 1 + drift + (rng() - 0.5) * 0.00012;
     const mid = BigInt(Math.round(p * 1e8));
     series.push({ t: START + s * 1000, p });
-    track = s >= MATCH_SECS ? finish(track, mid) : record(track, s, mid);
+    track = s >= MATCH_SECS ? finish(track) : record(track, s, mid);
   }
   return { series, track, price: BigInt(Math.round(p * 1e8)) };
 }

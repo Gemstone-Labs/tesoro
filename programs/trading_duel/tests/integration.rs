@@ -600,15 +600,25 @@ impl Env {
 
     fn end(&mut self) -> Result<(), Failed> {
         let (kp, key) = self.person_of(0);
-        let ixn = self.sample_ix(key, trading_duel::instruction::EndMatch {});
+        let ad = addrs(self.id);
+        let ixn = ix(
+            trading_duel::ID,
+            trading_duel::accounts::EndMatch {
+                caller: key,
+                duel: ad.duel,
+                book_0: ad.book_0,
+                book_1: ad.book_1,
+            },
+            trading_duel::instruction::EndMatch {},
+            vec![],
+        );
         self.send(&[ixn], &kp, &[])
     }
 
-    /// Jumps past the end of the window with a fresh price at `usd`, then ends the Match.
-    fn finish_at(&mut self, usd: f64) -> Result<(), Failed> {
+    /// Jumps one second past the end of the window, then ends the Match.
+    fn finish(&mut self) -> Result<(), Failed> {
         let ends = self.duel().ends_at;
         self.set_time(ends + 1);
-        self.price(usd);
         self.end()
     }
 
@@ -897,15 +907,10 @@ fn ticks_work_only_inside_the_window() {
 }
 
 #[test]
-fn the_match_cannot_end_early_or_on_a_price_from_before_the_end() {
+fn the_match_cannot_end_early() {
     use trading_duel::DuelError::*;
     let mut env = live();
     env.at(149);
-    env.price(100.0);
-    assert_eq!(custom_code(&env.end().unwrap_err()), dcode(NotEnded));
-    let ends = env.duel().ends_at;
-    env.set_time(ends + 1);
-    env.feed(0, PRICE, ends - 1);
     assert_eq!(custom_code(&env.end().unwrap_err()), dcode(NotEnded));
 }
 
@@ -921,7 +926,7 @@ fn play_flat(env: &mut Env) {
     for t in (10..150).step_by(10) {
         env.tick_at(t, 100.0).unwrap();
     }
-    env.finish_at(100.0).expect("end");
+    env.finish().expect("end");
 }
 
 #[test]
@@ -985,17 +990,15 @@ fn nobody_picking_is_a_draw() {
 }
 
 #[test]
-fn a_match_with_no_ticks_still_scores_from_the_anchor_and_the_end_price() {
+fn a_match_with_no_ticks_still_scores_from_the_anchor() {
     let mut env = live();
     pick_all(&mut env, 0, 4);
     pick_all(&mut env, 1, 5);
-    // Only the anchor and the end price are recorded: every column carries the anchor, and the
-    // end price joins the last column.
-    env.finish_at(100.04).expect("end");
+    // Only the anchor is recorded: every column carries it.
+    env.finish().expect("end");
     let d = env.duel();
     assert_eq!(d.track.seen, 0xfff);
-    // Column 11 spans $100.00 to $100.04: rows 4 and 5. The rest are row 4 only.
-    assert_eq!(d.scores, [1200, 100]);
+    assert_eq!(d.scores, [1200, 0]);
     assert_eq!(d.winner, 0);
 }
 
@@ -1148,6 +1151,43 @@ fn delegation_is_pinned_to_the_tee_validator() {
 }
 
 #[test]
+fn starting_after_the_start_deadline_names_the_window() {
+    let mut env = ready();
+    let ad = addrs(env.id);
+    let deadline = env.duel().start_deadline;
+    env.set_time(deadline + 1);
+    let payer = env.bob.kp.insecure_clone();
+    env.price(100.0);
+    let init = ix(
+        trading_duel::ID,
+        trading_duel::accounts::InitPermissions {
+            payer: a(payer.pubkey()),
+            duel: ad.duel,
+            book_0: ad.book_0,
+            book_1: ad.book_1,
+            duel_permission: permission_pda(ad.duel),
+            book_0_permission: permission_pda(ad.book_0),
+            book_1_permission: permission_pda(ad.book_1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+            price_feed: env.feed_key(),
+        },
+        trading_duel::instruction::InitPermissions {},
+        vec![],
+    );
+    let err = env.send(&[init], &payer, &[]).unwrap_err();
+    assert!(
+        err.meta
+            .logs
+            .iter()
+            .any(|l| l.contains("StartWindowPassed")),
+        "{:?}",
+        err.meta.logs
+    );
+}
+
+#[test]
 fn a_prefunded_permission_address_is_not_a_permission() {
     let mut env = ready();
     let ad = addrs(env.id);
@@ -1188,62 +1228,24 @@ fn a_prefunded_permission_address_is_not_a_permission() {
 }
 
 #[test]
-fn an_on_time_end_uses_a_price_published_inside_the_grace_window() {
-    let mut env = live();
-    env.pick(0, 11, 5).unwrap();
-    let ends = env.duel().ends_at;
-    env.set_time(ends + 2);
-    env.feed(0, 100_04000000, ends + 1);
-    env.end().expect("price published inside the window");
-    let d = env.duel();
-    assert_eq!(d.track.hi[11], 100_04000000);
-    assert_eq!(d.scores, [100, 0]);
-    assert_eq!(d.winner, 0);
-}
-
-#[test]
-fn a_price_after_the_grace_window_is_not_an_end_price() {
-    use trading_duel::DuelError::*;
-    let mut env = live();
-    let ends = env.duel().ends_at;
-    env.set_time(ends + 1);
-    env.feed(0, PRICE, ends + trading_duel::END_GRACE_SECS + 1);
-    assert_eq!(
-        custom_code(&env.end().unwrap_err()),
-        dcode(EndPriceOutOfWindow)
-    );
-}
-
-#[test]
-fn a_late_end_settles_at_the_last_recorded_price_whatever_the_feed_says() {
-    // Two identical Matches: one ended late while the feed shows a huge rise, one while it shows
-    // a crash. Both settle on the last price recorded during the window.
-    let run = |feed_usd: f64| {
+fn the_end_is_the_same_whenever_and_whoever_ends_it() {
+    // The feed is not an input: ending right at the close or much later, with any price on the
+    // feed, carries the last recorded price forward and gives the same result.
+    let run = |delay: i64, feed_usd: f64| {
         let mut env = live();
         env.pick(0, 11, 5).unwrap();
         env.pick(1, 11, 4).unwrap();
         env.tick_at(140, 100.03).unwrap();
         let ends = env.duel().ends_at;
-        env.set_time(ends + trading_duel::END_GRACE_SECS + 30);
+        env.set_time(ends + delay);
         env.price(feed_usd);
-        env.end().expect("a late call settles");
+        env.end().expect("end");
         let d = env.duel();
         (d.track, d.scores, d.winner)
     };
-    let up = run(150.0);
-    let down = run(50.0);
-    assert_eq!(up, down, "the late feed price changes nothing");
-    assert_eq!(up.0.last, 100_03000000);
-    assert_eq!(up.1, [100, 100], "column 11 crossed rows 4 and 5");
-}
-
-#[test]
-fn a_late_end_needs_no_fresh_feed() {
-    let mut env = live();
-    let ends = env.duel().ends_at;
-    env.set_time(ends + 100);
-    // a stale feed that would fail an on-time end
-    env.feed(0, PRICE, ends - 500);
-    env.end().expect("late and flat");
-    assert_eq!(env.duel().winner, trading_duel::DRAW);
+    let on_time = run(0, 100.0);
+    assert_eq!(on_time, run(3, 150.0));
+    assert_eq!(on_time, run(100, 50.0));
+    assert_eq!(on_time.0.last, 100_03000000);
+    assert_eq!(on_time.1, [100, 100], "column 11 crossed rows 4 and 5");
 }

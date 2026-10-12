@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NO_PICK, STEP_PPM, stepFor } from "../grid";
-import { PickError, newGridSession, setPick, stepGridSession } from "./gridSession";
+import { newGridSession, setPick, stepGridSession } from "./gridSession";
 import { seededRng } from "./bot";
 
 const A = 100_00000000n;
@@ -17,12 +17,19 @@ describe("grid practice session", () => {
 
   it("accepts your pick until the column locks, then refuses", () => {
     let s = newGridSession(T0, A, "SOL", seededRng(1));
-    s = setPick(s, 0, 4, at(19));
-    s = setPick(s, 0, 5, at(19.9));
+    s = setPick(s, 0, 4, at(19))!;
+    s = setPick(s, 0, 5, at(19.9))!;
     expect(s.picks[0][0]).toBe(5);
-    expect(() => setPick(s, 0, 4, at(20))).toThrow(PickError);
-    expect(() => setPick(s, 3, 9, at(0))).toThrow(PickError);
-    expect(setPick(s, 0, NO_PICK, at(1)).picks[0][0]).toBe(NO_PICK);
+    expect(setPick(s, 0, 4, at(20))).toBeNull();
+    expect(setPick(s, 3, 9, at(0))).toBeNull();
+    expect(setPick(s, 0, NO_PICK, at(1))!.picks[0][0]).toBe(NO_PICK);
+  });
+
+  it("a click just after a lock is refused without throwing and changes nothing", () => {
+    const s = setPick(newGridSession(T0, A, "SOL", seededRng(1)), 0, 4, at(19.9))!;
+    expect(setPick(s, 0, 6, at(20.1))).toBeNull();
+    expect(setPick(s, 0, NO_PICK, at(20.1))).toBeNull();
+    expect(s.picks[0][0]).toBe(4);
   });
 
   it("the bot picks every column before it locks and never afterwards", () => {
@@ -40,11 +47,10 @@ describe("grid practice session", () => {
     const rng = seededRng(4);
     let s = newGridSession(T0, A, "SOL", rng);
     s = { ...s, picks: [s.picks[0], Array(12).fill(NO_PICK)], botAt: Array(12).fill(1e9) };
-    for (let c = 0; c < 12; c++) s = setPick(s, c, 4, at(0));
+    for (let c = 0; c < 12; c++) s = setPick(s, c, 4, at(0))!;
     for (let t = 0; t <= 150; t++) s = stepGridSession(s, A, at(t), rng, hist);
     expect(s.final?.scores[0]).toBe(1200);
     expect(s.final?.winner).toBe(0);
-    expect(s.endPrice).toBe(A);
     expect(stepGridSession(s, A + 1n, at(160), rng, hist)).toBe(s);
   });
 
