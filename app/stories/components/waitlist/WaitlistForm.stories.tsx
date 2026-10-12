@@ -33,6 +33,15 @@ const join = async (canvasElement: HTMLElement, email = "ana@example.com") => {
 /** Empty: type any email and join to try it by hand (the mock hands out spot #7). */
 export const Empty: Story = { beforeEach: () => setNextJoin(7) };
 
+/** Focused on a phone, an email typed: the ring follows the cut corners. */
+export const FocusedPhone: Story = {
+  name: "Focused (phone)",
+  globals: { viewport: { value: "phone360", isRotated: false } },
+  play: async ({ canvasElement }) => {
+    await userEvent.type(within(canvasElement).getByLabelText("Email"), "ana@example.com");
+  },
+};
+
 /** Joined: the pack for spot #7 (the Amethyst Owl) comes up over the page. Rip it; Share opens the real post composer. */
 export const Joined: Story = {
   beforeEach: () => setNextJoin(7),

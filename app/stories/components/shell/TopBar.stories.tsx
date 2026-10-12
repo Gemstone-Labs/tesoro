@@ -15,6 +15,13 @@ type Story = StoryObj<typeof meta>;
 
 /** Search on the Lobby, the Season plate (Leaderboard Pool + your rank and points, 3rd here), the Gemas balance, and the Account menu. */
 export const SignedIn: Story = {};
+/** A phone: menu, the Pool, your Gemas, you. */
+export const Phone: Story = { globals: { viewport: { value: "phone360", isRotated: false } } };
+/** A phone, big figures: the Pool shortens (12.7K), everything still fits. */
+export const PhoneBigFigures: Story = {
+  globals: { viewport: { value: "phone360", isRotated: false } },
+  parameters: { screen: { pool: { gemas: 12_480 } } },
+};
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };
 export const SigningIn: Story = { parameters: { auth: "loading" } };
 export const BalanceLoading: Story = { parameters: { data: { snapshot: null } } };

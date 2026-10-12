@@ -107,17 +107,19 @@ function SignInForm({ onSignedIn, onWallet }: { onSignedIn: () => void; onWallet
       ) : (
         <>
           <form className="stack" onSubmit={send}>
-            <input
-              className="cut input signin-email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              placeholder="Your email"
-              aria-label="Email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
+            <span className="cut cut-chip ctl">
+              <input
+                className="input signin-email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="Your email"
+                aria-label="Email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </span>
             <button type="submit" className="cut cut-btn btn block signin-go" disabled={sending || email.trim() === ""}>
               {sending ? "Sending code…" : "Continue with email"}
             </button>

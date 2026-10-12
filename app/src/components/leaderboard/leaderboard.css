@@ -151,7 +151,11 @@
   .lb-hero-kicker { font-size: 12px; }
 }
 @media (max-width: 640px) {
-  .lb-paying { margin-left: 14px; font-size: 13px; }
+  /* phones: the chest takes the card's width, the copy starts under it */
+  .lb-hero-art { right: auto; left: 50%; translate: -50% 0; top: -4%; width: 84%; max-width: 360px; }
+  .lb-hero-copy { padding-top: min(58vw, 270px); }
+  /* the tab spans the hero's top edge from one cut corner to the other, so it reads as the card's lid */
+  .lb-paying { justify-self: stretch; justify-content: center; margin-inline: var(--cut-frame); font-size: 13px; }
   .lb-paying-sub { display: none; }
   .lb-payout { padding: 16px; gap: 20px; }
   .lb-chart ol { height: 130px; gap: 3px; }
