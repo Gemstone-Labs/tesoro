@@ -57,7 +57,7 @@
       "docs": [
         "Rollup. After the Match is over: closes the permissions and commits + undelegates",
         "everything. The Books are not wiped: once committed they are public, which is how both",
-        "Players' fill histories become readable."
+        "Players' picks become readable."
       ],
       "discriminator": [
         79,
@@ -317,63 +317,6 @@
           "name": "magic_context",
           "writable": true,
           "address": "MagicContext1111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "close_position",
-      "docs": [
-        "Rollup. Closes the open position. A position liquidated by the mark just before is not an",
-        "error: the liquidation stands and nothing more is closed."
-      ],
-      "discriminator": [
-        123,
-        134,
-        81,
-        0,
-        49,
-        68,
-        98,
-        98
-      ],
-      "accounts": [
-        {
-          "name": "player",
-          "signer": true
-        },
-        {
-          "name": "duel",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  117,
-                  101,
-                  108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "duel.match_id",
-                "account": "Duel"
-              }
-            ]
-          }
-        },
-        {
-          "name": "book_0",
-          "writable": true
-        },
-        {
-          "name": "book_1",
-          "writable": true
-        },
-        {
-          "name": "price_feed"
         }
       ],
       "args": []
@@ -1238,10 +1181,10 @@
     {
       "name": "end_match",
       "docs": [
-        "Rollup, permissionless. Once the window has closed: marks both Books at the first oracle",
-        "price published within `END_GRACE_SECS` after the end (or, if called later, at the last mid",
-        "recorded during the window), closes any open position with a final fill, and",
-        "decides the Match: the higher equity wins, equal equity is a draw."
+        "Rollup, permissionless. Once the window has closed: records the first oracle price",
+        "published within `END_GRACE_SECS` after the end (or, if called later, the last price",
+        "recorded during the window) as the final sample, scores every column and decides the Match:",
+        "more points wins, equal points is a draw."
       ],
       "discriminator": [
         34,
@@ -1255,7 +1198,7 @@
       ],
       "accounts": [
         {
-          "name": "player",
+          "name": "caller",
           "signer": true
         },
         {
@@ -1281,12 +1224,10 @@
           }
         },
         {
-          "name": "book_0",
-          "writable": true
+          "name": "book_0"
         },
         {
-          "name": "book_1",
-          "writable": true
+          "name": "book_1"
         },
         {
           "name": "price_feed"
@@ -1486,7 +1427,8 @@
       "name": "init_permissions",
       "docs": [
         "Rollup. Creates the permissions (the Duel is public, each Book private to its Player) and",
-        "starts the Match: trading opens after a short countdown and runs for five minutes."
+        "starts the Match: the anchor price is read from the feed and recorded as the first sample,",
+        "the line enters the grid after the head start, and the Match runs for 2.5 minutes."
       ],
       "discriminator": [
         247,
@@ -1741,79 +1683,12 @@
         {
           "name": "magic_program",
           "address": "Magic11111111111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "open_position",
-      "docs": [
-        "Rollup. Opens a position of `margin` Chips at `leverage`, filled at the oracle price plus",
-        "the spread. Both Books are first marked, so a due liquidation is recorded (not reverted)."
-      ],
-      "discriminator": [
-        135,
-        128,
-        47,
-        77,
-        15,
-        152,
-        240,
-        49
-      ],
-      "accounts": [
-        {
-          "name": "player",
-          "signer": true
-        },
-        {
-          "name": "duel",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  100,
-                  117,
-                  101,
-                  108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "duel.match_id",
-                "account": "Duel"
-              }
-            ]
-          }
-        },
-        {
-          "name": "book_0",
-          "writable": true
-        },
-        {
-          "name": "book_1",
-          "writable": true
         },
         {
           "name": "price_feed"
         }
       ],
-      "args": [
-        {
-          "name": "side",
-          "type": "u8"
-        },
-        {
-          "name": "margin",
-          "type": "u64"
-        },
-        {
-          "name": "leverage",
-          "type": "u8"
-        }
-      ]
+      "args": []
     },
     {
       "name": "process_undelegation",
@@ -1921,10 +1796,70 @@
       ]
     },
     {
+      "name": "set_pick",
+      "docs": [
+        "Rollup. Picks `row` (0 bottom to 7 top) for `column`, or clears the pick with `NO_PICK`.",
+        "Only a Player, only until 10 seconds before the column starts. The pick stays in the",
+        "Player's own Book until the column locks."
+      ],
+      "discriminator": [
+        150,
+        223,
+        141,
+        221,
+        79,
+        125,
+        128,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "signer": true
+        },
+        {
+          "name": "duel",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  117,
+                  101,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "duel.match_id",
+                "account": "Duel"
+              }
+            ]
+          }
+        },
+        {
+          "name": "book",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "column",
+          "type": "u8"
+        },
+        {
+          "name": "row",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "tick",
       "docs": [
-        "Rollup, permissionless. Marks both Books at the current oracle price: executes due",
-        "liquidations and refreshes the coarse lead."
+        "Rollup, permissionless. Samples the oracle into the current column, reveals the picks of",
+        "every column that has locked, and scores the columns that are over. Clients call it about",
+        "once a second; a sample is always a real price, so extra calls cannot fake a hit."
       ],
       "discriminator": [
         92,
@@ -1938,7 +1873,7 @@
       ],
       "accounts": [
         {
-          "name": "player",
+          "name": "caller",
           "signer": true
         },
         {
@@ -1964,12 +1899,10 @@
           }
         },
         {
-          "name": "book_0",
-          "writable": true
+          "name": "book_0"
         },
         {
-          "name": "book_1",
-          "writable": true
+          "name": "book_1"
         },
         {
           "name": "price_feed"
@@ -2068,91 +2001,81 @@
     },
     {
       "code": 6004,
-      "name": "TradingClosed",
-      "msg": "Trading is not open"
+      "name": "GridClosed",
+      "msg": "The grid is not open"
     },
     {
       "code": 6005,
       "name": "NotEnded",
-      "msg": "The trading window has not ended"
+      "msg": "The grid window has not ended"
     },
     {
       "code": 6006,
-      "name": "InvalidLeverage",
-      "msg": "Leverage must be 1 to 20"
+      "name": "InvalidColumn",
+      "msg": "Column out of range"
     },
     {
       "code": 6007,
-      "name": "MarginTooSmall",
-      "msg": "Margin is below the minimum"
+      "name": "InvalidRow",
+      "msg": "Row must be 0 to 7, or 255 to clear"
     },
     {
       "code": 6008,
-      "name": "NotEnoughChips",
-      "msg": "Not enough free Chips"
+      "name": "ColumnLocked",
+      "msg": "That column is locked"
     },
     {
       "code": 6009,
-      "name": "PositionOpen",
-      "msg": "A position is already open"
-    },
-    {
-      "code": 6010,
-      "name": "InvalidSide",
-      "msg": "Side must be long or short"
-    },
-    {
-      "code": 6011,
       "name": "InvalidAsset",
       "msg": "Unknown asset"
     },
     {
-      "code": 6012,
+      "code": 6010,
       "name": "EndPriceOutOfWindow",
       "msg": "The oracle price is outside the end-of-window grace"
     },
     {
-      "code": 6013,
+      "code": 6011,
       "name": "BadPriceFeed",
       "msg": "Not the price feed of this Match's asset"
     },
     {
-      "code": 6014,
+      "code": 6012,
       "name": "StalePrice",
       "msg": "The oracle price is stale or in the future"
     },
     {
-      "code": 6015,
+      "code": 6013,
       "name": "BadPrice",
       "msg": "The oracle price is unusable"
     },
     {
-      "code": 6016,
+      "code": 6014,
       "name": "NotTimedOut",
       "msg": "Deadline has not passed"
     },
     {
-      "code": 6017,
+      "code": 6015,
       "name": "BadTesoroMatch",
       "msg": "The tesoro_core Match is not an Active Match of this Game"
     },
     {
-      "code": 6018,
+      "code": 6016,
       "name": "MatchNotOver",
       "msg": "The Match is not over"
     },
     {
-      "code": 6019,
+      "code": 6017,
       "name": "AlreadyFinalized",
       "msg": "Already settled or refunded in tesoro_core"
     },
     {
-      "code": 6020,
+      "code": 6018,
       "name": "InvalidValidator",
       "msg": "Delegation must name the TEE validator"
     },
     {
-      "code": 6021,
+      "code": 6019,
       "name": "PermissionNotReady",
       "msg": "A permission for this account is missing or is not a real permission"
     }
@@ -2192,7 +2115,7 @@
     {
       "name": "Book",
       "docs": [
-        "One Player's book. Readable only by that Player while the Match runs, public once it is over."
+        "One Player's picks. Readable only by that Player while the Match runs, public once it is over."
       ],
       "type": {
         "kind": "struct",
@@ -2214,62 +2137,23 @@
             "type": "u8"
           },
           {
-            "name": "cash",
+            "name": "picks",
             "docs": [
-              "Chips not locked as margin."
+              "A row (0 bottom to 7 top) per column, or `NO_PICK`."
             ],
-            "type": "u64"
-          },
-          {
-            "name": "side",
-            "type": "u8"
-          },
-          {
-            "name": "margin",
-            "type": "u64"
-          },
-          {
-            "name": "notional",
-            "type": "u64"
-          },
-          {
-            "name": "leverage",
-            "type": "u8"
-          },
-          {
-            "name": "entry",
-            "docs": [
-              "Fill price the open position was entered at."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "trades",
-            "docs": [
-              "Orders opened, liquidations included in `fill_count` only."
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "liquidations",
-            "type": "u32"
-          },
-          {
-            "name": "fill_count",
-            "type": "u32"
-          },
-          {
-            "name": "fills",
             "type": {
               "array": [
-                {
-                  "defined": {
-                    "name": "Fill"
-                  }
-                },
-                64
+                "u8",
+                12
               ]
             }
+          },
+          {
+            "name": "pick_count",
+            "docs": [
+              "Columns with a pick right now."
+            ],
+            "type": "u8"
           }
         ]
       }
@@ -2315,6 +2199,31 @@
                 }
               }
             }
+          },
+          {
+            "name": "leaderboard_bps",
+            "docs": [
+              "Leaderboard Fee in basis points of the Pot. Appended after `games`: an account created",
+              "before it reads the fields as zero (the unused tail of the account is zeroed) and is",
+              "extended by `init_leaderboard`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "pool_account",
+            "docs": [
+              "The Leaderboard Pool: `TesoroAccount` owned by the `[\"leaderboard\"]` address. Zero until",
+              "`init_leaderboard`; the fee is off while it is."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "leaderboard_since",
+            "docs": [
+              "Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so",
+              "readers show the fee only for Matches opened at or after it. Zero until then."
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -2322,7 +2231,8 @@
     {
       "name": "Duel",
       "docs": [
-        "The public table. Readable by anyone during the Match; holds only a coarse lead."
+        "The public table. Readable by anyone during the Match; a Player's pick appears here only once",
+        "its column has locked."
       ],
       "type": {
         "kind": "struct",
@@ -2386,39 +2296,67 @@
             "type": "i64"
           },
           {
+            "name": "grid_at",
+            "docs": [
+              "`starts_at + HEAD_START_SECS`: when the line enters column 0."
+            ],
+            "type": "i64"
+          },
+          {
             "name": "ends_at",
             "type": "i64"
           },
           {
-            "name": "trades",
-            "type": {
-              "array": [
-                "u32",
-                2
-              ]
-            }
+            "name": "anchor",
+            "docs": [
+              "The price when the Match started, 1e-8 USD: row 4 begins here."
+            ],
+            "type": "u64"
           },
           {
-            "name": "lead",
-            "type": "u8"
+            "name": "step",
+            "docs": [
+              "Row height, 1e-8 USD."
+            ],
+            "type": "u64"
           },
           {
             "name": "last_tick",
             "type": "i64"
           },
           {
-            "name": "final_price",
-            "docs": [
-              "1e-8 USD. During the Match: the last mid recorded by a trade or tick (taken at `last_tick`).",
-              "After it: the price the Match ended on."
-            ],
-            "type": "u64"
+            "name": "track",
+            "type": {
+              "defined": {
+                "name": "Track"
+              }
+            }
           },
           {
-            "name": "final_equity",
+            "name": "revealed",
+            "docs": [
+              "Picks per seat, public once their column has locked; `NO_PICK` before and for no pick."
+            ],
             "type": {
               "array": [
-                "u64",
+                {
+                  "array": [
+                    "u8",
+                    12
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "scores",
+            "docs": [
+              "Points from the columns scored so far."
+            ],
+            "type": {
+              "array": [
+                "u32",
                 2
               ]
             }
@@ -2456,58 +2394,6 @@
                 32
               ]
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "Fill",
-      "docs": [
-        "One executed order. `pnl` is realised by the fill (zero for an open)."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "t",
-            "docs": [
-              "Seconds since trading opened."
-            ],
-            "type": "u32"
-          },
-          {
-            "name": "kind",
-            "type": "u8"
-          },
-          {
-            "name": "side",
-            "type": "u8"
-          },
-          {
-            "name": "price",
-            "docs": [
-              "Fill price in 1e-8 USD, spread included."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "notional",
-            "type": "u64"
-          },
-          {
-            "name": "margin",
-            "type": "u64"
-          },
-          {
-            "name": "pnl",
-            "type": "i64"
-          },
-          {
-            "name": "equity",
-            "docs": [
-              "Cash plus any open position's value right after the fill."
-            ],
-            "type": "u64"
           }
         ]
       }
@@ -2757,6 +2643,54 @@
                 "name": "Account"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Track",
+      "docs": [
+        "What the price line did in each column: its lowest and highest recorded price (1e-8 USD).",
+        "`seen` is a bitmask of the columns that have data. See `engine::Track` methods for the rules."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lo",
+            "type": {
+              "array": [
+                "u64",
+                12
+              ]
+            }
+          },
+          {
+            "name": "hi",
+            "type": {
+              "array": [
+                "u64",
+                12
+              ]
+            }
+          },
+          {
+            "name": "seen",
+            "type": "u16"
+          },
+          {
+            "name": "last",
+            "docs": [
+              "The last price recorded, 0 before the first sample."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_col",
+            "docs": [
+              "The column of that sample, -1 during the head start."
+            ],
+            "type": "i8"
           }
         ]
       }
