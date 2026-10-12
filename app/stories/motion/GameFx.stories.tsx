@@ -49,10 +49,10 @@ function Demo({ game }: { game: ArenaGame }) {
           </div>
           <div className="sbm-btns" style={{ flexWrap: "wrap", marginTop: 12 }}>
             <button type="button" className="sbm-btn" onClick={() => say("Double!")}>Callout</button>
-            <button type="button" className="sbm-btn" onClick={() => say("Long 5x opened", "up")}>Callout up</button>
-            <button type="button" className="sbm-btn" onClick={() => say("Short 3x opened", "down")}>Callout down</button>
+            <button type="button" className="sbm-btn" onClick={() => say("Line going up", "up")}>Callout up</button>
+            <button type="button" className="sbm-btn" onClick={() => say("Line going down", "down")}>Callout down</button>
             <button type="button" className="sbm-btn" onClick={() => say("Gem ×2", "gem")}>Callout gem</button>
-            <button type="button" className="sbm-btn" onClick={() => say("Liquidated", "warn")}>Callout warn</button>
+            <button type="button" className="sbm-btn" onClick={() => say("Last ten seconds", "warn")}>Callout warn</button>
           </div>
         </div>
 

@@ -6,7 +6,7 @@ Tesoro lets stakers play head-to-head skill games with their future staking yiel
 
 1. Lock a **Position**: a SOL or ETH liquid staking token.
 2. Take an **Advance** of 100% of the Position's projected yield over a 1–12 month **Horizon**. It is issued as **Gemas**, worth $0.01 each at issuance.
-3. Play **Matches**: async Block Puzzle, real-time heads-up Hold'em, or Trading Duel (a real-time trading Match on a live oracle price).
+3. Play **Matches**: async Block Puzzle, real-time heads-up Hold'em, or Trading Duel (a real-time price grid: pick where the live price will be and score when the line hits your box).
 
 The **Principal is never played** and never pays Debt. Accrued yield repays the Advance automatically, and winners Redeem the Gemas they won as the loser's yield actually accrues.
 
