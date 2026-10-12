@@ -20,7 +20,7 @@ pub const MAX_BAND: i16 = i16::MAX;
 pub const MATCH_SECS: i64 = HEAD_START_SECS + COLUMNS as i64 * COLUMN_SECS;
 /// Band height as parts per million of the anchor price, per asset (SOL, ETH, HYPE). Calibrated
 /// in `app/src/games/trading-duel/grid.ts`, which carries the data behind these values.
-pub const STEP_PPM: [u64; 3] = [250, 200, 270];
+pub const STEP_PPM: [u64; 3] = [120, 100, 130];
 
 /// Seconds after creation within which the Match must have been delegated and started.
 pub const START_WINDOW_SECS: i64 = 300;

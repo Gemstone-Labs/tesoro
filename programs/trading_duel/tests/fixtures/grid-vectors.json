@@ -8,9 +8,9 @@
   "HIT_POINTS": 100,
   "NO_PICK": -32768,
   "STEP_PPM": {
-   "SOL": 250,
-   "ETH": 200,
-   "HYPE": 270
+   "SOL": 120,
+   "ETH": 100,
+   "HYPE": 130
   },
   "MATCH_SECS": 150,
   "MAX_BAND": 32767

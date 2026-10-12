@@ -884,12 +884,12 @@ fn ticks_fill_the_columns_the_line_crosses_and_carry_skipped_ones() {
 #[test]
 fn columns_are_scored_once_they_are_over() {
     let mut env = live();
-    // Column 0: $100.00 to $100.03 crosses bands 0 and 1. Seat 0 picks 1 (hit), seat 1 picks 2.
+    // Column 0: $100.00 to $100.02 crosses bands 0 and 1 ($0.012 each). Seat 0 picks 1 (hit), seat 1 picks 2.
     env.pick(0, 0, 1).unwrap();
     env.pick(1, 0, 2).unwrap();
-    env.tick_at(35, 100.03).unwrap();
+    env.tick_at(35, 100.02).unwrap();
     assert_eq!(env.duel().scores, [0, 0], "column 0 is still live");
-    env.tick_at(40, 100.03).unwrap();
+    env.tick_at(40, 100.02).unwrap();
     assert_eq!(env.duel().scores, [100, 0]);
     // Column 1 is never picked by anyone: nothing is scored.
     env.tick_at(50, 100.03).unwrap();
@@ -1006,11 +1006,11 @@ fn a_match_with_no_ticks_still_scores_from_the_anchor() {
 #[test]
 fn a_hit_needs_the_line_to_cross_the_band_inside_the_column() {
     let mut env = live();
-    env.pick(0, 2, 2).unwrap(); // $100.05 to $100.075
-    env.pick(1, 2, 3).unwrap(); // $100.075 to $100.1
+    env.pick(0, 2, 2).unwrap(); // $100.024 to $100.036
+    env.pick(1, 2, 3).unwrap(); // $100.036 to $100.048
     env.tick_at(51, 100.0).unwrap();
-    env.tick_at(55, 100.06).unwrap();
-    env.tick_at(60, 100.06).unwrap();
+    env.tick_at(55, 100.03).unwrap();
+    env.tick_at(60, 100.03).unwrap();
     assert_eq!(env.duel().scores, [100, 0]);
 }
 

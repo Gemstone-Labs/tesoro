@@ -28,8 +28,10 @@ export type GridAsset = "SOL" | "ETH" | "HYPE";
  *    93% touch at most 2, 79% inner.
  *  - HYPE: no 1 s history on Binance; Hyperliquid 1 m candles over 24 h give sigma 563 ppm per
  *    minute, so about 73 ppm per second (random-walk scaling), close to SOL: 270 ppm.
+ * Halved on 2026-10-12 (founder: smaller boxes, about $0.0137 on SOL) to SOL 120, ETH 100, HYPE 130:
+ * the line now crosses two to three bands in a typical column.
  */
-export const STEP_PPM: Record<GridAsset, bigint> = { SOL: 250n, ETH: 200n, HYPE: 270n };
+export const STEP_PPM: Record<GridAsset, bigint> = { SOL: 120n, ETH: 100n, HYPE: 130n };
 
 const PPM = 1_000_000n;
 

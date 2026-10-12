@@ -3,7 +3,7 @@ import { bandOf, lockAt } from "../grid";
 const LOOKBACK = 20;
 /** How far the bot trusts the recent drift, and how wide its guess scatters, in units of the recent volatility. */
 export const DRIFT_TRUST = 0.35;
-export const SCATTER = 1.5;
+export const SCATTER = 0.6;
 
 /** A normal draw from two uniforms. */
 const gauss = (rng: () => number) => Math.sqrt(-2 * Math.log(rng() || 1e-12)) * Math.cos(2 * Math.PI * rng());
