@@ -11,20 +11,50 @@ import {
   HIT_POINTS,
   LOCK_AHEAD_SECS,
   MATCH_SECS,
+  MAX_BAND,
   NO_PICK,
-  ROWS,
+  bandEdges,
   canPick,
+  columnEnd,
   columnState,
   headStartLeft,
   lockAt,
   nextLock,
-  rowBand,
   type ColumnState,
   type GridAsset,
   type Track,
 } from "./grid";
 import type { LiveSeries } from "./feed";
-import { HEADER_PX, PAD_COLS, WORLD_COLS, cameraAfterZoom, cameraX, clampCamera, clampCols, columnX, hitCount, layoutFor, marks, maxCols, MIN_COLS, priceDigits, runEndingAt, snakeWindow, touchedRows, xOf, yOf, type Mark } from "./gridView";
+import {
+  HEADER_PX,
+  PAD_COLS,
+  WORLD_COLS,
+  bandUnits,
+  bandWindow,
+  cameraAfterZoom,
+  cameraX,
+  clampCamera,
+  clampCols,
+  clampU,
+  columnX,
+  followU,
+  hitCount,
+  layerOffset,
+  layoutFor,
+  marks,
+  maxCols,
+  MIN_COLS,
+  offscreen,
+  priceDigits,
+  revealU,
+  runEndingAt,
+  snakeWindow,
+  touchedBands,
+  xOf,
+  yOf,
+  yOfUnits,
+  type Mark,
+} from "./gridView";
 import "./grid.css";
 
 export interface GridSide {
@@ -42,7 +72,7 @@ export interface GridPoint {
 
 export interface GridScreenProps {
   asset: GridAsset;
-  /** Start price and row height in 1e-8 USD: what `grid.ts` calls `anchor` and `step`. */
+  /** Start price and band height in 1e-8 USD: what `grid.ts` calls `anchor` and `step`. */
   anchor: bigint;
   step: bigint;
   /** When the head start begins, ms. The clock runs from here. */
@@ -53,9 +83,9 @@ export interface GridScreenProps {
   series: GridPoint[] | LiveSeries;
   /** The price feed has gone quiet. */
   stale?: boolean;
-  /** Your row for each of the 12 columns, `NO_PICK` where you have none. */
+  /** Your band for each of the 12 columns, `NO_PICK` where you have none. */
   mine: number[];
-  /** The opponent's row per column: `NO_PICK` until the column locks and their pick is revealed. */
+  /** The opponent's band per column: `NO_PICK` until the column locks and their pick is revealed. */
   theirs: number[];
   me?: GridSide;
   opponent: GridSide;
@@ -67,8 +97,8 @@ export interface GridScreenProps {
   pot?: number;
   title?: string;
   error?: string | null;
-  /** Pick a box; `row` is `NO_PICK` when you tap your own pick again to clear it. */
-  onPick: (column: number, row: number) => void;
+  /** Pick a box; `band` is `NO_PICK` when you tap your own pick again to clear it. */
+  onPick: (column: number, band: number) => void;
   onPlayAgain?: () => void;
   /** Where the end screen's second button goes. */
   exitHref?: string;
@@ -97,7 +127,11 @@ function directionOf(points: { p: number }[], last: number): Dir {
   return "flat";
 }
 
-type Floater = { id: number; c: number; r: number; who: "me" | "foe" };
+type Floater = { id: number; c: number; k: number; who: "me" | "foe" };
+/** A pick whose band is out of view: which column, whose, which way, which band. */
+type EdgePick = { c: number; who: "me" | "foe"; dir: 1 | -1; k: number };
+/** Where the player has scrolled to while panned away from the line: a camera x (px) and the band unit in the middle of the view. */
+type Free = { x: number; u: number };
 type Moment = { id: number; text: string; tone: CalloutTone };
 
 /** The browser time now, read when a box is tapped. */
@@ -129,7 +163,7 @@ function useClock(frozen: number | undefined, startsAt: number): number {
 }
 
 /**
- * The Trading Duel play screen: a 12 column by 8 row price grid that scrolls under a glowing line (the snake).
+ * The Trading Duel play screen: 12 columns of time by price bands that follow a glowing line (the snake) up and down.
  * It takes plain game state and reports picks through `onPick`; practice and real Matches both feed it.
  * You are the steel diamond, the opponent the violet outline; a hit lights the box, a miss dims it.
  */
@@ -184,6 +218,9 @@ export function GridScreen(p: GridScreenProps) {
 
   // ---- the moving parts are written straight to the DOM every frame (no React render per frame) ----
   const worldRef = useRef<HTMLDivElement>(null);
+  const vlRef = useRef<HTMLDivElement>(null);
+  const gvlRef = useRef<HTMLDivElement>(null);
+  const padRef = useRef<HTMLDivElement>(null);
   const pathRef = useRef<SVGPathElement>(null);
   const glowRef = useRef<SVGPathElement>(null);
   const gradRef = useRef<SVGLinearGradientElement>(null);
@@ -205,25 +242,37 @@ export function GridScreen(p: GridScreenProps) {
     anchorUsd,
     stepUsd,
     money,
-    hy: null as number | null,
+    mine,
+    theirs,
+    /** The head's band position, eased; null before the first frame. */
+    hu: null as number | null,
+    /** The following camera's band position (the band unit in the middle of the view), eased. */
+    cf: null as number | null,
     last: 0,
     cam: 0,
+    cu: 0,
     built: "",
     d: "",
     ex: 0,
-    ey: 0,
+    eu: 0,
     dir: "flat" as Dir,
     text: "",
+    win: "",
+    edges: "",
     redraw: () => {},
   });
-  // Where the player has scrolled to: `free` is a camera x while panned away from the line, null while it follows.
-  const view = useRef({ free: null as number | null, returning: false, touched: 0, down: 0 });
+  // Where the player has scrolled to: `free` is a camera while panned away from the line, null while it follows.
+  const view = useRef({ free: null as Free | null, returning: false, touched: 0, down: 0 });
   const [panned, setPanned] = useState(false);
+  // The bands in the DOM: what shows plus a margin, moved as the camera moves. Picks out of view are edge markers.
+  const [win, setWin] = useState(() => bandWindow(0, layout));
+  const [edges, setEdges] = useState<EdgePick[]>([]);
   useEffect(() => {
-    Object.assign(live.current, { layout, source, startsAt, stepped: reduced, anchorUsd, stepUsd, money });
+    Object.assign(live.current, { layout, source, startsAt, stepped: reduced, anchorUsd, stepUsd, money, mine, theirs });
   });
   useEffect(() => {
     live.current.built = "";
+    live.current.win = "";
   }, [layout, source, startsAt, anchorUsd, stepUsd]);
   const gradId = useId().replace(/[^a-zA-Z0-9]/g, "");
   const frozen = p.nowMs !== undefined;
@@ -231,33 +280,22 @@ export function GridScreen(p: GridScreenProps) {
     const apply = (ms: number, snapHead: boolean) => {
       const L = live.current;
       const V = view.current;
+      const l = L.layout;
       const secs = (ms - L.startsAt) / 1000;
       const dt = Math.min(0.1, Math.max(0.001, (ms - L.last) / 1000 || 0.016));
       L.last = ms;
-      const follow = cameraX(secs, L.layout, L.stepped);
-      if (V.free !== null && (V.returning || (V.down === 0 && !frozen && Date.now() - V.touched > IDLE_RETURN_MS))) {
-        V.returning = true;
-        V.free = L.stepped || snapHead ? follow : V.free + (follow - V.free) * Math.min(1, dt * 9);
-        if (Math.abs(follow - V.free) < 1.5) {
-          V.free = null;
-          V.returning = false;
-          setPanned(false);
-        }
-      }
-      const cam = V.free !== null ? clampCamera(V.free, L.layout) : follow;
-      L.cam = cam;
-      if (worldRef.current) worldRef.current.style.transform = `translate3d(${-cam}px,0,0)`;
 
-      // The line is rebuilt when a new reading arrives or the view moves half a screen (it is written for the screen and a margin of half a screen); the tail to the head every frame.
-      const half = L.layout.viewW / 2;
-      const win = Math.floor(cam / half);
-      const key = `${L.source.rev}|${win}`;
+      // The line is rebuilt when a new reading arrives or the view moves half a screen sideways (it is written for the screen and a margin of half a screen); the tail to the head every frame.
+      const followX = cameraX(secs, l, L.stepped);
+      const half = l.viewW / 2;
+      const win_ = Math.floor((V.free ? V.free.x : followX) / half);
+      const key = `${L.source.rev}|${win_}`;
       if (L.built !== key) {
         L.built = key;
-        const r = snakeWindow(L.source.points, L.startsAt, L.anchorUsd, L.layout, L.stepUsd, win * half, (win + 3) * half);
+        const r = snakeWindow(L.source.points, L.startsAt, L.anchorUsd, l, L.stepUsd, win_ * half, (win_ + 3) * half);
         L.d = r.d;
         L.ex = r.x;
-        L.ey = r.y;
+        L.eu = bandUnits(r.p, L.anchorUsd, L.stepUsd);
         const dir = directionOf(L.source.points, r.p);
         const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "◆";
         const text = L.money(r.p);
@@ -270,26 +308,77 @@ export function GridScreen(p: GridScreenProps) {
           for (const el of [dotRef.current, chipRef.current, ptrTextRef.current]) el?.setAttribute("data-dir", dir);
         }
       }
-      const targetY = L.ey;
-      const hy = L.hy === null || snapHead ? targetY : L.hy + (targetY - L.hy) * Math.min(1, dt * 14);
-      L.hy = hy;
-      const hx = xOf(secs, L.layout.cw);
+      const hu = L.hu === null || snapHead ? L.eu : L.hu + (L.eu - L.hu) * Math.min(1, dt * 14);
+      L.hu = hu;
+      const follow = followU(snapHead ? null : L.cf, hu, dt, l, L.stepped);
+      L.cf = follow;
+
+      if (V.free && (V.returning || (V.down === 0 && !frozen && Date.now() - V.touched > IDLE_RETURN_MS))) {
+        V.returning = true;
+        if (L.stepped || snapHead) V.free = { x: followX, u: follow };
+        else {
+          const k = Math.min(1, dt * 9);
+          V.free = { x: V.free.x + (followX - V.free.x) * k, u: V.free.u + (follow - V.free.u) * k };
+        }
+        if (Math.abs(followX - V.free.x) < 1.5 && Math.abs(follow - V.free.u) < 0.02) {
+          V.free = null;
+          V.returning = false;
+          setPanned(false);
+        }
+      }
+      const cam = V.free ? clampCamera(V.free.x, l) : followX;
+      const cu = V.free ? clampU(V.free.u) : follow;
+      L.cam = cam;
+      L.cu = cu;
+      const off = layerOffset(cu, l);
+      if (worldRef.current) worldRef.current.style.transform = `translate3d(${-cam}px,0,0)`;
+      const vy = `translate3d(0,${off}px,0)`;
+      if (vlRef.current) vlRef.current.style.transform = vy;
+      if (gvlRef.current) gvlRef.current.style.transform = vy;
+      if (padRef.current) padRef.current.style.backgroundPositionY = `${off}px`;
+
+      const w = bandWindow(cu, l);
+      const wk = `${w.lo}|${w.hi}`;
+      if (L.win !== wk) {
+        L.win = wk;
+        setWin(w);
+      }
+      // Picks out of the view become markers on its edge. Only the ones whose column is not over.
+      const out: EdgePick[] = [];
+      for (let c = 0; c < COLUMNS; c++) {
+        if (secs >= columnEnd(c)) continue;
+        for (const who of ["me", "foe"] as const) {
+          const k = (who === "me" ? L.mine : L.theirs)[c];
+          if (k === undefined || k === NO_PICK) continue;
+          const o = offscreen(k, cu, l);
+          if (o) out.push({ c, who, dir: o, k });
+        }
+      }
+      const ek = out.map((e) => `${e.c}${e.who}${e.dir}${e.k}`).join();
+      if (L.edges !== ek) {
+        L.edges = ek;
+        setEdges(out);
+      }
+
+      const hy = yOfUnits(hu, l.rh);
+      const hx = xOf(secs, l.cw);
       const tail = hx > L.ex + 0.5 ? `L${hx.toFixed(1)} ${hy.toFixed(1)}` : "";
       const d = L.d + tail;
       pathRef.current?.setAttribute("d", d);
       glowRef.current?.setAttribute("d", d);
-      gradRef.current?.setAttribute("x1", String(Math.max(0, hx - L.layout.cw * 3.2)));
+      gradRef.current?.setAttribute("x1", String(Math.max(0, hx - l.cw * 3.2)));
       gradRef.current?.setAttribute("x2", String(hx));
+      const screenY = off + hy;
       if (headRef.current) {
         headRef.current.style.transform = `translate3d(${hx}px,${hy}px,0)`;
-        headRef.current.classList.toggle("low", hy < 46);
+        headRef.current.classList.toggle("low", screenY < 46);
       }
       stageRef.current?.querySelectorAll<HTMLElement>(".tg-gl").forEach((el) => el.classList.toggle("near", Math.abs(Number(el.dataset.y) - hy) < 15));
       if (nowRef.current) nowRef.current.style.transform = `translate3d(${hx}px,0,0)`;
-      if (ptrRef.current) ptrRef.current.style.transform = `translate3d(0,${hy}px,0)`;
+      if (ptrRef.current) ptrRef.current.style.transform = `translate3d(0,${Math.max(9, Math.min(l.bodyH - 9, screenY))}px,0)`;
       if (wakeRef.current) {
         const c = Math.floor((secs - HEAD_START_SECS) / COLUMN_SECS);
-        const x0 = secs < HEAD_START_SECS ? 0 : columnX(Math.min(COLUMNS - 1, Math.max(0, c)), L.layout.cw);
+        const x0 = secs < HEAD_START_SECS ? 0 : columnX(Math.min(COLUMNS - 1, Math.max(0, c)), l.cw);
         wakeRef.current.style.transform = `translate3d(${x0}px,0,0)`;
         wakeRef.current.style.width = `${Math.max(0, hx - x0)}px`;
         wakeRef.current.style.opacity = secs >= MATCH_SECS ? "0" : "1";
@@ -324,19 +413,22 @@ export function GridScreen(p: GridScreenProps) {
     const to = clampCols(next, L.layout.viewW);
     if (Math.abs(to - cur) < 0.005) return;
     const nl = layoutFor(L.layout.viewW, to);
-    if (V.free !== null) V.free = cameraAfterZoom(V.free, L.layout, nl, frac);
+    if (V.free) V.free = { x: cameraAfterZoom(V.free.x, L.layout, nl, frac), u: V.free.u };
     L.layout = nl;
     L.built = "";
     setCols(to);
   };
   const zoomBy = (factor: number, frac = 0.5) => zoomTo((live.current.layout.viewW / live.current.layout.cw) / factor, frac);
-  const panTo = (x: number) => {
+  /** Looks elsewhere: any pan stops following the line on both axes. Leave one of them out to keep where it is. */
+  const panTo = (x?: number, u?: number) => {
+    const L = live.current;
     const V = view.current;
     V.touched = Date.now();
     V.returning = false;
-    V.free = clampCamera(x, live.current.layout);
+    const base = V.free ?? { x: L.cam, u: L.cu };
+    V.free = { x: clampCamera(x ?? base.x, L.layout), u: clampU(u ?? base.u) };
     setPanned(true);
-    live.current.redraw();
+    L.redraw();
   };
   const goLive = () => {
     const V = view.current;
@@ -352,7 +444,7 @@ export function GridScreen(p: GridScreenProps) {
   const atMin = cw * MIN_COLS >= viewW - 0.5;
   const atMax = viewW / cw >= maxCols(viewW) - 0.05;
 
-  // Handlers read through a ref so the wheel listener, which is native (it has to cancel the page zoom), never goes stale.
+  // Handlers read through a ref so the wheel listener, which is native (it has to cancel the page zoom and scroll), never goes stale.
   const gesture = useRef({ zoomBy, panTo });
   useEffect(() => {
     gesture.current = { zoomBy, panTo };
@@ -362,22 +454,31 @@ export function GridScreen(p: GridScreenProps) {
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       const unit = e.deltaMode === 1 ? 16 : 1;
+      const L = live.current;
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
         const r = el.getBoundingClientRect();
         gesture.current.zoomBy(Math.exp((-e.deltaY * unit) / (e.ctrlKey && !e.metaKey ? 100 : 300)), (e.clientX - r.left) / r.width);
       } else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
         e.preventDefault();
-        gesture.current.panTo(live.current.cam + (e.deltaX || e.deltaY) * unit);
+        gesture.current.panTo((view.current.free?.x ?? L.cam) + (e.deltaX || e.deltaY) * unit);
+      } else {
+        // the wheel scrolls up and down the bands: wheel down looks at lower prices
+        e.preventDefault();
+        gesture.current.panTo(undefined, (view.current.free?.u ?? L.cu) - (e.deltaY * unit) / L.layout.rh);
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // Dragging scrolls; a tap picks. A drag only starts after a few pixels, so a tap still reaches the box.
+  // Dragging scrolls both ways; a tap picks. A drag only starts after a few pixels, so a tap still reaches the box.
   const touches = useRef(new Map<number, { x: number; y: number }>());
-  const drag = useRef({ x: 0, y: 0, cam: 0, on: false, pinch: 0, cols: 0, moved: false });
+  const drag = useRef({ x: 0, y: 0, cam: 0, cu: 0, on: false, pinch: 0, cols: 0, moved: false });
+  const grab = (D: typeof drag.current, x: number, y: number) => {
+    const V = view.current;
+    Object.assign(D, { x, y, cam: V.free?.x ?? live.current.cam, cu: V.free?.u ?? live.current.cu });
+  };
   const onViewDown = (e: PointerEvent<HTMLDivElement>) => {
     const pts_ = touches.current;
     pts_.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -385,7 +486,7 @@ export function GridScreen(p: GridScreenProps) {
     view.current.touched = Date.now();
     const D = drag.current;
     D.moved = false;
-    if (pts_.size === 1) Object.assign(D, { x: e.clientX, y: e.clientY, cam: live.current.cam, on: false, pinch: 0 });
+    if (pts_.size === 1) Object.assign(D, { x: e.clientX, y: e.clientY, cam: live.current.cam, cu: live.current.cu, on: false, pinch: 0 });
     else if (pts_.size === 2) {
       const [a, b] = [...pts_.values()];
       Object.assign(D, { pinch: Math.hypot(a.x - b.x, a.y - b.y) || 1, cols: live.current.layout.viewW / live.current.layout.cw, on: true, moved: true });
@@ -402,16 +503,15 @@ export function GridScreen(p: GridScreenProps) {
       zoomTo(D.cols / (Math.hypot(a.x - b.x, a.y - b.y) / D.pinch), ((a.x + b.x) / 2 - r.left) / r.width);
       return;
     }
-    const dx = e.clientX - D.x;
-    if (!D.on && Math.abs(dx) > DRAG_PX && Math.abs(dx) > Math.abs(e.clientY - D.y)) {
+    if (!D.on && Math.hypot(e.clientX - D.x, e.clientY - D.y) > DRAG_PX) {
       D.on = true;
       D.moved = true;
       e.currentTarget.setPointerCapture(e.pointerId);
-      D.cam = view.current.free ?? live.current.cam;
-      D.x = e.clientX;
+      grab(D, e.clientX, e.clientY);
       return;
     }
-    if (D.on && pts_.size === 1) panTo(D.cam - (e.clientX - D.x));
+    // dragging down moves the content down, so the camera looks at higher bands
+    if (D.on && pts_.size === 1) panTo(D.cam - (e.clientX - D.x), D.cu + (e.clientY - D.y) / live.current.layout.rh);
   };
   const onViewUp = (e: PointerEvent<HTMLDivElement>) => {
     touches.current.delete(e.pointerId);
@@ -424,7 +524,8 @@ export function GridScreen(p: GridScreenProps) {
     } else if (touches.current.size === 1) {
       // one finger left after a pinch: carry on dragging from where it is
       const [a] = [...touches.current.values()];
-      Object.assign(drag.current, { x: a.x, y: a.y, cam: view.current.free ?? live.current.cam, pinch: 0, on: true });
+      grab(drag.current, a.x, a.y);
+      Object.assign(drag.current, { pinch: 0, on: true });
     }
   };
   const onStageKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -436,32 +537,51 @@ export function GridScreen(p: GridScreenProps) {
   };
 
   // ---- picking ----
-  const [fc, setFc] = useState<{ c: number; r: number } | null>(null);
+  const [fc, setFc] = useState<{ c: number; k: number } | null>(null);
+  const focusNext = useRef<{ c: number; k: number } | null>(null);
   // The arrow keys only visit columns you can still pick that are on screen.
-  const cam = cameraX(t, layout, reduced);
-  const reachable = (c: number) => canPick(c, t) && columnX(c, cw) + cw / 2 > cam && columnX(c, cw) + cw / 2 < cam + viewW;
-  const firstOpen = Math.max(0, Math.min(COLUMNS - 1, Array.from({ length: COLUMNS }, (_, c) => c).find(reachable) ?? nextLock(t)?.column ?? COLUMNS - 1));
-  const tab = fc && reachable(fc.c) ? fc : { c: firstOpen, r: mine[firstOpen] !== NO_PICK ? mine[firstOpen] : 3 };
-  const pick = (c: number, r: number) => {
+  const visibleCol = (c: number, camX: number) => columnX(c, cw) + cw / 2 > camX && columnX(c, cw) + cw / 2 < camX + viewW;
+  const followCam = cameraX(t, layout, reduced);
+  const firstOpen = Math.max(0, Math.min(COLUMNS - 1, Array.from({ length: COLUMNS }, (_, c) => c).find((c) => canPick(c, t) && visibleCol(c, followCam)) ?? nextLock(t)?.column ?? COLUMNS - 1));
+  const lastPrice = source.points.length ? source.points[source.points.length - 1].p : anchorUsd;
+  const headBand = Math.floor(bandUnits(lastPrice, anchorUsd, stepUsd));
+  const tab = fc ?? { c: firstOpen, k: mine[firstOpen] !== NO_PICK ? mine[firstOpen] : headBand };
+  const pick = (c: number, k: number) => {
     if (!canPick(c, (wallNow() - startsAt) / 1000) || settled) return;
     sfx("chip");
-    onPick(c, mine[c] === r ? NO_PICK : r);
+    onPick(c, mine[c] === k ? NO_PICK : k);
   };
-  const onKey = (e: KeyboardEvent<HTMLButtonElement>, c: number, r: number) => {
+  const onKey = (e: KeyboardEvent<HTMLButtonElement>, c: number, k: number) => {
     const move: Record<string, [number, number]> = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
     const m = move[e.key];
     if (!m) return;
     e.preventDefault();
     let nc = c;
     if (m[0]) {
+      const camX = view.current.free?.x ?? live.current.cam;
+      const reachable = (n: number) => canPick(n, (wallNow() - startsAt) / 1000) && visibleCol(n, camX);
       nc = c + m[0];
       while (nc >= 0 && nc < COLUMNS && !reachable(nc)) nc += m[0];
       if (nc < 0 || nc >= COLUMNS) return;
     }
-    const nr = Math.max(0, Math.min(ROWS - 1, r + m[1]));
-    setFc({ c: nc, r: nr });
-    worldRef.current?.querySelector<HTMLElement>(`[data-cell="${nc}-${nr}"]`)?.focus();
+    const nk = Math.max(-MAX_BAND, Math.min(MAX_BAND, k + m[1]));
+    const L = live.current;
+    const cu = view.current.free?.u ?? L.cu;
+    const need = revealU(nk, cu, L.layout);
+    if (need !== cu) panTo(undefined, need);
+    focusNext.current = { c: nc, k: nk };
+    setFc({ c: nc, k: nk });
   };
+  // Focus follows the arrow keys once the box is in the DOM (it may have to scroll into the rendered bands first).
+  useEffect(() => {
+    const f = focusNext.current;
+    if (!f) return;
+    const el = worldRef.current?.querySelector<HTMLElement>(`[data-cell="${f.c}_${f.k}"]`);
+    if (!el) return;
+    focusNext.current = null;
+    el.focus({ preventScroll: true });
+  });
+  const showPick = (k: number) => panTo(undefined, k + 0.5);
 
   // ---- moments: hits, reveals, locks, streaks, the last column ----
   const [floaters, setFloaters] = useState<Floater[]>([]);
@@ -484,13 +604,13 @@ export function GridScreen(p: GridScreenProps) {
     prev.current = { me: myMarks, foe: foeMarks, revealed: revealedN, locked: lockedN, sec };
     if (!before || frozen) return;
     const say = (text: string, tone: CalloutTone = "plain") => setMoment({ id: ++nid.current, text, tone });
-    const cell = (c: number, r: number) => worldRef.current?.querySelector<HTMLElement>(`[data-cell="${c}-${r}"]`);
+    const cell = (c: number, k: number) => worldRef.current?.querySelector<HTMLElement>(`[data-cell="${c}_${k}"]`);
     const born: Floater[] = [];
     let myHits = 0;
     for (let c = 0; c < COLUMNS; c++) {
       if (myMarks[c] === "hit" && before.me[c] !== "hit") {
         myHits++;
-        born.push({ id: ++nid.current, c, r: mine[c], who: "me" });
+        born.push({ id: ++nid.current, c, k: mine[c], who: "me" });
         const el = cell(c, mine[c]);
         if (el) burstAt(el, { colors: BURST_ME, kind: "shards", count: 24, power: 1.1 });
         if (el) burstAt(el, { colors: ["#ffffff", "#9fc4ff"], kind: "sparks", count: 12 });
@@ -499,7 +619,7 @@ export function GridScreen(p: GridScreenProps) {
         setAnnounce(`Hit in column ${c + 1}. ${HIT_POINTS} points.`);
       }
       if (foeMarks[c] === "hit" && before.foe[c] !== "hit") {
-        born.push({ id: ++nid.current, c, r: theirs[c], who: "foe" });
+        born.push({ id: ++nid.current, c, k: theirs[c], who: "foe" });
         const el = cell(c, theirs[c]);
         if (el) burstAt(el, { colors: BURST_FOE, kind: "sparks", count: 10, power: 0.8 });
         setAnnounce(`The opponent hit in column ${c + 1}.`);
@@ -554,14 +674,12 @@ export function GridScreen(p: GridScreenProps) {
   const lead = score.you - score.them;
   const share = score.you + score.them === 0 ? 0.5 : score.you / (score.you + score.them);
 
-  const labels = Array.from({ length: ROWS - 1 }, (_, i) => {
-    const k = i + 1;
-    return { k, v: anchorUsd + (k - 4) * stepUsd };
-  });
-  const rowName = (r: number) => {
-    const b = rowBand(r, anchor, step);
-    return b.from === null ? `below ${money(usdOf(b.to!))}` : b.to === null ? `above ${money(usdOf(b.from))}` : `${money(usdOf(b.from))} to ${money(usdOf(b.to))}`;
+  const edgesAt = Array.from({ length: win.hi - win.lo + 2 }, (_, i) => win.lo + i);
+  const bandName = (k: number) => {
+    const b = bandEdges(k, anchor, step);
+    return `${money(usdOf(b.from))} to ${money(usdOf(b.to))}`;
   };
+  const viewH = HEADER_PX + layout.bodyH;
 
   const header = (
     <header className="cut cut-card tg-bar">
@@ -643,7 +761,7 @@ export function GridScreen(p: GridScreenProps) {
   })();
 
   const worldW = WORLD_COLS * cw;
-  const worldStyle = { width: worldW, "--tg-cw": `${cw}px`, "--tg-rh": `${rh}px`, "--tg-hd": `${HEADER_PX}px` } as CSSProperties;
+  const worldStyle = { width: worldW, "--tg-cw": `${cw}px`, "--tg-rh": `${rh}px`, "--tg-hd": `${HEADER_PX}px`, "--tg-bh": `${layout.bodyH}px` } as CSSProperties;
 
   return (
     <Arena game="trading-duel">
@@ -655,16 +773,18 @@ export function GridScreen(p: GridScreenProps) {
         {p.error && <p className="tg-error" role="alert">{p.error}</p>}
 
         <div ref={stageRef} className="cut cut-frame tg-stage" role="group" onKeyDown={onStageKey} aria-label={`Price grid, ${asset}. Pick a box in a column that is still open. Arrow keys move between boxes, Enter or Space picks.`}>
-          <div className="tg-gutter" style={{ height: HEADER_PX + ROWS * rh }} aria-hidden="true">
-            <span className="tg-gl-end" style={{ top: HEADER_PX + rh * 0.5 }}>above</span>
-            <span className="tg-gl-end" style={{ top: HEADER_PX + rh * (ROWS - 0.5) }}>below</span>
-            {labels.map((l) => (
-              <span key={l.k} className={`tg-gl${l.k === 4 ? " start" : ""}`} data-y={(ROWS - l.k) * rh} style={{ top: HEADER_PX + (ROWS - l.k) * rh }}>
-                {money(l.v)}
-              </span>
-            ))}
-            <div className="tg-ptr" ref={ptrRef} style={{ top: HEADER_PX }}>
-              <span ref={ptrTextRef} className="tg-ptr-t" data-dir="flat" />
+          <div className="tg-gutter" style={{ height: viewH }} aria-hidden="true">
+            <div className="tg-gbody" style={{ top: HEADER_PX, height: layout.bodyH }}>
+              <div className="tg-gvl" ref={gvlRef}>
+                {edgesAt.map((e) => (
+                  <span key={e} className={`tg-gl${e === 0 ? " start" : ""}`} data-y={-e * rh} style={{ top: -e * rh }}>
+                    {money(anchorUsd + e * stepUsd)}
+                  </span>
+                ))}
+              </div>
+              <div className="tg-ptr" ref={ptrRef}>
+                <span ref={ptrTextRef} className="tg-ptr-t" data-dir="flat" />
+              </div>
             </div>
           </div>
 
@@ -680,7 +800,7 @@ export function GridScreen(p: GridScreenProps) {
           <div
             className="tg-view"
             ref={viewRef}
-            style={{ height: HEADER_PX + ROWS * rh }}
+            style={{ height: viewH }}
             onPointerDown={onViewDown}
             onPointerMove={onViewMove}
             onPointerUp={onViewUp}
@@ -693,58 +813,76 @@ export function GridScreen(p: GridScreenProps) {
             }}
           >
             <div className="tg-world" ref={worldRef} style={worldStyle} data-compact={cw < 76 || undefined}>
-              <div className="tg-pad" style={{ width: PAD_COLS * cw }}>
-                <div className="tg-pad-head">Head start</div>
-                <div className="tg-pad-body" style={{ height: ROWS * rh }}>
-                  <p className="tg-pad-title">Pick where the price will be.</p>
-                  <p className="tg-pad-sub">Hit the box when the line passes.</p>
-                  <p className="tg-pad-n tnum" aria-hidden="true">{Math.ceil(headStartLeft(t)) || ""}</p>
+              <div className="tg-cols">
+                <div className="tg-pad" style={{ width: PAD_COLS * cw }}>
+                  <div className="tg-pad-head">Head start</div>
+                  <div className="tg-pad-body" ref={padRef}>
+                    <p className="tg-pad-title">Pick where the price will be.</p>
+                    <p className="tg-pad-sub">Hit the box when the line passes.</p>
+                    <p className="tg-pad-n tnum" aria-hidden="true">{Math.ceil(headStartLeft(t)) || ""}</p>
+                  </div>
                 </div>
+
+                {Array.from({ length: COLUMNS }, (_, c) => {
+                  const st = states[c];
+                  const nag = c === nagCol;
+                  const lockIn = nl && nl.column === c ? Math.ceil(nl.inSecs) : null;
+                  return (
+                    <div key={c} className={`tg-col ${st}${nag ? " nag" : ""}${c === liveCol ? " now" : ""}`} style={{ width: cw }} data-col={c}>
+                      <div className="tg-colhead">
+                        <b className="tg-cn tnum">{c + 1}</b>
+                        <span className="tg-cs">
+                          {st === "open" ? (lockIn !== null && lockIn <= 12 ? (cw < 100 ? `${lockIn}s` : `Locks ${lockIn}s`) : "Open") : st === "locked" ? (
+                            <>
+                              <LockIcon width={11} height={11} /> {cw < 100 ? "" : "Locked"}
+                            </>
+                          ) : st === "live" ? "Live" : ""}
+                        </span>
+                        {st === "done" && (
+                          <span className="tg-cr" aria-hidden="true">
+                            <i className={`me ${myMarks[c]}`} />
+                            <i className={`foe ${foeMarks[c]}`} />
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
-              {Array.from({ length: COLUMNS }, (_, c) => {
-                const st = states[c];
-                const open = st === "open";
-                const range = touchedRows(track, c, anchor, step);
-                const nag = c === nagCol;
-                const lockIn = nl && nl.column === c ? Math.ceil(nl.inSecs) : null;
-                return (
-                  <div key={c} className={`tg-col ${st}${nag ? " nag" : ""}${c === liveCol ? " now" : ""}`} style={{ width: cw }} data-col={c}>
-                    <div className="tg-colhead">
-                      <b className="tg-cn tnum">{c + 1}</b>
-                      <span className="tg-cs">
-                        {st === "open" ? (lockIn !== null && lockIn <= 12 ? (cw < 100 ? `${lockIn}s` : `Locks ${lockIn}s`) : "Open") : st === "locked" ? (
-                          <>
-                            <LockIcon width={11} height={11} /> {cw < 100 ? "" : "Locked"}
-                          </>
-                        ) : st === "live" ? "Live" : ""}
-                      </span>
-                      {st === "done" && (
-                        <span className="tg-cr" aria-hidden="true">
-                          <i className={`me ${myMarks[c]}`} />
-                          <i className={`foe ${foeMarks[c]}`} />
-                        </span>
-                      )}
-                    </div>
-                    {Array.from({ length: ROWS }, (_, i) => {
-                      const r = ROWS - 1 - i;
-                      const isMine = mine[c] === r;
-                      const isFoe = theirs[c] === r;
-                      const touched = !!range && r >= range[0] && r <= range[1];
-                      const here = tab.c === c && tab.r === r;
+              <div className="tg-body" style={{ top: HEADER_PX, height: layout.bodyH }}>
+                <div className="tg-fx" aria-hidden="true">
+                  <div className="tg-wake" ref={wakeRef} />
+                  <div className="tg-nowline" ref={nowRef} />
+                </div>
+                <div className="tg-vl" ref={vlRef}>
+                  {Array.from({ length: COLUMNS }, (_, c) => {
+                    const st = states[c];
+                    const open = st === "open";
+                    const range = touchedBands(track, c, anchor, step);
+                    const nag = c === nagCol;
+                    const ks = new Set<number>();
+                    for (let k = win.lo; k <= win.hi; k++) ks.add(k);
+                    if (tab.c === c) ks.add(tab.k);
+                    return [...ks].map((k) => {
+                      const isMine = mine[c] === k;
+                      const isFoe = theirs[c] === k;
+                      const touched = !!range && k >= range[0] && k <= range[1];
+                      const here = tab.c === c && tab.k === k;
                       return (
                         <button
-                          key={r}
+                          key={`${c}_${k}`}
                           type="button"
-                          data-cell={`${c}-${r}`}
-                          className={`tg-cell${r === 4 ? " anchor" : ""}${touched ? " touched" : ""}${isMine && myMarks[c] === "hit" ? " lit-me" : ""}${isFoe && foeMarks[c] === "hit" ? " lit-foe" : ""}${open ? " can" : ""}${isMine || isFoe ? " has" : ""}`}
-                          aria-label={`Column ${c + 1}, ${rowName(r)}${isMine ? ", your pick" : ""}${isFoe ? ", opponent's pick" : ""}${isMine && myMarks[c] === "hit" ? ", hit" : ""}`}
+                          data-cell={`${c}_${k}`}
+                          className={`tg-cell${k === 0 ? " anchor" : ""}${touched ? " touched" : ""}${isMine && myMarks[c] === "hit" ? " lit-me" : ""}${isFoe && foeMarks[c] === "hit" ? " lit-foe" : ""}${open ? " can" : ""}${isMine || isFoe ? " has" : ""}${nag ? " nag" : ""}`}
+                          style={{ left: columnX(c, cw), top: -(k + 1) * rh, width: cw, height: rh }}
+                          aria-label={`Column ${c + 1}, ${bandName(k)}${isMine ? ", your pick" : ""}${isFoe ? ", opponent's pick" : ""}${isMine && myMarks[c] === "hit" ? ", hit" : ""}`}
                           aria-pressed={isMine}
                           aria-disabled={!open || settled}
                           tabIndex={here ? 0 : -1}
-                          onFocus={() => setFc({ c, r })}
-                          onKeyDown={(e) => onKey(e, c, r)}
-                          onClick={() => pick(c, r)}
+                          onFocus={() => setFc({ c, k })}
+                          onKeyDown={(e) => onKey(e, c, k)}
+                          onClick={() => pick(c, k)}
                         >
                           {(isMine || isFoe) && (
                             <span className={`tg-marks${isMine && isFoe ? " both" : ""}`}>
@@ -754,37 +892,57 @@ export function GridScreen(p: GridScreenProps) {
                           )}
                         </button>
                       );
-                    })}
-                  </div>
-                );
-              })}
+                    });
+                  })}
 
-              <div className="tg-field" style={{ top: HEADER_PX, height: ROWS * rh }} aria-hidden="true">
-                <div className="tg-wake" ref={wakeRef} />
-                <svg className="tg-snake" width={worldW} height={ROWS * rh} viewBox={`0 0 ${worldW} ${ROWS * rh}`}>
-                  <defs>
-                    <linearGradient id={`g${gradId}`} ref={gradRef} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={worldW} y2="0">
-                      <stop offset="0" stopColor="#eaf1fb" stopOpacity="0.08" />
-                      <stop offset="0.7" stopColor="#eaf1fb" stopOpacity="0.7" />
-                      <stop offset="1" stopColor="#ffffff" stopOpacity="1" />
-                    </linearGradient>
-                  </defs>
-                  {bands.map((b, c) => b && <rect key={c} className={`tg-band ${states[c]}`} x={b.x} y={b.y} width={b.w} height={b.h} />)}
-                  <path ref={glowRef} className="tg-snake-glow" stroke={`url(#g${gradId})`} />
-                  <path ref={pathRef} className="tg-snake-core" stroke={`url(#g${gradId})`} />
-                </svg>
-                <div className="tg-nowline" ref={nowRef} />
-                <div className="tg-head" ref={headRef}>
-                  <i ref={dotRef} className="tg-head-dot" data-dir="flat" />
-                  <span ref={chipRef} className="cut cut-chip tg-head-chip" data-dir="flat">
-                    <span ref={chipTextRef} /> <em ref={chipArrowRef} />
-                  </span>
+                  <div className="tg-field" aria-hidden="true">
+                    <svg className="tg-snake" width={worldW} height={1} viewBox={`0 0 ${worldW} 1`}>
+                      <defs>
+                        <linearGradient id={`g${gradId}`} ref={gradRef} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={worldW} y2="0">
+                          <stop offset="0" stopColor="#eaf1fb" stopOpacity="0.08" />
+                          <stop offset="0.7" stopColor="#eaf1fb" stopOpacity="0.7" />
+                          <stop offset="1" stopColor="#ffffff" stopOpacity="1" />
+                        </linearGradient>
+                      </defs>
+                      {bands.map((b, c) => b && <rect key={c} className={`tg-band ${states[c]}`} x={b.x} y={b.y} width={b.w} height={b.h} />)}
+                      <path ref={glowRef} className="tg-snake-glow" stroke={`url(#g${gradId})`} />
+                      <path ref={pathRef} className="tg-snake-core" stroke={`url(#g${gradId})`} />
+                    </svg>
+                    <div className="tg-head" ref={headRef}>
+                      <i ref={dotRef} className="tg-head-dot" data-dir="flat" />
+                      <span ref={chipRef} className="cut cut-chip tg-head-chip" data-dir="flat">
+                        <span ref={chipTextRef} /> <em ref={chipArrowRef} />
+                      </span>
+                    </div>
+                    {floaters.map((f) => (
+                      <span key={f.id} className={`tg-float ${f.who}`} style={{ left: columnX(f.c, cw), top: -(f.k + 1) * rh, width: cw, height: rh }}>
+                        +{HIT_POINTS}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                {floaters.map((f) => (
-                  <span key={f.id} className={`tg-float ${f.who}`} style={{ left: columnX(f.c, cw), top: (ROWS - 1 - f.r) * rh, width: cw, height: rh }}>
-                    +{HIT_POINTS}
-                  </span>
-                ))}
+
+                <div className="tg-edges">
+                  {edges.map((e) => {
+                    const same = edges.filter((x) => x.c === e.c && x.dir === e.dir);
+                    const slot = same.findIndex((x) => x.who === e.who);
+                    const word = e.who === "me" ? "your pick" : "their pick";
+                    return (
+                      <button
+                        key={`${e.c}${e.who}`}
+                        type="button"
+                        className={`cut cut-chip tg-edge ${e.who} ${e.dir > 0 ? "up" : "down"}`}
+                        style={{ left: columnX(e.c, cw) + 3, width: cw - 6, [e.dir > 0 ? "top" : "bottom"]: 4 + slot * 24 }}
+                        aria-label={`Column ${e.c + 1}: ${e.who === "me" ? "your" : "the opponent's"} pick is ${e.dir > 0 ? "above" : "below"} the view. Show it.`}
+                        title={`${e.who === "me" ? "Your" : "Their"} pick is ${e.dir > 0 ? "above" : "below"}: show it`}
+                        onClick={() => showPick(e.k)}
+                      >
+                        <span aria-hidden="true">{e.dir > 0 ? "▲" : "▼"}</span>
+                        <span className="tg-edge-w">{word}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             {panned && (
@@ -840,6 +998,7 @@ export function GridScreen(p: GridScreenProps) {
           <li><CheckIcon width={13} height={13} /> Hit · {HIT_POINTS} points</li>
           <li><XIcon width={13} height={13} /> Miss</li>
           <li><LockIcon width={13} height={13} /> Locked {LOCK_AHEAD_SECS}s before the line arrives</li>
+          <li>Drag or scroll to look at other prices · Live to come back</li>
         </ul>
         <p className="sr-only" role="status" aria-live="polite">{announce}</p>
       </section>

@@ -8,7 +8,6 @@ use crate::state::*;
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum EngineError {
     BadColumn,
-    BadRow,
     Locked,
 }
 
@@ -18,10 +17,11 @@ pub fn step_for(anchor: u64, ppm: u64) -> u64 {
     (s as u64).max(1)
 }
 
-/// Row 0 is the bottom, row 7 the top; the outer two are open-ended.
-pub fn row_of(price: u64, anchor: u64, step: u64) -> u8 {
-    let r = (i128::from(price) - i128::from(anchor)).div_euclid(i128::from(step)) + 4;
-    r.clamp(0, i128::from(ROWS) - 1) as u8
+/// Band `k` is `[anchor + k*step, anchor + (k+1)*step)`; any price falls in exactly one band. The
+/// result is clamped to `-MAX_BAND..=MAX_BAND`, which keeps it clear of `NO_PICK`.
+pub fn band_of(price: u64, anchor: u64, step: u64) -> i16 {
+    let k = (i128::from(price) - i128::from(anchor)).div_euclid(i128::from(step));
+    k.clamp(-i128::from(MAX_BAND), i128::from(MAX_BAND)) as i16
 }
 
 pub fn column_start(c: usize) -> i64 {
@@ -60,13 +60,10 @@ pub fn columns_done(t: i64) -> usize {
     }
 }
 
-/// Validates a pick (`NO_PICK` clears) made at time `t`.
-pub fn check_pick(column: usize, row: u8, t: i64) -> Result<(), EngineError> {
+/// Validates a pick (or clearing one) for `column` made at time `t`; any band is accepted.
+pub fn check_pick(column: usize, t: i64) -> Result<(), EngineError> {
     if column >= COLUMNS {
         return Err(EngineError::BadColumn);
-    }
-    if row != NO_PICK && row >= ROWS {
-        return Err(EngineError::BadRow);
     }
     if !can_pick(column, t) {
         return Err(EngineError::Locked);
@@ -131,27 +128,27 @@ impl Track {
         }
     }
 
-    /// True when `row` lies within the rows the line crossed in column `c`.
-    pub fn hits(&self, c: usize, row: u8, anchor: u64, step: u64) -> bool {
-        if c >= COLUMNS || row >= ROWS || !self.has(c) {
+    /// True when `band` lies within the bands the line crossed in column `c`.
+    pub fn hits(&self, c: usize, band: i16, anchor: u64, step: u64) -> bool {
+        if c >= COLUMNS || band == NO_PICK || !self.has(c) {
             return false;
         }
-        row_of(self.lo[c], anchor, step) <= row && row <= row_of(self.hi[c], anchor, step)
+        band_of(self.lo[c], anchor, step) <= band && band <= band_of(self.hi[c], anchor, step)
     }
 }
 
 /// Points per seat from the first `upto` columns, from the picks `revealed` so far.
 pub fn score(
     track: &Track,
-    picks: &[[u8; COLUMNS]; 2],
+    picks: &[[i16; COLUMNS]; 2],
     anchor: u64,
     step: u64,
     upto: usize,
 ) -> [u32; 2] {
     let mut scores = [0u32; 2];
     for (seat, p) in picks.iter().enumerate() {
-        for (c, &row) in p.iter().enumerate().take(upto) {
-            if row != NO_PICK && track.hits(c, row, anchor, step) {
+        for (c, &band) in p.iter().enumerate().take(upto) {
+            if band != NO_PICK && track.hits(c, band, anchor, step) {
                 scores[seat] += HIT_POINTS;
             }
         }
@@ -185,12 +182,12 @@ mod tests {
         let f = fixture();
         let c = &f["constants"];
         assert_eq!(c["COLUMNS"], COLUMNS);
-        assert_eq!(c["ROWS"], ROWS);
         assert_eq!(c["COLUMN_SECS"], COLUMN_SECS);
         assert_eq!(c["HEAD_START_SECS"], HEAD_START_SECS);
         assert_eq!(c["LOCK_AHEAD_SECS"], LOCK_AHEAD_SECS);
         assert_eq!(c["HIT_POINTS"], HIT_POINTS);
-        assert_eq!(c["NO_PICK"], NO_PICK);
+        assert_eq!(c["NO_PICK"], i64::from(NO_PICK));
+        assert_eq!(c["MAX_BAND"], i64::from(MAX_BAND));
         assert_eq!(c["MATCH_SECS"], MATCH_SECS);
         for (i, asset) in ["SOL", "ETH", "HYPE"].iter().enumerate() {
             assert_eq!(c["STEP_PPM"][asset], STEP_PPM[i], "{asset}");
@@ -198,12 +195,12 @@ mod tests {
     }
 
     #[test]
-    fn rows_at_the_edges() {
-        for r in fixture()["rows"].as_array().expect("rows") {
+    fn bands_at_the_edges() {
+        for r in fixture()["bands"].as_array().expect("bands") {
             let (anchor, step, price) = (num(&r["anchor"]), num(&r["step"]), num(&r["price"]));
             assert_eq!(
-                u64::from(row_of(price, anchor, step)),
-                r["row"].as_u64().expect("row"),
+                i64::from(band_of(price, anchor, step)),
+                r["band"].as_i64().expect("band"),
                 "price {price} anchor {anchor} step {step}"
             );
         }
@@ -248,7 +245,7 @@ mod tests {
             let mut picks = [[NO_PICK; COLUMNS]; 2];
             for seat in 0..2 {
                 for c in 0..COLUMNS {
-                    picks[seat][c] = v["picks"][seat][c].as_u64().expect("pick") as u8;
+                    picks[seat][c] = v["picks"][seat][c].as_i64().expect("pick") as i16;
                 }
             }
             for seat in 0..2 {
@@ -278,6 +275,21 @@ mod tests {
     }
 
     #[test]
+    fn bands_are_signed_and_clamped() {
+        assert_eq!(band_of(100, 100, 10), 0);
+        assert_eq!(band_of(99, 100, 10), -1);
+        assert_eq!(band_of(90, 100, 10), -1);
+        assert_eq!(band_of(89, 100, 10), -2);
+        assert_eq!(band_of(u64::MAX, 1, 1), MAX_BAND);
+        assert_eq!(band_of(0, u64::MAX, 1), -MAX_BAND);
+        let mut tr = Track::default();
+        tr.record(30, 100);
+        assert!(!tr.hits(0, NO_PICK, 100, 10));
+        assert!(tr.hits(0, 0, 100, 10));
+        assert!(!tr.hits(0, -1, 100, 10));
+    }
+
+    #[test]
     fn samples_after_the_end_and_a_clean_track() {
         let mut tr = Track::default();
         tr.record(30, 100);
@@ -289,12 +301,10 @@ mod tests {
 
     #[test]
     fn picks_close_ten_seconds_before_the_column() {
-        assert!(check_pick(0, 3, 19).is_ok());
-        assert_eq!(check_pick(0, 3, 20), Err(EngineError::Locked));
-        assert_eq!(check_pick(0, NO_PICK, 20), Err(EngineError::Locked));
-        assert_eq!(check_pick(12, 3, 0), Err(EngineError::BadColumn));
-        assert_eq!(check_pick(0, 8, 0), Err(EngineError::BadRow));
-        assert!(check_pick(11, 7, 129).is_ok());
+        assert!(check_pick(0, 19).is_ok());
+        assert_eq!(check_pick(0, 20), Err(EngineError::Locked));
+        assert_eq!(check_pick(12, 0), Err(EngineError::BadColumn));
+        assert!(check_pick(11, 129).is_ok());
     }
 
     #[test]

@@ -1,16 +1,19 @@
-import { COLUMNS, COLUMN_SECS, HEAD_START_SECS, MATCH_SECS, NO_PICK, ROWS, hits, rowOf, type Track } from "./grid";
+import { COLUMNS, COLUMN_SECS, HEAD_START_SECS, MATCH_SECS, MAX_BAND, NO_PICK, bandOf, hits, type Track } from "./grid";
 
 /** Columns of head-start runway before column 1, and columns in the whole world (runway + grid). */
 export const PAD_COLS = HEAD_START_SECS / COLUMN_SECS;
 export const WORLD_COLS = MATCH_SECS / COLUMN_SECS;
 /** Height of the column header strip, px. */
 export const HEADER_PX = 40;
-/** The snake never leaves the frame: it parks this far inside the top and bottom edge. */
-const EDGE_PX = 6;
+/** Bands the view shows at its default zoom. */
+export const VIEW_BANDS = 8;
 
 export interface Layout {
   cw: number;
+  /** Band height, px. Zooming scales it with the column width, within what a finger can hit. */
   rh: number;
+  /** Height of the band area, px: the same at every zoom, so the page layout never moves. */
+  bodyH: number;
   viewW: number;
   /** Where "now" sits across the view (0..1). */
   nowFrac: number;
@@ -28,13 +31,17 @@ export const maxCols = (viewW: number): number => Math.min(12, Math.max(defaultC
 /** Keeps a column count inside what this width allows. */
 export const clampCols = (cols: number, viewW: number): number => Math.min(maxCols(viewW), Math.max(MIN_COLS, cols));
 
-/** Column and row size for a view `viewW` px wide showing `cols` columns (default: `defaultCols`). The 8 rows never change size with the zoom. */
+/** Band height at the default zoom, and the smallest a zoomed-out band gets, for a view `viewW` px wide. */
+const baseRh = (w: number): number => (w < 520 ? 44 : w < 900 ? 48 : 52);
+const minRh = (w: number): number => (w < 520 ? 44 : w < 900 ? 38 : 30);
+
+/** Column and band size for a view `viewW` px wide showing `cols` columns (default: `defaultCols`). Zooming out shrinks bands too, but never below what a finger can tap on a phone. */
 export function layoutFor(viewW: number, cols?: number): Layout {
   const w = Math.max(240, viewW);
   const n = clampCols(cols ?? defaultCols(w), w);
-  if (w < 520) return { cw: w / n, rh: 44, viewW: w, nowFrac: 0.2 };
-  if (w < 900) return { cw: w / n, rh: 48, viewW: w, nowFrac: 0.22 };
-  return { cw: w / n, rh: 52, viewW: w, nowFrac: 0.24 };
+  const base = baseRh(w);
+  const rh = Math.round(Math.min(base * 1.6, Math.max(minRh(w), (base * defaultCols(w)) / n)));
+  return { cw: w / n, rh, bodyH: VIEW_BANDS * base, viewW: w, nowFrac: w < 520 ? 0.2 : w < 900 ? 0.22 : 0.24 };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -66,11 +73,64 @@ export function cameraAfterZoom(cam: number, from: Layout, to: Layout, anchorFra
   return clampCamera((secs / COLUMN_SECS) * to.cw - to.viewW * anchorFrac, to);
 }
 
-/** A price as a fractional row position: 4 is the start price, row `r` spans r..r+1. */
-export const rowUnits = (price: number, anchor: number, step: number): number => (price - anchor) / step + 4;
+/** A price as a fractional band position: band `k` spans `k..k+1`, the start price is 0. */
+export const bandUnits = (price: number, anchor: number, step: number): number => Math.max(-MAX_BAND, Math.min(MAX_BAND, (price - anchor) / step));
 
-/** World y (from the top of the rows) of a price, kept inside the frame. */
-export const yOf = (price: number, anchor: number, step: number, rh: number): number => clamp((ROWS - rowUnits(price, anchor, step)) * rh, EDGE_PX, ROWS * rh - EDGE_PX);
+/** World y (px, down is positive, 0 at the start price) of a position in band units. */
+export const yOfUnits = (u: number, rh: number): number => -u * rh;
+
+/** World y of a price. */
+export const yOf = (price: number, anchor: number, step: number, rh: number): number => yOfUnits(bandUnits(price, anchor, step), rh);
+
+/** Band units shown above and below the middle of the view. */
+export const halfBands = (l: Layout): number => l.bodyH / 2 / l.rh;
+
+/** Keeps a camera (the band unit at the middle of the view) inside the bands there are. */
+export const clampU = (u: number): number => Math.max(-MAX_BAND, Math.min(MAX_BAND, u));
+
+/** How far the band layer is moved down so that band unit `u` sits in the middle of the view, px. */
+export const layerOffset = (u: number, l: Layout): number => l.bodyH / 2 + u * l.rh;
+
+/**
+ * The camera's follow target: the head's band position, whole bands at a time when `stepped` (reduced
+ * motion). The eased camera `cur` trails it, but never so far that the head leaves the middle part of the view.
+ */
+export function followU(cur: number | null, head: number, dt: number, l: Layout, stepped = false): number {
+  if (stepped || cur === null) return clampU(stepped ? Math.round(head) : head);
+  const rate = 3 + Math.abs(head - cur) * 1.5;
+  let next = cur + (head - cur) * Math.min(1, dt * rate);
+  const room = Math.max(0, halfBands(l) - 1.5);
+  next = Math.max(head - room, Math.min(head + room, next));
+  return clampU(next);
+}
+
+/** The band range to render for a camera: what shows plus a margin, in steps of 4 so it rarely changes. */
+export function bandWindow(u: number, l: Layout): { lo: number; hi: number } {
+  const Q = 4;
+  const half = halfBands(l);
+  const lo = Math.floor((u - half) / Q) * Q - Q;
+  const hi = Math.ceil((u + half) / Q) * Q + Q;
+  return { lo: Math.max(-MAX_BAND, lo), hi: Math.min(MAX_BAND, hi) };
+}
+
+/** Less of a band than this (of its height) showing at the edge of the view counts as out of view. */
+const SLIVER = 0.4;
+
+/** 1 when band `k` is above the view, -1 when below, 0 when enough of it shows to tap. */
+export function offscreen(k: number, u: number, l: Layout): -1 | 0 | 1 {
+  const half = halfBands(l);
+  if (k > u + half - SLIVER) return 1;
+  if (k + 1 < u - half + SLIVER) return -1;
+  return 0;
+}
+
+/** The smallest camera move that brings band `k` fully into view. */
+export function revealU(k: number, u: number, l: Layout): number {
+  const half = halfBands(l);
+  if (k < u - half) return clampU(k + half);
+  if (k + 1 > u + half) return clampU(k + 1 - half);
+  return u;
+}
 
 /** Decimals to print row prices with, so neighbouring rows read differently. */
 export const priceDigits = (stepUsd: number): number => (stepUsd >= 0.1 ? 2 : stepUsd >= 0.01 ? 3 : 4);
@@ -144,17 +204,17 @@ export type Mark = "hit" | "miss" | "pending" | "none" | "hidden";
  */
 export function marks(track: Track, picks: number[], t: number, anchor: bigint, step: bigint, opponent = false): Mark[] {
   return Array.from({ length: COLUMNS }, (_, c) => {
-    const row = picks[c];
+    const band = picks[c];
     const done = t >= PAD_COLS * COLUMN_SECS + (c + 1) * COLUMN_SECS;
-    if (row === NO_PICK || row === undefined) return opponent && !done ? "hidden" : done ? "none" : "pending";
-    if (hits(track, c, row, anchor, step)) return "hit";
+    if (band === NO_PICK || band === undefined) return opponent && !done ? "hidden" : done ? "none" : "pending";
+    if (hits(track, c, band, anchor, step)) return "hit";
     return done ? "miss" : "pending";
   });
 }
 
-/** Rows (low, high) the line has crossed in column `c` so far, or null before any sample. */
-export function touchedRows(track: Track, c: number, anchor: bigint, step: bigint): [number, number] | null {
-  return track.seen[c] ? [rowOf(track.lo[c], anchor, step), rowOf(track.hi[c], anchor, step)] : null;
+/** Bands (low, high) the line has crossed in column `c` so far, or null before any sample. */
+export function touchedBands(track: Track, c: number, anchor: bigint, step: bigint): [number, number] | null {
+  return track.seen[c] ? [bandOf(track.lo[c], anchor, step), bandOf(track.hi[c], anchor, step)] : null;
 }
 
 /** Consecutive hits ending at the latest hit column of `m` (0 when the latest pick missed). */

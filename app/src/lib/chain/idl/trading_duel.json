@@ -1795,9 +1795,9 @@
     {
       "name": "set_pick",
       "docs": [
-        "Rollup. Picks `row` (0 bottom to 7 top) for `column`, or clears the pick with `NO_PICK`.",
-        "Only a Player, only until 10 seconds before the column starts. The pick stays in the",
-        "Player's own Book until the column locks."
+        "Rollup. Picks `band` (signed; 0 starts at the anchor) for `column`, or clears the pick with",
+        "`NO_PICK`. Only a Player, only until 10 seconds before the column starts. The pick stays in",
+        "the Player's own Book until the column locks."
       ],
       "discriminator": [
         150,
@@ -1846,8 +1846,8 @@
           "type": "u8"
         },
         {
-          "name": "row",
-          "type": "u8"
+          "name": "band",
+          "type": "i16"
         }
       ]
     },
@@ -1855,8 +1855,8 @@
       "name": "tick",
       "docs": [
         "Rollup, permissionless. Samples the oracle into the current column, reveals the picks of",
-        "every column that has locked, and scores the columns that are over. Clients call it about",
-        "once a second; a sample is always a real price, so extra calls cannot fake a hit."
+        "every column that has locked, and scores the columns that are over. Clients call it",
+        "about four times a second; a sample is always a real price, so extra calls cannot fake a hit."
       ],
       "discriminator": [
         92,
@@ -2013,66 +2013,61 @@
     },
     {
       "code": 6007,
-      "name": "InvalidRow",
-      "msg": "Row must be 0 to 7, or 255 to clear"
-    },
-    {
-      "code": 6008,
       "name": "ColumnLocked",
       "msg": "That column is locked"
     },
     {
-      "code": 6009,
+      "code": 6008,
       "name": "InvalidAsset",
       "msg": "Unknown asset"
     },
     {
-      "code": 6010,
+      "code": 6009,
       "name": "BadPriceFeed",
       "msg": "Not the price feed of this Match's asset"
     },
     {
-      "code": 6011,
+      "code": 6010,
       "name": "StalePrice",
       "msg": "The oracle price is stale or in the future"
     },
     {
-      "code": 6012,
+      "code": 6011,
       "name": "BadPrice",
       "msg": "The oracle price is unusable"
     },
     {
-      "code": 6013,
+      "code": 6012,
       "name": "NotTimedOut",
       "msg": "Deadline has not passed"
     },
     {
-      "code": 6014,
+      "code": 6013,
       "name": "StartWindowPassed",
       "msg": "The start deadline has passed"
     },
     {
-      "code": 6015,
+      "code": 6014,
       "name": "BadTesoroMatch",
       "msg": "The tesoro_core Match is not an Active Match of this Game"
     },
     {
-      "code": 6016,
+      "code": 6015,
       "name": "MatchNotOver",
       "msg": "The Match is not over"
     },
     {
-      "code": 6017,
+      "code": 6016,
       "name": "AlreadyFinalized",
       "msg": "Already settled or refunded in tesoro_core"
     },
     {
-      "code": 6018,
+      "code": 6017,
       "name": "InvalidValidator",
       "msg": "Delegation must name the TEE validator"
     },
     {
-      "code": 6019,
+      "code": 6018,
       "name": "PermissionNotReady",
       "msg": "A permission for this account is missing or is not a real permission"
     }
@@ -2136,11 +2131,11 @@
           {
             "name": "picks",
             "docs": [
-              "A row (0 bottom to 7 top) per column, or `NO_PICK`."
+              "A band (signed, 0 starts at the anchor) per column, or `NO_PICK`."
             ],
             "type": {
               "array": [
-                "u8",
+                "i16",
                 12
               ]
             }
@@ -2306,14 +2301,14 @@
           {
             "name": "anchor",
             "docs": [
-              "The price when the Match started, 1e-8 USD: row 4 begins here."
+              "The price when the Match started, 1e-8 USD: band 0 begins here."
             ],
             "type": "u64"
           },
           {
             "name": "step",
             "docs": [
-              "Row height, 1e-8 USD."
+              "Band height, 1e-8 USD."
             ],
             "type": "u64"
           },
@@ -2342,7 +2337,7 @@
               "array": [
                 {
                   "array": [
-                    "u8",
+                    "i16",
                     12
                   ]
                 },

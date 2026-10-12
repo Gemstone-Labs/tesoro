@@ -1,5 +1,5 @@
 import { COLUMNS, MATCH_SECS, NO_PICK, STEP_PPM, canPick, finish, lockAt, newTrack, record, settle, stepFor, type GridAsset, type GridResult, type Track } from "../grid";
-import { botPickTimes, botRow } from "./gridBot";
+import { botBand, botPickTimes } from "./gridBot";
 
 /** A practice game against the local bot: seat 0 is you, seat 1 the bot. Pure state, driven by `stepGridSession`. */
 export interface GridSession {
@@ -31,11 +31,11 @@ export function newGridSession(startsAt: number, anchor: bigint, asset: GridAsse
 export const elapsed = (s: GridSession, nowMs: number): number => (nowMs - s.startsAt) / 1000;
 
 /** Your pick (or `NO_PICK` to clear it), or null when it is refused: the column has locked or the game is over. */
-export function setPick(s: GridSession, column: number, row: number, nowMs: number): GridSession | null {
+export function setPick(s: GridSession, column: number, band: number, nowMs: number): GridSession | null {
   const t = elapsed(s, nowMs);
-  if (s.final || !canPick(column, t) || (row !== NO_PICK && (row < 0 || row > 7))) return null;
+  if (s.final || !canPick(column, t)) return null;
   const mine = [...s.picks[0]];
-  mine[column] = row;
+  mine[column] = band;
   return { ...s, picks: [mine, s.picks[1]] };
 }
 
@@ -54,7 +54,7 @@ export function stepGridSession(s: GridSession, mid: bigint, nowMs: number, rng:
   }
   const bot = [...s.picks[1]];
   for (let c = 0; c < COLUMNS; c++) {
-    if (bot[c] === NO_PICK && t >= s.botAt[c] && t < lockAt(c)) bot[c] = botRow(prices, columnAtMid(c) - t, s.anchor, s.step, rng);
+    if (bot[c] === NO_PICK && t >= s.botAt[c] && t < lockAt(c)) bot[c] = botBand(prices, columnAtMid(c) - t, s.anchor, s.step, rng);
   }
   return { ...s, track: record(s.track, t, mid), picks: [s.picks[0], bot] };
 }

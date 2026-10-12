@@ -8,12 +8,12 @@ Code: `programs/trading_duel/src/{lib,state,engine}.rs`. Rules in TypeScript: `a
 
 - Two Players, equal entry (500, 1,000 or 2,500 Gemas), paired through the Queue or a Challenge link. The Queue is per game, entry **and asset**.
 - One asset per Match: SOL, ETH or HYPE.
-- The grid has 12 columns of 10 seconds and 8 rows of price. The rows are fixed when the Match starts: row height is the start price (the anchor) times `STEP_PPM[asset]` (SOL 250, ETH 200, HYPE 270 parts per million), rows 1 to 6 sit around the anchor, row 0 is open below and row 7 open above, so the line always lands in some row.
+- The grid has 12 columns of 10 seconds and unbounded bands of price. The bands are fixed when the Match starts: band height (`step`) is the start price (the anchor) times `STEP_PPM[asset]` (SOL 250, ETH 200, HYPE 270 parts per million). Band `k`, a signed integer, is `[anchor + k*step, anchor + (k+1)*step)`: band 0 starts at the anchor, negative bands lie below it. `band_of(price) = floor((price - anchor) / step)`, clamped to -32767..32767 (picks are `i16` and `NO_PICK` = -32768 is the sentinel). No band is open-ended, so a day's move never leaves the grid: the app scrolls the view to follow the line and the Player picks any band, near or far.
 - **Head start:** the line enters column 0 `HEAD_START_SECS` = 30 s after the Match starts. The Match ends `grid_at + 120 s` = 150 s after it starts.
-- **Picks:** each Player picks one row per column with `set_pick(column, row)`, and can change or clear it (`row = NO_PICK`) for free until the column locks. It records no price sample.
+- **Picks:** each Player picks one band per column with `set_pick(column, band)` (any `i16`), and can change or clear it (`band = NO_PICK`) for free until the column locks. It records no price sample.
 - **Lock:** column `c` locks `LOCK_AHEAD_SECS` = 10 s before its window starts, which is when the column before it goes live. Picks for `c` are accepted while `now < lock(c)`.
 - **Hidden until locked:** a pick lives in its Player's own Book. When a column locks, both picks for it are copied into the public `Duel.revealed`.
-- **Hit:** a pick hits column `c` if the recorded prices of the column (its low and high, including the price where the line entered the column) overlap the pick's row. A hit scores `HIT_POINTS` = 100. A column without a pick scores nothing.
+- **Hit:** a pick hits column `c` if the recorded prices of the column (its low and high, including the price where the line entered the column) include the pick's band: `band_of(low) <= band <= band_of(high)`. A hit scores `HIT_POINTS` = 100. A column without a pick scores nothing.
 - **Result:** more points wins; equal points (including nobody picking) is a draw and both entries are refunded. A no-show (never started) refunds as well.
 
 The exact column range rules (carry-over of the entry price, columns with no sample, the closing sample) are written in `engine.rs` (`Track::record`, `finish`, `hits`) and mirrored in `grid.ts`. Both are tested against one shared fixture, `programs/trading_duel/tests/fixtures/grid-vectors.json`, so they cannot drift.
@@ -47,7 +47,7 @@ Layout (a Pyth `PriceUpdateV2` image, 134 bytes): feed id at 41 (equals the acco
 | Account | Seeds | Visibility during the Match |
 |---|---|---|
 | `Duel` | `["duel", match_id_le]` | public (a non-private permission): anchor, step, times, the price range of each column (`track`), `revealed` picks of locked columns, `scores`, `winner` |
-| `Book` x2 | `["book", duel, seat]` | private to its Player: `picks[12]`, `pick_count` |
+| `Book` x2 | `["book", duel, seat]` | private to its Player: `picks[12]` (`i16` bands), `pick_count` |
 
 The tesoro_core Match id is `ms * 8 + asset * 2 + challenge`: bit 0 marks a Challenge (as for every Game), bits 1 and 2 are the asset (0 SOL, 1 ETH, 2 HYPE). `create_match` reads the asset from the id, so nobody can change it, and the Queue filters on it.
 
@@ -58,8 +58,8 @@ The tesoro_core Match id is `ms * 8 + asset * 2 + challenge`: bit 0 marks a Chal
 | open / join | base | tesoro_core `open_match`, `join_match` (game = this program id) | the two Players |
 | bind | base | `create_match(match_id)` | either Player |
 | delegate | base | `delegate_match` | anyone |
-| permissions + start | TEE | `init_permissions` (reads the start price, sets the rows, starts the head start) | anyone |
-| pick | TEE | `set_pick(column, row)` | the Player |
+| permissions + start | TEE | `init_permissions` (reads the start price, sets the anchor and step, starts the head start) | anyone |
+| pick | TEE | `set_pick(column, band)` | the Player |
 | sample and reveal | TEE | `tick` (about four times a second during the grid: records the price, reveals locked columns, scores finished ones) | anyone |
 | end | TEE | `end_match` | anyone, after the window |
 | cancel | TEE | `claim_timeout` (delegated, never started, past `start_deadline`) | anyone |

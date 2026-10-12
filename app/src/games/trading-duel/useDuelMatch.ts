@@ -373,31 +373,31 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
   );
 
   /**
-   * Picks `row` for `column` (`NO_PICK` clears it). The pick shows at once; picks are sent in order,
+   * Picks `band` for `column` (`NO_PICK` clears it). The pick shows at once; picks are sent in order,
    * and a refused one is taken back with a plain error.
    */
   const pick = useCallback(
-    (column: number, row: number) => {
+    (column: number, band: number) => {
       const seat = seatRef.current;
       if (!p || id === null || seat === null) return;
       const set = (next: PendingPicks) => {
         pendingRef.current = next;
         setView((v) => ({ ...v, pending: next }));
       };
-      set({ ...pendingRef.current, [column]: row });
+      set({ ...pendingRef.current, [column]: band });
       patch({ error: null });
       pickQueue.current = pickQueue.current.then(async () => {
         const td = getTradingDuel();
         try {
-          await td.setPick(p, id, seat, column, row);
+          await td.setPick(p, id, seat, column, band);
           const b = await td.readOwnBook(p, id, seat);
           if (b) applyBook(b);
           // Confirmed: the Book is the truth now, unless a newer pick for the column is in flight.
-          if (pendingRef.current[column] === row) {
+          if (pendingRef.current[column] === band) {
             set(dropPending(pendingRef.current, column));
           }
         } catch (e) {
-          if (pendingRef.current[column] === row) {
+          if (pendingRef.current[column] === band) {
             set(dropPending(pendingRef.current, column));
           }
           patch({ error: pickError(e) });

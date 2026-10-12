@@ -559,7 +559,13 @@ impl Env {
         self.set_time(starts + t);
     }
 
-    fn pick_as(&mut self, signer: &Keypair, book: APk, column: u8, row: u8) -> Result<(), Failed> {
+    fn pick_as(
+        &mut self,
+        signer: &Keypair,
+        book: APk,
+        column: u8,
+        band: i16,
+    ) -> Result<(), Failed> {
         let ad = addrs(self.id);
         let ixn = ix(
             trading_duel::ID,
@@ -568,20 +574,20 @@ impl Env {
                 duel: ad.duel,
                 book,
             },
-            trading_duel::instruction::SetPick { column, row },
+            trading_duel::instruction::SetPick { column, band },
             vec![],
         );
         self.send(&[ixn], signer, &[])
     }
 
-    fn pick(&mut self, seat: usize, column: u8, row: u8) -> Result<(), Failed> {
+    fn pick(&mut self, seat: usize, column: u8, band: i16) -> Result<(), Failed> {
         let (kp, _) = self.person_of(seat);
         let ad = addrs(self.id);
         self.pick_as(
             &kp,
             if seat == 0 { ad.book_0 } else { ad.book_1 },
             column,
-            row,
+            band,
         )
     }
 
@@ -735,16 +741,16 @@ fn only_a_player_may_create_and_a_second_create_fails() {
     assert!(env.create().is_err());
 }
 
-const NO_PICK: u8 = trading_duel::NO_PICK;
+const NO_PICK: i16 = trading_duel::NO_PICK;
 
 #[test]
 fn picks_are_accepted_until_ten_seconds_before_the_column() {
     use trading_duel::DuelError::*;
     let mut env = live();
-    env.pick(0, 0, 5).expect("pick before the lock");
-    assert_eq!(env.book(0).picks[0], 5);
+    env.pick(0, 0, 1).expect("pick before the lock");
+    assert_eq!(env.book(0).picks[0], 1);
     assert_eq!(env.book(0).pick_count, 1);
-    env.pick(0, 0, 6).expect("a pick can be moved");
+    env.pick(0, 0, 2).expect("a pick can be moved");
     assert_eq!(env.book(0).pick_count, 1);
     env.pick(0, 0, NO_PICK).expect("and cleared");
     assert_eq!(env.book(0).picks[0], NO_PICK);
@@ -753,43 +759,38 @@ fn picks_are_accepted_until_ten_seconds_before_the_column() {
     assert_eq!(env.book(0).pick_count, 0);
 
     env.at(19);
-    env.pick(0, 0, 5).expect("last second before the lock");
+    env.pick(0, 0, 1).expect("last second before the lock");
     env.at(20);
-    for row in [3, NO_PICK] {
+    for band in [-1, NO_PICK] {
         assert_eq!(
-            custom_code(&env.pick(0, 0, row).unwrap_err()),
+            custom_code(&env.pick(0, 0, band).unwrap_err()),
             dcode(ColumnLocked)
         );
     }
-    assert_eq!(env.book(0).picks[0], 5, "a locked pick stays");
-    env.pick(0, 1, 2).expect("the next column is still open");
+    assert_eq!(env.book(0).picks[0], 1, "a locked pick stays");
+    env.pick(0, 1, -2).expect("the next column is still open");
     env.at(129);
-    env.pick(1, 11, 7).expect("the last column opens until 130");
+    env.pick(1, 11, 3).expect("the last column opens until 130");
     env.at(130);
     assert_eq!(
-        custom_code(&env.pick(1, 11, 7).unwrap_err()),
+        custom_code(&env.pick(1, 11, 3).unwrap_err()),
         dcode(ColumnLocked)
     );
 }
 
 #[test]
-fn picks_must_name_a_real_column_and_row() {
+fn picks_must_name_a_real_column_and_any_band_goes() {
     use trading_duel::DuelError::*;
     let mut env = live();
     assert_eq!(
         custom_code(&env.pick(0, 12, 3).unwrap_err()),
         dcode(InvalidColumn)
     );
-    assert_eq!(
-        custom_code(&env.pick(0, 0, 8).unwrap_err()),
-        dcode(InvalidRow)
-    );
-    assert_eq!(
-        custom_code(&env.pick(0, 0, 254).unwrap_err()),
-        dcode(InvalidRow)
-    );
-    env.pick(0, 0, 0).expect("the bottom row");
-    env.pick(0, 0, 7).expect("the top row");
+    for band in [i16::MIN + 1, -4, 0, 3, 100, i16::MAX] {
+        env.pick(0, 0, band).expect("any band is accepted");
+        assert_eq!(env.book(0).picks[0], band);
+    }
+    assert_eq!(env.book(0).pick_count, 1);
 }
 
 #[test]
@@ -799,17 +800,17 @@ fn only_a_player_can_pick_and_only_in_their_own_book() {
     let ad = addrs(env.id);
     let stranger = env.admin.insecure_clone();
     for book in [ad.book_0, ad.book_1] {
-        let err = env.pick_as(&stranger, book, 0, 4).unwrap_err();
+        let err = env.pick_as(&stranger, book, 0, 0).unwrap_err();
         assert_eq!(custom_code(&err), dcode(NotAPlayer));
     }
     // Bob cannot write into Alice's Book, nor Alice into Bob's.
     let (bob, alice) = (env.bob.kp.insecure_clone(), env.alice.kp.insecure_clone());
     assert_eq!(
-        custom_code(&env.pick_as(&bob, ad.book_0, 0, 4).unwrap_err()),
+        custom_code(&env.pick_as(&bob, ad.book_0, 0, 0).unwrap_err()),
         dcode(NotAPlayer)
     );
     assert_eq!(
-        custom_code(&env.pick_as(&alice, ad.book_1, 0, 4).unwrap_err()),
+        custom_code(&env.pick_as(&alice, ad.book_1, 0, 0).unwrap_err()),
         dcode(NotAPlayer)
     );
     assert_eq!(env.book(0).pick_count + env.book(1).pick_count, 0);
@@ -819,7 +820,7 @@ fn only_a_player_can_pick_and_only_in_their_own_book() {
 fn nothing_is_picked_or_ticked_before_the_match_starts() {
     use trading_duel::DuelError::*;
     let mut env = ready();
-    assert_eq!(custom_code(&env.pick(0, 0, 4).unwrap_err()), dcode(NotLive));
+    assert_eq!(custom_code(&env.pick(0, 0, 0).unwrap_err()), dcode(NotLive));
     env.price(100.0);
     assert_eq!(custom_code(&env.tick().unwrap_err()), dcode(NotLive));
     assert_eq!(custom_code(&env.end().unwrap_err()), dcode(NotLive));
@@ -828,9 +829,9 @@ fn nothing_is_picked_or_ticked_before_the_match_starts() {
 #[test]
 fn a_column_is_revealed_to_both_when_it_locks_and_not_before() {
     let mut env = live();
-    env.pick(0, 0, 5).unwrap();
-    env.pick(1, 0, 4).unwrap();
-    env.pick(0, 1, 2).unwrap();
+    env.pick(0, 0, 1).unwrap();
+    env.pick(1, 0, 0).unwrap();
+    env.pick(0, 1, -2).unwrap();
     env.tick_at(19, 100.0).unwrap();
     assert_eq!(
         env.duel().revealed,
@@ -839,7 +840,7 @@ fn a_column_is_revealed_to_both_when_it_locks_and_not_before() {
     );
     env.tick_at(20, 100.0).unwrap();
     let r = env.duel().revealed;
-    assert_eq!((r[0][0], r[1][0]), (5, 4));
+    assert_eq!((r[0][0], r[1][0]), (1, 0));
     assert_eq!(
         (r[0][1], r[1][1]),
         (NO_PICK, NO_PICK),
@@ -849,7 +850,7 @@ fn a_column_is_revealed_to_both_when_it_locks_and_not_before() {
     let r = env.duel().revealed;
     assert_eq!(
         (r[0][1], r[1][1]),
-        (2, NO_PICK),
+        (-2, NO_PICK),
         "an empty column reveals as empty"
     );
 }
@@ -883,9 +884,9 @@ fn ticks_fill_the_columns_the_line_crosses_and_carry_skipped_ones() {
 #[test]
 fn columns_are_scored_once_they_are_over() {
     let mut env = live();
-    // Column 0: $100.00 to $100.03 crosses rows 4 and 5. Seat 0 picks 5 (hit), seat 1 picks 6.
-    env.pick(0, 0, 5).unwrap();
-    env.pick(1, 0, 6).unwrap();
+    // Column 0: $100.00 to $100.03 crosses bands 0 and 1. Seat 0 picks 1 (hit), seat 1 picks 2.
+    env.pick(0, 0, 1).unwrap();
+    env.pick(1, 0, 2).unwrap();
     env.tick_at(35, 100.03).unwrap();
     assert_eq!(env.duel().scores, [0, 0], "column 0 is still live");
     env.tick_at(40, 100.03).unwrap();
@@ -914,14 +915,14 @@ fn the_match_cannot_end_early() {
     assert_eq!(custom_code(&env.end().unwrap_err()), dcode(NotEnded));
 }
 
-/// Picks col 0..11 for a seat, all on `row`.
-fn pick_all(env: &mut Env, seat: usize, row: u8) {
+/// Picks col 0..11 for a seat, all on `band`.
+fn pick_all(env: &mut Env, seat: usize, band: i16) {
     for c in 0..12 {
-        env.pick(seat, c, row).unwrap();
+        env.pick(seat, c, band).unwrap();
     }
 }
 
-/// Plays a flat line at $100 (everything in row 4), ticking every 10 seconds, then ends.
+/// Plays a flat line at $100 (everything in band 0), ticking every 10 seconds, then ends.
 fn play_flat(env: &mut Env) {
     for t in (10..150).step_by(10) {
         env.tick_at(t, 100.0).unwrap();
@@ -932,14 +933,14 @@ fn play_flat(env: &mut Env) {
 #[test]
 fn the_higher_score_wins_and_finalize_pays_the_winner() {
     let mut env = live();
-    pick_all(&mut env, 0, 4);
-    pick_all(&mut env, 1, 5);
+    pick_all(&mut env, 0, 0);
+    pick_all(&mut env, 1, 1);
     play_flat(&mut env);
     let d = env.duel();
     assert_eq!(d.status, trading_duel::STATUS_OVER);
     assert_eq!(d.scores, [1200, 0]);
     assert_eq!(d.winner, 0);
-    assert_eq!(d.revealed, [[4; 12], [5; 12]]);
+    assert_eq!(d.revealed, [[0; 12], [1; 12]]);
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     env.finalize(false).expect("settle");
     assert_eq!(
@@ -955,8 +956,8 @@ fn the_higher_score_wins_and_finalize_pays_the_winner() {
 #[test]
 fn the_second_seat_can_win() {
     let mut env = live();
-    pick_all(&mut env, 0, 6);
-    env.pick(1, 3, 4).unwrap();
+    pick_all(&mut env, 0, 2);
+    env.pick(1, 3, 0).unwrap();
     play_flat(&mut env);
     assert_eq!(env.duel().scores, [0, 100]);
     assert_eq!(env.duel().winner, 1);
@@ -968,8 +969,8 @@ fn the_second_seat_can_win() {
 #[test]
 fn equal_points_draw_and_refund_both_entries() {
     let mut env = live();
-    pick_all(&mut env, 0, 4);
-    pick_all(&mut env, 1, 4);
+    pick_all(&mut env, 0, 0);
+    pick_all(&mut env, 1, 0);
     play_flat(&mut env);
     assert_eq!(env.duel().scores, [1200, 1200]);
     assert_eq!(env.duel().winner, trading_duel::DRAW);
@@ -992,8 +993,8 @@ fn nobody_picking_is_a_draw() {
 #[test]
 fn a_match_with_no_ticks_still_scores_from_the_anchor() {
     let mut env = live();
-    pick_all(&mut env, 0, 4);
-    pick_all(&mut env, 1, 5);
+    pick_all(&mut env, 0, 0);
+    pick_all(&mut env, 1, 1);
     // Only the anchor is recorded: every column carries it.
     env.finish().expect("end");
     let d = env.duel();
@@ -1003,10 +1004,10 @@ fn a_match_with_no_ticks_still_scores_from_the_anchor() {
 }
 
 #[test]
-fn a_hit_needs_the_line_to_cross_the_row_inside_the_column() {
+fn a_hit_needs_the_line_to_cross_the_band_inside_the_column() {
     let mut env = live();
-    env.pick(0, 2, 6).unwrap(); // $100.05 to $100.075
-    env.pick(1, 2, 7).unwrap(); // $100.075 and up
+    env.pick(0, 2, 2).unwrap(); // $100.05 to $100.075
+    env.pick(1, 2, 3).unwrap(); // $100.075 to $100.1
     env.tick_at(51, 100.0).unwrap();
     env.tick_at(55, 100.06).unwrap();
     env.tick_at(60, 100.06).unwrap();
@@ -1233,8 +1234,8 @@ fn the_end_is_the_same_whenever_and_whoever_ends_it() {
     // feed, carries the last recorded price forward and gives the same result.
     let run = |delay: i64, feed_usd: f64| {
         let mut env = live();
-        env.pick(0, 11, 5).unwrap();
-        env.pick(1, 11, 4).unwrap();
+        env.pick(0, 11, 1).unwrap();
+        env.pick(1, 11, 0).unwrap();
         env.tick_at(140, 100.03).unwrap();
         let ends = env.duel().ends_at;
         env.set_time(ends + delay);
@@ -1247,5 +1248,5 @@ fn the_end_is_the_same_whenever_and_whoever_ends_it() {
     assert_eq!(on_time, run(3, 150.0));
     assert_eq!(on_time, run(100, 50.0));
     assert_eq!(on_time.0.last, 100_03000000);
-    assert_eq!(on_time.1, [100, 100], "column 11 crossed rows 4 and 5");
+    assert_eq!(on_time.1, [100, 100], "column 11 crossed bands 0 and 1");
 }

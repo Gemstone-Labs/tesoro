@@ -96,8 +96,8 @@ function picksAt(t: number, mine: number[], theirs: number[]) {
   return { mine: mine.map((r, c) => (t < MATCH_SECS || c < COLUMNS ? r : NO_PICK)), revealed: [lockedOnly(mine), lockedOnly(theirs)] as [number[], number[]] };
 }
 
-const MINE = [4, 5, 4, 3, 3, 4, 5, 5, 4, 3, 4, 4];
-const THEIRS = [3, 4, 6, 3, 5, 2, 5, 4, 4, 2, 3, 5];
+const MINE = [0, 1, 0, -1, -1, 0, 1, 1, 0, -1, 0, 0];
+const THEIRS = [-1, 0, 2, -1, 1, -2, 1, 0, 0, -2, -1, 1];
 
 function gridDuel(t: number, over: Partial<Duel> = {}): { duel: Duel; mine: number[] } {
   const track = trackAt(t);

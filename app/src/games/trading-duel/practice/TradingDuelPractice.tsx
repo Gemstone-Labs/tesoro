@@ -7,7 +7,7 @@ import { art } from "@/lib/art";
 import { ASSETS, type Asset } from "../chain";
 import { assetBySymbol, midToUsd, perSecond, usePriceFeed, type PriceFeed } from "../feed";
 import { usd } from "../fmt";
-import { COLUMNS, MATCH_SECS, lockAt, revealed, rowOf, type GridAsset } from "../grid";
+import { COLUMNS, MATCH_SECS, lockAt, revealed, bandOf, type GridAsset } from "../grid";
 import { GridScreen } from "../GridScreen";
 import { seededRng } from "./bot";
 import { elapsed, newGridSession, setPick, stepGridSession, type GridSession } from "./gridSession";
@@ -107,9 +107,9 @@ export function TradingDuelPractice() {
       practice
       title="Trading Duel practice"
       error={error}
-      onPick={(c, r) => {
+      onPick={(c, k) => {
         const cur = sessionRef.current;
-        const next = cur && setPick(cur, c, r, Date.now());
+        const next = cur && setPick(cur, c, k, Date.now());
         setError(next ? null : "That column just locked, so the pick didn’t count.");
         if (next) commit(next);
       }}
@@ -119,11 +119,11 @@ export function TradingDuelPractice() {
   );
 }
 
-/** The rows the line has reached in each column, the bot's picks, how many columns have locked and whether the game is over: what the screen draws that is not time. */
+/** The bands the line has reached in each column, the bot's picks, how many columns have locked and whether the game is over: what the screen draws that is not time. */
 function lineSignature(s: GridSession, t: number): string {
-  const rows = Array.from({ length: COLUMNS }, (_, c) => (s.track.seen[c] ? `${rowOf(s.track.lo[c], s.anchor, s.step)}-${rowOf(s.track.hi[c], s.anchor, s.step)}` : "."));
+  const bands = Array.from({ length: COLUMNS }, (_, c) => (s.track.seen[c] ? `${bandOf(s.track.lo[c], s.anchor, s.step)}-${bandOf(s.track.hi[c], s.anchor, s.step)}` : "."));
   const locked = Array.from({ length: COLUMNS }, (_, c) => c).filter((c) => t >= lockAt(c)).length;
-  return `${rows.join()}|${s.picks[1].join()}|${locked}|${s.final ? 1 : 0}`;
+  return `${bands.join()}|${s.picks[1].join()}|${locked}|${s.final ? 1 : 0}`;
 }
 
 function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a: Asset) => void; feed: PriceFeed; onStart: () => void }) {
