@@ -45,16 +45,10 @@
   .pc-you-txt > small, .pc-you-txt strong small, .pc-you.none .pc-you-txt { display: none; }
   .pc-you-txt strong { font-size: 20px; }
 }
+/* phones: the chest and the Pool figure only; your rank waits on the Leaderboard */
 @media (max-width: 639px) {
-  .pc-you { margin-left: 4px; padding: 0 6px 0 9px; }
-  .pc-you::before, .pc-you::after { left: -5px; width: 10px; }
-  .pc-you-txt { display: none; }
-  .pc-rank { --s: 28px; font-size: 13px; }
-  .pc-rank.wide { font-size: 11px; }
-}
-/* the narrowest phones: the chest and your rank; the Pool figure waits on the Leaderboard */
-@media (max-width: 389px) {
-  .pchest:has(.pc-you) .pc-short { display: none; }
+  .pchest:has(.pc-you) { padding-right: 10px; }
+  .pc-you { display: none; }
 }
 
 /* loading: the plate's shape in steel; gold only once the Pool is read */

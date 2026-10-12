@@ -82,7 +82,7 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-lede { margin-top: clamp(10px, 2vh, 18px); font-size: clamp(15px, 2.1vh, 18px); line-height: 1.5; color: var(--fg-2); max-width: 44ch; }
 .wl-form { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
 .wl-row { display: flex; gap: 10px; }
-.wl-row .input { flex: 1 1 auto; min-width: 0; }
+.wl-row .ctl { flex: 1 1 auto; min-width: 0; }
 .wl-join { flex: none; min-height: 48px; padding-inline: 20px; }
 .wl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .wl-error { min-height: 1.4em; font-size: 14px; color: var(--danger, #f2685a); }

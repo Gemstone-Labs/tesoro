@@ -536,11 +536,13 @@ function PostRequest({
         </p>
         <div className="field">
           <label className="label" htmlFor="req-game">Game</label>
-          <select id="req-game" className="cut cut-chip select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-            <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
-            <option value="holdem">{GAME_NAMES.holdem}</option>
-            <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
-          </select>
+          <span className="cut cut-chip ctl">
+            <select id="req-game" className="select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
+              <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
+              <option value="holdem">{GAME_NAMES.holdem}</option>
+              <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
+            </select>
+          </span>
         </div>
         <EntryPicker value={entry} onChange={setEntry} legend="Entry to be backed" name="req-entry" />
         <Button block disabled={disabled} onClick={() => onPost(game, entry)}>
@@ -721,11 +723,13 @@ function OfferDrawer({
               <p className="meta">Post terms; Players apply and you accept one.</p>
               <div className="field">
                 <label className="label" htmlFor="off-game">Game</label>
-                <select id="off-game" className="cut cut-chip select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-                  <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
-                  <option value="holdem">{GAME_NAMES.holdem}</option>
-                  <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
-                </select>
+                <span className="cut cut-chip ctl">
+                  <select id="off-game" className="select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
+                    <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
+                    <option value="holdem">{GAME_NAMES.holdem}</option>
+                    <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
+                  </select>
+                </span>
               </div>
               <EntryPicker value={entry} onChange={setEntry} legend="Entry you fund" name="off-entry" />
             </div>

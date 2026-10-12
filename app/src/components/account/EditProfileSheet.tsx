@@ -149,20 +149,22 @@ function EditProfileForm({ onDone }: { onDone: () => void }) {
 
       <div className="field">
         <label className="label" htmlFor="ep-name">Name</label>
-        <input
-          id="ep-name"
-          className="cut input"
-          autoComplete="nickname"
-          maxLength={PROFILE_NAME_MAX + 8}
-          placeholder="3 to 20 characters"
-          value={name}
-          disabled={available === false}
-          aria-invalid={nameError !== null}
-          aria-describedby="ep-name-hint"
-          onChange={(e) => {
-            setNameEdit(e.target.value);
-          }}
-        />
+        <span className="cut cut-chip ctl">
+          <input
+            id="ep-name"
+            className="input"
+            autoComplete="nickname"
+            maxLength={PROFILE_NAME_MAX + 8}
+            placeholder="3 to 20 characters"
+            value={name}
+            disabled={available === false}
+            aria-invalid={nameError !== null}
+            aria-describedby="ep-name-hint"
+            onChange={(e) => {
+              setNameEdit(e.target.value);
+            }}
+          />
+        </span>
         <small id="ep-name-hint" className={nameError ? "ep-err" : "meta"}>
           {nameError ?? "Letters, numbers, spaces, dots, dashes and underscores. Names are not unique."}
         </small>

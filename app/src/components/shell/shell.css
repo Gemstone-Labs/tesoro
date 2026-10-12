@@ -62,8 +62,6 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 .topbar .menu-btn { grid-column: 1; }
 .top-word { grid-column: 2; }
 .top-word .wordmark svg { height: 26px; width: auto; }
-.top-mark { grid-column: 2; display: none; }
-.top-mark svg { display: block; }
 .top-right { grid-column: 4; display: flex; align-items: center; gap: 12px; justify-self: end; }
 .search {
   grid-column: 1 / -1; grid-row: 2; display: none; align-items: center; gap: 12px; height: 46px; padding: 0 16px;
@@ -237,9 +235,8 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .gpill .gema-mark { width: 22px; height: 22px; }
   .gp-mark-skel { width: 22px; height: 22px; }
   .gpill.skel .skel-line { width: 28px !important; }
-  /* the Pool and the balance need the room: the bar keeps the mark, the drawer keeps the wordmark */
+  /* phones keep four things: the menu (it holds the wordmark), the Pool, the balance, you */
   .top-word { display: none; }
-  .top-mark { display: block; }
   .pchest { height: 38px; padding: 0 10px 0 3px; gap: 3px; --c: 10px; }
   .pchest b { font-size: 16px; }
   .pchest .pc-full { display: none; }
@@ -262,7 +259,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .sidebar { display: flex; flex-direction: column; }
   .sidebar > * { flex-shrink: 0; }
   .content { margin-left: var(--side-w); }
-  .menu-btn, .top-word, .top-mark, .bottom-nav { display: none !important; }
+  .menu-btn, .top-word, .bottom-nav { display: none !important; }
   .topbar { grid-template-columns: minmax(0, 330px) 1fr auto; padding: 16px 18px 12px 24px; gap: 0 16px; }
   .topbar.on-lobby .search { grid-column: 1; grid-row: 1; height: 48px; }
   .top-right { grid-column: 3; gap: 18px; min-height: 52px; }
@@ -336,6 +333,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 }
 @media (prefers-reduced-motion: reduce) { .signin-cells-input:focus-visible ~ .signin-cell.at::before { animation: none; } }
 @media (max-width: 359px) {
-  .pchest .pc-short { display: none; }
-  .pchest { padding-right: 3px; }
+  .topbar, .top-right { gap: 6px; }
+  .gpill { padding: 0 10px 0 6px; gap: 6px; }
+  .pchest { padding-right: 8px; }
 }

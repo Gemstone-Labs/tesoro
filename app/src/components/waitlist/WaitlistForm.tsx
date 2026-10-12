@@ -81,19 +81,21 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
         Email
       </label>
       <div className="wl-row">
-        <input
-          id="wl-email"
-          name="email"
-          className="cut input"
-          type="email"
-          inputMode="email"
-          autoComplete="email"
-          placeholder="you@example.com"
-          required
-          maxLength={254}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? "wl-error" : undefined}
-        />
+        <span className="cut cut-chip ctl">
+          <input
+            id="wl-email"
+            name="email"
+            className="input"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            required
+            maxLength={254}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "wl-error" : undefined}
+          />
+        </span>
         <button type="submit" className="btn money cut cut-btn wl-join" disabled={pending}>
           {pending ? "Joining…" : "Join the waitlist"}
         </button>

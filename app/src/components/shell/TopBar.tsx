@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, Search, X } from "lucide-react";
 import { AvatarSkeleton } from "@/components/account/Player";
-import { TesoroMark } from "@/components/brand";
 import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { AccountMenu } from "./AccountMenu";
@@ -27,9 +26,6 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         <Menu aria-hidden="true" />
       </button>
       <span className="top-word"><Wordmark /></span>
-      <Link href="/lobby" className="top-mark" aria-label="Tesoro, home">
-        <TesoroMark size={32} />
-      </Link>
       <form
         className="cut cut-card search"
         role="search"
