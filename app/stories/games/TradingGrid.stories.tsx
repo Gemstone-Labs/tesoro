@@ -1,0 +1,115 @@
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useState } from "react";
+import { art } from "@/lib/art";
+import { GridScreen, type GridPoint } from "@/games/trading-duel/GridScreen";
+import { COLUMNS, MATCH_SECS, NO_PICK, STEP_PPM, finish, newTrack, record, revealed, rowOf, stepFor, type Track } from "@/games/trading-duel/grid";
+import { seededRng } from "@/games/trading-duel/practice/bot";
+
+const START = 1_800_000_000_000;
+const ANCHOR = 142_50000000n;
+const STEP = stepFor(ANCHOR, STEP_PPM.SOL);
+
+/** A made-up SOL walk, one price a second, from the same seed every time. */
+function walk(seed: number, secs: number) {
+  const rng = seededRng(seed);
+  let p = Number(ANCHOR) / 1e8;
+  let drift = 0;
+  const series: GridPoint[] = [];
+  let track: Track = record(newTrack(), 0, ANCHOR);
+  for (let s = 1; s <= Math.min(secs, MATCH_SECS); s++) {
+    drift = drift * 0.9 + (rng() - 0.5) * 0.00003;
+    p *= 1 + drift + (rng() - 0.5) * 0.00012;
+    const mid = BigInt(Math.round(p * 1e8));
+    series.push({ t: START + s * 1000, p });
+    track = s >= MATCH_SECS ? finish(track, mid) : record(track, s, mid);
+  }
+  return { series, track, price: BigInt(Math.round(p * 1e8)) };
+}
+
+/** Picks: `hit` columns get a row the line crossed, `miss` columns a row it did not, anything else is left empty. */
+function picksFor(track: Track, plan: ("hit" | "miss" | "-")[]): number[] {
+  return plan.map((x, c) => {
+    if (x === "-" || !track.seen[c]) return x === "-" ? NO_PICK : 4;
+    const lo = rowOf(track.lo[c], ANCHOR, STEP);
+    const hi = rowOf(track.hi[c], ANCHOR, STEP);
+    if (x === "hit") return lo;
+    return hi < 7 ? 7 : lo > 0 ? 0 : NO_PICK;
+  });
+}
+
+const H = "hit";
+const M = "miss";
+const N = "-";
+const PLANS = {
+  won: { me: [H, H, M, H, H, H, M, H, H, N, H, H], foe: [M, H, H, M, H, M, H, M, H, H, M, M] },
+  lost: { me: [M, H, M, H, M, M, H, M, N, H, M, H], foe: [H, H, H, M, H, H, H, M, H, H, H, M] },
+  draw: { me: [H, M, H, H, M, H, M, H, M, H, M, H], foe: [M, H, H, M, H, H, H, M, H, M, H, M] },
+} as const;
+
+interface Args {
+  t: number;
+  plan: keyof typeof PLANS | "open";
+  /** Hand-pick boxes by tapping (the clock stays frozen). */
+  playable?: boolean;
+  /** A real Match: entry and Pot in Gemas instead of the practice note. */
+  staked?: boolean;
+}
+
+function Screen({ t, plan, playable, staked }: Args) {
+  const { series, track, price } = walk(7, t);
+  const planned = plan === "open" ? null : PLANS[plan];
+  const [taps, setTaps] = useState<number[]>(() =>
+    planned ? picksFor(track, [...planned.me]) : Array.from({ length: COLUMNS }, (_, c) => (c < 3 + Math.floor(t / 10) ? [3, 4, 5, 3, 2, 4, 5, 3, 4][c % 9] : NO_PICK)),
+  );
+  const foePicks = planned ? picksFor(track, [...planned.foe]) : Array.from({ length: COLUMNS }, (_, c) => [4, 3, 5, 6, 2, 4, 3, 5, 4, 3, 5, 4][c]);
+  const done = t >= MATCH_SECS;
+  const score = (picks: number[]) => picks.filter((r, c) => r !== NO_PICK && track.seen[c] && rowOf(track.lo[c], ANCHOR, STEP) <= r && r <= rowOf(track.hi[c], ANCHOR, STEP)).length * 100;
+  return (
+    <GridScreen
+      asset="SOL"
+      anchor={ANCHOR}
+      step={STEP}
+      startsAt={START}
+      nowMs={START + t * 1000}
+      track={track}
+      series={series}
+      price={price}
+      mine={taps}
+      theirs={revealed(foePicks, t)}
+      me={{ name: "You", avatar: art.avatars[0] }}
+      opponent={{ name: "Bot", avatar: art.avatars[4] }}
+      final={done ? { you: score(taps), them: score(foePicks) } : null}
+      practice={!staked}
+      entry={staked ? 1000 : undefined}
+      pot={staked ? 1900 : undefined}
+      onPick={(c, r) => (playable || !done) && setTaps((p) => p.map((x, i) => (i === c ? r : x)))}
+      onPlayAgain={() => undefined}
+      exitHref="/lobby"
+    />
+  );
+}
+
+const meta = {
+  title: "Games/Trading Grid",
+  parameters: { layout: "padded", shell: "app" },
+} satisfies Meta<Args>;
+export default meta;
+type Story = StoryObj<Args>;
+
+const at = (t: number, plan: Args["plan"] = "open"): Story => ({ args: { t, plan }, render: (a) => <Screen key={`${a.t}${a.plan}`} {...a} /> });
+const phone = (s: Story): Story => ({ ...s, globals: { viewport: { value: "phone390", isRotated: false } } });
+
+/** Head start: nothing has happened yet, the first columns are open. Tap a box to pick it, tap it again to clear it. */
+export const HeadStart = at(12);
+export const HeadStartPhone = phone(at(12));
+/** Mid game: some columns done (hits and misses), one live, one locked with the opponent's pick revealed, the rest open. */
+export const MidGame = at(84, "won");
+export const MidGamePhone = phone(at(84, "won"));
+/** The last ten seconds. */
+export const LastColumn = at(144, "won");
+/** The end screens. */
+export const EndWon = at(151, "won");
+export const EndLost = at(151, "lost");
+export const EndDraw = at(151, "draw");
+export const EndWonStaked: Story = { args: { t: 151, plan: "won", staked: true }, render: (a) => <Screen key="staked" {...a} /> };
+export const EndWonPhone = phone(at(151, "won"));
