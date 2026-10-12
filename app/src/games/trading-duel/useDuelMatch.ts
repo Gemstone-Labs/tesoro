@@ -7,6 +7,7 @@ import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain, getTradingDuel } from "@/lib/chain/client";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { ASSETS, DRAW, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
+import { addSighting, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
 import { plainError } from "@/lib/errors";
 
 /** Where a Trading Duel Match is in its life, read from chain. */
@@ -19,38 +20,52 @@ export interface DuelView {
   asset: Asset;
   /** The public Duel from the private rollup (the committed one once the Match is over). */
   duel: Duel | null;
-  /** Your own Book, read with your TEE token. */
+  /** Your own Book (your picks), read with your TEE token. */
   book: Book | null;
-  /** Both Books once committed to the base layer: public, with every fill. */
-  finalBooks: [Book, Book] | null;
+  /** Picks you made that the rollup has not confirmed yet; rolled back with an error if refused. */
+  pending: PendingPicks;
   note: string;
   error: string | null;
   sigs: { label: string; sig: string; layer: "base" | "tee" }[];
   busy: string | null;
   /** The tesoro_core refund deadline passed on an unfinished Match. */
   refundable: boolean;
+  /** How far the rollup's clock runs ahead of this browser's, ms (add it to `Date.now()`). */
+  clockOffsetMs: number;
 }
 
 const errText = plainError;
+
+/** A refused pick in words: the column locked a moment ago, or the session did not answer. */
+function pickError(e: unknown): string {
+  return /ColumnLocked|GridClosed/.test(String(e)) ? "That column just locked, so the pick didn’t count." : errText(e);
+}
 const now = () => Date.now();
 
 /** A key that changes whenever anything a Player can see in the Duel changes. */
-const duelKey = (d: Duel) => [d.status, d.lead, d.trades, d.winner, d.startsAt, d.endsAt, d.finalPrice].join("|");
-const bookKey = (b: Book) => [b.cash, b.side, b.margin, b.entry, b.fillCount, b.liquidations].join("|");
+const duelKey = (d: Duel) => [d.status, d.winner, d.startsAt, d.endsAt, d.lastTick, d.scores, d.revealed, d.track.seen, d.track.lo, d.track.hi, d.track.last].join("|");
+const bookKey = (b: Book) => b.picks.join(",");
 
 /** How long the Player who does not act at once waits before doing a step either Player may do. */
 const GRACE_MS = 15_000;
-/** Seconds after the window closes before the second Player also tries to end the Match. */
+/** Seconds after the window closes before the second Player also tries to end the Match (the result is the same whoever does it). */
 const END_GRACE_MS = 2_000;
-const TICK_EVERY_MS = 4_000;
+/** The grid is cranked about four times a second while it runs: a denser line is a truer one. A call is never sent while the last is in flight. */
+const TICK_EVERY_MS = 250;
+/** After a failed call the next waits this long, doubling per failure up to the cap (a stale price or a lost race is not worth hammering the rollup for). */
+const BACKOFF_MS = 500;
+const BACKOFF_MAX_MS = 4_000;
+/** The end retries at least this often, so a slow Match does not wait long on it. */
+const END_BACKOFF_MAX_MS = 1_000;
 
 /**
  * Drives one Trading Duel for one Player: creates and delegates the Duel, starts it, reads the
- * public Duel and your own Book from the private rollup, cranks `tick` while it runs, ends it when
- * the window closes, then commits it back and settles. Both Players' clients run the same driver;
- * steps either Player may do are tried by one client first and by the other after a grace period,
- * and a lost race is harmless because every step re-reads chain state. Trades are signed by the
- * Account's wallet signer without a prompt (embedded or dev wallet), as in Hold'em.
+ * public Duel and your own Book from the private rollup, cranks `tick` about four times a second while
+ * the grid runs, ends it when the window closes, then commits it back and settles. Both Players'
+ * clients run the same driver; steps either Player may do are tried by one client first and by the
+ * other after a grace period, and a lost race is harmless because every step re-reads chain state.
+ * Picks are signed by the Account's wallet signer without a prompt (embedded or dev wallet), as in
+ * Hold'em, and show at once; a refused pick is rolled back with a plain error.
  */
 export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSettled?: () => void) {
   const asset = useMemo(() => (id === null ? ASSETS[0] : (assetOfMatchId(id) ?? ASSETS[0])), [id]);
@@ -61,12 +76,13 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     asset,
     duel: null,
     book: null,
-    finalBooks: null,
+    pending: {},
     note: "",
     error: null,
     sigs: [],
     busy: null,
     refundable: false,
+    clockOffsetMs: 0,
   });
   const patch = useCallback((p: Partial<DuelView>) => setView((v) => ({ ...v, ...p })), []);
 
@@ -79,8 +95,11 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
   const activeSince = useRef(0);
   const closingSince = useRef(0);
   const lastClose = useRef(0);
-  const lastTick = useRef(0);
-  const lastEnd = useRef(0);
+  const duelRef = useRef<Duel | null>(null);
+  const offsetRef = useRef(0);
+  const sightings = useRef<ClockSighting[]>([]);
+  const pendingRef = useRef<PendingPicks>({});
+  const pickQueue = useRef<Promise<unknown>>(Promise.resolve());
   const settledSeen = useRef(false);
   const finalRead = useRef(false);
   const failures = useRef(0);
@@ -100,14 +119,22 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     const k = duelKey(d);
     if (k === shownDuel.current) return;
     shownDuel.current = k;
-    setView((v) => ({ ...v, duel: d }));
+    duelRef.current = d;
+    // Each new stamp the rollup puts on a tick tells where its clock is; keep the offset steady unless it moves.
+    sightings.current = addSighting(sightings.current, { rollupS: d.lastTick, seenMs: Date.now() });
+    const offset = clockOffsetMs(sightings.current);
+    const moved = Math.abs(offset - offsetRef.current) >= 250;
+    if (moved) offsetRef.current = offset;
+    setView((v) => ({ ...v, duel: d, clockOffsetMs: moved ? offset : v.clockOffsetMs }));
   }, []);
 
   const applyBook = useCallback((b: Book) => {
     const k = bookKey(b);
     if (k === shownBook.current) return;
     shownBook.current = k;
-    setView((v) => ({ ...v, book: b }));
+    const pending = settlePending(pendingRef.current, b);
+    pendingRef.current = pending;
+    setView((v) => ({ ...v, book: b, pending }));
   }, []);
 
   // Every confirmed step of this Match, with its layer, for the Transactions list.
@@ -138,8 +165,8 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       setStage("settled");
       if (!finalRead.current) {
         finalRead.current = true;
-        const [d, books] = await Promise.all([td.readDuelOnBase(id), td.readBooksOnBase(id)]);
-        setView((v) => ({ ...v, duel: d ?? v.duel, finalBooks: books }));
+        const d = await td.readDuelOnBase(id);
+        setView((v) => ({ ...v, duel: d ?? v.duel }));
       }
       if (!settledSeen.current) {
         settledSeen.current = true;
@@ -197,7 +224,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     applyDuel(d);
 
     if (d.status === STATUS.created) {
-      if (Date.now() / 1000 > d.startDeadline) {
+      if ((Date.now() + offsetRef.current) / 1000 > d.startDeadline) {
         // Delegated but never started in time: cancel it so both entries can be refunded.
         setStage("setup", "The Duel was never started: cancelling");
         if (seat === 1 || now() - activeSince.current > GRACE_MS) await td.claimTimeout(p, id).catch(() => undefined);
@@ -206,7 +233,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       setStage("setup", "Starting the Match");
       if (!late) return;
       try {
-        await td.start(p, id);
+        await td.start(p, id, d.asset);
       } catch (e) {
         if ((await td.readDuel(p, id))?.status === STATUS.created) throw e;
       }
@@ -214,24 +241,8 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     }
 
     if (d.status === STATUS.live) {
+      // The cranking runs on its own loop below.
       setStage("live");
-      const nowS = Date.now() / 1000;
-      if (nowS >= d.endsAt) {
-        // The window is over: end it on a price published within a few seconds after the close (a later call settles at the last mid recorded in the window). Seat 1 right away, seat 0 a few seconds later.
-        if (!closingSince.current) closingSince.current = now();
-        const wait = seat === 1 ? 0 : END_GRACE_MS;
-        if (nowS * 1000 - d.endsAt * 1000 < wait || now() - lastEnd.current < 1_000) return;
-        lastEnd.current = now();
-        try {
-          await td.end(p, id, d.asset);
-        } catch {
-          // Refused until a price published after the close arrives (retried every second), or the other Player ended it first.
-        }
-      } else if (nowS >= d.startsAt && now() - lastTick.current >= TICK_EVERY_MS) {
-        lastTick.current = now();
-        // Executes due liquidations and refreshes the lead; a stale price just refuses it.
-        await td.tick(p, id, d.asset).catch(() => undefined);
-      }
       return;
     }
 
@@ -301,6 +312,49 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     };
   }, [p, id, applyDuel, applyBook]);
 
+  // -- the crank: tick every quarter second through the grid, then end it ---------------------------
+
+  useEffect(() => {
+    if (!p || id === null) return;
+    let stop = false;
+    let sending = false;
+    let endSince = 0;
+    let failures = 0;
+    let waitUntil = 0;
+    const crank = async () => {
+      const d = duelRef.current;
+      const seat = seatRef.current;
+      if (sending || stop || !d || seat === null || stage.current !== "live" || d.status !== STATUS.live || now() < waitUntil) return;
+      const nowS = (Date.now() + offsetRef.current) / 1000;
+      if (nowS < d.startsAt) return;
+      sending = true;
+      try {
+        const td = getTradingDuel();
+        if (nowS < d.endsAt) {
+          // Records the live price into the line and reveals the columns that locked; a stale price just refuses it.
+          await td.tick(p, id, d.asset);
+          failures = 0;
+        } else {
+          // The window is over: end it. The result is the same whoever does it and whenever, so seat 1 tries right away, seat 0 a couple of seconds later, and both retry every second.
+          if (!endSince) endSince = now();
+          if (seat === 1 || now() - endSince >= END_GRACE_MS) await td.end(p, id);
+          failures = 0;
+        }
+      } catch {
+        // A stale price (a tick) or a rollup clock a moment behind (the end) is retried after a growing pause, or the other Player did it first.
+        const cap = nowS < d.endsAt ? BACKOFF_MAX_MS : END_BACKOFF_MAX_MS;
+        waitUntil = now() + Math.min(cap, BACKOFF_MS * 2 ** failures++);
+      } finally {
+        sending = false;
+      }
+    };
+    const t = setInterval(() => void crank(), TICK_EVERY_MS);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [p, id]);
+
   // -- Player decisions -----------------------------------------------------------------------
 
   const run = useCallback(
@@ -309,25 +363,49 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       try {
         const sig = await fn();
         if (sig) addSig(label, sig, "base");
-        const seat = seatRef.current;
-        if (p && id !== null && seat !== null) {
-          const td = getTradingDuel();
-          const [d, b] = await Promise.all([td.readDuel(p, id), td.readOwnBook(p, id, seat)]);
-          if (d) applyDuel(d);
-          if (b) applyBook(b);
-        }
       } catch (e) {
         patch({ error: errText(e) });
       } finally {
         patch({ busy: null });
       }
     },
-    [p, id, patch, addSig, applyDuel, applyBook],
+    [patch, addSig],
   );
 
-  const open = useCallback((side: 1 | 2, margin: bigint, leverage: number) => run("Opening", () => getTradingDuel().open(p!, id!, asset, side, margin, leverage)), [p, id, asset, run]);
-  const close = useCallback(() => run("Closing", () => getTradingDuel().close(p!, id!, asset)), [p, id, asset, run]);
-  const flip = useCallback((side: 1 | 2, margin: bigint, leverage: number) => run("Flipping", () => getTradingDuel().flip(p!, id!, asset, side, margin, leverage)), [p, id, asset, run]);
+  /**
+   * Picks `band` for `column` (`NO_PICK` clears it). The pick shows at once; picks are sent in order,
+   * and a refused one is taken back with a plain error.
+   */
+  const pick = useCallback(
+    (column: number, band: number) => {
+      const seat = seatRef.current;
+      if (!p || id === null || seat === null) return;
+      const set = (next: PendingPicks) => {
+        pendingRef.current = next;
+        setView((v) => ({ ...v, pending: next }));
+      };
+      set({ ...pendingRef.current, [column]: band });
+      patch({ error: null });
+      pickQueue.current = pickQueue.current.then(async () => {
+        const td = getTradingDuel();
+        try {
+          await td.setPick(p, id, seat, column, band);
+          const b = await td.readOwnBook(p, id, seat);
+          if (b) applyBook(b);
+          // Confirmed: the Book is the truth now, unless a newer pick for the column is in flight.
+          if (pendingRef.current[column] === band) {
+            set(dropPending(pendingRef.current, column));
+          }
+        } catch (e) {
+          if (pendingRef.current[column] === band) {
+            set(dropPending(pendingRef.current, column));
+          }
+          patch({ error: pickError(e) });
+        }
+      });
+    },
+    [p, id, patch, applyBook],
+  );
 
-  return { view, open, close, flip, run, tick };
+  return { view, pick, run, tick };
 }

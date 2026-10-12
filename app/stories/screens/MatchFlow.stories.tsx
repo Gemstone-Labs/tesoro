@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { STATUS as TD_STATUS } from "@/games/trading-duel/chain";
 import type { DuelView } from "@/games/trading-duel/useDuelMatch";
 import type { HoldemView } from "@/games/holdem/useHoldemMatch";
 import type { ChainMatch } from "@/lib/chain/read";
@@ -455,14 +454,14 @@ function duelSetup(m: ChainMatch, seat: "joiner" | "opener"): (Step & { match?: 
       label: "Starting the Match",
       screen: dv(m, { stage: "setup", note: "Starting the Match" }),
       layers: ["tee"],
-      what: "init_permissions runs in the TEE: each Player's Book (positions, Chips) becomes readable only by that Player, and the Duel starts its countdown, then five minutes. If nobody starts it before its start deadline, it is cancelled and both entries refunded.",
+      what: "init_permissions runs in the TEE: each Player's Book (their picks) becomes readable only by that Player, and the Duel starts at the live price: a 30 s head start, then 12 columns of 10 s. If nobody starts it before its start deadline, it is cancelled and both entries refunded.",
       calls: ["trading_duel.init_permissions (TEE)"],
     },
     {
-      label: "Countdown",
-      screen: dv(m, duelLive("countdown")),
+      label: "The grid opens",
+      screen: dv(m, duelLive("headstart")),
       layers: ["tee", "oracle"],
-      what: "The trading screen opens on the live price (Pyth Lazer through MagicBlock's oracle in the rollup; synthetic here) with the countdown to the window.",
+      what: "The grid screen opens on the live price (Pyth Lazer through MagicBlock's oracle in the rollup; synthetic here) with the head start running.",
       calls: ["readDuel (TEE)", "price feed"],
       ms: 3000,
     },
@@ -472,31 +471,31 @@ function duelSetup(m: ChainMatch, seat: "joiner" | "opener"): (Step & { match?: 
 function duelLiveSteps(m: ChainMatch): (Step & { match?: ChainMatch })[] {
   return [
     {
-      label: "Trading, flat",
-      screen: dv(m, duelLive("flat")),
-      layers: ["tee", "oracle"],
-      what: "10,000 Chips each. Long or Short at 1–20x. The opponent's positions are hidden; only the lead and trade counts are public.",
-      calls: ["trading_duel.open_position (TEE)"],
+      label: "Head start",
+      screen: dv(m, duelLive("headstart")),
+      layers: ["wallet", "tee", "oracle"],
+      what: "The Match starts at the live price: its rows are fixed around that price. For 30 s the line is not in the grid yet. Tapping a box is set_pick in the rollup (signed for you), and the pick shows at once; it is taken back with a plain message if the rollup refuses it. Your picks live in your own Book, readable only by you. Both apps (and the keeper) send tick about once a second from here to the end.",
+      calls: ["trading_duel.set_pick (TEE)", "trading_duel.tick (TEE)", "price feed"],
       ms: 4200,
     },
     {
-      label: "In a trade",
-      screen: dv(m, duelLive("long")),
-      layers: ["wallet", "tee", "oracle"],
-      what: "Fills price at the oracle mid ± 5 bps spread. A position under 50 bps maintenance margin is liquidated. Close and Flip are close_position (+ open_position) in the rollup.",
-      calls: ["trading_duel.open_position / close_position (TEE)", "trading_duel.tick (TEE)"],
+      label: "Mid game",
+      screen: dv(m, duelLive("mid")),
+      layers: ["tee", "oracle"],
+      what: "tick records the live price into the column the line is in and, ten seconds before a column starts, locks it: both Players' picks for it are revealed to both. A hit scores 100 points when the line passes through the box. Spectators and Backers see revealed picks only.",
+      calls: ["trading_duel.tick (TEE)"],
       ms: 4800,
     },
     {
       label: "Saving the result",
-      screen: dv(m, { ...duelLive("long"), stage: "closing", note: "Saving the result" }),
+      screen: dv(m, { ...duelSettled(true), stage: "closing", note: "Saving the result" }),
       layers: ["tee", "oracle", "solana"],
-      what: "The window is over. end_match prices every open position at a price published within 4 s after the close (else the last mid recorded in the window), then close_match wipes the hidden Books and commits the Duel back to Solana.",
+      what: "The 12 columns are over. end_match takes a price published within 4 s after the close (else the last price recorded), scores every column and decides the winner (equal points is a draw), then close_match opens the Books and commits the Duel back to Solana.",
       calls: ["trading_duel.end_match (TEE)", "trading_duel.close_match (TEE → commit + undelegate)"],
     },
     {
       label: "Paying out the Pot",
-      screen: dv(m, { ...duelLive("long"), stage: "closing", note: "Paying out the Pot", duel: { ...duelLive("long").duel!, status: TD_STATUS.over, finalPrice: duelSettled(true).duel!.finalPrice } }),
+      screen: dv(m, { ...duelSettled(true), stage: "closing", note: "Paying out the Pot" }),
       layers: ["wallet", "solana"],
       what: "The winner (seat 0 for a draw) finalizes at once; the other Player's page waits a grace period first so the loser of a race pays no fee.",
       calls: ["trading_duel.finalize → tesoro_core.settle_match"],
@@ -513,7 +512,7 @@ function duelJoins(): Frame[] {
       steps: [
         ...duelSetup(active, "joiner"),
         ...duelLiveSteps(active),
-        { label: "Won", match: won, screen: dv(won, duelSettled(true)), layers: ["solana"], what: "Settled. Both fill histories are shown side by side, with the final price.", ms: 6000 },
+        { label: "Won", match: won, screen: dv(won, duelSettled(true)), layers: ["solana"], what: "Settled. Both scores and the final price.", ms: 6000 },
       ],
     },
   );

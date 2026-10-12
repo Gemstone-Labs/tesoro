@@ -33,7 +33,7 @@ export interface StageInfo {
   backedShareBps?: number | null;
 }
 
-const HIDDEN: Record<GameId, string> = { "block-puzzle": "Pieces hidden", holdem: "Cards hidden", "trading-duel": "Trades hidden" };
+const HIDDEN: Record<GameId, string> = { "block-puzzle": "Pieces hidden", holdem: "Cards hidden", "trading-duel": "Picks hidden" };
 
 /** Title and one line per state: everything else is a chip or sits behind "How this works". */
 function copy(m: StageInfo): { kicker: string; title: string; line: string } {
@@ -46,7 +46,7 @@ function copy(m: StageInfo): { kicker: string; title: string; line: string } {
       return {
         kicker: m.asset ? `${g} · ${m.asset}/USD` : g,
         title: "Waiting for an opponent",
-        line: m.game === "holdem" ? "The cards are dealt the moment they sit down." : `Five minutes on ${m.asset ?? "SOL"}/USD start the moment they join.`,
+        line: m.game === "holdem" ? "The cards are dealt the moment they sit down." : `A 30 second head start on ${m.asset ?? "SOL"}/USD starts the moment they join.`,
       };
     case "setup":
       return {
@@ -79,7 +79,7 @@ function details(m: StageInfo): { icon: LucideIcon; title: string; text: string 
   const play = {
     "block-puzzle": "You and your opponent get the same pieces, 90 seconds each, one after the other. Nobody sees a move until both runs are closed.",
     holdem: "1,500 Chips each, blinds rise every hand, 30 seconds per action. Your cards stay hidden from your opponent, and from us.",
-    "trading-duel": "Long or short, 1 to 20x, one position at a time. Higher final equity takes the Pot. Your trades stay hidden until the end.",
+    "trading-duel": "Pick a box in each of 12 columns; the live line passing through it scores 100 points. More points takes the Pot. Your picks stay hidden until each column locks.",
   }[m.game];
   out.push({ icon: GAME_ICON[m.game], title: "The game", text: play });
   if (m.deadline && (m.kind === "waiting" || m.kind === "waiting-run"))

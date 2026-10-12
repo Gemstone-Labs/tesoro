@@ -463,17 +463,21 @@ impl Env {
         self.send(&[ix], &alice, &[])
     }
 
-    /// Stands in for `init_permissions`, which starts the Match in the rollup. Trading opens
-    /// `COUNTDOWN_SECS` after `now`, and the clock is moved to the first second of trading.
+    /// Stands in for `init_permissions`, which starts the Match in the rollup: anchor $100, the
+    /// clock at the first second (the head start begins).
     fn start_in_rollup(&mut self) {
         let now = self.now;
+        let asset = self.duel().asset;
+        let anchor = ANCHOR as u64;
         self.patch_duel(|d| {
             d.status = trading_duel::STATUS_LIVE;
-            d.starts_at = now + trading_duel::COUNTDOWN_SECS;
-            d.ends_at = d.starts_at + trading_duel::DURATION_SECS;
+            d.starts_at = now;
+            d.grid_at = now + trading_duel::HEAD_START_SECS;
+            d.ends_at = now + trading_duel::MATCH_SECS;
+            d.anchor = anchor;
+            d.step = trading_duel::engine::step_for(anchor, trading_duel::STEP_PPM[asset as usize]);
+            d.track.record(0, anchor);
         });
-        let starts = self.duel().starts_at;
-        self.set_time(starts);
     }
 
     /// A feed account as the pricing oracle writes it, at the real address of `asset`'s feed.
@@ -521,17 +525,6 @@ impl Env {
         self.feed(asset, (usd * 1e8) as i64, now);
     }
 
-    fn trade_accounts(&self, player: APk, feed: APk) -> trading_duel::accounts::Trade {
-        let ad = addrs(self.id);
-        trading_duel::accounts::Trade {
-            player,
-            duel: ad.duel,
-            book_0: ad.book_0,
-            book_1: ad.book_1,
-            price_feed: feed,
-        }
-    }
-
     fn person_of(&self, seat: usize) -> (Keypair, APk) {
         let p = if seat == 0 { &self.alice } else { &self.bob };
         (p.kp.insecure_clone(), p.key)
@@ -541,45 +534,99 @@ impl Env {
         trading_duel::FEEDS[self.duel().asset as usize]
     }
 
-    fn call(&mut self, seat: usize, data: impl InstructionData) -> Result<(), Failed> {
-        let (kp, key) = self.person_of(seat);
-        let ix = ix(
+    fn sample_ix(&self, caller: APk, data: impl InstructionData) -> Instruction {
+        let ad = addrs(self.id);
+        ix(
             trading_duel::ID,
-            self.trade_accounts(key, self.feed_key()),
+            trading_duel::accounts::Sample {
+                caller,
+                duel: ad.duel,
+                book_0: ad.book_0,
+                book_1: ad.book_1,
+                price_feed: self.feed_key(),
+            },
             data,
             vec![],
-        );
-        self.send(&[ix], &kp, &[])
-    }
-
-    fn open(&mut self, seat: usize, side: u8, margin: u64, leverage: u8) -> Result<(), Failed> {
-        self.call(
-            seat,
-            trading_duel::instruction::OpenPosition {
-                side,
-                margin,
-                leverage,
-            },
         )
     }
 
-    fn close(&mut self, seat: usize) -> Result<(), Failed> {
-        self.call(seat, trading_duel::instruction::ClosePosition {})
+    /// Seconds since the Match started, at the current clock.
+    fn t(&self) -> i64 {
+        self.now - self.duel().starts_at
+    }
+
+    /// Moves the clock to `t` seconds after the start.
+    fn at(&mut self, t: i64) {
+        let starts = self.duel().starts_at;
+        self.set_time(starts + t);
+    }
+
+    fn pick_as(
+        &mut self,
+        signer: &Keypair,
+        book: APk,
+        column: u8,
+        band: i16,
+    ) -> Result<(), Failed> {
+        let ad = addrs(self.id);
+        let ixn = ix(
+            trading_duel::ID,
+            trading_duel::accounts::SetPick {
+                player: a(signer.pubkey()),
+                duel: ad.duel,
+                book,
+            },
+            trading_duel::instruction::SetPick { column, band },
+            vec![],
+        );
+        self.send(&[ixn], signer, &[])
+    }
+
+    fn pick(&mut self, seat: usize, column: u8, band: i16) -> Result<(), Failed> {
+        let (kp, _) = self.person_of(seat);
+        let ad = addrs(self.id);
+        self.pick_as(
+            &kp,
+            if seat == 0 { ad.book_0 } else { ad.book_1 },
+            column,
+            band,
+        )
     }
 
     fn tick(&mut self) -> Result<(), Failed> {
-        self.call(0, trading_duel::instruction::Tick {})
+        let (kp, key) = self.person_of(0);
+        let ixn = self.sample_ix(key, trading_duel::instruction::Tick {});
+        self.send(&[ixn], &kp, &[])
+    }
+
+    /// Sets the price and ticks at `t` seconds after the start.
+    fn tick_at(&mut self, t: i64, usd: f64) -> Result<(), Failed> {
+        self.at(t);
+        self.price(usd);
+        self.tick()
     }
 
     fn end(&mut self) -> Result<(), Failed> {
-        self.call(0, trading_duel::instruction::EndMatch {})
+        let (kp, key) = self.person_of(0);
+        let ad = addrs(self.id);
+        let ixn = ix(
+            trading_duel::ID,
+            trading_duel::accounts::EndMatch {
+                caller: key,
+                duel: ad.duel,
+                book_0: ad.book_0,
+                book_1: ad.book_1,
+            },
+            trading_duel::instruction::EndMatch {},
+            vec![],
+        );
+        self.send(&[ixn], &kp, &[])
     }
 
-    /// Jumps past the end of the window with a fresh price at `usd`, then ends the Match.
-    fn finish_at(&mut self, usd: f64) -> Result<(), Failed> {
+    /// Jumps one second past the end of the window, then ends the Match.
+    fn finish(&mut self) -> Result<(), Failed> {
         let ends = self.duel().ends_at;
         self.set_time(ends + 1);
-        self.price(usd);
         self.end()
     }
 
@@ -639,6 +686,7 @@ fn live() -> Env {
 }
 
 const PRICE: i64 = 100_00000000;
+const ANCHOR: i64 = PRICE;
 
 #[test]
 fn create_binds_the_duel_to_the_match_and_reads_the_asset_from_the_id() {
@@ -649,11 +697,11 @@ fn create_binds_the_duel_to_the_match_and_reads_the_asset_from_the_id() {
     assert_eq!(d.players, [env.alice.key, env.bob.key]);
     assert_eq!(d.winner, trading_duel::NO_WINNER);
     let b0 = env.book(0);
-    assert_eq!(
-        (b0.cash, b0.player, b0.seat),
-        (trading_duel::START_CHIPS, env.alice.key, 0)
-    );
+    assert_eq!((b0.player, b0.seat), (env.alice.key, 0));
+    assert_eq!(b0.picks, [trading_duel::NO_PICK; 12]);
+    assert_eq!(b0.pick_count, 0);
     assert_eq!(env.book(1).player, env.bob.key);
+    assert_eq!(d.revealed, [[trading_duel::NO_PICK; 12]; 2]);
     let m = env.load::<MatchState>(tmatch_pda(env.id)).inner;
     assert!(
         m.deadline > T0 + 3_600,
@@ -695,311 +743,213 @@ fn only_a_player_may_create_and_a_second_create_fails() {
     assert!(env.create().is_err());
 }
 
+const NO_PICK: i16 = trading_duel::NO_PICK;
+
 #[test]
-fn open_and_close_move_chips_and_fill_the_log() {
+fn picks_are_accepted_until_ten_seconds_before_the_column() {
+    use trading_duel::DuelError::*;
     let mut env = live();
-    env.open(0, trading_duel::SIDE_LONG, 1_000, 10)
-        .expect("open");
-    let b = env.book(0);
+    env.pick(0, 0, 1).expect("pick before the lock");
+    assert_eq!(env.book(0).picks[0], 1);
+    assert_eq!(env.book(0).pick_count, 1);
+    env.pick(0, 0, 2).expect("a pick can be moved");
+    assert_eq!(env.book(0).pick_count, 1);
+    env.pick(0, 0, NO_PICK).expect("and cleared");
+    assert_eq!(env.book(0).picks[0], NO_PICK);
+    assert_eq!(env.book(0).pick_count, 0);
+    env.pick(0, 0, NO_PICK).expect("clearing twice is harmless");
+    assert_eq!(env.book(0).pick_count, 0);
+
+    env.at(19);
+    env.pick(0, 0, 1).expect("last second before the lock");
+    env.at(20);
+    for band in [-1, NO_PICK] {
+        assert_eq!(
+            custom_code(&env.pick(0, 0, band).unwrap_err()),
+            dcode(ColumnLocked)
+        );
+    }
+    assert_eq!(env.book(0).picks[0], 1, "a locked pick stays");
+    env.pick(0, 1, -2).expect("the next column is still open");
+    env.at(129);
+    env.pick(1, 11, 3).expect("the last column opens until 130");
+    env.at(130);
     assert_eq!(
-        (b.cash, b.margin, b.notional, b.side),
-        (9_000, 1_000, 10_000, trading_duel::SIDE_LONG)
+        custom_code(&env.pick(1, 11, 3).unwrap_err()),
+        dcode(ColumnLocked)
     );
-    assert_eq!(b.entry, (PRICE as u64) * 10_005 / 10_000);
-    assert_eq!(env.duel().trades, [1, 0]);
-    env.set_time(env.now + 10);
-    env.feed(0, PRICE * 102 / 100, env.now);
-    env.close(0).expect("close");
-    let b = env.book(0);
-    assert_eq!(b.side, trading_duel::SIDE_FLAT);
-    assert!(b.cash > 10_000, "a 2% move at 10x wins: {}", b.cash);
-    assert_eq!(b.fill_count, 2);
-    assert_eq!(b.fills[0].kind, trading_duel::FILL_OPEN);
-    assert_eq!(b.fills[1].kind, trading_duel::FILL_CLOSE);
-    assert_eq!(b.fills[1].t, 10);
-    assert!(b.fills[1].pnl > 0);
-    // the opponent's lead reads from the public Duel
-    assert_eq!(env.duel().lead, trading_duel::LEAD_SEAT_0);
 }
 
 #[test]
-fn leverage_margin_and_one_position_bounds() {
+fn picks_must_name_a_real_column_and_any_band_goes() {
+    use trading_duel::DuelError::*;
     let mut env = live();
-    let long = trading_duel::SIDE_LONG;
     assert_eq!(
-        custom_code(&env.open(0, long, 1_000, 0).unwrap_err()),
-        dcode(trading_duel::DuelError::InvalidLeverage)
+        custom_code(&env.pick(0, 12, 3).unwrap_err()),
+        dcode(InvalidColumn)
     );
-    assert_eq!(
-        custom_code(&env.open(0, long, 1_000, 21).unwrap_err()),
-        dcode(trading_duel::DuelError::InvalidLeverage)
-    );
-    assert_eq!(
-        custom_code(&env.open(0, long, 99, 5).unwrap_err()),
-        dcode(trading_duel::DuelError::MarginTooSmall)
-    );
-    assert_eq!(
-        custom_code(&env.open(0, long, 10_001, 5).unwrap_err()),
-        dcode(trading_duel::DuelError::NotEnoughChips)
-    );
-    assert_eq!(
-        custom_code(&env.open(0, 0, 1_000, 5).unwrap_err()),
-        dcode(trading_duel::DuelError::InvalidSide)
-    );
-    env.open(0, long, 10_000, 20)
-        .expect("max leverage, whole stack");
-    assert_eq!(env.book(0).notional, 200_000);
-    assert_eq!(
-        custom_code(&env.open(0, trading_duel::SIDE_SHORT, 100, 2).unwrap_err()),
-        dcode(trading_duel::DuelError::PositionOpen)
-    );
-    // the other Player's book is independent
-    env.open(1, trading_duel::SIDE_SHORT, 500, 3)
-        .expect("opponent opens");
-    assert_eq!(env.book(1).side, trading_duel::SIDE_SHORT);
+    for band in [i16::MIN + 1, -4, 0, 3, 100, i16::MAX] {
+        env.pick(0, 0, band).expect("any band is accepted");
+        assert_eq!(env.book(0).picks[0], band);
+    }
+    assert_eq!(env.book(0).pick_count, 1);
 }
 
 #[test]
-fn flipping_is_close_then_open() {
+fn only_a_player_can_pick_and_only_in_their_own_book() {
+    use trading_duel::DuelError::*;
     let mut env = live();
-    env.open(0, trading_duel::SIDE_LONG, 1_000, 5).unwrap();
-    env.close(0).unwrap();
-    env.open(0, trading_duel::SIDE_SHORT, 1_000, 5).unwrap();
-    let b = env.book(0);
-    assert_eq!(b.side, trading_duel::SIDE_SHORT);
-    assert_eq!(b.trades, 2);
-}
-
-#[test]
-fn a_stranger_cannot_trade_and_a_book_is_not_swappable() {
-    let mut env = live();
-    let stranger = env.admin.insecure_clone();
-    let ixn = ix(
-        trading_duel::ID,
-        env.trade_accounts(a(stranger.pubkey()), env.feed_key()),
-        trading_duel::instruction::OpenPosition {
-            side: 1,
-            margin: 500,
-            leverage: 2,
-        },
-        vec![],
-    );
-    let err = env.send(&[ixn], &stranger, &[]).unwrap_err();
-    assert_eq!(
-        custom_code(&err),
-        dcode(trading_duel::DuelError::NotAPlayer)
-    );
-    // books passed in the wrong slots fail the seeds
     let ad = addrs(env.id);
-    let mut accts = env.trade_accounts(env.alice.key, env.feed_key());
-    std::mem::swap(&mut accts.book_0, &mut accts.book_1);
-    let _ = ad;
-    let alice = env.alice.kp.insecure_clone();
-    let ixn = ix(
-        trading_duel::ID,
-        accts,
-        trading_duel::instruction::OpenPosition {
-            side: 1,
-            margin: 500,
-            leverage: 2,
-        },
-        vec![],
+    let stranger = env.admin.insecure_clone();
+    for book in [ad.book_0, ad.book_1] {
+        let err = env.pick_as(&stranger, book, 0, 0).unwrap_err();
+        assert_eq!(custom_code(&err), dcode(NotAPlayer));
+    }
+    // Bob cannot write into Alice's Book, nor Alice into Bob's.
+    let (bob, alice) = (env.bob.kp.insecure_clone(), env.alice.kp.insecure_clone());
+    assert_eq!(
+        custom_code(&env.pick_as(&bob, ad.book_0, 0, 0).unwrap_err()),
+        dcode(NotAPlayer)
     );
-    assert!(env.send(&[ixn], &alice, &[]).is_err());
+    assert_eq!(
+        custom_code(&env.pick_as(&alice, ad.book_1, 0, 0).unwrap_err()),
+        dcode(NotAPlayer)
+    );
+    assert_eq!(env.book(0).pick_count + env.book(1).pick_count, 0);
 }
 
 #[test]
-fn trading_is_closed_before_the_countdown_ends_and_after_the_window() {
+fn nothing_is_picked_or_ticked_before_the_match_starts() {
+    use trading_duel::DuelError::*;
     let mut env = ready();
-    env.start_in_rollup();
-    let starts = env.duel().starts_at;
-    env.set_time(starts - 1);
+    assert_eq!(custom_code(&env.pick(0, 0, 0).unwrap_err()), dcode(NotLive));
     env.price(100.0);
-    assert_eq!(
-        custom_code(&env.open(0, 1, 500, 2).unwrap_err()),
-        dcode(trading_duel::DuelError::TradingClosed)
-    );
-    env.set_time(starts);
-    env.price(100.0);
-    env.open(0, 1, 500, 2).expect("open at the first second");
-    let ends = env.duel().ends_at;
-    env.set_time(ends + 1);
-    env.price(100.0);
-    assert_eq!(
-        custom_code(&env.open(1, 1, 500, 2).unwrap_err()),
-        dcode(trading_duel::DuelError::TradingClosed)
-    );
-    assert_eq!(
-        custom_code(&env.close(0).unwrap_err()),
-        dcode(trading_duel::DuelError::TradingClosed)
-    );
-    assert_eq!(
-        custom_code(&env.tick().unwrap_err()),
-        dcode(trading_duel::DuelError::TradingClosed)
-    );
-}
-
-#[test]
-fn nothing_trades_before_the_match_starts() {
-    let mut env = ready();
-    env.price(100.0);
-    assert_eq!(
-        custom_code(&env.open(0, 1, 500, 2).unwrap_err()),
-        dcode(trading_duel::DuelError::NotLive)
-    );
-}
-
-#[test]
-fn stale_future_and_malformed_prices_are_rejected() {
-    use trading_duel::DuelError::*;
-    let mut env = live();
-    let now = env.now;
-    let err = |e: &Failed| custom_code(e);
-    // exactly at the limit is fine, one second older is not
-    env.feed(0, PRICE, now - trading_duel::MAX_STALE_SECS);
-    env.tick().expect("at the staleness limit");
-    env.feed(0, PRICE, now - trading_duel::MAX_STALE_SECS - 1);
-    assert_eq!(err(&env.tick().unwrap_err()), dcode(StalePrice));
-    assert_eq!(err(&env.open(0, 1, 500, 2).unwrap_err()), dcode(StalePrice));
-    env.feed(0, PRICE, now + trading_duel::MAX_FUTURE_SECS + 1);
-    assert_eq!(err(&env.tick().unwrap_err()), dcode(StalePrice));
-    env.feed(0, 0, now);
-    assert_eq!(err(&env.tick().unwrap_err()), dcode(BadPrice));
-    env.feed(0, -5, now);
-    assert_eq!(err(&env.tick().unwrap_err()), dcode(BadPrice));
-    env.feed_with(0, PRICE, 0, 6, now, trading_duel::PRICE_PROGRAM);
-    assert_eq!(err(&env.tick().unwrap_err()), dcode(BadPrice));
-    env.feed_with(
-        0,
-        PRICE,
-        PRICE as u64 / 50,
-        8,
-        now,
-        trading_duel::PRICE_PROGRAM,
-    );
-    assert_eq!(err(&env.tick().unwrap_err()), dcode(BadPrice));
-    // a fresh price works again
-    env.feed(0, PRICE, now);
-    env.tick().expect("fresh");
-}
-
-#[test]
-fn the_wrong_feed_or_a_lookalike_account_is_rejected() {
-    use trading_duel::DuelError::*;
-    let mut env = live();
-    let now = env.now;
-    // an ETH feed passed to a SOL Match
-    env.feed(1, PRICE, now);
-    let (kp, key) = env.person_of(0);
-    let eth = trading_duel::FEEDS[1];
-    let wrong = ix(
-        trading_duel::ID,
-        env.trade_accounts(key, eth),
-        trading_duel::instruction::Tick {},
-        vec![],
-    );
-    assert_eq!(
-        custom_code(&env.send(&[wrong], &kp, &[]).unwrap_err()),
-        dcode(BadPriceFeed)
-    );
-    // the right address owned by someone else (an attacker-written look-alike)
-    let owner = APk::new_unique();
-    env.feed_with(0, 1, 0, 8, now, owner);
-    assert_eq!(custom_code(&env.tick().unwrap_err()), dcode(BadPriceFeed));
-    // an arbitrary account of the right owner is not the feed
-    let fake = APk::new_unique();
-    env.svm
-        .set_account(
-            s(fake),
-            Account {
-                lamports: SOL,
-                data: vec![0; 134],
-                owner: s(trading_duel::PRICE_PROGRAM),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-    let ixn = ix(
-        trading_duel::ID,
-        env.trade_accounts(key, fake),
-        trading_duel::instruction::Tick {},
-        vec![],
-    );
-    assert_eq!(
-        custom_code(&env.send(&[ixn], &kp, &[]).unwrap_err()),
-        dcode(BadPriceFeed)
-    );
-}
-
-#[test]
-fn a_tick_liquidates_a_position_past_maintenance() {
-    let mut env = live();
-    env.open(0, trading_duel::SIDE_LONG, 1_000, 20).unwrap();
-    env.open(1, trading_duel::SIDE_SHORT, 1_000, 20).unwrap();
-    env.set_time(env.now + 5);
-    env.price(95.4); // -4.6%: seat 0 is below maintenance, seat 1 is in profit
-    env.tick().expect("anyone may crank");
-    let b0 = env.book(0);
-    assert_eq!(b0.side, trading_duel::SIDE_FLAT);
-    assert_eq!(b0.liquidations, 1);
-    assert_eq!(b0.fills[1].kind, trading_duel::FILL_LIQUIDATED);
-    assert!(b0.cash < 9_100);
-    assert_eq!(env.book(1).side, trading_duel::SIDE_SHORT);
-    assert_eq!(env.duel().lead, trading_duel::LEAD_SEAT_1);
-}
-
-#[test]
-fn closing_after_a_due_liquidation_records_it_instead_of_failing() {
-    let mut env = live();
-    env.open(0, trading_duel::SIDE_LONG, 1_000, 20).unwrap();
-    env.set_time(env.now + 5);
-    env.price(90.0);
-    env.close(0)
-        .expect("the liquidation stands, nothing else to close");
-    let b = env.book(0);
-    assert_eq!(b.side, trading_duel::SIDE_FLAT);
-    assert_eq!(b.liquidations, 1);
-    assert_eq!(b.fill_count, 2);
-    assert_eq!(b.cash, 9_000);
-}
-
-#[test]
-fn the_match_cannot_end_early_or_on_a_price_from_before_the_end() {
-    use trading_duel::DuelError::*;
-    let mut env = live();
-    assert_eq!(custom_code(&env.end().unwrap_err()), dcode(NotEnded));
-    let ends = env.duel().ends_at;
-    env.set_time(ends);
-    env.feed(0, PRICE, ends - 1);
-    assert_eq!(custom_code(&env.end().unwrap_err()), dcode(NotEnded));
-    env.feed(0, PRICE, ends);
-    env.end().expect("first price at the end");
-    assert_eq!(env.duel().status, trading_duel::STATUS_OVER);
+    assert_eq!(custom_code(&env.tick().unwrap_err()), dcode(NotLive));
     assert_eq!(custom_code(&env.end().unwrap_err()), dcode(NotLive));
 }
 
 #[test]
-fn the_higher_final_equity_wins_and_open_positions_are_marked_at_the_final_price() {
+fn a_column_is_revealed_to_both_when_it_locks_and_not_before() {
     let mut env = live();
-    env.open(0, trading_duel::SIDE_LONG, 2_000, 5).unwrap();
-    env.open(1, trading_duel::SIDE_SHORT, 2_000, 5).unwrap();
-    env.finish_at(104.0).expect("end");
+    env.pick(0, 0, 1).unwrap();
+    env.pick(1, 0, 0).unwrap();
+    env.pick(0, 1, -2).unwrap();
+    env.tick_at(19, 100.0).unwrap();
+    assert_eq!(
+        env.duel().revealed,
+        [[NO_PICK; 12]; 2],
+        "nothing is public yet"
+    );
+    env.tick_at(20, 100.0).unwrap();
+    let r = env.duel().revealed;
+    assert_eq!((r[0][0], r[1][0]), (1, 0));
+    assert_eq!(
+        (r[0][1], r[1][1]),
+        (NO_PICK, NO_PICK),
+        "column 1 locks at 30"
+    );
+    env.tick_at(30, 100.0).unwrap();
+    let r = env.duel().revealed;
+    assert_eq!(
+        (r[0][1], r[1][1]),
+        (-2, NO_PICK),
+        "an empty column reveals as empty"
+    );
+}
+
+#[test]
+fn ticks_fill_the_columns_the_line_crosses_and_carry_skipped_ones() {
+    let mut env = live();
+    assert_eq!(
+        env.duel().track.last,
+        ANCHOR as u64,
+        "the anchor is the first sample"
+    );
+    env.tick_at(10, 100.0).unwrap();
+    env.tick_at(35, 100.03).unwrap();
+    env.tick_at(38, 99.99).unwrap();
+    let d = env.duel();
+    // Column 0 starts at the price the line entered with ($100) and extends to both extremes.
+    assert_eq!(d.track.lo[0], 99_99000000);
+    assert_eq!(d.track.hi[0], 100_03000000);
+    assert_eq!(d.track.seen, 1);
+    // No sample in column 1; the next one lands in column 2, so column 1 carries the last price.
+    env.tick_at(55, 100.10).unwrap();
+    let d = env.duel();
+    assert_eq!((d.track.lo[1], d.track.hi[1]), (99_99000000, 99_99000000));
+    assert_eq!((d.track.lo[2], d.track.hi[2]), (99_99000000, 100_10000000));
+    assert_eq!(d.track.seen, 0b111);
+    assert_eq!(d.track.last, 100_10000000);
+    assert_eq!(d.track.last_col, 2);
+}
+
+#[test]
+fn columns_are_scored_once_they_are_over() {
+    let mut env = live();
+    // Column 0: $100.00 to $100.02 crosses bands 0 and 1 ($0.012 each). Seat 0 picks 1 (hit), seat 1 picks 2.
+    env.pick(0, 0, 1).unwrap();
+    env.pick(1, 0, 2).unwrap();
+    env.tick_at(35, 100.02).unwrap();
+    assert_eq!(env.duel().scores, [0, 0], "column 0 is still live");
+    env.tick_at(40, 100.02).unwrap();
+    assert_eq!(env.duel().scores, [100, 0]);
+    // Column 1 is never picked by anyone: nothing is scored.
+    env.tick_at(50, 100.03).unwrap();
+    assert_eq!(env.duel().scores, [100, 0]);
+}
+
+#[test]
+fn ticks_work_only_inside_the_window() {
+    use trading_duel::DuelError::*;
+    let mut env = live();
+    let ends = env.duel().ends_at;
+    env.tick_at(149, 100.0).expect("the last second");
+    env.set_time(ends);
+    env.price(100.0);
+    assert_eq!(custom_code(&env.tick().unwrap_err()), dcode(GridClosed));
+}
+
+#[test]
+fn the_match_cannot_end_early() {
+    use trading_duel::DuelError::*;
+    let mut env = live();
+    env.at(149);
+    assert_eq!(custom_code(&env.end().unwrap_err()), dcode(NotEnded));
+}
+
+/// Picks col 0..11 for a seat, all on `band`.
+fn pick_all(env: &mut Env, seat: usize, band: i16) {
+    for c in 0..12 {
+        env.pick(seat, c, band).unwrap();
+    }
+}
+
+/// Plays a flat line at $100 (everything in band 0), ticking every 10 seconds, then ends.
+fn play_flat(env: &mut Env) {
+    for t in (10..150).step_by(10) {
+        env.tick_at(t, 100.0).unwrap();
+    }
+    env.finish().expect("end");
+}
+
+#[test]
+fn the_higher_score_wins_and_finalize_pays_the_winner() {
+    let mut env = live();
+    pick_all(&mut env, 0, 0);
+    pick_all(&mut env, 1, 1);
+    play_flat(&mut env);
     let d = env.duel();
     assert_eq!(d.status, trading_duel::STATUS_OVER);
+    assert_eq!(d.scores, [1200, 0]);
     assert_eq!(d.winner, 0);
-    assert!(d.final_equity[0] > 10_000 && d.final_equity[1] < 10_000);
-    assert_eq!(d.final_price, 104_00000000);
-    for seat in 0..2 {
-        let b = env.book(seat);
-        assert_eq!(b.side, trading_duel::SIDE_FLAT);
-        assert_eq!(b.fills[1].kind, trading_duel::FILL_FINAL);
-        assert_eq!(b.cash, d.final_equity[seat]);
-    }
+    assert_eq!(d.revealed, [[0; 12], [1; 12]]);
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     env.finalize(false).expect("settle");
-    // the entries are already out of both balances: the winner gets the 2,000 Pot minus 5% fees
-    assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
+    assert_eq!(
+        env.gemas(&env.alice),
+        before.0 + 1_900,
+        "pot of 2000 less 5% fees"
+    );
     assert_eq!(env.gemas(&env.bob), before.1);
     assert_eq!(env.tesoro_status(), MatchStatus::Settled);
     assert!(env.duel().finalized);
@@ -1008,9 +958,10 @@ fn the_higher_final_equity_wins_and_open_positions_are_marked_at_the_final_price
 #[test]
 fn the_second_seat_can_win() {
     let mut env = live();
-    env.open(0, trading_duel::SIDE_LONG, 1_000, 10).unwrap();
-    env.open(1, trading_duel::SIDE_SHORT, 1_000, 10).unwrap();
-    env.finish_at(97.0).expect("end");
+    pick_all(&mut env, 0, 2);
+    env.pick(1, 3, 0).unwrap();
+    play_flat(&mut env);
+    assert_eq!(env.duel().scores, [0, 100]);
     assert_eq!(env.duel().winner, 1);
     let before = env.gemas(&env.bob);
     env.finalize(false).expect("settle");
@@ -1018,15 +969,15 @@ fn the_second_seat_can_win() {
 }
 
 #[test]
-fn neither_trading_is_a_draw_and_refunds_both_entries() {
+fn equal_points_draw_and_refund_both_entries() {
     let mut env = live();
-    env.finish_at(100.0).expect("end");
-    let d = env.duel();
-    assert_eq!(d.winner, trading_duel::DRAW);
-    assert_eq!(d.final_equity, [10_000, 10_000]);
+    pick_all(&mut env, 0, 0);
+    pick_all(&mut env, 1, 0);
+    play_flat(&mut env);
+    assert_eq!(env.duel().scores, [1200, 1200]);
+    assert_eq!(env.duel().winner, trading_duel::DRAW);
     let before = (env.gemas(&env.alice), env.gemas(&env.bob));
     env.finalize(true).expect("refund");
-    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
     assert_eq!(
         (env.gemas(&env.alice), env.gemas(&env.bob)),
         (before.0 + 1_000, before.1 + 1_000)
@@ -1034,12 +985,35 @@ fn neither_trading_is_a_draw_and_refunds_both_entries() {
 }
 
 #[test]
-fn identical_trades_draw_at_a_flat_price_only_when_equity_is_exactly_equal() {
+fn nobody_picking_is_a_draw() {
     let mut env = live();
-    env.open(0, trading_duel::SIDE_LONG, 1_000, 5).unwrap();
-    env.open(1, trading_duel::SIDE_LONG, 1_000, 5).unwrap();
-    env.finish_at(100.0).unwrap();
+    play_flat(&mut env);
+    assert_eq!(env.duel().scores, [0, 0]);
     assert_eq!(env.duel().winner, trading_duel::DRAW);
+}
+
+#[test]
+fn a_match_with_no_ticks_still_scores_from_the_anchor() {
+    let mut env = live();
+    pick_all(&mut env, 0, 0);
+    pick_all(&mut env, 1, 1);
+    // Only the anchor is recorded: every column carries it.
+    env.finish().expect("end");
+    let d = env.duel();
+    assert_eq!(d.track.seen, 0xfff);
+    assert_eq!(d.scores, [1200, 0]);
+    assert_eq!(d.winner, 0);
+}
+
+#[test]
+fn a_hit_needs_the_line_to_cross_the_band_inside_the_column() {
+    let mut env = live();
+    env.pick(0, 2, 2).unwrap(); // $100.024 to $100.036
+    env.pick(1, 2, 3).unwrap(); // $100.036 to $100.048
+    env.tick_at(51, 100.0).unwrap();
+    env.tick_at(55, 100.03).unwrap();
+    env.tick_at(60, 100.03).unwrap();
+    assert_eq!(env.duel().scores, [100, 0]);
 }
 
 #[test]
@@ -1118,20 +1092,6 @@ fn a_live_match_cannot_be_finalized_early() {
     );
 }
 
-#[test]
-fn the_fill_log_survives_many_trades_in_a_match() {
-    let mut env = live();
-    for i in 0..40 {
-        env.set_time(env.now + 1);
-        env.price(100.0);
-        let seat = i % 2;
-        env.open(seat, 1 + (i % 2) as u8, 100, 2).unwrap();
-        env.close(seat).unwrap();
-    }
-    assert_eq!(env.book(0).fill_count, 40);
-    assert_eq!(env.duel().trades, [20, 20]);
-}
-
 // --- Delegation and permission guards (as in holdem's audit proofs) ---------------------------
 
 use ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED;
@@ -1194,15 +1154,13 @@ fn delegation_is_pinned_to_the_tee_validator() {
 }
 
 #[test]
-fn a_prefunded_permission_address_is_not_a_permission() {
+fn starting_after_the_start_deadline_names_the_window() {
     let mut env = ready();
     let ad = addrs(env.id);
-    for target in [ad.duel, ad.book_0, ad.book_1] {
-        env.svm
-            .airdrop(&s(permission_pda(target)), 1_000_000)
-            .expect("dust");
-    }
+    let deadline = env.duel().start_deadline;
+    env.set_time(deadline + 1);
     let payer = env.bob.kp.insecure_clone();
+    env.price(100.0);
     let init = ix(
         trading_duel::ID,
         trading_duel::accounts::InitPermissions {
@@ -1216,6 +1174,47 @@ fn a_prefunded_permission_address_is_not_a_permission() {
             permission_program: sdk_key(PERMISSION_PROGRAM_ID),
             ephemeral_vault: sdk_key(EPHEMERAL_VAULT_ID),
             magic_program: sdk_key(MAGIC_PROGRAM_ID),
+            price_feed: env.feed_key(),
+        },
+        trading_duel::instruction::InitPermissions {},
+        vec![],
+    );
+    let err = env.send(&[init], &payer, &[]).unwrap_err();
+    assert!(
+        err.meta
+            .logs
+            .iter()
+            .any(|l| l.contains("StartWindowPassed")),
+        "{:?}",
+        err.meta.logs
+    );
+}
+
+#[test]
+fn a_prefunded_permission_address_is_not_a_permission() {
+    let mut env = ready();
+    let ad = addrs(env.id);
+    for target in [ad.duel, ad.book_0, ad.book_1] {
+        env.svm
+            .airdrop(&s(permission_pda(target)), 1_000_000)
+            .expect("dust");
+    }
+    let payer = env.bob.kp.insecure_clone();
+    env.price(100.0);
+    let init = ix(
+        trading_duel::ID,
+        trading_duel::accounts::InitPermissions {
+            payer: a(payer.pubkey()),
+            duel: ad.duel,
+            book_0: ad.book_0,
+            book_1: ad.book_1,
+            duel_permission: permission_pda(ad.duel),
+            book_0_permission: permission_pda(ad.book_0),
+            book_1_permission: permission_pda(ad.book_1),
+            permission_program: sdk_key(PERMISSION_PROGRAM_ID),
+            ephemeral_vault: sdk_key(EPHEMERAL_VAULT_ID),
+            magic_program: sdk_key(MAGIC_PROGRAM_ID),
+            price_feed: env.feed_key(),
         },
         trading_duel::instruction::InitPermissions {},
         vec![],
@@ -1232,66 +1231,26 @@ fn a_prefunded_permission_address_is_not_a_permission() {
 }
 
 #[test]
-fn an_on_time_end_uses_a_price_published_inside_the_grace_window() {
-    let mut env = live();
-    env.open(0, trading_duel::SIDE_LONG, 2_000, 5).unwrap();
-    let ends = env.duel().ends_at;
-    env.set_time(ends + 2);
-    env.feed(0, 104 * PRICE / 100, ends + 1);
-    env.end().expect("price published inside the window");
-    let d = env.duel();
-    assert_eq!(d.final_price, (104 * PRICE / 100) as u64);
-    assert_eq!(d.winner, 0);
-}
-
-#[test]
-fn a_price_after_the_grace_window_is_not_an_end_price() {
-    use trading_duel::DuelError::*;
-    let mut env = live();
-    let ends = env.duel().ends_at;
-    env.set_time(ends + 1);
-    env.feed(0, PRICE, ends + trading_duel::END_GRACE_SECS + 1);
-    assert_eq!(
-        custom_code(&env.end().unwrap_err()),
-        dcode(EndPriceOutOfWindow)
-    );
-}
-
-#[test]
-fn a_late_end_settles_at_the_last_recorded_mid_whatever_the_feed_says() {
-    // Two identical Matches: one ended late while the feed shows a huge rise, one while it shows
-    // a crash. Both settle at the last mid recorded during the window.
-    let run = |feed_usd: f64| {
+fn the_end_is_the_same_whenever_and_whoever_ends_it() {
+    // The feed is not an input: ending right at the close or much later, with any price on the
+    // feed, carries the last recorded price forward and gives the same result.
+    let run = |delay: i64, feed_usd: f64| {
         let mut env = live();
-        env.open(0, trading_duel::SIDE_LONG, 2_000, 5).unwrap();
-        env.open(1, trading_duel::SIDE_SHORT, 2_000, 5).unwrap();
-        env.set_time(env.now + 20);
-        env.price(101.0);
-        env.tick().unwrap();
-        assert_eq!(env.duel().final_price, 101_00000000);
+        env.pick(0, 11, 1).unwrap();
+        env.pick(1, 11, 0).unwrap();
+        env.tick_at(140, 100.03).unwrap();
         let ends = env.duel().ends_at;
-        env.set_time(ends + trading_duel::END_GRACE_SECS + 30);
+        env.set_time(ends + delay);
         env.price(feed_usd);
-        env.end().expect("a late call settles");
+        env.end().expect("end");
         let d = env.duel();
-        (d.final_price, d.final_equity, d.winner)
+        (d.track, d.scores, d.winner)
     };
-    let up = run(150.0);
-    let down = run(50.0);
-    assert_eq!(up, down, "the late feed price changes nothing");
-    assert_eq!(up.0, 101_00000000);
-    assert_eq!(up.2, 0, "the long is ahead at the last recorded mid");
-}
-
-#[test]
-fn a_late_end_needs_no_feed_when_nobody_traded() {
-    let mut env = live();
-    let ends = env.duel().ends_at;
-    env.set_time(ends + 100);
-    // a stale feed that would fail an on-time end
-    env.feed(0, PRICE, ends - 500);
-    env.end().expect("late and flat");
-    assert_eq!(env.duel().winner, trading_duel::DRAW);
+    let on_time = run(0, 100.0);
+    assert_eq!(on_time, run(3, 150.0));
+    assert_eq!(on_time, run(100, 50.0));
+    assert_eq!(on_time.0.last, 100_03000000);
+    assert_eq!(on_time.1, [100, 100], "column 11 crossed bands 0 and 1");
 }
 
 /// tesoro_core's Treasury with no Yield Fee: these suites size Advances without it (its rate and

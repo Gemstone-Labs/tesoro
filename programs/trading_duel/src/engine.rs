@@ -1,449 +1,318 @@
-//! Pure trading rules: fills with a spread, one position at a time, liquidation, marking.
-//! No clocks, accounts or syscalls. Prices are the oracle's, in 1e-8 USD; money is Chips.
+//! The price-grid rules. `app/src/games/trading-duel/grid.ts` is the TypeScript twin: both are
+//! tested against `tests/fixtures/grid-vectors.json`, so change them together.
+//!
+//! Times are seconds since the Match started. Prices are 1e-8 USD.
 
 use crate::state::*;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum EngineError {
-    Overflow,
-    BadPrice,
-    InvalidLeverage,
-    MarginTooSmall,
-    NotEnoughChips,
-    PositionOpen,
-    NoPosition,
-    InvalidSide,
+    BadColumn,
+    Locked,
 }
 
-type Result<T> = core::result::Result<T, EngineError>;
+/// Row height from the anchor: `anchor * ppm / 1e6`, at least 1.
+pub fn step_for(anchor: u64, ppm: u64) -> u64 {
+    let s = (u128::from(anchor) * u128::from(ppm) / 1_000_000).min(u128::from(u64::MAX));
+    (s as u64).max(1)
+}
 
-const BPS: u128 = 10_000;
+/// Band `k` is `[anchor + k*step, anchor + (k+1)*step)`; any price falls in exactly one band. The
+/// result is clamped to `-MAX_BAND..=MAX_BAND`, which keeps it clear of `NO_PICK`.
+pub fn band_of(price: u64, anchor: u64, step: u64) -> i16 {
+    let k = (i128::from(price) - i128::from(anchor)).div_euclid(i128::from(step));
+    k.clamp(-i128::from(MAX_BAND), i128::from(MAX_BAND)) as i16
+}
 
-/// The price a fill executes at: the oracle price moved against the Player by the spread. Buying
-/// (opening a long, closing a short) pays more, selling receives less.
-pub fn fill_price(mid: u64, buying: bool) -> Result<u64> {
-    if mid == 0 {
-        return Err(EngineError::BadPrice);
+pub fn column_start(c: usize) -> i64 {
+    HEAD_START_SECS + COLUMN_SECS * c as i64
+}
+
+pub fn column_end(c: usize) -> i64 {
+    column_start(c) + COLUMN_SECS
+}
+
+pub fn lock_at(c: usize) -> i64 {
+    column_start(c) - LOCK_AHEAD_SECS
+}
+
+/// Picks for a column are accepted while it is not locked.
+pub fn can_pick(c: usize, t: i64) -> bool {
+    c < COLUMNS && t < lock_at(c)
+}
+
+/// The column a time falls in, or `None` during the head start and after the last column.
+pub fn column_at(t: i64) -> Option<usize> {
+    if !(HEAD_START_SECS..MATCH_SECS).contains(&t) {
+        return None;
     }
-    let mid = u128::from(mid);
-    let spread = u128::from(SPREAD_BPS);
-    let price = if buying {
-        // Rounded up.
-        mid.checked_mul(BPS + spread)
-            .and_then(|v| v.checked_add(BPS - 1))
-            .ok_or(EngineError::Overflow)?
-            / BPS
+    Some(((t - HEAD_START_SECS) / COLUMN_SECS) as usize)
+}
+
+/// Columns whose window has fully passed at `t` (all of them once the window is over).
+pub fn columns_done(t: i64) -> usize {
+    if t >= MATCH_SECS {
+        COLUMNS
+    } else if t < HEAD_START_SECS {
+        0
     } else {
-        mid.checked_mul(BPS - spread).ok_or(EngineError::Overflow)? / BPS
-    };
-    u64::try_from(price).map_err(|_| EngineError::Overflow)
-}
-
-/// Realised or unrealised PnL in Chips at `exit`, rounded down (a loss rounds away from zero).
-pub fn pnl(side: u8, notional: u64, entry: u64, exit: u64) -> Result<i64> {
-    if entry == 0 {
-        return Err(EngineError::BadPrice);
+        ((t - HEAD_START_SECS) / COLUMN_SECS) as usize
     }
-    let diff = match side {
-        SIDE_LONG => i128::from(exit).checked_sub(i128::from(entry)),
-        SIDE_SHORT => i128::from(entry).checked_sub(i128::from(exit)),
-        _ => return Err(EngineError::InvalidSide),
+}
+
+/// Validates a pick (or clearing one) for `column` made at time `t`; any band is accepted.
+pub fn check_pick(column: usize, t: i64) -> Result<(), EngineError> {
+    if column >= COLUMNS {
+        return Err(EngineError::BadColumn);
     }
-    .ok_or(EngineError::Overflow)?;
-    let num = i128::from(notional)
-        .checked_mul(diff)
-        .ok_or(EngineError::Overflow)?;
-    i64::try_from(num.div_euclid(i128::from(entry))).map_err(|_| EngineError::Overflow)
-}
-
-/// Margin plus PnL of the open position when closed at `mid`, floored at zero.
-fn position_value(book: &Book, mid: u64) -> Result<u64> {
-    if book.side == SIDE_FLAT {
-        return Ok(0);
+    if !can_pick(column, t) {
+        return Err(EngineError::Locked);
     }
-    let exit = fill_price(mid, book.side == SIDE_SHORT)?;
-    let p = pnl(book.side, book.notional, book.entry, exit)?;
-    let value = i128::from(book.margin)
-        .checked_add(i128::from(p))
-        .ok_or(EngineError::Overflow)?;
-    u64::try_from(value.max(0)).map_err(|_| EngineError::Overflow)
-}
-
-/// Cash plus the open position's value if it were closed at `mid`.
-pub fn equity(book: &Book, mid: u64) -> Result<u64> {
-    book.cash
-        .checked_add(position_value(book, mid)?)
-        .ok_or(EngineError::Overflow)
-}
-
-fn push_fill(book: &mut Book, fill: Fill) -> Result<()> {
-    let idx = (book.fill_count as usize) % FILL_LOG;
-    book.fills[idx] = fill;
-    book.fill_count = book
-        .fill_count
-        .checked_add(1)
-        .ok_or(EngineError::Overflow)?;
     Ok(())
 }
 
-/// Opens a position of `margin` Chips at `leverage`. Only from flat.
-pub fn open(book: &mut Book, side: u8, margin: u64, leverage: u8, mid: u64, t: u32) -> Result<()> {
-    if side != SIDE_LONG && side != SIDE_SHORT {
-        return Err(EngineError::InvalidSide);
+impl Track {
+    fn has(&self, c: usize) -> bool {
+        self.seen & (1 << c) != 0
     }
-    if !(MIN_LEVERAGE..=MAX_LEVERAGE).contains(&leverage) {
-        return Err(EngineError::InvalidLeverage);
-    }
-    if book.side != SIDE_FLAT {
-        return Err(EngineError::PositionOpen);
-    }
-    if margin < MIN_MARGIN {
-        return Err(EngineError::MarginTooSmall);
-    }
-    if margin > book.cash {
-        return Err(EngineError::NotEnoughChips);
-    }
-    let price = fill_price(mid, side == SIDE_LONG)?;
-    let notional = margin
-        .checked_mul(u64::from(leverage))
-        .ok_or(EngineError::Overflow)?;
-    book.cash = book
-        .cash
-        .checked_sub(margin)
-        .ok_or(EngineError::NotEnoughChips)?;
-    book.side = side;
-    book.margin = margin;
-    book.notional = notional;
-    book.leverage = leverage;
-    book.entry = price;
-    book.trades = book.trades.checked_add(1).ok_or(EngineError::Overflow)?;
-    let equity = equity(book, mid)?;
-    push_fill(
-        book,
-        Fill {
-            t,
-            kind: FILL_OPEN,
-            side,
-            price,
-            notional,
-            margin,
-            pnl: 0,
-            equity,
-        },
-    )
-}
 
-/// Closes the open position at `mid` as a `kind` fill and returns its PnL.
-pub fn close(book: &mut Book, mid: u64, t: u32, kind: u8) -> Result<i64> {
-    if book.side == SIDE_FLAT {
-        return Err(EngineError::NoPosition);
+    fn extend(&mut self, c: usize, price: u64) {
+        if !self.has(c) {
+            self.lo[c] = price;
+            self.hi[c] = price;
+            self.seen |= 1 << c;
+        } else {
+            self.lo[c] = self.lo[c].min(price);
+            self.hi[c] = self.hi[c].max(price);
+        }
     }
-    let side = book.side;
-    let price = fill_price(mid, side == SIDE_SHORT)?;
-    let p = pnl(side, book.notional, book.entry, price)?;
-    let value = i128::from(book.margin)
-        .checked_add(i128::from(p))
-        .ok_or(EngineError::Overflow)?;
-    let value = u64::try_from(value.max(0)).map_err(|_| EngineError::Overflow)?;
-    let (notional, margin) = (book.notional, book.margin);
-    book.cash = book.cash.checked_add(value).ok_or(EngineError::Overflow)?;
-    book.side = SIDE_FLAT;
-    book.margin = 0;
-    book.notional = 0;
-    book.leverage = 0;
-    book.entry = 0;
-    if kind == FILL_LIQUIDATED {
-        book.liquidations = book
-            .liquidations
-            .checked_add(1)
-            .ok_or(EngineError::Overflow)?;
-    }
-    let equity = book.cash;
-    push_fill(
-        book,
-        Fill {
-            t,
-            kind,
-            side,
-            price,
-            notional,
-            margin,
-            pnl: p,
-            equity,
-        },
-    )?;
-    Ok(p)
-}
 
-/// Liquidates the position when its margin plus PnL is at or below the maintenance margin.
-pub fn liquidate_if_due(book: &mut Book, mid: u64, t: u32) -> Result<bool> {
-    if book.side == SIDE_FLAT {
-        return Ok(false);
+    /// Records a price sample at time `t`. A sample inside column `c` first gives every column that
+    /// got no sample of its own (and has a line to carry) the last price recorded before it, then
+    /// starts `c` from that price (the line enters the column there) and extends it. Samples during
+    /// the head start only set the carried price; samples at or after the end are ignored.
+    pub fn record(&mut self, t: i64, price: u64) {
+        if t >= MATCH_SECS {
+            return;
+        }
+        let c = column_at(t);
+        if let Some(c) = c {
+            if self.last != 0 {
+                let from = (i32::from(self.last_col) + 1).max(0) as usize;
+                for k in from..c {
+                    if !self.has(k) {
+                        self.extend(k, self.last);
+                    }
+                }
+                if !self.has(c) {
+                    self.extend(c, self.last);
+                }
+            }
+            self.extend(c, price);
+        }
+        self.last = price;
+        self.last_col = c.map_or(-1, |c| c as i8);
     }
-    let value = position_value(book, mid)?;
-    let maintenance = u64::try_from(
-        u128::from(book.notional)
-            .checked_mul(u128::from(MAINTENANCE_BPS))
-            .ok_or(EngineError::Overflow)?
-            / BPS,
-    )
-    .map_err(|_| EngineError::Overflow)?;
-    if value > maintenance {
-        return Ok(false);
-    }
-    close(book, mid, t, FILL_LIQUIDATED)?;
-    Ok(true)
-}
 
-/// The coarse lead shown to the opponent and to spectators.
-pub fn lead(equity: [u64; 2]) -> u8 {
-    let (a, b) = (equity[0], equity[1]);
-    if a.abs_diff(b) < LEVEL_BAND {
-        LEAD_LEVEL
-    } else if a > b {
-        LEAD_SEAT_0
-    } else {
-        LEAD_SEAT_1
+    /// Closes the window: every column without data of its own takes the last price recorded.
+    /// No end price is added, so the result is the same whoever ends the Match and when.
+    pub fn finish(&mut self) {
+        if self.last == 0 {
+            return;
+        }
+        let from = (i32::from(self.last_col) + 1).max(0) as usize;
+        for k in from..COLUMNS {
+            if !self.has(k) {
+                self.extend(k, self.last);
+            }
+        }
+    }
+
+    /// True when `band` lies within the bands the line crossed in column `c`.
+    pub fn hits(&self, c: usize, band: i16, anchor: u64, step: u64) -> bool {
+        if c >= COLUMNS || band == NO_PICK || !self.has(c) {
+            return false;
+        }
+        band_of(self.lo[c], anchor, step) <= band && band <= band_of(self.hi[c], anchor, step)
     }
 }
 
-/// Winning seat of two final equities, or `DRAW` when they are equal.
-pub fn winner(equity: [u64; 2]) -> u8 {
-    match equity[0].cmp(&equity[1]) {
+/// Points per seat from the first `upto` columns, from the picks `revealed` so far.
+pub fn score(
+    track: &Track,
+    picks: &[[i16; COLUMNS]; 2],
+    anchor: u64,
+    step: u64,
+    upto: usize,
+) -> [u32; 2] {
+    let mut scores = [0u32; 2];
+    for (seat, p) in picks.iter().enumerate() {
+        for (c, &band) in p.iter().enumerate().take(upto) {
+            if band != NO_PICK && track.hits(c, band, anchor, step) {
+                scores[seat] += HIT_POINTS;
+            }
+        }
+    }
+    scores
+}
+
+pub fn winner(scores: [u32; 2]) -> u8 {
+    match scores[0].cmp(&scores[1]) {
         core::cmp::Ordering::Greater => 0,
         core::cmp::Ordering::Less => 1,
         core::cmp::Ordering::Equal => DRAW,
     }
 }
 
-/// Liquidation price of the open position in oracle (mid) terms, for display and tests. `None`
-/// when flat or when the position cannot be liquidated by price alone.
-pub fn liquidation_mid(book: &Book) -> Option<u64> {
-    if book.side == SIDE_FLAT || book.notional == 0 {
-        return None;
-    }
-    // value(p) = margin + notional*(exit-entry)/entry (long) <= maintenance
-    // => exit moves by (margin - maintenance) / notional of entry.
-    let maintenance = u128::from(book.notional)
-        .checked_mul(u128::from(MAINTENANCE_BPS))?
-        .checked_div(BPS)?;
-    let room = u128::from(book.margin).checked_sub(maintenance)?;
-    let entry = u128::from(book.entry);
-    let delta = room
-        .checked_mul(entry)?
-        .checked_div(u128::from(book.notional))?;
-    let exit = if book.side == SIDE_LONG {
-        entry.checked_sub(delta)?
-    } else {
-        entry.checked_add(delta)?
-    };
-    // Undo the closing spread.
-    let spread = u128::from(SPREAD_BPS);
-    let mid = if book.side == SIDE_LONG {
-        exit.checked_mul(BPS)?.checked_div(BPS - spread)?
-    } else {
-        exit.checked_mul(BPS)?.checked_div(BPS + spread)?
-    };
-    u64::try_from(mid).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
-    const P: u64 = 100_00000000; // $100
+    fn num(v: &Value) -> u64 {
+        v.as_str().expect("string").parse().expect("number")
+    }
 
-    fn book() -> Book {
-        Book::default()
+    fn fixture() -> Value {
+        serde_json::from_str(include_str!("../tests/fixtures/grid-vectors.json")).expect("json")
     }
 
     #[test]
-    fn spread_moves_fills_against_the_player() {
-        assert_eq!(fill_price(P, true).unwrap(), P + P * 5 / 10_000);
-        assert_eq!(fill_price(P, false).unwrap(), P - P * 5 / 10_000);
-        assert_eq!(fill_price(0, true), Err(EngineError::BadPrice));
-        // buying rounds up, selling rounds down
-        assert_eq!(fill_price(3, true).unwrap(), 4);
-        assert_eq!(fill_price(3, false).unwrap(), 2);
-        assert!(fill_price(u64::MAX, true).is_err());
+    fn constants_match_the_fixture() {
+        let f = fixture();
+        let c = &f["constants"];
+        assert_eq!(c["COLUMNS"], COLUMNS);
+        assert_eq!(c["COLUMN_SECS"], COLUMN_SECS);
+        assert_eq!(c["HEAD_START_SECS"], HEAD_START_SECS);
+        assert_eq!(c["LOCK_AHEAD_SECS"], LOCK_AHEAD_SECS);
+        assert_eq!(c["HIT_POINTS"], HIT_POINTS);
+        assert_eq!(c["NO_PICK"], i64::from(NO_PICK));
+        assert_eq!(c["MAX_BAND"], i64::from(MAX_BAND));
+        assert_eq!(c["MATCH_SECS"], MATCH_SECS);
+        for (i, asset) in ["SOL", "ETH", "HYPE"].iter().enumerate() {
+            assert_eq!(c["STEP_PPM"][asset], STEP_PPM[i], "{asset}");
+        }
     }
 
     #[test]
-    fn a_round_trip_at_a_flat_price_costs_the_spread() {
-        let mut b = book();
-        open(&mut b, SIDE_LONG, 1_000, 10, P, 1).unwrap();
-        assert_eq!(b.cash, 9_000);
-        assert_eq!(b.notional, 10_000);
-        let p = close(&mut b, P, 2, FILL_CLOSE).unwrap();
-        assert!(p < 0);
-        // 10 bps of a 10,000 notional is 10 Chips, rounded away from zero
-        assert_eq!(p, -10);
-        assert_eq!(b.cash, 9_990);
-        assert_eq!(b.side, SIDE_FLAT);
+    fn bands_at_the_edges() {
+        for r in fixture()["bands"].as_array().expect("bands") {
+            let (anchor, step, price) = (num(&r["anchor"]), num(&r["step"]), num(&r["price"]));
+            assert_eq!(
+                i64::from(band_of(price, anchor, step)),
+                r["band"].as_i64().expect("band"),
+                "price {price} anchor {anchor} step {step}"
+            );
+        }
     }
 
     #[test]
-    fn long_gains_and_short_loses_when_price_rises() {
-        let mut l = book();
-        let mut s = book();
-        open(&mut l, SIDE_LONG, 2_000, 5, P, 0).unwrap();
-        open(&mut s, SIDE_SHORT, 2_000, 5, P, 0).unwrap();
-        let up = P + P / 100; // +1%
-        let pl = close(&mut l, up, 1, FILL_CLOSE).unwrap();
-        let ps = close(&mut s, up, 1, FILL_CLOSE).unwrap();
-        assert!(pl > 0 && ps < 0);
-        // 10,000 notional * ~0.9% = ~90 either way (spread shaves both)
-        assert!((80..100).contains(&pl), "{pl}");
-        assert!((-120..-100).contains(&ps), "{ps}");
+    fn locks_follow_the_fixture() {
+        for l in fixture()["locks"].as_array().expect("locks") {
+            let c = l["column"].as_u64().expect("column") as usize;
+            assert_eq!(column_start(c), l["columnStart"].as_i64().expect("start"));
+            assert_eq!(column_end(c), l["columnEnd"].as_i64().expect("end"));
+            assert_eq!(lock_at(c), l["lockAt"].as_i64().expect("lock"));
+        }
     }
 
     #[test]
-    fn leverage_and_margin_bounds() {
-        let mut b = book();
-        assert_eq!(
-            open(&mut b, SIDE_LONG, 1_000, 0, P, 0),
-            Err(EngineError::InvalidLeverage)
-        );
-        assert_eq!(
-            open(&mut b, SIDE_LONG, 1_000, 21, P, 0),
-            Err(EngineError::InvalidLeverage)
-        );
-        assert_eq!(
-            open(&mut b, SIDE_LONG, 99, 5, P, 0),
-            Err(EngineError::MarginTooSmall)
-        );
-        assert_eq!(
-            open(&mut b, SIDE_LONG, 10_001, 5, P, 0),
-            Err(EngineError::NotEnoughChips)
-        );
-        assert_eq!(
-            open(&mut b, 0, 1_000, 5, P, 0),
-            Err(EngineError::InvalidSide)
-        );
-        assert_eq!(
-            open(&mut b, 3, 1_000, 5, P, 0),
-            Err(EngineError::InvalidSide)
-        );
-        open(&mut b, SIDE_LONG, 10_000, 20, P, 0).unwrap();
-        assert_eq!(b.notional, 200_000);
-        assert_eq!(b.cash, 0);
-        assert_eq!(
-            open(&mut b, SIDE_SHORT, 100, 1, P, 0),
-            Err(EngineError::PositionOpen)
-        );
-        assert_eq!(b.trades, 1);
-    }
-
-    #[test]
-    fn closing_nothing_is_an_error() {
-        assert_eq!(
-            close(&mut book(), P, 0, FILL_CLOSE),
-            Err(EngineError::NoPosition)
-        );
-    }
-
-    #[test]
-    fn liquidation_triggers_at_maintenance_and_caps_the_loss() {
-        let mut b = book();
-        open(&mut b, SIDE_LONG, 1_000, 20, P, 0).unwrap();
-        // 20x: margin 1,000 on 20,000 notional, maintenance 100. Down 4% -> pnl -800, value 200.
-        assert!(!liquidate_if_due(&mut b, P * 96 / 100, 1).unwrap());
-        // Down 4.6% -> value well under maintenance.
-        let crash = P * 954 / 1000;
-        assert!(liquidate_if_due(&mut b, crash, 2).unwrap());
-        assert_eq!(b.side, SIDE_FLAT);
-        assert_eq!(b.liquidations, 1);
-        assert!(b.cash < 9_000 + 100 && b.cash >= 9_000);
-        let last = b.fills[(b.fill_count as usize - 1) % FILL_LOG];
-        assert_eq!(last.kind, FILL_LIQUIDATED);
-        // A gap far past zero equity loses the margin and no more.
-        let mut g = book();
-        open(&mut g, SIDE_LONG, 1_000, 20, P, 0).unwrap();
-        assert!(liquidate_if_due(&mut g, P / 2, 1).unwrap());
-        assert_eq!(g.cash, 9_000);
-    }
-
-    #[test]
-    fn short_liquidates_on_a_rise() {
-        let mut b = book();
-        open(&mut b, SIDE_SHORT, 500, 10, P, 0).unwrap();
-        assert!(!liquidate_if_due(&mut b, P * 105 / 100, 1).unwrap());
-        assert!(liquidate_if_due(&mut b, P * 1_100 / 1_000, 2).unwrap());
-    }
-
-    #[test]
-    fn liquidation_mid_matches_the_trigger() {
-        for (side, lev) in [
-            (SIDE_LONG, 20u8),
-            (SIDE_LONG, 5),
-            (SIDE_SHORT, 10),
-            (SIDE_SHORT, 2),
-        ] {
-            let mut b = book();
-            open(&mut b, side, 1_000, lev, P, 0).unwrap();
-            let liq = liquidation_mid(&b).unwrap();
-            let mut at = b.clone();
-            let mut just_safe = b.clone();
-            // a hair beyond the liquidation price liquidates, a hair inside does not
-            let (beyond, inside) = if side == SIDE_LONG {
-                (liq - liq / 1000, liq + liq / 1000)
-            } else {
-                (liq + liq / 1000, liq - liq / 1000)
+    fn shared_vectors() {
+        let f = fixture();
+        for v in f["vectors"].as_array().expect("vectors") {
+            let name = v["name"].as_str().expect("name");
+            let (anchor, step) = (num(&v["anchor"]), num(&v["step"]));
+            let ppm = v["stepPpm"].as_u64().expect("ppm");
+            assert_eq!(step_for(anchor, ppm), step, "{name}: step");
+            let mut tr = Track::default();
+            for s in v["samples"].as_array().expect("samples") {
+                tr.record(s[0].as_i64().expect("t"), num(&s[1]));
+            }
+            tr.finish();
+            let e = &v["expected"];
+            for c in 0..COLUMNS {
+                let (lo, hi) = (&e["lo"][c], &e["hi"][c]);
+                if lo.is_null() {
+                    assert!(!tr.has(c), "{name}: column {c} should have no data");
+                } else {
+                    assert_eq!(
+                        (tr.lo[c], tr.hi[c]),
+                        (num(lo), num(hi)),
+                        "{name}: column {c}"
+                    );
+                }
+            }
+            let mut picks = [[NO_PICK; COLUMNS]; 2];
+            for seat in 0..2 {
+                for c in 0..COLUMNS {
+                    picks[seat][c] = v["picks"][seat][c].as_i64().expect("pick") as i16;
+                }
+            }
+            for seat in 0..2 {
+                for c in 0..COLUMNS {
+                    let hit = picks[seat][c] != NO_PICK && tr.hits(c, picks[seat][c], anchor, step);
+                    assert_eq!(
+                        hit,
+                        e["hits"][seat][c].as_bool().expect("hit"),
+                        "{name}: seat {seat} column {c}"
+                    );
+                }
+            }
+            let scores = score(&tr, &picks, anchor, step, COLUMNS);
+            let want: Vec<u64> = e["scores"]
+                .as_array()
+                .expect("scores")
+                .iter()
+                .map(|x| x.as_u64().expect("n"))
+                .collect();
+            assert_eq!(scores.map(u64::from).to_vec(), want, "{name}: scores");
+            let w = match &e["winner"] {
+                Value::String(_) => DRAW,
+                n => n.as_u64().expect("winner") as u8,
             };
-            assert!(
-                liquidate_if_due(&mut at, beyond, 1).unwrap(),
-                "{side} {lev}"
-            );
-            assert!(
-                !liquidate_if_due(&mut just_safe, inside, 1).unwrap(),
-                "{side} {lev}"
-            );
+            assert_eq!(winner(scores), w, "{name}: winner");
         }
-        assert!(liquidation_mid(&book()).is_none());
     }
 
     #[test]
-    fn equity_marks_the_open_position_with_the_closing_spread() {
-        let mut b = book();
-        assert_eq!(equity(&b, P).unwrap(), START_CHIPS);
-        open(&mut b, SIDE_LONG, 1_000, 10, P, 0).unwrap();
-        // entry 5 bps above, mark 5 bps below: 10 bps of 10,000 notional
-        assert_eq!(equity(&b, P).unwrap(), 9_990);
-        let up = equity(&b, P + P / 10).unwrap();
-        assert!(up > 10_900 && up < 11_000, "{up}");
+    fn bands_are_signed_and_clamped() {
+        assert_eq!(band_of(100, 100, 10), 0);
+        assert_eq!(band_of(99, 100, 10), -1);
+        assert_eq!(band_of(90, 100, 10), -1);
+        assert_eq!(band_of(89, 100, 10), -2);
+        assert_eq!(band_of(u64::MAX, 1, 1), MAX_BAND);
+        assert_eq!(band_of(0, u64::MAX, 1), -MAX_BAND);
+        let mut tr = Track::default();
+        tr.record(30, 100);
+        assert!(!tr.hits(0, NO_PICK, 100, 10));
+        assert!(tr.hits(0, 0, 100, 10));
+        assert!(!tr.hits(0, -1, 100, 10));
     }
 
     #[test]
-    fn lead_has_a_level_band() {
-        assert_eq!(lead([10_000, 10_000]), LEAD_LEVEL);
-        assert_eq!(lead([10_049, 10_000]), LEAD_LEVEL);
-        assert_eq!(lead([10_050, 10_000]), LEAD_SEAT_0);
-        assert_eq!(lead([10_000, 10_500]), LEAD_SEAT_1);
+    fn samples_after_the_end_and_a_clean_track() {
+        let mut tr = Track::default();
+        tr.record(30, 100);
+        tr.record(150, 5_000);
+        assert_eq!(tr.hi[11], 0);
+        assert_eq!(tr.last, 100);
+        assert_eq!(tr.last_col, 0);
     }
 
     #[test]
-    fn winner_is_the_higher_equity_and_equal_is_a_draw() {
-        assert_eq!(winner([10_001, 10_000]), 0);
-        assert_eq!(winner([9_000, 10_000]), 1);
-        assert_eq!(winner([10_000, 10_000]), DRAW);
+    fn picks_close_ten_seconds_before_the_column() {
+        assert!(check_pick(0, 19).is_ok());
+        assert_eq!(check_pick(0, 20), Err(EngineError::Locked));
+        assert_eq!(check_pick(12, 0), Err(EngineError::BadColumn));
+        assert!(check_pick(11, 129).is_ok());
     }
 
     #[test]
-    fn the_fill_log_wraps_but_counts_everything() {
-        let mut b = book();
-        for i in 0..(FILL_LOG as u32 + 10) {
-            open(&mut b, SIDE_LONG, 100, 1, P, i).unwrap();
-            close(&mut b, P, i, FILL_CLOSE).unwrap();
-        }
-        assert_eq!(b.fill_count as usize, 2 * (FILL_LOG + 10));
-        assert_eq!(b.trades as usize, FILL_LOG + 10);
-    }
-
-    #[test]
-    fn extreme_values_fail_instead_of_wrapping() {
-        let mut b = book();
-        b.cash = u64::MAX;
-        assert!(open(&mut b, SIDE_LONG, u64::MAX, 20, P, 0).is_err());
-        assert!(pnl(SIDE_LONG, u64::MAX, 1, u64::MAX).is_err());
+    fn columns_done_counts_whole_windows() {
+        assert_eq!(columns_done(0), 0);
+        assert_eq!(columns_done(39), 0);
+        assert_eq!(columns_done(40), 1);
+        assert_eq!(columns_done(149), 11);
+        assert_eq!(columns_done(150), 12);
     }
 }

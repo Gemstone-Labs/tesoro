@@ -24,5 +24,6 @@ ephemeral-rollups-sdk = { version = "=0.16.2", features = ["anchor-compat", "acc
 tesoro_core = { path = "../tesoro_core", features = ["cpi"] }
 
 [dev-dependencies]
+serde_json = "1"
 litesvm = "=0.11.0"
 solana-sdk = "3.0.0"

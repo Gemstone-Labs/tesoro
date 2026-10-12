@@ -1,6 +1,6 @@
-// Storybook: the oracle price is a deterministic walk that still ticks once a second, so charts move and the screen never goes stale.
+// Storybook: the oracle price is a deterministic walk that still ticks ten times a second, so charts move and the screen never goes stale.
 import { useEffect, useState } from "react";
-import { pushPoint, usdToMid, type PriceFeed, type Tick } from "../../../../../src/games/trading-duel/feed";
+import { PriceStore, usdToMid, type PriceFeed } from "../../../../../src/games/trading-duel/feed";
 import type { Asset } from "../../../../../src/games/trading-duel/chain";
 
 export * from "../../../../../src/games/trading-duel/feed";
@@ -20,32 +20,26 @@ export function syntheticPrice(symbol: Asset["symbol"], t: number): number {
   );
 }
 
-function at(symbol: Asset["symbol"], t: number) {
-  return { t, p: syntheticPrice(symbol, t) };
-}
-
-function initial(asset: Asset | null): PriceFeed {
-  if (!asset) return { tick: null, series: [], status: "waiting" };
-  const now = Date.now();
-  const series = Array.from({ length: 61 }, (_, i) => at(asset.symbol, now - (60 - i) * 1000));
-  const tick: Tick = { mid: usdToMid(series[60].p), publishedAt: Math.floor(now / 1000), receivedAt: now };
-  return { tick, series, status: "live" };
-}
+const BEAT_MS = 100;
 
 export function usePriceFeed(asset: Asset | null, enabled = true): PriceFeed {
-  const [feed, setFeed] = useState<PriceFeed>(() => initial(enabled ? asset : null));
+  const [store] = useState(() => new PriceStore());
+  const [snap, setSnap] = useState<Pick<PriceFeed, "tick" | "status">>({ tick: null, status: "waiting" });
   useEffect(() => {
     if (!asset || !enabled) return;
-    const timer = setTimeout(() => setFeed(initial(asset)), 0);
-    const i = setInterval(() => {
-      const now = Date.now();
-      const pt = at(asset.symbol, now);
-      setFeed((f) => ({ tick: { mid: usdToMid(pt.p), publishedAt: Math.floor(now / 1000), receivedAt: now }, series: pushPoint(f.series, pt), status: "live" }));
-    }, 1000);
+    const ingest = (t: number) => store.ingest(usdToMid(syntheticPrice(asset.symbol, t)), Math.floor(t / 1000), t);
+    store.clear();
+    const now = Date.now();
+    for (let i = 60; i > 0; i--) ingest(now - i * 1000);
+    const read = () => setSnap({ tick: store.tick, status: store.tick ? "live" : "waiting" });
+    const beat = setInterval(() => ingest(Date.now()), BEAT_MS);
+    const first = setTimeout(read, 0);
+    const i = setInterval(read, 250);
     return () => {
-      clearTimeout(timer);
+      clearInterval(beat);
+      clearTimeout(first);
       clearInterval(i);
     };
-  }, [asset, enabled]);
-  return feed;
+  }, [asset, enabled, store]);
+  return { ...snap, series: store, store };
 }

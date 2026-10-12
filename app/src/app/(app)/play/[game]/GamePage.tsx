@@ -37,9 +37,9 @@ const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: str
   },
   "trading-duel": {
     tag: "Head-to-head · Real-time",
-    sub: ["Real-time · 5 minutes · live prices · higher equity wins", "Your position stays hidden from your opponent until the end"],
-    how: "Same market. One position at a time.",
-    steps: ["10,000 Chips each, 5 minutes on a live price", "Long or short, 1 to 20x, one position at a time", "Higher final equity takes the Pot minus Fees; a tie refunds both"],
+    sub: ["Real-time · 2.5 minutes · live prices · more points wins", "Your picks stay hidden from your opponent until each column locks"],
+    how: "Same market. One pick per column.",
+    steps: ["12 columns of ten seconds on a live price, with a 30 second head start", "Pick one box per column; the line passing through it scores 100 points", "More points takes the Pot minus Fees; a tie refunds both"],
     hero: art.tradingDuelHero,
   },
 };

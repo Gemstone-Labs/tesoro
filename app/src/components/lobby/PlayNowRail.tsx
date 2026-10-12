@@ -13,7 +13,7 @@ import { useQueueDepth } from "./useQueue";
 const GAME_LINE: Record<string, string> = {
   "block-puzzle": "Play anytime · same pieces · higher score wins",
   holdem: "Real-time · 2 players",
-  "trading-duel": "Real-time · 5 minutes · live prices",
+  "trading-duel": "Real-time · 2.5 minutes · live prices",
 };
 
 /** Tilt a tile toward the pointer and move its glare with it (mouse only; still under reduced motion). */

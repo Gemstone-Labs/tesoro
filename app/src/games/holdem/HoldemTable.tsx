@@ -1,20 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { AccountLink } from "@/components/account/AccountLink";
-import { Button, GemaMark } from "@/components/ui";
+import { Button, CountUp, GemaMark, Sheet } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { fmtGemas } from "@/lib/format";
-import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, call, check, fold, raise, tesoroAccountPda, type Action, type Table } from "./chain";
+import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, tesoroAccountPda, type Action, type Table } from "./chain";
 import { EMPTY_LOG, stepHandLog, type HandLog, type LogStreet } from "./handlog";
-import { PlayingCard } from "./cards";
-import { inPlay, legalMoves } from "./rules";
+import { FlipCard, type FlipState } from "./cards";
+import { centre, flyFrom } from "./motion";
+import { inPlay } from "./rules";
+import { ActionBar } from "./ActionBar";
+import { ChipStack } from "./ChipStack";
+import { Seat } from "./Seat";
+import { bestHand, resultSummary } from "./reading";
+import { FOLD_CHIPS_AT, SHOWDOWN_CHIPS_AT, STREET_LEAD, STREET_MS, runoutOffset, useTableFeed } from "./useTableFeed";
+import { PACE, paced } from "./pace";
+import { Handshake, Trophy, Flag, ScrollText } from "lucide-react";
+import { Arena, Callout, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx } from "../fx";
+import { art } from "@/lib/art";
 import "./holdem.css";
-import { PlayerName } from "@/components/account/Player";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 const STREET = ["Shuffling", "Preflop", "Flop", "Turn", "River", ""];
+/** Gap between cards leaving the deck, the gap between board cards, and how long a card travels before it turns, ms. */
+const DEAL_GAP = paced(110);
+const CARD_GAP = paced(140);
+const TURN_AFTER = paced(440);
 
 function useNow(ms = 250) {
   const [now, setNow] = useState(() => Date.now());
@@ -50,14 +62,35 @@ interface Props {
   onClaim: () => void;
   /** Local practice against the bot: no turn clock, no addresses. */
   practice?: boolean;
+  /** Shown over the table a few seconds after the last hand (the practice Match result). */
+  endPanel?: React.ReactNode;
+}
+
+/** Your Chips against theirs across the Match, as a bar that leans to whoever has more. */
+function ShareBar({ mine, theirs }: { mine: bigint; theirs: bigint }) {
+  const total = Number(mine + theirs) || 1;
+  const pct = Math.round((Number(mine) / total) * 100);
+  return (
+    <div className="hdx-share" role="img" aria-label={`Chips: you ${chips(mine)}, opponent ${chips(theirs)}`}>
+      <span className="mono hdx-share-n">
+        You <b>{chips(mine)}</b>
+      </span>
+      <span className="hdx-share-bar" aria-hidden="true">
+        <i style={{ width: `${pct}%` }} />
+      </span>
+      <span className="mono hdx-share-n">
+        <b>{chips(theirs)}</b> Opponent
+      </span>
+    </div>
+  );
 }
 
 /**
- * The Hold'em table for one Player (take-1: play-holdem): info panel left, the octagonal table in
- * the centre, the turn timer and hand log right, the action bar below. Chips are plain numbers in
- * mono: they are scorekeeping, not Gemas. No character anywhere.
+ * The Hold'em table for one Player: the octagonal table in the centre with both seats, the pot and
+ * the board, a share bar and turn timer in the header, the action bar below. Chips are neutral steel
+ * discs and mono numbers: they are scorekeeping, not Gemas. No character anywhere.
  */
-export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim, practice }: Props) {
+export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, onClaim, practice, endPanel }: Props) {
   const opp = 1 - seat;
   const now = useNow();
   const [walletA, walletB] = t.players.map((p) => p.toBase58());
@@ -75,6 +108,8 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const total = t.phase === PHASE.shuffle ? 60 : 30;
   const expired = !practice && !ended && t.status === STATUS.live && remaining < -1;
   const log = useHandLog(t, seat);
+  const [logOpen, setLogOpen] = useState(false);
+  const feed = useTableFeed(t);
   useGuideHidden(!ended);
 
   const board = playing ? t.board : showLast ? lh.board : t.board;
@@ -85,13 +120,156 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
     : showLast && lh.showdown && lh.shown[opp][0] !== NO_CARD
       ? lh.shown[opp]
       : null;
-  const oppBacks = playing;
 
   const level = `${chips(t.smallBlind)} / ${chips(t.bigBlind)}`;
   const sbSeat = t.dealer;
+  const ringFraction = practice ? 1 : Math.min(1, Math.max(0, remaining / total));
+  const ringLow = !practice && remaining <= 10;
+  const bots = art.avatars;
+
+  // Where things are on screen, so cards leave the deck, chips sweep into the pot and the dealer button slides.
+  const deckRef = useRef<HTMLDivElement>(null);
+  const potRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const betSpots = useRef<[{ amount: bigint; at: { x: number; y: number } } | null, { amount: bigint; at: { x: number; y: number } } | null]>([null, null]);
+  const sweptBatch = useRef(0);
+  const wonBatch = useRef(0);
+  const dealerAt = useRef<{ seat: number; x: number; y: number } | null>(null);
+  const [ghosts, setGhosts] = useState<{ id: number; amount: bigint; x: number; y: number; dx: number; dy: number; delay: number }[]>([]);
+  const batch = feed.batch;
+
+  // Spots are kept relative to the table, so scrolling or resizing between reads cannot leave them stale.
+  const origin = () => {
+    const r = tableRef.current?.getBoundingClientRect();
+    return { x: r?.left ?? 0, y: r?.top ?? 0 };
+  };
+
+  useLayoutEffect(() => {
+    // Chips that were in front of a seat before this read go to the pot (the bets are already gone from the DOM).
+    const sweeps = batch?.events.some((e) => e.type === "sweep");
+    const pot = potRef.current?.getBoundingClientRect();
+    if (batch && batch.id !== sweptBatch.current && sweeps && pot && !prefersReducedMotion()) {
+      sweptBatch.current = batch.id;
+      const to = centre(pot);
+      const o = origin();
+      const made = ([0, 1] as const).flatMap((i) => {
+        const b = betSpots.current[i];
+        if (!b) return [];
+        const x = b.at.x + o.x;
+        const y = b.at.y + o.y;
+        return [{ id: batch.id * 10 + i, amount: b.amount, x, y, dx: to.x - x, dy: to.y - y, delay: paced(80) }];
+      });
+      if (made.length) {
+        setGhosts((g) => [...g, ...made]);
+        const ids = made.map((m) => m.id);
+        setTimeout(() => setGhosts((g) => g.filter((x) => !ids.includes(x.id))), paced(800));
+      }
+    }
+    // At the end of a hand the pot slides to the winner's stack (to both on a split).
+    const result = batch?.events.find((e) => e.type === "result");
+    if (batch && result && result.type === "result" && batch.id !== wonBatch.current && pot && !prefersReducedMotion()) {
+      wonBatch.current = batch.id;
+      const from = centre(pot);
+      const winners = result.winner === "split" ? [0, 1] : [result.winner];
+      const delay = runoutOffset(batch.events) + (result.how === "showdown" ? SHOWDOWN_CHIPS_AT : FOLD_CHIPS_AT);
+      const made = winners.flatMap((w) => {
+        const el = tableRef.current?.querySelector<HTMLElement>(`[data-seat="${w}"]`);
+        if (!el) return [];
+        const to = centre(el.getBoundingClientRect());
+        return [{ id: batch.id * 10 + 5 + w, amount: result.winner === "split" ? result.pot / 2n : result.pot, x: from.x, y: from.y, dx: to.x - from.x, dy: to.y - from.y, delay }];
+      });
+      if (made.length) {
+        setGhosts((g) => [...g, ...made]);
+        const ids = made.map((m) => m.id);
+        setTimeout(() => setGhosts((g) => g.filter((x) => !ids.includes(x.id))), delay + paced(900));
+      }
+    }
+    const o = origin();
+    betSpots.current = [0, 1].map((i) => {
+      const el = tableRef.current?.querySelector<HTMLElement>(`[data-bet="${i}"]`);
+      if (!el || t.bets[i] <= 0n) return null;
+      const c = centre(el.getBoundingClientRect());
+      return { amount: t.bets[i], at: { x: c.x - o.x, y: c.y - o.y } };
+    }) as typeof betSpots.current;
+
+    // The dealer button slides to the new dealer.
+    const d = tableRef.current?.querySelector<HTMLElement>(".hd-btn");
+    if (d) {
+      const c = centre(d.getBoundingClientRect());
+      const prev = dealerAt.current;
+      if (prev && prev.seat !== t.dealer) flyFrom(d, { x: prev.x + o.x, y: prev.y + o.y }, { duration: paced(600), spin: 180, scale: 1 });
+      dealerAt.current = { seat: t.dealer, x: c.x - o.x, y: c.y - o.y };
+    }
+  }, [batch, t]);
+
+  // Sound follows the same events as the motion.
+  useEffect(() => {
+    if (!batch) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, cue: Parameters<typeof sfx>[0]) => timers.push(setTimeout(() => sfx(cue), ms));
+    let streetIndex = 0;
+    for (const e of batch.events) {
+      if (e.type === "action") at(0, e.kind === "check" ? "check" : e.kind === "fold" ? "fold" : "chip");
+      else if (e.type === "sweep") at(paced(120), "chip");
+      else if (e.type === "deal") {
+        [0, 1, 2, 3].forEach((k) => at(k * DEAL_GAP, "deal"));
+        at(paced(1000), "flip");
+      } else if (e.type === "street") {
+        const base = STREET_LEAD + streetIndex * STREET_MS;
+        streetIndex++;
+        e.cards.forEach((_, k) => {
+          at(base + k * CARD_GAP, "deal");
+          at(base + k * CARD_GAP + TURN_AFTER, "flip");
+        });
+      } else if (e.type === "result") {
+        const showdown = e.how === "showdown";
+        const t0 = runoutOffset(batch.events) + paced(showdown ? 800 : 200);
+        if (showdown) at(t0 - paced(300), "flip");
+        at(t0, e.winner === "split" ? "chip" : e.winner === seat ? "win" : "lose");
+        at(t0 + paced(showdown ? 700 : 250), "chip");
+      }
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [batch, seat]);
+
+  const fresh = batch?.events ?? [];
+  const dealtNow = fresh.some((e) => e.type === "deal");
+  const holeFly = (order: number) => (dealtNow ? { deck: deckRef, delay: order * DEAL_GAP } : null);
+  // Each street dealt in the latest read: where its cards land on the board and when. A run-out deals them one street after another.
+  const boardPlan = new Map<number, { delay: number; turn: number }>();
+  fresh
+    .filter((e) => e.type === "street")
+    .forEach((e, k) => {
+      if (e.type !== "street") return;
+      const from = e.street === "flop" ? 0 : e.street === "turn" ? 3 : 4;
+      for (let j = 0; j < e.cards.length; j++) {
+        const delay = STREET_LEAD + k * STREET_MS + j * CARD_GAP;
+        boardPlan.set(from + j, { delay, turn: delay + TURN_AFTER });
+      }
+    });
+  const boardFly = (i: number) => {
+    const p = boardPlan.get(i);
+    return p ? { fly: { deck: deckRef, delay: p.delay }, turn: p.turn } : null;
+  };
+  const revealAt = fresh.some((e) => e.type === "result") ? runoutOffset(fresh) : 0;
+  const showdown = showLast && lh.showdown && lh.result !== NO_WINNER;
+  const hands = showdown ? ([bestHand(lh.shown[0], lh.board), bestHand(lh.shown[1], lh.board)] as const) : null;
+  const winners = !showLast || lh.result === NO_WINNER ? [] : lh.result === SPLIT ? [0, 1] : [lh.result];
+  const five = new Set(hands ? winners.flatMap((w) => hands[w].cards) : []);
+  const markFor = (card?: number | null): "win" | "dim" | null => (!hands || card === undefined || card === null || card >= NO_CARD ? null : five.has(card) ? "win" : "dim");
+  const summary = showLast && lh.result !== NO_WINNER ? resultSummary(lh, seat, hands) : null;
+  const tagFor = (i: number) => (!summary ? null : lh.result === SPLIT ? "Split" : lh.result === i ? "Winner" : null);
+  const dealingMine = feed.dealing && playing;
+  const dealtHand = playing ? t.handNo : lh.handNo;
+  const oppState: FlipState = oppCards ? "up" : playing ? "down" : "empty";
+  // The hand label only counts board cards the Player can already see turned over.
+  const seenBoard = feed.boardBusy ? board.filter((c) => c < 52).slice(0, Math.max(0, board.filter((c) => c < 52).length - boardPlan.size)) : board;
+  const myHand = myCards && (playing || showLast) && !(feed.dealing && playing) ? bestHand(myCards, seenBoard).name : null;
+  const oppHand = hands ? hands[opp].name : null;
 
   return (
-    <section className="hdx" aria-label="Hold'em table">
+    <Arena game="holdem" fullScreenKey={false}>
+    <section className="hdx" aria-label="Hold'em table" style={{ ["--pace" as string]: PACE }}>
       <header className="hdx-head" aria-label="Table">
         <div className="hdx-head-l">
           <h1 className="hdx-title">Heads-up Hold&apos;em</h1>
@@ -103,92 +281,162 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
               <GemaMark size={18} /> {fmtGemas(entry)} entry
             </span>
           )}
+          <MuteToggle />
+          <FullScreenToggle shortcut={false} />
         </div>
-        {!ended && t.status === STATUS.live && (
-          <div className="hdx-clock" role="timer" aria-live="off">
-            <div className="hdx-clock-top">
-              <span className="hdx-who">
-                {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
-                {playing ? ` · ${STREET[t.phase]}` : ""}
-              </span>
-              {!practice && (
-                <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
+        <ShareBar mine={t.stacks[seat] + t.committed[seat]} theirs={t.stacks[opp] + t.committed[opp]} />
+        <div className="hdx-head-r">
+          {!ended && t.status === STATUS.live && (
+            <div className="hdx-clock" role="timer" aria-live="off">
+              <div className="hdx-clock-top">
+                <span className="hdx-who">
+                  {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
+                  {playing ? ` · ${STREET[t.phase]}` : ""}
+                </span>
+                {!practice && (
+                  <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
+                )}
+              </div>
+              {expired && !myTurn && (
+                <div className="hd-claim">
+                  <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
+                  <Button size="sm" onClick={onClaim} disabled={busy !== null}>
+                    {busy === "claim_timeout" ? "Claiming…" : "Claim timeout"}
+                  </Button>
+                </div>
               )}
+              {expired && myTurn && <span className="meta">Your clock ran out: act now, or your opponent can claim a timeout.</span>}
             </div>
-            {!practice && (
-              <div className="hd-clock-bar" aria-hidden="true">
-                <i style={{ width: `${Math.min(100, Math.max(0, (remaining / total) * 100))}%` }} className={remaining <= 10 ? "low" : ""} />
-              </div>
-            )}
-            {expired && !myTurn && (
-              <div className="hd-claim">
-                <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
-                <Button size="sm" onClick={onClaim} disabled={busy !== null}>
-                  {busy === "claim_timeout" ? "Claiming…" : "Claim timeout"}
-                </Button>
-              </div>
-            )}
-            {expired && myTurn && <span className="meta">Your clock ran out: act now, or your opponent can claim a timeout.</span>}
-          </div>
-        )}
+          )}
+          <button type="button" className="cut cut-chip hdx-logbtn" onClick={() => setLogOpen(true)} aria-haspopup="dialog">
+            <ScrollText size={15} aria-hidden="true" /> Hand log
+          </button>
+        </div>
       </header>
 
-      <div className="hdx-stage">
-        <div className="hdx-table">
-          <div className="hdx-felt">
+      <div className="hdx-stage" style={{ ["--rv" as string]: `${revealAt}ms` }}>
+        <div className="hdx-table" ref={tableRef}>
+          <div className="hdx-surface" aria-hidden="true">
+            <div className="hdx-rim">
+              <div className="hdx-bed" />
+            </div>
+          </div>
+          <div className="hdx-deck" ref={deckRef} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </div>
+          <div className="hdx-felt" data-how={showdown ? "showdown" : "fold"}>
             <Seat
               who="Opponent"
               address={practice ? "Bot" : undefined}
               account={practice ? undefined : accounts[opp]}
+              picture={practice ? bots[6] : undefined}
               linked={ended}
-              stack={t.stacks[opp]}
+              stack={t.stacks[opp] - (feed.settle?.award[opp] ?? 0n)}
               bet={t.bets[opp]}
               dealer={sbSeat === opp}
               active={playing && t.toAct === opp}
+              fraction={ringFraction}
+              low={ringLow}
               allIn={playing && t.stacks[opp] === 0n}
               missed={t.missed[opp]}
+              say={feed.say[opp]}
+              label={oppHand}
+              tag={tagFor(opp)}
+              index={opp}
             >
-              {oppCards ? (
-                <>
-                  <PlayingCard card={oppCards[0]} />
-                  <PlayingCard card={oppCards[1]} />
-                </>
-              ) : (
-                <>
-                  <PlayingCard back={oppBacks} />
-                  <PlayingCard back={oppBacks} />
-                </>
-              )}
+              {[0, 1].map((i) => (
+                <FlipCard key={`o${dealtHand}-${i}`} card={oppCards?.[i]} state={oppState} fly={holeFly(i === 0 ? 0 : 2)} turnDelay={revealAt + i * paced(120)} mark={markFor(oppCards?.[i])} />
+              ))}
             </Seat>
 
             <div className="hdx-mid">
-              <div className="cut hdx-pot mono" aria-label={`Pot ${chips(t.pot)} Chips`}>
-                Pot <b>{chips(t.pot)}</b> Chips
+              <div ref={potRef} className="hdx-potslot">
+                {summary ? (
+                  <div className={`cut hdx-win ${summary.outcome}`} role="status" aria-label={`${summary.title}. ${summary.detail}`}>
+                    <span className="hdx-win-icon" aria-hidden="true">
+                      {summary.outcome === "win" ? <Trophy size={22} /> : summary.outcome === "split" ? <Handshake size={22} /> : <Flag size={22} />}
+                    </span>
+                    <span className="hdx-win-t">
+                      {ended && <span className="hdx-win-k">Final hand</span>}
+                      <b>{summary.title}</b>
+                      <span>{summary.detail}</span>
+                    </span>
+                  </div>
+                ) : (
+                <div className="cut hdx-pot mono" aria-label={`Pot ${chips(t.pot)} Chips`}>
+                  <ChipStack amount={t.pot} piles={t.pot > 1500n ? 3 : t.pot > 400n ? 2 : 1} />
+                  <span className="hdx-pot-t">
+                    <span className="hdx-pot-l">Pot</span>
+                    <b>
+                      <CountUp value={Number(t.pot)} format={chips} />
+                    </b>
+                  </span>
+                </div>
+                )}
               </div>
               <div className="hdx-board" aria-label="Board">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <PlayingCard key={i} card={board[i]} size="lg" />
-                ))}
+                {[0, 1, 2, 3, 4].map((i) => {
+                  const f = boardFly(i);
+                  const known = board[i] !== undefined && board[i] < 52;
+                  return <FlipCard key={`b${t.handNo}-${i}`} card={board[i]} state={known ? "up" : "empty"} size="lg" fly={f?.fly} turnDelay={f?.turn ?? 0} mark={markFor(board[i])} />;
+                })}
               </div>
             </div>
 
             <Seat
               who="You"
               account={practice ? undefined : accounts[seat]}
-              stack={t.stacks[seat]}
+              picture={practice ? bots[2] : undefined}
+              stack={t.stacks[seat] - (feed.settle?.award[seat] ?? 0n)}
               bet={t.bets[seat]}
               dealer={sbSeat === seat}
               active={myTurn}
+              fraction={ringFraction}
+              low={ringLow}
               allIn={playing && t.stacks[seat] === 0n}
               missed={t.missed[seat]}
+              say={feed.say[seat]}
+              label={myHand}
+              tag={tagFor(seat)}
+              index={seat}
               mine
             >
-              <PlayingCard card={myCards?.[0]} size="lg" />
-              <PlayingCard card={myCards?.[1]} size="lg" />
+              {[0, 1].map((i) => (
+                <FlipCard
+                  key={`m${hole?.handNo ?? 0}-${i}`}
+                  card={myCards?.[i]}
+                  state={myCards ? (dealingMine ? "down" : "up") : playing ? "down" : "empty"}
+                  size="lg"
+                  fly={holeFly(i === 0 ? 1 : 3)}
+                  turnDelay={i * CARD_GAP}
+                  mark={markFor(myCards?.[i])}
+                />
+              ))}
             </Seat>
           </div>
+          {feed.banner && (
+            <div className="hdx-banner">
+              <Callout key={feed.banner.id} text={feed.banner.text} duration={paced(1100)} className="hdx-banner-host" />
+            </div>
+          )}
+          {feed.toast && (
+            <div className="hdx-toast">
+              <Callout key={feed.toast.id} text={feed.toast.text} tone="warn" duration={paced(2400)} className="hdx-toast-host" />
+            </div>
+          )}
         </div>
-        {showLast && <HandResult t={t} seat={seat} ended={ended} />}
+        {ended && endPanel && (
+          <div className="hdx-end" role="dialog" aria-label="Match over">
+            {endPanel}
+          </div>
+        )}
+        {ghosts.map((g) => (
+          <div key={g.id} className="hd-ghost" style={{ left: g.x, top: g.y, animationDelay: `${g.delay}ms`, ["--dx" as string]: `${g.dx}px`, ["--dy" as string]: `${g.dy}px` }} aria-hidden="true">
+            <ChipStack amount={g.amount} />
+          </div>
+        ))}
         {!showLast && playing && lh.handNo > 0 && lh.result !== NO_WINNER && (
           <p className="meta hd-last">
             Hand {lh.handNo}: {lh.result === SPLIT ? "split pot" : lh.result === seat ? "you won" : "you lost"} · {chips(lh.pot)} Chips
@@ -200,8 +448,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
       {!ended && (
         <ActionBar key={`${t.handNo}-${t.phase}`} table={t} seat={seat} enabled={myTurn && busy === null} busy={busy} onAct={onAct} />
       )}
-      <details className="hdx-log">
-        <summary>Hand log · inferred</summary>
+      <Sheet open={logOpen} onClose={() => setLogOpen(false)} title="Hand log" className="hdx-logsheet">
         <div className="hdx-log-body">
           {log.length === 0 && <p className="meta">The hand log fills as the hand is played.</p>}
           {log.map((s, i) => (
@@ -223,189 +470,9 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           ))}
           <p className="note">Inferred by this client from table reads, not a record from the table: a slow read can merge two actions into one.</p>
         </div>
-      </details>
+      </Sheet>
 
     </section>
-  );
-}
-
-function Seat({
-  who,
-  address,
-  account,
-  linked,
-  stack,
-  bet,
-  dealer,
-  active,
-  allIn,
-  missed,
-  mine,
-  children,
-}: {
-  who: string;
-  /** A plain label in place of a Player (the practice bot). */
-  address?: string;
-  /** The Player's Account key, as shown everywhere else (the table itself holds wallets). */
-  account?: string;
-  /** Link the key to the Account: only once the Match has ended, never during a hand. */
-  linked?: boolean;
-  stack: bigint;
-  bet: bigint;
-  dealer: boolean;
-  active: boolean;
-  allIn: boolean;
-  missed: number;
-  mine?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`hdx-seat${mine ? " mine" : ""}${active ? " active" : ""}`}>
-      <div className="hd-cards">{children}</div>
-      <div className="cut hdx-plaque">
-        <div className="hd-name">
-          <strong>{who}</strong>
-          {dealer && <span className="hd-btn" title="Button, posts the small blind" aria-label="Dealer button">D</span>}
-          {active && <span className="hd-turn">To act</span>}
-          <span className="mono hd-addr">{account ? linked ? <AccountLink account={account} newTab /> : <PlayerName account={account} /> : address}</span>
-        </div>
-        <div className="hd-stack mono" aria-label={`${who} stack ${chips(stack)} Chips`}>
-          {chips(stack)} <span className="hd-unit">Chips</span>
-          {allIn && <span className="hd-tag">All-in</span>}
-        </div>
-        {missed > 0 && <span className="meta hd-missed">Missed {missed} of 3 turns</span>}
-      </div>
-      <div className="hd-bet mono" aria-label={bet > 0n ? `Bet ${chips(bet)}` : undefined}>
-        {bet > 0n ? chips(bet) : ""}
-      </div>
-    </div>
-  );
-}
-
-function HandResult({ t, seat, ended }: { t: Table; seat: number; ended: boolean }) {
-  const lh = t.lastHand;
-  if (lh.result === NO_WINNER) return null;
-  const split = lh.result === SPLIT;
-  const won = lh.result === seat;
-  const title = split ? "Split pot" : won ? "You won the hand" : "You lost the hand";
-  const how = split
-    ? "Both hands are equal."
-    : lh.showdown
-      ? "Showdown: both hands are shown."
-      : won
-        ? "Your opponent folded."
-        : "You folded.";
-  return (
-    <div className="hd-result" role="status">
-      <div className="hd-result-top">
-        <strong>
-          {ended ? "Final hand · " : `Hand ${lh.handNo} · `}
-          {title}
-        </strong>
-        <span className="mono">{chips(lh.pot)} Chips</span>
-      </div>
-      <span className="meta">{how}</span>
-      {lh.showdown && (
-        <div className="hd-show" aria-label="Shown cards">
-          <span className="hd-show-l">You</span>
-          <PlayingCard card={lh.shown[seat][0]} />
-          <PlayingCard card={lh.shown[seat][1]} />
-          <span className="hd-show-l">Opponent</span>
-          <PlayingCard card={lh.shown[1 - seat][0]} />
-          <PlayingCard card={lh.shown[1 - seat][1]} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Fold / Check / Call / Raise, then Raise to with a slider, presets and All-in (take-1: bottom action bar). */
-function ActionBar({
-  table: t,
-  seat,
-  enabled,
-  busy,
-  onAct,
-}: {
-  table: Table;
-  seat: number;
-  enabled: boolean;
-  busy: string | null;
-  onAct: (a: Action, label: string) => void;
-}) {
-  const lg = legalMoves(t, seat);
-  const min = Number(lg.minTo);
-  const max = Number(lg.maxTo);
-  const [to, setTo] = useState<number>(min);
-  const value = Math.min(max, Math.max(min, Number.isFinite(to) ? to : min));
-  const facing = lg.toCall > 0n;
-  const pot = Number(t.pot);
-  const current = Number(t.bets[0] > t.bets[1] ? t.bets[0] : t.bets[1]);
-  const raiseOk = enabled && lg.canRaise;
-  const verb = lg.isBet ? "Bet" : "Raise";
-  const preset = (label: string, target: number) => (
-    <button key={label} type="button" className="cut cut-chip hd-preset" disabled={!raiseOk} onClick={() => setTo(Math.min(max, Math.max(min, Math.round(target))))}>
-      {label === "All-in" ? "All-in" : label}
-    </button>
-  );
-
-  return (
-    <div className="cut cut-frame hdx-actions" role="group" aria-label="Actions">
-      <div className="hdx-btns">
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!enabled} onClick={() => onAct(fold(), "fold")}>
-          Fold
-        </button>
-        <button type="button" className={`cut cut-btn hdx-btn${enabled && !facing ? " primary" : ""}`} disabled={!enabled || facing} onClick={() => onAct(check(), "check")}>
-          Check
-        </button>
-        <button type="button" className={`cut cut-btn hdx-btn${enabled && facing ? " primary" : ""}`} disabled={!enabled || !facing} onClick={() => onAct(call(), `call ${lg.toCall}`)}>
-          <span>Call</span>
-          {facing && <small className="mono">{chips(lg.toCall)}</small>}
-        </button>
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!raiseOk} onClick={() => onAct(raise(value), `${verb.toLowerCase()} to ${value}`)}>
-          {verb}
-        </button>
-      </div>
-      <div className="hdx-raise">
-        <div className="hdx-raise-in">
-          <label className="label" htmlFor="hd-to">
-            {verb} to
-          </label>
-          <input
-            id="hd-to"
-            className="tnum mono"
-            type="number"
-            inputMode="numeric"
-            min={min}
-            max={max}
-            value={value}
-            disabled={!raiseOk}
-            onChange={(e) => setTo(Number(e.target.value))}
-          />
-        </div>
-        <div className="hdx-raise-ctl">
-          <input
-            className="hd-range"
-            type="range"
-            aria-label={`${verb} to`}
-            min={min}
-            max={max}
-            step={1}
-            value={value}
-            disabled={!raiseOk || min === max}
-            style={{ ["--pct" as string]: max === min ? "100%" : `${((value - min) / (max - min)) * 100}%` }}
-            onChange={(e) => setTo(Number(e.target.value))}
-          />
-          <div className="hd-presets">
-            {preset("Min", min)}
-            {preset("½ pot", current + pot / 2)}
-            {preset("Pot", current + pot)}
-            {preset("All-in", max)}
-          </div>
-        </div>
-      </div>
-      {!enabled && busy === null && <span className="hd-hint meta">Actions unlock on your turn.</span>}
-      {busy && busy !== "claim_timeout" && <span className="hd-hint meta">Sending {busy.split(" ")[0]}…</span>}
-    </div>
+    </Arena>
   );
 }
