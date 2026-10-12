@@ -72,27 +72,28 @@ export default function Page() {
 
       <H2 id="trading-duel">Trading Duel</H2>
       <p>
-        A real-time, five-minute trading contest. You and your opponent trade the same live price from the same stack of <b>10,000 Chips</b>, on one
-        asset chosen for the Match: SOL, ETH or HYPE.
+        A real-time price grid for two. You and your opponent watch the same live price on one asset chosen for the Match: SOL, ETH or HYPE. The
+        grid has 12 columns of ten seconds and 8 rows of price. For each column you pick one box, and if the live line passes through it, you hit and
+        score <b>100 points</b>.
       </p>
       <ul>
-        <li>You hold one position at a time, long or short, with leverage from 1x to 20x, and can close or flip it at will.</li>
-        <li>Fills happen at a live price feed. To keep a fast connection from gaining an edge, every fill carries a 0.05% spread, and prices older than two seconds are refused.</li>
-        <li>A position that falls to its maintenance margin is liquidated, and the loss is capped at the margin you put in.</li>
-        <li>At the end, positions are marked at the final price and the higher total wins. Equal totals, including neither Player trading, are a draw and both entries are refunded.</li>
-        <li>Each Player&apos;s position stays hidden while the Match runs. Afterwards both full trade histories are public on the Match page.</li>
+        <li>You get a 30 second head start before the line enters the first column. The Match is 12 columns long: two and a half minutes in all.</li>
+        <li>You can change a pick for free until its column locks. A column locks ten seconds before the line reaches it, so you always pick ahead of the line, never on it.</li>
+        <li>Your picks stay hidden from your opponent until each column locks. Then both picks for it are shown, and the two of you race column by column.</li>
+        <li>A column with no pick scores nothing. A hit means the line touched your box at any moment during the column.</li>
+        <li>At the end, more points wins. Equal points, including neither Player picking, are a draw and both entries are refunded.</li>
       </ul>
 
       <H3 id="chips">Chips are not Gemas</H3>
       <p>
-        In Hold&apos;em and Trading Duel, Chips are the in-match score units. They never become Gemas or leave the Match. Gemas enter a Match once and
+        In Hold&apos;em, Chips are the in-match score units (Trading Duel scores points the same way). They never become Gemas or leave the Match. Gemas enter a Match once and
         leave once; Chips are only the scorekeeping in between.
       </p>
 
       <Callout kind="note" title="Seeing a Match you are not in">
         <p>
           Anyone can open a Match page and see both Players, the scores or the result, the entry and the Fees. Hidden information, such as your cards
-          or your open position, is shown only to you until the Match is over.
+          or your picks before their column locks, are shown only to you until the Match is over.
         </p>
       </Callout>
     </DocPage>

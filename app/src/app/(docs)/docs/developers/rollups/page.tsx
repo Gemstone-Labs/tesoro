@@ -18,7 +18,7 @@ export default function Page() {
 ]} />}>
       <p>
         A Match&apos;s result must reach the Solana settlement program without trusting a Studio server&apos;s signature, and some of its state must stay hidden:
-        the Hold&apos;em deck, a Player&apos;s hole cards, a Block Puzzle run, a Trading Duel position. ADR 0003 decides that each Game is a Solana program whose
+        the Hold&apos;em deck, a Player&apos;s hole cards, a Block Puzzle run, a Trading Duel pick. ADR 0003 decides that each Game is a Solana program whose
         Match state is delegated to a <b>MagicBlock Private Ephemeral Rollup</b>, which runs in an Intel TDX trusted execution environment (TEE).
       </p>
 
@@ -50,7 +50,7 @@ export default function Page() {
         rows={[
           ["Block Puzzle", "The Seed, then each Player's Board (moves)", "A SeedVault with a permission that has zero members. The Seed is written there only by the VRF callback and copied into a Player's own Board by begin_run, in the transaction that starts their 90 s clock. Each Board's only member is its Player.", "After seal and commit: both Boards. The SeedVault is wiped."],
           ["Hold'em", "The Deck and each Player's hole cards", "Deck: zero-member permission. Hole accounts: readable by their Player. The seed of a hand folds both Players' fresh secrets and the VRF output.", "Board cards as dealt; hole cards only at a showdown. close_match wipes the Deck and Holes before committing."],
-          ["Trading Duel", "Each Player's Book: open position and fills", "Book readable only by its Player. The public Duel carries a coarse lead and the trade counts.", "After the Match is committed: both full fill histories."],
+          ["Trading Duel", "Each Player's Book: picks for columns that have not locked", "Book readable only by its Player. When a column locks, both picks for it are copied into the public Duel.", "As columns lock: both picks. After the Match is committed: both full Books."],
         ]}
       />
 
@@ -70,16 +70,17 @@ export default function Page() {
 
       <H3 id="trading-duel">Trading Duel prices</H3>
       <p>
-        Fills execute at MagicBlock&apos;s real-time pricing oracle (Pyth Lazer pushed into rollup accounts every 50 to 200 ms). The program reads the Pyth
-        <code>PriceUpdateV2</code> bytes itself. Anti-latency rules: a 5 bps spread on every fill and rejection of any price older than 2 seconds. The end price is
-        pinned: <code>end_match</code> needs a price published within <code>[ends_at, ends_at + 4 s]</code>, otherwise it settles at the last mid recorded during the window,
-        so waiting cannot change the result. Maintenance margin is 50 bps and a liquidated position loses at most its margin.
+        The line is sampled from MagicBlock&apos;s real-time pricing oracle (Pyth Lazer pushed into rollup accounts every 50 to 200 ms). The program reads the Pyth
+        <code>PriceUpdateV2</code> bytes itself, refuses any price older than 2 seconds, and records each sample into the current column&apos;s low and high.
+        Anyone may call <code>tick</code> to add samples, but a sample is always a real price. The rows are fixed from the start price, and a column locks 10 seconds
+        before its window, so a faster feed cannot help a pick. The end price is pinned: <code>end_match</code> needs a price published within
+        <code>[ends_at, ends_at + 4 s]</code>, otherwise it uses the last price recorded during the window, so waiting cannot change the result.
       </p>
 
       <H2 id="liveness">Liveness</H2>
       <p>
         Clocks live in the programs: Block Puzzle 90 s per run, an opener window of one hour and a joiner window of 24 hours; Hold&apos;em 30 s per action and 60 s
-        to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a five-minute window. <code>claim_timeout</code>, <code>seal</code>,{" "}
+        to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a two-and-a-half-minute grid. <code>claim_timeout</code>, <code>seal</code>,{" "}
         <code>commit_boards</code>, <code>finalize</code> and <code>settle</code> can be sent by anyone, and the keeper sends them when no Player does.
       </p>
 
