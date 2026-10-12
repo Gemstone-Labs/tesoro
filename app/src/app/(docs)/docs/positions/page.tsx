@@ -26,7 +26,7 @@ export default function Page() {
         You can get each token from your Wallet. Yield runs on a fast clock: a month of yield arrives in about 10 minutes.
       </p>
 
-      <Shot name="wallet" url="tesoro-fawn.vercel.app/wallet" alt="The Wallet showing a Position with its Debt, Horizon and Unlock Estimate" caption="The Wallet shows each Position, its Debt and its Unlock Estimate. Figures here are sample data." />
+      <Shot name="wallet" url="playtesoro.com/wallet" alt="The Wallet showing a Position with its Debt, Horizon and Unlock Estimate" caption="The Wallet shows each Position, its Debt and its Unlock Estimate. Figures here are sample data." />
 
       <H2 id="advance">An Advance</H2>
       <p>

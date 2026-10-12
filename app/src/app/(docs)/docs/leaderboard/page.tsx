@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Leaderboard", alternates: { canonica
 
 export default function Page() {
   return (
-    <DocPage href="/docs/leaderboard" hero={<Shot name="leaderboard" url="tesoro-fawn.vercel.app/leaderboard" alt="The Leaderboard with the current Pool, time left in the season and the top Players" priority caption="The live Leaderboard: the Pool, the time left in the season and the standings." />}>
+    <DocPage href="/docs/leaderboard" hero={<Shot name="leaderboard" url="playtesoro.com/leaderboard" alt="The Leaderboard with the current Pool, time left in the season and the top Players" priority caption="The live Leaderboard: the Pool, the time left in the season and the standings." />}>
       <p>
         The Leaderboard rewards Players who win Matches. Every Match in every Game adds a little to a shared prize pool, and each week the top ten
         Players split it.

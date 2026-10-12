@@ -5,7 +5,7 @@ import { GEMS, gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
 
 /** The PNG uses the same TTFs through next/og; here the page's own font stacks stand in. */
 const FONTS: CardFonts = { display: "var(--f-display)", sans: "var(--f-body)" };
-const SITE = "tesoro-fawn.vercel.app";
+const SITE = "playtesoro.com";
 
 function Scaled({ width, children }: { width: number; children: React.ReactNode }) {
   const k = width / CARD.width;

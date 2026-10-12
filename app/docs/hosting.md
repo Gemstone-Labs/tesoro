@@ -1,6 +1,6 @@
 # Hosting runbook (judges' demo)
 
-The app runs on **Vercel** and the keeper runs on **Fly.io** as one always-on Machine. Both use Solana devnet and Ethereum Hoodi only. The app is deployed (2026-10-02) as Vercel project `gemstone-labs/tesoro`: production https://tesoro-fawn.vercel.app (also https://tesoro-gemstone-labs.vercel.app), landing at `/`, Lobby at `/lobby`. Production env: `NEXT_PUBLIC_PRIVY_APP_ID`, `TESORO_BASE_RPC` (Alchemy devnet, server only), `TESORO_RELAYER_SECRET_KEY`, `TESORO_ORACLE_SECRET_KEY`, `TESORO_RELAYER_EVM_PRIVATE_KEY`; the browser uses the default public RPCs. The keeper still runs on the founder's machine.
+The app runs on **Vercel** and the keeper runs on **Fly.io** as one always-on Machine. Both use Solana devnet and Ethereum Hoodi only. The app is deployed (2026-10-02) as Vercel project `gemstone-labs/tesoro`: production https://www.playtesoro.com (`playtesoro.com` redirects there; DNS at GoDaddy; https://tesoro-fawn.vercel.app still serves), waitlist at `/`, landing at `/welcome`, Lobby at `/lobby`. The project is connected to GitHub `Gemstone-Labs/tesoro`: every push to `main` deploys production, other branches get preview URLs. Production env: `NEXT_PUBLIC_PRIVY_APP_ID`, `TESORO_BASE_RPC` (Alchemy devnet, server only), `TESORO_RELAYER_SECRET_KEY`, `TESORO_ORACLE_SECRET_KEY`, `TESORO_RELAYER_EVM_PRIVATE_KEY`; the browser uses the default public RPCs. The keeper still runs on the founder's machine.
 
 Keys never go into the repo or the image. Each server key is read from an env secret first, then from the key file under `~/.config/tesoro/` (the local fallback). The app's loaders are in `src/server/keys.ts` and the keeper's in `keeper/src/keys.ts`. A Solana secret holds the key file's contents (the JSON array of 64 bytes). An EVM secret holds `0x` plus 64 hex digits. Both loaders refuse the compromised `AXwY…` key.
 
@@ -87,6 +87,8 @@ printf %s "$(sed -n 's/^RELAYER_EVM_PRIVATE_KEY=//p' ~/.config/tesoro/relayer-ev
 vercel env ls production      # names only; sensitive values are not shown
 vercel deploy --prod          # prints the production URL
 ```
+
+Since 2026-10-11 the project is connected to GitHub (Settings > Git), so a push to `main` deploys production on its own; `vercel deploy --prod` is still how to ship something that is not on `main`. Custom domain: `NEXT_PUBLIC_SITE_URL=https://www.playtesoro.com` (Production). Only Production holds the Privy ID and the signing keys, so sign-in does not work on preview URLs.
 
 Rollback: `vercel rollback` (previous production deployment). The production domain is public. Vercel's default Deployment Protection covers previews only.
 

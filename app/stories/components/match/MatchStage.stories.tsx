@@ -6,7 +6,7 @@ import type { GameId } from "@/lib/mock";
 
 const ME = "B6AeTq3rNbHkzG4mJdP7wq8vXsY2cLf5eRuKa9hFRPm";
 const OPP = "D1gtWm5xQ8pLr2nVb7kZs4yHc6jTe3uAo9fGi1d5uHP";
-const LINK = "https://tesoro-fawn.vercel.app/play/challenge/3583289476503";
+const LINK = "https://www.playtesoro.com/play/challenge/3583289476503";
 const noop = () => undefined;
 
 type Props = ComponentProps<typeof MatchStage>;

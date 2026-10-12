@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Backing", alternates: { canonical: "
 
 export default function Page() {
   return (
-    <DocPage href="/docs/backing" hero={<Shot name="backing" url="tesoro-fawn.vercel.app/backing" alt="The Backing page with Requests from Players and a button to make an Offer" priority caption="Backing: Players ask to be backed, Backers make Offers. Sample data." />}>
+    <DocPage href="/docs/backing" hero={<Shot name="backing" url="playtesoro.com/backing" alt="The Backing page with Requests from Players and a button to make an Offer" priority caption="Backing: Players ask to be backed, Backers make Offers. Sample data." />}>
       <p>
         A <b>Backing</b> is an agreement, accepted by both sides, in which a <b>Backer</b> funds a <b>Player&apos;s</b> full entry into one Match. If the
         Player wins, the Backer&apos;s entry comes back first and the rest is split by the share the Backer offered. If the Player loses, only the

@@ -47,7 +47,7 @@ export default function Page() {
         Ethereum or HyperEVM Gema sends a message to that chain, which takes a few minutes (see <Link href="/docs/chains">Chains</Link>).
       </p>
 
-      <Shot name="wallet" url="tesoro-fawn.vercel.app/wallet" alt="The Wallet listing Gemas by Source, redeemable now and pending" caption="Gemas by Source in the Wallet, split into redeemable now and pending. Sample data." />
+      <Shot name="wallet" url="playtesoro.com/wallet" alt="The Wallet listing Gemas by Source, redeemable now and pending" caption="Gemas by Source in the Wallet, split into redeemable now and pending. Sample data." />
 
       <H2 id="own-first">Which Gemas an entry uses</H2>
       <p>

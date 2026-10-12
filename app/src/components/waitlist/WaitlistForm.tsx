@@ -8,7 +8,7 @@ import { gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
 import { PackReveal } from "./PackReveal";
 
 const IDLE: WaitlistState = { status: "idle" };
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://tesoro-fawn.vercel.app";
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.playtesoro.com";
 const SHARE_TEXT = "I just joined the Tesoro waitlist: play casual games with yield you haven't earned yet.";
 
 const postUrl = (text: string, url: string) =>

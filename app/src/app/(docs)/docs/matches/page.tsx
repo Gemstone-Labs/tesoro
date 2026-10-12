@@ -55,7 +55,7 @@ export default function Page() {
         <li>If you are first, you have a one-hour Queue window for an opponent to join. After someone joins, they have 24 hours to play their run; if they never begin, you win by forfeit.</li>
       </ul>
 
-      <Shot name="block-puzzle" url="tesoro-fawn.vercel.app/play/…" alt="A Block Puzzle run: the board, the three pieces and the score" caption="A Block Puzzle run. Both Players get the same pieces." />
+      <Shot name="block-puzzle" url="playtesoro.com/play/…" alt="A Block Puzzle run: the board, the three pieces and the score" caption="A Block Puzzle run. Both Players get the same pieces." />
 
       <H2 id="holdem">Hold&apos;em</H2>
       <p>
@@ -68,7 +68,7 @@ export default function Page() {
         <li>The deck is shuffled with randomness from both Players and a random-number service; nobody can see the deck, and your hole cards are visible only to you. Cards are revealed only at a showdown.</li>
       </ul>
 
-      <Shot name="holdem" url="tesoro-fawn.vercel.app/play/…" alt="A Hold'em table, heads-up, with the pot and action buttons" caption="Heads-up Hold'em. Only you see your hole cards." />
+      <Shot name="holdem" url="playtesoro.com/play/…" alt="A Hold'em table, heads-up, with the pot and action buttons" caption="Heads-up Hold'em. Only you see your hole cards." />
 
       <H2 id="trading-duel">Trading Duel</H2>
       <p>

@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Accounts and sign-in", alternates: {
 
 export default function Page() {
   return (
-    <DocPage href="/docs/accounts" hero={<Shot name="account" url="tesoro-fawn.vercel.app/account/…" alt="A Player's public Account page with their record, Gemas won and lost, and Match history" priority caption="A Player's public Account page: what they played, nothing more. Figures here are sample data." />}>
+    <DocPage href="/docs/accounts" hero={<Shot name="account" url="playtesoro.com/account/…" alt="A Player's public Account page with their record, Gemas won and lost, and Match history" priority caption="A Player's public Account page: what they played, nothing more. Figures here are sample data." />}>
       <H2 id="account">One Account</H2>
       <p>
         Your <b>Account</b> is your single identity on Tesoro. Your Positions, Gemas, Match history and Backings all belong to the Account, not to a
