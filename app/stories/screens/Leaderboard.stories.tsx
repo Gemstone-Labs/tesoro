@@ -17,6 +17,11 @@ export const LiveSeason: Story = { parameters: { screen: { leaderboard: "live" }
 /** You are 23rd: page 1 offers "You’re 23rd" to jump to your page. */
 export const YouOnPageTwo: Story = { parameters: { screen: { leaderboard: "deep" } } };
 
+/** A phone: the chest spans the card over the Pool figure. */
+export const LiveSeasonPhone: Story = {
+  globals: { viewport: { value: "phone360", isRotated: false } },
+  parameters: { screen: { leaderboard: "live" } },
+};
 export const LiveSeasonSignedOut: Story = { parameters: { screen: { leaderboard: "live" }, auth: "signed-out" } };
 
 /** The season before has ended and its prizes are still being paid. */

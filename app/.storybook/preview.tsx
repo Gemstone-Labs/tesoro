@@ -92,6 +92,7 @@ const preview: Preview = {
         desktop1440: { name: "Desktop 1440", styles: { width: "1440px", height: "900px" } },
         tablet1024: { name: "Tablet 1024", styles: { width: "1024px", height: "768px" } },
         phone390: { name: "Phone 390", styles: { width: "390px", height: "844px" } },
+        phone360: { name: "Phone 360", styles: { width: "360px", height: "780px" } },
       },
     },
     options: {
