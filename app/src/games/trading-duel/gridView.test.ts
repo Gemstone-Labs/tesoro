@@ -106,14 +106,14 @@ describe("zoom", () => {
     const wide = layoutFor(1200);
     expect(layoutFor(1200, 12).rh).toBeLessThan(wide.rh);
     expect(layoutFor(1200, 3).rh).toBeGreaterThan(wide.rh);
-    expect(layoutFor(1200, 3).rh).toBeLessThanOrEqual(Math.round(52 * 1.6));
+    expect(layoutFor(1200, 3).rh).toBeLessThanOrEqual(Math.round(70 * 1.6));
     expect(layoutFor(1200, 12).rh).toBeGreaterThanOrEqual(30);
-    for (const n of [3, 5, 8, 12]) expect(layoutFor(1200, n).bodyH).toBe(8 * 52);
+    for (const n of [3, 5, 8, 12]) expect(layoutFor(1200, n).bodyH).toBe(6 * 70);
     const phone = layoutFor(390 - 74);
-    expect(phone.rh).toBe(44);
+    expect(phone.rh).toBe(56);
     expect(layoutFor(316, maxCols(316)).rh).toBe(44);
-    expect(halfBands(phone) * 2).toBeCloseTo(8);
-    expect(halfBands(layoutFor(1200, 12)) * 2).toBeGreaterThan(11);
+    expect(halfBands(phone) * 2).toBeCloseTo(6);
+    expect(halfBands(layoutFor(1200, 12)) * 2).toBeGreaterThan(9);
   });
   it("keeps the time under the anchor where it was", () => {
     const a = layoutFor(1000, 6);

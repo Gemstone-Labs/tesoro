@@ -45,6 +45,8 @@ import {
   maxCols,
   MIN_COLS,
   offscreen,
+  LABEL_EXTRA_DIGITS,
+  LIVE_EXTRA_DIGITS,
   priceDigits,
   revealU,
   runEndingAt,
@@ -136,6 +138,9 @@ type EdgePick = { c: number; who: "me" | "foe"; dir: 1 | -1; k: number };
 type Free = { x: number; u: number };
 type Moment = { id: number; text: string; tone: CalloutTone };
 
+/** How far across a price change ramps, px: between a smooth slope and a sheer vertical step. */
+const RISE_PX = 3;
+
 /** The line on its canvas: a soft wide stroke, a bright blue one, a thin white core, all fading toward the tail. Only what shows is walked. */
 function drawLine(canvas: HTMLCanvasElement | null, line: SnakeLine, hx: number, hy: number, cam: number, off: number, l: Layout) {
   const ctx = canvas?.getContext("2d");
@@ -150,12 +155,16 @@ function drawLine(canvas: HTMLCanvasElement | null, line: SnakeLine, hx: number,
   const path = new Path2D();
   const X = (i: number) => xs[i] - cam;
   const Y = (i: number) => ys[i] + off;
+  // A staircase with steep ramps: the price holds, then moves within RISE_PX, so each reading lands as a jump.
+  const step = (x: number, y: number, px: number, py: number) => {
+    if (y !== py) path.lineTo(Math.max(px, x - RISE_PX), py);
+    path.lineTo(x, y);
+  };
   path.moveTo(X(i0), Y(i0));
-  for (let i = i0 + 1; i < i1; i++) path.quadraticCurveTo(X(i), Y(i), (X(i) + X(i + 1)) / 2, (Y(i) + Y(i + 1)) / 2);
+  for (let i = i0 + 1; i <= i1; i++) step(X(i), Y(i), X(i - 1), Y(i - 1));
   const tipOn = i1 === xs.length - 1;
-  if (i1 > i0) path.lineTo(X(i1), Y(i1));
-  if (tipOn && line.tipX > xs[i1]) path.lineTo(line.tipX - cam, line.tipY + off);
-  if (hx > line.tipX + 0.5) path.lineTo(hx - cam, hy + off);
+  if (tipOn && line.tipX > xs[i1]) step(line.tipX - cam, line.tipY + off, X(i1), Y(i1));
+  if (hx > line.tipX + 0.5) step(hx - cam, hy + off, line.tipX - cam, line.tipY + off);
   const x1 = hx - cam;
   const x0 = Math.max(0, x1 - l.cw * 3.2);
   const fade = (rgb: string, a: number) => {
@@ -221,8 +230,10 @@ export function GridScreen(p: GridScreenProps) {
   const t = (now - startsAt) / 1000;
   const anchorUsd = usdOf(anchor);
   const stepUsd = usdOf(step);
-  const digits = priceDigits(stepUsd);
+  const digits = priceDigits(stepUsd) + LABEL_EXTRA_DIGITS;
   const money = useCallback((v: number) => `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`, [digits]);
+  const liveDigits = priceDigits(stepUsd) + LIVE_EXTRA_DIGITS;
+  const moneyLive = useCallback((v: number) => `$${v.toLocaleString("en-US", { minimumFractionDigits: liveDigits, maximumFractionDigits: liveDigits })}`, [liveDigits]);
   const me = p.me ?? { name: "You" };
 
   const viewRef = useRef<HTMLDivElement>(null);
@@ -291,6 +302,7 @@ export function GridScreen(p: GridScreenProps) {
     anchorUsd,
     stepUsd,
     money,
+    moneyShort: money,
     mine,
     theirs,
     /** The head's band position, eased; null before the first frame. */
@@ -324,7 +336,7 @@ export function GridScreen(p: GridScreenProps) {
   const [win, setWin] = useState(() => bandWindow(0, layout));
   const [edges, setEdges] = useState<EdgePick[]>([]);
   useEffect(() => {
-    Object.assign(live.current, { layout, source, startsAt, stepped: reduced, anchorUsd, stepUsd, money, mine, theirs });
+    Object.assign(live.current, { layout, source, startsAt, stepped: reduced, anchorUsd, stepUsd, money: moneyLive, moneyShort: money, mine, theirs });
   });
   useEffect(() => {
     live.current.built = "";
@@ -354,6 +366,7 @@ export function GridScreen(p: GridScreenProps) {
         const dir = L.next;
         const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "◆";
         const text = L.money(L.line.p);
+        const short = L.moneyShort(L.line.p);
         L.textAt = ms;
         L.price = L.line.p;
         if (dir !== L.dir || text !== L.text) {
@@ -361,7 +374,7 @@ export function GridScreen(p: GridScreenProps) {
           L.text = text;
           if (chipTextRef.current) chipTextRef.current.textContent = text;
           if (chipArrowRef.current) chipArrowRef.current.textContent = arrow;
-          if (ptrTextRef.current) ptrTextRef.current.textContent = dir === "flat" ? text : `${text} ${arrow}`;
+          if (ptrTextRef.current) ptrTextRef.current.textContent = dir === "flat" ? short : `${short} ${arrow}`;
           for (const el of [dotRef.current, chipRef.current, ptrTextRef.current]) el?.setAttribute("data-dir", dir);
         }
       }

@@ -5,8 +5,8 @@ export const PAD_COLS = HEAD_START_SECS / COLUMN_SECS;
 export const WORLD_COLS = MATCH_SECS / COLUMN_SECS;
 /** Height of the column header strip, px. */
 export const HEADER_PX = 40;
-/** Bands the view shows at its default zoom. */
-export const VIEW_BANDS = 8;
+/** Bands the view shows at its default zoom: few and tall, so a small move crosses the screen. */
+export const VIEW_BANDS = 6;
 
 export interface Layout {
   cw: number;
@@ -32,7 +32,7 @@ export const maxCols = (viewW: number): number => Math.min(12, Math.max(defaultC
 export const clampCols = (cols: number, viewW: number): number => Math.min(maxCols(viewW), Math.max(MIN_COLS, cols));
 
 /** Band height at the default zoom, and the smallest a zoomed-out band gets, for a view `viewW` px wide. */
-const baseRh = (w: number): number => (w < 520 ? 44 : w < 900 ? 48 : 52);
+const baseRh = (w: number): number => (w < 520 ? 56 : w < 900 ? 62 : 70);
 const minRh = (w: number): number => (w < 520 ? 44 : w < 900 ? 38 : 30);
 
 /** Column and band size for a view `viewW` px wide showing `cols` columns (default: `defaultCols`). Zooming out shrinks bands too, but never below what a finger can tap on a phone. */
@@ -134,6 +134,9 @@ export function revealU(k: number, u: number, l: Layout): number {
 
 /** Decimals to print row prices with, so neighbouring rows read differently. */
 export const priceDigits = (stepUsd: number): number => (stepUsd >= 0.1 ? 2 : stepUsd >= 0.01 ? 3 : 4);
+/** Band labels carry one more decimal than the step needs, the live price two more: it visibly churns. */
+export const LABEL_EXTRA_DIGITS = 1;
+export const LIVE_EXTRA_DIGITS = 2;
 
 export interface SnakePoint {
   /** Seconds since the start. */

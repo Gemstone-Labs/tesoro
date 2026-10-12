@@ -8,7 +8,7 @@
 .tg-bar { --edge: var(--edge-1); background: rgba(14, 19, 23, 0.86); padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .tg-bar-l, .tg-bar-r { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .tg-title { font-size: 20px; font-weight: 800; margin: 0; }
-.tg-asset { --edge: var(--edge-2); padding: 4px 10px; font-size: 13px; font-weight: 800; background: var(--raised); color: var(--fg); }
+.tg-asset { --edge: var(--edge-2); white-space: nowrap; padding: 4px 10px; font-size: 13px; font-weight: 800; background: var(--raised); color: var(--fg); }
 .tg-feed { font-size: 11.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
 .tg-feed::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; background: var(--up); vertical-align: 1px; transform: rotate(45deg); }
 .tg-feed.stale { color: var(--warn); }
@@ -69,7 +69,7 @@
 
 /* the stage */
 .tg-stage { --edge: var(--edge-2); position: relative; display: flex; background: linear-gradient(180deg, rgba(13, 18, 22, 0.9), rgba(8, 11, 14, 0.94)); padding: 0; min-width: 0; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.tg-gutter { position: relative; flex: none; width: clamp(66px, 7vw, 88px); border-right: 1px solid var(--line); z-index: 3; background: rgba(8, 11, 14, 0.7); }
+.tg-gutter { position: relative; flex: none; width: clamp(78px, 7.5vw, 100px); border-right: 1px solid var(--line); z-index: 3; background: rgba(8, 11, 14, 0.7); }
 .tg-gbody { position: absolute; left: 0; right: 0; overflow: clip; contain: layout paint; }
 .tg-gvl { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
 .tg-gl { position: absolute; right: 6px; transform: translateY(-50%); font-family: var(--f-mono); font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
@@ -243,6 +243,7 @@
   .tg-title { font-size: 16px; }
   .tg-feed, .tg-bar-r .meta, .tg-strip-clock, .tg-lockbar, .tg-head-chip { display: none; }
   .tg-bar-l { flex-wrap: nowrap; gap: 8px; }
+  .tg-bar-r { flex-wrap: nowrap; gap: 6px; }
   .tg-scoreboard { gap: 4px 8px; padding: 8px 12px; }
   .tg-score { font-size: 36px; }
   .tg-sub { display: none; }
@@ -252,6 +253,8 @@
   .tg-strip { padding: 6px 12px; font-size: 13px; gap: 2px 12px; }
   .tg-gutter { width: 74px; }
   .tg-gl, .tg-ptr-t { font-size: 10px; }
+  .tg-gutter { width: 86px; }
+  .tg-ptr-t { padding: 3px 4px; }
   .tg-legend { font-size: 11.5px; gap: 4px 14px; }
 }
 @media (max-width: 720px) {
