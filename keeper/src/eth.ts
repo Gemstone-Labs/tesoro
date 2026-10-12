@@ -199,7 +199,7 @@ export async function reportStep(io: EthIo, s: Pick<Settings, "ethYieldMins" | "
   const [estimate, gasPrice] = await Promise.all([io.pub.estimateContractGas(call), io.pub.getGasPrice()]);
   // The yield minted (and so the gas) grows with the time between the estimate and the block.
   const gas = (estimate * 13n) / 10n;
-  const estGwei = Number(quote / GWEI + (gas * gasPrice) / GWEI);
+  const estGwei = Number(quote / GWEI + (estimate * gasPrice) / GWEI);
   const hash = await io.wallet.writeContract({ ...sim.request, gas });
   state[t.slot] = { sentAt: Date.now(), hash, estGwei };
   save(state);
