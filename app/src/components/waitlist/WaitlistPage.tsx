@@ -6,14 +6,13 @@ import { LivingTexture } from "@/components/waitlist/LivingTexture";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
 import { appHref } from "@/lib/landing/config";
+import { waitingLabel } from "@/lib/waitlist-count";
 import type { SpotGem } from "@/lib/waitlist-spot";
 import { count } from "@/server/waitlist";
 
-const SHOW_COUNT_FROM = 50;
-
 /** The waitlist page. `invite` is the spot whose shared link brought the visitor here. */
 export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
-  const waiting = await count();
+  const waiting = waitingLabel(await count());
   const frame = {
     "--above-wide": clipAbove(LINES.wide),
     "--above-tall": clipAbove(LINES.tall),
@@ -51,7 +50,7 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           Tesoro opens to a small group of players first. Join the waitlist for early access, and we&apos;ll email you the day it goes live.
         </p>
         <WaitlistForm source={invite && `spot-${invite.spot}`} />
-        {waiting !== null && waiting >= SHOW_COUNT_FROM && <p className="wl-count mono">{waiting.toLocaleString("en-US")} players waiting</p>}
+        {waiting && <p className="wl-count mono">{waiting}</p>}
         <p className="wl-more">
           <Link href="/welcome">How it works</Link>
           <Link href="/docs">Docs</Link>
