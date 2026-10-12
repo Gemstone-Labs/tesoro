@@ -5,7 +5,7 @@ import { useGuideHidden } from "@/components/guide/Guide";
 import { Button, CountUp, Label } from "@/components/ui";
 import { apply, EngineFailure, MAX_MOVES, SIZE, dims, fitsAt, handBase, newState, pieceAt, pieceCells } from "./engine";
 import type { Piece, State } from "./engine";
-import { Arena, Callout, Countdown, MuteToggle, burst, burstAt, prefersReducedMotion, sfx, shake } from "../fx";
+import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, burst, burstAt, prefersReducedMotion, sfx, shake } from "../fx";
 import type { CalloutTone } from "../fx";
 import { clearCallout, comboHeat, wouldClear } from "./feel";
 import { readBest, writeBest } from "./best";
@@ -538,6 +538,7 @@ export function BlockPuzzleGame({ run, matchPanel }: { run?: MatchRun; matchPane
             <span>Practice · nothing staked</span>
           )}
           <MuteToggle />
+          <FullScreenToggle />
         </div>
       </header>
 

@@ -40,7 +40,7 @@ export interface MatchResultProps {
 export const RULES: Record<GameId, { chip: string; line: string }> = {
   "block-puzzle": { chip: "Same pieces", line: "90 seconds · higher score wins" },
   holdem: { chip: "Heads-up", line: "Turbo blinds · last stack standing" },
-  "trading-duel": { chip: "Live prices", line: "5 minutes · higher equity wins" },
+  "trading-duel": { chip: "Live prices", line: "2.5 minutes · more points wins" },
 };
 
 const HERO: Record<GameId, string> = { "block-puzzle": art.blockPuzzleHero, holdem: art.holdemHero, "trading-duel": art.tradingDuelHero };

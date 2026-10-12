@@ -54,7 +54,7 @@ A `.sol` (Solana Name Service) or `.eth` (ENS) primary name of a wallet the Play
 ### Play
 
 **Game**:
-A title in Tesoro's catalogue, made by a Studio. The launch catalogue is three Games: heads-up Hold'em (real-time), a block-placement puzzle (async) and Trading Duel (real-time, two Players trade one live price for five minutes).
+A title in Tesoro's catalogue, made by a Studio. The launch catalogue is three Games: heads-up Hold'em (real-time), a block-placement puzzle (async) and Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes).
 _Avoid_: app, title, Match (a single contest)
 
 **Seed**:
@@ -79,7 +79,7 @@ A Match opened by one Player for a specific opponent through a link, outside the
 _Avoid_: invite, private table, duel
 
 **Chips**:
-In-match score units in Hold'em and Trading Duel with no value outside the Match: the stack a Player bets with at the table, or trades with against the live price. Gemas enter a Match once and leaves once; Chips are only the scorekeeping in between.
+In-match score units in Hold'em with no value outside the Match: the stack a Player bets with at the table. (Trading Duel scores points, which work the same way.) Gemas enter a Match once and leaves once; Chips are only the scorekeeping in between.
 _Avoid_: in-game Gemas, bets
 
 **Platform Fee**:

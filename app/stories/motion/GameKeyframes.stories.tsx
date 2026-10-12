@@ -3,14 +3,14 @@ import "@/games/block-puzzle/block-puzzle.css";
 import "@/app/(app)/wallet/opening/opening.css";
 import "@/app/(app)/backing/backing.css";
 import "@/games/holdem/holdem.css";
-import "@/games/trading-duel/trading.css";
+import "@/games/trading-duel/grid.css";
 import "@/games/fx/fx.css";
 import { LoaderCircle } from "lucide-react";
 import { Lab, type Spec } from "./lab";
 
 const B = "src/games/block-puzzle/block-puzzle.css";
 const H = "src/games/holdem/holdem.css";
-const T = "src/games/trading-duel/trading.css";
+const G = "src/games/trading-duel/grid.css";
 const F = "src/games/fx/fx.css";
 
 const specs: Spec[] = [
@@ -267,98 +267,109 @@ const specs: Spec[] = [
     stage: (s) => <span className="cut" style={{ ...s, padding: "8px 22px", background: "var(--surface)" }}>You win 40 Chips</span>,
   },
   {
-    name: "td-flash-up",
-    file: T,
-    line: 135,
-    note: "The price flashing sapphire on an upward tick.",
-    dur: 700,
-    ease: "ease-out",
+    name: "tg-score",
+    file: G,
+    line: 36,
+    note: "A score jumping when a hit lands.",
+    dur: 520,
+    ease: "cubic-bezier(0.2, 0.9, 0.3, 1)",
     iter: 1,
-    stage: (s) => <b className="mono td-big" style={s}>$142.30 ▲</b>,
+    stage: (s) => <b className="tg tg-score" style={{ ...s, display: "block", width: "auto", fontSize: 48 }}>300</b>,
   },
   {
-    name: "td-flash-down",
-    file: T,
-    line: 136,
-    note: "The price flashing amber on a downward tick.",
-    dur: 700,
-    ease: "ease-out",
-    iter: 1,
-    stage: (s) => <b className="mono td-big" style={s}>$142.10 ▼</b>,
-  },
-  {
-    name: "td-pulse",
-    file: T,
-    line: 147,
-    note: "The halo breathing around the live head of the chart line.",
-    dur: 1600,
-    ease: "ease-out",
-    iter: "infinite",
-    stage: (s) => (
-      <svg width="80" height="80" viewBox="0 0 80 80" aria-hidden="true">
-        <circle className="td-pulse" style={s} cx="40" cy="40" r="6" />
-      </svg>
-    ),
-  },
-  {
-    name: "td-ripple",
-    file: T,
-    line: 153,
-    note: "The ring spreading over the chart when a position opens, closes or is liquidated.",
-    dur: 1200,
-    ease: "ease-out",
+    name: "tg-pop",
+    file: G,
+    line: 138,
+    note: "Your pick popping into a box.",
+    dur: 420,
+    ease: "cubic-bezier(0.2, 1.4, 0.4, 1)",
     iter: 1,
     fill: "both",
-    stage: (s) => (
-      <svg width="80" height="80" viewBox="0 0 80 80" aria-hidden="true">
-        <circle className="td-ripple up" style={s} cx="40" cy="40" r="6" />
-      </svg>
-    ),
+    stage: (s) => <span className="tg" style={{ width: "auto" }}><span className="tg-mark me" style={{ ...s, position: "relative", display: "grid", width: 36, height: 36, placeItems: "center" }}>▲</span></span>,
   },
   {
-    name: "td-danger",
-    file: T,
-    line: 160,
-    note: "The liquidation meter pulsing once the position is close to liquidation.",
+    name: "tg-flip",
+    file: G,
+    line: 139,
+    note: "The opponent's pick turning over when its column locks.",
+    dur: 520,
+    ease: "cubic-bezier(0.2, 0.9, 0.3, 1)",
+    iter: 1,
+    fill: "both",
+    stage: (s) => <span className="tg" style={{ width: "auto" }}><span className="tg-mark foe" style={{ ...s, position: "relative", display: "grid", width: 36, height: 36, placeItems: "center" }}>▲</span></span>,
+  },
+  {
+    name: "tg-hit",
+    file: G,
+    line: 140,
+    note: "A pick swelling when the line passes through its box.",
+    dur: 700,
+    ease: "cubic-bezier(0.2, 1.4, 0.4, 1)",
+    iter: 1,
+    fill: "both",
+    stage: (s) => <span className="tg" style={{ width: "auto" }}><span className="tg-mark me hit" style={{ ...s, position: "relative", display: "grid", width: 36, height: 36, placeItems: "center" }}>✓</span></span>,
+  },
+  {
+    name: "tg-live",
+    file: G,
+    line: 133,
+    note: "A pick glowing while the line is in its column and has not reached the box yet.",
+    dur: 1200,
+    ease: "ease-in-out",
+    iter: "infinite",
+    stage: (s) => <span className="tg" style={{ width: "auto" }}><span className="tg-mark me" style={{ ...s, position: "relative", display: "grid", width: 36, height: 36, placeItems: "center" }}>▲</span></span>,
+  },
+  {
+    name: "tg-beat",
+    file: G,
+    line: 158,
+    note: "The glowing diamond at the head of the price line.",
+    dur: 1100,
+    ease: "ease-in-out",
+    iter: "infinite",
+    stage: (s) => <span className="tg" style={{ width: 60, height: 40 }}><i className="tg-head-dot" style={{ ...s, left: 21, top: 11 }} /></span>,
+  },
+  {
+    name: "tg-nag",
+    file: G,
+    line: 113,
+    note: "An open column flashing amber just before it locks with no pick in it.",
     dur: 800,
     ease: "ease-in-out",
     iter: "infinite",
-    stage: (s) => (
-      <div className="td-liqmeter danger" style={{ width: 240 }}>
-        <div className="td-liqmeter-bar">
-          <i style={{ ...s, width: "20%", animationDirection: "alternate" }} />
-        </div>
-      </div>
-    ),
+    stage: (s) => <span style={{ ...s, display: "block", width: 120, padding: "10px 0", textAlign: "center", background: "rgba(242, 166, 59, 0.14)" }}>Column 7</span>,
   },
   {
-    name: "td-duel-pulse",
-    file: T,
-    line: 173,
-    note: "The Duel marker kicking when the lead changes hands.",
-    dur: 900,
-    ease: "ease-out",
-    iter: 1,
-    stage: (s) => (
-      <div className="td-duel-track" style={{ width: 240 }}>
-        <i style={{ ...s, left: "50%" }} />
-      </div>
-    ),
-  },
-  {
-    name: "td-final",
-    file: T,
-    line: 179,
-    note: "The big amber seconds in the last 10 of a round.",
+    name: "tg-last",
+    file: G,
+    line: 67,
+    note: "The countdown strip pulsing in the last ten seconds.",
     dur: 1000,
-    ease: "ease-out",
+    ease: "ease-in-out",
+    iter: "infinite",
+    stage: (s) => <span className="tg" style={{ width: "auto" }}><span className="cut tg-strip last" style={{ ...s, padding: "10px 18px", display: "block" }}>Last ten seconds</span></span>,
+  },
+  {
+    name: "tg-float",
+    file: G,
+    line: 166,
+    note: "The +100 rising from a box on a hit.",
+    dur: 1200,
+    ease: "cubic-bezier(0.2, 0.8, 0.3, 1)",
     iter: 1,
     fill: "both",
-    stage: (s) => (
-      <div className="td-final" style={{ position: "relative", right: "auto", top: "auto" }}>
-        <span style={s}>10</span>
-      </div>
-    ),
+    stage: (s) => <span className="tg" style={{ width: 80, height: 70 }}><span className="tg-float" style={{ ...s, left: 14, bottom: 4 }}>+100</span></span>,
+  },
+  {
+    name: "tg-rise",
+    file: G,
+    line: 172,
+    note: "The end screen panel rising in over the faded grid.",
+    dur: 520,
+    ease: "cubic-bezier(0.2, 1.2, 0.4, 1)",
+    iter: 1,
+    fill: "both",
+    stage: (s) => <span className="cut" style={{ ...s, padding: "8px 22px", background: "var(--surface)" }}>You won</span>,
   },
 ];
 

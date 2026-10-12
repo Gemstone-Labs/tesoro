@@ -1,185 +1,167 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button, Label } from "@/components/ui";
-import { ASSETS, RULES, type Asset } from "../chain";
-import { assetBySymbol, midToUsd, usePriceFeed } from "../feed";
-import { chips, signedChips, usd, usdMid } from "../fmt";
-import { lead, type Ledger } from "../math";
-import { TradingScreen, useNow } from "../TradingScreen";
+import { art } from "@/lib/art";
+import { ASSETS, type Asset } from "../chain";
+import { assetBySymbol, midToUsd, perSecond, usePriceFeed, type PriceFeed } from "../feed";
+import { usd } from "../fmt";
+import { COLUMNS, MATCH_SECS, lockAt, revealed, bandOf, type GridAsset } from "../grid";
+import { GridScreen } from "../GridScreen";
 import { seededRng } from "./bot";
-import { marked, newSession, playerOrder, stepSession, type Session } from "./session";
+import { elapsed, newGridSession, setPick, stepGridSession, type GridSession } from "./gridSession";
 import "../trading.css";
-import { Arena, MuteToggle } from "../../fx";
-import { plainError } from "@/lib/errors";
+import { Arena, FullScreenToggle, MuteToggle } from "../../fx";
 
-const MODES = [
-  { id: "full", label: "5 minutes", secs: RULES.durationSecs },
-  { id: "quick", label: "60 seconds", secs: 60 },
-] as const;
-const COUNTDOWN_MS = 4000;
+/** The bot's face in practice: a fixed gemstone animal, labelled "Bot". */
+const YOU = { name: "You", avatar: art.avatars[0] };
+const BOT = { name: "Bot", avatar: art.avatars[4] };
 
 /**
- * Trading Duel practice: the real trading screen on the live oracle price against a local bot.
- * Nothing is staked, there is no wallet and no chain: just the same rules (spread, leverage,
- * liquidation, final mark) so a visitor can try it alone. `?asset=eth` and `?seed=7` (a fixed bot) are honoured.
+ * Trading Duel practice: the real grid screen on the live price against a local bot. Nothing is
+ * staked, there is no wallet and no chain. `?asset=eth` and `?seed=7` (a fixed bot) are honoured.
  */
 export function TradingDuelPractice() {
   const sp = useSearchParams();
   const [asset, setAsset] = useState<Asset>(() => assetBySymbol(sp.get("asset")));
-  const [mode, setMode] = useState<(typeof MODES)[number]>(MODES[0]);
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<GridSession | null>(null);
+  const [clock, setClock] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const feed = usePriceFeed(asset);
+  const sessionRef = useRef<GridSession | null>(null);
+  const commit = (next: GridSession | null) => {
+    sessionRef.current = next;
+    setSession(next);
+  };
+  const feed = usePriceFeed(asset, true, !session);
   const seed = sp.get("seed");
   const rng = useRef<() => number>(() => Math.random());
-  const latest = useRef({ mid: null as bigint | null, prices: [] as number[] });
-  const [round, setRound] = useState(0);
+  const prices = useRef<number[]>([]);
+  const store = feed.store;
 
   useEffect(() => {
-    latest.current = { mid: feed.tick?.mid ?? null, prices: feed.series.map((p) => p.p) };
-  }, [feed]);
+    if (!error) return;
+    const i = setTimeout(() => setError(null), 4000);
+    return () => clearTimeout(i);
+  }, [error]);
 
+  // Every reading the feed makes goes into the track (about 20 a second), so a hit matches the line you see.
+  // The screen hears about the game when something it shows changes, and once a second.
   const startsAt = session?.startsAt;
   useEffect(() => {
     if (!startsAt) return;
+    const off = store.onUpdate((tick) => {
+      const s = sessionRef.current;
+      if (s && !s.final) sessionRef.current = stepGridSession(s, tick.mid, tick.receivedAt, rng.current, prices.current);
+    });
+    let shown = "";
+    let shownAt = 0;
     const i = setInterval(() => {
-      const { mid, prices } = latest.current;
-      if (mid === null) return;
-      setSession((s) => (s ? stepSession(s, mid, Date.now(), rng.current, prices) : s));
-    }, 500);
-    return () => clearInterval(i);
-  }, [startsAt, round]);
+      const now = Date.now();
+      const s = sessionRef.current;
+      prices.current = perSecond(store.points);
+      if (!s || !store.tick) return;
+      const next = stepGridSession(s, store.tick.mid, now, rng.current, prices.current);
+      sessionRef.current = next;
+      // The screen re-renders when what it shows changes (a box lit, a pick revealed, the end) and at least once a second.
+      const sig = lineSignature(next, elapsed(next, now));
+      if (sig !== shown || now - shownAt >= 1000) {
+        shown = sig;
+        shownAt = now;
+        setClock(now);
+        setSession(next);
+      }
+    }, 250);
+    return () => {
+      off();
+      clearInterval(i);
+    };
+  }, [startsAt, store]);
 
   const start = () => {
+    const mid = store.tick?.mid;
+    if (mid === undefined) return;
     rng.current = seed ? seededRng(Number(seed) || 1) : () => Math.random();
     setError(null);
-    setSession(newSession(Date.now() + COUNTDOWN_MS, mode.secs));
-    setRound((r) => r + 1);
-  };
-  const again = () => {
-    setSession(null);
-    setError(null);
+    commit(newGridSession(Date.now(), mid, asset.symbol as GridAsset, rng.current));
   };
 
-  const order = (o: Parameters<typeof playerOrder>[1]) => {
-    const mid = latest.current.mid;
-    if (!session || mid === null) return;
-    try {
-      setSession(playerOrder(session, o, mid, Date.now()));
-      setError(null);
-    } catch (e) {
-      setError(plainError(e));
-    }
-  };
+  if (!session) return <Picker asset={asset} setAsset={setAsset} feed={feed} onStart={start} />;
 
-  if (!session) return <Picker asset={asset} setAsset={setAsset} mode={mode} setMode={setMode} onStart={start} />;
-
-  const mid = feed.tick?.mid ?? null;
+  const t = elapsed(session, clock || session.startsAt);
   const final = session.final;
-  const eq = mid ? marked(session, mid) : null;
-  const botLead = eq ? lead(eq) : null;
-  const banner = final ? <Result session={session} asset={asset} onAgain={again} /> : (
-    <div className="cut cut-card td-card td-banner">
-      <p className="meta">
-        Practice · nothing staked · you against a bot that follows the trend, on the live {asset.symbol}/USD price. Positions are hidden from the bot&apos;s side of
-        the screen just as in a Match.
-      </p>
-      <Button size="sm" onClick={again}>Stop</Button>
-    </div>
-  );
-
   return (
-    <TradingScreen
-      asset={asset}
-      title="Trading Duel practice"
-      practice
-      feed={feed}
-      ledger={session.me as Ledger}
-      seat={0}
-      opponent={botLead ? { lead: botLead, trades: session.bot.trades } : null}
+    <GridScreen
+      asset={asset.symbol as GridAsset}
+      anchor={session.anchor}
+      step={session.step}
       startsAt={session.startsAt}
-      endsAt={session.endsAt}
-      durationSecs={mode.secs}
-      ended={!!final}
-      busy={null}
+      track={session.track}
+      series={feed.series}
+      stale={feed.status === "stale"}
+      mine={session.picks[0]}
+      theirs={revealed(session.picks[1], Math.min(t, MATCH_SECS))}
+      me={YOU}
+      opponent={BOT}
+      final={final ? { you: final.scores[0], them: final.scores[1] } : null}
+      practice
+      title="Trading Duel practice"
       error={error}
-      onOpen={(side, margin, leverage) => order({ kind: "open", side, margin, leverage })}
-      onClose={() => order({ kind: "close" })}
-      onFlip={(side, margin, leverage) => order({ kind: "flip", side, margin, leverage })}
-      banner={banner}
+      onPick={(c, k) => {
+        const cur = sessionRef.current;
+        const next = cur && setPick(cur, c, k, Date.now());
+        setError(next ? null : "That column just locked, so the pick didn’t count.");
+        if (next) commit(next);
+      }}
+      onPlayAgain={() => commit(null)}
+      exitHref="/lobby"
     />
   );
 }
 
-function Picker({ asset, setAsset, mode, setMode, onStart }: { asset: Asset; setAsset: (a: Asset) => void; mode: (typeof MODES)[number]; setMode: (m: (typeof MODES)[number]) => void; onStart: () => void }) {
-  const feed = usePriceFeed(asset);
-  const now = useNow(1000);
-  const ready = !!feed.tick && feed.status === "live" && now - feed.tick.receivedAt < 5000;
-  const price = useMemo(() => (feed.tick ? usd(midToUsd(feed.tick.mid), asset) : "…"), [feed.tick, asset]);
+/** The bands the line has reached in each column, the bot's picks, how many columns have locked and whether the game is over: what the screen draws that is not time. */
+function lineSignature(s: GridSession, t: number): string {
+  const bands = Array.from({ length: COLUMNS }, (_, c) => (s.track.seen[c] ? `${bandOf(s.track.lo[c], s.anchor, s.step)}-${bandOf(s.track.hi[c], s.anchor, s.step)}` : "."));
+  const locked = Array.from({ length: COLUMNS }, (_, c) => c).filter((c) => t >= lockAt(c)).length;
+  return `${bands.join()}|${s.picks[1].join()}|${locked}|${s.final ? 1 : 0}`;
+}
+
+function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a: Asset) => void; feed: PriceFeed; onStart: () => void }) {
+  const ready = !!feed.tick && feed.status === "live";
+  const price = feed.tick ? usd(midToUsd(feed.tick.mid), asset) : "…";
   return (
     <Arena game="trading-duel">
-    <section className="td" aria-label="Trading Duel practice">
-      <div className="cut cut-frame td-card" style={{ maxWidth: 560, margin: "0 auto", width: "100%", gap: 16 }}>
-        <div className="td-head-l">
-          <h1 className="td-title">Trading Duel practice</h1>
-          <MuteToggle />
-        </div>
-        <p className="meta">
-          Trade the live price against a bot for {mode.secs >= 120 ? "five minutes" : "a minute"}: long or short, 1x to 20x, one position at a time. Higher equity at
-          the end wins. Nothing is staked and no Gemas move.
-        </p>
-        <div className="stack">
-          <Label>Asset</Label>
-          <div className="td-pick" role="group" aria-label="Asset">
-            {ASSETS.map((a) => (
-              <button key={a.id} type="button" className="cut cut-btn" aria-pressed={a.id === asset.id} onClick={() => setAsset(a)}>
-                {a.symbol}
-              </button>
-            ))}
+      <section className="td" aria-label="Trading Duel practice">
+        <div className="cut cut-frame td-card" style={{ maxWidth: 560, margin: "0 auto", width: "100%", gap: 16 }}>
+          <div className="td-head-l">
+            <h1 className="td-title">Trading Duel practice</h1>
+            <MuteToggle />
+            <FullScreenToggle />
           </div>
-          <p className="meta mono" role="status">{asset.symbol}/USD {price} {ready ? "· live" : "· connecting to live prices…"}</p>
-        </div>
-        <div className="stack">
-          <Label>Length</Label>
-          <div className="td-pick" role="group" aria-label="Length">
-            {MODES.map((m) => (
-              <button key={m.id} type="button" className="cut cut-btn" aria-pressed={m.id === mode.id} onClick={() => setMode(m)}>
-                {m.label}
-              </button>
-            ))}
+          <p className="meta">
+            Pick where the price will be. Each box is a stretch of price and a ten second column: when the live line passes through your box, you score 100
+            points. You have 12 columns over two and a half minutes; more points than the bot wins. Nothing is staked and no Gemas move.
+          </p>
+          <div className="stack">
+            <Label>Asset</Label>
+            <div className="td-pick" role="group" aria-label="Asset">
+              {ASSETS.map((a) => (
+                <button key={a.id} type="button" className="cut cut-btn" aria-pressed={a.id === asset.id} onClick={() => setAsset(a)}>
+                  {a.symbol}
+                </button>
+              ))}
+            </div>
+            <p className="meta mono" role="status">
+              {asset.symbol}/USD {price} {ready ? "· live" : "· connecting to live prices…"}
+            </p>
+          </div>
+          <div className="td-banner-row">
+            <Button variant="neutral" size="lg" onClick={onStart} disabled={!ready}>Start practice</Button>
+            <Button href="/play/trading-duel">Back</Button>
           </div>
         </div>
-        <div className="td-banner-row">
-          <Button variant="neutral" size="lg" onClick={onStart} disabled={!ready}>Start practice</Button>
-          <Button href="/play/trading-duel">Back</Button>
-        </div>
-        <p className="note">Live market prices, updated every second. Fills carry a {RULES.spreadBps / 100}% spread.</p>
-      </div>
-    </section>
+      </section>
     </Arena>
   );
 }
 
-function Result({ session, asset, onAgain }: { session: Session; asset: Asset; onAgain: () => void }) {
-  const f = session.final!;
-  const title = f.winner === "draw" ? "A draw" : f.winner === 0 ? "You won the practice Match" : "The bot won the practice Match";
-  return (
-    <div className="cut cut-frame td-card td-banner" role="dialog" aria-label="Practice over">
-      <div>
-        <Label>{title}</Label>
-        <p className="mono td-big">
-          {chips(f.equity[0])} <span className="meta">vs bot</span> {chips(f.equity[1])}
-        </p>
-        <p className="meta">
-          You {signedChips(f.equity[0] - 10_000n)} Chips, bot {signedChips(f.equity[1] - 10_000n)} · {asset.symbol} final price {usdMid(f.price, asset)} · {session.me.trades} of your trades. Practice: nothing was staked and no Gemas moved.
-        </p>
-      </div>
-      <div className="td-banner-row">
-        <Button onClick={onAgain}>Play again</Button>
-        <Button href="/lobby">Lobby</Button>
-      </div>
-    </div>
-  );
-}

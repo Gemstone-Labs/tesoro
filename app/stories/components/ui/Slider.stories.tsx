@@ -22,8 +22,5 @@ export const Horizon: Story = {};
 /** The Player's share of the surplus, in 5% steps: past 12 steps the ruler shows five marks. */
 export const Share: Story = { args: { label: "Player's share of the surplus", value: 40, min: 10, max: 90, step: 5, display: "40%", format: (v: number) => `${v}%` } };
 
-/** Trading Duel leverage, 1x to 20x. Neutral there (Chips are not Gemas): see Screens/Play. */
-export const Leverage: Story = { args: { label: "Leverage", value: 5, min: 1, max: 20, step: 1, display: "5x", format: (v: number) => `${v}x` } };
-
 /** A Gema amount with an odd maximum: the end labels come from minLabel / maxLabel. */
 export const GemasToReturn: Story = { args: { label: "Gemas to return", value: 800, min: 0, max: 2430, step: 10, display: "800 Gemas", minLabel: "0", maxLabel: "2,430" } };

@@ -17,7 +17,7 @@ import { bestHand, resultSummary } from "./reading";
 import { FOLD_CHIPS_AT, SHOWDOWN_CHIPS_AT, STREET_LEAD, STREET_MS, runoutOffset, useTableFeed } from "./useTableFeed";
 import { PACE, paced } from "./pace";
 import { Handshake, Trophy, Flag, ScrollText } from "lucide-react";
-import { Arena, Callout, MuteToggle, prefersReducedMotion, sfx } from "../fx";
+import { Arena, Callout, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx } from "../fx";
 import { art } from "@/lib/art";
 import "./holdem.css";
 
@@ -268,7 +268,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const oppHand = hands ? hands[opp].name : null;
 
   return (
-    <Arena game="holdem">
+    <Arena game="holdem" fullScreenKey={false}>
     <section className="hdx" aria-label="Hold'em table" style={{ ["--pace" as string]: PACE }}>
       <header className="hdx-head" aria-label="Table">
         <div className="hdx-head-l">
@@ -282,6 +282,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
             </span>
           )}
           <MuteToggle />
+          <FullScreenToggle shortcut={false} />
         </div>
         <ShareBar mine={t.stacks[seat] + t.committed[seat]} theirs={t.stacks[opp] + t.committed[opp]} />
         <div className="hdx-head-r">

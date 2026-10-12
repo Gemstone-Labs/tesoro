@@ -5,38 +5,33 @@ pub const BOOK_SEED: &[u8] = b"book";
 /// The PDA registered in tesoro_core as this Game's settlement authority.
 pub const AUTHORITY_SEED: &[u8] = b"authority";
 
-/// Chips each Player starts with. Score units with no value outside the Match.
-pub const START_CHIPS: u64 = 10_000;
-/// Length of the trading window.
-pub const DURATION_SECS: i64 = 300;
-/// Pause between the Match starting in the rollup and trading opening.
-pub const COUNTDOWN_SECS: i64 = 5;
+pub const COLUMNS: usize = 12;
+pub const COLUMN_SECS: i64 = 10;
+/// Seconds between the Match starting and the line entering column 0.
+pub const HEAD_START_SECS: i64 = 30;
+/// A column locks this many seconds before its window starts.
+pub const LOCK_AHEAD_SECS: i64 = 10;
+pub const HIT_POINTS: u32 = 100;
+/// A column without a pick (or a pick cleared again).
+pub const NO_PICK: i16 = i16::MIN;
+/// Bands are clamped to this range so that none ever equals `NO_PICK`.
+pub const MAX_BAND: i16 = i16::MAX;
+/// Seconds from the start to the end of the last column.
+pub const MATCH_SECS: i64 = HEAD_START_SECS + COLUMNS as i64 * COLUMN_SECS;
+/// Band height as parts per million of the anchor price, per asset (SOL, ETH, HYPE). Calibrated
+/// in `app/src/games/trading-duel/grid.ts`, which carries the data behind these values.
+pub const STEP_PPM: [u64; 3] = [120, 100, 130];
+
 /// Seconds after creation within which the Match must have been delegated and started.
 pub const START_WINDOW_SECS: i64 = 300;
 /// How long tesoro_core keeps refunds closed to everyone but this Game (see holdem).
 pub const TABLE_WINDOW_SECS: i64 = 24 * 60 * 60;
 
-pub const MIN_LEVERAGE: u8 = 1;
-pub const MAX_LEVERAGE: u8 = 20;
-/// Smallest margin a position may be opened with (1% of the starting stack).
-pub const MIN_MARGIN: u64 = 100;
-/// Maintenance margin as basis points of the notional. A position whose margin plus PnL is at or
-/// below it is liquidated on the next price read.
-pub const MAINTENANCE_BPS: u64 = 50;
-/// Spread charged on every fill, in basis points of the oracle price, against the Player.
-pub const SPREAD_BPS: u64 = 5;
 /// Oldest accepted oracle publish time, seconds before the rollup clock. The feed's timestamp has
 /// one-second resolution.
 pub const MAX_STALE_SECS: i64 = 2;
-/// `end_match` accepts only a price published within this many seconds after the window closes.
-/// A later call settles at the last price recorded during the window (`Duel.final_price`).
-pub const END_GRACE_SECS: i64 = 4;
 /// A feed timestamp may run at most this far ahead of the rollup clock.
 pub const MAX_FUTURE_SECS: i64 = 10;
-/// A lead smaller than this many Chips reads as "level".
-pub const LEVEL_BAND: u64 = 50;
-/// Fills kept per Player; older ones are overwritten, the count is not.
-pub const FILL_LOG: usize = 64;
 
 pub const ASSET_SOL: u8 = 0;
 pub const ASSET_ETH: u8 = 1;
@@ -53,38 +48,33 @@ pub const STATUS_CANCELLED: u8 = 3;
 pub const NO_WINNER: u8 = 255;
 pub const DRAW: u8 = 2;
 
-pub const LEAD_LEVEL: u8 = 0;
-pub const LEAD_SEAT_0: u8 = 1;
-pub const LEAD_SEAT_1: u8 = 2;
-
-pub const SIDE_FLAT: u8 = 0;
-pub const SIDE_LONG: u8 = 1;
-pub const SIDE_SHORT: u8 = 2;
-
-pub const FILL_OPEN: u8 = 0;
-pub const FILL_CLOSE: u8 = 1;
-pub const FILL_LIQUIDATED: u8 = 2;
-pub const FILL_FINAL: u8 = 3;
-
-/// One executed order. `pnl` is realised by the fill (zero for an open).
-#[derive(
-    AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace, Debug, PartialEq, Eq,
-)]
-pub struct Fill {
-    /// Seconds since trading opened.
-    pub t: u32,
-    pub kind: u8,
-    pub side: u8,
-    /// Fill price in 1e-8 USD, spread included.
-    pub price: u64,
-    pub notional: u64,
-    pub margin: u64,
-    pub pnl: i64,
-    /// Cash plus any open position's value right after the fill.
-    pub equity: u64,
+/// What the price line did in each column: its lowest and highest recorded price (1e-8 USD).
+/// `seen` is a bitmask of the columns that have data. See `engine::Track` methods for the rules.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug, PartialEq, Eq)]
+pub struct Track {
+    pub lo: [u64; COLUMNS],
+    pub hi: [u64; COLUMNS],
+    pub seen: u16,
+    /// The last price recorded, 0 before the first sample.
+    pub last: u64,
+    /// The column of that sample, -1 during the head start.
+    pub last_col: i8,
 }
 
-/// The public table. Readable by anyone during the Match; holds only a coarse lead.
+impl Default for Track {
+    fn default() -> Self {
+        Self {
+            lo: [0; COLUMNS],
+            hi: [0; COLUMNS],
+            seen: 0,
+            last: 0,
+            last_col: -1,
+        }
+    }
+}
+
+/// The public table. Readable by anyone during the Match; a Player's pick appears here only once
+/// its column has locked.
 #[account]
 #[derive(InitSpace, Debug)]
 pub struct Duel {
@@ -102,14 +92,21 @@ pub struct Duel {
     pub winner: u8,
     pub start_deadline: i64,
     pub starts_at: i64,
+    /// `starts_at + HEAD_START_SECS`: when the line enters column 0.
+    pub grid_at: i64,
     pub ends_at: i64,
-    pub trades: [u32; 2],
-    pub lead: u8,
+    /// The price when the Match started, 1e-8 USD: band 0 begins here.
+    pub anchor: u64,
+    /// Band height, 1e-8 USD.
+    pub step: u64,
+    /// Informational: the time of the last sample. No instruction reads it; clients use it to
+    /// notice that the Duel changed.
     pub last_tick: i64,
-    /// 1e-8 USD. During the Match: the last mid recorded by a trade or tick (taken at `last_tick`).
-    /// After it: the price the Match ended on.
-    pub final_price: u64,
-    pub final_equity: [u64; 2],
+    pub track: Track,
+    /// Picks per seat, public once their column has locked; `NO_PICK` before and for no pick.
+    pub revealed: [[i16; COLUMNS]; 2],
+    /// Points from the columns scored so far.
+    pub scores: [u32; 2],
 }
 
 impl Default for Duel {
@@ -126,17 +123,19 @@ impl Default for Duel {
             winner: NO_WINNER,
             start_deadline: 0,
             starts_at: 0,
+            grid_at: 0,
             ends_at: 0,
-            trades: [0; 2],
-            lead: LEAD_LEVEL,
+            anchor: 0,
+            step: 0,
             last_tick: 0,
-            final_price: 0,
-            final_equity: [0; 2],
+            track: Track::default(),
+            revealed: [[NO_PICK; COLUMNS]; 2],
+            scores: [0; 2],
         }
     }
 }
 
-/// One Player's book. Readable only by that Player while the Match runs, public once it is over.
+/// One Player's picks. Readable only by that Player while the Match runs, public once it is over.
 #[account]
 #[derive(InitSpace, Debug)]
 pub struct Book {
@@ -144,19 +143,10 @@ pub struct Book {
     pub duel: Pubkey,
     pub player: Pubkey,
     pub seat: u8,
-    /// Chips not locked as margin.
-    pub cash: u64,
-    pub side: u8,
-    pub margin: u64,
-    pub notional: u64,
-    pub leverage: u8,
-    /// Fill price the open position was entered at.
-    pub entry: u64,
-    /// Orders opened, liquidations included in `fill_count` only.
-    pub trades: u32,
-    pub liquidations: u32,
-    pub fill_count: u32,
-    pub fills: [Fill; FILL_LOG],
+    /// A band (signed, 0 starts at the anchor) per column, or `NO_PICK`.
+    pub picks: [i16; COLUMNS],
+    /// Columns with a pick right now.
+    pub pick_count: u8,
 }
 
 impl Default for Book {
@@ -166,16 +156,8 @@ impl Default for Book {
             duel: Pubkey::default(),
             player: Pubkey::default(),
             seat: 0,
-            cash: START_CHIPS,
-            side: SIDE_FLAT,
-            margin: 0,
-            notional: 0,
-            leverage: 0,
-            entry: 0,
-            trades: 0,
-            liquidations: 0,
-            fill_count: 0,
-            fills: [Fill::default(); FILL_LOG],
+            picks: [NO_PICK; COLUMNS],
+            pick_count: 0,
         }
     }
 }
