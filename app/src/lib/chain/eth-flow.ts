@@ -11,6 +11,7 @@ import {
   NETS,
   coreUnlockIx,
   evmClient,
+  instantRedeemToEvmIx,
   fetchEthMarket,
   fetchLinkState,
   linkEvmIx,
@@ -247,6 +248,10 @@ export async function takeEthAdvance(ctx: Pick<EthCtx, "signer" | "getToken">, v
 /** `redeem_to_evm`: redeems Gemas of an ETH or HYPE Source and records the payout owed on its EVM chain. Then `send_pay_yield` delivers it. */
 export const redeemToEvm = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, vault: string) =>
   getChain().sendBase(signer, [redeemToEvmIx(signer.publicKey, position, source, gemas, netOfVault(vault))]);
+
+/** `instant_redeem_to_evm`: sells won ETH or HYPE Gemas to Tesoro's Treasury now and records the payout owed on the vault's chain. Then `send_pay_instant` delivers it. */
+export const instantRedeemToEvm = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, vault: string) =>
+  getChain().sendBase(signer, [instantRedeemToEvmIx(signer.publicKey, position, source, gemas, netOfVault(vault), vault)]);
 
 /** Debt must be zero on chain. Then `send_unlock` releases the Principal on the vault's chain. */
 export const unlockEth = (signer: ChainSigner, position: PublicKey) => getChain().sendBase(signer, [coreUnlockIx(signer.publicKey, position)]);

@@ -35,29 +35,47 @@ export type RedeemPayout = {
   later: boolean;
 };
 
-export type RedeemDone = { gemas: number; later: boolean; receipts: Receipt[] };
+export type RedeemDone = { gemas: number; later: boolean; receipts: Receipt[]; instant?: boolean };
+
+/** One holding "Redeem now" would sell, after the treasury's limit: `amount` of `token` is paid now. */
+export type InstantRow = RedeemPayout;
+
+/** The Instant Redeem side of the Redeem sheet. */
+export type InstantOffer = {
+  rows: InstantRow[];
+  /** What Tesoro keeps for paying now, in percent. */
+  feePct: number;
+  /** The most each asset can be paid right now, null when not read yet. */
+  available: { asset: Chain; amount: number | null; token: string }[];
+  /** Plain reason Redeem now cannot be used, shown instead of the rows. */
+  unavailable: string | null;
+};
 
 /** Redeem as an exchange: every redeemable Gema in, each Source asset out, the Sources folded away. */
-export function RedeemExchange({ payouts, busy, error, done, canSign, onRedeem, onClose }: {
+export function RedeemExchange({ payouts, instant = null, busy, error, done, canSign, onRedeem, onInstant, onClose }: {
   payouts: RedeemPayout[];
+  /** Won Gemas can be sold now for less; omitted where that does not apply (offline). */
+  instant?: InstantOffer | null;
   busy: boolean;
   error: string | null;
   done: RedeemDone | null;
   canSign: boolean;
   onRedeem: () => void;
+  onInstant?: () => void;
   onClose: () => void;
 }) {
+  const [now, setNow] = useState(false);
   if (done) {
     return (
       <div className="mx">
-        <div className="status ok" role="status"><CheckIcon /> Redeemed {fmtGemas(done.gemas)} Gemas</div>
+        <div className="status ok" role="status"><CheckIcon /> {done.instant ? "Redeemed now" : "Redeemed"} {fmtGemas(done.gemas)} Gemas</div>
         {done.later && <p className="meta">Your ETH and HYPE payouts arrive on their own chain in a few minutes. The Wallet shows their progress.</p>}
         <Button block onClick={onClose}>Done</Button>
         <Receipts items={done.receipts} />
       </div>
     );
   }
-  if (payouts.length === 0) {
+  if (payouts.length === 0 && !instant) {
     return (
       <div className="mx-empty">
         <span className="mx-empty-mark"><GemaMark size={34} /></span>
@@ -68,20 +86,43 @@ export function RedeemExchange({ payouts, busy, error, done, canSign, onRedeem, 
     );
   }
 
-  const total = payouts.reduce((s, p) => s + p.gemas, 0);
+  const showInstant = now && instant !== null;
+  const shown = showInstant ? instant.rows : payouts;
+  const total = shown.reduce((s, p) => s + p.gemas, 0);
   const groups = (["SOL", "ETH", "HYPE"] as Chain[])
-    .map((asset) => ({ asset, rows: payouts.filter((p) => p.asset === asset) }))
+    .map((asset) => ({ asset, rows: shown.filter((p) => p.asset === asset) }))
     .filter((g) => g.rows.length > 0);
   return (
     <div className="mx">
+      {instant && (
+        <div className="mx-seg" role="radiogroup" aria-label="When to redeem">
+          <button type="button" role="radio" aria-checked={!now} className="cut" onClick={() => setNow(false)}>Redeem <small>full value, as yield lands</small></button>
+          <button type="button" role="radio" aria-checked={now} className="cut" onClick={() => setNow(true)}>Redeem now <small>{100 - instant.feePct}% of the value</small></button>
+        </div>
+      )}
+      {showInstant && (instant.unavailable || shown.length === 0) ? (
+        <div className="mx-empty">
+          <b>Redeem now is not available</b>
+          <p className="meta">{instant.unavailable ?? "You have no won Gemas to sell right now."}</p>
+          <Button block onClick={onClose}>Close</Button>
+        </div>
+      ) : shown.length === 0 ? (
+        <div className="mx-empty">
+          <span className="mx-empty-mark"><GemaMark size={34} /></span>
+          <b>Nothing to redeem yet</b>
+          <p className="meta">Gemas become redeemable as their Source Position earns yield. Check back in a few minutes.</p>
+          <Button block onClick={onClose}>Close</Button>
+        </div>
+      ) : (
+      <>
       <div className="mx-pair">
         <div className="mx-panel cut">
-          <div className="mx-head"><span className="label">You give</span><span className="meta">All redeemable</span></div>
+          <div className="mx-head"><span className="label">You give</span><span className="meta">{showInstant ? "Won Gemas" : "All redeemable"}</span></div>
           <div className="mx-fig"><GemaMark size={30} glint /><b>{fmtGemas(total)}</b><span>Gemas</span></div>
         </div>
         <span className="mx-arrow cut" aria-hidden="true"><ArrowDown /></span>
         <div className="mx-panel get cut">
-          <div className="mx-head"><span className="label">You get</span><span className="meta">{fmtUsd(gemasToUsd(total))} at issuance</span></div>
+          <div className="mx-head"><span className="label">You get{showInstant ? " now" : ""}</span><span className="meta">{showInstant ? `${100 - instant.feePct}% of ${fmtUsd(gemasToUsd(total))}` : `${fmtUsd(gemasToUsd(total))} at issuance`}</span></div>
           {groups.map(({ asset, rows }) => {
             const priced = rows.every((r) => r.amount !== null);
             const amount = rows.reduce((s, r) => s + (r.amount ?? 0), 0);
@@ -98,10 +139,15 @@ export function RedeemExchange({ payouts, busy, error, done, canSign, onRedeem, 
           })}
         </div>
       </div>
+      {showInstant && (
+        <p className="mx-fee">
+          Tesoro keeps {instant.feePct}% for paying you now. Redeem instead as the yield lands and you get the full value.
+        </p>
+      )}
       <details className="mx-from">
-        <summary>From {plural(payouts.length, "Source")}</summary>
+        <summary>From {plural(shown.length, "Source")}</summary>
         <dl className="kv">
-          {payouts.map((p) => (
+          {shown.map((p) => (
             <div key={p.key} style={{ display: "contents" }}>
               <dt className="hstack"><ChainGlyph asset={GLYPH[p.asset]} size={14} /> {p.from}</dt>
               <dd>{fmtGemas(p.gemas)} → {p.amount !== null ? `${fmtPayout(p.amount, p.asset)} ` : ""}{p.token}</dd>
@@ -109,14 +155,29 @@ export function RedeemExchange({ payouts, busy, error, done, canSign, onRedeem, 
           ))}
         </dl>
       </details>
+      {showInstant && (
+        <details className="mx-from">
+          <summary>Most Tesoro can pay right now</summary>
+          <dl className="kv">
+            {instant.available.map((a) => (
+              <div key={a.asset} style={{ display: "contents" }}>
+                <dt className="hstack"><ChainGlyph asset={GLYPH[a.asset]} size={14} /> {a.token}</dt>
+                <dd>{a.amount !== null ? `up to ${fmtPayout(a.amount, a.asset)}` : "not read yet"}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      )}
       <SimulatedYieldLabel />
       {error && <p className="status err" role="alert">{error}</p>}
       {busy ? (
         <Busy>Paying out your Gemas…</Busy>
       ) : (
-        <Button variant="money" size="lg" block disabled={!canSign} onClick={onRedeem}>
-          Redeem <GemaAmount value={total} size="md" />
+        <Button variant="money" size="lg" block disabled={!canSign} onClick={showInstant ? onInstant : onRedeem}>
+          {showInstant ? "Redeem now" : "Redeem"} <GemaAmount value={total} size="md" />
         </Button>
+      )}
+      </>
       )}
     </div>
   );

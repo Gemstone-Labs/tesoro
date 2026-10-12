@@ -12,6 +12,10 @@ import {
   rateAt,
   redeemIx,
   redeemPayoutShares,
+  fundTreasuryIx,
+  initTreasuryIx,
+  instantRedeemIx,
+  redeemTreasuryIx,
   setPriceIx,
   sourcePda,
   sweepNativeSurplusIx,
@@ -21,6 +25,8 @@ import {
   type PoolParams,
   RATE_SCALE,
   surplusShares,
+  treasuryPda,
+  treasuryVaultPda,
 } from "./native";
 
 const owner = new PublicKey("AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV");
@@ -39,6 +45,10 @@ describe("native instructions", () => {
       [redeemIx(owner, pos, pos, 1n).data, "redeem"],
       [unlockIx(owner, pos).data, "unlock"],
       [sweepNativeSurplusIx(owner, pos).data, "sweep_native_surplus"],
+      [initTreasuryIx(owner, 2000, 3500).data, "init_treasury"],
+      [fundTreasuryIx(owner, 1n).data, "fund_treasury"],
+      [instantRedeemIx(owner, pos, pos, 1n).data, "instant_redeem"],
+      [redeemTreasuryIx(pos, pos, 1n).data, "redeem_treasury"],
     ];
     for (const [data, name] of cases) expect(data.subarray(0, 8).toString("hex"), name).toBe(d(name));
   });
@@ -52,6 +62,10 @@ describe("native instructions", () => {
       [unlockIx(owner, pos), "unlock"],
       [openNativePositionIx(owner, 1, 1n, pos), "open_native_position"],
       [takeNativeAdvanceIx(owner, pos, 0, 3), "take_native_advance"],
+      [initTreasuryIx(owner, 2000, 3500), "init_treasury"],
+      [fundTreasuryIx(owner, 1n), "fund_treasury"],
+      [instantRedeemIx(owner, pos, pos, 1n), "instant_redeem"],
+      [redeemTreasuryIx(pos, pos, 1n), "redeem_treasury"],
     ];
     for (const [ix, name] of cases) {
       const spec = (idl.instructions as { name: string; accounts: { writable?: boolean; signer?: boolean }[] }[]).find((i) => i.name === name);
@@ -62,6 +76,21 @@ describe("native instructions", () => {
         expect(ix.keys[i].isSigner, `${name} account #${i} signer`).toBe(!!a.signer);
       });
     }
+  });
+
+  it("lists exactly the accounts the IDL lists for the Treasury instructions, the treasury where the program expects it", () => {
+    const pos = sourcePda(owner, 0);
+    const count = (name: string) => (idl.instructions as { name: string; accounts: unknown[] }[]).find((i) => i.name === name)!.accounts.length;
+    expect(accrueNativeYieldIx(pos, 0).keys).toHaveLength(count("accrue_native_yield"));
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(count("take_native_advance"));
+    expect(instantRedeemIx(owner, pos, pos, 1n).keys).toHaveLength(count("instant_redeem"));
+    expect(initTreasuryIx(owner, 2000, 3500).keys).toHaveLength(count("init_treasury"));
+    expect(fundTreasuryIx(owner, 1n).keys).toHaveLength(count("fund_treasury"));
+    expect(redeemTreasuryIx(pos, pos, 1n).keys).toHaveLength(count("redeem_treasury") + 5);
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys[4].pubkey.equals(treasuryPda())).toBe(true);
+    expect(accrueNativeYieldIx(pos, null).keys[9].pubkey.equals(treasuryPda())).toBe(true);
+    expect(accrueNativeYieldIx(pos, null).keys[10].pubkey.equals(treasuryVaultPda())).toBe(true);
+    expect(initTreasuryIx(owner, 2000, 3500).data.subarray(8).toString("hex")).toBe("d007ac0d");
   });
 
   it("redeem and unlock carry the five payout accounts", () => {
@@ -77,9 +106,15 @@ describe("native instructions", () => {
 
 describe("native math", () => {
   it("sizes an Advance like the program (5 SOL, 7%, 1 month, $150)", () => {
-    const q = quoteNativeAdvance(5_000_000_000n, 700, 1, 150_000_000n);
+    const q = quoteNativeAdvance(5_000_000_000n, 700, 1, 150_000_000n, 0);
     expect(q.projectedUnits).toBe(29_166_666n);
     expect(q.gemas).toBe(437n);
+  });
+
+  it("is 80% of that after the Yield Fee, and still repaid in 10 minutes per month", () => {
+    const q = quoteNativeAdvance(5_000_000_000n, 700, 1, 150_000_000n);
+    expect(q.projectedUnits).toBe(23_333_333n);
+    expect(q.gemas).toBe(349n);
   });
 
   it("keeps the rate constant: yield is per Position, not in the rate", () => {
@@ -87,7 +122,7 @@ describe("native math", () => {
     expect(rateAt(pool)).toBe(pool.baseRate);
   });
 
-  const source = { issued: 437n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
+  const source = { issued: 349n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
   const vault = 5_000_000_000n;
 
   it("projects Debt down and the Unlock Estimate forward", () => {
@@ -95,7 +130,7 @@ describe("native math", () => {
     const args = { source, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, clock };
     const debt0 = projectedDebtGemas(source, vault, 0n, vault, pool, 0, clock);
     const debt5 = projectedDebtGemas(source, vault, 0n, vault, pool, 300_000, clock);
-    expect(debt0).toBe(437n);
+    expect(debt0).toBe(349n);
     expect(debt5 < debt0).toBe(true);
     // A 1-month Advance is repaid in 10 minutes.
     const at = unlockEstimateMs({ ...args, nowMs: 0 })!;

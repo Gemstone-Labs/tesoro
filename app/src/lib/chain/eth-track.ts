@@ -4,9 +4,10 @@ import { LZ_SCAN_API, netOfVault, vaultByAddress, type EthState, type VaultPosit
 /**
  * Cross-chain operations on an ETH or HYPE Position that take minutes: open (EVM chain to Solana), report yield
  * (EVM chain to Solana), redeem and unlock (Solana to the EVM chain). Each is tracked from chain state, never from
- * a timer, so pending never shows success early and a reload picks up where it was.
+ * a timer, so pending never shows success early and a reload picks up where it was. An Instant Redeem ("instant") is
+ * tracked like a redeem, against the holder's Instant Claim.
  */
-export type EthOpKind = "open" | "yield" | "redeem" | "unlock";
+export type EthOpKind = "open" | "yield" | "redeem" | "instant" | "unlock";
 
 export interface EthOp {
   key: string;
@@ -21,18 +22,18 @@ export interface EthOp {
   hash?: string;
   /** Solana signature of the relayed send (redeem, unlock) or of the last relay step. */
   sendSig?: string;
-  /** `yield`: the bridge's last received yield seq before the report. `redeem`: the Claim's `units_total` after redeem_to_evm (units that must be sent), decimal. */
+  /** `yield`: the bridge's last received yield seq before the report. `redeem`, `instant`: the Claim's `units_total` after the Solana step (units that must be sent), decimal. */
   baseline?: string;
-  /** `redeem`: the Advance index of the redeemed Source; the Claim read, relayed and tracked is the one for it. */
+  /** `redeem`, `instant`: the Advance index of the redeemed Source; the Claim read, relayed and tracked is the one for it. */
   sourceIndex?: number;
-  /** `redeem`: Source units this redemption added to the Claim, decimal. */
+  /** `redeem`, `instant`: Source units this redemption added to the Claim, decimal. */
   units?: string;
-  /** `redeem`: EVM block before the redemption; the payout is searched from here. Decimal. */
+  /** `redeem`, `instant`: EVM block before the redemption; the payout is searched from here. Decimal. */
   fromBlock?: string;
   done?: boolean;
 }
 
-export type OpAction = "apply-locked" | "advance" | "apply-yield" | "send-pay-yield" | "send-unlock";
+export type OpAction = "apply-locked" | "advance" | "apply-yield" | "send-pay-yield" | "send-pay-instant" | "send-unlock";
 
 /** The chain-specific words of a tracker: the vault's network, its native token and its simulated token. */
 export function opWords(vault: string) {
@@ -58,6 +59,11 @@ export const opSteps = (kind: EthOpKind, vault: string): CrossChainStep[] => {
     ],
     redeem: [
       { title: "Redeemed", note: "Your Gemas are exchanged and the payout is recorded" },
+      { title: `On its way to ${w.net}`, note: "The payout is crossing chains" },
+      { title: `${w.symbol} on ${w.net}`, note: "Paid to your wallet" },
+    ],
+    instant: [
+      { title: "Sold to Tesoro", note: "Your Gemas are exchanged and the payout is recorded" },
       { title: `On its way to ${w.net}`, note: "The payout is crossing chains" },
       { title: `${w.symbol} on ${w.net}`, note: "Paid to your wallet" },
     ],
@@ -94,6 +100,13 @@ export const opCopy = (kind: EthOpKind, vault: string): { label: string; finalSt
       pending: `Pending. The ${w.symbol} is not in your wallet until the last step completes.`,
       failed: "This step failed. Your redemption is recorded and can be retried.",
     },
+    instant: {
+      label: `Redeem now → ${w.net}`,
+      finalState: "Paid",
+      done: `${w.symbol} arrived on ${w.net}.`,
+      pending: `Pending. The ${w.symbol} is not in your wallet until the last step completes.`,
+      failed: "This step failed. Your Instant Redeem is recorded and can be retried.",
+    },
     unlock: {
       label: `Unlock → ${w.net}`,
       finalState: "Returned",
@@ -113,8 +126,9 @@ export interface OpProgress {
 
 /**
  * Where an operation stands, from what is on chain. Pure. A redeem is sent when this holder's Claim on the
- * redeemed Source has been sent in full, and paid when `paidToHolder` (`YieldPaid` to this holder's EVM address
- * since the operation began) covers the operation's units: a Position-wide total says nothing about this holder.
+ * redeemed Source has been sent in full, and paid when `paidToHolder` (`YieldPaid`, or `InstantPaid` for an Instant
+ * Redeem, to this holder's EVM address since the operation began) covers the operation's units: a Position-wide total
+ * says nothing about this holder.
  */
 export function opProgress(op: EthOp, s: EthState | null, vp: VaultPosition | null, paidToHolder: bigint | null = null): OpProgress {
   const bridge = s?.bridge ?? null;
@@ -132,10 +146,11 @@ export function opProgress(op: EthOp, s: EthState | null, vp: VaultPosition | nu
       if (bridge.appliedYieldSeq >= bridge.lastYieldSeq) return { stage: 3, next: null };
       return { stage: 2, next: "apply-yield" };
     }
-    case "redeem": {
-      const c = s?.claim ?? null;
+    case "redeem":
+    case "instant": {
+      const c = (op.kind === "instant" ? s?.instantClaim : s?.claim) ?? null;
       const target = op.sourceIndex !== undefined && op.baseline !== undefined ? BigInt(op.baseline) : (c?.unitsTotal ?? 0n);
-      if (!c || target === 0n || c.unitsSent < target) return { stage: 1, next: "send-pay-yield" };
+      if (!c || target === 0n || c.unitsSent < target) return { stage: 1, next: op.kind === "instant" ? "send-pay-instant" : "send-pay-yield" };
       if (paidToHolder !== null && op.units !== undefined && paidToHolder >= BigInt(op.units)) return { stage: 3, next: null };
       return { stage: 2, next: null };
     }

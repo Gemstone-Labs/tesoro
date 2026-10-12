@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, CheckIcon, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
+import { ratesOf } from "@/lib/chain/fees";
 import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
 import {
   LAMPORTS,
@@ -21,9 +22,11 @@ import {
   type NativeInfo,
   type NativeMarket,
 } from "@/lib/chain/native";
-import { friendlyError, getTestSimSol, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
+import { netApyPct } from "@/lib/chain/yield";
+import { friendlyError, getTestSimSol, instantRedeemNative, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { ethRedeemables, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { ethRedeemables, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { useInstantRedeem } from "./instant";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
 import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
@@ -121,7 +124,8 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   const principal = market ? sharesValue(shares, rate) : 0n;
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
   const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
-  const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd) : null;
+  const { yieldFeeBps } = ratesOf(market?.treasury);
+  const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   // A fresh Position's Debt is the whole Advance: the Estimate is when the vault's yield covers it.
   const estimate = market && quote && shares > 0n && gemas > 0
@@ -133,6 +137,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
         pool: market.pool,
         clock: { rateBps: market.pool.apyBps, lastAccrualTs: Math.floor(now / 1000) },
         nowMs: now,
+        yieldFeeBps,
       })
     : null;
   const tooMuch = !!market && shares > market.simSol;
@@ -164,11 +169,12 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
       onMonths={setMonths}
       gemas={gemas}
       yieldText={`${quote ? fmtSol(quote.projectedUnits) : "0"} SOL`}
+      yieldFeeBps={yieldFeeBps}
       estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtSol(principal)} SOL`],
-        ["Projected yield", `${quote ? fmtSol(quote.projectedUnits) : "—"} SOL`],
+        ["Projected yield (after the Yield Fee)", `${quote ? fmtSol(quote.projectedUnits) : "—"} SOL`],
         [
           "Price feed",
           market?.price ? `SOL $${(Number(market.price.microUsd) / 1e6).toFixed(2)} · ${Math.max(0, Math.round(priceAge / 60))} min ago` : "not published yet",
@@ -206,13 +212,14 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
   const debtSol = src && onChainDebt > 0n ? (onChainDebt * src.unitNum + src.unitDen - 1n) / src.unitDen : 0n;
   const pool = market?.pool ?? null;
   const clock = yieldClockOf(info);
-  const projected = pool ? projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, now, clock) : onChainDebt;
-  const liveYield = pool ? accruedAt({ vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock, nowMs: now }) : info.cumulativeYield;
+  const { yieldFeeBps } = ratesOf(market?.treasury);
+  const projected = pool ? projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, now, clock, yieldFeeBps) : onChainDebt;
+  const liveYield = pool ? accruedAt({ vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock, nowMs: now, yieldFeeBps }) : info.cumulativeYield;
   const accruedYield = liveYield > info.cumulativeYield ? liveYield : info.cumulativeYield;
   const unapplied = onChainDebt - projected;
   const estimate =
     pool && src && onChainDebt > 0n
-      ? unlockEstimateMs({ source: src, vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock: clock ?? { rateBps: info.rateBps, lastAccrualTs: Math.floor(now / 1000) }, nowMs: now })
+      ? unlockEstimateMs({ source: src, vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock: clock ?? { rateBps: info.rateBps, lastAccrualTs: Math.floor(now / 1000) }, nowMs: now, yieldFeeBps })
       : null;
   const locked = info.status === "locked";
   const canUnlock = locked && projected === 0n;
@@ -221,7 +228,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
   const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);
   const series =
     pool && src && locked && onChainDebt > 0n
-      ? sampledSeries((at) => Number(projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, at, clock)), now, estimate ? estimate - now : 10 * 60_000)
+      ? sampledSeries((at) => Number(projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, at, clock, yieldFeeBps)), now, estimate ? estimate - now : 10 * 60_000)
       : null;
 
   return (
@@ -232,13 +239,14 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
       principal={`${fmtSol(info.principalLamports, 3)} SOL`}
       debt={!src ? null : onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas` : "0"}
       debtAsset={onChainDebt > 0n ? `${fmtSol(debtSol, 3)} SOL` : undefined}
-      apy={`${(info.rateBps / 100).toFixed(1)}%`}
+      apy={`${netApyPct(info.rateBps, yieldFeeBps).toFixed(1)}%`}
+      yieldFeeBps={yieldFeeBps}
       unlockAt={estimate}
       now={now}
       series={series}
       notes={
         <>
-          <p className="note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated).</p>
+          <p className="note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated). Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {unapplied > 0n && locked && (
             <p className="note">
               <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (it happens automatically every ~20 s).
@@ -300,9 +308,10 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
   const now = useNow(5000);
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
   const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
-  const quote = priceOk ? quoteNativeAdvance(info.principalLamports, info.rateBps, months, market!.price!.microUsd) : null;
+  const { yieldFeeBps } = ratesOf(market?.treasury);
+  const quote = priceOk ? quoteNativeAdvance(info.principalLamports, info.rateBps, months, market!.price!.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
-  // The Advance is all of the Horizon's projected yield at the Position's own rate, so yield repays it in exactly the Horizon.
+  // The Advance is the Horizon's projected yield at the Position's own rate net of the Yield Fee, which is all the Position earns, so yield repays it in exactly the Horizon.
   const unlock = gemas > 0 ? now + months * SIM_MONTH_MIN * 60_000 : null;
   const title = `${fmtSol(info.principalLamports, 3)} SOL Position`;
 
@@ -324,6 +333,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
       months={months}
       onMonths={setMonths}
       yieldText={`${quote ? fmtSol(quote.projectedUnits) : "0"} SOL`}
+      yieldFeeBps={yieldFeeBps}
       gemas={gemas}
       unlock={unlock ? `${fmtWhen(unlock)} (${fmtInMinutes(unlock, now)})` : "—"}
       alerts={
@@ -385,6 +395,30 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     })),
   ];
 
+  const { offer: instant, plan } = useInstantRedeem();
+
+  const redeemNow = async () => {
+    if (!auth.signer) return;
+    setBusy(true);
+    setError(null);
+    try {
+      for (const { holding: h, line } of plan) {
+        if (h.native) sigs.current.push(await instantRedeemNative(auth.signer, h.position, h.source, line.gemas));
+        else {
+          if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
+          await instantRedeemEthSource(ethCtx, h.eth!, h.source, line.gemas);
+        }
+      }
+      setDone({ gemas: plan.reduce((s, p) => s + Number(p.line.gemas), 0), later: plan.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Redeemed now", sig })) });
+      await refresh();
+    } catch (e) {
+      setError(friendlyError(e));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const redeem = async () => {
     if (!auth.signer) return;
     const gemas = payouts.reduce((s, p) => s + p.gemas, 0);
@@ -406,5 +440,5 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     }
   };
 
-  return <RedeemExchange payouts={payouts} busy={busy} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onClose={onClose} />;
+  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
 }

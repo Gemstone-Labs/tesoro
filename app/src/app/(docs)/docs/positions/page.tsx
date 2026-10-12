@@ -30,12 +30,16 @@ export default function Page() {
 
       <H2 id="advance">An Advance</H2>
       <p>
-        An <b>Advance</b> is Gemas issued upfront against the projected yield of your Position over a <b>Horizon</b> of 1 to 12 months. It is 100% of
-        that projected yield:
+        An <b>Advance</b> is Gemas issued upfront against the projected yield of your Position over a <b>Horizon</b> of 1 to 12 months. It is 80% of
+        that projected yield, the yield left after Tesoro&apos;s 20% Yield Fee:
       </p>
       <p>
-        <b>Advance = Principal × yearly rate × months ÷ 12</b>, converted to dollars once at the issuance price and rounded down to whole Gemas at
+        <b>Advance = Principal × yearly rate × months ÷ 12 × 80%</b>, converted to dollars once at the issuance price and rounded down to whole Gemas at
         $0.01 each.
+      </p>
+      <p>
+        Your Position earns that same 80%, so the Advance is repaid in the Horizon you picked. The Yield Fee is taken from yield only, never from the
+        Principal.
       </p>
       <p>A Position holds at most one open Advance. You can take a new one when its Debt is back to zero.</p>
 
@@ -45,7 +49,7 @@ export default function Page() {
       </p>
       <ul>
         <li>
-          <b>The Position&apos;s own yield.</b> All yield it earns goes to the Debt first, automatically. There is no repay button and no way to skip it.
+          <b>The Position&apos;s own yield.</b> All the yield it keeps (80% of what it earns) goes to the Debt first, automatically. There is no repay button and no way to skip it.
         </li>
         <li>
           <b>Returning your own unspent Gemas</b> from your Wallet, up to the Debt.

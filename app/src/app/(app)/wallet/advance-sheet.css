@@ -15,6 +15,7 @@ dialog.sheet.adv-sheet { max-width: 520px; }
 .adv-swap { display: grid; grid-template-columns: 1fr 52px 1.25fr; align-items: center; gap: 4px; }
 .adv-in { display: grid; gap: 4px; padding: 6px 2px; }
 .adv-in b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.adv-fee { margin: 0; font-size: 11.5px; color: var(--fg-2); }
 
 /* three chevrons with a light running through them, left to right: yield flowing into Gemas */
 .adv-flow {

@@ -132,6 +132,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
       meta(accountPda(owner), true),
       meta(position, true),
       meta(PRICE_FEED),
+      meta(pda([s("treasury")])),
       meta(source, true),
       meta(holdingPda(accountPda(owner), source), true),
       meta(SystemProgram.programId),

@@ -12,7 +12,9 @@ import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { TESORO_CORE_PROGRAM_ID, BlockPuzzleChain, type AnyProgram } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import { parseTreasury, ratesOf } from "@/lib/chain/fees";
 import { unitsToRepay, type SourceMath } from "@/lib/chain/ledger";
+import { quoteNativeAdvance, treasuryPda } from "@/lib/chain/native";
 import { DEFAULT_BASE_RPC } from "@/lib/chain/rpc-config";
 import { requireDevnet } from "./cluster";
 import { WindowLimiter, takeAll } from "./rate-limit";
@@ -24,13 +26,12 @@ export { DemoHttpError };
 export const BASE_RPC = process.env.TESORO_BASE_RPC || DEFAULT_BASE_RPC;
 const DAY = 24 * 60 * 60 * 1000;
 
-/** The simulated Position: 10 SOL at 10% APY, 6-month Horizon, SOL at $150 = 7,500 Gemas. */
+/** The simulated Position: 10 SOL at 10% APY, 6-month Horizon, SOL at $150 = 7,500 Gemas before the Yield Fee. */
 export const DEMO = {
   principalBaseUnits: 10n * BigInt(LAMPORTS_PER_SOL),
   rateBps: 1000,
   horizonMonths: 6,
   priceMicroUsd: 150_000_000n,
-  gemas: 7500,
   /** Share of the Advance's Debt the simulated yield repays right away (redeemable now). */
   accruePercent: 20n,
 };
@@ -142,6 +143,9 @@ async function advance(address: PublicKey, sub: string | null) {
     throw new DemoHttpError(429, "rate-limited", "Demo Advance limit reached for this Account. Try again tomorrow.");
   }
 
+  const treasuryInfo = await chain().conn.getAccountInfo(treasuryPda());
+  const { yieldFeeBps } = ratesOf(treasuryInfo && parseTreasury(treasuryInfo.data));
+  const gemas = Number(quoteNativeAdvance(DEMO.principalBaseUnits, DEMO.rateBps, DEMO.horizonMonths, DEMO.priceMicroUsd, yieldFeeBps).gemas);
   const positionId = Array.from(randomBytes(32));
   const config = BlockPuzzleChain.addresses(0n).config;
   const position = PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from([0]), Buffer.from(positionId)], TESORO_CORE_PROGRAM_ID)[0];
@@ -165,7 +169,7 @@ async function advance(address: PublicKey, sub: string | null) {
   return {
     position: position.toBase58(),
     source: source.toBase58(),
-    gemas: DEMO.gemas,
+    gemas,
     openSig,
     transaction: tx.serialize({ requireAllSignatures: false }).toString("base64"),
   };

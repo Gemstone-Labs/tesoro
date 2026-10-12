@@ -2,7 +2,7 @@
  * Ethereum (Hoodi) and HyperEVM Positions, server side: the pieces that need a key or the LayerZero SDK.
  *
  *  - `fund-evm`, `fund-hype`: capped Hoodi ETH / HyperEVM HYPE top-ups from the relayer (gas + the LayerZero fee).
- *  - `init-position`, `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield`: the permissionless
+ *  - `init-position`, `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield`, `send-pay-instant`: the permissionless
  *    bridge steps (docs/cross-chain.md), paid by the relayer so the Account only needs a little SOL. A keeper
  *    may run them first; each step skips when there is nothing left to do.
  *  - `advance`: `take_advance` at the oracle price, oracle-signed, for the Account to co-sign.
@@ -18,7 +18,7 @@ import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { createSignerFromKeypair, publicKey as umiKey, signerIdentity } from "@metaplex-foundation/umi";
 import { fromWeb3JsKeypair, toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
 import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi";
-import { TESORO_CORE_ID, sourcePda } from "@/lib/chain/native";
+import { TESORO_CORE_ID, sourcePda, treasuryPda } from "@/lib/chain/native";
 import {
   BRIDGE_AUTHORITY,
   BRIDGE_ID,
@@ -37,12 +37,14 @@ import {
   evmLinkPda,
   holdingPda,
   initPositionIdAllowed,
+  instantClaimPda,
   evmClient,
   isKnownVault,
   netOfVault,
   parseBridgePosition,
   sourceAuthPda,
   vaultAbi,
+  vaultTreasuryPda,
   type EvmNet,
 } from "@/lib/chain/eth";
 import type { SignedFields } from "@/lib/chain/signed-request";
@@ -72,8 +74,8 @@ const limits = {
   advancePerUser: new WindowLimiter(10, DAY),
 };
 
-export type EthStep = "fund-evm" | "fund-hype" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "advance";
-const STEPS: EthStep[] = ["fund-evm", "fund-hype", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "advance"];
+export type EthStep = "fund-evm" | "fund-hype" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "send-pay-instant" | "advance";
+const STEPS: EthStep[] = ["fund-evm", "fund-hype", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "send-pay-instant", "advance"];
 
 // ---- keys and clients ----------------------------------------------------------------------------
 
@@ -238,6 +240,7 @@ async function applyYield(vault: string, pid: Buffer) {
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
   if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
   const view = parseBridgePosition(bp.data);
+  if (!view) throw new DemoHttpError(409, "abandoned", "This Position is on a retired vault and can no longer be updated.");
   if (view.lastYieldSeq === 0n || view.lastYieldSeq <= view.appliedYieldSeq) return { skipped: true };
   const openAdvance = core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4] === 1 ? core.data.readUInt32LE(8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 1) : null;
   const ix = new TransactionInstruction({
@@ -245,6 +248,7 @@ async function applyYield(vault: string, pid: Buffer) {
     keys: [
       key(bridgeStore()),
       key(bridgePositionPda(pid), false, true),
+      key(vaultTreasuryPda(net.eid, vault), false, true),
       key(BRIDGE_AUTHORITY),
       key(sourceAuthPda(net)),
       key(cp, false, true),
@@ -257,7 +261,7 @@ async function applyYield(vault: string, pid: Buffer) {
   return { skipped: false, signature: await relaySend([ix]) };
 }
 
-// ---- LayerZero sends (send_unlock, send_pay_yield) -------------------------------------------------
+// ---- LayerZero sends (send_unlock, send_pay_yield, send_pay_instant) -------------------------------------------------
 
 let umiCache: { umi: ReturnType<typeof createUmi>; endpoint: EndpointProgram.Endpoint } | null = null;
 function lz() {
@@ -315,7 +319,9 @@ async function sendUnlock(vault: string, pid: Buffer) {
   const cp = corePositionPda(pid);
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
   if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
-  if (parseBridgePosition(bp.data).unlockSent) return { skipped: true };
+  const view = parseBridgePosition(bp.data);
+  if (!view) throw new DemoHttpError(409, "abandoned", "This Position is on a retired vault and can no longer be updated.");
+  if (view.unlockSent) return { skipped: true };
   if (core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2] !== 1) throw new DemoHttpError(409, "not-unlocked", "Unlock the Position on Solana first.");
   const acc = await sendAccounts(vault);
   const fee = await quoteFee(vault, 3, acc.quote);
@@ -338,7 +344,11 @@ async function sendUnlock(vault: string, pid: Buffer) {
   return { skipped: false, signature: await relaySend([ix], 600_000), fee: fee.toString() };
 }
 
-async function sendPayYield(vault: string, pid: Buffer, holderAuthority: PublicKey, sourceIndex: unknown) {
+/**
+ * Sends the payout of a recorded Claim (`send_pay_yield`) or Instant Claim (`send_pay_instant`) to the holder's linked EVM address.
+ * Both claims share a layout and the same account list; only the claim PDA and the message type differ.
+ */
+async function sendPay(kind: "yield" | "instant", vault: string, pid: Buffer, holderAuthority: PublicKey, sourceIndex: unknown) {
   const { conn } = chain();
   const cp = corePositionPda(pid);
   const holder = coreAccountPda(holderAuthority);
@@ -349,14 +359,14 @@ async function sendPayYield(vault: string, pid: Buffer, holderAuthority: PublicK
   const index = sourceIndex === undefined ? advances - 1 : sourceIndex;
   if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= advances) throw new DemoHttpError(400, "bad-request", "Unknown Source for this Position.");
   const source = sourcePda(cp, index);
-  const claimKey = claimPda(holder, source);
+  const claimKey = kind === "yield" ? claimPda(holder, source) : instantClaimPda(holder, source);
   const [claim, account] = await conn.getMultipleAccountsInfo([claimKey, holder]);
   if (!claim || !account) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Source.");
   if (!new PublicKey(claim.data.subarray(8, 40)).equals(holder) || !new PublicKey(claim.data.subarray(40, 72)).equals(source) || !new PublicKey(claim.data.subarray(72, 104)).equals(cp)) throw new DemoHttpError(409, "no-claim", "That Claim does not belong to this Account.");
   if (claim.data.readBigUInt64LE(112) <= claim.data.readBigUInt64LE(120)) return { skipped: true };
   const evm = `0x${Buffer.from(account.data.subarray(41, 61)).toString("hex")}`;
   const acc = await sendAccounts(vault);
-  const fee = await quoteFee(vault, 4, acc.quote);
+  const fee = await quoteFee(vault, kind === "yield" ? 4 : 5, acc.quote);
   const relayer = relayerKey();
   const { endpointSettings } = endpointPdas();
   const ix = new TransactionInstruction({
@@ -374,7 +384,7 @@ async function sendPayYield(vault: string, pid: Buffer, holderAuthority: PublicK
       key(SystemProgram.programId),
       ...acc.send,
     ],
-    data: Buffer.concat([disc("send_pay_yield"), sendParams(vault, pid, fee)]),
+    data: Buffer.concat([disc(kind === "yield" ? "send_pay_yield" : "send_pay_instant"), sendParams(vault, pid, fee)]),
   });
   return { skipped: false, signature: await relaySend([ix], 600_000), fee: fee.toString() };
 }
@@ -441,6 +451,7 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
       key(oracle.publicKey, true, true),
       key(address, true),
       key(configPda()),
+      key(treasuryPda()),
       key(ownerAccount, false, true),
       key(cp, false, true),
       key(source, false, true),
@@ -485,8 +496,10 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
         return await applyYield(ref.vault, ref.pid).then((r) => (console.info("eth-bridge apply-yield", JSON.stringify(r)), r));
       case "send-unlock":
         return await sendUnlock(ref.vault, ref.pid);
+      case "send-pay-instant":
+        return await sendPay("instant", ref.vault, ref.pid, address, fields.sourceIndex);
       default:
-        return await sendPayYield(ref.vault, ref.pid, address, fields.sourceIndex);
+        return await sendPay("yield", ref.vault, ref.pid, address, fields.sourceIndex);
     }
   } catch (e) {
     refund();

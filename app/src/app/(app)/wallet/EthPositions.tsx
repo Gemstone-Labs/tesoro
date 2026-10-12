@@ -9,6 +9,8 @@ import { OpenFormView } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth/context";
+import { useTreasuryRates } from "@/lib/chain/useTreasuryRates";
+import { netApyPct } from "@/lib/chain/yield";
 import { getChain } from "@/lib/chain/client";
 import { debtGemas, debtUnits } from "@/lib/chain/ledger";
 import {
@@ -45,6 +47,7 @@ import {
   fetchEthPrice,
   getTestSimEth,
   openEthPosition,
+  instantRedeemToEvm,
   redeemToEvm,
   reportEthYield,
   takeEthAdvance,
@@ -225,6 +228,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const [months, setMonths] = useState(1);
   const [price, setPrice] = useState<{ microUsd: bigint; live: boolean } | null>(null);
   const now = useNow(5000);
+  const { yieldFeeBps } = useTreasuryRates();
   useEffect(() => {
     fetchEthPrice(unit).then((p) => setPrice({ microUsd: p.priceMicroUsd, live: p.live })).catch(() => setPrice(null));
   }, [unit]);
@@ -232,7 +236,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const shares = /^\d*\.?\d{0,18}$/.test(text) && Number(text) > 0 ? BigInt(Math.round(Number(text) * 1e9)) * 10n ** 9n : 0n;
   const rate = market ? simRateAt(market.rate) : WEI;
   const principal = underlyingOf(shares, rate);
-  const quote = price && principal > 0n ? quoteEthAdvance(principal, Number(market?.rate.apyBps ?? 500n), months, price.microUsd) : null;
+  const quote = price && principal > 0n ? quoteEthAdvance(principal, Number(market?.rate.apyBps ?? 500n), months, price.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   const estimate =
     quote && market && gemas > 0
@@ -241,6 +245,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
           position: { heldShares: shares, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n },
           rate: market.rate,
           nowMs: now,
+          yieldFeeBps,
         })
       : null;
   const tooMuch = !!market && shares > market.simEth;
@@ -262,12 +267,13 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       onMonths={setMonths}
       gemas={gemas}
       yieldText={`${quote ? fmtEth(quote.projectedUnits, 5) : "0"} ${unit}`}
+      yieldFeeBps={yieldFeeBps}
       arrival="Position opens, Gemas in 2 to 5 min"
       estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtEth(principal)} ${unit}`],
-        ["Projected yield", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ${unit}`],
+        ["Projected yield (after the Yield Fee)", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ${unit}`],
         ["Cross-chain fee", `≤ ${fmtEth(fee, 5)} ${unit}`],
         ["Price feed", price ? `${unit} $${(Number(price.microUsd) / 1e6).toFixed(2)}${price.live ? "" : " (fallback)"}` : "unavailable"],
       ]}
@@ -380,10 +386,13 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
         const id = BigInt(cur.id);
         const read = async () => {
           const [state, vp] = await Promise.all([
-            fetchEthState(getChain().base, cur.vault, id, holder, cur.kind === "redeem" ? cur.sourceIndex : undefined),
-            cur.kind === "redeem" || cur.kind === "unlock" ? fetchVaultPosition(cur.vault, id) : Promise.resolve(null),
+            fetchEthState(getChain().base, cur.vault, id, holder, cur.kind === "redeem" || cur.kind === "instant" ? cur.sourceIndex : undefined),
+            cur.kind === "redeem" || cur.kind === "instant" || cur.kind === "unlock" ? fetchVaultPosition(cur.vault, id) : Promise.resolve(null),
           ]);
-          const paidTo = cur.kind === "redeem" && state.holderEvm && cur.fromBlock !== undefined ? await fetchPaidTo(cur.vault, id, state.holderEvm, BigInt(cur.fromBlock)).catch(() => null) : null;
+          const paidTo =
+            (cur.kind === "redeem" || cur.kind === "instant") && state.holderEvm && cur.fromBlock !== undefined
+              ? await fetchPaidTo(cur.vault, id, state.holderEvm, BigInt(cur.fromBlock), cur.kind === "instant" ? "InstantPaid" : "YieldPaid").catch(() => null)
+              : null;
           return { state, progress: opProgress(cur, state, vp, paidTo) };
         };
         const first = await read();
@@ -437,7 +446,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
   const steps = opSteps(op.kind, op.vault);
   const copy = opCopy(op.kind, op.vault);
   const net = netOfVault(op.vault);
-  const outbound = op.kind === "redeem" || op.kind === "unlock";
+  const outbound = op.kind === "redeem" || op.kind === "instant" || op.kind === "unlock";
   const scanText = scan ? `Transfer: ${scan.name.toLowerCase()}` : op.hash || op.sendSig ? "Transfer: waiting for the first update" : null;
 
   return (
@@ -470,7 +479,7 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
           vault={op.vault}
           evm={op.kind === "open" || op.kind === "yield" ? op.hash : (scan?.destinationTx ?? undefined)}
           scan={op.kind === "open" || op.kind === "yield" ? op.hash : op.sendSig}
-          solana={op.kind === "redeem" || op.kind === "unlock" ? op.hash : undefined}
+          solana={op.kind === "redeem" || op.kind === "instant" || op.kind === "unlock" ? op.hash : undefined}
         />
         <span className="sim">Simulated · {opWords(op.vault).symbol} yield runs 1 month = {ETH_SIM_MONTH_MIN} min. Test mode.</span>
       </div>
@@ -484,13 +493,14 @@ const NEXT_NOTE = (label: string) =>
     advance: "Taking your Advance at today’s price…",
     "apply-yield": "Applying the yield to your Debt…",
     "send-pay-yield": `Sending the payout to ${label}…`,
+    "send-pay-instant": `Sending the payout to ${label}…`,
     "send-unlock": `Sending the unlock to ${label}…`,
   }) as const;
 
 function titleOf(op: EthOp) {
   const { native } = opWords(op.vault);
   const a = native === "ETH" ? "an" : "a";
-  return { open: `Opening ${a} ${native} Position`, yield: "Reporting yield", redeem: `Redeeming ${native}-Sourced Gemas`, unlock: "Unlocking the Principal" }[op.kind];
+  return { open: `Opening ${a} ${native} Position`, yield: "Reporting yield", redeem: `Redeeming ${native}-Sourced Gemas`, instant: `Redeeming ${native}-Sourced Gemas now`, unlock: "Unlocking the Principal" }[op.kind];
 }
 
 /** One relayed step. The server skips a step that is already done (a keeper may have run it). */
@@ -500,8 +510,9 @@ async function perform(next: NonNullable<ReturnType<typeof opProgress>["next"]>,
     await takeEthAdvance(ctx, op.vault, BigInt(op.id), op.months ?? 1);
     return;
   }
-  const r = await ethCall<{ signature?: string }>(next, ctx, next === "send-pay-yield" && op.sourceIndex !== undefined ? { ...ref, sourceIndex: op.sourceIndex } : ref);
-  if (r.signature && (next === "send-pay-yield" || next === "send-unlock")) patchOp(address, op.key, { sendSig: r.signature });
+  const pays = next === "send-pay-yield" || next === "send-pay-instant";
+  const r = await ethCall<{ signature?: string }>(next, ctx, pays && op.sourceIndex !== undefined ? { ...ref, sourceIndex: op.sourceIndex } : ref);
+  if (r.signature && (pays || next === "send-unlock")) patchOp(address, op.key, { sendSig: r.signature });
   void state;
 }
 
@@ -552,7 +563,8 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
   const projected = projectedEthDebt(src, accrued);
   const unreported = onChainDebt - projected;
   const locked = (state?.core?.status ?? position.status) === "locked";
-  const estimate = rate && vp && src && onChainDebt > 0n ? ethUnlockEstimateMs({ source: src, position: vp, rate, nowMs: now }) : null;
+  const { yieldFeeBps } = useTreasuryRates();
+  const estimate = rate && vp && src && onChainDebt > 0n ? ethUnlockEstimateMs({ source: src, position: vp, rate, nowMs: now, yieldFeeBps }) : null;
   const mine = (snapshot?.holdings ?? []).filter((h) => h.position.equals(position.address));
   const holding = mine.find((h) => h.redeemable > 0n && state?.source && h.source.equals(state.source.key)) ?? mine.find((h) => h.redeemable > 0n);
   const redeemable = holding?.redeemable ?? 0n;
@@ -597,14 +609,15 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
       principal={`${fmtEth(position.principal * 1e18, 4)} ${net.native}`}
       debt={!src ? null : onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas` : "0"}
       debtAsset={onChainDebt > 0n ? `${fmtEth(debtWei, 4)} ${net.native}` : undefined}
-      apy={`${(position.apy * 100).toFixed(1)}%`}
+      apy={`${netApyPct(position.apy * 10_000, yieldFeeBps).toFixed(1)}%`}
+      yieldFeeBps={yieldFeeBps}
       unlockAt={estimate}
       now={now}
       series={series}
       notes={
         <>
           {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol} (simulated) to your wallet on {net.label}.</p>}
-          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated).</p>
+          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated). Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {unreported > 0n && locked && (
             <p className="note">
               <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to apply it (a small cross-chain fee).
@@ -652,6 +665,24 @@ async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: strin
   const after = await fetchEthState(base, ref.vault, ref.id, holder, sourceIndex);
   const total = after.claim?.unitsTotal ?? 0n;
   addOp(address, { kind: "redeem", vault: ref.vault, id: ref.id.toString(), hash: sig, sourceIndex, baseline: total.toString(), units: (total - (before.claim?.unitsTotal ?? 0n)).toString(), fromBlock: fromBlock.toString() });
+}
+
+/**
+ * Instant Redeem of won ETH- or HYPE-Sourced Gemas: `instant_redeem_to_evm` (the Treasury buys them and the bridge records the payout), then a
+ * tracker keyed to this Source's Instant Claim; `send_pay_instant` and the vault's payout follow.
+ */
+export async function instantRedeemEthSource(ctx: EthCtx, ref: { vault: string; id: bigint }, source: PublicKey, gemas: bigint) {
+  const base = getChain().base;
+  const holder = ctx.signer.publicKey;
+  const head = await fetchEthState(base, ref.vault, ref.id, holder);
+  const sourceIndex = head.core ? ethSourceIndex(head.core.position, source, head.core.advances) : null;
+  if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Position.");
+  const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), evmClient(netOfVault(ref.vault)).getBlockNumber()]);
+  await ensureEvmLinked(ctx);
+  const sig = await instantRedeemToEvm(ctx.signer, head.core!.position, source, gemas, ref.vault);
+  const after = await fetchEthState(base, ref.vault, ref.id, holder, sourceIndex);
+  const total = after.instantClaim?.unitsTotal ?? 0n;
+  addOp(ctx.signer.publicKey.toBase58(), { kind: "instant", vault: ref.vault, id: ref.id.toString(), hash: sig, sourceIndex, baseline: total.toString(), units: (total - (before.instantClaim?.unitsTotal ?? 0n)).toString(), fromBlock: fromBlock.toString() });
 }
 
 /** Redeems every ETH- and HYPE-Sourced holding the Account has redeemable: `redeem_to_evm`, then a tracker per Position. */

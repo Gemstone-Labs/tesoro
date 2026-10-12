@@ -14,6 +14,10 @@
 //   send-unlock <eid> <vault0x> <id>       anyone: send Unlock to the vault
 //   redeem <eid> <vault0x> <id> <gemas>    holder: redeem Gemas of the Position's Source, recorded as a claim
 //   send-pay-yield <eid> <vault0x> <id>    anyone: send PayYield for the recorded claim
+//   instant-redeem <eid> <vault0x> <id> <gemas>   holder: sell won Gemas of the Position's Source for 65% now (recorded as an instant claim)
+//   send-pay-instant <eid> <vault0x> <id>  anyone: send PayInstant for the recorded instant claim (the vault pays from its treasury)
+//   sync-treasury <eid> <vault0x> <id>     anyone: raise the mirror of the vault's treasury to the Position's latest report
+//   treasury <eid> <vault0x>               print the mirror of the vault's treasury (reported in, recorded, available)
 import { readFileSync } from 'fs'
 import { homedir } from 'os'
 import { createHash } from 'crypto'
@@ -74,6 +78,10 @@ const sourcePda = (position: PublicKey, index: number) => corePda(Buffer.from('s
 const holdingPda = (account: PublicKey, source: PublicKey) => corePda(Buffer.from('holding'), account.toBuffer(), source.toBuffer())
 const evmLinkPda = (evm: Buffer) => pda([Buffer.from('evm'), evm], BRIDGE)
 const claimPda = (account: PublicKey, source: PublicKey) => pda([Buffer.from('claim'), account.toBuffer(), source.toBuffer()], BRIDGE)
+const instantClaimPda = (account: PublicKey, source: PublicKey) => pda([Buffer.from('instant'), account.toBuffer(), source.toBuffer()], BRIDGE)
+const vaultTreasuryPda = (eid: number, vault: string) => pda([Buffer.from('treasury'), u32be(eid), hex(vault, 32)], BRIDGE)
+const coreTreasury = corePda(Buffer.from('treasury'))
+const coreTreasuryAccount = corePda(Buffer.from('account'), coreTreasury.toBuffer())
 
 async function run(name: string, ixs: TransactionInstruction[], signers: Keypair[], cu = 400_000) {
     const tx = new Transaction().add(
@@ -98,6 +106,7 @@ function readBridgePosition(d: Buffer) {
         principal: u128(Buffer.from(rd(16)).reverse()), horizonMonths: rd(1)[0], opened: rd(1)[0] === 1,
         lastYieldSeq: rd(8).readBigUInt64LE(0), yieldCumulative: u128(Buffer.from(rd(16)).reverse()),
         appliedYieldSeq: rd(8).readBigUInt64LE(0), outSeq: rd(8).readBigUInt64LE(0), unlockSent: rd(1)[0] === 1,
+        treasuryIn: u128(Buffer.from(rd(16)).reverse()),
     }
 }
 function readCorePosition(d: Buffer) {
@@ -252,7 +261,7 @@ async function main() {
             const ix = new TransactionInstruction({
                 programId: CORE,
                 keys: [
-                    meta(oracle.publicKey, true, true), meta(owner.publicKey, true), meta(configPda), meta(ownerAccount, false, true),
+                    meta(oracle.publicKey, true, true), meta(owner.publicKey, true), meta(configPda), meta(coreTreasury), meta(ownerAccount, false, true),
                     meta(cp, false, true), meta(source, false, true), meta(holdingPda(ownerAccount, source), false, true), meta(SystemProgram.programId),
                 ],
                 data: Buffer.concat([disc('take_advance'), Buffer.from([Number(a[3])]), u64le(BigInt(a[4]))]),
@@ -266,7 +275,7 @@ async function main() {
             const ix = new TransactionInstruction({
                 programId: BRIDGE,
                 keys: [
-                    meta(store), meta(bridgePositionPda(eid, pid), false, true), meta(authority), meta(sourceAuthPda(eid)), meta(cp, false, true),
+                    meta(store), meta(bridgePositionPda(eid, pid), false, true), meta(vaultTreasuryPda(eid, vault), false, true), meta(authority), meta(sourceAuthPda(eid)), meta(cp, false, true),
                     src ? meta(src, false, true) : meta(BRIDGE), meta(CORE),
                 ],
                 data: Buffer.concat([disc('apply_yield'), u32le(eid), pid]),
@@ -333,6 +342,65 @@ async function main() {
                 data: Buffer.concat([disc('send_pay_yield'), sendParams(eid, pid, fee)]),
             })
             return void (await run('send_pay_yield', [ix], [deployer], 600_000))
+        }
+        case 'instant-redeem': {
+            const pid = positionId(vault, id)
+            const cp = corePositionPda(eid, pid)
+            const idx = readCorePosition((await connection.getAccountInfo(cp))!.data).advances - 1
+            const source = sourcePda(cp, idx)
+            const ix = new TransactionInstruction({
+                programId: BRIDGE,
+                keys: [
+                    meta(owner.publicKey, true, true), meta(store), meta(authority), meta(sourceAuthPda(eid)),
+                    meta(ownerAccount, false, true), meta(cp), meta(source), meta(holdingPda(ownerAccount, source), false, true),
+                    meta(coreTreasury), meta(coreTreasuryAccount, false, true), meta(holdingPda(coreTreasuryAccount, source), false, true),
+                    meta(vaultTreasuryPda(eid, vault), false, true), meta(instantClaimPda(ownerAccount, source), false, true),
+                    meta(CORE), meta(SystemProgram.programId),
+                ],
+                data: Buffer.concat([disc('instant_redeem_to_evm'), u64le(BigInt(a[3]))]),
+            })
+            return void (await run('instant_redeem_to_evm', [ix], [owner]))
+        }
+        case 'send-pay-instant': {
+            const pid = positionId(vault, id)
+            const cp = corePositionPda(eid, pid)
+            const idx = readCorePosition((await connection.getAccountInfo(cp))!.data).advances - 1
+            const source = sourcePda(cp, idx)
+            const acct = await connection.getAccountInfo(ownerAccount)
+            const evm = Buffer.from(acct!.data.subarray(8 + 1 + 32, 8 + 1 + 32 + 20))
+            const acc = await sendAccounts(eid, vault)
+            const fee = await quoteFee(eid, vault, 5, acc.quote)
+            console.log('fee lamports', fee.toString())
+            const ix = new TransactionInstruction({
+                programId: BRIDGE,
+                keys: [
+                    meta(deployer.publicKey, true, true), meta(peerPda(eid, vault)), meta(store), meta(bridgePositionPda(eid, pid), false, true),
+                    meta(cp), meta(ownerAccount), meta(evmLinkPda(evm)), meta(instantClaimPda(ownerAccount, source), false, true),
+                    meta(endpointSettings), meta(SystemProgram.programId), ...acc.send,
+                ],
+                data: Buffer.concat([disc('send_pay_instant'), sendParams(eid, pid, fee)]),
+            })
+            return void (await run('send_pay_instant', [ix], [deployer], 600_000))
+        }
+        case 'sync-treasury': {
+            const pid = positionId(vault, id)
+            const ix = new TransactionInstruction({
+                programId: BRIDGE,
+                keys: [meta(bridgePositionPda(eid, pid)), meta(vaultTreasuryPda(eid, vault), false, true)],
+                data: Buffer.concat([disc('sync_treasury'), u32le(eid), pid]),
+            })
+            return void (await run('sync_treasury', [ix], [deployer]))
+        }
+        case 'treasury': {
+            const pk = vaultTreasuryPda(eid, vault)
+            const info = await connection.getAccountInfo(pk)
+            if (!info) return console.log('vault treasury', pk.toBase58(), 'missing (set_peer_config creates it)')
+            // disc 8, eid u32, peer_address [32], reported_in u128, instant_recorded u128, bump
+            const u128 = (o: number) => BigInt('0x' + Buffer.from(info.data.subarray(o, o + 16)).reverse().toString('hex'))
+            const reportedIn = u128(44)
+            const recorded = u128(60)
+            console.log('vault treasury', pk.toBase58(), JSON.stringify({ reportedIn: reportedIn.toString(), instantRecorded: recorded.toString(), available: (reportedIn > recorded ? reportedIn - recorded : 0n).toString() }))
+            return
         }
         default: throw new Error('unknown command')
     }
