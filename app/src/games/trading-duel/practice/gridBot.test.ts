@@ -43,7 +43,7 @@ describe("grid bot", () => {
       const step = stepFor(a, STEP_PPM.SOL);
       let tr = newTrack();
       p.forEach((v, t) => (tr = record(tr, t, BigInt(Math.round(v * 1e8)))));
-      tr = finish(tr, BigInt(Math.round(p[149] * 1e8)));
+      tr = finish(tr);
       const at = botPickTimes(rng);
       const picks = at.map((when, c) => botRow(p.slice(0, Math.max(3, Math.floor(when) + 1)), columnStart(c) + 5 - when, a, step, rng));
       const r = settle(tr, [picks, Array(12).fill(NO_PICK)], a, step);

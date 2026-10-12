@@ -93,7 +93,7 @@ impl Track {
     /// Records a price sample at time `t`. A sample inside column `c` first gives every column that
     /// got no sample of its own (and has a line to carry) the last price recorded before it, then
     /// starts `c` from that price (the line enters the column there) and extends it. Samples during
-    /// the head start only set the carried price; samples at or after the end are `finish`'s job.
+    /// the head start only set the carried price; samples at or after the end are ignored.
     pub fn record(&mut self, t: i64, price: u64) {
         if t >= MATCH_SECS {
             return;
@@ -117,9 +117,18 @@ impl Track {
         self.last_col = c.map_or(-1, |c| c as i8);
     }
 
-    /// Closes the window with the end-of-window price: the final sample of the last column.
-    pub fn finish(&mut self, end_price: u64) {
-        self.record(MATCH_SECS - 1, end_price);
+    /// Closes the window: every column without data of its own takes the last price recorded.
+    /// No end price is added, so the result is the same whoever ends the Match and when.
+    pub fn finish(&mut self) {
+        if self.last == 0 {
+            return;
+        }
+        let from = (i32::from(self.last_col) + 1).max(0) as usize;
+        for k in from..COLUMNS {
+            if !self.has(k) {
+                self.extend(k, self.last);
+            }
+        }
     }
 
     /// True when `row` lies within the rows the line crossed in column `c`.
@@ -222,7 +231,7 @@ mod tests {
             for s in v["samples"].as_array().expect("samples") {
                 tr.record(s[0].as_i64().expect("t"), num(&s[1]));
             }
-            tr.finish(num(&v["endPrice"]));
+            tr.finish();
             let e = &v["expected"];
             for c in 0..COLUMNS {
                 let (lo, hi) = (&e["lo"][c], &e["hi"][c]);

@@ -21,15 +21,15 @@ const keys = (ix: TransactionInstruction) => ix.keys.map((k) => k.pubkey.toBase5
 const ID = 1_800_000_000_000n * 8n;
 
 describe("rollup instructions", () => {
-  it("tick and end_match take caller, duel, both Books and the price feed, in that order", async () => {
+  it("tick takes caller, duel, both Books and the price feed; end_match the same without the feed", async () => {
     const { chain, sent, player } = capture();
     const ad = addresses(ID);
     await chain.tick(player, ID, ASSETS[1]);
-    await chain.end(player, ID, ASSETS[1]);
-    for (const s of sent) {
-      expect(s.ix.programId.equals(TRADING_DUEL_PROGRAM_ID)).toBe(true);
-      expect(keys(s.ix)).toEqual([player.publicKey, ad.duel, ad.book0, ad.book1, ASSETS[1].feed].map((k) => k.toBase58()));
-    }
+    await chain.end(player, ID);
+    for (const s of sent) expect(s.ix.programId.equals(TRADING_DUEL_PROGRAM_ID)).toBe(true);
+    const base = [player.publicKey, ad.duel, ad.book0, ad.book1].map((k) => k.toBase58());
+    expect(keys(sent[0].ix)).toEqual([...base, ASSETS[1].feed.toBase58()]);
+    expect(keys(sent[1].ix)).toEqual(base);
     expect(sent.map((s) => s.step)).toEqual(["tick", "end_match"]);
     expect(sent[0].ix.keys[0].isSigner).toBe(true);
     expect(sent[0].ix.keys[1].isWritable).toBe(true);

@@ -87,7 +87,7 @@ function trackAt(t: number): Track {
   let tr = record(newTrack(), 0, ANCHOR);
   const price = (sec: number) => ANCHOR + BigInt(Math.round((Math.sin(sec / 9) * 1.6 + Math.sin(sec / 3.1) * 0.5) * Number(STEP)));
   for (let sec = 1; sec < Math.min(t, MATCH_SECS); sec++) tr = record(tr, sec, price(sec));
-  return t >= MATCH_SECS ? finish(tr, price(MATCH_SECS - 1)) : tr;
+  return t >= MATCH_SECS ? finish(tr) : tr;
 }
 
 /** Everyone's picks `t` seconds in: yours for the columns you filled, the opponent's only for locked columns. */

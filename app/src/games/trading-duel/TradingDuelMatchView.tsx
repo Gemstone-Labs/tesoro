@@ -6,7 +6,6 @@ import { shownIdentity } from "@/lib/identity/display";
 import { useAccount } from "@/lib/account";
 import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
-import type { ChainMatch } from "@/lib/chain/read";
 import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
@@ -20,11 +19,6 @@ import { GridScreen, type GridSide } from "./GridScreen";
 import { gridInputs, isDraw } from "./matchView";
 import { useDuelMatch } from "./useDuelMatch";
 import "./trading.css";
-
-
-function fmtFee(m: ChainMatch): number {
-  return matchFee(m);
-}
 
 /** Name and animal for one side of the screen. */
 function useSide(account: string | null | undefined, fallback: string): GridSide {
@@ -77,7 +71,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         outcome={outcome}
         delta={delta}
         entry={m.entry}
-        fee={fmtFee(m)}
+        fee={matchFee(m)}
         role="player"
         backed={!!m.backing}
         scores={scores}
@@ -152,6 +146,8 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
           entry={m?.entry}
           pot={m ? m.entry * 2 - matchFee(m) : undefined}
           error={view.error}
+          clockOffsetMs={view.clockOffsetMs}
+          payingOut={stage === "closing" && duel.status === STATUS.over}
           onPick={pick}
           exitHref="/lobby"
           banner={

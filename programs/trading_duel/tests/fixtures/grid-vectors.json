@@ -1,5 +1,5 @@
 {
- "description": "Shared vectors for the price grid: TypeScript grid.ts and Rust engine.rs must both reproduce them. Prices are integer strings in 1e-8 USD; times are integer seconds since the Match started; picks are rows per seat (255 = no pick); lo/hi null = column without data (cannot be hit). Expected values come from an independent naive reference (python), not from either implementation.",
+ "description": "Shared vectors for the price grid: TypeScript grid.ts and Rust engine.rs must both reproduce them. The Match ends with no end price: columns without a sample carry the last recorded price forward. Prices are integer strings in 1e-8 USD; times are integer seconds since the Match started; picks are rows per seat (255 = no pick); lo/hi null = column without data (cannot be hit). Expected values come from an independent naive reference (python), not from either implementation.",
  "constants": {
   "COLUMNS": 12,
   "ROWS": 8,
@@ -509,7 +509,6 @@
      "10000000000"
     ]
    ],
-   "endPrice": "10000000000",
    "picks": [
     [
      4,
@@ -651,7 +650,6 @@
      "9992499999"
     ]
    ],
-   "endPrice": "10000000000",
    "picks": [
     [
      5,
@@ -709,7 +707,7 @@
      "9992499999",
      "9992499999",
      "9992499999",
-     "10000000000"
+     "9992499999"
     ],
     "hits": [
      [
@@ -724,7 +722,7 @@
       true,
       false,
       false,
-      true
+      false
      ],
      [
       true,
@@ -738,12 +736,12 @@
       false,
       false,
       false,
-      true
+      false
      ]
     ],
     "scores": [
-     900,
-     800
+     800,
+     700
     ],
     "winner": 0
    }
@@ -777,7 +775,6 @@
      "5000000000"
     ]
    ],
-   "endPrice": "10000000000",
    "picks": [
     [
      7,
@@ -835,7 +832,7 @@
      "5000000000",
      "5000000000",
      "5000000000",
-     "10000000000"
+     "5000000000"
     ],
     "hits": [
      [
@@ -850,7 +847,7 @@
       false,
       false,
       false,
-      true
+      false
      ],
      [
       false,
@@ -864,12 +861,12 @@
       false,
       false,
       false,
-      true
+      false
      ]
     ],
     "scores": [
-     500,
-     400
+     400,
+     300
     ],
     "winner": 0
    }
@@ -891,7 +888,6 @@
      "9997500000"
     ]
    ],
-   "endPrice": "9997500000",
    "picks": [
     [
      6,
@@ -989,14 +985,13 @@
    }
   },
   {
-   "name": "only-end",
-   "note": "no samples: columns before the end have no data; column 11 sees only the end price",
+   "name": "no-samples",
+   "note": "no samples at all: no column has data, so nothing can be hit (0-0 draw)",
    "asset": "SOL",
    "stepPpm": 250,
    "anchor": "10000000000",
    "step": "2500000",
    "samples": [],
-   "endPrice": "10002500000",
    "picks": [
     [
      5,
@@ -1040,7 +1035,7 @@
      null,
      null,
      null,
-     "10002500000"
+     null
     ],
     "hi": [
      null,
@@ -1054,7 +1049,7 @@
      null,
      null,
      null,
-     "10002500000"
+     null
     ],
     "hits": [
      [
@@ -1069,7 +1064,7 @@
       false,
       false,
       false,
-      true
+      false
      ],
      [
       false,
@@ -1087,10 +1082,10 @@
      ]
     ],
     "scores": [
-     100,
+     0,
      0
     ],
-    "winner": 0
+    "winner": "draw"
    }
   },
   {
@@ -1106,7 +1101,6 @@
      "10002500000"
     ]
    ],
-   "endPrice": "10002500000",
    "picks": [
     [
      5,
@@ -1224,7 +1218,6 @@
      "10005000000"
     ]
    ],
-   "endPrice": "10005000000",
    "picks": [
     [
      6,
@@ -1390,7 +1383,6 @@
      "10000000000"
     ]
    ],
-   "endPrice": "10000000000",
    "picks": [
     [
      255,
@@ -1796,7 +1788,6 @@
      "10017500000"
     ]
    ],
-   "endPrice": "10016250000",
    "picks": [
     [
      0,
@@ -1895,7 +1886,7 @@
   },
   {
    "name": "last-seconds",
-   "note": "a sample at t=149 and the end price both land in column 11",
+   "note": "a sample at t=149 lands in column 11; the end adds no price of its own",
    "asset": "SOL",
    "stepPpm": 250,
    "anchor": "10000000000",
@@ -1910,7 +1901,6 @@
      "10005000000"
     ]
    ],
-   "endPrice": "9995000000",
    "picks": [
     [
      6,
@@ -1954,7 +1944,7 @@
      "10000000000",
      "10000000000",
      "10000000000",
-     "9995000000"
+     "10000000000"
     ],
     "hi": [
      "10000000000",
@@ -1997,14 +1987,14 @@
       false,
       false,
       false,
-      true
+      false
      ]
     ],
     "scores": [
      100,
-     100
+     0
     ],
-    "winner": "draw"
+    "winner": 0
    }
   },
   {
@@ -2028,7 +2018,6 @@
      "4999"
     ]
    ],
-   "endPrice": "5001",
    "picks": [
     [
      4,
@@ -2086,7 +2075,7 @@
      "4999",
      "4999",
      "4999",
-     "5001"
+     "4999"
     ],
     "hits": [
      [
@@ -2101,7 +2090,7 @@
       false,
       false,
       false,
-      true
+      false
      ],
      [
       false,
@@ -2119,7 +2108,7 @@
      ]
     ],
     "scores": [
-     300,
+     200,
      1100
     ],
     "winner": 1
@@ -2438,7 +2427,6 @@
      "8594842165"
     ]
    ],
-   "endPrice": "8593998931",
    "picks": [
     [
      255,
@@ -2482,7 +2470,7 @@
      "8594847287",
      "8594123701",
      "8594123701",
-     "8593998931"
+     "8594842165"
     ],
     "hi": [
      "8600316227",
@@ -2844,7 +2832,6 @@
      "8599907127"
     ]
    ],
-   "endPrice": "8600127533",
    "picks": [
     [
      2,
@@ -2902,7 +2889,7 @@
      "8600453768",
      "8600453768",
      "8598575338",
-     "8600127533"
+     "8600065405"
     ],
     "hits": [
      [
@@ -3242,7 +3229,6 @@
      "8597892004"
     ]
    ],
-   "endPrice": "8597749193",
    "picks": [
     [
      3,
@@ -3624,7 +3610,6 @@
      "253901070910"
     ]
    ],
-   "endPrice": "253894680325",
    "picks": [
     [
      3,
@@ -3668,7 +3653,7 @@
      "253777431582",
      "253820933144",
      "253822468042",
-     "253894680325"
+     "253901070910"
     ],
     "hi": [
      "253543449059",
@@ -4010,7 +3995,6 @@
      "1912004689"
     ]
    ],
-   "endPrice": "1911914316",
    "picks": [
     [
      0,
@@ -4424,7 +4408,6 @@
      "8617209126"
     ]
    ],
-   "endPrice": "8615474234",
    "picks": [
     [
      5,
@@ -4468,7 +4451,7 @@
      "8615424181",
      "8615879553",
      "8617616464",
-     "8615474234"
+     "8616365196"
     ],
     "hi": [
      "8605841934",
@@ -4814,7 +4797,6 @@
      "8595623111"
     ]
    ],
-   "endPrice": "8595144183",
    "picks": [
     [
      2,
@@ -5196,7 +5178,6 @@
      "8499579395"
     ]
    ],
-   "endPrice": "8499071588",
    "picks": [
     [
      2,

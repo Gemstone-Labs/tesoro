@@ -1,4 +1,4 @@
-import { COLUMNS, NO_PICK, canPick } from "./grid";
+import { COLUMNS, NO_PICK } from "./grid";
 import { DRAW, STATUS, type Book, type Duel } from "./chain";
 
 /** Rows you picked and the chain has not confirmed yet, by column (`NO_PICK` is a pending clear). */
@@ -30,8 +30,33 @@ export function settlePending(pending: PendingPicks, book: Book | null): Pending
   return out;
 }
 
-/** Whether a pick would still be accepted, by the rollup clock. */
-export const pickOpen = (duel: Duel, column: number, nowMs: number): boolean => canPick(column, nowMs / 1000 - duel.startsAt);
+/** One look at the rollup's clock: the time it stamped on the Duel's last tick (unix seconds) and when this browser read it (ms). */
+export interface ClockSighting {
+  rollupS: number;
+  seenMs: number;
+}
+
+/** How many recent sightings count. */
+export const CLOCK_WINDOW = 12;
+const MAX_OFFSET_MS = 30_000;
+
+/**
+ * How far the rollup's clock runs ahead of this browser's (ms; negative when behind): add it to
+ * `Date.now()` to get rollup time. A stamp is whole seconds and reaches the browser a little after
+ * it was made, so every sighting reads low; the best of the recent ones has the least delay, and
+ * half a second is added back for the stamp's lost fraction. Zero without any sighting.
+ */
+export function clockOffsetMs(sightings: ClockSighting[]): number {
+  if (!sightings.length) return 0;
+  const best = Math.max(...sightings.map((s) => s.rollupS * 1000 - s.seenMs));
+  return Math.max(-MAX_OFFSET_MS, Math.min(MAX_OFFSET_MS, Math.round(best + 500)));
+}
+
+/** The recent sightings with a new one; a stamp already seen adds nothing. */
+export function addSighting(sightings: ClockSighting[], s: ClockSighting): ClockSighting[] {
+  if (sightings.some((x) => x.rollupS === s.rollupS)) return sightings;
+  return [...sightings, s].slice(-CLOCK_WINDOW);
+}
 
 export interface GridInputs {
   mine: number[];

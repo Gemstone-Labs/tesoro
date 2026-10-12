@@ -10,7 +10,6 @@ interface Vector {
   anchor: string;
   step: string;
   samples: [number, string][];
-  endPrice: string;
   picks: [number[], number[]];
   expected: { lo: (string | null)[]; hi: (string | null)[]; hits: [boolean[], boolean[]]; scores: [number, number]; winner: G.Winner };
 }
@@ -84,7 +83,7 @@ describe("shared vectors", () => {
     const step = BigInt(v.step);
     let tr = G.newTrack();
     for (const [t, p] of v.samples) tr = G.record(tr, t, BigInt(p));
-    tr = G.finish(tr, BigInt(v.endPrice));
+    tr = G.finish(tr);
     expect(tr.lo.map((x, c) => (tr.seen[c] ? String(x) : null))).toEqual(v.expected.lo);
     expect(tr.hi.map((x, c) => (tr.seen[c] ? String(x) : null))).toEqual(v.expected.hi);
     const r = G.settle(tr, v.picks, anchor, step);
@@ -97,11 +96,22 @@ describe("shared vectors", () => {
 describe("rules in isolation", () => {
   const A = 100_00000000n;
   const S = 2_500_000n;
-  it("ignores samples at or after the end until finish", () => {
+  it("ignores samples at or after the end", () => {
     let tr = G.record(G.newTrack(), 30, A);
     tr = G.record(tr, 150, A + 50n * S);
     expect(tr.hi[11]).toBe(0n);
     expect(tr.last).toBe(A);
+  });
+
+  it("finishing adds no end price: later columns carry the last recorded price", () => {
+    let tr = G.record(G.newTrack(), 0, A);
+    tr = G.record(tr, 125, A + 3n * S);
+    const done = G.finish(tr);
+    expect(done.lo[11]).toBe(A + 3n * S);
+    expect(done.hi[11]).toBe(A + 3n * S);
+    expect(done.lo[9]).toBe(A);
+    expect(done.hi[9]).toBe(A + 3n * S);
+    expect(G.finish(G.newTrack()).seen.some(Boolean)).toBe(false);
   });
 
   it("does not mutate the track it was given", () => {
@@ -111,7 +121,7 @@ describe("rules in isolation", () => {
   });
 
   it("an unpicked column never scores, a pick of 8 or more never hits", () => {
-    const tr = G.finish(G.record(G.newTrack(), 0, A), A);
+    const tr = G.finish(G.record(G.newTrack(), 0, A));
     expect(G.hits(tr, 0, 8, A, S)).toBe(false);
     expect(G.settle(tr, [Array(12).fill(G.NO_PICK), Array(12).fill(4)], A, S).winner).toBe(1);
   });

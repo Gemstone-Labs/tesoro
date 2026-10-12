@@ -1181,10 +1181,10 @@
     {
       "name": "end_match",
       "docs": [
-        "Rollup, permissionless. Once the window has closed: records the first oracle price",
-        "published within `END_GRACE_SECS` after the end (or, if called later, the last price",
-        "recorded during the window) as the final sample, scores every column and decides the Match:",
-        "more points wins, equal points is a draw."
+        "Rollup, permissionless. Once the window has closed: carries the line forward through any",
+        "column it did not reach, scores every column and decides the Match: more points wins,",
+        "equal points is a draw. It reads no price, so the result is the same whoever ends the",
+        "Match and whenever they do."
       ],
       "discriminator": [
         34,
@@ -1228,9 +1228,6 @@
         },
         {
           "name": "book_1"
-        },
-        {
-          "name": "price_feed"
         }
       ],
       "args": []
@@ -2031,28 +2028,28 @@
     },
     {
       "code": 6010,
-      "name": "EndPriceOutOfWindow",
-      "msg": "The oracle price is outside the end-of-window grace"
-    },
-    {
-      "code": 6011,
       "name": "BadPriceFeed",
       "msg": "Not the price feed of this Match's asset"
     },
     {
-      "code": 6012,
+      "code": 6011,
       "name": "StalePrice",
       "msg": "The oracle price is stale or in the future"
     },
     {
-      "code": 6013,
+      "code": 6012,
       "name": "BadPrice",
       "msg": "The oracle price is unusable"
     },
     {
-      "code": 6014,
+      "code": 6013,
       "name": "NotTimedOut",
       "msg": "Deadline has not passed"
+    },
+    {
+      "code": 6014,
+      "name": "StartWindowPassed",
+      "msg": "The start deadline has passed"
     },
     {
       "code": 6015,
@@ -2322,6 +2319,10 @@
           },
           {
             "name": "last_tick",
+            "docs": [
+              "Informational: the time of the last sample. No instruction reads it; clients use it to",
+              "notice that the Duel changed."
+            ],
             "type": "i64"
           },
           {

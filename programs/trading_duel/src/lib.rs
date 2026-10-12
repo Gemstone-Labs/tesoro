@@ -75,8 +75,6 @@ pub enum DuelError {
     ColumnLocked,
     #[msg("Unknown asset")]
     InvalidAsset,
-    #[msg("The oracle price is outside the end-of-window grace")]
-    EndPriceOutOfWindow,
     #[msg("Not the price feed of this Match's asset")]
     BadPriceFeed,
     #[msg("The oracle price is stale or in the future")]
@@ -85,6 +83,8 @@ pub enum DuelError {
     BadPrice,
     #[msg("Deadline has not passed")]
     NotTimedOut,
+    #[msg("The start deadline has passed")]
+    StartWindowPassed,
     #[msg("The tesoro_core Match is not an Active Match of this Game")]
     BadTesoroMatch,
     #[msg("The Match is not over")]
@@ -150,14 +150,6 @@ pub fn read_price(feed: &AccountInfo, asset: u8, now: i64) -> Result<u64> {
         DuelError::StalePrice
     );
     Ok(price)
-}
-
-/// `publish_time` of a feed already validated by `read_price`.
-fn published_at(feed: &AccountInfo) -> Result<i64> {
-    let data = feed.try_borrow_data()?;
-    Ok(i64::from_le_bytes(
-        data[93..101].try_into().map_err(|_| DuelError::BadPrice)?,
-    ))
 }
 
 /// Seconds since the Match started. The grid is open from the start until `ends_at`.
@@ -326,7 +318,7 @@ pub mod trading_duel {
         let now = Clock::get()?.unix_timestamp;
         let duel = &mut ctx.accounts.duel;
         require!(duel.status == STATUS_CREATED, DuelError::AlreadyStarted);
-        require!(now <= duel.start_deadline, DuelError::NotTimedOut);
+        require!(now <= duel.start_deadline, DuelError::StartWindowPassed);
         let anchor = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
         duel.status = STATUS_LIVE;
         duel.starts_at = now;
@@ -430,31 +422,16 @@ pub mod trading_duel {
         Ok(())
     }
 
-    /// Rollup, permissionless. Once the window has closed: records the first oracle price
-    /// published within `END_GRACE_SECS` after the end (or, if called later, the last price
-    /// recorded during the window) as the final sample, scores every column and decides the Match:
-    /// more points wins, equal points is a draw.
-    pub fn end_match(ctx: Context<Sample>) -> Result<()> {
+    /// Rollup, permissionless. Once the window has closed: carries the line forward through any
+    /// column it did not reach, scores every column and decides the Match: more points wins,
+    /// equal points is a draw. It reads no price, so the result is the same whoever ends the
+    /// Match and whenever they do.
+    pub fn end_match(ctx: Context<EndMatch>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let duel = &mut ctx.accounts.duel;
         require!(duel.status == STATUS_LIVE, DuelError::NotLive);
         require!(now >= duel.ends_at, DuelError::NotEnded);
-        let grace_end = duel
-            .ends_at
-            .checked_add(END_GRACE_SECS)
-            .ok_or(DuelError::Overflow)?;
-        // On time: the first price published inside [ends_at, ends_at + grace]. Late: the last
-        // price recorded during the window, so waiting for a better tick cannot change the result.
-        let price = if now > grace_end {
-            duel.track.last
-        } else {
-            let price = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
-            let published = published_at(&ctx.accounts.price_feed)?;
-            require!(published >= duel.ends_at, DuelError::NotEnded);
-            require!(published <= grace_end, DuelError::EndPriceOutOfWindow);
-            price
-        };
-        duel.track.finish(price);
+        duel.track.finish();
         reveal(
             duel,
             [&ctx.accounts.book_0, &ctx.accounts.book_1],
@@ -837,7 +814,19 @@ pub struct SetPick<'info> {
     pub book: Box<Account<'info, Book>>,
 }
 
-/// Shared by `tick` and `end_match`: `caller` is any payer.
+/// `caller` is any payer.
+#[derive(Accounts)]
+pub struct EndMatch<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    pub duel: Account<'info, Duel>,
+    #[account(seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
+    pub book_0: Box<Account<'info, Book>>,
+    #[account(seeds = [BOOK_SEED, duel.key().as_ref(), &[1]], bump = book_1.bump)]
+    pub book_1: Box<Account<'info, Book>>,
+}
+
+/// `tick`: `caller` is any payer.
 #[derive(Accounts)]
 pub struct Sample<'info> {
     pub caller: Signer<'info>,
