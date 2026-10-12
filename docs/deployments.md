@@ -2,6 +2,30 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Yield Fee and Instant Redeem (2026-10-12)
+
+ADR 0007. To be filled at deploy; no entry below has run yet. The previous SimLST vaults (Hoodi `0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`, HyperEVM `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316`) are abandoned with their Positions: they speak the 61-byte `YieldAccrued`, which the new bridge refuses.
+
+| Item | Hoodi (560048) | HyperEVM (998) |
+|---|---|---|
+| New simETH / simHYPE vault | | |
+| `SimLST.setMinter(vault)` | | |
+| `setPeer(40168, Store)` | | |
+| Solana `set_peer_config` | | |
+| Solana `endpoint_init_oapp_pathway` | | |
+| `fundTreasury` | | |
+
+| Item (Solana) | Tx |
+|---|---|
+| `tesoro_core` upgrade | |
+| `tesoro_bridge` upgrade | |
+| `init_treasury` | |
+| `fund_treasury` (SOL) | |
+| Smoke: Yield Fee on a SOL Position | |
+| Smoke: Instant Redeem (SOL) | |
+| Smoke: Instant Redeem (ETH) | |
+| Smoke: Instant Redeem (HYPE) | |
+
 ## Per-Position yield: EVM redeploy (2026-10-03)
 
 Model: `docs/yield-model.md`, ADR 0005. `SimLST` now has a constant rate and a `minter`; `PositionVaultOApp` takes a fifth constructor argument `yieldMinter` (the SimLST) and mints `principalUnderlying * apyBps * simElapsed / (BPS * YEAR)` into itself on `reportYield` / `accrue` / Unlock / PayYield. Deployer `0x96137cB99Fe2878299b672Ac967e88279f479d1C`, Store PDA peer `0x60ae58df…c792`, 500 bps on Solana, same deploy commands as before (`script/deploy-oapp.sh`, now passing `yieldMinter`).

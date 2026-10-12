@@ -79,10 +79,12 @@ Settlement is the binding number: 136k of the 150k target and well under 200k, s
 
 ## Money rules as built
 
-- **Advance**: 100% of `principal * rate_bps * months / (12 * 10_000)` in source units, converted at the issuance price, floored to whole Gemas. One open Advance per Position; a new one only when Debt is zero. Horizon 1 to 12.
+- **Advance**: 80% of the projected yield (100% minus the Yield Fee), `principal * rate_bps * months * (10_000 - yield_fee_bps) / (12 * 10_000 * 10_000)` in source units, converted at the issuance price, floored to whole Gemas. One open Advance per Position; a new one only when Debt is zero. Horizon 1 to 12.
 - **Debt**: outstanding Gemas of the Position's open Source, in Gemas (source-unit view via `debt_units`). `YieldAccrued(cumulative)` repays it automatically; yield beyond the Advance goes to the owner as `free_yield`.
 - **Principal never reduces Debt**: no ledger function reads Principal after sizing an Advance, and the only paths that lower Debt are `apply_yield` and `return_own` (property-tested).
 - **Return**: only the Position owner, only their own-sourced Gemas, only up to Debt.
+- **Yield Fee**: 20% (`yield_fee_bps = 2000`, cap 5000) of every yield increment goes to the Treasury before it counts toward Debt, redemption or free yield. Never on Principal.
+- **Instant Redeem**: won, free Gemas only (`NotWonGemas` otherwise); payout `floor(units * (10_000 - instant_fee_bps) / 10_000)` with `instant_fee_bps = 3500`, paid by the Treasury (`TreasuryShort`, 6017, when it holds less). The Gemas move to the Treasury Account's Holding of the same Source; Source counts are unchanged.
 - **Redeem**: only up to accrued yield; `redeemed_units` versus `yield_units` is the redeemed-versus-pending split per Source.
 - **Match**: entries 500 / 1,000 / 2,500; settle once (`Open`/`Active` to `Settled`/`Refunded`); fees `platform_bps + studio_bps` of the Pot (placeholders 200 + 300), snapshotted when the Match opens, plus the **Leaderboard Fee** `Config.leaderboard_bps` (100), read from Config when the Match settles (all three capped at 5,000 together; see "Leaderboard" below). Refund by the Game authority any time, by the opener of an unjoined Match, or by anyone after 1h.
 - **Backing**: Request (Player, game, entry); Offer (Backer, game, entry, Player share of surplus in bps; directed at a Request or public with up to 8 applicants). Requests and Offers live 24h; an accepted Offer has 24h to be used. The Backer's Gemas are reserved on create. Win: Backer's entry first, then the Player's share of the surplus (after fees), the rest to the Backer. Loss: the Backer loses the entry, nothing more. No revoke after the Match starts (`Consumed`). The Player is never debited and only ever receives won Gemas.
@@ -155,4 +157,27 @@ All with `TESORO_CORE_ID`, discriminators `sha256("global:<name>")[..8]` or the 
 
 ## Per-Position yield migration (2026-10-03)
 
-`NativeCustody` gains `last_accrual_ts: i64` after `tracked_shares` (`SPACE` 8 bytes larger). `migrate_native_custody` (permissionless) extends a custody in either older layout (original 194 bytes, or with `tracked_shares`) and sets `last_accrual_ts = now`: the Position keeps the yield the old rate model already gave it (the sim_lst rate is checkpointed at its then-current value), no back pay, and earns at `principal * apy * speedup / year` from the migration. An unmigrated custody cannot be read by `accrue_native_yield`, `redeem`, `unlock` or `sweep` until it is migrated. `open_advance` is unchanged: `principal * rate_bps * months / 12`, now repaid in exactly `months * 10` minutes at speedup 4,380.
+`NativeCustody` gains `last_accrual_ts: i64` after `tracked_shares` (`SPACE` 8 bytes larger). `migrate_native_custody` (permissionless) extends a custody in either older layout (original 194 bytes, or with `tracked_shares`) and sets `last_accrual_ts = now`: the Position keeps the yield the old rate model already gave it (the sim_lst rate is checkpointed at its then-current value), no back pay, and earns at `principal * apy * speedup / year` from the migration. An unmigrated custody cannot be read by `accrue_native_yield`, `redeem`, `unlock` or `sweep` until it is migrated. `open_advance` was then `principal * rate_bps * months / 12` (since 2026-10-12 it is 80% of that, see below), repaid in exactly `months * 10` minutes at speedup 4,380.
+
+## Yield Fee, Instant Redeem and the Treasury (2026-10-12, ADR 0007)
+
+| On chain | Seeds | Notes |
+|---|---|---|
+| `Treasury` | `["treasury"]` | `yield_fee_bps`, `instant_fee_bps`, `account`, `vault`, `fee_units` (cumulative SOL units minted as Yield Fee), `instant_units` (paid by SOL Instant Redeem), `funded_shares` |
+| Treasury Account | `["account", treasury_pda]` | a `TesoroAccount` with the Treasury PDA as authority: holds the Gemas it bought; nobody can sign for it |
+| Treasury vault (simSOL token account) | `["treasury_vault"]` | authority = the Treasury PDA |
+
+Instructions (new):
+
+- `init_treasury(yield_fee_bps, instant_fee_bps)` (admin; calling it again changes the rates). Accounts: admin, config, treasury, treasury_account, mint (`SIM_SOL_MINT`), treasury_vault, token program, system program.
+- `fund_treasury(shares)` (admin): moves simSOL from the admin into the treasury vault. Event `TreasuryFunded`.
+- `instant_redeem(amount)` (native SOL Sources): holder_authority, holder_account, position, source, holding, treasury, treasury_account, treasury_holding (created for the holder if missing), treasury_vault, holder_token, pool, token program, system program. Pays simSOL `floor(payout * 1e9 / rate)` from the treasury vault in the same transaction. Event `InstantRedeemed`.
+- `instant_redeem_from_source(amount) -> u64` (EVM Sources; holder and the chain's source authority sign): same ledger step, no payout; returns the payout in source units and the bridge records and caps it.
+- `redeem_treasury(amount)` (native SOL, permissionless crank): the Treasury Account redeems its Holding under the normal Redeem rules; the simSOL goes into the treasury vault. `redeem_treasury_from_source(amount)` is the EVM twin, signed by the source authority.
+
+Changed account lists (order matters for clients):
+
+- `accrue_native_yield`: `position, custody, vault, pool, mint, yield_config, yield_authority, sim_lst_program, token_program, treasury, treasury_vault`, then the optional open Source. It mints 80% of the yield into the Position vault and 20% into the treasury vault (event `YieldFeeTaken`).
+- `take_advance`: `treasury` right after `config`. `take_native_advance`: `treasury` right after `price_feed`.
+
+Errors appended: `TreasuryShort` (6017); ledger `NotWonGemas`.

@@ -10,7 +10,7 @@ Every Position earns, from the moment it opens:
 yield(t) = principal * apy * simulated_elapsed(t) / year          simulated_elapsed = real_elapsed * speedup
 ```
 
-linear on its own Principal (no compounding), on every chain. `apy` is the Position's own `rate_bps` (set at open from the pool); `speedup` is 4,380 (1 simulated month = 1/12 year = 600 real seconds; the old 4,320 is 30 days per 600 s, which repaid an N-month Advance after about N x 10.14 minutes). An Advance of `N` months is `principal * apy * N / 12`, so it is repaid in exactly `N * 10` minutes for every Position, today and on Oct 12.
+linear on its own Principal (no compounding), on every chain. Tesoro takes the **Yield Fee** (20%, ADR 0007) out of every increment, so the Position itself earns 80% of this: `net(t) = yield(t) - floor(yield(t) * 2000 / 10000)` per increment. `apy` is the Position's own `rate_bps` (set at open from the pool); `speedup` is 4,380 (1 simulated month = 1/12 year = 600 real seconds; the old 4,320 is 30 days per 600 s, which repaid an N-month Advance after about N x 10.14 minutes). An Advance of `N` months is 80% of the projected yield, `principal * apy * N / 12 * 0.8`; the Position earns 80% too, so it is still repaid in exactly `N * 10` minutes for every Position.
 
 The LST exchange rate (`sim_lst` Pool rate, `SimLST.underlyingPerShare()`) is **constant**. It stays at the value it had when the model changed, so existing simSOL / simETH keeps its underlying value. Deposit and withdraw price at that constant rate.
 
@@ -20,6 +20,7 @@ Yield is minted, not read off a growing rate:
 
 1. `accrue_native_yield` (Solana, permissionless, keeper cranks it) computes `units = principal * apy_bps * dt * speedup / (10_000 * 31_536_000)` SOL base units since the custody's `last_accrual_ts`, converts to shares at the constant rate (`floor(units * 1e9 / rate)`), and CPIs `sim_lst::mint_yield` to mint them into the Position's vault. If the floor gives 0 shares the timestamp does not advance, so time carries over.
 2. `sim_lst::mint_yield` is callable only by the recorded yield authority: the tesoro_core PDA `["yield"]`, registered once by the sim_lst admin (`set_yield_authority`, PDA `["yield_config"]`). tesoro_core validates the sim_lst program id and pool before the CPI.
+   The mint is split: 80% of the shares go to the Position vault, 20% to the Treasury vault (EVM: `treasuryShares` inside the vault).
 3. Custody accounting is unchanged: `accrued = vault_shares * rate - principal + redeemed`. Because the rate is constant, accrued only grows through minting, so every unit of accrued yield is a share in the vault and a Redeem is always covered.
 4. Accrual stops at Unlock (no yield on a closed Position).
 

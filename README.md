@@ -5,10 +5,10 @@
 Tesoro lets stakers play head-to-head skill games with their future staking yield:
 
 1. Lock a **Position**: a SOL or ETH liquid staking token.
-2. Take an **Advance** of 100% of the Position's projected yield over a 1–12 month **Horizon**. It is issued as **Gemas**, worth $0.01 each at issuance.
+2. Take an **Advance** of 80% of the Position's projected yield (100% minus Tesoro's 20% **Yield Fee**) over a 1–12 month **Horizon**. It is issued as **Gemas**, worth $0.01 each at issuance.
 3. Play **Matches**: async Block Puzzle, real-time heads-up Hold'em, or Trading Duel (a real-time trading Match on a live oracle price).
 
-The **Principal is never played** and never pays Debt. Accrued yield repays the Advance automatically, and winners Redeem the Gemas they won as the loser's yield actually accrues.
+The **Principal is never played** and never pays Debt. Accrued yield repays the Advance automatically, and winners Redeem the Gemas they won as the loser's yield actually accrues, or **Instant Redeem** them now for 65% of their value (Tesoro's Treasury pays and waits for the yield; ADR 0007). Tesoro earns the Platform Fee on Matches, the Yield Fee and the Instant Redeem Fee; nothing is ever charged on Principal.
 
 > **Status: testnets only.** Solana devnet and Ethereum Hoodi. Yield is **Simulated** (1 month = about 10 minutes). Nothing has value. The security review is internal, not an external audit.
 

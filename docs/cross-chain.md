@@ -10,7 +10,7 @@ Testnets only (Solana devnet, Ethereum Hoodi; HyperEVM prepared). SimLST yield i
 | `tesoro_bridge` | `bridge/` (own Anchor workspace, program `5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ`) | Solana OApp. Inbox for inbound facts, permissionless CPIs into `tesoro_core`, permissionless outbound sends |
 | `SourceAuthority` | `tesoro_core` (additive) | Per source chain, the signer allowed to report `PositionLocked` / `YieldAccrued`. The bridge PDA `["authority"]` is registered for Ethereum and HyperEVM |
 
-Wire format (identical in Solidity and Rust, `abi.encodePacked`, big-endian): header `msgType u8 | sourceChain u32 (eid) | positionId bytes32 | seq u64` (45 bytes), then `1 PositionLocked`: `owner bytes32 | lst bytes32 | principalUnderlying u128 | horizon u8` (126 bytes); `2 YieldAccrued`: `cumulative u128` (61); `3 Unlock`: `0 u128` (61); `4 PayYield`: `to bytes32 | amount u128` (93). `positionId` = vault address (20 bytes) | vault position id (u64) | 4 zero bytes, so two vaults on one chain never collide and a vault can only speak for its own Positions (the bridge checks the id against the LayerZero sender).
+Wire format (identical in Solidity and Rust, `abi.encodePacked`, big-endian): header `msgType u8 | sourceChain u32 (eid) | positionId bytes32 | seq u64` (45 bytes), then `1 PositionLocked`: `owner bytes32 | lst bytes32 | principalUnderlying u128 | horizon u8` (126 bytes); `2 YieldAccrued`: `cumulative u128 | treasuryIn u128` (77, was 61 before ADR 0007); `3 Unlock`: `0 u128` (61); `4 PayYield`: `to bytes32 | amount u128` (93); `5 PayInstant`: `to bytes32 | amount u128` (93, Instant Redeem payout from the vault treasury). `positionId` = vault address (20 bytes) | vault position id (u64) | 4 zero bytes, so two vaults on one chain never collide and a vault can only speak for its own Positions (the bridge checks the id against the LayerZero sender).
 
 ## Flow and who pays
 
@@ -105,3 +105,22 @@ Proven on testnets with Position id 1 (transactions and Scan links in `docs/depl
 Unlock on HyperEVM (2026-10-02): Position 5, Debt 38 to 0 after two `apply_yield`, `tesoro_core::unlock`, `send_unlock` DELIVERED in 65 s, vault `unlocked = true`; a Backing Offer funded with HYPE-Sourced Gemas settled with a winner whose Wallet lists the HYPE Source as pending; HYPE-Sourced Redeem and the server HYPE top-up are proven too. Transactions: `docs/deployments.md` (HyperEVM: top-up, Unlock and Backing).
 
 The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH Positions (`app/docs/eth-positions.md`); the keeper reports yield for them with its own HYPE budget (`keeper/README.md`).
+
+## Yield Fee, Instant Redeem and the vault Treasury (2026-10-12, ADR 0007)
+
+**EVM vault** (SimLST vaults only): `yieldFeeBps = 2000` (cap 5000, admin setter). On accrue, 20% of the minted shares go to `treasuryShares` (`treasuryIn += value`) and 80% to the Position. `fundTreasury(shares)` is the owner's top-up; there is no withdrawal, because Solana's cap relies on `treasuryIn` only growing. `reportYield` sends `YieldAccrued(cumulative, treasuryIn)`. `MSG_PAY_INSTANT` pays the holder from the treasury; `InsufficientTreasury` reverts (retryable) and each (id, seq) pays once. A `PayYield` whose `to == address(this)` books into the treasury (the refill). New vaults come from `script/deploy-oapp.sh`, then `SimLST.setMinter(newVault)`; the constructor is unchanged. Vaults from before ADR 0007 speak the 61-byte message and are abandoned.
+
+**`tesoro_bridge` state**
+- `BridgePosition` gains `treasury_in: u128` at the end (after `unlock_sent`), taken from the latest yield message. Old accounts no longer decode.
+- `VaultTreasury`, PDA `["treasury", eid u32 BE, vault bytes32]`: `eid`, `peer_address`, `reported_in`, `instant_recorded`, `bump`. Created by `set_peer_config` (`vault_treasury` is a new account after `peer`). Available for Instant Redeem on a vault = `reported_in - instant_recorded`.
+
+**`tesoro_bridge` instructions**
+- `apply_yield` now takes `vault_treasury (mut)` after `bridge_position` and raises `reported_in` to the Position's `treasury_in` (max, monotonic).
+- `sync_treasury(PositionRef)` (permissionless): accounts `bridge_position`, `vault_treasury`; raises `reported_in` without applying yield.
+- `instant_redeem_to_evm(gemas)`: the holder signs. CPIs `tesoro_core::instant_redeem_from_source` (bridge PDA co-signs as source authority), refuses `TreasuryShort` unless `instant_recorded + payout <= reported_in`, adds the payout to `instant_recorded` and records it in an `InstantClaim` PDA `["instant", holder_account, core_source]` (`init_if_needed`). The cap is safe because `treasuryIn` is monotonic and only Instant Redeem spends the vault treasury.
+- `send_pay_instant(SendParams)`: like `send_pay_yield` but reads the `InstantClaim`, sends `PayInstant(to = holder's EVM address, amount = units not yet sent)` and advances the claim in the same transaction.
+- `redeem_treasury_to_evm(gemas)` (permissionless): the Treasury Account redeems its Gemas of an EVM Source (`redeem_treasury_from_source`) and records a normal `Claim`.
+- `send_pay_yield`: `evm_link` is now optional. When the claim's holder is the Treasury Account the `PayYield` goes to the vault's own address, which books it into its treasury.
+- `quote_send` accepts message type 5.
+
+**Loop.** Yield Fee accrues in the vault, `reportYield` tells Solana (`treasuryIn`), a holder Instant Redeems on Solana (capped by `reported_in - instant_recorded`), `PayInstant` pays them from the vault. When the Source's yield lands, `redeem_treasury_to_evm` + `send_pay_yield` refill the vault treasury at full value.
