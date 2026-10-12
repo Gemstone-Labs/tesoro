@@ -140,7 +140,7 @@
 /* the end of a hand: both hands named, the winning five lifted, the pot to the winner */
 .hdx-potslot { display: grid; place-items: center; min-height: 62px; width: 100%; }
 .hdx-win {
-  --c: 12px; --edge: linear-gradient(180deg, rgba(220, 232, 255, 0.7), rgba(160, 190, 255, 0.2)); display: flex; align-items: center; gap: 12px; padding: 8px 22px 8px 16px; max-width: min(92%, 460px);
+  --c: 12px; --edge: linear-gradient(180deg, rgba(220, 232, 255, 0.7), rgba(160, 190, 255, 0.2)); display: flex; align-items: center; gap: 12px; padding: 8px 22px 8px 16px; width: max-content; max-width: min(460px, calc(100vw - 32px));
   background: linear-gradient(180deg, rgba(20, 34, 68, 0.96), rgba(8, 14, 30, 0.96)); box-shadow: 0 0 36px -8px rgba(150, 185, 255, 0.5);
   animation: hd-win-in calc(520ms * var(--pace, 1)) cubic-bezier(0.2, 1.1, 0.3, 1) both; animation-delay: calc(var(--rv, 0ms) + 150ms * var(--pace, 1));
 }
@@ -260,7 +260,7 @@
   .hdx-win { padding: 6px 14px 6px 10px; gap: 8px; max-width: 98%; }
   .hdx-win-icon { width: 30px; height: 30px; }
   .hdx-win-icon svg { width: 17px; height: 17px; }
-  .hdx-win-t b { font-size: 16px; }
+  .hdx-win-t b { font-size: 16px; white-space: normal; }
   .hdx-win-t span:last-child { font-size: 12.5px; }
   }
 @media (min-width: 720px) {
