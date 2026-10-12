@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { Button, CheckIcon, GemaMark, LockIcon, XIcon } from "@/components/ui";
 import { Arena, Callout, Countdown, MuteToggle, burst, burstAt, sfx, useReducedMotion, type CalloutTone } from "../fx";
 import {
@@ -48,13 +48,15 @@ import {
   priceDigits,
   revealU,
   runEndingAt,
-  snakeWindow,
+  SnakeLine,
   touchedBands,
   xOf,
   yOf,
   yOfUnits,
+  type Layout,
   type Mark,
 } from "./gridView";
+import { LiveButton, useLiveVariant, type LiveDir, type LiveState } from "./LiveButton";
 import "./grid.css";
 
 export interface GridSide {
@@ -134,6 +136,48 @@ type EdgePick = { c: number; who: "me" | "foe"; dir: 1 | -1; k: number };
 type Free = { x: number; u: number };
 type Moment = { id: number; text: string; tone: CalloutTone };
 
+/** The line on its canvas: a soft wide stroke, a bright blue one, a thin white core, all fading toward the tail. Only what shows is walked. */
+function drawLine(canvas: HTMLCanvasElement | null, line: SnakeLine, hx: number, hy: number, cam: number, off: number, l: Layout) {
+  const ctx = canvas?.getContext("2d");
+  if (!canvas || !ctx) return;
+  const k = canvas.width / l.viewW;
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  ctx.clearRect(0, 0, l.viewW, l.bodyH);
+  const { xs, ys } = line;
+  const i0 = Math.max(0, line.from(cam - 40) - 1);
+  const i1 = Math.min(xs.length - 1, line.from(cam + l.viewW + 40));
+  if (i1 < i0) return;
+  const path = new Path2D();
+  const X = (i: number) => xs[i] - cam;
+  const Y = (i: number) => ys[i] + off;
+  path.moveTo(X(i0), Y(i0));
+  for (let i = i0 + 1; i < i1; i++) path.quadraticCurveTo(X(i), Y(i), (X(i) + X(i + 1)) / 2, (Y(i) + Y(i + 1)) / 2);
+  const tipOn = i1 === xs.length - 1;
+  if (i1 > i0) path.lineTo(X(i1), Y(i1));
+  if (tipOn && line.tipX > xs[i1]) path.lineTo(line.tipX - cam, line.tipY + off);
+  if (hx > line.tipX + 0.5) path.lineTo(hx - cam, hy + off);
+  const x1 = hx - cam;
+  const x0 = Math.max(0, x1 - l.cw * 3.2);
+  const fade = (rgb: string, a: number) => {
+    const g = ctx.createLinearGradient(x0, 0, x1, 0);
+    g.addColorStop(0, `rgba(${rgb},${0.08 * a})`);
+    g.addColorStop(0.7, `rgba(${rgb},${0.7 * a})`);
+    g.addColorStop(1, `rgba(${rgb},${a})`);
+    return g;
+  };
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.lineWidth = 13;
+  ctx.strokeStyle = fade("159,196,255", 0.2);
+  ctx.stroke(path);
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = fade("159,196,255", 0.4);
+  ctx.stroke(path);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = fade("234,241,251", 1);
+  ctx.stroke(path);
+}
+
 /** The browser time now, read when a box is tapped. */
 const wallNow = () => Date.now();
 const usdOf = (v: bigint) => Number(v) / 1e8;
@@ -196,6 +240,13 @@ export function GridScreen(p: GridScreenProps) {
   const [cols, setCols] = useState<number | null>(null);
   const layout = useMemo(() => layoutFor(viewW, cols ?? undefined), [viewW, cols]);
   const { cw, rh } = layout;
+  useLayoutEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    c.width = Math.round(viewW * dpr);
+    c.height = Math.round(layout.bodyH * dpr);
+  }, [viewW, layout.bodyH]);
   const source = useMemo<LiveSeries>(() => (Array.isArray(p.series) ? { points: p.series, rev: 0 } : p.series), [p.series]);
 
   const myMarks = useMemo(() => marks(track, mine, t, anchor, step), [track, mine, t, anchor, step]);
@@ -221,9 +272,7 @@ export function GridScreen(p: GridScreenProps) {
   const vlRef = useRef<HTMLDivElement>(null);
   const gvlRef = useRef<HTMLDivElement>(null);
   const padRef = useRef<HTMLDivElement>(null);
-  const pathRef = useRef<SVGPathElement>(null);
-  const glowRef = useRef<SVGPathElement>(null);
-  const gradRef = useRef<SVGLinearGradientElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
   const dotRef = useRef<HTMLElement>(null);
   const chipRef = useRef<HTMLSpanElement>(null);
@@ -252,11 +301,18 @@ export function GridScreen(p: GridScreenProps) {
     cam: 0,
     cu: 0,
     built: "",
-    d: "",
-    ex: 0,
+    line: new SnakeLine(),
     eu: 0,
+    near: "",
+    ls: { x: 0, y: 0, dir: "in", price: "" } as LiveState,
+    liveTo: null as ((s: LiveState) => void) | null,
+    low: false,
+    wake: "",
     dir: "flat" as Dir,
     text: "",
+    textAt: 0,
+    price: NaN,
+    next: "flat" as Dir,
     win: "",
     edges: "",
     redraw: () => {},
@@ -273,8 +329,8 @@ export function GridScreen(p: GridScreenProps) {
   useEffect(() => {
     live.current.built = "";
     live.current.win = "";
+    live.current.price = NaN;
   }, [layout, source, startsAt, anchorUsd, stepUsd]);
-  const gradId = useId().replace(/[^a-zA-Z0-9]/g, "");
   const frozen = p.nowMs !== undefined;
   useEffect(() => {
     const apply = (ms: number, snapHead: boolean) => {
@@ -285,20 +341,21 @@ export function GridScreen(p: GridScreenProps) {
       const dt = Math.min(0.1, Math.max(0.001, (ms - L.last) / 1000 || 0.016));
       L.last = ms;
 
-      // The line is rebuilt when a new reading arrives or the view moves half a screen sideways (it is written for the screen and a margin of half a screen); the tail to the head every frame.
+      // The line takes the new readings when they arrive; the tail to the head is drawn every frame.
       const followX = cameraX(secs, l, L.stepped);
-      const half = l.viewW / 2;
-      const win_ = Math.floor((V.free ? V.free.x : followX) / half);
-      const key = `${L.source.rev}|${win_}`;
-      if (L.built !== key) {
-        L.built = key;
-        const r = snakeWindow(L.source.points, L.startsAt, L.anchorUsd, l, L.stepUsd, win_ * half, (win_ + 3) * half);
-        L.d = r.d;
-        L.ex = r.x;
-        L.eu = bandUnits(r.p, L.anchorUsd, L.stepUsd);
-        const dir = directionOf(L.source.points, r.p);
+      if (L.built !== String(L.source.rev)) {
+        L.built = String(L.source.rev);
+        L.line.sync(L.source.points, L.startsAt, L.anchorUsd, l, L.stepUsd);
+        L.eu = bandUnits(L.line.p, L.anchorUsd, L.stepUsd);
+        L.next = directionOf(L.source.points, L.line.p);
+      }
+      // The price in the chips is rewritten at most every 150 ms: it changes with every reading and is unreadable at that rate.
+      if ((L.next !== L.dir || L.line.p !== L.price) && (snapHead || ms - L.textAt > 150)) {
+        const dir = L.next;
         const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "◆";
-        const text = L.money(r.p);
+        const text = L.money(L.line.p);
+        L.textAt = ms;
+        L.price = L.line.p;
         if (dir !== L.dir || text !== L.text) {
           L.dir = dir;
           L.text = text;
@@ -362,26 +419,48 @@ export function GridScreen(p: GridScreenProps) {
 
       const hy = yOfUnits(hu, l.rh);
       const hx = xOf(secs, l.cw);
-      const tail = hx > L.ex + 0.5 ? `L${hx.toFixed(1)} ${hy.toFixed(1)}` : "";
-      const d = L.d + tail;
-      pathRef.current?.setAttribute("d", d);
-      glowRef.current?.setAttribute("d", d);
-      gradRef.current?.setAttribute("x1", String(Math.max(0, hx - l.cw * 3.2)));
-      gradRef.current?.setAttribute("x2", String(hx));
+      drawLine(canvasRef.current, L.line, hx, hy, cam, off, l);
+      if (L.liveTo) {
+        const px = hx - cam;
+        const py = hy + off;
+        const dx = px < 0 ? -px : px > l.viewW ? px - l.viewW : 0;
+        const dy = py < 0 ? -py : py > l.bodyH ? py - l.bodyH : 0;
+        const dir: LiveDir = !dx && !dy ? "in" : dx >= dy ? (px < 0 ? "left" : "right") : py < 0 ? "up" : "down";
+        L.ls.x = px;
+        L.ls.y = py;
+        L.ls.dir = dir;
+        L.ls.price = L.text;
+        L.liveTo(L.ls);
+      }
       const screenY = off + hy;
       if (headRef.current) {
         headRef.current.style.transform = `translate3d(${hx}px,${hy}px,0)`;
-        headRef.current.classList.toggle("low", screenY < 46);
+        const low = screenY < 46;
+        if (low !== L.low) {
+          L.low = low;
+          headRef.current.classList.toggle("low", low);
+        }
       }
-      stageRef.current?.querySelectorAll<HTMLElement>(".tg-gl").forEach((el) => el.classList.toggle("near", Math.abs(Number(el.dataset.y) - hy) < 15));
+      // the price labels the head sits on fade out; only the ones within reach of it
+      const near = `${Math.ceil((-hy - 15) / l.rh)}|${Math.floor((-hy + 15) / l.rh)}`;
+      if (near !== L.near) {
+        L.near = near;
+        const lo = Math.ceil((-hy - 15) / l.rh);
+        const hi = Math.floor((-hy + 15) / l.rh);
+        gvlRef.current?.querySelectorAll(".near").forEach((el) => el.classList.remove("near"));
+        for (let e = lo; e <= hi; e++) gvlRef.current?.querySelector(`[data-e="${e}"]`)?.classList.add("near");
+      }
       if (nowRef.current) nowRef.current.style.transform = `translate3d(${hx}px,0,0)`;
       if (ptrRef.current) ptrRef.current.style.transform = `translate3d(0,${Math.max(9, Math.min(l.bodyH - 9, screenY))}px,0)`;
       if (wakeRef.current) {
         const c = Math.floor((secs - HEAD_START_SECS) / COLUMN_SECS);
         const x0 = secs < HEAD_START_SECS ? 0 : columnX(Math.min(COLUMNS - 1, Math.max(0, c)), l.cw);
-        wakeRef.current.style.transform = `translate3d(${x0}px,0,0)`;
-        wakeRef.current.style.width = `${Math.max(0, hx - x0)}px`;
-        wakeRef.current.style.opacity = secs >= MATCH_SECS ? "0" : "1";
+        wakeRef.current.style.transform = `translate3d(${x0}px,0,0) scaleX(${Math.max(0, hx - x0).toFixed(1)})`;
+        const o = secs >= MATCH_SECS ? "0" : "1";
+        if (o !== L.wake) {
+          L.wake = o;
+          wakeRef.current.style.opacity = o;
+        }
       }
     };
     if (frozen) {
@@ -441,6 +520,13 @@ export function GridScreen(p: GridScreenProps) {
       live.current.redraw();
     }
   };
+  const liveVariant = useLiveVariant();
+  const bindLive = useCallback((f: ((s: LiveState) => void) | null) => {
+    live.current.liveTo = f;
+  }, []);
+  useEffect(() => {
+    live.current.redraw();
+  }, [liveVariant]);
   const atMin = cw * MIN_COLS >= viewW - 0.5;
   const atMax = viewW / cw >= maxCols(viewW) - 0.05;
 
@@ -581,6 +667,14 @@ export function GridScreen(p: GridScreenProps) {
     focusNext.current = null;
     el.focus({ preventScroll: true });
   });
+  const cellHandlers = useRef({ pick, onKey });
+  useEffect(() => {
+    cellHandlers.current = { pick, onKey };
+  });
+  const cell = useMemo<CellHandlers>(
+    () => ({ pick: (c, k) => cellHandlers.current.pick(c, k), key: (e, c, k) => cellHandlers.current.onKey(e, c, k), focus: (c, k) => setFc({ c, k }) }),
+    [],
+  );
   const showPick = (k: number) => panTo(undefined, k + 0.5);
 
   // ---- moments: hits, reveals, locks, streaks, the last column ----
@@ -675,9 +769,17 @@ export function GridScreen(p: GridScreenProps) {
   const share = score.you + score.them === 0 ? 0.5 : score.you / (score.you + score.them);
 
   const edgesAt = Array.from({ length: win.hi - win.lo + 2 }, (_, i) => win.lo + i);
+  const names = useRef({ key: "", by: new Map<number, string>() });
   const bandName = (k: number) => {
-    const b = bandEdges(k, anchor, step);
-    return `${money(usdOf(b.from))} to ${money(usdOf(b.to))}`;
+    const key = `${anchor}|${step}|${digits}`;
+    if (names.current.key !== key) names.current = { key, by: new Map() };
+    let n = names.current.by.get(k);
+    if (n === undefined) {
+      const b = bandEdges(k, anchor, step);
+      n = `${money(usdOf(b.from))} to ${money(usdOf(b.to))}`;
+      names.current.by.set(k, n);
+    }
+    return n;
   };
   const viewH = HEADER_PX + layout.bodyH;
 
@@ -777,7 +879,7 @@ export function GridScreen(p: GridScreenProps) {
             <div className="tg-gbody" style={{ top: HEADER_PX, height: layout.bodyH }}>
               <div className="tg-gvl" ref={gvlRef}>
                 {edgesAt.map((e) => (
-                  <span key={e} className={`tg-gl${e === 0 ? " start" : ""}`} data-y={-e * rh} style={{ top: -e * rh }}>
+                  <span key={e} className={`tg-gl${e === 0 ? " start" : ""}`} data-e={e} style={{ top: -e * rh }}>
                     {money(anchorUsd + e * stepUsd)}
                   </span>
                 ))}
@@ -788,14 +890,16 @@ export function GridScreen(p: GridScreenProps) {
             </div>
           </div>
 
-          <div className="tg-tools">
-            <button type="button" className="tg-tool" aria-label="Zoom out" title="Zoom out (minus key)" aria-disabled={atMax} onClick={() => zoomBy(1 / ZOOM_STEP)}>
-              &minus;
-            </button>
-            <button type="button" className="tg-tool" aria-label="Zoom in" title="Zoom in (plus key)" aria-disabled={atMin} onClick={() => zoomBy(ZOOM_STEP)}>
-              +
-            </button>
-          </div>
+          {liveVariant !== "D" && (
+            <div className="tg-tools">
+              <button type="button" className="tg-tool" aria-label="Zoom out" title="Zoom out (minus key)" aria-disabled={atMax} onClick={() => zoomBy(1 / ZOOM_STEP)}>
+                &minus;
+              </button>
+              <button type="button" className="tg-tool" aria-label="Zoom in" title="Zoom in (plus key)" aria-disabled={atMin} onClick={() => zoomBy(ZOOM_STEP)}>
+                +
+              </button>
+            </div>
+          )}
 
           <div
             className="tg-view"
@@ -868,45 +972,34 @@ export function GridScreen(p: GridScreenProps) {
                       const isMine = mine[c] === k;
                       const isFoe = theirs[c] === k;
                       const touched = !!range && k >= range[0] && k <= range[1];
-                      const here = tab.c === c && tab.k === k;
+                      const lit = `${isMine && myMarks[c] === "hit" ? " lit-me" : ""}${isFoe && foeMarks[c] === "hit" ? " lit-foe" : ""}`;
                       return (
-                        <button
+                        <Cell
                           key={`${c}_${k}`}
-                          type="button"
-                          data-cell={`${c}_${k}`}
-                          className={`tg-cell${k === 0 ? " anchor" : ""}${touched ? " touched" : ""}${isMine && myMarks[c] === "hit" ? " lit-me" : ""}${isFoe && foeMarks[c] === "hit" ? " lit-foe" : ""}${open ? " can" : ""}${isMine || isFoe ? " has" : ""}${nag ? " nag" : ""}`}
-                          style={{ left: columnX(c, cw), top: -(k + 1) * rh, width: cw, height: rh }}
-                          aria-label={`Column ${c + 1}, ${bandName(k)}${isMine ? ", your pick" : ""}${isFoe ? ", opponent's pick" : ""}${isMine && myMarks[c] === "hit" ? ", hit" : ""}`}
-                          aria-pressed={isMine}
-                          aria-disabled={!open || settled}
-                          tabIndex={here ? 0 : -1}
-                          onFocus={() => setFc({ c, k })}
-                          onKeyDown={(e) => onKey(e, c, k)}
-                          onClick={() => pick(c, k)}
-                        >
-                          {(isMine || isFoe) && (
-                            <span className={`tg-marks${isMine && isFoe ? " both" : ""}`}>
-                              {isMine && <Marker who="me" m={myMarks[c]} state={st} />}
-                              {isFoe && <Marker who="foe" m={foeMarks[c]} state={st} />}
-                            </span>
-                          )}
-                        </button>
+                          c={c}
+                          k={k}
+                          left={columnX(c, cw)}
+                          top={-(k + 1) * rh}
+                          w={cw}
+                          h={rh}
+                          cls={`${k === 0 ? " anchor" : ""}${touched ? " touched" : ""}${lit}${open ? " can" : ""}${isMine || isFoe ? " has" : ""}${nag ? " nag" : ""}`}
+                          label={bandName(k)}
+                          mine={isMine}
+                          foe={isFoe}
+                          myMark={myMarks[c]}
+                          foeMark={foeMarks[c]}
+                          state={st}
+                          here={tab.c === c && tab.k === k}
+                          off={!open || settled}
+                          on={cell}
+                        />
                       );
                     });
                   })}
 
                   <div className="tg-field" aria-hidden="true">
                     <svg className="tg-snake" width={worldW} height={1} viewBox={`0 0 ${worldW} 1`}>
-                      <defs>
-                        <linearGradient id={`g${gradId}`} ref={gradRef} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={worldW} y2="0">
-                          <stop offset="0" stopColor="#eaf1fb" stopOpacity="0.08" />
-                          <stop offset="0.7" stopColor="#eaf1fb" stopOpacity="0.7" />
-                          <stop offset="1" stopColor="#ffffff" stopOpacity="1" />
-                        </linearGradient>
-                      </defs>
                       {bands.map((b, c) => b && <rect key={c} className={`tg-band ${states[c]}`} x={b.x} y={b.y} width={b.w} height={b.h} />)}
-                      <path ref={glowRef} className="tg-snake-glow" stroke={`url(#g${gradId})`} />
-                      <path ref={pathRef} className="tg-snake-core" stroke={`url(#g${gradId})`} />
                     </svg>
                     <div className="tg-head" ref={headRef}>
                       <i ref={dotRef} className="tg-head-dot" data-dir="flat" />
@@ -945,11 +1038,16 @@ export function GridScreen(p: GridScreenProps) {
                 </div>
               </div>
             </div>
-            {panned && (
-              <button type="button" className="cut cut-btn tg-live" onClick={goLive}>
-                <i aria-hidden="true" /> Live
-              </button>
-            )}
+            <LiveButton
+              variant={liveVariant}
+              away={panned}
+              onGo={goLive}
+              bind={bindLive}
+              viewW={viewW}
+              bodyH={layout.bodyH}
+              zoom={{ out: () => zoomBy(1 / ZOOM_STEP), in: () => zoomBy(ZOOM_STEP), atMin, atMax }}
+            />
+            <canvas ref={canvasRef} className="tg-line" aria-hidden="true" style={{ top: HEADER_PX, width: viewW, height: layout.bodyH }} />
             <div className="tg-fade l" aria-hidden="true" />
             <div className="tg-fade r" aria-hidden="true" />
             {count === "on" && <Countdown from={3} goText="Go!" onEnd={() => setCount("done")} />}
@@ -1005,6 +1103,58 @@ export function GridScreen(p: GridScreenProps) {
     </Arena>
   );
 }
+
+interface CellHandlers {
+  pick: (c: number, k: number) => void;
+  key: (e: KeyboardEvent<HTMLButtonElement>, c: number, k: number) => void;
+  focus: (c: number, k: number) => void;
+}
+
+interface CellProps {
+  c: number;
+  k: number;
+  left: number;
+  top: number;
+  w: number;
+  h: number;
+  cls: string;
+  label: string;
+  mine: boolean;
+  foe: boolean;
+  myMark: Mark;
+  foeMark: Mark;
+  state: ColumnState;
+  here: boolean;
+  off: boolean;
+  on: CellHandlers;
+}
+
+/** One box. Memoised on plain values so the once-a-second render only touches the boxes that changed. */
+const Cell = memo(function Cell({ c, k, left, top, w, h, cls, label, mine, foe, myMark, foeMark, state, here, off, on }: CellProps) {
+  const hit = mine && myMark === "hit";
+  return (
+    <button
+      type="button"
+      data-cell={`${c}_${k}`}
+      className={`tg-cell${cls}`}
+      style={{ left, top, width: w, height: h }}
+      aria-label={`Column ${c + 1}, ${label}${mine ? ", your pick" : ""}${foe ? ", opponent's pick" : ""}${hit ? ", hit" : ""}`}
+      aria-pressed={mine}
+      aria-disabled={off}
+      tabIndex={here ? 0 : -1}
+      onFocus={() => on.focus(c, k)}
+      onKeyDown={(e) => on.key(e, c, k)}
+      onClick={() => on.pick(c, k)}
+    >
+      {(mine || foe) && (
+        <span className={`tg-marks${mine && foe ? " both" : ""}`}>
+          {mine && <Marker who="me" m={myMark} state={state} />}
+          {foe && <Marker who="foe" m={foeMark} state={state} />}
+        </span>
+      )}
+    </button>
+  );
+});
 
 function Marker({ who, m, state }: { who: "me" | "foe"; m: Mark; state: ColumnState }) {
   const icon = m === "hit" ? <CheckIcon width={16} height={16} /> : m === "miss" ? <XIcon width={14} height={14} /> : state === "locked" && who === "me" ? <LockIcon width={13} height={13} /> : <i className="tg-diamond" />;
