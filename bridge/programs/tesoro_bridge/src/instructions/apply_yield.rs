@@ -9,7 +9,8 @@ use tesoro_core::{
 };
 
 // Applies the latest received `YieldAccrued` to tesoro_core: repays Debt automatically and
-// makes that much of the Source redeemable. Permissionless; tesoro_core is idempotent by seq.
+// makes that much of the Source redeemable, and raises the mirror of the vault's treasury.
+// Permissionless; tesoro_core is idempotent by seq.
 #[derive(Accounts)]
 #[instruction(params: PositionRef)]
 pub struct ApplyYield<'info> {
@@ -21,6 +22,13 @@ pub struct ApplyYield<'info> {
         bump = bridge_position.bump
     )]
     pub bridge_position: Account<'info, BridgePosition>,
+    /// Raised to the treasury total this yield report carried.
+    #[account(
+        mut,
+        seeds = [TREASURY_SEED, &params.eid.to_be_bytes(), &vault_of(&params.position_id)],
+        bump = vault_treasury.bump
+    )]
+    pub vault_treasury: Account<'info, VaultTreasury>,
     /// CHECK: PDA that signs into tesoro_core; address fixed by seeds and the stored bump.
     #[account(seeds = [AUTHORITY_SEED], bump = store.authority_bump)]
     pub authority: UncheckedAccount<'info>,
@@ -69,6 +77,7 @@ impl ApplyYield<'_> {
         );
         tesoro_core::cpi::apply_yield_from_source(cpi, position.last_yield_seq, cumulative)?;
         position.applied_yield_seq = position.last_yield_seq;
+        ctx.accounts.vault_treasury.raise(position.treasury_in);
         Ok(())
     }
 }

@@ -27,6 +27,8 @@ const POSITION_SEED: &[u8] = b"Position";
 const AUTHORITY_SEED: &[u8] = b"authority";
 const EVM_LINK_SEED: &[u8] = b"evm";
 const CLAIM_SEED: &[u8] = b"claim";
+const INSTANT_SEED: &[u8] = b"instant";
+const TREASURY_SEED: &[u8] = b"treasury";
 
 /// LayerZero V2 testnet endpoint ids of the source chains, and the tesoro_core chain each maps to.
 pub const EID_HOODI: u32 = 40449;
@@ -50,6 +52,26 @@ pub fn core_chain(eid: u32) -> Result<tesoro_core::ledger::SourceChain> {
         EID_HYPEREVM_TESTNET => Ok(tesoro_core::ledger::SourceChain::HyperEvm),
         _ => err!(BridgeError::UnsupportedChain),
     }
+}
+
+/// The LayerZero eid of a tesoro_core source chain.
+pub fn eid_of(chain: tesoro_core::ledger::SourceChain) -> Result<u32> {
+    match chain {
+        tesoro_core::ledger::SourceChain::Ethereum => Ok(EID_HOODI),
+        tesoro_core::ledger::SourceChain::HyperEvm => Ok(EID_HYPEREVM_TESTNET),
+        tesoro_core::ledger::SourceChain::Solana => err!(BridgeError::UnsupportedChain),
+    }
+}
+
+/// tesoro_core's Treasury Account: its Gemas are paid into the vault's own treasury.
+pub fn core_treasury_account() -> Pubkey {
+    let treasury =
+        Pubkey::find_program_address(&[tesoro_core::state::TREASURY_SEED], &tesoro_core::ID).0;
+    Pubkey::find_program_address(
+        &[tesoro_core::state::ACCOUNT_SEED, treasury.as_ref()],
+        &tesoro_core::ID,
+    )
+    .0
 }
 
 /// The byte tesoro_core puts in Position PDA seeds for a chain.
@@ -106,6 +128,10 @@ pub mod tesoro_bridge {
         ApplyYield::apply(&mut ctx, &params)
     }
 
+    pub fn sync_treasury(mut ctx: Context<SyncTreasury>, params: PositionRef) -> Result<()> {
+        SyncTreasury::apply(&mut ctx, &params)
+    }
+
     // --- Outbound (tesoro_core to source chain) ----------------------------------------------
 
     pub fn quote_send(ctx: Context<QuoteSend>, params: QuoteSendParams) -> Result<MessagingFee> {
@@ -122,6 +148,18 @@ pub mod tesoro_bridge {
 
     pub fn send_pay_yield(mut ctx: Context<SendPayYield>, params: SendParams) -> Result<()> {
         SendPayYield::apply(&mut ctx, &params)
+    }
+
+    pub fn instant_redeem_to_evm(mut ctx: Context<InstantRedeemToEvm>, gemas: u64) -> Result<()> {
+        InstantRedeemToEvm::apply(&mut ctx, gemas)
+    }
+
+    pub fn send_pay_instant(mut ctx: Context<SendPayInstant>, params: SendParams) -> Result<()> {
+        SendPayInstant::apply(&mut ctx, &params)
+    }
+
+    pub fn redeem_treasury_to_evm(mut ctx: Context<RedeemTreasuryToEvm>, gemas: u64) -> Result<()> {
+        RedeemTreasuryToEvm::apply(&mut ctx, gemas)
     }
 
     // --- Executor discovery ------------------------------------------------------------------

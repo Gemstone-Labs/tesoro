@@ -22,7 +22,7 @@ pub struct BridgePosition {
     pub horizon_months: u8,
     /// True once tesoro_core has the Position.
     pub opened: bool,
-    /// Latest YieldAccrued received (highest seq) and its cumulative amount.
+    /// Latest YieldAccrued received (highest seq) and its cumulative amount (net of the Yield Fee).
     pub last_yield_seq: u64,
     pub yield_cumulative: u128,
     /// Seq of the YieldAccrued most recently applied to tesoro_core.
@@ -30,4 +30,6 @@ pub struct BridgePosition {
     /// Last outbound seq (Unlock and PayYield share one counter).
     pub out_seq: u64,
     pub unlock_sent: bool,
+    /// The vault treasury's cumulative credits, reported with the latest YieldAccrued.
+    pub treasury_in: u128,
 }

@@ -7,8 +7,10 @@ use tesoro_core::state::{
 
 // Sends `PayYield` for a recorded redemption claim: the units redeemed through `redeem_to_evm`
 // that have not been sent yet, to the EVM address of the holder's Account (which must be linked
-// with proof). Permissionless; the payer funds the LayerZero fee. `claim.units_sent` moves in the
-// same transaction as the send, so each redeemed unit is paid once.
+// with proof). A claim of the Treasury Account (`redeem_treasury_to_evm`) is paid to the vault's
+// own address, which the vault books into its treasury. Permissionless; the payer funds the
+// LayerZero fee. `claim.units_sent` moves in the same transaction as the send, so each redeemed
+// unit is paid once.
 #[derive(Accounts)]
 #[instruction(params: SendParams)]
 pub struct SendPayYield<'info> {
@@ -39,12 +41,14 @@ pub struct SendPayYield<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub holder_account: Account<'info, TesoroAccount>,
+    /// The holder's proof of their EVM address; absent for the Treasury Account, which is paid
+    /// into the vault's own treasury.
     #[account(
         seeds = [EVM_LINK_SEED, &holder_account.evm_address],
         bump = evm_link.bump,
         constraint = evm_link.account == holder_account.key() @ BridgeError::EvmAddressMismatch
     )]
-    pub evm_link: Account<'info, EvmLink>,
+    pub evm_link: Option<Account<'info, EvmLink>>,
     #[account(
         mut,
         seeds = [CLAIM_SEED, holder_account.key().as_ref(), claim.source.as_ref()],
@@ -68,6 +72,13 @@ impl SendPayYield<'_> {
         require!(pending > 0, BridgeError::NothingToPay);
         let position = &mut ctx.accounts.bridge_position;
         require!(position.opened, BridgeError::NotOpened);
+        let holder = &ctx.accounts.holder_account;
+        let to = if holder.key() == core_treasury_account() {
+            vault_of(&params.position_id)
+        } else {
+            require!(ctx.accounts.evm_link.is_some(), BridgeError::EvmAddressMismatch);
+            pad_address(&holder.evm_address)
+        };
         claim.units_sent = claim.units_total;
         let seq = next_out_seq(position)?;
 
@@ -76,13 +87,7 @@ impl SendPayYield<'_> {
             &ctx.accounts.peer,
             ctx.remaining_accounts,
             params,
-            encode_pay_yield(
-                params.eid,
-                params.position_id,
-                seq,
-                pad_address(&ctx.accounts.holder_account.evm_address),
-                pending as u128,
-            ),
+            encode_pay_yield(params.eid, params.position_id, seq, to, pending as u128),
         )?;
         emit!(MessageSent {
             dst_eid: params.eid,
