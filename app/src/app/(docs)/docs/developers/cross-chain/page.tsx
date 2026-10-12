@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Callout, DataTable, DocPage, H2, H3, Sim } from "@/components/docs/prose";
+import { DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { ChainPath } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Cross-chain with LayerZero V2", alternates: { canonical: "/docs/developers/cross-chain" } };
@@ -9,9 +8,8 @@ export default function Page() {
   return (
     <DocPage href="/docs/developers/cross-chain" hero={<ChainPath detail />}>
       <p>
-        Positions stay on their home chains while Gemas, Debt, Matches and Backings live on Solana, so four messages cross chains. ADR 0002 picks
-        LayerZero V2 on Solana devnet, Ethereum Hoodi and HyperEVM testnet: the only transport verified to reach all three with managed relaying. A trusted
-        Tesoro relayer was rejected in favour of real infrastructure.
+        Positions stay on their home chains while Gemas, Debt, Matches and Backings live on Solana, so four messages cross chains. They travel over
+        LayerZero V2, which reaches all three chains with managed relaying, rather than a relayer run by Tesoro.
       </p>
 
       <H2 id="messages">The four messages</H2>
@@ -66,7 +64,7 @@ export default function Page() {
         <li>
           <b>Redeem.</b> The holder calls <code>tesoro_bridge::redeem_to_evm</code>, which CPIs <code>redeem_from_source</code> and records the units in a <code>Claim</code>.
           Anyone then calls <code>send_pay_yield</code>, which advances <code>units_sent</code> in the same transaction so a unit is paid once. Plain <code>redeem</code> refuses
-          EVM-sourced Sources (audit F-07).
+          EVM-sourced Sources.
         </li>
         <li>
           <b>Unlock.</b> After <code>tesoro_core::unlock</code>, anyone calls <code>send_unlock</code>. Yield still owed to redeemers stays in the vault.
@@ -81,36 +79,23 @@ export default function Page() {
       <DataTable
         head={["Chain", "Chain id", "LayerZero eid", "Observed delivery"]}
         rows={[
-          ["Solana devnet", "n/a", "40168", "Solana to Hoodi about 4 to 5 minutes"],
-          ["Ethereum Hoodi", "560048", "40449", "Hoodi to Solana about 2 minutes"],
-          ["HyperEVM testnet", "998", "40362", "Both directions delivered in roughly 40 to 80 seconds"],
+          ["Solana", "n/a", "40168", "Solana to Ethereum about 4 to 5 minutes"],
+          ["Ethereum", "560048", "40449", "Ethereum to Solana about 2 minutes"],
+          ["HyperEVM", "998", "40362", "Both directions delivered in roughly 40 to 80 seconds"],
         ]}
-        caption="Measured during the build; not guarantees"
+        caption="Observed delivery times; not guarantees"
       />
       <p>
-        The default pathway configuration uses LayerZero Labs as the single required DVN. Fees seen: about 0.0001 ETH per Hoodi send, about 0.0074 HYPE per HyperEVM
+        The default pathway configuration uses LayerZero Labs as the single required DVN. Fees seen: about 0.0001 ETH per Ethereum send, about 0.0074 HYPE per HyperEVM
         send (so a wallet needs roughly 0.02 HYPE to open a Position), and about 0.0003 SOL per Solana send.
-      </p>
-
-      <H3 id="hyperevm-gas">HyperEVM testnet gas</H3>
-      <p>
-        There is no HYPE faucet to relay, so the app server sends a small top-up (0.03 HYPE if the wallet holds under 0.02, once a day per wallet, with a global hourly limit)
-        from a low-balance relayer key.
       </p>
 
       <H2 id="failure">Failure behaviour</H2>
       <ul>
-        <li>An out-of-order delivery could once strand an Unlock or PayYield (audit F-04). Vaults now record each sequence as handled, so order does not matter, and the vaults were redeployed.</li>
-        <li>A PayYield larger than the vault&apos;s accrued yield reverts, and a reverted receive rolls back its handled mark, so LayerZero can retry it once yield catches up (F-13).</li>
+        <li>Vaults record each sequence as handled, so messages can arrive in any order without stranding an Unlock or PayYield.</li>
+        <li>A PayYield larger than the vault&apos;s accrued yield reverts, and a reverted receive rolls back its handled mark, so LayerZero can retry it once yield catches up.</li>
         <li>The vault always caps a payout at its own accrued yield, so a lying DVN could report false yield but could not drain Principal through PayYield.</li>
       </ul>
-
-      <Callout kind="sim" title="Simulated tokens">
-        <p>
-          The vaults the app uses hold <Sim>simETH</Sim> and <Sim>simHYPE</Sim> with simulated yield. A vault for Lido&apos;s real wstETH is deployed on Hoodi with a rate adapter
-          that reads wstETH&apos;s <code>stEthPerToken()</code>, but it has not been run end to end. See <Link href="/docs/developers/simulated-yield">Simulated yield</Link>.
-        </p>
-      </Callout>
     </DocPage>
   );
 }

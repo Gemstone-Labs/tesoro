@@ -12,21 +12,17 @@ import {
   ScrollText,
   ShieldCheck,
   Swords,
-  Timer,
   Trophy,
   TriangleAlert,
   UserRound,
   Workflow,
-  Terminal,
   Cpu,
   Repeat,
   Sprout,
   Hourglass,
   Waypoints,
-  KeyRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Sim } from "@/components/docs/prose";
 import { ALL_PAGES } from "@/components/docs/nav";
 import { CHANGES } from "@/components/docs/changelog";
 import { StartCards } from "@/components/docs/StartCards";
@@ -81,17 +77,17 @@ const GROUPS: Group[] = [
   {
     n: "05",
     name: "Chains and limits",
-    purpose: "Where Positions live, and an honest list of what can go wrong.",
+    purpose: "Where Positions live, and what can go wrong.",
     start: "/docs/chains",
     items: [
       { href: "/docs/chains", icon: Network, tone: "steel", tag: "solana · ethereum · hyperevm" },
-      { href: "/docs/risks", icon: TriangleAlert, tone: "amber", tag: "test mode · trust" },
+      { href: "/docs/risks", icon: TriangleAlert, tone: "amber", tag: "limits · trust" },
     ],
   },
   {
     n: "06",
     name: "Developers",
-    purpose: "The pieces, the program IDs, how a Game settles, and how to run it.",
+    purpose: "The pieces, the program IDs, and how a Game settles.",
     start: "/docs/developers",
     items: [
       { href: "/docs/developers", icon: Layers, tone: "violet", tag: "architecture" },
@@ -99,9 +95,6 @@ const GROUPS: Group[] = [
       { href: "/docs/developers/settlement", icon: Route, tone: "amber", tag: "settle_match" },
       { href: "/docs/developers/rollups", icon: Cpu, tone: "violet", tag: "magicblock per" },
       { href: "/docs/developers/cross-chain", icon: Waypoints, tone: "steel", tag: "layerzero v2" },
-      { href: "/docs/developers/simulated-yield", icon: Timer, tone: "rose", tag: "1 month = 10 min" },
-      { href: "/docs/developers/security", icon: KeyRound, tone: "amber", tag: "review · incident" },
-      { href: "/docs/developers/run", icon: Terminal, tone: "sapphire", tag: "clone · build · test" },
     ],
   },
 ];
@@ -112,7 +105,7 @@ const BUILT_ON: [string, string][] = [
   ["Solana", "#9945ff"],
   ["MagicBlock Private Ephemeral Rollups", "#5b9cf0"],
   ["LayerZero V2", "#8b6cf0"],
-  ["Ethereum (Hoodi)", "#627eea"],
+  ["Ethereum", "#627eea"],
   ["HyperEVM", "#2fc9aa"],
   ["Privy", "#d98c22"],
 ];
@@ -134,12 +127,9 @@ export default function Page() {
               { value: "3", label: "Chains" },
               { value: "6", label: "Solana programs" },
               { value: "$0.01", label: "1 Gema at issuance" },
-              { value: "10 min", label: "1 month, simulated" },
+              { value: "10 min", label: "1 month of yield" },
             ]}
           />
-          <p className="dx-hero-note">
-            Test mode: <Sim /> yield on test networks. Nothing here has value. <Link href="/docs/risks">Risks and limits</Link>
-          </p>
         </div>
         <StartCards />
       </section>

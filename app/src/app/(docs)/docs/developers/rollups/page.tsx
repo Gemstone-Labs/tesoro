@@ -38,8 +38,7 @@ export default function Page() {
 
       <H2 id="pinned-validator">Delegation is pinned to one validator</H2>
       <p>
-        An early review found that anyone could delegate a Game&apos;s state to a validator they controlled and commit a forged result (audit F-01, Critical).
-        The fix has two parts. The delegation program keeps a <code>ProgramConfig</code> per Game program whose <code>approved_validators</code> lists only the
+        If anyone could delegate a Game&apos;s state to a validator they controlled, they could commit a forged result. Two checks prevent it. The delegation program keeps a <code>ProgramConfig</code> per Game program whose <code>approved_validators</code> lists only the
         MagicBlock TEE validator, and the Game programs also pin the validator themselves. A delegation naming any other validator fails with{" "}
         <code>InvalidValidator</code> (custom error 6020). The ProgramConfig addresses are on <Link href="/docs/developers/programs">Programs and addresses</Link>.
       </p>

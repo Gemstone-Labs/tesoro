@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Callout, DocPage, H2 } from "@/components/docs/prose";
+import { DocPage, H2 } from "@/components/docs/prose";
 import { Eye, EyeOff, Gamepad2, Calculator, Scale } from "lucide-react";
 import { Pipeline } from "@/components/docs/visual";
 
@@ -57,13 +57,6 @@ export default function Page() {
         The rest of the trust assumptions, including the price feed, cross-chain messaging and admin keys, are listed in{" "}
         <Link href="/docs/risks">Risks and limits</Link>.
       </p>
-
-      <Callout kind="warn" title="Reviewed internally, not externally">
-        <p>
-          The programs have had two internal reviews and no external audit. The first review found a way for a Player to commit a forged result, which
-          was fixed before submission. The details are in <Link href="/docs/developers/security">Security</Link>.
-        </p>
-      </Callout>
     </DocPage>
   );
 }

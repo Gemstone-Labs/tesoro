@@ -18,9 +18,6 @@ function DocsLayout({ children }: { children: ReactNode }) {
         </aside>
         <main id="docs-main" className="docs-main">
           {children}
-          <footer className="docs-foot">
-            <p>Test mode · simulated yield · 1 month = 10 min · nothing here has value</p>
-          </footer>
         </main>
         <TocRail />
       </div>

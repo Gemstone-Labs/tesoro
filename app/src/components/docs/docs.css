@@ -156,7 +156,6 @@
 .docs-pager-link svg { width: 14px; height: 14px; }
 .docs-pager-link b { font-size: 16px; }
 .docs-pager-link.next { text-align: right; justify-items: end; }
-.docs-foot { max-width: 760px; margin-top: 40px; font-size: 12.5px; color: var(--fg-2); }
 
 /* ——— Smaller screens ——— */
 @media (max-width: 1239px) {

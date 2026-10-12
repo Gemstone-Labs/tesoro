@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Callout, DataTable, DocPage, H2, Sim } from "@/components/docs/prose";
+import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { ChainPath, ThemedArt } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Chains", alternates: { canonical: "/docs/chains" } };
@@ -15,18 +15,14 @@ export default function Page() {
         Gema from any chain plays at the same table and settles in the same place.
       </p>
       <DataTable
-        head={["Chain", "Network used today", "Position token", "What you need"]}
+        head={["Chain", "Position token", "What you need"]}
         rows={[
-          ["Solana", "Solana devnet", <>simSOL <Sim /></>, "Just your Account. The app tops up the small fees."],
-          ["Ethereum", "Hoodi test network", <>simETH <Sim /></>, "A little Hoodi ETH for gas, which the app tops up. Your Ethereum address linked to your Account."],
-          ["HyperEVM", "HyperEVM testnet", <>simHYPE <Sim /></>, "A little testnet HYPE for gas; the app sends a small amount if your balance is low, with a daily limit."],
+          ["Solana", "simSOL", "Just your Account. The app tops up the small fees."],
+          ["Ethereum", "simETH", "A little ETH for gas, which the app tops up. Your Ethereum address linked to your Account."],
+          ["HyperEVM", "simHYPE", "A little HYPE for gas; the app sends a small amount if your balance is low, with a daily limit."],
         ]}
-        caption="Positions today"
+        caption="Positions you can open"
       />
-      <p>
-        Everything is on test networks. There is no mainnet deployment yet. A vault for Lido&apos;s real wstETH is deployed on Hoodi and uses real
-        wstETH yield, but it is not offered in the app because there is no faucet for it.
-      </p>
 
       <ChainPath />
 

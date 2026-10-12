@@ -86,7 +86,7 @@ export default function Page() {
       <ul>
         <li>An entry draws <code>own = min(entry, own_free)</code> from own-sourced Gemas first, the rest from won Gemas. The client supplies Holdings, own class first then won, each strictly ascending by Source address; a non-canonical draw is rejected.</li>
         <li><code>MAX_ENTRY_SOURCES = 8</code> Holdings per entry. A settlement therefore pays at most 19 <code>(recipient, source)</code> lines (20 for a backed win).</li>
-        <li>Measured worst case on devnet before the Leaderboard Fee: a Block Puzzle <code>settle</code> with 18 payouts is 135,734 compute units and 1,091 bytes of the 1,232 limit as a legacy transaction, so no lookup table is needed.</li>
+        <li>Measured worst case before the Leaderboard Fee: a Block Puzzle <code>settle</code> with 18 payouts is 135,734 compute units and 1,091 bytes of the 1,232 limit as a legacy transaction, so no lookup table is needed.</li>
       </ul>
 
       <H2 id="backing">Backing in the ledger</H2>

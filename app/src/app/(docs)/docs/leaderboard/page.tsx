@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
+import { DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { SeasonDiagram, Shot } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Leaderboard", alternates: { canonical: "/docs/leaderboard" } };
@@ -62,10 +62,6 @@ export default function Page() {
         The live standings, the current Pool and the time left in the season are on the <Link href="/leaderboard">Leaderboard page</Link> in the app. It
         is public, and you can read it without signing in.
       </p>
-
-      <Callout kind="note" title="Test mode">
-        <p>The Pool is made of test Gemas. Nothing in it has real value yet.</p>
-      </Callout>
     </DocPage>
   );
 }

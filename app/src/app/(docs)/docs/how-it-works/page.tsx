@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Callout, DataTable, DocPage, H2, Sim } from "@/components/docs/prose";
+import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { Coins, Gem, Lock, RefreshCcw, Swords } from "lucide-react";
 import { FlowDiagram, Shot, StepGrid } from "@/components/docs/visual";
 
@@ -25,7 +25,7 @@ export default function Page() {
 
       <H2 id="worked-example">A worked example</H2>
       <p>
-        Say you lock 10 simSOL <Sim /> at 7% a year and pick a 3 month Horizon. The price used here, $100 a SOL, is only for the arithmetic.
+        Say you lock 10 simSOL at 7% a year and pick a 3 month Horizon. The price used here, $100 a SOL, is only for the arithmetic.
       </p>
       <DataTable
         head={["Step", "Working", "Result"]}
@@ -42,8 +42,7 @@ export default function Page() {
         the Debt nor what a Gema redeems for.
       </p>
       <p>
-        With the simulated clock, 3 months of yield arrive in about 30 minutes and the Debt falls to zero on its own. With real staking yield it would take
-        about as long as the Horizon you chose.
+        Yield runs on a fast clock where a month takes 10 minutes, so 3 months of yield arrive in about 30 minutes and the Debt falls to zero on its own.
       </p>
 
       <H2 id="what-never-happens">What never happens</H2>

@@ -56,8 +56,7 @@ export default function Page() {
 
       <Callout kind="note" title="Keep your wallet safe">
         <p>
-          Whoever controls your sign-in controls your Account. Tesoro cannot recover a lost wallet or reverse a transaction. During test mode nothing
-          has value, but build the habit anyway.
+          Whoever controls your sign-in controls your Account. Tesoro cannot recover a lost wallet or reverse a transaction.
         </p>
       </Callout>
     </DocPage>

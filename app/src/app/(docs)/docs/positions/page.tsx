@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Callout, DataTable, DocPage, H2, H3, Sim } from "@/components/docs/prose";
+import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { DebtDiagram, Shot } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Positions and Advances", alternates: { canonical: "/docs/positions" } };
@@ -14,17 +14,16 @@ export default function Page() {
         ever locked: it is never entered into a Match, never spent, and never pays Debt. Only the yield it earns is put to work.
       </p>
       <DataTable
-        head={["Chain", "Test token", "Yearly rate", "Where the Principal sits"]}
+        head={["Chain", "Token", "Yearly rate", "Where the Principal sits"]}
         rows={[
-          ["Solana", <>simSOL <Sim /></>, "7%", "In a vault controlled by Tesoro's ledger program"],
-          ["Ethereum (Hoodi)", <>simETH <Sim /></>, "5%", "In a vault on Ethereum; the ledger stays on Solana"],
-          ["HyperEVM", <>simHYPE <Sim /></>, "5%", "In a vault on HyperEVM; the ledger stays on Solana"],
+          ["Solana", "simSOL", "7%", "In a vault controlled by Tesoro's ledger program"],
+          ["Ethereum", "simETH", "5%", "In a vault on Ethereum; the ledger stays on Solana"],
+          ["HyperEVM", "simHYPE", "5%", "In a vault on HyperEVM; the ledger stays on Solana"],
         ]}
-        caption="Positions you can open today (test networks)"
+        caption="Positions you can open"
       />
       <p>
-        The test tokens come from a faucet in your Wallet. They are not real staking tokens, and their yield is simulated: a month of yield arrives in
-        about 10 minutes.
+        You can get each token from your Wallet. Yield runs on a fast clock: a month of yield arrives in about 10 minutes.
       </p>
 
       <Shot name="wallet" url="tesoro-fawn.vercel.app/wallet" alt="The Wallet showing a Position with its Debt, Horizon and Unlock Estimate" caption="The Wallet shows each Position, its Debt and its Unlock Estimate. Figures here are sample data." />

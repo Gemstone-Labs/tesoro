@@ -26,7 +26,7 @@ export const DOC_GROUPS: DocGroup[] = [
       { href: "/docs/fees", title: "Fees", summary: "Every fee Tesoro takes, in one table, with a worked Match.", keywords: "platform studio leaderboard fee percent cost" },
       { href: "/docs/chains", title: "Chains", summary: "Solana, Ethereum and HyperEVM: where Positions live.", keywords: "solana ethereum hoodi hyperevm hype eth sol cross-chain" },
       { href: "/docs/fairness", title: "Fairness and privacy", summary: "How hidden information stays hidden and results stay honest.", keywords: "random hidden private verify cheat" },
-      { href: "/docs/risks", title: "Risks and limits", summary: "What can go wrong, what is simulated, and what is not reviewed.", keywords: "risk simulated testnet audit legal warning" },
+      { href: "/docs/risks", title: "Risks and limits", summary: "What can go wrong, and who you trust.", keywords: "risk trust oracle legal warning" },
     ],
   },
   {
@@ -38,9 +38,6 @@ export const DOC_GROUPS: DocGroup[] = [
       { href: "/docs/developers/settlement", title: "How settlement works", summary: "How a Game program settles a Pot through tesoro_core.", keywords: "settle_match cpi authority register_game fees pot lines" },
       { href: "/docs/developers/rollups", title: "Private Ephemeral Rollups", summary: "Hidden state with MagicBlock: delegation, permissions, randomness.", keywords: "magicblock per tee tdx vrf delegate permission seed deck" },
       { href: "/docs/developers/cross-chain", title: "Cross-chain with LayerZero V2", summary: "How EVM Positions reach the Solana ledger and back.", keywords: "layerzero oapp bridge hoodi hyperevm message dvn" },
-      { href: "/docs/developers/simulated-yield", title: "Simulated yield", summary: "The per-Position yield model behind '1 month = 10 min'.", keywords: "sim_lst simsol simeth apy speedup 4380 mint" },
-      { href: "/docs/developers/security", title: "Security", summary: "Review results, the key incident, trust assumptions.", keywords: "audit findings key compromise rotation admin upgrade authority" },
-      { href: "/docs/developers/run", title: "Run it locally", summary: "Clone, build, test, and point at devnet.", keywords: "install pnpm anchor foundry env keeper verify" },
     ],
   },
 ];

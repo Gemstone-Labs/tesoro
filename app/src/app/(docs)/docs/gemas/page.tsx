@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Callout, DataTable, DocPage, H2, H3, Sim } from "@/components/docs/prose";
+import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { Shot, SourceDiagram } from "@/components/docs/visual";
 
 export const metadata: Metadata = { title: "Gemas", alternates: { canonical: "/docs/gemas" } };
@@ -43,7 +43,7 @@ export default function Page() {
         ]}
       />
       <p>
-        Redeem pays out in the Source asset: simSOL <Sim /> on Solana, or the Ethereum or HyperEVM test token on those chains. Redeeming an
+        Redeem pays out in the Source asset: simSOL on Solana, simETH on Ethereum or simHYPE on HyperEVM. Redeeming an
         Ethereum or HyperEVM Gema sends a message to that chain, which takes a few minutes (see <Link href="/docs/chains">Chains</Link>).
       </p>
 

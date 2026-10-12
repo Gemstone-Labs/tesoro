@@ -3,7 +3,6 @@ import Link from "next/link";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { Sim } from "./prose";
 
 /* Visual building blocks for the Docs: icon tiles, framed screenshots, art, step grids and the diagrams. All server components,
    all themed through the docs tokens, motion only under (prefers-reduced-motion: no-preference) in docs-visual.css. */
@@ -350,12 +349,10 @@ export function ChainPath({ detail = false }: { detail?: boolean }) {
         <div className="dx-chain-col">
           <div className="dx-chain-box" data-chain="eth">
             <b>Ethereum</b>
-            <span>Hoodi test network</span>
             <code>simETH vault{detail ? " · PositionVault" : ""}</code>
           </div>
           <div className="dx-chain-box" data-chain="hype">
             <b>HyperEVM</b>
-            <span>Testnet</span>
             <code>simHYPE vault{detail ? " · PositionVaultOApp" : ""}</code>
           </div>
         </div>
@@ -535,11 +532,11 @@ export function Architecture() {
           </div>
         </div>
         <div className="dx-arch-sol">
-          <b>Solana · devnet · base layer</b>
+          <b>Solana · base layer</b>
           <ul>
             <li><code>tesoro_core</code> Accounts, Positions, Gemas, Debt, Matches, Fees, Backing</li>
             <li><code>block_puzzle</code> <code>holdem</code> <code>trading_duel</code> settle by CPI</li>
-            <li><code>sim_lst</code> simulated staking token <Sim />.</li>
+            <li><code>sim_lst</code> staking token behind SOL Positions</li>
             <li><code>tesoro_bridge</code> LayerZero V2 OApp</li>
           </ul>
         </div>
@@ -553,35 +550,10 @@ export function Architecture() {
             <span>Intel TDX TEE · hidden state: Boards, Seed, Deck, hole cards, Books</span>
           </div>
           <div className="dx-arch-box is-evm">
-            <b>Ethereum Hoodi · HyperEVM</b>
+            <b>Ethereum · HyperEVM</b>
             <span>PositionVaultOApp + SimLST on each chain</span>
           </div>
         </div>
-      </div>
-    </Diagram>
-  );
-}
-
-/** How long a Horizon takes to repay in test mode, as bars. */
-export function ClockDiagram() {
-  const rows = [
-    ["1 month", 10],
-    ["3 months", 30],
-    ["6 months", 60],
-    ["12 months", 120],
-  ] as const;
-  return (
-    <Diagram label="Horizon against real time in test mode" caption="Speedup 4,380x: one simulated month is exactly 600 real seconds, for every Position on every chain.">
-      <div className="dx-clock">
-        {rows.map(([h, m]) => (
-          <div key={h} className="dx-clock-row">
-            <span>{h}</span>
-            <div className="dx-clock-bar">
-              <i style={{ width: `${(m / 120) * 100}%` }} />
-            </div>
-            <b>{m} min</b>
-          </div>
-        ))}
       </div>
     </Diagram>
   );

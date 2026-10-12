@@ -13,7 +13,7 @@ const BASE = process.env.BASE ?? "http://localhost:3216";
 const args = process.argv.slice(2);
 const only = args.find((a) => !a.startsWith("--"))?.split(",");
 const modes = (args.find((a) => a.startsWith("--theme="))?.slice(8) ?? "dark,light").split(",");
-const PAGES = ["", "how-it-works", "accounts", "positions", "gemas", "matches", "backing", "leaderboard", "fees", "chains", "fairness", "risks", "developers", "developers/programs", "developers/settlement", "developers/rollups", "developers/cross-chain", "developers/simulated-yield", "developers/security", "developers/run"];
+const PAGES = ["", "how-it-works", "accounts", "positions", "gemas", "matches", "backing", "leaderboard", "fees", "chains", "fairness", "risks", "developers", "developers/programs", "developers/settlement", "developers/rollups", "developers/cross-chain"];
 const browser = await chromium.launch({ executablePath: process.env.CHROME ?? "/usr/bin/chromium", args: ["--no-sandbox"] });
 for (const p of PAGES) {
   const slug = p === "" ? "index" : p.replace("/", "-");

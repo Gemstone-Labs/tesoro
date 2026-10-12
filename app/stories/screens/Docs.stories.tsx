@@ -25,6 +25,3 @@ export const DevPrograms = docStory("/docs/developers/programs");
 export const DevSettlement = docStory("/docs/developers/settlement");
 export const DevRollups = docStory("/docs/developers/rollups");
 export const DevCrossChain = docStory("/docs/developers/cross-chain");
-export const DevSimulatedYield = docStory("/docs/developers/simulated-yield");
-export const DevSecurity = docStory("/docs/developers/security");
-export const DevRun = docStory("/docs/developers/run");
