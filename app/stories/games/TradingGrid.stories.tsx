@@ -57,7 +57,7 @@ interface Args {
 }
 
 function Screen({ t, plan, playable, staked }: Args) {
-  const { series, track, price } = walk(7, t);
+  const { series, track } = walk(7, t);
   const planned = plan === "open" ? null : PLANS[plan];
   const [taps, setTaps] = useState<number[]>(() =>
     planned ? picksFor(track, [...planned.me]) : Array.from({ length: COLUMNS }, (_, c) => (c < 3 + Math.floor(t / 10) ? [3, 4, 5, 3, 2, 4, 5, 3, 4][c % 9] : NO_PICK)),
@@ -74,7 +74,6 @@ function Screen({ t, plan, playable, staked }: Args) {
       nowMs={START + t * 1000}
       track={track}
       series={series}
-      price={price}
       mine={taps}
       theirs={revealed(foePicks, t)}
       me={{ name: "You", avatar: art.avatars[0] }}

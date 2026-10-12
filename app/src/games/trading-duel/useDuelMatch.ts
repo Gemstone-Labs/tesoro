@@ -50,12 +50,17 @@ const bookKey = (b: Book) => b.picks.join(",");
 const GRACE_MS = 15_000;
 /** Seconds after the window closes before the second Player also tries to end the Match (the result is the same whoever does it). */
 const END_GRACE_MS = 2_000;
-/** The grid is cranked about once a second while it runs: a denser line is a truer one. */
-const TICK_EVERY_MS = 1_000;
+/** The grid is cranked about four times a second while it runs: a denser line is a truer one. A call is never sent while the last is in flight. */
+const TICK_EVERY_MS = 250;
+/** After a failed call the next waits this long, doubling per failure up to the cap (a stale price or a lost race is not worth hammering the rollup for). */
+const BACKOFF_MS = 500;
+const BACKOFF_MAX_MS = 4_000;
+/** The end retries at least this often, so a slow Match does not wait long on it. */
+const END_BACKOFF_MAX_MS = 1_000;
 
 /**
  * Drives one Trading Duel for one Player: creates and delegates the Duel, starts it, reads the
- * public Duel and your own Book from the private rollup, cranks `tick` about once a second while
+ * public Duel and your own Book from the private rollup, cranks `tick` about four times a second while
  * the grid runs, ends it when the window closes, then commits it back and settles. Both Players'
  * clients run the same driver; steps either Player may do are tried by one client first and by the
  * other after a grace period, and a lost race is harmless because every step re-reads chain state.
@@ -236,7 +241,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     }
 
     if (d.status === STATUS.live) {
-      // The cranking runs on its own one-second loop below.
+      // The cranking runs on its own loop below.
       setStage("live");
       return;
     }
@@ -307,17 +312,19 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     };
   }, [p, id, applyDuel, applyBook]);
 
-  // -- the crank: tick once a second through the grid, then end it ---------------------------
+  // -- the crank: tick every quarter second through the grid, then end it ---------------------------
 
   useEffect(() => {
     if (!p || id === null) return;
     let stop = false;
     let sending = false;
     let endSince = 0;
+    let failures = 0;
+    let waitUntil = 0;
     const crank = async () => {
       const d = duelRef.current;
       const seat = seatRef.current;
-      if (sending || stop || !d || seat === null || stage.current !== "live" || d.status !== STATUS.live) return;
+      if (sending || stop || !d || seat === null || stage.current !== "live" || d.status !== STATUS.live || now() < waitUntil) return;
       const nowS = (Date.now() + offsetRef.current) / 1000;
       if (nowS < d.startsAt) return;
       sending = true;
@@ -326,13 +333,17 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
         if (nowS < d.endsAt) {
           // Records the live price into the line and reveals the columns that locked; a stale price just refuses it.
           await td.tick(p, id, d.asset);
+          failures = 0;
         } else {
           // The window is over: end it. The result is the same whoever does it and whenever, so seat 1 tries right away, seat 0 a couple of seconds later, and both retry every second.
           if (!endSince) endSince = now();
           if (seat === 1 || now() - endSince >= END_GRACE_MS) await td.end(p, id);
+          failures = 0;
         }
       } catch {
-        // A stale price (a tick) or a rollup clock a moment behind (the end) is retried next second, or the other Player did it first.
+        // A stale price (a tick) or a rollup clock a moment behind (the end) is retried after a growing pause, or the other Player did it first.
+        const cap = nowS < d.endsAt ? BACKOFF_MAX_MS : END_BACKOFF_MAX_MS;
+        waitUntil = now() + Math.min(cap, BACKOFF_MS * 2 ** failures++);
       } finally {
         sending = false;
       }

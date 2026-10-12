@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { Button, CheckIcon, GemaMark, LockIcon, XIcon } from "@/components/ui";
 import { Arena, Callout, Countdown, MuteToggle, burst, burstAt, sfx, useReducedMotion, type CalloutTone } from "../fx";
 import {
@@ -23,7 +23,8 @@ import {
   type GridAsset,
   type Track,
 } from "./grid";
-import { HEADER_PX, PAD_COLS, WORLD_COLS, cameraX, columnX, hitCount, layoutFor, marks, priceDigits, runEndingAt, snakePath, snakePoints, touchedRows, xOf, yOf, type Mark } from "./gridView";
+import type { LiveSeries } from "./feed";
+import { HEADER_PX, PAD_COLS, WORLD_COLS, cameraAfterZoom, cameraX, clampCamera, clampCols, columnX, hitCount, layoutFor, marks, maxCols, MIN_COLS, priceDigits, runEndingAt, snakeWindow, touchedRows, xOf, yOf, type Mark } from "./gridView";
 import "./grid.css";
 
 export interface GridSide {
@@ -48,10 +49,8 @@ export interface GridScreenProps {
   startsAt: number;
   /** What the line did in each column (`record` / `finish` in grid.ts). */
   track: Track;
-  /** Recent prices for the snake; samples before `startsAt` are ignored. */
-  series: GridPoint[];
-  /** The latest price in 1e-8 USD; null while waiting for the first one. */
-  price: bigint | null;
+  /** Recent prices for the snake; samples before `startsAt` are ignored. A live series is read every frame and may grow without the screen re-rendering. */
+  series: GridPoint[] | LiveSeries;
   /** The price feed has gone quiet. */
   stale?: boolean;
   /** Your row for each of the 12 columns, `NO_PICK` where you have none. */
@@ -82,6 +81,20 @@ export interface GridScreenProps {
   clockOffsetMs?: number;
   /** The Match is over in the game but the Pot has not been paid out yet. */
   payingOut?: boolean;
+}
+
+type Dir = "up" | "down" | "flat";
+
+/** Seconds of no touch before a panned view swings back to the line. */
+const IDLE_RETURN_MS = 8000;
+/** How far a finger or mouse moves before a press becomes a drag (px). */
+const DRAG_PX = 8;
+const ZOOM_STEP = 1.3;
+
+/** Which way the price last moved, ignoring readings that did not change it. */
+function directionOf(points: { p: number }[], last: number): Dir {
+  for (let i = points.length - 2; i >= 0 && i > points.length - 400; i--) if (points[i].p !== last) return last > points[i].p ? "up" : "down";
+  return "flat";
 }
 
 type Floater = { id: number; c: number; r: number; who: "me" | "foe" };
@@ -145,8 +158,11 @@ export function GridScreen(p: GridScreenProps) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const layout = useMemo(() => layoutFor(viewW), [viewW]);
+  // Columns on screen: null is the default for this width; the zoom buttons, pinch and ctrl+wheel set it.
+  const [cols, setCols] = useState<number | null>(null);
+  const layout = useMemo(() => layoutFor(viewW, cols ?? undefined), [viewW, cols]);
   const { cw, rh } = layout;
+  const source = useMemo<LiveSeries>(() => (Array.isArray(p.series) ? { points: p.series, rev: 0 } : p.series), [p.series]);
 
   const myMarks = useMemo(() => marks(track, mine, t, anchor, step), [track, mine, t, anchor, step]);
   const foeMarks = useMemo(() => marks(track, theirs, t, anchor, step, true), [track, theirs, t, anchor, step]);
@@ -154,8 +170,6 @@ export function GridScreen(p: GridScreenProps) {
   const over = t >= MATCH_SECS;
   const settled = !!p.final;
 
-  const pts = useMemo(() => snakePoints(p.series, startsAt, anchorUsd), [p.series, startsAt, anchorUsd]);
-  const base = useMemo(() => snakePath(pts, layout, anchorUsd, stepUsd), [pts, layout, anchorUsd, stepUsd]);
   // The official line: what the game recorded in each column, as a band from its lowest to its highest price.
   const bands = useMemo(
     () =>
@@ -167,12 +181,6 @@ export function GridScreen(p: GridScreenProps) {
       }),
     [track, anchorUsd, stepUsd, rh, cw],
   );
-  const dir: "up" | "down" | "flat" = useMemo(() => {
-    const last = pts[pts.length - 1];
-    for (let i = pts.length - 2; i >= 0 && i > pts.length - 10; i--) if (pts[i].p !== last.p) return last.p > pts[i].p ? "up" : "down";
-    return "flat";
-  }, [pts]);
-  const priceUsd = p.price !== null ? usdOf(p.price) : pts[pts.length - 1].p;
 
   // ---- the moving parts are written straight to the DOM every frame (no React render per frame) ----
   const worldRef = useRef<HTMLDivElement>(null);
@@ -180,31 +188,94 @@ export function GridScreen(p: GridScreenProps) {
   const glowRef = useRef<SVGPathElement>(null);
   const gradRef = useRef<SVGLinearGradientElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
+  const dotRef = useRef<HTMLElement>(null);
+  const chipRef = useRef<HTMLSpanElement>(null);
+  const chipTextRef = useRef<HTMLSpanElement>(null);
+  const chipArrowRef = useRef<HTMLElement>(null);
+  const ptrTextRef = useRef<HTMLSpanElement>(null);
   const nowRef = useRef<HTMLDivElement>(null);
   const wakeRef = useRef<HTMLDivElement>(null);
   const ptrRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const live = useRef({ layout, base, pts, startsAt, stepped: reduced, anchorUsd, stepUsd, hy: null as number | null, last: 0 });
-  useEffect(() => {
-    live.current = { ...live.current, layout, base, pts, startsAt, stepped: reduced, anchorUsd, stepUsd };
+  const live = useRef({
+    layout,
+    source,
+    startsAt,
+    stepped: reduced,
+    anchorUsd,
+    stepUsd,
+    money,
+    hy: null as number | null,
+    last: 0,
+    cam: 0,
+    built: "",
+    d: "",
+    ex: 0,
+    ey: 0,
+    dir: "flat" as Dir,
+    text: "",
+    redraw: () => {},
   });
+  // Where the player has scrolled to: `free` is a camera x while panned away from the line, null while it follows.
+  const view = useRef({ free: null as number | null, returning: false, touched: 0, down: 0 });
+  const [panned, setPanned] = useState(false);
+  useEffect(() => {
+    Object.assign(live.current, { layout, source, startsAt, stepped: reduced, anchorUsd, stepUsd, money });
+  });
+  useEffect(() => {
+    live.current.built = "";
+  }, [layout, source, startsAt, anchorUsd, stepUsd]);
   const gradId = useId().replace(/[^a-zA-Z0-9]/g, "");
   const frozen = p.nowMs !== undefined;
   useEffect(() => {
     const apply = (ms: number, snapHead: boolean) => {
       const L = live.current;
+      const V = view.current;
       const secs = (ms - L.startsAt) / 1000;
       const dt = Math.min(0.1, Math.max(0.001, (ms - L.last) / 1000 || 0.016));
       L.last = ms;
-      const cam = cameraX(secs, L.layout, L.stepped);
+      const follow = cameraX(secs, L.layout, L.stepped);
+      if (V.free !== null && (V.returning || (V.down === 0 && !frozen && Date.now() - V.touched > IDLE_RETURN_MS))) {
+        V.returning = true;
+        V.free = L.stepped || snapHead ? follow : V.free + (follow - V.free) * Math.min(1, dt * 9);
+        if (Math.abs(follow - V.free) < 1.5) {
+          V.free = null;
+          V.returning = false;
+          setPanned(false);
+        }
+      }
+      const cam = V.free !== null ? clampCamera(V.free, L.layout) : follow;
+      L.cam = cam;
       if (worldRef.current) worldRef.current.style.transform = `translate3d(${-cam}px,0,0)`;
-      const lastPt = L.pts[L.pts.length - 1];
-      const targetY = yOf(lastPt.p, L.anchorUsd, L.stepUsd, L.layout.rh);
-      const hy = L.hy === null || snapHead ? targetY : L.hy + (targetY - L.hy) * Math.min(1, dt * 7);
+
+      // The line is rebuilt when a new reading arrives or the view moves half a screen (it is written for the screen and a margin of half a screen); the tail to the head every frame.
+      const half = L.layout.viewW / 2;
+      const win = Math.floor(cam / half);
+      const key = `${L.source.rev}|${win}`;
+      if (L.built !== key) {
+        L.built = key;
+        const r = snakeWindow(L.source.points, L.startsAt, L.anchorUsd, L.layout, L.stepUsd, win * half, (win + 3) * half);
+        L.d = r.d;
+        L.ex = r.x;
+        L.ey = r.y;
+        const dir = directionOf(L.source.points, r.p);
+        const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "◆";
+        const text = L.money(r.p);
+        if (dir !== L.dir || text !== L.text) {
+          L.dir = dir;
+          L.text = text;
+          if (chipTextRef.current) chipTextRef.current.textContent = text;
+          if (chipArrowRef.current) chipArrowRef.current.textContent = arrow;
+          if (ptrTextRef.current) ptrTextRef.current.textContent = dir === "flat" ? text : `${text} ${arrow}`;
+          for (const el of [dotRef.current, chipRef.current, ptrTextRef.current]) el?.setAttribute("data-dir", dir);
+        }
+      }
+      const targetY = L.ey;
+      const hy = L.hy === null || snapHead ? targetY : L.hy + (targetY - L.hy) * Math.min(1, dt * 14);
       L.hy = hy;
       const hx = xOf(secs, L.layout.cw);
-      const tail = hx > L.base.x + 0.5 ? `L${hx.toFixed(1)} ${hy.toFixed(1)}` : "";
-      const d = L.base.d + tail;
+      const tail = hx > L.ex + 0.5 ? `L${hx.toFixed(1)} ${hy.toFixed(1)}` : "";
+      const d = L.d + tail;
       pathRef.current?.setAttribute("d", d);
       glowRef.current?.setAttribute("d", d);
       gradRef.current?.setAttribute("x1", String(Math.max(0, hx - L.layout.cw * 3.2)));
@@ -226,10 +297,12 @@ export function GridScreen(p: GridScreenProps) {
     };
     if (frozen) {
       apply(p.nowMs!, true);
+      live.current.redraw = () => apply(p.nowMs!, true);
       return;
     }
     if (reduced) {
       apply(Date.now(), true);
+      live.current.redraw = () => apply(Date.now(), true);
       const i = setInterval(() => apply(Date.now(), true), 1000);
       return () => clearInterval(i);
     }
@@ -240,7 +313,127 @@ export function GridScreen(p: GridScreenProps) {
     };
     loop();
     return () => cancelAnimationFrame(raf);
-  }, [frozen, p.nowMs, reduced, layout, base]);
+  }, [frozen, p.nowMs, reduced, layout, source]);
+
+  // ---- zoom and pan ----
+  const zoomTo = (next: number, frac = 0.5) => {
+    const L = live.current;
+    const V = view.current;
+    V.touched = Date.now();
+    const cur = L.layout.viewW / L.layout.cw;
+    const to = clampCols(next, L.layout.viewW);
+    if (Math.abs(to - cur) < 0.005) return;
+    const nl = layoutFor(L.layout.viewW, to);
+    if (V.free !== null) V.free = cameraAfterZoom(V.free, L.layout, nl, frac);
+    L.layout = nl;
+    L.built = "";
+    setCols(to);
+  };
+  const zoomBy = (factor: number, frac = 0.5) => zoomTo((live.current.layout.viewW / live.current.layout.cw) / factor, frac);
+  const panTo = (x: number) => {
+    const V = view.current;
+    V.touched = Date.now();
+    V.returning = false;
+    V.free = clampCamera(x, live.current.layout);
+    setPanned(true);
+    live.current.redraw();
+  };
+  const goLive = () => {
+    const V = view.current;
+    V.touched = Date.now();
+    V.returning = true;
+    if (reduced || frozen) {
+      V.free = null;
+      V.returning = false;
+      setPanned(false);
+      live.current.redraw();
+    }
+  };
+  const atMin = cw * MIN_COLS >= viewW - 0.5;
+  const atMax = viewW / cw >= maxCols(viewW) - 0.05;
+
+  // Handlers read through a ref so the wheel listener, which is native (it has to cancel the page zoom), never goes stale.
+  const gesture = useRef({ zoomBy, panTo });
+  useEffect(() => {
+    gesture.current = { zoomBy, panTo };
+  });
+  useEffect(() => {
+    const el = viewRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const unit = e.deltaMode === 1 ? 16 : 1;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const r = el.getBoundingClientRect();
+        gesture.current.zoomBy(Math.exp((-e.deltaY * unit) / (e.ctrlKey && !e.metaKey ? 100 : 300)), (e.clientX - r.left) / r.width);
+      } else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        gesture.current.panTo(live.current.cam + (e.deltaX || e.deltaY) * unit);
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Dragging scrolls; a tap picks. A drag only starts after a few pixels, so a tap still reaches the box.
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const drag = useRef({ x: 0, y: 0, cam: 0, on: false, pinch: 0, cols: 0, moved: false });
+  const onViewDown = (e: PointerEvent<HTMLDivElement>) => {
+    const pts_ = touches.current;
+    pts_.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    view.current.down = pts_.size;
+    view.current.touched = Date.now();
+    const D = drag.current;
+    D.moved = false;
+    if (pts_.size === 1) Object.assign(D, { x: e.clientX, y: e.clientY, cam: live.current.cam, on: false, pinch: 0 });
+    else if (pts_.size === 2) {
+      const [a, b] = [...pts_.values()];
+      Object.assign(D, { pinch: Math.hypot(a.x - b.x, a.y - b.y) || 1, cols: live.current.layout.viewW / live.current.layout.cw, on: true, moved: true });
+    }
+  };
+  const onViewMove = (e: PointerEvent<HTMLDivElement>) => {
+    const pts_ = touches.current;
+    if (!pts_.has(e.pointerId)) return;
+    pts_.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const D = drag.current;
+    if (pts_.size >= 2 && D.pinch) {
+      const [a, b] = [...pts_.values()];
+      const r = e.currentTarget.getBoundingClientRect();
+      zoomTo(D.cols / (Math.hypot(a.x - b.x, a.y - b.y) / D.pinch), ((a.x + b.x) / 2 - r.left) / r.width);
+      return;
+    }
+    const dx = e.clientX - D.x;
+    if (!D.on && Math.abs(dx) > DRAG_PX && Math.abs(dx) > Math.abs(e.clientY - D.y)) {
+      D.on = true;
+      D.moved = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      D.cam = view.current.free ?? live.current.cam;
+      D.x = e.clientX;
+      return;
+    }
+    if (D.on && pts_.size === 1) panTo(D.cam - (e.clientX - D.x));
+  };
+  const onViewUp = (e: PointerEvent<HTMLDivElement>) => {
+    touches.current.delete(e.pointerId);
+    view.current.down = touches.current.size;
+    view.current.touched = Date.now();
+    if (!touches.current.size) {
+      drag.current.on = false;
+      drag.current.pinch = 0;
+      if (drag.current.moved) setTimeout(() => (drag.current.moved = false), 60);
+    } else if (touches.current.size === 1) {
+      // one finger left after a pinch: carry on dragging from where it is
+      const [a] = [...touches.current.values()];
+      Object.assign(drag.current, { x: a.x, y: a.y, cam: view.current.free ?? live.current.cam, pinch: 0, on: true });
+    }
+  };
+  const onStageKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "+" || e.key === "=") zoomBy(ZOOM_STEP);
+    else if (e.key === "-" || e.key === "_") zoomBy(1 / ZOOM_STEP);
+    else return;
+    e.preventDefault();
+  };
 
   // ---- picking ----
   const [fc, setFc] = useState<{ c: number; r: number } | null>(null);
@@ -461,7 +654,7 @@ export function GridScreen(p: GridScreenProps) {
         {strip}
         {p.error && <p className="tg-error" role="alert">{p.error}</p>}
 
-        <div ref={stageRef} className="cut cut-frame tg-stage" role="group" aria-label={`Price grid, ${asset}. Pick a box in a column that is still open. Arrow keys move between boxes, Enter or Space picks.`}>
+        <div ref={stageRef} className="cut cut-frame tg-stage" role="group" onKeyDown={onStageKey} aria-label={`Price grid, ${asset}. Pick a box in a column that is still open. Arrow keys move between boxes, Enter or Space picks.`}>
           <div className="tg-gutter" style={{ height: HEADER_PX + ROWS * rh }} aria-hidden="true">
             <span className="tg-gl-end" style={{ top: HEADER_PX + rh * 0.5 }}>above</span>
             <span className="tg-gl-end" style={{ top: HEADER_PX + rh * (ROWS - 0.5) }}>below</span>
@@ -471,12 +664,35 @@ export function GridScreen(p: GridScreenProps) {
               </span>
             ))}
             <div className="tg-ptr" ref={ptrRef} style={{ top: HEADER_PX }}>
-              <span className={`tg-ptr-t ${dir}`}>{money(priceUsd)}{dir === "up" ? " ▲" : dir === "down" ? " ▼" : ""}</span>
+              <span ref={ptrTextRef} className="tg-ptr-t" data-dir="flat" />
             </div>
           </div>
 
-          <div className="tg-view" ref={viewRef} style={{ height: HEADER_PX + ROWS * rh }}>
-            <div className="tg-world" ref={worldRef} style={worldStyle}>
+          <div className="tg-tools">
+            <button type="button" className="tg-tool" aria-label="Zoom out" title="Zoom out (minus key)" aria-disabled={atMax} onClick={() => zoomBy(1 / ZOOM_STEP)}>
+              &minus;
+            </button>
+            <button type="button" className="tg-tool" aria-label="Zoom in" title="Zoom in (plus key)" aria-disabled={atMin} onClick={() => zoomBy(ZOOM_STEP)}>
+              +
+            </button>
+          </div>
+
+          <div
+            className="tg-view"
+            ref={viewRef}
+            style={{ height: HEADER_PX + ROWS * rh }}
+            onPointerDown={onViewDown}
+            onPointerMove={onViewMove}
+            onPointerUp={onViewUp}
+            onPointerCancel={onViewUp}
+            onClickCapture={(e) => {
+              if (drag.current.moved) {
+                e.stopPropagation();
+                e.preventDefault();
+              }
+            }}
+          >
+            <div className="tg-world" ref={worldRef} style={worldStyle} data-compact={cw < 76 || undefined}>
               <div className="tg-pad" style={{ width: PAD_COLS * cw }}>
                 <div className="tg-pad-head">Head start</div>
                 <div className="tg-pad-body" style={{ height: ROWS * rh }}>
@@ -554,14 +770,14 @@ export function GridScreen(p: GridScreenProps) {
                     </linearGradient>
                   </defs>
                   {bands.map((b, c) => b && <rect key={c} className={`tg-band ${states[c]}`} x={b.x} y={b.y} width={b.w} height={b.h} />)}
-                  <path ref={glowRef} className="tg-snake-glow" d={base.d} stroke={`url(#g${gradId})`} />
-                  <path ref={pathRef} className="tg-snake-core" d={base.d} stroke={`url(#g${gradId})`} />
+                  <path ref={glowRef} className="tg-snake-glow" stroke={`url(#g${gradId})`} />
+                  <path ref={pathRef} className="tg-snake-core" stroke={`url(#g${gradId})`} />
                 </svg>
                 <div className="tg-nowline" ref={nowRef} />
                 <div className="tg-head" ref={headRef}>
-                  <i className={`tg-head-dot ${dir}`} />
-                  <span className={`cut cut-chip tg-head-chip ${dir}`}>
-                    {money(priceUsd)} <em>{dir === "up" ? "▲" : dir === "down" ? "▼" : "◆"}</em>
+                  <i ref={dotRef} className="tg-head-dot" data-dir="flat" />
+                  <span ref={chipRef} className="cut cut-chip tg-head-chip" data-dir="flat">
+                    <span ref={chipTextRef} /> <em ref={chipArrowRef} />
                   </span>
                 </div>
                 {floaters.map((f) => (
@@ -571,6 +787,11 @@ export function GridScreen(p: GridScreenProps) {
                 ))}
               </div>
             </div>
+            {panned && (
+              <button type="button" className="cut cut-btn tg-live" onClick={goLive}>
+                <i aria-hidden="true" /> Live
+              </button>
+            )}
             <div className="tg-fade l" aria-hidden="true" />
             <div className="tg-fade r" aria-hidden="true" />
             {count === "on" && <Countdown from={3} goText="Go!" onEnd={() => setCount("done")} />}

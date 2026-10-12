@@ -408,8 +408,8 @@ pub mod trading_duel {
     }
 
     /// Rollup, permissionless. Samples the oracle into the current column, reveals the picks of
-    /// every column that has locked, and scores the columns that are over. Clients call it about
-    /// once a second; a sample is always a real price, so extra calls cannot fake a hit.
+    /// every column that has locked, and scores the columns that are over. Clients call it
+    /// about four times a second; a sample is always a real price, so extra calls cannot fake a hit.
     pub fn tick(ctx: Context<Sample>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let duel = &mut ctx.accounts.duel;

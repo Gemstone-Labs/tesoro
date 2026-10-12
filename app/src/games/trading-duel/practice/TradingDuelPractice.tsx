@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { ASSETS, type Asset } from "../chain";
-import { assetBySymbol, midToUsd, usePriceFeed, type PriceFeed } from "../feed";
+import { assetBySymbol, midToUsd, perSecond, usePriceFeed, type PriceFeed } from "../feed";
 import { usd } from "../fmt";
-import { MATCH_SECS, revealed, type GridAsset } from "../grid";
+import { COLUMNS, MATCH_SECS, lockAt, revealed, rowOf, type GridAsset } from "../grid";
 import { GridScreen } from "../GridScreen";
 import { seededRng } from "./bot";
 import { elapsed, newGridSession, setPick, stepGridSession, type GridSession } from "./gridSession";
@@ -33,14 +33,11 @@ export function TradingDuelPractice() {
     sessionRef.current = next;
     setSession(next);
   };
-  const feed = usePriceFeed(asset);
+  const feed = usePriceFeed(asset, true, !session);
   const seed = sp.get("seed");
   const rng = useRef<() => number>(() => Math.random());
-  const latest = useRef({ mid: null as bigint | null, prices: [] as number[] });
-
-  useEffect(() => {
-    latest.current = { mid: feed.tick?.mid ?? null, prices: feed.series.map((p) => p.p) };
-  }, [feed]);
+  const prices = useRef<number[]>([]);
+  const store = feed.store;
 
   useEffect(() => {
     if (!error) return;
@@ -48,28 +45,46 @@ export function TradingDuelPractice() {
     return () => clearTimeout(i);
   }, [error]);
 
+  // Every reading the feed makes goes into the track (about 20 a second), so a hit matches the line you see.
+  // The screen hears about the game when something it shows changes, and once a second.
   const startsAt = session?.startsAt;
   useEffect(() => {
     if (!startsAt) return;
-    const i = setInterval(() => {
-      const { mid, prices } = latest.current;
-      const now = Date.now();
-      setClock(now);
+    const off = store.onUpdate((tick) => {
       const s = sessionRef.current;
-      if (mid !== null && s) commit(stepGridSession(s, mid, now, rng.current, prices));
-    }, 500);
-    return () => clearInterval(i);
-  }, [startsAt]);
+      if (s && !s.final) sessionRef.current = stepGridSession(s, tick.mid, tick.receivedAt, rng.current, prices.current);
+    });
+    let shown = "";
+    let shownAt = 0;
+    const i = setInterval(() => {
+      const now = Date.now();
+      const s = sessionRef.current;
+      prices.current = perSecond(store.points);
+      if (!s || !store.tick) return;
+      const next = stepGridSession(s, store.tick.mid, now, rng.current, prices.current);
+      sessionRef.current = next;
+      // The screen re-renders when what it shows changes (a box lit, a pick revealed, the end) and at least once a second.
+      const sig = lineSignature(next, elapsed(next, now));
+      if (sig !== shown || now - shownAt >= 1000) {
+        shown = sig;
+        shownAt = now;
+        setClock(now);
+        setSession(next);
+      }
+    }, 250);
+    return () => {
+      off();
+      clearInterval(i);
+    };
+  }, [startsAt, store]);
 
   const start = () => {
-    const mid = latest.current.mid;
-    if (mid === null) return;
+    const mid = store.tick?.mid;
+    if (mid === undefined) return;
     rng.current = seed ? seededRng(Number(seed) || 1) : () => Math.random();
     setError(null);
     commit(newGridSession(Date.now(), mid, asset.symbol as GridAsset, rng.current));
   };
-
-  const series = useMemo(() => feed.series, [feed.series]);
 
   if (!session) return <Picker asset={asset} setAsset={setAsset} feed={feed} onStart={start} />;
 
@@ -82,8 +97,7 @@ export function TradingDuelPractice() {
       step={session.step}
       startsAt={session.startsAt}
       track={session.track}
-      series={series}
-      price={feed.tick?.mid ?? null}
+      series={feed.series}
       stale={feed.status === "stale"}
       mine={session.picks[0]}
       theirs={revealed(session.picks[1], Math.min(t, MATCH_SECS))}
@@ -103,6 +117,13 @@ export function TradingDuelPractice() {
       exitHref="/lobby"
     />
   );
+}
+
+/** The rows the line has reached in each column, the bot's picks, how many columns have locked and whether the game is over: what the screen draws that is not time. */
+function lineSignature(s: GridSession, t: number): string {
+  const rows = Array.from({ length: COLUMNS }, (_, c) => (s.track.seen[c] ? `${rowOf(s.track.lo[c], s.anchor, s.step)}-${rowOf(s.track.hi[c], s.anchor, s.step)}` : "."));
+  const locked = Array.from({ length: COLUMNS }, (_, c) => c).filter((c) => t >= lockAt(c)).length;
+  return `${rows.join()}|${s.picks[1].join()}|${locked}|${s.final ? 1 : 0}`;
 }
 
 function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a: Asset) => void; feed: PriceFeed; onStart: () => void }) {

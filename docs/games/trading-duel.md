@@ -60,7 +60,7 @@ The tesoro_core Match id is `ms * 8 + asset * 2 + challenge`: bit 0 marks a Chal
 | delegate | base | `delegate_match` | anyone |
 | permissions + start | TEE | `init_permissions` (reads the start price, sets the rows, starts the head start) | anyone |
 | pick | TEE | `set_pick(column, row)` | the Player |
-| sample and reveal | TEE | `tick` (about once a second during the grid: records the price, reveals locked columns, scores finished ones) | anyone |
+| sample and reveal | TEE | `tick` (about four times a second during the grid: records the price, reveals locked columns, scores finished ones) | anyone |
 | end | TEE | `end_match` | anyone, after the window |
 | cancel | TEE | `claim_timeout` (delegated, never started, past `start_deadline`) | anyone |
 | commit | TEE | `close_match` (closes permissions, commit + undelegate), or `close_unstarted` for a cancelled Duel (it never had permissions) | anyone |
@@ -71,7 +71,7 @@ Picks are signed by the Account's wallet signer without a prompt (embedded or de
 ## Known gaps
 
 - `set_pick` does not record a price sample or reveal columns; the next `tick` (or `end_match`) does, so a locked pick stays unrevealed until then.
-- A column's range only holds the prices that were sampled. Between two samples the price is not observed, so a brief move that happened and reversed between two ticks is not a hit. Clients tick about once a second.
+- A column's range only holds the prices that were sampled. Between two samples the price is not observed, so a brief move that happened and reversed between two ticks is not a hit. Clients tick about four times a second (a call is never sent while the last is in flight, and failures back off), which matches the feed, whose reading changes several times a second.
 - Programs are devnet only; the feeds are devnet rollup copies.
 
 ## Verification
