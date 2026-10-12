@@ -195,6 +195,63 @@ export function snakeWindow(series: { t: number; p: number }[], startsAt: number
   return { d, x: endX, y: endY, p: endP };
 }
 
+/**
+ * The line as points in world px, kept between frames: a new reading only appends (a point closer than `MIN_GAP_PX`
+ * to the last kept one is carried as the tip instead), so a frame never walks the whole series. A change of
+ * layout, start or series (trimmed or replaced) rebuilds it.
+ */
+export class SnakeLine {
+  xs: number[] = [];
+  ys: number[] = [];
+  /** The newest reading, kept or not. */
+  tipX = 0;
+  tipY = 0;
+  /** Its price in USD (the start price before any reading). */
+  p = 0;
+  private n = 0;
+  private ctx = "";
+  private base = NaN;
+
+  sync(series: { t: number; p: number }[], startsAt: number, anchorUsd: number, l: Layout, step: number): void {
+    const ctx = `${startsAt}|${anchorUsd}|${l.cw}|${l.rh}|${step}`;
+    if (ctx !== this.ctx || series.length < this.n || (series.length > 0 && series[0].t !== this.base)) {
+      this.ctx = ctx;
+      this.base = series.length ? series[0].t : NaN;
+      this.n = lowerBound(series, startsAt + 1);
+      this.xs = [0];
+      this.ys = [yOf(anchorUsd, anchorUsd, step, l.rh)];
+      this.tipX = this.xs[0];
+      this.tipY = this.ys[0];
+      this.p = anchorUsd;
+    }
+    const end = startsAt + MATCH_SECS * 1000;
+    for (; this.n < series.length && series[this.n].t <= end; this.n++) {
+      const s = series[this.n];
+      const x = xOf((s.t - startsAt) / 1000, l.cw);
+      const y = yOf(s.p, anchorUsd, step, l.rh);
+      this.tipX = x;
+      this.tipY = y;
+      this.p = s.p;
+      if (x - this.xs[this.xs.length - 1] >= MIN_GAP_PX) {
+        this.xs.push(x);
+        this.ys.push(y);
+      }
+    }
+  }
+
+  /** Index of the first kept point at or after world x. */
+  from(x: number): number {
+    let lo = 0;
+    let hi = this.xs.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.xs[mid] < x) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+}
+
 export type Mark = "hit" | "miss" | "pending" | "none" | "hidden";
 
 /**
