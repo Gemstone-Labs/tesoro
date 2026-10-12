@@ -1,0 +1,68 @@
+import { COLUMNS, MATCH_SECS, NO_PICK, STEP_PPM, canPick, finish, lockAt, newTrack, record, settle, stepFor, type GridAsset, type GridResult, type Track } from "../grid";
+import { botPickTimes, botRow } from "./gridBot";
+
+/** A practice game against the local bot: seat 0 is you, seat 1 the bot. Pure state, driven by `stepGridSession`. */
+export interface GridSession {
+  startsAt: number;
+  anchor: bigint;
+  step: bigint;
+  track: Track;
+  picks: [number[], number[]];
+  botAt: number[];
+  final: GridResult | null;
+  /** Price at the end of the window, once finished. */
+  endPrice: bigint | null;
+}
+
+export class PickError extends Error {}
+
+const blank = () => Array.from({ length: COLUMNS }, () => NO_PICK);
+
+/** `startsAt` in ms; the anchor is the price when the game starts. */
+export function newGridSession(startsAt: number, anchor: bigint, asset: GridAsset, rng: () => number): GridSession {
+  return {
+    startsAt,
+    anchor,
+    step: stepFor(anchor, STEP_PPM[asset]),
+    track: record(newTrack(), 0, anchor),
+    picks: [blank(), blank()],
+    botAt: botPickTimes(rng),
+    final: null,
+    endPrice: null,
+  };
+}
+
+/** Seconds since the start (fractional). */
+export const elapsed = (s: GridSession, nowMs: number): number => (nowMs - s.startsAt) / 1000;
+
+/** Your pick (or `NO_PICK` to clear it). Throws `PickError` once the column is locked. */
+export function setPick(s: GridSession, column: number, row: number, nowMs: number): GridSession {
+  const t = elapsed(s, nowMs);
+  if (s.final || !canPick(column, t) || (row !== NO_PICK && (row < 0 || row > 7))) throw new PickError("column locked");
+  const mine = [...s.picks[0]];
+  mine[column] = row;
+  return { ...s, picks: [mine, s.picks[1]] };
+}
+
+/**
+ * One tick at oracle price `mid`: records the sample, lets the bot pick the columns it has made up
+ * its mind about, and settles at the end of the window. `prices` is the recent public price
+ * history in USD, one per second, newest last, which is all the bot sees.
+ */
+export function stepGridSession(s: GridSession, mid: bigint, nowMs: number, rng: () => number, prices: number[]): GridSession {
+  if (s.final) return s;
+  const t = elapsed(s, nowMs);
+  if (t < 0) return s;
+  if (t >= MATCH_SECS) {
+    const track = finish(s.track, mid);
+    return { ...s, track, endPrice: mid, final: settle(track, s.picks, s.anchor, s.step) };
+  }
+  const bot = [...s.picks[1]];
+  for (let c = 0; c < COLUMNS; c++) {
+    if (bot[c] === NO_PICK && t >= s.botAt[c] && t < lockAt(c)) bot[c] = botRow(prices, columnAtMid(c) - t, s.anchor, s.step, rng);
+  }
+  return { ...s, track: record(s.track, t, mid), picks: [s.picks[0], bot] };
+}
+
+/** The middle of a column's window, which is where the bot aims. */
+const columnAtMid = (c: number): number => 30 + 10 * c + 5;
