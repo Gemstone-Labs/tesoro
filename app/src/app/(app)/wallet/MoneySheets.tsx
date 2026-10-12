@@ -95,10 +95,18 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
   return (
     <div className="mx">
       {instant && (
-        <div className="mx-seg" role="radiogroup" aria-label="When to redeem">
-          <button type="button" role="radio" aria-checked={!now} className="cut" onClick={() => setNow(false)}>Redeem <small>full value, as yield lands</small></button>
-          <button type="button" role="radio" aria-checked={now} className="cut" onClick={() => setNow(true)}>Redeem now <small>{100 - instant.feePct}% of the value</small></button>
-        </div>
+        <fieldset className="cut pick-rail money mx-mode" style={{ ["--n" as string]: 2, ["--i" as string]: now ? 1 : 0 }}>
+          <legend className="sr-only">When to redeem</legend>
+          <span className="pick-thumb" aria-hidden="true" />
+          <label>
+            <input type="radio" name="mx-when" checked={!now} onChange={() => setNow(false)} />
+            <span className="cut">Redeem <small>full value, as yield lands</small></span>
+          </label>
+          <label>
+            <input type="radio" name="mx-when" checked={now} onChange={() => setNow(true)} />
+            <span className="cut">Redeem now <small>{100 - instant.feePct}% of the value</small></span>
+          </label>
+        </fieldset>
       )}
       {showInstant && (instant.unavailable || shown.length === 0) ? (
         <div className="mx-empty">

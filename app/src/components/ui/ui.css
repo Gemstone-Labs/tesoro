@@ -290,8 +290,8 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .pick-rail input:hover:not(:checked, :disabled) + span { color: var(--fg); background: rgba(234, 239, 236, 0.04); }
 .pick-rail input:disabled + span { color: var(--fg-3); opacity: 0.55; }
 
-/* entry: the piece is the money fill */
-.entries .pick-thumb {
+/* entry (and any rail picking a money option): the piece is the money fill */
+.entries .pick-thumb, .pick-rail.money .pick-thumb {
   background: linear-gradient(180deg, rgba(225, 255, 246, 0.75), transparent 2px), linear-gradient(0deg, var(--money-base) 0 3px, transparent 3px), var(--money-fill);
 }
 .entry span { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 48px; font-weight: 800; font-size: 16px; }
