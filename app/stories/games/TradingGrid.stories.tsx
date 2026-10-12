@@ -4,6 +4,7 @@ import { art } from "@/lib/art";
 import { GridScreen, type GridPoint } from "@/games/trading-duel/GridScreen";
 import { COLUMNS, MATCH_SECS, NO_PICK, STEP_PPM, finish, newTrack, record, revealed, rowOf, stepFor, type Track } from "@/games/trading-duel/grid";
 import { seededRng } from "@/games/trading-duel/practice/bot";
+import { TradingDuelPractice } from "@/games/trading-duel/practice/TradingDuelPractice";
 
 const START = 1_800_000_000_000;
 const ANCHOR = 142_50000000n;
@@ -113,3 +114,6 @@ export const EndLost = at(151, "lost");
 export const EndDraw = at(151, "draw");
 export const EndWonStaked: Story = { args: { t: 151, plan: "won", staked: true }, render: (a) => <Screen key="staked" {...a} /> };
 export const EndWonPhone = phone(at(151, "won"));
+
+/** Practice against the bot on the live price. */
+export const PlayPractice: StoryObj = { render: () => <TradingDuelPractice /> };

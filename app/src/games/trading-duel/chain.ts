@@ -2,9 +2,9 @@
  * On-chain client for the Trading Duel Game (programs/trading_duel).
  *
  * Layers: the tesoro_core Match is opened and joined on the base layer (Solana devnet). The Duel
- * (public: lead and trade counts) and the two Books (each readable only by its Player) are
- * delegated to the MagicBlock private rollup (TEE); trades go there, authenticated with a token
- * the Player signs for. `finalize` runs on the base layer once the rollup has committed the result.
+ * (public: the line's range per column, revealed picks, points) and the two Books (each Player's
+ * picks, readable only by that Player until a column locks) are delegated to the MagicBlock
+ * private rollup (TEE); picks and ticks go there, authenticated with a token the Player signs for. `finalize` runs on the base layer once the rollup has committed the result.
  *
  * Shares the Player signer, payout maths and tesoro_core PDAs with the Hold'em client.
  */
@@ -32,6 +32,7 @@ import {
   type PlayerSigner,
 } from "../holdem/chain";
 import { fetchLeaderboardTerms } from "../../lib/chain/leaderboard";
+import { COLUMNS, type Track } from "./grid";
 
 export { keypairSigner, type PlayerSigner } from "../holdem/chain";
 
@@ -48,25 +49,12 @@ export const ER_WS = "wss://devnet.magicblock.app";
 export const STATUS = { created: 0, live: 1, over: 2, cancelled: 3 } as const;
 export const NO_WINNER = 255;
 export const DRAW = 2;
-export const LEAD = { level: 0, seat0: 1, seat1: 2 } as const;
-export const SIDE = { flat: 0, long: 1, short: 2 } as const;
-export const FILL = { open: 0, close: 1, liquidated: 2, final: 3 } as const;
 
-/** Rules, mirrored from programs/trading_duel/src/state.rs. */
+/** Rules the app needs beyond grid.ts, mirrored from programs/trading_duel/src/state.rs. */
 export const RULES = {
-  startChips: 10_000,
-  durationSecs: 300,
-  countdownSecs: 5,
-  minLeverage: 1,
-  maxLeverage: 20,
-  minMargin: 100,
-  maintenanceBps: 50,
-  spreadBps: 5,
   maxStaleSecs: 2,
   /** An end-of-window price must be published within this many seconds after the window closes. */
   endGraceSecs: 4,
-  levelBand: 50,
-  fillLog: 64,
 } as const;
 
 export interface Asset {
@@ -131,28 +119,20 @@ export interface Duel {
   /** 0 / 1 = winning seat, `DRAW`, `NO_WINNER` until over */
   winner: number;
   startDeadline: number;
-  /** Unix seconds trading opens / closes (0 before the Match starts). */
+  /** Unix seconds (rollup clock): the Match starts, the line enters column 1, the Match ends. 0 before the start. */
   startsAt: number;
+  gridAt: number;
   endsAt: number;
-  trades: [number, number];
-  lead: number;
+  /** 1e-8 USD: the price at the start, and the height of one row. */
+  anchor: bigint;
+  step: bigint;
   lastTick: number;
-  /** 1e-8 USD */
-  finalPrice: bigint;
-  finalEquity: [bigint, bigint];
-}
-
-export interface Fill {
-  /** Seconds since trading opened. */
-  t: number;
-  kind: number;
-  side: number;
-  /** 1e-8 USD, spread included. */
-  price: bigint;
-  notional: bigint;
-  margin: bigint;
-  pnl: bigint;
-  equity: bigint;
+  /** What the line did in each column so far. */
+  track: Track;
+  /** Per seat, the row picked for each column; `NO_PICK` until the column locks. */
+  revealed: [number[], number[]];
+  /** Points of the columns that are finished (all of them once over). */
+  scores: [number, number];
 }
 
 export interface Book {
@@ -160,17 +140,20 @@ export interface Book {
   duel: PublicKey;
   player: PublicKey;
   seat: number;
-  cash: bigint;
-  side: number;
-  margin: bigint;
-  notional: bigint;
-  leverage: number;
-  entry: bigint;
-  trades: number;
-  liquidations: number;
-  /** Fills in order, the newest last (the log keeps the last `RULES.fillLog`). */
-  fills: Fill[];
-  fillCount: number;
+  /** Row 0 (bottom) to 7 (top) per column, `NO_PICK` where none. */
+  picks: number[];
+  pickCount: number;
+}
+
+/** The on-chain column ranges as a `grid.ts` Track. */
+export function decodeTrack(t: any): Track {
+  return {
+    lo: (t.lo as anchor.BN[]).map(big),
+    hi: (t.hi as anchor.BN[]).map(big),
+    seen: Array.from({ length: COLUMNS }, (_, c) => (t.seen & (1 << c)) !== 0),
+    last: big(t.last) === 0n ? null : big(t.last),
+    lastCol: t.lastCol,
+  };
 }
 
 export function decodeDuel(address: PublicKey, d: any): Duel {
@@ -185,39 +168,19 @@ export function decodeDuel(address: PublicKey, d: any): Duel {
     winner: d.winner,
     startDeadline: d.startDeadline.toNumber(),
     startsAt: d.startsAt.toNumber(),
+    gridAt: d.gridAt.toNumber(),
     endsAt: d.endsAt.toNumber(),
-    trades: [d.trades[0], d.trades[1]],
-    lead: d.lead,
+    anchor: big(d.anchor),
+    step: big(d.step),
     lastTick: d.lastTick.toNumber(),
-    finalPrice: big(d.finalPrice),
-    finalEquity: [big(d.finalEquity[0]), big(d.finalEquity[1])],
+    track: decodeTrack(d.track),
+    revealed: [[...d.revealed[0]], [...d.revealed[1]]],
+    scores: [d.scores[0], d.scores[1]],
   };
 }
 
 export function decodeBook(address: PublicKey, b: any): Book {
-  const n = Math.min(b.fillCount, RULES.fillLog);
-  const first = b.fillCount - n;
-  const fills: Fill[] = [];
-  for (let i = 0; i < n; i++) {
-    const f = b.fills[(first + i) % RULES.fillLog];
-    fills.push({ t: f.t, kind: f.kind, side: f.side, price: big(f.price), notional: big(f.notional), margin: big(f.margin), pnl: BigInt(f.pnl.toString()), equity: big(f.equity) });
-  }
-  return {
-    address,
-    duel: b.duel,
-    player: b.player,
-    seat: b.seat,
-    cash: big(b.cash),
-    side: b.side,
-    margin: big(b.margin),
-    notional: big(b.notional),
-    leverage: b.leverage,
-    entry: big(b.entry),
-    trades: b.trades,
-    liquidations: b.liquidations,
-    fills,
-    fillCount: b.fillCount,
-  };
+  return { address, duel: b.duel, player: b.player, seat: b.seat, picks: [...b.picks], pickCount: b.pickCount };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -447,8 +410,8 @@ export class TradingDuelChain {
 
   // -- rollup --------------------------------------------------------------------------------
 
-  /** Rollup. Creates the permissions and starts the Match (countdown, then five minutes). Anyone. */
-  async start(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
+  /** Rollup. Creates the permissions and starts the Match at the live price: the head start runs, then 12 columns. Anyone. */
+  async start(payer: PlayerSigner, matchId: bigint | number, asset: Asset): Promise<string> {
     const ad = addresses(matchId);
     const ix = await this.program.methods
       .initPermissions()
@@ -463,51 +426,36 @@ export class TradingDuelChain {
         permissionProgram: PERMISSION_PROGRAM_ID,
         ephemeralVault: EPHEMERAL_VAULT,
         magicProgram: MAGIC_PROGRAM_ID,
+        priceFeed: asset.feed,
       } as any)
       .instruction();
     return this.sendTee("init_permissions", [ix], payer);
   }
 
-  private tradeAccounts(player: PublicKey, matchId: bigint | number, asset: Asset) {
+  /** Rollup. Picks `row` (0 bottom to 7 top) for `column`, or clears the pick with `NO_PICK`. Only until the column locks. */
+  async setPick(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1, column: number, row: number): Promise<string> {
     const ad = addresses(matchId);
-    return { player, duel: ad.duel, book0: ad.book0, book1: ad.book1, priceFeed: asset.feed } as any;
-  }
-
-  /** Rollup. Opens a position: `side` 1 long / 2 short, `margin` Chips, `leverage` 1 to 20. */
-  async open(player: PlayerSigner, matchId: bigint | number, asset: Asset, side: 1 | 2, margin: number | bigint, leverage: number): Promise<string> {
     const ix = await this.program.methods
-      .openPosition(side, new anchor.BN(margin.toString()), leverage)
-      .accountsPartial(this.tradeAccounts(player.publicKey, matchId, asset))
+      .setPick(column, row)
+      .accountsPartial({ player: player.publicKey, duel: ad.duel, book: seat === 0 ? ad.book0 : ad.book1 } as any)
       .instruction();
-    return this.sendTee(`open ${side === 1 ? "long" : "short"}`, [ix], player);
+    return this.sendTee("set_pick", [ix], player);
   }
 
-  /** Rollup. Closes the open position. */
-  async close(player: PlayerSigner, matchId: bigint | number, asset: Asset): Promise<string> {
-    const ix = await this.program.methods.closePosition().accountsPartial(this.tradeAccounts(player.publicKey, matchId, asset)).instruction();
-    return this.sendTee("close", [ix], player);
+  private crankAccounts(caller: PublicKey, matchId: bigint | number, asset: Asset) {
+    const ad = addresses(matchId);
+    return { caller, duel: ad.duel, book0: ad.book0, book1: ad.book1, priceFeed: asset.feed } as any;
   }
 
-  /** Rollup. Close then open in one transaction (a flip). */
-  async flip(player: PlayerSigner, matchId: bigint | number, asset: Asset, side: 1 | 2, margin: number | bigint, leverage: number): Promise<string> {
-    const accounts = this.tradeAccounts(player.publicKey, matchId, asset);
-    const close = await this.program.methods.closePosition().accountsPartial(accounts).instruction();
-    const open = await this.program.methods
-      .openPosition(side, new anchor.BN(margin.toString()), leverage)
-      .accountsPartial(accounts)
-      .instruction();
-    return this.sendTee(`flip ${side === 1 ? "long" : "short"}`, [close, open], player);
-  }
-
-  /** Rollup, permissionless. Executes due liquidations and refreshes the lead. */
+  /** Rollup, permissionless. Records the live price into the line, reveals the columns that locked, scores the ones that ended. */
   async tick(payer: PlayerSigner, matchId: bigint | number, asset: Asset): Promise<string> {
-    const ix = await this.program.methods.tick().accountsPartial(this.tradeAccounts(payer.publicKey, matchId, asset)).instruction();
+    const ix = await this.program.methods.tick().accountsPartial(this.crankAccounts(payer.publicKey, matchId, asset)).instruction();
     return this.sendTee("tick", [ix], payer);
   }
 
-  /** Rollup, permissionless. After the window: marks at the final price and decides the Match. */
+  /** Rollup, permissionless. After the window: takes the end price, scores every column and decides the Match. */
   async end(payer: PlayerSigner, matchId: bigint | number, asset: Asset): Promise<string> {
-    const ix = await this.program.methods.endMatch().accountsPartial(this.tradeAccounts(payer.publicKey, matchId, asset)).instruction();
+    const ix = await this.program.methods.endMatch().accountsPartial(this.crankAccounts(payer.publicKey, matchId, asset)).instruction();
     return this.sendTee("end_match", [ix], payer);
   }
 
@@ -582,17 +530,6 @@ export class TradingDuelChain {
     const info = await conn.getAccountInfo(address).catch(() => null);
     if (!info) return null;
     return decodeBook(address, this.program.coder.accounts.decode("book", info.data));
-  }
-
-  /** Both Books on the base layer: public once the Match was committed, with every fill. */
-  async readBooksOnBase(matchId: bigint | number): Promise<[Book, Book] | null> {
-    const ad = addresses(matchId);
-    const infos = await this.base.getMultipleAccountsInfo([ad.book0, ad.book1]);
-    if (!infos[0] || !infos[1] || !infos[0].owner.equals(TRADING_DUEL_PROGRAM_ID) || !infos[1].owner.equals(TRADING_DUEL_PROGRAM_ID)) return null;
-    return [
-      decodeBook(ad.book0, this.program.coder.accounts.decode("book", infos[0].data)),
-      decodeBook(ad.book1, this.program.coder.accounts.decode("book", infos[1].data)),
-    ];
   }
 
   static seatOf(duel: Duel, wallet: PublicKey): number {
