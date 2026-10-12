@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://www.playtesoro.com"><img src="https://img.shields.io/badge/play-playtesoro.com-10b981?style=flat-square" alt="Play"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="Apache 2.0 License"></a>
   <img src="https://img.shields.io/badge/Solana-devnet-9945FF?style=flat-square&logo=solana&logoColor=white" alt="Solana devnet">
   <img src="https://img.shields.io/badge/Anchor-0.31.1-512BD4?style=flat-square" alt="Anchor 0.31.1">
   <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js 16">
@@ -107,8 +107,6 @@ docs/        ADRs, design notes, deployments
 
 Built by [Gemstone Labs](https://github.com/Gemstone-Labs): Lawrence (CEO) and Ailton (CTO).
 
-This codebase was started from scratch on 2026-09-30, during the Colosseum Crypto World's Fair (Sep 14 – Oct 12, 2026). Earlier Tesoro work from Aug–Sep 2026 lives in a separate, archived codebase.
-
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE)
