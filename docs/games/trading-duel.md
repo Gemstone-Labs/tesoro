@@ -10,7 +10,7 @@ Code: `programs/trading_duel/src/{lib,state,engine}.rs`. Rules in TypeScript: `a
 - One asset per Match: SOL, ETH or HYPE.
 - The grid has 12 columns of 10 seconds and 8 rows of price. The rows are fixed when the Match starts: row height is the start price (the anchor) times `STEP_PPM[asset]` (SOL 250, ETH 200, HYPE 270 parts per million), rows 1 to 6 sit around the anchor, row 0 is open below and row 7 open above, so the line always lands in some row.
 - **Head start:** the line enters column 0 `HEAD_START_SECS` = 30 s after the Match starts. The Match ends `grid_at + 120 s` = 150 s after it starts.
-- **Picks:** each Player picks one row per column with `set_pick(column, row)`, and can change or clear it (`row = NO_PICK`) for free until the column locks.
+- **Picks:** each Player picks one row per column with `set_pick(column, row)`, and can change or clear it (`row = NO_PICK`) for free until the column locks. It records no price sample.
 - **Lock:** column `c` locks `LOCK_AHEAD_SECS` = 10 s before its window starts, which is when the column before it goes live. Picks for `c` are accepted while `now < lock(c)`.
 - **Hidden until locked:** a pick lives in its Player's own Book. When a column locks, both picks for it are copied into the public `Duel.revealed`.
 - **Hit:** a pick hits column `c` if the recorded prices of the column (its low and high, including the price where the line entered the column) overlap the pick's row. A hit scores `HIT_POINTS` = 100. A column without a pick scores nothing.
@@ -26,9 +26,9 @@ The original idea for this game showed the Players a price delayed by 30 seconds
 
 Every sample is a real oracle price: a price older than `MAX_STALE_SECS` = 2 s, more than `MAX_FUTURE_SECS` = 10 s ahead of the rollup clock, with a confidence interval wider than 1% of the price, a wrong owner or address or an exponent other than 8 is refused. So extra `tick` calls can add detail to the line but cannot fake a hit.
 
-### Final price
+### The end
 
-`end_match` is permissionless and valid once the window closed. **Pinned price:** called within `END_GRACE_SECS` (4 s) after the end it needs a fresh oracle price published inside `[ends_at, ends_at + 4 s]`; called later it ignores the feed and uses the last price recorded during the window (`Track.last`), so waiting for a better move cannot change the result and a late keeper is deterministic. That price is recorded as the last sample of column 11, then every column is revealed and scored and the winner decided. Inside the grace the first caller still picks among about four one-second ticks; the clients call right at the end and the keeper after 2 s.
+`end_match` is permissionless and valid once the window closed. It reads no price: columns the line did not reach take the last price recorded (`Track.last`), every column is revealed and scored and the winner decided. No end price is added to column 11, so the result is the same whoever ends the Match and whenever, early or late. The clients try right at the end (the second Player a couple of seconds later) and retry every second; the keeper steps in after 2 s.
 
 ## Oracle
 
@@ -70,7 +70,7 @@ Picks are signed by the Account's wallet signer without a prompt (embedded or de
 
 ## Known gaps
 
-- Inside the 4 s end grace the first caller of `end_match` picks among a few ticks; later calls use the last recorded price.
+- `set_pick` does not record a price sample or reveal columns; the next `tick` (or `end_match`) does, so a locked pick stays unrevealed until then.
 - A column's range only holds the prices that were sampled. Between two samples the price is not observed, so a brief move that happened and reversed between two ticks is not a hit. Clients tick about once a second.
 - Programs are devnet only; the feeds are devnet rollup copies.
 
