@@ -89,6 +89,10 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 .gpill b { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: normal; }
 .gpill span { font-size: 14px; color: var(--fg-2); }
 .gpill .gema-mark { width: 28px; height: 28px; }
+/* loading: the pill's shape in steel until the Gemas are read */
+.gpill.skel { background: var(--surface); --edge: var(--edge-1); }
+.gpill.skel:hover, .side-profile.skel:hover { filter: none; }
+.gp-mark-skel { flex: none; width: 28px; height: 28px; background: rgba(234, 239, 236, 0.07); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
 
 /* the Leaderboard Pool: gold is its colour and nothing else's */
 .pchest {
@@ -231,6 +235,8 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .gpill b { font-size: 18px; }
   .gpill span { display: none; }
   .gpill .gema-mark { width: 22px; height: 22px; }
+  .gp-mark-skel { width: 22px; height: 22px; }
+  .gpill.skel .skel-line { width: 28px !important; }
   /* the Pool and the balance need the room: the bar keeps the mark, the drawer keeps the wordmark */
   .top-word { display: none; }
   .top-mark { display: block; }
@@ -264,6 +270,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .gpill b { font-size: 30px; }
   .gpill span { font-size: 15px; }
   .gpill .gema-mark { width: 30px; height: 30px; }
+  .gp-mark-skel { width: 30px; height: 30px; }
   .pchest { height: 52px; padding: 0 22px 0 10px; gap: 10px; }
   .pchest b { font-size: 26px; }
   .pchest span { font-size: 15px; }

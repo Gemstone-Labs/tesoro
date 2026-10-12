@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import { BookOpen, ChevronRight, CircleHelp, Gamepad2, HandCoins, House, Swords, Trophy, Wallet, type LucideIcon } from "lucide-react";
-import { PlayerAvatar, PlayerName } from "@/components/account/Player";
+import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { TesoroLogo } from "@/components/brand";
 import { useAccount } from "@/lib/account";
 import { accountKeyOf } from "@/lib/chain/account-key";
@@ -92,7 +92,7 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
         <SideLink item={{ href: "/docs", label: "Docs", Icon: BookOpen }} path={path} onNavigate={onNavigate} />
         <SideLink item={{ href: "/help", label: "Help", Icon: CircleHelp }} path={path} onNavigate={onNavigate} />
       </div>
-      {me && profile && (
+      {me && profile ? (
         <Link
           href={profile}
           className={`cut cut-card side-profile${isHere(path, profile) ? " here" : ""}`}
@@ -100,14 +100,26 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
           onClick={onNavigate}
         >
           <span className="cut side-avatar">
-            <PlayerAvatar account={me} size={40} />
+            <PlayerAvatar account={me} size={40} wait />
           </span>
           <span className="side-profile-body">
-            <PlayerName account={me} className="side-profile-name" />
+            <PlayerName account={me} className="side-profile-name" wait />
             <span className="side-profile-sub">Your profile</span>
           </span>
           <ChevronRight aria-hidden="true" />
         </Link>
+      ) : (
+        (auth.status === "loading" || auth.status === "signed-in") && (
+          <div className="cut cut-card side-profile skel" aria-hidden="true">
+            <span className="cut side-avatar">
+              <AvatarSkeleton />
+            </span>
+            <span className="side-profile-body">
+              <span className="skel-line lg" style={{ width: "62%" }} />
+              <span className="skel-line" style={{ width: "44%" }} />
+            </span>
+          </div>
+        )
       )}
     </>
   );

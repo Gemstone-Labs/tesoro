@@ -28,6 +28,11 @@ function put(key: string, patch: Partial<Identity>) {
   identities.set(key, { ...prev, ...patch });
 }
 
+function settle(keys: string[]) {
+  keys.forEach((k) => put(k, { settled: true }));
+  emit();
+}
+
 function subscribe(l: () => void) {
   listeners.add(l);
   return () => {
@@ -75,7 +80,7 @@ async function flush() {
 
 async function readBatch(keys: string[]) {
   const { demoMode } = await import("@/lib/chain/fixture");
-  if (demoMode()) return;
+  if (demoMode()) return settle(keys);
   let chain: Awaited<ReturnType<typeof import("./chain").fetchPlayerChainData>>;
   try {
     const { fetchPlayerChainData } = await import("./chain");
@@ -83,14 +88,18 @@ async function readBatch(keys: string[]) {
   } catch (e) {
     console.warn("[identity] profile read failed", e);
     keys.forEach((k) => asked.delete(k));
-    return;
+    return settle(keys);
   }
-  keys.forEach((k, i) => put(k, { profile: chain[i].profile, attached: chain[i].attached }));
+  // A Profile with its own picture decides everything; otherwise the names below may still change the label or picture.
+  keys.forEach((k, i) => {
+    const p = chain[i].profile;
+    put(k, { profile: p, attached: chain[i].attached, ...(p && p.avatar.kind !== "name-service" ? { settled: true } : {}) });
+  });
   emit();
 
   const wallets = [...new Set(chain.flatMap((c) => c.wallets))];
   const evm = [...new Set(chain.flatMap((c) => c.evms))];
-  if (wallets.length === 0 && evm.length === 0) return;
+  if (wallets.length === 0 && evm.length === 0) return settle(keys);
   try {
     const names = await fetchNames(wallets, evm);
     // The server answers with checksummed addresses; the chain data is lowercase.
@@ -100,12 +109,13 @@ async function readBatch(keys: string[]) {
       const sol = chain[i].wallets.map((w) => names.solana[w]).find((n) => n) ?? null;
       const eth = chain[i].evms.map((e) => ethByLower.get(e)).find((n) => n) ?? null;
       const hl = chain[i].evms.map((e) => hlByLower.get(e)).find((n) => n) ?? null;
-      put(k, { sol, eth, hl });
+      put(k, { sol, eth, hl, settled: true });
     });
     emit();
   } catch (e) {
     // The Profile is already shown; names simply do not appear this time.
     console.warn("[identity] name lookup failed", e);
+    settle(keys);
   }
 }
 

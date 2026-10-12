@@ -56,3 +56,21 @@
 @media (max-width: 389px) {
   .pchest:has(.pc-you) .pc-short { display: none; }
 }
+
+/* loading: the plate's shape in steel; gold only once the Pool is read */
+.pchest.skel { background: var(--surface); --edge: var(--edge-1); }
+.pchest.skel:hover { filter: none; }
+.pchest.skel .pc-you::after { display: none; }
+.pc-chest-skel { flex: none; width: 34px; height: 34px; background: rgba(234, 239, 236, 0.07); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.pc-rank.skel { background: rgba(234, 239, 236, 0.1); }
+@media (min-width: 1024px) {
+  .pc-chest-skel { width: 40px; height: 40px; }
+}
+@media (max-width: 1023px) {
+  .pc-you-skel .pc-you-txt > :last-child { display: none; }
+}
+@media (max-width: 639px) {
+  .pc-chest-skel { width: 28px; height: 28px; }
+  .pchest.skel .pc-skel-label { display: none; }
+  .pchest.skel .pc-pool .skel-line.lg { width: 28px !important; }
+}

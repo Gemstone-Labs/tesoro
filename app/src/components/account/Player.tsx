@@ -23,8 +23,10 @@ export function VerifiedMark({ suffix }: { suffix: NameSuffix }) {
  * A Player's name: Profile name, else .sol, else .eth, else .hl, else the short key (`key` is the Account
  * key). One component everywhere a Player is shown, so every screen agrees.
  */
-export function PlayerName({ account, className }: { account: string; className?: string }) {
-  const shown = shownIdentity(account, useIdentity(account));
+export function PlayerName({ account, className, wait }: { account: string; className?: string; wait?: boolean }) {
+  const id = useIdentity(account);
+  const shown = shownIdentity(account, id);
+  if (wait && !id.settled) return <span className={`skel-line${className ? ` ${className}` : ""}`} style={{ width: "7em" }} aria-hidden="true" />;
   return (
     <span className={`pn${className ? ` ${className}` : ""}`} title={shown.named ? undefined : account}>
       <span className="pn-label">{shown.label}</span>
@@ -39,10 +41,15 @@ export function usePlayerLabel(account: string | null | undefined): string {
   return account ? shownIdentity(account, id).label : "";
 }
 
-/** A Player's picture: their pick, else the avatar derived from the key. A picture from a name record that fails to load falls back to the derived one. */
-export function PlayerAvatar({ account, size, className }: { account: string; size: number; className?: string }) {
-  const shown = shownIdentity(account, useIdentity(account));
+/**
+ * A Player's picture: their pick, else the avatar derived from the key. A picture from a name record that fails to load falls back to the derived one.
+ * `wait` shows a placeholder until the picture is known, instead of the derived one first.
+ */
+export function PlayerAvatar({ account, size, className, wait }: { account: string; size: number; className?: string; wait?: boolean }) {
+  const id = useIdentity(account);
+  const shown = shownIdentity(account, id);
   const [failed, setFailed] = useState<string | null>(null);
+  if (wait && !id.settled) return <AvatarSkeleton />;
   if (shown.remoteAvatar && failed !== shown.avatar) {
     // Not served by us, so not through the image optimiser: loaded as is, without sending a referrer.
     // eslint-disable-next-line @next/next/no-img-element
@@ -50,4 +57,9 @@ export function PlayerAvatar({ account, size, className }: { account: string; si
   }
   const local = shown.remoteAvatar ? shownIdentity(account).avatar : shown.avatar;
   return <Image className={className} src={local} alt="" width={size} height={size} />;
+}
+
+/** The shape of a picture still loading; fills its frame. */
+export function AvatarSkeleton() {
+  return <span className="skel skel-fill" aria-hidden="true" />;
 }

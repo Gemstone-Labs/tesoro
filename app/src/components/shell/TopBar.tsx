@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, Search, X } from "lucide-react";
+import { AvatarSkeleton } from "@/components/account/Player";
 import { TesoroMark } from "@/components/brand";
 import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -12,7 +13,7 @@ import { useSearch } from "./SearchContext";
 import { Wordmark } from "./Sidebar";
 
 export function TopBar({ onMenu }: { onMenu: () => void }) {
-  const { gemas, auth, ready } = useAccount();
+  const { gemas, auth, ready, error } = useAccount();
   const { query, setQuery } = useSearch();
   const path = usePathname();
   const router = useRouter();
@@ -58,14 +59,25 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
       </form>
       <div className="top-right">
         <PoolChest />
-        {auth.status !== "signed-out" && auth.status !== "loading" && (
-          <Link href="/wallet" className="cut cut-card gpill" aria-label="Your Gemas, open Wallet" title="Simulated yield · 1 month = 10 min">
-            <GemaMark size={30} glint />
-            <b className="tnum">{ready ? <CountUp value={gemas.total} /> : "—"}</b>
-            <span>Gemas</span>
-          </Link>
-        )}
+        {auth.status !== "signed-out" &&
+          (ready || (error && auth.status !== "loading") ? (
+            <Link href="/wallet" className="cut cut-card gpill" aria-label="Your Gemas, open Wallet" title="Simulated yield · 1 month = 10 min">
+              <GemaMark size={30} glint />
+              <b className="tnum">{ready ? <CountUp value={gemas.total} /> : "—"}</b>
+              <span>Gemas</span>
+            </Link>
+          ) : (
+            <div className="cut cut-card gpill skel" role="status" aria-label="Loading your Gemas">
+              <div className="gp-mark-skel" />
+              <div className="skel-line lg" style={{ width: 88 }} />
+            </div>
+          ))}
         {signedIn && <AccountMenu />}
+        {auth.status === "loading" && (
+          <span className="cut cut-btn avatar" aria-hidden="true">
+            <AvatarSkeleton />
+          </span>
+        )}
         {signedOut && (
           <Button onClick={() => auth.openSignIn()}>Sign in</Button>
         )}

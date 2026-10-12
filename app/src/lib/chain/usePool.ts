@@ -16,11 +16,11 @@ const totalOf = (info: AccountInfo<Buffer> | null): number | null => {
   return Number(d.getBigUint64(TOTALS_AT, true) + d.getBigUint64(TOTALS_AT + 8, true));
 };
 
-let total: number | null = null;
+let total: number | null | undefined;
 const listeners = new Set<() => void>();
 let stop: (() => void) | null = null;
 
-const set = (next: number | null) => {
+const set = (next: number | null | undefined) => {
   if (next === total) return;
   total = next;
   for (const l of listeners) l();
@@ -29,7 +29,7 @@ const set = (next: number | null) => {
 /** One subscription per tab: the pool Account over the RPC websocket, plus a slow re-read in case the socket drops. */
 function start() {
   const base = getChain().base;
-  const read = () => base.getAccountInfo(POOL_ACCOUNT, "confirmed").then(totalOf, () => total).then(set);
+  const read = () => base.getAccountInfo(POOL_ACCOUNT, "confirmed").then(totalOf, () => total ?? null).then(set);
   void read();
   const sub = base.onAccountChange(POOL_ACCOUNT, (info) => set(totalOf(info)), { commitment: "confirmed" });
   const poll = setInterval(read, POLL_MS);
@@ -51,7 +51,7 @@ function subscribe(listener: () => void) {
   };
 }
 
-/** Gemas in the Leaderboard Pool, live; null until the first read (or while the Leaderboard is off). */
-export function usePool(): number | null {
-  return useSyncExternalStore(subscribe, () => total, () => null);
+/** Gemas in the Leaderboard Pool, live; undefined until the first read, null when it failed or the Leaderboard is off. */
+export function usePool(): number | null | undefined {
+  return useSyncExternalStore(subscribe, () => total, () => undefined);
 }

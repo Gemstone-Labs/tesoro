@@ -121,8 +121,10 @@ export function PoolChest() {
   const pool = usePool();
   const { auth, snapshot } = useAccount();
   const me = auth.status === "signed-in" ? (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null)) : null;
-  const { data } = useLeaderboard(me);
-  const standing = me && data && data.feeBps > 0 ? seasonStanding(data, me) : null;
+  const { data, forMe, error } = useLeaderboard(me);
+  const standing = me && forMe && data && data.feeBps > 0 ? seasonStanding(data, me) : null;
+  // Signed in (or not known yet) and your standing not read for you yet: its place waits as a placeholder.
+  const youPending = !standing && !error && data?.feeBps !== 0 && (auth.status === "loading" || (auth.status === "signed-in" && !forMe));
   const [pop, setPop] = useState(0);
   const last = useRef<number | null>(null);
 
@@ -130,7 +132,7 @@ export function PoolChest() {
 
   useEffect(() => {
     const before = last.current;
-    last.current = pool;
+    last.current = pool ?? null;
     if (pool == null || before == null || pool <= before) return;
     const start = setTimeout(() => setPop((n) => n + 1), 0);
     clearTimeout(settle.current);
@@ -139,7 +141,8 @@ export function PoolChest() {
   }, [pool]);
   useEffect(() => () => clearTimeout(settle.current), []);
 
-  if (pool == null) return null;
+  if (pool === undefined) return <PlateSkeleton you={youPending} />;
+  if (pool === null) return null;
   const you = standing
     ? standing.rank === null
       ? " You have no Season points yet."
@@ -162,6 +165,7 @@ export function PoolChest() {
         </b>
         <span>Pool{data && ` · Season ${data.season.number}`}</span>
       </div>
+      {youPending && <YouSkeleton />}
       {standing && (
         <div className={`pc-you${standing.rank === null ? " none" : ""}`}>
           <div className={`pc-rank${standing.rank !== null && standing.rank >= 10 ? " wide" : ""}`}>
@@ -174,5 +178,32 @@ export function PoolChest() {
         </div>
       )}
     </Link>
+  );
+}
+
+/** Your rank and points while they load. Divs, not spans: the phone plate hides its spans. */
+function YouSkeleton() {
+  return (
+    <div className="pc-you pc-you-skel" aria-hidden="true">
+      <div className="pc-rank skel" />
+      <div className="pc-you-txt">
+        <div className="skel-line lg" style={{ width: 52 }} />
+        <div className="skel-line" style={{ width: 76 }} />
+      </div>
+    </div>
+  );
+}
+
+/** The plate while the Pool is read. */
+function PlateSkeleton({ you }: { you: boolean }) {
+  return (
+    <div className="cut cut-card pchest skel" aria-hidden="true">
+      <div className="pc-chest-skel" />
+      <div className="pc-pool">
+        <div className="skel-line lg" style={{ width: 78 }} />
+        <div className="skel-line pc-skel-label" style={{ width: 92 }} />
+      </div>
+      {you && <YouSkeleton />}
+    </div>
   );
 }

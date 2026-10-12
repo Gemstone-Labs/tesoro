@@ -1,12 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, Eye, LogOut, Pencil, User, Wallet } from "lucide-react";
-import { PlayerAvatar, PlayerName } from "@/components/account/Player";
+import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { useAuth } from "@/lib/auth/context";
-import { avatarFor } from "@/lib/art";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
@@ -23,7 +21,6 @@ export function AccountMenu() {
     () => snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null),
     [snapshot, auth.addresses.solana],
   );
-  const seed = me ?? auth.email ?? "guest";
 
   useEffect(() => {
     if (!open) return;
@@ -53,7 +50,7 @@ export function AccountMenu() {
         onClick={() => setOpen((o) => !o)}
       >
         <span className="cut cut-btn avatar">
-          {me ? <PlayerAvatar account={me} size={48} /> : <Image src={avatarFor(seed)} alt="" width={48} height={48} />}
+          {me ? <PlayerAvatar account={me} size={48} wait /> : <AvatarSkeleton />}
         </span>
         <ChevronDown aria-hidden="true" className="acct-chev" />
       </button>

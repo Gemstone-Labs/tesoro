@@ -23,6 +23,8 @@ export interface Identity {
   hl: NameRecord | null;
   /** The wallets the Player attached to their Profile for names (addresses); null when none. */
   attached?: { wallet: string | null; evm: string | null };
+  /** The reads that decide this Player's name and picture are done (or failed), so what shows will not change. */
+  settled?: boolean;
 }
 
 export interface Shown {
