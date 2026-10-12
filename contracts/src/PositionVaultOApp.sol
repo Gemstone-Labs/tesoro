@@ -15,9 +15,10 @@ import {PositionVault} from "./PositionVault.sol";
 /// Wire format (identical to bridge/programs/tesoro_bridge/src/msg_codec.rs; abi.encodePacked, big-endian):
 ///   header  : uint8 msgType | uint32 sourceChain | bytes32 positionId | uint64 seq                    (45 bytes)
 ///   1 PositionLocked (EVM to Solana): header | bytes32 owner | bytes32 lst | uint128 principalUnderlying | uint8 horizon
-///   2 YieldAccrued   (EVM to Solana): header | uint128 cumulativeAccruedUnderlying
+///   2 YieldAccrued   (EVM to Solana): header | uint128 cumulativeAccruedUnderlying | uint128 treasuryIn  (77 bytes)
 ///   3 Unlock         (Solana to EVM): header | uint128 0
 ///   4 PayYield       (Solana to EVM): header | bytes32 to | uint128 amountUnderlying
+///   5 PayInstant     (Solana to EVM): header | bytes32 to | uint128 amountUnderlying (paid from the Treasury)
 /// `sourceChain` is this chain's LayerZero eid. `positionId` = vault address (20 bytes) | vault position id
 /// (uint64) | 4 zero bytes, so several vaults on one chain never collide on Solana and a vault can only
 /// speak for its own Positions.
@@ -40,13 +41,21 @@ contract PositionVaultOApp is PositionVault, OApp {
         uint32 solanaEid_,
         address delegate_,
         address yieldMinter_
-    ) PositionVault(lst_, rateSource_, lzEndpoint_, chainEid_, yieldMinter_) OApp(lzEndpoint_, delegate_) Ownable(delegate_) {
+    )
+        PositionVault(lst_, rateSource_, lzEndpoint_, chainEid_, yieldMinter_)
+        OApp(lzEndpoint_, delegate_)
+        Ownable(delegate_)
+    {
         require(endpoint.eid() == chainEid_, "eid mismatch");
         solanaEid = solanaEid_;
     }
 
     function setSolanaReceiveCu(uint128 cu) external onlyOwner {
         solanaReceiveCu = cu;
+    }
+
+    function _checkAdmin() internal view override {
+        _checkOwner();
     }
 
     // ------------------------------------------------------------------ quotes
@@ -58,7 +67,7 @@ contract PositionVaultOApp is PositionVault, OApp {
 
     /// @notice Native fee to send `reportYield`'s message.
     function quoteYieldAccrued() external view returns (uint256) {
-        return _quote(solanaEid, _packYield(1, 1, 1, 1), _options(), false).nativeFee;
+        return _quote(solanaEid, _packYield(1, 1, 1, 1, 1), _options(), false).nativeFee;
     }
 
     // ------------------------------------------------------------------ outbound
@@ -83,8 +92,8 @@ contract PositionVaultOApp is PositionVault, OApp {
                 uint8(uint256(_word(payload, 9)))
             );
         } else if (msgType == MSG_YIELD_ACCRUED) {
-            // words: accrued, rate, timestamp
-            message = _packYield(chain, key, seq, _u128(uint256(_word(payload, 4))));
+            // words: accrued, rate, timestamp, treasuryIn
+            message = _packYield(chain, key, seq, _u128(uint256(_word(payload, 4))), _u128(uint256(_word(payload, 7))));
         } else {
             revert InvalidMessageType();
         }
@@ -95,10 +104,7 @@ contract PositionVaultOApp is PositionVault, OApp {
 
     /// @dev `OAppReceiver.lzReceive` has already checked msg.sender == endpoint and origin.sender == the peer set
     ///      for origin.srcEid, so only the registered `tesoro_bridge` reaches this function.
-    function _lzReceive(Origin calldata, bytes32, bytes calldata message, address, bytes calldata)
-        internal
-        override
-    {
+    function _lzReceive(Origin calldata, bytes32, bytes calldata message, address, bytes calldata) internal override {
         if (message.length < 45) revert InvalidMessageLength();
         uint8 msgType = uint8(message[0]);
         uint32 chain = uint32(bytes4(message[1:5]));
@@ -110,7 +116,7 @@ contract PositionVaultOApp is PositionVault, OApp {
         if (msgType == MSG_UNLOCK) {
             if (message.length != 61) revert InvalidMessageLength();
             _receive(abi.encode(msgType, chain, id, seq));
-        } else if (msgType == MSG_PAY_YIELD) {
+        } else if (msgType == MSG_PAY_YIELD || msgType == MSG_PAY_INSTANT) {
             if (message.length != 93) revert InvalidMessageLength();
             bytes32 to = bytes32(message[45:77]);
             uint256 amount = uint128(bytes16(message[77:93]));
@@ -144,12 +150,12 @@ contract PositionVaultOApp is PositionVault, OApp {
         return abi.encodePacked(MSG_POSITION_LOCKED, chain, bytes32(key), seq, owner, asset, principal, horizon);
     }
 
-    function _packYield(uint32 chain, uint256 key, uint64 seq, uint128 cumulative)
+    function _packYield(uint32 chain, uint256 key, uint64 seq, uint128 cumulative, uint128 treasuryIn_)
         internal
         pure
         returns (bytes memory)
     {
-        return abi.encodePacked(MSG_YIELD_ACCRUED, chain, bytes32(key), seq, cumulative);
+        return abi.encodePacked(MSG_YIELD_ACCRUED, chain, bytes32(key), seq, cumulative, treasuryIn_);
     }
 
     function _options() internal view returns (bytes memory) {

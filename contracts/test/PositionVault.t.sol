@@ -101,9 +101,9 @@ contract PositionVaultSimTest is VaultBase {
         vm.warp(block.timestamp + 5 minutes);
         uint64 b = _open(4 ether); // opens later, earns from its own open time
         vm.warp(block.timestamp + 10 minutes);
-        // 5% APY, speedup 4380: yield = P * 500 * 4380 * dt / (10_000 * 365 days)
-        uint256 ya = (uint256(6 ether) * 500 * 4380 * 15 minutes) / (10_000 * 365 days);
-        uint256 yb = (uint256(4 ether) * 500 * 4380 * 10 minutes) / (10_000 * 365 days);
+        // 5% APY, speedup 4380: yield = P * 500 * 4380 * dt / (10_000 * 365 days), 80% of it after the Yield Fee
+        uint256 ya = (uint256(6 ether) * 500 * 4380 * 15 minutes) / (10_000 * 365 days) * 8 / 10;
+        uint256 yb = (uint256(4 ether) * 500 * 4380 * 10 minutes) / (10_000 * 365 days) * 8 / 10;
         assertApproxEqAbs(vault.accruedYield(a), ya, 2);
         assertApproxEqAbs(vault.accruedYield(b), yb, 2);
         assertEq(lst.underlyingPerShare(), 1e18, "rate does not move");
@@ -115,13 +115,15 @@ contract PositionVaultSimTest is VaultBase {
         uint256 view1 = vault.accruedYield(id);
         vault.accrue(id);
         assertEq(vault.accruedYield(id), view1);
-        assertEq(lst.balanceOf(address(vault)), vault.getPosition(id).heldShares);
+        assertEq(lst.balanceOf(address(vault)), vault.getPosition(id).heldShares + vault.treasuryShares());
         assertGt(lst.balanceOf(address(vault)), 10 ether);
         assertEq(lst.totalSupply(), lst.faucetAmount() + lst.balanceOf(address(vault)) - 10 ether);
     }
 
-    /// An Advance of N months (principal * apy * N / 12) is repaid at exactly N * 10 minutes (speedup 4,380).
+    /// An Advance of N months (principal * apy * N / 12) is repaid at exactly N * 10 minutes (speedup 4,380)
+    /// when no Yield Fee is taken.
     function test_advanceOfNMonthsIsRepaidInNTimesTenMinutes() public {
+        vault.setYieldFeeBps(0);
         uint64 id = _open(10 ether);
         for (uint256 n = 1; n <= 12; n++) {
             uint256 advance = (10 ether * 500 * n) / (10_000 * 12);
@@ -155,6 +157,133 @@ contract PositionVaultSimTest is VaultBase {
         assertGe(lst.balanceOf(alice), 10 ether - 1);
     }
 
+    // ---- Yield Fee and Treasury ----
+
+    function test_yieldFeeSplitsEachMintBetweenPositionAndTreasury() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 10 minutes);
+        uint256 gross = (uint256(10 ether) * 500 * 4380 * 10 minutes) / (10_000 * 365 days);
+        vault.accrue(id);
+        assertApproxEqAbs(vault.accruedYield(id), gross * 8 / 10, 2);
+        assertApproxEqAbs(vault.treasuryShares(), gross * 2 / 10, 2);
+        assertEq(vault.treasuryIn(), vault.treasuryShares());
+        assertEq(vault.treasuryBalance(), vault.treasuryShares());
+        assertEq(lst.balanceOf(address(vault)), vault.getPosition(id).heldShares + vault.treasuryShares());
+    }
+
+    function test_yieldFeeViewMatchesAccrueExactly() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 7 minutes + 13);
+        uint256 viewed = vault.accruedYield(id);
+        vault.accrue(id);
+        assertEq(vault.accruedYield(id), viewed);
+    }
+
+    function test_zeroFeeKeepsTheWholeYieldWithThePosition() public {
+        vault.setYieldFeeBps(0);
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 10 minutes);
+        uint256 gross = (uint256(10 ether) * 500 * 4380 * 10 minutes) / (10_000 * 365 days);
+        vault.accrue(id);
+        assertApproxEqAbs(vault.accruedYield(id), gross, 2);
+        assertEq(vault.treasuryShares(), 0);
+        assertEq(vault.treasuryIn(), 0);
+    }
+
+    function test_setYieldFeeIsAdminOnlyAndCapped() public {
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.NotAdmin.selector);
+        vault.setYieldFeeBps(100);
+        vm.expectRevert(PositionVault.FeeTooHigh.selector);
+        vault.setYieldFeeBps(5001);
+        vault.setYieldFeeBps(5000);
+        assertEq(vault.yieldFeeBps(), 5000);
+    }
+
+    function test_fundTreasuryIsAdminOnlyAndRaisesTreasuryIn() public {
+        lst.faucet(address(this));
+        lst.approve(address(vault), type(uint256).max);
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.NotAdmin.selector);
+        vault.fundTreasury(1 ether);
+        vault.fundTreasury(1 ether);
+        assertEq(vault.treasuryShares(), 1 ether);
+        assertEq(vault.treasuryIn(), 1 ether);
+        assertEq(lst.balanceOf(address(vault)), 1 ether);
+    }
+
+    function _fundTreasury(uint256 shares) internal {
+        lst.faucet(address(this));
+        lst.approve(address(vault), type(uint256).max);
+        vault.fundTreasury(shares);
+    }
+
+    function _instantMsg(uint64 id, uint64 seq, address to, uint256 amt) internal pure returns (bytes memory) {
+        return abi.encode(uint8(5), CHAIN, id, seq, bytes32(uint256(uint160(to))), amt);
+    }
+
+    function test_payInstantPaysFromTreasuryAndLeavesThePositionAlone() public {
+        uint64 id = _open(10 ether);
+        _fundTreasury(1 ether);
+        PositionVault.Position memory before = vault.getPosition(id);
+        _deliver(_instantMsg(id, 1, redeemer, 0.4 ether));
+        assertEq(lst.balanceOf(redeemer), 0.4 ether);
+        assertEq(vault.treasuryShares(), 0.6 ether);
+        assertEq(vault.instantPaid(), 0.4 ether);
+        assertEq(vault.treasuryIn(), 1 ether, "treasuryIn never decreases");
+        PositionVault.Position memory after_ = vault.getPosition(id);
+        assertEq(after_.heldShares, before.heldShares);
+        assertEq(after_.paidUnderlying, before.paidUnderlying);
+
+        _deliver(_unlockMsg(id, 2));
+        _deliver(_instantMsg(id, 3, redeemer, 0.1 ether)); // also works after Unlock
+        assertEq(lst.balanceOf(redeemer), 0.5 ether);
+    }
+
+    function test_payInstantRevertsWhenShortThenSucceedsOnceFundedAndReplayPaysOnce() public {
+        uint64 id = _open(10 ether);
+        _fundTreasury(0.3 ether);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 0.5 ether, 0.3 ether));
+        _deliver(_instantMsg(id, 1, redeemer, 0.5 ether));
+        assertEq(lst.balanceOf(redeemer), 0);
+
+        vault.fundTreasury(0.4 ether);
+        _deliver(_instantMsg(id, 1, redeemer, 0.5 ether));
+        assertEq(lst.balanceOf(redeemer), 0.5 ether);
+        _deliver(_instantMsg(id, 1, redeemer, 0.5 ether)); // replay
+        assertEq(lst.balanceOf(redeemer), 0.5 ether);
+        assertEq(vault.instantPaid(), 0.5 ether);
+    }
+
+    function test_payYieldToTheVaultRefillsTheTreasury() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 10 minutes);
+        vault.accrue(id);
+        uint256 amt = vault.payableYield(id) / 2;
+        uint256 inBefore = vault.treasuryIn();
+        uint256 sharesBefore = vault.treasuryShares();
+        uint256 heldBefore = vault.getPosition(id).heldShares;
+        _deliver(_payMsg(id, 1, address(vault), amt));
+        assertEq(vault.treasuryShares(), sharesBefore + amt);
+        assertEq(vault.treasuryIn(), inBefore + amt);
+        assertEq(vault.getPosition(id).heldShares, heldBefore - amt);
+        assertEq(vault.getPosition(id).paidUnderlying, amt);
+        assertEq(lst.balanceOf(address(vault)), vault.getPosition(id).heldShares + vault.treasuryShares());
+    }
+
+    function test_unlockNeverReleasesTreasuryShares() public {
+        uint64 id = _open(10 ether);
+        vm.warp(block.timestamp + 20 minutes);
+        _fundTreasury(1 ether);
+        vault.accrue(id);
+        uint256 treasury = vault.treasuryShares();
+        uint256 before = lst.balanceOf(alice);
+        _deliver(_unlockMsg(id, 1));
+        assertEq(lst.balanceOf(alice) - before, 10 ether, "exactly the Principal");
+        assertEq(vault.treasuryShares(), treasury);
+        assertGe(lst.balanceOf(address(vault)), treasury);
+    }
+
     function test_vaultIsTheOnlyMinter() public {
         vm.expectRevert(SimLST.NotMinter.selector);
         lst.mint(address(this), 1);
@@ -175,10 +304,11 @@ contract PositionVaultSimTest is VaultBase {
         vault.reportYield(id);
         vm.warp(block.timestamp + 10 minutes);
         vault.reportYield(id);
-        (,,, uint64 s1, uint256 a1,,) =
-            abi.decode(ep.outboxPayload(1), (uint8, uint32, uint64, uint64, uint256, uint256, uint256));
-        (,,, uint64 s2, uint256 a2,,) =
-            abi.decode(ep.outboxPayload(2), (uint8, uint32, uint64, uint64, uint256, uint256, uint256));
+        (,,, uint64 s1, uint256 a1,,,) =
+            abi.decode(ep.outboxPayload(1), (uint8, uint32, uint64, uint64, uint256, uint256, uint256, uint256));
+        (,,, uint64 s2, uint256 a2,,, uint256 t2) =
+            abi.decode(ep.outboxPayload(2), (uint8, uint32, uint64, uint64, uint256, uint256, uint256, uint256));
+        assertEq(t2, vault.treasuryIn());
         assertEq(s1, 2);
         assertEq(s2, 3);
         assertGt(a1, 0);

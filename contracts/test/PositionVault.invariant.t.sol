@@ -120,14 +120,14 @@ contract PositionVaultInvariantTest is Test {
         }
     }
 
-    /// The vault's LST balance is exactly the sum of positions' held shares (nothing leaves off-book).
+    /// The vault's LST balance is exactly the sum of positions' held shares plus the Treasury (nothing leaves off-book).
     function invariant_vaultBalanceMatchesBooks() public view {
         PositionVault v = h.vault();
         uint256 sum;
         for (uint256 i = 0; i < h.idsLength(); i++) {
             sum += v.getPosition(h.ids(i)).heldShares;
         }
-        assertEq(h.lst().balanceOf(address(v)), sum);
+        assertEq(h.lst().balanceOf(address(v)), sum + v.treasuryShares());
     }
 
     /// A Position's locked shares can be released to its owner at most once, and only at Unlock.
