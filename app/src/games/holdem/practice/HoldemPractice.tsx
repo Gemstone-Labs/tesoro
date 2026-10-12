@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Label } from "@/components/ui";
 import { PHASE, STATUS, type Action } from "../chain";
 import { HoldemTable } from "../HoldemTable";
 import { botAction } from "./bot";
 import { act, deal, holes, newPractice, type Practice } from "./engine";
+import { paced } from "../pace";
+import { CARD_LANDS, DEAL_MS, STREET_LEAD } from "../useTableFeed";
 
 const YOU = 0;
 const BOT = 1;
@@ -25,18 +27,23 @@ export function HoldemPractice() {
 
   const t = game?.table;
   const over = t?.status === STATUS.over;
+  const seen = useRef({ phase: -1, handNo: -1 });
 
   // Between hands: leave the last hand on the table for a moment (longer after a showdown), then deal.
   // The bot thinks for a beat before acting so its moves can be followed.
   useEffect(() => {
     if (!game || !t || t.status !== STATUS.live) return;
+    const fresh = t.phase !== seen.current.phase || t.handNo !== seen.current.handNo;
+    seen.current = { phase: t.phase, handNo: t.handNo };
     if (t.phase === PHASE.shuffle) {
-      const pause = t.lastHand.handNo === 0 ? 400 : t.lastHand.showdown ? 3900 : 2100;
+      const pause = t.lastHand.handNo === 0 ? 400 : paced(t.lastHand.showdown ? 3900 : 2100);
       const id = setTimeout(() => setGame((g) => (g ? deal(g, nowSecs()) : g)), pause);
       return () => clearTimeout(id);
     }
     if (t.toAct === BOT) {
-      const id = setTimeout(() => setGame((g) => (g ? act(g, BOT, botAction(g.table, BOT, holes(g)[BOT]), nowSecs()) : g)), 600 + Math.random() * 400);
+      // A street that was just dealt is still landing on the table: the bot waits for it like a Player would.
+      const landing = !fresh ? 0 : t.phase === PHASE.preflop ? DEAL_MS : STREET_LEAD + CARD_LANDS + paced(2 * 140);
+      const id = setTimeout(() => setGame((g) => (g ? act(g, BOT, botAction(g.table, BOT, holes(g)[BOT]), nowSecs()) : g)), landing + paced(700 + Math.random() * 500));
       return () => clearTimeout(id);
     }
   }, [game, t]);

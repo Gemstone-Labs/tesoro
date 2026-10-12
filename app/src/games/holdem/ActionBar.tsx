@@ -26,12 +26,19 @@ export function ActionBar({
   const lg = legalMoves(t, seat);
   const min = Number(lg.minTo);
   const max = Number(lg.maxTo);
-  const [to, setTo] = useState<number>(min);
-  const value = Math.min(max, Math.max(min, Number.isFinite(to) ? to : min));
+  // What the Player typed, kept as text so the field can be cleared and retyped. It resets to the
+  // minimum whenever the minimum moves (a re-raise). Out of range, the raise button is disabled.
+  const [edit, setEdit] = useState<{ min: number; text: string } | null>(null);
+  const text = edit && edit.min === min ? edit.text : String(min);
+  const setTo = (n: number) => setEdit({ min, text: String(n) });
+  const typed = text === "" ? NaN : Number(text);
+  const inRange = Number.isInteger(typed) && typed >= min && typed <= max;
+  const value = inRange ? typed : Math.min(max, Math.max(min, Number.isFinite(typed) ? typed : min));
   const facing = lg.toCall > 0n;
   const pot = Number(t.pot);
   const current = Number(t.bets[0] > t.bets[1] ? t.bets[0] : t.bets[1]);
   const raiseOk = enabled && lg.canRaise;
+  const canSendRaise = raiseOk && inRange;
   const verb = lg.isBet ? "Bet" : "Raise";
   const allInRaise = value === max;
   const preset = (label: string, target: number) => (
@@ -55,22 +62,23 @@ export function ActionBar({
     pass: once(() => (facing ? onAct(call(), `call ${lg.toCall}`) : onAct(check(), "check"))),
     raise: once(() => onAct(raise(value), `${verb.toLowerCase()} to ${value}`)),
   };
-  const latest = useRef({ act, enabled, raiseOk, max });
+  const allIn = () => setTo(max);
+  const latest = useRef({ act, enabled, raiseOk, canSendRaise, allIn });
   useEffect(() => {
-    latest.current = { act, enabled, raiseOk, max };
+    latest.current = { act, enabled, raiseOk, canSendRaise, allIn };
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || el?.closest("input:not([type=range], [type=checkbox], [type=radio]), textarea, select, [contenteditable]")) return;
-      if (el?.closest("[role=dialog], [aria-modal=true]") || document.querySelector("[role=dialog], [aria-modal=true]")) return;
+      if (el?.closest("[role=dialog], [aria-modal=true], dialog") || document.querySelector("[role=dialog], [aria-modal=true], dialog[open]")) return;
       const cur = latest.current;
       const k = e.key.toLowerCase();
       if (!cur.enabled) return;
       if (k === "f") cur.act.fold();
       else if (k === "c") cur.act.pass();
-      else if (k === "r" && cur.raiseOk) cur.act.raise();
-      else if (k === "a" && cur.raiseOk) setTo(cur.max);
+      else if (k === "r" && cur.canSendRaise) cur.act.raise();
+      else if (k === "a" && cur.raiseOk) cur.allIn();
       else return;
       e.preventDefault();
     };
@@ -79,7 +87,7 @@ export function ActionBar({
   }, []);
 
   const passText = facing ? `Call ${chips(lg.toCall)}` : "Check";
-  const raiseText = allInRaise && raiseOk ? `All-in ${chips(value)}` : `${verb} to ${chips(value)}`;
+  const raiseText = !inRange && raiseOk ? `${verb} to ${text === "" ? "…" : chips(typed)}` : allInRaise && raiseOk ? `All-in ${chips(value)}` : `${verb} to ${chips(value)}`;
 
   return (
     <div className="cut cut-frame hdx-actions" role="group" aria-label="Actions">
@@ -92,7 +100,7 @@ export function ActionBar({
           <span>{passText}</span>
           <kbd aria-hidden="true">C</kbd>
         </button>
-        <button type="button" className="cut cut-btn hdx-btn" disabled={!raiseOk} onClick={act.raise} aria-label={raiseText}>
+        <button type="button" className="cut cut-btn hdx-btn" disabled={!canSendRaise} onClick={act.raise} aria-label={raiseText}>
           <span>{raiseText}</span>
           <kbd aria-hidden="true">R</kbd>
         </button>
@@ -105,14 +113,23 @@ export function ActionBar({
           <input
             id="hd-to"
             className="tnum mono"
-            type="number"
+            type="text"
             inputMode="numeric"
-            min={min}
-            max={max}
-            value={value}
+            autoComplete="off"
+            value={text}
             disabled={!raiseOk}
-            onChange={(e) => setTo(Number(e.target.value))}
+            aria-invalid={raiseOk && !inRange}
+            aria-describedby="hd-to-range"
+            onChange={(e) => setEdit({ min, text: e.target.value.replace(/\D/g, "").slice(0, 12) })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSendRaise) act.raise();
+            }}
           />
+          {raiseOk && (
+            <span id="hd-to-range" className={`mono hd-range-hint${inRange ? "" : " bad"}`}>
+              {min === max ? `All-in only: ${chips(max)}` : `${chips(min)} to ${chips(max)}`}
+            </span>
+          )}
         </div>
         <div className="hdx-raise-ctl">
           <input
@@ -131,7 +148,7 @@ export function ActionBar({
             {preset("Min", min)}
             {preset("½ pot", current + pot / 2)}
             {preset("Pot", current + pot)}
-            <button type="button" className="cut cut-chip hd-preset" disabled={!raiseOk} onClick={() => setTo(max)}>
+            <button type="button" className="cut cut-chip hd-preset" disabled={!raiseOk} onClick={allIn}>
               All-in <kbd aria-hidden="true">A</kbd>
             </button>
           </div>

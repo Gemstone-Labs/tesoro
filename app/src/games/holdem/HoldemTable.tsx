@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { Button, CountUp, GemaMark } from "@/components/ui";
+import { Button, CountUp, GemaMark, Sheet } from "@/components/ui";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { fmtGemas } from "@/lib/format";
 import { NO_CARD, NO_WINNER, PHASE, SPLIT, STATUS, tesoroAccountPda, type Action, type Table } from "./chain";
@@ -14,14 +14,19 @@ import { ActionBar } from "./ActionBar";
 import { ChipStack } from "./ChipStack";
 import { Seat } from "./Seat";
 import { bestHand, resultSummary } from "./reading";
-import { FOLD_CHIPS_AT, SHOWDOWN_CHIPS_AT, STREET_MS, runoutOffset, useTableFeed } from "./useTableFeed";
-import { Handshake, Trophy, Flag } from "lucide-react";
+import { FOLD_CHIPS_AT, SHOWDOWN_CHIPS_AT, STREET_LEAD, STREET_MS, runoutOffset, useTableFeed } from "./useTableFeed";
+import { PACE, paced } from "./pace";
+import { Handshake, Trophy, Flag, ScrollText } from "lucide-react";
 import { Arena, Callout, MuteToggle, prefersReducedMotion, sfx } from "../fx";
 import { art } from "@/lib/art";
 import "./holdem.css";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 const STREET = ["Shuffling", "Preflop", "Flop", "Turn", "River", ""];
+/** Gap between cards leaving the deck, the gap between board cards, and how long a card travels before it turns, ms. */
+const DEAL_GAP = paced(110);
+const CARD_GAP = paced(140);
+const TURN_AFTER = paced(440);
 
 function useNow(ms = 250) {
   const [now, setNow] = useState(() => Date.now());
@@ -103,6 +108,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const total = t.phase === PHASE.shuffle ? 60 : 30;
   const expired = !practice && !ended && t.status === STATUS.live && remaining < -1;
   const log = useHandLog(t, seat);
+  const [logOpen, setLogOpen] = useState(false);
   const feed = useTableFeed(t);
   useGuideHidden(!ended);
 
@@ -151,12 +157,12 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
         if (!b) return [];
         const x = b.at.x + o.x;
         const y = b.at.y + o.y;
-        return [{ id: batch.id * 10 + i, amount: b.amount, x, y, dx: to.x - x, dy: to.y - y, delay: 80 }];
+        return [{ id: batch.id * 10 + i, amount: b.amount, x, y, dx: to.x - x, dy: to.y - y, delay: paced(80) }];
       });
       if (made.length) {
         setGhosts((g) => [...g, ...made]);
         const ids = made.map((m) => m.id);
-        setTimeout(() => setGhosts((g) => g.filter((x) => !ids.includes(x.id))), 800);
+        setTimeout(() => setGhosts((g) => g.filter((x) => !ids.includes(x.id))), paced(800));
       }
     }
     // At the end of a hand the pot slides to the winner's stack (to both on a split).
@@ -175,7 +181,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
       if (made.length) {
         setGhosts((g) => [...g, ...made]);
         const ids = made.map((m) => m.id);
-        setTimeout(() => setGhosts((g) => g.filter((x) => !ids.includes(x.id))), delay + 900);
+        setTimeout(() => setGhosts((g) => g.filter((x) => !ids.includes(x.id))), delay + paced(900));
       }
     }
     const o = origin();
@@ -191,7 +197,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
     if (d) {
       const c = centre(d.getBoundingClientRect());
       const prev = dealerAt.current;
-      if (prev && prev.seat !== t.dealer) flyFrom(d, { x: prev.x + o.x, y: prev.y + o.y }, { duration: 600, spin: 180, scale: 1 });
+      if (prev && prev.seat !== t.dealer) flyFrom(d, { x: prev.x + o.x, y: prev.y + o.y }, { duration: paced(600), spin: 180, scale: 1 });
       dealerAt.current = { seat: t.dealer, x: c.x - o.x, y: c.y - o.y };
     }
   }, [batch, t]);
@@ -204,23 +210,23 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
     let streetIndex = 0;
     for (const e of batch.events) {
       if (e.type === "action") at(0, e.kind === "check" ? "check" : e.kind === "fold" ? "fold" : "chip");
-      else if (e.type === "sweep") at(120, "chip");
+      else if (e.type === "sweep") at(paced(120), "chip");
       else if (e.type === "deal") {
-        [0, 110, 220, 330].forEach((ms) => at(ms, "deal"));
-        at(1000, "flip");
+        [0, 1, 2, 3].forEach((k) => at(k * DEAL_GAP, "deal"));
+        at(paced(1000), "flip");
       } else if (e.type === "street") {
-        const base = 350 + streetIndex * STREET_MS;
+        const base = STREET_LEAD + streetIndex * STREET_MS;
         streetIndex++;
         e.cards.forEach((_, k) => {
-          at(base + k * 140, "deal");
-          at(base + k * 140 + 440, "flip");
+          at(base + k * CARD_GAP, "deal");
+          at(base + k * CARD_GAP + TURN_AFTER, "flip");
         });
       } else if (e.type === "result") {
         const showdown = e.how === "showdown";
-        const t0 = runoutOffset(batch.events) + (showdown ? 800 : 200);
-        if (showdown) at(t0 - 300, "flip");
+        const t0 = runoutOffset(batch.events) + paced(showdown ? 800 : 200);
+        if (showdown) at(t0 - paced(300), "flip");
         at(t0, e.winner === "split" ? "chip" : e.winner === seat ? "win" : "lose");
-        at(t0 + (showdown ? 700 : 250), "chip");
+        at(t0 + paced(showdown ? 700 : 250), "chip");
       }
     }
     return () => timers.forEach(clearTimeout);
@@ -228,7 +234,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
 
   const fresh = batch?.events ?? [];
   const dealtNow = fresh.some((e) => e.type === "deal");
-  const holeFly = (order: number) => (dealtNow ? { deck: deckRef, delay: order * 110 } : null);
+  const holeFly = (order: number) => (dealtNow ? { deck: deckRef, delay: order * DEAL_GAP } : null);
   // Each street dealt in the latest read: where its cards land on the board and when. A run-out deals them one street after another.
   const boardPlan = new Map<number, { delay: number; turn: number }>();
   fresh
@@ -237,8 +243,8 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
       if (e.type !== "street") return;
       const from = e.street === "flop" ? 0 : e.street === "turn" ? 3 : 4;
       for (let j = 0; j < e.cards.length; j++) {
-        const delay = 350 + k * STREET_MS + j * 140;
-        boardPlan.set(from + j, { delay, turn: delay + 440 });
+        const delay = STREET_LEAD + k * STREET_MS + j * CARD_GAP;
+        boardPlan.set(from + j, { delay, turn: delay + TURN_AFTER });
       }
     });
   const boardFly = (i: number) => {
@@ -256,12 +262,14 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const dealingMine = feed.dealing && playing;
   const dealtHand = playing ? t.handNo : lh.handNo;
   const oppState: FlipState = oppCards ? "up" : playing ? "down" : "empty";
-  const myHand = myCards && (playing || showLast) && !(feed.dealing && playing) ? bestHand(myCards, board).name : null;
+  // The hand label only counts board cards the Player can already see turned over.
+  const seenBoard = feed.boardBusy ? board.filter((c) => c < 52).slice(0, Math.max(0, board.filter((c) => c < 52).length - boardPlan.size)) : board;
+  const myHand = myCards && (playing || showLast) && !(feed.dealing && playing) ? bestHand(myCards, seenBoard).name : null;
   const oppHand = hands ? hands[opp].name : null;
 
   return (
     <Arena game="holdem">
-    <section className="hdx" aria-label="Hold'em table">
+    <section className="hdx" aria-label="Hold'em table" style={{ ["--pace" as string]: PACE }}>
       <header className="hdx-head" aria-label="Table">
         <div className="hdx-head-l">
           <h1 className="hdx-title">Heads-up Hold&apos;em</h1>
@@ -276,28 +284,33 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           <MuteToggle />
         </div>
         <ShareBar mine={t.stacks[seat] + t.committed[seat]} theirs={t.stacks[opp] + t.committed[opp]} />
-        {!ended && t.status === STATUS.live && (
-          <div className="hdx-clock" role="timer" aria-live="off">
-            <div className="hdx-clock-top">
-              <span className="hdx-who">
-                {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
-                {playing ? ` · ${STREET[t.phase]}` : ""}
-              </span>
-              {!practice && (
-                <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
-              )}
-            </div>
-            {expired && !myTurn && (
-              <div className="hd-claim">
-                <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
-                <Button size="sm" onClick={onClaim} disabled={busy !== null}>
-                  {busy === "claim_timeout" ? "Claiming…" : "Claim timeout"}
-                </Button>
+        <div className="hdx-head-r">
+          {!ended && t.status === STATUS.live && (
+            <div className="hdx-clock" role="timer" aria-live="off">
+              <div className="hdx-clock-top">
+                <span className="hdx-who">
+                  {t.phase === PHASE.shuffle ? `Dealing hand ${t.handNo}` : myTurn ? "Your turn" : "Opponent's turn"}
+                  {playing ? ` · ${STREET[t.phase]}` : ""}
+                </span>
+                {!practice && (
+                  <span className={`mono hdx-secs${remaining <= 10 ? " low" : ""}`}>{remaining >= 60 ? clock(remaining) : `${Math.max(0, remaining)} s`}</span>
+                )}
               </div>
-            )}
-            {expired && myTurn && <span className="meta">Your clock ran out: act now, or your opponent can claim a timeout.</span>}
-          </div>
-        )}
+              {expired && !myTurn && (
+                <div className="hd-claim">
+                  <span className="meta">{t.phase === PHASE.shuffle ? "Someone has not dealt in time." : "Your opponent's clock ran out."}</span>
+                  <Button size="sm" onClick={onClaim} disabled={busy !== null}>
+                    {busy === "claim_timeout" ? "Claiming…" : "Claim timeout"}
+                  </Button>
+                </div>
+              )}
+              {expired && myTurn && <span className="meta">Your clock ran out: act now, or your opponent can claim a timeout.</span>}
+            </div>
+          )}
+          <button type="button" className="cut cut-chip hdx-logbtn" onClick={() => setLogOpen(true)} aria-haspopup="dialog">
+            <ScrollText size={15} aria-hidden="true" /> Hand log
+          </button>
+        </div>
       </header>
 
       <div className="hdx-stage" style={{ ["--rv" as string]: `${revealAt}ms` }}>
@@ -333,7 +346,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
               index={opp}
             >
               {[0, 1].map((i) => (
-                <FlipCard key={`o${dealtHand}-${i}`} card={oppCards?.[i]} state={oppState} fly={holeFly(i === 0 ? 0 : 2)} turnDelay={revealAt + i * 120} mark={markFor(oppCards?.[i])} />
+                <FlipCard key={`o${dealtHand}-${i}`} card={oppCards?.[i]} state={oppState} fly={holeFly(i === 0 ? 0 : 2)} turnDelay={revealAt + i * paced(120)} mark={markFor(oppCards?.[i])} />
               ))}
             </Seat>
 
@@ -396,7 +409,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
                   state={myCards ? (dealingMine ? "down" : "up") : playing ? "down" : "empty"}
                   size="lg"
                   fly={holeFly(i === 0 ? 1 : 3)}
-                  turnDelay={i * 140}
+                  turnDelay={i * CARD_GAP}
                   mark={markFor(myCards?.[i])}
                 />
               ))}
@@ -404,12 +417,12 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           </div>
           {feed.banner && (
             <div className="hdx-banner">
-              <Callout key={feed.banner.id} text={feed.banner.text} duration={1100} className="hdx-banner-host" />
+              <Callout key={feed.banner.id} text={feed.banner.text} duration={paced(1100)} className="hdx-banner-host" />
             </div>
           )}
           {feed.toast && (
             <div className="hdx-toast">
-              <Callout key={feed.toast.id} text={feed.toast.text} tone="warn" duration={2400} className="hdx-toast-host" />
+              <Callout key={feed.toast.id} text={feed.toast.text} tone="warn" duration={paced(2400)} className="hdx-toast-host" />
             </div>
           )}
         </div>
@@ -434,8 +447,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
       {!ended && (
         <ActionBar key={`${t.handNo}-${t.phase}`} table={t} seat={seat} enabled={myTurn && busy === null} busy={busy} onAct={onAct} />
       )}
-      <details className="hdx-log">
-        <summary>Hand log · inferred</summary>
+      <Sheet open={logOpen} onClose={() => setLogOpen(false)} title="Hand log" className="hdx-logsheet">
         <div className="hdx-log-body">
           {log.length === 0 && <p className="meta">The hand log fills as the hand is played.</p>}
           {log.map((s, i) => (
@@ -457,7 +469,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
           ))}
           <p className="note">Inferred by this client from table reads, not a record from the table: a slow read can merge two actions into one.</p>
         </div>
-      </details>
+      </Sheet>
 
     </section>
     </Arena>

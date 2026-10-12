@@ -24,7 +24,7 @@
 /* a card that turns over: the back and the face are two sides of one box */
 .hd-flipc { --w: 44px; position: relative; display: inline-block; width: var(--w); aspect-ratio: 5 / 7; flex: none; perspective: 700px; }
 .hd-flipc.lg { --w: 58px; }
-.hd-flipc-in { position: relative; display: block; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 520ms cubic-bezier(0.3, 0.9, 0.3, 1); }
+.hd-flipc-in { position: relative; display: block; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform calc(520ms * var(--pace, 1)) cubic-bezier(0.3, 0.9, 0.3, 1); }
 .hd-flipc-in.up { transform: rotateY(180deg); }
 .hd-flipc .hd-card { --w: inherit; position: absolute; inset: 0; width: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
 .hd-flipc .hd-card.face, .hd-flipc .hd-card.empty { transform: rotateY(180deg); }
@@ -66,7 +66,7 @@
 .hdx-deck i:nth-child(3) { transform: translate(-4px, -4px); }
 .hdx-banner { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
 .hdx-banner .fx-callout { letter-spacing: 0.12em; }
-.hd-ghost { position: fixed; z-index: 60; transform: translate(-50%, -50%); pointer-events: none; animation: hd-sweep 620ms cubic-bezier(0.5, 0, 0.3, 1) 80ms both; }
+.hd-ghost { position: fixed; z-index: 60; transform: translate(-50%, -50%); pointer-events: none; animation: hd-sweep calc(620ms * var(--pace, 1)) cubic-bezier(0.5, 0, 0.3, 1) calc(80ms * var(--pace, 1)) both; }
 @keyframes hd-sweep { 0% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 85% { opacity: 1; } 100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.7); opacity: 0; } }
 .hdx-mid { display: grid; gap: 12px; justify-items: center; align-content: center; }
 .hdx-board { display: flex; gap: 6px; flex-wrap: nowrap; }
@@ -142,9 +142,9 @@
 .hdx-win {
   --c: 12px; --edge: linear-gradient(180deg, rgba(220, 232, 255, 0.7), rgba(160, 190, 255, 0.2)); display: flex; align-items: center; gap: 12px; padding: 8px 22px 8px 16px; max-width: min(92%, 460px);
   background: linear-gradient(180deg, rgba(20, 34, 68, 0.96), rgba(8, 14, 30, 0.96)); box-shadow: 0 0 36px -8px rgba(150, 185, 255, 0.5);
-  animation: hd-win-in 520ms cubic-bezier(0.2, 1.1, 0.3, 1) both; animation-delay: calc(var(--rv, 0ms) + 150ms);
+  animation: hd-win-in calc(520ms * var(--pace, 1)) cubic-bezier(0.2, 1.1, 0.3, 1) both; animation-delay: calc(var(--rv, 0ms) + 150ms * var(--pace, 1));
 }
-.hdx-felt[data-how="showdown"] .hdx-win { animation-delay: calc(var(--rv, 0ms) + 850ms); }
+.hdx-felt[data-how="showdown"] .hdx-win { animation-delay: calc(var(--rv, 0ms) + 850ms * var(--pace, 1)); }
 @keyframes hd-end-live { from { pointer-events: none; } to { pointer-events: auto; } }
 @keyframes hd-win-in { from { opacity: 0; transform: translateY(10px) scale(0.9); } }
 .hdx-win-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: none; background: rgba(234, 239, 236, 0.1); color: var(--fg); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
@@ -153,13 +153,13 @@
 .hdx-win-t b { white-space: nowrap; font-size: clamp(17px, 2.2vw, 22px); font-weight: 800; }
 .hdx-win-t span:last-child { font-size: 14px; color: var(--fg-2); }
 .hdx-win-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
-.hd-turn.won { background: #e6ebf2; color: #0a1226; animation: hd-win-in 400ms ease both; animation-delay: calc(var(--rv, 0ms) + 150ms); }
-.hdx-felt[data-how="showdown"] .hd-turn.won { animation-delay: calc(var(--rv, 0ms) + 850ms); }
+.hd-turn.won { background: #e6ebf2; color: #0a1226; animation: hd-win-in calc(400ms * var(--pace, 1)) ease both; animation-delay: calc(var(--rv, 0ms) + 150ms * var(--pace, 1)); }
+.hdx-felt[data-how="showdown"] .hd-turn.won { animation-delay: calc(var(--rv, 0ms) + 850ms * var(--pace, 1)); }
 .hdx-plaque.won { --edge: #e6ebf2; }
-.hd-flipc { transition: transform 420ms cubic-bezier(0.2, 0.9, 0.3, 1), opacity 420ms, filter 420ms; transition-delay: calc(var(--rv, 0ms) + 800ms); }
+.hd-flipc { transition: transform calc(420ms * var(--pace, 1)) cubic-bezier(0.2, 0.9, 0.3, 1), opacity calc(420ms * var(--pace, 1)), filter calc(420ms * var(--pace, 1)); transition-delay: calc(var(--rv, 0ms) + 800ms * var(--pace, 1)); }
 .hd-flipc.win { transform: translateY(-12px); filter: drop-shadow(0 0 10px rgba(200, 220, 255, 0.75)); }
 .hd-flipc.dim { opacity: 0.42; filter: saturate(0.6); }
-.hdx-end { position: absolute; inset: 0; z-index: 12; display: grid; place-items: center; background: rgba(6, 10, 22, 0.72); animation: hd-win-in 600ms ease both, hd-end-live 1ms linear both; animation-delay: calc(var(--rv, 0ms) + 2800ms); }
+.hdx-end { position: absolute; inset: 0; z-index: 12; display: grid; place-items: center; background: rgba(6, 10, 22, 0.72); animation: hd-win-in 600ms ease both, hd-end-live 1ms linear both; animation-delay: calc(var(--rv, 0ms) + 2800ms * var(--pace, 1)); }
 .hdx-end .hd-practice-end { max-width: 520px; }
 
 /* turn timer */
@@ -182,11 +182,12 @@
 .hdx-toast .fx-callout-host { place-items: start center; padding-top: 14px; }
 .hdx-toast .fx-callout { font-size: 15px; padding: 6px 16px; letter-spacing: 0.06em; }
 
-/* hand log: a quiet drawer under the action bar */
-.hdx-log { border-top: 1px solid var(--line); padding-top: 12px; }
-.hdx-log summary { cursor: pointer; font-size: 15px; font-weight: 600; color: var(--fg-2); padding: 8px 0; }
-.hdx-log[open] summary { color: var(--fg); }
-.hdx-log-body { display: grid; gap: 4px; padding-top: 8px; }
+/* hand log: a button under the turn line, the log itself in a sheet */
+.hdx-head-r { display: grid; justify-items: end; gap: 8px; margin-left: auto; }
+.hdx-logbtn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px; font-weight: 700; color: var(--fg-2); background: rgba(10, 16, 30, 0.7); border: 0; cursor: pointer; }
+.hdx-logbtn:hover, .hdx-logbtn:focus-visible { color: var(--fg); }
+.hdx-logsheet { width: min(520px, 100%); }
+.hdx-log-body { display: grid; gap: 4px; max-height: min(60vh, 520px); overflow-y: auto; }
 .hdx-street { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
 .hdx-street > b { font-size: 16px; }
 .hdx-row { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; font-size: 14px; }
@@ -216,6 +217,9 @@
   width: 140px; height: 48px; padding: 0 14px; background: #0c1116; border: 1px solid var(--line-2); color: var(--fg); font-size: 20px; text-align: center; border-radius: 0;
 }
 .hdx-raise-in input:disabled { opacity: 0.5; }
+.hd-range-hint { font-size: 12px; color: var(--fg-2); white-space: nowrap; }
+.hd-range-hint.bad { color: var(--warn); }
+.hdx-raise-in input[aria-invalid=true] { box-shadow: inset 0 0 0 1px var(--warn); }
 .hdx-raise-ctl { display: grid; gap: 8px; }
 .hd-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .hd-preset { padding: 12px 4px; font-size: 15px; font-weight: 700; background: #141a20; border: 1px solid var(--line-2); color: var(--fg); }
@@ -304,7 +308,7 @@
   .hd-ghost { display: none; }
   .hd-ava.active { animation: none; }
 }
-.hdx-felt[data-how="showdown"] .hd-handlabel { animation-delay: calc(var(--rv, 0ms) + 600ms); }
+.hdx-felt[data-how="showdown"] .hd-handlabel { animation-delay: calc(var(--rv, 0ms) + 600ms * var(--pace, 1)); }
 .hd-practice-end { flex-direction: column; align-items: stretch; text-align: center; padding: 22px 26px; background: linear-gradient(180deg, #121b2c, #0a1019); }
 .hd-end-text { display: grid; gap: 8px; }
 .hd-end-chips { font-size: 18px; color: var(--fg-2); }

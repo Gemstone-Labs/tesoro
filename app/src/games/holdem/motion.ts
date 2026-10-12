@@ -1,4 +1,5 @@
 import { prefersReducedMotion } from "../fx";
+import { paced } from "./pace";
 
 /** Slides `el` from where `from` is on screen to where it sits now (a card leaving the deck, a chip changing seat). */
 export function flyFrom(el: HTMLElement, from: { x: number; y: number }, opts: { delay?: number; duration?: number; spin?: number; scale?: number } = {}) {
@@ -12,7 +13,7 @@ export function flyFrom(el: HTMLElement, from: { x: number; y: number }, opts: {
       { opacity: 1, offset: 0.25 },
       { transform: "translate(0, 0) rotate(0deg) scale(1)", opacity: 1 },
     ],
-    { duration: opts.duration ?? 440, delay: opts.delay ?? 0, easing: "cubic-bezier(0.18, 0.8, 0.25, 1)", fill: "backwards" },
+    { duration: opts.duration ?? paced(440), delay: opts.delay ?? 0, easing: "cubic-bezier(0.18, 0.8, 0.25, 1)", fill: "backwards" },
   );
 }
 

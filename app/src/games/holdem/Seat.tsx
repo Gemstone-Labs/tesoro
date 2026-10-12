@@ -7,6 +7,7 @@ import { CountUp } from "@/components/ui";
 import { Callout } from "../fx";
 import { ChipStack } from "./ChipStack";
 import type { Say } from "./useTableFeed";
+import { paced } from "./pace";
 
 const chips = (n: bigint | number) => Number(n).toLocaleString("en-US");
 
@@ -77,7 +78,7 @@ export function Seat({
     <div className={`hdx-seat${mine ? " mine" : ""}${active ? " active" : ""}`}>
       <div className="hd-cards">{children}</div>
       {label && (
-        <span className="cut hd-handlabel" aria-live="polite">
+        <span key={label} className="cut hd-handlabel" aria-live="polite">
           {label}
         </span>
       )}
@@ -112,7 +113,7 @@ export function Seat({
       </div>
       {say && (
         <div className="hd-say">
-          <Callout key={say.id} text={say.text} tone={say.kind === "allin" ? "warn" : "plain"} duration={1600} className="hd-say-host" />
+          <Callout key={say.id} text={say.text} tone={say.kind === "allin" ? "warn" : "plain"} duration={paced(1600)} className="hd-say-host" />
         </div>
       )}
     </div>
