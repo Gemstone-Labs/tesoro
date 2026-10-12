@@ -43,6 +43,9 @@ export default function Page() {
       <Addr label="tesoro_core Config PDA (seeds: config)" value="Che6m7vayXRFRn4Sti9FH4V4usE5bPEyPUvkiHP6hDgZ" href={explorer("Che6m7vayXRFRn4Sti9FH4V4usE5bPEyPUvkiHP6hDgZ")} note="Platform Fee 200 bps; registered Games with Studio Fee 300 bps each. Read on 10 October 2026." />
       <Addr label="Oracle (price and Ethereum issuance signer)" value="6bpAyMvaHF5QdghrxnPRmdvHqCiLbigdXVroe4zDRApA" href={explorer("6bpAyMvaHF5QdghrxnPRmdvHqCiLbigdXVroe4zDRApA")} />
       <Addr label="Platform and Studio Fee recipient (a Tesoro Account)" value="GXQse6RG4hqY57fhRJX3W7yzhkwmaqZUHxaJArJWrMGK" href={explorer("GXQse6RG4hqY57fhRJX3W7yzhkwmaqZUHxaJArJWrMGK")} />
+      <Addr label="Treasury PDA (seeds: treasury): Yield Fee and Instant Redeem Fee rates" value="BuWgG4Q7DYND13twkfu5gHVGpoK78GbWJzAeEgv6aDQr" href={explorer("BuWgG4Q7DYND13twkfu5gHVGpoK78GbWJzAeEgv6aDQr")} />
+      <Addr label="Treasury simSOL vault (seeds: treasury_vault): collects the Yield Fee, pays Instant Redeems" value="7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4" href={explorer("7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4")} />
+      <Addr label="Treasury Account (holds the Gemas bought by Instant Redeem)" value="71hCesb8eED3yoFjgxDG8fSfqgZV4Ngfnr2sX3jHL5Yg" href={explorer("71hCesb8eED3yoFjgxDG8fSfqgZV4Ngfnr2sX3jHL5Yg")} />
       <Addr label="block_puzzle Game authority PDA (seeds: authority)" value="7HTncQ9Gc2gamBqce5C7sz95SU6RnR9CoDt1D3o2U4nx" href={explorer("7HTncQ9Gc2gamBqce5C7sz95SU6RnR9CoDt1D3o2U4nx")} />
       <Addr label="holdem Game authority PDA" value="Eu2RtadRsFCV9Xe2A7v7GivS9W5Trbrz6tCagNRUCwtn" href={explorer("Eu2RtadRsFCV9Xe2A7v7GivS9W5Trbrz6tCagNRUCwtn")} />
       <Addr label="trading_duel Game authority PDA" value="mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe" href={explorer("mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe")} />
@@ -94,7 +97,8 @@ export default function Page() {
         </li>
         <li>
           <b>Fees.</b> Read the Config account (PDA seed <code>config</code> of tesoro_core). The Platform Fee is a u16 after the admin and oracle keys;
-          each registered Game carries its own Studio Fee in basis points.
+          each registered Game carries its own Studio Fee in basis points. The Yield Fee and the Instant Redeem Fee are on the Treasury account
+          (PDA seed <code>treasury</code>); each EVM vault reports its own <code>yieldFeeBps()</code> and treasury balance.
         </li>
         <li>
           <b>Matches.</b> Every Match is a tesoro_core account and its settlement is an ordinary Solana transaction. Rollup (TEE) transactions are
