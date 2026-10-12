@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MATCH_SECS, NO_PICK, newTrack, record } from "./grid";
-import { cameraAfterZoom, cameraX, clampCamera, clampCols, hitCount, layoutFor, marks, maxCamera, maxCols, priceDigits, runEndingAt, snakeWindow, xOf, yOf } from "./gridView";
+import { bandUnits, bandWindow, cameraAfterZoom, cameraX, clampCamera, clampCols, clampU, followU, halfBands, hitCount, layerOffset, layoutFor, marks, maxCamera, maxCols, offscreen, priceDigits, revealU, runEndingAt, snakeWindow, xOf, yOf, yOfUnits } from "./gridView";
 
 const A = 100_00000000n;
 const STEP = 25_000000n; // 0.25
@@ -39,10 +39,11 @@ describe("snake", () => {
     expect(r.x).toBeCloseTo(xOf(3, l.cw));
     expect(r.d.match(/Q/g)).toHaveLength(1);
   });
-  it("keeps the line inside the frame", () => {
-    expect(yOf(500, 100, 0.25, l.rh)).toBeLessThan(10);
-    expect(yOf(-500, 100, 0.25, l.rh)).toBeGreaterThan(8 * l.rh - 10);
-    expect(yOf(100, 100, 0.25, l.rh)).toBeCloseTo(4 * l.rh);
+  it("draws the line wherever the price is, up is negative y", () => {
+    expect(yOf(100, 100, 0.25, l.rh)).toBeCloseTo(0);
+    expect(yOf(100.5, 100, 0.25, l.rh)).toBeCloseTo(-2 * l.rh);
+    expect(yOf(99.5, 100, 0.25, l.rh)).toBeCloseTo(2 * l.rh);
+    expect(yOf(1100, 100, 0.25, l.rh)).toBeCloseTo(-4000 * l.rh);
   });
   it("draws one path and reports its end", () => {
     const p = snakeWindow([{ t: 1000, p: 100.1 }], 0, 100, l, 0.25);
@@ -66,10 +67,10 @@ describe("snake", () => {
 describe("marks", () => {
   it("hits as soon as the line touches, misses only once the column is done", () => {
     let tr = record(newTrack(), 0, A);
-    tr = record(tr, 31, A); // column 0, row 4
+    tr = record(tr, 31, A); // column 0, band 0
     const picks = Array.from({ length: 12 }, () => NO_PICK);
-    picks[0] = 4;
-    picks[1] = 7;
+    picks[0] = 0;
+    picks[1] = 3;
     const m = marks(tr, picks, 35, A, STEP);
     expect(m[0]).toBe("hit");
     expect(m[1]).toBe("pending");
@@ -93,14 +94,26 @@ describe("marks", () => {
 });
 
 describe("zoom", () => {
-  it("shows 3 to 12 columns, fewer at the wide end on a phone, rows never change", () => {
+  it("shows 3 to 12 columns, fewer at the wide end on a phone", () => {
     expect(layoutFor(1000, 3).cw).toBeCloseTo(1000 / 3);
     expect(layoutFor(1000, 99).cw).toBeCloseTo(1000 / 12);
     expect(layoutFor(1000, 1).cw).toBeCloseTo(1000 / 3);
     expect(maxCols(316)).toBe(7);
     expect(clampCols(12, 316)).toBe(7);
-    expect(layoutFor(1000, 3).rh).toBe(layoutFor(1000, 12).rh);
     expect(layoutFor(1000).cw).toBeCloseTo(1000 / 7.6);
+  });
+  it("scales bands with the columns, within tappable limits, and the view height never changes", () => {
+    const wide = layoutFor(1200);
+    expect(layoutFor(1200, 12).rh).toBeLessThan(wide.rh);
+    expect(layoutFor(1200, 3).rh).toBeGreaterThan(wide.rh);
+    expect(layoutFor(1200, 3).rh).toBeLessThanOrEqual(Math.round(52 * 1.6));
+    expect(layoutFor(1200, 12).rh).toBeGreaterThanOrEqual(30);
+    for (const n of [3, 5, 8, 12]) expect(layoutFor(1200, n).bodyH).toBe(8 * 52);
+    const phone = layoutFor(390 - 74);
+    expect(phone.rh).toBe(44);
+    expect(layoutFor(316, maxCols(316)).rh).toBe(44);
+    expect(halfBands(phone) * 2).toBeCloseTo(8);
+    expect(halfBands(layoutFor(1200, 12)) * 2).toBeGreaterThan(11);
   });
   it("keeps the time under the anchor where it was", () => {
     const a = layoutFor(1000, 6);
@@ -117,5 +130,67 @@ describe("zoom", () => {
     expect(clampCamera(-50, l)).toBe(0);
     expect(clampCamera(1e9, l)).toBe(maxCamera(l));
     expect(maxCamera(l)).toBeCloseTo(15 * l.cw - 1000);
+  });
+});
+
+describe("vertical camera", () => {
+  const l = layoutFor(1000);
+  it("measures prices in bands from the start price, negative below", () => {
+    expect(bandUnits(100, 100, 0.25)).toBe(0);
+    expect(bandUnits(99.75, 100, 0.25)).toBe(-1);
+    expect(bandUnits(110, 100, 0.25)).toBe(40);
+    expect(bandUnits(1e12, 100, 0.25)).toBeLessThan(40000);
+    expect(yOfUnits(3, 50)).toBe(-150);
+  });
+  it("puts the camera's band in the middle of the view", () => {
+    expect(layerOffset(0, l)).toBe(l.bodyH / 2);
+    expect(layerOffset(40, l)).toBe(l.bodyH / 2 + 40 * l.rh);
+    expect(yOfUnits(40, l.rh) + layerOffset(40, l)).toBeCloseTo(l.bodyH / 2);
+  });
+  it("follows a far-away price: eases toward it and never lets the head leave the view", () => {
+    let u: number | null = null;
+    u = followU(u, 40, 0.016, l);
+    expect(u).toBe(40);
+    for (let i = 0; i < 20; i++) u = followU(u, 40 + i * 5, 0.016, l);
+    const head = 40 + 19 * 5;
+    expect(Math.abs(head - u)).toBeLessThanOrEqual(halfBands(l) - 1.5 + 1e-9);
+    let v = followU(40, 40, 0.016, l);
+    for (let i = 0; i < 400; i++) v = followU(v, 41.3, 0.016, l);
+    expect(v).toBeCloseTo(41.3, 2);
+  });
+  it("steps whole bands under reduced motion, and clamps negatives", () => {
+    expect(followU(0, 12.4, 1, l, true)).toBe(12);
+    expect(followU(0, -7.6, 1, l, true)).toBe(-8);
+    expect(clampU(-1e9)).toBe(-32767);
+  });
+  it("renders a window of bands around the camera in steps of four", () => {
+    const w = bandWindow(40.3, l);
+    expect(w.lo % 4).toBe(0);
+    expect(w.lo).toBeLessThan(40.3 - halfBands(l));
+    expect(w.hi).toBeGreaterThan(40.3 + halfBands(l));
+    expect(bandWindow(41, l)).toEqual(bandWindow(40.3, l));
+    const neg = bandWindow(-33.2, l);
+    expect(neg.lo).toBeLessThan(-33.2 - halfBands(l));
+  });
+  it("tells which picks are out of view, above or below", () => {
+    const h = halfBands(l);
+    expect(offscreen(0, 0, l)).toBe(0);
+    expect(offscreen(Math.ceil(h) + 1, 0, l)).toBe(1);
+    expect(offscreen(-Math.ceil(h) - 2, 0, l)).toBe(-1);
+    expect(offscreen(Math.floor(h) - 1, 0, l)).toBe(0);
+    expect(offscreen(-Math.floor(h), 0, l)).toBe(0);
+    // a sliver at the edge is not enough to tap
+    expect(offscreen(h - 0.2, 0, l)).toBe(1);
+    expect(offscreen(h - 0.6, 0, l)).toBe(0);
+    expect(offscreen(-h - 0.8, 0, l)).toBe(-1);
+    expect(offscreen(-h - 0.4, 0, l)).toBe(0);
+  });
+  it("scrolls the least that brings a band into view", () => {
+    const h = halfBands(l);
+    expect(revealU(0, 0, l)).toBe(0);
+    expect(revealU(20, 0, l)).toBeCloseTo(21 - h);
+    expect(offscreen(20, revealU(20, 0, l), l)).toBe(0);
+    expect(revealU(-20, 0, l)).toBeCloseTo(-20 + h);
+    expect(offscreen(-20, revealU(-20, 0, l), l)).toBe(0);
   });
 });

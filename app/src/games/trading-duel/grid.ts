@@ -5,12 +5,14 @@
  */
 
 export const COLUMNS = 12;
-export const ROWS = 8;
 export const COLUMN_SECS = 10;
 export const HEAD_START_SECS = 30;
 export const LOCK_AHEAD_SECS = 10;
 export const HIT_POINTS = 100;
-export const NO_PICK = 255;
+/** Picks are signed bands (i16 on chain); this one means "no pick". */
+export const NO_PICK = -32768;
+/** Bands are clamped to +-MAX_BAND so none ever equals NO_PICK. */
+export const MAX_BAND = 32767;
 /** Seconds from the start to the end of the last column. */
 export const MATCH_SECS = HEAD_START_SECS + COLUMNS * COLUMN_SECS;
 
@@ -42,16 +44,19 @@ export const stepFor = (anchor: bigint, stepPpm: bigint): bigint => {
   return s < 1n ? 1n : s;
 };
 
-/** Row 0 is the bottom, row 7 the top; the outer two are open-ended. */
-export function rowOf(price: bigint, anchor: bigint, step: bigint): number {
-  const r = floorDiv(price - anchor, step) + 4n;
-  return r < 0n ? 0 : r > BigInt(ROWS - 1) ? ROWS - 1 : Number(r);
+/**
+ * Band `k` is `[anchor + k*step, anchor + (k+1)*step)`: band 0 starts at the anchor, negative bands
+ * lie below it. Every price is in exactly one band; the result is clamped to +-MAX_BAND.
+ */
+export function bandOf(price: bigint, anchor: bigint, step: bigint): number {
+  const k = floorDiv(price - anchor, step);
+  const m = BigInt(MAX_BAND);
+  return Number(k < -m ? -m : k > m ? m : k);
 }
 
-/** Band of a row: `from` inclusive, `to` exclusive; null where open-ended. */
-export function rowBand(row: number, anchor: bigint, step: bigint): { from: bigint | null; to: bigint | null } {
-  const at = (k: number) => anchor + BigInt(k - 4) * step;
-  return { from: row === 0 ? null : at(row), to: row === ROWS - 1 ? null : at(row + 1) };
+/** Dollar edges of band `k`: `from` inclusive, `to` exclusive (1e-8 USD). */
+export function bandEdges(k: number, anchor: bigint, step: bigint): { from: bigint; to: bigint } {
+  return { from: anchor + BigInt(k) * step, to: anchor + BigInt(k + 1) * step };
 }
 
 /** Seconds since the start at which each column begins, ends and locks. */
@@ -132,10 +137,10 @@ export function finish(track: Track): Track {
   return tr;
 }
 
-/** True when the pick `row` lies within the rows the line crossed in column `c`. */
-export function hits(track: Track, c: number, row: number, anchor: bigint, step: bigint): boolean {
-  if (row >= ROWS || !track.seen[c]) return false;
-  return rowOf(track.lo[c], anchor, step) <= row && row <= rowOf(track.hi[c], anchor, step);
+/** True when the pick `band` lies within the bands the line crossed in column `c`. */
+export function hits(track: Track, c: number, band: number, anchor: bigint, step: bigint): boolean {
+  if (band === NO_PICK || !track.seen[c]) return false;
+  return bandOf(track.lo[c], anchor, step) <= band && band <= bandOf(track.hi[c], anchor, step);
 }
 
 export type Winner = 0 | 1 | "draw";
@@ -146,7 +151,7 @@ export interface GridResult {
   winner: Winner;
 }
 
-/** Scores a finished game: `picks[seat][c]` is a row or NO_PICK. */
+/** Scores a finished game: `picks[seat][c]` is a band or NO_PICK. */
 export function settle(track: Track, picks: [number[], number[]], anchor: bigint, step: bigint): GridResult {
   const h = picks.map((p) => Array.from({ length: COLUMNS }, (_, c) => p[c] !== NO_PICK && hits(track, c, p[c], anchor, step))) as [boolean[], boolean[]];
   const scores: [number, number] = [h[0].filter(Boolean).length * HIT_POINTS, h[1].filter(Boolean).length * HIT_POINTS];
@@ -187,13 +192,3 @@ export function streaks(results: (boolean | null)[]): number[] {
 export const revealed = (picks: number[], t: number): number[] => picks.map((p, c) => (t >= lockAt(c) ? p : NO_PICK));
 
 export const totalScore = (results: (boolean | null)[]): number => results.filter(Boolean).length * HIT_POINTS;
-
-/** Row labels, top first, as USD numbers: `from`/`to` null where the row is open-ended. */
-export function rowLabels(anchor: bigint, step: bigint): { row: number; from: number | null; to: number | null }[] {
-  const usd = (v: bigint | null) => (v === null ? null : Number(v) / 1e8);
-  return Array.from({ length: ROWS }, (_, i) => {
-    const row = ROWS - 1 - i;
-    const b = rowBand(row, anchor, step);
-    return { row, from: usd(b.from), to: usd(b.to) };
-  });
-}

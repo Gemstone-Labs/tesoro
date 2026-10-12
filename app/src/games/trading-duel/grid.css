@@ -70,15 +70,16 @@
 /* the stage */
 .tg-stage { --edge: var(--edge-2); position: relative; display: flex; background: linear-gradient(180deg, rgba(13, 18, 22, 0.9), rgba(8, 11, 14, 0.94)); padding: 0; min-width: 0; }
 .tg-gutter { position: relative; flex: none; width: clamp(66px, 7vw, 88px); border-right: 1px solid var(--line); z-index: 3; background: rgba(8, 11, 14, 0.7); }
-.tg-gl, .tg-gl-end { position: absolute; right: 6px; transform: translateY(-50%); font-family: var(--f-mono); font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
-.tg-gl-end { font-family: inherit; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); right: 8px; }
+.tg-gbody { position: absolute; left: 0; right: 0; overflow: clip; }
+.tg-gvl { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+.tg-gl { position: absolute; right: 6px; transform: translateY(-50%); font-family: var(--f-mono); font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
 .tg-gl.start { color: var(--fg-2); font-weight: 700; }
 .tg-gl.near { opacity: 0; }
-.tg-ptr { position: absolute; left: 0; right: 0; height: 0; z-index: 2; }
+.tg-ptr { position: absolute; left: 0; right: 0; top: 0; height: 0; z-index: 2; will-change: transform; }
 .tg-ptr-t { position: absolute; right: 0; top: 0; transform: translateY(-50%); padding: 3px 6px 3px 6px; font-family: var(--f-mono); font-size: 11.5px; font-weight: 700; background: #0b1016; color: var(--fg); border-right: 3px solid var(--fg); white-space: nowrap; }
 .tg-ptr-t[data-dir="up"] { border-right-color: var(--up); color: #bcd8ff; }
 .tg-ptr-t[data-dir="down"] { border-right-color: var(--down); color: #ffd9a0; }
-.tg-view { position: relative; flex: 1 1 0; min-width: 0; overflow: clip; touch-action: pan-y; }
+.tg-view { position: relative; flex: 1 1 0; min-width: 0; overflow: clip; touch-action: none; }
 .tg-tools { position: absolute; left: 6px; top: 6px; z-index: 5; display: flex; gap: 4px; }
 .tg-tool { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line-2); background: rgba(8, 11, 14, 0.8); color: var(--fg); font: inherit; font-size: 18px; font-weight: 800; line-height: 1; cursor: pointer; }
 .tg-tool:hover { background: var(--raised); }
@@ -87,7 +88,12 @@
 .tg-live { --edge: var(--edge-2); --c: 7px; position: absolute; top: 6px; right: 34px; z-index: 6; display: inline-flex; align-items: center; gap: 7px; min-height: 28px; padding: 0 12px; background: rgba(8, 11, 14, 0.92); color: var(--fg); font: inherit; font-size: 12.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
 .tg-live i { width: 8px; height: 8px; background: var(--up); transform: rotate(45deg); }
 .tg-live:hover { background: var(--raised); }
-.tg-world { position: absolute; left: 0; top: 0; bottom: 0; display: flex; will-change: transform; }
+.tg-world { position: absolute; left: 0; top: 0; bottom: 0; will-change: transform; }
+.tg-cols { display: flex; height: 100%; }
+/* the band area: its layer slides up and down under the fixed column heads */
+.tg-body { position: absolute; left: 0; width: 100%; overflow: clip; }
+.tg-vl { position: absolute; left: 0; top: 0; width: 100%; height: 0; will-change: transform; }
+.tg-fx { position: absolute; inset: 0; pointer-events: none; }
 .tg-fade { position: absolute; top: 0; bottom: 0; width: 28px; pointer-events: none; z-index: 4; }
 .tg-fade.l { left: 0; background: linear-gradient(90deg, rgba(8, 11, 14, 0.9), transparent); }
 .tg-fade.r { right: 0; background: linear-gradient(270deg, rgba(8, 11, 14, 0.9), transparent); }
@@ -102,7 +108,7 @@
 /* head start runway */
 .tg-pad { flex: none; position: relative; border-right: 1px dashed var(--line-2); }
 .tg-pad-head { height: var(--tg-hd); display: flex; align-items: center; padding: 0 14px; font-size: 11.5px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-3); border-bottom: 1px solid var(--line); }
-.tg-pad-body { position: relative; padding: 18px 16px; background: repeating-linear-gradient(0deg, transparent 0 calc(var(--tg-rh) - 1px), rgba(234, 239, 236, 0.045) calc(var(--tg-rh) - 1px) var(--tg-rh)); }
+.tg-pad-body { position: relative; height: var(--tg-bh); padding: 18px 16px; background: repeating-linear-gradient(0deg, transparent 0 calc(var(--tg-rh) - 1px), rgba(234, 239, 236, 0.045) calc(var(--tg-rh) - 1px) var(--tg-rh)); }
 .tg-pad-title { font-size: clamp(15px, 1.6vw, 20px); font-weight: 800; margin: 0 0 4px; max-width: 14ch; line-height: 1.2; }
 .tg-pad-sub { margin: 0; color: var(--fg-2); font-size: 13px; max-width: 18ch; }
 .tg-pad-n { position: absolute; left: 16px; bottom: 6px; margin: 0; font-size: clamp(54px, 7vw, 90px); font-weight: 900; line-height: 1; color: rgba(234, 239, 236, 0.14); }
@@ -127,12 +133,12 @@
 .tg-col.nag .tg-cs, .tg-col.nag .tg-cn { color: var(--warn); }
 @keyframes tg-nag { 50% { background: rgba(242, 166, 59, 0.26); } }
 
-.tg-cell { display: block; position: relative; width: 100%; height: var(--tg-rh); padding: 0; border: 0; border-bottom: 1px solid rgba(234, 239, 236, 0.06); background: transparent; color: inherit; cursor: default; font: inherit; }
+.tg-cell { display: block; position: absolute; padding: 0; border: 0; border-bottom: 1px solid rgba(234, 239, 236, 0.06); background: transparent; color: inherit; cursor: default; font: inherit; }
 .tg-cell.anchor { border-bottom: 1px dashed rgba(234, 239, 236, 0.3); }
 .tg-cell.can { cursor: pointer; }
 .tg-cell.can:hover::before, .tg-cell.can:focus-visible::before { content: ""; position: absolute; inset: 5px; background: rgba(228, 237, 249, 0.1); box-shadow: inset 0 0 0 1px rgba(228, 237, 249, 0.45); clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px); }
 .tg-cell:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
-.tg-col.nag .tg-cell.can:not(.has)::after { content: ""; position: absolute; inset: 0; background: rgba(242, 166, 59, 0.07); animation: tg-nag 0.8s ease-in-out infinite; }
+.tg-cell.nag.can:not(.has)::after { content: ""; position: absolute; inset: 0; background: rgba(242, 166, 59, 0.07); animation: tg-nag 0.8s ease-in-out infinite; }
 /* where the line has been: a ribbon through the rows it crossed */
 .tg-cell.touched { background: linear-gradient(90deg, rgba(159, 196, 255, 0.16), rgba(159, 196, 255, 0.08)); }
 .tg-col.done .tg-cell.touched { background: rgba(159, 196, 255, 0.1); }
@@ -159,7 +165,7 @@
 .tg-cell.lit-me.lit-foe { background: radial-gradient(closest-side, rgba(200, 180, 255, 0.5), transparent); }
 
 /* the snake */
-.tg-field { position: absolute; left: 0; pointer-events: none; z-index: 3; width: 100%; }
+.tg-field { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; width: 100%; }
 .tg-snake { position: absolute; left: 0; top: 0; overflow: visible; }
 .tg-snake path { fill: none; stroke-linejoin: round; stroke-linecap: round; }
 .tg-snake-core { stroke-width: 3; filter: drop-shadow(0 0 6px rgba(159, 196, 255, 0.9)); }
@@ -182,6 +188,14 @@
 .tg-float { position: absolute; display: grid; place-items: center; font-weight: 900; font-size: 22px; color: #fff; text-shadow: 0 0 14px var(--me-2), 0 2px 0 rgba(0, 0, 0, 0.5); animation: tg-float 1.2s cubic-bezier(0.2, 0.8, 0.3, 1) both; z-index: 5; }
 .tg-float.foe { color: var(--foe); text-shadow: 0 0 12px var(--foe-2); font-size: 17px; }
 @keyframes tg-float { 0% { opacity: 0; transform: translateY(6px) scale(0.6); } 20% { opacity: 1; transform: translateY(-8px) scale(1.15); } 100% { opacity: 0; transform: translateY(-54px) scale(1); } }
+
+.tg-edges { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.tg-edges .tg-edge { --c: 6px; position: absolute; pointer-events: auto; display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 22px; padding: 0 6px; font: inherit; font-size: 11.5px; font-weight: 800; white-space: nowrap; cursor: pointer; background: rgba(8, 11, 14, 0.94); }
+.tg-edge.me { --edge: linear-gradient(180deg, #ffffff, rgba(228, 237, 249, 0.5)); color: var(--me); }
+.tg-edge.foe { --edge: linear-gradient(180deg, #d9c8ff, var(--foe-2)); color: var(--foe); }
+.tg-edge:hover { background: var(--raised); }
+.tg-edge:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
+.tg-world[data-compact] .tg-edge-w { display: none; }
 
 /* end */
 .tg-end { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; background: radial-gradient(60% 70% at 50% 50%, rgba(6, 9, 12, 0.88), rgba(6, 9, 12, 0.7)); animation: tg-fade 400ms both; }

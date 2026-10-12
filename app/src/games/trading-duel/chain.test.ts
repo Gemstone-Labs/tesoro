@@ -35,15 +35,15 @@ describe("rollup instructions", () => {
     expect(sent[0].ix.keys[1].isWritable).toBe(true);
   });
 
-  it("set_pick takes the Player, the Duel and their own Book, with the column and row as data", async () => {
+  it("set_pick takes the Player, the Duel and their own Book, with the column and band as data", async () => {
     const { chain, sent, player } = capture();
     const ad = addresses(ID);
     await chain.setPick(player, ID, 1, 7, 3);
     await chain.setPick(player, ID, 0, 11, NO_PICK);
     expect(keys(sent[0].ix)).toEqual([player.publicKey, ad.duel, ad.book1].map((k) => k.toBase58()));
     expect(keys(sent[1].ix)[2]).toBe(ad.book0.toBase58());
-    expect([...sent[0].ix.data.subarray(8)]).toEqual([7, 3]);
-    expect([...sent[1].ix.data.subarray(8)]).toEqual([11, 255]);
+    expect([...sent[0].ix.data.subarray(8)]).toEqual([7, 3, 0]);
+    expect([...sent[1].ix.data.subarray(8)]).toEqual([11, 0, 128]);
   });
 
   it("the start passes the asset's price feed after the permission accounts", async () => {

@@ -123,13 +123,13 @@ export interface Duel {
   startsAt: number;
   gridAt: number;
   endsAt: number;
-  /** 1e-8 USD: the price at the start, and the height of one row. */
+  /** 1e-8 USD: the price at the start (band 0 begins here), and the height of one band. */
   anchor: bigint;
   step: bigint;
   lastTick: number;
   /** What the line did in each column so far. */
   track: Track;
-  /** Per seat, the row picked for each column; `NO_PICK` until the column locks. */
+  /** Per seat, the band picked for each column (signed, i16); `NO_PICK` until the column locks. */
   revealed: [number[], number[]];
   /** Points of the columns that are finished (all of them once over). */
   scores: [number, number];
@@ -140,7 +140,7 @@ export interface Book {
   duel: PublicKey;
   player: PublicKey;
   seat: number;
-  /** Row 0 (bottom) to 7 (top) per column, `NO_PICK` where none. */
+  /** A signed band per column (0 starts at the anchor), `NO_PICK` where none. */
   picks: number[];
   pickCount: number;
 }
@@ -432,11 +432,11 @@ export class TradingDuelChain {
     return this.sendTee("init_permissions", [ix], payer);
   }
 
-  /** Rollup. Picks `row` (0 bottom to 7 top) for `column`, or clears the pick with `NO_PICK`. Only until the column locks. */
-  async setPick(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1, column: number, row: number): Promise<string> {
+  /** Rollup. Picks `band` (signed, 0 starts at the anchor) for `column`, or clears the pick with `NO_PICK`. Only until the column locks. */
+  async setPick(player: PlayerSigner, matchId: bigint | number, seat: 0 | 1, column: number, band: number): Promise<string> {
     const ad = addresses(matchId);
     const ix = await this.program.methods
-      .setPick(column, row)
+      .setPick(column, band)
       .accountsPartial({ player: player.publicKey, duel: ad.duel, book: seat === 0 ? ad.book0 : ad.book1 } as any)
       .instruction();
     return this.sendTee("set_pick", [ix], player);

@@ -73,7 +73,7 @@ export default function Page() {
       <H2 id="trading-duel">Trading Duel</H2>
       <p>
         A real-time price grid for two. You and your opponent watch the same live price on one asset chosen for the Match: SOL, ETH or HYPE. The
-        grid has 12 columns of ten seconds and 8 rows of price. For each column you pick one box, and if the live line passes through it, you hit and
+        grid has 12 columns of ten seconds and bands of price that follow the line. For each column you pick one box, and if the live line passes through it, you hit and
         score <b>100 points</b>.
       </p>
       <ul>

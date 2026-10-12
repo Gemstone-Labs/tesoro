@@ -18,14 +18,14 @@ const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../.
 describe("fixture constants", () => {
   it("match grid.ts", () => {
     const c = fixture.constants;
-    expect([G.COLUMNS, G.ROWS, G.COLUMN_SECS, G.HEAD_START_SECS, G.LOCK_AHEAD_SECS, G.HIT_POINTS, G.NO_PICK, G.MATCH_SECS]).toEqual([c.COLUMNS, c.ROWS, c.COLUMN_SECS, c.HEAD_START_SECS, c.LOCK_AHEAD_SECS, c.HIT_POINTS, c.NO_PICK, c.MATCH_SECS]);
+    expect([G.MAX_BAND, G.COLUMNS, G.COLUMN_SECS, G.HEAD_START_SECS, G.LOCK_AHEAD_SECS, G.HIT_POINTS, G.NO_PICK, G.MATCH_SECS]).toEqual([c.MAX_BAND, c.COLUMNS, c.COLUMN_SECS, c.HEAD_START_SECS, c.LOCK_AHEAD_SECS, c.HIT_POINTS, c.NO_PICK, c.MATCH_SECS]);
     for (const k of ["SOL", "ETH", "HYPE"] as const) expect(G.STEP_PPM[k]).toBe(BigInt(c.STEP_PPM[k]));
   });
 });
 
-describe("rows", () => {
-  it.each(fixture.rows as { anchor: string; step: string; price: string; row: number }[])("price $price (anchor $anchor, step $step) is row $row", (r) => {
-    expect(G.rowOf(BigInt(r.price), BigInt(r.anchor), BigInt(r.step))).toBe(r.row);
+describe("bands", () => {
+  it.each(fixture.bands as { anchor: string; step: string; price: string; band: number }[])("price $price (anchor $anchor, step $step) is band $band", (r) => {
+    expect(G.bandOf(BigInt(r.price), BigInt(r.anchor), BigInt(r.step))).toBe(r.band);
   });
 
   it("floors negative quotients", () => {
@@ -39,13 +39,22 @@ describe("rows", () => {
     for (const v of fixture.vectors as Vector[]) expect(G.stepFor(BigInt(v.anchor), BigInt(v.stepPpm))).toBe(BigInt(v.step));
   });
 
-  it("bands tile the price line", () => {
+  it("bands tile the price line, below and above the anchor", () => {
     const a = 100_00000000n;
     const s = 2_500_000n;
-    expect(G.rowBand(0, a, s)).toEqual({ from: null, to: a - 3n * s });
-    expect(G.rowBand(4, a, s)).toEqual({ from: a, to: a + s });
-    expect(G.rowBand(7, a, s)).toEqual({ from: a + 3n * s, to: null });
-    for (let r = 0; r < 7; r++) expect(G.rowBand(r, a, s).to).toBe(G.rowBand(r + 1, a, s).from);
+    expect(G.bandEdges(0, a, s)).toEqual({ from: a, to: a + s });
+    expect(G.bandEdges(-3, a, s)).toEqual({ from: a - 3n * s, to: a - 2n * s });
+    for (let k = -40; k < 40; k++) {
+      expect(G.bandEdges(k, a, s).to).toBe(G.bandEdges(k + 1, a, s).from);
+      const { from, to } = G.bandEdges(k, a, s);
+      expect([G.bandOf(from, a, s), G.bandOf(to - 1n, a, s), G.bandOf(to, a, s)]).toEqual([k, k, k + 1]);
+    }
+  });
+
+  it("never returns NO_PICK: far prices clamp", () => {
+    expect(G.bandOf(10n ** 15n, 1n, 1n)).toBe(G.MAX_BAND);
+    expect(G.bandOf(0n, 10n ** 15n, 1n)).toBe(-G.MAX_BAND);
+    expect(G.NO_PICK).toBeLessThan(-G.MAX_BAND);
   });
 });
 
@@ -120,10 +129,18 @@ describe("rules in isolation", () => {
     expect(tr.seen.some(Boolean)).toBe(false);
   });
 
-  it("an unpicked column never scores, a pick of 8 or more never hits", () => {
+  it("an unpicked column never scores; far bands hit only where the line went", () => {
     const tr = G.finish(G.record(G.newTrack(), 0, A));
     expect(G.hits(tr, 0, 8, A, S)).toBe(false);
-    expect(G.settle(tr, [Array(12).fill(G.NO_PICK), Array(12).fill(4)], A, S).winner).toBe(1);
+    expect(G.hits(tr, 0, -1, A, S)).toBe(false);
+    expect(G.settle(tr, [Array(12).fill(G.NO_PICK), Array(12).fill(0)], A, S).winner).toBe(1);
+  });
+
+  it("a climb through many bands hits each of them", () => {
+    let tr = G.newTrack();
+    for (let t = 0; t < 150; t++) tr = G.record(tr, t, A + BigInt(t) * S);
+    tr = G.finish(tr);
+    expect([28, 29, 34, 39, 40].map((k) => G.hits(tr, 0, k, A, S))).toEqual([false, true, true, true, false]);
   });
 });
 
@@ -133,7 +150,7 @@ describe("view helpers", () => {
   it("reports results only for finished, picked columns, and streaks", () => {
     let tr = G.newTrack();
     for (let t = 0; t < 70; t++) tr = G.record(tr, t, A);
-    const picks = [4, 3, 4, G.NO_PICK, ...Array(8).fill(4)];
+    const picks = [0, -1, 0, G.NO_PICK, ...Array(8).fill(0)];
     const res = G.columnResults(tr, picks, 70, A, S);
     expect(res.slice(0, 4)).toEqual([true, false, true, null]);
     expect(G.totalScore(res)).toBe(200);
@@ -145,12 +162,5 @@ describe("view helpers", () => {
     const seen = G.revealed(picks, 35);
     expect(seen.slice(0, 3)).toEqual([0, 1, G.NO_PICK]);
     expect(seen.filter((p) => p !== G.NO_PICK)).toHaveLength(2);
-  });
-
-  it("labels rows top first in dollars", () => {
-    const l = G.rowLabels(A, S);
-    expect(l[0]).toEqual({ row: 7, from: 100.075, to: null });
-    expect(l[7]).toEqual({ row: 0, from: null, to: 99.925 });
-    expect(l[3]).toEqual({ row: 4, from: 100, to: 100.025 });
   });
 });

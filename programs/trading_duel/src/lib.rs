@@ -1,9 +1,9 @@
 //! Trading Duel: a head-to-head price grid on a live oracle price, as a Tesoro Game.
 //!
 //! One Match is 2.5 minutes on one asset (SOL, ETH or HYPE; the asset is encoded in the Match id).
-//! The grid has 12 columns of 10 seconds and 8 price rows centred on the price when the Match
-//! starts. Each Player picks one row per column; a column locks 10 seconds before its window, and
-//! both picks are then revealed. A pick hits when the live price line crosses its row during the
+//! The grid has 12 columns of 10 seconds and unbounded price bands anchored on the price when the
+//! Match starts. Each Player picks one band per column; a column locks 10 seconds before its window,
+//! and both picks are then revealed. A pick hits when the live price line crosses its band during the
 //! column, for 100 points; more points wins the Pot through tesoro_core, equal points refunds it.
 //! The Duel (public: the line, revealed picks and scores) and the two Books (each Player's picks,
 //! readable only by that Player) are delegated to a MagicBlock Private Ephemeral Rollup.
@@ -69,8 +69,6 @@ pub enum DuelError {
     NotEnded,
     #[msg("Column out of range")]
     InvalidColumn,
-    #[msg("Row must be 0 to 7, or 255 to clear")]
-    InvalidRow,
     #[msg("That column is locked")]
     ColumnLocked,
     #[msg("Unknown asset")]
@@ -101,7 +99,6 @@ impl From<EngineError> for DuelError {
     fn from(e: EngineError) -> Self {
         match e {
             EngineError::BadColumn => DuelError::InvalidColumn,
-            EngineError::BadRow => DuelError::InvalidRow,
             EngineError::Locked => DuelError::ColumnLocked,
         }
     }
@@ -269,7 +266,7 @@ pub mod trading_duel {
             ..Duel::default()
         };
 
-        // The Books are created zeroed; an all-zero pick would be row 0, so mark them empty.
+        // The Books are created zeroed; an all-zero pick would be band 0, so mark them empty.
         let book_0 = &mut ctx.accounts.book_0;
         ***book_0 = Book {
             bump: ctx.bumps.book_0,
@@ -386,24 +383,24 @@ pub mod trading_duel {
         Ok(())
     }
 
-    /// Rollup. Picks `row` (0 bottom to 7 top) for `column`, or clears the pick with `NO_PICK`.
-    /// Only a Player, only until 10 seconds before the column starts. The pick stays in the
-    /// Player's own Book until the column locks.
-    pub fn set_pick(ctx: Context<SetPick>, column: u8, row: u8) -> Result<()> {
+    /// Rollup. Picks `band` (signed; 0 starts at the anchor) for `column`, or clears the pick with
+    /// `NO_PICK`. Only a Player, only until 10 seconds before the column starts. The pick stays in
+    /// the Player's own Book until the column locks.
+    pub fn set_pick(ctx: Context<SetPick>, column: u8, band: i16) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let duel = &ctx.accounts.duel;
         require!(duel.status == STATUS_LIVE, DuelError::NotLive);
         require!(now >= duel.starts_at, DuelError::GridClosed);
         let t = now - duel.starts_at;
-        eng(engine::check_pick(column as usize, row, t))?;
+        eng(engine::check_pick(column as usize, t))?;
         let book = &mut ctx.accounts.book;
         let slot = book.picks[column as usize];
-        match (slot == NO_PICK, row == NO_PICK) {
+        match (slot == NO_PICK, band == NO_PICK) {
             (true, false) => book.pick_count += 1,
             (false, true) => book.pick_count -= 1,
             _ => {}
         }
-        book.picks[column as usize] = row;
+        book.picks[column as usize] = band;
         Ok(())
     }
 

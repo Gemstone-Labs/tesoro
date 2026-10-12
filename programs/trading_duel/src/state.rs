@@ -6,7 +6,6 @@ pub const BOOK_SEED: &[u8] = b"book";
 pub const AUTHORITY_SEED: &[u8] = b"authority";
 
 pub const COLUMNS: usize = 12;
-pub const ROWS: u8 = 8;
 pub const COLUMN_SECS: i64 = 10;
 /// Seconds between the Match starting and the line entering column 0.
 pub const HEAD_START_SECS: i64 = 30;
@@ -14,10 +13,12 @@ pub const HEAD_START_SECS: i64 = 30;
 pub const LOCK_AHEAD_SECS: i64 = 10;
 pub const HIT_POINTS: u32 = 100;
 /// A column without a pick (or a pick cleared again).
-pub const NO_PICK: u8 = 255;
+pub const NO_PICK: i16 = i16::MIN;
+/// Bands are clamped to this range so that none ever equals `NO_PICK`.
+pub const MAX_BAND: i16 = i16::MAX;
 /// Seconds from the start to the end of the last column.
 pub const MATCH_SECS: i64 = HEAD_START_SECS + COLUMNS as i64 * COLUMN_SECS;
-/// Row height as parts per million of the anchor price, per asset (SOL, ETH, HYPE). Calibrated
+/// Band height as parts per million of the anchor price, per asset (SOL, ETH, HYPE). Calibrated
 /// in `app/src/games/trading-duel/grid.ts`, which carries the data behind these values.
 pub const STEP_PPM: [u64; 3] = [250, 200, 270];
 
@@ -94,16 +95,16 @@ pub struct Duel {
     /// `starts_at + HEAD_START_SECS`: when the line enters column 0.
     pub grid_at: i64,
     pub ends_at: i64,
-    /// The price when the Match started, 1e-8 USD: row 4 begins here.
+    /// The price when the Match started, 1e-8 USD: band 0 begins here.
     pub anchor: u64,
-    /// Row height, 1e-8 USD.
+    /// Band height, 1e-8 USD.
     pub step: u64,
     /// Informational: the time of the last sample. No instruction reads it; clients use it to
     /// notice that the Duel changed.
     pub last_tick: i64,
     pub track: Track,
     /// Picks per seat, public once their column has locked; `NO_PICK` before and for no pick.
-    pub revealed: [[u8; COLUMNS]; 2],
+    pub revealed: [[i16; COLUMNS]; 2],
     /// Points from the columns scored so far.
     pub scores: [u32; 2],
 }
@@ -142,8 +143,8 @@ pub struct Book {
     pub duel: Pubkey,
     pub player: Pubkey,
     pub seat: u8,
-    /// A row (0 bottom to 7 top) per column, or `NO_PICK`.
-    pub picks: [u8; COLUMNS],
+    /// A band (signed, 0 starts at the anchor) per column, or `NO_PICK`.
+    pub picks: [i16; COLUMNS],
     /// Columns with a pick right now.
     pub pick_count: u8,
 }

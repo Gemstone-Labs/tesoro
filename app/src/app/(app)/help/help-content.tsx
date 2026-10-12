@@ -121,7 +121,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
           <>
             <p>
               Pick where the price will be. Two Players watch the same live price (SOL, ETH or HYPE, chosen when the Match is opened) move across a
-              grid of 12 columns, ten seconds each, and 8 rows of price. For every column you pick one box. If the line passes through your box
+              grid of 12 columns, ten seconds each, with bands of price that scroll up and down to follow it. For every column you pick one box. If the line passes through your box
               while the column is live, you hit and score 100 points. After 12 columns, two and a half minutes, more points takes the Pot minus
               Fees. Equal points is a draw and refunds both entries.
             </p>

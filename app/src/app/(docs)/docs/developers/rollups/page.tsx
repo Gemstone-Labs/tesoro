@@ -72,7 +72,7 @@ export default function Page() {
       <p>
         The line is sampled from MagicBlock&apos;s real-time pricing oracle (Pyth Lazer pushed into rollup accounts every 50 to 200 ms). The program reads the Pyth
         <code>PriceUpdateV2</code> bytes itself, refuses any price older than 2 seconds, and records each sample into the current column&apos;s low and high.
-        Anyone may call <code>tick</code> to add samples, but a sample is always a real price. The rows are fixed from the start price, and a column locks 10 seconds
+        Anyone may call <code>tick</code> to add samples, but a sample is always a real price. The bands are fixed from the start price (band 0 begins there, and any band, above or below, can be picked), and a column locks 10 seconds
         before its window, so a faster feed cannot help a pick. The Match ends without an end price: <code>end_match</code> carries the last recorded price through
         any column the line did not reach, so the result is the same whoever ends it and when.
       </p>
