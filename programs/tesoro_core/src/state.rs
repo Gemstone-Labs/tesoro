@@ -22,6 +22,10 @@ pub const SEASON_SEED: &[u8] = b"season";
 /// Address (never a signer) that owns the Leaderboard Pool Account: `["leaderboard"]`.
 pub const LEADERBOARD_SEED: &[u8] = b"leaderboard";
 pub const PROFILE_SEED: &[u8] = b"profile";
+/// The Treasury: its config account, and the address that owns the Treasury Account and the
+/// treasury simSOL vault (`["treasury"]`). Nobody can sign for it outside this program.
+pub const TREASURY_SEED: &[u8] = b"treasury";
+pub const TREASURY_VAULT_SEED: &[u8] = b"treasury_vault";
 /// The cross-chain bridge, whose `EvmLink` accounts prove an EVM address belongs to an Account.
 pub const BRIDGE_PROGRAM_ID: Pubkey = pubkey!("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ");
 /// Seed of the bridge's `EvmLink` PDA: `["evm", evm_address]`.
@@ -262,6 +266,35 @@ impl NativeCustody {
     pub const TRACKED_OFFSET: usize = Self::LEGACY_SPACE;
 }
 
+/// Tesoro's Treasury (CONTEXT.md): collects the Yield Fee on Solana-native Positions (simSOL in
+/// `vault`), pays Solana Instant Redeems from it, and holds the Gemas it bought in `account`, a
+/// `TesoroAccount` whose authority is this PDA. Seeds `["treasury"]`. Its fee rates apply on every
+/// chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source.
+#[account]
+pub struct Treasury {
+    pub bump: u8,
+    pub vault_bump: u8,
+    pub account_bump: u8,
+    /// Yield Fee, basis points of every yield increment (2,000 at launch).
+    pub yield_fee_bps: u16,
+    /// Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 at launch).
+    pub instant_fee_bps: u16,
+    /// The Treasury Account (`["account", treasury]`).
+    pub account: Pubkey,
+    /// simSOL token account (`["treasury_vault"]`), authority = this PDA.
+    pub vault: Pubkey,
+    /// SOL units minted into the vault as Yield Fee, cumulative.
+    pub fee_units: u64,
+    /// SOL units paid out by Solana Instant Redeems, cumulative.
+    pub instant_units: u64,
+    /// simSOL shares the admin funded the vault with, cumulative.
+    pub funded_shares: u64,
+}
+
+impl Treasury {
+    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8;
+}
+
 /// SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority
 /// for devnet; the Pyth seam replaces this account's source, not `take_native_advance`.
 #[account]
@@ -344,6 +377,31 @@ pub struct NativeCustodyMigrated {
     pub position: Pubkey,
     pub deposited_shares: u64,
     pub tracked_shares: u64,
+}
+
+/// Won Gemas sold to the Treasury: `payout_units` is paid now (on Solana in the same transaction,
+/// on an EVM chain by the vault's treasury through the bridge), `source_units` is their full value.
+#[event]
+pub struct InstantRedeemed {
+    pub position: Pubkey,
+    pub source: Pubkey,
+    pub account: Pubkey,
+    pub gemas: u64,
+    pub source_units: u64,
+    pub payout_units: u64,
+}
+
+/// The Yield Fee on one `accrue_native_yield`, minted into the treasury vault.
+#[event]
+pub struct YieldFeeTaken {
+    pub position: Pubkey,
+    pub units: u64,
+    pub shares: u64,
+}
+
+#[event]
+pub struct TreasuryFunded {
+    pub shares: u64,
 }
 
 #[event]

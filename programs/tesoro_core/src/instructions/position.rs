@@ -83,6 +83,9 @@ pub struct TakeAdvance<'info> {
         constraint = config.oracle_authority == oracle.key() @ TesoroError::Unauthorized
     )]
     pub config: Box<Account<'info, Config>>,
+    /// Its Yield Fee sizes the Advance.
+    #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
+    pub treasury: Box<Account<'info, Treasury>>,
     #[account(
         mut,
         seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
@@ -130,11 +133,12 @@ pub(crate) fn take_advance(
         ctx.bumps.holding,
         horizon_months,
         price_micro_usd,
+        a.treasury.yield_fee_bps,
     )
 }
 
-/// Opens the Position's Advance and credits its Gemas to the owner's Holding. Shared by
-/// `take_advance` (oracle price) and `take_native_advance` (on-chain price feed).
+/// Opens the Position's Advance (net of the Yield Fee) and credits its Gemas to the owner's
+/// Holding. Shared by `take_advance` (oracle price) and `take_native_advance` (on-chain price feed).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn issue_advance(
     position: &mut Account<PositionState>,
@@ -145,12 +149,18 @@ pub(crate) fn issue_advance(
     holding_bump: u8,
     horizon_months: u8,
     price_micro_usd: u64,
+    yield_fee_bps: u16,
 ) -> Result<()> {
     let position_key = position.key();
     let source_key = source.key();
     let issued = position
         .inner
-        .open_advance(position_key.to_bytes(), horizon_months, price_micro_usd)
+        .open_advance(
+            position_key.to_bytes(),
+            horizon_months,
+            price_micro_usd,
+            yield_fee_bps,
+        )
         .map_err(core_err)?;
     let gemas = issued.issued;
     let owner_key = owner_account.key();

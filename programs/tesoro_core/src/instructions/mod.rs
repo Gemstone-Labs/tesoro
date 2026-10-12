@@ -6,6 +6,7 @@ pub mod native;
 pub mod position;
 pub mod season;
 pub mod source_auth;
+pub mod treasury;
 
 pub use admin::*;
 pub use backing::*;
@@ -15,3 +16,4 @@ pub use native::*;
 pub use position::*;
 pub use season::*;
 pub use source_auth::*;
+pub use treasury::*;

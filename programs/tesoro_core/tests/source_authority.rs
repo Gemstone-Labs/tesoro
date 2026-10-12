@@ -14,6 +14,8 @@ use tesoro_core::ledger::SourceChain;
 use tesoro_core::state::*;
 use tesoro_core::{accounts, instruction};
 
+mod common;
+
 const SOL: u64 = 1_000_000_000;
 type Failed = litesvm::types::FailedTransactionMetadata;
 
@@ -97,6 +99,12 @@ impl Env {
             &admin,
         )
         .expect("init config");
+        common::put_sim_sol_mint(&mut env.svm);
+        env.send(
+            &[common::init_treasury_ix(a(admin.pubkey()), 0, 3_500)],
+            &admin,
+        )
+        .expect("init treasury");
         let owner = env.owner.insecure_clone();
         env.owner_account = env.create_account(&owner);
         env
@@ -397,6 +405,7 @@ fn cu_profile_apply_yield_from_source() {
             oracle: a(oracle.pubkey()),
             owner_authority: a(owner.pubkey()),
             config: pda(&[CONFIG_SEED]),
+            treasury: common::treasury(),
             owner_account: env.owner_account,
             position,
             source,

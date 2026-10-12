@@ -41,6 +41,8 @@ pub enum TesoroError {
     EvmNotLinked,
     #[msg("the leaderboard is not set up")]
     LeaderboardOff,
+    #[msg("the treasury cannot pay this instant redeem now")]
+    TreasuryShort,
 }
 
 pub fn core_err(e: CoreError) -> Error {

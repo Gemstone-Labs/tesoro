@@ -231,6 +231,7 @@ impl Env {
                 oracle: a(self.oracle.pubkey()),
                 owner_authority: p.key,
                 config: tpda(&[CONFIG_SEED]),
+                treasury: tesoro_core_treasury(),
                 owner_account: p.account,
                 position,
                 source,
@@ -243,6 +244,7 @@ impl Env {
             },
             vec![],
         );
+        put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
         (source, holding)
     }
@@ -1184,4 +1186,46 @@ fn cu_profile_holdem() {
     println!(
         "CU deal {deal}; act call {call}; act shove {shove}; last check to showdown ({streets} checks) {showdown}; call to all-in showdown {all_in_call}; finalize {finalize}"
     );
+}
+
+/// tesoro_core's Treasury with no Yield Fee: these suites size Advances without it (its rate and
+/// Instant Redeem are covered in tesoro_core's own tests).
+fn put_core_treasury(svm: &mut litesvm::LiteSVM) {
+    let (key, bump) = anchor_lang::prelude::Pubkey::find_program_address(
+        &[tesoro_core::state::TREASURY_SEED],
+        &tesoro_core::ID,
+    );
+    let treasury = tesoro_core::state::Treasury {
+        bump,
+        vault_bump: 0,
+        account_bump: 0,
+        yield_fee_bps: 0,
+        instant_fee_bps: 3_500,
+        account: Default::default(),
+        vault: Default::default(),
+        fee_units: 0,
+        instant_units: 0,
+        funded_shares: 0,
+    };
+    let mut data = Vec::new();
+    anchor_lang::AccountSerialize::try_serialize(&treasury, &mut data).expect("serialize");
+    svm.set_account(
+        solana_sdk::pubkey::Pubkey::new_from_array(key.to_bytes()),
+        solana_sdk::account::Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: solana_sdk::pubkey::Pubkey::new_from_array(tesoro_core::ID.to_bytes()),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .expect("treasury");
+}
+
+fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
+    anchor_lang::prelude::Pubkey::find_program_address(
+        &[tesoro_core::state::TREASURY_SEED],
+        &tesoro_core::ID,
+    )
+    .0
 }
