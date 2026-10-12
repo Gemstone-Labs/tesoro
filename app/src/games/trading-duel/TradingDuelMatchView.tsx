@@ -1,6 +1,8 @@
 "use client";
 
-import { Button, Chip, GemaAmount, Label, Notice } from "@/components/ui";
+import { Button, Chip, GemaAmount, Notice } from "@/components/ui";
+import { usePlayerLabel } from "@/components/account/Player";
+import { shownIdentity } from "@/lib/identity/display";
 import { useAccount } from "@/lib/account";
 import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
@@ -11,12 +13,11 @@ import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { Receipts } from "@/components/match/Receipts";
 import { MatchStage, MatchStageLoading, StageAction } from "@/components/match/MatchStage";
 import { useGuideHidden } from "@/components/guide/Guide";
-import { DRAW, LEAD, STATUS } from "./chain";
-import { FillHistory } from "./FillHistory";
+import { STATUS } from "./chain";
 import { usePriceFeed } from "./feed";
-import { chips, usdMid } from "./fmt";
-import { TradingScreen } from "./TradingScreen";
-import type { Lead } from "./math";
+import { usdMid } from "./fmt";
+import { GridScreen, type GridSide } from "./GridScreen";
+import { gridInputs, isDraw } from "./matchView";
 import { useDuelMatch } from "./useDuelMatch";
 import "./trading.css";
 
@@ -25,12 +26,16 @@ function fmtFee(m: ChainMatch): number {
   return matchFee(m);
 }
 
-const leadOf = (n: number): Lead => (n === LEAD.seat0 ? "seat0" : n === LEAD.seat1 ? "seat1" : "level");
+/** Name and animal for one side of the screen. */
+function useSide(account: string | null | undefined, fallback: string): GridSide {
+  const name = usePlayerLabel(account);
+  return { name: name || fallback, avatar: account ? shownIdentity(account).avatar : undefined };
+}
 
 /**
- * One Trading Duel Match. Waiting for an opponent, the set-up, the trading screen, then the
- * settlement and result with both fill histories. Everything is read from chain, so a reload
- * resumes where you were.
+ * One Trading Duel Match. Waiting for an opponent, the set-up, the grid screen (the same one as
+ * practice, fed from chain), then the settlement and result. Everything is read from chain, so a
+ * reload resumes where you were.
  */
 export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
@@ -42,12 +47,15 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
       return null;
     }
   })();
-  const { view, open, close, flip, run } = useDuelMatch(id, signer, refresh);
+  const { view, pick, run } = useDuelMatch(id, signer, refresh);
   const { stage, match: m, duel, book, seat, asset } = view;
   const started = !!duel && duel.status !== STATUS.created && duel.startsAt > 0;
   const showScreen = started && seat !== null && (stage === "live" || stage === "closing");
   const feed = usePriceFeed(asset, showScreen);
   useGuideHidden(showScreen);
+  const meKey = snapshot?.accountKey.toBase58() ?? null;
+  const meSide = useSide(meKey, "You");
+  const foeSide = useSide(m?.opponent, "Opponent");
 
   if (id === null) return <Notice title="Match not found" body="That Match id is not valid." />;
   if (auth.status === "signed-out") return <MatchSpectate matchId={matchId} onSignIn={() => auth.openSignIn("Enter a Match")} />;
@@ -62,8 +70,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   const outcome = !m || stage !== "settled" ? null : refunded ? "refunded" : m.seat !== null && seatResult(m, m.seat) === "won" ? "won" : "lost";
 
   if (stage === "settled" && m && outcome && seat !== null) {
-    const eq = duel?.finalEquity;
-    const scores: [string, string] | null = eq && duel && duel.status === STATUS.over ? [`${chips(eq[seat])} Chips`, `${chips(eq[1 - seat])} Chips`] : null;
+    const scores: [string, string] | null = duel && duel.status === STATUS.over ? [`${duel.scores[seat]} points`, `${duel.scores[1 - seat]} points`] : null;
     return (
       <MatchResult
         game="trading-duel"
@@ -74,21 +81,17 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         role="player"
         backed={!!m.backing}
         scores={scores}
-        scoreNote={duel?.status === STATUS.over ? `${asset.symbol} final price ${usdMid(duel.finalPrice, asset)}${duel.winner === DRAW ? " · equal equity: a draw, both entries refunded" : ""}` : undefined}
+        scoreNote={duel?.status === STATUS.over ? `${asset.symbol} ended at ${usdMid(duel.track.last ?? duel.anchor, asset)}${isDraw(duel) ? " · equal points: a draw, both entries refunded" : ""}` : undefined}
         momentKey={m.id.toString()}
         playAgainHref={`/play/queue?game=trading-duel&asset=${asset.symbol.toLowerCase()}&entry=${m.entry}`}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {view.error && <p className="status err" role="alert">{view.error}</p>}
-        {duel && view.finalBooks && <FillHistory books={view.finalBooks} duel={duel} mySeat={seat} />}
         <Receipts items={view.sigs} className="td-sigs" />
-        <p className="note td-note">Live market prices. Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>
+        <p className="note td-note">Live market prices. Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchResult>
     );
   }
-
-  const ended = stage === "closing" || (!!duel && duel.status !== STATUS.live);
-  const opponent = duel && seat !== null ? { lead: leadOf(duel.lead), trades: duel.trades[1 - seat] } : null;
 
   const kind = !showScreen && (stage === "waiting" || stage === "setup" || stage === "closing") ? stage : null;
   if (kind && m) {
@@ -134,32 +137,27 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
       )}
 
       {showScreen && seat !== null && duel && (
-        <TradingScreen
-          asset={asset}
-          entry={m?.entry}
-          feed={feed}
-          ledger={book}
-          seat={seat}
-          opponent={opponent}
+        <GridScreen
+          asset={asset.symbol}
+          anchor={duel.anchor}
+          step={duel.step}
           startsAt={duel.startsAt * 1000}
-          endsAt={duel.endsAt * 1000}
-          ended={ended}
-          busy={view.busy}
+          track={duel.track}
+          series={feed.series}
+          price={feed.tick?.mid ?? null}
+          stale={feed.status === "stale"}
+          {...gridInputs(duel, seat, book, view.pending)}
+          me={meSide}
+          opponent={foeSide}
+          entry={m?.entry}
+          pot={m ? m.entry * 2 - matchFee(m) : undefined}
           error={view.error}
-          onOpen={(s, mg, lv) => void open(s, mg, lv)}
-          onClose={() => void close()}
-          onFlip={(s, mg, lv) => void flip(s, mg, lv)}
+          onPick={pick}
+          exitHref="/lobby"
           banner={
             stage === "closing" ? (
               <div className="cut cut-frame td-card td-banner" role="status">
-                <div>
-                  <Label>{duel.status === STATUS.over ? "Match over" : "Closing the Match"}</Label>
-                  <p className="meta">
-                    {duel.status === STATUS.over
-                      ? `Final price ${usdMid(duel.finalPrice, asset)}. ${view.note || "Settling"}…`
-                      : `${view.note || "Waiting for the closing price"}…`}
-                  </p>
-                </div>
+                <p className="meta">{duel.status === STATUS.over ? `Match over. ${view.note || "Settling"}…` : `${view.note || "Waiting for the closing price"}…`}</p>
               </div>
             ) : undefined
           }
@@ -174,7 +172,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
 
       {view.error && !showScreen && <p className="status err" role="alert">{view.error}</p>}
       <Receipts items={view.sigs} className="td-sigs" />
-      <p className="note td-note">Chips only keep score inside the Match. Test mode · Gemas come from simulated yield and have no real value.</p>
+      <p className="note td-note">Test mode · Gemas come from simulated yield and have no real value.</p>
     </div>
   );
 }

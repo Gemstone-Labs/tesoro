@@ -4,21 +4,20 @@ import { useEffect, useState } from "react";
 import { Connection } from "@solana/web3.js";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { TEE_RPC } from "@/games/holdem/chain";
-import { FillHistory } from "@/games/trading-duel/FillHistory";
-import { LEAD, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel, type Book, type Duel } from "@/games/trading-duel/chain";
+import { STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel, type Duel } from "@/games/trading-duel/chain";
+import { COLUMNS, NO_PICK, lockAt } from "@/games/trading-duel/grid";
 import { getTradingDuel } from "@/lib/chain/client";
 import type { ChainMatch } from "@/lib/chain/read";
 
 
 /**
- * What anyone may see of a Trading Duel: while it runs, only the coarse lead, the trade counts
- * and the clock from the public Duel (the Books are private to their Players); once it is
- * committed, the final equities and both Players' full fill histories.
+ * What anyone may see of a Trading Duel: while it runs, the clock, the points of the finished
+ * columns and how many picks each side has locked, from the public Duel (a pick stays private
+ * to its Player until its column locks); once it is committed, the final points and every pick.
  */
 export function DuelSpectate({ m }: { m: ChainMatch }) {
   const asset = assetOfMatchId(m.id);
   const [duel, setDuel] = useState<Duel | null>(null);
-  const [books, setBooks] = useState<[Book, Book] | null>(null);
   const [hidden, setHidden] = useState(false);
   const [now, setNow] = useState(() => Date.now() / 1000);
   const finished = m.status === "settled" || m.status === "refunded";
@@ -30,11 +29,8 @@ export function DuelSpectate({ m }: { m: ChainMatch }) {
       const chain = getTradingDuel();
       try {
         if (finished) {
-          const [d, b] = await Promise.all([chain.readDuelOnBase(m.id), chain.readBooksOnBase(m.id)]);
-          if (live) {
-            setDuel(d);
-            setBooks(b);
-          }
+          const d = await chain.readDuelOnBase(m.id);
+          if (live) setDuel(d);
           return;
         }
         if (m.status !== "active") return;
@@ -62,23 +58,26 @@ export function DuelSpectate({ m }: { m: ChainMatch }) {
   }, [m.id, m.status, finished]);
 
   const symbol = asset?.symbol ?? "SOL";
+  const side = (seat: 0 | 1) => (m.sides[seat] ? `${m.sides[seat]!.player.slice(0, 4)}…${m.sides[seat]!.player.slice(-4)}` : `Seat ${seat + 1}`);
+  const picks = (d: Duel, seat: 0 | 1) => d.revealed[seat].filter((r) => r !== NO_PICK).length;
   if (finished) {
-    if (!duel || !books) return <p className="mr-copy">Loading the trades…</p>;
+    if (!duel) return <p className="mr-copy">Loading the result…</p>;
     return (
       <section className="td-spectate" aria-label="Trading Duel result">
-        <FillHistory books={books} duel={duel} />
+        <p className="mr-copy">
+          {symbol} · {side(0)} {duel.scores[0]} points ({picks(duel, 0)} of {COLUMNS} columns picked), {side(1)} {duel.scores[1]} points ({picks(duel, 1)} picked).
+        </p>
       </section>
     );
   }
   if (m.status !== "active") return null;
-  if (!duel || hidden) return <p className="mr-copy">In progress on {symbol}. Positions are hidden until the end.</p>;
-  if (duel.status !== STATUS.live || duel.endsAt === 0) return <p className="mr-copy">Starting on {symbol}. Positions are hidden until the end.</p>;
+  if (!duel || hidden) return <p className="mr-copy">In progress on {symbol}. Picks stay hidden until their column locks.</p>;
+  if (duel.status !== STATUS.live || duel.endsAt === 0) return <p className="mr-copy">Starting on {symbol}. Picks stay hidden until their column locks.</p>;
   const left = Math.max(0, Math.ceil(duel.endsAt - now));
-  const ahead = m.sides[duel.lead === LEAD.seat0 ? 0 : 1];
-  const lead = duel.lead === LEAD.level || !ahead ? "Level" : `${ahead.player.slice(0, 4)}…${ahead.player.slice(-4)} ahead`;
+  const locked = Array.from({ length: COLUMNS }, (_, c) => now - duel.startsAt >= lockAt(c)).filter(Boolean).length;
   return (
     <p className="mr-copy" role="status">
-      Live on {symbol} · {left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} left` : "closing"} · {lead} · trades {duel.trades[0]} to {duel.trades[1]}. Positions are hidden until the end.
+      Live on {symbol} · {left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} left` : "closing"} · {side(0)} {duel.scores[0]} to {side(1)} {duel.scores[1]} points · {locked} of {COLUMNS} columns locked, {picks(duel, 0)} and {picks(duel, 1)} picks shown. Picks stay hidden until their column locks.
     </p>
   );
 }

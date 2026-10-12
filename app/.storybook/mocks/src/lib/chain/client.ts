@@ -24,7 +24,6 @@ let duel: ReturnType<typeof real.getTradingDuel> | null = null;
 export function getTradingDuel() {
   duel ??= Object.assign(Object.create(real.getTradingDuel()), {
     readDuelOnBase: async () => screenData().duel?.duel ?? null,
-    readBooksOnBase: async () => screenData().duel?.finalBooks ?? null,
   });
   return duel!;
 }
