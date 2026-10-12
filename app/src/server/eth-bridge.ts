@@ -7,7 +7,7 @@
  *    may run them first; each step skips when there is nothing left to do.
  *  - `advance`: `take_advance` at the oracle price, oracle-signed, for the Account to co-sign.
  *
- * Server only: keys are read from disk here and never leave this module. See app/docs/demo-funding.md.
+ * Server only: keys are read from disk here and never leave this module.
  */
 import "server-only";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";

@@ -1423,7 +1423,7 @@ proptest! {
     }
 }
 
-/// CU reading for the crank (run with `--nocapture`; recorded in docs/security/audit-2026-09-30.md).
+/// CU reading for the crank (run with `--nocapture`).
 #[test]
 fn cu_profile_accrue_native_yield() {
     let mut env = Env::new();

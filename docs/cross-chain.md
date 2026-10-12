@@ -67,7 +67,7 @@ Fees seen: about 0.000115 ETH per Hoodi send (quote), 295,626 lamports per Solan
 
 ## Driven from the web app (2026-09-30, dev-wallet Account, browser at 390 px)
 
-The Wallet's "Ethereum Positions · Hoodi" flow (`app/src/app/wallet/EthPositions.tsx`, app side in `app/docs/eth-positions.md`) run end to end with a dev-wallet Account: Solana `FKXAFiKnHnMiy7G8yx4Afid1fVnJbRSMLSdw6phE49EE`, Account `AwTngQ6nqDUUugthtZzmEgpEyCPPfCXuhhQs4vbTubn8`, EVM `0x8a83fe86e4236d79e1fdcf83384708242f496a14`, SimLST vault `0x8289...87b7c` Position id 4, principal 1.1078 ETH (1 simETH share), Advance 1 month at the oracle's $2,678/ETH = 1,235 Gemas. Screens: `app/docs/screens/eth-*.png`.
+The Wallet's "Ethereum Positions · Hoodi" flow (`app/src/app/wallet/EthPositions.tsx`) run end to end with a dev-wallet Account: Solana `FKXAFiKnHnMiy7G8yx4Afid1fVnJbRSMLSdw6phE49EE`, Account `AwTngQ6nqDUUugthtZzmEgpEyCPPfCXuhhQs4vbTubn8`, EVM `0x8a83fe86e4236d79e1fdcf83384708242f496a14`, SimLST vault `0x8289...87b7c` Position id 4, principal 1.1078 ETH (1 simETH share), Advance 1 month at the oracle's $2,678/ETH = 1,235 Gemas.
 
 | Step | Tx | LayerZero Scan |
 |---|---|---|
@@ -104,7 +104,7 @@ Proven on testnets with Position id 1 (transactions and Scan links in `docs/depl
 
 Unlock on HyperEVM (2026-10-02): Position 5, Debt 38 to 0 after two `apply_yield`, `tesoro_core::unlock`, `send_unlock` DELIVERED in 65 s, vault `unlocked = true`; a Backing Offer funded with HYPE-Sourced Gemas settled with a winner whose Wallet lists the HYPE Source as pending; HYPE-Sourced Redeem and the server HYPE top-up are proven too. Transactions: `docs/deployments.md` (HyperEVM: top-up, Unlock and Backing).
 
-The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH Positions (`app/docs/eth-positions.md`); the keeper reports yield for them with its own HYPE budget (`keeper/README.md`).
+The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH Positions; the keeper reports yield for them with its own HYPE budget (`keeper/README.md`).
 
 ## Yield Fee, Instant Redeem and the vault Treasury (2026-10-12, ADR 0007)
 

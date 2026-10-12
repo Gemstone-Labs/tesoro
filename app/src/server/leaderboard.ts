@@ -17,11 +17,6 @@ interface Built {
   rows: Map<string, LeaderboardRow>;
 }
 
-/** Builds the page's data from chain. Standings are the season's `MatchWon` events (see lib/chain/leaderboard.ts). */
-export async function buildLeaderboard(c: Connection, nowSecs: number): Promise<LeaderboardView> {
-  return (await build(c, nowSecs)).view;
-}
-
 async function build(c: Connection, nowSecs: number): Promise<Built> {
   const number = Math.max(1, seasonAt(nowSecs));
   const terms = await fetchLeaderboardTerms(c, true);

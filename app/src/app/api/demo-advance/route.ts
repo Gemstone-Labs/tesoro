@@ -2,7 +2,7 @@ import { DemoHttpError, handleDemoRequest } from "@/server/demo-advance";
 
 export const runtime = "nodejs";
 
-/** SOL fee top-up (always on) and the dev-only Simulated · demo Advance (TESORO_DEMO_ADVANCE=1): see app/docs/demo-funding.md. */
+/** Devnet SOL top-up for fees and rent (`ensureSol`). */
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);

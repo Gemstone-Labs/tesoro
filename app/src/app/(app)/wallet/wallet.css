@@ -32,7 +32,6 @@
 
 .wl-foot { display: grid; gap: 10px; }
 .wl-foot:empty { display: none; }
-.wl-dev { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 
 /* positions */
 .wl-positions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; }

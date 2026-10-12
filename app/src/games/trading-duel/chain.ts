@@ -40,8 +40,6 @@ export const TRADING_DUEL_PROGRAM_ID = new PublicKey("CNETsX9Gc78iApRNiGyAtiERKi
 const EPHEMERAL_VAULT = new PublicKey("MagicVau1t999999999999999999999999999999999");
 const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 
-/** MagicBlock real-time pricing oracle (Pyth Lazer), as on the rollup. */
-export const PRICE_PROGRAM_ID = new PublicKey("PriCems5tHihc6UDXDjzjeawomAwBduWMGAi8ZUjppd");
 /** Public rollup RPC / WebSocket for the price feeds (the same accounts live on the TEE). */
 export const ER_RPC = "https://devnet.magicblock.app";
 export const ER_WS = "wss://devnet.magicblock.app";
@@ -181,26 +179,6 @@ export function decodeDuel(address: PublicKey, d: any): Duel {
 
 export function decodeBook(address: PublicKey, b: any): Book {
   return { address, duel: b.duel, player: b.player, seat: b.seat, picks: [...b.picks], pickCount: b.pickCount };
-}
-
-// ---------------------------------------------------------------------------------------------
-// Price feed
-
-export interface PricePoint {
-  /** USD */
-  price: number;
-  /** Feed publish time, unix seconds */
-  publishedAt: number;
-}
-
-/** Decodes a feed account (Pyth PriceUpdateV2 image): price i64 at 73, exponent i32 at 89, publish time i64 at 93. */
-export function decodePrice(data: Uint8Array): PricePoint | null {
-  if (data.length < 101) return null;
-  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const raw = dv.getBigInt64(73, true);
-  if (raw <= 0n) return null;
-  const exp = Math.abs(dv.getInt32(89, true));
-  return { price: Number(raw) / 10 ** exp, publishedAt: Number(dv.getBigInt64(93, true)) };
 }
 
 // ---------------------------------------------------------------------------------------------

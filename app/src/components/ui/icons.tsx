@@ -27,5 +27,3 @@ export const ClockIcon = (p: P) => <Icon {...p}><circle cx="12" cy="12" r="8.5" 
 export const MinusIcon = (p: P) => <Icon {...p}><path d="M6 12h12" /></Icon>;
 export const ArrowIcon = (p: P) => <Icon {...p}><path d="M5 12h14M13 6l6 6-6 6" /></Icon>;
 export const AlertIcon = (p: P) => <Icon {...p}><path d="M12 4 3 20h18L12 4zM12 10v4.5M12 17.5v.5" /></Icon>;
-export const UndoIcon = (p: P) => <Icon {...p}><path d="M9 6 4 11l5 5M4 11h10a6 6 0 0 1 6 6" /></Icon>;
-export const CopyIcon = (p: P) => <Icon {...p}><path d="M8 8V4h12v12h-4M4 8h12v12H4z" /></Icon>;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { notFound } from "next/navigation";
 import {
   BalanceCard,
   BalanceSplit,
@@ -25,6 +26,7 @@ import {
 import { AccountSheet } from "@/components/shell/AccountSheet";
 import { AuthContext } from "@/lib/auth/context";
 import type { AuthState } from "@/lib/auth/types";
+import { DEV_WALLET } from "@/lib/chain/config";
 import type { EntrySize } from "@/lib/mock";
 
 /** Sample data only: lets the Account sheet render here without a Privy session. */
@@ -70,7 +72,9 @@ function Section({ title, note, children }: { title: string; note?: string; chil
 
 const grid = { display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", alignItems: "start" } as const;
 
+/** DEV ONLY (NEXT_PUBLIC_DEV_WALLET=1): the UI kit. */
 export default function Design() {
+  if (!DEV_WALLET) notFound();
   const [entry, setEntry] = useState<EntrySize>(1000);
   const [h, setH] = useState(4);
   const [sheet, setSheet] = useState(false);

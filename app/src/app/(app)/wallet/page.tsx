@@ -2,14 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Card, ChainChip, FacetCrown, GemaMark, Label, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
+import { Button, Card, ChainChip, FacetCrown, GemaMark, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
-import { DEMO_ADVANCE } from "@/lib/chain/config";
-import { DemoAdvanceSheet } from "./DemoAdvanceSheet";
 import type { ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
@@ -24,7 +22,6 @@ const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4
 
 export default function Wallet() {
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
-  const [demoOpen, setDemoOpen] = useState(false);
   const [tab, setTab] = useState<Chain>("SOL");
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
   const [returnFor, setReturnFor] = useState<Position | null>(null);
@@ -219,13 +216,6 @@ export default function Wallet() {
       <footer className="wl-foot">
         {hasPositions && <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>}
         {onChain && <p className="note">Redeem pays simSOL (simulated) from the yield your Source Position has earned so far.</p>}
-        {onChain && DEMO_ADVANCE && (
-          <div className="wl-dev">
-            <Label>Dev only</Label>
-            <Button size="sm" onClick={() => setDemoOpen(true)}>Take a demo Advance</Button>
-            <span className="sim">Simulated · demo Advance (NEXT_PUBLIC_DEMO_ADVANCE)</span>
-          </div>
-        )}
       </footer>
 
       <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
@@ -236,7 +226,6 @@ export default function Wallet() {
         </OpenPanel>
       </Sheet>
       <NativeRedeemSheet open={redeemOpen && onChain} onClose={() => setRedeemOpen(false)} />
-      {DEMO_ADVANCE && <DemoAdvanceSheet open={demoOpen} onClose={() => setDemoOpen(false)} />}
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
       <ReturnSheet position={returnFor} onClose={() => setReturnFor(null)} />
       {chainReturnFor && <ReturnOwnSheet position={chainReturnFor} open onClose={() => setChainReturnFor(null)} />}

@@ -1,6 +1,6 @@
 # Tesoro takes a 20% Yield Fee and sells Instant Redeem at 65% from a Treasury
 
-Decided (founder, Oct 12, 2026). Tesoro had one revenue, the Platform Fee on Matches. It now has three. The **Yield Fee**: 20% of every increment of staking yield a Position earns (SOL, ETH, HYPE), never Principal. The **Instant Redeem Fee**: a holder of won Gemas may redeem now, before the Source's yield has landed, for 65% of their value; Tesoro keeps 35%. A **Treasury** is the counterparty: it pays the 65% now, takes the Gemas, and redeems them at full value later as the Source's yield lands. Design notes: `.scratch/yield-fees/design.md`.
+Decided (founder, Oct 12, 2026). Tesoro had one revenue, the Platform Fee on Matches. It now has three. The **Yield Fee**: 20% of every increment of staking yield a Position earns (SOL, ETH, HYPE), never Principal. The **Instant Redeem Fee**: a holder of won Gemas may redeem now, before the Source's yield has landed, for 65% of their value; Tesoro keeps 35%. A **Treasury** is the counterparty: it pays the 65% now, takes the Gemas, and redeems them at full value later as the Source's yield lands.
 
 ## How it is built
 

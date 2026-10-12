@@ -8,7 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = process.env.WAITLIST_SRC ?? resolve(process.env.HOME, "Work/gemstone-labs/tesoro/art-source/waitlist");
+const SRC = process.env.WAITLIST_SRC ?? resolve(here, "../../../art-source/waitlist");
 const OUT = resolve(here, "../public/art/waitlist");
 const SIZE = 400;
 const FPS = 24;

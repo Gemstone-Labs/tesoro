@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { AdvanceSheet } from "@/app/(app)/wallet/AdvanceSheet";
-import { DemoAdvanceSheet } from "@/app/(app)/wallet/DemoAdvanceSheet";
 import { positions } from "@/lib/mock";
 
 const meta = {
@@ -18,7 +17,3 @@ export const OnSolPosition: Story = { args: { position: positions[0] } };
 export const OnHypePosition: Story = { args: { position: positions[2] } };
 export const Closed: Story = { args: { position: null } };
 
-/** The demo Advance: opens a simulated Position for the Account in one go. */
-export const Demo: Story = {
-  render: () => <DemoAdvanceSheet open onClose={() => {}} />,
-};

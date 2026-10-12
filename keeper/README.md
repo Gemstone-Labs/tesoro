@@ -19,7 +19,7 @@ Payer: `~/.config/tesoro/keeper.json` is created on first run (never in the repo
 
 ## Hosting and liveness
 
-Hosted keys come from env secrets, never from the image: `KEEPER_SECRET_KEY`, `KEEPER_ORACLE_SECRET_KEY` (the JSON arrays of the key files) and `KEEPER_EVM_PRIVATE_KEY` (`src/keys.ts`). `KEEPER_KEYS_FROM_ENV=1` (set in the image) makes a missing `KEEPER_SECRET_KEY` fatal instead of minting a new payer. Each pass logs `alive pass=<n> took=<s>`; a watchdog exits the process when no pass finishes in `KEEPER_WATCHDOG_SECS` (1200), for the host to restart it; `KEEPER_HEALTH_PORT` serves `GET /healthz` (200 alive, 503 stale). Image: `keeper/Dockerfile`; Fly.io config: `keeper/fly.toml`; runbook: `app/docs/hosting.md`.
+Hosted keys come from env secrets, never from the image: `KEEPER_SECRET_KEY`, `KEEPER_ORACLE_SECRET_KEY` (the JSON arrays of the key files) and `KEEPER_EVM_PRIVATE_KEY` (`src/keys.ts`). `KEEPER_KEYS_FROM_ENV=1` (set in the image) makes a missing `KEEPER_SECRET_KEY` fatal instead of minting a new payer. Each pass logs `alive pass=<n> took=<s>`; a watchdog exits the process when no pass finishes in `KEEPER_WATCHDOG_SECS` (1200), for the host to restart it; `KEEPER_HEALTH_PORT` serves `GET /healthz` (200 alive, 503 stale). Image: `keeper/Dockerfile`; Fly.io config: `keeper/fly.toml`.
 
 ## Jobs
 

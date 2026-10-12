@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const { chromium } = await import(process.env.PW ?? "playwright-core");
-const WORKSPACE = process.env.WAITLIST_SRC ?? join(process.env.HOME, "Work/gemstone-labs/tesoro/art-source/waitlist");
+const WORKSPACE = process.env.WAITLIST_SRC ?? join(import.meta.dirname, "../../../art-source/waitlist");
 const APP = process.env.APP ?? "http://localhost:3217";
 const GAMES = process.env.GAMES ?? "http://localhost:8765";
 const SECONDS = process.env.PROBE ? 4 : 11;

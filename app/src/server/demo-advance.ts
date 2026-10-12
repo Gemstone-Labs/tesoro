@@ -1,20 +1,13 @@
 /**
- * Simulated · demo Advance. TEMPORARY stopgap until Solana-native Position custody exists.
- *
- * For a signed-in Account this opens a SIMULATED Position with the oracle key and returns the
- * `take_advance` transaction (oracle-signed) for the Account to co-sign, so the Account receives
- * real on-chain Gemas. It can also send a little devnet SOL for fees. Server only: the oracle and
- * relayer keys are read from env secrets or disk here and never leave this module. See app/docs/demo-funding.md.
+ * Devnet SOL top-up for fees and rent (`fund`), and the server keys, chain helpers and nonce store shared with
+ * /api/eth-bridge. Server only: the oracle and relayer keys are read from env secrets or disk here and never leave
+ * this module.
  */
 import "server-only";
-import { randomBytes } from "node:crypto";
-import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { TESORO_CORE_PROGRAM_ID, BlockPuzzleChain, type AnyProgram } from "@/games/block-puzzle/chain";
+import type { AnyProgram } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
-import { parseTreasury, ratesOf } from "@/lib/chain/fees";
-import { unitsToRepay, type SourceMath } from "@/lib/chain/ledger";
-import { quoteNativeAdvance, treasuryPda } from "@/lib/chain/native";
 import { DEFAULT_BASE_RPC } from "@/lib/chain/rpc-config";
 import { requireDevnet } from "./cluster";
 import { WindowLimiter, takeAll } from "./rate-limit";
@@ -26,23 +19,10 @@ export { DemoHttpError };
 export const BASE_RPC = process.env.TESORO_BASE_RPC || DEFAULT_BASE_RPC;
 const DAY = 24 * 60 * 60 * 1000;
 
-/** The simulated Position: 10 SOL at 10% APY, 6-month Horizon, SOL at $150 = 7,500 Gemas before the Yield Fee. */
-export const DEMO = {
-  principalBaseUnits: 10n * BigInt(LAMPORTS_PER_SOL),
-  rateBps: 1000,
-  horizonMonths: 6,
-  priceMicroUsd: 150_000_000n,
-  /** Share of the Advance's Debt the simulated yield repays right away (redeemable now). */
-  accruePercent: 20n,
-};
 const FUND_BELOW = 0.05 * LAMPORTS_PER_SOL;
 const FUND_AMOUNT = 0.1 * LAMPORTS_PER_SOL;
-const NATIVE_MINT = new PublicKey("So11111111111111111111111111111111111111112");
 
 const limits = {
-  advancePerAccount: new WindowLimiter(3, DAY),
-  advancePerUser: new WindowLimiter(5, DAY),
-  advanceGlobal: new WindowLimiter(300, DAY),
   solPerAccount: new WindowLimiter(0.3 * LAMPORTS_PER_SOL, DAY),
   solPerUser: new WindowLimiter(0.3 * LAMPORTS_PER_SOL, DAY),
   solGlobal: new WindowLimiter(20 * LAMPORTS_PER_SOL, DAY),
@@ -131,104 +111,10 @@ async function fund(address: PublicKey, sub: string | null) {
   return { funded: true, lamports: balance + FUND_AMOUNT, signature };
 }
 
-async function advance(address: PublicKey, sub: string | null) {
-  const { core } = chain();
-  const oracle = oracleKey();
-  const account = BlockPuzzleChain.coreAccount(address);
-  if (!(await core.account.tesoroAccount.fetchNullable(account))) {
-    throw new DemoHttpError(409, "account-missing", "Create your Account first.");
-  }
-  const key = address.toBase58();
-  if (!takeAll([[limits.advancePerAccount, key], ...perUser(limits.advancePerUser, sub), [limits.advanceGlobal, "all"]])) {
-    throw new DemoHttpError(429, "rate-limited", "Demo Advance limit reached for this Account. Try again tomorrow.");
-  }
-
-  const treasuryInfo = await chain().conn.getAccountInfo(treasuryPda());
-  const { yieldFeeBps } = ratesOf(treasuryInfo && parseTreasury(treasuryInfo.data));
-  const gemas = Number(quoteNativeAdvance(DEMO.principalBaseUnits, DEMO.rateBps, DEMO.horizonMonths, DEMO.priceMicroUsd, yieldFeeBps).gemas);
-  const positionId = Array.from(randomBytes(32));
-  const config = BlockPuzzleChain.addresses(0n).config;
-  const position = PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from([0]), Buffer.from(positionId)], TESORO_CORE_PROGRAM_ID)[0];
-  const source = PublicKey.findProgramAddressSync([Buffer.from("source"), position.toBuffer(), new BN(0).toArrayLike(Buffer, "le", 4)], TESORO_CORE_PROGRAM_ID)[0];
-  const holding = BlockPuzzleChain.holding(account, source);
-
-  const open = await core.methods
-    .openPosition({ solana: {} }, positionId, NATIVE_MINT, 9, new BN(DEMO.principalBaseUnits.toString()), DEMO.rateBps)
-    .accountsPartial({ oracle: oracle.publicKey, config, ownerAccount: account, position, systemProgram: SystemProgram.programId })
-    .instruction();
-  const openSig = await sendAndConfirm(new Transaction().add(open), [oracle]);
-
-  const take = await core.methods
-    .takeAdvance(DEMO.horizonMonths, new BN(DEMO.priceMicroUsd.toString()))
-    .accountsPartial({ oracle: oracle.publicKey, ownerAuthority: address, config, ownerAccount: account, position, source, holding, systemProgram: SystemProgram.programId })
-    .instruction();
-  const tx = new Transaction().add(take);
-  tx.feePayer = oracle.publicKey;
-  tx.recentBlockhash = (await chain().conn.getLatestBlockhash()).blockhash;
-  tx.partialSign(oracle);
-  return {
-    position: position.toBase58(),
-    source: source.toBase58(),
-    gemas,
-    openSig,
-    transaction: tx.serialize({ requireAllSignatures: false }).toString("base64"),
-  };
-}
-
-/** Simulated yield: repays a slice of the Advance's Debt so part of the Gemas are redeemable. Once per Position. */
-async function accrue(address: PublicKey, positionKey: PublicKey) {
-  const { core } = chain();
-  const oracle = oracleKey();
-  const account = BlockPuzzleChain.coreAccount(address);
-  const pos: any = await core.account.positionState.fetchNullable(positionKey);
-  if (!pos || new PublicKey(pos.inner.owner).toBase58() !== account.toBase58()) {
-    throw new DemoHttpError(403, "not-yours", "That Position is not yours.");
-  }
-  if (pos.inner.openAdvance === null || pos.inner.openAdvance === undefined) return { skipped: true };
-  const source = PublicKey.findProgramAddressSync(
-    [Buffer.from("source"), positionKey.toBuffer(), new BN(pos.inner.openAdvance).toArrayLike(Buffer, "le", 4)],
-    TESORO_CORE_PROGRAM_ID,
-  )[0];
-  const src: any = await core.account.sourceState.fetch(source);
-  const big = (n: { toString(): string }) => BigInt(n.toString());
-  const math: SourceMath = {
-    issued: big(src.inner.issued),
-    returned: big(src.inner.returned),
-    redeemed: big(src.inner.redeemed),
-    yieldUnits: big(src.inner.yieldUnits),
-    unitNum: big(src.inner.unitNum),
-    unitDen: big(src.inner.unitDen),
-  };
-  if (math.yieldUnits > 0n) return { skipped: true };
-  const delta = (unitsToRepay(math) * DEMO.accruePercent) / 100n;
-  const ix = await core.methods
-    .applyYield(new BN(big(pos.inner.lastSeq) + 1n), new BN((big(pos.inner.cumulativeYield) + delta).toString()))
-    .accountsPartial({ oracle: oracle.publicKey, config: BlockPuzzleChain.addresses(0n).config, position: positionKey, source })
-    .instruction();
-  const signature = await sendAndConfirm(new Transaction().add(ix), [oracle]);
-  return { skipped: false, signature };
-}
-
 // ---- entry point --------------------------------------------------------------------------------
 
 export async function handleDemoRequest(raw: unknown, authorization: string | null): Promise<unknown> {
-  const step = (raw as { step?: unknown } | null)?.step;
-  if ((step === "advance" || step === "accrue") && process.env.TESORO_DEMO_ADVANCE !== "1") {
-    throw new DemoHttpError(410, "disabled", "The demo Advance is off. Open a real Position with simSOL instead.");
-  }
   await requireDevnet(BASE_RPC);
-  const req = await verifySignedRequest("tesoro-demo", ["fund", "advance", "accrue"] as const, raw, authorization, { nonces });
-  switch (req.step) {
-    case "fund":
-      return fund(req.address, req.sub);
-    case "advance":
-      return advance(req.address, req.sub);
-    default:
-      try {
-        return await accrue(req.address, new PublicKey(String(req.fields.position ?? "")));
-      } catch (e) {
-        if (e instanceof DemoHttpError) throw e;
-        throw new DemoHttpError(400, "bad-request", "Malformed Position.");
-      }
-  }
+  const req = await verifySignedRequest("tesoro-demo", ["fund"] as const, raw, authorization, { nonces });
+  return fund(req.address, req.sub);
 }

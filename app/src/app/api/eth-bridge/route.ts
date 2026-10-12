@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   return Response.json(await handleEthPrice(new URL(request.url).searchParams.get("asset")));
 }
 
-/** Hoodi ETH top-up, the permissionless bridge steps and the oracle-priced Advance: see app/docs/eth-positions.md. */
+/** Hoodi ETH top-up, the permissionless bridge steps and the oracle-priced Advance. */
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);

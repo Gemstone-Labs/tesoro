@@ -82,5 +82,3 @@ export function eval7(cards: readonly number[]): number {
   if (pairs.length === 1) return pack(PAIR, [pairs[0], ...topRanks(all, [pairs[0]], 3)]);
   return pack(HIGH_CARD, topRanks(all, [], 5));
 }
-
-export const HAND_NAMES = ["High card", "Pair", "Two pair", "Three of a kind", "Straight", "Flush", "Full house", "Four of a kind", "Straight flush"];

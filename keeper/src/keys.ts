@@ -1,7 +1,7 @@
 import { Keypair } from "@solana/web3.js";
 
 /**
- * Keys from env secrets, for hosts without ~/.config/tesoro (see app/docs/hosting.md). Each returns undefined
+ * Keys from env secrets, for hosts without ~/.config/tesoro. Each returns undefined
  * when its variable is unset, so the caller falls back to its key file. Errors never quote the value.
  */
 

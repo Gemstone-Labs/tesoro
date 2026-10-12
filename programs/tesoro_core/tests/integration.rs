@@ -1277,7 +1277,7 @@ fn reserved_gemas_cannot_enter_other_matches() {
     assert_eq!(h.free(), 72_500);
 }
 
-/// CU readings for the matching hot path (run with `--nocapture`; see docs/security/audit-2026-09-30.md).
+/// CU readings for the matching hot path (run with `--nocapture`).
 #[test]
 fn cu_profile_matching() {
     let mut d = duel();

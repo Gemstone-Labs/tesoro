@@ -1257,7 +1257,7 @@ fn only_the_registered_authority_settles() {
 }
 
 // --- Security audit 2026-09-30: proof tests ------------------------------------------------------
-// See docs/security/audit-2026-09-30.md (findings F-01, F-02, F-06, F-09).
+// Security review 2026-09-30 (findings F-01, F-02, F-06, F-09).
 
 use ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED;
 use ephemeral_rollups_sdk::consts::{EPHEMERAL_VAULT_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID};
@@ -1477,7 +1477,7 @@ fn f09_joining_before_the_session_exists_does_not_strand_the_match() {
     env.settle(id, MatchResult::Opener).expect("settle");
 }
 
-/// CU readings (run with `--nocapture`; docs/security/audit-2026-09-30.md).
+/// CU readings (run with `--nocapture`).
 #[test]
 fn cu_profile_block_puzzle() {
     let (mut env, alice, bob) = Env::new();

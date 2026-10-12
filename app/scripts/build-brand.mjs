@@ -19,7 +19,7 @@ const fontFile = require.resolve("@fontsource/schibsted-grotesk/files/schibsted-
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = path.resolve(here, "..");
-const ART = path.join(process.env.HOME, "Work/gemstone-labs/tesoro/art-source");
+const ART = process.env.ART_SOURCE ?? path.resolve(here, "../../../art-source");
 const SRC = process.env.BRAND_SRC ?? path.join(ART, "ui-redesign/brand");
 const EXPORT = process.env.BRAND_EXPORT ?? path.join(ART, "brand-v2/export");
 const out = (p) => path.join(app, p);

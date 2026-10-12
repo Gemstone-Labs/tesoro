@@ -1,13 +1,9 @@
-import { PublicKey, Transaction } from "@solana/web3.js";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 
-/**
- * Client side of the temporary demo funding route (app/src/app/api/demo-advance/route.ts).
- * Simulated · demo Advance: replaced by real Position deposits (docs in app/docs/demo-funding.md).
- */
-export type DemoStep = "fund" | "advance" | "accrue";
+/** Client side of the devnet SOL top-up route (app/src/app/api/demo-advance/route.ts). */
+export type DemoStep = "fund";
 export type GetToken = () => Promise<string | null>;
 
 const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
@@ -54,32 +50,3 @@ export async function ensureSol(signer: ChainSigner, getToken: GetToken, minLamp
     await new Promise((r) => setTimeout(r, 750));
   }
 }
-
-export interface DemoAdvanceResult {
-  position: string;
-  gemas: number;
-  transaction: string;
-}
-
-/**
- * Simulated · demo Advance: the server opens a simulated Position for this Account (oracle-signed),
- * returns the `take_advance` transaction with the oracle already signed; the Account signs and sends it.
- * Then the server applies a slice of simulated yield so part of the Gemas are redeemable.
- */
-export async function takeDemoAdvance(signer: ChainSigner, getToken: GetToken): Promise<{ gemas: number; signature: string }> {
-  const r = await demoCall<DemoAdvanceResult>("advance", signer, getToken);
-  const tx = Transaction.from(Uint8Array.from(atob(r.transaction), (c) => c.charCodeAt(0)));
-  const signed = await signer.signTransaction(tx);
-  const signature = await getChain().sendSigned(signed);
-  await demoCall("accrue", signer, getToken, { position: r.position }).catch(() => undefined);
-  return { gemas: r.gemas, signature };
-}
-
-export const isPk = (s: string) => {
-  try {
-    new PublicKey(s);
-    return true;
-  } catch {
-    return false;
-  }
-};
