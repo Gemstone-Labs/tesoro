@@ -12,8 +12,14 @@ contracts/broadcast/*/31337/
 *.tsbuildinfo
 next-env.d.ts
 .vercel
-.claude/worktrees/
+# Agent tooling and local notes (not part of the project)
+.claude/
+.agents/
+skills-lock.json
+CLAUDE.md
 CLAUDE.local.md
+AGENTS.md
+docs/reviews/
 # Keys and secrets: never commit (see .githooks/pre-commit)
 id.json
 *keypair*.json

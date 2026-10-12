@@ -31,7 +31,6 @@ for (const [{ scene, file: name, size }, [theme, suffix]] of SCENES.flatMap((s) 
   const png = Buffer.from(dataUrl.split(",")[1], "base64");
   await sharp(png).webp({ quality: 88, alphaQuality: 95 }).toFile(resolve(OUT, `${file}.webp`));
   await sharp(png).avif({ quality: 64, effort: 6 }).toFile(resolve(OUT, `${file}.avif`));
-  await sharp(png).toFile(resolve(OUT, `../../../docs/screens/landing-poster-${scene}${suffix}.png`));
   await page.close();
   console.log(file);
 }

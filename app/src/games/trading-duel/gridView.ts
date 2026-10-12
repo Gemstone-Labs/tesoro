@@ -138,12 +138,6 @@ export const priceDigits = (stepUsd: number): number => (stepUsd >= 0.1 ? 2 : st
 export const LABEL_EXTRA_DIGITS = 1;
 export const LIVE_EXTRA_DIGITS = 2;
 
-export interface SnakePoint {
-  /** Seconds since the start. */
-  t: number;
-  p: number;
-}
-
 /** Index of the first item whose `ms` is not below `ms` (binary search; `series` is in time order). */
 function lowerBound(series: { t: number }[], ms: number, from = 0, until = series.length): number {
   let lo = from;

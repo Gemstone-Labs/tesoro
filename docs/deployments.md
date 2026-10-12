@@ -4,7 +4,7 @@ Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per
 
 ## Yield Fee and Instant Redeem (2026-10-12)
 
-ADR 0007. Deployer / upgrade authority `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`; EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f479d1C`. Runbook: `.scratch/yield-fees/runbook.md`. The previous SimLST vaults (Hoodi `0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`, HyperEVM `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316`) are abandoned with their Positions: they speak the 61-byte `YieldAccrued`, which the new bridge refuses, and their SimLSTs now mint only for the new vaults.
+ADR 0007. Deployer / upgrade authority `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`; EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f479d1C`. The previous SimLST vaults (Hoodi `0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`, HyperEVM `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316`) are abandoned with their Positions: they speak the 61-byte `YieldAccrued`, which the new bridge refuses, and their SimLSTs now mint only for the new vaults.
 
 The HyperEVM vault no longer fits a small block (deploy gas about 3.37M, limit 3M): the deployer was switched to big blocks for the deploy (`evmUserModify usingBigBlocks`, Hyperliquid Python SDK) and back right after.
 
@@ -59,7 +59,7 @@ Smoke test (2026-10-03, Position id 1 on each new vault, owner = deployer EVM ad
 
 ## Per-Position yield: Solana cutover (2026-10-03)
 
-Model: `docs/yield-model.md`, ADR 0005. Deployer `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`. Scripts: `keeper/scripts/yield-cutover.ts`, `migrate-custody.ts`, `yield-smoke.ts`, `yield-crank.ts`.
+Model: `docs/yield-model.md`, ADR 0005. Deployer `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`. Scripts: `keeper/scripts/yield-smoke.ts`, `yield-crank.ts` (the one-off cutover and custody migration scripts ran once and were removed).
 
 | Step | Signature |
 |---|---|
@@ -69,7 +69,7 @@ Model: `docs/yield-model.md`, ADR 0005. Deployer `7zr1j185zT8r6jcysC4LyrdSEJ13Up
 | `tesoro_core` extend +20,000 bytes, upgrade (1,015,664 bytes) | `4SBAtHDT...6BhVMC` |
 | `set_yield_authority` (tesoro_core `["yield"]` PDA `C9zdFERGijamSQVQ1D4hE3iabc99g1XcurKCnS6CuSAf`, config `EwAQxNE81ifE8r5vu9p1X5eGmPoNBucj2n9ooETL8BtY`) | `agMKcMqC...meoN2L` |
 | `fund_reserve` 2 SOL | `2faitCFh...XW8BLe` |
-| `migrate_native_custody` x45 (all custodies, 194/202 to 210 bytes, `last_accrual_ts` = migration time) | see `migrate-custody` output; second run reports 0 legacy |
+| `migrate_native_custody` x45 (all custodies, 194/202 to 210 bytes, `last_accrual_ts` = migration time) | a second run found none left |
 | Repaid borrowed SOL: relayer first (2.95), then bridge-demo-owner (2.9) | `2uN6Pppc...Ei1Ym3`, `2FxEzc1e...TYhSze` |
 
 Smoke test: a fresh wallet (`6QrYEa7NhAqz2DcTpiHrxvzq6Gz5VYWUcPxEUjTr3ARG`) opened Position `Eu2m8cLkAgzyijDz1Hjasm6eAJjGHQMmfVpkgdPKqVAy` (5 simSOL, 1-month Advance, open tx `MnqT2BNP...cni49s`). Cranking every ~21 s took Debt 1,377 to 0 in about 10 minutes (about 50 per crank, linear); last crank `3MoVzhk8...9YRurm` (open Advance cleared). The Wallet quote reads 1 month about 10 min, 3 months about 30 min, 12 months about 120 min.
@@ -102,12 +102,12 @@ Deployer `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` via `https://rpc.magicbl
 
 ## Security remediation redeploy (2026-09-30)
 
-All from the deployer `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` via `https://rpc.magicblock.app/devnet`. Findings: `docs/security/audit-2026-09-30.md`.
+All from the deployer `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` via `https://rpc.magicblock.app/devnet`. Findings: README → Security.
 
 | Step | Signature / tx |
 |---|---|
 | tesoro_core upgrade (F-05, F-07, F-12; extended by 40,000 bytes first) | `fduJkqPr...YjCfy2` |
-| `migrate_native_custody` x3 (existing native Positions `EyAHqa5j...`, `4bf37rTh...`, `2QxKeDKJ...`; `keeper/scripts/migrate-custody.ts`) | `4uX2R8BB...1iJua9`, `3A3ANsEG...oT3NTy`, `3hmyr3Er...gLgwmG` |
+| `migrate_native_custody` x3 (existing native Positions `EyAHqa5j...`, `4bf37rTh...`, `2QxKeDKJ...`) | `4uX2R8BB...1iJua9`, `3A3ANsEG...oT3NTy`, `3hmyr3Er...gLgwmG` |
 | block_puzzle upgrade (F-01, F-02, F-06, F-09; extended by 20,000 bytes first) | `32dytQEv...zNrLtw` |
 | holdem upgrade (F-01, F-02, F-03) | `4qxWDa6w...KGrifB` |
 | tesoro_bridge upgrade (F-07: `redeem_to_evm` signs `redeem_from_source`) | `2YKqDbwK...sPh3Rh` |
@@ -182,7 +182,7 @@ Smoke test, 2026-10-02, Position id 1 (owner = the deployer's EVM address, linke
 | `redeem_to_evm` 6 Gemas | `4FsXmoeWRf…4MHSNBhs` | |
 | `send_pay_yield` (Solana to HyperEVM) | `wQnnoSEzND…EiqRii82` (fee 312,102 lamports) | [scan](https://testnet.layerzeroscan.com/tx/wQnnoSEzND…EiqRii82): DELIVERED, GUID `0xd6f9c67be43c9eec0dd1062db4b2d8fa04979620c8c3f6eff2811ee65b0ce7b3`, HyperEVM tx `0xad3c7dfbc25a18dbb833d93e1d99bc55cd822d13d4d3496618339b5fe4ddf3a5` (status 1) |
 
-Driven from the web app (2026-10-02, dev wallet `?dev=hype1` on `next dev`, 390 px, Wallet HYPE tab; EVM `0x6446CB65Af52036EE31e65f14A49104b74d22160` funded with 0.05 HYPE by the deployer, `0xb8ddf6c8d47a8eb2b1fb57d9a4532a1fbb40f19226f199372782ef1dbefc30d4`): simHYPE faucet, link, approve, `init_position`, `openPosition` (Position id 2, 1.0118 HYPE, Advance 37 Gemas at Coinbase HYPE-USD), `apply_locked` and the Advance by the app, Report yield (`reportYield` `0x250532e5a1cde1f1d98c2f3e55be386ee842cfaaef5a6c23eff805670b79d947`, then `apply_yield`), Redeem 8 Gemas (`redeem_to_evm` `9X9pCrsi7A…sddtwCnm`, `send_pay_yield` `3s8ZUbZo83…acEdgE37`, "simHYPE arrived on HyperEVM"; Scan DELIVERED, HyperEVM tx `0x6ab42dab0cd86ca1f6ff8f26952a1df31bcbfefd319370f509b80464976dad11`, vault `paidUnderlying` 9.006e14). Open tx `0x23c866a74bcce9ce193e41554228ca92673b9347f85510e77ba4e9deb3b088be`. Screen: `app/docs/screens/hype-wallet.png`.
+Driven from the web app (2026-10-02, dev wallet `?dev=hype1` on `next dev`, 390 px, Wallet HYPE tab; EVM `0x6446CB65Af52036EE31e65f14A49104b74d22160` funded with 0.05 HYPE by the deployer, `0xb8ddf6c8d47a8eb2b1fb57d9a4532a1fbb40f19226f199372782ef1dbefc30d4`): simHYPE faucet, link, approve, `init_position`, `openPosition` (Position id 2, 1.0118 HYPE, Advance 37 Gemas at Coinbase HYPE-USD), `apply_locked` and the Advance by the app, Report yield (`reportYield` `0x250532e5a1cde1f1d98c2f3e55be386ee842cfaaef5a6c23eff805670b79d947`, then `apply_yield`), Redeem 8 Gemas (`redeem_to_evm` `9X9pCrsi7A…sddtwCnm`, `send_pay_yield` `3s8ZUbZo83…acEdgE37`, "simHYPE arrived on HyperEVM"; Scan DELIVERED, HyperEVM tx `0x6ab42dab0cd86ca1f6ff8f26952a1df31bcbfefd319370f509b80464976dad11`, vault `paidUnderlying` 9.006e14). Open tx `0x23c866a74bcce9ce193e41554228ca92673b9347f85510e77ba4e9deb3b088be`.
 
 Latency (source block time to destination block time, from Scan): `openPosition` 38 s, `reportYield` 37 s, `send_pay_yield` 78 s. Fees: `quotePositionLocked` 0.0074039 HYPE and `quoteYieldAccrued` 0.0074011 HYPE (the caller pays quote + 20%, excess refunded); gas is negligible at 0.1 gwei. `send_unlock` is proven below.
 
@@ -199,7 +199,7 @@ Latency (source block time to destination block time, from Scan): `openPosition`
 | `tesoro_core::unlock` (the app, Wallet "Unlock") | `2Mv7J7oq8h...bRRaZBaP` | |
 | `send_unlock` (the app via the relay, 04:44:25 UTC) | `UUpeGz425j...NR6cUcvG` | [scan](https://testnet.layerzeroscan.com/tx/UUpeGz425j…NR6cUcvG): DELIVERED in 65 s, GUID `0xe12aaaae4f87008172fabd6cf648ff43335a726cb3222e83c2b4d75790930e84`, HyperEVM tx `0xbebc93139f75c6a5240d1ba922c184f7449149984de85ffbca0df59c000e11c9`; vault Position 5 `unlocked = true` |
 
-**Backing with HYPE-Sourced Gemas.** Backer `hypeB3` (EVM `0x88b961c49D11e3b9A781FD6ABD948B53C80511C7`): 10 simHYPE, 3 months, 1,156 Gemas, all HYPE-Sourced. Player `hypeP` (a SOL-Sourced Account) posted a 500 Request; the Backer answered with a 40% Offer (500 reserved from the HYPE Gemas); the Player accepted and entered the Queue; opponent `hypeH` (its own HYPE Position, 1,190 Gemas) queued at 500. Block Puzzle Match `3581836887530`: Player 366, opponent 0 (the opponent's run idles), `settle` `5CbCE8SQqV...6gRopKmJ`. Result: entry 500 back to the Backer first, fee 50, surplus 450 split 180 Player / 270 Backer. The Player's Wallet then lists the winnings under "Pending by Source" as `HYPE · D3jj...Exb9's Position` (154 Gemas pending at 14% of that Position's yield accrued, the rest redeemable), the Backer's as the same Source (231 pending); both are paid in simHYPE on HyperEVM by `redeem_to_evm` + `send_pay_yield` as soon as the yield lands. With a SOL-Sourced opponent (Match `3581835206452`, settle `4RWNQiC3Ss...LzaMaLCJ`) the same +180 shows under the loser's SOL Source instead, so the Source follows whose Gemas were lost, not the Backer's. Two Matches in which the run was missed ended 0 to 0: the Match settled as a Draw and the entry returned to the Backer (nothing owed by the Player). Screens: `app/docs/screens/hype-backing2-*.png`, `hype-backing-*-wallet-390.png`.
+**Backing with HYPE-Sourced Gemas.** Backer `hypeB3` (EVM `0x88b961c49D11e3b9A781FD6ABD948B53C80511C7`): 10 simHYPE, 3 months, 1,156 Gemas, all HYPE-Sourced. Player `hypeP` (a SOL-Sourced Account) posted a 500 Request; the Backer answered with a 40% Offer (500 reserved from the HYPE Gemas); the Player accepted and entered the Queue; opponent `hypeH` (its own HYPE Position, 1,190 Gemas) queued at 500. Block Puzzle Match `3581836887530`: Player 366, opponent 0 (the opponent's run idles), `settle` `5CbCE8SQqV...6gRopKmJ`. Result: entry 500 back to the Backer first, fee 50, surplus 450 split 180 Player / 270 Backer. The Player's Wallet then lists the winnings under "Pending by Source" as `HYPE · D3jj...Exb9's Position` (154 Gemas pending at 14% of that Position's yield accrued, the rest redeemable), the Backer's as the same Source (231 pending); both are paid in simHYPE on HyperEVM by `redeem_to_evm` + `send_pay_yield` as soon as the yield lands. With a SOL-Sourced opponent (Match `3581835206452`, settle `4RWNQiC3Ss...LzaMaLCJ`) the same +180 shows under the loser's SOL Source instead, so the Source follows whose Gemas were lost, not the Backer's. Two Matches in which the run was missed ended 0 to 0: the Match settled as a Draw and the entry returned to the Backer (nothing owed by the Player).
 
 **Redeem (Backer's HYPE Gemas).** `hypeB3` redeemed 1,158 HYPE-Sourced Gemas through the Wallet Redeem sheet: `redeem_to_evm` `5eXyXXfvHR...`, `send_pay_yield` `23oN4gstiL...gxF4SJsy`, Scan DELIVERED, GUID `0xaac813187c453ca631a27d9384c79c1a150b0170058378b0c025f0d93773cf7e`, HyperEVM tx `0x135610de92135a993842008c07a61f44f0600b3999f53b49dbb49dc5d4172ea8`.
 
@@ -317,7 +317,7 @@ The implementation review found that `PositionVault` kept accruing yield on shar
 
 ### Web app native Position flow (2026-09-30, dev wallet `?dev=nat2`, browser at 390 px)
 
-Driven from the Wallet screen (`app/src/app/wallet/NativePositions.tsx`) on `https://rpc.magicblock.app/devnet`. SIMULATED yield (1 month = ~10 min). Screens: `app/docs/screens/wallet-native-*.png`.
+Driven from the Wallet screen (`app/src/app/wallet/NativePositions.tsx`) on `https://rpc.magicblock.app/devnet`. SIMULATED yield (1 month = ~10 min).
 
 | Step | Signature |
 |---|---|

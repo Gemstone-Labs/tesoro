@@ -7,11 +7,10 @@
  */
 import sharp from "sharp";
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SRC = process.argv[2] ?? `${homedir()}/Work/gemstone-labs/tesoro/art-source/ui-redesign/character/poses/native`;
+const SRC = process.argv[2] ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../../art-source/ui-redesign/character/poses/native");
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), "../public/art/final/characters/guide");
 mkdirSync(OUT, { recursive: true });
 

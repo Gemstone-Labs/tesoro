@@ -600,7 +600,7 @@ fn ready(speed: u8) -> Env {
 }
 
 // --- Security audit 2026-09-30: proof tests ------------------------------------------------------
-// See docs/security/audit-2026-09-30.md (findings F-01, F-02, F-03).
+// Security review 2026-09-30 (findings F-01, F-02, F-03).
 
 use ephemeral_rollups_sdk::access_control::structs::PERMISSION_SEED;
 use ephemeral_rollups_sdk::consts::{EPHEMERAL_VAULT_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID};
@@ -1141,7 +1141,7 @@ fn a_whole_match_of_short_hands_conserves_chips_and_settles_once() {
     assert_eq!(env.tesoro_status(), MatchStatus::Settled);
 }
 
-/// CU readings (run with `--nocapture`; docs/security/audit-2026-09-30.md).
+/// CU readings (run with `--nocapture`).
 #[test]
 fn cu_profile_holdem() {
     let mut env = ready(0);

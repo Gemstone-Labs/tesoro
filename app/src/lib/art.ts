@@ -1,6 +1,6 @@
 /**
  * Every piece of game art and avatar the UI shows, in one map. Final art comes from Astra
- * (~/Work/gemstone-labs/tesoro/art-source/ui-redesign/assets/, outside the repo), imported as WebP
+ * (art-source/ui-redesign/assets/, kept outside the repo), imported as WebP
  * into `public/art/final/` by `app/scripts/import-final-art.mjs`.
  */
 const f = (name: string) => `/art/final/${name}.webp`;
@@ -25,8 +25,7 @@ export const art = {
   },
   /** Default profile banner (2400x800) on every Account page until Players can set their own. Left side dark for the avatar and name. */
   profileBanner: f("profile-banner"),
-  /** The Leaderboard Pool as a gold stone chest (1024 square, opaque dark ground: fade its edges in CSS). */
-  /** The same chest cut out on transparency: solid over whatever is behind it (the Leaderboard hero's rays). */
+  /** The Leaderboard Pool as a gold stone chest, cut out on transparency: solid over whatever is behind it (the Leaderboard hero's rays). */
   poolChestCut: f("pool-chest-cut"),
   /** The wide hero art by Game (list rows, result poster, Request cards). */
   hero: {

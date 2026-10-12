@@ -381,7 +381,7 @@ fn the_oracle_path_still_works_and_a_removed_authority_is_refused() {
         .expect_err("removed authority is refused");
 }
 
-/// CU readings for `apply_yield_from_source` (run with `--nocapture`; docs/security/audit-2026-09-30.md).
+/// CU readings for `apply_yield_from_source` (run with `--nocapture`).
 #[test]
 fn cu_profile_apply_yield_from_source() {
     use std::sync::atomic::Ordering::Relaxed;

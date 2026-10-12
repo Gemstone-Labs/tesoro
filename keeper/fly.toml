@@ -1,7 +1,7 @@
 # Keeper on Fly.io: one always-on Machine, no public services (unreachable from the internet).
 # Deploy from the repo root (build context = repo root):
 #   fly deploy . -c keeper/fly.toml --dockerfile keeper/Dockerfile --ha=false
-# Exactly one Machine: two keepers would double-send cranks. Secrets: app/docs/hosting.md.
+# Exactly one Machine: two keepers would double-send cranks. Secrets: keeper/README.md.
 app = "tesoro-keeper"
 primary_region = "iad"
 

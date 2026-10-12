@@ -51,10 +51,6 @@ On-chain after settlement (read from the TesoroAccounts): Backer own 7,500 (6,50
 
 (A second `settle` in Matches 1 and 3 failed with an error: both clients tried to settle at once. The program rejects the second; harmless.)
 
-### Screens (390px), `app/docs/screens/`
-
-`backing-1-requests-390.png` Requests with real records · `-2-offer-sheet` Offer with the share slider · `-3-backer-reserved` reserved vs available and the Offer awaiting the Player · `-4-player-offer` Offer received · `-5-player-ready` accepted Backing ready to play · `-6-player-won` and `-7-backer-won` the split for both parties · `-8-player-lost` loss and zero Debt · `-9-backer-draw`. These replace the mock `backing-390.png` and `backing-1280.png`.
-
 ## Integration notes (read before merging)
 
 - **Block Puzzle flow.** The verified run used the async Block Puzzle flow (opener plays before being paired; `open_session` and `join_session` bundled into the Match transaction), which is what block_puzzle on devnet is deployed as now. `backing.ts` bundles those instructions when the client has `openSessionIx` and `joinSessionIx`, and does nothing extra otherwise. The devnet program no longer matches the client on this branch's base (its `reveal_seed` is gone), so **Backing needs the Block Puzzle app flow merged first**; the test ran on a scratch merge of this branch with `worktree-agent-ac732d5bd782d1b84`. Expect conflicts in `MatchView.tsx` (phases: theirs `queued`, mine `backer-watch`; result card), `EnterMatch.tsx`, `read.ts` (`ChainMatch.session` type versus `sides`/`backing`), `MatchHistory.tsx`, `page.tsx` and `chain.ts` (`openMatch` needs the optional `game` argument this branch's `match-flow.ts` passes). The async flow's `open` phase is `queued`, so the merged `MatchView` must not send an Open Match with a seat to a "waiting" phase.

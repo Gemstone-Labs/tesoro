@@ -12,7 +12,7 @@ The **Principal is never played** and never pays Debt. Accrued yield repays the 
 
 > **Status: testnets only.** Solana devnet and Ethereum Hoodi. Yield is **Simulated** (1 month = about 10 minutes). Nothing has value. The security review is internal, not an external audit.
 
-[PLACEHOLDER: pitch video URL] · [PLACEHOLDER: demo video URL] · [PLACEHOLDER: hosted app URL, if any]
+[PLACEHOLDER: pitch video URL] · [PLACEHOLDER: demo video URL] · [playtesoro.com](https://www.playtesoro.com)
 
 ---
 
@@ -104,13 +104,12 @@ Owned by the same EVM deployer and peered to the same Solana OApp Store. Deploye
 | What | Where |
 |---|---|
 | Native Position lifecycle: open + Advance (447 Gemas), yield (Debt 447 → 264 → 19 → 0), Redeem, Unlock | `docs/deployments.md` → "tesoro_core upgrade: Solana-native Positions"; e.g. open `5FnLCAT7…zQXo9xrL`, unlock `HZWYkvfh…4hdjzsGK` |
-| ETH Position over LayerZero, full round trip in the browser on the previous vault: open on Hoodi → Advance on Solana → yield → Redeem to Hoodi → Unlock | `docs/qa/2026-09-30.md` → "Journey 7"; e.g. send_unlock on LayerZero Scan `5i86kToB…xYWN3Hk7` |
+| ETH Position over LayerZero, full round trip in the browser on the previous vault: open on Hoodi → Advance on Solana → yield → Redeem to Hoodi → Unlock | `docs/cross-chain.md` → "Driven from the web app"; e.g. `send_unlock` `2r9Vs7yv…bSpGpmJV` |
 | ETH Position on the current vault: open → `apply_locked`, `reportYield` → `apply_yield` | `docs/deployments.md` → "SP-01 / PR-01 replacement vaults"; [openPosition](https://testnet.layerzeroscan.com/tx/0x1c886400dd75ccb703abf18fc92a3f9abbf4180a3d42711d084d455bfc90df62), [reportYield](https://testnet.layerzeroscan.com/tx/0x36b25666d10e4c8558836fa5d2a16f9628105bfc1a6f800dcbfb2c1af5dd3de3) |
 | Block Puzzle async Match: private Seed and moves, settled by CPI | `docs/games/block-puzzle.md`; settle `KK3MY8Dj…Rfz7gVss` |
 | Hold'em Match in the browser: 4 hands, a timeout claim, a showdown, finalize | `docs/games/holdem.md`; finalize `4uBFPi6V…ki6v1cNc` |
 | Backed Match: the Backer's entry back first, a 60/40 split, the Player owes 0 | `docs/games/backing.md`; settle `576rrHvz…wmJ4nfDa` |
-| End-to-end QA in the browser (8 journeys, 7 bugs found and fixed) | `docs/qa/2026-09-30.md`, screens in `app/docs/screens/qa-*.png` |
-| Security review: 14 findings, with fixes deployed | `docs/security/audit-2026-09-30.md` (internal, not an external audit) |
+| Security review: 14 findings, with fixes deployed | [Security](#security) below (internal, not an external audit) |
 
 Signatures are shortened here; the linked docs list them in full. TEE (rollup) transactions are private and have no public explorer page. Their signatures are in the `evidence.json` files next to each Game's scripts (`programs/block_puzzle/scripts/`, `programs/holdem/scripts/`).
 
@@ -145,6 +144,8 @@ Every RPC defaults to `https://rpc.magicblock.app/devnet`, so no configuration i
 | `NEXT_PUBLIC_HOODI_RPC` | browser | Hoodi RPC (default `https://ethereum-hoodi-rpc.publicnode.com`) |
 | `NEXT_PUBLIC_SITE_URL` | build | canonical URL for metadata |
 | `TESORO_RELAYER_KEYPAIR`, `TESORO_RELAYER_EVM_ENV` | server | low-balance relayer keys for the demo funding routes (default `~/.config/tesoro/relayer.json`, `relayer-evm.env`). Without them those routes answer `503 not-configured`. |
+| `TESORO_RELAYER_SECRET_KEY`, `TESORO_RELAYER_EVM_PRIVATE_KEY`, `TESORO_ORACLE_SECRET_KEY` (or `TESORO_ORACLE_KEYPAIR`) | server | the same keys as env secrets, for hosts without key files (the oracle key prices ETH/HYPE Advances) |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | server | waitlist storage (`app/supabase/migrations/0001_waitlist.sql`) |
 
 What to try:
 
@@ -202,7 +203,7 @@ The keeper uses a payer at `~/.config/tesoro/keeper.json`, which it creates on f
 
 Two internal reviews, no external audit.
 
-**Security review (2026-09-30)**, `docs/security/audit-2026-09-30.md`. It covers the on-chain code: `tesoro_core`, both Game programs, `sim_lst`, `tesoro_bridge` and the EVM contracts. It found 14 findings (Critical 1, High 3, Medium 3, Low 6, Info 1), each with a failing proof test first.
+**Security review (2026-09-30).** It covers the on-chain code: `tesoro_core`, both Game programs, `sim_lst`, `tesoro_bridge` and the EVM contracts. It found 14 findings (Critical 1, High 3, Medium 3, Low 6, Info 1), each with a failing proof test first.
 
 | Status | Findings |
 |---|---|
@@ -210,13 +211,7 @@ Two internal reviews, no external audit.
 | Mitigated | F-13 (an oversized PayYield reverts and is retried once yield catches up) |
 | Accepted for devnet | F-08 and F-11 (simulated faucets), F-10 (first-caller Config init; already initialised), F-14 (informational) |
 
-**Implementation review (2026-09-30 to 2026-10-01)**, internal and not in the repo. It covers the app, keeper, server routes, contracts and programs: 29 findings (P1 2, P2 14, P3 13). The table shows the status on 2026-10-01.
-
-| Status | Findings |
-|---|---|
-| Fixed on `main` | SP-01 (P1: the EVM vault underpaid yield after an earlier payout; vaults redeployed), ST-01 (P1: a faucet quota rollback could be bypassed), PR-01 (Principal above `u64` locked for good; vaults redeployed), SP-02, SP-03 (ETH redemption tracked against the wrong Source or holder), OC-01 (stale price re-stamped as fresh; keeper side), OC-02 (the web server held admin keys; now low-balance relayer keys), OC-05 (one hung RPC stalled every keeper job) |
-| Fixed on review branches, not yet merged | OC-03, OC-08, OC-09, OC-10 (app side): server route hardening. OC-04: a duplicate Match on a join timeout. SP-04: Return own Gemas in the Wallet. P2B-01 to P2B-07: Match history and results, labels. ST-02, ST-03: simulation labels, Pending by Source |
-| Open | SP-05 (undelegated Hold'em no-show refund delay), OC-06, OC-07, OC-10 (keeper side), OC-11: keeper fixes in progress. PR-02 (no-show can turn a forfeit win into a refund), PR-03 (an Advance can be priced from a feed up to 24 h old), on-chain bounds for `set_price`: these need a program upgrade. |
+**Implementation review (2026-09-30 to 2026-10-01).** It covers the app, keeper, server routes, contracts and programs: 29 findings (P1 2, P2 14, P3 13). Both P1s (an EVM vault yield underpayment and a faucet quota bypass) are fixed and the vaults redeployed.
 
 **Residual risks**, from the security review:
 
@@ -226,7 +221,7 @@ Two internal reviews, no external audit.
 
 ### Key compromise (2026-10-01)
 
-At 05:26 UTC on 2026-10-01, the original devnet deployer key `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` sent its whole balance, 24.63 devnet SOL, to [`888Hn7eBJFUcAvLPYQhgva9jSk1eG21QSsTRiCN5EkwE`](https://explorer.solana.com/address/888Hn7eBJFUcAvLPYQhgva9jSk1eG21QSsTRiCN5EkwE?cluster=devnet) (tx `2WbwBf9X…FgYqiMWR`). The team treated the key as compromised. It held testnet funds only. That key was the upgrade authority of every program, the admin of `tesoro_core`, `sim_lst` and `tesoro_bridge`, the LayerZero OApp delegate, and the owner of the fee recipient. [PLACEHOLDER: founder to state how the key leaked, if known.]
+At 05:26 UTC on 2026-10-01, the original devnet deployer key `AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV` sent its whole balance, 24.63 devnet SOL, to [`888Hn7eBJFUcAvLPYQhgva9jSk1eG21QSsTRiCN5EkwE`](https://explorer.solana.com/address/888Hn7eBJFUcAvLPYQhgva9jSk1eG21QSsTRiCN5EkwE?cluster=devnet) (tx `2WbwBf9X…FgYqiMWR`). The team treated the key as compromised. It held testnet funds only. That key was the upgrade authority of every program, the admin of `tesoro_core`, `sim_lst` and `tesoro_bridge`, the LayerZero OApp delegate, and the owner of the fee recipient.
 
 Response, the same day:
 

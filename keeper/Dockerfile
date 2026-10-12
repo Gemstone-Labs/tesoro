@@ -1,6 +1,6 @@
 # Keeper image. Build from the repo root:  docker build -f keeper/Dockerfile -t tesoro-keeper .
 # No key is baked in: KEEPER_SECRET_KEY, KEEPER_ORACLE_SECRET_KEY and KEEPER_EVM_PRIVATE_KEY come from the
-# host's secrets at run time (app/docs/hosting.md). .dockerignore admits only the files listed there.
+# host's secrets at run time. .dockerignore admits only the files listed there.
 FROM node:22.22.0-slim
 
 ENV CI=1 NODE_ENV=production

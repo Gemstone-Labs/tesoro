@@ -1,8 +1,7 @@
 import "./polyfill";
-import { PublicKey, type Connection } from "@solana/web3.js";
+import type { Connection } from "@solana/web3.js";
 import { BRIDGE_ID, vaultTreasuryPda } from "./eth";
-import { TESORO_CORE_ID } from "./native";
-import { parseTreasury, parseVaultShares, parseVaultTreasury, type TreasuryRates, type VaultTreasuryView } from "./fees";
+import { parseVaultTreasury, type VaultTreasuryView } from "./fees";
 
 /** Fetching Tesoro's Treasury and the bridge's mirror of each EVM vault's treasury (decoders and math: fees.ts). */
 
@@ -18,9 +17,3 @@ export async function fetchVaultTreasuries(c: Connection, vaults: { vault: strin
   return out;
 }
 
-/** Reads the Treasury on its own (the app gets it with the market; the keeper and scripts use this). Null before `init_treasury`. */
-export async function fetchTreasury(c: Connection, treasury: PublicKey, vault: PublicKey): Promise<{ rates: TreasuryRates; shares: bigint } | null> {
-  const [t, v] = await c.getMultipleAccountsInfo([treasury, vault], "confirmed");
-  const rates = t && t.owner.equals(TESORO_CORE_ID) ? parseTreasury(t.data) : null;
-  return rates ? { rates, shares: (v && parseVaultShares(v.data)) ?? 0n } : null;
-}

@@ -1,6 +1,6 @@
 /**
  * Server keys from env secrets, with the key files under ~/.config/tesoro as the local fallback.
- * Hosts without those files (Vercel) set the secret; see app/docs/hosting.md. Values never leave
+ * Hosts without those files (Vercel) set the secret. Values never leave
  * this module except as a Keypair or private key, and errors never quote them.
  */
 import fs from "node:fs";
