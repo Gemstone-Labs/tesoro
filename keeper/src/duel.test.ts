@@ -3,10 +3,11 @@ import { describe, it } from "node:test";
 import { STATUS } from "../../app/src/games/trading-duel/chain.ts";
 import { duelStep, END_GRACE_SECS } from "./duel.ts";
 
-const duel = (status: number, over: Partial<{ finalized: boolean; startDeadline: number; endsAt: number }> = {}) => ({
+const duel = (status: number, over: Partial<{ finalized: boolean; startDeadline: number; startsAt: number; endsAt: number }> = {}) => ({
   status,
   finalized: false,
   startDeadline: 1300,
+  startsAt: 1850,
   endsAt: 2000,
   ...over,
 });
@@ -36,8 +37,14 @@ describe("Trading Duel hygiene (rollup)", () => {
     assert.equal(duelStep(duel(STATUS.created), "tee", 1301, 0).do, "claim_timeout");
   });
 
+  it("ticks a live Match while the grid runs, from its start to its end", () => {
+    assert.equal(duelStep(duel(STATUS.live), "tee", 1849, 0).do, "wait");
+    assert.equal(duelStep(duel(STATUS.live), "tee", 1850, 0).do, "tick");
+    assert.equal(duelStep(duel(STATUS.live), "tee", 1999, 0).do, "tick");
+  });
+
   it("leaves the first try at ending to the Players, then ends the Match", () => {
-    assert.equal(duelStep(duel(STATUS.live), "tee", 1999, 0).do, "wait");
+    assert.equal(duelStep(duel(STATUS.live), "tee", 2000, 0).do, "wait");
     assert.equal(duelStep(duel(STATUS.live), "tee", 2000 + END_GRACE_SECS - 1, 0).do, "wait");
     assert.equal(duelStep(duel(STATUS.live), "tee", 2000 + END_GRACE_SECS, 0).do, "end_match");
   });

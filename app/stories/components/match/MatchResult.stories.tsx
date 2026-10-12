@@ -60,4 +60,4 @@ export const BackerLost: Story = { args: props("block-puzzle", false, { backing:
 export const BackedRefunded: Story = { args: props("block-puzzle", true, { backing: "player", refunded: true }) };
 export const HoldemWon: Story = { args: props("holdem", true) };
 export const HoldemLost: Story = { args: props("holdem", false) };
-export const TradingDuelWon: Story = { args: { ...props("trading-duel", true), scores: ["$10,420", "$9,870"] } };
+export const TradingDuelWon: Story = { args: { ...props("trading-duel", true), scores: ["800 points", "500 points"] } };

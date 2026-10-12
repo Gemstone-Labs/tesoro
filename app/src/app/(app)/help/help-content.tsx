@@ -120,17 +120,15 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <>
             <p>
-              Two Players trade the same live price (SOL, ETH or HYPE, chosen when the Match is opened) for 5 minutes. Each starts with 10,000
-              Chips and holds one position at a time: long or short, with 1x to 20x leverage, opened and closed at the live market price. When the
-              window ends, an open position is closed at the final price, and the higher equity takes the Pot minus Fees. Equal equity, including
-              neither of you trading, is a draw and refunds both entries.
+              Pick where the price will be. Two Players watch the same live price (SOL, ETH or HYPE, chosen when the Match is opened) move across a
+              grid of 12 columns, ten seconds each, with bands of price that scroll up and down to follow it. For every column you pick one box. If the line passes through your box
+              while the column is live, you hit and score 100 points. After 12 columns, two and a half minutes, more points takes the Pot minus
+              Fees. Equal points is a draw and refunds both entries.
             </p>
             <p>
-              Every fill pays a small spread (0.05%) and only uses a price from the last 2 seconds, so a faster price feed elsewhere gives
-              nobody an edge. A position is liquidated, on the next price read, when its margin plus profit falls to 0.5% of its size: you lose that
-              margin and nothing more. Your position and fills stay hidden from your opponent until the Match ends; the opponent sees only who is ahead
-              and how many trades were made. Afterwards both Players&apos; full fill histories are public on the Match page. Chips are scorekeeping inside
-              the Match, not Gemas.
+              You get a 30 second head start before the line enters the first column, and you can change a pick for free until its column locks.
+              A column locks ten seconds before the line reaches it, so you always pick at least ten seconds ahead. Your picks stay hidden from your
+              opponent until each column locks; then both picks for it are shown. Points are scorekeeping inside the Match, not Gemas.
             </p>
           </>
         ),

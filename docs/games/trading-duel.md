@@ -1,30 +1,34 @@
 # Trading Duel: Game program
 
-Program `trading_duel` `CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj` (Solana devnet, upgradeable). Two Players trade one live price for five minutes, from the same Chips stack, in a MagicBlock Private Ephemeral Rollup (TEE). The higher final equity takes the Pot minus Fees through tesoro_core; equal equity refunds both entries. Chips never leave the Match.
+Program `trading_duel` `CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj` (Solana devnet, upgradeable). Two Players watch one live price for two and a half minutes on a price grid, in a MagicBlock Private Ephemeral Rollup (TEE). For each column of the grid a Player picks one box; the line passing through it scores 100 points. More points takes the Pot minus Fees through tesoro_core; equal points refunds both entries.
 
-Code: `programs/trading_duel/src/{lib,state,engine}.rs`. Client: `app/src/games/trading-duel/chain.ts`. Registered in tesoro_core with studio_bps 300 and the `["authority"]` PDA `mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe` (no tesoro_core change was needed, as for Hold'em). Deploy tx `616jDmGR...V3Xmgp`.
+Code: `programs/trading_duel/src/{lib,state,engine}.rs`. Rules in TypeScript: `app/src/games/trading-duel/grid.ts`. Client: `app/src/games/trading-duel/chain.ts`. Registered in tesoro_core with studio_bps 300 and the `["authority"]` PDA `mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe` (no tesoro_core change was needed, as for Hold'em).
 
 ## Rules
 
 - Two Players, equal entry (500, 1,000 or 2,500 Gemas), paired through the Queue or a Challenge link. The Queue is per game, entry **and asset**.
 - One asset per Match: SOL, ETH or HYPE.
-- Each Player starts with 10,000 Chips. One position at a time: long or short, margin of at least 100 Chips, leverage 1x to 20x, closed or flipped (close then open) at will, unlimited trades.
-- The window is 5 minutes, opening 5 seconds after the Match starts in the rollup.
-- Fills execute at the on-chain oracle price. Equity = free Chips + margin + PnL of the open position (as if closed now).
-- End: positions are marked at the final oracle price; the higher equity wins, equal equity (including neither Player trading) is a draw and both entries are refunded. A no-show (never started) refunds as well.
-- Hidden: each Player's Book (position and fills) is readable only by that Player while the Match runs. The public Duel carries only a coarse lead (level, or which seat is ahead by at least 50 Chips) and the trade counts. After the Match is committed both Books are public: both full fill histories show on the Match page.
+- The grid has 12 columns of 10 seconds and unbounded bands of price. The bands are fixed when the Match starts: band height (`step`) is the start price (the anchor) times `STEP_PPM[asset]` (SOL 120, ETH 100, HYPE 130 parts per million; about $0.0135 a band for SOL at $112). Band `k`, a signed integer, is `[anchor + k*step, anchor + (k+1)*step)`: band 0 starts at the anchor, negative bands lie below it. `band_of(price) = floor((price - anchor) / step)`, clamped to -32767..32767 (picks are `i16` and `NO_PICK` = -32768 is the sentinel). No band is open-ended, so a day's move never leaves the grid: the app scrolls the view to follow the line and the Player picks any band, near or far.
+- **Head start:** the line enters column 0 `HEAD_START_SECS` = 30 s after the Match starts. The Match ends `grid_at + 120 s` = 150 s after it starts.
+- **Picks:** each Player picks one band per column with `set_pick(column, band)` (any `i16`), and can change or clear it (`band = NO_PICK`) for free until the column locks. It records no price sample.
+- **Lock:** column `c` locks `LOCK_AHEAD_SECS` = 10 s before its window starts, which is when the column before it goes live. Picks for `c` are accepted while `now < lock(c)`.
+- **Hidden until locked:** a pick lives in its Player's own Book. When a column locks, both picks for it are copied into the public `Duel.revealed`.
+- **Hit:** a pick hits column `c` if the recorded prices of the column (its low and high, including the price where the line entered the column) include the pick's band: `band_of(low) <= band <= band_of(high)`. A hit scores `HIT_POINTS` = 100. A column without a pick scores nothing.
+- **Result:** more points wins; equal points (including nobody picking) is a draw and both entries are refunded. A no-show (never started) refunds as well.
 
-### Anti-latency rule
+The exact column range rules (carry-over of the entry price, columns with no sample, the closing sample) are written in `engine.rs` (`Track::record`, `finish`, `hits`) and mirrored in `grid.ts`. Both are tested against one shared fixture, `programs/trading_duel/tests/fixtures/grid-vectors.json`, so they cannot drift.
 
-A client can see public prices a moment before the rollup feed updates. Chosen: **a spread of 5 bps on every fill** (buys pay the price up, sells receive it down, entry and exit alike) **plus rejection of any oracle price older than 2 seconds** (and more than 10 seconds ahead of the rollup clock). Fills at the next oracle update would need a pending-order account and a crank; the spread is deterministic, atomic and testable, and one second of price movement rarely exceeds 5 bps. The feed timestamp has one-second resolution, hence integer ages: measured on the TEE over 60 s the feed was 0.4 to 1.8 s old (median 1.0, p95 1.5) for SOL, ETH and HYPE, so 2 s rarely refuses a trade in normal conditions (a refused trade costs nothing, the client retries) and shortens the window in which someone watching a faster feed trades on a stale price, which at 20x matters more than at 5 s. Also rejected: a confidence interval wider than 1% of the price, a wrong owner or address, an exponent other than 8.
+### Why lock-ahead and not a lag on the price
 
-### Liquidation
+The original idea for this game showed the Players a price delayed by 30 seconds, so nobody could see a pick's outcome before it locked. A delayed display can be front-run: anyone reading the real feed elsewhere sees the line 30 seconds before the lagging Player does. Here the line is never delayed. Instead a column locks 10 seconds before its window starts, so every pick is made at least 10 to 20 seconds before the line gets there, and a faster feed gives nothing: the price 10 seconds ahead cannot be read from any feed. Picks are private until they lock, so the opponent cannot copy a pick and still change their own.
 
-Maintenance margin is 50 bps of the position's notional. On every price read (`open_position`, `close_position`, `tick`, `end_match`, for both Books) a position whose margin plus PnL, valued at the closing price, is at or below maintenance is liquidated **at that price**: the Player gets back `max(0, margin + PnL)` and the loss is capped at the margin. Between reads the price is not observed: a position that dipped and recovered between two reads is not liquidated. Anyone may call `tick`; the clients and the keeper do.
+### Prices
 
-### Final marking (known gap)
+Every sample is a real oracle price: a price older than `MAX_STALE_SECS` = 2 s, more than `MAX_FUTURE_SECS` = 10 s ahead of the rollup clock, with a confidence interval wider than 1% of the price, a wrong owner or address or an exponent other than 8 is refused. So extra `tick` calls can add detail to the line but cannot fake a hit.
 
-`end_match` is permissionless and valid once the window closed. **Pinned price:** called within `END_GRACE_SECS` (4 s) after the end it needs a fresh oracle price published inside `[ends_at, ends_at + 4 s]` (a price from before the end, or from after the grace, is refused); called later it ignores the feed and settles at the last mid recorded during the window (`Duel.final_price` holds the last mid of every trade or tick, then the final price), so waiting for a better move cannot change the result and a late keeper is deterministic. Open positions are closed with a final fill (spread included). Inside the grace the first caller still picks among about four one-second ticks; the clients call right at the end (seat 1 immediately, seat 0 after 2 s, retrying every second, so both try inside the window) and the keeper after 2 s (`KEEPER_DUEL_END_GRACE_SECS`; a keeper pass that lands after the window settles at the last recorded mid). The last mid is as old as the last trade or tick (clients tick every 4 s).
+### The end
+
+`end_match` is permissionless and valid once the window closed. It reads no price: columns the line did not reach take the last price recorded (`Track.last`), every column is revealed and scored and the winner decided. No end price is added to column 11, so the result is the same whoever ends the Match and whenever, early or late. The clients try right at the end (the second Player a couple of seconds later) and retry every second; the keeper steps in after 2 s.
 
 ## Oracle
 
@@ -42,8 +46,8 @@ Layout (a Pyth `PriceUpdateV2` image, 134 bytes): feed id at 41 (equals the acco
 
 | Account | Seeds | Visibility during the Match |
 |---|---|---|
-| `Duel` | `["duel", match_id_le]` | public (a non-private permission) |
-| `Book` x2 | `["book", duel, seat]` | private to its Player |
+| `Duel` | `["duel", match_id_le]` | public (a non-private permission): anchor, step, times, the price range of each column (`track`), `revealed` picks of locked columns, `scores`, `winner` |
+| `Book` x2 | `["book", duel, seat]` | private to its Player: `picks[12]` (`i16` bands), `pick_count` |
 
 The tesoro_core Match id is `ms * 8 + asset * 2 + challenge`: bit 0 marks a Challenge (as for every Game), bits 1 and 2 are the asset (0 SOL, 1 ETH, 2 HYPE). `create_match` reads the asset from the id, so nobody can change it, and the Queue filters on it.
 
@@ -54,55 +58,24 @@ The tesoro_core Match id is `ms * 8 + asset * 2 + challenge`: bit 0 marks a Chal
 | open / join | base | tesoro_core `open_match`, `join_match` (game = this program id) | the two Players |
 | bind | base | `create_match(match_id)` | either Player |
 | delegate | base | `delegate_match` | anyone |
-| permissions + start | TEE | `init_permissions` | anyone |
-| trade | TEE | `open_position(side, margin, leverage)`, `close_position` | the Player |
-| mark | TEE | `tick` | anyone |
+| permissions + start | TEE | `init_permissions` (reads the start price, sets the anchor and step, starts the head start) | anyone |
+| pick | TEE | `set_pick(column, band)` | the Player |
+| sample and reveal | TEE | `tick` (about four times a second during the grid: records the price, reveals locked columns, scores finished ones) | anyone |
 | end | TEE | `end_match` | anyone, after the window |
 | cancel | TEE | `claim_timeout` (delegated, never started, past `start_deadline`) | anyone |
-| commit | TEE | `close_match` (closes permissions, commit + undelegate; Books are not wiped), or `close_unstarted` for a cancelled Duel (it never had permissions) | anyone |
+| commit | TEE | `close_match` (closes permissions, commit + undelegate), or `close_unstarted` for a cancelled Duel (it never had permissions) | anyone |
 | settle | base | `finalize` (CPI `settle_match`, or `refund_match` for a draw or cancel) | anyone |
 
-Trades are signed by the Account's wallet signer without a prompt (embedded or dev wallet), as in Hold'em; there is no separate session key.
+Picks are signed by the Account's wallet signer without a prompt (embedded or dev wallet), as in Hold'em; there is no separate session key. Both Players' apps and the keeper call `tick`.
 
 ## Known gaps
 
-- Inside the 4 s end grace the first caller of `end_match` picks among a few ticks; later calls use the last recorded mid (above).
-- Liquidation is at the next price read, not at the trigger price.
-- The fill log keeps the last 64 fills per Player; the trade count is exact.
-- The Lead is public and reveals who is ahead by 50 Chips or more, by design.
+- `set_pick` does not record a price sample or reveal columns; the next `tick` (or `end_match`) does, so a locked pick stays unrevealed until then.
+- A column's range only holds the prices that were sampled. Between two samples the price is not observed, so a brief move that happened and reversed between two ticks is not a hit. Clients tick about four times a second (a call is never sent while the last is in flight, and failures back off), which matches the feed, whose reading changes several times a second.
 - Programs are devnet only; the feeds are devnet rollup copies.
-
-## Devnet evidence (Solana devnet + MagicBlock devnet TEE, 2026-10-03)
-
-Program `trading_duel` `CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj`. Players are test wallets funded with simulated Gemas (a stand-in Position and Advance each). TEE transactions are private (no public explorer page). Signatures are shortened here (the pre-commit hook refuses full ones); the full set per run is written by `programs/trading_duel/scripts/play.ts` to `evidence-<mode>.json` (git-ignored).
-
-**Scripted, every on-chain step** (`play.ts`, through the same client the app uses; each run checks: both entries in escrow, Duel starts with a 300 s window, the Duel is readable by an outsider, a Player reads null for the opponent's Book and their own Book normally, positions open with the spread, the public Duel shows only the lead and trade counts, the Match ends, `finalize` settles by CPI, the winner's Gemas move, both Books become public with every fill):
-
-| Run | Asset | Match id | Outcome | Notable steps |
-|---|---|---|---|---|
-| full | SOL | `14327732236408` | seat 1 won, equity 10,021 to 9,911 | `create_match` `3qH6vvBr...`, `end_match` `5GmZtxgj...`, `finalize` `5XF6JLJQ...` |
-| full | HYPE | `14327742202396` | seat 0 won, 9,993 to 9,971; winner 74,000 to 74,450 Gemas (entry 500, fee 50) | `delegate_match` `eJmJ6jW9...`, `end_match` `31v97Z6H...`, `finalize` `4bQvNXWs...` |
-| draw | ETH | `14327736067186` | nobody traded, 10,000 each, `refund_match`, both entries back | `finalize` `46iXXPDj...` |
-| no-show | SOL | `14327749974168` | created and delegated, never started: `claim_timeout` after the start deadline, `close_unstarted`, `finalize` refunds both entries | `claim_timeout` `3ktUCjz7...`, `finalize` `3q1th5ia...` |
-
-**After the end-price pinning upgrade** (deploy `4gXAxxgD...mt8De`; 2 s staleness, 28 LiteSVM tests): full ETH Match `on time` (`end_match` inside the grace, final price 2,668.78, seat 1 won 9,992 to 9,968) and a HYPE Match with `end_match` called 8 s after the end, which settled at the last mid recorded in the window (86.335, not the live feed; seat 1 won 9,996 to 9,966). No trade was refused as stale in either run.
-
-**In the browser** (`app/scripts/qa-trading-duel.mjs`, two dev wallets, Player A on a 1440 desktop and Player B on a 390 phone, Queue entry, then everything driven by the clients: create, delegate, start, trades, `tick`, `end_match`, `close_match`, `finalize`):
-
-- ETH Queue Match `14327757396330`: A long 5x, B short 5x, A closed. Final equity 9,986 (A) to 9,995 (B); A lost 500 Gemas, B won; both fill histories shown on the result.
-- SOL Queue Match `14327753137600`: both traded; the clients were closed before the end, so the Match was ended, committed and settled by a script standing in for the keeper (`end_match`, `close_match`, `finalize`), seat 1 won 9,996 to 9,990.
-- HYPE draw `14327762412308`: nobody traded, "Refunded, equal equity: a draw, both entries refunded", entries back.
-- **Backed** (`app/scripts/qa-trading-duel-backed.mjs`, three wallets): a Player with no Gemas posted a Request for Trading Duel, a Backer answered with an Offer (40% share), the Player accepted and entered the Queue under the Backing, an opponent joined, SOL Match `14327772171784`. The backed Player won 9,996 to 9,993; split on the result: Backer's entry 1,000 back first, fees 100 from the loser, surplus 900 as 360 to the Player and 540 to the Backer; "You never owe anything". A third wallet viewing the Match sees it as a spectator with both fill histories. The accepted Backing card now carries an asset picker (SOL, ETH, HYPE) that goes into the Queue and Challenge links; a second Backed Match on **ETH** (`14327796196930`) was driven the same way and the backed Player won with the same split.
-
-Screens in `app/docs/screens/trading-duel-live-*.png` (position, closed, result for both Players, backed Request, Offer, accepted Backing, result and spectator view) and `trading-duel-practice-*.png`.
-
-**What this showed about the rollup**
-
-- The feed accounts update about once a second on both the devnet rollup and the TEE, and a program in the TEE reads them natively; the ER clock matched the oracle's publish time (a `5 s` staleness bound never fired; later tightened to 2 s, see above).
-- The public Duel can be read without a token (its permission is not private); a Book reads as null for anyone but its Player. A Player's token read of the opponent's Book also returns null.
-- `close_match` on a Duel that never started failed ("illegally used as writable": its permission accounts do not exist), so a cancelled Duel is committed by `close_unstarted` instead. The program was upgraded in place for it (slot 506736837).
-- `close_match` uses about 150,000 CU (the default limit is 200,000); the client sends 400,000. `GetCommitmentSignature` can race the commit, so the client does not depend on it.
 
 ## Verification
 
-`cargo test -p trading_duel`: engine unit tests plus LiteSVM tests against the real `trading_duel.so` and `tesoro_core.so`. LiteSVM has no delegation or permission programs, so `init_permissions` and `close_match` are stood in for by writing the state they produce.
+`cargo test -p trading_duel`: engine unit tests against the shared fixture plus LiteSVM tests against the real `trading_duel.so` and `tesoro_core.so` (picks before and after the lock, reveal on lock, sampling, `end_match` then `finalize` paying the winner or refunding a draw, a non-player refused). LiteSVM has no delegation or permission programs, so `init_permissions` and `close_match` are stood in for by writing the state they produce. `app/src/games/trading-duel/grid.test.ts` runs the same fixture.
+
+The grid version of the program has not been deployed to devnet yet; the earlier leveraged version's devnet evidence was removed with it.

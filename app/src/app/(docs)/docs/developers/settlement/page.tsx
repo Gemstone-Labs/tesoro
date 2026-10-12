@@ -57,7 +57,7 @@ export default function Page() {
       <ol>
         <li>A program id and an <b>authority</b>: a PDA of the Game program is the norm (seeds <code>[&quot;authority&quot;]</code>), signing by <code>invoke_signed</code>. A server key also works but is the weaker trust boundary.</li>
         <li>Registration by the admin: <code>register_game(game, authority, studio_bps)</code>. Up to 8 Games can be registered. Platform plus Studio Fee together are capped at 5,000 bps.</li>
-        <li>A way to compute the winner from state the Game controls. Block Puzzle replays moves against the Seed; Hold&apos;em plays out the chips; Trading Duel marks both books at a pinned final price.</li>
+        <li>A way to compute the winner from state the Game controls. Block Puzzle replays moves against the Seed; Hold&apos;em plays out the chips; Trading Duel scores both Books&apos; picks against the recorded price line, closed by a pinned final price.</li>
         <li>Liveness: timeouts and forfeits enforced by the program, with <code>extend_match_deadline</code> where the Game&apos;s own clock exceeds the one-hour default.</li>
       </ol>
       <Code label="rust, abridged">{CPI}</Code>

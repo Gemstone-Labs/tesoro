@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeMid, isStale, pushPoint, usdToMid, midToUsd } from "./feed";
+import { PriceStore, decodeMid, isStale, midToUsd, perSecond, usdToMid } from "./feed";
 
 function feedData(price: bigint, exp: number, published: bigint): Uint8Array {
   const b = new Uint8Array(134);
@@ -26,20 +26,64 @@ describe("decodeMid", () => {
   });
 });
 
-describe("pushPoint", () => {
-  it("ignores out-of-order points and caps the length", () => {
-    let s = pushPoint([], { t: 10, p: 1 });
-    s = pushPoint(s, { t: 5, p: 2 });
-    expect(s).toHaveLength(1);
-    for (let i = 0; i < 50; i++) s = pushPoint(s, { t: 20 + i, p: i }, 10);
-    expect(s).toHaveLength(10);
-    expect(s[9].p).toBe(49);
+describe("PriceStore", () => {
+  const mid = (usd: number) => usdToMid(usd);
+  it("keeps a point for every price change, even inside one feed second", () => {
+    const st = new PriceStore();
+    for (let i = 0; i < 20; i++) st.ingest(mid(100 + (i % 3) * 0.01), 1000, 10_000 + i * 50);
+    expect(st.points.length).toBeGreaterThanOrEqual(20);
+    expect(st.readings).toBe(20);
+    expect(st.tick?.receivedAt).toBe(10_000 + 19 * 50);
   });
-  it("drops points past the age window", () => {
-    let s = pushPoint([], { t: 0, p: 1 }, 100, 1000);
-    s = pushPoint(s, { t: 500, p: 2 }, 100, 1000);
-    s = pushPoint(s, { t: 2000, p: 3 }, 100, 1000);
-    expect(s.map((p) => p.p)).toEqual([3]);
+  it("refreshes the head on a reading that changed nothing, without a new point", () => {
+    const st = new PriceStore();
+    st.ingest(mid(100), 1, 1000);
+    const rev = st.rev;
+    st.ingest(mid(100), 1, 1100);
+    expect(st.points).toHaveLength(1);
+    expect(st.rev).toBe(rev);
+    expect(st.tick?.receivedAt).toBe(1100);
+  });
+  it("holds a quiet price flat instead of leaving a ramp to the next move", () => {
+    const st = new PriceStore();
+    st.ingest(mid(100), 1, 1000);
+    st.ingest(mid(101), 5, 5000);
+    expect(st.points.map((x) => [x.t, x.p])).toEqual([
+      [1000, 100],
+      [4999, 100],
+      [5000, 101],
+    ]);
+  });
+  it("keeps a whole game at the feed's top rate and drops the oldest in chunks", () => {
+    const st = new PriceStore();
+    for (let i = 0; i < 3600; i++) st.ingest(mid(100 + (i % 2) * 0.01), 0, i * 50);
+    expect(st.points.length).toBe(3600);
+    for (let i = 3600; i < 12_000; i++) st.ingest(mid(100 + (i % 2) * 0.01), 0, i * 50);
+    expect(st.points.length).toBeLessThanOrEqual(8500);
+    expect(st.points[st.points.length - 1].t).toBe(11_999 * 50);
+  });
+  it("calls listeners for every reading and ignores a reading older than the head", () => {
+    const st = new PriceStore();
+    const seen: number[] = [];
+    const off = st.onUpdate((t) => seen.push(t.receivedAt));
+    st.ingest(mid(100), 1, 1000);
+    st.ingest(mid(100), 1, 1050);
+    off();
+    st.ingest(mid(100), 1, 1100);
+    st.ingest(mid(101), 1, 1000);
+    expect(seen).toEqual([1000, 1050]);
+    expect(st.points.every((x, i, a) => !i || x.t > a[i - 1].t)).toBe(true);
+    expect(st.tick?.receivedAt).toBe(1100);
+  });
+});
+
+describe("perSecond", () => {
+  it("thins a dense series to one reading a second, newest last", () => {
+    const pts = Array.from({ length: 101 }, (_, i) => ({ t: i * 100, p: i }));
+    const out = perSecond(pts);
+    expect(out[out.length - 1]).toBe(100);
+    expect(out).toHaveLength(11);
+    expect(out[0]).toBe(0);
   });
 });
 

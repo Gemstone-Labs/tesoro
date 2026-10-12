@@ -25,6 +25,7 @@ interface Slide {
 const SLIDES: Slide[] = [
   { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero },
   { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true },
+  { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero },
 ];
 
 const ADVANCE_MS = 7000;

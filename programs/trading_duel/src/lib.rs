@@ -1,11 +1,12 @@
-//! Trading Duel: a head-to-head, real-time trading Match on a live oracle price, as a Tesoro Game.
+//! Trading Duel: a head-to-head price grid on a live oracle price, as a Tesoro Game.
 //!
-//! One Match is a five-minute window on one asset (SOL, ETH or HYPE; the asset is encoded in
-//! the Match id). Each Player trades one position at a time with 1x to 20x leverage against the
-//! on-chain MagicBlock/Pyth Lazer price, from the same Chips stack. The Duel (public: only a coarse
-//! lead and trade counts) and the two Books (each readable only by its Player) are delegated to a
-//! MagicBlock Private Ephemeral Rollup. When the window closes, positions are marked at the final
-//! oracle price; the higher equity wins the Pot through tesoro_core, equal equity refunds it.
+//! One Match is 2.5 minutes on one asset (SOL, ETH or HYPE; the asset is encoded in the Match id).
+//! The grid has 12 columns of 10 seconds and unbounded price bands anchored on the price when the
+//! Match starts. Each Player picks one band per column; a column locks 10 seconds before its window,
+//! and both picks are then revealed. A pick hits when the live price line crosses its band during the
+//! column, for 100 points; more points wins the Pot through tesoro_core, equal points refunds it.
+//! The Duel (public: the line, revealed picks and scores) and the two Books (each Player's picks,
+//! readable only by that Player) are delegated to a MagicBlock Private Ephemeral Rollup.
 //!
 //! Layers: tesoro_core open/join on base, then `create_match` + `delegate_match` on base,
 //! everything else in the rollup, `close_match` in the rollup, `finalize` on base.
@@ -62,24 +63,16 @@ pub enum DuelError {
     NotLive,
     #[msg("Match already started")]
     AlreadyStarted,
-    #[msg("Trading is not open")]
-    TradingClosed,
-    #[msg("The trading window has not ended")]
+    #[msg("The grid is not open")]
+    GridClosed,
+    #[msg("The grid window has not ended")]
     NotEnded,
-    #[msg("Leverage must be 1 to 20")]
-    InvalidLeverage,
-    #[msg("Margin is below the minimum")]
-    MarginTooSmall,
-    #[msg("Not enough free Chips")]
-    NotEnoughChips,
-    #[msg("A position is already open")]
-    PositionOpen,
-    #[msg("Side must be long or short")]
-    InvalidSide,
+    #[msg("Column out of range")]
+    InvalidColumn,
+    #[msg("That column is locked")]
+    ColumnLocked,
     #[msg("Unknown asset")]
     InvalidAsset,
-    #[msg("The oracle price is outside the end-of-window grace")]
-    EndPriceOutOfWindow,
     #[msg("Not the price feed of this Match's asset")]
     BadPriceFeed,
     #[msg("The oracle price is stale or in the future")]
@@ -88,6 +81,8 @@ pub enum DuelError {
     BadPrice,
     #[msg("Deadline has not passed")]
     NotTimedOut,
+    #[msg("The start deadline has passed")]
+    StartWindowPassed,
     #[msg("The tesoro_core Match is not an Active Match of this Game")]
     BadTesoroMatch,
     #[msg("The Match is not over")]
@@ -103,13 +98,8 @@ pub enum DuelError {
 impl From<EngineError> for DuelError {
     fn from(e: EngineError) -> Self {
         match e {
-            EngineError::Overflow => DuelError::Overflow,
-            EngineError::BadPrice => DuelError::BadPrice,
-            EngineError::InvalidLeverage => DuelError::InvalidLeverage,
-            EngineError::MarginTooSmall => DuelError::MarginTooSmall,
-            EngineError::NotEnoughChips => DuelError::NotEnoughChips,
-            EngineError::PositionOpen => DuelError::PositionOpen,
-            EngineError::NoPosition | EngineError::InvalidSide => DuelError::InvalidSide,
+            EngineError::BadColumn => DuelError::InvalidColumn,
+            EngineError::Locked => DuelError::ColumnLocked,
         }
     }
 }
@@ -159,48 +149,36 @@ pub fn read_price(feed: &AccountInfo, asset: u8, now: i64) -> Result<u64> {
     Ok(price)
 }
 
-/// `publish_time` of a feed already validated by `read_price`.
-fn published_at(feed: &AccountInfo) -> Result<i64> {
-    let data = feed.try_borrow_data()?;
-    Ok(i64::from_le_bytes(
-        data[93..101].try_into().map_err(|_| DuelError::BadPrice)?,
-    ))
-}
-
-fn seat_of(duel: &Duel, key: &Pubkey) -> Result<usize> {
-    duel.players
-        .iter()
-        .position(|p| p == key)
-        .ok_or_else(|| error!(DuelError::NotAPlayer))
-}
-
-fn require_trading(duel: &Duel, now: i64) -> Result<()> {
+/// Seconds since the Match started. The grid is open from the start until `ends_at`.
+fn require_grid(duel: &Duel, now: i64) -> Result<i64> {
     require!(duel.status == STATUS_LIVE, DuelError::NotLive);
     require!(
-        now >= duel.starts_at && now <= duel.ends_at,
-        DuelError::TradingClosed
+        now >= duel.starts_at && now < duel.ends_at,
+        DuelError::GridClosed
     );
-    Ok(())
+    Ok(now - duel.starts_at)
 }
 
-/// Seconds since trading opened, for the fill log.
-fn since_start(duel: &Duel, now: i64) -> u32 {
-    u32::try_from(now.saturating_sub(duel.starts_at).max(0)).unwrap_or(u32::MAX)
-}
-
-/// Marks both Books at `mid`: due liquidations are executed, then the coarse lead is refreshed.
-fn mark(duel: &mut Duel, books: [&mut Book; 2], mid: u64, now: i64) -> Result<[u64; 2]> {
-    let t = since_start(duel, now);
-    let mut equity = [0u64; 2];
-    for (i, book) in books.into_iter().enumerate() {
-        eng(engine::liquidate_if_due(book, mid, t))?;
-        equity[i] = eng(engine::equity(book, mid))?;
-        duel.trades[i] = book.trades;
+/// Copies the picks of every locked column from both Books into the public Duel.
+fn reveal(duel: &mut Duel, books: [&Book; 2], t: i64) {
+    for c in 0..COLUMNS {
+        if t >= engine::lock_at(c) {
+            for (seat, book) in books.iter().enumerate() {
+                duel.revealed[seat][c] = book.picks[c];
+            }
+        }
     }
-    duel.lead = engine::lead(equity);
-    duel.last_tick = now;
-    duel.final_price = mid;
-    Ok(equity)
+}
+
+/// Re-scores the columns that are final at `t`.
+fn rescore(duel: &mut Duel, t: i64) {
+    duel.scores = engine::score(
+        &duel.track,
+        &duel.revealed,
+        duel.anchor,
+        duel.step,
+        engine::columns_done(t),
+    );
 }
 
 #[ephemeral]
@@ -288,19 +266,23 @@ pub mod trading_duel {
             ..Duel::default()
         };
 
-        // The Books are created zeroed; an all-zero fill log is the empty log.
+        // The Books are created zeroed; an all-zero pick would be band 0, so mark them empty.
         let book_0 = &mut ctx.accounts.book_0;
-        book_0.bump = ctx.bumps.book_0;
-        book_0.duel = duel_key;
-        book_0.player = players[0];
-        book_0.seat = 0;
-        book_0.cash = START_CHIPS;
+        ***book_0 = Book {
+            bump: ctx.bumps.book_0,
+            duel: duel_key,
+            player: players[0],
+            seat: 0,
+            ..Book::default()
+        };
         let book_1 = &mut ctx.accounts.book_1;
-        book_1.bump = ctx.bumps.book_1;
-        book_1.duel = duel_key;
-        book_1.player = players[1];
-        book_1.seat = 1;
-        book_1.cash = START_CHIPS;
+        ***book_1 = Book {
+            bump: ctx.bumps.book_1,
+            duel: duel_key,
+            player: players[1],
+            seat: 1,
+            ..Book::default()
+        };
         Ok(())
     }
 
@@ -327,18 +309,24 @@ pub mod trading_duel {
     }
 
     /// Rollup. Creates the permissions (the Duel is public, each Book private to its Player) and
-    /// starts the Match: trading opens after a short countdown and runs for five minutes.
+    /// starts the Match: the anchor price is read from the feed and recorded as the first sample,
+    /// the line enters the grid after the head start, and the Match runs for 2.5 minutes.
     pub fn init_permissions(ctx: Context<InitPermissions>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let duel = &mut ctx.accounts.duel;
         require!(duel.status == STATUS_CREATED, DuelError::AlreadyStarted);
-        require!(now <= duel.start_deadline, DuelError::NotTimedOut);
+        require!(now <= duel.start_deadline, DuelError::StartWindowPassed);
+        let anchor = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
         duel.status = STATUS_LIVE;
-        duel.starts_at = now.checked_add(COUNTDOWN_SECS).ok_or(DuelError::Overflow)?;
-        duel.ends_at = duel
-            .starts_at
-            .checked_add(DURATION_SECS)
+        duel.starts_at = now;
+        duel.grid_at = now
+            .checked_add(HEAD_START_SECS)
             .ok_or(DuelError::Overflow)?;
+        duel.ends_at = now.checked_add(MATCH_SECS).ok_or(DuelError::Overflow)?;
+        duel.anchor = anchor;
+        duel.step = engine::step_for(anchor, STEP_PPM[duel.asset as usize]);
+        duel.track.record(0, anchor);
+        duel.last_tick = now;
 
         let players = duel.players;
         let duel_key = duel.key();
@@ -395,107 +383,59 @@ pub mod trading_duel {
         Ok(())
     }
 
-    /// Rollup. Opens a position of `margin` Chips at `leverage`, filled at the oracle price plus
-    /// the spread. Both Books are first marked, so a due liquidation is recorded (not reverted).
-    pub fn open_position(ctx: Context<Trade>, side: u8, margin: u64, leverage: u8) -> Result<()> {
+    /// Rollup. Picks `band` (signed; 0 starts at the anchor) for `column`, or clears the pick with
+    /// `NO_PICK`. Only a Player, only until 10 seconds before the column starts. The pick stays in
+    /// the Player's own Book until the column locks.
+    pub fn set_pick(ctx: Context<SetPick>, column: u8, band: i16) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
-        let duel = &mut ctx.accounts.duel;
-        let seat = seat_of(duel, &ctx.accounts.player.key())?;
-        require_trading(duel, now)?;
-        let mid = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
-        let t = since_start(duel, now);
-        let (b0, b1) = (&mut ctx.accounts.book_0, &mut ctx.accounts.book_1);
-        let mine: &mut Book = if seat == 0 { b0 } else { b1 };
-        eng(engine::liquidate_if_due(mine, mid, t))?;
-        eng(engine::open(mine, side, margin, leverage, mid, t))?;
-        mark(
-            duel,
-            [&mut ctx.accounts.book_0, &mut ctx.accounts.book_1],
-            mid,
-            now,
-        )?;
-        Ok(())
-    }
-
-    /// Rollup. Closes the open position. A position liquidated by the mark just before is not an
-    /// error: the liquidation stands and nothing more is closed.
-    pub fn close_position(ctx: Context<Trade>) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
-        let duel = &mut ctx.accounts.duel;
-        let seat = seat_of(duel, &ctx.accounts.player.key())?;
-        require_trading(duel, now)?;
-        let mid = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
-        let t = since_start(duel, now);
-        let (b0, b1) = (&mut ctx.accounts.book_0, &mut ctx.accounts.book_1);
-        let mine: &mut Book = if seat == 0 { b0 } else { b1 };
-        if !eng(engine::liquidate_if_due(mine, mid, t))? && mine.side != SIDE_FLAT {
-            eng(engine::close(mine, mid, t, FILL_CLOSE))?;
+        let duel = &ctx.accounts.duel;
+        require!(duel.status == STATUS_LIVE, DuelError::NotLive);
+        require!(now >= duel.starts_at, DuelError::GridClosed);
+        let t = now - duel.starts_at;
+        eng(engine::check_pick(column as usize, t))?;
+        let book = &mut ctx.accounts.book;
+        let slot = book.picks[column as usize];
+        match (slot == NO_PICK, band == NO_PICK) {
+            (true, false) => book.pick_count += 1,
+            (false, true) => book.pick_count -= 1,
+            _ => {}
         }
-        mark(
-            duel,
-            [&mut ctx.accounts.book_0, &mut ctx.accounts.book_1],
-            mid,
-            now,
-        )?;
+        book.picks[column as usize] = band;
         Ok(())
     }
 
-    /// Rollup, permissionless. Marks both Books at the current oracle price: executes due
-    /// liquidations and refreshes the coarse lead.
-    pub fn tick(ctx: Context<Trade>) -> Result<()> {
+    /// Rollup, permissionless. Samples the oracle into the current column, reveals the picks of
+    /// every column that has locked, and scores the columns that are over. Clients call it
+    /// about four times a second; a sample is always a real price, so extra calls cannot fake a hit.
+    pub fn tick(ctx: Context<Sample>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let duel = &mut ctx.accounts.duel;
-        require_trading(duel, now)?;
-        let mid = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
-        mark(
-            duel,
-            [&mut ctx.accounts.book_0, &mut ctx.accounts.book_1],
-            mid,
-            now,
-        )?;
+        let t = require_grid(duel, now)?;
+        let price = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
+        duel.track.record(t, price);
+        reveal(duel, [&ctx.accounts.book_0, &ctx.accounts.book_1], t);
+        rescore(duel, t);
+        duel.last_tick = now;
         Ok(())
     }
 
-    /// Rollup, permissionless. Once the window has closed: marks both Books at the first oracle
-    /// price published within `END_GRACE_SECS` after the end (or, if called later, at the last mid
-    /// recorded during the window), closes any open position with a final fill, and
-    /// decides the Match: the higher equity wins, equal equity is a draw.
-    pub fn end_match(ctx: Context<Trade>) -> Result<()> {
+    /// Rollup, permissionless. Once the window has closed: carries the line forward through any
+    /// column it did not reach, scores every column and decides the Match: more points wins,
+    /// equal points is a draw. It reads no price, so the result is the same whoever ends the
+    /// Match and whenever they do.
+    pub fn end_match(ctx: Context<EndMatch>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let duel = &mut ctx.accounts.duel;
         require!(duel.status == STATUS_LIVE, DuelError::NotLive);
         require!(now >= duel.ends_at, DuelError::NotEnded);
-        let grace_end = duel
-            .ends_at
-            .checked_add(END_GRACE_SECS)
-            .ok_or(DuelError::Overflow)?;
-        // On time: the first price published inside [ends_at, ends_at + grace]. Late: the last
-        // mid recorded during the window, so waiting for a better tick cannot change the result.
-        let mid = if now > grace_end {
-            duel.final_price
-        } else {
-            let mid = read_price(&ctx.accounts.price_feed, duel.asset, now)?;
-            let published = published_at(&ctx.accounts.price_feed)?;
-            require!(published >= duel.ends_at, DuelError::NotEnded);
-            require!(published <= grace_end, DuelError::EndPriceOutOfWindow);
-            mid
-        };
-        let t = since_start(duel, duel.ends_at);
-        let mut equity = [0u64; 2];
-        for (i, book) in [&mut ctx.accounts.book_0, &mut ctx.accounts.book_1]
-            .into_iter()
-            .enumerate()
-        {
-            if !eng(engine::liquidate_if_due(book, mid, t))? && book.side != SIDE_FLAT {
-                eng(engine::close(book, mid, t, FILL_FINAL))?;
-            }
-            equity[i] = book.cash;
-            duel.trades[i] = book.trades;
-        }
-        duel.final_equity = equity;
-        duel.final_price = mid;
-        duel.winner = engine::winner(equity);
-        duel.lead = engine::lead(equity);
+        duel.track.finish();
+        reveal(
+            duel,
+            [&ctx.accounts.book_0, &ctx.accounts.book_1],
+            MATCH_SECS,
+        );
+        rescore(duel, MATCH_SECS);
+        duel.winner = engine::winner(duel.scores);
         duel.last_tick = now;
         duel.status = STATUS_OVER;
         Ok(())
@@ -514,7 +454,7 @@ pub mod trading_duel {
 
     /// Rollup. After the Match is over: closes the permissions and commits + undelegates
     /// everything. The Books are not wiped: once committed they are public, which is how both
-    /// Players' fill histories become readable.
+    /// Players' picks become readable.
     pub fn close_match(ctx: Context<CloseMatch>) -> Result<()> {
         require!(
             ctx.accounts.duel.status == STATUS_OVER,
@@ -853,18 +793,45 @@ pub struct InitPermissions<'info> {
     /// CHECK: Magic Program
     #[account(address = MAGIC_PROGRAM_ID)]
     pub magic_program: UncheckedAccount<'info>,
+    /// CHECK: owner, address and feed id are validated against the Match's asset in `read_price`.
+    pub price_feed: UncheckedAccount<'info>,
 }
 
-/// Shared by every instruction that reads the price: `player` is the acting Player for
-/// `open_position` / `close_position` and any payer for `tick` / `end_match`.
 #[derive(Accounts)]
-pub struct Trade<'info> {
+pub struct SetPick<'info> {
     pub player: Signer<'info>,
+    #[account(seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    pub duel: Account<'info, Duel>,
+    #[account(
+        mut,
+        seeds = [BOOK_SEED, duel.key().as_ref(), &[book.seat]],
+        bump = book.bump,
+        constraint = book.player == player.key() @ DuelError::NotAPlayer
+    )]
+    pub book: Box<Account<'info, Book>>,
+}
+
+/// `caller` is any payer.
+#[derive(Accounts)]
+pub struct EndMatch<'info> {
+    pub caller: Signer<'info>,
     #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
     pub duel: Account<'info, Duel>,
-    #[account(mut, seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
+    #[account(seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
     pub book_0: Box<Account<'info, Book>>,
-    #[account(mut, seeds = [BOOK_SEED, duel.key().as_ref(), &[1]], bump = book_1.bump)]
+    #[account(seeds = [BOOK_SEED, duel.key().as_ref(), &[1]], bump = book_1.bump)]
+    pub book_1: Box<Account<'info, Book>>,
+}
+
+/// `tick`: `caller` is any payer.
+#[derive(Accounts)]
+pub struct Sample<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut, seeds = [DUEL_SEED, &duel.match_id.to_le_bytes()], bump = duel.bump)]
+    pub duel: Account<'info, Duel>,
+    #[account(seeds = [BOOK_SEED, duel.key().as_ref(), &[0]], bump = book_0.bump)]
+    pub book_0: Box<Account<'info, Book>>,
+    #[account(seeds = [BOOK_SEED, duel.key().as_ref(), &[1]], bump = book_1.bump)]
     pub book_1: Box<Account<'info, Book>>,
     /// CHECK: owner, address and feed id are validated against the Match's asset in `read_price`.
     pub price_feed: UncheckedAccount<'info>,

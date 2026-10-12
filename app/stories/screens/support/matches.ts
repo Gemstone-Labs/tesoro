@@ -2,8 +2,8 @@ import { PublicKey } from "@solana/web3.js";
 import { call, check, raise, PHASE, STATUS as HD_STATUS, type Action } from "@/games/holdem/chain";
 import type { HoldemView } from "@/games/holdem/useHoldemMatch";
 import { act, deal, newPractice, type Practice } from "@/games/holdem/practice/engine";
-import { ASSETS, FILL, LEAD, NO_WINNER, SIDE, STATUS, type Book, type Duel } from "@/games/trading-duel/chain";
-import { close, newLedger, open } from "@/games/trading-duel/math";
+import { ASSETS, NO_WINNER, STATUS, type Book, type Duel } from "@/games/trading-duel/chain";
+import { COLUMNS, MATCH_SECS, NO_PICK, STEP_PPM, finish, hits, lockAt, newTrack, record, stepFor, type Track } from "@/games/trading-duel/grid";
 import { usdToMid } from "@/games/trading-duel/feed";
 import type { DuelView } from "@/games/trading-duel/useDuelMatch";
 import { backed, match } from "@/lib/chain/fixture";
@@ -73,25 +73,48 @@ export function holdemOver(): Partial<HoldemView> {
 }
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
-const pct = (mid: bigint, bp: number) => (mid * BigInt(bp)) / 10_000n;
 
-function book(seat: 0 | 1, ledger: ReturnType<typeof newLedger>): Book {
-  return { address: key(60 + seat), duel: key(50), player: key(70 + seat), seat, ...ledger, fillCount: ledger.fills.length };
+function book(seat: 0 | 1, picks: number[]): Book {
+  return { address: key(60 + seat), duel: key(50), player: key(70 + seat), seat, picks, pickCount: picks.filter((r) => r !== NO_PICK).length };
 }
 
-/** A running Trading Duel: SOL, 90 s in, you hold a 5x long. */
-export function duelLive(kind: "countdown" | "flat" | "long"): Partial<DuelView> {
-  const mid = usdToMid(142.5);
-  const t0 = secs();
-  const startsAt = kind === "countdown" ? t0 + 5 : t0 - 90;
-  const l = kind === "long" ? open(close(open(newLedger(), SIDE.long, 1500n, 3, pct(mid, 9950), 15), pct(mid, 10040), 40).ledger, SIDE.long, 3000n, 5, pct(mid, 9920), 60) : newLedger();
+const ANCHOR = usdToMid(142.5);
+const STEP = stepFor(ANCHOR, STEP_PPM.SOL);
+const blank = () => Array.from({ length: COLUMNS }, () => NO_PICK);
+
+/** The line `t` seconds in: a slow swell around the start price, one sample a second. */
+function trackAt(t: number): Track {
+  let tr = record(newTrack(), 0, ANCHOR);
+  const price = (sec: number) => ANCHOR + BigInt(Math.round((Math.sin(sec / 9) * 1.6 + Math.sin(sec / 3.1) * 0.5) * Number(STEP)));
+  for (let sec = 1; sec < Math.min(t, MATCH_SECS); sec++) tr = record(tr, sec, price(sec));
+  return t >= MATCH_SECS ? finish(tr) : tr;
+}
+
+/** Everyone's picks `t` seconds in: yours for the columns you filled, the opponent's only for locked columns. */
+function picksAt(t: number, mine: number[], theirs: number[]) {
+  const lockedOnly = (p: number[]) => p.map((r, c) => (t >= lockAt(c) ? r : NO_PICK));
+  return { mine: mine.map((r, c) => (t < MATCH_SECS || c < COLUMNS ? r : NO_PICK)), revealed: [lockedOnly(mine), lockedOnly(theirs)] as [number[], number[]] };
+}
+
+const MINE = [0, 1, 0, -1, -1, 0, 1, 1, 0, -1, 0, 0];
+const THEIRS = [-1, 0, 2, -1, 1, -2, 1, 0, 0, -2, -1, 1];
+
+function gridDuel(t: number, over: Partial<Duel> = {}): { duel: Duel; mine: number[] } {
+  const track = trackAt(t);
+  const { mine, revealed } = picksAt(t, MINE.map((r, c) => (t < 20 + 10 * c && c > 2 + Math.floor(t / 10) ? NO_PICK : r)), THEIRS);
+  const startsAt = secs() - Math.floor(t);
+  const points = (picks: number[]) => picks.filter((r, c) => r !== NO_PICK && t >= 30 + 10 * (c + 1) && hits(track, c, r, ANCHOR, STEP)).length * 100;
   return {
-    stage: "live",
-    seat: 0,
-    asset: ASSETS[0],
-    duel: duel({ startsAt, endsAt: startsAt + 300, trades: [l.trades, 2], lead: kind === "long" ? LEAD.seat1 : LEAD.level }),
-    book: book(0, l),
+    mine,
+    duel: duel({ startsAt, gridAt: startsAt + 30, endsAt: startsAt + MATCH_SECS, anchor: ANCHOR, step: STEP, track, revealed, scores: [points(revealed[0]), points(revealed[1])], ...over }),
   };
+}
+
+/** A running Trading Duel on SOL: the head start (12 s in), mid game (84 s) or the last column (144 s). */
+export function duelLive(kind: "headstart" | "mid" | "last"): Partial<DuelView> {
+  const t = { headstart: 12, mid: 84, last: 144 }[kind];
+  const g = gridDuel(t);
+  return { stage: "live", seat: 0, asset: ASSETS[0], duel: g.duel, book: book(0, g.mine) };
 }
 
 export function duel(over: Partial<Duel> = {}): Duel {
@@ -106,22 +129,25 @@ export function duel(over: Partial<Duel> = {}): Duel {
     winner: NO_WINNER,
     startDeadline: secs() + 60,
     startsAt: secs() - 90,
-    endsAt: secs() + 210,
-    trades: [0, 0],
-    lead: LEAD.level,
+    gridAt: secs() - 60,
+    endsAt: secs() + 60,
+    anchor: ANCHOR,
+    step: STEP,
     lastTick: secs(),
-    finalPrice: 0n,
-    finalEquity: [0n, 0n],
+    track: newTrack(),
+    revealed: [blank(), blank()],
+    scores: [0, 0],
     ...over,
   };
 }
 
-/** A finished Duel with both fill histories; `won` is whether seat 0 (you) came out ahead. */
+/** A finished Duel; `won` is whether seat 0 (you) came out ahead. */
 export function duelSettled(won: boolean): Partial<DuelView> {
-  const mid = usdToMid(142.5);
-  const ahead = close(open(newLedger(), SIDE.long, 4000n, 5, pct(mid, 9900), 45), pct(mid, 10_060), 300, FILL.final).ledger;
-  const behind = close(open(newLedger(), SIDE.short, 3000n, 10, pct(mid, 10_000), 30), pct(mid, 10_060), 300, FILL.final).ledger;
-  const [mine, theirs] = won ? [ahead, behind] : [behind, ahead];
+  const t = MATCH_SECS + 30;
+  const track = trackAt(MATCH_SECS);
+  const sc = (picks: number[]) => picks.filter((r, c) => hits(track, c, r, ANCHOR, STEP)).length * 100;
+  const [mineP, theirsP] = won ? [MINE, THEIRS] : [THEIRS, MINE];
+  const startsAt = secs() - t;
   return {
     stage: "settled",
     seat: 0,
@@ -130,12 +156,12 @@ export function duelSettled(won: boolean): Partial<DuelView> {
       status: STATUS.over,
       finalized: true,
       winner: won ? 0 : 1,
-      startsAt: secs() - 330,
-      endsAt: secs() - 30,
-      trades: [mine.trades, theirs.trades],
-      finalPrice: pct(mid, 10_060),
-      finalEquity: [mine.cash, theirs.cash],
+      startsAt,
+      gridAt: startsAt + 30,
+      endsAt: startsAt + MATCH_SECS,
+      track,
+      revealed: [mineP, theirsP],
+      scores: [sc(mineP), sc(theirsP)],
     }),
-    finalBooks: [book(0, mine), book(1, theirs)],
   };
 }
