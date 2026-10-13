@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
-import { Button, CountUp, GemaMark } from "@/components/ui";
+import { Button, CountUp, GemaMark, GemaUsd } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
@@ -173,7 +173,9 @@ function Hero({ data, pool, remaining }: { data: LeaderboardView; pool: number; 
         <b className="pool-fig lb-hero-fig">
           <CountUp value={pool} duration={1200} />
         </b>
-        <span className="lb-hero-title">Gemas in the Leaderboard Pool</span>
+        <span className="lb-hero-title">
+          Gemas in the Leaderboard Pool{pool > 0 && <> <GemaUsd value={pool} /></>}
+        </span>
         <p>
           {data.feeBps > 0 ? `${data.feeBps / 100}% of every Pot goes in, from every Game.` : "The pool opens with the next upgrade."} The top{" "}
           {PRIZE_PLACES} share it every Monday.
@@ -191,7 +193,7 @@ function Hero({ data, pool, remaining }: { data: LeaderboardView; pool: number; 
           </span>
           {pool > 0 && (
             <span className="lb-hero-chip">
-              1st takes <GemaMark size={14} /> <b>{fmtGemas(prize(pool, 0))}</b>
+              1st takes <GemaMark size={14} /> <b>{fmtGemas(prize(pool, 0))}</b> <GemaUsd value={prize(pool, 0)} />
             </span>
           )}
         </div>
@@ -374,6 +376,7 @@ function Row({ r, pool, me }: { r: LeaderboardRow; pool: number; me: boolean }) 
           <span className="lb-prize">
             <GemaMark size={14} />
             <b>{fmtGemas(prize(pool, r.rank - 1))}</b>
+            <GemaUsd value={prize(pool, r.rank - 1)} />
           </span>
         ) : (
           <span className="lb-dim">—</span>

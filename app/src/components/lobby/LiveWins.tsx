@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { GemaMark } from "@/components/ui";
+import { GemaMark, GemaUsd } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { ago } from "@/lib/catalogue";
 import { useRecentSettled } from "@/lib/chain/useRecentSettled";
@@ -26,6 +26,7 @@ export function LiveWins() {
         <strong>
           <GemaMark size={15} />
           {fmtGemas(m.payout)}
+          <GemaUsd value={m.payout} />
         </strong>
         <span>
           {GAME_NAMES[m.game]}

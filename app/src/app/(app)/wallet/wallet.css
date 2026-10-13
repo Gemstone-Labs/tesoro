@@ -15,6 +15,8 @@
 .wl-redeemable b, .wl-pending b { font-size: clamp(30px, 2.6vw, 44px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.1; word-spacing: 0; }
 .wl-redeemable b { color: var(--em-hi); }
 .wl-redeemable .btn { margin-top: 8px; }
+.wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
+.wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: 15px; padding: 0; }
 .wl-pbs { grid-column: 1 / -1; border-top: 1px solid rgba(45, 190, 140, 0.25); padding-top: 14px; display: grid; gap: 10px; }
 .wl-pbs summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--fg-2); }
 .wl-pbs[open] summary { color: var(--fg); }

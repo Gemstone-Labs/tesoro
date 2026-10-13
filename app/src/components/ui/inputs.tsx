@@ -4,7 +4,7 @@ import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import type { EntrySize } from "@/lib/mock/types";
 import { fmtGemas } from "@/lib/format";
-import { GemaMark } from "./gema";
+import { GemaMark, GemaUsd } from "./gema";
 import { XIcon } from "./icons";
 
 export const ENTRY_SIZES: readonly EntrySize[] = [500, 1000, 2500];
@@ -105,7 +105,10 @@ export function EntryPicker({
           <input type="radio" name={group} value={size} checked={value === size} disabled={off(size)} onChange={() => onChange(size)} />
           <span className="cut">
             <GemaMark size={15} />
-            {fmtGemas(size)}
+            <span className="entry-fig">
+              {fmtGemas(size)}
+              <GemaUsd value={size} />
+            </span>
           </span>
         </label>
       ))}

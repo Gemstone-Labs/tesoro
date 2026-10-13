@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { Button, CheckIcon, CountUp, GemaMark, MinusIcon, SimulatedYieldLabel, XIcon, type BustName } from "@/components/ui";
+import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, SimulatedYieldLabel, XIcon, type BustName } from "@/components/ui";
 import { art } from "@/lib/art";
 import { pointsForWin } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
@@ -132,6 +132,7 @@ export function MatchResult(p: MatchResultProps) {
                 <Odometer text={amount} delay={won ? 650 : 500} className={won ? "facet" : ""} />
                 <small>Gemas{neutral ? " back" : ""}</small>
               </span>
+              <GemaUsd className="mr-usd" value={neutral ? p.entry : Math.abs(delta)} />
             </div>
             <div className="mr-in mr-notes" style={{ "--d": "1400ms" } as Css}>
               {won && (

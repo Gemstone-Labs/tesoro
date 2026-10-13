@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Card, ChainChip, FacetCrown, GemaMark, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
+import { Button, Card, ChainChip, FacetCrown, GemaMark, GemaUsd, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { fmtAsset, fmtGemas } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
@@ -150,17 +150,20 @@ export default function Wallet() {
             <GemaMark size={72} glint />
             <b aria-busy={!ready}>{ready ? <CountUp value={gemas.total} /> : "—"}</b>
             <span>Gemas</span>
+            {ready && <GemaUsd className="wl-usd" value={gemas.total} />}
           </div>
         </div>
         <div className="wl-second">
           <div className="wl-redeemable" aria-label="Redeemable now">
             <h2>Redeemable now</h2>
             <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>
+            {ready && <GemaUsd className="wl-usd" value={redeemAmount} />}
             <Button variant="money" disabled={redeemAmount === 0} onClick={openRedeem}>Redeem</Button>
           </div>
           <div className="wl-pending" aria-label="Pending">
             <h2>Pending</h2>
             <b>{ready ? fmtGemas(gemas.pending) : "—"}</b>
+            {ready && <GemaUsd className="wl-usd" value={gemas.pending} />}
           </div>
         </div>
         {error && (
