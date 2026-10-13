@@ -1,16 +1,15 @@
-import { BN } from "@coral-xyz/anchor";
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
-import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, TESORO_CORE_PROGRAM_ID } from "@/games/block-puzzle/chain";
+import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/chain";
 import { TRADING_DUEL_PROGRAM_ID, addresses as duelAddresses } from "@/games/trading-duel/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain, getHoldem, getTradingDuel } from "./client";
 import { assetIndexOf, matchOpenedAt } from "./match-id";
-import { debtGemas, debtUnits, instantSplit, redeemableFor, type SourceMath } from "./ledger";
 import { fetchLeaderboardTerms } from "./leaderboard";
 import { leaderboardBpsFor } from "./season";
-import { parseEthPositionId } from "./eth";
-import { SIM_SOL_MINT, custodyPda, fetchNativeInfo, fetchNativeMarket, vaultPda, type NativeInfo, type NativeMarket } from "./native";
+import { readAccountState } from "./account-state";
+import { fetchRoutedState } from "./snapshot-wire";
+import type { NativeInfo, NativeMarket } from "./native";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
@@ -137,7 +136,6 @@ export interface AccountSnapshot {
   fetchedAt: number;
 }
 
-const ASSETS = ["SOL", "ETH", "HYPE"] as const;
 const enumKey = (o: object) => Object.keys(o)[0];
 const isChallengeId = (id: bigint) => (id & 1n) === 1n;
 
@@ -147,17 +145,6 @@ export function gameOf(game: PublicKey): GameId | null {
   if (game.equals(HOLDEM_PROGRAM_ID)) return "holdem";
   if (game.equals(TRADING_DUEL_PROGRAM_ID)) return "trading-duel";
   return null;
-}
-
-function sourceMath(inner: any): SourceMath {
-  return {
-    issued: big(inner.issued),
-    returned: big(inner.returned),
-    redeemed: big(inner.redeemed),
-    yieldUnits: big(inner.yieldUnits),
-    unitNum: big(inner.unitNum),
-    unitDen: big(inner.unitDen),
-  };
 }
 
 export function toChainMatch(state: any, me: PublicKey | null, session: any | null, table: any | null = null): ChainMatch {
@@ -398,10 +385,10 @@ export async function queueSeats(): Promise<Record<GameId, QueueSeat[]>> {
 }
 
 /** The full Account: its state, then its Matches. `onAccount` gets the state first, so Gemas show before the Match list is read. */
-export async function fetchSnapshot(authority: PublicKey, onAccount?: (s: AccountSnapshot) => void): Promise<AccountSnapshot> {
+export async function fetchSnapshot(authority: PublicKey, onAccount?: (s: AccountSnapshot) => void, opts: { fresh?: boolean } = {}): Promise<AccountSnapshot> {
   const matches = fetchAccountMatches(BlockPuzzleChain.coreAccount(authority));
   matches.catch(() => undefined);
-  const snap = await fetchAccountState(authority);
+  const snap = await fetchAccountState(authority, opts);
   if (!snap.exists) return { ...snap, matchesLoaded: true };
   onAccount?.(snap);
   const { played, funded } = await matches;
@@ -410,143 +397,26 @@ export async function fetchSnapshot(authority: PublicKey, onAccount?: (s: Accoun
 
 /**
  * The Account without its Matches (`matchesLoaded` false): SOL, Gemas, Positions and the simSOL market.
- * Three rounds of reads, each batching everything the previous one made known.
+ * Asks the server route first (one request; see server/snapshot.ts) and reads the chain itself when it
+ * fails or is slow. `fresh`: this tab just sent a transaction, so the server re-reads its lists first.
  */
-export async function fetchAccountState(authority: PublicKey): Promise<AccountSnapshot> {
+export async function fetchAccountState(authority: PublicKey, opts: { fresh?: boolean } = {}): Promise<AccountSnapshot> {
+  const routed = await fetchRoutedState(authority, opts);
+  if (routed) return routed;
   const chain = getChain();
-  const accountKey = BlockPuzzleChain.coreAccount(authority);
-  const lists = Promise.all([
-    chain.core.account.holdingState.all([{ memcmp: { offset: 9, bytes: accountKey.toBase58() } }]),
-    // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
-    chain.core.account.positionState.all([{ memcmp: { offset: 41, bytes: accountKey.toBase58() } }]),
-  ]);
-  lists.catch(() => undefined);
-  const [acct, lamports, market] = await Promise.all([
-    chain.core.account.tesoroAccount.fetchNullable(accountKey),
-    chain.base.getBalance(authority).catch(() => 0),
-    fetchNativeMarket(chain.base, authority).catch((e) => {
-      console.warn("native market", e);
-      return null;
-    }),
-  ]);
-  const empty: AccountSnapshot = {
-    exists: false,
-    accountKey,
-    lamports,
-    ownTotal: 0n,
-    wonTotal: 0n,
-    holdings: [],
-    positions: [],
-    matches: [],
-    matchesLoaded: false,
-    market,
-    funded: [],
-    fetchedAt: Date.now(),
-  };
-  if (!acct) return empty;
-  const [holdingRows, positionRows] = await lists;
-
-  const isNativePosition = (pos: any) => !!pos && pk(pos.inner.sourceAsset).equals(SIM_SOL_MINT) && enumKey(pos.inner.sourceChain) === "solana";
-  const sourceOf = (position: PublicKey, index: number) =>
-    PublicKey.findProgramAddressSync([Buffer.from("source"), position.toBuffer(), new BN(index).toArrayLike(Buffer, "le", 4)], TESORO_CORE_PROGRAM_ID)[0];
-  const heldSources = holdingRows.map((h: any) => pk(h.account.inner.source));
-  const withAdvance = (positionRows as any[]).filter((r) => r.account.inner.openAdvance !== null && r.account.inner.openAdvance !== undefined);
-  const ownNative = (positionRows as any[]).filter((r) => isNativePosition(r.account));
-  // The list route may answer from its cache (up to 2 min old): re-read each Holding so amounts are current after a return, entry or redeem.
-  const nativeInfo = Promise.all(ownNative.map((r) => fetchNativeInfo(chain.base, r.publicKey).catch(() => null)));
-  const [sources, freshHoldings, openSources] = await Promise.all([
-    heldSources.length ? chain.core.account.sourceState.fetchMultiple(heldSources) : [],
-    heldSources.length ? chain.core.account.holdingState.fetchMultiple(holdingRows.map((r: any) => r.publicKey)) : [],
-    withAdvance.length ? chain.core.account.sourceState.fetchMultiple(withAdvance.map((r) => sourceOf(r.publicKey, r.account.inner.openAdvance))) : [],
-  ]);
-
-  // Positions behind Gemas won or backed from other Accounts: read them with their native custody and vault in one batch.
-  const positionByKey = new Map<string, any>((positionRows as any[]).map((r) => [r.publicKey.toBase58(), r.account]));
-  const foreign = [...new Map<string, PublicKey>(sources.filter(Boolean).map((s: any) => [pk(s.inner.position).toBase58(), pk(s.inner.position)])).entries()]
-    .filter(([k]) => !positionByKey.has(k))
-    .map(([, key]) => key);
-  const foreignInfos = await accountInfos(foreign.flatMap((p) => [p, custodyPda(p), vaultPda(p)]));
-  const nativeKeys = new Set<string>();
-  foreign.forEach((key, i) => {
-    const [pos, cust, vault] = foreignInfos.slice(i * 3, i * 3 + 3);
-    const decoded = pos ? decodeOr(pos.data, (data) => chain.core.coder.accounts.decode("positionState", data)) : null;
-    positionByKey.set(key.toBase58(), decoded);
-    if (isNativePosition(decoded) && cust && vault) nativeKeys.add(key.toBase58());
-  });
-  const ownInfo = new Map<string, NativeInfo | null>((await nativeInfo).map((info, i) => [ownNative[i].publicKey.toBase58(), info]));
-  for (const [k, info] of ownInfo) if (info) nativeKeys.add(k);
-
-  const holdings: ChainHolding[] = [];
-  holdingRows.forEach((row: any, i: number) => {
-    const src: any = sources[i];
-    if (!src) return;
-    const h = ((freshHoldings[i] as any) ?? row.account).inner;
-    const amount = big(h.amount);
-    const reserved = big(h.reserved);
-    const free = amount - reserved;
-    const pos = positionByKey.get(pk(src.inner.position).toBase58());
-    const math = sourceMath(src.inner);
-    const native = nativeKeys.has(pk(src.inner.position).toBase58());
-    const redeemable = redeemableFor(math, free);
-    holdings.push({
-      holding: row.publicKey,
-      source: heldSources[i],
-      position: pk(src.inner.position),
-      isOwn: h.isOwn,
-      amount,
-      reserved,
-      free,
-      redeemable,
-      pending: h.isOwn ? 0n : native ? instantSplit(math, free).pending : free - redeemable,
-      sourceDebt: debtGemas(math),
-      unitNum: big(src.inner.unitNum),
-      unitDen: big(src.inner.unitDen),
-      sourceOwner: pk(src.inner.owner).toBase58(),
-      native,
-      eth: pos && ["ethereum", "hyperEvm"].includes(enumKey(pos.inner.sourceChain)) ? parseEthPositionId(Uint8Array.from(pos.positionId)) : null,
-      asset: ASSETS[pos ? ["solana", "ethereum", "hyperEvm"].indexOf(enumKey(pos.inner.sourceChain)) : 0] ?? "SOL",
-    });
-  });
-
-  const openSourceOf = new Map<string, any>(withAdvance.map((r, i) => [r.publicKey.toBase58(), openSources[i]]));
-  const positions: ChainPosition[] = (positionRows as any[]).map((row) => {
-    const p = row.account.inner;
-    const chainIdx = ["solana", "ethereum", "hyperEvm"].indexOf(enumKey(p.sourceChain));
-    const decimals = 10 ** p.decimals;
-    let advance: ChainAdvance | null = null;
-    let debt = 0;
-    const src: any = openSourceOf.get(row.publicKey.toBase58());
-    if (src) {
-      const m = sourceMath(src.inner);
-      advance = {
-        source: sourceOf(row.publicKey, p.openAdvance),
-        gemasIssued: Number(m.issued),
-        horizonMonths: src.inner.horizonMonths,
-        debtGemas: Number(debtGemas(m)),
-      };
-      debt = Number(debtUnits(m)) / decimals;
-    }
-    return {
-      address: row.publicKey,
-      asset: ASSETS[chainIdx] ?? "SOL",
-      principal: Number(big(p.principal)) / decimals,
-      apy: p.rateBps / 10_000,
-      status: enumKey(p.status) as "locked" | "unlocked",
-      advances: p.advances,
-      advance,
-      debt,
-      yieldAccrued: Number(big(p.cumulativeYield)) / decimals,
-      native: ownInfo.get(row.publicKey.toBase58()) ?? null,
-      eth: chainIdx >= 1 ? parseEthPositionId(Uint8Array.from(row.account.positionId)) : null,
-    };
-  });
-
-  return {
-    ...empty,
-    exists: true,
-    ownTotal: big(acct.inner.ownTotal),
-    wonTotal: big(acct.inner.wonTotal),
-    holdings,
-    positions,
-  };
+  return readAccountState(
+    {
+      lists: (key) =>
+        Promise.all([
+          chain.core.account.holdingState.all([{ memcmp: { offset: 9, bytes: key.toBase58() } }]),
+          // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
+          chain.core.account.positionState.all([{ memcmp: { offset: 41, bytes: key.toBase58() } }]),
+        ]),
+      infos: (keys) => chain.base.getMultipleAccountsInfo(keys),
+      balance: (a) => chain.base.getBalance(a),
+      decode: (name, data) => chain.core.coder.accounts.decode(name, data),
+    },
+    authority,
+    BlockPuzzleChain.coreAccount(authority),
+  );
 }

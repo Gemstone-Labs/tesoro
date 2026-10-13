@@ -181,6 +181,13 @@ export function createListCache(opts: ListCacheOptions = {}) {
   }
 
   return {
+    /** Marks the lists with these discriminators stale: the next read waits for a fresh upstream call (serving the old rows only if it fails). */
+    invalidate(discs: string[]) {
+      for (const d of discs) {
+        const entry = cache.get(d);
+        if (entry && entry.at !== null) entry.at = -Infinity;
+      }
+    },
     async getAccounts(q: GpaQuery): Promise<Row[]> {
       const rows = await list(q);
       if (!q.owner) return rows;
@@ -196,6 +203,9 @@ export function createListCache(opts: ListCacheOptions = {}) {
 const lists = createListCache();
 export const getAccounts = lists.getAccounts;
 export const retryAfterSecs = lists.retryAfterSecs;
+
+/** After a transaction this app sent: the next Holding and Position list reads go upstream, not to the cache. */
+export const invalidateAccountLists = () => lists.invalidate([...SHAPES].filter(([, v]) => v.name === "HoldingState" || v.name === "PositionState").map(([d]) => d));
 
 /** Per client (IP): the Lobby polls a few lists every few seconds per tab; this leaves room for a shared NAT. */
 const perClient = new WindowLimiter(600, 60_000);
