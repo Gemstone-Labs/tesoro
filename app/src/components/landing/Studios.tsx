@@ -7,6 +7,7 @@ import { ArriveFlow } from "./ArriveFlow";
 const CATALOGUE = [
   { src: art.blockPuzzleTile, name: "Block Puzzle", live: true },
   { src: art.holdemTile, name: "Heads-up Hold’em", live: true },
+  { src: art.tradingDuelTile, name: "Trading Duel", live: true },
   { src: art.comingSoon["word-duel"], name: "Word Duel" },
   { src: art.comingSoon["bubble-burst"], name: "Bubble Burst" },
 ];

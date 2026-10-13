@@ -8,7 +8,7 @@
 }
 
 /* Shelf: each game's hero art as a banner; the art's dark left third carries the name. */
-.lp-shelf { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.lp-shelf { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .lp-shelf-tab {
   display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; min-height: 136px; padding: 22px 26px;
   border: 0; background: var(--surface-art); color: var(--fg); text-align: left; overflow: hidden;
@@ -45,6 +45,7 @@
 }
 @media (max-width: 767px) {
   .lp-games-select, .lp-shelf { gap: 10px; }
+  .lp-shelf { grid-template-columns: 1fr; }
   .lp-shelf-tab { min-height: 96px; padding: 14px 16px; }
   /* Narrow banners: only the art's subject, on the right, behind the name's scrim. */
   .lp-shelf-tab img { left: 30%; width: 70%; object-position: 84% 50%; }

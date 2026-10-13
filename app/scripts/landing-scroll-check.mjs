@@ -70,6 +70,17 @@ const CHECKS = [
     },
   },
   {
+    name: "trading duel on the games shelf and in the studios catalogue",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ layout, assert }) {
+      assert(layout.shelf.length === 3 && layout.shelf.includes("Trading Duel"), `shelf is ${JSON.stringify(layout.shelf)}`);
+      const loop = layout.loops.find((l) => l.label === "Trading Duel gameplay");
+      assert(!!loop && loop.sources.every((s) => s.includes("loop-trading-duel.")) && loop.sources.length === 2, `loop ${JSON.stringify(loop)}`);
+      const tile = layout.catalogue.find((c) => c.name === "Trading Duel");
+      assert(tile?.status === "Live", `catalogue tile ${JSON.stringify(tile)}`);
+    },
+  },
+  {
     name: "empty band measured",
     runs: [...DESKTOP, "phone", "reduced"],
     fn({ down, note, assert }) {
@@ -102,6 +113,9 @@ function readLayout() {
     pins: [...document.querySelectorAll(".pin-spacer")].map((p) => ({ top: Math.round(p.getBoundingClientRect().top + scrollY), height: p.offsetHeight })),
     gemasPin,
     gemasBottom,
+    shelf: [...document.querySelectorAll(".lp-shelf-tab .lp-shelf-name")].map((e) => e.textContent.trim()),
+    loops: [...document.querySelectorAll(".lp-loop")].map((v) => ({ label: v.getAttribute("aria-label"), sources: [...v.querySelectorAll("source")].map((x) => x.getAttribute("src")), poster: v.getAttribute("poster") })),
+    catalogue: [...document.querySelectorAll(".lp-catalogue li:not(.lp-slot)")].map((li) => ({ name: li.querySelector("span:not(.lp-status)")?.textContent.trim(), status: li.querySelector(".lp-status")?.textContent.trim() })),
   };
 }
 
