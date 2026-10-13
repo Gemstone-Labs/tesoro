@@ -465,6 +465,28 @@ impl Env {
         self.send(&[advance], &p.kp, &[]).map(|_| source)
     }
 
+    fn extend_native(
+        &mut self,
+        p: &Person,
+        pos: Pos,
+        source: APk,
+        extra_months: u8,
+    ) -> Result<(), Failed> {
+        let extend = tix(
+            accounts::ExtendNativeAdvance {
+                owner_authority: p.key,
+                owner_account: p.account,
+                position: pos.position,
+                treasury: pda(&[TREASURY_SEED]),
+                source,
+                holding: self.holding(p, source),
+            },
+            instruction::ExtendNativeAdvance { extra_months },
+            vec![],
+        );
+        self.send(&[extend], &p.kp, &[])
+    }
+
     /// Anyone may crank; `payer` only pays the fee.
     fn crank(&mut self, payer: &Keypair, pos: Pos) -> Result<(), Failed> {
         let p = self.load::<PositionState>(pos.position).inner;
@@ -1506,6 +1528,54 @@ fn an_advance_of_n_months_is_repaid_in_n_times_a_month_for_any_principal_and_rat
             }
         }
     }
+}
+
+#[test]
+fn a_player_who_lost_the_gemas_extends_the_advance_and_unlocks_on_the_new_schedule() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let pos = env.open(&alice, 2 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 3).unwrap();
+    let first = env.gemas(&alice, source);
+    // Lost every Gema of the first Advance.
+    env.give_won(&alice, &bob, source, first);
+    assert_eq!(env.gemas(&alice, source), 0);
+    // Not owner-signed, wrong months and the cap are refused.
+    assert!(env.extend_native(&bob, pos, source, 1).is_err());
+    assert!(env.extend_native(&alice, pos, source, 0).is_err());
+    assert!(env.extend_native(&alice, pos, source, 10).is_err());
+    env.advance(MONTH);
+    env.crank(&alice.kp, pos).unwrap();
+    env.extend_native(&alice, pos, source, 3).unwrap();
+    // Three more months of the same Source, at the same price, as own Gemas.
+    assert_eq!(env.gemas(&alice, source), first);
+    let src = env.load::<SourceState>(source).inner;
+    assert_eq!((src.horizon_months, src.issued), (6, 2 * first));
+    env.check_invariants(pos);
+    // Not yet repaid at 6 months minus a tenth; repaid at 6 months and a second.
+    let total = 6 * MONTH;
+    env.advance(total - MONTH - total / 10);
+    env.crank(&alice.kp, pos).unwrap();
+    assert!(env.debt(source) > 0);
+    assert!(env.unlock(&alice, pos).is_err());
+    env.advance(total / 10 + 1);
+    env.crank(&alice.kp, pos).unwrap();
+    assert_eq!(env.debt(source), 0);
+    env.check_invariants(pos);
+    env.unlock(&alice, pos).unwrap();
+}
+
+#[test]
+fn extend_is_refused_without_an_open_advance_and_after_repayment() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 2 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH + 1);
+    env.crank(&alice.kp, pos).unwrap();
+    assert_eq!(env.debt(source), 0);
+    assert!(env.extend_native(&alice, pos, source, 1).is_err());
 }
 
 #[test]

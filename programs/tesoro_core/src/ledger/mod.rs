@@ -110,6 +110,7 @@ core_errors! {
     LeaderboardOff => "the leaderboard is not set up",
     NotWonGemas => "only won Gemas can be redeemed instantly",
     ExceedsPending => "only Gemas whose yield has not landed can be redeemed instantly; redeem the rest in full",
+    AdvanceRepaid => "the advance is already repaid; take another advance instead",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
