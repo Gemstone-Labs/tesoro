@@ -79,7 +79,8 @@ export function LandingMotion() {
           gsap.to(".lp-hero .layer.back", { y: 60, ease: "none", scrollTrigger: scrub });
           gsap.to(".lp-hero .layer.mid", { y: 30, ease: "none", scrollTrigger: scrub });
           gsap.to(".lp-hero-light .layer", { y: 50, ease: "none", scrollTrigger: scrub });
-          gsap.to("[data-hero-copy]", { autoAlpha: 0, y: -40, ease: "none", scrollTrigger: { ...scrub, end: "60% top" } });
+          // The copy leaves with the scroll, faster than the page, and is gone by a third of the hero so it never ghosts over the art.
+          gsap.to("[data-hero-copy]", { autoAlpha: 0, y: -140, ease: "none", scrollTrigger: { ...scrub, end: "35% top" } });
         }
 
         for (const el of gsap.utils.toArray<HTMLElement>("[data-parallax]")) {

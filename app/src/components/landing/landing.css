@@ -104,6 +104,8 @@ html.lenis, html.lenis body { height: auto; }
   position: relative; min-height: max(720px, 100svh); display: flex; align-items: center; overflow: hidden; background: var(--surface-art); color: var(--hero-fg);
 }
 .lp-hero::before { content: ""; position: absolute; inset: 0 0 auto; height: 240px; z-index: 1; pointer-events: none; background: linear-gradient(180deg, rgba(9, 13, 15, 0.85), rgba(9, 13, 15, 0)); }
+/* Bottom blend: the art dissolves into the page background instead of ending in a straight line. */
+.lp-hero::after { content: ""; position: absolute; inset: auto 0 0; height: clamp(120px, 22vh, 220px); z-index: 1; pointer-events: none; background: linear-gradient(180deg, transparent, var(--shell)); }
 .lp-hero-art { position: absolute; inset: 0; }
 .lp-hero-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.85) 0, rgba(9, 13, 15, 0.45) 36%, transparent 56%); }
 .lp-hero-art { container-type: size; }
@@ -662,7 +664,7 @@ html.lenis, html.lenis body { height: auto; }
   margin: 80px var(--g) 0; min-height: max(640px, calc(100svh - 80px - var(--g)));
   clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
 }
-:root[data-theme="light"] .lp-hero:not(.has-light-art)::before { display: none; }
+:root[data-theme="light"] .lp-hero:not(.has-light-art)::before, :root[data-theme="light"] .lp-hero:not(.has-light-art)::after { display: none; }
 :root[data-theme="light"] .lp-hero:not(.has-light-art) .lp-hero-copy { padding-top: 0; }
 :root[data-theme="light"] .lp-nav[data-scrolled="false"] .lp-links { background: rgba(251, 249, 245, 0.7); }
 @media (max-width: 767px) {
