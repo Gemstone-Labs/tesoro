@@ -78,7 +78,7 @@ export function solPayoutCapacity(vaultShares: bigint, rate: bigint): bigint {
 export interface InstantCandidate {
   key: string;
   capKey: string;
-  /** Free (unreserved) Gemas of the holding. */
+  /** Gemas of the holding Redeem now may sell: free, won and still waiting on yield. */
   free: bigint;
   unitNum: bigint;
   unitDen: bigint;
@@ -92,7 +92,7 @@ export interface InstantLine {
 }
 
 /**
- * What to sell for a "Redeem now": every holding's free Gemas, in order, until the treasury it is paid from can pay no more.
+ * What to sell for a "Redeem now": every holding's pending Gemas, in order, until the treasury it is paid from can pay no more.
  * `caps` is the payout (Source-asset units) each treasury can still make; a treasury missing from it pays nothing.
  */
 export function planInstant(rows: InstantCandidate[], caps: Map<string, bigint>, instantFeeBps: number): InstantLine[] {

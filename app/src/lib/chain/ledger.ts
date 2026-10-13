@@ -47,6 +47,16 @@ export function redeemableFor(s: SourceMath, held: bigint): bigint {
   return min((held * redeemable(s)) / out, held);
 }
 
+/**
+ * Instant Redeem split of `free` won Gemas, as the program allows it: Redeem pays `landed` in full first, then `pending` is the
+ * most the Treasury may buy (Gemas whose yield has not landed). A holder that redeems nothing first can sell `free - redeemableFor`.
+ */
+export function instantSplit(s: SourceMath, free: bigint): { landed: bigint; pending: bigint } {
+  const landed = redeemableFor(s, free);
+  const held = free - landed;
+  return { landed, pending: held - redeemableFor({ ...s, redeemed: s.redeemed + landed }, held) };
+}
+
 /** Whole Source-asset units `gemas` are worth at the Source's Advance price (1 Gema = $0.01, `unitDen` = price in micro-USD). */
 export function gemasInAsset(gemas: bigint, s: Pick<SourceMath, "unitDen">): number {
   return s.unitDen === 0n ? 0 : (Number(gemas) * 10_000) / Number(s.unitDen);

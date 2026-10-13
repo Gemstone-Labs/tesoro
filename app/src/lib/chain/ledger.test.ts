@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EntryError, MAX_ENTRY_SOURCES, backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, entryProblem, matchDelta, planEntry, redeemableFor, returnableGemas, seatResult, unitsToRepay, type SourceMath } from "./ledger";
+import { EntryError, MAX_ENTRY_SOURCES, backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, entryProblem, instantSplit, matchDelta, planEntry, redeemableFor, returnableGemas, seatResult, unitsToRepay, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -27,6 +27,15 @@ describe("source math", () => {
     expect(debtGemas(s)).toBe(6000n);
     expect(redeemableFor(s, 7500n)).toBe(1500n);
     expect(redeemableFor(s, 3750n)).toBe(750n);
+  });
+
+  it("Instant Redeem sells only what is still pending, after the landed part is redeemed", () => {
+    const s = src({ yieldUnits: unitsToRepay(src()) / 2n });
+    // A sole holder: half landed, the other half pending.
+    expect(instantSplit(s, 7500n)).toEqual({ landed: 3750n, pending: 3750n });
+    // With other holders the remainder keeps a pro rata share of what landed, so less is pending.
+    expect(instantSplit(s, 3750n)).toEqual({ landed: 1875n, pending: 1250n });
+    expect(instantSplit(src(), 900n)).toEqual({ landed: 0n, pending: 900n });
   });
 });
 

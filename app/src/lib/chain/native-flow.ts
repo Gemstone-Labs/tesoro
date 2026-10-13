@@ -87,9 +87,16 @@ export const refreshYield = (signer: ChainSigner, info: NativeInfo) => send(sign
 export const redeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint) =>
   send(signer, [createSimSolAtaIx(signer.publicKey, signer.publicKey), redeemIx(signer.publicKey, position, source, gemas)]);
 
-/** Instant Redeem of won Gemas of one native Source: the treasury vault pays simSOL into the holder's token account in the same transaction. */
-export const instantRedeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint) =>
-  send(signer, [createSimSolAtaIx(signer.publicKey, signer.publicKey), instantRedeemIx(signer.publicKey, position, source, gemas)]);
+/**
+ * Instant Redeem of won Gemas of one native Source: the `landed` Gemas (yield already in) are redeemed in full first, then the treasury
+ * vault buys `gemas` still pending and pays simSOL into the holder's token account, all in one transaction.
+ */
+export const instantRedeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, landed: bigint) =>
+  send(signer, [
+    createSimSolAtaIx(signer.publicKey, signer.publicKey),
+    ...(landed > 0n ? [redeemIx(signer.publicKey, position, source, landed)] : []),
+    instantRedeemIx(signer.publicKey, position, source, gemas),
+  ]);
 
 /** Unlock: crank first so the Debt the program sees is current, then return the Principal. */
 export const unlockNative = (signer: ChainSigner, info: NativeInfo) =>

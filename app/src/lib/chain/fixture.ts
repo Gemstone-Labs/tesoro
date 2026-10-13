@@ -83,6 +83,7 @@ export function demoSnapshot(address: string): AccountSnapshot {
     reserved: 0n,
     free: amount,
     redeemable,
+    pending: isOwn ? 0n : amount - redeemable,
     sourceDebt: 0n,
     // SOL at $110 (9 decimals), HYPE at $40 (18 decimals)
     unitNum: asset === "SOL" ? 10n ** 13n : 10n ** 22n,

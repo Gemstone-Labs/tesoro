@@ -111,7 +111,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       {showInstant && (instant.unavailable || shown.length === 0) ? (
         <div className="mx-empty">
           <b>Redeem now is not available</b>
-          <p className="meta">{instant.unavailable ?? "You have no won Gemas to sell right now."}</p>
+          <p className="meta">{instant.unavailable ?? "None of your won Gemas are waiting on yield. Redeem them at full value."}</p>
           <Button block onClick={onClose}>Close</Button>
         </div>
       ) : shown.length === 0 ? (
@@ -125,7 +125,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       <>
       <div className="mx-pair">
         <div className="mx-panel cut">
-          <div className="mx-head"><span className="label">You give</span><span className="meta">{showInstant ? "Won Gemas" : "All redeemable"}</span></div>
+          <div className="mx-head"><span className="label">You give</span><span className="meta">{showInstant ? "Won, still pending" : "All redeemable"}</span></div>
           <div className="mx-fig"><GemaMark size={30} glint /><b>{fmtGemas(total)}</b><span>Gemas</span></div>
         </div>
         <span className="mx-arrow cut" aria-hidden="true"><ArrowDown /></span>
@@ -149,7 +149,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       </div>
       {showInstant && (
         <p className="mx-fee">
-          Tesoro keeps {instant.feePct}% for paying you now. Redeem instead as the yield lands and you get the full value.
+          Only won Gemas still waiting on yield are sold: Tesoro keeps {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed at full value.
         </p>
       )}
       <details className="mx-from">
