@@ -187,9 +187,16 @@ describe("extend an Advance", () => {
   const price = 150_000_000n;
   const principal = 5_000_000_000n;
   const first = quoteNativeAdvance(principal, 700, 3, price, 2000);
-  const source = { issued: first.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 1n, unitDen: price };
+  const source = { issued: first.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: price };
 
-  it("mints the size of the new Horizon minus what was issued, so two extensions equal one", () => {
+  it("mints the added months at the current fee when the fee changed since the Advance", () => {
+    const quote = quoteExtendAdvance(principal, 700, source, 3, 3, 0);
+    const size = (months: number) => quoteNativeAdvance(principal, 700, months, price, 0).gemas;
+    expect(quote.gemas).toBe(size(6) - size(3));
+    expect(quote.gemas).toBeGreaterThan(0n);
+  });
+
+  it("mints the added months at an unchanged fee, so two extensions equal one", () => {
     const once = quoteExtendAdvance(principal, 700, source, 3, 6, 2000);
     expect(once.gemas).toBe(quoteNativeAdvance(principal, 700, 9, price, 2000).gemas - first.gemas);
     const a = quoteExtendAdvance(principal, 700, source, 3, 3, 2000);

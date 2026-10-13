@@ -382,13 +382,12 @@ export function quoteNativeAdvance(principalLamports: bigint, rateBps: number, m
 }
 
 /**
- * Extending an Advance by `extraMonths`, as `Position::extend_advance`: the Gemas minted are the size of the whole new Horizon at the
- * Source's own price, minus what it already issued, so extending twice by 3 equals once by 6.
+ * Extending an Advance by `extraMonths`, as `Position::extend_advance`: the Gemas minted are
+ * `size(h + extra) - size(h)` at the Source's own price and the current Yield Fee, so a fee change since the Advance never skews the quote.
  */
 export function quoteExtendAdvance(principalLamports: bigint, rateBps: number, source: SourceMath, horizonMonths: number, extraMonths: number, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) {
-  const total = advanceUnits(principalLamports, rateBps, horizonMonths + extraMonths, yieldFeeBps);
-  const size = (total * source.unitDen) / 10n ** 13n;
-  const gemas = size > source.issued ? size - source.issued : 0n;
+  const size = (months: number) => (advanceUnits(principalLamports, rateBps, months, yieldFeeBps) * source.unitDen) / source.unitNum;
+  const gemas = size(horizonMonths + extraMonths) - size(horizonMonths);
   return { gemas, extended: { ...source, issued: source.issued + gemas } };
 }
 

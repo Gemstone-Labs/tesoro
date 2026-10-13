@@ -169,9 +169,9 @@ impl Position {
     }
 
     /// Extends the open Advance by `extra_months` (total Horizon at most 12) and returns the Gemas
-    /// minted: the added months' worth at the Source's own price, so `issued` always equals the
-    /// size of one Advance of the whole Horizon. The caller credits them to the owner's Holding of
-    /// `src`.
+    /// minted: `size(h + extra) - size(h)` at the Source's own price and the current Yield Fee, so
+    /// a Yield Fee change since the Advance never turns into a windfall or an error. The caller
+    /// credits them to the owner's Holding of `src`.
     pub fn extend_advance(
         &mut self,
         src: &mut Source,
@@ -198,12 +198,13 @@ impl Position {
         if yield_fee_bps > MAX_YIELD_FEE_BPS {
             return Err(CoreError::InvalidBps);
         }
-        let grown = self.advance_gemas(total, src.unit_den, yield_fee_bps)?;
-        let minted = grown.checked_sub(src.issued).ok_or(CoreError::Math)?;
+        let before = self.advance_gemas(src.horizon_months, src.unit_den, yield_fee_bps)?;
+        let after = self.advance_gemas(total, src.unit_den, yield_fee_bps)?;
+        let minted = after.checked_sub(before).ok_or(CoreError::Math)?;
         if minted == 0 {
             return Err(CoreError::AdvanceTooSmall);
         }
-        src.issued = grown;
+        src.issued = src.issued.checked_add(minted).ok_or(CoreError::Math)?;
         src.horizon_months = total;
         Ok(minted)
     }
