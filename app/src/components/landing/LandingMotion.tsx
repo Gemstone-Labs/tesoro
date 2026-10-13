@@ -96,6 +96,8 @@ export function LandingMotion() {
             end: "+=200%",
             pin: true,
             onUpdate: (self) => {
+              // Past the pin every point reads at full strength; scrolling back in steps them again.
+              gemas.classList.toggle("is-stepped", self.progress < 1);
               const beat = Math.min(2, Math.floor(self.progress * 3));
               if (gemState.beat !== beat) {
                 gemState.beat = beat;
