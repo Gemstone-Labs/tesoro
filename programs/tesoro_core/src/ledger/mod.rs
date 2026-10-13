@@ -109,6 +109,7 @@ core_errors! {
     NonCanonicalPrize => "pool holdings must be non-empty, ascending by source, each drained but the last",
     LeaderboardOff => "the leaderboard is not set up",
     NotWonGemas => "only won Gemas can be redeemed instantly",
+    ExceedsPending => "only Gemas whose yield has not landed can be redeemed instantly; redeem the rest in full",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

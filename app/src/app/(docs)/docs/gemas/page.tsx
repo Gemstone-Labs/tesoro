@@ -57,6 +57,7 @@ export default function Page() {
       <ul>
         <li>It works for SOL, ETH and HYPE Gemas you won. Your own Gemas, the ones from your own Positions, cannot be redeemed this way.</li>
         <li>It is optional. A normal Redeem pays 100% once the yield has landed.</li>
+        <li>It only sells Gemas whose yield has not landed yet. Any part that has already landed is redeemed at full value in the same step.</li>
         <li>It is limited by what Tesoro holds for that asset. If it holds less than your payout, the Redeem now is refused and nothing moves.</li>
         <li>The Source and its Debt are untouched: Tesoro simply becomes the holder of those Gemas.</li>
       </ul>

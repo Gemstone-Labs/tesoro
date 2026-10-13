@@ -1925,7 +1925,8 @@ fn instant_redeem_fails_cleanly_when_the_treasury_is_short() {
     let alice = env.staker();
     let bob = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
-    let source = env.advance_native(&alice, pos, 3).unwrap();
+    // A long Horizon, so most of Bob's Gemas are still pending after a month.
+    let source = env.advance_native(&alice, pos, 12).unwrap();
     env.give_won(&alice, &bob, source, 1_000);
     // Empty treasury: refused, and nothing moved.
     let err = env.instant_redeem(&bob, pos, source, 1_000).unwrap_err();
@@ -1946,6 +1947,27 @@ fn instant_redeem_fails_cleanly_when_the_treasury_is_short() {
     assert!(env.token_balance(env.treasury_vault()) > 1_000);
     env.instant_redeem(&bob, pos, source, 100)
         .expect("paid from fees");
+}
+
+#[test]
+fn instant_redeem_refuses_gemas_whose_yield_has_landed() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    env.give_won(&alice, &bob, source, 1_000);
+    env.fund_treasury(SOL).unwrap();
+    env.advance(MONTH);
+    env.crank(&alice.kp, pos).unwrap();
+    let landed = env.load::<SourceState>(source).inner.redeemable_for(1_000);
+    assert!(landed > 0 && landed < 1_000);
+    let err = env.instant_redeem(&bob, pos, source, 1_000).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::ExceedsPending));
+    assert_eq!(env.gemas(&bob, source), 1_000);
+    env.instant_redeem(&bob, pos, source, 1_000 - landed)
+        .expect("the pending part sells");
+    assert_eq!(env.gemas(&bob, source), landed);
 }
 
 #[test]

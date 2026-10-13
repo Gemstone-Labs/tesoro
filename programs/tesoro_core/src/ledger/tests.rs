@@ -1528,6 +1528,58 @@ fn instant_redeem_moves_won_gemas_to_the_treasury_and_pays_65_percent() {
 }
 
 #[test]
+fn instant_redeem_sells_only_gemas_whose_yield_has_not_landed() {
+    let mut p = locked_position();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
+    let issued = s.outstanding();
+    let mut holder = Account::default();
+    let mut won = Holding::new(skey(0, 0), false);
+    won.credit(&mut holder, issued).unwrap();
+    let mut treasury = Account::default();
+    let mut bought = Holding::new(skey(0, 0), false);
+
+    // Half the Horizon's yield lands: half the holding is redeemable in full, half is pending.
+    let (net, _) = split_yield_fee(2_500_000_000, 2_000).unwrap();
+    assert!(p.apply_yield(Some(&mut s), 1, net).unwrap());
+    let landed = s.redeemable_for(won.free());
+    let pending = won.free() - landed;
+    assert!(landed > 0 && pending > 0);
+    assert_eq!(
+        instant_redeem(
+            &s,
+            &mut holder,
+            &mut won,
+            &mut treasury,
+            &mut bought,
+            pending + 1,
+            3_500
+        ),
+        Err(CoreError::ExceedsPending)
+    );
+    assert_eq!(bought.amount, 0, "nothing moves on failure");
+
+    // Redeem the landed part in full first, then sell what is still pending.
+    redeem(&mut s, &mut holder, &mut won, landed).unwrap();
+    let rest = won.free();
+    assert_eq!(
+        s.redeemable_for(rest),
+        0,
+        "a sole holder has nothing landed left"
+    );
+    instant_redeem(
+        &s,
+        &mut holder,
+        &mut won,
+        &mut treasury,
+        &mut bought,
+        rest,
+        3_500,
+    )
+    .unwrap();
+    assert_eq!((won.amount, bought.amount), (0, rest));
+}
+
+#[test]
 fn instant_redeem_refuses_own_gemas_reserved_gemas_and_zero_payouts() {
     let p = &mut locked_position();
     let s = p.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
