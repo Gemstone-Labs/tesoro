@@ -228,7 +228,7 @@ export function NativePositionCard({ position, market, onRedeem, extend = EXTEND
       : null;
   const locked = info.status === "locked";
   const canUnlock = locked && projected === 0n;
-  const canExtend = extend && locked && !canUnlock && !!src && onChainDebt > 0n && info.source!.horizonMonths < MAX_ADVANCE_MONTHS;
+  const canExtend = extend && locked && !canUnlock && !!src && projected > 0n && info.source!.horizonMonths < MAX_ADVANCE_MONTHS;
   // Unknown until the pool is read: keep the action rather than hide a real surplus.
   const surplus = pool ? surplusShares(info, rateAt(pool)) : null;
   const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);

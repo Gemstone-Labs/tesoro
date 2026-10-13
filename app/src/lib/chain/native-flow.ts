@@ -19,7 +19,7 @@ import {
   unlockIx,
   type NativeInfo,
 } from "./native";
-import { plainError } from "@/lib/errors";
+import { extendFailure, plainError } from "@/lib/errors";
 
 /** The one line a Player sees for a failed Wallet action (see lib/errors.ts). */
 export const friendlyError = plainError;
@@ -96,10 +96,14 @@ export async function extendAdvance(
   onStep("Preparing");
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Extending the Advance");
-  return send(signer, [
-    accrueNativeYieldIx(info.position, info.openAdvance),
-    extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths),
-  ]);
+  try {
+    return await send(signer, [
+      accrueNativeYieldIx(info.position, info.openAdvance),
+      extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths),
+    ]);
+  } catch (e) {
+    throw extendFailure(e);
+  }
 }
 
 /** Permissionless crank: applies the vault's accrued yield to the Position's Debt. */

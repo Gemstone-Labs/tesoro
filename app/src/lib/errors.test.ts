@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUSY, RETRY, UNCONFIRMED, plainError } from "./errors";
+import { ADVANCE_REPAID, BUSY, RETRY, UNCONFIRMED, extendFailure, plainError } from "./errors";
 
 describe("plainError", () => {
   it("keeps the program's own message", () => {
@@ -24,5 +24,18 @@ describe("plainError", () => {
   });
   it("keeps our own sentences", () => {
     expect(plainError(new Error("Your opponent is still playing."))).toBe("Your opponent is still playing.");
+  });
+});
+
+describe("extendFailure", () => {
+  it("turns a repaid or closed Advance into a line that offers Take another Advance", () => {
+    for (const m of ["Error Message: the advance is already repaid; take another advance instead.", "Error Message: position has no open advance."]) {
+      expect(plainError(extendFailure(new Error(m)))).toBe(ADVANCE_REPAID);
+    }
+    expect(ADVANCE_REPAID).toContain("Take another Advance");
+  });
+  it("leaves other failures alone", () => {
+    const e = new Error("x");
+    expect(extendFailure(e)).toBe(e);
   });
 });
