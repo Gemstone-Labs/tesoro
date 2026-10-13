@@ -141,6 +141,32 @@ const CHECKS = [
     },
   },
   {
+    name: "hero copy is readable or gone, never a ghost, from half a viewport of scroll",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ layout, down, note, assert }) {
+      const from = layout.viewport[1] * 0.5;
+      const seen = down.filter((s) => s.y >= from);
+      assert(seen.length > 0, "no sample past half a viewport");
+      const bad = seen.filter((s) => s.heroCopy !== null && s.heroCopy > 0.01 && s.heroCopy < 0.99);
+      note("heroCopyOpacity", down.slice(0, 5).map((s) => [s.y, s.heroCopy]));
+      assert(bad.length === 0, `ghost copy at y=${bad.map((s) => `${s.y}(${s.heroCopy})`).join(" ")}`);
+      if (layout.run === "desktop-dark" || layout.run === "desktop-light") {
+        const gone = seen.find((s) => s.y >= from);
+        assert(gone.heroCopy <= 0.01, `copy still visible at half a viewport: ${gone.heroCopy}`);
+      } else {
+        assert(down.every((s) => s.heroCopy >= 0.99), "copy faded without the desktop scrub");
+      }
+    },
+  },
+  {
+    name: "hero art blends into the page background at its bottom edge",
+    runs: [...DESKTOP, "phone"],
+    fn({ layout, assert }) {
+      const b = layout.heroBlend;
+      assert(!!b && b.height >= 100 && b.image.includes("linear-gradient") && b.image.includes(b.shell), `hero blend ${JSON.stringify(b)}`);
+    },
+  },
+  {
     name: "trading duel on the games shelf and in the studios catalogue",
     runs: [...DESKTOP, "phone", "reduced"],
     fn({ layout, assert }) {
@@ -215,7 +241,15 @@ function readLayout() {
     howPin = { start: top, end: top + hs.offsetHeight - hw.offsetHeight, spacerHeight: hs.offsetHeight };
   }
   const howRect = hw?.getBoundingClientRect();
+  const heroEl = document.querySelector(".lp-hero");
+  const after = heroEl ? getComputedStyle(heroEl, "::after") : null;
+  const shellProbe = document.createElement("i");
+  shellProbe.style.color = "var(--shell)";
+  document.body.append(shellProbe);
+  const shell = getComputedStyle(shellProbe).color;
+  shellProbe.remove();
   return {
+    heroBlend: after ? { height: parseFloat(after.height) || 0, image: after.backgroundImage, shell } : null,
     howPin,
     howTop: hw ? Math.round(howRect.top + scrollY) : null,
     howBottom: hw ? Math.round(howRect.bottom + scrollY) : null,
@@ -277,7 +311,7 @@ function readSample() {
       return r ? r.top >= 0 && r.bottom <= vh : false;
     })(),
   };
-  return { how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, sweep, faded, gap: +(gap / vh).toFixed(2) };
+  return { heroCopy: op("[data-hero-copy]"), how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, sweep, faded, gap: +(gap / vh).toFixed(2) };
 }
 
 async function scrollStep(page, run, dy) {
