@@ -129,3 +129,30 @@ describe("gpa list cache (OC-03)", () => {
     expect(calls).toBe(2);
   });
 });
+
+describe("gpa list invalidation", () => {
+  it("makes the next read go upstream even though the cached rows are fresh", async () => {
+    let n = 0;
+    const up = upstream(() => [row(new Uint8Array(32), ++n)]);
+    const lists = createListCache({ fetch: up.fetch, now: () => 1_000 });
+    const holdings = q(`program=${CORE}&filter=m:0:${HOLDING}`);
+    await lists.getAccounts(holdings);
+    await lists.getAccounts(holdings);
+    expect(up.calls()).toBe(1);
+    lists.invalidate([HOLDING]);
+    const rows = await lists.getAccounts(holdings);
+    expect(up.calls()).toBe(2);
+    expect(rows.map((r) => r.pubkey)).toEqual(["row2"]);
+  });
+
+  it("serves the old rows when the fresh read fails", async () => {
+    let fail = false;
+    const up = upstream(() => (fail ? 500 : [row(new Uint8Array(32), 1)]));
+    const lists = createListCache({ fetch: up.fetch, now: () => 1_000 });
+    const holdings = q(`program=${CORE}&filter=m:0:${HOLDING}`);
+    await lists.getAccounts(holdings);
+    lists.invalidate([HOLDING]);
+    fail = true;
+    expect((await lists.getAccounts(holdings)).map((r) => r.pubkey)).toEqual(["row1"]);
+  });
+});
