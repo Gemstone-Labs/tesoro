@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest";
 import idl from "./idl/tesoro_core.json";
 import {
   accrueNativeYieldIx,
+  extendNativeAdvanceIx,
   faucetIx,
   openNativePositionIx,
   positionPda,
   projectedDebtGemas,
+  quoteExtendAdvance,
   quoteNativeAdvance,
   rateAt,
   redeemIx,
@@ -41,6 +43,7 @@ describe("native instructions", () => {
       [setPriceIx(owner, 1n).data, "set_price"],
       [openNativePositionIx(owner, 1, 1n, pos).data, "open_native_position"],
       [takeNativeAdvanceIx(owner, pos, 0, 3).data, "take_native_advance"],
+      [extendNativeAdvanceIx(owner, pos, 0, 3).data, "extend_native_advance"],
       [accrueNativeYieldIx(pos, null).data, "accrue_native_yield"],
       [redeemIx(owner, pos, pos, 1n).data, "redeem"],
       [unlockIx(owner, pos).data, "unlock"],
@@ -62,6 +65,7 @@ describe("native instructions", () => {
       [unlockIx(owner, pos), "unlock"],
       [openNativePositionIx(owner, 1, 1n, pos), "open_native_position"],
       [takeNativeAdvanceIx(owner, pos, 0, 3), "take_native_advance"],
+      [extendNativeAdvanceIx(owner, pos, 0, 3), "extend_native_advance"],
       [initTreasuryIx(owner, 2000, 3500), "init_treasury"],
       [fundTreasuryIx(owner, 1n), "fund_treasury"],
       [instantRedeemIx(owner, pos, pos, 1n), "instant_redeem"],
@@ -91,6 +95,16 @@ describe("native instructions", () => {
     expect(accrueNativeYieldIx(pos, null).keys[9].pubkey.equals(treasuryPda())).toBe(true);
     expect(accrueNativeYieldIx(pos, null).keys[10].pubkey.equals(treasuryVaultPda())).toBe(true);
     expect(initTreasuryIx(owner, 2000, 3500).data.subarray(8).toString("hex")).toBe("d007ac0d");
+  });
+
+  it("extend_native_advance lists the IDL accounts, carries the months, and derives the Source and Holding PDAs", () => {
+    const pos = sourcePda(owner, 0);
+    const ix = extendNativeAdvanceIx(owner, pos, 2, 4);
+    const spec = (idl.instructions as { name: string; accounts: unknown[] }[]).find((i) => i.name === "extend_native_advance")!;
+    expect(ix.keys).toHaveLength(spec.accounts.length);
+    expect(ix.data.subarray(8).toString("hex")).toBe("04");
+    expect(ix.keys[3].pubkey.equals(treasuryPda())).toBe(true);
+    expect(ix.keys[4].pubkey.equals(sourcePda(pos, 2))).toBe(true);
   });
 
   it("redeem and unlock carry the five payout accounts", () => {
@@ -166,5 +180,21 @@ describe("surplusShares", () => {
   });
   it("is 0 once swept", () => {
     expect(surplusShares({ ...base, vaultShares: 125_000n, status: "unlocked" }, 2n * RATE_SCALE)).toBe(0n);
+  });
+});
+
+describe("extend an Advance", () => {
+  const price = 150_000_000n;
+  const principal = 5_000_000_000n;
+  const first = quoteNativeAdvance(principal, 700, 3, price, 2000);
+  const source = { issued: first.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 1n, unitDen: price };
+
+  it("mints the size of the new Horizon minus what was issued, so two extensions equal one", () => {
+    const once = quoteExtendAdvance(principal, 700, source, 3, 6, 2000);
+    expect(once.gemas).toBe(quoteNativeAdvance(principal, 700, 9, price, 2000).gemas - first.gemas);
+    const a = quoteExtendAdvance(principal, 700, source, 3, 3, 2000);
+    const b = quoteExtendAdvance(principal, 700, a.extended, 6, 3, 2000);
+    expect(a.gemas + b.gemas).toBe(once.gemas);
+    expect(b.extended.issued).toBe(source.issued + once.gemas);
   });
 });

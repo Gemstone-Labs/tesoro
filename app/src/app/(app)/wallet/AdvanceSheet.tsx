@@ -30,6 +30,8 @@ export function AdvanceFormView({
   gemas,
   unlock,
   yieldFeeBps,
+  maxMonths = 12,
+  sliderLabel = "Horizon",
   alerts,
   buttonLabel,
   disabled = false,
@@ -47,6 +49,9 @@ export function AdvanceFormView({
   unlock: string;
   /** The Yield Fee the quote is net of (the launch rate while the Treasury is unread). */
   yieldFeeBps?: number;
+  /** Extend adds to a Horizon already running: the slider stops at what is left of the 12 months. */
+  maxMonths?: number;
+  sliderLabel?: string;
   alerts?: ReactNode;
   buttonLabel: ReactNode;
   disabled?: boolean;
@@ -65,7 +70,7 @@ export function AdvanceFormView({
 
       <YieldToGemas months={months} yieldText={yieldText} gemas={gemas} yieldFeeBps={yieldFeeBps} />
 
-      <Slider label="Horizon" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
+      <Slider label={sliderLabel} value={months} min={1} max={maxMonths} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
 
       <UnlockTrack now="Gemas in your balance" unlock={unlock} end="Unlock Estimate, Debt 0" />
 

@@ -48,6 +48,7 @@ const DISC = {
   set_price: "1013b608955348b5",
   open_native_position: "b7d9396b6a5048f1",
   take_native_advance: "db4fb2d566baf470",
+  extend_native_advance: "d0c7fde715af8ee9",
   accrue_native_yield: "bcef708573f97f3f",
   redeem: "b80c569546c461e1",
   unlock: "659b28159ebd38cb",
@@ -175,6 +176,23 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
     ],
     "take_native_advance",
     Buffer.from([months]),
+  );
+}
+
+/** `info.source.index` is the Position's open Advance; the owner signs alone and `extraMonths` is added to its Horizon (1 to 12 minus the Horizon so far). */
+export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number) {
+  const src = sourcePda(position, source);
+  return core(
+    [
+      meta(owner, false, true),
+      meta(accountPda(owner), true),
+      meta(position, true),
+      meta(treasuryPda()),
+      meta(src, true),
+      meta(holdingPda(accountPda(owner), src), true),
+    ],
+    "extend_native_advance",
+    Buffer.from([extraMonths]),
   );
 }
 
@@ -361,6 +379,17 @@ export function quoteNativeAdvance(principalLamports: bigint, rateBps: number, m
   const projectedUnits = advanceUnits(principalLamports, rateBps, months, yieldFeeBps);
   const gemas = (projectedUnits * priceMicroUsd) / 10n ** 13n;
   return { projectedUnits, gemas };
+}
+
+/**
+ * Extending an Advance by `extraMonths`, as `Position::extend_advance`: the Gemas minted are the size of the whole new Horizon at the
+ * Source's own price, minus what it already issued, so extending twice by 3 equals once by 6.
+ */
+export function quoteExtendAdvance(principalLamports: bigint, rateBps: number, source: SourceMath, horizonMonths: number, extraMonths: number, yieldFeeBps = DEFAULT_YIELD_FEE_BPS) {
+  const total = advanceUnits(principalLamports, rateBps, horizonMonths + extraMonths, yieldFeeBps);
+  const size = (total * source.unitDen) / 10n ** 13n;
+  const gemas = size > source.issued ? size - source.issued : 0n;
+  return { gemas, extended: { ...source, issued: source.issued + gemas } };
 }
 
 /**
