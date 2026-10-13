@@ -86,6 +86,8 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-join { flex: none; min-height: 48px; padding-inline: 20px; }
 .wl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .wl-error { min-height: 1.4em; font-size: 14px; color: var(--danger, #f2685a); }
+.wl-try { margin-top: 10px; }
+.wl-try .btn { min-height: 46px; padding-inline: 18px; }
 .wl-count { margin-top: 4px; font-size: 13px; color: var(--fg-2); }
 .wl-more { display: none; gap: 18px; margin-top: 14px; font-size: 13.5px; font-weight: 700; }
 .wl-more a { color: var(--fg-2); }
