@@ -2,14 +2,16 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { ArrowRight, Pause, Play } from "lucide-react";
 import { PlayerAvatar } from "@/components/account/Player";
 import { Button } from "@/components/ui";
-import { practiceHref } from "@/lib/game-params";
+import { challengeHref, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import type { QueueSeat } from "@/lib/chain/read";
 import type { GameId } from "@/lib/mock";
+import { firstSlideGame } from "./first-slide";
 import { useQueue } from "./useQueue";
 
 interface Slide {
@@ -38,6 +40,16 @@ export function HeroCarousel() {
   const [hover, setHover] = useState(false);
   const [reduced, setReduced] = useState(true);
   const queue = useQueue();
+  const { snapshot } = useAccount();
+  const me = snapshot?.accountKey.toBase58();
+  const [opened, setOpened] = useState(false);
+
+  // Open on the first Game with someone waiting, once the Queue lands, unless the visitor already moved the carousel.
+  if (queue && !opened) {
+    setOpened(true);
+    const i = SLIDES.findIndex((s) => s.game === firstSlideGame(queue, SLIDES.map((s) => s.game), me));
+    if (i > 0 && index === 0) setIndex(i);
+  }
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -170,17 +182,17 @@ function HeroSlide({
             Practice free
           </Button>
         </div>
-        <QueueStrip seats={others} />
+        <QueueStrip seats={others} game={slide.game} />
       </div>
     </article>
   );
 }
 
 /** Who is waiting in the Queue for this Game. */
-function QueueStrip({ seats }: { seats: QueueSeat[] | null }) {
+function QueueStrip({ seats, game }: { seats: QueueSeat[] | null; game: GameId }) {
   const n = seats?.length ?? 0;
   const faces = [...new Set(seats?.map((w) => w.player))].slice(0, 3);
-  const [title, note] = seats === null ? ["Queue", "Checking…"] : n === 0 ? ["Queue is open", "Be the first in"] : [`${n} waiting in Queue`, "Ready to play now"];
+  const [title, note] = seats === null ? ["Queue", "Checking…"] : n === 0 ? ["No one waiting yet", null] : [`${n} waiting in Queue`, "Ready to play now"];
   return (
     <div className="cut slide-queue">
       {n > 0 && <span className="slide-queue-live" aria-hidden="true" />}
@@ -190,7 +202,7 @@ function QueueStrip({ seats }: { seats: QueueSeat[] | null }) {
       </span>
       <p className="slide-queue-text">
         <strong>{title}</strong>
-        <small>{note}</small>
+        {note ? <small>{note}</small> : <Link href={challengeHref(game)}>Challenge a friend</Link>}
       </p>
     </div>
   );

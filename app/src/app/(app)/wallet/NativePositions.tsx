@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, CheckIcon, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { ratesOf } from "@/lib/chain/fees";
 import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
@@ -114,7 +115,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   const a = useAction(refresh);
   const balance = market ? Number(market.simSol) / LAMPORTS : 0;
   const [text, setText] = useState("");
-  const [months, setMonths] = useState(3);
+  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
 
@@ -303,7 +304,7 @@ export function NativeAdvanceSheet({ info, market, open, onClose }: { info: Nati
 function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
-  const [months, setMonths] = useState(3);
+  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;

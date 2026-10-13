@@ -37,11 +37,15 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
   });
   const inflight = useRef<Promise<void> | null>(null);
   const again = useRef(false);
+  /** A refresh after a transaction: the server re-reads its lists instead of answering from its cache. */
+  const fresh = useRef(false);
   const reads = useRef(0);
 
   const readOnce = useCallback(async () => {
     if (!address) return;
     const read = ++reads.current;
+    const afterTransaction = fresh.current;
+    fresh.current = false;
     try {
       const { demoMode, demoSnapshot } = await import("./fixture");
       if (demoMode()) {
@@ -57,7 +61,7 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
           return { address, snapshot: prev?.matchesLoaded ? { ...next, matches: prev.matches, funded: prev.funded, matchesLoaded: true } : next, error: null };
         });
       };
-      const snapshot = await withTimeout(fetchSnapshot(new PublicKey(address), early), READ_TIMEOUT_MS);
+      const snapshot = await withTimeout(fetchSnapshot(new PublicKey(address), early, { fresh: afterTransaction }), READ_TIMEOUT_MS);
       setState({ address, snapshot, error: null });
     } catch (e) {
       console.warn("[chain] Account read failed", e);
@@ -66,9 +70,10 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
   }, [address]);
 
   // One read at a time. A refresh during a read (after a transaction) waits for it and reads once more, so it sees the new state; a poll just skips.
-  const load = useCallback((fresh: boolean): Promise<void> => {
+  const load = useCallback((afterTransaction: boolean): Promise<void> => {
+    if (afterTransaction) fresh.current = true;
     if (inflight.current) {
-      if (fresh) again.current = true;
+      if (afterTransaction) again.current = true;
       return inflight.current;
     }
     const run = (async () => {
