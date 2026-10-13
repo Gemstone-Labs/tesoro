@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { WaitlistPage } from "@/components/waitlist/WaitlistPage";
+import { WAITLIST_DESCRIPTION as DESCRIPTION } from "@/lib/waitlist-copy";
 
-const DESCRIPTION = "Join the Tesoro waitlist for early access.";
 
 export const metadata: Metadata = {
   title: "Tesoro · Join the waitlist",
