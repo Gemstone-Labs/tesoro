@@ -172,6 +172,13 @@ pub mod tesoro_core {
         instructions::native::take_native_advance(ctx, horizon_months)
     }
 
+    pub fn extend_native_advance(
+        ctx: Context<ExtendNativeAdvance>,
+        extra_months: u8,
+    ) -> Result<()> {
+        instructions::native::extend_native_advance(ctx, extra_months)
+    }
+
     pub fn accrue_native_yield(ctx: Context<AccrueNativeYield>) -> Result<()> {
         instructions::native::accrue_native_yield(ctx)
     }

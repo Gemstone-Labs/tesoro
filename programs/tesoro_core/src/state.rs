@@ -323,6 +323,17 @@ pub struct AdvanceIssued {
 }
 
 #[event]
+pub struct AdvanceExtended {
+    pub position: Pubkey,
+    pub source: Pubkey,
+    /// Gemas minted by this Extend.
+    pub gemas: u64,
+    pub extra_months: u8,
+    /// Horizon after the Extend.
+    pub horizon_months: u8,
+}
+
+#[event]
 pub struct YieldApplied {
     pub position: Pubkey,
     pub seq: u64,

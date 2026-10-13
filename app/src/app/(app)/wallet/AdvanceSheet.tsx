@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Lock } from "lucide-react";
 import { Button, ChainGlyph, CountUp, CrossChainProgress, GemaMark, Sheet, Slider, SimulatedYieldLabel } from "@/components/ui";
-import { quoteAdvance } from "@/lib/advance";
+import { DEFAULT_HORIZON_MONTHS, quoteAdvance } from "@/lib/advance";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import { MOCK_NOW } from "@/lib/mock";
 import type { Chain, Position } from "@/lib/mock";
@@ -96,7 +96,7 @@ export function AdvanceTakenNote({ gemas, from, unlock, landed = true }: { gemas
 }
 
 function AdvanceForm({ position, onClose }: { position: Position; onClose: () => void }) {
-  const [months, setMonths] = useState(3);
+  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [taken, setTaken] = useState(false);
   const quote = quoteAdvance(position, months, MOCK_NOW);
 

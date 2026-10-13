@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, Card, ChainChip, FacetCrown, GemaMark, GemaUsd, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
+import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
@@ -27,7 +28,7 @@ export default function Wallet() {
   const [returnFor, setReturnFor] = useState<Position | null>(null);
   const [chainReturnFor, setChainReturnFor] = useState<ChainPosition | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
-  const [months, setMonths] = useState(3);
+  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [now] = useState(() => Date.now());
   const [openSheet, setOpenSheet] = useState(false);
   const router = useRouter();
