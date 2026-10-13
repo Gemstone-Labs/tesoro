@@ -104,16 +104,16 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
   const openSources = withAdvance.map((r) => decodeOr(src, "sourceState", read.get(sourceOf(r.publicKey, r.account.inner.openAdvance))));
   const positionRows: Row[] = listedPositions.map((r) => ({ publicKey: r.publicKey, account: decodeOr(src, "positionState", read.get(r.publicKey)) ?? r.account }));
   const ownNative = positionRows.filter((r) => isNativePosition(r.account));
-  // A Position that moved on since the list (a new Advance) has a different latest Source: read it too.
-  await read.load(ownNative.filter((r) => r.account.inner.advances > 0).map((r) => sourceOf(r.publicKey, r.account.inner.advances - 1)));
-  await read.load(ownNative.flatMap((r) => [custodyPda(r.publicKey), vaultPda(r.publicKey)]));
+  // The first batch already holds every listed Position's custody and vault. Only a Position that moved on since the list (a new Advance)
+  // has a latest Source that batch lacks: that read is the only extra round, and it is empty when nothing moved.
+  const moved = read.load(ownNative.filter((r) => r.account.inner.advances > 0).map((r) => sourceOf(r.publicKey, r.account.inner.advances - 1)));
 
   // Positions behind Gemas won or backed from other Accounts: read them with their native custody and vault in one batch.
   const positionByKey = new Map<string, any>(positionRows.map((r) => [r.publicKey.toBase58(), r.account]));
   const foreign = [...new Map<string, PublicKey>(sources.filter(Boolean).map((s: any) => [pk(s.inner.position).toBase58(), pk(s.inner.position)])).entries()]
     .filter(([k]) => !positionByKey.has(k))
     .map(([, key]) => key);
-  await read.load(foreign.flatMap((p) => [p, custodyPda(p), vaultPda(p)]));
+  await Promise.all([moved, read.load(foreign.flatMap((p) => [p, custodyPda(p), vaultPda(p)]))]);
   const nativeKeys = new Set<string>();
   for (const key of foreign) {
     const decoded = decodeOr(src, "positionState", read.get(key));

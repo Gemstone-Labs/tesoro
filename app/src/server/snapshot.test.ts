@@ -111,7 +111,7 @@ const lists = {
 const ownerAt = { HoldingState: 9, PositionState: 41 };
 
 function fake() {
-  const calls = { infos: [] as number[], lists: 0 };
+  const calls = { infos: [] as number[], lists: 0, owned: 0 };
   const deps: SnapshotDeps = {
     lists: async (q) => {
       calls.lists++;
@@ -129,7 +129,10 @@ function fake() {
       }) as never,
       getBalance: (async () => 2_500_000_000) as never,
     },
-    invalidate: () => undefined,
+    owned: async (q) => {
+      calls.owned++;
+      return deps.lists(q);
+    },
   };
   return { deps, calls };
 }
@@ -187,13 +190,29 @@ describe("Account snapshot on the server", () => {
     }
   });
 
-  it("invalidates the lists first when the Account just sent a transaction", async () => {
+  it("reads the Account's own rows upstream and merges them over the cached lists after its own transaction", async () => {
+    const { deps, calls } = fake();
+    const cached = deps.lists;
+    // The cached lists lack the Account's Holding of its own Position (created since the list was cached).
+    deps.lists = async (q) => (await cached(q)).filter((r) => r.pubkey !== holdMine.toBase58());
+    const stale = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, {}, deps));
+    expect(calls.owned).toBe(0);
+    expect(stale.holdings.map((h) => h.holding.toBase58())).toEqual([holdTheirs.toBase58()]);
+    deps.owned = async (q) => {
+      calls.owned++;
+      return (await cached(q)).filter((r) => r.pubkey === holdMine.toBase58() || r.pubkey === mine.toBase58());
+    };
+    const fresh = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, { fresh: true }, deps));
+    expect(calls.owned).toBe(2);
+    expect(fresh.holdings.map((h) => h.holding.toBase58()).sort()).toEqual([holdMine.toBase58(), holdTheirs.toBase58()].sort());
+  });
+
+  it("answers from the cached lists when the owner read fails", async () => {
     const { deps } = fake();
-    let invalidated = 0;
-    deps.invalidate = () => void invalidated++;
-    await getAccountState(authority, {}, deps);
-    expect(invalidated).toBe(0);
-    await getAccountState(authority, { fresh: true }, deps);
-    expect(invalidated).toBe(1);
+    deps.owned = async () => {
+      throw new Error("429");
+    };
+    const snap = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, { fresh: true }, deps));
+    expect(snap.holdings).toHaveLength(2);
   });
 });

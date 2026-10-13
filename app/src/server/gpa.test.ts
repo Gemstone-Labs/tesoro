@@ -130,29 +130,30 @@ describe("gpa list cache (OC-03)", () => {
   });
 });
 
-describe("gpa list invalidation", () => {
-  it("makes the next read go upstream even though the cached rows are fresh", async () => {
+describe("gpa owner read", () => {
+  it("queries upstream with the owner filter and leaves the shared list cached", async () => {
+    const bodies: string[] = [];
     let n = 0;
-    const up = upstream(() => [row(new Uint8Array(32), ++n)]);
-    const lists = createListCache({ fetch: up.fetch, now: () => 1_000 });
-    const holdings = q(`program=${CORE}&filter=m:0:${HOLDING}`);
-    await lists.getAccounts(holdings);
-    await lists.getAccounts(holdings);
-    expect(up.calls()).toBe(1);
-    lists.invalidate([HOLDING]);
-    const rows = await lists.getAccounts(holdings);
-    expect(up.calls()).toBe(2);
-    expect(rows.map((r) => r.pubkey)).toEqual(["row2"]);
+    const fetch = (async (_u: unknown, init: RequestInit) => {
+      bodies.push(String(init.body));
+      return Response.json({ jsonrpc: "2.0", id: 1, result: [row(new Uint8Array(32), ++n)] });
+    }) as typeof globalThis.fetch;
+    const lists = createListCache({ fetch, now: () => 1_000 });
+    const owner = Keypair.generate().publicKey;
+    const all = q(`program=${CORE}&filter=m:0:${HOLDING}`);
+    const mine = q(`program=${CORE}&filter=m:0:${HOLDING}&filter=m:9:${owner.toBase58()}`);
+    await lists.getAccounts(all);
+    expect((await lists.getOwnedFresh(mine)).map((r) => r.pubkey)).toEqual(["row2"]);
+    expect(JSON.parse(bodies[1]).params[1].filters).toEqual([
+      { memcmp: { offset: 0, bytes: HOLDING } },
+      { memcmp: { offset: 9, bytes: owner.toBase58() } },
+    ]);
+    expect((await lists.getAccounts(all)).map((r) => r.pubkey)).toEqual(["row1"]);
+    expect(bodies).toHaveLength(2);
   });
 
-  it("serves the old rows when the fresh read fails", async () => {
-    let fail = false;
-    const up = upstream(() => (fail ? 500 : [row(new Uint8Array(32), 1)]));
-    const lists = createListCache({ fetch: up.fetch, now: () => 1_000 });
-    const holdings = q(`program=${CORE}&filter=m:0:${HOLDING}`);
-    await lists.getAccounts(holdings);
-    lists.invalidate([HOLDING]);
-    fail = true;
-    expect((await lists.getAccounts(holdings)).map((r) => r.pubkey)).toEqual(["row1"]);
+  it("refuses a query without an owner", async () => {
+    const lists = createListCache({ fetch: upstream(() => []).fetch });
+    await expect(lists.getOwnedFresh(q(`program=${CORE}&filter=m:0:${HOLDING}`))).rejects.toBeInstanceOf(GpaInputError);
   });
 });
