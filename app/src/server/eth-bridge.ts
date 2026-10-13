@@ -392,7 +392,7 @@ async function sendPay(kind: "yield" | "instant", vault: string, pid: Buffer, ho
 // ---- Advance (oracle price) ------------------------------------------------------------------------
 
 /**
- * Devnet price feed for the Advance: Coinbase spot (ETH-USD or HYPE-USD), refreshed at most every 60 s per asset. ETH falls
+ * Devnet price feed for the Advance: Coinbase spot (ETH-USD or HYPE-USD), then CoinGecko, refreshed at most every 60 s per asset. ETH falls
  * back to the $3,000 of docs/cross-chain.md for display; the Advance itself is refused while the price is not live.
  */
 type Asset = EvmNet["native"];
@@ -404,16 +404,24 @@ export async function assetPrice(asset: Asset): Promise<{ microUsd: bigint; live
   if (hit && Date.now() - hit.at < 60_000) return hit;
   let microUsd = FALLBACK_MICRO_USD[asset];
   let live = false;
-  try {
-    const res = await fetch(`https://api.coinbase.com/v2/prices/${asset}-USD/spot`, { signal: AbortSignal.timeout(10_000) });
-    const amount = Number(((await res.json()) as { data?: { amount?: string } }).data?.amount);
-    const [lo, hi] = PRICE_BOUNDS[asset];
-    if (Number.isFinite(amount) && amount > lo && amount < hi) {
-      microUsd = BigInt(Math.round(amount * 1e6));
-      live = true;
+  const coingeckoId = asset === "ETH" ? "ethereum" : "hyperliquid";
+  const sources: [string, (body: unknown) => unknown][] = [
+    [`https://api.coinbase.com/v2/prices/${asset}-USD/spot`, (body) => (body as { data?: { amount?: string } }).data?.amount],
+    [`https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`, (body) => (body as Record<string, { usd?: number }>)[coingeckoId]?.usd],
+  ];
+  for (const [url, read] of sources) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      const amount = Number(read(await res.json()));
+      const [lo, hi] = PRICE_BOUNDS[asset];
+      if (Number.isFinite(amount) && amount > lo && amount < hi) {
+        microUsd = BigInt(Math.round(amount * 1e6));
+        live = true;
+        break;
+      }
+    } catch {
+      // try the next source
     }
-  } catch {
-    // keep the fallback
   }
   // A failed refresh keeps the last live price for up to 10 minutes instead of dropping to the display fallback.
   if (!live && hit?.live && Date.now() - hit.at < 10 * 60_000) {
