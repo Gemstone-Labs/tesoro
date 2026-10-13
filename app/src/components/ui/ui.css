@@ -298,7 +298,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .entry span { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 48px; font-weight: 800; font-size: 16px; }
 .entry input:checked + span { color: var(--em-ink); }
 .entry .entry-fig { display: grid; justify-content: start; min-height: 0; gap: 0; line-height: 1.1; }
-.entry .entry-fig .gema-usd { display: block; min-height: 0; color: inherit; opacity: 0.7; font-size: 0.6em; }
+.entry .entry-fig .gema-usd { display: block; min-height: 0; color: inherit; opacity: 0.75; font-size: 0.72em; }
 .entry input:not(:checked) + span .gema-mark { filter: grayscale(1) brightness(0.85); opacity: 0.55; }
 /* the chosen entry the balance cannot cover: a dark green piece, never struck through */
 .entries.off .pick-thumb { background: linear-gradient(180deg, #1c3a32, #10221e); }
