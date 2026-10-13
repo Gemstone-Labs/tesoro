@@ -2,6 +2,7 @@ import "./polyfill";
 import {
   Connection,
   PublicKey,
+  type AccountInfo,
   SystemProgram,
   TransactionInstruction,
   type AccountMeta,
@@ -451,8 +452,15 @@ export interface NativeInfo {
   source: { key: PublicKey; index: number; horizonMonths: number; math: SourceMath } | null;
 }
 
+/** The accounts `marketFrom` reads, in order: pool, price feed, the wallet's simSOL token account, Treasury, Treasury vault. */
+export const marketKeys = (wallet: PublicKey) => [POOL, PRICE_FEED, simSolAta(wallet), treasuryPda(), treasuryVaultPda()];
+
 export async function fetchNativeMarket(c: Connection, wallet: PublicKey): Promise<NativeMarket> {
-  const [pool, feed, ata, treasuryInfo, treasuryVault] = await c.getMultipleAccountsInfo([POOL, PRICE_FEED, simSolAta(wallet), treasuryPda(), treasuryVaultPda()], "confirmed");
+  return marketFrom(await c.getMultipleAccountsInfo(marketKeys(wallet), "confirmed"));
+}
+
+/** The market from the accounts of `marketKeys`, already read. Throws when the pool does not exist. */
+export function marketFrom([pool, feed, ata, treasuryInfo, treasuryVault]: (AccountInfo<Buffer> | null)[]): NativeMarket {
   if (!pool) throw new Error("sim_lst pool not initialized");
   const d = Buffer.from(pool.data);
   let simSol = 0n;
@@ -497,6 +505,23 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
   const custody = custodyPda(position);
   const [pos, cust, vault] = await c.getMultipleAccountsInfo([position, custody, vaultPda(position)], "confirmed");
   if (!pos || !cust || !vault) return null;
+  const advances = rdU32(Buffer.from(pos.data), NATIVE_ADVANCES_AT);
+  const src = advances > 0 ? await c.getAccountInfo(sourcePda(position, advances - 1), "confirmed") : null;
+  return nativeInfoFrom(position, pos, cust, vault, src);
+}
+
+/** Byte offset of `advances` in a PositionState: disc, bump, id, owner, chain, asset, decimals, principal, rate, status. */
+const NATIVE_ADVANCES_AT = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1;
+
+/** `fetchNativeInfo` from accounts already read; `src` is the latest Source (index `advances - 1`), null when there is none. */
+export function nativeInfoFrom(
+  position: PublicKey,
+  pos: AccountInfo<Buffer>,
+  cust: AccountInfo<Buffer>,
+  vault: AccountInfo<Buffer>,
+  src: AccountInfo<Buffer> | null,
+): NativeInfo {
+  const custody = custodyPda(position);
   const d = Buffer.from(pos.data);
   let o = 8 + 1 + 32 + 32 + 1 + 32 + 1; // disc, bump, id, owner, chain, asset, decimals
   const principalLamports = rdU64(d, o);
@@ -519,12 +544,7 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
   const ACCRUAL_AT = TRACKED_AT + 8;
   const lastAccrualTs = cust.data.length >= ACCRUAL_AT + 8 ? Number(rdI64(cust.data, ACCRUAL_AT)) : null;
   const vaultBalance = rdU64(vault.data, 64);
-  let source: NativeInfo["source"] = null;
-  if (advances > 0) {
-    const key = sourcePda(position, advances - 1);
-    const src = await c.getAccountInfo(key, "confirmed");
-    if (src) source = parseSource(key, Buffer.from(src.data));
-  }
+  const source: NativeInfo["source"] = advances > 0 && src ? parseSource(sourcePda(position, advances - 1), Buffer.from(src.data)) : null;
   return {
     position,
     custody,

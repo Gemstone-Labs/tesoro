@@ -23,4 +23,14 @@ The keeper loads `app/.env.local` for any variable its own environment leaves un
 - 600 requests per minute per client IP (`x-forwarded-for`, set by the host), then 429.
 - The cache is per server instance. On serverless hosting each instance has its own; run a single instance for the demo.
 
+## Account route
+
+`GET /api/account/<authority>[?fresh=1]`
+
+- The signed-in Account's state (Gemas, Holdings, Positions with their simSOL custody, the simSOL market, SOL balance) assembled on the server, so a page load costs the browser one request instead of several RPC round trips. Matches are not in it: they stay a separate read (`fetchAccountMatches`).
+- `src/server/snapshot.ts` runs the same `readAccountState` (`src/lib/chain/account-state.ts`) as the browser's own read, with the Holding and Position lists from the list cache above (no HTTP hop) and the rest from `TESORO_BASE_RPC`: round 1 the lists with the Account, the market and the balance; round 2 one `getMultipleAccountsInfo` of every Holding, Source and Position with custody, vault and latest Source; round 3, only when the Account holds Gemas won from another Account's Position, those Positions with their custody and vault.
+- Answers JSON where bigints are `{ "$big": "<decimal>" }` and keys `{ "$key": "<base58>" }` (`src/lib/chain/snapshot-wire.ts`). Same per-client limit as the list route (600 a minute), then 429.
+- The browser (`fetchAccountState`) asks the route first and reads the chain itself when it answers an error, a bad body or nothing within 15 s, so the route is an optimisation, never a dependency.
+- Freshness: Holdings and Positions are re-read from the chain on every snapshot, but a Holding or Position created since the list was cached is missing for up to 2 min. After a transaction this app sent, `refresh()` asks with `?fresh=1`, which marks the two lists stale on the server so that read goes upstream (the old rows are served only if the upstream call fails). The cache is per server instance, so the flag travels with the request rather than being stored.
+
 Browser code does not call the route by hand: `getChain().base` is a `SplitConnection` (`src/lib/chain/split-connection.ts`) whose `getProgramAccounts` calls it, so Anchor's `program.account.x.all()` works unchanged. Identical queries within 1.5s share one fetch.

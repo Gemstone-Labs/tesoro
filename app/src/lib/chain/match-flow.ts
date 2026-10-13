@@ -57,7 +57,7 @@ export async function ensureReady(signer: ChainSigner, getToken: GetToken): Prom
   let snap = await fetchAccountState(signer.publicKey);
   if (!snap.exists) {
     await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
-    snap = await fetchAccountState(signer.publicKey);
+    snap = await fetchAccountState(signer.publicKey, { fresh: true });
   }
   return snap;
 }
