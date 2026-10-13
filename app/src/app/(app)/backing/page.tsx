@@ -31,6 +31,7 @@ import {
   cancelOffer,
   cancelRequest,
   expireOffer,
+  fetchBackingBoard,
   postOffer,
   postRequest,
   type ChainOffer,
@@ -126,14 +127,14 @@ export default function Backing() {
   const mine = offers.filter((o) => o.backer === me && ["open", "accepted", "consumed"].includes(o.status));
   const offeredTo = new Set(mine.filter((o) => o.status === "open" && nowSecs < o.expiresAt && o.directedTo).map((o) => o.directedTo));
 
-  const run = (key: string, label: string, fn: () => Promise<string | undefined>) => {
+  const run = (key: string, label: string | (() => string), fn: () => Promise<string | undefined>) => {
     setBusy(key);
     setError(null);
     setDone(null);
     void (async () => {
       try {
         const sig = await fn();
-        setDone({ text: label, sig });
+        setDone({ text: typeof label === "function" ? label() : label, sig });
         await Promise.all([refresh(), refreshAccount()]);
       } catch (e) {
         setError(explain(e));
@@ -142,7 +143,7 @@ export default function Backing() {
       }
     })();
   };
-  const act = (reason: string, key: string, label: string, fn: (s: NonNullable<typeof auth.signer>) => Promise<string | undefined>) =>
+  const act = (reason: string, key: string, label: string | (() => string), fn: (s: NonNullable<typeof auth.signer>) => Promise<string | undefined>) =>
     auth.gate(reason, () =>
       run(key, label, async () => {
         if (!auth.signer) throw new Error("Your wallet is not ready yet. Try again in a moment.");
@@ -150,9 +151,19 @@ export default function Backing() {
       }),
     );
 
+  /** The board as the chain has it now: a stale or empty list must never lead to a duplicate Request. */
+  const freshRequests = async () => {
+    const { demoMode } = await import("@/lib/chain/fixture");
+    return demoMode() ? requests : (await fetchBackingBoard()).requests;
+  };
+  const [highlight, setHighlight] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab === "requests" && highlight) document.getElementById(`rq-${highlight}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [tab, highlight, requests.length]);
+
   const apply = (offer: ChainOffer) =>
     act("apply to an Offer", `apply-${offer.address.toBase58()}`, "Applied. The Backer chooses whom to back.", async (signer) => {
-      let request = liveRequestFor(requests, me ?? "", offer.game, offer.entry)?.address;
+      let request = liveRequestFor(await freshRequests(), me ?? "", offer.game, offer.entry, offer.applicants)?.address;
       if (!request) request = (await postRequest(signer, offer.game, offer.entry, auth.getAccessToken)).address;
       return applyToOffer(signer, request, offer.address);
     });
@@ -324,7 +335,7 @@ export default function Backing() {
                 );
               })}
               {myRequests.map((r) => (
-                <div className="bk-span" key={r.address.toBase58()}>
+                <div className={`bk-span${highlight === r.address.toBase58() ? " bk-hl" : ""}`} id={`rq-${r.address.toBase58()}`} key={r.address.toBase58()}>
                   <MyRequest
                     r={r}
                     nowMs={nowMs}
@@ -423,11 +434,22 @@ export default function Backing() {
           disabled={busy !== null}
           onPost={(game, entry) => {
             setPostOpen(false);
-            if (liveRequestFor(requests, me ?? "", game, entry)) {
-              setDone({ text: "You already have a live Request for this Game and entry." });
-              return;
-            }
-            act("post a Request", "post-request", "Request posted. Backers can answer it with Offers.", async (s) => (await postRequest(s, game, entry, auth.getAccessToken)).sig);
+            let existing = false;
+            act(
+              "post a Request",
+              "post-request",
+              () => (existing ? "You already have a live Request for this Game and entry. It is highlighted below." : "Request posted. Backers can answer it with Offers."),
+              async (s) => {
+                const live = liveRequestFor(await freshRequests(), me ?? "", game, entry);
+                if (live) {
+                  existing = true;
+                  setTab("requests");
+                  setHighlight(live.address.toBase58());
+                  return undefined;
+                }
+                return (await postRequest(s, game, entry, auth.getAccessToken)).sig;
+              },
+            );
           }}
         />
       </Sheet>

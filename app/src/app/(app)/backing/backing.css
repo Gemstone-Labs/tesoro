@@ -147,3 +147,4 @@ dialog.bk-drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .bk-ex-legend { flex-wrap: wrap; row-gap: 10px; }
   .bk-ex-legend li { flex: 1 1 40% !important; }
 }
+.bk-hl { outline: 2px solid var(--fg); outline-offset: 3px; }
