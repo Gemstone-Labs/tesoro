@@ -140,7 +140,7 @@ export function EnterMatch(props: EnterKind) {
           {props.kind !== "challenge-join" ? (
             <div className="cut cut-card enter-plaque">
               <span className="enter-label">Pot</span>
-              <GemaAmount value={props.entry * 2} size="lg" />
+              <GemaAmount value={props.entry * 2} size="lg" usd />
               <small>{fmtGemas(props.entry)} each · minus Fees</small>
             </div>
           ) : (
