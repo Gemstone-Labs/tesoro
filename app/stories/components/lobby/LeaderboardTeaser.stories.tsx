@@ -13,6 +13,8 @@ type Story = StoryObj<typeof meta>;
 
 /** This week's prize pool and the top three. */
 export const Live: Story = {};
+/** Under 1,000 Gemas the figure goes: Season and countdown only. */
+export const SmallPool: Story = { parameters: { screen: { pool: { gemas: 420 } } } };
 export const NoPointsYet: Story = { parameters: { screen: { leaderboard: "empty" } } };
 export const Loading: Story = { parameters: { screen: { leaderboard: "loading" } } };
 /** If the read fails the teaser hides itself: the Lobby does not depend on it. */
