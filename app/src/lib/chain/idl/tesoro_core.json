@@ -1349,6 +1349,138 @@
       ]
     },
     {
+      "name": "extend_native_advance",
+      "discriminator": [
+        208,
+        199,
+        253,
+        231,
+        21,
+        175,
+        142,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Its Yield Fee sizes the added months."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "extra_months",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "fund_treasury",
       "discriminator": [
         71,
@@ -5632,6 +5764,19 @@
   ],
   "events": [
     {
+      "name": "AdvanceExtended",
+      "discriminator": [
+        252,
+        144,
+        171,
+        131,
+        23,
+        47,
+        46,
+        153
+      ]
+    },
+    {
       "name": "AdvanceIssued",
       "discriminator": [
         217,
@@ -5960,6 +6105,40 @@
           {
             "name": "won_reserved",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdvanceExtended",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "docs": [
+              "Gemas minted by this Extend."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "extra_months",
+            "type": "u8"
+          },
+          {
+            "name": "horizon_months",
+            "docs": [
+              "Horizon after the Extend."
+            ],
+            "type": "u8"
           }
         ]
       }

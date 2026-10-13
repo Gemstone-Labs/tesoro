@@ -273,6 +273,71 @@ pub(crate) fn take_native_advance(
     )
 }
 
+// --- Extend ----------------------------------------------------------------------------------
+
+/// Adds months to the Position's open Advance and credits those months' Gemas to the owner's
+/// Holding of its Source, at the Source's stored price. The owner signs alone.
+#[derive(Accounts)]
+pub struct ExtendNativeAdvance<'info> {
+    pub owner_authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
+        bump = owner_account.bump
+    )]
+    pub owner_account: Account<'info, TesoroAccount>,
+    #[account(
+        mut,
+        seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
+        bump = position.bump,
+        constraint = position.inner.owner == owner_account.key().to_bytes() @ TesoroError::Unauthorized,
+        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
+    )]
+    pub position: Account<'info, PositionState>,
+    /// Its Yield Fee sizes the added months.
+    #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
+    pub treasury: Box<Account<'info, Treasury>>,
+    #[account(
+        mut,
+        seeds = [SOURCE_SEED, position.key().as_ref(), &source.inner.index.to_le_bytes()],
+        bump = source.bump,
+        constraint = source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
+    )]
+    pub source: Account<'info, SourceState>,
+    #[account(
+        mut,
+        seeds = [HOLDING_SEED, owner_account.key().as_ref(), source.key().as_ref()],
+        bump = holding.bump,
+        constraint = holding.account == owner_account.key() @ TesoroError::InvalidAccount,
+        constraint = holding.inner.source == source.key().to_bytes() @ TesoroError::InvalidAccount
+    )]
+    pub holding: Account<'info, HoldingState>,
+}
+
+pub(crate) fn extend_native_advance(
+    ctx: Context<ExtendNativeAdvance>,
+    extra_months: u8,
+) -> Result<()> {
+    let a = ctx.accounts;
+    let gemas = a
+        .position
+        .inner
+        .extend_advance(&mut a.source.inner, extra_months, a.treasury.yield_fee_bps)
+        .map_err(core_err)?;
+    a.holding
+        .inner
+        .credit(&mut a.owner_account.inner, gemas)
+        .map_err(core_err)?;
+    emit!(AdvanceExtended {
+        position: a.position.key(),
+        source: a.source.key(),
+        gemas,
+        extra_months,
+        horizon_months: a.source.inner.horizon_months,
+    });
+    Ok(())
+}
+
 // --- Yield crank -----------------------------------------------------------------------------
 
 /// Anyone can call. First mints the simulated yield the Position earned since `last_accrual_ts`
