@@ -37,13 +37,14 @@ const GAME_BYTES = 32 + 32 + 2 + 32;
 
 /** Reads the fee from the raw Config bytes. An account that predates the Leaderboard has no such fields: no fee. */
 export function parseLeaderboardTerms(data: Uint8Array): LeaderboardTerms {
-  const buf = Buffer.from(data);
-  if (buf.length < GAMES_AT + 4) return NO_LEADERBOARD;
-  const at = GAMES_AT + 4 + buf.readUInt32LE(GAMES_AT) * GAME_BYTES;
-  if (buf.length < at + 2 + 32 + 8) return NO_LEADERBOARD;
-  const pool = new PublicKey(buf.subarray(at + 2, at + 34));
+  // DataView, not Buffer: the browser's Buffer polyfill has no readBigInt64LE.
+  const d = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (data.length < GAMES_AT + 4) return NO_LEADERBOARD;
+  const at = GAMES_AT + 4 + d.getUint32(GAMES_AT, true) * GAME_BYTES;
+  if (data.length < at + 2 + 32 + 8) return NO_LEADERBOARD;
+  const pool = new PublicKey(data.subarray(at + 2, at + 34));
   if (pool.equals(PublicKey.default)) return NO_LEADERBOARD;
-  return { bps: buf.readUInt16LE(at), recipient: pool, since: Number(buf.readBigInt64LE(at + 34)) };
+  return { bps: d.getUint16(at, true), recipient: pool, since: Number(d.getBigInt64(at + 34, true)) };
 }
 
 const TERMS_TTL_MS = 60_000;
@@ -62,12 +63,17 @@ export async function fetchLeaderboardTerms(conn: Connection, fresh = false): Pr
 // TesoroAccount: disc 8, bump 1, authority 32, evm 20, then own_total, won_total, own_reserved, won_reserved.
 const OWN_TOTAL_AT = 8 + 1 + 32 + 20;
 
+/** Own plus won Gemas from the raw pool Account bytes. */
+export function poolTotalOf(data: Uint8Array): bigint {
+  const d = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return d.getBigUint64(OWN_TOTAL_AT, true) + d.getBigUint64(OWN_TOTAL_AT + 8, true);
+}
+
 /** Gemas in the pool right now. */
 export async function fetchPoolTotal(conn: Connection): Promise<bigint> {
   const info = await conn.getAccountInfo(POOL_ACCOUNT, "confirmed");
   if (!info || info.data.length < OWN_TOTAL_AT + 16) return 0n;
-  const d = Buffer.from(info.data);
-  return d.readBigUInt64LE(OWN_TOTAL_AT) + d.readBigUInt64LE(OWN_TOTAL_AT + 8);
+  return poolTotalOf(info.data);
 }
 
 export interface SeasonRecord {
