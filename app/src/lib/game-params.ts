@@ -33,3 +33,8 @@ export function practiceHref(game: GameId, asset?: number | null): string {
   if (game === "block-puzzle") return "/play/practice";
   return `/play/practice?${gameQuery(game, asset).replace(/&$/, "")}`;
 }
+
+/** The Challenge link of a Game at the default entry (Trading Duel carries the chosen asset). */
+export function challengeHref(game: GameId, asset?: number | null): string {
+  return `/play/challenge${game === "block-puzzle" ? "" : `?${gameQuery(game, asset).replace(/&$/, "")}`}`;
+}
