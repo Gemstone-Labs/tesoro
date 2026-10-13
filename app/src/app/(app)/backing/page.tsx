@@ -37,6 +37,7 @@ import {
   type ChainRequest,
   type PlayerRecord,
 } from "@/lib/chain/backing";
+import { liveRequestFor, onePerPlayer } from "@/lib/chain/requests";
 import { backedSplit, EntryError, MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
 import { recordFromMatches, recordText, timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
@@ -115,7 +116,7 @@ export default function Backing() {
       sort === "entry" ? b.entry - a.entry : sort === "record" ? winRate(rec(b) ?? { matches: 0, wins: 0 }) - winRate(rec(a) ?? { matches: 0, wins: 0 }) : b.expiresAt - a.expiresAt,
     );
   const others = sorted(
-    requests.filter((r) => r.live && r.player !== me),
+    onePerPlayer(requests.filter((r) => r.player !== me)),
     (r) => r.record,
   );
   const publicOffers = sorted(
@@ -151,9 +152,7 @@ export default function Backing() {
 
   const apply = (offer: ChainOffer) =>
     act("apply to an Offer", `apply-${offer.address.toBase58()}`, "Applied. The Backer chooses whom to back.", async (signer) => {
-      let request = liveMine.find(
-        (r) => r.game === offer.game && r.entry === offer.entry && !offer.applicants.includes(r.address.toBase58()),
-      )?.address;
+      let request = liveRequestFor(requests, me ?? "", offer.game, offer.entry)?.address;
       if (!request) request = (await postRequest(signer, offer.game, offer.entry, auth.getAccessToken)).address;
       return applyToOffer(signer, request, offer.address);
     });
@@ -424,6 +423,10 @@ export default function Backing() {
           disabled={busy !== null}
           onPost={(game, entry) => {
             setPostOpen(false);
+            if (liveRequestFor(requests, me ?? "", game, entry)) {
+              setDone({ text: "You already have a live Request for this Game and entry." });
+              return;
+            }
             act("post a Request", "post-request", "Request posted. Backers can answer it with Offers.", async (s) => (await postRequest(s, game, entry, auth.getAccessToken)).sig);
           }}
         />
