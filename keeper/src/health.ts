@@ -42,8 +42,8 @@ export function startWatchdog(health: Health, log: (m: string) => void, exit: (c
   return timer;
 }
 
-/** GET /healthz: 200 while the loop is alive, 503 once it is stale. Bound to `port` on all interfaces (internal to the host). */
-export function startHealthServer(health: Health, port: number, log: (m: string) => void): Server {
+/** GET /healthz: 200 while the loop is alive, 503 once it is stale. Bound to `port` on `host` (all interfaces when unset). */
+export function startHealthServer(health: Health, port: number, log: (m: string) => void, host?: string): Server {
   const server = createServer((req, res) => {
     if (req.url !== "/healthz") {
       res.writeHead(404).end();
@@ -52,7 +52,7 @@ export function startHealthServer(health: Health, port: number, log: (m: string)
     const s = health.status();
     res.writeHead(s.alive ? 200 : 503, { "content-type": "application/json" }).end(JSON.stringify(s));
   });
-  server.listen(port, () => log(`health on :${port}/healthz`));
+  server.listen(port, host, () => log(`health on ${host ?? ""}:${port}/healthz`));
   server.unref();
   return server;
 }

@@ -54,7 +54,7 @@ async function main() {
   const health = new Health(WATCHDOG_MS);
   if (!s.once) {
     startWatchdog(health, (m) => log("keeper", "-", m));
-    if (process.env.KEEPER_HEALTH_PORT) startHealthServer(health, Number(process.env.KEEPER_HEALTH_PORT), (m) => log("keeper", "-", m));
+    if (process.env.KEEPER_HEALTH_PORT) startHealthServer(health, Number(process.env.KEEPER_HEALTH_PORT), (m) => log("keeper", "-", m), process.env.KEEPER_HEALTH_HOST || undefined);
   }
 
   let delay = s.intervalMs;
