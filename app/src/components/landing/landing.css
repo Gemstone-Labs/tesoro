@@ -620,6 +620,7 @@ html.lenis, html.lenis body { height: auto; }
 @keyframes lp-spin { to { rotate: 360deg; } }
 .lp-vitrine .sweep { fill: none; stroke: var(--em-hi); stroke-width: 2; stroke-dasharray: 8 92; filter: drop-shadow(0 0 6px var(--em)); }
 @media (prefers-reduced-motion: no-preference) { .lp-vitrine .sweep { animation: lp-sweep-ring 7s linear infinite; } }
+@media (prefers-reduced-motion: no-preference) { .is-scrubbed .lp-vitrine .sweep { animation: none; stroke-dashoffset: calc(var(--g-sweep, 0) * -100px); } }
 @media (prefers-reduced-motion: reduce) { .lp-vitrine .sweep { display: none; } }
 @keyframes lp-sweep-ring { to { stroke-dashoffset: -100; } }
 
