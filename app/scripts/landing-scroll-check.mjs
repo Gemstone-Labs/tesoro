@@ -37,6 +37,7 @@ const RUNS = {
 
 const FULL = 0.99;
 const DESKTOP = ["desktop-dark", "desktop-light"];
+const ORDER = ["top", "how-it-works", "games", "gemas", "backing", "studios", "multichain", "launch"];
 
 const CHECKS = [
   {
@@ -151,12 +152,45 @@ const CHECKS = [
     },
   },
   {
-    name: "empty band measured",
+    name: "sections run in the new order",
     runs: [...DESKTOP, "phone", "reduced"],
-    fn({ down, note, assert }) {
-      const worst = down.reduce((a, s) => (s.gap > a.gap ? s : a), { gap: 0, y: 0 });
+    fn({ layout, assert }) {
+      const ids = layout.sections.map((s) => s.id).filter((id) => ORDER.includes(id));
+      assert(JSON.stringify(ids) === JSON.stringify(ORDER), `order is ${ids.join(", ")}`);
+      const tops = layout.sections.filter((s) => ORDER.includes(s.id)).map((s) => s.top);
+      assert(tops.every((t, i) => !i || t >= tops[i - 1]), `section tops not ascending: ${tops.join(",")}`);
+    },
+  },
+  {
+    name: "games top within about three viewports",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ layout, note, assert }) {
+      const games = layout.sections.find((s) => s.id === "games");
+      const v = +(games.top / layout.viewport[1]).toFixed(2);
+      note("gamesTopViewports", v);
+      note("totalHeight", layout.total);
+      if (DESKTOP.includes(layout.run)) assert(v <= 3.3, `games top at ${v} viewports`);
+    },
+  },
+  {
+    name: "each nav anchor lands with its section heading in view",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ layout, assert }) {
+      if (!layout.anchors.length) return assert(layout.run === "phone", "no nav anchors found");
+      const bad = layout.anchors.filter((a) => !a.inView);
+      assert(bad.length === 0, `heading not in view after nav click: ${JSON.stringify(bad)}`);
+      assert(layout.anchors.length === 4, `expected 4 anchors, got ${layout.anchors.length}`);
+    },
+  },
+  {
+    name: "no empty band taller than 35% of the viewport",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ down, up, how, note, assert }) {
+      const all = [...down, ...up, ...how];
+      const worst = all.reduce((a, s) => (s.gap > a.gap ? s : a), { gap: 0, y: 0 });
       note("largestEmptyBand", { fractionOfViewport: worst.gap, atY: worst.y, section: worst.sec });
-      assert(Number.isFinite(worst.gap), "no measurement");
+      const bad = all.filter((s) => s.gap > 0.35);
+      assert(bad.length === 0, `empty band over 35% at y=${bad.map((s) => `${s.y}(${s.gap},${s.sec})`).join(" ")}`);
     },
   },
 ];
@@ -291,6 +325,20 @@ async function walk(browser, name, run) {
   down.push(await sample("down", down.length));
 
   const layout = await page.evaluate(readLayout);
+  layout.run = name;
+  layout.anchors = [];
+  for (const id of ["how-it-works", "games", "backing", "studios"]) {
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.waitForTimeout(1200);
+    const link = page.locator(`.lp-links a[href="#${id}"]`);
+    if (!(await link.isVisible())) continue;
+    await link.click();
+    await page.waitForTimeout(2800);
+    layout.anchors.push({ id, ...(await page.evaluate((i) => {
+      const h = document.querySelector(`#${i} h2`)?.getBoundingClientRect();
+      return { top: h ? Math.round(h.top) : null, inView: !!h && h.top >= 0 && h.bottom <= innerHeight };
+    }, id)) });
+  }
 
   // Back up through the Gemas pin: stop sampling once above it.
   const up = [];
