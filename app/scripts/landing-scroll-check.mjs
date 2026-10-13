@@ -63,6 +63,30 @@ const CHECKS = [
     },
   },
   {
+    name: "gemas pin is about 120% of the viewport",
+    runs: DESKTOP,
+    fn({ layout, note, assert }) {
+      assert(!!layout.gemasPin, "Gemas section is not pinned");
+      const span = layout.gemasPin.end - layout.gemasPin.start;
+      note("gemasPinSpan", { px: span, viewports: +(span / layout.viewport[1]).toFixed(2) });
+      assert(Math.abs(span / layout.viewport[1] - 1.2) <= 0.1, `gemas pin ${span}px is ${(span / layout.viewport[1]).toFixed(2)} viewports`);
+    },
+  },
+  {
+    name: "gemas outline sweep advances with scroll inside the pin",
+    runs: DESKTOP,
+    fn({ layout, down, up, assert }) {
+      const p = layout.gemasPin;
+      assert(!!p, "Gemas section is not pinned");
+      const inPin = [...down, ...up].filter((s) => s.y >= p.start - 2 && s.y <= p.end + 2 && s.sweep !== null).sort((a, b) => a.y - b.y);
+      assert(inPin.length >= 3, `only ${inPin.length} samples inside the pin`);
+      for (let i = 1; i < inPin.length; i++) {
+        if (inPin[i].y - inPin[i - 1].y < 20) continue;
+        assert(inPin[i].sweep < inPin[i - 1].sweep - 0.5, `sweep did not advance between y=${inPin[i - 1].y} (${inPin[i - 1].sweep}) and y=${inPin[i].y} (${inPin[i].sweep})`);
+      }
+    },
+  },
+  {
     name: "reduced motion leaves every reveal at full opacity",
     runs: ["reduced"],
     fn({ down, assert }) {
@@ -75,10 +99,9 @@ const CHECKS = [
     runs: DESKTOP,
     fn({ layout, assert }) {
       assert(!!layout.howPin, "How it works is not pinned");
-      // The Gemas pin is meant to be about 1.2 viewports; until it is shortened it may be longer than that.
       const how = layout.howPin.end - layout.howPin.start;
       const gemas = layout.gemasPin ? layout.gemasPin.end - layout.gemasPin.start : 0;
-      assert(how > Math.min(gemas, 1.25 * layout.viewport[1]), `how pin ${how}px vs gemas pin ${gemas}px`);
+      assert(how > gemas, `how pin ${how}px vs gemas pin ${gemas}px`);
     },
   },
   {
@@ -172,6 +195,8 @@ function readSample() {
     return r.top <= mid && r.bottom >= mid;
   });
   const cards = [...document.querySelectorAll("[data-gemas] .lp-beat")].map((c) => +(+getComputedStyle(c).opacity).toFixed(2));
+  const sw = document.querySelector("[data-gemas] .lp-vitrine .sweep");
+  const sweep = sw ? +parseFloat(getComputedStyle(sw).strokeDashoffset).toFixed(2) : null;
   const faded = [...document.querySelectorAll("[data-reveal]")]
     .filter((el) => +getComputedStyle(el).opacity < 0.99)
     .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}`);
@@ -204,7 +229,7 @@ function readSample() {
       return r ? r.top >= 0 && r.bottom <= vh : false;
     })(),
   };
-  return { how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, faded, gap: +(gap / vh).toFixed(2) };
+  return { how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, sweep, faded, gap: +(gap / vh).toFixed(2) };
 }
 
 async function scrollStep(page, run, dy) {
@@ -229,6 +254,7 @@ async function walk(browser, name, run) {
   if (!run.phone && !run.reduced) await page.waitForSelector("[data-gemas]", { state: "attached" }).then(() => page.waitForFunction(() => !!document.querySelector("[data-gemas]")?.closest(".pin-spacer"), null, { timeout: 15000 })).catch(() => {});
   const shots = [];
   const sample = async (dirn, i) => {
+    await settle(page);
     const y = await page.evaluate(() => Math.round(scrollY));
     const s = { dir: dirn, y, ...(await page.evaluate(readSample)) };
     const file = `${dirn}-${String(i).padStart(2, "0")}.png`;
@@ -272,6 +298,7 @@ async function walk(browser, name, run) {
     for (let y = Math.max(0, hp.start - 100); y <= hp.end + 420; y += 160) {
       await page.evaluate((v) => scrollTo(0, v), y);
       await page.waitForTimeout(700);
+      await settle(page);
       const s = { dir: "how", y: await page.evaluate(() => Math.round(scrollY)), ...(await page.evaluate(readSample)) };
       const file = `how-${String(howSamples.length).padStart(2, "0")}.png`;
       await page.screenshot({ path: join(dir, file) });
@@ -285,6 +312,13 @@ async function walk(browser, name, run) {
   await contactSheet(browser, dir, shots, run);
   await ctx.close();
   return { layout, down, up, how: howSamples, page: null };
+}
+
+/** Waits for the Gemas cards' opacity transitions to finish so a sample never reads a mid-fade value. */
+async function settle(page) {
+  await page
+    .waitForFunction(() => !document.getAnimations().some((a) => a instanceof CSSTransition && a.effect?.target?.closest?.("[data-gemas]")), null, { timeout: 3000 })
+    .catch(() => {});
 }
 
 /** One image of all steps, for a human look. */

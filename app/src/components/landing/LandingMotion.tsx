@@ -103,15 +103,18 @@ export function LandingMotion() {
 
         const gemas = document.querySelector<HTMLElement>("[data-gemas]");
         if (gemas && innerHeight >= 760) {
-          gemas.classList.add("is-stepped");
+          gemas.classList.add("is-stepped", "is-scrubbed");
+          gemas.style.setProperty("--g-sweep", "0");
           ScrollTrigger.create({
             trigger: gemas,
             start: "top top",
-            end: "+=200%",
+            end: "+=120%",
             pin: true,
             onUpdate: (self) => {
               // Past the pin every point reads at full strength; scrolling back in steps them again.
               gemas.classList.toggle("is-stepped", self.progress < 1);
+              // The vitrine's outline sweep runs one lap over the pin, tied to the scroll.
+              gemas.style.setProperty("--g-sweep", self.progress.toFixed(4));
               const beat = Math.min(2, Math.floor(self.progress * 3));
               if (gemState.beat !== beat) {
                 gemState.beat = beat;
@@ -131,7 +134,8 @@ export function LandingMotion() {
         return () => {
           gsap.ticker.remove(tick);
           lenis?.destroy();
-          document.querySelector("[data-gemas]")?.classList.remove("is-stepped");
+          document.querySelector("[data-gemas]")?.classList.remove("is-stepped", "is-scrubbed");
+          document.querySelector<HTMLElement>("[data-gemas]")?.style.removeProperty("--g-sweep");
           document.querySelector<HTMLElement>("[data-how]")?.removeAttribute("style");
           document.querySelector("[data-how]")?.classList.remove("is-held");
           gemState.beat = 0;
