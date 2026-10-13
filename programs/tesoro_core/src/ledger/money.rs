@@ -477,7 +477,8 @@ pub fn redeem(
 
 /// Instant Redeem: `amount` won Gemas of `source` move from the holder to the Treasury Account's
 /// Holding of the same Source, and the holder is owed `payout` source units now: the Gemas' full
-/// value less the Instant Redeem Fee. The Source's counts do not change (the Treasury redeems
+/// value less the Instant Redeem Fee. Only the holding's pending part can be sold: Gemas whose
+/// yield has already landed are redeemed in full instead. The Source's counts do not change (the Treasury redeems
 /// the Gemas later, as the yield lands), so Debt and every other holder's share are untouched.
 /// Returns `(units, payout)`: the Gemas' full value and what the Treasury pays now.
 pub fn instant_redeem(
@@ -500,6 +501,13 @@ pub fn instant_redeem(
     }
     if holding.source != treasury_holding.source {
         return Err(CoreError::HoldingMismatch);
+    }
+    let free = holding.free();
+    if amount > free {
+        return Err(CoreError::InsufficientGemas);
+    }
+    if amount > free.saturating_sub(source.redeemable_for(free)) {
+        return Err(CoreError::ExceedsPending);
     }
     let units = source.units_for(amount)?;
     let keep = BPS

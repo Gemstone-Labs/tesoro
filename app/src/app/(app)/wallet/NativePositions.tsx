@@ -403,7 +403,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       for (const { holding: h, line } of plan) {
-        if (h.native) sigs.current.push(await instantRedeemNative(auth.signer, h.position, h.source, line.gemas));
+        if (h.native) sigs.current.push(await instantRedeemNative(auth.signer, h.position, h.source, line.gemas, h.redeemable));
         else {
           if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
           await instantRedeemEthSource(ethCtx, h.eth!, h.source, line.gemas);

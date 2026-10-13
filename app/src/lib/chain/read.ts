@@ -6,7 +6,7 @@ import { TRADING_DUEL_PROGRAM_ID, addresses as duelAddresses } from "@/games/tra
 import type { GameId } from "@/lib/mock/types";
 import { getChain, getHoldem, getTradingDuel } from "./client";
 import { assetIndexOf, matchOpenedAt } from "./match-id";
-import { debtGemas, debtUnits, redeemableFor, type SourceMath } from "./ledger";
+import { debtGemas, debtUnits, instantSplit, redeemableFor, type SourceMath } from "./ledger";
 import { fetchLeaderboardTerms } from "./leaderboard";
 import { leaderboardBpsFor } from "./season";
 import { parseEthPositionId } from "./eth";
@@ -74,6 +74,9 @@ export interface ChainHolding {
   free: bigint;
   /** Free Gemas of this holding that Redeem would pay now. */
   redeemable: bigint;
+  /** Won Gemas Redeem now can sell: what is still waiting on yield once `redeemable` is redeemed in full (Solana-native Sources)
+   * or as they stand (ETH, HYPE). 0 for own Gemas. */
+  pending: bigint;
   /** The Source's Debt in Gemas: what `return_own` can still cancel. */
   sourceDebt: bigint;
   /** The Source's price at its Advance: one Gema is `unitNum / unitDen` Source-asset base units (`unitDen` = price in micro-USD). */
@@ -482,6 +485,9 @@ export async function fetchAccountState(authority: PublicKey): Promise<AccountSn
     const reserved = big(h.reserved);
     const free = amount - reserved;
     const pos = positionByKey.get(pk(src.inner.position).toBase58());
+    const math = sourceMath(src.inner);
+    const native = nativeKeys.has(pk(src.inner.position).toBase58());
+    const redeemable = redeemableFor(math, free);
     holdings.push({
       holding: row.publicKey,
       source: heldSources[i],
@@ -490,12 +496,13 @@ export async function fetchAccountState(authority: PublicKey): Promise<AccountSn
       amount,
       reserved,
       free,
-      redeemable: redeemableFor(sourceMath(src.inner), free),
-      sourceDebt: debtGemas(sourceMath(src.inner)),
+      redeemable,
+      pending: h.isOwn ? 0n : native ? instantSplit(math, free).pending : free - redeemable,
+      sourceDebt: debtGemas(math),
       unitNum: big(src.inner.unitNum),
       unitDen: big(src.inner.unitDen),
       sourceOwner: pk(src.inner.owner).toBase58(),
-      native: nativeKeys.has(pk(src.inner.position).toBase58()),
+      native,
       eth: pos && ["ethereum", "hyperEvm"].includes(enumKey(pos.inner.sourceChain)) ? parseEthPositionId(Uint8Array.from(pos.positionId)) : null,
       asset: ASSETS[pos ? ["solana", "ethereum", "hyperEvm"].indexOf(enumKey(pos.inner.sourceChain)) : 0] ?? "SOL",
     });

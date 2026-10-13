@@ -2,7 +2,7 @@ import { BN, BorshCoder } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import idl from "./idl/tesoro_core.json";
-import { NO_LEADERBOARD, POOL_ACCOUNT, parseLeaderboardTerms, seasonPda, winsFromLogs } from "./leaderboard";
+import { NO_LEADERBOARD, POOL_ACCOUNT, parseLeaderboardTerms, poolTotalOf, seasonPda, winsFromLogs } from "./leaderboard";
 import { leaderboardBpsFor, setLeaderboardSince } from "./season";
 
 const HEAD = 8 + 1 + 32 + 32 + 2 + 32;
@@ -88,5 +88,22 @@ describe("fee display", () => {
   });
   it("derives stable addresses", () => {
     expect(seasonPda(1).equals(seasonPda(2))).toBe(false);
+  });
+});
+
+describe("decoders on a plain Uint8Array (no Buffer methods)", () => {
+  it("reads the fee from a view at a non-zero offset", () => {
+    const src = config(3, { bps: 100, pool: POOL_ACCOUNT, since: 1_791_200_000 });
+    const padded = new Uint8Array(src.length + 7);
+    padded.set(src, 7);
+    expect(parseLeaderboardTerms(padded.subarray(7))).toEqual({ bps: 100, recipient: POOL_ACCOUNT, since: 1_791_200_000 });
+  });
+  it("sums own and won Gemas of the pool Account", () => {
+    const at = 8 + 1 + 32 + 20;
+    const bytes = new Uint8Array(at + 32 + 5);
+    const d = new DataView(bytes.buffer);
+    d.setBigUint64(at, 1_500n, true);
+    d.setBigUint64(at + 8, 2n ** 40n, true);
+    expect(poolTotalOf(bytes)).toBe(1_500n + 2n ** 40n);
   });
 });

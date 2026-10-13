@@ -4,6 +4,7 @@ const { assetPrice } = await import("./eth-bridge");
 vi.mock("server-only", () => ({}));
 
 const coinbase = (amount: string) => new Response(JSON.stringify({ data: { amount } }));
+const coingecko = (id: string, usd: number) => new Response(JSON.stringify({ [id]: { usd } }));
 
 describe("assetPrice", () => {
   afterEach(() => {
@@ -29,5 +30,28 @@ describe("assetPrice", () => {
     vi.setSystemTime(new Date("2026-10-02T13:11:00Z"));
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
     expect(await assetPrice("ETH")).toMatchObject({ live: false });
+  });
+
+  it("reads CoinGecko when Coinbase fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-02T14:00:00Z"));
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce(coingecko("ethereum", 2_450.5));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await assetPrice("ETH")).toMatchObject({ microUsd: 2_450_500_000n, live: true });
+    expect(String(fetchMock.mock.calls[1][0])).toContain("api.coingecko.com");
+  });
+
+  it("ignores a CoinGecko price outside the bounds", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-02T15:00:00Z"));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce(coingecko("ethereum", 5)));
+    expect(await assetPrice("ETH")).toMatchObject({ microUsd: 3_000_000_000n, live: false });
+  });
+
+  it("marks the display fallback not live when both sources fail", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-02T16:00:00Z"));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
+    expect(await assetPrice("ETH")).toMatchObject({ microUsd: 3_000_000_000n, live: false });
   });
 });

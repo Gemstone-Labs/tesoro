@@ -143,7 +143,7 @@ To turn Gemas into their Source asset, possible only as far as the Source Positi
 _Avoid_: withdraw, cash out, claim
 
 **Instant Redeem**:
-Turning won Gemas into their Source asset now, before the Source's yield has landed, for 65% of their value. The Treasury pays it and takes the Gemas; Tesoro keeps the other 35% (the **Instant Redeem Fee**). Only free Gemas the holder won, never their own-Sourced ones; the Source's Debt and counts are untouched.
+Turning won Gemas into their Source asset now, before the Source's yield has landed, for 65% of their value. The Treasury pays it and takes the Gemas; Tesoro keeps the other 35% (the **Instant Redeem Fee**). Only free Gemas the holder won whose yield has not landed yet (landed Gemas are Redeemed at full value), never their own-Sourced ones; the Source's Debt and counts are untouched.
 _Avoid_: early withdrawal, cash out, sell
 
 **Treasury**:
