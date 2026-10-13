@@ -937,6 +937,22 @@ fn extend_is_net_of_the_yield_fee_and_matches_a_single_longer_advance() {
 }
 
 #[test]
+fn extend_after_the_yield_fee_changed_mints_the_added_months_at_the_current_fee() {
+    let mut p = locked_position();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
+    assert_eq!(s.issued, 75_000);
+    // The fee rises to 20% after the Advance: 3 more months are 20% smaller, not an error.
+    let minted = p.extend_advance(&mut s, 3, 2_000).unwrap();
+    assert_eq!(minted, 30_000);
+    assert_eq!((s.issued, s.horizon_months), (105_000, 9));
+    // The fee falls back to 0: the added months are full size, never a negative mint.
+    let mut q = locked_position();
+    let mut t = q.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
+    assert_eq!(t.issued, 60_000);
+    assert_eq!(q.extend_advance(&mut t, 3, 0).unwrap(), 37_500);
+}
+
+#[test]
 fn extend_refuses_without_an_open_advance_other_sources_zero_debt_and_zero_months() {
     let mut p = locked_position();
     let mut s = p.open_advance(pkey(0), 3, 150_000_000, 0).unwrap();

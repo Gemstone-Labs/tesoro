@@ -12,7 +12,10 @@ export function onePerPlayer(requests: ChainRequest[]): ChainRequest[] {
   return [...byPlayer.values()];
 }
 
-/** The Player's live Request for this Game and entry, if they already posted one. */
-export function liveRequestFor(requests: ChainRequest[], player: string, game: GameId, entry: number) {
-  return requests.find((r) => r.live && r.player === player && r.game === game && r.entry === entry);
+/**
+ * The Player's live Request for this Game and entry, if they already posted one. `applied`: Request addresses
+ * that already applied to the Offer at hand, which cannot apply twice.
+ */
+export function liveRequestFor(requests: ChainRequest[], player: string, game: GameId, entry: number, applied: readonly string[] = []) {
+  return requests.find((r) => r.live && r.player === player && r.game === game && r.entry === entry && !applied.includes(r.address.toBase58()));
 }

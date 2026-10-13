@@ -109,10 +109,12 @@ export function createListCache(opts: ListCacheOptions = {}) {
     throw new GpaUpstreamError("Rate limited upstream.", 429);
   }
 
-  async function fetchUpstream(q: GpaQuery): Promise<Row[]> {
+  async function fetchUpstream(q: GpaQuery, owned = false): Promise<Row[]> {
     upstreamCalls++;
-    console.log(`[gpa] upstream #${upstreamCalls} list=${SHAPES.get(q.disc)?.name}`);
-    const cfg = { encoding: "base64", commitment: "confirmed", filters: [{ memcmp: { offset: 0, bytes: q.disc } }] };
+    console.log(`[gpa] upstream #${upstreamCalls} list=${SHAPES.get(q.disc)?.name}${owned ? " owner" : ""}`);
+    const filters: object[] = [{ memcmp: { offset: 0, bytes: q.disc } }];
+    if (owned && q.owner) filters.push({ memcmp: { offset: q.owner.offset, bytes: q.owner.key.toBase58() } });
+    const cfg = { encoding: "base64", commitment: "confirmed", filters };
     const res = await doFetch(url(), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -181,12 +183,14 @@ export function createListCache(opts: ListCacheOptions = {}) {
   }
 
   return {
-    /** Marks the lists with these discriminators stale: the next read waits for a fresh upstream call (serving the old rows only if it fails). */
-    invalidate(discs: string[]) {
-      for (const d of discs) {
-        const entry = cache.get(d);
-        if (entry && entry.at !== null) entry.at = -Infinity;
-      }
+    /**
+     * One owner's rows straight from upstream (discriminator + owner memcmp), never cached and never touching the shared lists:
+     * what an Account asks for right after its own transaction. Throws on an upstream failure.
+     */
+    async getOwnedFresh(q: GpaQuery): Promise<Row[]> {
+      if (!q.owner) throw new GpaInputError("Unsupported list query.");
+      if (now() < backoffUntil) throw new GpaUpstreamError("Rate limited upstream.", 429);
+      return fetchUpstream(q, true);
     },
     async getAccounts(q: GpaQuery): Promise<Row[]> {
       const rows = await list(q);
@@ -204,8 +208,7 @@ const lists = createListCache();
 export const getAccounts = lists.getAccounts;
 export const retryAfterSecs = lists.retryAfterSecs;
 
-/** After a transaction this app sent: the next Holding and Position list reads go upstream, not to the cache. */
-export const invalidateAccountLists = () => lists.invalidate([...SHAPES].filter(([, v]) => v.name === "HoldingState" || v.name === "PositionState").map(([d]) => d));
+export const getOwnedFresh = lists.getOwnedFresh;
 
 /** Per client (IP): the Lobby polls a few lists every few seconds per tab; this leaves room for a shared NAT. */
 const perClient = new WindowLimiter(600, 60_000);
@@ -216,3 +219,7 @@ export function clientKey(headers: Headers): string {
 }
 
 export const takeClient = (key: string) => perClient.take(key);
+
+/** `?fresh=1` reads per client and Account: each costs the upstream one filtered query. Beyond it the cached lists answer. */
+const freshReads = new WindowLimiter(4, 60_000);
+export const takeFresh = (client: string, authority: string) => freshReads.take(`${client}:${authority}`);
