@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { seasonStanding, type LeaderboardRow, type LeaderboardView } from "./leaderboard-view";
+import { POOL_QUIET_BELOW, poolIsQuiet, seasonStanding, type LeaderboardRow, type LeaderboardView } from "./leaderboard-view";
 
 const rows: LeaderboardRow[] = Array.from({ length: 50 }, (_, i) => ({ rank: i + 1, account: `p${i + 1}`, points: 500 - i * 5, wins: 1 }));
 const view = (me?: LeaderboardRow | null): LeaderboardView => ({
@@ -21,5 +21,17 @@ describe("seasonStanding", () => {
   });
   it("has no rank without points", () => {
     expect(seasonStanding(view(null), "nobody")).toEqual({ rank: null, points: 0, toNext: null, toPrizes: 0 });
+  });
+});
+
+describe("poolIsQuiet", () => {
+  it("keeps a small Pool out of sight below 1,000 Gemas", () => {
+    expect(POOL_QUIET_BELOW).toBe(1000);
+    expect(poolIsQuiet(0)).toBe(true);
+    expect(poolIsQuiet(999)).toBe(true);
+  });
+  it("shows the Pool from 1,000 Gemas", () => {
+    expect(poolIsQuiet(1000)).toBe(false);
+    expect(poolIsQuiet(18_400)).toBe(false);
   });
 });

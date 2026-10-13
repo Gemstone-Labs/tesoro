@@ -27,6 +27,9 @@ export const LiveSeasonSignedOut: Story = { parameters: { screen: { leaderboard:
 /** The season before has ended and its prizes are still being paid. */
 export const PrizesBeingPaid: Story = { parameters: { screen: { leaderboard: "settling" } } };
 
+/** Under 1,000 Gemas in the Pool the hero shows the Season and its countdown, no figure. */
+export const SmallPool: Story = { parameters: { screen: { leaderboard: "live", pool: { gemas: 420 } } } };
+
 /** A new season with no points yet. */
 export const NoPointsYet: Story = { parameters: { screen: { leaderboard: "empty" } } };
 

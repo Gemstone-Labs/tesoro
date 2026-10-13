@@ -5,8 +5,9 @@ import { useEffect, useId, useRef, useState } from "react";
 import { CountUp } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import { seasonStanding, type SeasonStanding } from "@/lib/chain/leaderboard-view";
+import { poolIsQuiet, seasonStanding, type SeasonStanding } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
+import { left, useSeasonRemaining } from "@/lib/chain/useSeasonRemaining";
 import { usePool } from "@/lib/chain/usePool";
 import { fmtGemas } from "@/lib/format";
 import "./season-plate.css";
@@ -125,6 +126,7 @@ export function PoolChest() {
   const standing = me && forMe && data && data.feeBps > 0 ? seasonStanding(data, me) : null;
   // Signed in (or not known yet) and your standing not read for you yet: its place waits as a placeholder.
   const youPending = !standing && !error && data?.feeBps !== 0 && (auth.status === "loading" || (auth.status === "signed-in" && !forMe));
+  const remaining = useSeasonRemaining(data?.now, data?.season.end);
   const [pop, setPop] = useState(0);
   const last = useRef<number | null>(null);
 
@@ -143,6 +145,9 @@ export function PoolChest() {
 
   if (pool === undefined) return <PlateSkeleton you={youPending} />;
   if (pool === null) return null;
+  const quiet = poolIsQuiet(pool);
+  const season = data ? `Season ${data.season.number}` : "Season";
+  const ends = remaining === null ? "" : `ends in ${left(remaining)}`;
   const you = standing
     ? standing.rank === null
       ? " You have no Season points yet."
@@ -152,18 +157,27 @@ export function PoolChest() {
     <Link
       href="/leaderboard"
       className={`cut cut-card pchest${pop ? " pop" : ""}`}
-      aria-label={`Leaderboard Pool: ${fmtGemas(pool)} Gemas.${you} Open Leaderboard`}
-      title="Leaderboard Pool · the top ten share it when the Season ends"
+      aria-label={`${quiet ? `Leaderboard: ${season}${ends && `, ${ends}`}.` : `Leaderboard Pool: ${fmtGemas(pool)} Gemas.`}${you} Open Leaderboard`}
+      title={quiet ? "Leaderboard · the top ten share the Pool when the Season ends" : "Leaderboard Pool · the top ten share it when the Season ends"}
     >
       <Chest pop={pop} />
       <div className="pc-pool">
-        <b className="pc-full">
-          <CountUp value={pool} duration={1200} />
-        </b>
-        <b className="pc-short">
-          <CountUp value={pool} duration={1200} format={compact} />
-        </b>
-        <span>Pool{data && ` · Season ${data.season.number}`}</span>
+        {quiet ? (
+          <>
+            <b>{season}</b>
+            <span>{remaining === null ? "Leaderboard" : `ends in ${left(remaining)}`}</span>
+          </>
+        ) : (
+          <>
+            <b className="pc-full">
+              <CountUp value={pool} duration={1200} />
+            </b>
+            <b className="pc-short">
+              <CountUp value={pool} duration={1200} format={compact} />
+            </b>
+            <span>Pool{data && ` · Season ${data.season.number}`}</span>
+          </>
+        )}
       </div>
       {youPending && <YouSkeleton />}
       {standing && (
