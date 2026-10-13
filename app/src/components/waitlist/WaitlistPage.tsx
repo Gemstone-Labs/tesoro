@@ -6,6 +6,7 @@ import { LivingTexture } from "@/components/waitlist/LivingTexture";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
 import { appHref } from "@/lib/landing/config";
+import { WAITLIST_KICKER, WAITLIST_LEDE } from "@/lib/waitlist-copy";
 import { waitingLabel } from "@/lib/waitlist-count";
 import type { SpotGem } from "@/lib/waitlist-spot";
 import { count } from "@/server/waitlist";
@@ -42,14 +43,19 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
         </nav>
       </header>
       <main className="wl-main">
-        <p className="wl-kicker">{invite ? `Invited by #${invite.spot} · ${invite.name}` : "Early access"}</p>
+        <p className="wl-kicker">{invite ? `Invited by #${invite.spot} · ${invite.name}` : WAITLIST_KICKER}</p>
         <h1 className="wl-h1">
           Play now with <em className="lp-hl">yield</em> you haven&apos;t earned yet.
         </h1>
         <p className="wl-lede">
-          Tesoro opens to a small group of players first. Join the waitlist for early access, and we&apos;ll email you the day it goes live.
+          {WAITLIST_LEDE}
         </p>
         <WaitlistForm source={invite && `spot-${invite.spot}`} />
+        <p className="wl-try">
+          <a className="btn neutral cut cut-btn" href={appHref()}>
+            Try it now
+          </a>
+        </p>
         {waiting && <p className="wl-count mono">{waiting}</p>}
         <p className="wl-more">
           <Link href="/welcome">How it works</Link>

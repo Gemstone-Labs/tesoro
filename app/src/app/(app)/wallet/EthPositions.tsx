@@ -8,6 +8,7 @@ import { GemasLabel } from "./AdvanceQuote";
 import { OpenFormView } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import { useAccount } from "@/lib/account";
+import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { useAuth } from "@/lib/auth/context";
 import { useTreasuryRates } from "@/lib/chain/useTreasuryRates";
 import { netApyPct } from "@/lib/chain/yield";
@@ -225,7 +226,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const a = useBusy();
   const [step, setStep] = useState<OpenStep | null>(null);
   const [text, setText] = useState("");
-  const [months, setMonths] = useState(1);
+  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [price, setPrice] = useState<{ microUsd: bigint; live: boolean } | null>(null);
   const now = useNow(5000);
   const { yieldFeeBps } = useTreasuryRates();
