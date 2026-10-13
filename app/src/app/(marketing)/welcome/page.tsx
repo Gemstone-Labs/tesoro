@@ -26,11 +26,11 @@ export default function Welcome() {
       <main>
         <Hero />
         <HowItWorks />
-        <Gemas />
         <Games />
+        <Gemas />
         <Backing />
-        <Multichain />
         <Studios />
+        <Multichain />
         <FinalCta />
       </main>
       <Footer />

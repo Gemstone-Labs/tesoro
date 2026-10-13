@@ -98,7 +98,7 @@ export function LandingMotion() {
           };
           how.classList.add("is-held");
           apply(0);
-          ScrollTrigger.create({ trigger: how, start: "top top", end: "+=160%", pin: true, onUpdate: (self) => apply(self.progress) });
+          ScrollTrigger.create({ trigger: how, start: "top top", end: "+=130%", pin: true, onUpdate: (self) => apply(self.progress) });
         }
 
         const gemas = document.querySelector<HTMLElement>("[data-gemas]");
