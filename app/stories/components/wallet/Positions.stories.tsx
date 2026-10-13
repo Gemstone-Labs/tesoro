@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, within } from "storybook/test";
 import { EthFaucet, EthOpenForm, EthOps, EthPositionCard } from "@/app/(app)/wallet/EthPositions";
-import { NativeAdvanceSheet, NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
+import { NativeAdvanceSheet, NativeExtendSheet, NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import { withScreen } from "../../screens/support/screen";
 import { withSigner } from "../../screens/support/signer";
@@ -35,6 +35,24 @@ export const SolOpenFormNoTreasury: Story = {
 export const SolRepaid: Story = {
   parameters: { data: { snapshot: nativeSnapshot("repaid") } },
   render: () => <NativePositionCard position={nativePosition("repaid")} market={NATIVE_MARKET} onRedeem={() => {}} />,
+};
+/** Debt is open and the Horizon is under 12 months: Extend sits beside Refresh yield (NEXT_PUBLIC_EXTEND_ADVANCE=1). */
+export const SolWithExtend: Story = {
+  parameters: { data: { snapshot: nativeSnapshot("debt") } },
+  render: () => <NativePositionCard position={nativePosition("debt")} market={NATIVE_MARKET} onRedeem={() => {}} extend />,
+};
+/** Extend sheet at its default: the slider runs 1 to 12 minus the 3 months already advanced. */
+export const SolExtendSheet: Story = {
+  parameters: { data: { snapshot: nativeSnapshot("debt") } },
+  render: () => <NativeExtendSheet info={nativePosition("debt").native!} market={NATIVE_MARKET} open onClose={() => {}} />,
+};
+/** Extend sheet with 9 months picked (the most the Horizon allows). */
+export const SolExtendSheetMax: Story = {
+  ...SolExtendSheet,
+  play: async ({ canvasElement }) => {
+    const range = within(canvasElement.ownerDocument.body).getByRole("slider");
+    await userEvent.type(range, "{End}");
+  },
 };
 /** Debt is zero: Take another Advance on the same Principal, or Unlock. */
 export const SolTakeAnotherAdvance: Story = {
