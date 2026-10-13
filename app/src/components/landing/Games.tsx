@@ -32,6 +32,21 @@ const GAMES: LandingGame[] = [
     loop: [1124, 752],
     href: appHref("/play/holdem"),
   },
+  {
+    id: "trading-duel",
+    name: "Trading Duel",
+    note: "Real-time, 2½ min",
+    body: "Two Players watch one live price. Pick the box the line will pass through in each ten second column: every hit scores 100, and more points wins.",
+    facts: [
+      ["Pace", "Real-time"],
+      ["Length", "2½ min"],
+      ["Picks", "Private until they lock"],
+      ["Price", "Live, never delayed"],
+    ],
+    art: art.tradingDuelHero,
+    loop: [1000, 576],
+    href: appHref("/play/trading-duel"),
+  },
 ];
 
 export function Games() {
