@@ -5,11 +5,11 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
-import { Button, CountUp, GemaMark } from "@/components/ui";
+import { Button, CountUp, GemaMark, GemaUsd } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import type { LastSeason, LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
+import { poolIsQuiet, type LastSeason, type LeaderboardRow, type LeaderboardView } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
@@ -170,10 +170,16 @@ function Hero({ data, pool, remaining }: { data: LeaderboardView; pool: number; 
           Season {data.season.number} · ends in{" "}
           <b className="mono" aria-live="off">{remaining === null ? "—" : left(remaining)}</b>
         </span>
-        <b className="pool-fig lb-hero-fig">
-          <CountUp value={pool} duration={1200} />
-        </b>
-        <span className="lb-hero-title">Gemas in the Leaderboard Pool</span>
+        {!poolIsQuiet(pool) && (
+          <>
+            <b className="pool-fig lb-hero-fig">
+              <CountUp value={pool} duration={1200} />
+            </b>
+            <span className="lb-hero-title">
+              Gemas in the Leaderboard Pool <GemaUsd value={pool} />
+            </span>
+          </>
+        )}
         <p>
           {data.feeBps > 0 ? `${data.feeBps / 100}% of every Pot goes in, from every Game.` : "The pool opens with the next upgrade."} The top{" "}
           {PRIZE_PLACES} share it every Monday.
@@ -189,9 +195,9 @@ function Hero({ data, pool, remaining }: { data: LeaderboardView; pool: number; 
             )}
             <b>{data.players}</b> {data.players === 1 ? "Player" : "Players"} with points
           </span>
-          {pool > 0 && (
+          {!poolIsQuiet(pool) && (
             <span className="lb-hero-chip">
-              1st takes <GemaMark size={14} /> <b>{fmtGemas(prize(pool, 0))}</b>
+              1st takes <GemaMark size={14} /> <b>{fmtGemas(prize(pool, 0))}</b> <GemaUsd value={prize(pool, 0)} />
             </span>
           )}
         </div>
@@ -374,6 +380,7 @@ function Row({ r, pool, me }: { r: LeaderboardRow; pool: number; me: boolean }) 
           <span className="lb-prize">
             <GemaMark size={14} />
             <b>{fmtGemas(prize(pool, r.rank - 1))}</b>
+            <GemaUsd value={prize(pool, r.rank - 1)} />
           </span>
         ) : (
           <span className="lb-dim">—</span>

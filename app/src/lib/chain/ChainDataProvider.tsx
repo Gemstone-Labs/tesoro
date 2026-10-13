@@ -37,15 +37,22 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
   });
   const inflight = useRef<Promise<void> | null>(null);
   const again = useRef(false);
+  /** A refresh after a transaction: the server re-reads its lists instead of answering from its cache. */
+  const freshWanted = useRef(0);
+  /** The newest request a successful read has served: a failed read leaves the request pending for the next one. */
+  const freshServed = useRef(0);
   const reads = useRef(0);
 
   const readOnce = useCallback(async () => {
     if (!address) return;
     const read = ++reads.current;
+    const wanted = freshWanted.current;
+    const afterTransaction = wanted > freshServed.current;
     try {
       const { demoMode, demoSnapshot } = await import("./fixture");
       if (demoMode()) {
         setState({ address, snapshot: demoSnapshot(address), error: null });
+        freshServed.current = wanted;
         return;
       }
       const [{ PublicKey }, { fetchSnapshot }] = await Promise.all([import("@solana/web3.js"), import("./read")]);
@@ -57,8 +64,9 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
           return { address, snapshot: prev?.matchesLoaded ? { ...next, matches: prev.matches, funded: prev.funded, matchesLoaded: true } : next, error: null };
         });
       };
-      const snapshot = await withTimeout(fetchSnapshot(new PublicKey(address), early), READ_TIMEOUT_MS);
+      const snapshot = await withTimeout(fetchSnapshot(new PublicKey(address), early, { fresh: afterTransaction }), READ_TIMEOUT_MS);
       setState({ address, snapshot, error: null });
+      freshServed.current = wanted;
     } catch (e) {
       console.warn("[chain] Account read failed", e);
       setState((s) => ({ address, snapshot: s.address === address ? s.snapshot : null, error: plainError(e) }));
@@ -66,9 +74,10 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
   }, [address]);
 
   // One read at a time. A refresh during a read (after a transaction) waits for it and reads once more, so it sees the new state; a poll just skips.
-  const load = useCallback((fresh: boolean): Promise<void> => {
+  const load = useCallback((afterTransaction: boolean): Promise<void> => {
+    if (afterTransaction) freshWanted.current++;
     if (inflight.current) {
-      if (fresh) again.current = true;
+      if (afterTransaction) again.current = true;
       return inflight.current;
     }
     const run = (async () => {

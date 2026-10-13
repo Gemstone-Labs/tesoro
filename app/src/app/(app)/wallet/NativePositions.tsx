@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, CheckIcon, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { DEFAULT_HORIZON_MONTHS, EXTEND_ADVANCE_ENABLED } from "@/lib/advance";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { ratesOf } from "@/lib/chain/fees";
 import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
@@ -11,6 +12,7 @@ import {
   MAX_PRICE_AGE_SECS,
   SIM_MONTH_MIN,
   projectedDebtGemas,
+  quoteExtendAdvance,
   quoteNativeAdvance,
   rateAt,
   surplusShares,
@@ -22,8 +24,8 @@ import {
   type NativeInfo,
   type NativeMarket,
 } from "@/lib/chain/native";
-import { netApyPct } from "@/lib/chain/yield";
-import { friendlyError, getTestSimSol, instantRedeemNative, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
+import { advanceUnits, netApyPct } from "@/lib/chain/yield";
+import { extendAdvance, friendlyError, getTestSimSol, instantRedeemNative, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
@@ -114,7 +116,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   const a = useAction(refresh);
   const balance = market ? Number(market.simSol) / LAMPORTS : 0;
   const [text, setText] = useState("");
-  const [months, setMonths] = useState(3);
+  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
 
@@ -195,9 +197,11 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   );
 }
 
+const MAX_ADVANCE_MONTHS = 12;
+
 // ---- Position card ------------------------------------------------------------------------------
 
-export function NativePositionCard({ position, market, onRedeem }: { position: ChainPosition; market: NativeMarket | null; onRedeem: () => void }) {
+export function NativePositionCard({ position, market, onRedeem, extend = EXTEND_ADVANCE_ENABLED }: { position: ChainPosition; market: NativeMarket | null; onRedeem: () => void; extend?: boolean }) {
   const info = position.native as NativeInfo;
   const { auth, snapshot, refresh } = useAccount();
   const a = useAction(refresh);
@@ -206,6 +210,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
   const returnable = useReturnable(position);
   const [returning, setReturning] = useState(false);
   const [advancing, setAdvancing] = useState(false);
+  const [extending, setExtending] = useState(false);
 
   const src = info.source?.math ?? null;
   const onChainDebt = src ? live(src) - covered(src) : 0n;
@@ -223,6 +228,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
       : null;
   const locked = info.status === "locked";
   const canUnlock = locked && projected === 0n;
+  const canExtend = extend && locked && !canUnlock && !!src && projected > 0n && info.source!.horizonMonths < MAX_ADVANCE_MONTHS;
   // Unknown until the pool is read: keep the action rather than hide a real surplus.
   const surplus = pool ? surplusShares(info, rateAt(pool)) : null;
   const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);
@@ -265,6 +271,9 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
           {canUnlock && (
             <Button variant="money" size="sm" block disabled={!signer || a.busy !== null} onClick={() => setAdvancing(true)}>Take another Advance</Button>
           )}
+          {canExtend && (
+            <Button variant="money" size="sm" block disabled={!signer || a.busy !== null} onClick={() => setExtending(true)}>Extend</Button>
+          )}
           <div className="wl-actions-row">
             <Button variant="money" size="sm" disabled={!signer || a.busy !== null || !redeemable} onClick={onRedeem}>Redeem</Button>
             <Button size="sm" disabled={!signer || a.busy !== null || !canUnlock} onClick={() => signer && a.run("unlock", () => unlockNative(signer, info))}>
@@ -276,6 +285,7 @@ export function NativePositionCard({ position, market, onRedeem }: { position: C
           )}
           <ReturnOwnSheet position={position} open={returning} onClose={() => setReturning(false)} />
           <NativeAdvanceSheet info={info} market={market} open={advancing} onClose={() => setAdvancing(false)} />
+          {canExtend && <NativeExtendSheet info={info} market={market} open={extending} onClose={() => setExtending(false)} />}
         </>
       )}
       {!locked && surplus !== 0n && (
@@ -303,7 +313,7 @@ export function NativeAdvanceSheet({ info, market, open, onClose }: { info: Nati
 function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
-  const [months, setMonths] = useState(3);
+  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
@@ -345,6 +355,73 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
       buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Take Advance" gemas={gemas} />}
       disabled={gemas <= 0 || a.busy !== null || !auth.signer}
       onSubmit={() => auth.signer && a.run("advance", () => takeNextAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
+    />
+  );
+}
+
+// ---- Extend an Advance ------------------------------------------------------------------------------
+
+/** Commit more of a Position's future yield on its open Advance: Gemas now, more Debt, a later Unlock Estimate. */
+export function NativeExtendSheet({ info, market, open, onClose }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void }) {
+  return (
+    <Sheet open={open} onClose={onClose} title="Extend your Advance" className="adv-sheet">
+      {open && <NativeExtendForm info={info} market={market} onClose={onClose} />}
+    </Sheet>
+  );
+}
+
+function NativeExtendForm({ info, market, onClose }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void }) {
+  const { auth, refresh } = useAccount();
+  const a = useAction(refresh);
+  const source = info.source!;
+  const room = MAX_ADVANCE_MONTHS - source.horizonMonths;
+  const [months, setMonths] = useState(Math.min(DEFAULT_HORIZON_MONTHS, room));
+  const [step, setStep] = useState("Preparing");
+  const now = useNow(5000);
+  const pool = market?.pool ?? null;
+  const { yieldFeeBps } = ratesOf(market?.treasury);
+  const quote = quoteExtendAdvance(info.principalLamports, info.rateBps, source.math, source.horizonMonths, months, yieldFeeBps);
+  const gemas = Number(quote.gemas);
+  const addedYield = advanceUnits(info.principalLamports, info.rateBps, source.horizonMonths + months, yieldFeeBps) - advanceUnits(info.principalLamports, info.rateBps, source.horizonMonths, yieldFeeBps);
+  const clock = yieldClockOf(info);
+  const unlock =
+    pool && gemas > 0
+      ? unlockEstimateMs({ source: quote.extended, vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock: clock ?? { rateBps: info.rateBps, lastAccrualTs: Math.floor(now / 1000) }, nowMs: now, yieldFeeBps })
+      : null;
+  const title = `${fmtSol(info.principalLamports, 3)} SOL Position`;
+
+  if (a.done) {
+    return (
+      <div className="adv">
+        <AdvanceTakenNote gemas={gemas} from={title} unlock={unlock ? fmtWhen(unlock) : "—"} />
+        <Sig label="extend" sig={a.done.sig} />
+        <Button block onClick={onClose}>Done</Button>
+      </div>
+    );
+  }
+
+  return (
+    <AdvanceFormView
+      chain="SOL"
+      title={title}
+      apy={`${(info.rateBps / 100).toFixed(1)}% APY`}
+      months={months}
+      onMonths={setMonths}
+      maxMonths={room}
+      sliderLabel="Extend by"
+      yieldText={`${fmtSol(addedYield)} SOL`}
+      yieldFeeBps={yieldFeeBps}
+      gemas={gemas}
+      unlock={unlock ? `${fmtWhen(unlock)} (${fmtInMinutes(unlock, now)})` : "—"}
+      alerts={
+        <>
+          <p className="note">Adds {fmtGemas(gemas)} Gemas of Debt to this Advance. Your Principal stays locked for {source.horizonMonths + months} months in all.</p>
+          {a.error && <p className="status err" role="alert">{a.error}</p>}
+        </>
+      }
+      buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Extend" gemas={gemas} />}
+      disabled={gemas <= 0 || a.busy !== null || !auth.signer}
+      onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
     />
   );
 }

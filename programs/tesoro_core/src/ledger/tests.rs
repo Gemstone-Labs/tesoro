@@ -59,6 +59,10 @@ enum Op {
         horizon: u8,
         price: u64,
     },
+    Extend {
+        a: usize,
+        extra: u8,
+    },
     Yield {
         a: usize,
         pct: u16,
@@ -139,6 +143,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
     let a = 0..PLAYERS;
     prop_oneof![
         3 => (a.clone(), 1u8..=12, 1_000_000u64..400_000_000).prop_map(|(a, horizon, price)| Op::Advance { a, horizon, price }),
+        2 => (a.clone(), 1u8..=11).prop_map(|(a, extra)| Op::Extend { a, extra }),
         4 => (a.clone(), 0u16..400).prop_map(|(a, pct)| Op::Yield { a, pct }),
         2 => (a.clone(), 1u8..=100).prop_map(|(a, pct)| Op::Return { a, pct }),
         1 => (a.clone(), 0usize..16).prop_map(|(a, s)| Op::ReturnForeign { a, s }),
@@ -319,6 +324,20 @@ impl World {
                 self.sources.push(src);
                 let si = self.sources.len() - 1;
                 self.credit(a, si, issued);
+            }
+            Op::Extend { a, extra } => {
+                let si = self.open_source(a).ok_or(())?;
+                let mut pos = self.positions[a].clone();
+                let before = self.sources[si].clone();
+                let minted = pos
+                    .extend_advance(&mut self.sources[si], extra, 0)
+                    .map_err(|_| ())?;
+                self.positions[a] = pos;
+                let src = &self.sources[si];
+                assert_eq!(src.issued, before.issued + minted);
+                assert_eq!(src.horizon_months, before.horizon_months + extra);
+                assert_eq!(src.debt(), before.debt() + minted);
+                self.credit(a, si, minted);
             }
             Op::Yield { a, pct } => {
                 let si = self.open_source(a);
@@ -830,7 +849,7 @@ proptest! {
                 Err(()) => w = snap,
                 Ok(()) => {
                     // Only yield, a Position's own returns and new Advances move Debt; Principal never does.
-                    if !matches!(op, Op::Yield { .. } | Op::Return { .. } | Op::Advance { .. }) {
+                    if !matches!(op, Op::Yield { .. } | Op::Return { .. } | Op::Advance { .. } | Op::Extend { .. }) {
                         prop_assert_eq!(&debts[..], &w.debts()[..debts.len()]);
                     }
                 }
@@ -877,6 +896,116 @@ fn advance_sizing_matches_glossary() {
     assert_eq!(
         locked_position().open_advance(pkey(0), 6, 0, 0),
         Err(CoreError::InvalidPrice)
+    );
+}
+
+#[test]
+fn extend_mints_the_added_months_at_the_source_price() {
+    let mut p = locked_position();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
+    // The Player lost everything; yield has barely started.
+    assert!(p.apply_yield(Some(&mut s), 1, 500_000_000).unwrap());
+    let debt = s.debt();
+    // 3 more months = half of the 6-month Advance: 37_500 Gemas at the same $150.
+    let minted = p.extend_advance(&mut s, 3, 0).unwrap();
+    assert_eq!(minted, 37_500);
+    assert_eq!((s.issued, s.horizon_months), (112_500, 9));
+    assert_eq!(s.debt(), debt + 37_500);
+    assert_eq!(s.unit_den, 150_000_000);
+    assert_eq!(p.open_advance, Some(0));
+    // Extending to the cap works, one more month does not.
+    assert_eq!(
+        p.extend_advance(&mut s, 4, 0),
+        Err(CoreError::InvalidHorizon)
+    );
+    assert!(p.extend_advance(&mut s, 3, 0).is_ok());
+    assert_eq!(s.horizon_months, 12);
+    assert_eq!(
+        p.extend_advance(&mut s, 1, 0),
+        Err(CoreError::InvalidHorizon)
+    );
+}
+
+#[test]
+fn extend_is_net_of_the_yield_fee_and_matches_a_single_longer_advance() {
+    let mut a = locked_position();
+    let mut sa = a.open_advance(pkey(0), 4, 150_000_000, 2_000).unwrap();
+    a.extend_advance(&mut sa, 5, 2_000).unwrap();
+    let mut b = locked_position();
+    let sb = b.open_advance(pkey(0), 9, 150_000_000, 2_000).unwrap();
+    assert_eq!(sa.issued, sb.issued);
+}
+
+#[test]
+fn extend_after_the_yield_fee_changed_mints_the_added_months_at_the_current_fee() {
+    let mut p = locked_position();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
+    assert_eq!(s.issued, 75_000);
+    // The fee rises to 20% after the Advance: 3 more months are 20% smaller, not an error.
+    let minted = p.extend_advance(&mut s, 3, 2_000).unwrap();
+    assert_eq!(minted, 30_000);
+    assert_eq!((s.issued, s.horizon_months), (105_000, 9));
+    // The fee falls back to 0: the added months are full size, never a negative mint.
+    let mut q = locked_position();
+    let mut t = q.open_advance(pkey(0), 6, 150_000_000, 2_000).unwrap();
+    assert_eq!(t.issued, 60_000);
+    assert_eq!(q.extend_advance(&mut t, 3, 0).unwrap(), 37_500);
+}
+
+#[test]
+fn extend_refuses_without_an_open_advance_other_sources_zero_debt_and_zero_months() {
+    let mut p = locked_position();
+    let mut s = p.open_advance(pkey(0), 3, 150_000_000, 0).unwrap();
+    assert_eq!(
+        p.extend_advance(&mut s, 0, 0),
+        Err(CoreError::InvalidHorizon)
+    );
+    let mut other = s.clone();
+    other.index = 7;
+    assert_eq!(
+        p.extend_advance(&mut other, 1, 0),
+        Err(CoreError::SourceMismatch)
+    );
+    let before = (p.clone(), s.clone());
+    assert_eq!(
+        p.extend_advance(&mut s, 1, 20_000),
+        Err(CoreError::InvalidBps)
+    );
+    assert_eq!(before, (p.clone(), s.clone()));
+    // Repaid: the Advance closes and Extend has nothing to extend.
+    assert!(p.apply_yield(Some(&mut s), 1, 9_000_000_000).unwrap());
+    assert_eq!(s.debt(), 0);
+    assert_eq!(
+        p.extend_advance(&mut s, 1, 0),
+        Err(CoreError::NoOpenAdvance)
+    );
+    // A Position that never took an Advance.
+    let mut fresh = locked_position();
+    let mut s2 = s.clone();
+    s2.index = 0;
+    assert_eq!(
+        fresh.extend_advance(&mut s2, 1, 0),
+        Err(CoreError::NoOpenAdvance)
+    );
+    // Unlocked Positions refuse.
+    let mut q = locked_position();
+    let mut sq = q.open_advance(pkey(0), 3, 150_000_000, 0).unwrap();
+    q.status = PositionStatus::Unlocked;
+    assert_eq!(
+        q.extend_advance(&mut sq, 1, 0),
+        Err(CoreError::PositionNotLocked)
+    );
+}
+
+#[test]
+fn extend_with_debt_zero_but_open_is_refused() {
+    let mut p = locked_position();
+    let mut s = p.open_advance(pkey(0), 3, 150_000_000, 0).unwrap();
+    s.returned = s.issued;
+    assert_eq!(s.debt(), 0);
+    assert_eq!(
+        p.extend_advance(&mut s, 1, 0),
+        Err(CoreError::AdvanceRepaid)
     );
 }
 

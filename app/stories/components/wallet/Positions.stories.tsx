@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, within } from "storybook/test";
 import { EthFaucet, EthOpenForm, EthOps, EthPositionCard } from "@/app/(app)/wallet/EthPositions";
-import { NativeAdvanceSheet, NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
+import { NativeAdvanceSheet, NativeExtendSheet, NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
+import { quoteNativeAdvance } from "@/lib/chain/native";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import { withScreen } from "../../screens/support/screen";
 import { withSigner } from "../../screens/support/signer";
@@ -35,6 +36,31 @@ export const SolOpenFormNoTreasury: Story = {
 export const SolRepaid: Story = {
   parameters: { data: { snapshot: nativeSnapshot("repaid") } },
   render: () => <NativePositionCard position={nativePosition("repaid")} market={NATIVE_MARKET} onRedeem={() => {}} />,
+};
+/** A 3-month Advance as the program sized it (the shared fixture's issued count is arbitrary), so Extend quotes the real difference. */
+const extendable = () => {
+  const info = nativePosition("debt").native!;
+  const issued = quoteNativeAdvance(info.principalLamports, info.rateBps, 3, info.source!.math.unitDen, 2000).gemas;
+  return { ...info, source: { ...info.source!, math: { ...info.source!.math, issued, returned: issued / 2n } } };
+};
+/** Debt is open and the Horizon is under 12 months: Extend sits beside Refresh yield (NEXT_PUBLIC_EXTEND_ADVANCE=1). */
+export const SolWithExtend: Story = {
+  parameters: { data: { snapshot: nativeSnapshot("debt") } },
+  render: () => <NativePositionCard position={nativePosition("debt")} market={NATIVE_MARKET} onRedeem={() => {}} extend />,
+};
+/** Extend sheet at its default: the slider runs 1 to 12 minus the 3 months already advanced. */
+export const SolExtendSheet: Story = {
+  parameters: { data: { snapshot: nativeSnapshot("debt") } },
+  render: () => <NativeExtendSheet info={extendable()} market={NATIVE_MARKET} open onClose={() => {}} />,
+};
+/** Extend sheet with 9 months picked (the most the Horizon allows). */
+export const SolExtendSheetMax: Story = {
+  ...SolExtendSheet,
+  play: async ({ canvasElement }) => {
+    const range = await within(canvasElement.ownerDocument.body).findByRole("slider");
+    range.focus();
+    await userEvent.keyboard("{End}");
+  },
 };
 /** Debt is zero: Take another Advance on the same Principal, or Unlock. */
 export const SolTakeAnotherAdvance: Story = {

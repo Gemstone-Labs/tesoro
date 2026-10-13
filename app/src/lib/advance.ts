@@ -8,6 +8,9 @@ export const ASSET_USD: Record<Asset, number> = { SOL: 150, ETH: 3000, HYPE: 40 
 /** Simulated yield: 1 month = 10 minutes of wall clock. */
 export const SIM_MINUTES_PER_MONTH = 10;
 
+/** Horizon every Open a Position and Take an Advance form starts at, in months. */
+export const DEFAULT_HORIZON_MONTHS = 1;
+
 export interface AdvanceQuote {
   horizonMonths: number;
   projectedYield: number;
@@ -29,3 +32,6 @@ export function quoteAdvance(position: Position, horizonMonths: number, now: str
 export function gemasToAsset(gemas: number, asset: Asset): number {
   return (gemas * GEMA_USD_AT_ISSUANCE) / ASSET_USD[asset];
 }
+
+/** Extend an open Advance needs the `extend_native_advance` upgrade on tesoro_core: the action shows only once this is set. */
+export const EXTEND_ADVANCE_ENABLED = process.env.NEXT_PUBLIC_EXTEND_ADVANCE === "1";

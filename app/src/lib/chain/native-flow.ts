@@ -8,6 +8,7 @@ import { ensureSol, type GetToken } from "./demo-client";
 import {
   accrueNativeYieldIx,
   createSimSolAtaIx,
+  extendNativeAdvanceIx,
   faucetIx,
   instantRedeemIx,
   openNativePositionIx,
@@ -18,7 +19,7 @@ import {
   unlockIx,
   type NativeInfo,
 } from "./native";
-import { plainError } from "@/lib/errors";
+import { extendFailure, plainError } from "@/lib/errors";
 
 /** The one line a Player sees for a failed Wallet action (see lib/errors.ts). */
 export const friendlyError = plainError;
@@ -78,6 +79,31 @@ export async function takeNextAdvance(
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Taking the Advance");
   return send(signer, [accrueNativeYieldIx(info.position, info.openAdvance), takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months)]);
+}
+
+/**
+ * Extend the open Advance of a locked SOL Position: crank first so the program sees the Debt as it stands, then
+ * `extend_native_advance`. The Gemas land in the owner's Holding of the same Source.
+ */
+export async function extendAdvance(
+  signer: ChainSigner,
+  getToken: GetToken,
+  info: NativeInfo,
+  extraMonths: number,
+  onStep: (s: string) => void = () => undefined,
+): Promise<string> {
+  if (!info.source) throw new Error("This Position has no open Advance.");
+  onStep("Preparing");
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
+  onStep("Extending the Advance");
+  try {
+    return await send(signer, [
+      accrueNativeYieldIx(info.position, info.openAdvance),
+      extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths),
+    ]);
+  } catch (e) {
+    throw extendFailure(e);
+  }
 }
 
 /** Permissionless crank: applies the vault's accrued yield to the Position's Debt. */

@@ -27,6 +27,8 @@
 .slide-queue-faces i { width: 26px; height: 26px; border-radius: 50%; border: 1.5px dashed var(--line-2); }
 .slide-queue-text { display: grid; flex: 1; min-width: 0; line-height: 1.15; }
 .slide-queue-text strong { font-size: 14px; color: var(--fg); }
+.slide-queue-text a { justify-self: start; font-size: 12px; color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
+.slide-queue-text a:hover { color: var(--fg); }
 .slide-queue-text small { font-size: 12px; color: var(--fg-2); }
 @media (prefers-reduced-motion: reduce) { .slide-queue-live::after { animation: none; } }
 .slide:not(.active) .slide-body { visibility: hidden; }
@@ -157,6 +159,7 @@ a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(23
 .lw-track a:focus-visible { outline-offset: -3px; }
 .lw-track b { color: var(--fg); font-weight: 700; }
 .lw-track strong { display: inline-flex; align-items: center; gap: 5px; color: var(--em-hi); font-weight: 800; font-variant-numeric: tabular-nums; }
+.lw-track .gema-usd { font-size: 12px; font-weight: 700; }
 .lw-av { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; }
 @media (prefers-reduced-motion: reduce) { .lw-viewport { overflow-x: auto; -webkit-mask-image: none; mask-image: none; } }
 @media (max-width: 639px) { .live-wins { height: 46px; } .live-tag { padding: 0 12px; font-size: 12px; } .lw-track a { padding: 0 16px; font-size: 13px; } }

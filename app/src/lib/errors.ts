@@ -23,3 +23,11 @@ export function plainError(e: unknown): string {
   if (/tx failed|\bfailed [1-9A-HJ-NP-Za-km-z]{32,}|InstructionError|Custom\b|"Custom"|simulation failed|transaction failed|custom program error|base layer|rollup|delegat|\bTEE\b|\bcommit/i.test(first)) return RETRY;
   return first.length > 200 ? `${first.slice(0, 200)}…` : first;
 }
+
+export const ADVANCE_REPAID = "Your Advance was repaid before this went through. Close this and use Take another Advance instead.";
+
+/** An Extend that lost the race with the yield crank: the Advance is repaid or closed by now. Anything else passes through. */
+export function extendFailure(e: unknown): unknown {
+  const text = e instanceof Error ? e.message : String(e);
+  return /advance is already repaid|position has no open advance/i.test(text) ? new Error(ADVANCE_REPAID) : e;
+}

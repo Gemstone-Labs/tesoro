@@ -20,6 +20,18 @@ export function gemasToUsd(gemas: number): number {
   return gemas * GEMA_USD_AT_ISSUANCE;
 }
 
+/** Approximate issuance value of a Gema amount: "≈ $19", "≈ $4.50". */
+export function fmtGemasUsd(gemas: number): string {
+  const usd = gemasToUsd(gemas);
+  const whole = Math.abs(usd - Math.round(usd)) < 1e-9 || usd >= 100;
+  return `≈ ${usd.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: whole ? 0 : 2,
+  })}`;
+}
+
 const ASSET_DECIMALS: Record<Asset, number> = { SOL: 3, ETH: 4, HYPE: 3 };
 
 export function fmtAsset(amount: number, asset: Asset): string {

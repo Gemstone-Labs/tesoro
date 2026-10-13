@@ -1,15 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ArrowRight, Pause, Play } from "lucide-react";
 import { PlayerAvatar } from "@/components/account/Player";
 import { Button } from "@/components/ui";
-import { practiceHref } from "@/lib/game-params";
+import { challengeHref, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import type { QueueSeat } from "@/lib/chain/read";
 import type { GameId } from "@/lib/mock";
+import { firstSlideGame } from "./first-slide";
 import { useQueue } from "./useQueue";
 
 interface Slide {
@@ -32,12 +34,21 @@ const ADVANCE_MS = 7000;
 
 export function HeroCarousel() {
   // 0..N-1 are the slides, N is a clone of slide 0 so the last slide always has a next one peeking in.
-  const [index, setIndex] = useState(0);
+  // `picked` is null until the visitor or the auto-advance moves the carousel: until then it shows the opening slide.
+  const [picked, setPicked] = useState<number | null>(null);
   const [jump, setJump] = useState(false);
   const [paused, setPaused] = useState(false);
   const [hover, setHover] = useState(false);
   const [reduced, setReduced] = useState(true);
   const queue = useQueue();
+  const { snapshot, auth } = useAccount();
+  const me = snapshot?.accountKey.toBase58();
+  /** Who is looking is known: signed out, or signed in with the Account read. Until then the Player's own seat could count as someone waiting. */
+  const settled = auth.status === "signed-out" || auth.status === "unconfigured" || (auth.status === "signed-in" && !!me);
+  // Open on the first Game with someone else waiting once the Queue has landed and the viewer is known; Slide 0 until then.
+  const opening = queue && settled ? Math.max(0, SLIDES.findIndex((s) => s.game === firstSlideGame(queue, SLIDES.map((s) => s.game), me))) : 0;
+  const index = picked ?? opening;
+  const setIndex = useCallback((to: number | ((i: number) => number)) => setPicked((p) => (typeof to === "function" ? to(p ?? opening) : to)), [opening]);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -51,9 +62,9 @@ export function HeroCarousel() {
   const next = () => setIndex((i) => Math.min(i + 1, SLIDES.length));
   useEffect(() => {
     if (!running) return;
-    const t = setInterval(next, ADVANCE_MS);
+    const t = setInterval(() => setIndex((i) => Math.min(i + 1, SLIDES.length)), ADVANCE_MS);
     return () => clearInterval(t);
-  }, [running, index]);
+  }, [running, index, setIndex]);
 
   // After sliding onto the clone, snap back to the real first slide without animating.
   useEffect(() => {
@@ -170,17 +181,17 @@ function HeroSlide({
             Practice free
           </Button>
         </div>
-        <QueueStrip seats={others} />
+        <QueueStrip seats={others} game={slide.game} />
       </div>
     </article>
   );
 }
 
 /** Who is waiting in the Queue for this Game. */
-function QueueStrip({ seats }: { seats: QueueSeat[] | null }) {
+function QueueStrip({ seats, game }: { seats: QueueSeat[] | null; game: GameId }) {
   const n = seats?.length ?? 0;
   const faces = [...new Set(seats?.map((w) => w.player))].slice(0, 3);
-  const [title, note] = seats === null ? ["Queue", "Checking…"] : n === 0 ? ["Queue is open", "Be the first in"] : [`${n} waiting in Queue`, "Ready to play now"];
+  const [title, note] = seats === null ? ["Queue", "Checking…"] : n === 0 ? ["No one waiting yet", null] : [`${n} waiting in Queue`, "Ready to play now"];
   return (
     <div className="cut slide-queue">
       {n > 0 && <span className="slide-queue-live" aria-hidden="true" />}
@@ -190,7 +201,7 @@ function QueueStrip({ seats }: { seats: QueueSeat[] | null }) {
       </span>
       <p className="slide-queue-text">
         <strong>{title}</strong>
-        <small>{note}</small>
+        {note ? <small>{note}</small> : <Link href={challengeHref(game)}>Challenge a friend</Link>}
       </p>
     </div>
   );

@@ -115,23 +115,10 @@ impl Position {
         if yield_fee_bps > MAX_YIELD_FEE_BPS {
             return Err(CoreError::InvalidBps);
         }
-        let projected_units = mul_div_floor(
-            (self.principal as u128)
-                .checked_mul(self.rate_bps as u128)
-                .and_then(|x| x.checked_mul(horizon_months as u128))
-                .ok_or(CoreError::Math)?,
-            BPS.checked_sub(yield_fee_bps as u128)
-                .ok_or(CoreError::Math)?,
-            BPS * BPS * 12,
-        )?;
         let unit_num = 10u128
             .checked_pow(self.decimals as u32 + 4)
             .ok_or(CoreError::Math)?;
-        let issued = to_u64(mul_div_floor(
-            projected_units,
-            price_micro_usd as u128,
-            unit_num,
-        )?)?;
+        let issued = self.advance_gemas(horizon_months, price_micro_usd, yield_fee_bps)?;
         if issued == 0 {
             return Err(CoreError::AdvanceTooSmall);
         }
@@ -152,6 +139,74 @@ impl Position {
             yield_units: 0,
             redeemed_units: 0,
         })
+    }
+
+    /// Gemas an Advance of `months` is worth: projected yield net of the Yield Fee, as Gemas at
+    /// `price_micro_usd`, floored.
+    fn advance_gemas(
+        &self,
+        months: u8,
+        price_micro_usd: u64,
+        yield_fee_bps: u16,
+    ) -> CoreResult<u64> {
+        let projected_units = mul_div_floor(
+            (self.principal as u128)
+                .checked_mul(self.rate_bps as u128)
+                .and_then(|x| x.checked_mul(months as u128))
+                .ok_or(CoreError::Math)?,
+            BPS.checked_sub(yield_fee_bps as u128)
+                .ok_or(CoreError::Math)?,
+            BPS * BPS * 12,
+        )?;
+        let unit_num = 10u128
+            .checked_pow(self.decimals as u32 + 4)
+            .ok_or(CoreError::Math)?;
+        to_u64(mul_div_floor(
+            projected_units,
+            price_micro_usd as u128,
+            unit_num,
+        )?)
+    }
+
+    /// Extends the open Advance by `extra_months` (total Horizon at most 12) and returns the Gemas
+    /// minted: `size(h + extra) - size(h)` at the Source's own price and the current Yield Fee, so
+    /// a Yield Fee change since the Advance never turns into a windfall or an error. The caller
+    /// credits them to the owner's Holding of `src`.
+    pub fn extend_advance(
+        &mut self,
+        src: &mut Source,
+        extra_months: u8,
+        yield_fee_bps: u16,
+    ) -> CoreResult<u64> {
+        if self.status != PositionStatus::Locked {
+            return Err(CoreError::PositionNotLocked);
+        }
+        let open = self.open_advance.ok_or(CoreError::NoOpenAdvance)?;
+        if src.index != open {
+            return Err(CoreError::SourceMismatch);
+        }
+        if src.debt() == 0 {
+            return Err(CoreError::AdvanceRepaid);
+        }
+        let total = src
+            .horizon_months
+            .checked_add(extra_months)
+            .ok_or(CoreError::InvalidHorizon)?;
+        if extra_months == 0 || total > MAX_HORIZON_MONTHS {
+            return Err(CoreError::InvalidHorizon);
+        }
+        if yield_fee_bps > MAX_YIELD_FEE_BPS {
+            return Err(CoreError::InvalidBps);
+        }
+        let before = self.advance_gemas(src.horizon_months, src.unit_den, yield_fee_bps)?;
+        let after = self.advance_gemas(total, src.unit_den, yield_fee_bps)?;
+        let minted = after.checked_sub(before).ok_or(CoreError::Math)?;
+        if minted == 0 {
+            return Err(CoreError::AdvanceTooSmall);
+        }
+        src.issued = src.issued.checked_add(minted).ok_or(CoreError::Math)?;
+        src.horizon_months = total;
+        Ok(minted)
     }
 
     /// Applies `YieldAccrued(seq, cumulative)`. Idempotent: `seq <= last_seq` is a no-op

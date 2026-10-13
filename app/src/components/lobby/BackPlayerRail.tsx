@@ -14,6 +14,7 @@ import { Bust, ClockIcon, GemaMark } from "@/components/ui";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar, usePlayerLabel } from "@/components/account/Player";
 import { Pnl } from "@/components/backing/Pnl";
+import { onePerPlayer } from "@/lib/chain/requests";
 import { Rail } from "./Rail";
 import "./back-player.css";
 
@@ -29,8 +30,7 @@ export function BackPlayerRail() {
   const { board, loading, error, refresh } = useBackingBoard();
   const { snapshot } = useAccount();
   const me = snapshot?.accountKey.toBase58();
-  const requests = (board?.requests ?? [])
-    .filter((r) => r.live)
+  const requests = onePerPlayer(board?.requests ?? [])
     .sort((a, b) => strength(b) - strength(a))
     .slice(0, MAX);
   const [shelfRef, shelf] = useShelf(requests.length);

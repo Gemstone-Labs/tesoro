@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Lock } from "lucide-react";
 import { Button, ChainGlyph, CountUp, CrossChainProgress, GemaMark, Sheet, Slider, SimulatedYieldLabel } from "@/components/ui";
-import { quoteAdvance } from "@/lib/advance";
+import { DEFAULT_HORIZON_MONTHS, quoteAdvance } from "@/lib/advance";
 import { fmtAsset, fmtGemas, fmtWhen } from "@/lib/format";
 import { MOCK_NOW } from "@/lib/mock";
 import type { Chain, Position } from "@/lib/mock";
@@ -30,6 +30,8 @@ export function AdvanceFormView({
   gemas,
   unlock,
   yieldFeeBps,
+  maxMonths = 12,
+  sliderLabel = "Horizon",
   alerts,
   buttonLabel,
   disabled = false,
@@ -47,6 +49,9 @@ export function AdvanceFormView({
   unlock: string;
   /** The Yield Fee the quote is net of (the launch rate while the Treasury is unread). */
   yieldFeeBps?: number;
+  /** Extend adds to a Horizon already running: the slider stops at what is left of the 12 months. */
+  maxMonths?: number;
+  sliderLabel?: string;
   alerts?: ReactNode;
   buttonLabel: ReactNode;
   disabled?: boolean;
@@ -65,7 +70,7 @@ export function AdvanceFormView({
 
       <YieldToGemas months={months} yieldText={yieldText} gemas={gemas} yieldFeeBps={yieldFeeBps} />
 
-      <Slider label="Horizon" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
+      <Slider label={sliderLabel} value={months} min={1} max={maxMonths} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
 
       <UnlockTrack now="Gemas in your balance" unlock={unlock} end="Unlock Estimate, Debt 0" />
 
@@ -96,7 +101,7 @@ export function AdvanceTakenNote({ gemas, from, unlock, landed = true }: { gemas
 }
 
 function AdvanceForm({ position, onClose }: { position: Position; onClose: () => void }) {
-  const [months, setMonths] = useState(3);
+  const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [taken, setTaken] = useState(false);
   const quote = quoteAdvance(position, months, MOCK_NOW);
 

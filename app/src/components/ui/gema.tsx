@@ -1,4 +1,4 @@
-import { fmtGemas } from "@/lib/format";
+import { fmtGemas, fmtGemasUsd } from "@/lib/format";
 
 /** Shared gradients for every GemaMark. Mount once in the root layout. */
 export function GemaDefs() {
@@ -50,12 +50,18 @@ export function GemaMark({ size = 16, glint = false }: { size?: number; glint?: 
 
 const MARK_PX = { sm: 14, md: 16, lg: 20, xl: 30 } as const;
 
+/** Approximate issuance value of a Gema figure, muted. Not for money buttons or the top-bar pill. */
+export function GemaUsd({ value, className }: { value: number; className?: string }) {
+  return <span className={className ? `gema-usd ${className}` : "gema-usd"}>{fmtGemasUsd(value)}</span>;
+}
+
 export function GemaAmount({
   value,
   size = "md",
   glint = false,
   sign = false,
   mark = true,
+  usd = false,
 }: {
   value: number;
   size?: keyof typeof MARK_PX;
@@ -63,6 +69,8 @@ export function GemaAmount({
   /** Show an explicit + or − (a second signal for gains and losses). */
   sign?: boolean;
   mark?: boolean;
+  /** Add the approximate dollar value after the figure. */
+  usd?: boolean;
 }) {
   const prefix = sign ? (value > 0 ? "+" : value < 0 ? "−" : "") : "";
   return (
@@ -73,6 +81,7 @@ export function GemaAmount({
         {fmtGemas(Math.abs(value))}
         <span className="sr-only"> Gemas</span>
       </span>
+      {usd && <GemaUsd value={Math.abs(value)} />}
     </span>
   );
 }
