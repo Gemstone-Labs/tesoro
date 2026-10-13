@@ -50,7 +50,7 @@ const OUTCOMES = {
 function Outcome({ win }: { win?: boolean }) {
   const o = win ? OUTCOMES.win : OUTCOMES.lose;
   return (
-    <div className={`lp-outcome-card cut cut-frame${win ? " win" : " lose"}`} style={pct(890, win ? 100 : 372)}>
+    <div className={`lp-outcome-card lp-hold k-${win ? "win" : "lose"} cut cut-frame${win ? " win" : " lose"}`} style={pct(890, win ? 100 : 372)}>
       <div className="lp-oct-node small" aria-hidden>
         <span className="lp-oct-frame" />
         {landingArt(win ? "step5" : "step1") && <Picture k={win ? "step5" : "step1"} sizes="96px" />}
@@ -142,7 +142,7 @@ function FlowPhone() {
 export function HowItWorks() {
   const guide = landingArt("himGuide");
   return (
-    <section id="how-it-works" className="lp-section lp-how" aria-labelledby="how-title">
+    <section id="how-it-works" data-how className="lp-section lp-how" aria-labelledby="how-title">
       <div className="lp-wrap">
         <header className="lp-how-head">
           <div className="lp-how-guide" aria-hidden>
@@ -171,8 +171,8 @@ export function HowItWorks() {
                 <feGaussianBlur stdDeviation="6" />
               </filter>
               <g id="lp-tubes">
-                {TUBES.map((d) => (
-                  <path key={d} d={d} />
+                {TUBES.map((d, i) => (
+                  <path key={d} d={d} pathLength={1} className="lp-tube-path" style={{ ["--i" as string]: `var(--h-tube${i}, 1)` }} />
                 ))}
               </g>
             </defs>
@@ -182,20 +182,20 @@ export function HowItWorks() {
             <use href="#lp-tubes" className="tube-hi" />
             <g className="lp-flow-dots">
               {TUBES.map((d, i) => (
-                <circle key={d} r="4">
+                <circle key={d} r="4" className="lp-flow-dot" style={{ ["--i" as string]: `var(--h-tube${i}, 1)` }}>
                   <animateMotion dur={`${2.4 + (i % 3) * 0.3}s`} begin={`${(i * 0.37).toFixed(2)}s`} repeatCount="indefinite" path={d} />
                 </circle>
               ))}
             </g>
           </svg>
           {NODES.map((n) => (
-            <div key={n.id} className={`lp-oct-node n-${n.id}${n.small ? " settle" : ""}`} style={pct(n.x, n.y)} aria-hidden>
+            <div key={n.id} className={`lp-oct-node lp-hold k-${n.id} n-${n.id}${n.small ? " settle" : ""}`} style={pct(n.x, n.y)} aria-hidden>
               <span className="lp-oct-frame" />
               {n.small ? <span className="lp-settle-label">Settle</span> : <NodeArt node={n} />}
             </div>
           ))}
           {NODES.filter((n) => !n.small).map((n) => (
-            <div key={n.id} className={`lp-flow-label l-${n.id}`} style={pct(...n.label)}>
+            <div key={n.id} className={`lp-flow-label lp-hold k-${n.id} l-${n.id}`} style={pct(...n.label)}>
               <b>{n.title}</b>
               {n.sub && <span>{n.sub}</span>}
             </div>
@@ -208,7 +208,9 @@ export function HowItWorks() {
         </figure>
         <FlowPhone />
         <p className="lp-flow-foot" data-reveal>
-          <b>Your Principal is never played.</b> Only future yield moves.
+          <span className="lp-hold k-foot">
+            <b>Your Principal is never played.</b> Only future yield moves.
+          </span>
         </p>
       </div>
     </section>

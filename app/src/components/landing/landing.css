@@ -188,6 +188,24 @@ html.lenis, html.lenis body { height: auto; }
 :root[data-theme="light"] .lp-flowmap .tube-hi { stroke: #ffffff; opacity: 0.9; }
 :root[data-theme="light"] .lp-flow-dots circle { fill: #ffffff; filter: drop-shadow(0 0 4px #24d8a8); }
 @media (prefers-reduced-motion: reduce) { .lp-flow-dots { display: none; } }
+/* Held on desktop: LandingMotion sets --h-tube0..6 (how much of each tube is drawn) and --h-<stop> (0..1) on the
+   section from the scroll. Without them every var falls back to the complete diagram. */
+/* Pinned, the whole diagram has to fit one window: tighter than the scrolling layout. */
+.lp-how.is-held { padding-block: 84px 36px; }
+.lp-how.is-held .lp-how-head { margin-bottom: 16px; }
+.lp-how.is-held .lp-how-guide { width: 104px; margin-bottom: -16px; }
+.lp-how.is-held .lp-flowmap { margin-top: 0; }
+.lp-how.is-held .lp-flow-foot { margin-top: 20px; }
+.lp-tube-path { stroke-dasharray: 1 2; stroke-dashoffset: calc(1 - var(--i, 1)); opacity: min(1, calc(var(--i, 1) * 60)); }
+.lp-flow-dot { opacity: clamp(0, calc((var(--i, 1) - 0.98) * 50), 1); }
+.lp-hold { opacity: calc(0.3 + 0.7 * var(--h-self, 1)); filter: grayscale(calc(1 - var(--h-self, 1))); }
+.k-advance { --h-self: var(--h-advance, 1); }
+.k-play { --h-self: var(--h-play, 1); }
+.k-back { --h-self: var(--h-back, 1); }
+.k-settle { --h-self: var(--h-settle, 1); }
+.k-win { --h-self: var(--h-win, 1); }
+.k-lose { --h-self: var(--h-lose, 1); }
+.k-foot { --h-self: var(--h-foot, 1); }
 .lp-oct-node { position: absolute; width: 11.3%; aspect-ratio: 258 / 252; translate: -50% -50%; display: grid; place-items: center; }
 .lp-oct-node .lp-oct-frame { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: url(/art/landing/oct-frame.webp) center / 100% 100% no-repeat; }
 :root[data-theme="light"] .lp-oct-node .lp-oct-frame { background-image: url(/art/landing/oct-frame-light.webp); }

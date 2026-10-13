@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { gemState } from "./gem/store";
+import { howFlow, STOPS } from "./howFlow";
 
 /**
  * Every scroll effect on the landing page, in one place. The server HTML is the complete, static page;
@@ -87,6 +88,19 @@ export function LandingMotion() {
         }
 
 
+        // How it works is the page's peak: held longer than Gemas while the scroll draws the flow node by node.
+        const how = document.querySelector<HTMLElement>("[data-how]");
+        if (how && innerHeight >= 760) {
+          const apply = (progress: number) => {
+            const f = howFlow(progress);
+            f.tubes.forEach((t, i) => how.style.setProperty(`--h-tube${i}`, t.toFixed(3)));
+            for (const s of STOPS) how.style.setProperty(`--h-${s}`, f.nodes[s].toFixed(3));
+          };
+          how.classList.add("is-held");
+          apply(0);
+          ScrollTrigger.create({ trigger: how, start: "top top", end: "+=160%", pin: true, onUpdate: (self) => apply(self.progress) });
+        }
+
         const gemas = document.querySelector<HTMLElement>("[data-gemas]");
         if (gemas && innerHeight >= 760) {
           gemas.classList.add("is-stepped");
@@ -118,6 +132,8 @@ export function LandingMotion() {
           gsap.ticker.remove(tick);
           lenis?.destroy();
           document.querySelector("[data-gemas]")?.classList.remove("is-stepped");
+          document.querySelector<HTMLElement>("[data-how]")?.removeAttribute("style");
+          document.querySelector("[data-how]")?.classList.remove("is-held");
           gemState.beat = 0;
         };
       });

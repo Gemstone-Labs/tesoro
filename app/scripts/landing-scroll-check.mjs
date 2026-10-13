@@ -14,7 +14,8 @@
  *
  * Add a check: append one entry to CHECKS below. `runs` lists the runs it applies to; `fn(ctx)` calls
  * `ctx.assert(ok, detail)`. ctx has the run's `layout`, `down` (samples scrolling down), `up` (samples
- * scrolling back up through the Gemas pin) and `page`. Informational measurements go in `ctx.note(key, value)`.
+ * scrolling back up through the Gemas pin), `how` (dense samples every 160px from just above to just below the
+ * How it works pin; the pin's own span when there is none) and `page`. Informational measurements go in `ctx.note(key, value)`.
  */
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -70,6 +71,52 @@ const CHECKS = [
     },
   },
   {
+    name: "how it works holds longer than gemas",
+    runs: DESKTOP,
+    fn({ layout, assert }) {
+      assert(!!layout.howPin, "How it works is not pinned");
+      // The Gemas pin is meant to be about 1.2 viewports; until it is shortened it may be longer than that.
+      const how = layout.howPin.end - layout.howPin.start;
+      const gemas = layout.gemasPin ? layout.gemasPin.end - layout.gemasPin.start : 0;
+      assert(how > Math.min(gemas, 1.25 * layout.viewport[1]), `how pin ${how}px vs gemas pin ${gemas}px`);
+    },
+  },
+  {
+    name: "how it works lights its stops in order across the pin, closing line last",
+    runs: DESKTOP,
+    fn({ layout, how, assert }) {
+      const p = layout.howPin;
+      assert(!!p, "How it works is not pinned");
+      const inPin = how.filter((s) => s.y >= p.start - 2 && s.y <= p.end + 2);
+      assert(inPin.length >= 5, `only ${inPin.length} samples inside the pin`);
+      const first = inPin[0].how.stops;
+      assert(first[0] >= FULL, `Position not lit at the start: ${first[0]}`);
+      assert(first.slice(1).every((o) => o < 0.5), `later stops already lit at the start: ${JSON.stringify(first)}`);
+      // advance, play, settle, win, closing line
+      const order = [1, 2, 4, 5, 7];
+      for (let i = 0; i < inPin.length; i++) {
+        const st = inPin[i].how.stops;
+        assert(st[0] >= FULL, `Position dimmed at y=${inPin[i].y}`);
+        if (i) for (let k = 1; k < st.length; k++) assert(st[k] >= inPin[i - 1].how.stops[k] - 0.01, `stop ${k} dims going down at y=${inPin[i].y}`);
+        for (let k = 1; k < order.length; k++) assert(st[order[k]] <= st[order[k - 1]] + 0.01, `stop ${order[k]} lit before ${order[k - 1]} at y=${inPin[i].y}: ${JSON.stringify(st)}`);
+      }
+      const last = how.find((s) => s.y >= p.end - 2) ?? inPin[inPin.length - 1];
+      assert(last.how.stops.every((o) => o >= FULL), `not everything lit at the end of the pin: ${JSON.stringify(last.how.stops)}`);
+      assert(last.how.foot, "closing line not fully on screen at the end of the pin");
+      const mid = inPin.filter((s) => s.how.stops.some((o, k) => k && o > 0.3 && o < 0.99)).length;
+      assert(mid >= 2, "stops never seen part way (not scroll-tied)");
+    },
+  },
+  {
+    name: "how it works shows the complete diagram without the pin",
+    runs: ["phone", "reduced"],
+    fn({ how, assert }) {
+      assert(how.length > 0, "no samples");
+      const bad = how.filter((s) => s.how.stops.some((o) => o !== null && o < FULL));
+      assert(bad.length === 0, `dimmed stops at y=${bad.map((s) => s.y).join(",")}: ${JSON.stringify(bad[0]?.how.stops)}`);
+    },
+  },
+  {
     name: "empty band measured",
     runs: [...DESKTOP, "phone", "reduced"],
     fn({ down, note, assert }) {
@@ -92,7 +139,18 @@ function readLayout() {
   }
   const gr = g?.getBoundingClientRect();
   const gemasBottom = g ? Math.round(gr.bottom + scrollY) : null;
+  const hs = document.querySelector("[data-how]")?.closest(".pin-spacer");
+  const hw = document.querySelector("[data-how]");
+  let howPin = null;
+  if (hs && hw) {
+    const top = Math.round(hs.getBoundingClientRect().top + scrollY);
+    howPin = { start: top, end: top + hs.offsetHeight - hw.offsetHeight, spacerHeight: hs.offsetHeight };
+  }
+  const howRect = hw?.getBoundingClientRect();
   return {
+    howPin,
+    howTop: hw ? Math.round(howRect.top + scrollY) : null,
+    howBottom: hw ? Math.round(howRect.bottom + scrollY) : null,
     viewport: [innerWidth, innerHeight],
     total: document.documentElement.scrollHeight,
     sections: secs.map((s) => {
@@ -134,7 +192,19 @@ function readSample() {
     edge = Math.max(edge, b);
   }
   gap = Math.max(gap, vh - edge);
-  return { sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, faded, gap: +(gap / vh).toFixed(2) };
+  const op = (q) => {
+    const el = document.querySelector(q);
+    return el ? +(+getComputedStyle(el).opacity).toFixed(2) : null;
+  };
+  const how = {
+    stops: [".lp-oct-node.n-position", ".lp-oct-node.n-advance", ".lp-oct-node.n-play", ".lp-oct-node.n-back", ".lp-oct-node.settle.n-settle", ".lp-outcome-card.win", ".lp-outcome-card.lose", ".lp-flow-foot .lp-hold"].map(op),
+    tube0: document.querySelector("[data-how]") ? getComputedStyle(document.querySelector("[data-how]")).getPropertyValue("--h-tube0").trim() : "",
+    foot: (() => {
+      const r = document.querySelector(".lp-flow-foot")?.getBoundingClientRect();
+      return r ? r.top >= 0 && r.bottom <= vh : false;
+    })(),
+  };
+  return { how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, faded, gap: +(gap / vh).toFixed(2) };
 }
 
 async function scrollStep(page, run, dy) {
@@ -193,11 +263,28 @@ async function walk(browser, name, run) {
     }
   }
 
+  // Dense walk through the How it works pin (or its section when it is not pinned).
+  const howSamples = [];
+  const hp = layout.howPin ?? (layout.howTop !== null ? { start: layout.howTop, end: layout.howBottom - run.h } : null);
+  if (hp) {
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.waitForTimeout(2000);
+    for (let y = Math.max(0, hp.start - 100); y <= hp.end + 420; y += 160) {
+      await page.evaluate((v) => scrollTo(0, v), y);
+      await page.waitForTimeout(700);
+      const s = { dir: "how", y: await page.evaluate(() => Math.round(scrollY)), ...(await page.evaluate(readSample)) };
+      const file = `how-${String(howSamples.length).padStart(2, "0")}.png`;
+      await page.screenshot({ path: join(dir, file) });
+      shots.push({ file, label: `how ${s.y}` });
+      howSamples.push(s);
+    }
+  }
+
   writeFileSync(join(dir, "layout.json"), JSON.stringify(layout, null, 2));
-  writeFileSync(join(dir, "steps.json"), JSON.stringify({ down, up }, null, 2));
+  writeFileSync(join(dir, "steps.json"), JSON.stringify({ down, up, how: howSamples }, null, 2));
   await contactSheet(browser, dir, shots, run);
   await ctx.close();
-  return { layout, down, up, page: null };
+  return { layout, down, up, how: howSamples, page: null };
 }
 
 /** One image of all steps, for a human look. */
@@ -246,6 +333,7 @@ for (const name of names) {
     sections: data.layout.sections,
     pins: data.layout.pins,
     gemasPin: data.layout.gemasPin,
+    howPin: data.layout.howPin,
     notes,
     results,
   };
