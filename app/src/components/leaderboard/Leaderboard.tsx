@@ -195,7 +195,7 @@ function Hero({ data, pool, remaining }: { data: LeaderboardView; pool: number; 
             )}
             <b>{data.players}</b> {data.players === 1 ? "Player" : "Players"} with points
           </span>
-          {pool > 0 && (
+          {!poolIsQuiet(pool) && (
             <span className="lb-hero-chip">
               1st takes <GemaMark size={14} /> <b>{fmtGemas(prize(pool, 0))}</b> <GemaUsd value={prize(pool, 0)} />
             </span>
