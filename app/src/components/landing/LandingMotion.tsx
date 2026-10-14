@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
+import { chainsState } from "./chains/store";
 import { gemState } from "./gem/store";
+import { howFlow, STOPS, TUBE_COUNT } from "./howFlow";
 
 /**
  * Every scroll effect on the landing page, in one place. The server HTML is the complete, static page;
@@ -78,7 +80,8 @@ export function LandingMotion() {
           gsap.to(".lp-hero .layer.back", { y: 60, ease: "none", scrollTrigger: scrub });
           gsap.to(".lp-hero .layer.mid", { y: 30, ease: "none", scrollTrigger: scrub });
           gsap.to(".lp-hero-light .layer", { y: 50, ease: "none", scrollTrigger: scrub });
-          gsap.to("[data-hero-copy]", { autoAlpha: 0, y: -40, ease: "none", scrollTrigger: { ...scrub, end: "60% top" } });
+          // The copy leaves with the scroll, faster than the page, and is gone by a third of the hero so it never ghosts over the art.
+          gsap.to("[data-hero-copy]", { autoAlpha: 0, y: -140, ease: "none", scrollTrigger: { ...scrub, end: "35% top" } });
         }
 
         for (const el of gsap.utils.toArray<HTMLElement>("[data-parallax]")) {
@@ -87,15 +90,42 @@ export function LandingMotion() {
         }
 
 
+        // How it works is the page's peak: held longer than Gemas while the scroll draws the flow node by node.
+        const how = document.querySelector<HTMLElement>("[data-how]");
+        // Held only when the section in its held layout fits the window; otherwise the complete diagram scrolls as on phones.
+        const fits = (el: HTMLElement) => el.offsetHeight <= innerHeight;
+        if (how && innerHeight >= 640) {
+          how.classList.add("is-held");
+        }
+        if (how && !fits(how)) how.classList.remove("is-held");
+        if (how?.classList.contains("is-held")) {
+          const apply = (progress: number) => {
+            const f = howFlow(progress);
+            f.tubes.forEach((t, i) => how.style.setProperty(`--h-tube${i}`, t.toFixed(3)));
+            for (const s of STOPS) if (s !== "position") how.style.setProperty(`--h-${s}`, f.nodes[s].toFixed(3));
+          };
+          apply(0);
+          ScrollTrigger.create({ trigger: how, start: "top top", end: "+=130%", pin: true, onUpdate: (self) => apply(self.progress) });
+        }
+
         const gemas = document.querySelector<HTMLElement>("[data-gemas]");
-        if (gemas && innerHeight >= 760) {
+        if (gemas && innerHeight >= 640) gemas.classList.add("is-scrubbed");
+        // The Gemas section's own bottom padding may fall below the fold; its content may not.
+        const contentBottom = (el: HTMLElement) => Math.max(...[...el.querySelectorAll("*")].filter((c) => !c.closest(".lp-showcase-rays")).map((c) => c.getBoundingClientRect().bottom)) - el.getBoundingClientRect().top;
+        if (gemas && contentBottom(gemas) > innerHeight + 32) gemas.classList.remove("is-scrubbed");
+        if (gemas?.classList.contains("is-scrubbed")) {
           gemas.classList.add("is-stepped");
+          gemas.style.setProperty("--g-sweep", "0");
           ScrollTrigger.create({
             trigger: gemas,
             start: "top top",
-            end: "+=200%",
+            end: "+=120%",
             pin: true,
             onUpdate: (self) => {
+              // Past the pin every point reads at full strength; scrolling back in steps them again.
+              gemas.classList.toggle("is-stepped", self.progress < 1);
+              // The vitrine's outline sweep runs one lap over the pin, tied to the scroll.
+              gemas.style.setProperty("--g-sweep", self.progress.toFixed(4));
               const beat = Math.min(2, Math.floor(self.progress * 3));
               if (gemState.beat !== beat) {
                 gemState.beat = beat;
@@ -106,6 +136,43 @@ export function LandingMotion() {
         }
 
 
+        // Multichain: the streams reach the Tesoro ledger by the time the section is centred.
+        const chains = document.querySelector<HTMLElement>("#multichain");
+        if (chains) {
+          const apply = (progress: number) => {
+            chainsState.progress = progress;
+            chains.dataset.chainsProgress = progress.toFixed(2);
+          };
+          apply(0);
+          ScrollTrigger.create({ trigger: chains, start: "top bottom", end: "center center", onUpdate: (self) => apply(self.progress), onRefresh: (self) => apply(self.progress) });
+        }
+
+        // Backing: the two Requests behind the Offer card fan out as the section arrives.
+        const backing = document.querySelector<HTMLElement>("[data-backing]");
+        if (backing) {
+          backing.classList.add("is-fanned");
+          backing.style.setProperty("--b-fan", "0");
+          ScrollTrigger.create({
+            trigger: backing.querySelector(".lp-backing-stage"),
+            start: "top 90%",
+            end: "top 45%",
+            onUpdate: (self) => backing.style.setProperty("--b-fan", self.progress.toFixed(4)),
+          });
+        }
+
+        // Studios: the Pot ring's arcs draw in to today's proportions as the section arrives.
+        const pot = document.querySelector<HTMLElement>(".lp-pot");
+        if (pot) {
+          pot.classList.add("is-drawn");
+          pot.style.setProperty("--p-draw", "0");
+          ScrollTrigger.create({
+            trigger: pot,
+            start: "top 85%",
+            end: "top 40%",
+            onUpdate: (self) => pot.style.setProperty("--p-draw", self.progress.toFixed(4)),
+          });
+        }
+
         const final = document.querySelector<HTMLElement>(".lp-final");
         if (final) {
           const scrub = { trigger: final, start: "top bottom", end: "bottom bottom", scrub: true };
@@ -115,8 +182,21 @@ export function LandingMotion() {
         return () => {
           gsap.ticker.remove(tick);
           lenis?.destroy();
-          document.querySelector("[data-gemas]")?.classList.remove("is-stepped");
+          document.querySelector("[data-gemas]")?.classList.remove("is-stepped", "is-scrubbed");
+          document.querySelector<HTMLElement>("[data-gemas]")?.style.removeProperty("--g-sweep");
+          const how = document.querySelector<HTMLElement>("[data-how]");
+                    for (let i = 0; i < TUBE_COUNT; i++) how?.style.removeProperty(`--h-tube${i}`);
+          for (const s of STOPS) how?.style.removeProperty(`--h-${s}`);
+          how?.classList.remove("is-held");
+          const backing = document.querySelector<HTMLElement>("[data-backing]");
+          backing?.classList.remove("is-fanned");
+          backing?.style.removeProperty("--b-fan");
+          const pot = document.querySelector<HTMLElement>(".lp-pot");
+          pot?.classList.remove("is-drawn");
+          pot?.style.removeProperty("--p-draw");
           gemState.beat = 0;
+          chainsState.progress = 1;
+          document.querySelector<HTMLElement>("#multichain")?.removeAttribute("data-chains-progress");
         };
       });
 
