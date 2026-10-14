@@ -15,7 +15,7 @@ const GAMES: LandingGame[] = [
       ["Moves", "Private"],
     ],
     art: art.blockPuzzleHero,
-    loop: [700, 770],
+    loop: [900, 622],
     href: appHref("/play/block-puzzle"),
   },
   {

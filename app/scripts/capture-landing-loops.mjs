@@ -79,19 +79,19 @@ function bestMove({ occ, pieces }) {
 
 async function playBlockPuzzle(page) {
   let lines = 0;
-  for (let n = 0; n < 24; n++) {
+  for (let n = 0; n < 20; n++) {
     await page.waitForSelector(".bp-slot:not(:disabled):not(.used)", { timeout: 8000 }).catch(() => {});
     const state = await readBoard(page);
     const move = bestMove(state);
     if (!move) break;
     await page.locator(".bp-slot").nth(move.piece.i).click();
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(150);
     await page.locator(".bp-board .bp-cell").nth(move.y * 8 + move.x).click({ force: true });
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(450);
     lines = (await readBoard(page)).lines;
-    if (lines >= 2) break;
+    if (lines >= 4) break;
   }
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(1200);
 }
 
 /** Practice hand against the bot: raise once, then call or check down the streets to the showdown. */
@@ -156,7 +156,7 @@ const PICK_EVERY_MS = 10000;
  * `speed` plays the recording faster: the script finds each Block Puzzle placement by trial, slower than a Player.
  */
 const LOOPS = [
-  { name: "block-puzzle", route: "/play/practice?dev=demo", prep: startBlockPuzzle, from: ".bpx-bar", to: ".bp-tray", act: playBlockPuzzle, speed: 1.3, width: 700, poster: 0.62 },
+  { name: "block-puzzle", route: "/play/practice?dev=demo", prep: startBlockPuzzle, from: ".fx-arena", to: ".fx-arena", pad: 0, act: playBlockPuzzle, speed: 1.7, width: 900, poster: 0.62 },
   { name: "holdem", route: "/play/practice?game=holdem&dev=demo", prep: (page) => page.waitForTimeout(3000), from: ".hdx-head", to: ".hdx-actions", act: playHoldem, speed: 1.25, width: 800, poster: 0.55 },
   { name: "trading-duel", route: "/play/practice?game=trading-duel&dev=demo", prep: startTradingDuel, from: ".tg-bar", to: ".tg-stage", act: playTradingDuel, speed: 2.2, width: 1000 },
 ];
@@ -182,7 +182,7 @@ for (const loop of LOOPS.filter((l) => !process.env.ONLY || process.env.ONLY.spl
       const y = a.top - pad;
       return { x, y, w: Math.max(a.right, b.right) + pad - x, h: b.bottom + pad - y };
     },
-    [loop.from, loop.to, PAD],
+    [loop.from, loop.to, loop.pad ?? PAD],
   );
 
   // The screencast sends a frame only when the page repaints, so each frame is held until the next one.
