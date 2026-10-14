@@ -5,7 +5,7 @@ import { Button, CheckIcon, ClockIcon, GemaAmount, Sheet } from "@/components/ui
 import { useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS, EXTEND_ADVANCE_ENABLED } from "@/lib/advance";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
-import { ratesOf } from "@/lib/chain/fees";
+import { ratesOf, replanInstant } from "@/lib/chain/fees";
 import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
 import {
   LAMPORTS,
@@ -472,21 +472,34 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     })),
   ];
 
-  const { offer: instant, plan } = useInstantRedeem();
+  const { offer: instant, plan, freshPlan } = useInstantRedeem();
 
   const redeemNow = async () => {
     if (!auth.signer) return;
     setBusy(true);
     setError(null);
     try {
-      for (const { holding: h, line } of plan) {
+      const fresh = await freshPlan(auth.signer.publicKey);
+      const replan = replanInstant(plan.map((p) => p.line), fresh.map((p) => p.line));
+      if (replan.kind !== "send") {
+        setError(
+          replan.kind === "none"
+            ? "Yield landed while you were confirming, so none of these Gemas can be redeemed now. Redeem them at full value instead."
+            : `Yield landed while you were confirming. Redeem now would sell ${fmtGemas(Number(replan.gemas))} Gemas instead. Check the new amount and confirm again.`,
+        );
+        await refresh();
+        return;
+      }
+      const confirmed = new Map(plan.map((p) => [p.line.key, p]));
+      const lines = replan.lines.map((l) => ({ holding: fresh.find((p) => p.line.key === l.key)?.holding ?? confirmed.get(l.key)!.holding, line: l }));
+      for (const { holding: h, line } of lines) {
         if (h.native) sigs.current.push(await instantRedeemNative(auth.signer, h.position, h.source, line.gemas, h.redeemable));
         else {
           if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
           await instantRedeemEthSource(ethCtx, h.eth!, h.source, line.gemas);
         }
       }
-      setDone({ gemas: plan.reduce((s, p) => s + Number(p.line.gemas), 0), later: plan.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Redeemed now", sig })) });
+      setDone({ gemas: lines.reduce((s, p) => s + Number(p.line.gemas), 0), later: lines.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Redeemed now", sig })) });
       await refresh();
     } catch (e) {
       setError(friendlyError(e));
