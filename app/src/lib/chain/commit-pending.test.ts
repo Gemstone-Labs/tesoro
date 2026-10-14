@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { COMMIT_SLOW_MS, commitCopy, commitPhase, isCommitPending } from "./commit-pending";
+import { describe, expect, it, vi } from "vitest";
+import { COMMIT_SLOW_MS, MARKER_TTL_MS, commitPendingKey, commitPendingSince, setCommitPending, commitCopy, commitPhase, isCommitPending } from "./commit-pending";
 
 describe("commit pending", () => {
   it("recognises the delegation-owned refusal", () => {
@@ -18,5 +18,17 @@ describe("commit pending", () => {
     expect(commitCopy({ phase: "sending", won: false }).line).toBe("Sending it to the chain…");
     expect(commitCopy({ phase: "slow", won: true }).line).toMatch(/winnings show in your Wallet/);
     expect(commitCopy({ phase: "slow", won: false }).line).not.toMatch(/winnings/);
+  });
+
+  it("expires the Home marker after 48 hours", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
+    setCommitPending(7n, true, 1000);
+    expect(commitPendingKey(1000 + MARKER_TTL_MS - 1)).toBe("7");
+    expect(commitPendingSince(7n, 2000)).toBe(1000);
+    expect(commitPendingKey(1000 + MARKER_TTL_MS)).toBe("");
+    setCommitPending(7n, false, 2000);
+    expect(commitPendingKey(2000)).toBe("");
+    vi.unstubAllGlobals();
   });
 });

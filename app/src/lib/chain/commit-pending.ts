@@ -31,32 +31,42 @@ export function commitCopy(c: CommitState): { title: string; line: string } {
 }
 
 const KEY = "tesoro:commit-pending";
+/** A marker older than this is dropped, so a Match that never reports back cannot stick on Home. */
+export const MARKER_TTL_MS = 48 * 3_600_000;
 
-function read(): string[] {
+type Marker = { id: string; at: number };
+
+function read(now: number): Marker[] {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    if (!Array.isArray(v)) return [];
+    return v.filter((x): x is Marker => typeof x?.id === "string" && typeof x?.at === "number" && now - x.at < MARKER_TTL_MS);
   } catch {
     return [];
   }
 }
 
-function write(ids: string[]) {
+function write(markers: Marker[]) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(ids.slice(-20)));
+    localStorage.setItem(KEY, JSON.stringify(markers.slice(-20)));
   } catch {
     // Private mode: the Home cards just keep saying Resume.
   }
 }
 
 /** Remember, in this browser, that a Match's result is on its way, so Home can say so instead of inviting a Resume. */
-export function setCommitPending(id: bigint | string, pending: boolean) {
+export function setCommitPending(id: bigint | string, pending: boolean, now = Date.now()) {
   const key = id.toString();
-  const ids = read().filter((x) => x !== key);
-  write(pending ? [...ids, key] : ids);
+  const rest = read(now).filter((x) => x.id !== key);
+  write(pending ? [...rest, { id: key, at: now }] : rest);
+}
+
+/** When this browser first saw the Match's commit pending (ms), or null. */
+export function commitPendingSince(id: bigint | string, now = Date.now()): number | null {
+  return read(now).find((x) => x.id === id.toString())?.at ?? null;
 }
 
 /** The ids as one comma-joined string: a stable snapshot for useSyncExternalStore. */
-export function commitPendingKey(): string {
-  return read().join(",");
+export function commitPendingKey(now = Date.now()): string {
+  return read(now).map((x) => x.id).join(",");
 }
