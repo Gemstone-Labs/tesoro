@@ -61,6 +61,11 @@ function Logo({ label, color, pace, animate }: { label: ChainLabel; color: strin
   );
 }
 
+const TUBE_SEGMENTS = 64;
+const TUBE_RADIAL = 6;
+/** One tube segment is a ring of quads: two triangles each. */
+const SEGMENT_INDICES = TUBE_RADIAL * 6;
+
 /** Light travelling from one source to the ledger: a faint path and particles running along it. */
 function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: THREE.Vector3; color: string; phase: number; animate: boolean }) {
   const curve = useMemo(() => {
@@ -69,19 +74,24 @@ function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: 
     mid.z += 0.4;
     return new THREE.QuadraticBezierCurve3(from, mid, to);
   }, [from, to]);
-  const tube = useMemo(() => new THREE.TubeGeometry(curve, 64, 0.012, 6), [curve]);
+  const tube = useMemo(() => new THREE.TubeGeometry(curve, TUBE_SEGMENTS, 0.012, TUBE_RADIAL), [curve]);
   const dots = useRef<THREE.InstancedMesh>(null);
   const tmp = useMemo(() => new THREE.Object3D(), []);
   const time = useRef(phase);
   const path = useRef<THREE.Mesh>(null);
   const indices = tube.index?.count ?? 0;
+  const drawn = useRef(-1);
   useEffect(() => () => tube.dispose(), [tube]);
   useFrame((_, delta) => {
     if (!dots.current) return;
     if (animate) time.current += delta * 0.16;
     // The path draws out from its source and the particles run only along what is drawn.
     const reach = animate ? chainsState.progress : 1;
-    tube.setDrawRange(0, Math.round((indices * reach) / 36) * 36);
+    const count = Math.round(reach * TUBE_SEGMENTS) * SEGMENT_INDICES;
+    if (count !== drawn.current) {
+      drawn.current = count;
+      tube.setDrawRange(0, Math.min(count, indices));
+    }
     if (path.current) path.current.visible = reach > 0;
     for (let i = 0; i < PARTICLES; i++) {
       const t = ((time.current + i / PARTICLES) % 1) * reach;

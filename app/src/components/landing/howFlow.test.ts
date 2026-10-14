@@ -4,13 +4,13 @@ import { howFlow, STOPS, TUBE_COUNT } from "./howFlow";
 describe("howFlow", () => {
   it("starts with only the Position lit and no tube drawn", () => {
     const f = howFlow(0);
-    expect(f.lit).toEqual(["position"]);
+    expect(f.nodes.position).toBe(1);
+    for (const s of STOPS.filter((s) => s !== "position")) expect(f.nodes[s]).toBe(0);
     expect(f.tubes).toEqual(new Array(TUBE_COUNT).fill(0));
   });
 
   it("ends with every stop at full strength, the closing line included, and every tube drawn", () => {
     const f = howFlow(1);
-    expect(f.lit).toEqual([...STOPS]);
     for (const s of STOPS) expect(f.nodes[s]).toBe(1);
     expect(f.tubes).toEqual(new Array(TUBE_COUNT).fill(1));
   });

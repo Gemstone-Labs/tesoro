@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { chainsState } from "./chains/store";
 import { gemState } from "./gem/store";
-import { howFlow, STOPS } from "./howFlow";
+import { howFlow, STOPS, TUBE_COUNT } from "./howFlow";
 
 /**
  * Every scroll effect on the landing page, in one place. The server HTML is the complete, static page;
@@ -92,20 +92,29 @@ export function LandingMotion() {
 
         // How it works is the page's peak: held longer than Gemas while the scroll draws the flow node by node.
         const how = document.querySelector<HTMLElement>("[data-how]");
+        // Held only when the section in its held layout fits the window; otherwise the complete diagram scrolls as on phones.
+        const fits = (el: HTMLElement) => el.offsetHeight <= innerHeight;
         if (how && innerHeight >= 760) {
+          how.classList.add("is-held");
+        }
+        if (how && !fits(how)) how.classList.remove("is-held");
+        if (how?.classList.contains("is-held")) {
           const apply = (progress: number) => {
             const f = howFlow(progress);
             f.tubes.forEach((t, i) => how.style.setProperty(`--h-tube${i}`, t.toFixed(3)));
-            for (const s of STOPS) how.style.setProperty(`--h-${s}`, f.nodes[s].toFixed(3));
+            for (const s of STOPS) if (s !== "position") how.style.setProperty(`--h-${s}`, f.nodes[s].toFixed(3));
           };
-          how.classList.add("is-held");
           apply(0);
           ScrollTrigger.create({ trigger: how, start: "top top", end: "+=130%", pin: true, onUpdate: (self) => apply(self.progress) });
         }
 
         const gemas = document.querySelector<HTMLElement>("[data-gemas]");
-        if (gemas && innerHeight >= 760) {
-          gemas.classList.add("is-stepped", "is-scrubbed");
+        if (gemas && innerHeight >= 760) gemas.classList.add("is-scrubbed");
+        // The Gemas section's own bottom padding may fall below the fold; its content may not.
+        const contentBottom = (el: HTMLElement) => Math.max(...[...el.querySelectorAll("*")].map((c) => c.getBoundingClientRect().bottom)) - el.getBoundingClientRect().top;
+        if (gemas && contentBottom(gemas) > innerHeight + 32) gemas.classList.remove("is-scrubbed");
+        if (gemas?.classList.contains("is-scrubbed")) {
+          gemas.classList.add("is-stepped");
           gemas.style.setProperty("--g-sweep", "0");
           ScrollTrigger.create({
             trigger: gemas,
@@ -175,8 +184,10 @@ export function LandingMotion() {
           lenis?.destroy();
           document.querySelector("[data-gemas]")?.classList.remove("is-stepped", "is-scrubbed");
           document.querySelector<HTMLElement>("[data-gemas]")?.style.removeProperty("--g-sweep");
-          document.querySelector<HTMLElement>("[data-how]")?.removeAttribute("style");
-          document.querySelector("[data-how]")?.classList.remove("is-held");
+          const how = document.querySelector<HTMLElement>("[data-how]");
+                    for (let i = 0; i < TUBE_COUNT; i++) how?.style.removeProperty(`--h-tube${i}`);
+          for (const s of STOPS) how?.style.removeProperty(`--h-${s}`);
+          how?.classList.remove("is-held");
           const backing = document.querySelector<HTMLElement>("[data-backing]");
           backing?.classList.remove("is-fanned");
           backing?.style.removeProperty("--b-fan");
