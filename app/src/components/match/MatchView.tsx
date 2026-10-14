@@ -5,6 +5,7 @@ import { Button, Notice } from "@/components/ui";
 import { BlockPuzzleGame, type MatchRun } from "@/games/block-puzzle/BlockPuzzleGame";
 import { BlockPuzzleChain, type Seat } from "@/games/block-puzzle/chain";
 import { useAccount } from "@/lib/account";
+import { commitPendingSince, commitPhase, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { getChain } from "@/lib/chain/client";
 import { backerDelta, matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { canClaimTimeout, runSubmitter, ensureJoined, claimTimeout, prepareRun, probeRun, refundMatch, trySettle } from "@/lib/chain/match-flow";
@@ -71,10 +72,18 @@ export function MatchView({ matchId }: { matchId: string }) {
   const movesLost = useRef<string | null>(null);
   const lastSettle = useRef(0);
   const settledSeen = useRef(false);
+  const commitSince = useRef(0);
+  const [commit, setCommit] = useState<CommitState | null>(null);
 
   const addSig = useCallback((label: string, sig?: string) => {
     if (sig) setSigs((s) => (s.some((x) => x.sig === sig) ? s : [...s, { label, sig }]));
   }, []);
+
+  const markSent = useCallback(() => {
+    if (id === null) return;
+    commitSince.current ||= Date.now();
+    setCommitPending(id, true);
+  }, [id]);
 
   const tick = useCallback(async () => {
     if (!signer || id === null || working.current) return;
@@ -91,6 +100,8 @@ export function MatchView({ matchId }: { matchId: string }) {
       if (m.status === "settled" || m.status === "refunded") {
         if (!settledSeen.current) {
           settledSeen.current = true;
+          setCommitPending(m.id, false);
+          setCommit(null);
           // A settle race or a retry that failed earlier no longer matters once the Match is final.
           setError(movesLost.current);
           void refresh();
@@ -118,19 +129,26 @@ export function MatchView({ matchId }: { matchId: string }) {
       if (m.status === "open") return setPhase("queued");
       setPhase("awaiting");
       if (await canClaimTimeout(m)) setTimeoutOk(true);
+      commitSince.current ||= commitPendingSince(id) ?? 0;
       if (Date.now() - lastSettle.current >= SETTLE_TRY_MS) {
         lastSettle.current = Date.now();
-        const r = await trySettle(signer, id, m.session);
+        const r = await trySettle(signer, id, m.session, { sealed: commitSince.current > 0, onSent: markSent });
         if (r.sig) addSig("settle", r.sig);
         if (r.outcome === "settled") setMatch(await fetchMatch(id, me));
         if (r.outcome === "failed") setError(r.error ?? "Couldn’t finish the Match. Try again.");
+        if (r.outcome === "commit-pending") markSent();
+      }
+      if (commitSince.current) {
+        const phase = commitPhase(commitSince.current, Date.now());
+        setCommit((c) => (c?.phase === phase ? c : { phase, won: false }));
+        setError(null);
       }
     } catch (e) {
       setError(errText(e));
     } finally {
       working.current = false;
     }
-  }, [signer, id, setPhase, addSig, refresh]);
+  }, [signer, id, setPhase, addSig, refresh, markSent]);
 
   useEffect(() => {
     if (!signer || id === null) return;
@@ -268,7 +286,9 @@ export function MatchView({ matchId }: { matchId: string }) {
             : phase === "submitting"
               ? "saving-run"
               : phase === "awaiting"
-                ? "awaiting"
+                ? commit
+                  ? "closing"
+                  : "awaiting"
                 : null;
   if (!kind || !m) return <MatchStageLoading game="block-puzzle" me={snapshot?.accountKey.toBase58() ?? null} />;
   const refund = () => act("refund", async () => addSig("refund", await refundMatch(signer, m.id)));
@@ -286,6 +306,7 @@ export function MatchView({ matchId }: { matchId: string }) {
       deadline={m.deadline || undefined}
       challengeLink={m.challenge && kind === "waiting-run" ? link : null}
       backedShareBps={playerBacked && m.backing ? m.backing.shareBps : null}
+      commit={commit}
       error={error}
       start={
         kind === "ready" && (
@@ -306,7 +327,7 @@ export function MatchView({ matchId }: { matchId: string }) {
               disabled={busy !== null}
               onClick={() =>
                 act("settle", async () => {
-                  const r = await trySettle(signer, m.id);
+                  const r = await trySettle(signer, m.id, undefined, { sealed: commitSince.current > 0, onSent: markSent });
                   if (r.sig) addSig("settle", r.sig);
                   if (r.outcome === "waiting-opponent") setError("Your opponent is still playing.");
                   if (r.outcome === "failed") setError(r.error ?? "Couldn’t finish the Match. Try again.");

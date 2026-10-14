@@ -8,6 +8,7 @@ import { getChain, getTradingDuel } from "@/lib/chain/client";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { ASSETS, DRAW, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel, type Asset, type Book, type Duel, type PlayerSigner } from "./chain";
 import { addSighting, clockOffsetMs, dropPending, settlePending, type ClockSighting, type PendingPicks } from "./matchView";
+import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
 
 /** Where a Trading Duel Match is in its life, read from chain. */
@@ -30,6 +31,8 @@ export interface DuelView {
   busy: string | null;
   /** The tesoro_core refund deadline passed on an unfinished Match. */
   refundable: boolean;
+  /** The result is in and waiting to be committed to the chain (the Match is over, the rollup has not handed it back). */
+  commit: CommitState | null;
   /** How far the rollup's clock runs ahead of this browser's, ms (add it to `Date.now()`). */
   clockOffsetMs: number;
 }
@@ -82,6 +85,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     sigs: [],
     busy: null,
     refundable: false,
+    commit: null,
     clockOffsetMs: 0,
   });
   const patch = useCallback((p: Partial<DuelView>) => setView((v) => ({ ...v, ...p })), []);
@@ -95,6 +99,8 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
   const activeSince = useRef(0);
   const closingSince = useRef(0);
   const lastClose = useRef(0);
+  const commitSince = useRef(0);
+  const closeFailures = useRef(0);
   const duelRef = useRef<Duel | null>(null);
   const offsetRef = useRef(0);
   const sightings = useRef<ClockSighting[]>([]);
@@ -170,6 +176,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       }
       if (!settledSeen.current) {
         settledSeen.current = true;
+        setCommitPending(id, false);
         onSettled?.();
       }
       return;
@@ -203,6 +210,7 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
       delegated.current = false;
       setView((v) => ({ ...v, duel: d }));
       setStage("closing", "Paying out the Pot");
+      setView((v) => (v.commit ? { ...v, commit: null } : v));
       if (!closingSince.current) closingSince.current = now();
       // The winner settles at once (seat 0 for a draw or a cancelled Duel); the other waits, so the loser of a race burns no fee.
       const mine = d.status === STATUS.cancelled || d.winner === DRAW ? seat === 0 : d.winner === seat;
@@ -251,13 +259,23 @@ export function useDuelMatch(id: bigint | null, signer: ChainSigner | null, onSe
     if (!closingSince.current) closingSince.current = now();
     const mine = d.status === STATUS.cancelled || d.winner === DRAW ? seat === 0 : d.winner === seat;
     if (!mine && now() - closingSince.current < GRACE_MS) return;
+    if (commitSince.current) {
+      const phase = commitPhase(commitSince.current, now());
+      setView((v) => (v.commit?.phase === phase && v.commit.won === mine ? v : { ...v, commit: { phase, won: mine }, error: null }));
+      return;
+    }
     if (now() - lastClose.current < 30_000) return;
     lastClose.current = now();
     try {
       await td.closeMatch(p, id);
-    } catch {
-      // The other Player closed it first, or the commit is still in flight.
+    } catch (e) {
+      // The other Player closed it first, or the commit is already in flight: only other errors count.
+      if (!isCommitPending(e) && ++closeFailures.current >= 3) throw e;
+      if (!isCommitPending(e)) return;
     }
+    commitSince.current = now();
+    setCommitPending(id, true);
+    setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
   }, [p, signer, id, setStage, applyDuel, onSettled]);
 
   const tick = useCallback(async () => {
