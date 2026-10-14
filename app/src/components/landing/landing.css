@@ -504,6 +504,23 @@ html.lenis, html.lenis body { height: auto; }
   .lp-tile-list, .lp-tile-fee, .lp-tile-players { grid-column: 1; grid-row: auto; }
   .lp-catalogue { grid-template-columns: repeat(3, 1fr); }
 }
+@media (max-width: 767px) {
+  .lp-studios { padding-bottom: 32px; }
+  .lp-studios-head { margin-bottom: 14px; }
+  .lp-bento { gap: 12px; }
+  .lp-tile { padding: 18px; gap: 8px; min-width: 0; }
+  .lp-tile .lp-h3 { font-size: 19px; }
+  /* one swipe row: tiles snap, and the next one peeks in */
+  .lp-catalogue { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; margin-top: 4px; }
+  .lp-catalogue::-webkit-scrollbar { display: none; }
+  .lp-catalogue li { flex: 0 0 38%; scroll-snap-align: start; }
+  .lp-pot { grid-template-columns: 128px 1fr; align-items: center; gap: 16px; margin-top: 4px; }
+  .lp-pot-ring { width: 128px; }
+  .lp-pot-center b { font-size: 15px; }
+  .lp-pot-legend { gap: 6px; font-size: 13px; }
+  .lp-pill { padding: 10px 16px; font-size: 15px; }
+  .lp-studios-foot { margin-top: 18px; }
+}
 
 /* 10. Final CTA */
 .lp-final-frame { position: relative; min-height: max(640px, 100svh); display: flex; align-items: center; overflow: hidden; background: var(--surface-art); }
@@ -726,7 +743,7 @@ html.lenis, html.lenis body { height: auto; }
 
 /* Phones: Gemas → Entry → Your game runs top to bottom along a faint guide line; the Gema drops straight down. */
 @media (max-width: 767px) {
-  .lp-arrive { flex-direction: column; align-items: center; gap: 26px; width: 100%; margin-top: 18px; }
+  .lp-arrive { flex-direction: column; align-items: center; gap: 14px; width: 100%; margin-top: 10px; }
   .lp-arrive::before { content: ""; position: absolute; left: 50%; top: 20px; bottom: 20px; width: 0; border-left: 2px dashed color-mix(in srgb, var(--em) 45%, transparent); }
   .lp-arrive > svg { display: none; }
   .lp-arrive .lp-pill { position: relative; z-index: 1; width: min(100%, 220px); justify-content: center; background: var(--shell); }

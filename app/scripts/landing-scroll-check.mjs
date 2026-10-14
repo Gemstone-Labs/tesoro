@@ -273,6 +273,19 @@ const CHECKS = [
       for (const x of entry.studios) assert(x.arcs.win === 76 && x.arcs.studio === 9 && x.arcs.pool === 3.5, `arcs not final: ${JSON.stringify(x)}`);
     },
   },
+  {
+    name: "phone studios is at most 1.2 viewports and the catalogue swipes without page scroll",
+    runs: ["phone"],
+    fn({ layout, note, assert }) {
+      const s = layout.sections.find((x) => x.id === "studios");
+      const vh = layout.viewport[1];
+      note("studiosViewports", +(s.height / vh).toFixed(2));
+      assert(s.height <= vh * 1.2, `studios ${s.height}px is ${(s.height / vh).toFixed(2)} viewports`);
+      const c = layout.catalogueRow;
+      assert(c.overflow === "auto" && c.snap.includes("x") && c.scrollW > c.clientW + 40, `catalogue is not a swipe row: ${JSON.stringify(c)}`);
+      assert(layout.pageOverflowX <= 0, `page scrolls sideways by ${layout.pageOverflowX}px`);
+    },
+  },
 ];
 
 /** Runs in the page: layout facts used by the checks. */
@@ -318,6 +331,8 @@ function readLayout() {
     gemasBottom,
     shelf: [...document.querySelectorAll(".lp-shelf-tab .lp-shelf-name")].map((e) => e.textContent.trim()),
     loops: [...document.querySelectorAll(".lp-loop")].map((v) => ({ label: v.getAttribute("aria-label"), sources: [...v.querySelectorAll("source")].map((x) => x.getAttribute("src")), poster: v.getAttribute("poster") })),
+    pageOverflowX: document.documentElement.scrollWidth - innerWidth,
+    catalogueRow: (() => { const c = document.querySelector(".lp-catalogue"); return { overflow: getComputedStyle(c).overflowX, scrollW: c.scrollWidth, clientW: c.clientWidth, snap: getComputedStyle(c).scrollSnapType }; })(),
     catalogue: [...document.querySelectorAll(".lp-catalogue li:not(.lp-slot)")].map((li) => ({ name: li.querySelector("span:not(.lp-status)")?.textContent.trim(), status: li.querySelector(".lp-status")?.textContent.trim() })),
   };
 }
