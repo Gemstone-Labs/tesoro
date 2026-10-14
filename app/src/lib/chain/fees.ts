@@ -109,3 +109,30 @@ export function planInstant(rows: InstantCandidate[], caps: Map<string, bigint>,
   }
   return out;
 }
+
+export type InstantReplan = { kind: "send"; lines: InstantLine[] } | { kind: "smaller"; lines: InstantLine[]; gemas: bigint } | { kind: "none" };
+
+/**
+ * Checks a fresh plan against the one the Player confirmed (a yield crank may have landed in between). Never more than confirmed:
+ * the same or larger plan sends the confirmed lines; any smaller line returns the capped plan to confirm again.
+ */
+export function replanInstant(confirmed: InstantLine[], fresh: InstantLine[]): InstantReplan {
+  const now = new Map(fresh.map((l) => [l.key, l]));
+  const lines: InstantLine[] = [];
+  let shrank = false;
+  for (const c of confirmed) {
+    const f = now.get(c.key);
+    if (!f || f.gemas <= 0n) {
+      shrank = true;
+      continue;
+    }
+    if (f.gemas >= c.gemas) lines.push(c);
+    else {
+      shrank = true;
+      lines.push(f);
+    }
+  }
+  if (lines.length === 0) return { kind: "none" };
+  if (!shrank) return { kind: "send", lines };
+  return { kind: "smaller", lines, gemas: lines.reduce((s, l) => s + l.gemas, 0n) };
+}
