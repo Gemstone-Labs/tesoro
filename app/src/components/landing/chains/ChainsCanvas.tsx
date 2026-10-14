@@ -12,6 +12,7 @@ import type { Theme } from "../theme";
 import { useTheme } from "../useTheme";
 import { CAMERA, CHAINS, LEDGER, type ChainLabel, type ChainsLayout } from "./layout";
 import { chainLogo } from "./logos";
+import { chainsState } from "./store";
 
 const PARTICLES = 16;
 
@@ -72,14 +73,20 @@ function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: 
   const dots = useRef<THREE.InstancedMesh>(null);
   const tmp = useMemo(() => new THREE.Object3D(), []);
   const time = useRef(phase);
+  const path = useRef<THREE.Mesh>(null);
+  const indices = tube.index?.count ?? 0;
   useEffect(() => () => tube.dispose(), [tube]);
   useFrame((_, delta) => {
     if (!dots.current) return;
     if (animate) time.current += delta * 0.16;
+    // The path draws out from its source and the particles run only along what is drawn.
+    const reach = animate ? chainsState.progress : 1;
+    tube.setDrawRange(0, Math.round((indices * reach) / 36) * 36);
+    if (path.current) path.current.visible = reach > 0;
     for (let i = 0; i < PARTICLES; i++) {
-      const t = (time.current + i / PARTICLES) % 1;
+      const t = ((time.current + i / PARTICLES) % 1) * reach;
       tmp.position.copy(curve.getPointAt(t));
-      tmp.scale.setScalar(0.35 + Math.sin(t * Math.PI) * 0.9);
+      tmp.scale.setScalar(reach > 0 ? 0.35 + Math.sin(t * Math.PI) * 0.9 : 0);
       tmp.rotation.set(t * 6, t * 4, 0);
       tmp.updateMatrix();
       dots.current.setMatrixAt(i, tmp.matrix);
@@ -88,7 +95,7 @@ function Stream({ from, to, color, phase, animate }: { from: THREE.Vector3; to: 
   });
   return (
     <group>
-      <mesh geometry={tube}>
+      <mesh ref={path} geometry={tube}>
         <meshBasicMaterial color={color} transparent opacity={0.32} toneMapped={false} />
       </mesh>
       <instancedMesh ref={dots} args={[undefined, undefined, PARTICLES]}>

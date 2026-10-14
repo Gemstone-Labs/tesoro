@@ -128,6 +128,28 @@ const CHECKS = [
     },
   },
   {
+    name: "multichain streams advance with scroll and are complete once the section is centred",
+    runs: DESKTOP,
+    fn({ down, assert, note }) {
+      const ps = down.filter((s) => s.chains && s.chains.progress !== null);
+      assert(ps.length > 0, "the Multichain section never reported a progress value");
+      const values = ps.map((s) => s.chains.progress);
+      assert(values.every((v, i) => i === 0 || v >= values[i - 1] - 0.001), `progress goes backwards: ${values.join(",")}`);
+      const early = ps.filter((s) => s.chains.entering && !s.chains.centred);
+      assert(early.some((s) => s.chains.progress < 0.99), `no partial progress on the way in: ${JSON.stringify(early.map((s) => [s.y, s.chains.progress]))}`);
+      const centred = ps.filter((s) => s.chains.centred);
+      assert(centred.length > 0 && centred.every((s) => s.chains.progress >= 0.99), `centred but not complete: ${JSON.stringify(centred.map((s) => [s.y, s.chains.progress]))}`);
+      note("multichainProgress", ps.map((s) => [s.y, s.chains.progress]));
+    },
+  },
+  {
+    name: "multichain streams are complete without the scroll effect",
+    runs: ["phone", "reduced"],
+    fn({ down, assert }) {
+      assert(down.every((s) => !s.chains || s.chains.progress === null), "phone or reduced motion drives the streams");
+    },
+  },
+  {
     name: "empty band measured",
     runs: [...DESKTOP, "phone", "reduced"],
     fn({ down, note, assert }) {
@@ -218,7 +240,10 @@ function readSample() {
       return r ? r.top >= 0 && r.bottom <= vh : false;
     })(),
   };
-  return { how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, faded, gap: +(gap / vh).toFixed(2) };
+  const mc = document.querySelector("#multichain");
+  const mcr = mc?.getBoundingClientRect();
+  const chains = mc ? { progress: mc.dataset.chainsProgress === undefined ? null : +mc.dataset.chainsProgress, centred: mcr.top + mcr.height / 2 <= vh / 2 + 4, entering: mcr.top < vh } : null;
+  return { chains, how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, faded, gap: +(gap / vh).toFixed(2) };
 }
 
 async function scrollStep(page, run, dy) {
