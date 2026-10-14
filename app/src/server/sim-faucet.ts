@@ -22,13 +22,6 @@ export type SimFaucetDeps = {
 };
 
 export function createSimFaucet(deps: SimFaucetDeps) {
-  // One relayer key sends every claim: two at once would race on the nonce, so sends go one at a time.
-  let sending: Promise<unknown> = Promise.resolve();
-  const send = (token: string, to: string, net: string) => {
-    const run = sending.then(() => deps.send(token, to, net));
-    sending = run.catch(() => {});
-    return run;
-  };
   const perEvm = new WindowLimiter(1, HOUR);
   const perAccount = new WindowLimiter(2, HOUR);
   const perUser = new WindowLimiter(2, HOUR);
@@ -44,7 +37,7 @@ export function createSimFaucet(deps: SimFaucetDeps) {
     const refund = takeAll([[perEvm, key], [perAccount, address], ...(sub ? ([[perUser, sub]] as const) : []), [global, "all"]]);
     if (!refund) throw new DemoHttpError(429, "rate-limited", "Test token limit reached. Try again in a little while.");
     try {
-      return { hash: await send(token, evm, net) };
+      return { hash: await deps.send(token, evm, net) };
     } catch {
       refund();
       throw new DemoHttpError(502, "chain", "Getting the test token failed. Try again.");

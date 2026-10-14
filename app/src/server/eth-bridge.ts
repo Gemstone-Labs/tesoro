@@ -54,6 +54,7 @@ import type { SignedFields } from "@/lib/chain/signed-request";
 import { requireDevnet, requireHoodi, requireHyperEvm } from "./cluster";
 import { HYPE_DEFAULT_MAX_PER_HOUR, createHypeTopup } from "./hype-topup";
 import { WindowLimiter, takeAll } from "./rate-limit";
+import { relayerSend } from "./relayer-send";
 import { createSimFaucet } from "./sim-faucet";
 import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
@@ -115,7 +116,7 @@ async function fundEvm(address: string, evm: string, sub: string | null) {
       throw new DemoHttpError(503, "faucet-empty", "The Hoodi ETH faucet is empty.");
     }
     const wallet = createWalletClient({ account, chain: hoodi, transport: http(HOODI_RPC) });
-    const hash = await wallet.sendTransaction({ to: evm as Address, value: FUND_AMOUNT });
+    const hash = await relayerSend("hoodi", () => wallet.sendTransaction({ to: evm as Address, value: FUND_AMOUNT }));
     await client.waitForTransactionReceipt({ hash, timeout: 90_000 });
     return { funded: true, hash, balance: (balance + FUND_AMOUNT).toString() };
   } catch (e) {
@@ -136,7 +137,7 @@ const fundHype = createHypeTopup({
   send: async (to, value) => {
     const client = hyperPublic();
     const wallet = createWalletClient({ account: privateKeyToAccount(evmRelayerKey()), chain: NETS.hyperevm.chain, transport: http(HYPEREVM_RPC) });
-    const hash = await wallet.sendTransaction({ to: to as Address, value });
+    const hash = await relayerSend("hyperevm", () => wallet.sendTransaction({ to: to as Address, value }));
     await client.waitForTransactionReceipt({ hash, timeout: 60_000 });
     return hash;
   },
@@ -160,7 +161,7 @@ const claimSimToken = createSimFaucet({
   send: async (token, to, net) => {
     const chain = net === "hyperevm" ? NETS.hyperevm.chain : hoodi;
     const wallet = createWalletClient({ account: privateKeyToAccount(evmRelayerKey()), chain, transport: http(net === "hyperevm" ? HYPEREVM_RPC : HOODI_RPC) });
-    const hash = await wallet.writeContract({ address: token as Address, abi: lstAbi, functionName: "faucet", args: [to as Address] });
+    const hash = await relayerSend(net, () => wallet.writeContract({ address: token as Address, abi: lstAbi, functionName: "faucet", args: [to as Address] }));
     const receipt = await publicOf(net).waitForTransactionReceipt({ hash, timeout: 60_000 });
     if (receipt.status !== "success") throw new Error("faucet reverted");
     return hash;
