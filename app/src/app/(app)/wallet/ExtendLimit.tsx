@@ -38,7 +38,7 @@ export function ExtendLimitPanel({ view, busy, error, onSet }: { view: ExtendLim
         Extend Limit: <b>{view.used} of {view.limit} {view.limit === 1 ? "month" : "months"}</b> used
         {view.resetsAt !== null ? <> · resets {at(view.resetsAt)}</> : " this 30-day period"}.
       </p>
-      {view.pending && <p className="note">Your limit rises to {view.pending.months} {view.pending.months === 1 ? "month" : "months"} {at(view.pending.at)}.</p>}
+      {view.pending && <p className="note">Your limit rises to {view.pending.months} {view.pending.months === 1 ? "month" : "months"} at {at(view.pending.at)}.</p>}
       {view.blocked && <p className="status" role="status">{blockedNote(view.blocked, view.limit)}</p>}
       <div className="field">
         <label className="label" htmlFor="ext-limit-pick">Change your limit</label>
