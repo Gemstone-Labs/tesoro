@@ -2,6 +2,7 @@
 
 import { Busy, Button, Card, Chip, GemaAmount, Label, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { commitCopy } from "@/lib/chain/commit-pending";
 import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import type { ChainMatch } from "@/lib/chain/read";
@@ -83,7 +84,8 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         pot={m.entry * 2 - matchFee(m)}
         me={snapshot?.accountKey.toBase58() ?? null}
         opponent={m.opponent}
-        step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" ? view.note || "Saving the result" : undefined}
+        step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" && !view.commit ? view.note || "Saving the result" : undefined}
+        commit={kind === "closing" ? view.commit : null}
         deadline={m.deadline || undefined}
         challengeLink={m.challenge && kind === "waiting" ? link : null}
         backedShareBps={m.backing && m.seat !== null ? m.backing.shareBps : null}
@@ -123,8 +125,8 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         <Card large>
           <div className="stack">
             <Label>Match over</Label>
-            <Busy>{view.note || "Saving the result"}…</Busy>
-            <p className="note">Saving the result and paying out the Pot. This takes a few seconds.</p>
+            <Busy>{view.commit ? commitCopy(view.commit).title : `${view.note || "Saving the result"}…`}</Busy>
+            <p className="note">{view.commit ? commitCopy(view.commit).line : "Saving the result and paying out the Pot. This takes a few seconds."}</p>
           </div>
         </Card>
       )}

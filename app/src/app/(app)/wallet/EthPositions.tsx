@@ -54,6 +54,7 @@ import {
   takeEthAdvance,
   ethCall,
   requestGas,
+  MIN_HOODI_WEI,
   MIN_HYPE_WEI,
   unlockEth,
   type EthCtx,
@@ -212,9 +213,11 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
 const openStepText = (vault: EthVault): Record<OpenStep, string> => ({
   link: "Linking your wallet to your Account…",
   gas: `Checking ${NETS[vault.net].label} fees…`,
-  approve: `Approving ${vault.symbol}…`,
-  inbox: "Getting your Account ready for the Position…",
-  open: `Opening the Position on ${NETS[vault.net].label}…`,
+  approve: `Approve ${vault.symbol} in your wallet`,
+  confirm: "Waiting for the approval to confirm…",
+  inbox: "Preparing your Position…",
+  open: "Open your Position in your wallet",
+  opening: "Opening your Position…",
 });
 
 /** The ETH and HYPE tabs of OPEN A POSITION: link, approve and open on the vault's chain; the Advance follows once LayerZero delivers. */
@@ -224,12 +227,20 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const unit = net.native;
   const { market } = useEthMarket(vault, ctx?.evm.address ?? null);
   const a = useBusy();
+  const toppedUp = useRef<string | null>(null);
   const [step, setStep] = useState<OpenStep | null>(null);
   const [text, setText] = useState("");
   const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [price, setPrice] = useState<{ microUsd: bigint; live: boolean } | null>(null);
   const now = useNow(5000);
   const { yieldFeeBps } = useTreasuryRates();
+  // Fees for approve + open arrive while the Player fills in the form, not after they press Open.
+  const lowGas = !!market && market.ethBalance < (net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI);
+  useEffect(() => {
+    if (!ctx || !lowGas || toppedUp.current === net.key) return;
+    toppedUp.current = net.key;
+    requestGas(ctx, net).catch(() => {});
+  }, [ctx, lowGas, net]);
   useEffect(() => {
     fetchEthPrice(unit).then((p) => setPrice({ microUsd: p.priceMicroUsd, live: p.live })).catch(() => setPrice(null));
   }, [unit]);

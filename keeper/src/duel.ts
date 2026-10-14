@@ -1,6 +1,7 @@
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { PublicKey } from "@solana/web3.js";
 import { ASSETS, STATUS, TRADING_DUEL_PROGRAM_ID, addresses, assetOfMatchId, decodeDuel } from "../../app/src/games/trading-duel/chain.ts";
+import { commitInFlight, commits, noteClose } from "./commits.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { refund } from "./blockpuzzle.ts";
 import { shortKey } from "./env.ts";
@@ -73,6 +74,7 @@ export async function tradingDuel(ctx: Ctx, id: bigint, m: any, st: string, subj
 
   if (info.owner.equals(TRADING_DUEL_PROGRAM_ID)) {
     const d = decodeDuel(ad.duel, ctx.duel.program.coder.accounts.decode("duel", info.data));
+    commits.clear(subject);
     const step = duelStep(d, "base", now, deadline);
     if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.duel.finalize(ctx.hsigner, id))).ok;
     if (step.do === "refund") return +(await refund(ctx, id, subject, step.why)).ok;
@@ -113,12 +115,11 @@ export async function tradingDuel(ctx: Ctx, id: bigint, m: any, st: string, subj
     return +(await act(ctx, "match", subject, `end_match (${step.why})`, () => ctx.duel.end(ctx.hsigner, id))).ok;
   }
   if (step.do === "close_match") {
-    return +(
-      await act(ctx, "match", subject, `close_match (${step.why}) then finalize`, async () => {
-        await ctx.duel.closeMatch(ctx.hsigner, id);
-        return ctx.duel.finalize(ctx.hsigner, id);
-      })
-    ).ok;
+    const teeInfo = await tee.getAccountInfo(ad.duel).catch(() => null);
+    if (commitInFlight(subject, tag, teeInfo?.owner ?? null)) return 0;
+    const r = await act(ctx, "match", subject, `close_match (${step.why})`, () => ctx.duel.closeMatch(ctx.hsigner, id).then((x) => x.tee));
+    noteClose(subject, tag, r);
+    return +r.ok;
   }
   log("match", subject, `${tag} wait: ${step.why}`);
   return 0;

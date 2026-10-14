@@ -1,14 +1,18 @@
 import { defineChain } from "viem";
-import { hoodi } from "viem/chains";
+import { hoodi as viemHoodi } from "viem/chains";
 
-export { hoodi };
+/** The RPCs the app reads and waits on; Privy's chains below use the same ones so a transaction is sent and confirmed through one node. */
+export const HOODI_RPC = process.env.NEXT_PUBLIC_HOODI_RPC ?? "https://ethereum-hoodi-rpc.publicnode.com";
+export const HYPEREVM_RPC = process.env.NEXT_PUBLIC_HYPEREVM_RPC ?? "https://rpc.hyperliquid-testnet.xyz/evm";
+
+export const hoodi = defineChain({ ...viemHoodi, rpcUrls: { default: { http: [HOODI_RPC] } } });
 
 /** HyperEVM testnet (chain id 998). Defined here so the RPC is pinned to the one in the build brief. */
 export const hyperEvmTestnet = defineChain({
   id: 998,
   name: "HyperEVM Testnet",
   nativeCurrency: { name: "HYPE", symbol: "HYPE", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.hyperliquid-testnet.xyz/evm"] } },
+  rpcUrls: { default: { http: [HYPEREVM_RPC] } },
   testnet: true,
 });
 

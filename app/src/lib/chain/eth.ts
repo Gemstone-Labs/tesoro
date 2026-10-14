@@ -1,7 +1,9 @@
 import "./polyfill";
 import { PublicKey, SystemProgram, TransactionInstruction, type Connection } from "@solana/web3.js";
 import { createPublicClient, http, parseAbi, type Address, type Chain, type Hex, type PublicClient } from "viem";
-import { hoodi, hyperEvmTestnet } from "@/lib/chains";
+import { HOODI_RPC, HYPEREVM_RPC, hoodi, hyperEvmTestnet } from "@/lib/chains";
+
+export { HOODI_RPC, HYPEREVM_RPC };
 import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, treasuryAccountPda, treasuryPda, u64 } from "./native";
 import { unitsToRepay, type SourceMath } from "./ledger";
 import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, netOfYieldFee } from "./yield";
@@ -16,11 +18,9 @@ export const BRIDGE_ID = new PublicKey("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfd
 /** Tesoro chain tag for Ethereum Hoodi (LayerZero eid). */
 export const HOODI_EID = 40449;
 export const HOODI_CHAIN_BYTE = 1;
-export const HOODI_RPC = process.env.NEXT_PUBLIC_HOODI_RPC ?? "https://ethereum-hoodi-rpc.publicnode.com";
 /** HyperEVM testnet (chain 998, LayerZero eid 40362). */
 export const HYPEREVM_EID = 40362;
 export const HYPEREVM_CHAIN_BYTE = 2;
-export const HYPEREVM_RPC = process.env.NEXT_PUBLIC_HYPEREVM_RPC ?? "https://rpc.hyperliquid-testnet.xyz/evm";
 export const LZ_SCAN_API = "https://scan-testnet.layerzero-api.com/v1";
 export const lzScanUrl = (txHash: string) => `https://testnet.layerzeroscan.com/tx/${txHash}`;
 export const hoodiTx = (hash: string) => `https://hoodi.etherscan.io/tx/${hash}`;

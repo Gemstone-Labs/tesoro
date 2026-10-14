@@ -2,6 +2,7 @@
  * Ethereum (Hoodi) and HyperEVM Positions, server side: the pieces that need a key or the LayerZero SDK.
  *
  *  - `fund-evm`, `fund-hype`: capped Hoodi ETH / HyperEVM HYPE top-ups from the relayer (gas + the LayerZero fee).
+ *  - `faucet-lst`: the relayer claims the SimLST faucet (simETH / simHYPE) for a Player's EVM address, so they sign nothing.
  *  - `init-position`, `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield`, `send-pay-instant`: the permissionless
  *    bridge steps (docs/cross-chain.md), paid by the relayer so the Account only needs a little SOL. A keeper
  *    may run them first; each step skips when there is nothing left to do.
@@ -40,7 +41,9 @@ import {
   instantClaimPda,
   evmClient,
   isKnownVault,
+  lstAbi,
   netOfVault,
+  vaultByAddress,
   parseBridgePosition,
   sourceAuthPda,
   vaultAbi,
@@ -51,6 +54,8 @@ import type { SignedFields } from "@/lib/chain/signed-request";
 import { requireDevnet, requireHoodi, requireHyperEvm } from "./cluster";
 import { HYPE_DEFAULT_MAX_PER_HOUR, createHypeTopup } from "./hype-topup";
 import { WindowLimiter, takeAll } from "./rate-limit";
+import { relayerSend } from "./relayer-send";
+import { createSimFaucet } from "./sim-faucet";
 import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
 import { verifySignedRequest } from "./request-auth";
@@ -74,8 +79,8 @@ const limits = {
   advancePerUser: new WindowLimiter(10, DAY),
 };
 
-export type EthStep = "fund-evm" | "fund-hype" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "send-pay-instant" | "advance";
-const STEPS: EthStep[] = ["fund-evm", "fund-hype", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "send-pay-instant", "advance"];
+export type EthStep = "fund-evm" | "fund-hype" | "faucet-lst" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "send-pay-instant" | "advance";
+const STEPS: EthStep[] = ["fund-evm", "fund-hype", "faucet-lst", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "send-pay-instant", "advance"];
 
 // ---- keys and clients ----------------------------------------------------------------------------
 
@@ -111,7 +116,7 @@ async function fundEvm(address: string, evm: string, sub: string | null) {
       throw new DemoHttpError(503, "faucet-empty", "The Hoodi ETH faucet is empty.");
     }
     const wallet = createWalletClient({ account, chain: hoodi, transport: http(HOODI_RPC) });
-    const hash = await wallet.sendTransaction({ to: evm as Address, value: FUND_AMOUNT });
+    const hash = await relayerSend("hoodi", () => wallet.sendTransaction({ to: evm as Address, value: FUND_AMOUNT }));
     await client.waitForTransactionReceipt({ hash, timeout: 90_000 });
     return { funded: true, hash, balance: (balance + FUND_AMOUNT).toString() };
   } catch (e) {
@@ -132,12 +137,42 @@ const fundHype = createHypeTopup({
   send: async (to, value) => {
     const client = hyperPublic();
     const wallet = createWalletClient({ account: privateKeyToAccount(evmRelayerKey()), chain: NETS.hyperevm.chain, transport: http(HYPEREVM_RPC) });
-    const hash = await wallet.sendTransaction({ to: to as Address, value });
+    const hash = await relayerSend("hyperevm", () => wallet.sendTransaction({ to: to as Address, value }));
     await client.waitForTransactionReceipt({ hash, timeout: 60_000 });
     return hash;
   },
   maxPerHour: maxHypePerHour,
 });
+
+// ---- simETH / simHYPE faucet ---------------------------------------------------------------------
+
+const publicOf = (net: string) => evmClient(net === "hyperevm" ? NETS.hyperevm : NETS.hoodi);
+const claimSimToken = createSimFaucet({
+  requireChain: (net) => (net === "hyperevm" ? requireHyperEvm(HYPEREVM_RPC) : requireHoodi(HOODI_RPC)),
+  availableAt: async (token, to, net) => {
+    const lst = { address: token as Address, abi: lstAbi } as const;
+    const client = publicOf(net);
+    const [last, cooldown] = await Promise.all([
+      client.readContract({ ...lst, functionName: "lastFaucet", args: [to as Address] }),
+      client.readContract({ ...lst, functionName: "faucetCooldown" }),
+    ]);
+    return last === 0n ? 0 : Number(last + cooldown);
+  },
+  send: async (token, to, net) => {
+    const chain = net === "hyperevm" ? NETS.hyperevm.chain : hoodi;
+    const wallet = createWalletClient({ account: privateKeyToAccount(evmRelayerKey()), chain, transport: http(net === "hyperevm" ? HYPEREVM_RPC : HOODI_RPC) });
+    const hash = await relayerSend(net, () => wallet.writeContract({ address: token as Address, abi: lstAbi, functionName: "faucet", args: [to as Address] }));
+    const receipt = await publicOf(net).waitForTransactionReceipt({ hash, timeout: 60_000 });
+    if (receipt.status !== "success") throw new Error("faucet reverted");
+    return hash;
+  },
+});
+
+function faucetLst(address: string, fields: SignedFields, sub: string | null) {
+  const vault = vaultByAddress(typeof fields.vault === "string" ? fields.vault : "");
+  if (!vault) throw new DemoHttpError(400, "bad-request", "Unknown vault.");
+  return claimSimToken(address, typeof fields.evm === "string" ? fields.evm : "", vault.lst, vault.net, sub);
+}
 
 // ---- Solana relay --------------------------------------------------------------------------------
 
@@ -490,6 +525,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
 
   if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "fund-hype") return fundHype(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
+  if (step === "faucet-lst") return faucetLst(wallet, fields, sub);
   const ref = parseRef(fields);
   if (step === "advance") return advance(address, ref.vault, ref.pid, Number(fields.months), sub);
   const refund = takeAll([[limits.relayPerAccount, wallet], ...perUser(limits.relayPerUser, sub), [limits.relayGlobal, "all"]]);

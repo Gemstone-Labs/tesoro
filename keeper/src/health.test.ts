@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { CommitTracker } from "./commits.ts";
 import { Health, startHealthServer, startWatchdog } from "./health.ts";
 
 describe("Health", () => {
@@ -8,7 +9,7 @@ describe("Health", () => {
     assert.equal(h.status(1000).alive, true);
     assert.equal(h.status(1001).alive, false);
     h.beat(true, 1001);
-    assert.deepEqual(h.status(2000), { alive: true, passes: 1, failedInARow: 0, lastPassSecsAgo: 1 });
+    assert.deepEqual(h.status(2000), { alive: true, passes: 1, failedInARow: 0, lastPassSecsAgo: 1, commitsPending: 0, oldestCommitPendingSecs: 0 });
   });
 
   it("counts failed passes in a row and resets on a clean one", () => {
@@ -18,6 +19,18 @@ describe("Health", () => {
     assert.equal(h.status(2).failedInARow, 2);
     h.beat(true, 3);
     assert.equal(h.status(3).failedInARow, 0);
+  });
+});
+
+describe("Health commits", () => {
+  it("reports the Matches waiting on a commit and the oldest age", () => {
+    const t = new CommitTracker();
+    const h = new Health(1000, 0, t);
+    t.begin("match=1", 0);
+    t.begin("match=2", 4000);
+    assert.deepEqual({ n: h.status(10_000).commitsPending, age: h.status(10_000).oldestCommitPendingSecs }, { n: 2, age: 10 });
+    t.clear("match=1");
+    assert.equal(h.status(10_000).oldestCommitPendingSecs, 6);
   });
 });
 

@@ -71,7 +71,7 @@ function evmSignerOf(wallet: ConnectedWallet, source: EvmSigner["source"]): EvmS
   const transport = custom({
     request: async (args: { method: string; params?: unknown }) => {
       const provider = await wallet.getEthereumProvider();
-      return provider.request(args as Parameters<typeof provider.request>[0]);
+      return signingTimeout(provider.request(args as Parameters<typeof provider.request>[0]), source === "embedded" ? 60_000 : 180_000);
     },
   });
   return {
