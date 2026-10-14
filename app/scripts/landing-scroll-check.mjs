@@ -37,6 +37,7 @@ const RUNS = {
 
 const FULL = 0.99;
 const DESKTOP = ["desktop-dark", "desktop-light"];
+const ORDER = ["top", "how-it-works", "games", "gemas", "backing", "studios", "multichain", "launch"];
 
 const CHECKS = [
   {
@@ -63,6 +64,30 @@ const CHECKS = [
     },
   },
   {
+    name: "gemas pin is about 120% of the viewport",
+    runs: DESKTOP,
+    fn({ layout, note, assert }) {
+      assert(!!layout.gemasPin, "Gemas section is not pinned");
+      const span = layout.gemasPin.end - layout.gemasPin.start;
+      note("gemasPinSpan", { px: span, viewports: +(span / layout.viewport[1]).toFixed(2) });
+      assert(Math.abs(span / layout.viewport[1] - 1.2) <= 0.1, `gemas pin ${span}px is ${(span / layout.viewport[1]).toFixed(2)} viewports`);
+    },
+  },
+  {
+    name: "gemas outline sweep advances with scroll inside the pin",
+    runs: DESKTOP,
+    fn({ layout, down, up, assert }) {
+      const p = layout.gemasPin;
+      assert(!!p, "Gemas section is not pinned");
+      const inPin = [...down, ...up].filter((s) => s.y >= p.start - 2 && s.y <= p.end + 2 && s.sweep !== null).sort((a, b) => a.y - b.y);
+      assert(inPin.length >= 3, `only ${inPin.length} samples inside the pin`);
+      for (let i = 1; i < inPin.length; i++) {
+        if (inPin[i].y - inPin[i - 1].y < 20) continue;
+        assert(inPin[i].sweep < inPin[i - 1].sweep - 0.5, `sweep did not advance between y=${inPin[i - 1].y} (${inPin[i - 1].sweep}) and y=${inPin[i].y} (${inPin[i].sweep})`);
+      }
+    },
+  },
+  {
     name: "reduced motion leaves every reveal at full opacity",
     runs: ["reduced"],
     fn({ down, assert }) {
@@ -75,10 +100,9 @@ const CHECKS = [
     runs: DESKTOP,
     fn({ layout, assert }) {
       assert(!!layout.howPin, "How it works is not pinned");
-      // The Gemas pin is meant to be about 1.2 viewports; until it is shortened it may be longer than that.
       const how = layout.howPin.end - layout.howPin.start;
       const gemas = layout.gemasPin ? layout.gemasPin.end - layout.gemasPin.start : 0;
-      assert(how > Math.min(gemas, 1.25 * layout.viewport[1]), `how pin ${how}px vs gemas pin ${gemas}px`);
+      assert(how > gemas, `how pin ${how}px vs gemas pin ${gemas}px`);
     },
   },
   {
@@ -117,6 +141,32 @@ const CHECKS = [
     },
   },
   {
+    name: "hero copy is readable or gone, never a ghost, from half a viewport of scroll",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ layout, down, note, assert }) {
+      const from = layout.viewport[1] * 0.5;
+      const seen = down.filter((s) => s.y >= from);
+      assert(seen.length > 0, "no sample past half a viewport");
+      const bad = seen.filter((s) => s.heroCopy !== null && s.heroCopy > 0.01 && s.heroCopy < 0.99);
+      note("heroCopyOpacity", down.slice(0, 5).map((s) => [s.y, s.heroCopy]));
+      assert(bad.length === 0, `ghost copy at y=${bad.map((s) => `${s.y}(${s.heroCopy})`).join(" ")}`);
+      if (layout.run === "desktop-dark" || layout.run === "desktop-light") {
+        const gone = seen.find((s) => s.y >= from);
+        assert(gone.heroCopy <= 0.01, `copy still visible at half a viewport: ${gone.heroCopy}`);
+      } else {
+        assert(down.every((s) => s.heroCopy >= 0.99), "copy faded without the desktop scrub");
+      }
+    },
+  },
+  {
+    name: "hero art blends into the page background at its bottom edge",
+    runs: [...DESKTOP, "phone"],
+    fn({ layout, assert }) {
+      const b = layout.heroBlend;
+      assert(!!b && b.height >= 100 && b.image.includes("linear-gradient") && b.image.includes(b.shell), `hero blend ${JSON.stringify(b)}`);
+    },
+  },
+  {
     name: "trading duel on the games shelf and in the studios catalogue",
     runs: [...DESKTOP, "phone", "reduced"],
     fn({ layout, assert }) {
@@ -150,12 +200,77 @@ const CHECKS = [
     },
   },
   {
-    name: "empty band measured",
+    name: "sections run in the new order",
     runs: [...DESKTOP, "phone", "reduced"],
-    fn({ down, note, assert }) {
-      const worst = down.reduce((a, s) => (s.gap > a.gap ? s : a), { gap: 0, y: 0 });
+    fn({ layout, assert }) {
+      const ids = layout.sections.map((s) => s.id).filter((id) => ORDER.includes(id));
+      assert(JSON.stringify(ids) === JSON.stringify(ORDER), `order is ${ids.join(", ")}`);
+      const tops = layout.sections.filter((s) => ORDER.includes(s.id)).map((s) => s.top);
+      assert(tops.every((t, i) => !i || t >= tops[i - 1]), `section tops not ascending: ${tops.join(",")}`);
+    },
+  },
+  {
+    name: "games top within about three viewports",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ layout, note, assert }) {
+      const games = layout.sections.find((s) => s.id === "games");
+      const v = +(games.top / layout.viewport[1]).toFixed(2);
+      note("gamesTopViewports", v);
+      note("totalHeight", layout.total);
+      if (DESKTOP.includes(layout.run)) assert(v <= 3.3, `games top at ${v} viewports`);
+    },
+  },
+  {
+    name: "each nav anchor lands with its section heading in view",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ layout, assert }) {
+      if (!layout.anchors.length) return assert(layout.run === "phone", "no nav anchors found");
+      const bad = layout.anchors.filter((a) => !a.inView);
+      assert(bad.length === 0, `heading not in view after nav click: ${JSON.stringify(bad)}`);
+      assert(layout.anchors.length === 4, `expected 4 anchors, got ${layout.anchors.length}`);
+    },
+  },
+  {
+    name: "no empty band taller than 35% of the viewport",
+    runs: [...DESKTOP, "phone", "reduced"],
+    fn({ down, up, how, note, assert }) {
+      const all = [...down, ...up, ...how];
+      const worst = all.reduce((a, s) => (s.gap > a.gap ? s : a), { gap: 0, y: 0 });
       note("largestEmptyBand", { fractionOfViewport: worst.gap, atY: worst.y, section: worst.sec });
-      assert(Number.isFinite(worst.gap), "no measurement");
+      const bad = all.filter((s) => s.gap > 0.35);
+      assert(bad.length === 0, `empty band over 35% at y=${bad.map((s) => `${s.y}(${s.gap},${s.sec})`).join(" ")}`);
+    },
+  },
+  {
+    name: "backing requests fan out from behind the offer card on entry",
+    runs: [...DESKTOP],
+    fn({ entry, note, assert }) {
+      const e = entry.backing;
+      note("backingEntry", e);
+      assert(e[0].peeks.every((p, i) => p.top > e[3].peeks[i].top + 8), `peeks not tucked on arrival: ${JSON.stringify(e[0].peeks)}`);
+      assert(e[1].peeks.some((p, i) => p.top < e[0].peeks[i].top - 2 && p.top > e[3].peeks[i].top + 2), `no in-between position: ${JSON.stringify(e[1].peeks)}`);
+      const rest = e[3].peeks;
+      assert(rest[0].top === 24 && rest[1].top === 50 && rest[0].op === 0.5 && rest[1].op === 0.8, `resting place changed: ${JSON.stringify(rest)}`);
+    },
+  },
+  {
+    name: "pot ring arcs grow on entry and end at today's proportions",
+    runs: [...DESKTOP],
+    fn({ entry, note, assert }) {
+      const e = entry.studios;
+      note("potEntry", e);
+      assert(e[0].arcs.win < 5, `ring already drawn on arrival: ${JSON.stringify(e[0].arcs)}`);
+      assert(e[1].arcs.win > e[0].arcs.win + 1 || e[2].arcs.win > e[1].arcs.win + 1, `arcs do not grow: ${JSON.stringify(e.map((x) => x.arcs.win))}`);
+      const a = e[3].arcs;
+      assert(a.win === 76 && a.studio === 9 && a.platform === 6.5 && a.pool === 3.5, `resting proportions changed: ${JSON.stringify(a)}`);
+    },
+  },
+  {
+    name: "backing requests and pot ring rest in their final place from first paint",
+    runs: ["phone", "reduced"],
+    fn({ entry, assert }) {
+      for (const x of entry.backing) assert(x.peeks[0].top === 24 && x.peeks[1].top === 50 && x.peeks[0].op === 0.5, `peeks moved: ${JSON.stringify(x)}`);
+      for (const x of entry.studios) assert(x.arcs.win === 76 && x.arcs.studio === 9 && x.arcs.pool === 3.5, `arcs not final: ${JSON.stringify(x)}`);
     },
   },
 ];
@@ -180,7 +295,15 @@ function readLayout() {
     howPin = { start: top, end: top + hs.offsetHeight - hw.offsetHeight, spacerHeight: hs.offsetHeight };
   }
   const howRect = hw?.getBoundingClientRect();
+  const heroEl = document.querySelector(".lp-hero");
+  const after = heroEl ? getComputedStyle(heroEl, "::after") : null;
+  const shellProbe = document.createElement("i");
+  shellProbe.style.color = "var(--shell)";
+  document.body.append(shellProbe);
+  const shell = getComputedStyle(shellProbe).color;
+  shellProbe.remove();
   return {
+    heroBlend: after ? { height: parseFloat(after.height) || 0, image: after.backgroundImage, shell } : null,
     howPin,
     howTop: hw ? Math.round(howRect.top + scrollY) : null,
     howBottom: hw ? Math.round(howRect.bottom + scrollY) : null,
@@ -199,6 +322,23 @@ function readLayout() {
   };
 }
 
+/** Runs in the page: the two Requests behind the Offer card (top relative to the board, opacity). */
+function readBacking() {
+  const board = document.querySelector(".lp-board").getBoundingClientRect();
+  const peeks = [...document.querySelectorAll(".lp-peek")].map((p) => ({ top: Math.round(p.getBoundingClientRect().top - board.top), op: +(+getComputedStyle(p).opacity).toFixed(2) }));
+  return { peeks };
+}
+
+/** Runs in the page: drawn length of each Pot ring arc (of 100). */
+function readPot() {
+  const len = (c) => {
+    const d = getComputedStyle(document.querySelector(`.lp-pot-ring .${c}`)).strokeDasharray;
+    return +(parseFloat(d.replace(/^calc\(/, "")) || 0).toFixed(2);
+  };
+  const arcs = Object.fromEntries(["win", "studio", "platform", "pool"].map((c) => [c, len(c)]));
+  return { arcs };
+}
+
 /** Runs in the page: what the visitor sees at the current scroll position. */
 function readSample() {
   const vh = innerHeight;
@@ -208,6 +348,8 @@ function readSample() {
     return r.top <= mid && r.bottom >= mid;
   });
   const cards = [...document.querySelectorAll("[data-gemas] .lp-beat")].map((c) => +(+getComputedStyle(c).opacity).toFixed(2));
+  const sw = document.querySelector("[data-gemas] .lp-vitrine .sweep");
+  const sweep = sw ? +parseFloat(getComputedStyle(sw).strokeDashoffset).toFixed(2) : null;
   const faded = [...document.querySelectorAll("[data-reveal]")]
     .filter((el) => +getComputedStyle(el).opacity < 0.99)
     .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}`);
@@ -243,7 +385,7 @@ function readSample() {
   const mc = document.querySelector("#multichain");
   const mcr = mc?.getBoundingClientRect();
   const chains = mc ? { progress: mc.dataset.chainsProgress === undefined ? null : +mc.dataset.chainsProgress, centred: mcr.top + mcr.height / 2 <= vh / 2 + 4, entering: mcr.top < vh } : null;
-  return { chains, how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, faded, gap: +(gap / vh).toFixed(2) };
+  return { heroCopy: op("[data-hero-copy]"), chains, how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, sweep, faded, gap: +(gap / vh).toFixed(2) };
 }
 
 async function scrollStep(page, run, dy) {
@@ -268,6 +410,7 @@ async function walk(browser, name, run) {
   if (!run.phone && !run.reduced) await page.waitForSelector("[data-gemas]", { state: "attached" }).then(() => page.waitForFunction(() => !!document.querySelector("[data-gemas]")?.closest(".pin-spacer"), null, { timeout: 15000 })).catch(() => {});
   const shots = [];
   const sample = async (dirn, i) => {
+    await settle(page);
     const y = await page.evaluate(() => Math.round(scrollY));
     const s = { dir: dirn, y, ...(await page.evaluate(readSample)) };
     const file = `${dirn}-${String(i).padStart(2, "0")}.png`;
@@ -290,6 +433,20 @@ async function walk(browser, name, run) {
   down.push(await sample("down", down.length));
 
   const layout = await page.evaluate(readLayout);
+  layout.run = name;
+  layout.anchors = [];
+  for (const id of ["how-it-works", "games", "backing", "studios"]) {
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.waitForTimeout(1200);
+    const link = page.locator(`.lp-links a[href="#${id}"]`);
+    if (!(await link.isVisible())) continue;
+    await link.click();
+    await page.waitForTimeout(2800);
+    layout.anchors.push({ id, ...(await page.evaluate((i) => {
+      const h = document.querySelector(`#${i} h2`)?.getBoundingClientRect();
+      return { top: h ? Math.round(h.top) : null, inView: !!h && h.top >= 0 && h.bottom <= innerHeight };
+    }, id)) });
+  }
 
   // Back up through the Gemas pin: stop sampling once above it.
   const up = [];
@@ -311,6 +468,7 @@ async function walk(browser, name, run) {
     for (let y = Math.max(0, hp.start - 100); y <= hp.end + 420; y += 160) {
       await page.evaluate((v) => scrollTo(0, v), y);
       await page.waitForTimeout(700);
+      await settle(page);
       const s = { dir: "how", y: await page.evaluate(() => Math.round(scrollY)), ...(await page.evaluate(readSample)) };
       const file = `how-${String(howSamples.length).padStart(2, "0")}.png`;
       await page.screenshot({ path: join(dir, file) });
@@ -319,11 +477,35 @@ async function walk(browser, name, run) {
     }
   }
 
+  // Entry probes for the Backing Requests and the Studios Pot ring: read them as their section arrives.
+  const entry = { backing: [], studios: [] };
+  for (const [key, q, read] of [["backing", ".lp-backing-stage", readBacking], ["studios", ".lp-pot", readPot]]) {
+    const top = await page.evaluate((sel) => Math.round(document.querySelector(sel).getBoundingClientRect().top + scrollY), q);
+    for (const f of [1, 0.62, 0.5, 0.3]) {
+      await page.evaluate((v) => scrollTo(0, v), Math.max(0, Math.round(top - run.h * f)));
+      // smooth scroll (Lenis) eases to the target: wait until it stops moving
+      await page.waitForTimeout(500);
+      await page.waitForFunction(() => new Promise((r) => { const y = scrollY; setTimeout(() => r(scrollY === y), 250); }), null, { timeout: 8000, polling: 300 }).catch(() => {});
+      const r = await page.evaluate(read);
+      const file = `${key}-${f}.png`;
+      await page.screenshot({ path: join(dir, file) });
+      shots.push({ file, label: `${key} ${f}` });
+      entry[key].push({ at: f, ...r });
+    }
+  }
+
   writeFileSync(join(dir, "layout.json"), JSON.stringify(layout, null, 2));
-  writeFileSync(join(dir, "steps.json"), JSON.stringify({ down, up, how: howSamples }, null, 2));
+  writeFileSync(join(dir, "steps.json"), JSON.stringify({ down, up, how: howSamples, entry }, null, 2));
   await contactSheet(browser, dir, shots, run);
   await ctx.close();
-  return { layout, down, up, how: howSamples, page: null };
+  return { layout, down, up, how: howSamples, entry, page: null };
+}
+
+/** Waits for the Gemas cards' opacity transitions to finish so a sample never reads a mid-fade value. */
+async function settle(page) {
+  await page
+    .waitForFunction(() => !document.getAnimations().some((a) => a instanceof CSSTransition && a.effect?.target?.closest?.("[data-gemas]")), null, { timeout: 3000 })
+    .catch(() => {});
 }
 
 /** One image of all steps, for a human look. */
