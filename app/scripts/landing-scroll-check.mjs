@@ -36,10 +36,13 @@ const RUNS = {
   "desktop-light": { w: 1440, h: 900, scheme: "light" },
   phone: { w: 390, h: 844, scheme: "dark", phone: true },
   reduced: { w: 1440, h: 900, scheme: "dark", reduced: true },
+  "laptop-1536x730": { w: 1536, h: 730, scheme: "dark" },
+  "laptop-1280x720": { w: 1280, h: 720, scheme: "light" },
 };
 
 const FULL = 0.99;
 const DESKTOP = ["desktop-dark", "desktop-light"];
+const LAPTOP = ["laptop-1536x730", "laptop-1280x720"];
 const ORDER = ["top", "how-it-works", "games", "gemas", "backing", "studios", "multichain", "launch"];
 
 const CHECKS = [
@@ -96,6 +99,23 @@ const CHECKS = [
     fn({ down, assert }) {
       const bad = down.filter((s) => s.faded.length > 0);
       assert(bad.length === 0, `faded at y=${bad.map((s) => s.y).join(",")}: ${bad[0]?.faded.join(" | ")}`);
+    },
+  },
+  {
+    name: "short laptop windows pin both held sections and show them fully",
+    runs: LAPTOP,
+    fn({ layout, down, how, assert }) {
+      assert(!!layout.howPin, "How it works is not pinned");
+      assert(!!layout.gemasPin, "Gemas section is not pinned");
+      const p = layout.howPin;
+      const end = how.find((s) => s.y >= p.end - 2);
+      assert(!!end && end.how.foot, "closing line not fully on screen at the end of the How pin");
+      assert(!!end && end.how.mapIn, "diagram not fully on screen at the end of the How pin");
+      const g = layout.gemasPin;
+      const inPin = down.filter((s) => s.y > g.start + 2 && s.y < g.end - 2);
+      assert(inPin.length > 0, "no sample inside the Gemas pin");
+      const bad = inPin.filter((s) => !s.gemasIn);
+      assert(bad.length === 0, `Gemas cards or gem outside the window at y=${bad.map((s) => s.y).join(",")}`);
     },
   },
   {
@@ -395,6 +415,10 @@ function readSample() {
   const how = {
     stops: [".lp-oct-node.n-position", ".lp-oct-node.n-advance", ".lp-oct-node.n-play", ".lp-oct-node.n-back", ".lp-oct-node.settle.n-settle", ".lp-outcome-card.win", ".lp-outcome-card.lose", ".lp-flow-foot .lp-hold"].map(op),
     tube0: document.querySelector("[data-how]") ? getComputedStyle(document.querySelector("[data-how]")).getPropertyValue("--h-tube0").trim() : "",
+    mapIn: (() => {
+      const r = document.querySelector(".lp-flowmap")?.getBoundingClientRect();
+      return r ? r.top >= 0 && r.bottom <= vh : false;
+    })(),
     foot: (() => {
       const r = document.querySelector(".lp-flow-foot")?.getBoundingClientRect();
       return r ? r.top >= 0 && r.bottom <= vh : false;
@@ -403,7 +427,11 @@ function readSample() {
   const mc = document.querySelector("#multichain");
   const mcr = mc?.getBoundingClientRect();
   const chains = mc ? { progress: mc.dataset.chainsProgress === undefined ? null : +mc.dataset.chainsProgress, centred: mcr.top + mcr.height / 2 <= vh / 2 + 4, entering: mcr.top < vh } : null;
-  return { heroCopy: op("[data-hero-copy]"), chains, how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, sweep, faded, gap: +(gap / vh).toFixed(2) };
+  const gemasIn = [...document.querySelectorAll("[data-gemas] .lp-beat, [data-gemas] .lp-showcase, [data-gemas] .lp-gemas-head")].every((el) => {
+    const r = el.getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= vh;
+  });
+  return { gemasIn, heroCopy: op("[data-hero-copy]"), chains, how, sec: sec?.id || sec?.className.split(" ")[0] || null, beat: document.querySelector("[data-gemas]")?.dataset.beat ?? null, cards, sweep, faded, gap: +(gap / vh).toFixed(2) };
 }
 
 async function scrollStep(page, run, dy) {
