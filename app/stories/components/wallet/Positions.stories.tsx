@@ -75,7 +75,7 @@ const limitWith = (l: Partial<ExtendLimitData> & { ago?: number; lastAgo?: numbe
     ...rest,
   };
 };
-const extendSheet = (limit: ExtendLimitData) => ({
+const extendSheet = (limit: ExtendLimitData | "unknown") => ({
   parameters: { data: { snapshot: nativeSnapshot("debt") } },
   render: () => <NativeExtendSheet info={extendable()} market={NATIVE_MARKET} open onClose={() => {}} limit={limit} />,
 });
@@ -87,6 +87,8 @@ export const SolExtendWaiting: Story = extendSheet(limitWith({ windowMonths: 1, 
 export const SolExtendAtLimit: Story = extendSheet(limitWith({ windowMonths: 3, ago: 5 * 24 * HOUR, lastAgo: 5 * 24 * HOUR }));
 /** Limit set to 0: Extend is off until the Player raises it (24 h). */
 export const SolExtendLimitZero: Story = extendSheet(limitWith({ months: 0 }));
+/** The Extend Limit could not be read: Extend is off with a retry line, not offered at the default. */
+export const SolExtendLimitUnknown: Story = extendSheet("unknown");
 /** A raise to 6 months is waiting for its 24 h. */
 export const SolExtendPendingRaise: Story = extendSheet(limitWith({ pendingMonths: 6, pendingAt: sec() + 20 * HOUR }));
 

@@ -58,16 +58,16 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
     };
   }, [vaults]);
 
-  /** The plan again from a fresh Account read: a yield crank may have landed since the Player confirmed. */
-  const freshPlan = useCallback(
-    async (authority: PublicKey) => {
-      const fresh = await fetchAccountState(authority, { fresh: true });
-      return buildPlan(instantCandidates(fresh.holdings), fresh.market, mirrors).plan;
-    },
-    [mirrors],
-  );
+  /** The plan again from a fresh Account read and fresh treasury mirrors: a yield crank may have landed since the Player confirmed. */
+  const freshPlan = useCallback(async (authority: PublicKey) => {
+    const fresh = await fetchAccountState(authority, { fresh: true });
+    const candidates = instantCandidates(fresh.holdings);
+    const freshVaults = [...new Set(candidates.flatMap((h) => (h.eth ? [h.eth.vault.toLowerCase()] : [])))].sort();
+    const freshMirrors = freshVaults.length ? await fetchVaultTreasuries(getChain().base, freshVaults.map((vault) => ({ vault, eid: netOfVault(vault).eid }))) : null;
+    return buildPlan(candidates, fresh.market, freshMirrors).plan;
+  }, []);
 
-  const view = useMemo(() => {
+  const view = useMemo((): { offer: InstantOffer | null; plan: InstantPlan } => {
     if (won.length === 0) return { offer: null, plan: [] };
     const { rates, caps, plan } = buildPlan(won, market, mirrors);
     const rows: InstantRow[] = plan.map(({ holding: h, line }) => ({
@@ -91,7 +91,7 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
       : rows.length === 0
         ? "Tesoro cannot pay for these Gemas right now. Redeem in full as their yield lands, or try again later."
         : null;
-    return { offer: { rows, feePct: rates.instantFeeBps / 100, available, unavailable } as InstantOffer | null, plan };
+    return { offer: { rows, feePct: rates.instantFeeBps / 100, available, unavailable }, plan };
   }, [won, market, mirrors]);
   return { ...view, freshPlan };
 }

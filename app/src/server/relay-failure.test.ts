@@ -16,5 +16,6 @@ describe("relayFailure", () => {
     expect(e.status).toBe(503);
     expect(e.message).toMatch(/HyperEVM network is busy/);
     expect(e.message).not.toMatch(/Ethereum/);
+    expect(e.message).toBe("The HyperEVM network is busy. Try again in a few seconds.");
   });
 });

@@ -47,7 +47,7 @@ export function EnterMatch(props: EnterKind) {
   const [failure, setFailure] = useState<{ text: string; wallet?: boolean } | null>(null);
   const [launched, setLaunched] = useState(false);
   const [existing, setExisting] = useState<bigint | null>(null);
-  const [freshRead, setFreshRead] = useState(false);
+  const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
   const seats = useQueue();
   const game: GameId = props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle");
   const asset = props.kind === "challenge-join" ? 0 : (props.asset ?? 0);
@@ -56,15 +56,19 @@ export function EnterMatch(props: EnterKind) {
   const key = props.kind === "challenge-join" ? props.id : String(props.entry);
   // Own Gemas cover a new entry or Challenge; a Backing pays for itself and a joined Challenge is checked on chain.
   // Only before the entry starts: it reserves the Gemas and would trip this check itself.
-  const gemasCheck = !launched && props.kind !== "challenge-join" && !props.backing && onChain && !loading ? checkGemas(gemas.available, props.entry, freshRead) : "enough";
+  const gemasCheck = !launched && props.kind !== "challenge-join" && !props.backing && onChain && !loading ? checkGemas(gemas.available, props.entry, freshRead === "ok") : "enough";
   // A shortfall is only believed after a fresh read: Gemas from a Position that just opened may not be in the cached list yet.
+  // When that read fails nothing is confirmed, so the entry goes ahead and the chain has the last word.
   const needsGemas = props.kind !== "challenge-join" && gemasCheck === "short";
-  const rechecking = gemasCheck === "recheck";
+  const rechecking = gemasCheck === "recheck" && freshRead !== "failed";
 
   useEffect(() => {
     if (!rechecking) return;
     let stopped = false;
-    void refresh().finally(() => !stopped && setFreshRead(true));
+    void refresh().then(
+      (ok) => !stopped && setFreshRead(ok ? "ok" : "failed"),
+      () => !stopped && setFreshRead("failed"),
+    );
     return () => {
       stopped = true;
     };

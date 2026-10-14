@@ -5,7 +5,7 @@ import { Button, CheckIcon, ClockIcon, GemaAmount, Sheet } from "@/components/ui
 import { useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS, EXTEND_ADVANCE_ENABLED } from "@/lib/advance";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
-import { ratesOf, replanInstant } from "@/lib/chain/fees";
+import { ratesOf } from "@/lib/chain/fees";
 import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
 import {
   LAMPORTS,
@@ -26,7 +26,8 @@ import {
 } from "@/lib/chain/native";
 import { advanceUnits, netApyPct } from "@/lib/chain/yield";
 import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, instantRedeemNative, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
-import { MAX_ADVANCE_MONTHS, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
+import { runInstant } from "@/lib/chain/instant-run";
+import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
@@ -35,7 +36,7 @@ import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type Re
 import { GemasLabel } from "./AdvanceQuote";
 import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
 import { OpenFormView } from "./OpenPanel";
-import { ExtendLimitPanel, blockedLabel } from "./ExtendLimit";
+import { ExtendLimitPanel } from "./ExtendLimit";
 import { PositionTile, sampledSeries } from "./PositionTile";
 
 const fmtSol = (lamports: bigint | number, digits = 4) => (Number(lamports) / LAMPORTS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -70,7 +71,7 @@ function Sig({ label, sig }: { label: string; sig: string }) {
 }
 
 /** Runs one wallet action with a busy flag, the error message and the last signature. */
-function useAction(refresh: () => Promise<void>) {
+function useAction(refresh: () => Promise<unknown>) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ label: string; sig: string } | null>(null);
@@ -364,7 +365,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
 // ---- Extend an Advance ------------------------------------------------------------------------------
 
 /** Commit more of a Position's future yield on its open Advance: Gemas now, more Debt, a later Unlock Estimate. */
-export function NativeExtendSheet({ info, market, open, onClose, limit }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void; limit?: ExtendLimitData | null }) {
+export function NativeExtendSheet({ info, market, open, onClose, limit }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void; limit?: ExtendLimitData | null | "unknown" }) {
   return (
     <Sheet open={open} onClose={onClose} title="Extend your Advance" className="adv-sheet">
       {open && <NativeExtendForm info={info} market={market} onClose={onClose} limit={limit} />}
@@ -373,27 +374,30 @@ export function NativeExtendSheet({ info, market, open, onClose, limit }: { info
 }
 
 /** The owner's Extend Limit, read on open and again after they change it. `given` (stories) skips the read. */
-function useExtendLimit(given: ExtendLimitData | null | undefined) {
+function useExtendLimit(given: ExtendLimitData | null | "unknown" | undefined) {
   const { auth } = useAccount();
   const owner = auth.signer?.publicKey;
-  const [read, setRead] = useState<ExtendLimitData | null | undefined>(undefined);
+  const [read, setRead] = useState<ExtendLimitData | null | "unknown" | undefined>(undefined);
   const [tick, setTick] = useState(0);
   const key = owner?.toBase58();
   useEffect(() => {
     if (given !== undefined || !owner) return;
     let live = true;
     void fetchExtendLimit(getChain().base, owner)
-      .catch(() => null)
+      .catch((): "unknown" => "unknown")
       .then((l) => live && setRead(l));
     return () => {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, given, tick]);
-  return { limit: given !== undefined ? given : read, reload: () => setTick((t) => t + 1), loading: given === undefined && read === undefined };
+  return { limit: given !== undefined ? given : read, reload: () => {
+      setRead(undefined);
+      setTick((t) => t + 1);
+    }, loading: given === undefined && read === undefined };
 }
 
-function NativeExtendForm({ info, market, onClose, limit: given }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void; limit?: ExtendLimitData | null }) {
+function NativeExtendForm({ info, market, onClose, limit: given }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void; limit?: ExtendLimitData | null | "unknown" }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const source = info.source!;
@@ -446,12 +450,14 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
             view={view}
             busy={setLimit.busy !== null}
             error={setLimit.error}
+            onRetry={lim.reload}
             onSet={(m) => auth.signer && setLimit.run("limit", () => setExtendLimit(auth.signer!, auth.getAccessToken, m)).then(lim.reload)}
           />
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
       buttonLabel={a.busy ? `${step}…` : view.blocked ? blockedLabel(view.blocked) : <GemasLabel action="Extend" gemas={gemas} />}
+      dimmed={view.blocked !== null}
       disabled={gemas <= 0 || a.busy !== null || !auth.signer || view.blocked !== null || lim.loading}
       onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
     />
@@ -511,26 +517,34 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const fresh = await freshPlan(auth.signer.publicKey);
-      const replan = replanInstant(plan.map((p) => p.line), fresh.map((p) => p.line));
-      if (replan.kind !== "send") {
+      const signer = auth.signer;
+      let latest = plan;
+      const run = await runInstant(
+        plan.map((p) => p.line),
+        async () => {
+          latest = await freshPlan(signer.publicKey);
+          return latest.map((p) => p.line);
+        },
+        async (line) => {
+          const h = (latest.find((p) => p.line.key === line.key) ?? plan.find((p) => p.line.key === line.key))!.holding;
+          if (h.native) sigs.current.push(await instantRedeemNative(signer, h.position, h.source, line.gemas, h.redeemable));
+          else {
+            if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
+            await instantRedeemEthSource(ethCtx, h.eth!, h.source, line.gemas);
+          }
+        },
+      );
+      if (run.kind !== "sent") {
+        const part = run.sent.length > 0 ? "Part of it went through. " : "";
         setError(
-          replan.kind === "none"
-            ? "Yield landed while you were confirming, so none of these Gemas can be redeemed now. Redeem them at full value instead."
-            : `Yield landed while you were confirming. Redeem now would sell ${fmtGemas(Number(replan.gemas))} Gemas instead. Check the new amount and confirm again.`,
+          run.kind === "none"
+            ? `${part}Yield landed while you were confirming, so none of the rest can be redeemed now. Redeem them at full value instead.`
+            : `${part}Yield landed while you were confirming. Redeem now would sell ${fmtGemas(Number(run.gemas))} Gemas instead. Press Redeem now again to confirm the refreshed amounts.`,
         );
         await refresh();
         return;
       }
-      const confirmed = new Map(plan.map((p) => [p.line.key, p]));
-      const lines = replan.lines.map((l) => ({ holding: fresh.find((p) => p.line.key === l.key)?.holding ?? confirmed.get(l.key)!.holding, line: l }));
-      for (const { holding: h, line } of lines) {
-        if (h.native) sigs.current.push(await instantRedeemNative(auth.signer, h.position, h.source, line.gemas, h.redeemable));
-        else {
-          if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-          await instantRedeemEthSource(ethCtx, h.eth!, h.source, line.gemas);
-        }
-      }
+      const lines = run.sent.map((line) => ({ line, holding: (latest.find((p) => p.line.key === line.key) ?? plan.find((p) => p.line.key === line.key))!.holding }));
       setDone({ gemas: lines.reduce((s, p) => s + Number(p.line.gemas), 0), later: lines.some((p) => !p.holding.native), instant: true, receipts: sigs.current.map((sig) => ({ label: "Redeemed now", sig })) });
       await refresh();
     } catch (e) {

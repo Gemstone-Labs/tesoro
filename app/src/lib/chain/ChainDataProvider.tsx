@@ -9,10 +9,11 @@ interface ChainData {
   snapshot: AccountSnapshot | null;
   loading: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  /** Resolves true when the read behind it succeeded. */
+  refresh: () => Promise<boolean>;
 }
 
-const EMPTY: ChainData = { snapshot: null, loading: false, error: null, refresh: async () => {} };
+const EMPTY: ChainData = { snapshot: null, loading: false, error: null, refresh: async () => true };
 const Ctx = createContext<ChainData>(EMPTY);
 
 const POLL_MS = 12_000;
@@ -35,7 +36,7 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
     snapshot: null,
     error: null,
   });
-  const inflight = useRef<Promise<void> | null>(null);
+  const inflight = useRef<Promise<boolean> | null>(null);
   const again = useRef(false);
   /** A refresh after a transaction: the server re-reads its lists instead of answering from its cache. */
   const freshWanted = useRef(0);
@@ -43,8 +44,8 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
   const freshServed = useRef(0);
   const reads = useRef(0);
 
-  const readOnce = useCallback(async () => {
-    if (!address) return;
+  const readOnce = useCallback(async (): Promise<boolean> => {
+    if (!address) return true;
     const read = ++reads.current;
     const wanted = freshWanted.current;
     const afterTransaction = wanted > freshServed.current;
@@ -53,7 +54,7 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
       if (demoMode()) {
         setState({ address, snapshot: demoSnapshot(address), error: null });
         freshServed.current = wanted;
-        return;
+        return true;
       }
       const [{ PublicKey }, { fetchSnapshot }] = await Promise.all([import("@solana/web3.js"), import("./read")]);
       // Gemas and Positions show as soon as they are read; until the Matches follow, the last read's Matches stay on screen.
@@ -67,24 +68,28 @@ export function ChainDataProvider({ children }: { children: ReactNode }) {
       const snapshot = await withTimeout(fetchSnapshot(new PublicKey(address), early, { fresh: afterTransaction }), READ_TIMEOUT_MS);
       setState({ address, snapshot, error: null });
       freshServed.current = wanted;
+      return true;
     } catch (e) {
       console.warn("[chain] Account read failed", e);
       setState((s) => ({ address, snapshot: s.address === address ? s.snapshot : null, error: plainError(e) }));
+      return false;
     }
   }, [address]);
 
   // One read at a time. A refresh during a read (after a transaction) waits for it and reads once more, so it sees the new state; a poll just skips.
-  const load = useCallback((afterTransaction: boolean): Promise<void> => {
+  const load = useCallback((afterTransaction: boolean): Promise<boolean> => {
     if (afterTransaction) freshWanted.current++;
     if (inflight.current) {
       if (afterTransaction) again.current = true;
       return inflight.current;
     }
     const run = (async () => {
+      let ok = true;
       do {
         again.current = false;
-        await readOnce();
+        ok = await readOnce();
       } while (again.current);
+      return ok;
     })().finally(() => {
       inflight.current = null;
     });

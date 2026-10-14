@@ -64,11 +64,16 @@ impl ExtendLimit {
     }
 
     /// Lowering applies at once (and drops a pending raise); a raise applies `EXTEND_WAIT_SECS` later.
+    /// Setting the pending value again keeps its timer; setting the value in force cancels the raise.
     pub fn set_limit(&mut self, now: i64, months: u8) -> CoreResult<()> {
         if months > MAX_EXTEND_LIMIT {
             return Err(CoreError::InvalidExtendLimit);
         }
         let mut next = self.settled(now);
+        if next.pending_at != 0 && months == next.pending_months {
+            *self = next;
+            return Ok(());
+        }
         if months > next.months {
             next.pending_months = months;
             next.pending_at = now.checked_add(EXTEND_WAIT_SECS).ok_or(CoreError::Math)?;

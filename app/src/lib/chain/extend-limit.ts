@@ -1,4 +1,5 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
+import { fmtWhen } from "@/lib/format";
 import { accountPda, extendLimitPda } from "./native";
 
 /** An Advance commits at most 12 months of yield. */
@@ -49,7 +50,8 @@ export type ExtendBlock =
   | { kind: "waiting"; until: number }
   | { kind: "limit"; until: number }
   | { kind: "off" }
-  | { kind: "full" };
+  | { kind: "full" }
+  | { kind: "unknown" };
 
 export interface ExtendLimitView {
   /** The limit in force now. */
@@ -71,8 +73,9 @@ export interface ExtendLimitView {
 }
 
 /** What the Extend sheet shows, mirroring `ExtendLimit::record_extend` in tesoro_core. `limit` is null before the account exists. */
-export function extendLimitView(limit: ExtendLimitData | null, now: number, horizonMonths: number): ExtendLimitView {
-  const l = limit ?? DEFAULT_EXTEND_LIMIT_DATA;
+export function extendLimitView(limit: ExtendLimitData | null | "unknown", now: number, horizonMonths: number): ExtendLimitView {
+  const unknown = limit === "unknown";
+  const l = (unknown ? null : limit) ?? DEFAULT_EXTEND_LIMIT_DATA;
   const raised = l.pendingAt !== 0 && now >= l.pendingAt;
   const months = raised ? l.pendingMonths : l.months;
   const pending = l.pendingAt !== 0 && !raised ? { months: l.pendingMonths, at: l.pendingAt } : null;
@@ -82,11 +85,45 @@ export function extendLimitView(limit: ExtendLimitData | null, now: number, hori
   const remaining = Math.max(0, months - used);
   const nextExtendAt = l.lastExtendAt !== 0 && now < l.lastExtendAt + EXTEND_WAIT_SECS ? l.lastExtendAt + EXTEND_WAIT_SECS : null;
   const room = Math.max(0, MAX_ADVANCE_MONTHS - horizonMonths);
-  const maxMonths = Math.min(remaining, room);
+  const maxMonths = unknown ? 0 : Math.min(remaining, room);
   let blocked: ExtendBlock | null = null;
-  if (nextExtendAt !== null) blocked = { kind: "waiting", until: nextExtendAt };
+  if (unknown) blocked = { kind: "unknown" };
+  else if (nextExtendAt !== null) blocked = { kind: "waiting", until: nextExtendAt };
   else if (months === 0) blocked = { kind: "off" };
   else if (room === 0) blocked = { kind: "full" };
   else if (remaining === 0 && resetsAt !== null) blocked = { kind: "limit", until: resetsAt };
   return { limit: months, pending, used, remaining, resetsAt, nextExtendAt, maxMonths, blocked, committed: horizonMonths };
+}
+
+/**
+ * What setting the limit to `months` does, mirroring `ExtendLimit::set_limit`: the value already pending or in force with
+ * nothing pending changes nothing, a lower value applies now (the value in force cancels a pending raise), a higher one waits 24 h.
+ */
+export function extendLimitChange(view: ExtendLimitView, months: number): "same" | "cancel" | "lower" | "raise" {
+  if (view.pending && months === view.pending.months) return "same";
+  if (months === view.limit) return view.pending ? "cancel" : "same";
+  return months > view.limit ? "raise" : "lower";
+}
+
+const at = (secs: number) => fmtWhen(secs * 1000);
+
+/** The Extend button's label when it cannot be pressed: one short line. The reason in full is `blockedNote`. */
+export function blockedLabel(b: ExtendBlock): string {
+  switch (b.kind) {
+    case "waiting": return `Wait until ${at(b.until)}`;
+    case "limit": return "Limit reached";
+    case "off": return "Extend is off";
+    case "full": return "Already 12 months";
+    case "unknown": return "Extend unavailable";
+  }
+}
+
+export function blockedNote(b: ExtendBlock, limit: number): string {
+  switch (b.kind) {
+    case "waiting": return `You extended recently. You can extend again ${at(b.until)}.`;
+    case "limit": return `You have used your ${limit} ${limit === 1 ? "month" : "months"} for this period. You can extend again ${at(b.until)}.`;
+    case "off": return "Extend is off because your limit is 0 months. Raise it below to use Extend.";
+    case "full": return "This Advance already commits all 12 months, so there is nothing left to extend.";
+    case "unknown": return "Couldn't read your Extend Limit. Try again.";
+  }
 }
