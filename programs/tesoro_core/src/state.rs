@@ -22,6 +22,7 @@ pub const SEASON_SEED: &[u8] = b"season";
 /// Address (never a signer) that owns the Leaderboard Pool Account: `["leaderboard"]`.
 pub const LEADERBOARD_SEED: &[u8] = b"leaderboard";
 pub const PROFILE_SEED: &[u8] = b"profile";
+pub const EXTEND_LIMIT_SEED: &[u8] = b"extend_limit";
 /// The Treasury: its config account, and the address that owns the Treasury Account and the
 /// treasury simSOL vault (`["treasury"]`). Nobody can sign for it outside this program.
 pub const TREASURY_SEED: &[u8] = b"treasury";
@@ -320,6 +321,30 @@ pub struct AdvanceIssued {
     pub gemas: u64,
     pub horizon_months: u8,
     pub price_micro_usd: u64,
+}
+
+/// A Player's Extend Limit. Seeds `["extend_limit", account]`; created by the first Extend (at the
+/// default) or by `set_extend_limit`, paid by the owner.
+#[account]
+pub struct ExtendLimitState {
+    pub bump: u8,
+    /// The `TesoroAccount` this limit belongs to; the default key until first used.
+    pub account: Pubkey,
+    pub inner: ledger::ExtendLimit,
+}
+
+impl ExtendLimitState {
+    pub const SPACE: usize = 8 + 1 + 32 + ledger::ExtendLimit::SPACE;
+}
+
+#[event]
+pub struct ExtendLimitSet {
+    pub account: Pubkey,
+    /// The limit in force after the change.
+    pub months: u8,
+    /// A raise waiting for `pending_at` (zero = none).
+    pub pending_months: u8,
+    pub pending_at: i64,
 }
 
 #[event]

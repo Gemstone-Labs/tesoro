@@ -179,6 +179,10 @@ pub mod tesoro_core {
         instructions::native::extend_native_advance(ctx, extra_months)
     }
 
+    pub fn set_extend_limit(ctx: Context<SetExtendLimit>, months: u8) -> Result<()> {
+        instructions::native::set_extend_limit(ctx, months)
+    }
+
     pub fn accrue_native_yield(ctx: Context<AccrueNativeYield>) -> Result<()> {
         instructions::native::accrue_native_yield(ctx)
     }

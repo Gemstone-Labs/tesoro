@@ -22,6 +22,10 @@ _Avoid_: loan, credit line, borrow, PNPL credit
 Adding months to a Position's open Advance while its Debt is above zero, up to a total Horizon of 12 months. The added months' Gemas arrive at once as the owner's own Gemas of the same Source, at that Source's original price, and the Unlock Estimate moves out by the added months. At Debt 0 the Player takes another Advance instead.
 _Avoid_: top-up, second Advance, refinance
 
+**Extend Limit**:
+A Player's own cap on the months Extend may add in any 30-day period, across all their Positions: 3 until they set it, 0 (Extend off) to 11 when they do. A Player can Extend at most once every 24 hours. Lowering the limit applies at once; raising it applies 24 hours later. Counted on real time, not the simulated yield clock.
+_Avoid_: borrowing cap, credit limit
+
 **Horizon**:
 The period (1–12 months) a staker chooses when taking an Advance; the Advance is 80% of the Position's projected yield over it: the yield net of the Yield Fee, so the Unlock Estimate still lands at the Horizon. A Position holds at most one open Advance. An open Advance with Debt can be extended up to a total of 12 months (see **Extend**).
 _Avoid_: term, lock period, maturity

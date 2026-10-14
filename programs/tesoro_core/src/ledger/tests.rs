@@ -1785,3 +1785,121 @@ fn instant_redeem_refuses_own_gemas_reserved_gemas_and_zero_payouts() {
         Err(CoreError::InvalidBps)
     );
 }
+
+// --- Extend Limit ------------------------------------------------------------------------------
+
+const T: i64 = 1_800_000_000;
+const DAY: i64 = 24 * 60 * 60;
+
+#[test]
+fn a_fresh_extend_limit_is_three_months() {
+    let l = ExtendLimit::default();
+    assert_eq!(l.effective(T), 3);
+    assert_eq!(l.window_months, 0);
+}
+
+#[test]
+fn extends_are_recorded_against_the_limit_until_it_is_reached() {
+    let mut l = ExtendLimit::default();
+    l.record_extend(T, 2).unwrap();
+    // Inside 24 h of the last Extend: refused, and nothing changes.
+    assert_eq!(
+        l.record_extend(T + DAY - 1, 1),
+        Err(CoreError::ExtendCoolingDown)
+    );
+    assert_eq!(l.window_months, 2);
+    // Exactly 24 h later it is allowed; the third month fills the limit.
+    l.record_extend(T + DAY, 1).unwrap();
+    assert_eq!(l.window_months, 3);
+    assert_eq!(l.last_extend_at, T + DAY);
+    // Past the wait but over the limit.
+    assert_eq!(
+        l.record_extend(T + 3 * DAY, 1),
+        Err(CoreError::ExtendLimitReached)
+    );
+    assert_eq!(l.window_months, 3);
+}
+
+#[test]
+fn an_extend_larger_than_the_limit_is_refused_at_once() {
+    let mut l = ExtendLimit::default();
+    assert_eq!(l.record_extend(T, 4), Err(CoreError::ExtendLimitReached));
+    assert_eq!(l, ExtendLimit::default());
+}
+
+#[test]
+fn the_period_resets_exactly_thirty_days_after_it_began() {
+    let mut l = ExtendLimit::default();
+    l.record_extend(T, 3).unwrap();
+    assert_eq!(
+        l.record_extend(T + 30 * DAY - 1, 1),
+        Err(CoreError::ExtendLimitReached)
+    );
+    l.record_extend(T + 30 * DAY, 3).unwrap();
+    assert_eq!((l.window_start, l.window_months), (T + 30 * DAY, 3));
+}
+
+#[test]
+fn a_limit_of_zero_blocks_extend() {
+    let mut l = ExtendLimit::default();
+    l.set_limit(T, 0).unwrap();
+    assert_eq!(l.effective(T), 0);
+    assert_eq!(l.record_extend(T, 1), Err(CoreError::ExtendLimitReached));
+}
+
+#[test]
+fn lowering_the_limit_works_at_once_and_a_raise_waits_a_day() {
+    let mut l = ExtendLimit::default();
+    l.set_limit(T, 1).unwrap();
+    assert_eq!(l.effective(T), 1);
+    l.set_limit(T, 5).unwrap();
+    assert_eq!(l.effective(T), 1);
+    assert_eq!(l.effective(T + DAY - 1), 1);
+    assert_eq!(l.effective(T + DAY), 5);
+    // The raise is in force for an Extend after its day.
+    l.record_extend(T + DAY, 5).unwrap();
+}
+
+#[test]
+fn lowering_below_a_pending_raise_cancels_it() {
+    let mut l = ExtendLimit::default();
+    l.set_limit(T, 6).unwrap();
+    l.set_limit(T + 10, 2).unwrap();
+    assert_eq!(l.effective(T + 10 * DAY), 2);
+    // Setting the limit already in force while a raise waits cancels it too.
+    let mut m = ExtendLimit::default();
+    m.set_limit(T, 6).unwrap();
+    m.set_limit(T + 10, 3).unwrap();
+    assert_eq!(m.effective(T + 10 * DAY), 3);
+}
+
+#[test]
+fn a_due_raise_is_settled_before_the_next_change() {
+    let mut l = ExtendLimit::default();
+    l.set_limit(T, 6).unwrap();
+    // After its day the raise is the limit; lowering from there is a lowering.
+    l.set_limit(T + 2 * DAY, 4).unwrap();
+    assert_eq!(l.effective(T + 2 * DAY), 4);
+}
+
+#[test]
+fn the_limit_is_at_most_eleven_months() {
+    let mut l = ExtendLimit::default();
+    assert_eq!(l.set_limit(T, 12), Err(CoreError::InvalidExtendLimit));
+    l.set_limit(T, 11).unwrap();
+    assert_eq!(l.effective(T + DAY), 11);
+}
+
+#[test]
+fn the_twelve_month_horizon_still_caps_an_extend_inside_the_limit() {
+    let mut p = locked_position();
+    let mut s = p.open_advance(pkey(0), 6, 150_000_000, 0).unwrap();
+    p.apply_yield(Some(&mut s), 1, 500_000_000).unwrap();
+    let mut l = ExtendLimit::default();
+    l.set_limit(T, 11).unwrap();
+    l.record_extend(T + DAY, 7).unwrap();
+    assert_eq!(
+        p.extend_advance(&mut s, 7, 0),
+        Err(CoreError::InvalidHorizon)
+    );
+}
