@@ -283,7 +283,7 @@ export function runSubmitter(signer: ChainSigner, id: bigint, seat: Seat): RunSu
   });
 }
 
-export type SettleOutcome = "settled" | "waiting-opponent" | "failed";
+export type SettleOutcome = "settled" | "waiting-opponent" | "commit-pending" | "failed";
 
 /**
  * Once the deadline of a Board's Player has passed, anyone may put an unplayed Board in the rollup
@@ -314,18 +314,29 @@ async function bringForfeitedBoardsIn(signer: ChainSigner, id: bigint, session: 
  * Seal + commit both Boards (only possible once both runs are closed or their deadlines passed), then
  * settle through tesoro_core. Anyone may call it; a failure to seal means the opponent is still playing.
  */
-export async function trySettle(signer: ChainSigner, id: bigint, session?: ChainMatch["session"]): Promise<{ outcome: SettleOutcome; sig?: string; error?: string }> {
+export async function trySettle(
+  signer: ChainSigner,
+  id: bigint,
+  session?: ChainMatch["session"],
+  opts: { sealed?: boolean; onSent?: () => void } = {},
+): Promise<{ outcome: SettleOutcome; sig?: string; error?: string }> {
   const chain = getChain();
   const a = BlockPuzzleChain.addresses(id);
   const isSettled = async () => !!(await chain.bp.account.session.fetchNullable(a.session) as any)?.settled;
   if (await isSettled()) return { outcome: "settled" };
   const committed = async () => (await isProgramOwned(a.boards[0])) && (await isProgramOwned(a.boards[1]));
   if (!(await committed())) {
+    // Seal + commit already went through: do not resend, the rollup has to hand the Boards back.
+    if (opts.sealed) return { outcome: "commit-pending" };
+    let sent = false;
     try {
       if (session) await bringForfeitedBoardsIn(signer, id, session);
-      await chain.sealAndCommit(signer, id);
+      await chain.sealAndCommit(signer, id, () => {
+        sent = true;
+        opts.onSent?.();
+      });
     } catch {
-      if (!(await committed())) return { outcome: "waiting-opponent" };
+      if (!(await committed())) return { outcome: sent ? "commit-pending" : "waiting-opponent" };
     }
   }
   try {

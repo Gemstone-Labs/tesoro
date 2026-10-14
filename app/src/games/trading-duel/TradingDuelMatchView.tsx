@@ -98,7 +98,8 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         me={snapshot?.accountKey.toBase58() ?? null}
         opponent={m.opponent}
         asset={asset.symbol}
-        step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" ? view.note || "Saving the result" : undefined}
+        step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" && !view.commit ? view.note || "Saving the result" : undefined}
+        commit={kind === "closing" ? view.commit : null}
         deadline={m.deadline || undefined}
         challengeLink={m.challenge && kind === "waiting" ? link : null}
         backedShareBps={m.backing && m.seat !== null ? m.backing.shareBps : null}

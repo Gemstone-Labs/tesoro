@@ -16,6 +16,7 @@ import {
   type PlayerSigner,
   type Table,
 } from "./chain";
+import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
 
 /** Where a Hold'em Match is in its life, read from chain. */
@@ -45,6 +46,8 @@ export interface HoldemView {
   busy: string | null;
   /** The tesoro_core refund deadline passed on an unfinished Match. */
   refundable: boolean;
+  /** The result is in and waiting to be committed to the chain (the Match is over, the rollup has not handed it back). */
+  commit: CommitState | null;
 }
 
 const errText = plainError;
@@ -77,6 +80,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     sigs: [],
     busy: null,
     refundable: false,
+    commit: null,
   });
   const patch = useCallback((p: Partial<HoldemView>) => setView((v) => ({ ...v, ...p })), []);
 
@@ -88,6 +92,8 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
   const activeSince = useRef(0);
   const closingSince = useRef(0);
   const lastClose = useRef(0);
+  const commitSince = useRef(0);
+  const closeFailures = useRef(0);
   const contributedHand = useRef(0);
   const contributedAt = useRef(0);
   const lastVrf = useRef(0);
@@ -147,6 +153,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       }
       if (!settledSeen.current) {
         settledSeen.current = true;
+        setCommitPending(id, false);
         onSettled?.();
       }
       return;
@@ -183,6 +190,7 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
       delegated.current = false;
       setView((v) => ({ ...v, table: t }));
       setStage("closing", "Paying out the Pot");
+      setView((v) => (v.commit ? { ...v, commit: null } : v));
       if (!closingSince.current) closingSince.current = now();
       // One Player settles at once (the winner; seat 0 for a cancelled table). The other waits and
       // settles only if the Match is still open then, so the loser of a race does not burn a fee.
@@ -227,13 +235,23 @@ export function useHoldemMatch(id: bigint | null, signer: ChainSigner | null, on
     if (!closingSince.current) closingSince.current = now();
     const mine = t.status === STATUS.cancelled ? seat === 0 : t.winner === seat;
     if (!mine && now() - closingSince.current < 15_000) return;
+    if (commitSince.current) {
+      const phase = commitPhase(commitSince.current, now());
+      setView((v) => (v.commit?.phase === phase && v.commit.won === mine ? v : { ...v, commit: { phase, won: mine }, error: null }));
+      return;
+    }
     if (now() - lastClose.current < 30_000) return;
     lastClose.current = now();
     try {
       await hd.closeMatch(p, id);
-    } catch {
-      // The other Player closed it first, or the commit is still in flight.
+    } catch (e) {
+      // The other Player closed it first, or the commit is already in flight: only other errors count.
+      if (!isCommitPending(e) && ++closeFailures.current >= 3) throw e;
+      if (!isCommitPending(e)) return;
     }
+    commitSince.current = now();
+    setCommitPending(id, true);
+    setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
 
     async function shuffle(tb: Table, s: 0 | 1) {
       if (!p || id === null) return;

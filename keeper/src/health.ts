@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { commits, type CommitTracker } from "./commits.ts";
 
 /**
  * Liveness of the main loop. The loop calls `beat` after every pass (clean or failed). The watchdog exits the
@@ -13,6 +14,7 @@ export class Health {
   constructor(
     readonly staleMs: number,
     now = Date.now(),
+    private readonly tracker: CommitTracker = commits,
   ) {
     this.lastBeat = now;
   }
@@ -25,7 +27,7 @@ export class Health {
 
   status(now = Date.now()) {
     const ageSecs = Math.round((now - this.lastBeat) / 1000);
-    return { alive: now - this.lastBeat <= this.staleMs, passes: this.passes, failedInARow: this.failedInARow, lastPassSecsAgo: ageSecs };
+    return { alive: now - this.lastBeat <= this.staleMs, passes: this.passes, failedInARow: this.failedInARow, lastPassSecsAgo: ageSecs, ...this.tracker.stats(now) };
   }
 }
 

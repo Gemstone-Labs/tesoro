@@ -4,6 +4,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ChartCandlestick, Check, ChevronDown, Clock, Copy, EyeOff, Hourglass, Link2, Lock, Puzzle, RotateCcw, Spade, type LucideIcon } from "lucide-react";
 import { Busy, CountUp, GemaMark } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
+import { commitCopy, type CommitState } from "@/lib/chain/commit-pending";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES, type GameId } from "@/lib/mock";
 import "./match-stage.css";
@@ -31,6 +32,8 @@ export interface StageInfo {
   challengeLink?: string | null;
   /** The Player is backed: their Backer funded the entry. */
   backedShareBps?: number | null;
+  /** Closing: the result is in and waiting to be committed to the chain. */
+  commit?: CommitState | null;
 }
 
 const HIDDEN: Record<GameId, string> = { "block-puzzle": "Pieces hidden", holdem: "Cards hidden", "trading-duel": "Picks hidden" };
@@ -61,6 +64,7 @@ function copy(m: StageInfo): { kicker: string; title: string; line: string } {
     case "awaiting":
       return { kicker: `${g} · score in`, title: `Waiting for ${opp}`, line: "Both scores are revealed when they finish. The winner is paid at once." };
     case "closing":
+      if (m.commit) return { kicker: `${g} · Match over`, ...commitCopy(m.commit) };
       return { kicker: `${g} · Match over`, title: "Paying out the Pot", line: "Saving the result. A few seconds." };
     case "backer-watch":
       return { kicker: `${g} · you back this Player`, title: "Your Player is in", line: "You can watch, not play. The result pays out on its own." };

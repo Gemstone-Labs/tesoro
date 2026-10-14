@@ -3,6 +3,7 @@ import { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, PERMISSION_PROGRAM_ID, permiss
 import { BLOCK_PUZZLE_PROGRAM_ID } from "../../app/src/games/block-puzzle/chain.ts";
 import { TRADING_DUEL_PROGRAM_ID } from "../../app/src/games/trading-duel/chain.ts";
 import { HOLDEM_PROGRAM_ID, STATUS, addresses as holdemAddresses, decodeTable } from "../../app/src/games/holdem/chain.ts";
+import { commitInFlight, commits, noteClose } from "./commits.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
 import { blockPuzzle, refund } from "./blockpuzzle.ts";
@@ -56,6 +57,7 @@ async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string)
 
   if (info.owner.equals(HOLDEM_PROGRAM_ID)) {
     const t = decodeTable(ad.gameMatch, ctx.holdem.program.coder.accounts.decode("gameMatch", info.data));
+    commits.clear(subject);
     const step = baseTableStep(t, now, deadline);
     if (step.do === "finalize") return +(await act(ctx, "match", subject, `finalize (${step.why})`, () => ctx.holdem.finalize(ctx.hsigner, id))).ok;
     if (step.do === "refund") return +(await refund(ctx, id, subject, step.why)).ok;
@@ -97,11 +99,12 @@ async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string)
       magicContext: MAGIC_CONTEXT,
     } as any)
     .instruction();
-  if (!(await simulate(tee, ctx.payer, [closeIx]))) {
-    const r = await act(ctx, "match", subject, "close_match (table finished) then finalize", async () => {
-      await ctx.holdem.closeMatch(ctx.hsigner, id);
-      return ctx.holdem.finalize(ctx.hsigner, id);
-    });
+  if (commitInFlight(subject, tag, null)) return 0;
+  const closeWhy = await simulate(tee, ctx.payer, [closeIx]);
+  if (closeWhy) noteClose(subject, tag, { ok: false, detail: closeWhy });
+  else {
+    const r = await act(ctx, "match", subject, "close_match (table finished)", async () => (await ctx.holdem.closeMatch(ctx.hsigner, id)).tee);
+    noteClose(subject, tag, r);
     return +r.ok;
   }
   log("match", subject, `${tag} wait: table live in the rollup (private), no timeout due`);

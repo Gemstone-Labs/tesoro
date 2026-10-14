@@ -79,7 +79,7 @@ export function ethError(e: unknown): string {
 }
 
 async function waitEvm(hash: Hex, net: EvmNet) {
-  const receipt = await evmClient(net).waitForTransactionReceipt({ hash, timeout: 120_000 });
+  const receipt = await evmClient(net).waitForTransactionReceipt({ hash, timeout: 120_000, pollingInterval: 1000 });
   if (receipt.status !== "success") throw new Error(`The ${net.label} transaction reverted.`);
   return receipt;
 }
@@ -114,16 +114,28 @@ export const MIN_HOODI_WEI = 4_000_000_000_000_000n;
 /** HyperEVM: gas is cheap (0.1 gwei); the LayerZero message is about 0.0075 HYPE (plus 20% headroom, refunded). */
 export const MIN_HYPE_WEI = 20_000_000_000_000_000n;
 
-/** Capped server-side top-up of the net's native token from the relayer (the key never reaches the client). */
-export async function requestGas(ctx: EthCtx, net: EvmNet): Promise<void> {
+/** Asks the server for the net's native token (capped, from the relayer: the key never reaches the client). Resolves once it is sent. */
+export const sendGasRequest = (ctx: EthCtx, net: EvmNet) => ethCall(net.key === "hoodi" ? "fund-evm" : "fund-hype", ctx, { evm: ctx.evm.address });
+
+const gasInFlight = new Map<string, Promise<void>>();
+
+/** Capped server-side top-up of the net's native token, then waits for the balance to show. A second call while one is running shares it. */
+export function requestGas(ctx: EthCtx, net: EvmNet): Promise<void> {
+  const id = `${net.key}:${ctx.evm.address.toLowerCase()}`;
+  const running = gasInFlight.get(id);
+  if (running) return running;
   const min = net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI;
   const client = evmClient(net);
-  await ethCall(net.key === "hoodi" ? "fund-evm" : "fund-hype", ctx, { evm: ctx.evm.address });
-  for (let i = 0; i < 40; i++) {
-    if ((await client.getBalance({ address: ctx.evm.address })) >= min) return;
-    await sleep(1500);
-  }
-  throw new Error(`${net.native} has not arrived yet. Try again in a moment.`);
+  const run = (async () => {
+    await sendGasRequest(ctx, net);
+    for (let i = 0; i < 40; i++) {
+      if ((await client.getBalance({ address: ctx.evm.address })) >= min) return;
+      await sleep(1000);
+    }
+    throw new Error(`${net.native} has not arrived yet. Try again in a moment.`);
+  })().finally(() => gasInFlight.delete(id));
+  gasInFlight.set(id, run);
+  return run;
 }
 
 /** Tops the wallet up when it is under the net's minimum. */
@@ -134,24 +146,13 @@ export async function ensureGas(ctx: EthCtx, net: EvmNet, minWei = net.key === "
 
 // ---- simETH / simHYPE and the Position -----------------------------------------------------------------------
 
-/** SIMULATED faucet: simETH / simHYPE is a test token (10 per hour per address). Needs a little native token for gas. */
+/** SIMULATED faucet: simETH / simHYPE is a test token (10 per hour per address). The relayer claims it for the wallet: no signature, no gas. */
 export async function getTestSimEth(ctx: EthCtx, vault: EthVault = ETH_VAULTS[0]): Promise<Hex> {
-  const net = NETS[vault.net];
-  await ensureGas(ctx, net);
-  await ctx.evm.prepare(net.chain);
-  const hash = await ctx.evm.clientFor(net.chain).writeContract({
-    account: ctx.evm.account,
-    chain: undefined,
-    address: vault.lst,
-    abi: lstAbi,
-    functionName: "faucet",
-    args: [ctx.evm.address],
-  });
-  await waitEvm(hash, net);
-  return hash;
+  const r = await ethCall<{ hash: Hex }>("faucet-lst", ctx, { vault: vault.address, evm: ctx.evm.address });
+  return r.hash;
 }
 
-export type OpenStep = "link" | "gas" | "approve" | "inbox" | "open";
+export type OpenStep = "link" | "gas" | "approve" | "confirm" | "inbox" | "open" | "opening";
 
 export interface OpenedEth {
   vault: Address;
@@ -163,6 +164,7 @@ export interface OpenedEth {
 /**
  * Link (first time), gas, approve, create the inbox record for the next Position id, then
  * `openPosition(amount, Horizon)` paying the LayerZero fee (quote + 20%, the excess is refunded).
+ * The inbox record does not depend on the approval, so the server prepares it while the wallet approves.
  * Resolves once the EVM transaction is confirmed; the caller tracks delivery from there.
  */
 export async function openEthPosition(
@@ -177,10 +179,14 @@ export async function openEthPosition(
   const linkSig = await ensureEvmLinked(ctx);
   onStep("gas");
   await ensureGas(ctx, net);
-  let market: EthMarket = await fetchEthMarket(vault, ctx.evm.address);
+  const market: EthMarket = await fetchEthMarket(vault, ctx.evm.address);
   if (market.simEth < amountWei) throw new Error(`That is more ${vault.symbol} than you have.`);
   await ctx.evm.prepare(net.chain);
   const wallet = ctx.evm.clientFor(net.chain);
+  // The inbox record has to exist before the message arrives: create it for the id this transaction should get.
+  const predicted = market.nextPositionId + 1n;
+  const inbox = ethCall("init-position", ctx, { vault: vault.address, id: predicted.toString() });
+  inbox.catch(() => {});
   if (market.allowance < amountWei) {
     onStep("approve");
     const approveHash = await wallet.writeContract({
@@ -191,13 +197,11 @@ export async function openEthPosition(
       functionName: "approve",
       args: [vault.address, maxUint256],
     });
+    onStep("confirm");
     await waitEvm(approveHash, net);
-    market = await fetchEthMarket(vault, ctx.evm.address);
   }
-  // The inbox record has to exist before the message arrives: create it for the id this transaction should get.
   onStep("inbox");
-  const predicted = market.nextPositionId + 1n;
-  await ethCall("init-position", ctx, { vault: vault.address, id: predicted.toString() });
+  await inbox;
   onStep("open");
   const hash = await wallet.writeContract({
     account: ctx.evm.account,
@@ -208,6 +212,7 @@ export async function openEthPosition(
     args: [amountWei, months],
     value: withHeadroom(market.quoteOpen),
   });
+  onStep("opening");
   const receipt = await waitEvm(hash, net);
   const logs = parseEventLogs({ abi: vaultAbi, eventName: "PositionLocked", logs: receipt.logs });
   const id = logs.find((l) => l.address.toLowerCase() === vault.address.toLowerCase())?.args.positionId;

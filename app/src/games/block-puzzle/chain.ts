@@ -456,7 +456,7 @@ export class BlockPuzzleChain {
    * timeout). Seals both Boards, closes their permissions and commits + undelegates them.
    * Waits for the Boards to be back on the base layer and returns the commit signature.
    */
-  async sealAndCommit(payer: ChainSigner, matchId: bigint): Promise<{ teeSig: string; commitSig?: string }> {
+  async sealAndCommit(payer: ChainSigner, matchId: bigint, onSent?: () => void): Promise<{ teeSig: string; commitSig?: string }> {
     const a = BlockPuzzleChain.addresses(matchId);
     const seal = await this.bp.methods
       .seal()
@@ -479,6 +479,7 @@ export class BlockPuzzleChain {
       })
       .instruction();
     const teeSig = await this.sendTee(payer, [seal, commit]);
+    onSent?.();
     const back = (await this.waitOwner(a.boards[0], BLOCK_PUZZLE_PROGRAM_ID)) && (await this.waitOwner(a.boards[1], BLOCK_PUZZLE_PROGRAM_ID)) && (await this.waitOwner(a.vault, BLOCK_PUZZLE_PROGRAM_ID));
     if (!back) throw new Error("boards did not return to the base layer");
     const commitSig = await GetCommitmentSignature(teeSig, await this.tee(payer)).catch(() => undefined);
