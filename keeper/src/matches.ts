@@ -103,7 +103,7 @@ async function holdem(ctx: Ctx, id: bigint, m: any, st: string, subject: string)
   const closeWhy = await simulate(tee, ctx.payer, [closeIx]);
   if (closeWhy) noteClose(subject, tag, { ok: false, detail: closeWhy });
   else {
-    const r = await act(ctx, "match", subject, "close_match (table finished)", () => ctx.holdem.closeMatch(ctx.hsigner, id));
+    const r = await act(ctx, "match", subject, "close_match (table finished)", async () => (await ctx.holdem.closeMatch(ctx.hsigner, id)).tee);
     noteClose(subject, tag, r);
     return +r.ok;
   }
