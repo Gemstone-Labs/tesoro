@@ -8,6 +8,9 @@
  *
  *   PW=/path/to/node_modules/playwright-core BASE=http://localhost:3301 node scripts/landing-scroll-check.mjs [run ...]
  *
+ * Via pnpm (BASE defaults to http://localhost:3301; PW must point at a playwright-core install, it is not an app dependency):
+ *   PW=/path/to/node_modules/playwright-core BASE=http://localhost:3311 pnpm --filter @tesoro/app check:landing-scroll [run ...]
+ *
  * Env: BASE (default http://localhost:3301), PW (playwright-core path or package, default "playwright-core"),
  * OUT (default ~/.cache/tesoro-tmp/landing-scroll-check/<timestamp>), CHROME (browser executable).
  * Needs a dev or production server of the app. Name runs on the command line to run a subset.

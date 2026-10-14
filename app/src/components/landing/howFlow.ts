@@ -25,5 +25,5 @@ export function howFlow(progress: number) {
   const tubes = TUBE_SPANS.map(([a, b]) => seg(p, a, b));
   const nodes = { position: 1 } as Record<Stop, number>;
   for (const [stop, at] of Object.entries(NODE_AT) as [Exclude<Stop, "position">, number][]) nodes[stop] = seg(p, at, at + NODE_RAMP);
-  return { tubes, nodes, lit: STOPS.filter((s) => nodes[s] > 0) };
+  return { tubes, nodes };
 }

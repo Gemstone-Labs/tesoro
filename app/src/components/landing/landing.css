@@ -205,7 +205,7 @@ html.lenis, html.lenis body { height: auto; }
 .lp-how.is-held .lp-flow-foot { margin-top: 20px; }
 .lp-tube-path { stroke-dasharray: 1 2; stroke-dashoffset: calc(1 - var(--i, 1)); opacity: min(1, calc(var(--i, 1) * 60)); }
 .lp-flow-dot { opacity: clamp(0, calc((var(--i, 1) - 0.98) * 50), 1); }
-.lp-hold { opacity: calc(0.3 + 0.7 * var(--h-self, 1)); filter: grayscale(calc(1 - var(--h-self, 1))); }
+.is-held .lp-hold { opacity: calc(0.3 + 0.7 * var(--h-self, 1)); filter: grayscale(calc(1 - var(--h-self, 1))); }
 .k-advance { --h-self: var(--h-advance, 1); }
 .k-play { --h-self: var(--h-play, 1); }
 .k-back { --h-self: var(--h-back, 1); }
@@ -498,6 +498,8 @@ html.lenis, html.lenis body { height: auto; }
 .lp-arrive > svg { width: 18px; height: 18px; }
 .lp-pill { display: inline-flex; align-items: center; gap: 8px; padding: 14px 22px; font-size: 17px; background: var(--shell); color: var(--fg); font-weight: 800; --edge: var(--line-2); }
 .lp-pill.strong { --edge: color-mix(in srgb, var(--em) 55%, transparent); }
+/* The catalogue sits in a two-thirds tile: below ~1240px six columns leave squares too small for names and badges. */
+@media (min-width: 1024px) and (max-width: 1240px) { .lp-catalogue { grid-template-columns: repeat(3, 1fr); } }
 .lp-studios-foot { display: flex; gap: 24px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 28px; }
 @media (max-width: 1023px) {
   .lp-bento { grid-template-columns: 1fr; }
