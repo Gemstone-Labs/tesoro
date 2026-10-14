@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { chainsState } from "./chains/store";
 import { gemState } from "./gem/store";
 import { howFlow, STOPS } from "./howFlow";
 
@@ -126,6 +127,17 @@ export function LandingMotion() {
         }
 
 
+        // Multichain: the streams reach the Tesoro ledger by the time the section is centred.
+        const chains = document.querySelector<HTMLElement>("#multichain");
+        if (chains) {
+          const apply = (progress: number) => {
+            chainsState.progress = progress;
+            chains.dataset.chainsProgress = progress.toFixed(2);
+          };
+          apply(0);
+          ScrollTrigger.create({ trigger: chains, start: "top bottom", end: "center center", onUpdate: (self) => apply(self.progress), onRefresh: (self) => apply(self.progress) });
+        }
+
         // Backing: the two Requests behind the Offer card fan out as the section arrives.
         const backing = document.querySelector<HTMLElement>("[data-backing]");
         if (backing) {
@@ -172,6 +184,8 @@ export function LandingMotion() {
           pot?.classList.remove("is-drawn");
           pot?.style.removeProperty("--p-draw");
           gemState.beat = 0;
+          chainsState.progress = 1;
+          document.querySelector<HTMLElement>("#multichain")?.removeAttribute("data-chains-progress");
         };
       });
 
