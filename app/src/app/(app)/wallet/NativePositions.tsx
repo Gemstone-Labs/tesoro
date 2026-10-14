@@ -25,7 +25,9 @@ import {
   type NativeMarket,
 } from "@/lib/chain/native";
 import { advanceUnits, netApyPct } from "@/lib/chain/yield";
-import { extendAdvance, friendlyError, getTestSimSol, instantRedeemNative, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
+import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, instantRedeemNative, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
+import { MAX_ADVANCE_MONTHS, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
+import { getChain } from "@/lib/chain/client";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
@@ -33,6 +35,7 @@ import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type Re
 import { GemasLabel } from "./AdvanceQuote";
 import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
 import { OpenFormView } from "./OpenPanel";
+import { ExtendLimitPanel, blockedLabel } from "./ExtendLimit";
 import { PositionTile, sampledSeries } from "./PositionTile";
 
 const fmtSol = (lamports: bigint | number, digits = 4) => (Number(lamports) / LAMPORTS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -197,7 +200,6 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   );
 }
 
-const MAX_ADVANCE_MONTHS = 12;
 
 // ---- Position card ------------------------------------------------------------------------------
 
@@ -362,22 +364,46 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
 // ---- Extend an Advance ------------------------------------------------------------------------------
 
 /** Commit more of a Position's future yield on its open Advance: Gemas now, more Debt, a later Unlock Estimate. */
-export function NativeExtendSheet({ info, market, open, onClose }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void }) {
+export function NativeExtendSheet({ info, market, open, onClose, limit }: { info: NativeInfo; market: NativeMarket | null; open: boolean; onClose: () => void; limit?: ExtendLimitData | null }) {
   return (
     <Sheet open={open} onClose={onClose} title="Extend your Advance" className="adv-sheet">
-      {open && <NativeExtendForm info={info} market={market} onClose={onClose} />}
+      {open && <NativeExtendForm info={info} market={market} onClose={onClose} limit={limit} />}
     </Sheet>
   );
 }
 
-function NativeExtendForm({ info, market, onClose }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void }) {
+/** The owner's Extend Limit, read on open and again after they change it. `given` (stories) skips the read. */
+function useExtendLimit(given: ExtendLimitData | null | undefined) {
+  const { auth } = useAccount();
+  const owner = auth.signer?.publicKey;
+  const [read, setRead] = useState<ExtendLimitData | null | undefined>(undefined);
+  const [tick, setTick] = useState(0);
+  const key = owner?.toBase58();
+  useEffect(() => {
+    if (given !== undefined || !owner) return;
+    let live = true;
+    void fetchExtendLimit(getChain().base, owner)
+      .catch(() => null)
+      .then((l) => live && setRead(l));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, given, tick]);
+  return { limit: given !== undefined ? given : read, reload: () => setTick((t) => t + 1), loading: given === undefined && read === undefined };
+}
+
+function NativeExtendForm({ info, market, onClose, limit: given }: { info: NativeInfo; market: NativeMarket | null; onClose: () => void; limit?: ExtendLimitData | null }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const source = info.source!;
-  const room = MAX_ADVANCE_MONTHS - source.horizonMonths;
-  const [months, setMonths] = useState(Math.min(DEFAULT_HORIZON_MONTHS, room));
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
+  const lim = useExtendLimit(given);
+  const setLimit = useAction(refresh);
+  const view = extendLimitView(lim.limit ?? null, Math.floor(now / 1000), source.horizonMonths);
+  const [picked, setMonths] = useState(Math.min(DEFAULT_HORIZON_MONTHS, MAX_ADVANCE_MONTHS - source.horizonMonths));
+  const months = Math.max(1, Math.min(picked, view.maxMonths));
   const pool = market?.pool ?? null;
   const { yieldFeeBps } = ratesOf(market?.treasury);
   const quote = quoteExtendAdvance(info.principalLamports, info.rateBps, source.math, source.horizonMonths, months, yieldFeeBps);
@@ -407,7 +433,7 @@ function NativeExtendForm({ info, market, onClose }: { info: NativeInfo; market:
       apy={`${(info.rateBps / 100).toFixed(1)}% APY`}
       months={months}
       onMonths={setMonths}
-      maxMonths={room}
+      maxMonths={Math.max(1, view.maxMonths)}
       sliderLabel="Extend by"
       yieldText={`${fmtSol(addedYield)} SOL`}
       yieldFeeBps={yieldFeeBps}
@@ -416,11 +442,17 @@ function NativeExtendForm({ info, market, onClose }: { info: NativeInfo; market:
       alerts={
         <>
           <p className="note">Adds {fmtGemas(gemas)} Gemas of Debt to this Advance. Your Principal stays locked for {source.horizonMonths + months} months in all.</p>
+          <ExtendLimitPanel
+            view={view}
+            busy={setLimit.busy !== null}
+            error={setLimit.error}
+            onSet={(m) => auth.signer && setLimit.run("limit", () => setExtendLimit(auth.signer!, auth.getAccessToken, m)).then(lim.reload)}
+          />
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
-      buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Extend" gemas={gemas} />}
-      disabled={gemas <= 0 || a.busy !== null || !auth.signer}
+      buttonLabel={a.busy ? `${step}…` : view.blocked ? blockedLabel(view.blocked) : <GemasLabel action="Extend" gemas={gemas} />}
+      disabled={gemas <= 0 || a.busy !== null || !auth.signer || view.blocked !== null || lim.loading}
       onSubmit={() => auth.signer && a.run("extend", () => extendAdvance(auth.signer!, auth.getAccessToken, info, months, setStep))}
     />
   );

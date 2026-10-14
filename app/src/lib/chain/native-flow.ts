@@ -14,6 +14,7 @@ import {
   openNativePositionIx,
   positionPda,
   redeemIx,
+  setExtendLimitIx,
   sweepNativeSurplusIx,
   takeNativeAdvanceIx,
   unlockIx,
@@ -104,6 +105,12 @@ export async function extendAdvance(
   } catch (e) {
     throw extendFailure(e);
   }
+}
+
+/** Sets the owner's Extend Limit (0 to 11 months): lower applies at once, higher 24 hours later. */
+export async function setExtendLimit(signer: ChainSigner, getToken: GetToken, months: number): Promise<string> {
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
+  return send(signer, [setExtendLimitIx(signer.publicKey, months)]);
 }
 
 /** Permissionless crank: applies the vault's accrued yield to the Position's Debt. */
