@@ -9,6 +9,8 @@ import {
   parseVaultShares,
   parseVaultTreasury,
   planInstant,
+  type InstantLine,
+  replanInstant,
   ratesOf,
   solPayoutCapacity,
 } from "./fees";
@@ -110,5 +112,30 @@ describe("Treasury decoders: a wrong size is absent", () => {
     expect(parseVaultTreasury(d)?.available).toBe(0n);
     expect(parseVaultTreasury(d.subarray(0, VAULT_TREASURY_LEN - 1))).toBeNull();
     expect(parseVaultTreasury(Buffer.alloc(8 + 4 + 32 + 16 + 16 + 17))).toBeNull();
+  });
+});
+
+describe("replanInstant", () => {
+  const line = (key: string, gemas: bigint): InstantLine => ({ key, gemas, payout: gemas * 2n });
+  const confirmed = [line("a", 100n), line("b", 50n)];
+
+  it("sends what was confirmed when the new plan is the same", () => {
+    expect(replanInstant(confirmed, confirmed)).toEqual({ kind: "send", lines: confirmed });
+  });
+
+  it("never sends more than confirmed when the new plan is larger", () => {
+    expect(replanInstant(confirmed, [line("a", 130n), line("b", 50n), line("c", 9n)])).toEqual({ kind: "send", lines: confirmed });
+  });
+
+  it("asks again with the new amount when any line shrank", () => {
+    expect(replanInstant(confirmed, [line("a", 80n), line("b", 50n)])).toEqual({ kind: "smaller", lines: [line("a", 80n), line("b", 50n)], gemas: 130n });
+  });
+
+  it("asks again with the capped amount when one line shrank and another grew", () => {
+    expect(replanInstant(confirmed, [line("a", 60n), line("b", 70n)])).toEqual({ kind: "smaller", lines: [line("a", 60n), line("b", 50n)], gemas: 110n });
+  });
+
+  it("reports nothing left when no line survives", () => {
+    expect(replanInstant(confirmed, [])).toEqual({ kind: "none" });
   });
 });

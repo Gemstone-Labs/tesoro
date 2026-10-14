@@ -13,9 +13,9 @@ export function useChainData() {
   const address = useAuth().addresses.solana;
   const { data } = storyData();
   return useMemo(() => {
-    if (!address) return { snapshot: null, loading: false, error: null, refresh: async () => {} };
-    if (data.snapshotError) return { snapshot: null, loading: false, error: data.snapshotError, refresh: async () => {} };
+    if (!address) return { snapshot: null, loading: false, error: null, refresh: async () => true };
+    if (data.snapshotError) return { snapshot: null, loading: false, error: data.snapshotError, refresh: async () => true };
     const s = data.snapshot === undefined ? demoSnapshot(address) : typeof data.snapshot === "function" ? data.snapshot(address) : data.snapshot;
-    return { snapshot: s as AccountSnapshot | null, loading: s === null, error: null, refresh: async () => {} };
+    return { snapshot: s as AccountSnapshot | null, loading: s === null, error: null, refresh: async () => true };
   }, [address, data]);
 }

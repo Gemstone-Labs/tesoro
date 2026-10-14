@@ -54,4 +54,19 @@ describe("assetPrice", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
     expect(await assetPrice("ETH")).toMatchObject({ microUsd: 3_000_000_000n, live: false });
   });
+
+  it("returns CoinGecko's price fast while Coinbase hangs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-02T17:00:00Z"));
+    const fetchMock = vi.fn((url: string) => (url.includes("coinbase") ? new Promise<Response>(() => undefined) : Promise.resolve(coingecko("ethereum", 2_400))));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await assetPrice("ETH")).toMatchObject({ microUsd: 2_400_000_000n, live: true });
+  });
+
+  it("skips an out-of-bounds first answer for a valid later one", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-02T18:00:00Z"));
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(url.includes("coinbase") ? coinbase("5") : coingecko("ethereum", 2_500))));
+    expect(await assetPrice("ETH")).toMatchObject({ microUsd: 2_500_000_000n, live: true });
+  });
 });

@@ -3,6 +3,8 @@ dialog.sheet.adv-sheet { max-width: 520px; }
 
 .adv { display: grid; gap: 16px; }
 .adv .label { display: block; }
+.adv-quote { display: grid; gap: 16px; transition: opacity 0.2s ease; }
+.adv-quote.dimmed { opacity: 0.35; filter: saturate(0.4); }
 
 .adv-source {
   display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
@@ -59,3 +61,9 @@ dialog.sheet.adv-sheet { max-width: 520px; }
   .adv-flow { animation: none; mask-image: none; }
   .adv-note { animation: none; }
 }
+
+/* Extend sheet: the running count and the Extend Limit control. */
+.ext-limit { display: grid; gap: 8px; }
+.ext-limit .note { margin: 0; }
+.ext-limit-row { display: flex; align-items: center; gap: 10px; }
+.ext-limit-row .cut { flex: 1; }

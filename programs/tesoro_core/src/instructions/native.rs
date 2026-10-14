@@ -279,6 +279,7 @@ pub(crate) fn take_native_advance(
 /// Holding of its Source, at the Source's stored price. The owner signs alone.
 #[derive(Accounts)]
 pub struct ExtendNativeAdvance<'info> {
+    #[account(mut)]
     pub owner_authority: Signer<'info>,
     #[account(
         mut,
@@ -312,13 +313,29 @@ pub struct ExtendNativeAdvance<'info> {
         constraint = holding.inner.source == source.key().to_bytes() @ TesoroError::InvalidAccount
     )]
     pub holding: Account<'info, HoldingState>,
+    /// The owner's Extend Limit, created at the default on the first Extend.
+    #[account(
+        init_if_needed,
+        payer = owner_authority,
+        space = ExtendLimitState::SPACE,
+        seeds = [EXTEND_LIMIT_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub extend_limit: Account<'info, ExtendLimitState>,
+    pub system_program: Program<'info, System>,
 }
 
 pub(crate) fn extend_native_advance(
     ctx: Context<ExtendNativeAdvance>,
     extra_months: u8,
 ) -> Result<()> {
+    let bump = ctx.bumps.extend_limit;
     let a = ctx.accounts;
+    touch_extend_limit(&mut a.extend_limit, a.owner_account.key(), bump);
+    a.extend_limit
+        .inner
+        .record_extend(now()?, extra_months)
+        .map_err(core_err)?;
     let gemas = a
         .position
         .inner
@@ -334,6 +351,55 @@ pub(crate) fn extend_native_advance(
         gemas,
         extra_months,
         horizon_months: a.source.inner.horizon_months,
+    });
+    Ok(())
+}
+
+/// Fills in a freshly created (zeroed) Extend Limit with its identity and the default limit.
+pub(crate) fn touch_extend_limit(limit: &mut ExtendLimitState, account: Pubkey, bump: u8) {
+    if limit.account == Pubkey::default() {
+        limit.bump = bump;
+        limit.account = account;
+        limit.inner = Default::default();
+    }
+}
+
+/// Sets the owner's Extend Limit: a lower limit applies at once, a higher one 24 hours later.
+#[derive(Accounts)]
+pub struct SetExtendLimit<'info> {
+    #[account(mut)]
+    pub owner_authority: Signer<'info>,
+    #[account(
+        seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
+        bump = owner_account.bump
+    )]
+    pub owner_account: Account<'info, TesoroAccount>,
+    #[account(
+        init_if_needed,
+        payer = owner_authority,
+        space = ExtendLimitState::SPACE,
+        seeds = [EXTEND_LIMIT_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub extend_limit: Account<'info, ExtendLimitState>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_extend_limit(ctx: Context<SetExtendLimit>, months: u8) -> Result<()> {
+    let bump = ctx.bumps.extend_limit;
+    let a = ctx.accounts;
+    touch_extend_limit(&mut a.extend_limit, a.owner_account.key(), bump);
+    let ts = now()?;
+    a.extend_limit
+        .inner
+        .set_limit(ts, months)
+        .map_err(core_err)?;
+    let l = a.extend_limit.inner;
+    emit!(ExtendLimitSet {
+        account: a.owner_account.key(),
+        months: l.effective(ts),
+        pending_months: l.pending_months,
+        pending_at: l.pending_at,
     });
     Ok(())
 }

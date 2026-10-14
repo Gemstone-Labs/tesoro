@@ -35,6 +35,7 @@ export function AdvanceFormView({
   alerts,
   buttonLabel,
   disabled = false,
+  dimmed = false,
   onSubmit,
 }: {
   chain: Chain;
@@ -55,6 +56,8 @@ export function AdvanceFormView({
   alerts?: ReactNode;
   buttonLabel: ReactNode;
   disabled?: boolean;
+  /** The quote is not on offer (Extend is blocked): shown faded and out of reach. */
+  dimmed?: boolean;
   onSubmit: () => void;
 }) {
   return (
@@ -68,11 +71,13 @@ export function AdvanceFormView({
         <Lock size={16} className="adv-lock" aria-hidden />
       </div>
 
-      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas} yieldFeeBps={yieldFeeBps} />
+      <div className={`adv-quote${dimmed ? " dimmed" : ""}`} inert={dimmed}>
+        <YieldToGemas months={months} yieldText={yieldText} gemas={gemas} yieldFeeBps={yieldFeeBps} />
 
-      <Slider label={sliderLabel} value={months} min={1} max={maxMonths} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
+        <Slider label={sliderLabel} value={months} min={1} max={maxMonths} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
 
-      <UnlockTrack now="Gemas in your balance" unlock={unlock} end="Unlock Estimate, Debt 0" />
+        <UnlockTrack now="Gemas in your balance" unlock={unlock} end="Unlock Estimate, Debt 0" />
+      </div>
 
       {alerts}
       <SimulatedYieldLabel />

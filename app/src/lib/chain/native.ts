@@ -57,6 +57,7 @@ const DISC = {
   fund_treasury: "479a2ddcce20aeef",
   instant_redeem: "bb6bd07de0ed285d",
   redeem_treasury: "109798e01b5bb9cd",
+  set_extend_limit: "419bcc697b0524a5",
 } as const;
 const disc = (name: keyof typeof DISC) => Buffer.from(DISC[name], "hex");
 
@@ -179,22 +180,34 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
   );
 }
 
-/** `info.source.index` is the Position's open Advance; the owner signs alone and `extraMonths` is added to its Horizon (1 to 12 minus the Horizon so far). */
+export const extendLimitPda = (account: PublicKey) => pda([s("extend_limit"), account.toBuffer()]);
+
+/** `info.source.index` is the Position's open Advance; the owner signs alone and `extraMonths` is added to its Horizon (1 to 12 minus the Horizon so far). The owner pays for their Extend Limit account on the first Extend (ADR 0009). */
 export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number) {
   const src = sourcePda(position, source);
   return core(
     [
-      meta(owner, false, true),
+      meta(owner, true, true),
       meta(accountPda(owner), true),
       meta(position, true),
       meta(treasuryPda()),
       meta(src, true),
       meta(holdingPda(accountPda(owner), src), true),
+      meta(extendLimitPda(accountPda(owner)), true),
+      meta(SystemProgram.programId),
     ],
     "extend_native_advance",
     Buffer.from([extraMonths]),
   );
 }
+
+/** Sets the owner's Extend Limit (0 to 11 months): a lower limit applies at once, a higher one 24 hours later. */
+export const setExtendLimitIx = (owner: PublicKey, months: number) =>
+  core(
+    [meta(owner, true, true), meta(accountPda(owner)), meta(extendLimitPda(accountPda(owner)), true), meta(SystemProgram.programId)],
+    "set_extend_limit",
+    Buffer.from([months]),
+  );
 
 /** Permissionless; mints the Yield Fee into the treasury vault. `openAdvance` is the Position's open Advance index, if any (the optional account). */
 export const accrueNativeYieldIx = (position: PublicKey, openAdvance: number | null) =>

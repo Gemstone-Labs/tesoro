@@ -465,6 +465,24 @@ impl Env {
         self.send(&[advance], &p.kp, &[]).map(|_| source)
     }
 
+    fn extend_limit(&self, p: &Person) -> APk {
+        pda(&[EXTEND_LIMIT_SEED, p.account.as_ref()])
+    }
+
+    fn set_extend_limit(&mut self, p: &Person, months: u8) -> Result<(), Failed> {
+        let set = tix(
+            accounts::SetExtendLimit {
+                owner_authority: p.key,
+                owner_account: p.account,
+                extend_limit: self.extend_limit(p),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetExtendLimit { months },
+            vec![],
+        );
+        self.send(&[set], &p.kp, &[])
+    }
+
     fn extend_native(
         &mut self,
         p: &Person,
@@ -480,6 +498,8 @@ impl Env {
                 treasury: pda(&[TREASURY_SEED]),
                 source,
                 holding: self.holding(p, source),
+                extend_limit: self.extend_limit(p),
+                system_program: anchor_lang::system_program::ID,
             },
             instruction::ExtendNativeAdvance { extra_months },
             vec![],
@@ -1564,6 +1584,55 @@ fn a_player_who_lost_the_gemas_extends_the_advance_and_unlocks_on_the_new_schedu
     assert_eq!(env.debt(source), 0);
     env.check_invariants(pos);
     env.unlock(&alice, pos).unwrap();
+}
+
+const DAY: i64 = 24 * 60 * 60;
+
+fn lost_advance(env: &mut Env, alice: &Person) -> (Pos, APk) {
+    let bob = env.staker();
+    let pos = env.open(alice, 2 * SOL).unwrap();
+    let source = env.advance_native(alice, pos, 3).unwrap();
+    let first = env.gemas(alice, source);
+    env.give_won(alice, &bob, source, first);
+    (pos, source)
+}
+
+#[test]
+fn extend_waits_a_day_between_extends_and_stops_at_the_extend_limit() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let (pos, source) = lost_advance(&mut env, &alice);
+    env.extend_native(&alice, pos, source, 1).unwrap();
+    let limit = env.load::<ExtendLimitState>(env.extend_limit(&alice));
+    assert_eq!((limit.inner.months, limit.inner.window_months), (3, 1));
+    // Inside 24 h of the last Extend.
+    env.advance(DAY - 1);
+    assert!(env.extend_native(&alice, pos, source, 1).is_err());
+    // Exactly a day later it goes through, and fills the limit of 3.
+    env.advance(1);
+    env.extend_native(&alice, pos, source, 2).unwrap();
+    assert_eq!(env.load::<SourceState>(source).inner.horizon_months, 6);
+    env.advance(DAY);
+    assert!(env.extend_native(&alice, pos, source, 1).is_err());
+    env.check_invariants(pos);
+}
+
+#[test]
+fn a_lower_extend_limit_applies_at_once_and_a_raise_a_day_later() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let (pos, source) = lost_advance(&mut env, &alice);
+    // More than 11 is refused.
+    assert!(env.set_extend_limit(&alice, 12).is_err());
+    // Raising: pending for a day, so a 4-month Extend still fails.
+    env.set_extend_limit(&alice, 5).unwrap();
+    assert!(env.extend_native(&alice, pos, source, 4).is_err());
+    env.advance(DAY);
+    env.extend_native(&alice, pos, source, 4).unwrap();
+    // Lowering to 0 stops Extend at once, even after the wait.
+    env.advance(DAY);
+    env.set_extend_limit(&alice, 0).unwrap();
+    assert!(env.extend_native(&alice, pos, source, 1).is_err());
 }
 
 #[test]

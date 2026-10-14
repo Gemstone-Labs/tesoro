@@ -226,6 +226,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const net = NETS[vault.net];
   const unit = net.native;
   const { market } = useEthMarket(vault, ctx?.evm.address ?? null);
+  const { refresh: refreshAccount } = useAccount();
   const a = useBusy();
   const toppedUp = useRef<string | null>(null);
   const [step, setStep] = useState<OpenStep | null>(null);
@@ -313,6 +314,8 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
           const op = addOp(ctx.signer.publicKey.toBase58(), { kind: "open", vault: opened.vault, id: opened.id.toString(), months, hash: opened.hash });
           setText("");
           onOpened(op.key);
+          // The Account read behind the header, entry picker and Backing is fresh from the moment the Position opens.
+          await refreshAccount();
         })
       }
     />
@@ -372,7 +375,7 @@ const POLL_MS = 9000;
 const RETRY_MS = 20_000;
 
 /** Drives one operation from chain state (and performs the relayed steps): shared by the Wallet card and the opening page. */
-export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress: () => Promise<void>) {
+export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress: () => Promise<unknown>) {
   const [stage, setStage] = useState(1);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -453,7 +456,7 @@ export function useOpTracker(op: EthOp, ctx: EthCtx, address: string, onProgress
   return { stage, note, error, scan, state: snap, finished: !!op.done || stage >= steps.length };
 }
 
-function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<void> }) {
+function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; address: string; onProgress: () => Promise<unknown> }) {
   const { stage, note, error, scan, finished } = useOpTracker(op, ctx, address, onProgress);
   const steps = opSteps(op.kind, op.vault);
   const copy = opCopy(op.kind, op.vault);

@@ -7,6 +7,7 @@ import { PlayerAvatar } from "@/components/account/Player";
 import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
@@ -38,7 +39,7 @@ function explain(e: unknown): { text: string; wallet?: boolean } {
  * (the Lobby's Enter button, or a Challenge link); it runs once per visit.
  */
 export function EnterMatch(props: EnterKind) {
-  const { auth, snapshot, onChain, loading, gemas } = useAccount();
+  const { auth, snapshot, onChain, loading, gemas, refresh } = useAccount();
   const router = useRouter();
   const started = useRef(false);
   const attempted = useRef(false);
@@ -46,6 +47,7 @@ export function EnterMatch(props: EnterKind) {
   const [failure, setFailure] = useState<{ text: string; wallet?: boolean } | null>(null);
   const [launched, setLaunched] = useState(false);
   const [existing, setExisting] = useState<bigint | null>(null);
+  const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
   const seats = useQueue();
   const game: GameId = props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle");
   const asset = props.kind === "challenge-join" ? 0 : (props.asset ?? 0);
@@ -54,11 +56,27 @@ export function EnterMatch(props: EnterKind) {
   const key = props.kind === "challenge-join" ? props.id : String(props.entry);
   // Own Gemas cover a new entry or Challenge; a Backing pays for itself and a joined Challenge is checked on chain.
   // Only before the entry starts: it reserves the Gemas and would trip this check itself.
-  const needsGemas = !launched && props.kind !== "challenge-join" && !props.backing && onChain && !loading && gemas.available < props.entry;
+  const gemasCheck = !launched && props.kind !== "challenge-join" && !props.backing && onChain && !loading ? checkGemas(gemas.available, props.entry, freshRead === "ok") : "enough";
+  // A shortfall is only believed after a fresh read: Gemas from a Position that just opened may not be in the cached list yet.
+  // When that read fails nothing is confirmed, so the entry goes ahead and the chain has the last word.
+  const needsGemas = props.kind !== "challenge-join" && gemasCheck === "short";
+  const rechecking = gemasCheck === "recheck" && freshRead !== "failed";
+
+  useEffect(() => {
+    if (!rechecking) return;
+    let stopped = false;
+    void refresh().then(
+      (ok) => !stopped && setFreshRead(ok ? "ok" : "failed"),
+      () => !stopped && setFreshRead("failed"),
+    );
+    return () => {
+      stopped = true;
+    };
+  }, [rechecking, refresh]);
 
   useEffect(() => {
     // A failed attempt is retried by reloading the page, never by this effect re-running.
-    if (!signer || started.current || attempted.current || loading || needsGemas) return;
+    if (!signer || started.current || attempted.current || loading || needsGemas || rechecking) return;
     started.current = true;
     attempted.current = true;
     setLaunched(true);
@@ -98,7 +116,7 @@ export function EnterMatch(props: EnterKind) {
     })();
     // The mode and entry are fixed for this page instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signer, key, loading, needsGemas]);
+  }, [signer, key, loading, needsGemas, rechecking]);
 
   const assetName = game === "trading-duel" ? (["SOL", "ETH", "HYPE"][asset] ?? "SOL") : "";
   const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
