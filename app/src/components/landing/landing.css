@@ -198,11 +198,12 @@ html.lenis, html.lenis body { height: auto; }
 /* Held on desktop: LandingMotion sets --h-tube0..6 (how much of each tube is drawn) and --h-<stop> (0..1) on the
    section from the scroll. Without them every var falls back to the complete diagram. */
 /* Pinned, the whole diagram has to fit one window: tighter than the scrolling layout. */
-.lp-how.is-held { padding-block: 84px 36px; }
+.lp-how.is-held { padding-block: clamp(76px, 9.3svh, 84px) clamp(16px, 4svh, 36px); }
 .lp-how.is-held .lp-how-head { margin-bottom: 16px; }
 .lp-how.is-held .lp-how-guide { width: 104px; margin-bottom: -16px; }
-.lp-how.is-held .lp-flowmap { margin-top: 0; }
-.lp-how.is-held .lp-flow-foot { margin-top: 20px; }
+.lp-how.is-held .lp-flowmap { margin-top: 0; margin-inline: auto; width: min(100%, calc((100svh - var(--how-chrome, 345px)) * 1240 / 520)); }
+.lp-how.is-held .lp-outcome-card { height: auto; min-height: 25%; padding-block: 6px; }
+.lp-how.is-held .lp-flow-foot { margin-top: clamp(8px, 2.2svh, 20px); }
 .lp-tube-path { stroke-dasharray: 1 2; stroke-dashoffset: calc(1 - var(--i, 1)); opacity: min(1, calc(var(--i, 1) * 60)); }
 .lp-flow-dot { opacity: clamp(0, calc((var(--i, 1) - 0.98) * 50), 1); }
 .is-held .lp-hold { opacity: calc(0.3 + 0.7 * var(--h-self, 1)); filter: grayscale(calc(1 - var(--h-self, 1))); }
@@ -286,7 +287,16 @@ html.lenis, html.lenis body { height: auto; }
 
 /* 3. Gemas: the Gema stands centre stage in a stepped octagon frame; the three points are callouts around it. */
 .lp-gemas { display: flex; align-items: center; padding-block: var(--sec); overflow: hidden; }
-.lp-gemas.is-scrubbed { min-height: 100svh; padding-block: 96px; }
+.lp-gemas.is-scrubbed { --gv: min(525px, calc(100svh - 250px)); min-height: 100svh; padding-block: clamp(60px, 10.7svh, 96px) clamp(12px, 3svh, 32px); }
+.lp-gemas.is-scrubbed .lp-gemas-head { margin-bottom: clamp(8px, 2.6svh, 24px); }
+.lp-gemas.is-scrubbed .lp-gemas-stage { grid-template-columns: 1fr minmax(0, calc(var(--gv) * 0.8)) 1fr; row-gap: clamp(8px, 2.2svh, 20px); }
+/* Held in a short window the callouts tighten so the three of them stand as tall as the vitrine. */
+@media (max-height: 840px) {
+  .lp-gemas.is-scrubbed .lp-beat { padding: 14px 18px; }
+  .lp-gemas.is-scrubbed .lp-beat-line { font-size: 19px; margin-bottom: 4px; }
+  .lp-gemas.is-scrubbed .lp-beat .lp-body { font-size: 14px; line-height: 1.35; }
+  .lp-gemas.is-scrubbed .lp-beat-n { margin-bottom: 2px; }
+}
 .lp-gemas-head { text-align: center; margin-bottom: 24px; }
 .lp-gemas-head .lp-eyebrow { justify-content: center; }
 .lp-gemas-stage { display: grid; grid-template-columns: 1fr minmax(340px, 420px) 1fr; grid-template-rows: 1fr auto 1fr; column-gap: clamp(28px, 4vw, 64px); row-gap: 20px; align-items: center; }

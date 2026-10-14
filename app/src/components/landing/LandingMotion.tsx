@@ -94,7 +94,7 @@ export function LandingMotion() {
         const how = document.querySelector<HTMLElement>("[data-how]");
         // Held only when the section in its held layout fits the window; otherwise the complete diagram scrolls as on phones.
         const fits = (el: HTMLElement) => el.offsetHeight <= innerHeight;
-        if (how && innerHeight >= 760) {
+        if (how && innerHeight >= 640) {
           how.classList.add("is-held");
         }
         if (how && !fits(how)) how.classList.remove("is-held");
@@ -109,9 +109,9 @@ export function LandingMotion() {
         }
 
         const gemas = document.querySelector<HTMLElement>("[data-gemas]");
-        if (gemas && innerHeight >= 760) gemas.classList.add("is-scrubbed");
+        if (gemas && innerHeight >= 640) gemas.classList.add("is-scrubbed");
         // The Gemas section's own bottom padding may fall below the fold; its content may not.
-        const contentBottom = (el: HTMLElement) => Math.max(...[...el.querySelectorAll("*")].map((c) => c.getBoundingClientRect().bottom)) - el.getBoundingClientRect().top;
+        const contentBottom = (el: HTMLElement) => Math.max(...[...el.querySelectorAll("*")].filter((c) => !c.closest(".lp-showcase-rays")).map((c) => c.getBoundingClientRect().bottom)) - el.getBoundingClientRect().top;
         if (gemas && contentBottom(gemas) > innerHeight + 32) gemas.classList.remove("is-scrubbed");
         if (gemas?.classList.contains("is-scrubbed")) {
           gemas.classList.add("is-stepped");
