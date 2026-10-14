@@ -7,6 +7,7 @@
 //! untouched.
 
 pub mod backing;
+pub mod extend_limit;
 pub mod matches;
 pub mod money;
 pub mod native;
@@ -16,6 +17,7 @@ pub mod season;
 mod tests;
 
 pub use backing::*;
+pub use extend_limit::*;
 pub use matches::*;
 pub use money::*;
 pub use native::{
@@ -111,6 +113,9 @@ core_errors! {
     NotWonGemas => "only won Gemas can be redeemed instantly",
     ExceedsPending => "only Gemas whose yield has not landed can be redeemed instantly; redeem the rest in full",
     AdvanceRepaid => "the advance is already repaid; take another advance instead",
+    ExtendCoolingDown => "an extend needs 24 hours since your last one",
+    ExtendLimitReached => "this extend would go over your extend limit for the period",
+    InvalidExtendLimit => "the extend limit is 0 to 11 months",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
