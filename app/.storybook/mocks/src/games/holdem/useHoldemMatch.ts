@@ -4,7 +4,7 @@ import { screenData } from "../../../../../stories/screens/support/screen";
 
 export type { HoldemView, Stage } from "../../../../../src/games/holdem/useHoldemMatch";
 
-const IDLE: HoldemView = { stage: "waiting", match: null, seat: 0, table: null, hole: null, note: "", error: null, sigs: [], busy: null, refundable: false };
+const IDLE: HoldemView = { stage: "waiting", match: null, seat: 0, table: null, hole: null, note: "", error: null, sigs: [], busy: null, refundable: false, commit: null };
 const done = async () => {};
 
 export function useHoldemMatch() {
