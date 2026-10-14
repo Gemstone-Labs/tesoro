@@ -34,8 +34,3 @@ export const NoSeasonPoints: Story = { parameters: { screen: { leaderboard: "emp
 export const PoolGrows: Story = { parameters: { screen: { pool: { gemas: 12_480, growMs: 4000 } } } };
 /** Before the first read, or with the Leaderboard off: no chest. */
 export const NoPool: Story = { parameters: { screen: { pool: { gemas: null } } } };
-
-/** A small Pool (under 1,000 Gemas) stays quiet: the Season and when it ends, no figure. */
-export const SmallPool: Story = { parameters: { screen: { pool: { gemas: 420 } } } };
-/** Right at the threshold the figure shows. */
-export const PoolAtThreshold: Story = { parameters: { screen: { pool: { gemas: 1_000 } } } };

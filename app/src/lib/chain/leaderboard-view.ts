@@ -55,8 +55,3 @@ export function seasonStanding(view: LeaderboardView, me: string): SeasonStandin
   if (row.rank > PRIZE_PLACES) return { rank: row.rank, points: row.points, toNext: null, toPrizes: past(view.standings[PRIZE_PLACES - 1]) ?? 0 };
   return { rank: row.rank, points: row.points, toNext: i > 0 ? past(view.standings[i - 1]) : null, toPrizes: 0 };
 }
-
-/** Below this many Gemas the Pool is not shown as a figure: a small Pool reads as a small prize. */
-export const POOL_QUIET_BELOW = 1000;
-
-export const poolIsQuiet = (pool: number): boolean => pool < POOL_QUIET_BELOW;
