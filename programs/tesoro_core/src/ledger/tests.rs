@@ -1874,6 +1874,24 @@ fn lowering_below_a_pending_raise_cancels_it() {
 }
 
 #[test]
+fn setting_the_pending_raise_again_keeps_its_timer() {
+    let mut l = ExtendLimit::default();
+    l.set_limit(T, 6).unwrap();
+    let before = l;
+    l.set_limit(T + 100, 6).unwrap();
+    assert_eq!(l, before);
+    assert_eq!(l.effective(T + DAY), 6);
+}
+
+#[test]
+fn setting_the_limit_in_force_with_no_raise_pending_changes_nothing() {
+    let mut l = ExtendLimit::default();
+    let before = l;
+    l.set_limit(T, DEFAULT_EXTEND_LIMIT).unwrap();
+    assert_eq!(l, before);
+}
+
+#[test]
 fn a_due_raise_is_settled_before_the_next_change() {
     let mut l = ExtendLimit::default();
     l.set_limit(T, 6).unwrap();
