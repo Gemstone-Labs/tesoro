@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_EXTEND_LIMIT, decodeExtendLimit, extendLimitView, type ExtendLimitData } from "./extend-limit";
+import { DEFAULT_EXTEND_LIMIT, blockedLabel, decodeExtendLimit, extendLimitChange, extendLimitView, type ExtendLimitData } from "./extend-limit";
 
 const DAY = 86_400;
 const NOW = 1_800_000_000;
@@ -88,5 +88,42 @@ describe("decodeExtendLimit", () => {
     buf[o++] = 2;
     d.setBigInt64(o, 77n, true);
     expect(decodeExtendLimit(buf)).toEqual({ months: 5, pendingMonths: 8, pendingAt: 1234, windowStart: 99, windowMonths: 2, lastExtendAt: 77 });
+  });
+});
+
+describe("an unread limit", () => {
+  it("is unknown, not the default: Extend is blocked until it reads", () => {
+    const v = extendLimitView("unknown", NOW, 3);
+    expect(v.blocked).toEqual({ kind: "unknown" });
+    expect(v.maxMonths).toBe(0);
+  });
+});
+
+describe("extendLimitChange", () => {
+  const v = (l: Partial<ExtendLimitData>) => extendLimitView({ ...fresh, ...l }, NOW, 3);
+  it("lowers at once, raises later", () => {
+    expect(extendLimitChange(v({}), 1)).toBe("lower");
+    expect(extendLimitChange(v({}), 5)).toBe("raise");
+  });
+  it("the value in force with no raise pending changes nothing", () => {
+    expect(extendLimitChange(v({}), 3)).toBe("same");
+  });
+  it("the pending value again changes nothing; the value in force cancels the raise", () => {
+    const pending = v({ pendingMonths: 6, pendingAt: NOW + 3600 });
+    expect(extendLimitChange(pending, 6)).toBe("same");
+    expect(extendLimitChange(pending, 3)).toBe("cancel");
+    expect(extendLimitChange(pending, 2)).toBe("lower");
+    expect(extendLimitChange(pending, 8)).toBe("raise");
+  });
+});
+
+describe("blockedLabel", () => {
+  it("stays short enough for one line at 390 px", () => {
+    for (const b of [{ kind: "waiting", until: NOW }, { kind: "limit", until: NOW }, { kind: "off" }, { kind: "full" }, { kind: "unknown" }] as const) {
+      expect(blockedLabel(b).length).toBeLessThanOrEqual(26);
+    }
+    expect(blockedLabel({ kind: "waiting", until: NOW })).toMatch(/^Wait until /);
+    expect(blockedLabel({ kind: "off" })).toBe("Extend is off");
+    expect(blockedLabel({ kind: "limit", until: NOW })).toBe("Limit reached");
   });
 });

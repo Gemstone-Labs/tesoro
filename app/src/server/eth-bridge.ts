@@ -97,8 +97,14 @@ function evmRelayerKey(): Hex {
   }
 }
 
-/** The relay's Solana connection: its reads retry on rate limits and timeouts. */
-const readConn = () => retryingReads(chain().conn);
+/** The relay's Solana connection (reads and sends): its reads retry on rate limits and timeouts. */
+const proxies = new WeakMap<object, ReturnType<typeof chain>["conn"]>();
+function relayConn() {
+  const conn = chain().conn;
+  let proxy = proxies.get(conn);
+  if (!proxy) proxies.set(conn, (proxy = retryingReads(conn)));
+  return proxy;
+}
 
 const hoodiPublic = () => createPublicClient({ chain: hoodi, transport: http(HOODI_RPC) });
 
@@ -204,7 +210,7 @@ function parseRef(fields: SignedFields) {
 
 /** Sends as the relayer after a simulation, so a step that cannot succeed costs nothing. */
 async function relaySend(ixs: TransactionInstruction[], cu = 400_000): Promise<string> {
-  const conn = readConn();
+  const conn = relayConn();
   const relayer = relayerKey();
   if ((await conn.getBalance(relayer.publicKey)) < RELAYER_MIN_LAMPORTS) throw new DemoHttpError(503, "faucet-empty", "Test funds have run out for now. Try again later.");
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: cu }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }), ...ixs);
@@ -221,7 +227,7 @@ async function relaySend(ixs: TransactionInstruction[], cu = 400_000): Promise<s
 
 /** Inbox record for an id `initPositionIdAllowed` accepts (src/lib/chain/eth.ts). */
 async function initPosition(vault: string, id: bigint, pid: Buffer) {
-  const conn = readConn();
+  const conn = relayConn();
   if (await conn.getAccountInfo(bridgePositionPda(pid))) return { skipped: true };
   const last = await retryRead(() => evmClient(netOfVault(vault)).readContract({ address: vault as Address, abi: vaultAbi, functionName: "nextPositionId" }));
   if (!initPositionIdAllowed(id, last)) throw new DemoHttpError(400, "bad-request", "Unknown Position id.");
@@ -241,7 +247,7 @@ async function initPosition(vault: string, id: bigint, pid: Buffer) {
 }
 
 async function applyLocked(vault: string, pid: Buffer) {
-  const conn = readConn();
+  const conn = relayConn();
   const net = netOfVault(vault);
   if (await conn.getAccountInfo(corePositionPda(pid))) return { skipped: true };
   const bp = await conn.getAccountInfo(bridgePositionPda(pid));
@@ -273,7 +279,7 @@ async function applyLocked(vault: string, pid: Buffer) {
 }
 
 async function applyYield(vault: string, pid: Buffer) {
-  const conn = readConn();
+  const conn = relayConn();
   const net = netOfVault(vault);
   const cp = corePositionPda(pid);
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
@@ -330,7 +336,7 @@ async function sendAccounts(vault: string) {
 }
 
 async function quoteFee(vault: string, type: number, quoteMetas: ReturnType<typeof key>[]): Promise<bigint> {
-  const conn = readConn();
+  const conn = relayConn();
   const relayer = relayerKey();
   const { endpointSettings } = endpointPdas();
   const ix = new TransactionInstruction({
@@ -354,7 +360,7 @@ function endpointPdas() {
 const sendParams = (vault: string, pid: Buffer, fee: bigint) => Buffer.concat([u32le(netOfVault(vault).eid), pid, vecU8(new Uint8Array(0)), u64le(fee), u64le(0n)]);
 
 async function sendUnlock(vault: string, pid: Buffer) {
-  const conn = readConn();
+  const conn = relayConn();
   const cp = corePositionPda(pid);
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
   if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
@@ -388,7 +394,7 @@ async function sendUnlock(vault: string, pid: Buffer) {
  * Both claims share a layout and the same account list; only the claim PDA and the message type differ.
  */
 async function sendPay(kind: "yield" | "instant", vault: string, pid: Buffer, holderAuthority: PublicKey, sourceIndex: unknown) {
-  const conn = readConn();
+  const conn = relayConn();
   const cp = corePositionPda(pid);
   const holder = coreAccountPda(holderAuthority);
   const core = await conn.getAccountInfo(cp);
@@ -473,7 +479,7 @@ export async function assetPrice(asset: Asset): Promise<{ microUsd: bigint; live
 }
 
 async function advance(address: PublicKey, vault: string, pid: Buffer, months: number, sub: string | null) {
-  const conn = readConn();
+  const conn = relayConn();
   if (!Number.isInteger(months) || months < 1 || months > 12) throw new DemoHttpError(400, "bad-request", "Horizon must be 1 to 12 months.");
   const cp = corePositionPda(pid);
   const info = await conn.getAccountInfo(cp);
@@ -527,7 +533,7 @@ export const chainName = (vault: string) => (netOfVault(vault).key === "hoodi" ?
 /** A relay step that failed for a reason the Player cannot act on: names the Position's chain, says whether to retry. */
 export function relayFailure(vault: string, e: unknown): DemoHttpError {
   const name = chainName(vault);
-  if (isTransient(e)) return new DemoHttpError(503, "busy", `The ${name} network is busy right now. This continues automatically; try again in a few seconds.`);
+  if (isTransient(e)) return new DemoHttpError(503, "busy", `The ${name} network is busy. Try again in a few seconds.`);
   return new DemoHttpError(500, "error", `${name} Position step failed.`);
 }
 

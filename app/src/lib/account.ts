@@ -38,8 +38,8 @@ export interface AccountView {
   openMatches: ChainMatch[];
   /** The raw chain snapshot (null while loading or when mock). */
   snapshot: AccountSnapshot | null;
-  /** Re-read the Account from chain now. */
-  refresh: () => Promise<void>;
+  /** Re-read the Account from chain now. Resolves false when the read failed. */
+  refresh: () => Promise<boolean>;
   /**
    * Why an entry of this size cannot be made from the Account's Holdings under tesoro_core's draw
    * rule (not enough Gemas, or more than 8 Sources needed), or null when it can. Always null when
