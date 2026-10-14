@@ -365,6 +365,9 @@ html.lenis, html.lenis body { height: auto; }
 .lp-peek { position: absolute; left: 0; right: 0; height: 80px; display: flex; gap: 8px; align-items: flex-start; background: var(--raised-2); padding: 7px 18px; font-size: 12px; color: var(--fg-2); white-space: nowrap; overflow: hidden; }
 .lp-peek:nth-of-type(1) { top: 24px; transform: scaleX(0.88); opacity: 0.5; }
 .lp-peek:nth-of-type(2) { top: 50px; transform: scaleX(0.94); opacity: 0.8; }
+/* Scroll-tied entry (desktop, motion allowed): the Requests start tucked behind the Offer card and fan out to the resting places above. */
+.is-fanned .lp-peek:nth-of-type(1) { transform: translateY(calc((1 - var(--b-fan, 1)) * 56px)) scaleX(0.88); opacity: calc(0.5 * var(--b-fan, 1)); }
+.is-fanned .lp-peek:nth-of-type(2) { transform: translateY(calc((1 - var(--b-fan, 1)) * 30px)) scaleX(0.94); opacity: calc(0.8 * var(--b-fan, 1)); }
 .lp-peek img { width: 16px; height: 16px; object-fit: cover; flex: none; }
 .lp-peek b { color: var(--fg); }
 .lp-peek span { display: inline-flex; align-items: center; gap: 4px; }
@@ -445,6 +448,8 @@ html.lenis, html.lenis body { height: auto; }
 .lp-pot-ring { position: relative; width: min(100%, 240px); aspect-ratio: 1; }
 .lp-pot-ring svg { width: 100%; height: 100%; rotate: -90deg; overflow: visible; }
 .lp-pot-ring circle { fill: none; stroke-width: 14; }
+/* Scroll-tied entry: each arc grows from nothing to its length (--len of the 100-long ring) with --p-draw. */
+.is-drawn .lp-pot-ring circle:not(.track) { stroke-dasharray: calc(var(--len) * var(--p-draw, 1)) 100; }
 .lp-pot-ring .track { stroke: var(--line); }
 .lp-pot-ring .win { stroke: color-mix(in srgb, var(--em) 32%, var(--raised-2)); }
 .lp-pot-ring .studio { stroke: var(--em); filter: drop-shadow(0 0 6px var(--em)); }

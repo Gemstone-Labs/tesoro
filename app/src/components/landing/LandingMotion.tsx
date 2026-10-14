@@ -126,6 +126,32 @@ export function LandingMotion() {
         }
 
 
+        // Backing: the two Requests behind the Offer card fan out as the section arrives.
+        const backing = document.querySelector<HTMLElement>("[data-backing]");
+        if (backing) {
+          backing.classList.add("is-fanned");
+          backing.style.setProperty("--b-fan", "0");
+          ScrollTrigger.create({
+            trigger: backing.querySelector(".lp-backing-stage"),
+            start: "top 90%",
+            end: "top 45%",
+            onUpdate: (self) => backing.style.setProperty("--b-fan", self.progress.toFixed(4)),
+          });
+        }
+
+        // Studios: the Pot ring's arcs draw in to today's proportions as the section arrives.
+        const pot = document.querySelector<HTMLElement>(".lp-pot");
+        if (pot) {
+          pot.classList.add("is-drawn");
+          pot.style.setProperty("--p-draw", "0");
+          ScrollTrigger.create({
+            trigger: pot,
+            start: "top 85%",
+            end: "top 40%",
+            onUpdate: (self) => pot.style.setProperty("--p-draw", self.progress.toFixed(4)),
+          });
+        }
+
         const final = document.querySelector<HTMLElement>(".lp-final");
         if (final) {
           const scrub = { trigger: final, start: "top bottom", end: "bottom bottom", scrub: true };
@@ -139,6 +165,12 @@ export function LandingMotion() {
           document.querySelector<HTMLElement>("[data-gemas]")?.style.removeProperty("--g-sweep");
           document.querySelector<HTMLElement>("[data-how]")?.removeAttribute("style");
           document.querySelector("[data-how]")?.classList.remove("is-held");
+          const backing = document.querySelector<HTMLElement>("[data-backing]");
+          backing?.classList.remove("is-fanned");
+          backing?.style.removeProperty("--b-fan");
+          const pot = document.querySelector<HTMLElement>(".lp-pot");
+          pot?.classList.remove("is-drawn");
+          pot?.style.removeProperty("--p-draw");
           gemState.beat = 0;
         };
       });
