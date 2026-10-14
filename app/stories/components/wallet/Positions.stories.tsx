@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, within } from "storybook/test";
 import { EthFaucet, EthOpenForm, EthOps, EthPositionCard } from "@/app/(app)/wallet/EthPositions";
 import { NativeAdvanceSheet, NativeExtendSheet, NativeFaucet, NativeOpenForm, NativePositionCard } from "@/app/(app)/wallet/NativePositions";
+import { DEFAULT_EXTEND_LIMIT_DATA, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { quoteNativeAdvance } from "@/lib/chain/native";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import { withScreen } from "../../screens/support/screen";
@@ -62,6 +63,33 @@ export const SolExtendSheetMax: Story = {
     await userEvent.keyboard("{End}");
   },
 };
+const HOUR = 3600;
+const sec = () => Math.floor(Date.now() / 1000);
+/** An Extend Limit read as the program holds it, relative to now: `ago` seconds since the first Extend of the period. */
+const limitWith = (l: Partial<ExtendLimitData> & { ago?: number; lastAgo?: number }): ExtendLimitData => {
+  const { ago, lastAgo, ...rest } = l;
+  return {
+    ...DEFAULT_EXTEND_LIMIT_DATA,
+    ...(ago !== undefined ? { windowStart: sec() - ago } : {}),
+    ...(lastAgo !== undefined ? { lastExtendAt: sec() - lastAgo } : {}),
+    ...rest,
+  };
+};
+const extendSheet = (limit: ExtendLimitData) => ({
+  parameters: { data: { snapshot: nativeSnapshot("debt") } },
+  render: () => <NativeExtendSheet info={extendable()} market={NATIVE_MARKET} open onClose={() => {}} limit={limit} />,
+});
+/** No Extend yet: the default limit of 3 months a period, nothing used, the picker stops at 3. */
+export const SolExtendCanExtend: Story = extendSheet(DEFAULT_EXTEND_LIMIT_DATA);
+/** One month extended 2 hours ago: the button waits and says until when. */
+export const SolExtendWaiting: Story = extendSheet(limitWith({ windowMonths: 1, ago: 2 * HOUR, lastAgo: 2 * HOUR }));
+/** The 3 months are used: the button says when the 30-day period resets. */
+export const SolExtendAtLimit: Story = extendSheet(limitWith({ windowMonths: 3, ago: 5 * 24 * HOUR, lastAgo: 5 * 24 * HOUR }));
+/** Limit set to 0: Extend is off until the Player raises it (24 h). */
+export const SolExtendLimitZero: Story = extendSheet(limitWith({ months: 0 }));
+/** A raise to 6 months is waiting for its 24 h. */
+export const SolExtendPendingRaise: Story = extendSheet(limitWith({ pendingMonths: 6, pendingAt: sec() + 20 * HOUR }));
+
 /** Debt is zero: Take another Advance on the same Principal, or Unlock. */
 export const SolTakeAnotherAdvance: Story = {
   parameters: { data: { snapshot: nativeSnapshot("repaid") } },

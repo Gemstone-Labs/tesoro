@@ -59,3 +59,9 @@ dialog.sheet.adv-sheet { max-width: 520px; }
   .adv-flow { animation: none; mask-image: none; }
   .adv-note { animation: none; }
 }
+
+/* Extend sheet: the running count and the Extend Limit control. */
+.ext-limit { display: grid; gap: 8px; }
+.ext-limit .note { margin: 0; }
+.ext-limit-row { display: flex; align-items: center; gap: 10px; }
+.ext-limit-row .cut { flex: 1; }
