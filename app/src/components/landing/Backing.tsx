@@ -16,7 +16,7 @@ const PEEKS = [
 export function Backing() {
   const her = landingArt("herBacker");
   return (
-    <section id="backing" className="lp-section lp-backing" aria-labelledby="backing-title">
+    <section id="backing" className="lp-section lp-backing" data-backing aria-labelledby="backing-title">
       <div className="lp-wrap lp-backing-grid">
         <div className="lp-backing-copy">
           <h2 id="backing-title" className="lp-h2" data-reveal>

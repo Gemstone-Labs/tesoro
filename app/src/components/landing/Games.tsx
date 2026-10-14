@@ -15,7 +15,7 @@ const GAMES: LandingGame[] = [
       ["Moves", "Private"],
     ],
     art: art.blockPuzzleHero,
-    loop: [784, 862],
+    loop: [900, 622],
     href: appHref("/play/block-puzzle"),
   },
   {
@@ -29,8 +29,23 @@ const GAMES: LandingGame[] = [
       ["Deck", "Hidden"],
     ],
     art: art.holdemHero,
-    loop: [1124, 752],
+    loop: [800, 548],
     href: appHref("/play/holdem"),
+  },
+  {
+    id: "trading-duel",
+    name: "Trading Duel",
+    note: "Real-time, 2½ min",
+    body: "Two Players watch one live price. Pick the box the line will pass through in each ten second column: every hit scores 100, and more points wins.",
+    facts: [
+      ["Pace", "Real-time"],
+      ["Length", "2½ min"],
+      ["Picks", "Private until they lock"],
+      ["Price", "Live, never delayed"],
+    ],
+    art: art.tradingDuelHero,
+    loop: [1000, 576],
+    href: appHref("/play/trading-duel"),
   },
 ];
 

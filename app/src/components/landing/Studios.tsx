@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { Plus } from "lucide-react";
 import { GemaMark } from "@/components/ui/gema";
 import { art } from "@/lib/art";
@@ -7,6 +8,7 @@ import { ArriveFlow } from "./ArriveFlow";
 const CATALOGUE = [
   { src: art.blockPuzzleTile, name: "Block Puzzle", live: true },
   { src: art.holdemTile, name: "Heads-up Hold’em", live: true },
+  { src: art.tradingDuelTile, name: "Trading Duel", live: true },
   { src: art.comingSoon["word-duel"], name: "Word Duel" },
   { src: art.comingSoon["bubble-burst"], name: "Bubble Burst" },
 ];
@@ -26,7 +28,7 @@ function PotRing() {
         <svg viewBox="0 0 120 120">
           <circle cx="60" cy="60" r="48" className="track" pathLength={100} />
           {arcs.map((a) => (
-            <circle key={a.cls} cx="60" cy="60" r="48" className={a.cls} pathLength={100} strokeDasharray={`${a.len} ${100 - a.len}`} strokeDashoffset={-a.off} />
+            <circle key={a.cls} cx="60" cy="60" r="48" className={a.cls} pathLength={100} strokeDasharray={`${a.len} ${100 - a.len}`} strokeDashoffset={-a.off} style={{ "--len": a.len } as CSSProperties} />
           ))}
         </svg>
         <span className="lp-pot-center">
