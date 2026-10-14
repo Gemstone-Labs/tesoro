@@ -1363,6 +1363,7 @@
       "accounts": [
         {
           "name": "owner_authority",
+          "writable": true,
           "signer": true
         },
         {
@@ -1471,6 +1472,42 @@
               }
             ]
           }
+        },
+        {
+          "name": "extend_limit",
+          "docs": [
+            "The owner's Extend Limit, created at the default on the first Extend."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  120,
+                  116,
+                  101,
+                  110,
+                  100,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -4508,6 +4545,88 @@
       ]
     },
     {
+      "name": "set_extend_limit",
+      "discriminator": [
+        65,
+        155,
+        204,
+        105,
+        123,
+        5,
+        36,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "extend_limit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  120,
+                  116,
+                  101,
+                  110,
+                  100,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "months",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "set_name_evm",
       "discriminator": [
         88,
@@ -5567,6 +5686,19 @@
       ]
     },
     {
+      "name": "ExtendLimitState",
+      "discriminator": [
+        130,
+        48,
+        159,
+        136,
+        171,
+        82,
+        253,
+        29
+      ]
+    },
+    {
       "name": "HoldingState",
       "discriminator": [
         89,
@@ -5787,6 +5919,19 @@
         108,
         78,
         113
+      ]
+    },
+    {
+      "name": "ExtendLimitSet",
+      "discriminator": [
+        128,
+        148,
+        67,
+        162,
+        231,
+        194,
+        73,
+        171
       ]
     },
     {
@@ -6262,6 +6407,108 @@
               "readers show the fee only for Matches opened at or after it. Zero until then."
             ],
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExtendLimit",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "months",
+            "docs": [
+              "The limit in force, before any due raise."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pending_months",
+            "docs": [
+              "A raise waiting for `pending_at` (zero = none)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pending_at",
+            "type": "i64"
+          },
+          {
+            "name": "window_start",
+            "docs": [
+              "When the current period began (zero = no Extend yet) and the months added in it."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "window_months",
+            "type": "u8"
+          },
+          {
+            "name": "last_extend_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExtendLimitSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "months",
+            "docs": [
+              "The limit in force after the change."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pending_months",
+            "docs": [
+              "A raise waiting for `pending_at` (zero = none)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pending_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExtendLimitState",
+      "docs": [
+        "A Player's Extend Limit. Seeds `[\"extend_limit\", account]`; created by the first Extend (at the",
+        "default) or by `set_extend_limit`, paid by the owner."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "account",
+            "docs": [
+              "The `TesoroAccount` this limit belongs to; the default key until first used."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "ExtendLimit"
+              }
+            }
           }
         ]
       }
