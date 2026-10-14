@@ -219,6 +219,38 @@ const CHECKS = [
       assert(bad.length === 0, `empty band over 35% at y=${bad.map((s) => `${s.y}(${s.gap},${s.sec})`).join(" ")}`);
     },
   },
+  {
+    name: "backing requests fan out from behind the offer card on entry",
+    runs: [...DESKTOP],
+    fn({ entry, note, assert }) {
+      const e = entry.backing;
+      note("backingEntry", e);
+      assert(e[0].peeks.every((p, i) => p.top > e[3].peeks[i].top + 8), `peeks not tucked on arrival: ${JSON.stringify(e[0].peeks)}`);
+      assert(e[1].peeks.some((p, i) => p.top < e[0].peeks[i].top - 2 && p.top > e[3].peeks[i].top + 2), `no in-between position: ${JSON.stringify(e[1].peeks)}`);
+      const rest = e[3].peeks;
+      assert(rest[0].top === 24 && rest[1].top === 50 && rest[0].op === 0.5 && rest[1].op === 0.8, `resting place changed: ${JSON.stringify(rest)}`);
+    },
+  },
+  {
+    name: "pot ring arcs grow on entry and end at today's proportions",
+    runs: [...DESKTOP],
+    fn({ entry, note, assert }) {
+      const e = entry.studios;
+      note("potEntry", e);
+      assert(e[0].arcs.win < 5, `ring already drawn on arrival: ${JSON.stringify(e[0].arcs)}`);
+      assert(e[1].arcs.win > e[0].arcs.win + 1 || e[2].arcs.win > e[1].arcs.win + 1, `arcs do not grow: ${JSON.stringify(e.map((x) => x.arcs.win))}`);
+      const a = e[3].arcs;
+      assert(a.win === 76 && a.studio === 9 && a.platform === 6.5 && a.pool === 3.5, `resting proportions changed: ${JSON.stringify(a)}`);
+    },
+  },
+  {
+    name: "backing requests and pot ring rest in their final place from first paint",
+    runs: ["phone", "reduced"],
+    fn({ entry, assert }) {
+      for (const x of entry.backing) assert(x.peeks[0].top === 24 && x.peeks[1].top === 50 && x.peeks[0].op === 0.5, `peeks moved: ${JSON.stringify(x)}`);
+      for (const x of entry.studios) assert(x.arcs.win === 76 && x.arcs.studio === 9 && x.arcs.pool === 3.5, `arcs not final: ${JSON.stringify(x)}`);
+    },
+  },
 ];
 
 /** Runs in the page: layout facts used by the checks. */
@@ -266,6 +298,23 @@ function readLayout() {
     loops: [...document.querySelectorAll(".lp-loop")].map((v) => ({ label: v.getAttribute("aria-label"), sources: [...v.querySelectorAll("source")].map((x) => x.getAttribute("src")), poster: v.getAttribute("poster") })),
     catalogue: [...document.querySelectorAll(".lp-catalogue li:not(.lp-slot)")].map((li) => ({ name: li.querySelector("span:not(.lp-status)")?.textContent.trim(), status: li.querySelector(".lp-status")?.textContent.trim() })),
   };
+}
+
+/** Runs in the page: the two Requests behind the Offer card (top relative to the board, opacity). */
+function readBacking() {
+  const board = document.querySelector(".lp-board").getBoundingClientRect();
+  const peeks = [...document.querySelectorAll(".lp-peek")].map((p) => ({ top: Math.round(p.getBoundingClientRect().top - board.top), op: +(+getComputedStyle(p).opacity).toFixed(2) }));
+  return { peeks };
+}
+
+/** Runs in the page: drawn length of each Pot ring arc (of 100). */
+function readPot() {
+  const len = (c) => {
+    const d = getComputedStyle(document.querySelector(`.lp-pot-ring .${c}`)).strokeDasharray;
+    return +(parseFloat(d.replace(/^calc\(/, "")) || 0).toFixed(2);
+  };
+  const arcs = Object.fromEntries(["win", "studio", "platform", "pool"].map((c) => [c, len(c)]));
+  return { arcs };
 }
 
 /** Runs in the page: what the visitor sees at the current scroll position. */
@@ -403,11 +452,28 @@ async function walk(browser, name, run) {
     }
   }
 
+  // Entry probes for the Backing Requests and the Studios Pot ring: read them as their section arrives.
+  const entry = { backing: [], studios: [] };
+  for (const [key, q, read] of [["backing", ".lp-backing-stage", readBacking], ["studios", ".lp-pot", readPot]]) {
+    const top = await page.evaluate((sel) => Math.round(document.querySelector(sel).getBoundingClientRect().top + scrollY), q);
+    for (const f of [1, 0.62, 0.5, 0.3]) {
+      await page.evaluate((v) => scrollTo(0, v), Math.max(0, Math.round(top - run.h * f)));
+      // smooth scroll (Lenis) eases to the target: wait until it stops moving
+      await page.waitForTimeout(500);
+      await page.waitForFunction(() => new Promise((r) => { const y = scrollY; setTimeout(() => r(scrollY === y), 250); }), null, { timeout: 8000, polling: 300 }).catch(() => {});
+      const r = await page.evaluate(read);
+      const file = `${key}-${f}.png`;
+      await page.screenshot({ path: join(dir, file) });
+      shots.push({ file, label: `${key} ${f}` });
+      entry[key].push({ at: f, ...r });
+    }
+  }
+
   writeFileSync(join(dir, "layout.json"), JSON.stringify(layout, null, 2));
-  writeFileSync(join(dir, "steps.json"), JSON.stringify({ down, up, how: howSamples }, null, 2));
+  writeFileSync(join(dir, "steps.json"), JSON.stringify({ down, up, how: howSamples, entry }, null, 2));
   await contactSheet(browser, dir, shots, run);
   await ctx.close();
-  return { layout, down, up, how: howSamples, page: null };
+  return { layout, down, up, how: howSamples, entry, page: null };
 }
 
 /** Waits for the Gemas cards' opacity transitions to finish so a sample never reads a mid-fade value. */
