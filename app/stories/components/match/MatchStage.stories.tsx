@@ -73,3 +73,11 @@ export const DuelWaiting: Story = { args: stage("trading-duel", "waiting", { cha
 /** Chips are dealt. */
 export const DuelSetup: Story = { args: stage("trading-duel", "setup") };
 export const WithError: Story = { args: stage("block-puzzle", "awaiting", { error: "Your opponent is still playing." }) };
+
+const soon = () => Math.floor(Date.now() / 1000) + 38 * 60;
+/** Past its settle time, not settled: the Gemas are safe and the refund has a time. */
+export const Delayed: Story = { args: stage("block-puzzle", "awaiting", { delayed: { refundBy: soon(), refundOpen: false } }) };
+export const DelayedRefundOpen: Story = { args: stage("block-puzzle", "awaiting", { delayed: { refundBy: soon() - 3600, refundOpen: true }, actions: <StageAction onClick={noop}>Refund Match</StageAction> }) };
+export const DelayedAfterPlay: Story = { args: stage("trading-duel", "closing", { delayed: { refundBy: soon(), refundOpen: false } }) };
+export const Delayed1440: Story = { ...Delayed, globals: { viewport: { value: "desktop1440", isRotated: false } } };
+export const Delayed390: Story = { ...Delayed, globals: { viewport: { value: "phone390", isRotated: false } } };

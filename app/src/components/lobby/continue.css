@@ -9,6 +9,7 @@
 .continue-game { font-family: var(--f-display); font-size: 20px; font-weight: 800; line-height: 1; text-transform: uppercase; }
 .continue-status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
 .continue-status i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--fg-3); }
+.continue-status i.delayed { background: var(--warn, #e0a23b); }
 .continue-status i.ready { background: var(--fg); animation: continue-ready 1.4s ease-in-out infinite; }
 @keyframes continue-ready { 0%, 100% { box-shadow: 0 0 0 3px rgba(234, 239, 236, 0.18); } 50% { box-shadow: 0 0 0 6px rgba(234, 239, 236, 0); } }
 .continue-figures { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; font-weight: 700; }

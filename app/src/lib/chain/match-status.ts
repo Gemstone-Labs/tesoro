@@ -47,6 +47,12 @@ export function matchStanding(m: Input, nowSecs: number): MatchStanding {
   return { kind: "delayed", refundBy: m.deadline, refundOpen: nowSecs >= m.deadline };
 }
 
+/** The Delayed standing of a Match, or null when it is anything else. */
+export function delayedOf(m: Input, nowSecs: number): { refundBy: number; refundOpen: boolean } | null {
+  const s = matchStanding(m, nowSecs);
+  return s.kind === "delayed" ? { refundBy: s.refundBy, refundOpen: s.refundOpen } : null;
+}
+
 /** The Delayed Matches among `matches`, soonest refund first. */
 export function delayedMatches<T extends Input>(matches: T[], nowSecs: number): T[] {
   return matches
