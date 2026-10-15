@@ -5,7 +5,8 @@
   "license": "MIT",
   "scripts": {
     "lz": "ts-node-transpile-only scripts/lz.ts",
-    "flow": "ts-node-transpile-only scripts/flow.ts"
+    "flow": "ts-node-transpile-only scripts/flow.ts",
+    "lz-mainnet": "ts-node-transpile-only scripts/lz-mainnet.ts"
   },
   "devDependencies": {
     "@layerzerolabs/lz-solana-sdk-v2": "^3.0.118",
