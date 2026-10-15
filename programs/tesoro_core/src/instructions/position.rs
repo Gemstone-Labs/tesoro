@@ -73,7 +73,8 @@ pub(crate) fn open_position<'info>(
 }
 
 /// An Advance: the owner picks the Horizon, the oracle authority supplies the USD price at
-/// issuance (the Pyth seam). Both sign.
+/// issuance (test mode only: an asset with an `OnchainPrice` is advanced by `take_advance_onchain`
+/// and this refuses it; the asset's `OnchainPrice` address is the first remaining account). Both sign.
 #[derive(Accounts)]
 pub struct TakeAdvance<'info> {
     #[account(mut)]
@@ -125,6 +126,10 @@ pub(crate) fn take_advance(
     horizon_months: u8,
     price_micro_usd: u64,
 ) -> Result<()> {
+    crate::instructions::onchain_price::require_no_onchain_price(
+        &Pubkey::new_from_array(ctx.accounts.position.inner.source_asset),
+        ctx.remaining_accounts,
+    )?;
     let a = ctx.accounts;
     issue_advance(
         &mut a.position,

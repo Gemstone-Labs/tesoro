@@ -7,7 +7,7 @@ import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { getChain } from "@/lib/chain/client";
 import { ratesOf } from "@/lib/chain/fees";
-import { LAMPORTS, MAX_PRICE_AGE_SECS, quoteNativeAdvance, unlockEstimateMs, RATE_SCALE } from "@/lib/chain/native";
+import { LAMPORTS, MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, quoteNativeAdvance, unlockEstimateMs, RATE_SCALE } from "@/lib/chain/native";
 import { friendlyError } from "@/lib/chain/native-flow";
 import { fetchStakeMarket, openStakePosition, type StakeMarket } from "@/lib/chain/stake-flow";
 import { quoteDepositSol, stakePoolRate, tokenSymbol } from "@/lib/chain/stake-pool";
@@ -56,7 +56,7 @@ export function StakeOpenForm({ onDone }: { onDone?: () => void }) {
   const principal = (tokens * rate) / RATE_SCALE;
   const { yieldFeeBps } = ratesOf(market?.treasury);
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
-  const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
+  const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - PRICE_QUOTE_MARGIN_SECS;
   const quote = market && priceOk && market.apyBps > 0 ? quoteNativeAdvance(principal, market.apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   const estimate =

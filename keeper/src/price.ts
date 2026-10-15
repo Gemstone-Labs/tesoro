@@ -7,6 +7,8 @@ import { PRICE_FEED, setPriceIx } from "../../app/src/lib/chain/native.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { readKeypair } from "./env.ts";
 import { keypairFromEnv } from "./keys.ts";
+import { keeperCluster } from "./cluster.ts";
+import type { ClusterSettings } from "../../app/src/lib/cluster-settings.ts";
 
 /** Refresh when the on-chain feed is older than this. `take_native_advance` rejects prices older than 24 h. */
 const REFRESH_AFTER_SECS = Number(process.env.KEEPER_PRICE_REFRESH_SECS ?? 50 * 60);
@@ -70,6 +72,9 @@ export async function fetchSolUsd(lastUsd: number | null): Promise<{ usd: number
   throw new Error(errors.join("; "));
 }
 
+/** The keeper writes the Advance price in test mode only; on mainnet Advances read the Pyth feeds (ADR 0010) and this job does nothing. */
+export const priceJobEnabled = (cluster: ClusterSettings = keeperCluster()) => cluster.priceSource === "keeper";
+
 let oracle: Keypair | null = null;
 export function oracleKey(): Keypair | null {
   if (oracle) return oracle;
@@ -88,7 +93,8 @@ export function oracleKey(): Keypair | null {
  * re-stamping the last value would make an old price look fresh to `take_native_advance`'s 24 h check.
  * This is a DEVNET price feed, a stand-in until Pyth is read on chain.
  */
-export async function priceJob(ctx: Ctx): Promise<number> {
+export async function priceJob(ctx: Ctx, cluster: ClusterSettings = keeperCluster()): Promise<number> {
+  if (!priceJobEnabled(cluster)) return 0;
   const info = await ctx.conn.getAccountInfo(PRICE_FEED, "confirmed");
   let last: { usd: number; updated: number } | null = null;
   if (info && info.data.length >= 57) {

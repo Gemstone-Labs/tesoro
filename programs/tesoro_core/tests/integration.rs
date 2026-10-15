@@ -307,6 +307,13 @@ impl Env {
         price: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         let source = source_pda(position, index);
+        let asset = {
+            let acct = self.svm.get_account(&s(position)).expect("position");
+            PositionState::try_deserialize(&mut acct.data.as_slice())
+                .expect("position")
+                .inner
+                .source_asset
+        };
         let advance = ix(
             accounts::TakeAdvance {
                 oracle: a(self.oracle.pubkey()),
@@ -323,7 +330,10 @@ impl Env {
                 horizon_months: horizon,
                 price_micro_usd: price,
             },
-            vec![],
+            vec![AccountMeta::new_readonly(
+                s(pda(&[ONCHAIN_PRICE_SEED, &asset])),
+                false,
+            )],
         );
         let oracle = self.oracle.insecure_clone();
         self.send(&[advance], &oracle, &[&p.kp])

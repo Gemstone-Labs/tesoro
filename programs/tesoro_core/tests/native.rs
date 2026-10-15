@@ -3553,3 +3553,372 @@ fn no_ceiling_means_no_stake_pool_advance_and_the_apy_account_cannot_be_left_out
     env.advance_native(&alice, pos, 1).unwrap();
     assert_eq!(rate_bps_of(&env, pos), 500);
 }
+
+// --- On-chain prices (ADR 0010) -------------------------------------------------------------
+
+const PYTH_SOL_USD: [u8; 32] = [0xef; 32];
+const PYTH_ETH_USD: [u8; 32] = [0xff; 32];
+const PYTH_RECEIVER_ID: APk = tesoro_core::pyth::PYTH_RECEIVER;
+const ERR_BAD_PRICE_FEED: u32 = 6021;
+const ERR_PRICE_UNCERTAIN: u32 = 6022;
+const ERR_ONCHAIN_REQUIRED: u32 = 6023;
+const ERR_UNAUTHORIZED: u32 = 6000;
+/// $150 with the exponent Pyth publishes, -8.
+const FEED_150: i64 = 15_000_000_000;
+
+/// A `PriceUpdateV2` image (`VerificationLevel::Full`).
+fn pyth_image(feed_id: [u8; 32], price: i64, conf: u64, published: i64) -> Vec<u8> {
+    let mut d = vec![0u8; tesoro_core::pyth::PRICE_UPDATE_V2_LEN];
+    d[0..8].copy_from_slice(&tesoro_core::pyth::PRICE_UPDATE_V2);
+    d[40] = 1;
+    d[41..73].copy_from_slice(&feed_id);
+    d[73..81].copy_from_slice(&price.to_le_bytes());
+    d[81..89].copy_from_slice(&conf.to_le_bytes());
+    d[89..93].copy_from_slice(&(-8i32).to_le_bytes());
+    d[93..101].copy_from_slice(&published.to_le_bytes());
+    d
+}
+
+fn put_feed(env: &mut Env, key: APk, feed_id: [u8; 32], price: i64, conf: u64, published: i64) {
+    put_account(
+        env,
+        key,
+        PYTH_RECEIVER_ID,
+        pyth_image(feed_id, price, conf, published),
+    );
+}
+
+fn onchain_price_pda(asset: APk) -> APk {
+    pda(&[ONCHAIN_PRICE_SEED, asset.as_ref()])
+}
+
+fn set_onchain_price_ix(
+    admin: APk,
+    asset: APk,
+    feed: APk,
+    feed_id: [u8; 32],
+    max_age_secs: u32,
+    max_conf_bps: u16,
+) -> Instruction {
+    tix(
+        accounts::SetOnchainPrice {
+            admin,
+            config: pda(&[CONFIG_SEED]),
+            onchain_price: onchain_price_pda(asset),
+            feed,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::SetOnchainPrice {
+            asset,
+            feed_id,
+            max_age_secs,
+            max_conf_bps,
+        },
+        vec![],
+    )
+}
+
+fn map_price(env: &mut Env, asset: APk, feed: APk, feed_id: [u8; 32]) -> Result<(), Failed> {
+    let admin = env.admin.insecure_clone();
+    let set = set_onchain_price_ix(a(admin.pubkey()), asset, feed, feed_id, 90, 100);
+    env.send(&[set], &admin, &[])
+}
+
+impl Env {
+    fn advance_onchain_ix(&self, p: &Person, pos: Pos, feed: APk, months: u8) -> Instruction {
+        let state = self.load::<PositionState>(pos.position);
+        let asset = APk::new_from_array(state.inner.source_asset);
+        let source = self.source(pos, state.inner.advances);
+        tix(
+            accounts::TakeNativeAdvanceOnchain {
+                owner_authority: p.key,
+                owner_account: p.account,
+                position: pos.position,
+                onchain_price: onchain_price_pda(asset),
+                price_feed: feed,
+                treasury: pda(&[TREASURY_SEED]),
+                source,
+                holding: self.holding(p, source),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::TakeNativeAdvanceOnchain {
+                horizon_months: months,
+            },
+            self.apy_remaining(pos),
+        )
+    }
+
+    fn advance_onchain(
+        &mut self,
+        p: &Person,
+        pos: Pos,
+        feed: APk,
+        months: u8,
+    ) -> Result<APk, Failed> {
+        let state = self.load::<PositionState>(pos.position);
+        let source = self.source(pos, state.inner.advances);
+        let ix = self.advance_onchain_ix(p, pos, feed, months);
+        self.send(&[ix], &p.kp, &[]).map(|_| source)
+    }
+}
+
+/// A jitoSOL Position of 10 tokens (12 SOL) and a SOL/USD feed mapped to the token.
+fn priced_env() -> (Env, Jito, Person, Pos, APk) {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    let feed = APk::new_unique();
+    let now = env.now();
+    put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 5_000_000, now);
+    map_price(&mut env, jito.mint, feed, PYTH_SOL_USD).expect("map");
+    (env, jito, alice, pos, feed)
+}
+
+#[test]
+fn a_fresh_feed_prices_the_advance() {
+    let (mut env, _jito, alice, pos, feed) = priced_env();
+    let source = env.advance_onchain(&alice, pos, feed, 1).expect("advance");
+    // 12 SOL at 7% for a month, 80% after the Yield Fee, at the feed's $150: the same 840 Gemas
+    // the keeper-priced Advance gives at $150.
+    assert_eq!(env.gemas(&alice, source), 840);
+    let stored = env.load::<SourceState>(source);
+    assert_eq!(stored.inner.unit_den, 150_000_000);
+}
+
+#[test]
+fn the_exponent_and_a_non_round_price_convert_to_micro_usd() {
+    let (mut env, _jito, alice, pos, feed) = priced_env();
+    let now = env.now();
+    // $103.22918088: 103,229,180 micro-USD floored; 0.056 SOL -> 578 Gemas.
+    put_feed(&mut env, feed, PYTH_SOL_USD, 10_322_918_088, 3_356_136, now);
+    let source = env.advance_onchain(&alice, pos, feed, 1).unwrap();
+    assert_eq!(env.load::<SourceState>(source).inner.unit_den, 103_229_180);
+    assert_eq!(env.gemas(&alice, source), 578);
+}
+
+#[test]
+fn a_stale_price_refuses_the_advance_until_it_is_fresh() {
+    let (mut env, _jito, alice, pos, feed) = priced_env();
+    env.advance(91);
+    let err = env.advance_onchain(&alice, pos, feed, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_STALE_PRICE);
+    // Just inside the limit the admin set (90 s) is fine.
+    let now = env.now();
+    put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 5_000_000, now - 90);
+    env.advance_onchain(&alice, pos, feed, 1).expect("90 s old");
+}
+
+#[test]
+fn a_feed_far_in_the_future_is_refused_too() {
+    let (mut env, _jito, alice, pos, feed) = priced_env();
+    let now = env.now();
+    put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 5_000_000, now + 60);
+    let err = env.advance_onchain(&alice, pos, feed, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_STALE_PRICE);
+}
+
+#[test]
+fn a_wide_confidence_interval_refuses_the_advance() {
+    let (mut env, _jito, alice, pos, feed) = priced_env();
+    let now = env.now();
+    // 1.5% of the price against the 1% limit.
+    put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 225_000_000, now);
+    let err = env.advance_onchain(&alice, pos, feed, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_PRICE_UNCERTAIN);
+    put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 150_000_000, now);
+    env.advance_onchain(&alice, pos, feed, 1)
+        .expect("1% is the limit");
+}
+
+#[test]
+fn a_feed_of_the_wrong_owner_address_or_id_is_refused() {
+    let (mut env, jito, alice, pos, feed) = priced_env();
+    let now = env.now();
+    // Not owned by the Pyth receiver.
+    put_account(
+        &mut env,
+        feed,
+        APk::new_unique(),
+        pyth_image(PYTH_SOL_USD, FEED_150, 0, now),
+    );
+    let err = env.advance_onchain(&alice, pos, feed, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_PRICE_FEED);
+    // A genuine feed of another asset at the mapped address.
+    put_feed(&mut env, feed, PYTH_ETH_USD, 240_000_000_000, 0, now);
+    let err = env.advance_onchain(&alice, pos, feed, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_PRICE_FEED);
+    // A genuine SOL/USD feed, but not the mapped account.
+    let other = APk::new_unique();
+    put_feed(&mut env, other, PYTH_SOL_USD, FEED_150, 0, now);
+    let err = env.advance_onchain(&alice, pos, other, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_PRICE_FEED);
+    // A partially verified update is not a price.
+    let mut partial = pyth_image(PYTH_SOL_USD, FEED_150, 0, now);
+    partial[40] = 0;
+    put_account(&mut env, feed, PYTH_RECEIVER_ID, partial);
+    let err = env.advance_onchain(&alice, pos, feed, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_PRICE_FEED);
+    put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 0, now);
+    env.advance_onchain(&alice, pos, feed, 1)
+        .expect("the real feed works");
+    let _ = jito;
+}
+
+#[test]
+fn only_the_admin_maps_a_feed_and_only_a_pyth_account_can_be_mapped() {
+    let (mut env, jito) = jito_env();
+    let feed = APk::new_unique();
+    let now = env.now();
+    put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 0, now);
+    let oracle = env.oracle.insecure_clone();
+    let by_oracle =
+        set_onchain_price_ix(a(oracle.pubkey()), jito.mint, feed, PYTH_SOL_USD, 90, 100);
+    let err = env.send(&[by_oracle], &oracle, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_UNAUTHORIZED);
+    // The feed account must carry the id given.
+    let err = map_price(&mut env, jito.mint, feed, PYTH_ETH_USD).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_PRICE_FEED);
+    // And be owned by the Pyth receiver.
+    let fake = APk::new_unique();
+    put_account(
+        &mut env,
+        fake,
+        APk::new_unique(),
+        pyth_image(PYTH_SOL_USD, FEED_150, 0, now),
+    );
+    let err = map_price(&mut env, jito.mint, fake, PYTH_SOL_USD).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_PRICE_FEED);
+    // Limits beyond the program's own are refused.
+    let admin = env.admin.insecure_clone();
+    for (age, conf) in [(0u32, 100u16), (121, 100), (90, 0), (90, 501)] {
+        let set = set_onchain_price_ix(a(admin.pubkey()), jito.mint, feed, PYTH_SOL_USD, age, conf);
+        let err = env.send(&[set], &admin, &[]).unwrap_err();
+        assert_eq!(code(&err), ERR_BAD_PRICE_FEED, "{age} {conf}");
+    }
+    map_price(&mut env, jito.mint, feed, PYTH_SOL_USD).expect("admin maps");
+}
+
+#[test]
+fn an_unmapped_asset_cannot_use_the_onchain_advance() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    let feed = APk::new_unique();
+    let now = env.now();
+    put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 0, now);
+    let err = env.advance_onchain(&alice, pos, feed, 1).unwrap_err();
+    assert_eq!(code(&err), CONSTRAINT_ACCOUNT_NOT_INITIALIZED);
+}
+const CONSTRAINT_ACCOUNT_NOT_INITIALIZED: u32 = 3012;
+
+/// An Ethereum Position the oracle reported, 10 ETH of principal at 4%.
+fn evm_position(env: &mut Env, p: &Person, asset: APk) -> APk {
+    let id = [9u8; 32];
+    let position = pda(&[POSITION_SEED, &[1], &id]);
+    let oracle = env.oracle.insecure_clone();
+    let open = tix(
+        accounts::OpenPosition {
+            oracle: a(oracle.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            owner_account: p.account,
+            position,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::OpenPosition {
+            source_chain: ledger::SourceChain::Ethereum,
+            position_id: id,
+            source_asset: asset,
+            decimals: 18,
+            principal: 10 * 1_000_000_000_000_000_000,
+            rate_bps: 400,
+        },
+        vec![],
+    );
+    env.send(&[open], &oracle, &[]).unwrap();
+    position
+}
+
+fn evm_advance_ix(
+    env: &Env,
+    p: &Person,
+    position: APk,
+    onchain: Option<APk>,
+    price: u64,
+) -> Instruction {
+    let source = pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
+    let holding = pda(&[HOLDING_SEED, p.account.as_ref(), source.as_ref()]);
+    let asset = APk::new_from_array(env.load::<PositionState>(position).inner.source_asset);
+    match onchain {
+        Some(feed) => tix(
+            accounts::TakeAdvanceOnchain {
+                oracle: a(env.oracle.pubkey()),
+                owner_authority: p.key,
+                config: pda(&[CONFIG_SEED]),
+                treasury: pda(&[TREASURY_SEED]),
+                owner_account: p.account,
+                position,
+                onchain_price: onchain_price_pda(asset),
+                price_feed: feed,
+                source,
+                holding,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::TakeAdvanceOnchain { horizon_months: 3 },
+            vec![],
+        ),
+        None => tix(
+            accounts::TakeAdvance {
+                oracle: a(env.oracle.pubkey()),
+                owner_authority: p.key,
+                config: pda(&[CONFIG_SEED]),
+                treasury: pda(&[TREASURY_SEED]),
+                owner_account: p.account,
+                position,
+                source,
+                holding,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::TakeAdvance {
+                horizon_months: 3,
+                price_micro_usd: price,
+            },
+            vec![rem(onchain_price_pda(asset), false)],
+        ),
+    }
+}
+
+#[test]
+fn once_mapped_the_oracle_cannot_name_the_price_of_an_evm_advance() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let asset = APk::new_unique();
+    let position = evm_position(&mut env, &alice, asset);
+    let oracle = env.oracle.insecure_clone();
+    let feed = APk::new_unique();
+    let now = env.now();
+    put_feed(
+        &mut env,
+        feed,
+        PYTH_ETH_USD,
+        300_000_000_000,
+        100_000_000,
+        now,
+    );
+    map_price(&mut env, asset, feed, PYTH_ETH_USD).unwrap();
+
+    let legacy = evm_advance_ix(&env, &alice, position, None, 1_000_000_000_000);
+    let err = env.send(&[legacy], &oracle, &[&alice.kp]).unwrap_err();
+    assert_eq!(code(&err), ERR_ONCHAIN_REQUIRED);
+    // Leaving the mapping out of the remaining accounts does not help.
+    let mut bare = evm_advance_ix(&env, &alice, position, None, 1_000_000_000_000);
+    bare.accounts.pop();
+    let err = env.send(&[bare], &oracle, &[&alice.kp]).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_REMAINING);
+
+    let priced = evm_advance_ix(&env, &alice, position, Some(feed), 0);
+    env.send(&[priced], &oracle, &[&alice.kp])
+        .expect("feed price");
+    let source = pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
+    // 10 ETH at 4% for 3 months = 0.1 ETH, 80% = 0.08 ETH at $3,000 = 24,000 cents.
+    assert_eq!(env.load::<SourceState>(source).inner.issued, 24_000);
+}

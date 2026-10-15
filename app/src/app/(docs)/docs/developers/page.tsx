@@ -54,7 +54,7 @@ export default function Page() {
         head={["Boundary", "Trusted for", "Where it is checked"]}
         rows={[
           ["Registered Game authority", "Declaring a Match result.", "tesoro_core `settle_match` accepts only the signer registered for that Game. The authority is a PDA of the Game program."],
-          ["Oracle key", "Issuance price (Solana: the on-chain `PriceFeed`, at most 24 h old; Ethereum: signed with the Advance) and oracle-reported Positions.", "Single key today. Pyth is planned as a replacement for the source, not for the instruction."],
+          ["Oracle key", "Oracle-reported Positions and, in test mode, the issuance price (Solana: the on-chain `PriceFeed`, at most 24 h old; Ethereum: signed with the Advance). On mainnet Advances read Pyth's price feeds on chain and the oracle names no price.", "Single key today. Pyth is planned as a replacement for the source, not for the instruction."],
           ["MagicBlock TEE validator", "Keeping hidden state private; running the Game programs' rollup logic.", "Delegation is pinned to one approved validator per Game program."],
           ["LayerZero DVNs", "Truthful delivery of the four messages.", "Default pathway config. Handlers are idempotent per sequence; the vault caps a payout at its accrued yield."],
           ["Admin key", "Registering Games, fees, source authorities, program upgrades.", "One key. No multisig or timelock."],

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { fetchSolUsd } from "./price.ts";
+import { CLUSTERS } from "../../app/src/lib/cluster-settings.ts";
+import { fetchSolUsd, priceJob, priceJobEnabled } from "./price.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => (globalThis.fetch = realFetch));
@@ -44,5 +45,20 @@ describe("fetchSolUsd (OC-01)", () => {
     await assert.rejects(fetchSolUsd(150), /stale/);
     quotes({ pyth: 150, pythConf: 10 });
     await assert.rejects(fetchSolUsd(150), /confidence/);
+  });
+});
+
+describe("priceJob is a test-mode job (ADR 0010)", () => {
+  it("runs only where the keeper writes the Advance price", () => {
+    assert.equal(priceJobEnabled(CLUSTERS.test), true);
+    assert.equal(priceJobEnabled(CLUSTERS.mainnet), false);
+  });
+
+  it("does nothing on mainnet: no RPC read, no price source asked, no transaction", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("a mainnet pass must not ask a price source");
+    }) as typeof fetch;
+    const ctx = new Proxy({}, { get: () => { throw new Error("a mainnet pass must not touch the chain"); } }) as never;
+    assert.equal(await priceJob(ctx, CLUSTERS.mainnet), 0);
   });
 });

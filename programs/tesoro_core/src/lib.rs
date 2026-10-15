@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 pub mod error;
 pub mod instructions;
 pub mod ledger;
+pub mod pyth;
 pub mod state;
 pub mod util;
 
@@ -181,6 +182,39 @@ pub mod tesoro_core {
 
     pub fn take_native_advance(ctx: Context<TakeNativeAdvance>, horizon_months: u8) -> Result<()> {
         instructions::native::take_native_advance(ctx, horizon_months)
+    }
+
+    /// Admin: where an asset's Advances read their USD price on mainnet (a Pyth push feed).
+    pub fn set_onchain_price(
+        ctx: Context<SetOnchainPrice>,
+        asset: Pubkey,
+        feed_id: [u8; 32],
+        max_age_secs: u32,
+        max_conf_bps: u16,
+    ) -> Result<()> {
+        instructions::onchain_price::set_onchain_price(
+            ctx,
+            asset,
+            feed_id,
+            max_age_secs,
+            max_conf_bps,
+        )
+    }
+
+    /// `take_native_advance` priced from the asset's Pyth feed instead of the keeper's price.
+    pub fn take_native_advance_onchain(
+        ctx: Context<TakeNativeAdvanceOnchain>,
+        horizon_months: u8,
+    ) -> Result<()> {
+        instructions::onchain_price::take_native_advance_onchain(ctx, horizon_months)
+    }
+
+    /// `take_advance` priced from the asset's Pyth feed instead of a price the oracle names.
+    pub fn take_advance_onchain(
+        ctx: Context<TakeAdvanceOnchain>,
+        horizon_months: u8,
+    ) -> Result<()> {
+        instructions::onchain_price::take_advance_onchain(ctx, horizon_months)
     }
 
     pub fn extend_native_advance(

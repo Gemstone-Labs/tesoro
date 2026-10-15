@@ -9,7 +9,7 @@ import { Health, startHealthServer, startWatchdog } from "./health.ts";
 import { matchHygiene } from "./matches.ts";
 import { notifyJob } from "./notify.ts";
 import { notifyEventsJob } from "./notify-events.ts";
-import { priceJob } from "./price.ts";
+import { priceJob, priceJobEnabled } from "./price.ts";
 import { Connection } from "@solana/web3.js";
 import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
 import { seasonJob } from "./season.ts";
@@ -26,7 +26,7 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
   ctx.budget.observe(await ctx.conn.getBalance(ctx.payer.publicKey));
   // Price first: Advances stop 24 h after the last set_price, so it must not wait behind slower jobs.
   const jobs: [string, (c: Ctx) => Promise<number>][] = [
-    ["price", priceJob],
+    ...(priceJobEnabled() ? ([["price", priceJob]] as [string, (c: Ctx) => Promise<number>][]) : []),
     ["match", matchHygiene],
     ["backing", backingHygiene],
     ["apy", stakeApyJob],

@@ -400,7 +400,7 @@ fn cu_profile_apply_yield_from_source() {
     let oracle = env.oracle.insecure_clone();
     let owner = env.owner.insecure_clone();
     let source = pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
-    let advance = ix(
+    let mut advance = ix(
         accounts::TakeAdvance {
             oracle: a(oracle.pubkey()),
             owner_authority: a(owner.pubkey()),
@@ -417,6 +417,19 @@ fn cu_profile_apply_yield_from_source() {
             price_micro_usd: 1_000_000_000_000_000,
         },
     );
+    let asset = {
+        let acct = env.svm.get_account(&s(position)).expect("position");
+        PositionState::try_deserialize(&mut acct.data.as_slice())
+            .expect("position")
+            .inner
+            .source_asset
+    };
+    advance
+        .accounts
+        .push(solana_sdk::instruction::AccountMeta::new_readonly(
+            s(pda(&[ONCHAIN_PRICE_SEED, &asset])),
+            false,
+        ));
     env.send2(&[advance], &oracle, &owner).expect("advance");
     let payer = env.owner.insecure_clone();
     let apply = ix(

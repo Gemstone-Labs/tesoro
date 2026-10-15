@@ -49,6 +49,12 @@ pub enum TesoroError {
     StaleApy,
     #[msg("the admin has not set an APY ceiling for this staking token")]
     ApyCeilingNotSet,
+    #[msg("the price feed account is not the mapped Pyth feed, or is not a verified price update")]
+    BadPriceFeed,
+    #[msg("the price feed's confidence interval is too wide to issue Gemas on")]
+    PriceTooUncertain,
+    #[msg("this asset is priced from its on-chain feed; use the on-chain Advance")]
+    OnchainPriceRequired,
 }
 
 pub fn core_err(e: CoreError) -> Error {

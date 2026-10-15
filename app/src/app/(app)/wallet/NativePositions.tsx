@@ -10,6 +10,7 @@ import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
 import {
   LAMPORTS,
   MAX_PRICE_AGE_SECS,
+  PRICE_QUOTE_MARGIN_SECS,
   SIM_MONTH_MIN,
   projectedDebtGemas,
   quoteExtendAdvance,
@@ -130,7 +131,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   const rate = market ? rateAt(market.pool) : 0n;
   const principal = market ? sharesValue(shares, rate) : 0n;
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
-  const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
+  const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - PRICE_QUOTE_MARGIN_SECS;
   const { yieldFeeBps } = ratesOf(market?.treasury);
   const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
@@ -321,7 +322,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
-  const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
+  const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - PRICE_QUOTE_MARGIN_SECS;
   const { yieldFeeBps } = ratesOf(market?.treasury);
   const rateBps = sizingRateBps(info, market);
   const quote = priceOk ? quoteNativeAdvance(info.principalLamports, rateBps, months, market!.price!.microUsd, yieldFeeBps) : null;
