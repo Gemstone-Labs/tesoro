@@ -65,3 +65,19 @@ describe("mainnet: the Player pays gas and the LayerZero fee", () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe("open with the plain coin (zap)", () => {
+  const zap = "0x" + "2".repeat(40);
+  const hypeVault = { ...ETH_VAULTS.find((v) => v.net === "hyperevm")!, zap: zap as never };
+
+  it("refuses when the vault has no zap", async () => {
+    await expect(openEthPosition(ctx, ETH_VAULTS[0], 10n ** 17n, 12, () => {}, true)).rejects.toThrow(/not available yet/);
+    expect(calls).toEqual([]);
+  });
+
+  it("stops before any signature when the coin plus fees exceed the wallet", async () => {
+    state.balance = 10n ** 18n;
+    await expect(openEthPosition(ctx, hypeVault, 10n ** 18n, 12, () => {}, true)).rejects.toThrow(/more HYPE than you have/);
+    expect(calls).toEqual([]);
+  });
+});

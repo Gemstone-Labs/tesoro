@@ -32,3 +32,15 @@ interface IKinetiqAccountant {
 interface IMessageEndpoint {
     function send(bytes calldata payload) external;
 }
+
+/// @notice Lido's wstETH: sending ETH to it stakes through `stETH.submit` and mints wstETH to the sender.
+interface IWstETHBalance {
+    function balanceOf(address) external view returns (uint256);
+}
+
+/// @notice Kinetiq StakingManager (kinetiq.xyz/docs/contracts-and-audits): `stake()` takes HYPE and mints kHYPE
+///         to the caller at the StakingAccountant rate; stakes under `minStakeAmount()` revert.
+interface IKinetiqStakingManager {
+    function stake() external payable;
+    function minStakeAmount() external view returns (uint256);
+}

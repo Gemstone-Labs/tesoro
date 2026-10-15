@@ -24,8 +24,9 @@ export interface OpenCostQuote {
 
 export const playerPaysGas = (cluster: ClusterSettings = CLUSTER) => cluster.id === "mainnet";
 
-export function quoteOpenCost(input: { lzQuoteWei: bigint; gasPriceWei: bigint; needsApprove: boolean }): OpenCostQuote {
-  const gasUnits = OPEN_GAS_UNITS.open + (input.needsApprove ? OPEN_GAS_UNITS.approve : 0n);
+/** `gasUnits` overrides the token path's allowance (the zap call stakes and opens in one transaction). */
+export function quoteOpenCost(input: { lzQuoteWei: bigint; gasPriceWei: bigint; needsApprove: boolean; gasUnits?: bigint }): OpenCostQuote {
+  const gasUnits = input.gasUnits ?? OPEN_GAS_UNITS.open + (input.needsApprove ? OPEN_GAS_UNITS.approve : 0n);
   const gasWei = gasUnits * input.gasPriceWei;
   const lzFeeWei = (input.lzQuoteWei * (100n + LZ_FEE_HEADROOM_PCT)) / 100n;
   return { gasUnits, gasPriceWei: input.gasPriceWei, gasWei, lzFeeWei, totalWei: gasWei + lzFeeWei };

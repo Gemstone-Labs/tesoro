@@ -69,6 +69,8 @@ export interface EthVault {
   lst: Address;
   symbol: string;
   simulated: boolean;
+  /** Stake-and-open zap (contracts/src/StakeZap.sol): when set, the Player may open with the plain coin. */
+  zap?: Address;
 }
 
 /**
@@ -83,9 +85,11 @@ export interface EthVault {
 export const KHYPE_TOKEN: Address = "0xfD739d4e423301CE9385c1fb8850539D657C296D";
 export const KHYPE_ACCOUNTANT: Address = "0x9209648Ec9D448EF57116B73A2f081835643dc7A";
 const KHYPE_VAULT = process.env.NEXT_PUBLIC_KHYPE_VAULT;
+/** KinetiqZap for that vault (HYPE -> kHYPE through StakingManager 0x393D0B87Ed38fc779FD9611144aE649BA6082109). Unset: kHYPE only. */
+const KINETIQ_ZAP = process.env.NEXT_PUBLIC_KINETIQ_ZAP;
 const MAINNET_VAULTS: EthVault[] =
   MAINNET && KHYPE_VAULT && isAddress(KHYPE_VAULT)
-    ? [{ key: "khype", net: "hyperevm", label: "Kinetiq staked HYPE (kHYPE)", address: KHYPE_VAULT, lst: KHYPE_TOKEN, symbol: "kHYPE", simulated: false }]
+    ? [{ key: "khype", net: "hyperevm", label: "Kinetiq staked HYPE (kHYPE)", address: KHYPE_VAULT, lst: KHYPE_TOKEN, symbol: "kHYPE", simulated: false, zap: KINETIQ_ZAP && isAddress(KINETIQ_ZAP) ? KINETIQ_ZAP : undefined }]
     : [];
 
 export const ETH_VAULTS: EthVault[] = [
