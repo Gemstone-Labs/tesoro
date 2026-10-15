@@ -1,6 +1,6 @@
 //! Solana-native Positions against the real `sim_lst` program (both built by
-//! `pnpm build:programs`): custody, the permissionless yield crank, payouts, and the vault
-//! invariants, plus a randomized sequence test that reads every invariant back from chain state.
+//! `pnpm build:programs`): shared custody, Debt and payouts computed from the clock with no crank
+//! (ADR 0010), yield minted at payout, pool totals, Extend, Instant Redeem and the Treasury.
 #![allow(clippy::result_large_err)]
 
 use anchor_lang::prelude::Pubkey as APk;
@@ -39,6 +39,7 @@ const ERR_NATIVE_POSITION: u32 = 6009;
 const ERR_NOT_NATIVE: u32 = 6010;
 const ERR_STALE_PRICE: u32 = 6011;
 const ERR_TREASURY_SHORT: u32 = 6017;
+const ERR_SOURCE_REQUIRED: u32 = 6018;
 const CONSTRAINT_SEEDS: u32 = 2006;
 const ACCOUNT_OWNED_BY_WRONG_PROGRAM: u32 = 3007;
 
@@ -118,7 +119,7 @@ struct Person {
     token: APk,
 }
 
-/// A native Position and the addresses around it.
+/// A native Position and the addresses around it (the custody and vault are shared).
 #[derive(Clone, Copy)]
 struct Pos {
     position: APk,
@@ -219,6 +220,7 @@ impl Env {
         env.send(&[init], &admin, &[]).expect("init config");
         env.init_treasury(YIELD_FEE_BPS, INSTANT_FEE_BPS)
             .expect("init treasury");
+        env.init_custody().expect("init native custody");
         env.set_price(PRICE).expect("price");
         env
     }
@@ -385,6 +387,25 @@ impl Env {
         self.send(&[set], &oracle, &[])
     }
 
+    fn init_custody(&mut self) -> Result<(), Failed> {
+        let init = tix(
+            accounts::InitNativeCustody {
+                admin: a(self.admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                pool: self.pool,
+                mint: self.mint,
+                custody: pda(&[NATIVE_SEED]),
+                vault: pda(&[NATIVE_VAULT_SEED]),
+                token_program: TOKEN_PROGRAM_ID,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitNativeCustody {},
+            vec![],
+        );
+        let admin = self.admin.insecure_clone();
+        self.send(&[init], &admin, &[])
+    }
+
     fn open_ix_with(
         &mut self,
         p: &Person,
@@ -398,8 +419,8 @@ impl Env {
             &[0],
             &tesoro_core::native_position_id(&p.key, nonce),
         ]);
-        let custody = pda(&[NATIVE_SEED, position.as_ref()]);
-        let vault = pda(&[NATIVE_VAULT_SEED, position.as_ref()]);
+        let custody = pda(&[NATIVE_SEED]);
+        let vault = pda(&[NATIVE_VAULT_SEED]);
         let open = tix(
             accounts::OpenNativePosition {
                 owner_authority: p.key,
@@ -408,6 +429,7 @@ impl Env {
                 mint,
                 owner_token: p.token,
                 position,
+                treasury: pda(&[TREASURY_SEED]),
                 custody,
                 vault,
                 token_program: TOKEN_PROGRAM_ID,
@@ -443,16 +465,18 @@ impl Env {
         pda(&[HOLDING_SEED, p.account.as_ref(), source.as_ref()])
     }
 
-    fn advance_native(&mut self, p: &Person, pos: Pos, months: u8) -> Result<APk, Failed> {
-        let index = self.load::<PositionState>(pos.position).inner.advances;
-        let source = self.source(pos, index);
+    fn advance_ix(&self, p: &Person, pos: Pos, months: u8) -> (Instruction, APk) {
+        let position = self.position(pos);
+        let source = self.source(pos, position.advances);
+        let prev_source = position.open_advance.map(|index| self.source(pos, index));
         let advance = tix(
             accounts::TakeNativeAdvance {
                 owner_authority: p.key,
                 owner_account: p.account,
                 position: pos.position,
                 price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
-                treasury: pda(&[TREASURY_SEED]),
+                pool: self.pool,
+                prev_source,
                 source,
                 holding: self.holding(p, source),
                 system_program: anchor_lang::system_program::ID,
@@ -462,6 +486,11 @@ impl Env {
             },
             vec![],
         );
+        (advance, source)
+    }
+
+    fn advance_native(&mut self, p: &Person, pos: Pos, months: u8) -> Result<APk, Failed> {
+        let (advance, source) = self.advance_ix(p, pos, months);
         self.send(&[advance], &p.kp, &[]).map(|_| source)
     }
 
@@ -495,7 +524,7 @@ impl Env {
                 owner_authority: p.key,
                 owner_account: p.account,
                 position: pos.position,
-                treasury: pda(&[TREASURY_SEED]),
+                pool: self.pool,
                 source,
                 holding: self.holding(p, source),
                 extend_limit: self.extend_limit(p),
@@ -507,32 +536,21 @@ impl Env {
         self.send(&[extend], &p.kp, &[])
     }
 
-    /// Anyone may crank; `payer` only pays the fee.
-    fn crank(&mut self, payer: &Keypair, pos: Pos) -> Result<(), Failed> {
-        let p = self.load::<PositionState>(pos.position).inner;
-        let source = p.open_advance.map(|index| self.source(pos, index));
-        let crank = tix(
-            accounts::AccrueNativeYield {
-                position: pos.position,
-                custody: pos.custody,
-                vault: pos.vault,
-                pool: self.pool,
-                mint: self.mint,
-                yield_config: sim_pda(&[sim_lst::YIELD_SEED]),
-                yield_authority: pda(&[YIELD_SEED]),
-                sim_lst_program: sim_lst::ID,
-                token_program: TOKEN_PROGRAM_ID,
-                treasury: pda(&[TREASURY_SEED]),
-                treasury_vault: pda(&[TREASURY_VAULT_SEED]),
-                source,
-            },
-            instruction::AccrueNativeYield {},
-            vec![],
-        );
-        self.send(&[crank], payer, &[])
+    /// `[pool, destination, mint, yield_config, yield_authority, sim_lst_program, token_program]`.
+    fn yield_mint(&self, dest: APk) -> Vec<AccountMeta> {
+        vec![
+            rem(self.pool, false),
+            rem(dest, true),
+            rem(self.mint, true),
+            rem(sim_pda(&[sim_lst::YIELD_SEED]), false),
+            rem(pda(&[YIELD_SEED]), false),
+            rem(sim_lst::ID, false),
+            rem(TOKEN_PROGRAM_ID, false),
+        ]
     }
 
     fn redeem_ix(&self, p: &Person, pos: Pos, source: APk, amount: u64, dest: APk) -> Instruction {
+        let remaining = self.yield_mint(dest);
         tix(
             accounts::Redeem {
                 holder_authority: p.key,
@@ -542,13 +560,7 @@ impl Env {
                 holding: self.holding(p, source),
             },
             instruction::Redeem { amount },
-            vec![
-                rem(pos.custody, true),
-                rem(pos.vault, true),
-                rem(dest, true),
-                rem(self.pool, false),
-                rem(TOKEN_PROGRAM_ID, false),
-            ],
+            remaining,
         )
     }
 
@@ -558,6 +570,11 @@ impl Env {
     }
 
     fn unlock_ix(&self, p: &Person, pos: Pos, dest: APk) -> Instruction {
+        let mut remaining = vec![rem(pos.custody, true), rem(pos.vault, true)];
+        remaining.extend(self.yield_mint(dest));
+        if let Some(index) = self.position(pos).open_advance {
+            remaining.push(rem(self.source(pos, index), true));
+        }
         tix(
             accounts::Unlock {
                 owner_authority: p.key,
@@ -565,13 +582,7 @@ impl Env {
                 position: pos.position,
             },
             instruction::Unlock {},
-            vec![
-                rem(pos.custody, true),
-                rem(pos.vault, true),
-                rem(dest, true),
-                rem(self.pool, false),
-                rem(TOKEN_PROGRAM_ID, false),
-            ],
+            remaining,
         )
     }
 
@@ -580,32 +591,44 @@ impl Env {
         self.send(&[unlock], &p.kp, &[])
     }
 
-    fn sweep(&mut self, p: &Person, pos: Pos) -> Result<(), Failed> {
-        let sweep = tix(
-            accounts::SweepNativeSurplus {
+    fn return_own(&mut self, p: &Person, pos: Pos, source: APk, amount: u64) -> Result<(), Failed> {
+        let ret = tix(
+            accounts::ReturnOwn {
                 owner_authority: p.key,
                 owner_account: p.account,
                 position: pos.position,
-                custody: pos.custody,
-                vault: pos.vault,
-                owner_token: p.token,
-                pool: self.pool,
-                token_program: TOKEN_PROGRAM_ID,
+                source,
+                holding: self.holding(p, source),
             },
-            instruction::SweepNativeSurplus {},
-            vec![],
+            instruction::ReturnOwn { amount },
+            vec![rem(self.pool, false)],
         );
-        self.send(&[sweep], &p.kp, &[])
+        self.send(&[ret], &p.kp, &[])
     }
 
     fn position(&self, pos: Pos) -> ledger::Position {
         self.load::<PositionState>(pos.position).inner
     }
-    fn custody(&self, pos: Pos) -> NativeCustody {
-        self.load::<NativeCustody>(pos.custody)
+    fn custody(&self) -> NativeCustody {
+        self.load::<NativeCustody>(pda(&[NATIVE_SEED]))
+    }
+    fn stored(&self, source: APk) -> ledger::Source {
+        self.load::<SourceState>(source).inner
+    }
+
+    /// The Source as the program sees it now: derived from the clock for an open Advance.
+    fn view(&self, source: APk) -> ledger::Source {
+        let stored = self.stored(source);
+        let pos_key = APk::new_from_array(stored.position);
+        let position = self.load::<PositionState>(pos_key).inner;
+        let pool = self.load::<sim_lst::Pool>(self.pool);
+        let net = native::position_accrued(&position, pool.speedup, self.now())
+            .unwrap()
+            .net;
+        native::source_view(&position, &stored, net).unwrap()
     }
     fn debt(&self, source: APk) -> u64 {
-        self.load::<SourceState>(source).inner.debt()
+        self.view(source).debt()
     }
     fn gemas(&self, p: &Person, source: APk) -> u64 {
         self.load::<HoldingState>(self.holding(p, source))
@@ -613,52 +636,74 @@ impl Env {
             .amount
     }
 
-    /// The custody invariants, read back from chain state.
-    fn check_invariants(&self, pos: Pos) {
-        let position = self.position(pos);
-        let custody = self.custody(pos);
-        let vault = self.token_balance(pos.vault);
-        let rate = self.rate();
-        assert!(
-            custody.tracked_shares <= vault,
-            "tracked shares exceed the vault balance"
-        );
-        assert!(
-            native::check_cover(
-                custody.tracked_shares,
-                &position,
-                custody.redeemed_units,
-                rate
-            )
-            .is_ok(),
-            "tracked shares {} do not cover principal + owed yield",
-            custody.tracked_shares
-        );
-        assert!(
-            custody.redeemed_units <= position.cumulative_yield,
-            "paid more than accrued"
-        );
-        if position.status == PositionStatus::Locked {
-            assert!(
-                native::shares_value(custody.tracked_shares, rate).unwrap() >= position.principal,
-                "principal shares left before unlock"
-            );
+    /// Net Accrued Yield of a Position now.
+    fn accrued(&self, pos: Pos) -> ledger::AccruedYield {
+        let pool = self.load::<sim_lst::Pool>(self.pool);
+        native::position_accrued(&self.position(pos), pool.speedup, self.now()).unwrap()
+    }
+
+    /// The custody invariants, read back from chain state, for the Locked Positions given.
+    fn check_invariants(&self, positions: &[Pos]) {
+        let custody = self.custody();
+        let vault = self.token_balance(pda(&[NATIVE_VAULT_SEED]));
+        let (mut shares, mut principal, mut open) = (0u64, 0u128, 0u64);
+        for pos in positions {
+            let p = self.position(*pos);
+            if p.status == PositionStatus::Locked {
+                shares += p.custody_shares;
+                principal += p.principal as u128;
+                open += 1;
+            } else {
+                assert_eq!(p.custody_shares, 0, "an unlocked Position holds no shares");
+            }
         }
+        assert!(vault >= shares, "vault {vault} < Principal shares {shares}");
+        assert_eq!(custody.principal, principal);
+        assert_eq!(custody.open_positions, open);
     }
 }
 
 // --- Custody --------------------------------------------------------------------------------
 
 #[test]
-fn open_moves_simsol_into_a_program_vault_and_records_principal_in_sol() {
+fn the_shared_custody_is_created_once_by_the_admin() {
+    let mut env = Env::new();
+    let c = env.custody();
+    assert_eq!(c.vault, pda(&[NATIVE_VAULT_SEED]));
+    assert_eq!(c.pool, env.pool);
+    assert_eq!((c.principal, c.open_positions), (0, 0));
+    assert!(env.init_custody().is_err(), "a second init is refused");
+    let mallory = env.person();
+    let mut init = tix(
+        accounts::InitNativeCustody {
+            admin: mallory.key,
+            config: pda(&[CONFIG_SEED]),
+            pool: env.pool,
+            mint: env.mint,
+            custody: pda(&[NATIVE_SEED]),
+            vault: pda(&[NATIVE_VAULT_SEED]),
+            token_program: TOKEN_PROGRAM_ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::InitNativeCustody {},
+        vec![],
+    );
+    init.accounts[0].is_signer = true;
+    assert!(env.send(&[init], &mallory.kp, &[]).is_err());
+}
+
+#[test]
+fn open_moves_simsol_into_the_shared_vault_and_records_the_position() {
     let mut env = Env::new();
     let alice = env.staker();
+    let bob = env.staker();
     env.advance(MONTH);
     let rate = env.rate();
     let pos = env.open(&alice, 10 * SOL).expect("open");
+    let pos2 = env.open(&bob, 4 * SOL).expect("open");
 
     assert_eq!(env.token_balance(alice.token), 0);
-    assert_eq!(env.token_balance(pos.vault), 10 * SOL);
+    assert_eq!(env.token_balance(pos.vault), 14 * SOL, "one vault for all");
     let position = env.position(pos);
     assert_eq!(
         position.principal,
@@ -666,17 +711,22 @@ fn open_moves_simsol_into_a_program_vault_and_records_principal_in_sol() {
     );
     assert_eq!(position.source_asset, SIM_SOL_MINT.to_bytes());
     assert_eq!(position.rate_bps, 700);
+    assert_eq!(position.opened_at, T0 + MONTH);
+    assert_eq!(position.custody_shares, 10 * SOL);
     assert_eq!(position.owner, alice.account.to_bytes());
-    let custody = env.custody(pos);
-    assert_eq!(custody.rate_at_open, rate);
-    assert_eq!(custody.deposited_shares, 10 * SOL);
-    assert_eq!(custody.vault, pos.vault);
-    // The vault is owned by the custody PDA, not by the staker.
+    let totals = env.custody().totals();
+    assert_eq!(totals.principal, 14 * SOL as u128);
+    let w = 14 * SOL as u128 * 700 * YIELD_FEE_BPS as u128;
+    assert_eq!(totals.fee_weight, w);
+    assert_eq!(totals.fee_weight_time, w * (T0 + MONTH) as u128);
+    assert_eq!(position.yield_fee_bps, YIELD_FEE_BPS);
+    assert_eq!(totals.open_positions, 2);
+    // The vault is owned by the custody PDA, not by a staker.
     let vault =
         spl_token::state::Account::unpack(&env.svm.get_account(&s(pos.vault)).unwrap().data)
             .unwrap();
     assert_eq!(vault.owner.to_bytes(), pos.custody.to_bytes());
-    env.check_invariants(pos);
+    env.check_invariants(&[pos, pos2]);
 }
 
 #[test]
@@ -715,15 +765,15 @@ fn only_the_owner_takes_an_advance() {
     let alice = env.staker();
     let mallory = env.person();
     let pos = env.open(&alice, 10 * SOL).unwrap();
-    let index = 0;
-    let source = env.source(pos, index);
+    let source = env.source(pos, 0);
     let advance = tix(
         accounts::TakeNativeAdvance {
             owner_authority: mallory.key,
             owner_account: mallory.account,
             position: pos.position,
             price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
-            treasury: pda(&[TREASURY_SEED]),
+            pool: env.pool,
+            prev_source: None,
             source,
             holding: env.holding(&mallory, source),
             system_program: anchor_lang::system_program::ID,
@@ -735,13 +785,17 @@ fn only_the_owner_takes_an_advance() {
     assert_eq!(code(&err), 6000);
 }
 
-/// F-05. The vault's SPL balance used to be the yield source, so anybody could add simSOL to it and
-/// the crank counted that as accrued yield and repaid Debt: a top-up paying Debt, which ADR 0001
-/// forbids. Custody now counts its own shares (`tracked_shares`), so a direct transfer is not yield.
-fn donate(env: &mut Env, donor: &Person, pos: Pos, amount: u64) {
-    // Plain SPL Token transfer (instruction 3) straight into the vault.
+/// A direct transfer into the shared vault is not yield and not Principal: it repays no Debt, is
+/// not redeemable, and stays behind when the Position unlocks (ADR 0001).
+#[test]
+fn a_donation_to_the_vault_repays_nothing_and_never_leaves_with_the_owner() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    let donor = env.staker();
     let mut data = vec![3u8];
-    data.extend_from_slice(&amount.to_le_bytes());
+    data.extend_from_slice(&SOL.to_le_bytes());
     let donate = Instruction {
         program_id: s(TOKEN_PROGRAM_ID),
         accounts: vec![
@@ -752,253 +806,80 @@ fn donate(env: &mut Env, donor: &Person, pos: Pos, amount: u64) {
         data,
     };
     env.send(&[donate], &donor.kp, &[]).expect("donate");
-}
-
-#[test]
-fn f05_donating_simsol_to_the_vault_does_not_repay_debt() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let source = env.advance_native(&alice, pos, 1).unwrap();
-    assert_eq!(env.debt(source), 699);
-    let donor = env.staker();
-    donate(&mut env, &donor, pos, SOL);
-    env.crank(&donor.kp, pos).expect("crank");
     assert_eq!(env.debt(source), 699, "a top-up must not repay Debt");
-    assert_eq!(env.position(pos).cumulative_yield, 0);
-    assert_eq!(env.custody(pos).tracked_shares, 10 * SOL);
-    assert_eq!(env.token_balance(pos.vault), 11 * SOL);
-
-    // Real yield still counts, and only on the tracked shares.
-    env.advance(300);
-    env.crank(&donor.kp, pos).expect("crank");
-    let expected = native::accrued_yield(
-        env.custody(pos).tracked_shares,
-        env.rate(),
-        0,
-        env.position(pos).principal,
-    )
-    .unwrap();
-    assert_eq!(env.position(pos).cumulative_yield, expected);
-    env.check_invariants(pos);
-}
-
-#[test]
-fn f05_a_donation_is_not_redeemable_and_returns_to_the_owner_at_unlock() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let source = env.advance_native(&alice, pos, 1).unwrap();
-    let donor = env.staker();
-    donate(&mut env, &donor, pos, SOL);
     env.advance(MONTH);
-    env.crank(&donor.kp, pos).unwrap();
     assert_eq!(env.debt(source), 0);
-    // Redeeming everything accrued never touches the donated shares, and the cover check ignores them.
-    env.redeem(&alice, pos, source, 699).expect("redeem");
-    env.check_invariants(pos);
     env.unlock(&alice, pos).expect("unlock");
-    let custody = env.custody(pos);
     assert_eq!(
-        custody.tracked_shares,
         env.token_balance(pos.vault),
-        "the donation left with the surplus"
+        SOL,
+        "the donation is still in the vault"
     );
-    env.check_invariants(pos);
+    env.check_invariants(&[pos]);
 }
 
-fn migrate_ix(env: &Env, payer: &Person, pos: Pos) -> Instruction {
-    let _ = env;
-    tix(
-        accounts::MigrateNativeCustody {
-            payer: payer.key,
-            position: pos.position,
-            custody: pos.custody,
-            vault: pos.vault,
-            system_program: anchor_lang::system_program::ID,
-        },
-        instruction::MigrateNativeCustody {},
-        vec![],
-    )
-}
+// --- No crank -------------------------------------------------------------------------------
 
-/// Rewrites the custody as it looked before the upgrade (no `tracked_shares`).
-fn make_legacy(env: &mut Env, pos: Pos) {
-    let mut acct = env.svm.get_account(&s(pos.custody)).expect("custody");
-    acct.data.truncate(NativeCustody::LEGACY_SPACE);
-    env.svm.set_account(s(pos.custody), acct).expect("set");
-}
-
-/// Custodies opened before `tracked_shares` have the old, shorter layout: they cannot be read until
-/// `migrate_native_custody` extends them, which anybody can call.
 #[test]
-fn f05_migration_extends_a_legacy_custody() {
+fn debt_falls_with_the_clock_and_reaches_zero_at_the_horizon_with_no_crank() {
     let mut env = Env::new();
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
-    make_legacy(&mut env, pos);
-    let cranker = env.person();
-    assert!(
-        env.crank(&cranker.kp, pos).is_err(),
-        "legacy layout is unreadable until migrated"
-    );
-
-    let ix = migrate_ix(&env, &cranker, pos);
-    env.send(&[ix], &cranker.kp, &[]).expect("migrate");
-    assert_eq!(env.custody(pos).tracked_shares, 10 * SOL);
-    assert_eq!(
-        env.svm.get_account(&s(pos.custody)).unwrap().data.len(),
-        NativeCustody::SPACE
-    );
-    // Once migrated it is a normal custody, and migrating twice is refused.
-    let ix = migrate_ix(&env, &cranker, pos);
-    assert!(env.send(&[ix], &cranker.kp, &[]).is_err());
-    env.advance(300);
-    env.crank(&cranker.kp, pos).expect("crank");
-    assert!(env.debt(source) < 699);
-    env.check_invariants(pos);
-}
-
-/// The migration cannot be used to launder a top-up made before it: the count is capped by what was
-/// deposited at open.
-#[test]
-fn f05_migration_caps_the_count_at_the_deposit() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let donor = env.staker();
-    donate(&mut env, &donor, pos, 5 * SOL);
-    make_legacy(&mut env, pos);
-    let ix = migrate_ix(&env, &donor, pos);
-    env.send(&[ix], &donor.kp, &[]).expect("migrate");
-    assert_eq!(env.custody(pos).tracked_shares, 10 * SOL);
-}
-
-// --- Yield crank ----------------------------------------------------------------------------
-
-#[test]
-fn anyone_can_crank_and_yield_repays_debt() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let source = env.advance_native(&alice, pos, 1).unwrap();
-    let cranker = env.person();
-
-    // Nothing accrued yet: a no-op, not an error.
-    env.crank(&cranker.kp, pos).expect("no-op crank");
-    assert_eq!(env.position(pos).cumulative_yield, 0);
     assert_eq!(env.debt(source), 699);
 
-    // Half a month of yield repays about half of the Debt.
     env.advance(300);
-    env.crank(&cranker.kp, pos).expect("crank");
-    let position = env.position(pos);
-    let expected = native::accrued_yield(
-        env.custody(pos).tracked_shares,
-        env.rate(),
-        0,
-        position.principal,
-    )
-    .unwrap();
-    assert_eq!(position.cumulative_yield, expected);
-    let debt = env.debt(source);
-    assert!(debt > 0 && debt < 699, "debt {debt}");
+    let half = env.debt(source);
+    assert!(half > 0 && half < 699, "debt {half}");
+    assert_eq!(env.stored(source).yield_units, 0, "nothing was recorded");
 
-    // Past the Horizon the Debt is gone and the Position has no open Advance.
     env.advance(MONTH);
-    env.crank(&cranker.kp, pos).expect("crank");
     assert_eq!(env.debt(source), 0);
-    assert!(env.position(pos).open_advance.is_none());
-    env.check_invariants(pos);
+    // Nothing closed the Advance: it is still the open one until an instruction observes it.
+    assert_eq!(env.position(pos).open_advance, Some(0));
+    assert_eq!(env.stored(source).yield_units, 0);
+    env.check_invariants(&[pos]);
 }
 
 #[test]
-fn crank_is_idempotent_and_monotonic() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    env.advance_native(&alice, pos, 3).unwrap();
-    let cranker = env.person();
-    env.advance(400);
-    env.crank(&cranker.kp, pos).unwrap();
-    let after_first = env.svm.get_account(&s(pos.position)).unwrap().data;
-    let source_after_first = env.svm.get_account(&s(env.source(pos, 0))).unwrap().data;
-    // Same clock: cranking again changes nothing, byte for byte.
-    env.crank(&cranker.kp, pos).unwrap();
-    env.crank(&cranker.kp, pos).unwrap();
-    assert_eq!(
-        env.svm.get_account(&s(pos.position)).unwrap().data,
-        after_first
-    );
-    assert_eq!(
-        env.svm.get_account(&s(env.source(pos, 0))).unwrap().data,
-        source_after_first
-    );
-    let first = env.position(pos).cumulative_yield;
-    env.advance(100);
-    env.crank(&cranker.kp, pos).unwrap();
-    assert!(env.position(pos).cumulative_yield > first);
-}
-
-#[test]
-fn yield_without_an_advance_is_free_yield_for_the_owner() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let cranker = env.person();
-    env.advance(MONTH);
-    env.crank(&cranker.kp, pos).unwrap();
-    let position = env.position(pos);
-    assert!(position.free_yield > 0);
-    assert_eq!(position.free_yield, position.cumulative_yield);
-    // It is not payable through the ledger claim: unlock returns it with the surplus.
-    let claim = tix(
-        accounts::ClaimFreeYield {
-            owner_authority: alice.key,
-            owner_account: alice.account,
-            position: pos.position,
-        },
-        instruction::ClaimFreeYield { amount: 1 },
-        vec![],
-    );
-    let err = env.send(&[claim], &alice.kp, &[]).unwrap_err();
-    assert_eq!(code(&err), ERR_NATIVE_POSITION);
-}
-
-// --- Payouts --------------------------------------------------------------------------------
-
-#[test]
-fn redeem_pays_simsol_worth_the_accrued_yield_and_never_touches_principal() {
+fn redeem_mints_exactly_the_yield_paid_and_never_touches_principal() {
     let mut env = Env::new();
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
-    let cranker = env.person();
 
     // Nothing is redeemable before any yield accrues.
     let err = env.redeem(&alice, pos, source, 1).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::ExceedsRedeemable));
 
     env.advance(MONTH);
-    env.crank(&cranker.kp, pos).unwrap();
-    let before_vault = env.token_balance(pos.vault);
+    let supply = env.supply();
+    let vault = env.token_balance(pos.vault);
     env.redeem(&alice, pos, source, 699).expect("redeem all");
 
-    // 699 Gemas = 46_600_000 lamports of SOL, paid as simSOL at the current rate (rounded down).
+    // 699 Gemas = 46_600_000 lamports of SOL, minted as simSOL at the rate (rounded down).
     let paid = env.token_balance(alice.token);
     let expected = native::shares_for_units_floor(46_600_000, env.rate()).unwrap();
     assert_eq!(paid, expected);
-    assert_eq!(env.token_balance(pos.vault), before_vault - paid);
-    assert_eq!(env.custody(pos).redeemed_units, 46_600_000);
+    assert_eq!(env.supply() - supply, expected, "minted exactly at payout");
+    assert_eq!(env.token_balance(pos.vault), vault, "Principal untouched");
     assert_eq!(env.gemas(&alice, source), 0);
-    // Principal is intact: the vault still backs it at the current rate.
-    let position = env.position(pos);
-    assert!(
-        native::shares_value(env.token_balance(pos.vault), env.rate()).unwrap()
-            >= position.principal
-    );
-    env.check_invariants(pos);
+    let stored = env.stored(source);
+    assert_eq!((stored.redeemed, stored.redeemed_units), (699, 46_600_000));
+    assert_eq!(stored.yield_units, 46_600_000);
+    env.check_invariants(&[pos]);
+}
+
+#[test]
+fn nothing_is_minted_until_a_payout() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    env.advance_native(&alice, pos, 1).unwrap();
+    let supply = env.supply();
+    env.advance(10 * MONTH);
+    assert_eq!(env.supply(), supply);
+    assert!(env.accrued(pos).net > 0);
 }
 
 #[test]
@@ -1007,10 +888,8 @@ fn payouts_are_bounded_by_accrued_yield() {
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
-    let cranker = env.person();
     env.advance(300);
-    env.crank(&cranker.kp, pos).unwrap();
-    let redeemable = env.load::<SourceState>(source).inner.redeemable();
+    let redeemable = env.view(source).redeemable();
     assert!(redeemable > 0 && redeemable < 699);
     let err = env.redeem(&alice, pos, source, redeemable + 1).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::ExceedsRedeemable));
@@ -1018,9 +897,12 @@ fn payouts_are_bounded_by_accrued_yield() {
     // A second redeem of the same yield finds nothing left.
     let err = env.redeem(&alice, pos, source, 1).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::ExceedsRedeemable));
-    let paid_units = env.custody(pos).redeemed_units;
-    assert!(paid_units <= env.position(pos).cumulative_yield);
-    env.check_invariants(pos);
+    // More yield lands with the clock, and more can be redeemed.
+    env.advance(100);
+    assert!(env.view(source).redeemable() > 0);
+    env.redeem(&alice, pos, source, 1).unwrap();
+    let minted_units = env.stored(source).redeemed_units;
+    assert!(minted_units <= env.accrued(pos).net);
 }
 
 #[test]
@@ -1031,10 +913,9 @@ fn redeem_needs_the_native_accounts_and_pays_only_the_holder() {
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(MONTH);
-    env.crank(&alice.kp, pos).unwrap();
 
-    // Without the payout accounts the legacy call cannot burn Gemas for nothing.
-    let legacy = tix(
+    // Without the payout accounts the call cannot burn Gemas for nothing.
+    let bare = tix(
         accounts::Redeem {
             holder_authority: alice.key,
             holder_account: alice.account,
@@ -1045,88 +926,50 @@ fn redeem_needs_the_native_accounts_and_pays_only_the_holder() {
         instruction::Redeem { amount: 100 },
         vec![],
     );
-    let err = env.send(&[legacy], &alice.kp, &[]).unwrap_err();
+    let err = env.send(&[bare], &alice.kp, &[]).unwrap_err();
     assert_eq!(code(&err), ERR_BAD_REMAINING);
     assert_eq!(env.gemas(&alice, source), 699);
 
     // The destination must belong to the holder.
-    let steal = env.redeem_ix(&alice, pos, source, 100, mallory.token);
     env.faucet(&mallory).unwrap();
+    let steal = env.redeem_ix(&alice, pos, source, 100, mallory.token);
     let err = env.send(&[steal], &alice.kp, &[]).unwrap_err();
     assert_eq!(code(&err), ERR_INVALID_ACCOUNT);
+
+    // A treasury, pool or sim_lst that is not the real one is refused.
+    let mut fake_pool = env.redeem_ix(&alice, pos, source, 100, alice.token);
+    fake_pool.accounts[5].pubkey = s(alice.account);
+    assert!(env.send(&[fake_pool], &alice.kp, &[]).is_err());
+    let mut fake_program = env.redeem_ix(&alice, pos, source, 100, alice.token);
+    fake_program.accounts[10].pubkey = s(anchor_lang::system_program::ID);
+    assert!(env.send(&[fake_program], &alice.kp, &[]).is_err());
+    assert_eq!(env.gemas(&alice, source), 699);
 }
 
 #[test]
-fn a_non_owner_holder_redeems_won_gemas_from_the_vault() {
+fn a_non_owner_holder_redeems_won_gemas_with_no_crank() {
     let mut env = Env::new();
     let alice = env.staker();
     let bob = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
-
-    // Bob holds 100 of Alice's Gemas, as after winning them in a Match (settlement itself is
-    // covered in integration.rs): move them between the two Holdings directly.
-    let mut alice_account = env.load::<TesoroAccount>(alice.account);
-    let mut alice_holding = env.load::<HoldingState>(env.holding(&alice, source));
-    alice_holding
-        .inner
-        .debit(&mut alice_account.inner, 100)
-        .unwrap();
-    let mut bob_account = env.load::<TesoroAccount>(bob.account);
-    let mut bob_holding = HoldingState {
-        bump: pda_bump(&[HOLDING_SEED, bob.account.as_ref(), source.as_ref()]),
-        account: bob.account,
-        inner: ledger::Holding::new(source.to_bytes(), false),
-    };
-    bob_holding
-        .inner
-        .credit(&mut bob_account.inner, 100)
-        .unwrap();
-    let alice_holding_key = env.holding(&alice, source);
-    let bob_holding_key = env.holding(&bob, source);
-    env.write(alice.account, &alice_account, TesoroAccount::SPACE);
-    env.write(alice_holding_key, &alice_holding, HoldingState::SPACE);
-    env.write(bob.account, &bob_account, TesoroAccount::SPACE);
-    env.write(bob_holding_key, &bob_holding, HoldingState::SPACE);
+    env.give_won(&alice, &bob, source, 100);
 
     env.advance(MONTH);
-    env.crank(&alice.kp, pos).unwrap();
     let bob_before = env.token_balance(bob.token);
     env.redeem(&bob, pos, source, 100).expect("bob redeems");
-    let units = env
-        .load::<SourceState>(source)
-        .inner
-        .units_for(100)
-        .unwrap();
+    let units = env.stored(source).units_for(100).unwrap();
     assert_eq!(
         env.token_balance(bob.token) - bob_before,
         native::shares_for_units_floor(units, env.rate()).unwrap()
     );
-    env.check_invariants(pos);
-}
-
-fn pda_bump(seeds: &[&[u8]]) -> u8 {
-    APk::find_program_address(seeds, &tesoro_core::ID).1
-}
-
-impl Env {
-    /// Overwrites a program-owned account (test setup only).
-    fn write<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
-        let mut buf = Vec::new();
-        v.try_serialize(&mut buf).expect("serialize");
-        buf.resize(len, 0);
-        let mut acct = self.svm.get_account(&s(k)).unwrap_or_default();
-        acct.owner = s(tesoro_core::ID);
-        acct.lamports = acct.lamports.max(SOL / 100);
-        acct.data = buf;
-        self.svm.set_account(s(k), acct).expect("set account");
-    }
+    env.check_invariants(&[pos]);
 }
 
 // --- Unlock ---------------------------------------------------------------------------------
 
 #[test]
-fn unlock_needs_zero_debt_and_returns_principal_shares_to_the_owner() {
+fn unlock_needs_zero_debt_and_pays_principal_plus_free_yield_with_no_crank() {
     let mut env = Env::new();
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
@@ -1138,101 +981,267 @@ fn unlock_needs_zero_debt_and_returns_principal_shares_to_the_owner() {
     assert_eq!(env.token_balance(pos.vault), 10 * SOL);
 
     env.advance(MONTH);
-    env.crank(&alice.kp, pos).unwrap();
+    // The open Advance's Source must be supplied once Debt is zero.
+    let mut without = env.unlock_ix(&alice, pos, alice.token);
+    without.accounts.pop();
+    let err = env.send(&[without], &alice.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_SOURCE_REQUIRED);
+
     env.redeem(&alice, pos, source, 699).unwrap();
-    let redeemed_shares = env.token_balance(alice.token);
+    let before = env.token_balance(alice.token);
+    let supply = env.supply();
+    let net = env.accrued(pos);
     env.unlock(&alice, pos).expect("unlock");
 
-    assert_eq!(env.position(pos).status, PositionStatus::Unlocked);
-    // Everything went back to the owner but one share of rounding dust reserved for the
-    // sub-Gema remainder of the Source's yield.
-    assert!(env.token_balance(pos.vault) <= 1);
+    let position = env.position(pos);
+    assert_eq!(position.status, PositionStatus::Unlocked);
+    assert_eq!(position.open_advance, None);
+    assert_eq!(position.custody_shares, 0);
+    let y = env.stored(source).yield_units;
+    assert_eq!(y, 46_600_000);
+    let free = net.net - y;
+    assert_eq!(position.free_yield, free);
+    assert_eq!(position.free_yield_claimed, free);
+    // Principal from the vault, free yield minted: exactly that and no more.
+    let got = env.token_balance(alice.token) - before;
+    let yield_shares = native::shares_for_units_floor(free, env.rate()).unwrap();
+    assert_eq!(got, 10 * SOL + yield_shares);
+    assert_eq!(env.supply() - supply, yield_shares);
+    assert_eq!(env.token_balance(pos.vault), 0);
+    // Totals: the Position left and its Yield Fee is booked.
+    let totals = env.custody().totals();
     assert_eq!(
-        env.token_balance(alice.token)
-            + env.token_balance(pos.vault)
-            + env.token_balance(env.treasury_vault()),
-        env.supply()
+        (
+            totals.principal,
+            totals.fee_weight_time,
+            totals.open_positions
+        ),
+        (0, 0, 0)
     );
-    assert!(env.token_balance(alice.token) > redeemed_shares);
-    // The owner ends with at least the SOL value of the Principal plus all the yield.
-    assert!(
-        native::shares_value(env.token_balance(alice.token), env.rate()).unwrap()
-            >= env.position(pos).principal
-    );
-    env.check_invariants(pos);
+    assert_eq!(totals.realised_fee, net.fee as u128);
+    // Unlocking twice is refused.
+    let err = env.unlock(&alice, pos).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::PositionNotLocked));
+    env.check_invariants(&[pos]);
 }
 
 #[test]
-fn unlock_keeps_the_yield_owed_to_other_holders_in_the_vault_until_they_redeem() {
+fn unlock_with_no_advance_pays_all_the_accrued_yield() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    env.advance(MONTH);
+    let net = env.accrued(pos);
+    let before = env.token_balance(alice.token);
+    env.unlock(&alice, pos).unwrap();
+    let got = env.token_balance(alice.token) - before;
+    assert_eq!(
+        got,
+        10 * SOL + native::shares_for_units_floor(net.net, env.rate()).unwrap()
+    );
+}
+
+#[test]
+fn gemas_still_redeem_after_unlock_from_the_closed_source() {
     let mut env = Env::new();
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(MONTH);
-    env.crank(&alice.kp, pos).unwrap();
-    // Alice redeems nothing and unlocks: the yield owed on her 699 unredeemed Gemas stays put.
     env.unlock(&alice, pos).expect("unlock");
-    let rate = env.rate();
-    let reserve = env.token_balance(pos.vault);
-    let owed = native::owed_units(&env.position(pos), 0).unwrap();
-    assert_eq!(reserve, native::shares_for_units_ceil(owed, rate).unwrap());
-    assert!(reserve > 0);
-    env.check_invariants(pos);
-
-    // Later, at a higher rate, redeeming still works and is covered.
-    env.advance(3_600);
+    env.advance(10 * MONTH);
+    let supply = env.supply();
     env.redeem(&alice, pos, source, 699)
         .expect("redeem after unlock");
-    assert!(env.token_balance(pos.vault) < reserve);
-    env.check_invariants(pos);
-
-    // The rest (rounded reserve growth) is swept back to the owner, and nothing owed remains.
-    env.sweep(&alice, pos).expect("sweep");
-    assert!(env.token_balance(pos.vault) <= 1);
     assert_eq!(
-        env.token_balance(alice.token)
-            + env.token_balance(pos.vault)
-            + env.token_balance(env.treasury_vault()),
-        env.supply()
+        env.supply() - supply,
+        native::shares_for_units_floor(46_600_000, env.rate()).unwrap(),
+        "the closed Source pays what it owed, not more"
     );
 }
 
 #[test]
-fn only_the_owner_unlocks_or_sweeps() {
+fn a_second_advance_after_debt_zero_counts_only_yield_after_it_opened() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let first = env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(3 * MONTH);
+    let net = env.accrued(pos).net;
+
+    let second = env.advance_native(&alice, pos, 2).expect("second advance");
+    let p = env.position(pos);
+    assert_eq!(p.open_advance, Some(1));
+    assert_eq!(p.applied_net, net, "the checkpoint moved to now");
+    let y0 = env.stored(first).yield_units;
+    assert_eq!(y0, 46_600_000, "the first Source kept its final yield");
+    assert_eq!(p.free_yield, net - y0, "the rest was free yield");
+    // The new Advance starts with its whole Debt.
+    assert_eq!(env.debt(second), env.stored(second).issued);
+    assert!(env.debt(second) > 0);
+
+    // And is repaid by yield after it opened: two months.
+    env.advance(MONTH);
+    let half = env.debt(second);
+    assert!(half > 0 && half < env.stored(second).issued);
+    env.advance(MONTH + 1);
+    assert_eq!(env.debt(second), 0);
+
+    // Unlock pays Principal plus exactly the unconsumed yield.
+    let before = env.token_balance(alice.token);
+    let net_end = env.accrued(pos);
+    env.unlock(&alice, pos).unwrap();
+    let p = env.position(pos);
+    let y1 = env.stored(second).yield_units;
+    assert_eq!(
+        p.free_yield + y0 + y1,
+        net_end.net,
+        "every unit accounted once"
+    );
+    assert_eq!(
+        env.token_balance(alice.token) - before,
+        10 * SOL + native::shares_for_units_floor(p.free_yield, env.rate()).unwrap()
+    );
+    env.check_invariants(&[pos]);
+}
+
+#[test]
+fn returning_own_gemas_cancels_debt_and_frees_the_surplus_yield() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 2).unwrap();
+    env.advance(MONTH);
+    let debt = env.debt(source);
+    assert!(debt > 0);
+    // Returning part of the Debt keeps the Advance open.
+    env.return_own(&alice, pos, source, debt / 2).unwrap();
+    assert_eq!(env.position(pos).open_advance, Some(0));
+    assert!(env.debt(source) > 0);
+    // Returning the rest clears it, closes the Advance and banks the yield beyond.
+    let rest = env.debt(source);
+    env.return_own(&alice, pos, source, rest).unwrap();
+    assert_eq!(env.debt(source), 0);
+    let p = env.position(pos);
+    assert_eq!(p.open_advance, None);
+    assert_eq!(p.applied_net, env.accrued(pos).net);
+    let y = env.stored(source).yield_units;
+    assert_eq!(p.free_yield + y, p.applied_net);
+    env.unlock(&alice, pos).expect("unlock after returning");
+}
+
+#[test]
+fn only_the_owner_unlocks() {
     let mut env = Env::new();
     let alice = env.staker();
     let mallory = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     env.advance_native(&alice, pos, 1).unwrap();
-    // Mallory (with her own Account) tries to sweep or unlock Alice's Position.
+    env.advance(MONTH);
     let unlock = env.unlock_ix(&mallory, pos, mallory.token);
     assert!(env.send(&[unlock], &mallory.kp, &[]).is_err());
-    let sweep = tix(
-        accounts::SweepNativeSurplus {
-            owner_authority: mallory.key,
-            owner_account: mallory.account,
-            position: pos.position,
-            custody: pos.custody,
-            vault: pos.vault,
-            owner_token: mallory.token,
-            pool: env.pool,
-            token_program: TOKEN_PROGRAM_ID,
-        },
-        instruction::SweepNativeSurplus {},
-        vec![],
-    );
-    assert!(env.send(&[sweep], &mallory.kp, &[]).is_err());
+    // Nor can Alice route Principal to someone else's token account.
+    let steal = env.unlock_ix(&alice, pos, mallory.token);
+    let err = env.send(&[steal], &alice.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_INVALID_ACCOUNT);
     assert_eq!(env.token_balance(pos.vault), 10 * SOL);
 }
 
+// --- Pool totals ----------------------------------------------------------------------------
+
 #[test]
-fn sweeping_while_locked_is_refused() {
+fn pool_totals_stay_within_the_proven_bound_of_the_per_position_fees() {
     let mut env = Env::new();
     let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let err = env.sweep(&alice, pos).unwrap_err();
-    assert_eq!(code(&err), core_code(ledger::CoreError::PositionLocked));
-    assert_eq!(env.token_balance(pos.vault), 10 * SOL);
+    let bob = env.staker();
+    let carol = env.staker();
+    let a = env.open(&alice, 10 * SOL).unwrap();
+    env.advance(200);
+    let b = env.open(&bob, 4 * SOL).unwrap();
+    env.advance(300);
+    let c = env.open(&carol, SOL + 777).unwrap();
+    env.advance(2_345);
+
+    let claim = |env: &Env, realised: u64, locked: &[Pos]| {
+        let sum: u64 = locked.iter().map(|p| env.accrued(*p).fee).sum::<u64>() + realised;
+        let earned = env
+            .custody()
+            .totals()
+            .earned_fee(env.now(), sim_lst::DEFAULT_SPEEDUP)
+            .unwrap();
+        let n = locked.len() as u64;
+        assert!(earned <= sum, "claim {earned} above the sum of fees {sum}");
+        assert!(
+            sum <= earned + 2 * n + 2,
+            "claim {earned} below sum {sum} by more than the proven bound"
+        );
+        earned
+    };
+    claim(&env, 0, &[a, b, c]);
+
+    // Bob unlocks; his fee is realised exactly and the claim does not drop.
+    let before = claim(&env, 0, &[a, b, c]);
+    let bob_fee = env.accrued(b).fee;
+    env.unlock(&bob, b).unwrap();
+    assert_eq!(env.custody().totals().realised_fee, bob_fee as u128);
+    let after = claim(&env, bob_fee, &[a, c]);
+    assert!(
+        after + 4 >= before,
+        "unlock moved the claim from {before} to {after}"
+    );
+    env.check_invariants(&[a, b, c]);
+
+    env.advance(10_000);
+    claim(&env, bob_fee, &[a, c]);
+    let (a_fee, c_fee) = (env.accrued(a).fee, env.accrued(c).fee);
+    env.unlock(&alice, a).unwrap();
+    env.unlock(&carol, c).unwrap();
+    let t = env.custody().totals();
+    assert_eq!(
+        (t.principal, t.fee_weight_time, t.open_positions),
+        (0, 0, 0)
+    );
+    assert_eq!(t.realised_fee, (bob_fee + a_fee + c_fee) as u128);
+}
+
+// A fee change applies only to Positions opened afterwards (the Yield Fee is fixed at open).
+#[test]
+fn a_fee_change_never_applies_backwards() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let a = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, a, 1).unwrap();
+    env.advance(300);
+    let a_before = env.accrued(a);
+    let debt_before = env.debt(source);
+    env.init_treasury(1_000, INSTANT_FEE_BPS).unwrap();
+    assert_eq!(env.accrued(a), a_before, "the past yield did not move");
+    assert_eq!(env.debt(source), debt_before);
+    assert_eq!(env.position(a).yield_fee_bps, 2_000);
+
+    env.advance(100);
+    let b = env.open(&bob, 4 * SOL).unwrap();
+    assert_eq!(env.position(b).yield_fee_bps, 1_000);
+    env.advance(2_000);
+    let sum = env.accrued(a).fee + env.accrued(b).fee;
+    let earned = env
+        .custody()
+        .totals()
+        .earned_fee(env.now(), sim_lst::DEFAULT_SPEEDUP)
+        .unwrap();
+    assert!(earned <= sum, "claim {earned} above fee(A)+fee(B) {sum}");
+    assert!(
+        sum <= earned + 2 * 2 + 2,
+        "claim {earned} too far below {sum}"
+    );
+    // The Advance is still repaid at its Horizon at A's own 20%.
+    assert_eq!(env.debt(source), 0);
+    // Unlock books each Position's own fee exactly.
+    let (fa, fb) = (env.accrued(a).fee, env.accrued(b).fee);
+    env.unlock(&alice, a).unwrap();
+    env.unlock(&bob, b).unwrap();
+    assert_eq!(env.custody().totals().realised_fee, (fa + fb) as u128);
 }
 
 // --- Validation -----------------------------------------------------------------------------
@@ -1270,6 +1279,28 @@ fn unregistered_pool_and_mismatched_mint_are_rejected() {
 
     // Nothing was deposited by any of them.
     assert_eq!(env.token_balance(alice.token), 10 * SOL);
+    assert_eq!(env.custody().open_positions, 0);
+}
+
+#[test]
+fn a_fake_pool_cannot_speed_up_or_stall_the_yield() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH);
+    // A pool copy with a huge speedup at another address, passed in place of the real one.
+    let fake = APk::new_unique();
+    let mut acct = env.svm.get_account(&s(env.pool)).unwrap();
+    // disc 8, admin 32, mint 32, base_rate 8, base_ts 8, apy 4, then speedup
+    acct.data[92..96].copy_from_slice(&1_000_000u32.to_le_bytes());
+    env.svm.set_account(s(fake), acct).unwrap();
+    let mut unlock = env.unlock_ix(&alice, pos, alice.token);
+    unlock.accounts[5].pubkey = s(fake);
+    assert!(env.send(&[unlock], &alice.kp, &[]).is_err());
+    let mut redeem = env.redeem_ix(&alice, pos, source, 699, alice.token);
+    redeem.accounts[5].pubkey = s(fake);
+    assert!(env.send(&[redeem], &alice.kp, &[]).is_err());
 }
 
 #[test]
@@ -1347,11 +1378,49 @@ fn take_native_advance_rejects_an_oracle_position() {
     env.send(&[open], &oracle, &[]).unwrap();
     let fake = Pos {
         position,
-        custody: APk::default(),
-        vault: APk::default(),
+        custody: pda(&[NATIVE_SEED]),
+        vault: pda(&[NATIVE_VAULT_SEED]),
     };
     let err = env.advance_native(&alice, fake, 1).unwrap_err();
     assert_eq!(code(&err), ERR_NOT_NATIVE);
+}
+
+#[test]
+fn the_oracle_position_cannot_unlock_through_the_native_path_and_redeem_still_burns_only_there() {
+    // A non-native Solana Position keeps the ledger path: unlock needs no native accounts.
+    let mut env = Env::new();
+    let alice = env.staker();
+    let oracle = env.oracle.insecure_clone();
+    let position = pda(&[POSITION_SEED, &[0], &[7; 32]]);
+    let open = tix(
+        accounts::OpenPosition {
+            oracle: a(oracle.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            owner_account: alice.account,
+            position,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::OpenPosition {
+            source_chain: ledger::SourceChain::Solana,
+            position_id: [7; 32],
+            source_asset: APk::new_unique(),
+            decimals: 9,
+            principal: 10 * SOL,
+            rate_bps: 700,
+        },
+        vec![],
+    );
+    env.send(&[open], &oracle, &[]).unwrap();
+    let unlock = tix(
+        accounts::Unlock {
+            owner_authority: alice.key,
+            owner_account: alice.account,
+            position,
+        },
+        instruction::Unlock {},
+        vec![],
+    );
+    env.send(&[unlock], &alice.kp, &[]).expect("ledger unlock");
 }
 
 // --- Randomized sequences -------------------------------------------------------------------
@@ -1359,23 +1428,19 @@ fn take_native_advance_rejects_an_oracle_position() {
 #[derive(Clone, Debug)]
 enum Op {
     Time(i64),
-    Crank,
     Redeem(u64),
     Advance(u8),
     ReturnOwn(u64),
     Unlock,
-    Sweep,
 }
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
-        4 => (1i64..900).prop_map(Op::Time),
-        4 => Just(Op::Crank),
+        5 => (1i64..900).prop_map(Op::Time),
         4 => (1u64..=100).prop_map(Op::Redeem),
         2 => (1u8..=6).prop_map(Op::Advance),
         1 => (1u64..=100).prop_map(Op::ReturnOwn),
         1 => Just(Op::Unlock),
-        1 => Just(Op::Sweep),
     ]
 }
 
@@ -1391,37 +1456,18 @@ proptest! {
         let mut env = Env::new();
         let alice = env.staker();
         env.advance(head_start);
-        let deposit = shares * SOL;
-        let pos = env.open(&alice, deposit).unwrap();
+        let pos = env.open(&alice, shares * SOL).unwrap();
         env.advance_native(&alice, pos, 2).unwrap();
-        let cranker = env.person();
-        let total = |env: &Env| {
-            env.token_balance(alice.token)
-                + env.token_balance(pos.vault)
-                + env.token_balance(env.treasury_vault())
-        };
-        prop_assert_eq!(total(&env), env.supply());
+        let base_supply = env.supply();
 
         for op in ops {
-            let before_cum = env.position(pos).cumulative_yield;
-            let before_paid = env.custody(pos).redeemed_units;
             let latest = env.position(pos).advances - 1;
             let source = env.source(pos, latest);
             match op {
                 Op::Time(secs) => env.advance(secs),
-                Op::Crank => {
-                    let _ = env.crank(&cranker.kp, pos);
-                    // Idempotent: a second crank at the same time changes nothing.
-                    let snap = env.svm.get_account(&s(pos.position)).unwrap().data;
-                    let vault = env.svm.get_account(&s(pos.vault)).unwrap().data;
-                    let _ = env.crank(&cranker.kp, pos);
-                    prop_assert_eq!(env.svm.get_account(&s(pos.position)).unwrap().data, snap);
-                    prop_assert_eq!(env.svm.get_account(&s(pos.vault)).unwrap().data, vault);
-                }
                 Op::Redeem(pct) => {
                     let held = env.gemas(&alice, source);
-                    let redeemable = env.load::<SourceState>(source).inner.redeemable_for(held);
-                    let amount = redeemable * pct / 100;
+                    let amount = env.view(source).redeemable_for(held) * pct / 100;
                     if amount > 0 {
                         let _ = env.redeem(&alice, pos, source, amount);
                     }
@@ -1430,88 +1476,40 @@ proptest! {
                     let _ = env.advance_native(&alice, pos, months);
                 }
                 Op::ReturnOwn(pct) => {
-                    let debt = env.debt(source);
-                    let amount = (debt * pct / 100).min(env.gemas(&alice, source));
+                    let amount = (env.debt(source) * pct / 100).min(env.gemas(&alice, source));
                     if amount > 0 {
-                        let ret = tix(
-                            accounts::ReturnOwn {
-                                owner_authority: alice.key,
-                                owner_account: alice.account,
-                                position: pos.position,
-                                source,
-                                holding: env.holding(&alice, source),
-                            },
-                            instruction::ReturnOwn { amount },
-                            vec![],
-                        );
-                        let _ = env.send(&[ret], &alice.kp, &[]);
+                        let _ = env.return_own(&alice, pos, source, amount);
                     }
                 }
                 Op::Unlock => {
                     let _ = env.unlock(&alice, pos);
                 }
-                Op::Sweep => {
-                    let _ = env.sweep(&alice, pos);
-                }
             }
-            let position = env.position(pos);
-            // Yield is monotonic and never exceeds what the vault produced.
-            prop_assert!(position.cumulative_yield >= before_cum);
-            prop_assert!(env.custody(pos).redeemed_units >= before_paid);
-            // Shares are conserved: they are in the vault or in the owner's wallet.
-            prop_assert_eq!(total(&env), env.supply());
-            env.check_invariants(pos);
+            // Yield is minted only as paid, and never beyond what has accrued (net of the fee).
+            let minted = env.supply() - base_supply;
+            prop_assert!(minted <= env.accrued(pos).net, "minted {} accrued {}", minted, env.accrued(pos).net);
+            prop_assert!(env.debt(source) <= env.stored(source).issued);
+            env.check_invariants(&[pos]);
         }
     }
 }
 
-/// CU reading for the crank (run with `--nocapture`).
+/// CU readings for the payouts (run with `--nocapture`).
 #[test]
-fn cu_profile_accrue_native_yield() {
+fn cu_profile_redeem_and_unlock() {
     let mut env = Env::new();
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
-    let _ = source;
-    env.advance(300);
-    let cranker = env.person();
-    env.crank(&cranker.kp, pos).unwrap();
-    let with_debt = env.last_cu;
     env.advance(MONTH);
-    env.crank(&cranker.kp, pos).unwrap();
-    println!(
-        "CU accrue_native_yield partial repay: {with_debt}; final repay: {}",
-        env.last_cu
-    );
-    assert!(with_debt < 100_000 && env.last_cu < 100_000);
+    env.redeem(&alice, pos, source, 699).unwrap();
+    let redeem = env.last_cu;
+    env.unlock(&alice, pos).unwrap();
+    println!("CU redeem: {redeem}; unlock: {}", env.last_cu);
+    assert!(redeem < 100_000 && env.last_cu < 120_000);
 }
 
-// --- Per-Position yield (docs/yield-model.md) -------------------------------------------------
-
-/// Sets the pool's constant rate, as a devnet pool that grew under the old model and was then
-/// checkpointed.
-fn set_pool_rate(env: &mut Env, rate: u64) {
-    let mut acct = env.svm.get_account(&s(env.pool)).expect("pool");
-    // disc 8, admin 32, mint 32, then base_rate
-    acct.data[72..80].copy_from_slice(&rate.to_le_bytes());
-    env.svm.set_account(s(env.pool), acct).expect("set");
-}
-
-fn mint_yield_ix(env: &Env, authority: APk, destination: APk, shares: u64) -> Instruction {
-    ix(
-        sim_lst::ID,
-        sim_lst::accounts::MintYield {
-            authority,
-            config: sim_pda(&[sim_lst::YIELD_SEED]),
-            pool: env.pool,
-            mint: env.mint,
-            destination,
-            token_program: TOKEN_PROGRAM_ID,
-        },
-        sim_lst::instruction::MintYield { shares },
-        vec![],
-    )
-}
+// --- Horizon --------------------------------------------------------------------------------
 
 #[test]
 fn an_advance_of_n_months_is_repaid_in_n_times_a_month_for_any_principal_and_rate() {
@@ -1530,25 +1528,70 @@ fn an_advance_of_n_months_is_repaid_in_n_times_a_month_for_any_principal_and_rat
             let total = i64::from(months) * MONTH;
             let early = total / 10;
             env.advance(total - early);
-            for (pos, source) in &positions {
-                env.crank(&alice.kp, *pos).unwrap();
+            for (_, source) in &positions {
                 assert!(env.debt(*source) > 0, "not repaid {early} s early");
-                env.check_invariants(*pos);
             }
             env.advance(early + 1);
-            for (pos, source) in &positions {
-                env.crank(&alice.kp, *pos).unwrap();
+            for (_, source) in &positions {
                 assert_eq!(
                     env.debt(*source),
                     0,
                     "rate {rate} months {months}: repaid at {} s",
                     total + 1
                 );
-                env.check_invariants(*pos);
             }
+            let all: Vec<Pos> = positions.iter().map(|p| p.0).collect();
+            env.check_invariants(&all);
         }
     }
 }
+
+/// Sets the pool's constant rate.
+fn set_pool_rate(env: &mut Env, rate: u64) {
+    let mut acct = env.svm.get_account(&s(env.pool)).expect("pool");
+    // disc 8, admin 32, mint 32, then base_rate
+    acct.data[72..80].copy_from_slice(&rate.to_le_bytes());
+    env.svm.set_account(s(env.pool), acct).expect("set");
+}
+
+#[test]
+fn the_rate_does_not_grow() {
+    let mut env = Env::new();
+    let before = env.rate();
+    env.advance(30 * 24 * 3_600);
+    assert_eq!(env.rate(), before);
+}
+
+#[test]
+fn only_the_recorded_yield_authority_can_mint_yield() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, SOL).unwrap();
+    for who in [
+        &alice.kp,
+        &env.admin.insecure_clone(),
+        &env.oracle.insecure_clone(),
+    ] {
+        let ix = ix(
+            sim_lst::ID,
+            sim_lst::accounts::MintYield {
+                authority: a(who.pubkey()),
+                config: sim_pda(&[sim_lst::YIELD_SEED]),
+                pool: env.pool,
+                mint: env.mint,
+                destination: pos.vault,
+                token_program: TOKEN_PROGRAM_ID,
+            },
+            sim_lst::instruction::MintYield { shares: SOL },
+            vec![],
+        );
+        let err = env.send(&[ix], who, &[]).expect_err("must be refused");
+        assert_eq!(code(&err), 6000, "Unauthorized");
+    }
+    assert_eq!(env.token_balance(pos.vault), SOL);
+}
+
+// --- Extend ---------------------------------------------------------------------------------
 
 #[test]
 fn a_player_who_lost_the_gemas_extends_the_advance_and_unlocks_on_the_new_schedule() {
@@ -1566,29 +1609,34 @@ fn a_player_who_lost_the_gemas_extends_the_advance_and_unlocks_on_the_new_schedu
     assert!(env.extend_native(&alice, pos, source, 0).is_err());
     assert!(env.extend_native(&alice, pos, source, 10).is_err());
     env.advance(MONTH);
-    env.crank(&alice.kp, pos).unwrap();
     env.extend_native(&alice, pos, source, 3).unwrap();
     // Three more months of the same Source, at the same price, as own Gemas.
     assert_eq!(env.gemas(&alice, source), first);
-    let src = env.load::<SourceState>(source).inner;
+    let src = env.stored(source);
     assert_eq!((src.horizon_months, src.issued), (6, 2 * first));
-    env.check_invariants(pos);
     // Not yet repaid at 6 months minus a tenth; repaid at 6 months and a second.
     let total = 6 * MONTH;
     env.advance(total - MONTH - total / 10);
-    env.crank(&alice.kp, pos).unwrap();
     assert!(env.debt(source) > 0);
     assert!(env.unlock(&alice, pos).is_err());
     env.advance(total / 10 + 1);
-    env.crank(&alice.kp, pos).unwrap();
     assert_eq!(env.debt(source), 0);
-    env.check_invariants(pos);
     env.unlock(&alice, pos).unwrap();
+    env.check_invariants(&[pos]);
 }
 
 const DAY: i64 = 24 * 60 * 60;
 
+/// Yield at real speed, so a day passes without the Advance being repaid.
+fn slow_clock(env: &mut Env) {
+    let mut acct = env.svm.get_account(&s(env.pool)).expect("pool");
+    // disc 8, admin 32, mint 32, base_rate 8, base_ts 8, apy 4, then speedup
+    acct.data[92..96].copy_from_slice(&1u32.to_le_bytes());
+    env.svm.set_account(s(env.pool), acct).expect("set");
+}
+
 fn lost_advance(env: &mut Env, alice: &Person) -> (Pos, APk) {
+    slow_clock(env);
     let bob = env.staker();
     let pos = env.open(alice, 2 * SOL).unwrap();
     let source = env.advance_native(alice, pos, 3).unwrap();
@@ -1611,10 +1659,9 @@ fn extend_waits_a_day_between_extends_and_stops_at_the_extend_limit() {
     // Exactly a day later it goes through, and fills the limit of 3.
     env.advance(1);
     env.extend_native(&alice, pos, source, 2).unwrap();
-    assert_eq!(env.load::<SourceState>(source).inner.horizon_months, 6);
+    assert_eq!(env.stored(source).horizon_months, 6);
     env.advance(DAY);
     assert!(env.extend_native(&alice, pos, source, 1).is_err());
-    env.check_invariants(pos);
 }
 
 #[test]
@@ -1642,186 +1689,41 @@ fn extend_is_refused_without_an_open_advance_and_after_repayment() {
     let pos = env.open(&alice, 2 * SOL).unwrap();
     let source = env.advance_native(&alice, pos, 1).unwrap();
     env.advance(MONTH + 1);
-    env.crank(&alice.kp, pos).unwrap();
     assert_eq!(env.debt(source), 0);
-    assert!(env.extend_native(&alice, pos, source, 1).is_err());
+    let err = env.extend_native(&alice, pos, source, 1).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::AdvanceRepaid));
 }
 
 #[test]
-fn the_rate_does_not_grow() {
-    let mut env = Env::new();
-    let before = env.rate();
-    env.advance(30 * 24 * 3_600);
-    assert_eq!(env.rate(), before);
-}
-
-#[test]
-fn yield_accrues_linearly_on_the_principal_and_is_minted_into_the_vault() {
+fn an_extend_keeps_the_yield_already_counted() {
     let mut env = Env::new();
     let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    assert_eq!(env.custody(pos).last_accrual_ts, T0);
+    let (pos, source) = lost_advance(&mut env, &alice);
     env.advance(MONTH);
-    env.crank(&alice.kp, pos).unwrap();
-    // 7% a year over one simulated month on 10 SOL, minted as simSOL at rate 1.0: the Yield Fee
-    // (20%) into the treasury vault, the rest into the Position's vault.
-    let gross = 10 * SOL * 700 / 10_000 / 12;
-    let fee = gross * u64::from(YIELD_FEE_BPS) / 10_000;
-    let expected = gross - fee;
-    let custody = env.custody(pos);
-    assert_eq!(custody.tracked_shares, 10 * SOL + expected);
-    assert_eq!(env.token_balance(pos.vault), 10 * SOL + expected);
-    assert_eq!(env.token_balance(env.treasury_vault()), fee);
-    assert_eq!(env.treasury().fee_units, fee);
-    assert_eq!(custody.last_accrual_ts, T0 + MONTH);
-    assert_eq!(env.position(pos).cumulative_yield, expected);
-    // Cranking again in the same second mints nothing more.
-    env.crank(&alice.kp, pos).unwrap();
-    assert_eq!(env.token_balance(pos.vault), 10 * SOL + expected);
-    assert_eq!(env.token_balance(env.treasury_vault()), fee);
+    let before = env.view(source).yield_units;
+    assert!(before > 0);
+    env.extend_native(&alice, pos, source, 3).unwrap();
+    // The Source now records the yield counted so far; it never drops.
+    assert!(env.stored(source).yield_units >= before);
+    assert!(env.debt(source) > 0);
 }
 
-#[test]
-fn yield_that_rounds_to_zero_shares_carries_its_time() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 1_000).unwrap();
-    env.advance(1);
-    env.crank(&alice.kp, pos).unwrap();
-    assert_eq!(
-        env.custody(pos).last_accrual_ts,
-        T0,
-        "time kept until a share is due"
-    );
-    assert_eq!(env.token_balance(pos.vault), 1_000);
-    env.advance(3_600_000);
-    env.crank(&alice.kp, pos).unwrap();
-    assert!(env.token_balance(pos.vault) > 1_000);
+fn pda_bump(seeds: &[&[u8]]) -> u8 {
+    APk::find_program_address(seeds, &tesoro_core::ID).1
 }
 
-#[test]
-fn nothing_accrues_after_unlock() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let source = env.advance_native(&alice, pos, 1).unwrap();
-    env.advance(MONTH + 1);
-    env.crank(&alice.kp, pos).unwrap();
-    assert_eq!(env.debt(source), 0);
-    env.redeem(&alice, pos, source, 699).expect("redeem");
-    env.unlock(&alice, pos).expect("unlock");
-    let shares = env.custody(pos).tracked_shares;
-    env.advance(10 * MONTH);
-    env.crank(&alice.kp, pos).unwrap();
-    assert_eq!(env.custody(pos).tracked_shares, shares);
-    env.check_invariants(pos);
-}
-
-#[test]
-fn only_the_recorded_yield_authority_can_mint_yield() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, SOL).unwrap();
-    for who in [
-        &alice.kp,
-        &env.admin.insecure_clone(),
-        &env.oracle.insecure_clone(),
-    ] {
-        let ix = mint_yield_ix(&env, a(who.pubkey()), pos.vault, SOL);
-        let err = env.send(&[ix], who, &[]).expect_err("must be refused");
-        assert_eq!(code(&err), 6000, "Unauthorized");
+impl Env {
+    /// Overwrites a program-owned account (test setup only).
+    fn write<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
+        let mut buf = Vec::new();
+        v.try_serialize(&mut buf).expect("serialize");
+        buf.resize(len, 0);
+        let mut acct = self.svm.get_account(&s(k)).unwrap_or_default();
+        acct.owner = s(tesoro_core::ID);
+        acct.lamports = acct.lamports.max(SOL / 100);
+        acct.data = buf;
+        self.svm.set_account(s(k), acct).expect("set account");
     }
-    assert_eq!(env.token_balance(pos.vault), SOL);
-}
-
-#[test]
-fn the_crank_only_calls_the_real_sim_lst() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, SOL).unwrap();
-    env.advance(MONTH);
-    let mut ix = tix(
-        accounts::AccrueNativeYield {
-            position: pos.position,
-            custody: pos.custody,
-            vault: pos.vault,
-            pool: env.pool,
-            mint: env.mint,
-            yield_config: sim_pda(&[sim_lst::YIELD_SEED]),
-            yield_authority: pda(&[YIELD_SEED]),
-            sim_lst_program: anchor_lang::system_program::ID,
-            token_program: TOKEN_PROGRAM_ID,
-            treasury: pda(&[TREASURY_SEED]),
-            treasury_vault: pda(&[TREASURY_VAULT_SEED]),
-            source: None,
-        },
-        instruction::AccrueNativeYield {},
-        vec![],
-    );
-    assert!(env.send(&[ix.clone()], &alice.kp, &[]).is_err());
-    // A mint other than the custody's is refused too.
-    ix.accounts[4].pubkey = s(pos.vault);
-    assert!(env.send(&[ix], &alice.kp, &[]).is_err());
-    assert_eq!(env.token_balance(pos.vault), SOL);
-}
-
-/// Rewrites the custody as it was after F-05 and before the per-Position yield (no `last_accrual_ts`).
-fn make_tracked_only(env: &mut Env, pos: Pos) {
-    let mut acct = env.svm.get_account(&s(pos.custody)).expect("custody");
-    acct.data.truncate(NativeCustody::TRACKED_SPACE);
-    env.svm.set_account(s(pos.custody), acct).expect("set");
-}
-
-#[test]
-fn migration_of_a_pre_upgrade_custody_starts_earning_at_the_new_rate_from_now() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let source = env.advance_native(&alice, pos, 1).unwrap();
-    make_tracked_only(&mut env, pos);
-    let cranker = env.person();
-    assert!(
-        env.crank(&cranker.kp, pos).is_err(),
-        "unreadable until migrated"
-    );
-
-    env.advance(5_000); // the upgrade lands long after the custody was opened
-    let migrate = migrate_ix(&env, &cranker, pos);
-    env.send(&[migrate], &cranker.kp, &[]).expect("migrate");
-    let custody = env.custody(pos);
-    assert_eq!(
-        custody.tracked_shares,
-        10 * SOL,
-        "tracked count carried over"
-    );
-    assert_eq!(custody.last_accrual_ts, T0 + 5_000);
-    let migrate = migrate_ix(&env, &cranker, pos);
-    assert!(
-        env.send(&[migrate], &cranker.kp, &[]).is_err(),
-        "twice is refused"
-    );
-
-    // No back pay for the 5,000 s before the migration, then the schedule runs from there.
-    env.crank(&cranker.kp, pos).unwrap();
-    assert_eq!(env.token_balance(pos.vault), 10 * SOL);
-    env.advance(MONTH + 1);
-    env.crank(&cranker.kp, pos).unwrap();
-    assert_eq!(env.debt(source), 0);
-    env.check_invariants(pos);
-}
-
-#[test]
-fn migration_still_accepts_the_original_layout() {
-    let mut env = Env::new();
-    let alice = env.staker();
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    make_legacy(&mut env, pos);
-    let cranker = env.person();
-    let migrate = migrate_ix(&env, &cranker, pos);
-    env.send(&[migrate], &cranker.kp, &[]).expect("migrate");
-    let custody = env.custody(pos);
-    assert_eq!(custody.tracked_shares, 10 * SOL);
-    assert_eq!(custody.last_accrual_ts, T0);
 }
 
 // --- Yield Fee, Instant Redeem and the Treasury (ADR 0007) -----------------------------------
@@ -1867,6 +1769,8 @@ impl Env {
     fn fund_treasury(&mut self, shares: u64) -> Result<(), Failed> {
         let admin = self.admin.insecure_clone();
         let admin_token = get_associated_token_address(&a(admin.pubkey()), &self.mint);
+        // The faucet cooldown moves the clock; funding must not age the Positions under test.
+        let clock = self.now();
         let mut faucets = 0;
         while self.token_balance(admin_token) < shares {
             let faucet = ix(
@@ -1889,6 +1793,7 @@ impl Env {
             faucets += 1;
             assert!(faucets < 20, "faucet loop");
         }
+        self.set_time(clock);
         let fund = tix(
             accounts::FundTreasury {
                 admin: a(admin.pubkey()),
@@ -1953,13 +1858,7 @@ impl Env {
                 treasury_holding: self.treasury_holding(source),
             },
             instruction::RedeemTreasury { amount },
-            vec![
-                rem(pos.custody, true),
-                rem(pos.vault, true),
-                rem(self.treasury_vault(), true),
-                rem(self.pool, false),
-                rem(TOKEN_PROGRAM_ID, false),
-            ],
+            self.yield_mint(self.treasury_vault()),
         );
         self.send(&[redeem], payer, &[])
     }
@@ -2055,7 +1954,7 @@ fn instant_redeem_pays_65_percent_from_the_treasury_and_hands_it_the_gemas() {
     // Debt, the Source's counts and Alice's lock are untouched.
     assert_eq!(env.load::<SourceState>(source).inner, source_before);
     assert_eq!(env.position(pos).status, PositionStatus::Locked);
-    env.check_invariants(pos);
+    env.check_invariants(&[pos]);
 }
 
 #[test]
@@ -2080,12 +1979,10 @@ fn instant_redeem_fails_cleanly_when_the_treasury_is_short() {
     let err = env.instant_redeem(&bob, pos, source, 1_000).unwrap_err();
     assert_eq!(code(&err), ERR_TREASURY_SHORT);
     assert_eq!(env.gemas(&bob, source), 1_000);
-    // Yield Fees fill it: after a month of Alice's yield the treasury pays.
-    env.advance(MONTH);
-    env.crank(&alice.kp, pos).unwrap();
-    assert!(env.token_balance(env.treasury_vault()) > 1_000);
+    // Funding it fills it: then the same sale is paid.
+    env.fund_treasury(SOL).unwrap();
     env.instant_redeem(&bob, pos, source, 100)
-        .expect("paid from fees");
+        .expect("paid once funded");
 }
 
 #[test]
@@ -2098,8 +1995,7 @@ fn instant_redeem_refuses_gemas_whose_yield_has_landed() {
     env.give_won(&alice, &bob, source, 1_000);
     env.fund_treasury(SOL).unwrap();
     env.advance(MONTH);
-    env.crank(&alice.kp, pos).unwrap();
-    let landed = env.load::<SourceState>(source).inner.redeemable_for(1_000);
+    let landed = env.view(source).redeemable_for(1_000);
     assert!(landed > 0 && landed < 1_000);
     let err = env.instant_redeem(&bob, pos, source, 1_000).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::ExceedsPending));
@@ -2141,18 +2037,12 @@ fn the_treasury_redeems_what_it_bought_at_full_value_and_refills_its_vault() {
     assert_eq!(code(&err), core_code(ledger::CoreError::ExceedsRedeemable));
 
     env.advance(MONTH + 1);
-    env.crank(&alice.kp, pos).unwrap();
     assert_eq!(env.debt(source), 0);
-    let fees = env.token_balance(env.treasury_vault()) - after_instant;
-    let full = env
-        .load::<SourceState>(source)
-        .inner
-        .units_for(400)
-        .unwrap();
-    // Anyone may crank it; the simSOL can only go to the treasury vault.
+    let full = env.view(source).units_for(400).unwrap();
+    // Anyone may call it; the minted simSOL can only go to the treasury vault.
     env.redeem_treasury(&carol.kp, pos, source, 400)
         .expect("treasury redeems");
-    let refill = env.token_balance(env.treasury_vault()) - after_instant - fees;
+    let refill = env.token_balance(env.treasury_vault()) - after_instant;
     assert_eq!(
         refill,
         native::shares_for_units_floor(full, env.rate()).unwrap()
@@ -2178,29 +2068,19 @@ fn the_treasury_redeems_what_it_bought_at_full_value_and_refills_its_vault() {
             treasury_holding: env.treasury_holding(source),
         },
         instruction::RedeemTreasury { amount: 1 },
-        vec![
-            rem(pos.custody, true),
-            rem(pos.vault, true),
-            rem(carol.token, true),
-            rem(env.pool, false),
-            rem(TOKEN_PROGRAM_ID, false),
-        ],
+        env.yield_mint(carol.token),
     );
     assert!(env.send(&[redirected], &carol.kp, &[]).is_err());
 
     // Normal Redeem is unchanged for everyone else: Carol redeems her won Gemas, Alice her own.
     let carol_before = env.token_balance(carol.token);
     env.redeem(&carol, pos, source, 200).expect("carol redeems");
-    let units = env
-        .load::<SourceState>(source)
-        .inner
-        .units_for(200)
-        .unwrap();
+    let units = env.stored(source).units_for(200).unwrap();
     assert_eq!(
         env.token_balance(carol.token) - carol_before,
         native::shares_for_units_floor(units, env.rate()).unwrap()
     );
     env.redeem(&alice, pos, source, issued - 600)
         .expect("alice redeems");
-    env.check_invariants(pos);
+    env.check_invariants(&[pos]);
 }

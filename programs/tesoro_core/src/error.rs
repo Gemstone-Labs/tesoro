@@ -43,6 +43,8 @@ pub enum TesoroError {
     LeaderboardOff,
     #[msg("the treasury cannot pay this instant redeem now")]
     TreasuryShort,
+    #[msg("the open Advance's Source must be supplied")]
+    SourceRequired,
 }
 
 pub fn core_err(e: CoreError) -> Error {

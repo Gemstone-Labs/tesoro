@@ -135,7 +135,10 @@ pub mod tesoro_core {
         instructions::position::apply_yield(ctx, seq, cumulative)
     }
 
-    pub fn return_own(ctx: Context<ReturnOwn>, amount: u64) -> Result<()> {
+    pub fn return_own<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ReturnOwn<'info>>,
+        amount: u64,
+    ) -> Result<()> {
         instructions::position::return_own(ctx, amount)
     }
 
@@ -154,7 +157,7 @@ pub mod tesoro_core {
         instructions::position::unlock(ctx)
     }
 
-    // --- Solana-native Positions (simSOL custody, permissionless yield) ----------------------
+    // --- Solana-native Positions (shared simSOL custody, yield computed) ----------------------
 
     pub fn set_price(ctx: Context<SetPrice>, price_micro_usd: u64) -> Result<()> {
         instructions::native::set_price(ctx, price_micro_usd)
@@ -183,17 +186,9 @@ pub mod tesoro_core {
         instructions::native::set_extend_limit(ctx, months)
     }
 
-    pub fn accrue_native_yield(ctx: Context<AccrueNativeYield>) -> Result<()> {
-        instructions::native::accrue_native_yield(ctx)
-    }
-
-    pub fn sweep_native_surplus(ctx: Context<SweepNativeSurplus>) -> Result<()> {
-        instructions::native::sweep_native_surplus(ctx)
-    }
-
-    /// Extends a custody opened before `tracked_shares` existed. Permissionless.
-    pub fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Result<()> {
-        instructions::native::migrate_native_custody(ctx)
+    /// Creates the shared native custody (vault + pool totals). Admin only, once.
+    pub fn init_native_custody(ctx: Context<InitNativeCustody>) -> Result<()> {
+        instructions::native::init_native_custody(ctx)
     }
 
     // --- Treasury: Yield Fee and Instant Redeem (ADR 0007) ----------------------------------

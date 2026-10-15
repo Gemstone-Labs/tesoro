@@ -54,6 +54,18 @@ pub struct Position {
     /// Yield accrued while no Advance had Debt to repay; belongs to the owner.
     pub free_yield: u64,
     pub free_yield_claimed: u64,
+    /// Unix time the Position opened: Accrued Yield counts from here (ADR 0010). Native Positions
+    /// only; zero for Positions whose yield is reported.
+    pub opened_at: i64,
+    /// Native Positions: the yield checkpoint. Net Accrued Yield up to here is already settled:
+    /// consumed by closed Sources or banked in `free_yield`. The open Advance counts only what
+    /// accrues after it.
+    pub applied_net: u64,
+    /// Native Positions: simSOL shares this Position holds in the shared custody vault.
+    pub custody_shares: u64,
+    /// Native Positions: the Yield Fee in basis points, fixed at open (like `rate_bps`). A later
+    /// change of the Treasury's rate applies only to Positions opened afterwards.
+    pub yield_fee_bps: u16,
 }
 
 impl Position {
@@ -85,6 +97,10 @@ impl Position {
             cumulative_yield: 0,
             free_yield: 0,
             free_yield_claimed: 0,
+            opened_at: 0,
+            applied_net: 0,
+            custody_shares: 0,
+            yield_fee_bps: 0,
         })
     }
 
