@@ -102,7 +102,7 @@ const withMarket = (snapshot: (a: string) => AccountSnapshot, market: Partial<No
   return { ...s, market: { ...s.market!, ...market } };
 };
 
-/** Won SOL Gemas sold now: 65% in simSOL in the same transaction, the 35% Tesoro keeps said plainly, and the most the treasury can pay. */
+/** Won SOL Gemas sold now: 75% in simSOL in the same transaction, the 25% Tesoro keeps said plainly, and the most the treasury can pay. */
 export const RedeemNowSol: Story = {
   decorators: [withSigner],
   parameters: { data: { snapshot: onlySol } },
@@ -122,6 +122,14 @@ export const RedeemNowEthAndHype: Story = {
 export const RedeemNowTreasuryShort: Story = {
   decorators: [withSigner],
   parameters: { data: { snapshot: withMarket(onlySol, { treasuryShares: 50_000n }) } },
+  render: (args) => <NativeRedeemSheet {...args} />,
+  play: openRedeemNow,
+};
+
+/** The Solana treasury holds nothing: "Instant Redeem unavailable right now" with the plain way out, instead of an offer or an error. */
+export const RedeemNowTreasuryEmpty: Story = {
+  decorators: [withSigner],
+  parameters: { data: { snapshot: withMarket(onlySol, { treasuryShares: 0n }) } },
   render: (args) => <NativeRedeemSheet {...args} />,
   play: openRedeemNow,
 };

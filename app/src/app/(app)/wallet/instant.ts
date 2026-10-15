@@ -6,7 +6,7 @@ import { getChain } from "@/lib/chain/client";
 import { fetchAccountState } from "@/lib/chain/read";
 import { fetchVaultTreasuries } from "@/lib/chain/treasury";
 import { netOfVault } from "@/lib/chain/eth";
-import { planInstant, ratesOf, solPayoutCapacity, type InstantCandidate, type InstantLine, type VaultTreasuryView } from "@/lib/chain/fees";
+import { instantUnavailable, planInstant, ratesOf, solPayoutCapacity, type InstantCandidate, type InstantLine, type VaultTreasuryView } from "@/lib/chain/fees";
 import { LAMPORTS, rateAt, type NativeMarket } from "@/lib/chain/native";
 import type { ChainHolding } from "@/lib/chain/read";
 import type { PublicKey } from "@solana/web3.js";
@@ -86,11 +86,7 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
       return { asset, amount: known.length ? Number(known.reduce((s, k) => s + caps.get(k)!, 0n)) / UNITS[asset] : null, token: TOKEN[asset] };
     });
     const setUp = Boolean(market?.treasury);
-    const unavailable = !setUp
-      ? "Tesoro has not opened Redeem now yet."
-      : rows.length === 0
-        ? "Tesoro cannot pay for these Gemas right now. Redeem in full as their yield lands, or try again later."
-        : null;
+    const unavailable = instantUnavailable({ setUp, payableRows: rows.length });
     return { offer: { rows, feePct: rates.instantFeeBps / 100, available, unavailable }, plan };
   }, [won, market, mirrors]);
   return { ...view, freshPlan };

@@ -22,7 +22,7 @@ describe("per-Position yield", () => {
     expect(netApyPct(700, 2_000)).toBeCloseTo(5.6);
   });
 
-  it("pays an Instant Redeem 65% of the value, floored after the unit conversion", () => {
+  it("pays an Instant Redeem the value less the fee, floored after the unit conversion", () => {
     expect(instantPayout(1_000n, 3_500)).toBe(650n);
     expect(instantPayout(999n, 3_500)).toBe(649n);
     expect(instantPayout(1n, 3_500)).toBe(0n);

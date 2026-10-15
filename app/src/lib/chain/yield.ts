@@ -12,7 +12,10 @@ export const BPS = 10_000n;
 /** Tesoro's share of every yield increment, used when the Treasury account cannot be read (CONTEXT.md: Yield Fee). */
 export const DEFAULT_YIELD_FEE_BPS = 2_000;
 /** What Tesoro keeps when it pays won Gemas now, used when the Treasury account cannot be read (CONTEXT.md: Instant Redeem Fee). */
-export const DEFAULT_INSTANT_FEE_BPS = 3_500;
+export const DEFAULT_INSTANT_FEE_BPS = 2_500;
+/** The Instant Redeem Fee and payout as whole percentages, for static copy (docs, help). Live sheets read the Treasury instead. */
+export const INSTANT_FEE_PCT = DEFAULT_INSTANT_FEE_BPS / 100;
+export const INSTANT_PAYOUT_PCT = 100 - INSTANT_FEE_PCT;
 /** Real seconds one simulated month takes at `SPEEDUP`. */
 export const MONTH_SECS = 600;
 

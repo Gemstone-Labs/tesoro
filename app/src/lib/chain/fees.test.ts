@@ -8,6 +8,9 @@ import {
   parseTreasury,
   parseVaultShares,
   parseVaultTreasury,
+  instantUnavailable,
+  INSTANT_NOT_OPEN,
+  INSTANT_UNAVAILABLE_BODY,
   planInstant,
   type InstantLine,
   replanInstant,
@@ -21,7 +24,7 @@ const sol = { unitNum: 10n ** 13n, unitDen: 150_000_000n };
 const eth = { unitNum: 10n ** 22n, unitDen: 3_180_000_000n };
 
 describe("Instant Redeem payout (tesoro_core instant_redeem)", () => {
-  it("floors the Gemas' value, then takes 65% of it, floored again", () => {
+  it("floors the Gemas' value, then takes the payout share of it, floored again", () => {
     // 1,000 Gemas = $10 = 66,666,666.67 lamports -> 66,666,666 -> 43,333,332.9 -> 43,333,332
     expect(instantPayoutFor(sol, 1_000n, 3_500)).toBe(43_333_332n);
     expect(instantPayoutFor(sol, 1_000n, 0)).toBe(66_666_666n);
@@ -87,7 +90,7 @@ describe("Treasury decoders: a wrong size is absent", () => {
     expect(parseTreasury(treasury)).toEqual({ yieldFeeBps: 2_000, instantFeeBps: 3_500 });
     expect(ratesOf(null)).toEqual(DEFAULT_RATES);
     expect(ratesOf({ yieldFeeBps: 1_000, instantFeeBps: 2_000 })).toEqual({ yieldFeeBps: 1_000, instantFeeBps: 2_000 });
-    expect(DEFAULT_RATES).toEqual({ yieldFeeBps: 2_000, instantFeeBps: 3_500 });
+    expect(DEFAULT_RATES).toEqual({ yieldFeeBps: 2_000, instantFeeBps: 2_500 });
   });
 
   it("returns null for any other size, never throws", () => {
@@ -137,5 +140,19 @@ describe("replanInstant", () => {
 
   it("reports nothing left when no line survives", () => {
     expect(replanInstant(confirmed, [])).toEqual({ kind: "none" });
+  });
+});
+
+describe("instantUnavailable", () => {
+  it("is available when the Treasury exists and something can be paid", () => {
+    expect(instantUnavailable({ setUp: true, payableRows: 1 })).toBeNull();
+  });
+  it("says Tesoro has not opened it before the Treasury exists", () => {
+    expect(instantUnavailable({ setUp: false, payableRows: 0 })).toBe(INSTANT_NOT_OPEN);
+  });
+  it("is unavailable right now when the Treasury cannot pay any of the Gemas", () => {
+    const reason = instantUnavailable({ setUp: true, payableRows: 0 });
+    expect(reason).toBe(INSTANT_UNAVAILABLE_BODY);
+    expect(reason).toContain("full value");
   });
 });

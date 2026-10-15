@@ -28,6 +28,7 @@ import { CHANGES } from "@/components/docs/changelog";
 import { StartCards } from "@/components/docs/StartCards";
 import { Cards, Row, Stats } from "@/components/docs/visual";
 import type { Tone } from "@/components/docs/visual";
+import { INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
 
 export const metadata: Metadata = { title: "Overview", alternates: { canonical: "/docs" } };
 
@@ -141,7 +142,7 @@ export default function Page() {
           items={[
             { tag: "The problem", title: "Yield waits, play costs", icon: Hourglass, tone: "amber", body: "Staked tokens earn slowly, and anything you want to play with has to come out of the amount you staked." },
             { tag: "The fix", title: "Play now, Principal never played", icon: Sprout, tone: "emerald", body: "An Advance pays your Position's projected yield upfront as Gemas, net of Tesoro's 20% Yield Fee. Your Principal stays locked, and the Position's own yield repays the Advance." },
-            { tag: "Why it compounds", title: "Winners redeem as yield lands", icon: Repeat, tone: "emerald", body: "Gemas you win turn into the loser's Source asset as that yield arrives, or right away for 65% with Redeem now. Backing and the weekly Leaderboard Pool give more Gemas a reason to move." },
+            { tag: "Why it compounds", title: "Winners redeem as yield lands", icon: Repeat, tone: "emerald", body: `Gemas you win turn into the loser's Source asset as that yield arrives, or right away for ${INSTANT_PAYOUT_PCT}% with Redeem now. Backing and the weekly Leaderboard Pool give more Gemas a reason to move.` },
           ]}
         />
         <div className="dx-works" aria-label="Built on">
