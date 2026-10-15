@@ -450,7 +450,10 @@ impl Env {
         if state.inner.source_asset == SIM_SOL_MINT.to_bytes() {
             return vec![];
         }
-        vec![rem(pda(&[TOKEN_APY_SEED, &state.inner.source_asset]), false)]
+        vec![rem(
+            pda(&[TOKEN_APY_SEED, &state.inner.source_asset]),
+            false,
+        )]
     }
 
     fn advance_native(&mut self, p: &Person, pos: Pos, months: u8) -> Result<APk, Failed> {
@@ -3222,6 +3225,7 @@ fn real_jito_env() -> (Env, Jito) {
     let oracle = env.oracle.insecure_clone();
     let publish = set_token_apy_ix(a(oracle.pubkey()), JITO_MINT, 700);
     env.send(&[publish], &oracle, &[]).expect("publish APY");
+    set_ceiling(&mut env, JITO_MINT, 1_000).expect("ceiling");
     init_treasury_vault(&mut env, JITO_MINT).expect("treasury vault");
     (env, jito)
 }
@@ -3381,7 +3385,6 @@ fn a_second_deposit_reuses_the_token_account_without_failing() {
 
 const ERR_STALE_APY: u32 = 6019;
 const ERR_CEILING_NOT_SET: u32 = 6020;
-const DAY: i64 = 86_400;
 
 impl Env {
     /// Re-stamps a token's USD price so the Advance's own staleness check passes after a warp.
@@ -3459,7 +3462,11 @@ fn only_the_admin_sets_the_ceiling_and_the_oracle_does_not_touch_it() {
     // The oracle authority is not the admin.
     let oracle = env.oracle.insecure_clone();
     let err = env
-        .send(&[set_ceiling_ix(a(oracle.pubkey()), jito.mint, 5_000)], &oracle, &[])
+        .send(
+            &[set_ceiling_ix(a(oracle.pubkey()), jito.mint, 5_000)],
+            &oracle,
+            &[],
+        )
         .unwrap_err();
     assert_eq!(code(&err), 6000);
     let err = set_ceiling(&mut env, jito.mint, 10_001).unwrap_err();
@@ -3491,7 +3498,8 @@ fn a_stale_published_apy_refuses_an_advance_and_an_extend() {
     env.advance(3 * DAY);
     env.write_feed_fresh(jito.mint);
     let pos2 = env.open_stake(&jito, &alice, SOL).unwrap();
-    env.advance_native(&alice, pos2, 1).expect("exactly 3 days old");
+    env.advance_native(&alice, pos2, 1)
+        .expect("exactly 3 days old");
     env.advance(1);
     env.write_feed_fresh(jito.mint);
     let pos3 = env.open_stake(&jito, &alice, SOL).unwrap();

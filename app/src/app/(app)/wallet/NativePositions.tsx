@@ -344,7 +344,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
     <AdvanceFormView
       chain="SOL"
       title={title}
-      apy={rateBps > 0 ? `${(rateBps / 100).toFixed(1)}% APY` : undefined}
+      apy={rateBps > 0 ? `${(rateBps / 100).toFixed(1)}% APY` : "APY —"}
       months={months}
       onMonths={setMonths}
       yieldText={`${quote ? fmtSol(quote.projectedUnits) : "0"} SOL`}
