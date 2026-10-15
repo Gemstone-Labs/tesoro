@@ -1,4 +1,4 @@
-import { DemoHttpError, NonceStore, verifySignedRequest, type AuthEnv } from "../request-auth";
+import { NonceStore, verifySignedRequest, type AuthEnv } from "../request-auth";
 import type { AgeStore } from "./store";
 
 export interface AgeDeps {
