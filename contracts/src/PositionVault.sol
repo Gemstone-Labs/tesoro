@@ -14,12 +14,15 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRat
 ///  - SimLST (`yieldMinter != 0`): 1 + apyBps/BPS * (now - openTime) * speedup / YEAR, with apyBps and speedup read
 ///    from the SimLST when the Position opens. The SimLST rate stays flat; shares are minted only when a payout
 ///    needs them (`_payShares`).
-///  - Real rate source (`yieldMinter == 0`, e.g. wstETH): growth = rate now / rate at open. The yield is the
-///    appreciation of the shares the vault already holds; nothing is minted.
+///  - Real rate source (`yieldMinter == 0`, e.g. wstETH): computed from what the Position actually holds, so yield
+///    is never counted on shares already paid out: gross = heldShares * rate + paidUnderlying - principalUnderlying.
+///    Nothing is minted. A payout lowers heldShares and raises paidUnderlying by the same value, so gross is unchanged.
 ///
 /// Every Position's gross yield is linear in one clock X (SimLST: block.timestamp; real: the rate):
-/// gross_i = (a_i * X - b_i) / DEN. The vault keeps the sums over open Positions (sumA, sumB, sumFeeA, sumFeeB), so
-/// the Treasury's share of the fees is a running claim computed from totals with no loop and no crank.
+/// gross_i = (a_i * X + d_i - b_i) / DEN, with (a, b, d) = (apy*speedup*Pu, a*openTime, 0) for a SimLST and
+/// (heldShares, Pu*1e18, paidUnderlying*1e18) for a real LST. The vault keeps the fee-weighted sums over open Positions
+/// (sumFeeA, sumFeeB, sumFeeD), updated on open, payout and Unlock, so the Treasury's share of the fees is a running
+/// claim computed from totals with no loop and no crank.
 ///
 /// Treasury (underlying units) = fees of open Positions + fees of closed Positions (realised at Unlock)
 ///   + funding + refills - withdrawals - Instant Redeem payouts.
@@ -47,9 +50,12 @@ contract PositionVault {
         uint256 openRate;
         uint256 paidUnderlying;
         uint256 frozenAccrued;
-        /// @dev gross yield = (a * X - b) / DEN, X = timestamp (SimLST) or rate (real). See `_open`.
+        /// @dev gross yield = (a * X + d - b) / DEN, X = timestamp (SimLST) or rate (real). See `_open`.
         uint256 a;
         uint256 b;
+        uint256 d;
+        /// @dev Real LSTs only: shares the Position still holds in the vault (backing Principal and unpaid yield).
+        uint256 heldShares;
         uint256 apyBps;
         uint256 speedup;
         uint64 openTime;
@@ -77,10 +83,9 @@ contract PositionVault {
     uint16 public yieldFeeBps = 2000;
 
     // Sums over open Positions (see the header).
-    uint256 public sumA;
-    uint256 public sumB;
     uint256 public sumFeeA; // sum of a_i * feeBps_i
     uint256 public sumFeeB; // sum of b_i * feeBps_i
+    uint256 public sumFeeD; // sum of d_i * feeBps_i
     /// @notice Sum of principalUnderlying over open Positions: the shares that back it are never spent on payouts.
     uint256 public openPrincipalUnderlying;
     /// @notice Fees of Positions already unlocked (fixed at Unlock).
@@ -314,6 +319,10 @@ contract PositionVault {
         uint256 rate = rateSource.underlyingPerShare();
         uint256 release = (p.principalUnderlying * RATE_SCALE + rate - 1) / rate;
         if (release > p.principalShares) release = p.principalShares;
+        if (yieldMinter == address(0)) {
+            if (release > p.heldShares) release = p.heldShares;
+            p.heldShares -= release;
+        }
         if (!lst.transfer(p.owner, release)) revert TransferFailed();
         emit PositionUnlocked(id, p.owner, release, seq);
     }
@@ -324,6 +333,8 @@ contract PositionVault {
         if (amount > available) revert ExceedsAccruedYield(amount, available);
 
         p.paidUnderlying += amount;
+        uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
+        _recordPayout(p, shares, amount);
         if (to == address(this)) {
             // Tesoro redeemed the Gemas it bought with Instant Redeems: the yield goes back to the Treasury. No
             // tokens move; the yield was never minted (SimLST) or is already among the held shares (real).
@@ -331,9 +342,8 @@ contract PositionVault {
             emit TreasuryRefilled(id, amount, seq);
             return;
         }
-        // Rounded down (less than one share-wei of value): paying never lowers the reported cumulative, which
-        // tesoro_core refuses (CumulativeDecreased).
-        uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
+        // Shares rounded down (less than one share-wei of value): paying never lowers the reported cumulative,
+        // which tesoro_core refuses (CumulativeDecreased).
         _payShares(to, shares);
         emit YieldPaid(id, to, amount, shares, seq);
     }
@@ -370,7 +380,7 @@ contract PositionVault {
     }
 
     function _den() internal view returns (uint256) {
-        return yieldMinter != address(0) ? BPS * YEAR : RATE_SCALE * RATE_SCALE;
+        return yieldMinter != address(0) ? BPS * YEAR : RATE_SCALE;
     }
 
     /// @dev Stores the Position's linear coefficients and adds it to the open sums.
@@ -385,35 +395,33 @@ contract PositionVault {
             a = pu * p.apyBps * p.speedup;
             b = a * block.timestamp;
         } else {
-            a = (pu * RATE_SCALE * RATE_SCALE) / p.openRate;
-            b = pu * RATE_SCALE * RATE_SCALE;
+            a = p.principalShares;
+            b = pu * RATE_SCALE;
+            p.heldShares = a;
         }
         p.a = a;
         p.b = b;
-        sumA += a;
-        sumB += b;
         sumFeeA += a * p.feeBps;
         sumFeeB += b * p.feeBps;
         openPrincipalUnderlying += pu;
     }
 
     function _close(Position storage p) internal {
-        sumA -= p.a;
-        sumB -= p.b;
         sumFeeA -= p.a * p.feeBps;
         sumFeeB -= p.b * p.feeBps;
+        sumFeeD -= p.d * p.feeBps;
         openPrincipalUnderlying -= p.principalUnderlying;
     }
 
     /// @dev The Position's gross yield (before the Yield Fee) at clock `x`; zero if the rate fell below its open rate.
     function _gross(Position storage p, uint256 x) internal view returns (uint256) {
-        uint256 hi = p.a * x;
+        uint256 hi = p.a * x + p.d;
         return hi > p.b ? (hi - p.b) / _den() : 0;
     }
 
     /// @dev Yield Fees accrued so far by all open Positions.
     function _openFees(uint256 x) internal view returns (uint256) {
-        uint256 hi = sumFeeA * x;
+        uint256 hi = sumFeeA * x + sumFeeD;
         return hi > sumFeeB ? (hi - sumFeeB) / (_den() * BPS) : 0;
     }
 
@@ -422,6 +430,19 @@ contract PositionVault {
         if (p.unlocked) return p.frozenAccrued;
         uint256 gross = _gross(p, _clock());
         return gross - (gross * p.feeBps) / BPS;
+    }
+
+    /// @dev Real LSTs: shares that leave the Position stop earning, so move their value from heldShares to the paid
+    ///      total. Gross yield (heldShares * rate + paid - Principal) is unchanged by the move. After Unlock the
+    ///      Position is frozen and out of the sums.
+    function _recordPayout(Position storage p, uint256 shares, uint256 amount) internal {
+        if (yieldMinter != address(0) || p.unlocked) return;
+        uint256 f = p.feeBps;
+        p.a -= shares;
+        p.heldShares -= shares;
+        p.d += amount * RATE_SCALE;
+        sumFeeA -= shares * f;
+        sumFeeD += amount * RATE_SCALE * f;
     }
 
     /// @dev Shares a real-LST vault may pay out: its balance minus the shares that back open Principal.

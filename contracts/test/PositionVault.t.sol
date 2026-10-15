@@ -713,7 +713,66 @@ contract PositionVaultWstETHTest is VaultBase {
         _deliver(_payMsg(a, 2, redeemer, 1));
     }
 
-    /// A claim within payable is paid in full or reverts retryably; it is never underpaid.
+    /// Yield is counted from the shares the Position still holds, so shares paid out stop earning and the vault
+    /// can always cover every claim: partial PayYield, the rate rises again, report, final claim, Treasury.
+    function test_realRateNeverOvercountsPaidOutShares() public {
+        wst.setRate(1e18);
+        vm.prank(alice);
+        uint64 id = vault.openPosition(10 ether, 12);
+        wst.setRate(1.1e18);
+        _deliver(_payMsg(id, 1, redeemer, vault.payableYield(id) / 2)); // 0.4
+        assertEq(wst.balanceOf(address(vault)), 10 ether - wst.balanceOf(redeemer));
+        wst.setRate(1.2e18);
+        vault.reportYield(id);
+        // gross = 10 shares-worth above Principal: (10 - 0.4/1.1) * 1.2 + 0.4 - 10 = 2.327..; net 80%
+        uint256 held = 10 ether - wst.balanceOf(redeemer);
+        uint256 gross = held * 1.2e18 / 1e18 + 0.4 ether - 10 ether;
+        assertApproxEqAbs(vault.accruedYield(id), gross - gross * 2000 / 10_000, 4);
+        (,,, uint64 seq, uint256 accrued,,, uint256 treasury) =
+            abi.decode(ep.outboxPayload(1), (uint8, uint32, uint64, uint64, uint256, uint256, uint256, uint256));
+        assertEq(seq, 2);
+        assertEq(accrued, vault.accruedYield(id));
+        assertEq(treasury, vault.treasuryBalance());
+
+        uint256 claim = vault.payableYield(id);
+        _deliver(_payMsg(id, 2, redeemer, claim)); // no InsufficientShares
+        uint256 paid = vault.getPosition(id).paidUnderlying;
+        // paid + Treasury never exceeds the value above Principal that the shares represent
+        uint256 above = wst.balanceOf(address(vault)) * 1.2e18 / 1e18 + paid - 10 ether;
+        assertLe(paid + vault.treasuryBalance(), above + 4);
+        assertApproxEqAbs(paid + vault.treasuryBalance(), above, 6, "all of it is accounted for");
+
+        // the Treasury pays out in full, then Principal is intact for Unlock
+        vault.withdrawTreasury(vault.treasuryBalance(), address(0xC0FFEE));
+        _deliver(_unlockMsg(id, 3));
+        assertApproxEqAbs((wst.balanceOf(alice) - 90 ether) * 1.2e18 / 1e18, 10 ether, 2);
+    }
+
+    /// With several Positions the Treasury claim (from share totals) matches each Position's own fee.
+    function test_realRateTreasuryClaimFollowsPayoutsAcrossPositions() public {
+        wst.setRate(1e18);
+        vm.startPrank(alice);
+        uint64 a = vault.openPosition(10 ether, 12);
+        uint64 b = vault.openPosition(5 ether, 12);
+        vm.stopPrank();
+        wst.setRate(1.1e18);
+        _deliver(_payMsg(a, 1, redeemer, vault.payableYield(a) / 2));
+        wst.setRate(1.3e18);
+        _deliver(_payMsg(b, 1, redeemer, vault.payableYield(b)));
+        uint256 feeA = _realGross(a) * 2000 / 10_000;
+        uint256 feeB = _realGross(b) * 2000 / 10_000;
+        assertApproxEqAbs(vault.treasuryBalance(), feeA + feeB, 6);
+        _deliver(_unlockMsg(b, 2));
+        assertApproxEqAbs(vault.treasuryBalance(), feeA + feeB, 6);
+    }
+
+    function _realGross(uint64 id) internal view returns (uint256) {
+        PositionVault.Position memory p = vault.getPosition(id);
+        uint256 r = adapter.underlyingPerShare();
+        return p.heldShares * r / 1e18 + p.paidUnderlying - p.principalUnderlying;
+    }
+
+    /// A claim within payable is always paid in full: yield is never counted on shares already paid out.
     function testFuzz_claimsAreNeverUnderpaid(uint256 r1, uint256 r2, uint256 f1, uint256 f2) public {
         wst.setRate(1e18);
         vm.prank(alice);
@@ -729,8 +788,8 @@ contract PositionVaultWstETHTest is VaultBase {
             try ep.deliver(address(vault), _payMsg(id, i + 1, redeemer, claim)) {
                 uint256 worth = (wst.balanceOf(redeemer) - before) * rates[i] / 1e18;
                 assertGe(worth + rates[i] / 1e18 + 1, claim, "claim paid in full");
-            } catch (bytes memory err) {
-                assertEq(bytes4(err), PositionVault.InsufficientShares.selector);
+            } catch {
+                fail("a correct claim must be payable");
             }
         }
     }
