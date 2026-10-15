@@ -1477,6 +1477,34 @@ fn f09_joining_before_the_session_exists_does_not_strand_the_match() {
     env.settle(id, MatchResult::Opener).expect("settle");
 }
 
+#[test]
+fn each_logged_move_records_its_slot_offset_from_the_run_start() {
+    let (mut env, alice, bob) = Env::new();
+    let (id, seed) = env.ready(&alice, &bob);
+    let board = env.board(id, 0);
+    let moves = greedy(seed, 30);
+    let (t0, slot0) = (env.now(), env.slot);
+    env.set_clock(t0, slot0 + 1000);
+    env.begin(&alice, board).expect("begin");
+    let started = env.load_bp::<Board>(board);
+    assert_eq!(started.start_slot, slot0 + 1000);
+
+    // Batches of 20 then 10, sent 7 and 50 slots after the start: every move in a batch shares
+    // the batch's offset.
+    env.set_clock(t0, slot0 + 1007);
+    env.play(&alice, board, &moves[..20]).expect("batch 1");
+    env.set_clock(t0, slot0 + 1050);
+    env.play(&alice, board, &moves[20..]).expect("batch 2");
+    let b: Board = env.load_bp(board);
+    assert!(b.move_slots[..20].iter().all(|&o| o == 7));
+    assert!(b.move_slots[20..30].iter().all(|&o| o == 50));
+    assert!(b.move_slots[30..].iter().all(|&o| o == 0));
+
+    // Replay and score are unaffected by timing.
+    assert_eq!(b.score, replay_score(seed, &moves));
+    assert_eq!(usize::from(b.moves), moves.len());
+}
+
 /// CU readings (run with `--nocapture`).
 #[test]
 fn cu_profile_block_puzzle() {

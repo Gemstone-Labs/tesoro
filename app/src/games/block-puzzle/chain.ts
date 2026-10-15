@@ -39,6 +39,7 @@ import nacl from "tweetnacl";
 import { TxFailedError, TxUnconfirmedError, txOutcome, type TxOutcome } from "./tx";
 
 export { TxFailedError, TxUnconfirmedError, type TxOutcome };
+export { batchOffsets, boardTiming, type BoardTiming, type MoveTiming } from "./move-timing";
 
 export const BLOCK_PUZZLE_PROGRAM_ID = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
