@@ -107,47 +107,82 @@ pub fn source_now(source: &Source, net_accrued: u64, applied_before: u64) -> Cor
 }
 
 /// Pool-wide totals behind the Treasury's Yield Fee claim. Change only on open and unlock.
+///
+/// Each Position carries its own APY and Yield Fee, both fixed at open, so the totals are weighted
+/// by them: `w = Principal * rate_bps * fee_bps`. A fee (or APY) change therefore affects only
+/// Positions opened afterwards, and the claim stays at most the sum of the per-Position fees.
+/// `speedup` is the one value read live (a devnet constant by founder decision).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
 pub struct PoolTotals {
-    /// `P = sum Principal` of Locked Positions.
+    /// `sum Principal` of Locked Positions (informational).
     pub principal: u128,
-    /// `PT = sum Principal * opened_at` of Locked Positions.
-    pub principal_time: u128,
+    /// `W = sum Principal * rate_bps * fee_bps` of Locked Positions.
+    pub fee_weight: u128,
+    /// `WT = sum Principal * rate_bps * fee_bps * opened_at` of Locked Positions.
+    pub fee_weight_time: u128,
     /// Yield Fees of Positions already unlocked, units.
     pub realised_fee: u128,
     /// Number of Locked Positions in the totals; sizes the rounding allowance.
     pub open_positions: u64,
 }
 
+fn weight(principal: u64, rate_bps: u16, fee_bps: u16) -> CoreResult<u128> {
+    (principal as u128)
+        .checked_mul(rate_bps as u128)
+        .and_then(|x| x.checked_mul(fee_bps as u128))
+        .ok_or(CoreError::Math)
+}
+
 impl PoolTotals {
-    pub fn add_position(&mut self, principal: u64, opened_at: i64) -> CoreResult<()> {
+    pub fn add_position(
+        &mut self,
+        principal: u64,
+        opened_at: i64,
+        rate_bps: u16,
+        fee_bps: u16,
+    ) -> CoreResult<()> {
+        if fee_bps > MAX_YIELD_FEE_BPS {
+            return Err(CoreError::InvalidBps);
+        }
         let at = u128::try_from(opened_at).map_err(|_| CoreError::Math)?;
+        let w = weight(principal, rate_bps, fee_bps)?;
         let p = self
             .principal
             .checked_add(principal as u128)
             .ok_or(CoreError::Math)?;
-        let pt = (principal as u128)
+        let fw = self.fee_weight.checked_add(w).ok_or(CoreError::Math)?;
+        let fwt = w
             .checked_mul(at)
-            .and_then(|x| self.principal_time.checked_add(x))
+            .and_then(|x| self.fee_weight_time.checked_add(x))
             .ok_or(CoreError::Math)?;
         let n = self.open_positions.checked_add(1).ok_or(CoreError::Math)?;
         self.principal = p;
-        self.principal_time = pt;
+        self.fee_weight = fw;
+        self.fee_weight_time = fwt;
         self.open_positions = n;
         Ok(())
     }
 
-    /// Removes a Position and books its fee (computed by the caller with [`accrued_yield_at`])
-    /// into the realised total.
-    pub fn remove_position(&mut self, principal: u64, opened_at: i64, fee: u64) -> CoreResult<()> {
+    /// Removes a Position (same arguments as [`PoolTotals::add_position`]) and books its fee
+    /// (computed by the caller with [`accrued_yield_at`]) into the realised total.
+    pub fn remove_position(
+        &mut self,
+        principal: u64,
+        opened_at: i64,
+        rate_bps: u16,
+        fee_bps: u16,
+        fee: u64,
+    ) -> CoreResult<()> {
         let at = u128::try_from(opened_at).map_err(|_| CoreError::Math)?;
+        let w = weight(principal, rate_bps, fee_bps)?;
         let p = self
             .principal
             .checked_sub(principal as u128)
             .ok_or(CoreError::Math)?;
-        let pt = (principal as u128)
+        let fw = self.fee_weight.checked_sub(w).ok_or(CoreError::Math)?;
+        let fwt = w
             .checked_mul(at)
-            .and_then(|x| self.principal_time.checked_sub(x))
+            .and_then(|x| self.fee_weight_time.checked_sub(x))
             .ok_or(CoreError::Math)?;
         let realised = self
             .realised_fee
@@ -155,60 +190,41 @@ impl PoolTotals {
             .ok_or(CoreError::Math)?;
         let n = self.open_positions.checked_sub(1).ok_or(CoreError::Math)?;
         self.principal = p;
-        self.principal_time = pt;
+        self.fee_weight = fw;
+        self.fee_weight_time = fwt;
         self.realised_fee = realised;
         self.open_positions = n;
         Ok(())
     }
 
-    /// Yield Fee earned by the Treasury at `now`, units: the fee share of
-    /// `APY * speedup * (P*now - PT) / YEAR` over Locked Positions, plus the realised total.
-    /// Conservative: never more than the sum of the per-Position fees. With N open Positions the
-    /// pooled fee `floor(floor(X) * fee / BPS)` is at most the exact fee `E`, while the per-Position
-    /// sum exceeds `E - 1.5N` (each Position floors its gross and its fee). Subtracting an
-    /// allowance of `2N` therefore gives `sum - (2N + 2) <= earned <= sum` (realised fees of
-    /// unlocked Positions are exact and added on top).
-    pub fn earned_fee(
-        &self,
-        apy_bps: u16,
-        now: i64,
-        speedup: u32,
-        fee_bps: u16,
-    ) -> CoreResult<u64> {
-        if fee_bps > MAX_YIELD_FEE_BPS {
-            return Err(CoreError::InvalidBps);
-        }
+    /// Yield Fee earned by the Treasury at `now`, units: `speedup * (W*now - WT) / (BPS^2 * YEAR)`
+    /// over Locked Positions, plus the realised total. Conservative: never more than the sum of
+    /// the per-Position fees. With N open Positions the pooled value is at most the exact fee `E`,
+    /// while the per-Position sum exceeds `E - 1.5N` (each Position floors its gross and its fee).
+    /// Subtracting an allowance of `2N` therefore gives `sum - (2N + 2) <= earned <= sum` (realised
+    /// fees of unlocked Positions are exact and added on top).
+    pub fn earned_fee(&self, now: i64, speedup: u32) -> CoreResult<u64> {
         let now = u128::try_from(now).map_err(|_| CoreError::Math)?;
         let weighted = self
-            .principal
+            .fee_weight
             .checked_mul(now)
-            .and_then(|x| x.checked_sub(self.principal_time))
+            .and_then(|x| x.checked_sub(self.fee_weight_time))
+            .and_then(|x| x.checked_mul(speedup as u128))
             .ok_or(CoreError::Math)?;
-        let rate = (apy_bps as u128)
-            .checked_mul(speedup as u128)
-            .ok_or(CoreError::Math)?;
-        let gross = mul_div_floor(
+        let live = mul_div_floor(
             weighted,
-            rate,
-            BPS.checked_mul(YEAR_SECS).ok_or(CoreError::Math)?,
-        )?;
-        let live = mul_div_floor(gross, fee_bps as u128, BPS)?
-            .saturating_sub((self.open_positions as u128).saturating_mul(2));
+            1,
+            BPS.checked_mul(BPS)
+                .and_then(|x| x.checked_mul(YEAR_SECS))
+                .ok_or(CoreError::Math)?,
+        )?
+        .saturating_sub((self.open_positions as u128).saturating_mul(2));
         to_u64(live.checked_add(self.realised_fee).ok_or(CoreError::Math)?)
     }
 
     /// Earned minus already withdrawn, never negative.
-    pub fn withdrawable(
-        &self,
-        apy_bps: u16,
-        now: i64,
-        speedup: u32,
-        fee_bps: u16,
-        withdrawn: u64,
-    ) -> CoreResult<u64> {
-        Ok(self
-            .earned_fee(apy_bps, now, speedup, fee_bps)?
-            .saturating_sub(withdrawn))
+    pub fn withdrawable(&self, now: i64, speedup: u32, withdrawn: u64) -> CoreResult<u64> {
+        Ok(self.earned_fee(now, speedup)?.saturating_sub(withdrawn))
     }
 }
 
@@ -372,21 +388,20 @@ mod tests {
     #[test]
     fn treasury_claim_empty_and_at_open() {
         let mut t = PoolTotals::default();
-        assert_eq!(t.earned_fee(495, T0, DEVNET_SPEEDUP, FEE).unwrap(), 0);
-        t.add_position(10 * SOL, T0).unwrap();
-        assert_eq!(t.earned_fee(495, T0, DEVNET_SPEEDUP, FEE).unwrap(), 0);
+        assert_eq!(t.earned_fee(T0, DEVNET_SPEEDUP).unwrap(), 0);
+        t.add_position(10 * SOL, T0, 495, FEE).unwrap();
+        assert_eq!(t.earned_fee(T0, DEVNET_SPEEDUP).unwrap(), 0);
         assert_eq!(
-            t.earned_fee(495, T0 + MONTH_REAL, DEVNET_SPEEDUP, FEE)
-                .unwrap(),
+            t.earned_fee(T0 + MONTH_REAL, DEVNET_SPEEDUP).unwrap(),
             8_249_998
         );
         assert_eq!(
-            t.withdrawable(495, T0 + MONTH_REAL, DEVNET_SPEEDUP, FEE, 3_000_000)
+            t.withdrawable(T0 + MONTH_REAL, DEVNET_SPEEDUP, 3_000_000)
                 .unwrap(),
             5_249_998
         );
         assert_eq!(
-            t.withdrawable(495, T0 + MONTH_REAL, DEVNET_SPEEDUP, FEE, u64::MAX)
+            t.withdrawable(T0 + MONTH_REAL, DEVNET_SPEEDUP, u64::MAX)
                 .unwrap(),
             0
         );
@@ -395,24 +410,27 @@ mod tests {
     #[test]
     fn unlock_realises_the_fee_and_leaves_the_claim_unchanged() {
         let mut t = PoolTotals::default();
-        t.add_position(10 * SOL, T0).unwrap();
-        t.add_position(4 * SOL, T0 + 100).unwrap();
+        t.add_position(10 * SOL, T0, 495, FEE).unwrap();
+        t.add_position(4 * SOL, T0 + 100, 495, FEE).unwrap();
         let now = T0 + 1_000;
-        let before = t.earned_fee(495, now, DEVNET_SPEEDUP, FEE).unwrap();
+        let before = t.earned_fee(now, DEVNET_SPEEDUP).unwrap();
         let g = growth_since_open(495, T0, now, DEVNET_SPEEDUP).unwrap();
         let a = accrued_yield_at(10 * SOL, g, FEE).unwrap();
-        t.remove_position(10 * SOL, T0, a.fee).unwrap();
-        let after = t.earned_fee(495, now, DEVNET_SPEEDUP, FEE).unwrap();
+        t.remove_position(10 * SOL, T0, 495, FEE, a.fee).unwrap();
+        let after = t.earned_fee(now, DEVNET_SPEEDUP).unwrap();
         assert!(before.abs_diff(after) <= 4, "{before} vs {after}");
         // The unlocked Position no longer grows the claim.
-        let later = t.earned_fee(495, now + 600, DEVNET_SPEEDUP, FEE).unwrap();
+        let later = t.earned_fee(now + 600, DEVNET_SPEEDUP).unwrap();
         let single = {
             let mut s = PoolTotals::default();
-            s.add_position(4 * SOL, T0 + 100).unwrap();
-            s.earned_fee(495, now + 600, DEVNET_SPEEDUP, FEE).unwrap()
+            s.add_position(4 * SOL, T0 + 100, 495, FEE).unwrap();
+            s.earned_fee(now + 600, DEVNET_SPEEDUP).unwrap()
         };
         assert_eq!(later, single + a.fee);
-        assert_eq!(t.remove_position(u64::MAX, T0, 0), Err(CoreError::Math));
+        assert_eq!(
+            t.remove_position(u64::MAX, T0, 495, FEE, 0),
+            Err(CoreError::Math)
+        );
     }
 
     proptest! {
@@ -427,11 +445,11 @@ mod tests {
             let mut t = PoolTotals::default();
             let mut sum = 0u128;
             for (p, off) in &positions {
-                t.add_position(*p, T0 + off).unwrap();
+                t.add_position(*p, T0 + off, apy, fee).unwrap();
                 let g = growth_since_open(apy, T0 + off, now, DEVNET_SPEEDUP).unwrap();
                 sum += accrued_yield_at(*p, g, fee).unwrap().fee as u128;
             }
-            let pool = t.earned_fee(apy, now, DEVNET_SPEEDUP, fee).unwrap() as u128;
+            let pool = t.earned_fee(now, DEVNET_SPEEDUP).unwrap() as u128;
             let n = positions.len() as u128;
             prop_assert!(sum <= pool + 2 + 2 * n, "pool {pool} sum {sum}");
             prop_assert!(pool <= sum, "pool {pool} sum {sum}");
@@ -442,9 +460,9 @@ mod tests {
             positions in prop::collection::vec((1u64..=u64::MAX / 64, 0i64..1_000_000), 1..20),
         ) {
             let mut t = PoolTotals::default();
-            for (p, off) in &positions { t.add_position(*p, T0 + off).unwrap(); }
-            for (p, off) in &positions { t.remove_position(*p, T0 + off, 0).unwrap(); }
-            prop_assert_eq!((t.principal, t.principal_time), (0, 0));
+            for (p, off) in &positions { t.add_position(*p, T0 + off, 495, FEE).unwrap(); }
+            for (p, off) in &positions { t.remove_position(*p, T0 + off, 495, FEE, 0).unwrap(); }
+            prop_assert_eq!((t.principal, t.fee_weight, t.fee_weight_time), (0, 0, 0));
         }
     }
 
@@ -462,21 +480,28 @@ mod tests {
         // Pool totals at the limit.
         let mut t = PoolTotals::default();
         for _ in 0..4 {
-            t.add_position(u64::MAX, T0).unwrap();
+            t.add_position(u64::MAX, T0, u16::MAX, FEE).unwrap();
         }
-        assert!(t
-            .earned_fee(u16::MAX, T0 + i64::MAX / 2, u32::MAX, FEE)
-            .is_err());
-        assert!(t.earned_fee(500, -1, DEVNET_SPEEDUP, FEE).is_err());
+        assert!(t.earned_fee(T0 + i64::MAX / 2, u32::MAX).is_err());
+        assert!(t.earned_fee(-1, DEVNET_SPEEDUP).is_err());
         let mut big = PoolTotals {
             principal: u128::MAX,
-            principal_time: 0,
+            fee_weight: 0,
+            fee_weight_time: 0,
             realised_fee: 0,
             open_positions: 0,
         };
-        assert_eq!(big.add_position(1, T0), Err(CoreError::Math));
-        big.principal_time = u128::MAX;
-        assert_eq!(big.add_position(2, i64::MAX), Err(CoreError::Math));
-        assert_eq!(big.add_position(1, -1), Err(CoreError::Math));
+        assert_eq!(big.add_position(1, T0, 495, FEE), Err(CoreError::Math));
+        big.principal = 0;
+        big.fee_weight_time = u128::MAX;
+        assert_eq!(
+            big.add_position(2, i64::MAX, 495, FEE),
+            Err(CoreError::Math)
+        );
+        assert_eq!(big.add_position(1, -1, 495, FEE), Err(CoreError::Math));
+        assert_eq!(
+            big.add_position(1, T0, 495, 5_001),
+            Err(CoreError::InvalidBps)
+        );
     }
 }

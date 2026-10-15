@@ -152,7 +152,7 @@ pub struct PositionState {
 
 impl PositionState {
     pub const SPACE: usize =
-        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
+        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2;
 }
 
 #[account]
@@ -242,18 +242,20 @@ pub struct NativeCustody {
     pub vault: Pubkey,
     /// `PoolTotals` (`ledger::yield_math`), updated only on open and unlock.
     pub principal: u128,
-    pub principal_time: u128,
+    pub fee_weight: u128,
+    pub fee_weight_time: u128,
     pub realised_fee: u128,
     pub open_positions: u64,
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 3 * 16 + 8;
+    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 4 * 16 + 8;
 
     pub fn totals(&self) -> ledger::PoolTotals {
         ledger::PoolTotals {
             principal: self.principal,
-            principal_time: self.principal_time,
+            fee_weight: self.fee_weight,
+            fee_weight_time: self.fee_weight_time,
             realised_fee: self.realised_fee,
             open_positions: self.open_positions,
         }
@@ -261,7 +263,8 @@ impl NativeCustody {
 
     pub fn set_totals(&mut self, t: ledger::PoolTotals) {
         self.principal = t.principal;
-        self.principal_time = t.principal_time;
+        self.fee_weight = t.fee_weight;
+        self.fee_weight_time = t.fee_weight_time;
         self.realised_fee = t.realised_fee;
         self.open_positions = t.open_positions;
     }

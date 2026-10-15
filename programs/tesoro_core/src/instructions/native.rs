@@ -167,6 +167,9 @@ pub struct OpenNativePosition<'info> {
         bump
     )]
     pub position: Account<'info, PositionState>,
+    /// Its Yield Fee is fixed on the Position at open.
+    #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
+    pub treasury: Box<Account<'info, Treasury>>,
     #[account(
         mut,
         seeds = [NATIVE_SEED],
@@ -229,9 +232,12 @@ pub(crate) fn open_native_position(
     .map_err(core_err)?;
     a.position.inner.opened_at = ts;
     a.position.inner.custody_shares = lst_amount;
+    a.position.inner.yield_fee_bps = a.treasury.yield_fee_bps;
 
     let mut totals = a.custody.totals();
-    totals.add_position(principal, ts).map_err(core_err)?;
+    totals
+        .add_position(principal, ts, rate_bps, a.treasury.yield_fee_bps)
+        .map_err(core_err)?;
     a.custody.set_totals(totals);
 
     emit!(NativePositionOpened {
@@ -273,9 +279,6 @@ pub struct TakeNativeAdvance<'info> {
         constraint = price_feed.asset.to_bytes() == position.inner.source_asset @ TesoroError::InvalidAccount
     )]
     pub price_feed: Account<'info, PriceFeed>,
-    /// Its Yield Fee sizes the Advance and the Accrued Yield.
-    #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
-    pub treasury: Box<Account<'info, Treasury>>,
     /// The canonical sim_lst Pool, whose speedup times the yield.
     #[account(
         seeds = [sim_lst::POOL_SEED],
@@ -324,13 +327,8 @@ pub(crate) fn take_native_advance(
         a.price_feed.price_micro_usd > 0 && (0..=MAX_PRICE_AGE_SECS).contains(&age),
         TesoroError::StalePrice
     );
-    let net = native::position_accrued(
-        &a.position.inner,
-        a.pool.speedup,
-        a.treasury.yield_fee_bps,
-        ts,
-    )
-    .map_err(core_err)?;
+    let net = native::position_accrued(&a.position.inner, a.pool.speedup, ts).map_err(core_err)?;
+    let fee = a.position.inner.yield_fee_bps;
     if a.position.inner.open_advance.is_some() && a.prev_source.is_none() {
         return err!(TesoroError::SourceRequired);
     }
@@ -349,7 +347,7 @@ pub(crate) fn take_native_advance(
         ctx.bumps.holding,
         horizon_months,
         a.price_feed.price_micro_usd,
-        a.treasury.yield_fee_bps,
+        fee,
     )
 }
 
@@ -375,9 +373,6 @@ pub struct ExtendNativeAdvance<'info> {
         constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
     )]
     pub position: Account<'info, PositionState>,
-    /// Its Yield Fee sizes the added months and the Accrued Yield.
-    #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
-    pub treasury: Box<Account<'info, Treasury>>,
     /// The canonical sim_lst Pool, whose speedup times the yield.
     #[account(
         seeds = [sim_lst::POOL_SEED],
@@ -425,19 +420,14 @@ pub(crate) fn extend_native_advance(
         .record_extend(now()?, extra_months)
         .map_err(core_err)?;
     let ts = now()?;
-    let net = native::position_accrued(
-        &a.position.inner,
-        a.pool.speedup,
-        a.treasury.yield_fee_bps,
-        ts,
-    )
-    .map_err(core_err)?;
+    let net = native::position_accrued(&a.position.inner, a.pool.speedup, ts).map_err(core_err)?;
+    let fee = a.position.inner.yield_fee_bps;
     let mut source =
         native::source_view(&a.position.inner, &a.source.inner, net.net).map_err(core_err)?;
     let gemas = a
         .position
         .inner
-        .extend_advance(&mut source, extra_months, a.treasury.yield_fee_bps)
+        .extend_advance(&mut source, extra_months, fee)
         .map_err(core_err)?;
     a.source.inner = source;
     a.holding
@@ -517,16 +507,6 @@ pub(crate) fn load_pool<'info>(info: &'info AccountInfo<'info>) -> Result<Accoun
     require_keys_eq!(expected, *info.key, TesoroError::InvalidPool);
     require_keys_eq!(pool.mint, SIM_SOL_MINT, TesoroError::InvalidPool);
     Ok(pool)
-}
-
-pub(crate) fn load_treasury<'info>(
-    info: &'info AccountInfo<'info>,
-) -> Result<Account<'info, Treasury>> {
-    let treasury = Account::<Treasury>::try_from(info)?;
-    let expected = Pubkey::create_program_address(&[TREASURY_SEED, &[treasury.bump]], &crate::ID)
-        .map_err(|_| error!(TesoroError::InvalidAccount))?;
-    require_keys_eq!(expected, *info.key, TesoroError::InvalidAccount);
-    Ok(treasury)
 }
 
 fn load_custody<'info>(info: &'info AccountInfo<'info>) -> Result<Account<'info, NativeCustody>> {
@@ -674,7 +654,7 @@ impl<'info> YieldMint<'info> {
 
 // --- Redeem, Unlock, return_own for native Positions ------------------------------------------
 
-/// `redeem` of a native Source. `remaining`: `[treasury, pool, destination, mint, yield_config,
+/// `redeem` of a native Source. `remaining`: `[pool, destination, mint, yield_config,
 /// yield_authority, sim_lst_program, token_program]`. The Source is brought to its derived state
 /// first; the yield for the redeemed Gemas is minted to the holder's simSOL account.
 #[allow(clippy::too_many_arguments)]
@@ -688,18 +668,13 @@ pub(crate) fn redeem_native<'info>(
     amount: u64,
     remaining: &'info [AccountInfo<'info>],
 ) -> Result<u64> {
-    let [treasury_info, rest @ ..] = remaining else {
-        return err!(TesoroError::BadRemainingAccounts);
-    };
-    let treasury = load_treasury(treasury_info)?;
-    let y = load_yield_mint(rest, Payee::Wallet(holder_authority))?;
+    let y = load_yield_mint(remaining, Payee::Wallet(holder_authority))?;
     redeem_with(
         position,
         position_key,
         source,
         holder_account,
         holding,
-        &treasury,
         &y,
         amount,
     )
@@ -726,7 +701,6 @@ pub(crate) fn redeem_treasury_native<'info>(
         source,
         treasury_account,
         treasury_holding,
-        treasury,
         &y,
         amount,
     )
@@ -739,17 +713,11 @@ fn redeem_with(
     source: &mut SourceState,
     account: &mut TesoroAccount,
     holding: &mut HoldingState,
-    treasury: &Treasury,
     y: &YieldMint,
     amount: u64,
 ) -> Result<u64> {
-    let net = native::position_accrued(
-        &position.inner,
-        y.pool.speedup,
-        treasury.yield_fee_bps,
-        now()?,
-    )
-    .map_err(core_err)?;
+    let net =
+        native::position_accrued(&position.inner, y.pool.speedup, now()?).map_err(core_err)?;
     source.inner =
         native::source_view(&position.inner, &source.inner, net.net).map_err(core_err)?;
     let units = ledger::redeem(
@@ -763,7 +731,7 @@ fn redeem_with(
     Ok(units)
 }
 
-/// `unlock` of a native Position. `remaining`: `[custody, treasury, vault, pool, destination,
+/// `unlock` of a native Position. `remaining`: `[custody, vault, pool, destination,
 /// mint, yield_config, yield_authority, sim_lst_program, token_program]`, then the open Advance's
 /// Source when the Position has one. Principal returns from the shared vault; the free yield is
 /// minted.
@@ -772,7 +740,7 @@ pub(crate) fn unlock_native_position<'info>(
     owner_authority: &Pubkey,
     remaining: &'info [AccountInfo<'info>],
 ) -> Result<()> {
-    let [custody_info, treasury_info, vault_info, rest @ ..] = remaining else {
+    let [custody_info, vault_info, rest @ ..] = remaining else {
         return err!(TesoroError::BadRemainingAccounts);
     };
     require!(
@@ -781,7 +749,6 @@ pub(crate) fn unlock_native_position<'info>(
     );
     let (mint_accounts, tail) = rest.split_at(YIELD_MINT_ACCOUNTS);
     let mut custody = load_custody(custody_info)?;
-    let treasury = load_treasury(treasury_info)?;
     require_keys_eq!(*vault_info.key, custody.vault, TesoroError::InvalidAccount);
     require!(vault_info.is_writable, TesoroError::NotWritable);
     let y = load_yield_mint(mint_accounts, Payee::Wallet(owner_authority))?;
@@ -789,8 +756,7 @@ pub(crate) fn unlock_native_position<'info>(
 
     let position_key = position.key();
     let ts = now()?;
-    let net = native::position_accrued(&position.inner, y.pool.speedup, treasury.yield_fee_bps, ts)
-        .map_err(core_err)?;
+    let net = native::position_accrued(&position.inner, y.pool.speedup, ts).map_err(core_err)?;
     let mut open = match position.inner.open_advance {
         Some(index) => {
             let info = tail.first().ok_or(TesoroError::SourceRequired)?;
@@ -811,7 +777,13 @@ pub(crate) fn unlock_native_position<'info>(
     let shares = position.inner.custody_shares;
     let mut totals = custody.totals();
     totals
-        .remove_position(position.inner.principal, position.inner.opened_at, net.fee)
+        .remove_position(
+            position.inner.principal,
+            position.inner.opened_at,
+            position.inner.rate_bps,
+            position.inner.yield_fee_bps,
+            net.fee,
+        )
         .map_err(core_err)?;
     custody.set_totals(totals);
     position.inner.custody_shares = 0;
@@ -845,7 +817,7 @@ pub(crate) fn unlock_native_position<'info>(
     Ok(())
 }
 
-/// `return_own` of a native Source. `remaining`: `[pool, treasury]`.
+/// `return_own` of a native Source. `remaining`: `[pool]`.
 pub(crate) fn return_own_native_source<'info>(
     position: &mut PositionState,
     source: &mut SourceState,
@@ -854,18 +826,11 @@ pub(crate) fn return_own_native_source<'info>(
     amount: u64,
     remaining: &'info [AccountInfo<'info>],
 ) -> Result<()> {
-    let [pool_info, treasury_info] = remaining else {
+    let [pool_info] = remaining else {
         return err!(TesoroError::BadRemainingAccounts);
     };
     let pool = load_pool(pool_info)?;
-    let treasury = load_treasury(treasury_info)?;
-    let net = native::position_accrued(
-        &position.inner,
-        pool.speedup,
-        treasury.yield_fee_bps,
-        now()?,
-    )
-    .map_err(core_err)?;
+    let net = native::position_accrued(&position.inner, pool.speedup, now()?).map_err(core_err)?;
     native::return_own_native(
         &mut position.inner,
         &mut source.inner,

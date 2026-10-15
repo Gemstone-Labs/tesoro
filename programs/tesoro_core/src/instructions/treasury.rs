@@ -252,13 +252,7 @@ pub(crate) fn instant_redeem(ctx: Context<InstantRedeem>, amount: u64) -> Result
         &source_key,
     );
     let ts = now()?;
-    let net = native::position_accrued(
-        &a.position.inner,
-        a.pool.speedup,
-        a.treasury.yield_fee_bps,
-        ts,
-    )
-    .map_err(core_err)?;
+    let net = native::position_accrued(&a.position.inner, a.pool.speedup, ts).map_err(core_err)?;
     let view =
         native::source_view(&a.position.inner, &a.source.inner, net.net).map_err(core_err)?;
     let (units, payout) = sell_to_treasury(

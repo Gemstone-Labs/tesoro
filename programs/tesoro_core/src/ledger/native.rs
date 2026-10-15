@@ -31,16 +31,12 @@ pub fn shares_for_units_floor(units: u64, rate: u64) -> CoreResult<u64> {
     to_u64(mul_div_floor(units as u128, RATE_SCALE, rate as u128)?)
 }
 
-/// Net Accrued Yield of a native Position at `now`, with the pool's `speedup` and the Treasury's
-/// Yield Fee. The Position's own `rate_bps` and `opened_at` fix the rest.
-pub fn position_accrued(
-    position: &Position,
-    speedup: u32,
-    fee_bps: u16,
-    now: i64,
-) -> CoreResult<AccruedYield> {
+/// Net Accrued Yield of a native Position at `now`. The Position's own `rate_bps`, `yield_fee_bps`
+/// and `opened_at` (all fixed at open) decide it; only `speedup` is read live from the sim_lst Pool
+/// (a devnet constant by founder decision).
+pub fn position_accrued(position: &Position, speedup: u32, now: i64) -> CoreResult<AccruedYield> {
     let growth = growth_since_open(position.rate_bps, position.opened_at, now, speedup)?;
-    accrued_yield_at(position.principal, growth, fee_bps)
+    accrued_yield_at(position.principal, growth, position.yield_fee_bps)
 }
 
 /// The Source as it stands at net Accrued Yield `net`: the open Advance gets its derived
@@ -197,6 +193,7 @@ mod tests {
             let mut position =
                 Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, apy).ok()?;
             position.opened_at = T0;
+            position.yield_fee_bps = FEE;
             Some(Self {
                 position,
                 sources: vec![],
@@ -208,7 +205,7 @@ mod tests {
         }
 
         fn net(&self) -> u64 {
-            position_accrued(&self.position, 4_380, FEE, self.now)
+            position_accrued(&self.position, 4_380, self.now)
                 .unwrap()
                 .net
         }

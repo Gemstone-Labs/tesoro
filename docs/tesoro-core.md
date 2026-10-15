@@ -131,9 +131,9 @@ A native Position holds real `sim_lst` simSOL in one program-controlled vault sh
 
 | On chain | Seeds | Notes |
 |---|---|---|
-| `NativeCustody` (singleton) | `["native"]` | `pool`, `mint`, `vault`, and the pool totals `principal`, `principal_time`, `realised_fee` (u128), `open_positions`; changed only by open and unlock |
+| `NativeCustody` (singleton) | `["native"]` | `pool`, `mint`, `vault`, and the pool totals `principal`, `fee_weight`, `fee_weight_time`, `realised_fee` (u128), `open_positions`; changed only by open and unlock |
 | Shared vault (SPL token account) | `["native_vault"]` | authority = the custody PDA; holds the Principal shares of every Locked native Position |
-| `PositionState` | `["position", 0, id]` | `ledger::Position` gained `opened_at`, `applied_net`, `custody_shares` (appended) |
+| `PositionState` | `["position", 0, id]` | `ledger::Position` gained `opened_at`, `applied_net`, `custody_shares`, `yield_fee_bps` (appended) |
 | `PriceFeed` | `["price", SIM_SOL_MINT]` | SOL/USD in micro-USD, written by `oracle_authority` (`set_price`) |
 
 A Position is native iff `source_chain == Solana` and `source_asset == SIM_SOL_MINT`. Its id is `sha256("native" || owner || nonce_le)`. The oracle's `open_position` refuses that asset, `apply_yield` and `claim_free_yield` refuse native Positions. EVM Positions are untouched (`opened_at`, `applied_net`, `custody_shares` stay 0 and `apply_yield_from_source` still stores `yield_units`).
@@ -144,20 +144,20 @@ Instructions:
 
 - `init_native_custody()`: admin, once. Creates the custody and the shared vault, pinned to the canonical sim_lst Pool.
 - `set_price(price_micro_usd)`: oracle only (unchanged).
-- `open_native_position(nonce, lst_amount)`: accounts `owner_authority, owner_account, pool, mint, owner_token, position, custody, vault, token_program, system_program`. Principal in SOL at the (flat) rate, `rate_bps` = pool APY, `opened_at` = now, `custody_shares` = `lst_amount`; adds the Position to the pool totals.
-- `take_native_advance(horizon_months)`: accounts `owner_authority, owner_account, position, price_feed, treasury, pool, prev_source (optional), source, holding, system_program`. If the Position has an open Advance, `prev_source` must be that Source: its Debt must be zero (else `AdvanceAlreadyOpen`; missing -> `SourceRequired`), and it is closed here. Idle yield is banked as free yield and the checkpoint moves to now, so yield from before the new Advance never repays it.
-- `extend_native_advance(extra_months)`: as before plus `pool` after `treasury`. Debt is derived (`AdvanceRepaid` when zero); the Source is stored at its derived `yield_units`.
+- `open_native_position(nonce, lst_amount)`: accounts `owner_authority, owner_account, pool, mint, owner_token, position, treasury, custody, vault, token_program, system_program`. `yield_fee_bps` is copied from the Treasury onto the Position (like `rate_bps`) and never changes. Principal in SOL at the (flat) rate, `rate_bps` = pool APY, `opened_at` = now, `custody_shares` = `lst_amount`; adds the Position to the pool totals.
+- `take_native_advance(horizon_months)`: accounts `owner_authority, owner_account, position, price_feed, pool, prev_source (optional), source, holding, system_program`. If the Position has an open Advance, `prev_source` must be that Source: its Debt must be zero (else `AdvanceAlreadyOpen`; missing -> `SourceRequired`), and it is closed here. Idle yield is banked as free yield and the checkpoint moves to now, so yield from before the new Advance never repays it.
+- `extend_native_advance(extra_months)`: as before, with `pool` instead of `treasury` (the fee is the Position's own). Debt is derived (`AdvanceRepaid` when zero); the Source is stored at its derived `yield_units`.
 - `set_extend_limit(months)`: unchanged.
-- `redeem(amount)`: native `remaining_accounts` = `[treasury, pool, holder_token, mint, yield_config, yield_authority, sim_lst_program, token_program]`. Computes the Source now, redeems, and mints exactly the SOL value of the Gemas to the holder through `sim_lst::mint_yield` (signed by the `["yield"]` PDA). Principal is never touched.
-- `unlock()`: native `remaining_accounts` = `[custody, treasury, vault, pool, owner_token, mint, yield_config, yield_authority, sim_lst_program, token_program]` and, when the Position has an open Advance, that Source last (writable). Debt is computed here and must be zero (`DebtOutstanding`); Principal returns from the shared vault (`custody_shares`), the free yield (`free_yield - free_yield_claimed`) is minted, the Position leaves the pool totals and its Yield Fee is booked into `realised_fee`.
-- `return_own(amount)`: native `remaining_accounts` = `[pool, treasury]`.
+- `redeem(amount)`: native `remaining_accounts` = `[pool, holder_token, mint, yield_config, yield_authority, sim_lst_program, token_program]`. Computes the Source now, redeems, and mints exactly the SOL value of the Gemas to the holder through `sim_lst::mint_yield` (signed by the `["yield"]` PDA). Principal is never touched.
+- `unlock()`: native `remaining_accounts` = `[custody, vault, pool, owner_token, mint, yield_config, yield_authority, sim_lst_program, token_program]` and, when the Position has an open Advance, that Source last (writable). Debt is computed here and must be zero (`DebtOutstanding`); Principal returns from the shared vault (`custody_shares`), the free yield (`free_yield - free_yield_claimed`) is minted, the Position leaves the pool totals and its Yield Fee is booked into `realised_fee`.
+- `return_own(amount)`: native `remaining_accounts` = `[pool]`.
 - `instant_redeem` / `redeem_treasury`: as in the Treasury section below, with the Source derived at the clock. `redeem_treasury` `remaining_accounts` = `[pool, treasury_vault, mint, yield_config, yield_authority, sim_lst_program, token_program]`; the redeem yield is minted into the treasury vault.
 
 Removed: `accrue_native_yield`, `sweep_native_surplus` (the vault holds Principal only and yield is minted when paid, so no surplus can build up), `migrate_native_custody`, events `YieldFeeTaken` and `NativeCustodyMigrated`. `NativePayout.kind`: 0 redeem (minted), 1 unlock Principal (vault), 2 unlock free yield (minted).
 
-**Treasury claim.** `PoolTotals::earned_fee(apy, now, speedup, fee_bps)` over the stored totals is conservative: at most the sum of the per-Position fees and at least that sum minus `2N + 2` (N = Locked Positions). Withdrawal and the Instant Redeem balance rules are ticket 04; for now `instant_redeem` still pays from the treasury vault (`TreasuryShort` when it cannot) and the Yield Fee is not minted anywhere.
+**Treasury claim.** `PoolTotals::earned_fee(now, speedup)` over the stored totals, weighted by each Position's own `Principal x rate_bps x fee_bps` (`fee_weight`, `fee_weight_time`), is conservative: at most the sum of the per-Position fees and at least that sum minus `2N + 2` (N = Locked Positions). Withdrawal and the Instant Redeem balance rules are ticket 04; for now `instant_redeem` still pays from the treasury vault (`TreasuryShort` when it cannot) and the Yield Fee is not minted anywhere.
 
-Parameters read live from the canonical sim_lst Pool: `speedup` (and APY at open). Changing them (or the Yield Fee) mid-flight bends every open Position's curve; do it only with the app and keeper paused (devnet).
+The Yield Fee and APY are fixed per Position at open, so a Treasury fee change applies only to Positions opened afterwards and the claim stays at most the sum of per-Position fees (test `a_fee_change_never_applies_backwards`). `speedup` is the one value read live from the canonical sim_lst Pool (a devnet constant by founder decision); changing it bends every open curve. `instant_redeem` still reads the Instant Redeem fee live.
 
 Errors appended: `SourceRequired` (6018).
 

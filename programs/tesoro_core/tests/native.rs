@@ -429,6 +429,7 @@ impl Env {
                 mint,
                 owner_token: p.token,
                 position,
+                treasury: pda(&[TREASURY_SEED]),
                 custody,
                 vault,
                 token_program: TOKEN_PROGRAM_ID,
@@ -474,7 +475,6 @@ impl Env {
                 owner_account: p.account,
                 position: pos.position,
                 price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
-                treasury: pda(&[TREASURY_SEED]),
                 pool: self.pool,
                 prev_source,
                 source,
@@ -524,7 +524,6 @@ impl Env {
                 owner_authority: p.key,
                 owner_account: p.account,
                 position: pos.position,
-                treasury: pda(&[TREASURY_SEED]),
                 pool: self.pool,
                 source,
                 holding: self.holding(p, source),
@@ -551,8 +550,7 @@ impl Env {
     }
 
     fn redeem_ix(&self, p: &Person, pos: Pos, source: APk, amount: u64, dest: APk) -> Instruction {
-        let mut remaining = vec![rem(pda(&[TREASURY_SEED]), false)];
-        remaining.extend(self.yield_mint(dest));
+        let remaining = self.yield_mint(dest);
         tix(
             accounts::Redeem {
                 holder_authority: p.key,
@@ -572,11 +570,7 @@ impl Env {
     }
 
     fn unlock_ix(&self, p: &Person, pos: Pos, dest: APk) -> Instruction {
-        let mut remaining = vec![
-            rem(pos.custody, true),
-            rem(pda(&[TREASURY_SEED]), false),
-            rem(pos.vault, true),
-        ];
+        let mut remaining = vec![rem(pos.custody, true), rem(pos.vault, true)];
         remaining.extend(self.yield_mint(dest));
         if let Some(index) = self.position(pos).open_advance {
             remaining.push(rem(self.source(pos, index), true));
@@ -607,7 +601,7 @@ impl Env {
                 holding: self.holding(p, source),
             },
             instruction::ReturnOwn { amount },
-            vec![rem(self.pool, false), rem(pda(&[TREASURY_SEED]), false)],
+            vec![rem(self.pool, false)],
         );
         self.send(&[ret], &p.kp, &[])
     }
@@ -628,14 +622,9 @@ impl Env {
         let pos_key = APk::new_from_array(stored.position);
         let position = self.load::<PositionState>(pos_key).inner;
         let pool = self.load::<sim_lst::Pool>(self.pool);
-        let net = native::position_accrued(
-            &position,
-            pool.speedup,
-            self.load::<Treasury>(pda(&[TREASURY_SEED])).yield_fee_bps,
-            self.now(),
-        )
-        .unwrap()
-        .net;
+        let net = native::position_accrued(&position, pool.speedup, self.now())
+            .unwrap()
+            .net;
         native::source_view(&position, &stored, net).unwrap()
     }
     fn debt(&self, source: APk) -> u64 {
@@ -650,13 +639,7 @@ impl Env {
     /// Net Accrued Yield of a Position now.
     fn accrued(&self, pos: Pos) -> ledger::AccruedYield {
         let pool = self.load::<sim_lst::Pool>(self.pool);
-        native::position_accrued(
-            &self.position(pos),
-            pool.speedup,
-            self.load::<Treasury>(pda(&[TREASURY_SEED])).yield_fee_bps,
-            self.now(),
-        )
-        .unwrap()
+        native::position_accrued(&self.position(pos), pool.speedup, self.now()).unwrap()
     }
 
     /// The custody invariants, read back from chain state, for the Locked Positions given.
@@ -733,10 +716,10 @@ fn open_moves_simsol_into_the_shared_vault_and_records_the_position() {
     assert_eq!(position.owner, alice.account.to_bytes());
     let totals = env.custody().totals();
     assert_eq!(totals.principal, 14 * SOL as u128);
-    assert_eq!(
-        totals.principal_time,
-        14 * SOL as u128 * (T0 + MONTH) as u128
-    );
+    let w = 14 * SOL as u128 * 700 * YIELD_FEE_BPS as u128;
+    assert_eq!(totals.fee_weight, w);
+    assert_eq!(totals.fee_weight_time, w * (T0 + MONTH) as u128);
+    assert_eq!(position.yield_fee_bps, YIELD_FEE_BPS);
     assert_eq!(totals.open_positions, 2);
     // The vault is owned by the custody PDA, not by a staker.
     let vault =
@@ -789,7 +772,6 @@ fn only_the_owner_takes_an_advance() {
             owner_account: mallory.account,
             position: pos.position,
             price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
-            treasury: pda(&[TREASURY_SEED]),
             pool: env.pool,
             prev_source: None,
             source,
@@ -955,9 +937,9 @@ fn redeem_needs_the_native_accounts_and_pays_only_the_holder() {
     assert_eq!(code(&err), ERR_INVALID_ACCOUNT);
 
     // A treasury, pool or sim_lst that is not the real one is refused.
-    let mut fake_treasury = env.redeem_ix(&alice, pos, source, 100, alice.token);
-    fake_treasury.accounts[5].pubkey = s(alice.account);
-    assert!(env.send(&[fake_treasury], &alice.kp, &[]).is_err());
+    let mut fake_pool = env.redeem_ix(&alice, pos, source, 100, alice.token);
+    fake_pool.accounts[5].pubkey = s(alice.account);
+    assert!(env.send(&[fake_pool], &alice.kp, &[]).is_err());
     let mut fake_program = env.redeem_ix(&alice, pos, source, 100, alice.token);
     fake_program.accounts[10].pubkey = s(anchor_lang::system_program::ID);
     assert!(env.send(&[fake_program], &alice.kp, &[]).is_err());
@@ -1031,7 +1013,7 @@ fn unlock_needs_zero_debt_and_pays_principal_plus_free_yield_with_no_crank() {
     assert_eq!(
         (
             totals.principal,
-            totals.principal_time,
+            totals.fee_weight_time,
             totals.open_positions
         ),
         (0, 0, 0)
@@ -1185,7 +1167,7 @@ fn pool_totals_stay_within_the_proven_bound_of_the_per_position_fees() {
         let earned = env
             .custody()
             .totals()
-            .earned_fee(700, env.now(), sim_lst::DEFAULT_SPEEDUP, YIELD_FEE_BPS)
+            .earned_fee(env.now(), sim_lst::DEFAULT_SPEEDUP)
             .unwrap();
         let n = locked.len() as u64;
         assert!(earned <= sum, "claim {earned} above the sum of fees {sum}");
@@ -1215,8 +1197,51 @@ fn pool_totals_stay_within_the_proven_bound_of_the_per_position_fees() {
     env.unlock(&alice, a).unwrap();
     env.unlock(&carol, c).unwrap();
     let t = env.custody().totals();
-    assert_eq!((t.principal, t.principal_time, t.open_positions), (0, 0, 0));
+    assert_eq!(
+        (t.principal, t.fee_weight_time, t.open_positions),
+        (0, 0, 0)
+    );
     assert_eq!(t.realised_fee, (bob_fee + a_fee + c_fee) as u128);
+}
+
+// A fee change applies only to Positions opened afterwards (the Yield Fee is fixed at open).
+#[test]
+fn a_fee_change_never_applies_backwards() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let a = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, a, 1).unwrap();
+    env.advance(300);
+    let a_before = env.accrued(a);
+    let debt_before = env.debt(source);
+    env.init_treasury(1_000, INSTANT_FEE_BPS).unwrap();
+    assert_eq!(env.accrued(a), a_before, "the past yield did not move");
+    assert_eq!(env.debt(source), debt_before);
+    assert_eq!(env.position(a).yield_fee_bps, 2_000);
+
+    env.advance(100);
+    let b = env.open(&bob, 4 * SOL).unwrap();
+    assert_eq!(env.position(b).yield_fee_bps, 1_000);
+    env.advance(2_000);
+    let sum = env.accrued(a).fee + env.accrued(b).fee;
+    let earned = env
+        .custody()
+        .totals()
+        .earned_fee(env.now(), sim_lst::DEFAULT_SPEEDUP)
+        .unwrap();
+    assert!(earned <= sum, "claim {earned} above fee(A)+fee(B) {sum}");
+    assert!(
+        sum <= earned + 2 * 2 + 2,
+        "claim {earned} too far below {sum}"
+    );
+    // The Advance is still repaid at its Horizon at A's own 20%.
+    assert_eq!(env.debt(source), 0);
+    // Unlock books each Position's own fee exactly.
+    let (fa, fb) = (env.accrued(a).fee, env.accrued(b).fee);
+    env.unlock(&alice, a).unwrap();
+    env.unlock(&bob, b).unwrap();
+    assert_eq!(env.custody().totals().realised_fee, (fa + fb) as u128);
 }
 
 // --- Validation -----------------------------------------------------------------------------
@@ -1271,10 +1296,10 @@ fn a_fake_pool_cannot_speed_up_or_stall_the_yield() {
     acct.data[92..96].copy_from_slice(&1_000_000u32.to_le_bytes());
     env.svm.set_account(s(fake), acct).unwrap();
     let mut unlock = env.unlock_ix(&alice, pos, alice.token);
-    unlock.accounts[6].pubkey = s(fake);
+    unlock.accounts[5].pubkey = s(fake);
     assert!(env.send(&[unlock], &alice.kp, &[]).is_err());
     let mut redeem = env.redeem_ix(&alice, pos, source, 699, alice.token);
-    redeem.accounts[6].pubkey = s(fake);
+    redeem.accounts[5].pubkey = s(fake);
     assert!(env.send(&[redeem], &alice.kp, &[]).is_err());
 }
 
