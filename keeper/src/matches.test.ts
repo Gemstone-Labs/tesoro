@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { STATUS } from "../../app/src/games/holdem/chain.ts";
 import { baseTableStep } from "./matches.ts";
+import { openQueueStep } from "./blockpuzzle.ts";
 
 const created = (startDeadline: number) => ({ status: STATUS.created, finalized: false, startDeadline });
 const DAY = 86_400;
@@ -24,5 +25,16 @@ describe("Hold'em table on the base layer (SP-05)", () => {
     assert.equal(baseTableStep({ status: STATUS.cancelled, finalized: false, startDeadline: 0 }, 5, 10).do, "finalize");
     assert.equal(baseTableStep({ status: STATUS.live, finalized: false, startDeadline: 0 }, 5, 10).do, "wait");
     assert.equal(baseTableStep({ status: STATUS.live, finalized: false, startDeadline: 0 }, 10, 10).do, "refund");
+  });
+});
+
+describe("Block Puzzle Queue window", () => {
+  it("holds an unjoined Match for 24 h from open_session, and an older one for its 1 h", () => {
+    const opened = 1000;
+    const deadline = opened + DAY;
+    assert.equal(openQueueStep(opened + 3601, deadline), "wait");
+    assert.equal(openQueueStep(deadline - 1, deadline), "wait");
+    assert.equal(openQueueStep(deadline, deadline), "refund");
+    assert.equal(openQueueStep(opened + 3601, opened + 3600), "refund");
   });
 });

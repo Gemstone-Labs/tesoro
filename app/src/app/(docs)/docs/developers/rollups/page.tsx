@@ -78,7 +78,7 @@ export default function Page() {
 
       <H2 id="liveness">Liveness</H2>
       <p>
-        Clocks live in the programs: Block Puzzle 90 s per run, an opener window of one hour and a joiner window of 24 hours; Hold&apos;em 30 s per action and 60 s
+        Clocks live in the programs: Block Puzzle 90 s per run, a Queue window of 24 hours for an opener and a joiner window of 24 hours; Hold&apos;em 30 s per action and 60 s
         to contribute entropy, with three missed turns in a row a forfeit; Trading Duel a two-and-a-half-minute grid. <code>claim_timeout</code>, <code>seal</code>,{" "}
         <code>commit_boards</code>, <code>finalize</code> and <code>settle</code> can be sent by anyone, and the keeper sends them when no Player does.
       </p>

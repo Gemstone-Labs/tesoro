@@ -83,7 +83,7 @@ The Gemas entered into one Match, held in escrow until settlement. The winner re
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
-The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired.
+The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Puzzle entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel) waits 1 hour.
 _Avoid_: lobby, matchmaking pool
 
 **Challenge**:

@@ -1,5 +1,8 @@
 
-/** tesoro_core::MATCH_TIMEOUT_SECS: how long after a join the Match's refund deadline is set. */
+/**
+ * tesoro_core::MATCH_TIMEOUT_SECS: how long after a join the Match's refund deadline is set. The
+ * Block Puzzle Queue window (24 h, before anyone joins) does not change it: a join resets it.
+ */
 const CORE_WINDOW_SECS = 60 * 60;
 /** trading_duel START_WINDOW_SECS + MATCH_SECS (30 s head start + 12 columns of 10 s): the longest a Duel runs after the join. */
 const DUEL_PLAY_SECS = 300 + 150;

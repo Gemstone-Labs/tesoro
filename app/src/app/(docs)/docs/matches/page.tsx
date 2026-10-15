@@ -18,7 +18,7 @@ export default function Page() {
         rows={[
           ["A Player wins", "The winner gets their own entry back plus the loser's Gemas, minus Fees (see Fees). Fees come out of the loser's Gemas, so a winner always gets their own entry back whole."],
           ["Draw", "Both entries go back to the Players unchanged."],
-          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after an hour."],
+          ["No-show or abandoned Match", "Both entries are refunded. A Match that nobody joins can be cancelled by its opener at any time, and anyone can refund it after the Queue window: 24 hours for Block Puzzle, one hour for the live games."],
         ]}
       />
       <p>
