@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
-import { SEASON_EPOCH, SEASON_SECS } from "../../app/src/lib/chain/season.ts";
-import { prizeHoldings, seasonsToCheck, topRanks, type PoolHolding } from "./season.ts";
+import { PAYOUT_WINDOW_SECS, SEASON_EPOCH, SEASON_SECS } from "../../app/src/lib/chain/season.ts";
+import { payPlan, prizeHoldings, seasonsToCheck, topRanks, type PoolHolding } from "./season.ts";
 
 const src = (b: number) => new PublicKey(new Uint8Array(32).fill(b));
 const holding = (b: number, amount: bigint): PoolHolding => ({ pubkey: src(100 + b), source: src(b), amount });
@@ -57,5 +57,26 @@ describe("prize holdings", () => {
     assert.equal(prizeHoldings(pool, 154n)?.length, 3);
     assert.equal(prizeHoldings(pool, 155n), null, "more than the pool holds");
     assert.deepEqual(prizeHoldings(pool, 0n), []);
+  });
+});
+
+describe("payout window", () => {
+  const rec = (over = {}) => ({ count: 4, paidMask: 0, voidedMask: 0, recordedAt: 10_000, ...over });
+  const opens = 10_000 + PAYOUT_WINDOW_SECS;
+  it("waits 48 hours after the record, then pays every rank", () => {
+    assert.deepEqual(payPlan(rec(), 10_001), { kind: "wait", until: opens });
+    assert.deepEqual(payPlan(rec(), opens - 1), { kind: "wait", until: opens });
+    assert.deepEqual(payPlan(rec(), opens), { kind: "pay", ranks: [0, 1, 2, 3] });
+  });
+  it("skips voided and paid ranks", () => {
+    assert.deepEqual(payPlan(rec({ paidMask: 0b0001, voidedMask: 0b0100 }), opens), { kind: "pay", ranks: [1, 3] });
+  });
+  it("survives a restart: the plan depends only on the chain record and the clock", () => {
+    const onChain = rec({ paidMask: 0b0011 });
+    assert.deepEqual(payPlan(onChain, opens + 3600), payPlan({ ...onChain }, opens + 3600));
+    assert.deepEqual(payPlan(onChain, opens + 3600), { kind: "pay", ranks: [2, 3] });
+  });
+  it("leaves a season recorded before the window existed", () => {
+    assert.deepEqual(payPlan(rec({ recordedAt: null }), opens * 2), { kind: "legacy" });
   });
 });
