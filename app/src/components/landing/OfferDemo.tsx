@@ -3,8 +3,9 @@
 import { Check, Minus, X } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import { GemaMark } from "@/components/ui/gema";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
 
-const ENTRIES = [500, 1000, 2500];
+const ENTRIES = ENTRY_SIZES;
 const fmt = (n: number) => n.toLocaleString("en-US");
 
 /** One outcome as two lanes: what comes back to you and what goes to the Player. Widths are shares, not Fee-exact amounts. */
