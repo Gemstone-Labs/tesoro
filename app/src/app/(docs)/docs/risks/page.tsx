@@ -49,7 +49,7 @@ export default function Page() {
           ["MagicBlock's secure environment", "Keeping hidden cards, pieces and positions hidden.", "Hidden information could be seen early."],
           ["LayerZero's verification network", "Delivering cross-chain messages truthfully.", "A false message could report false yield. A vault still pays out no more than the yield it has accrued."],
           ["The admin key", "Registering Games, setting fees (Platform, Yield and Instant Redeem), funding Tesoro&apos;s holdings, upgrading programs.", "A single key can change the rules or the programs."],
-          ["The keeper", "Liveness only: cranking yield, relaying messages, expiring offers.", "If it stops, anyone can send the same transactions, but things go slower."],
+          ["The keeper", "Liveness only: relaying messages, expiring offers, publishing the price. SOL Position yield needs no keeper: it is computed when you use it.", "If it stops, anyone can send the same transactions, but things go slower."],
         ]}
       />
 

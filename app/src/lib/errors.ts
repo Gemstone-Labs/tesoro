@@ -26,7 +26,7 @@ export function plainError(e: unknown): string {
 
 export const ADVANCE_REPAID = "Your Advance was repaid before this went through. Close this and use Take another Advance instead.";
 
-/** An Extend that lost the race with the yield crank: the Advance is repaid or closed by now. Anything else passes through. */
+/** An Extend that lost the race with the clock: the Advance is repaid or closed by now. Anything else passes through. */
 export function extendFailure(e: unknown): unknown {
   const text = e instanceof Error ? e.message : String(e);
   return /advance is already repaid|position has no open advance/i.test(text) ? new Error(ADVANCE_REPAID) : e;

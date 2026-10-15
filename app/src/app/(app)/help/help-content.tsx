@@ -48,7 +48,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
           <>
             <p>
               Automatically. All yield your Position earns goes to its Debt until the Debt reaches zero. There is no repay button and no way to
-              skip it.
+              skip it. A SOL Position&apos;s Debt falls with the clock: nothing needs refreshing, and Redeem and Unlock always use the latest figure.
             </p>
             <p>
               The only other way to lower Debt is to Return your own unspent Gemas from the Wallet. Adding more to the Position does not pay Debt.

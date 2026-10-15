@@ -58,7 +58,7 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
     };
   }, [vaults]);
 
-  /** The plan again from a fresh Account read and fresh treasury mirrors: a yield crank may have landed since the Player confirmed. */
+  /** The plan again from a fresh Account read and fresh treasury mirrors: yield may have accrued since the Player confirmed. */
   const freshPlan = useCallback(async (authority: PublicKey) => {
     const fresh = await fetchAccountState(authority, { fresh: true });
     const candidates = instantCandidates(fresh.holdings);

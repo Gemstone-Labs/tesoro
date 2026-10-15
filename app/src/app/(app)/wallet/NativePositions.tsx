@@ -1,31 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, CheckIcon, ClockIcon, GemaAmount, Sheet } from "@/components/ui";
+import { Button, CheckIcon, GemaAmount, Sheet } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS, EXTEND_ADVANCE_ENABLED } from "@/lib/advance";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
 import { ratesOf } from "@/lib/chain/fees";
-import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
+import { gemasInAsset } from "@/lib/chain/ledger";
 import {
   LAMPORTS,
   MAX_PRICE_AGE_SECS,
   SIM_MONTH_MIN,
-  projectedDebtGemas,
+  clockOf,
+  debtGemasAt,
+  nativeNow,
   quoteExtendAdvance,
   quoteNativeAdvance,
   rateAt,
-  surplusShares,
-  accruedAt,
-  yieldClockOf,
   redeemPayoutShares,
   sharesValue,
+  speedupOf,
   unlockEstimateMs,
   type NativeInfo,
   type NativeMarket,
 } from "@/lib/chain/native";
 import { advanceUnits, netApyPct } from "@/lib/chain/yield";
-import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, instantRedeemNative, openPositionWithAdvance, redeemNative, refreshYield, sweepNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
+import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, instantRedeemNative, openPositionWithAdvance, redeemNative, takeNextAdvance, unlockNative } from "@/lib/chain/native-flow";
 import { runInstant } from "@/lib/chain/instant-run";
 import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
@@ -56,9 +56,7 @@ const DONE: Record<string, string> = {
   faucet: "Got test simSOL",
   open: "Position opened",
   advance: "Advance taken",
-  refresh: "Yield refreshed",
   unlock: "Principal unlocked",
-  sweep: "Leftover yield collected",
   redeem: "Redeemed",
 };
 
@@ -133,17 +131,14 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   const { yieldFeeBps } = ratesOf(market?.treasury);
   const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
-  // A fresh Position's Debt is the whole Advance: the Estimate is when the vault's yield covers it.
+  // A fresh Position's Debt is the whole Advance: the Estimate is when its Accrued Yield covers it.
   const estimate = market && quote && shares > 0n && gemas > 0
     ? unlockEstimateMs({
+        clock: { principal, rateBps: market.pool.apyBps, yieldFeeBps, openedAt: Math.floor(now / 1000) },
+        speedup: speedupOf(market.pool),
+        appliedNet: 0n,
         source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: market.price!.microUsd },
-        vaultShares: shares,
-        redeemedUnits: 0n,
-        principalLamports: principal,
-        pool: market.pool,
-        clock: { rateBps: market.pool.apyBps, lastAccrualTs: Math.floor(now / 1000) },
         nowMs: now,
-        yieldFeeBps,
       })
     : null;
   const tooMuch = !!market && shares > market.simSol;
@@ -215,39 +210,28 @@ export function NativePositionCard({ position, market, onRedeem, extend = EXTEND
   const [advancing, setAdvancing] = useState(false);
   const [extending, setExtending] = useState(false);
 
-  const src = info.source?.math ?? null;
-  const onChainDebt = src ? live(src) - covered(src) : 0n;
-  const debtSol = src && onChainDebt > 0n ? (onChainDebt * src.unitNum + src.unitDen - 1n) / src.unitDen : 0n;
-  const pool = market?.pool ?? null;
-  const clock = yieldClockOf(info);
-  const { yieldFeeBps } = ratesOf(market?.treasury);
-  const projected = pool ? projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, now, clock, yieldFeeBps) : onChainDebt;
-  const liveYield = pool ? accruedAt({ vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock, nowMs: now, yieldFeeBps }) : info.cumulativeYield;
-  const accruedYield = liveYield > info.cumulativeYield ? liveYield : info.cumulativeYield;
-  const unapplied = onChainDebt - projected;
-  const estimate =
-    pool && src && onChainDebt > 0n
-      ? unlockEstimateMs({ source: src, vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock: clock ?? { rateBps: info.rateBps, lastAccrualTs: Math.floor(now / 1000) }, nowMs: now, yieldFeeBps })
-      : null;
+  const yieldFeeBps = info.yieldFeeBps;
+  const speedup = speedupOf(market?.pool);
+  // Debt, redeemable and free yield are derived from the clock, as the program computes them (nothing is cranked).
+  const cur = nativeNow(info, speedup, Math.floor(now / 1000));
+  const src = cur.source;
+  const debt = cur.debtGemas;
+  const debtSol = src && debt > 0n ? (debt * src.unitNum + src.unitDen - 1n) / src.unitDen : 0n;
+  const estimate = src && debt > 0n ? unlockEstimateMs({ clock: clockOf(info), speedup, appliedNet: info.appliedNet, source: src, nowMs: now }) : null;
   const locked = info.status === "locked";
-  const canUnlock = locked && projected === 0n;
-  const canExtend = extend && locked && !canUnlock && !!src && projected > 0n && info.source!.horizonMonths < MAX_ADVANCE_MONTHS;
-  // Unknown until the pool is read: keep the action rather than hide a real surplus.
-  const surplus = pool ? surplusShares(info, rateAt(pool)) : null;
+  const canUnlock = locked && debt === 0n;
+  const canExtend = extend && locked && !!src && info.openAdvance === info.source?.index && debt > 0n && info.source.horizonMonths < MAX_ADVANCE_MONTHS;
   const redeemable = (snapshot?.holdings ?? []).some((h) => h.native && h.position.equals(position.address) && h.redeemable > 0n);
-  const series =
-    pool && src && locked && onChainDebt > 0n
-      ? sampledSeries((at) => Number(projectedDebtGemas(src, info.vaultShares, info.redeemedUnits, info.principalLamports, pool, at, clock, yieldFeeBps)), now, estimate ? estimate - now : 10 * 60_000)
-      : null;
+  const series = src && locked && debt > 0n ? sampledSeries((at) => Number(debtGemasAt(info, speedup, at)), now, estimate ? estimate - now : 10 * 60_000) : null;
 
   return (
     <PositionTile
       chain="SOL"
       label="SOL Position"
-      state={!locked ? "unlocked" : !src ? "idle" : onChainDebt === 0n ? "paid" : "repaying"}
+      state={!locked ? "unlocked" : !src ? "idle" : debt === 0n ? "paid" : "repaying"}
       principal={`${fmtSol(info.principalLamports, 3)} SOL`}
-      debt={!src ? null : onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas` : "0"}
-      debtAsset={onChainDebt > 0n ? `${fmtSol(debtSol, 3)} SOL` : undefined}
+      debt={!src ? null : debt > 0n ? `${fmtGemas(Number(debt))} Gemas` : "0"}
+      debtAsset={debt > 0n ? `${fmtSol(debtSol, 3)} SOL` : undefined}
       apy={`${netApyPct(info.rateBps, yieldFeeBps).toFixed(1)}%`}
       yieldFeeBps={yieldFeeBps}
       unlockAt={estimate}
@@ -255,12 +239,7 @@ export function NativePositionCard({ position, market, onRedeem, extend = EXTEND
       series={series}
       notes={
         <>
-          <p className="note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated). Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
-          {unapplied > 0n && locked && (
-            <p className="note">
-              <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (it happens automatically every ~20 s).
-            </p>
-          )}
+          <p className="note">Accrued yield {fmtSol(cur.accrued, 5)} SOL (simulated). Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {locked && !canUnlock && <p className="note">Unlock returns the Principal once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
           {canUnlock && <p className="note">Debt is zero: Unlock to get your SOL back, or take another Advance on the same Principal.</p>}
         </>
@@ -268,9 +247,6 @@ export function NativePositionCard({ position, market, onRedeem, extend = EXTEND
     >
       {locked && (
         <>
-          <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("refresh", () => refreshYield(signer, info))}>
-            {a.busy === "refresh" ? "Refreshing…" : "Refresh yield"}
-          </Button>
           {canUnlock && (
             <Button variant="money" size="sm" block disabled={!signer || a.busy !== null} onClick={() => setAdvancing(true)}>Take another Advance</Button>
           )}
@@ -290,11 +266,6 @@ export function NativePositionCard({ position, market, onRedeem, extend = EXTEND
           <NativeAdvanceSheet info={info} market={market} open={advancing} onClose={() => setAdvancing(false)} />
           {canExtend && <NativeExtendSheet info={info} market={market} open={extending} onClose={() => setExtending(false)} />}
         </>
-      )}
-      {!locked && surplus !== 0n && (
-        <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("sweep", () => sweepNative(signer, info))}>
-          {a.busy === "sweep" ? "Collecting…" : surplus ? `Collect leftover yield · ${fmtSol(surplus, 4)} simSOL` : "Collect leftover yield"}
-        </Button>
       )}
       {a.done && <Sig label={a.done.label} sig={a.done.sig} />}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
@@ -321,7 +292,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
   const now = useNow(5000);
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
   const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
-  const { yieldFeeBps } = ratesOf(market?.treasury);
+  const yieldFeeBps = info.yieldFeeBps;
   const quote = priceOk ? quoteNativeAdvance(info.principalLamports, info.rateBps, months, market!.price!.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   // The Advance is the Horizon's projected yield at the Position's own rate net of the Yield Fee, which is all the Position earns, so yield repays it in exactly the Horizon.
@@ -409,15 +380,11 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
   const [picked, setMonths] = useState(Math.min(DEFAULT_HORIZON_MONTHS, MAX_ADVANCE_MONTHS - source.horizonMonths));
   const months = Math.max(1, Math.min(picked, view.maxMonths));
   const pool = market?.pool ?? null;
-  const { yieldFeeBps } = ratesOf(market?.treasury);
+  const yieldFeeBps = info.yieldFeeBps;
   const quote = quoteExtendAdvance(info.principalLamports, info.rateBps, source.math, source.horizonMonths, months, yieldFeeBps);
   const gemas = Number(quote.gemas);
   const addedYield = advanceUnits(info.principalLamports, info.rateBps, source.horizonMonths + months, yieldFeeBps) - advanceUnits(info.principalLamports, info.rateBps, source.horizonMonths, yieldFeeBps);
-  const clock = yieldClockOf(info);
-  const unlock =
-    pool && gemas > 0
-      ? unlockEstimateMs({ source: quote.extended, vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock: clock ?? { rateBps: info.rateBps, lastAccrualTs: Math.floor(now / 1000) }, nowMs: now, yieldFeeBps })
-      : null;
+  const unlock = gemas > 0 ? unlockEstimateMs({ clock: clockOf(info), speedup: speedupOf(pool), appliedNet: info.appliedNet, source: quote.extended, nowMs: now }) : null;
   const title = `${fmtSol(info.principalLamports, 3)} SOL Position`;
 
   if (a.done) {

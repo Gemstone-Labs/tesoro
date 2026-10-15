@@ -18,6 +18,7 @@ import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPosit
 import { vaultsOn } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
+import { ResetNote } from "./ResetNote";
 import "./wallet.css";
 
 const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
@@ -145,6 +146,8 @@ export default function Wallet() {
         </div>
         {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>}
       </header>
+
+      <ResetNote />
 
       <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
         <FacetCrown />
