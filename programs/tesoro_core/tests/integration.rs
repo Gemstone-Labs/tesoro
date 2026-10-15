@@ -51,6 +51,9 @@ fn request_pda(account: APk, nonce: u64) -> APk {
 fn offer_pda(account: APk, nonce: u64) -> APk {
     pda(&[OFFER_SEED, account.as_ref(), &nonce.to_le_bytes()])
 }
+fn protections_pda(account: APk) -> APk {
+    pda(&[PROTECTIONS_SEED, account.as_ref()])
+}
 fn core(e: CoreError) -> u32 {
     tesoro_core::error::CORE_ERROR_OFFSET + e.code()
 }
@@ -391,6 +394,7 @@ impl Env {
                 player_authority: p.key,
                 config: pda(&[CONFIG_SEED]),
                 player_account: p.account,
+                protections: protections_pda(p.account),
                 match_state: match_pda(id),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -404,6 +408,30 @@ impl Env {
         self.send(&[open], &p.kp, &[]).map(|_| id)
     }
 
+    fn set_entry_limit(
+        &mut self,
+        p: &Person,
+        gemas: u64,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let set = ix(
+            accounts::SetEntryLimit {
+                owner_authority: p.key,
+                owner_account: p.account,
+                protections: protections_pda(p.account),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetEntryLimit { gemas },
+            vec![],
+        );
+        self.send(&[set], &p.kp, &[])
+    }
+
+    fn entry_limit(&self, p: &Person) -> tesoro_core::ledger::EntryLimit {
+        self.load::<ProtectionsState>(protections_pda(p.account))
+            .inner
+            .entry_limit
+    }
+
     fn join_match(
         &mut self,
         p: &Person,
@@ -414,6 +442,7 @@ impl Env {
             accounts::JoinMatch {
                 player_authority: p.key,
                 player_account: p.account,
+                protections: protections_pda(p.account),
                 match_state: match_pda(id),
             },
             instruction::JoinMatch {},
@@ -1017,6 +1046,7 @@ impl Backing {
                 backer_authority: self.carol.key,
                 config: pda(&[CONFIG_SEED]),
                 backer_account: self.carol.account,
+                protections: protections_pda(self.carol.account),
                 offer,
                 system_program: anchor_lang::system_program::ID,
             },
@@ -1218,6 +1248,138 @@ fn backing_cannot_be_revoked_after_start_and_backed_player_cannot_move_backer_ge
     b.d.env.refund(&stranger, id, payouts).expect("refund");
     assert_eq!(b.d.env.total_gemas(&b.carol), 75_000);
     assert_eq!(b.d.env.total_gemas(&b.dave), 0);
+}
+
+const DAY: i64 = 24 * 3_600;
+
+#[test]
+fn an_entry_limit_stops_opening_and_joining_over_it() {
+    let mut d = duel();
+    d.env.set_entry_limit(&d.alice, 1_000).unwrap();
+    d.env.set_entry_limit(&d.bob, 500).unwrap();
+    let m1 = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    let m2 = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    // The third entry of the period is over Alice's 1,000: refused, and no Gemas leave her.
+    let free = d
+        .env
+        .load::<TesoroAccount>(d.alice.account)
+        .inner
+        .own_free();
+    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
+    assert_eq!(
+        d.env
+            .load::<TesoroAccount>(d.alice.account)
+            .inner
+            .own_free(),
+        free
+    );
+    assert_eq!(d.env.entry_limit(&d.alice).window_used, 1_000);
+    // Bob's 500 covers one join, not two.
+    d.env.join_match(&d.bob, m1, &[d.b_holding]).unwrap();
+    let err = d.env.join_match(&d.bob, m2, &[d.b_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
+    assert_eq!(d.env.entry_limit(&d.bob).window_used, 500);
+    // A new period (7 days after the first entry) opens room again.
+    let now = d.env.now();
+    d.env.set_time(now + 7 * DAY - 1);
+    assert!(d.env.join_match(&d.bob, m2, &[d.b_holding]).is_err());
+    d.env.set_time(now + 7 * DAY);
+    d.env.join_match(&d.bob, m2, &[d.b_holding]).unwrap();
+    assert_eq!(d.env.entry_limit(&d.bob).window_used, 500);
+}
+
+#[test]
+fn a_raised_entry_limit_waits_a_day_and_a_lowered_one_applies_at_once() {
+    let mut d = duel();
+    d.env.set_entry_limit(&d.alice, 500).unwrap();
+    d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    d.env.set_entry_limit(&d.alice, 2_500).unwrap();
+    let l = d.env.entry_limit(&d.alice);
+    assert_eq!((l.gemas, l.pending_gemas), (500, 2_500));
+    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
+    let now = d.env.now();
+    d.env.set_time(now + DAY);
+    d.env.open_match(&d.alice, 1_000, &[d.a_holding]).unwrap();
+    assert_eq!(d.env.entry_limit(&d.alice).gemas, 2_500);
+    // Lowering below what is used applies at once.
+    d.env.set_entry_limit(&d.alice, 500).unwrap();
+    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
+}
+
+#[test]
+fn removing_the_entry_limit_lifts_it_after_a_day() {
+    let mut d = duel();
+    d.env.set_entry_limit(&d.alice, 500).unwrap();
+    d.env.set_entry_limit(&d.alice, 0).unwrap();
+    let err = d
+        .env
+        .open_match(&d.alice, 1_000, &[d.a_holding])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
+    let now = d.env.now();
+    d.env.set_time(now + DAY);
+    d.env.open_match(&d.alice, 1_000, &[d.a_holding]).unwrap();
+    d.env.open_match(&d.alice, 2_500, &[d.a_holding]).unwrap();
+}
+
+#[test]
+fn funding_a_backing_counts_toward_the_backers_entry_limit() {
+    let mut b = backing_setup();
+    b.d.env.set_entry_limit(&b.carol, 500).unwrap();
+    b.offer(1, 500, 5_000, None);
+    assert_eq!(b.d.env.entry_limit(&b.carol).window_used, 500);
+    // A second Offer would put 1,000 at risk in the period.
+    let offer = offer_pda(b.carol.account, 2);
+    let create = ix(
+        accounts::CreateOffer {
+            backer_authority: b.carol.key,
+            config: pda(&[CONFIG_SEED]),
+            backer_account: b.carol.account,
+            protections: protections_pda(b.carol.account),
+            offer,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::CreateOffer {
+            nonce: 2,
+            game: GAME,
+            entry: 500,
+            player_share_bps: 5_000,
+            directed_request: None,
+        },
+        vec![rem(b.c_holding)],
+    );
+    let carol = b.carol.kp.insecure_clone();
+    let err = b.d.env.send(&[create], &carol, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
+    assert_eq!(b.reserved(), 500);
+}
+
+#[test]
+fn a_backed_player_playing_with_the_backers_gemas_is_not_counted() {
+    let mut b = backing_setup();
+    // Dave's limit is a single Gema, yet he can play a backed 500 entry: only Carol's limit counts.
+    b.d.env.set_entry_limit(&b.dave, 1).unwrap();
+    b.d.env.set_entry_limit(&b.carol, 500).unwrap();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    b.open_backed(offer, 500, &[b.c_holding]).expect("backed");
+    assert_eq!(b.d.env.entry_limit(&b.dave).window_used, 0);
+    // Using the Offer did not count Carol twice: it was counted when she funded it.
+    assert_eq!(b.d.env.entry_limit(&b.carol).window_used, 500);
+}
+
+#[test]
+fn a_player_with_no_entry_limit_set_is_not_limited() {
+    let d = duel();
+    assert!(d
+        .env
+        .svm
+        .get_account(&s(protections_pda(d.alice.account)))
+        .is_none());
 }
 
 #[test]

@@ -483,6 +483,57 @@ pub(crate) fn set_extend_limit(ctx: Context<SetExtendLimit>, months: u8) -> Resu
     Ok(())
 }
 
+/// Sets the owner's Entry Limit: a lower limit applies at once, a higher one (or none, zero) 24
+/// hours later. Creates the owner's Protections account on first use.
+#[derive(Accounts)]
+pub struct SetEntryLimit<'info> {
+    #[account(mut)]
+    pub owner_authority: Signer<'info>,
+    #[account(
+        seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
+        bump = owner_account.bump
+    )]
+    pub owner_account: Account<'info, TesoroAccount>,
+    #[account(
+        init_if_needed,
+        payer = owner_authority,
+        space = ProtectionsState::SPACE,
+        seeds = [PROTECTIONS_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub protections: Account<'info, ProtectionsState>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_entry_limit(ctx: Context<SetEntryLimit>, gemas: u64) -> Result<()> {
+    let bump = ctx.bumps.protections;
+    let a = ctx.accounts;
+    touch_protections(&mut a.protections, a.owner_account.key(), bump);
+    let ts = now()?;
+    a.protections
+        .inner
+        .entry_limit
+        .set_limit(ts, gemas)
+        .map_err(core_err)?;
+    let l = a.protections.inner.entry_limit;
+    emit!(EntryLimitSet {
+        account: a.owner_account.key(),
+        gemas: l.effective(ts),
+        pending_gemas: l.pending_gemas,
+        pending_at: l.pending_at,
+    });
+    Ok(())
+}
+
+/// Fills in a freshly created (zeroed) Protections account with its identity and no Protection.
+pub(crate) fn touch_protections(p: &mut ProtectionsState, account: Pubkey, bump: u8) {
+    if p.account == Pubkey::default() {
+        p.bump = bump;
+        p.account = account;
+        p.inner = Default::default();
+    }
+}
+
 // --- Yield crank -----------------------------------------------------------------------------
 
 /// Anyone can call. First mints the simulated yield the Position earned since `last_accrual_ts`

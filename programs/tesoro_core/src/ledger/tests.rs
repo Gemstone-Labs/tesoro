@@ -1921,3 +1921,151 @@ fn the_twelve_month_horizon_still_caps_an_extend_inside_the_limit() {
         Err(CoreError::InvalidHorizon)
     );
 }
+
+// --- Entry Limit -------------------------------------------------------------------------------
+
+const WEEK: i64 = 7 * DAY;
+
+#[test]
+fn no_entry_limit_counts_nothing_and_refuses_nothing() {
+    let mut l = EntryLimit::default();
+    l.record_entry(T, 2_500).unwrap();
+    assert_eq!(l, EntryLimit::default());
+    assert_eq!(l.effective(T), 0);
+}
+
+#[test]
+fn entries_count_in_a_period_until_the_limit_is_reached() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_500).unwrap();
+    assert_eq!(l.effective(T), 1_500);
+    l.record_entry(T, 500).unwrap();
+    l.record_entry(T + DAY, 1_000).unwrap();
+    assert_eq!(l.used(T + DAY), 1_500);
+    assert_eq!(
+        l.record_entry(T + 2 * DAY, 500),
+        Err(CoreError::EntryLimitReached)
+    );
+    assert_eq!(l.used(T + 2 * DAY), 1_500);
+}
+
+#[test]
+fn an_entry_over_the_limit_changes_nothing() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    let before = l;
+    assert_eq!(l.record_entry(T, 2_500), Err(CoreError::EntryLimitReached));
+    assert_eq!(l, before);
+}
+
+#[test]
+fn the_period_resets_exactly_seven_days_after_it_began() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    l.record_entry(T, 1_000).unwrap();
+    assert_eq!(
+        l.record_entry(T + WEEK - 1, 500),
+        Err(CoreError::EntryLimitReached)
+    );
+    assert_eq!(l.used(T + WEEK - 1), 1_000);
+    assert_eq!(l.used(T + WEEK), 0);
+    l.record_entry(T + WEEK, 1_000).unwrap();
+    assert_eq!((l.window_start, l.window_used), (T + WEEK, 1_000));
+}
+
+#[test]
+fn lowering_the_entry_limit_works_at_once_even_below_what_is_used() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 2_500).unwrap();
+    l.record_entry(T, 1_000).unwrap();
+    l.set_limit(T + 1, 500).unwrap();
+    assert_eq!(l.effective(T + 1), 500);
+    assert_eq!(
+        l.record_entry(T + 2, 500),
+        Err(CoreError::EntryLimitReached)
+    );
+}
+
+#[test]
+fn a_raised_entry_limit_waits_a_day() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T + 10, 2_500).unwrap();
+    assert_eq!(l.effective(T + 10), 500);
+    assert_eq!(l.effective(T + 10 + DAY - 1), 500);
+    assert_eq!(l.effective(T + 10 + DAY), 2_500);
+    assert_eq!(
+        l.record_entry(T + 10 + DAY - 1, 1_000),
+        Err(CoreError::EntryLimitReached)
+    );
+    l.record_entry(T + 10 + DAY, 1_000).unwrap();
+}
+
+#[test]
+fn removing_the_entry_limit_is_a_raise_and_waits_a_day() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T, 0).unwrap();
+    assert_eq!(l.effective(T + DAY - 1), 500);
+    assert_eq!(l.effective(T + DAY), 0);
+    l.record_entry(T + DAY, 2_500).unwrap();
+    l.record_entry(T + DAY + 1, 2_500).unwrap();
+}
+
+#[test]
+fn setting_a_first_limit_applies_at_once() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    assert_eq!(l.effective(T), 1_000);
+    assert_eq!(l.pending_at, 0);
+}
+
+#[test]
+fn lowering_or_restating_the_limit_cancels_a_pending_raise() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    l.set_limit(T + 10, 2_500).unwrap();
+    l.set_limit(T + 20, 500).unwrap();
+    assert_eq!((l.pending_at, l.effective(T + 9 * DAY)), (0, 500));
+    let mut m = EntryLimit::default();
+    m.set_limit(T, 1_000).unwrap();
+    m.set_limit(T + 10, 2_500).unwrap();
+    m.set_limit(T + 20, 1_000).unwrap();
+    assert_eq!((m.pending_at, m.effective(T + 9 * DAY)), (0, 1_000));
+}
+
+#[test]
+fn setting_the_pending_entry_raise_again_keeps_its_timer() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T + 5, 1_000).unwrap();
+    let before = l;
+    l.set_limit(T + 100, 1_000).unwrap();
+    assert_eq!(l, before);
+}
+
+#[test]
+fn a_due_entry_raise_is_settled_before_the_next_change() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T, 2_500).unwrap();
+    l.set_limit(T + 2 * DAY, 1_000).unwrap();
+    assert_eq!((l.effective(T + 2 * DAY), l.pending_at), (1_000, 0));
+}
+
+#[test]
+fn lowering_a_removed_limit_is_a_lowering() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T, 0).unwrap();
+    l.set_limit(T + 2 * DAY, 1_000).unwrap();
+    assert_eq!((l.effective(T + 2 * DAY), l.pending_at), (1_000, 0));
+}
+
+#[test]
+fn protections_keep_a_fixed_size_with_room_for_break_and_self_exclusion() {
+    use anchor_lang::prelude::AnchorSerialize;
+    let p = Protections::default();
+    assert_eq!(p.try_to_vec().unwrap().len(), Protections::SPACE);
+    assert_eq!((p.break_until, p.self_exclusion_until), (0, 0));
+}

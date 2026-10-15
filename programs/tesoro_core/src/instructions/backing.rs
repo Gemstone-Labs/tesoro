@@ -87,6 +87,13 @@ pub struct CreateOffer<'info> {
         bump = backer_account.bump
     )]
     pub backer_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Backer's Protections address; empty when none is set (see `count_entry`).
+    #[account(
+        mut,
+        seeds = [PROTECTIONS_SEED, backer_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         init,
         payer = backer_authority,
@@ -111,6 +118,7 @@ pub(crate) fn create_offer<'info>(
         TesoroError::GameNotRegistered
     );
     let backer = ctx.accounts.backer_account.key();
+    count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let mut holdings = load_holdings(&backer, ctx.remaining_accounts)?;
     let kind = match directed_request {
         Some(r) => OfferKind::Directed(r.to_bytes()),

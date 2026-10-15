@@ -411,6 +411,7 @@ impl Env {
                 player_authority: alice.key,
                 config: tpda(&[CONFIG_SEED]),
                 player_account: alice.account,
+                protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -427,6 +428,7 @@ impl Env {
             tesoro_core::accounts::JoinMatch {
                 player_authority: bob.key,
                 player_account: bob.account,
+                protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
             },
             tesoro_core::instruction::JoinMatch {},
