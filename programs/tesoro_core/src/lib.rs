@@ -205,6 +205,11 @@ pub mod tesoro_core {
         instructions::stake_pool::set_token_apy(ctx, apy_bps)
     }
 
+    /// Admin: the ceiling on the APY a staking token's Advances are sized on.
+    pub fn set_token_apy_ceiling(ctx: Context<SetTokenApyCeiling>, ceiling_bps: u16) -> Result<()> {
+        instructions::stake_pool::set_token_apy_ceiling(ctx, ceiling_bps)
+    }
+
     /// Admin: the Treasury's vault of one more token.
     pub fn init_treasury_vault(ctx: Context<InitTreasuryVault>) -> Result<()> {
         instructions::stake_pool::init_treasury_vault(ctx)

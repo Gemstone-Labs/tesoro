@@ -23,6 +23,9 @@ import {
   sourcePda,
   sweepNativeSurplusIx,
   takeNativeAdvanceIx,
+  tokenApyPda,
+  sizingRateBps,
+  type NativeMarket,
   unlockEstimateMs,
   unlockIx,
   type PoolParams,
@@ -34,6 +37,28 @@ import {
 
 const owner = new PublicKey("AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV");
 const pool: PoolParams = { baseRate: 1_000_000_000n, baseTs: 0, apyBps: 700, speedup: 4380 };
+
+describe("real token sizing", () => {
+  const pos = sourcePda(owner, 0);
+  const mint = new PublicKey("J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn");
+  it("passes the token's APY account after the fixed ones; simSOL passes none", () => {
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(8);
+    expect(extendNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(8);
+    for (const ix of [takeNativeAdvanceIx(owner, pos, 0, 3, mint), extendNativeAdvanceIx(owner, pos, 0, 3, mint)]) {
+      expect(ix.keys).toHaveLength(9);
+      expect(ix.keys[8].pubkey.equals(tokenApyPda(mint))).toBe(true);
+      expect(ix.keys[8].isWritable || ix.keys[8].isSigner).toBe(false);
+    }
+  });
+  it("sizes a real token on the market's APY and simSOL on the Position's own", () => {
+    const info = { rateBps: 700 };
+    const market = { pool: { ...pool, apyBps: 350 }, token: {} } as unknown as NativeMarket;
+    expect(sizingRateBps(info, market)).toBe(350);
+    expect(sizingRateBps(info, { ...market, token: undefined })).toBe(700);
+    expect(sizingRateBps(info, null)).toBe(700);
+    expect(sizingRateBps(info, { ...market, pool: { ...pool, apyBps: 0 } })).toBe(0);
+  });
+});
 
 describe("native instructions", () => {
   it("uses Anchor discriminators sha256('global:<name>')[..8]", () => {

@@ -45,6 +45,10 @@ pub enum TesoroError {
     TreasuryShort,
     #[msg("account is not a stake pool of the staking token")]
     InvalidStakePool,
+    #[msg("the staking token's published APY is too old to size an Advance")]
+    StaleApy,
+    #[msg("the admin has not set an APY ceiling for this staking token")]
+    ApyCeilingNotSet,
 }
 
 pub fn core_err(e: CoreError) -> Error {

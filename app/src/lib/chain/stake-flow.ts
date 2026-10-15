@@ -8,6 +8,7 @@ import { TESORO_CORE_ID, pda, rdI64, rdU64, s, treasuryPda, type PriceFeedView }
 import {
   parseSolSource,
   parseStakePool,
+  effectiveApyBps,
   parseTokenApy,
   planOpenWithSol,
   planOpenWithToken,
@@ -22,6 +23,7 @@ import {
 export interface StakeMarket {
   source: SolSourceView;
   pool: StakePoolView;
+  /** The APY an Advance is sized on: the lower of the published trailing APY and the ceiling; 0 when stale or no ceiling. */
   apyBps: number;
   price: PriceFeedView | null;
   treasury: TreasuryRates | null;
@@ -32,7 +34,7 @@ export interface StakeMarket {
 }
 
 /** Reads the setting, then the pool, APY, price, Treasury and the wallet's balances. Null when no token is set yet. */
-export async function fetchStakeMarket(c: Connection, wallet: PublicKey): Promise<StakeMarket | null> {
+export async function fetchStakeMarket(c: Connection, wallet: PublicKey, nowSecs = Math.floor(Date.now() / 1000)): Promise<StakeMarket | null> {
   const srcInfo = await c.getAccountInfo(solSourcePda(), "confirmed");
   const source = srcInfo && srcInfo.owner.equals(TESORO_CORE_ID) ? parseSolSource(srcInfo.data) : null;
   if (!source) return null;
@@ -51,7 +53,7 @@ export async function fetchStakeMarket(c: Connection, wallet: PublicKey): Promis
   return {
     source,
     pool: view,
-    apyBps: apyView?.apyBps ?? 0,
+    apyBps: effectiveApyBps(apyView, nowSecs) ?? 0,
     price: price && price.owner.equals(TESORO_CORE_ID) && price.data.length >= 57 ? { microUsd: rdU64(price.data, 41), updatedTs: Number(rdI64(price.data, 49)) } : null,
     treasury: treasury && treasury.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasury.data) : null,
     sol: BigInt(sol),

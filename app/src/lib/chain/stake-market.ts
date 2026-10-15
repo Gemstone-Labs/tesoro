@@ -20,6 +20,7 @@ import {
   accrueStakePoolYieldIx,
   parseSolSource,
   parseStakePool,
+  effectiveApyBps,
   parseTokenApy,
   solSourcePda,
   stakePoolRate,
@@ -72,7 +73,7 @@ export function stakeMarketFrom(source: SolSourceView, treasuryInfo: Info, [pool
   const vault = treasuryVaultOf(source.mint, owned(treasuryInfo), originalVault);
   const vaultInfo = vault.equals(tokenTreasuryVaultPda(source.mint)) ? canonicalVault : originalVault;
   return {
-    pool: { baseRate: rate, baseTs: nowSecs, apyBps: apyView?.apyBps ?? 0, speedup: 1 },
+    pool: { baseRate: rate, baseTs: nowSecs, apyBps: effectiveApyBps(apyView, nowSecs) ?? 0, speedup: 1 },
     price: priceInfo && priceInfo.data.length >= 57 ? { microUsd: rdU64(priceInfo.data, 41), updatedTs: Number(rdI64(priceInfo.data, 49)) } : null,
     simSol: ata ? rdU64(ata.data, 64) : 0n,
     treasury,

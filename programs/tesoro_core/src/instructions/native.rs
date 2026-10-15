@@ -15,7 +15,9 @@
 
 use crate::error::{core_err, TesoroError};
 use crate::instructions::position::{chain_byte, issue_advance};
-use crate::instructions::stake_pool::{self, custody_rate, load_fee_accounts, FeeAccounts};
+use crate::instructions::stake_pool::{
+    self, custody_rate, load_fee_accounts, refresh_position_rate, FeeAccounts,
+};
 use crate::ledger::{self, native, CoreError, SourceChain};
 use crate::state::*;
 use crate::util::now;
@@ -339,6 +341,7 @@ pub(crate) fn take_native_advance(
         a.price_feed.price_micro_usd > 0 && (0..=MAX_PRICE_AGE_SECS).contains(&age),
         TesoroError::StalePrice
     );
+    refresh_position_rate(&mut a.position, ctx.remaining_accounts)?;
     issue_advance(
         &mut a.position,
         &mut a.source,
@@ -410,6 +413,7 @@ pub(crate) fn extend_native_advance(
 ) -> Result<()> {
     let bump = ctx.bumps.extend_limit;
     let a = ctx.accounts;
+    refresh_position_rate(&mut a.position, ctx.remaining_accounts)?;
     touch_extend_limit(&mut a.extend_limit, a.owner_account.key(), bump);
     a.extend_limit
         .inner

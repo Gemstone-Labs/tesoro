@@ -60,6 +60,8 @@ const DISC = {
   set_extend_limit: "419bcc697b0524a5",
   open_stake_pool_position: "e58b6d3d23f9cad3",
   accrue_stake_pool_yield: "f4704f80b8f6a423",
+  set_token_apy: "34cd6ebb705abe74",
+  set_token_apy_ceiling: "040a50fce0d7d95a",
 } as const;
 const disc = (name: keyof typeof DISC) => Buffer.from(DISC[name], "hex");
 
@@ -177,9 +179,13 @@ export function openNativePositionIx(owner: PublicKey, nonce: bigint | number, l
   );
 }
 
+/** `["token_apy", mint]`: a real staking token's published APY and ceiling. */
+export const tokenApyPda = (mint: PublicKey) => pda([s("token_apy"), mint.toBuffer()]);
+
 /**
  * `advances` is the Position's advance count before this one (0 for a new Position). `mint` is the Position's
- * token: its price feed sizes the Advance (the simSOL feed by default).
+ * token: its price feed sizes the Advance (the simSOL feed by default). A real token also passes its `TokenApy`, which
+ * the program re-reads (the lower of the published APY and the ceiling) and requires fresh.
  */
 export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, mint?: PublicKey) {
   const source = sourcePda(position, advances);
@@ -193,6 +199,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
       meta(source, true),
       meta(holdingPda(accountPda(owner), source), true),
       meta(SystemProgram.programId),
+      ...(mint ? [meta(tokenApyPda(mint))] : []),
     ],
     "take_native_advance",
     Buffer.from([months]),
@@ -202,7 +209,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
 export const extendLimitPda = (account: PublicKey) => pda([s("extend_limit"), account.toBuffer()]);
 
 /** `info.source.index` is the Position's open Advance; the owner signs alone and `extraMonths` is added to its Horizon (1 to 12 minus the Horizon so far). The owner pays for their Extend Limit account on the first Extend (ADR 0009). */
-export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number) {
+export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, source: number, extraMonths: number, mint?: PublicKey) {
   const src = sourcePda(position, source);
   return core(
     [
@@ -214,6 +221,7 @@ export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, sou
       meta(holdingPda(accountPda(owner), src), true),
       meta(extendLimitPda(accountPda(owner)), true),
       meta(SystemProgram.programId),
+      ...(mint ? [meta(tokenApyPda(mint))] : []),
     ],
     "extend_native_advance",
     Buffer.from([extraMonths]),
@@ -511,6 +519,13 @@ export interface NativeMarket {
   /** Set on a cluster with a real staking token (`pool` then holds the stake pool's rate and the token's trailing APY, speedup 1; `simSol` the wallet's balance of the token). */
   token?: TokenCustody & { symbol: string };
 }
+
+/**
+ * The APY an Advance or Extend on `info` is sized on. A simSOL Position keeps the rate it opened with; a real staking
+ * token follows the program, which re-reads `min(published, ceiling)` at each Advance and Extend, so the market's APY
+ * applies (0 while the published APY is stale or no ceiling is set: nothing can be sized).
+ */
+export const sizingRateBps = (info: Pick<NativeInfo, "rateBps">, market: NativeMarket | null): number => (market?.token ? market.pool.apyBps : info.rateBps);
 
 export interface NativeInfo {
   position: PublicKey;

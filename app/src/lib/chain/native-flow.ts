@@ -110,7 +110,7 @@ export async function extendAdvance(
     const tok = await tokenOf(info.position);
     return await send(signer, [
       accrueYieldIx(info, tok),
-      extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths),
+      extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths, tok?.mint),
     ]);
   } catch (e) {
     throw extendFailure(e);

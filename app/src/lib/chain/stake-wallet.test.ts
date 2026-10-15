@@ -75,13 +75,24 @@ describe("the Treasury's vault of the staking token", () => {
   });
 
   it("builds the market from the pool's rate, the published APY, the price and the wallet's tokens", () => {
-    const apy = Buffer.alloc(8 + 1 + 32 + 2 + 8);
+    const apy = Buffer.alloc(8 + 1 + 32 + 2 + 8 + 2);
     apy.writeUInt16LE(612, 41);
+    apy.writeBigInt64LE(1_800_000_000n, 43);
+    apy.writeUInt16LE(900, 51);
     const feed = Buffer.alloc(57);
     feed.writeBigUInt64LE(240_000_000n, 41);
     feed.writeBigInt64LE(1_800_000_000n, 49);
     const m = stakeMarketFrom(source, treasuryData(original), [info(livePool, new PublicKey("SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy")), info(apy), info(feed), tokenAccount(3n * SOL), null, tokenAccount(7n * SOL)], 1_800_000_100);
     expect(m.pool).toEqual({ baseRate: (poolView.totalLamports * SOL) / poolView.poolTokenSupply, baseTs: 1_800_000_100, apyBps: 612, speedup: 1 });
+    // The ceiling caps it; a published APY older than 3 days, or no ceiling, sizes nothing.
+    const keys = [info(livePool, new PublicKey("SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy")), null, info(feed), tokenAccount(3n * SOL), null, tokenAccount(7n * SOL)];
+    const at = (apyData: Buffer, now: number) => stakeMarketFrom(source, treasuryData(original), [keys[0], info(apyData), ...keys.slice(2)], now).pool.apyBps;
+    const capped = Buffer.from(apy);
+    capped.writeUInt16LE(500, 51);
+    expect(at(capped, 1_800_000_100)).toBe(500);
+    expect(at(apy, 1_800_000_000 + 3 * 86_400 + 1)).toBe(0);
+    capped.writeUInt16LE(0, 51);
+    expect(at(capped, 1_800_000_100)).toBe(0);
     expect(m.simSol).toBe(3n * SOL);
     expect(m.price).toEqual({ microUsd: 240_000_000n, updatedTs: 1_800_000_000 });
     expect(m.treasury).toEqual({ yieldFeeBps: 2000, instantFeeBps: 2500 });

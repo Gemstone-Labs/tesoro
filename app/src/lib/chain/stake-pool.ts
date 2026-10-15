@@ -6,6 +6,7 @@ import {
   TESORO_CORE_ID,
   TOKEN_PROGRAM_ID,
   accountPda,
+  CONFIG,
   core,
   custodyPda,
   meta,
@@ -19,6 +20,7 @@ import {
   positionPda,
   sourcePda,
   takeNativeAdvanceIx,
+  tokenApyPda,
 } from "./native";
 
 /**
@@ -44,7 +46,7 @@ export const tokenSymbol = (mint: PublicKey) => KNOWN_TOKENS[mint.toBase58()] ??
 // ---- Addresses ------------------------------------------------------------------------------------
 
 export const solSourcePda = () => pda([s("sol_source")]);
-export const tokenApyPda = (mint: PublicKey) => pda([s("token_apy"), mint.toBuffer()]);
+export { tokenApyPda };
 /** The Treasury's vault of a token other than the one the Treasury was created with. */
 export const tokenTreasuryVaultPda = (mint: PublicKey) => pda([s("treasury_vault"), mint.toBuffer()]);
 export const tokenAta = (owner: PublicKey, mint: PublicKey) =>
@@ -66,14 +68,30 @@ export function parseSolSource(d: Uint8Array): SolSourceView | null {
 }
 
 export interface TokenApyView {
+  /** The published trailing 30-day APY, basis points a year. */
   apyBps: number;
   updatedTs: number;
+  /** The admin's ceiling; 0 until set, which sizes nothing. */
+  ceilingBps: number;
 }
 
-/** `TokenApy`: disc 8, bump, mint, apy_bps u16, updated_ts i64. */
+/** `TokenApy`: disc 8, bump, mint, apy_bps u16, updated_ts i64, ceiling_bps u16. */
 export function parseTokenApy(d: Uint8Array): TokenApyView | null {
-  if (d.length < 8 + 1 + 32 + 2 + 8) return null;
-  return { apyBps: new DataView(d.buffer, d.byteOffset, d.byteLength).getUint16(41, true), updatedTs: Number(rdI64(d, 43)) };
+  if (d.length < 8 + 1 + 32 + 2 + 8 + 2) return null;
+  const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  return { apyBps: v.getUint16(41, true), updatedTs: Number(rdI64(d, 43)), ceilingBps: v.getUint16(51, true) };
+}
+
+/** The program refuses an Advance or Extend when the published APY is older than this (3 days). */
+export const MAX_APY_AGE_SECS = 3 * 86_400;
+
+/**
+ * The APY an Advance is sized on: the lower of the published APY and the ceiling. Null when it cannot size one: no
+ * ceiling set yet, or the published APY is stale at `nowSecs`.
+ */
+export function effectiveApyBps(apy: TokenApyView | null, nowSecs: number): number | null {
+  if (!apy || apy.ceilingBps <= 0 || nowSecs - apy.updatedTs > MAX_APY_AGE_SECS) return null;
+  return Math.min(apy.apyBps, apy.ceilingBps);
 }
 
 export interface Fee {
@@ -200,6 +218,20 @@ export function depositSolIx(args: { pool: PublicKey; view: StakePoolView; from:
     data: Buffer.concat([Buffer.from([DEPOSIT_SOL]), u64(args.lamports)]),
   });
 }
+
+const u16 = (n: number) => {
+  const b = Buffer.alloc(2);
+  b.writeUInt16LE(n);
+  return b;
+};
+
+/** Oracle authority: publishes a token's trailing 30-day APY (basis points a year, at most 10,000). */
+export const setTokenApyIx = (oracle: PublicKey, mint: PublicKey, apyBps: number) =>
+  core([meta(oracle, true, true), meta(CONFIG), meta(mint), meta(tokenApyPda(mint), true), meta(SystemProgram.programId)], "set_token_apy", u16(apyBps));
+
+/** Admin: the ceiling Advances and Extends are sized under (basis points a year, at most 10,000). */
+export const setTokenApyCeilingIx = (admin: PublicKey, mint: PublicKey, ceilingBps: number) =>
+  core([meta(admin, true, true), meta(CONFIG), meta(mint), meta(tokenApyPda(mint), true), meta(SystemProgram.programId)], "set_token_apy_ceiling", u16(ceilingBps));
 
 /** `open_stake_pool_position`: locks `tokenAmount` of the active token from the owner's token account. `position` is `await positionPda(owner, nonce)`. */
 export function openStakePoolPositionIx(owner: PublicKey, nonce: bigint | number, tokenAmount: bigint, position: PublicKey, source: SolSourceView) {

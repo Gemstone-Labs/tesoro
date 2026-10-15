@@ -12,7 +12,11 @@ import {
   openStakePoolPositionIx,
   parseSolSource,
   parseStakePool,
+  MAX_APY_AGE_SECS,
+  effectiveApyBps,
   parseTokenApy,
+  setTokenApyCeilingIx,
+  setTokenApyIx,
   planOpenWithSol,
   planOpenWithToken,
   poolWithdrawAuthority,
@@ -78,11 +82,33 @@ describe("stake pool account", () => {
   it("decodes the SolSource setting and a published APY", () => {
     const src = Buffer.concat([Buffer.alloc(9), JITO_MINT.toBuffer(), JITO_POOL.toBuffer()]);
     expect(parseSolSource(src)).toEqual({ mint: JITO_MINT, pool: JITO_POOL });
-    const apy = Buffer.alloc(8 + 1 + 32 + 2 + 8);
+    const apy = Buffer.alloc(8 + 1 + 32 + 2 + 8 + 2);
     apy.writeUInt16LE(612, 41);
     apy.writeBigInt64LE(1_800_000_000n, 43);
-    expect(parseTokenApy(apy)).toEqual({ apyBps: 612, updatedTs: 1_800_000_000 });
+    apy.writeUInt16LE(500, 51);
+    expect(parseTokenApy(apy)).toEqual({ apyBps: 612, updatedTs: 1_800_000_000, ceilingBps: 500 });
+    expect(parseTokenApy(apy.subarray(0, 51))).toBeNull();
     expect(parseSolSource(Buffer.alloc(10))).toBeNull();
+  });
+});
+
+describe("effective APY", () => {
+  const apy = { apyBps: 612, updatedTs: 1_800_000_000, ceilingBps: 500 };
+  const now = apy.updatedTs + 3600;
+  it("is the lower of the published APY and the ceiling", () => {
+    expect(effectiveApyBps(apy, now)).toBe(500);
+    expect(effectiveApyBps({ ...apy, ceilingBps: 900 }, now)).toBe(612);
+  });
+  it("is null with no ceiling, no APY or a published APY older than 3 days", () => {
+    expect(effectiveApyBps({ ...apy, ceilingBps: 0 }, now)).toBeNull();
+    expect(effectiveApyBps(null, now)).toBeNull();
+    expect(effectiveApyBps(apy, apy.updatedTs + MAX_APY_AGE_SECS)).toBe(500);
+    expect(effectiveApyBps(apy, apy.updatedTs + MAX_APY_AGE_SECS + 1)).toBeNull();
+  });
+  it("builds the oracle and admin instructions the program expects", () => {
+    const owner = Keypair.generate().publicKey;
+    expect(setTokenApyIx(owner, JITO_MINT, 450).data.toString("hex")).toBe("34cd6ebb705abe74c201");
+    expect(setTokenApyCeilingIx(owner, JITO_MINT, 450).data.toString("hex")).toBe("040a50fce0d7d95ac201");
   });
 });
 
