@@ -71,6 +71,7 @@ describe("joinWaitlist with Turnstile configured", () => {
   const verify = vi.fn();
   beforeEach(() => {
     vi.stubEnv("TURNSTILE_SECRET_KEY", "secret");
+    vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "site");
     verify.mockReset().mockResolvedValue(true);
     setVerifier(verify);
   });

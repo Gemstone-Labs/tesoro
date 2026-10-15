@@ -2,8 +2,11 @@ const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 export type Verify = (token: string, ip: string | null) => Promise<boolean>;
 
-/** True when TURNSTILE_SECRET_KEY is set, so sign-ups must carry a valid token. */
-export const turnstileConfigured = () => Boolean(process.env.TURNSTILE_SECRET_KEY);
+/**
+ * True when both keys are set, so sign-ups must carry a valid token. With only the secret set the
+ * form has no widget and could never send one: the waitlist stays open rather than refusing everyone.
+ */
+export const turnstileConfigured = () => Boolean(process.env.TURNSTILE_SECRET_KEY && process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
 /** Asks Cloudflare whether a token is genuine. A network or parse failure counts as not verified. */
 export const verifyWithCloudflare: Verify = async (token, ip) => {
