@@ -42,8 +42,8 @@ pub struct OpenPosition<'info> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn open_position(
-    ctx: Context<OpenPosition>,
+pub(crate) fn open_position<'info>(
+    ctx: Context<'_, '_, 'info, 'info, OpenPosition<'info>>,
     source_chain: SourceChain,
     position_id: [u8; 32],
     source_asset: Pubkey,
@@ -51,8 +51,10 @@ pub(crate) fn open_position(
     principal: u64,
     rate_bps: u16,
 ) -> Result<()> {
+    let active = crate::instructions::native::active_source(ctx.remaining_accounts)?;
     require!(
-        !(source_chain == SourceChain::Solana && source_asset == SIM_SOL_MINT),
+        !(source_chain == SourceChain::Solana
+            && (source_asset == SIM_SOL_MINT || active.is_some_and(|s| s.mint == source_asset))),
         TesoroError::NativePosition
     );
     let position = &mut ctx.accounts.position;
@@ -211,7 +213,7 @@ pub struct ApplyYield<'info> {
 
 pub(crate) fn apply_yield(ctx: Context<ApplyYield>, seq: u64, cumulative: u64) -> Result<()> {
     require!(
-        !is_native(&ctx.accounts.position.inner),
+        !is_native(&ctx.accounts.position),
         TesoroError::NativePosition
     );
     let position_key = ctx.accounts.position.key();
@@ -337,7 +339,7 @@ pub(crate) fn redeem<'info>(
         gemas: amount,
         source_units: units,
     });
-    if is_native(&a.position.inner) {
+    if is_native(&a.position) {
         pay_redeem(
             &a.position,
             &a.position.key(),
@@ -370,7 +372,7 @@ pub struct ClaimFreeYield<'info> {
 pub(crate) fn claim_free_yield(ctx: Context<ClaimFreeYield>, amount: u64) -> Result<()> {
     // A native Position's free yield stays in its vault and returns to the owner with `unlock`.
     require!(
-        !is_native(&ctx.accounts.position.inner),
+        !is_native(&ctx.accounts.position),
         TesoroError::NativePosition
     );
     ctx.accounts
@@ -408,7 +410,7 @@ pub struct Unlock<'info> {
 /// still owed to Gema holders goes to the owner.
 pub(crate) fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -> Result<()> {
     ctx.accounts.position.inner.unlock().map_err(core_err)?;
-    if is_native(&ctx.accounts.position.inner) {
+    if is_native(&ctx.accounts.position) {
         release_surplus(
             &ctx.accounts.position,
             &ctx.accounts.position.key(),

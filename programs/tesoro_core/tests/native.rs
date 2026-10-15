@@ -2204,3 +2204,170 @@ fn the_treasury_redeems_what_it_bought_at_full_value_and_refills_its_vault() {
         .expect("alice redeems");
     env.check_invariants(pos);
 }
+
+// --- The staking token is a setting ---------------------------------------------------------
+
+fn sol_source() -> APk {
+    pda(&[SOL_SOURCE_SEED])
+}
+
+fn set_sol_source_ix(signer: APk, mint: APk, pool: APk) -> Instruction {
+    tix(
+        accounts::SetSolSource {
+            admin: signer,
+            config: pda(&[CONFIG_SEED]),
+            sol_source: sol_source(),
+            mint,
+            pool,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::SetSolSource {},
+        vec![],
+    )
+}
+
+fn set_sol_source(env: &mut Env, mint: APk, pool: APk) -> Result<(), Failed> {
+    let admin = env.admin.insecure_clone();
+    let set = set_sol_source_ix(a(admin.pubkey()), mint, pool);
+    env.send(&[set], &admin, &[])
+}
+
+/// A bare SPL mint account, standing in for a second staking token.
+fn plant_mint(env: &mut Env) -> APk {
+    let key = APk::new_unique();
+    let mint = spl_token::state::Mint {
+        mint_authority: None.into(),
+        supply: 0,
+        decimals: 9,
+        is_initialized: true,
+        freeze_authority: None.into(),
+    };
+    let mut data = vec![0u8; spl_token::state::Mint::LEN];
+    spl_token::state::Mint::pack(mint, &mut data).unwrap();
+    env.svm
+        .set_account(
+            s(key),
+            solana_sdk::account::Account {
+                lamports: SOL / 100,
+                data,
+                owner: s(TOKEN_PROGRAM_ID),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+    key
+}
+
+fn open_with_source(env: &mut Env, p: &Person, shares: u64) -> Result<Pos, Failed> {
+    let nonce = env.next_nonce;
+    env.next_nonce += 1;
+    let (mut open, pos) = env.open_ix_with(p, nonce, shares, env.pool, env.mint);
+    open.accounts.push(rem(sol_source(), false));
+    env.send(&[open], &p.kp, &[]).map(|_| pos)
+}
+
+#[test]
+fn only_the_admin_sets_the_staking_token() {
+    let mut env = Env::new();
+    let mallory = env.person();
+    let (mint, pool) = (env.mint, env.pool);
+    let set = set_sol_source_ix(mallory.key, mint, pool);
+    let err = env.send(&[set], &mallory.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), 6000, "Unauthorized");
+    assert!(env.svm.get_account(&s(sol_source())).is_none());
+
+    set_sol_source(&mut env, mint, pool).expect("admin sets it");
+    let setting = env.load::<SolSource>(sol_source());
+    assert_eq!((setting.mint, setting.pool), (mint, pool));
+}
+
+#[test]
+fn a_native_position_opens_with_the_active_token_and_is_marked_native() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let (mint, pool) = (env.mint, env.pool);
+    set_sol_source(&mut env, mint, pool).unwrap();
+    let pos = open_with_source(&mut env, &alice, 10 * SOL).expect("open");
+
+    assert_eq!(env.position(pos).source_asset, mint.to_bytes());
+    assert_eq!(env.custody(pos).mint, mint);
+    assert_eq!(env.custody(pos).pool, pool);
+    let data = env.svm.get_account(&s(pos.position)).unwrap().data;
+    assert!(PositionState::has_native_marker(&data));
+    env.advance_native(&alice, pos, 1)
+        .expect("native gates pass");
+}
+
+#[test]
+fn a_position_keeps_its_token_after_the_active_token_changes() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let (mint, pool) = (env.mint, env.pool);
+    set_sol_source(&mut env, mint, pool).unwrap();
+    let pos = open_with_source(&mut env, &alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+
+    let other_mint = plant_mint(&mut env);
+    let other_pool = APk::new_unique();
+    set_sol_source(&mut env, other_mint, other_pool).expect("switch");
+    assert_eq!(env.load::<SolSource>(sol_source()).mint, other_mint);
+
+    // The new token is not what an opening with the old pool carries.
+    let err = open_with_source(&mut env, &bob, SOL)
+        .err()
+        .expect("refused");
+    assert_eq!(code(&err), ERR_INVALID_MINT);
+    // The oracle cannot register the new token as a Solana Position either.
+    let nonce = 9u8;
+    let mut oracle_open = tix(
+        accounts::OpenPosition {
+            oracle: a(env.oracle.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            owner_account: bob.account,
+            position: pda(&[POSITION_SEED, &[0], &[nonce; 32]]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::OpenPosition {
+            source_chain: ledger::SourceChain::Solana,
+            position_id: [nonce; 32],
+            source_asset: other_mint,
+            decimals: 9,
+            principal: SOL,
+            rate_bps: 700,
+        },
+        vec![],
+    );
+    oracle_open.accounts.push(rem(sol_source(), false));
+    let oracle = env.oracle.insecure_clone();
+    let err = env.send(&[oracle_open], &oracle, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_NATIVE_POSITION);
+
+    // The earlier Position still carries and uses its own token end to end.
+    assert_eq!(env.position(pos).source_asset, mint.to_bytes());
+    assert_eq!(env.custody(pos).mint, mint);
+    env.advance(MONTH);
+    env.crank(&alice.kp, pos).expect("crank");
+    env.redeem(&alice, pos, source, 699).expect("redeem");
+    env.unlock(&alice, pos).expect("unlock");
+    assert_eq!(env.position(pos).status, PositionStatus::Unlocked);
+}
+
+#[test]
+fn changing_the_active_token_leaves_an_existing_treasury_vault_alone() {
+    let mut env = Env::new();
+    // The Treasury exists with a simSOL vault: re-running init with another active token (and the
+    // setting passed) only changes the fee rates.
+    let other_mint = plant_mint(&mut env);
+    set_sol_source(&mut env, other_mint, APk::new_unique()).unwrap();
+    env.init_treasury(1_000, 2_500).expect("fee change");
+
+    let treasury = env.load::<Treasury>(pda(&[TREASURY_SEED]));
+    assert_eq!(treasury.yield_fee_bps, 1_000);
+    assert_eq!(env.token_balance(treasury.vault), 0);
+    let vault =
+        spl_token::state::Account::unpack(&env.svm.get_account(&s(treasury.vault)).unwrap().data)
+            .unwrap();
+    assert_eq!(vault.mint.to_bytes(), SIM_SOL_MINT.to_bytes());
+}

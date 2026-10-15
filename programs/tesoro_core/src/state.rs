@@ -32,8 +32,12 @@ pub const BRIDGE_PROGRAM_ID: Pubkey = pubkey!("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQ
 /// Seed of the bridge's `EvmLink` PDA: `["evm", evm_address]`.
 pub const EVM_LINK_SEED: &[u8] = b"evm";
 
-/// simSOL mint of `sim_lst` (PDA `["mint"]` of `WgcM5G...`). A Solana Position whose
-/// `source_asset` is this mint is a native Position and is only ever opened by `open_native_position`.
+/// Seed of the `SolSource` setting.
+pub const SOL_SOURCE_SEED: &[u8] = b"sol_source";
+/// simSOL mint of `sim_lst` (PDA `["mint"]` of `WgcM5G...`). The token devnet runs on, and the one
+/// native Positions opened before the `SolSource` setting existed carry: a Solana Position with
+/// this `source_asset` is native whether or not it has the native marker. Everything newer is
+/// recognised by the marker (`PositionState::is_native`), whichever token it holds.
 pub const SIM_SOL_MINT: Pubkey = pubkey!("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ");
 /// How old the issuance price may be when an Advance is taken.
 pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
@@ -152,6 +156,33 @@ pub struct PositionState {
 
 impl PositionState {
     pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8;
+    /// Native Positions are allocated one byte past `SPACE`, set to `NATIVE_MARKER` by
+    /// `open_native_position`. Account deserialisation ignores trailing bytes, so the layout of
+    /// every live Position is untouched, and oracle-registered Positions (allocated at `SPACE`)
+    /// can never carry it.
+    pub const NATIVE_SPACE: usize = Self::SPACE + 1;
+    pub const NATIVE_MARKER: u8 = 1;
+
+    /// Whether the account data of a Position holds the native marker.
+    pub fn has_native_marker(data: &[u8]) -> bool {
+        data.get(Self::SPACE) == Some(&Self::NATIVE_MARKER)
+    }
+}
+
+/// Which token new Solana-native Positions open with: an admin setting (`set_sol_source`), seeds
+/// `["sol_source"]`. A Position never reads it after opening; it keeps the mint it recorded and the
+/// pool its custody recorded, so changing the setting touches no existing Position.
+#[account]
+pub struct SolSource {
+    pub bump: u8,
+    /// Active staking token (mint) for new native Positions.
+    pub mint: Pubkey,
+    /// Account that values that token (the `sim_lst` Pool today).
+    pub pool: Pubkey,
+}
+
+impl SolSource {
+    pub const SPACE: usize = 8 + 1 + 32 + 32;
 }
 
 #[account]
@@ -573,4 +604,11 @@ mod profile_tests {
         assert!(Profile::avatar_is_valid(AvatarChoice::Animal(11)));
         assert!(!Profile::avatar_is_valid(AvatarChoice::Animal(12)));
     }
+}
+
+/// The admin changed the token new Solana-native Positions open with.
+#[event]
+pub struct SolSourceSet {
+    pub mint: Pubkey,
+    pub pool: Pubkey,
 }
