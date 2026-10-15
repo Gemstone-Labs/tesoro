@@ -20,6 +20,7 @@ import {
 } from "@/lib/identity/display";
 import { fetchNames, refreshIdentity, setProfileLocal, useIdentity } from "@/lib/identity/store";
 import type { WalletNames } from "@/lib/identity/chain";
+import { NotifySettingsPanel } from "./NotifySettings";
 import { VerifiedMark } from "./Player";
 import "./account.css";
 
@@ -36,6 +37,7 @@ export function EditProfileSheet() {
   return (
     <Sheet open={open} onClose={() => setEditProfileOpen(false)} title="Edit profile">
       <EditProfileForm onDone={() => setEditProfileOpen(false)} />
+      <NotifySettingsPanel />
     </Sheet>
   );
 }
