@@ -10,6 +10,7 @@ import { PositionTile, linearSeries } from "./PositionTile";
 import { useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { useAuth } from "@/lib/auth/context";
+import { playerPaysGas, type OpenCostQuote } from "@/lib/chain/eth-fee";
 import { useTreasuryRates } from "@/lib/chain/useTreasuryRates";
 import { netApyPct } from "@/lib/chain/yield";
 import { getChain } from "@/lib/chain/client";
@@ -54,6 +55,7 @@ import {
   takeEthAdvance,
   ethCall,
   requestGas,
+  estimateOpenCost,
   MIN_HOODI_WEI,
   MIN_HYPE_WEI,
   unlockEth,
@@ -238,7 +240,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   // Fees for approve + open arrive while the Player fills in the form, not after they press Open.
   const lowGas = !!market && market.ethBalance < (net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI);
   useEffect(() => {
-    if (!ctx || !lowGas || toppedUp.current === net.key) return;
+    if (playerPaysGas() || !ctx || !lowGas || toppedUp.current === net.key) return;
     toppedUp.current = net.key;
     requestGas(ctx, net).catch(() => {});
   }, [ctx, lowGas, net]);
@@ -265,6 +267,17 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const tooBig = principal > MAX_PRINCIPAL_WEI;
   const valid = !!ctx && !!market && shares > 0n && !tooMuch && !tooBig && gemas > 0;
   const fee = market ? withHeadroom(market.quoteOpen) : 0n;
+  // Mainnet: gas and the LayerZero fee are the Player's, shown here before anything is signed.
+  const payOwn = playerPaysGas();
+  const [cost, setCost] = useState<OpenCostQuote | null>(null);
+  useEffect(() => {
+    if (!payOwn || !market) return;
+    let live = true;
+    estimateOpenCost(net, market, shares).then((c) => live && setCost(c)).catch(() => live && setCost(null));
+    return () => {
+      live = false;
+    };
+  }, [payOwn, market, net, shares]);
 
   return (
     <OpenFormView
@@ -287,7 +300,13 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtEth(principal)} ${unit}`],
         ["Projected yield (after the Yield Fee)", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ${unit}`],
-        ["Cross-chain fee", `≤ ${fmtEth(fee, 5)} ${unit}`],
+        ...(payOwn
+          ? ([
+              ["Network fee (gas, estimate)", cost ? `≈ ${fmtEth(cost.gasWei, 5)} ${unit}` : "—"],
+              ["Cross-chain fee (LayerZero, you pay)", `≤ ${fmtEth(cost?.lzFeeWei ?? fee, 5)} ${unit}`],
+              ["You pay in fees", cost ? `≈ ${fmtEth(cost.totalWei, 5)} ${unit}` : "—"],
+            ] as [string, string][])
+          : ([["Cross-chain fee", `≤ ${fmtEth(fee, 5)} ${unit}`]] as [string, string][])),
         ["Price feed", price ? `${unit} $${(Number(price.microUsd) / 1e6).toFixed(2)}${price.live ? "" : " (fallback)"}` : "unavailable"],
       ]}
       alerts={

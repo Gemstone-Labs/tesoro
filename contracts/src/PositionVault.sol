@@ -21,8 +21,9 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRat
 ///
 /// Yield Fee: `yieldFeeBps` of every simulated yield mint goes to the Treasury instead of the Position, so only
 /// the rest counts as the Position's accrued yield. Instant Redeems are paid out of the Treasury (see
-/// `_onPayInstant`); a PayYield addressed to the vault itself refills it. Rate-based vaults mint nothing and
-/// take no fee.
+/// `_onPayInstant`); a PayYield addressed to the vault itself refills it. Rate-based vaults (real wstETH) mint
+/// nothing: `_accrue` instead moves `yieldFeeBps` of the rate growth since the last accrual from the Position's
+/// spare shares to the Treasury, so the fee is taken at the source and the 77-byte report is unchanged.
 ///
 /// Messaging seam: outbound goes through `_send(bytes)`; inbound enters through `receiveMessage(bytes)`, which is
 /// authorised to the endpoint and forwards to `_receive(bytes)`. A LayerZero OApp subclass overrides `_send` and
@@ -72,6 +73,12 @@ contract PositionVault {
     uint256 public treasuryIn;
     /// @notice Cumulative underlying paid out by Instant Redeem.
     uint256 public instantPaid;
+
+    /// @notice Rate-based vaults: gross yield (paid + fee taken + spare value) the Yield Fee has been assessed on, per
+    ///         position. A high-water mark: a fall in the rate charges nothing until it is recovered.
+    mapping(uint64 => uint256) public feeAssessed;
+    /// @notice Rate-based vaults: cumulative underlying moved to the Treasury as Yield Fee, per position.
+    mapping(uint64 => uint256) public feeTakenUnderlying;
 
     /// @notice Last time `accrue` converted time to shares, per position.
     mapping(uint64 => uint64) public lastAccrual;
@@ -248,6 +255,7 @@ contract PositionVault {
         if (p.unlocked) return p.frozenAccrued;
         (uint256 shares,) = _pending(id, p);
         uint256 held = p.heldShares + (shares - _fee(shares));
+        if (yieldMinter == address(0)) (held,) = _afterRateFee(id, p, rate);
         uint256 reserve = _principalReserve(p, rate);
         reserve = reserve > held ? held : reserve;
         return p.paidUnderlying + ((held - reserve) * rate) / RATE_SCALE;
@@ -261,6 +269,7 @@ contract PositionVault {
     ///      Position. If the Position's part is worth less than one share the timestamp is kept so the time
     ///      carries over.
     function _accrue(uint64 id, Position storage p) internal {
+        if (yieldMinter == address(0)) return _accrueRate(id, p);
         (uint256 shares, uint256 underlying) = _pending(id, p);
         uint256 feeShares = _fee(shares);
         if (shares - feeShares == 0) return;
@@ -274,6 +283,45 @@ contract PositionVault {
             treasuryIn += feeUnderlying;
             emit YieldFeeTaken(id, feeShares, feeUnderlying);
         }
+    }
+
+    /// @dev Held shares after the Yield Fee on the rate growth not yet assessed, and the fee shares themselves.
+    ///      Gross yield G = paid + fee taken + value of the held shares above the Principal reserve.
+    function _afterRateFee(uint64 id, Position storage p, uint256 rate)
+        internal
+        view
+        returns (uint256 held, uint256 feeShares)
+    {
+        held = p.heldShares;
+        if (p.unlocked || yieldFeeBps == 0) return (held, 0);
+        uint256 reserve = _principalReserve(p, rate);
+        uint256 spare = held - reserve;
+        uint256 gross = p.paidUnderlying + feeTakenUnderlying[id] + _value(spare, rate);
+        uint256 assessed = feeAssessed[id];
+        if (gross <= assessed) return (held, 0);
+        feeShares = (((gross - assessed) * yieldFeeBps) / BPS * RATE_SCALE) / rate;
+        if (feeShares > spare) feeShares = spare;
+        held -= feeShares;
+    }
+
+    /// @dev Rate-based accrual: moves the Yield Fee on new rate growth from the Position to the Treasury.
+    function _accrueRate(uint64 id, Position storage p) internal {
+        if (p.unlocked) return;
+        uint256 rate = rateSource.underlyingPerShare();
+        (uint256 held, uint256 feeShares) = _afterRateFee(id, p, rate);
+        if (feeShares == 0) {
+            // Nothing to charge; still ratchet the mark so a fee-free stretch is not charged later.
+            uint256 g = p.paidUnderlying + feeTakenUnderlying[id] + _value(held - _principalReserve(p, rate), rate);
+            if (g > feeAssessed[id] && yieldFeeBps == 0) feeAssessed[id] = g;
+            return;
+        }
+        uint256 feeUnderlying = _value(feeShares, rate);
+        p.heldShares = held;
+        treasuryShares += feeShares;
+        treasuryIn += feeUnderlying;
+        feeTakenUnderlying[id] += feeUnderlying;
+        feeAssessed[id] = p.paidUnderlying + feeTakenUnderlying[id] + _value(held - _principalReserve(p, rate), rate);
+        emit YieldFeeTaken(id, feeShares, feeUnderlying);
     }
 
     // ---------------------------------------------------------------- inbound

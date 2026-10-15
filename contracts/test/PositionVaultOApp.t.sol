@@ -11,6 +11,8 @@ import {
 import {SimLST} from "../src/SimLST.sol";
 import {PositionVault} from "../src/PositionVault.sol";
 import {PositionVaultOApp} from "../src/PositionVaultOApp.sol";
+import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
+import {MockWstETH} from "./PositionVault.t.sol";
 
 contract MockLzEndpoint {
     uint32 public eid = 40449;
@@ -227,6 +229,31 @@ contract PositionVaultOAppTest is Test {
         uint64 id = _open(1e18);
         vm.expectRevert();
         vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), _unlock(id, 1), address(0), "");
+    }
+
+    /// Real rate source (no minter): the report is the same 77 bytes and carries the Yield Fee in treasuryIn.
+    function test_rate_vault_report_is_77_bytes_and_carries_fee_in_treasury_in() public {
+        MockWstETH wst = new MockWstETH();
+        wst.setRate(1e18);
+        PositionVaultOApp v = new PositionVaultOApp(
+            address(wst), address(new WstETHRateAdapter(address(wst))), address(ep), HOODI, SOLANA, address(this), address(0)
+        );
+        v.setPeer(SOLANA, STORE);
+        wst.mint(alice, 10 ether);
+        vm.startPrank(alice);
+        wst.approve(address(v), type(uint256).max);
+        uint64 id = v.openPosition{value: 0.0002 ether}(10 ether, 12);
+        vm.stopPrank();
+        wst.setRate(1.05e18);
+        vm.prank(alice);
+        v.reportYield{value: 0.0001 ether}(id);
+        bytes memory m = ep.lastMessage();
+        assertEq(m.length, 77);
+        assertEq(uint8(m[0]), 2);
+        uint128 cumulative = uint128(bytes16(_slice(m, 45, 16)));
+        uint128 treasuryIn = uint128(bytes16(_slice(m, 61, 16)));
+        assertApproxEqAbs(cumulative, 0.4 ether, 2, "Position yield after the 20% fee");
+        assertApproxEqAbs(treasuryIn, 0.1 ether, 2, "fee at the source");
     }
 
     function _slice(bytes memory b, uint256 start, uint256 len) internal pure returns (bytes memory out) {

@@ -29,6 +29,7 @@ import {
 import { ensureReady } from "./match-flow";
 import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 import { plainError } from "@/lib/errors";
+import { assertCanAffordOpen, playerPaysGas, quoteOpenCost, type OpenCostQuote } from "./eth-fee";
 
 /** What the ETH and HYPE flows need: the Account's Solana signer, its EVM wallet, and the Privy token for server routes. */
 export interface EthCtx {
@@ -114,6 +115,12 @@ export const MIN_HOODI_WEI = 4_000_000_000_000_000n;
 /** HyperEVM: gas is cheap (0.1 gwei); the LayerZero message is about 0.0075 HYPE (plus 20% headroom, refunded). */
 export const MIN_HYPE_WEI = 20_000_000_000_000_000n;
 
+/** Gas price and LayerZero fee for opening, as the Player sees them before signing. */
+export async function estimateOpenCost(net: EvmNet, market: Pick<EthMarket, "quoteOpen" | "allowance">, amountWei: bigint): Promise<OpenCostQuote> {
+  const gasPriceWei = await evmClient(net).getGasPrice();
+  return quoteOpenCost({ lzQuoteWei: market.quoteOpen, gasPriceWei, needsApprove: market.allowance < amountWei });
+}
+
 /** Asks the server for the net's native token (capped, from the relayer: the key never reaches the client). Resolves once it is sent. */
 export const sendGasRequest = (ctx: EthCtx, net: EvmNet) => ethCall(net.key === "hoodi" ? "fund-evm" : "fund-hype", ctx, { evm: ctx.evm.address });
 
@@ -121,6 +128,7 @@ const gasInFlight = new Map<string, Promise<void>>();
 
 /** Capped server-side top-up of the net's native token, then waits for the balance to show. A second call while one is running shares it. */
 export function requestGas(ctx: EthCtx, net: EvmNet): Promise<void> {
+  if (playerPaysGas()) return Promise.reject(new Error(`Add ${net.native} to your wallet to pay for gas and the cross-chain fee.`));
   const id = `${net.key}:${ctx.evm.address.toLowerCase()}`;
   const running = gasInFlight.get(id);
   if (running) return running;
@@ -140,6 +148,7 @@ export function requestGas(ctx: EthCtx, net: EvmNet): Promise<void> {
 
 /** Tops the wallet up when it is under the net's minimum. */
 export async function ensureGas(ctx: EthCtx, net: EvmNet, minWei = net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI): Promise<void> {
+  if (playerPaysGas()) return; // mainnet: the Player pays; the quote check in openEthPosition says what is missing
   if ((await evmClient(net).getBalance({ address: ctx.evm.address })) >= minWei) return;
   await requestGas(ctx, net);
 }
@@ -181,6 +190,8 @@ export async function openEthPosition(
   await ensureGas(ctx, net);
   const market: EthMarket = await fetchEthMarket(vault, ctx.evm.address);
   if (market.simEth < amountWei) throw new Error(`That is more ${vault.symbol} than you have.`);
+  // Mainnet: the Player pays gas and the LayerZero fee (the form shows them before Open); stop here if the wallet is short.
+  if (playerPaysGas()) assertCanAffordOpen(market.ethBalance, await estimateOpenCost(net, market, amountWei), net.native);
   await ctx.evm.prepare(net.chain);
   const wallet = ctx.evm.clientFor(net.chain);
   // The inbox record has to exist before the message arrives: create it for the id this transaction should get.

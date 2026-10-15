@@ -486,9 +486,9 @@ contract PositionVaultWstETHTest is VaultBase {
         uint64 id = vault.openPosition(10 ether, 6);
         assertEq(vault.accruedYield(id), 0);
         wst.setRate(1.0403e18);
-        assertApproxEqAbs(vault.accruedYield(id), 0.103 ether, 2); // 10 * (1.0403 - 1.03), rounded down
+        assertApproxEqAbs(vault.accruedYield(id), 0.0824 ether, 3); // 10 * (1.0403 - 1.03) = 0.103, 80% after the Yield Fee
         wst.setRate(1.0506e18);
-        assertApproxEqAbs(vault.accruedYield(id), 0.206 ether, 2);
+        assertApproxEqAbs(vault.accruedYield(id), 0.1648 ether, 3);
     }
 
     function test_rateDropGivesZeroYieldNotUnderflow() public {
@@ -505,7 +505,7 @@ contract PositionVaultWstETHTest is VaultBase {
         vm.prank(alice);
         uint64 id = vault.openPosition(10 ether, 6);
         wst.setRate(1.0403e18);
-        _deliver(_payMsg(id, 1, redeemer, 0.05 ether));
+        _deliver(_payMsg(id, 1, redeemer, 0.05 ether)); // within the 0.0824 left after the fee
         uint256 worth = wst.balanceOf(redeemer) * 1.0403e18 / 1e18;
         assertGe(worth, 0.05 ether - 1);
         assertLe(worth, 0.05 ether + 2);
@@ -526,6 +526,7 @@ contract PositionVaultWstETHTest is VaultBase {
     /// SP-01. Shares paid out for a claim stop earning in the vault, so accrued yield counts only the shares
     /// still held, and a claim within it is paid in full.
     function test_sp01_yieldAfterAPayoutCountsOnlyHeldShares() public {
+        vault.setYieldFeeBps(0); // exact share arithmetic; the fee has its own suite
         uint64 id = _openAtParRate();
         wst.setRate(1.1e18);
         _deliver(_payMsg(id, 1, redeemer, 0.5 ether));
@@ -613,5 +614,121 @@ contract PositionVaultWstETHTest is VaultBase {
         vm.prank(alice);
         uint64 id = vault.openPosition(17 ether, 6);
         assertLe(vault.getPosition(id).principalUnderlying, type(uint64).max);
+    }
+}
+
+/// Real rate source (no minter): yield is rate growth on the Position's shares, the Yield Fee is taken at the source.
+contract PositionVaultRateFeeTest is VaultBase {
+    MockWstETH wst;
+
+    function setUp() public {
+        wst = new MockWstETH();
+        wst.setRate(1e18);
+        ep = new MockEndpoint();
+        vault = new PositionVault(
+            address(wst), address(new WstETHRateAdapter(address(wst))), address(ep), CHAIN, address(0)
+        );
+        wst.mint(alice, 100 ether);
+        vm.prank(alice);
+        wst.approve(address(vault), type(uint256).max);
+    }
+
+    function _open(uint256 amt) internal returns (uint64 id) {
+        vm.prank(alice);
+        id = vault.openPosition(amt, 12);
+    }
+
+    function test_rateGrowthYieldGoesTwentyPercentToTreasuryAtTheSource() public {
+        uint64 id = _open(10 ether);
+        wst.setRate(1.05e18); // Principal 10 -> worth 10.5; gross yield 0.5
+        uint256 viewed = vault.accruedYield(id);
+        assertApproxEqAbs(viewed, 0.4 ether, 2, "Position keeps 80%");
+        vault.reportYield(id);
+        assertEq(vault.accruedYield(id), viewed, "view matches accrue");
+        assertApproxEqAbs(vault.treasuryIn(), 0.1 ether, 2, "Treasury gets 20% of 0.5");
+        assertApproxEqAbs(vault.treasuryBalance(), 0.1 ether, 2);
+        assertEq(wst.balanceOf(address(vault)), vault.getPosition(id).heldShares + vault.treasuryShares());
+        vault.reportYield(id);
+        assertApproxEqAbs(vault.treasuryIn(), 0.1 ether, 2, "no double charge");
+    }
+
+    function test_feeIsChargedOnlyOnNewGrowthAcrossAccruals() public {
+        uint64 id = _open(10 ether);
+        wst.setRate(1.02e18);
+        vault.accrue(id);
+        wst.setRate(1.05e18);
+        vault.accrue(id);
+        // Fee shares leave the Position at the first rate, so only the Position's remaining shares earn the rest.
+        assertApproxEqRel(vault.treasuryIn(), 0.1 ether, 0.01e18);
+        assertApproxEqRel(vault.accruedYield(id), 0.4 ether, 0.01e18);
+    }
+
+    function test_rateFallThenRecoveryChargesNothingUntilNewHighs() public {
+        uint64 id = _open(10 ether);
+        wst.setRate(1.05e18);
+        vault.accrue(id);
+        uint256 inBefore = vault.treasuryIn();
+        wst.setRate(1.03e18);
+        vault.accrue(id);
+        wst.setRate(1.05e18);
+        vault.accrue(id);
+        assertApproxEqAbs(vault.treasuryIn(), inBefore, 4, "no fee for regained ground");
+    }
+
+    function test_paidYieldDoesNotRestartTheFee() public {
+        uint64 id = _open(10 ether);
+        wst.setRate(1.05e18);
+        _deliver(_payMsg(id, 1, redeemer, 0.2 ether));
+        uint256 inAfterPay = vault.treasuryIn();
+        assertApproxEqAbs(inAfterPay, 0.1 ether, 2);
+        vault.accrue(id);
+        assertEq(vault.treasuryIn(), inAfterPay);
+        assertApproxEqAbs(vault.accruedYield(id), 0.4 ether, 3);
+    }
+
+    function test_unlockChargesTheFeeThenFreezes() public {
+        uint64 id = _open(10 ether);
+        wst.setRate(1.05e18);
+        _deliver(_unlockMsg(id, 1));
+        assertApproxEqAbs(vault.treasuryIn(), 0.1 ether, 2);
+        assertApproxEqAbs(vault.accruedYield(id), 0.4 ether, 3);
+        wst.setRate(1.2e18);
+        vault.reportYield(id);
+        assertApproxEqAbs(vault.treasuryIn(), 0.1 ether, 2, "frozen after Unlock");
+    }
+
+    function test_zeroFeeTakesNothing() public {
+        vault.setYieldFeeBps(0);
+        uint64 id = _open(10 ether);
+        wst.setRate(1.05e18);
+        vault.accrue(id);
+        assertEq(vault.treasuryIn(), 0);
+        assertApproxEqAbs(vault.accruedYield(id), 0.5 ether, 2);
+    }
+
+    function test_reportIs77BytesOnTheWireWithTreasuryIn() public {
+        uint64 id = _open(10 ether);
+        wst.setRate(1.05e18);
+        vault.reportYield(id);
+        (uint8 t,,,, uint256 accrued,,, uint256 tIn) = abi.decode(
+            ep.outboxPayload(1), (uint8, uint32, uint64, uint64, uint256, uint256, uint256, uint256)
+        );
+        assertEq(t, 2);
+        assertEq(accrued, vault.accruedYield(id));
+        assertEq(tIn, vault.treasuryIn());
+    }
+
+    function testFuzz_feeBooksStayBacked(uint256 r1, uint256 r2, uint256 pay) public {
+        uint64 id = _open(10 ether);
+        r1 = bound(r1, 0.9e18, 1.5e18);
+        r2 = bound(r2, 0.9e18, 1.5e18);
+        wst.setRate(r1);
+        vault.accrue(id);
+        wst.setRate(r2);
+        vault.accrue(id);
+        pay = bound(pay, 0, vault.payableYield(id));
+        if (pay > 0) _deliver(_payMsg(id, 1, redeemer, pay));
+        assertEq(wst.balanceOf(address(vault)), vault.getPosition(id).heldShares + vault.treasuryShares());
+        assertLe(vault.getPosition(id).paidUnderlying, vault.accruedYield(id));
     }
 }

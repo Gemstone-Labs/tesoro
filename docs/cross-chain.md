@@ -124,3 +124,7 @@ The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH
 - `quote_send` accepts message type 5.
 
 **Loop.** Yield Fee accrues in the vault, `reportYield` tells Solana (`treasuryIn`), a holder Instant Redeems on Solana (capped by `reported_in - instant_recorded`), `PayInstant` pays them from the vault. When the Source's yield lands, `redeem_treasury_to_evm` + `send_pay_yield` refill the vault treasury at full value.
+
+## Ethereum mainnet wstETH vault (ADR 0010, not deployed)
+
+`contracts/script/DeployMainnetWstETH.s.sol`: `WstETHRateAdapter` plus `PositionVaultOApp` on real Lido wstETH (`0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0`), no yield minter, LayerZero V2 endpoint `0x1a44076050125825900e736c501f859c50fE728c`, eids Ethereum 30101 and Solana 30168 (LayerZero metadata API, checked 2026-10-15). Yield is the growth of `stEthPerToken()` on the Position's shares; `_accrue` moves `yieldFeeBps` (20%) of new growth from the Position to the Treasury at the source (high-water mark per Position, so a rate dip is not charged twice), and `reportYield` sends the same 77-byte `YieldAccrued`. On the mainnet cluster the Player pays gas and the LayerZero fee (`app/src/lib/chain/eth-fee.ts`, shown in the open form); the relayer top-up and faucet steps refuse. Optional fork test: `ETH_MAINNET_RPC=<url> forge test --match-contract WstETHMainnetForkTest`.
