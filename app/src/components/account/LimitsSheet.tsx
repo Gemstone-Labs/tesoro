@@ -6,7 +6,9 @@ import { useAuth } from "@/lib/auth/context";
 import { fetchEntryLimit, entryLimitView, type EntryLimitData } from "@/lib/chain/entry-limit";
 import { fetchExtendLimit, extendLimitView, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
-import { setEntryLimit, setExtendLimit } from "@/lib/chain/native-flow";
+import { setEntryLimit, setExtendLimit, startBreak, startSelfExclusion } from "@/lib/chain/native-flow";
+import { awayView, fetchAway, type AwayData } from "@/lib/chain/protections";
+import { forgetAway } from "@/lib/chain/useAway";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { plainError } from "@/lib/errors";
 import { setLimitsOpen, useLimitsOpen } from "@/lib/identity/limits-sheet";
@@ -30,6 +32,7 @@ function LimitsPanel() {
   const now = useNowSecs(5000);
   const [entry, setEntry] = useState<EntryLimitData | "unknown" | undefined>(undefined);
   const [extend, setExtend] = useState<ExtendLimitData | "unknown" | undefined>(undefined);
+  const [away, setAway] = useState<AwayData | "unknown" | undefined>(undefined);
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +42,7 @@ function LimitsPanel() {
     let live = true;
     const base = getChain().base;
     void fetchEntryLimit(base, owner).catch((): "unknown" => "unknown").then((l) => live && setEntry(l));
+    void fetchAway(base, owner).catch((): "unknown" => "unknown").then((l) => live && setAway(l));
     void fetchExtendLimit(base, owner).catch((): "unknown" => "unknown").then((l) => live && setExtend(l));
     return () => {
       live = false;
@@ -51,6 +55,7 @@ function LimitsPanel() {
     setBusy(name);
     try {
       await send();
+      forgetAway();
       setTick((t) => t + 1);
     } catch (e) {
       setError(plainError(e));
@@ -62,16 +67,21 @@ function LimitsPanel() {
   const reload = () => {
     setEntry(undefined);
     setExtend(undefined);
+    setAway(undefined);
     setTick((t) => t + 1);
   };
   return (
     <LimitsView
       entry={entry === undefined ? null : entry === "unknown" ? null : entryLimitView(entry, now)}
       extend={extend === undefined || extend === "unknown" ? null : extendLimitView(extend, now, 0)}
+      away={away === undefined || away === "unknown" ? null : awayView(away, now)}
+      now={now}
       busy={busy}
-      error={error ?? (entry === "unknown" || extend === "unknown" ? "Couldn't read your limits. Try again." : null)}
+      error={error ?? (entry === "unknown" || extend === "unknown" || away === "unknown" ? "Couldn't read your limits. Try again." : null)}
       onRetry={reload}
       onSetEntry={(g) => auth.signer && void run("entry", () => setEntryLimit(auth.signer!, auth.getAccessToken, g))}
+      onStartBreak={(d) => auth.signer && void run("break", () => startBreak(auth.signer!, auth.getAccessToken, d))}
+      onStartSelfExclusion={(m) => auth.signer && void run("self-exclusion", () => startSelfExclusion(auth.signer!, auth.getAccessToken, m))}
       onSetExtend={(m) => auth.signer && void run("extend", () => setExtendLimit(auth.signer!, auth.getAccessToken, m))}
     />
   );

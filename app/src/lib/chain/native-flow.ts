@@ -3,6 +3,7 @@ import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
+import { withdrawOwnOpenItems } from "./backing";
 import { createAccountIx } from "./match-flow";
 import { ensureSol, type GetToken } from "./demo-client";
 import {
@@ -13,7 +14,9 @@ import {
   openNativePositionIx,
   positionPda,
   redeemIx,
+  setBreakIx,
   setEntryLimitIx,
+  setSelfExclusionIx,
   setExtendLimitIx,
   sweepNativeSurplusIx,
   takeNativeAdvanceIx,
@@ -128,6 +131,25 @@ export async function setExtendLimit(signer: ChainSigner, getToken: GetToken, mo
 export async function setEntryLimit(signer: ChainSigner, getToken: GetToken, gemas: number): Promise<string> {
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
   return send(signer, [setEntryLimitIx(signer.publicKey, gemas)]);
+}
+
+/**
+ * Starts a Break (1 to 42 days) or lengthens the one running. Then withdraws the Account's unpaired Matches, Requests and Offers (set first, so nobody can join in between);
+ * if that part fails the keeper finishes it. Matches already paired play out. It cannot be ended or shortened.
+ */
+export async function startBreak(signer: ChainSigner, getToken: GetToken, days: number): Promise<string> {
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
+  const sig = await send(signer, [setBreakIx(signer.publicKey, days)]);
+  await withdrawOwnOpenItems(signer);
+  return sig;
+}
+
+/** Starts a Self-Exclusion (6 to 60 months) or lengthens the one running; then clears out unpaired items, like `startBreak`. */
+export async function startSelfExclusion(signer: ChainSigner, getToken: GetToken, months: number): Promise<string> {
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
+  const sig = await send(signer, [setSelfExclusionIx(signer.publicKey, months)]);
+  await withdrawOwnOpenItems(signer);
+  return sig;
 }
 
 /** Permissionless crank: applies the vault's accrued yield to the Position's Debt. */
