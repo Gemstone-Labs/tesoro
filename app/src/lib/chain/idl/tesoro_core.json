@@ -209,209 +209,6 @@
       "args": []
     },
     {
-      "name": "accrue_native_yield",
-      "discriminator": [
-        188,
-        239,
-        112,
-        133,
-        115,
-        249,
-        127,
-        63
-      ],
-      "accounts": [
-        {
-          "name": "position",
-          "writable": true
-        },
-        {
-          "name": "custody",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  110,
-                  97,
-                  116,
-                  105,
-                  118,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault",
-          "writable": true
-        },
-        {
-          "name": "pool"
-        },
-        {
-          "name": "mint",
-          "writable": true
-        },
-        {
-          "name": "yield_config",
-          "docs": [
-            "sim_lst's record of the yield authority."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  121,
-                  105,
-                  101,
-                  108,
-                  100,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                7,
-                154,
-                161,
-                69,
-                216,
-                177,
-                40,
-                67,
-                215,
-                30,
-                166,
-                242,
-                144,
-                228,
-                213,
-                146,
-                76,
-                46,
-                113,
-                198,
-                206,
-                125,
-                111,
-                40,
-                115,
-                27,
-                40,
-                112,
-                130,
-                25,
-                11,
-                236
-              ]
-            }
-          }
-        },
-        {
-          "name": "yield_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  121,
-                  105,
-                  101,
-                  108,
-                  100
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "sim_lst_program",
-          "address": "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "treasury",
-          "docs": [
-            "Receives the Yield Fee."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_vault",
-          "writable": true
-        },
-        {
-          "name": "source",
-          "docs": [
-            "The Position's open Advance, when it has one."
-          ],
-          "writable": true,
-          "optional": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  111,
-                  117,
-                  114,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              },
-              {
-                "kind": "account",
-                "path": "source.inner.index",
-                "account": "SourceState"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "apply_offer",
       "discriminator": [
         196,
@@ -1395,26 +1192,59 @@
           "writable": true
         },
         {
-          "name": "treasury",
+          "name": "pool",
           "docs": [
-            "Its Yield Fee sizes the added months."
+            "The canonical sim_lst Pool, whose speedup times the yield."
           ],
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
+                  112,
+                  111,
+                  111,
+                  108
                 ]
               }
-            ]
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
           }
         },
         {
@@ -1697,6 +1527,162 @@
           "type": "u16"
         }
       ]
+    },
+    {
+      "name": "init_native_custody",
+      "docs": [
+        "Creates the shared native custody (vault + pool totals). Admin only, once."
+      ],
+      "discriminator": [
+        67,
+        212,
+        174,
+        15,
+        231,
+        207,
+        17,
+        123
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool",
+          "docs": [
+            "The canonical sim_lst Pool: owned by the sim_lst program and at its `[\"pool\"]` PDA."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "init_treasury",
@@ -2568,91 +2554,6 @@
       "args": []
     },
     {
-      "name": "migrate_native_custody",
-      "docs": [
-        "Extends a custody opened before `tracked_shares` existed. Permissionless."
-      ],
-      "discriminator": [
-        124,
-        242,
-        127,
-        237,
-        151,
-        47,
-        181,
-        115
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "position"
-        },
-        {
-          "name": "custody",
-          "docs": [
-            "longer deserializes; owner, seeds, discriminator and length are checked below."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  110,
-                  97,
-                  116,
-                  105,
-                  118,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  110,
-                  97,
-                  116,
-                  105,
-                  118,
-                  101,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "open_holding",
       "discriminator": [
         156,
@@ -3122,6 +3023,29 @@
           "writable": true
         },
         {
+          "name": "treasury",
+          "docs": [
+            "Its Yield Fee is fixed on the Position at open."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "custody",
           "writable": true,
           "pda": {
@@ -3136,42 +3060,13 @@
                   118,
                   101
                 ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
               }
             ]
           }
         },
         {
           "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  110,
-                  97,
-                  116,
-                  105,
-                  118,
-                  101,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
+          "writable": true
         },
         {
           "name": "token_program",
@@ -5111,90 +5006,6 @@
       ]
     },
     {
-      "name": "sweep_native_surplus",
-      "discriminator": [
-        1,
-        21,
-        13,
-        55,
-        235,
-        98,
-        38,
-        112
-      ],
-      "accounts": [
-        {
-          "name": "owner_authority",
-          "signer": true
-        },
-        {
-          "name": "owner_account",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner_authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "position"
-        },
-        {
-          "name": "custody",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  110,
-                  97,
-                  116,
-                  105,
-                  118,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault",
-          "writable": true
-        },
-        {
-          "name": "owner_token",
-          "writable": true
-        },
-        {
-          "name": "pool"
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "take_advance",
       "discriminator": [
         58,
@@ -5458,24 +5269,89 @@
           }
         },
         {
-          "name": "treasury",
+          "name": "pool",
           "docs": [
-            "Its Yield Fee sizes the Advance."
+            "The canonical sim_lst Pool, whose speedup times the yield."
           ],
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  116,
-                  114,
-                  101,
-                  97,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "prev_source",
+          "docs": [
+            "The Position's open Advance, when it has one."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
                   115,
+                  111,
                   117,
                   114,
-                  121
+                  99,
+                  101
                 ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "prev_source.inner.index",
+                "account": "SourceState"
               }
             ]
           }
@@ -5879,19 +5755,6 @@
         168,
         253
       ]
-    },
-    {
-      "name": "YieldConfig",
-      "discriminator": [
-        249,
-        13,
-        186,
-        63,
-        85,
-        7,
-        255,
-        18
-      ]
     }
   ],
   "events": [
@@ -5971,19 +5834,6 @@
         143,
         140,
         66
-      ]
-    },
-    {
-      "name": "NativeCustodyMigrated",
-      "discriminator": [
-        19,
-        110,
-        52,
-        150,
-        97,
-        60,
-        69,
-        83
       ]
     },
     {
@@ -6115,19 +5965,6 @@
         227,
         27
       ]
-    },
-    {
-      "name": "YieldFeeTaken",
-      "discriminator": [
-        177,
-        135,
-        154,
-        146,
-        74,
-        152,
-        82,
-        23
-      ]
     }
   ],
   "errors": [
@@ -6220,6 +6057,11 @@
       "code": 6017,
       "name": "TreasuryShort",
       "msg": "the treasury cannot pay this instant redeem now"
+    },
+    {
+      "code": 6018,
+      "name": "SourceRequired",
+      "msg": "the open Advance's Source must be supplied"
     }
   ],
   "types": [
@@ -6892,7 +6734,10 @@
     {
       "name": "NativeCustody",
       "docs": [
-        "Custody of one native Position: the simSOL vault and what is needed to value it."
+        "The one custody of every native Position (ADR 0010): a single simSOL vault holding their",
+        "Principal, and the pool totals behind the Treasury's Yield Fee claim. Seeds `[\"native\"]`; the",
+        "vault is `[\"native_vault\"]` with this account as authority. Yield is never held here: it is",
+        "minted by `sim_lst` at the moment it is paid out."
       ],
       "type": {
         "kind": "struct",
@@ -6906,17 +6751,9 @@
             "type": "u8"
           },
           {
-            "name": "position",
-            "type": "pubkey"
-          },
-          {
-            "name": "owner_authority",
-            "type": "pubkey"
-          },
-          {
             "name": "pool",
             "docs": [
-              "The `sim_lst` Pool (canonical PDA) whose rate values the vault."
+              "The canonical `sim_lst` Pool (test APY and speedup live there)."
             ],
             "type": "pubkey"
           },
@@ -6927,68 +6764,31 @@
           {
             "name": "vault",
             "docs": [
-              "Token account (PDA) holding the Position's simSOL, authority = this custody."
+              "Token account (PDA) holding the Principal of every Locked native Position."
             ],
             "type": "pubkey"
           },
           {
-            "name": "rate_at_open",
+            "name": "principal",
             "docs": [
-              "sim_lst rate at open (1e9 fixed point, SOL per simSOL)."
+              "`PoolTotals` (`ledger::yield_math`), updated only on open and unlock."
             ],
-            "type": "u64"
+            "type": "u128"
           },
           {
-            "name": "deposited_shares",
-            "docs": [
-              "simSOL deposited at open, base units. Informational: the vault balance is authoritative."
-            ],
-            "type": "u64"
+            "name": "fee_weight",
+            "type": "u128"
           },
           {
-            "name": "redeemed_units",
-            "docs": [
-              "SOL base units paid to Gema holders from the vault by `redeem`."
-            ],
-            "type": "u64"
+            "name": "fee_weight_time",
+            "type": "u128"
           },
           {
-            "name": "tracked_shares",
-            "docs": [
-              "Shares this custody accounts for: deposited at open minus paid out. Yield and cover are read",
-              "from this, never from the vault's token balance, so simSOL sent straight to the vault is not",
-              "yield (ADR 0001: Principal never pays Debt, not even by top-up). Appended after the original",
-              "layout; custodies opened before it are extended by `migrate_native_custody`."
-            ],
-            "type": "u64"
+            "name": "realised_fee",
+            "type": "u128"
           },
           {
-            "name": "last_accrual_ts",
-            "docs": [
-              "Unix time up to which yield has been minted into the vault (per-Position yield model,",
-              "docs/yield-model.md). Appended after `tracked_shares`; older custodies are extended by",
-              "`migrate_native_custody`, which starts it at the migration time."
-            ],
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "NativeCustodyMigrated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "position",
-            "type": "pubkey"
-          },
-          {
-            "name": "deposited_shares",
-            "type": "u64"
-          },
-          {
-            "name": "tracked_shares",
+            "name": "open_positions",
             "type": "u64"
           }
         ]
@@ -6997,7 +6797,7 @@
     {
       "name": "NativePayout",
       "docs": [
-        "simSOL paid out of a Position's vault."
+        "simSOL paid to `to` for a native Position."
       ],
       "type": {
         "kind": "struct",
@@ -7021,7 +6821,8 @@
           {
             "name": "kind",
             "docs": [
-              "0 = redeem, 1 = unlock, 2 = sweep."
+              "0 = redeem (yield minted), 1 = unlock Principal (from the vault), 2 = unlock free yield",
+              "(minted)."
             ],
             "type": "u8"
           }
@@ -7272,7 +7073,7 @@
           {
             "name": "speedup",
             "docs": [
-              "Yield-clock multiplier; 4,320 = 1 month of yield per 10 minutes."
+              "Yield-clock multiplier; 4,380 = 1 month of yield per 10 minutes."
             ],
             "type": "u32"
           },
@@ -7407,6 +7208,38 @@
           {
             "name": "free_yield_claimed",
             "type": "u64"
+          },
+          {
+            "name": "opened_at",
+            "docs": [
+              "Unix time the Position opened: Accrued Yield counts from here (ADR 0010). Native Positions",
+              "only; zero for Positions whose yield is reported."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "applied_net",
+            "docs": [
+              "Native Positions: the yield checkpoint. Net Accrued Yield up to here is already settled:",
+              "consumed by closed Sources or banked in `free_yield`. The open Advance counts only what",
+              "accrues after it."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "custody_shares",
+            "docs": [
+              "Native Positions: simSOL shares this Position holds in the shared custody vault."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "yield_fee_bps",
+            "docs": [
+              "Native Positions: the Yield Fee in basis points, fixed at open (like `rate_bps`). A later",
+              "change of the Treasury's rate applies only to Positions opened afterwards."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -8090,8 +7923,9 @@
     {
       "name": "Treasury",
       "docs": [
-        "Tesoro's Treasury (CONTEXT.md): collects the Yield Fee on Solana-native Positions (simSOL in",
-        "`vault`), pays Solana Instant Redeems from it, and holds the Gemas it bought in `account`, a",
+        "Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the",
+        "`NativeCustody` pool totals (ADR 0010; withdrawing it is ticket 04), it pays Solana Instant",
+        "Redeems from `vault`, and holds the Gemas it bought in `account`, a",
         "`TesoroAccount` whose authority is this PDA. Seeds `[\"treasury\"]`. Its fee rates apply on every",
         "chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source."
       ],
@@ -8141,7 +7975,7 @@
           {
             "name": "fee_units",
             "docs": [
-              "SOL units minted into the vault as Yield Fee, cumulative."
+              "Unused since the Yield Fee is computed, not minted per crank; kept so the layout stays put."
             ],
             "type": "u64"
           },
@@ -8209,48 +8043,6 @@
           },
           {
             "name": "amount",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "YieldConfig",
-      "docs": [
-        "The authority allowed to mint simulated yield."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "YieldFeeTaken",
-      "docs": [
-        "The Yield Fee on one `accrue_native_yield`, minted into the treasury vault."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "position",
-            "type": "pubkey"
-          },
-          {
-            "name": "units",
-            "type": "u64"
-          },
-          {
-            "name": "shares",
             "type": "u64"
           }
         ]

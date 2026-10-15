@@ -20,24 +20,25 @@ export const NATIVE_MARKET: NativeMarket = {
 export function nativePosition(state: "debt" | "repaid" | "unlocked" = "debt"): ChainPosition {
   const issued = 10_500n;
   const returned = state === "debt" ? 5_000n : issued;
+  const now = Math.floor(Date.now() / 1000);
   const native: NativeInfo = {
     position: key(401),
-    custody: key(402),
     status: state === "unlocked" ? "unlocked" : "locked",
     principalLamports: 40_000_000_000n,
     rateBps: 700,
+    yieldFeeBps: 2000,
+    // Debt is derived from the clock: ten simulated minutes in leaves about half of it, a day later it is repaid.
+    openedAt: now - (state === "debt" ? 600 : 86_400),
+    appliedNet: state === "unlocked" ? 2_000_000_000n : 0n,
+    freeYield: 0n,
+    freeYieldClaimed: 0n,
     advances: 1,
     openAdvance: state === "unlocked" ? null : 0,
-    cumulativeYield: 150_000_000n,
-    freeYield: 0n,
-    vaultShares: 40_000_000_000n,
-    redeemedUnits: 0n,
-    lastAccrualTs: Math.floor(Date.now() / 1000) - 30,
     source: {
       key: key(403),
       index: 0,
       horizonMonths: 3,
-      math: { issued, returned, redeemed: 0n, yieldUnits: state === "debt" ? 100_000_000n : 2_000_000_000n, unitNum: 10_000_000_000_000n, unitDen: 110_000_000n },
+      math: { issued, returned, redeemed: 0n, yieldUnits: state === "unlocked" ? 2_000_000_000n : 0n, unitNum: 10_000_000_000_000n, unitDen: 110_000_000n },
     },
   };
   return {

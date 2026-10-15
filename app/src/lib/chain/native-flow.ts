@@ -6,7 +6,6 @@ import { MIN_SOL_LAMPORTS } from "./config";
 import { createAccountIx } from "./match-flow";
 import { ensureSol, type GetToken } from "./demo-client";
 import {
-  accrueNativeYieldIx,
   createSimSolAtaIx,
   extendNativeAdvanceIx,
   faucetIx,
@@ -15,7 +14,6 @@ import {
   positionPda,
   redeemIx,
   setExtendLimitIx,
-  sweepNativeSurplusIx,
   takeNativeAdvanceIx,
   unlockIx,
   type NativeInfo,
@@ -66,8 +64,8 @@ export async function openPositionWithAdvance(
 }
 
 /**
- * Another Advance on a locked Position whose Debt is zero: crank first so the program sees the repaid
- * Debt (it refuses while an Advance is open), then `take_native_advance` as Advance number `info.advances`.
+ * Another Advance on a locked Position whose Debt is zero at the clock: `take_native_advance` as Advance number
+ * `info.advances`, closing the open one in the same instruction (its Source is passed as `prev_source`). No crank.
  */
 export async function takeNextAdvance(
   signer: ChainSigner,
@@ -79,13 +77,10 @@ export async function takeNextAdvance(
   onStep("Preparing");
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Taking the Advance");
-  return send(signer, [accrueNativeYieldIx(info.position, info.openAdvance), takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months)]);
+  return send(signer, [takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months, info.openAdvance)]);
 }
 
-/**
- * Extend the open Advance of a locked SOL Position: crank first so the program sees the Debt as it stands, then
- * `extend_native_advance`. The Gemas land in the owner's Holding of the same Source.
- */
+/** Extend the open Advance of a locked SOL Position with `extend_native_advance`. The Gemas land in the owner's Holding of the same Source. */
 export async function extendAdvance(
   signer: ChainSigner,
   getToken: GetToken,
@@ -98,10 +93,7 @@ export async function extendAdvance(
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Extending the Advance");
   try {
-    return await send(signer, [
-      accrueNativeYieldIx(info.position, info.openAdvance),
-      extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths),
-    ]);
+    return await send(signer, [extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths)]);
   } catch (e) {
     throw extendFailure(e);
   }
@@ -112,9 +104,6 @@ export async function setExtendLimit(signer: ChainSigner, getToken: GetToken, mo
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
   return send(signer, [setExtendLimitIx(signer.publicKey, months)]);
 }
-
-/** Permissionless crank: applies the vault's accrued yield to the Position's Debt. */
-export const refreshYield = (signer: ChainSigner, info: NativeInfo) => send(signer, [accrueNativeYieldIx(info.position, info.openAdvance)]);
 
 /** Redeem Gemas of one native Source into simSOL. The token account is created if the holder has none. */
 export const redeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint) =>
@@ -131,9 +120,5 @@ export const instantRedeemNative = (signer: ChainSigner, position: PublicKey, so
     instantRedeemIx(signer.publicKey, position, source, gemas),
   ]);
 
-/** Unlock: crank first so the Debt the program sees is current, then return the Principal. */
-export const unlockNative = (signer: ChainSigner, info: NativeInfo) =>
-  send(signer, [accrueNativeYieldIx(info.position, info.openAdvance), unlockIx(signer.publicKey, info.position)]);
-
-/** After Unlock: releases whatever the vault holds beyond the yield still owed to holders. */
-export const sweepNative = (signer: ChainSigner, info: NativeInfo) => send(signer, [sweepNativeSurplusIx(signer.publicKey, info.position)]);
+/** Unlock: the program computes Debt itself, closes the open Advance and returns the Principal with the free yield. */
+export const unlockNative = (signer: ChainSigner, info: NativeInfo) => send(signer, [unlockIx(signer.publicKey, info.position, info.openAdvance)]);

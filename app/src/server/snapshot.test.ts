@@ -1,10 +1,10 @@
 import { BN, Program, type Idl, type Provider } from "@coral-xyz/anchor";
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { readAccountState, type StateSource } from "@/lib/chain/account-state";
-import { POOL, SIM_SOL_MINT, TESORO_CORE_ID, custodyPda, holdingPda, sourcePda, vaultPda } from "@/lib/chain/native";
+import { POOL, SIM_SOL_MINT, TESORO_CORE_ID, holdingPda, sourcePda } from "@/lib/chain/native";
 import { decodeState } from "@/lib/chain/snapshot-wire";
 import { getAccountState, serverStateSource, type SnapshotDeps } from "./snapshot";
 
@@ -17,6 +17,12 @@ const other = BlockPuzzleChain.coreAccount(key(2));
 
 const info = (data: Buffer, owner = TESORO_CORE_ID): AccountInfo<Buffer> => ({ data, owner, lamports: 1, executable: false });
 const encode = async (name: string, value: object) => info(Buffer.from(await coder.encode(name, value)));
+
+/** Debt is derived from the clock: the tests pin it. */
+const OPENED_AT = 1_800_000_000;
+const at = (secondsAfterOpen: number) => vi.spyOn(Date, "now").mockReturnValue((OPENED_AT + secondsAfterOpen) * 1000);
+beforeEach(() => at(0));
+afterEach(() => vi.restoreAllMocks());
 
 const position = (owner: PublicKey, over: object = {}) => ({
   bump: 1,
@@ -35,6 +41,10 @@ const position = (owner: PublicKey, over: object = {}) => ({
     cumulativeYield: new BN(0),
     freeYield: new BN(0),
     freeYieldClaimed: new BN(0),
+    openedAt: new BN(OPENED_AT),
+    appliedNet: new BN(0),
+    custodyShares: new BN(2_000_000_000),
+    yieldFeeBps: 2000,
     ...over,
   },
 });
@@ -59,17 +69,6 @@ const holding = (account: PublicKey, src: PublicKey, isOwn: boolean, amount: num
   account,
   inner: { source: bytes(src), isOwn, amount: new BN(amount), reserved: new BN(0) },
 });
-/** NativeCustody: tracked_shares sits after disc, two bumps, five keys and three u64s. */
-const custody = (tracked: bigint) => {
-  const b = Buffer.alloc(8 + 2 + 5 * 32 + 40);
-  b.writeBigUInt64LE(tracked, 8 + 2 + 5 * 32 + 24);
-  return info(b);
-};
-const vault = (shares: bigint) => {
-  const b = Buffer.alloc(165);
-  b.writeBigUInt64LE(shares, 64);
-  return info(b);
-};
 const pool = () => {
   const b = Buffer.alloc(100);
   b.writeBigUInt64LE(1_000_000_000n, 72);
@@ -91,12 +90,8 @@ const entries: [PublicKey, AccountInfo<Buffer> | Promise<AccountInfo<Buffer>>][]
   [accountKey, encode("tesoroAccount", { bump: 1, authority, evmAddress: Array(20).fill(0), inner: { ownTotal: new BN(300), wonTotal: new BN(40), ownReserved: new BN(0), wonReserved: new BN(0) } })],
   [POOL, pool()],
   [mine, encode("positionState", position(accountKey))],
-  [custodyPda(mine), custody(2_000_000_000n)],
-  [vaultPda(mine), vault(2_000_000_000n)],
   [mineSource, encode("sourceState", source(mine, accountKey, 300))],
   [theirs, encode("positionState", position(other, { openAdvance: null }))],
-  [custodyPda(theirs), custody(1_000_000_000n)],
-  [vaultPda(theirs), vault(1_000_000_000n)],
   [theirSource, encode("sourceState", source(theirs, other, 90))],
   [holdMine, encode("holdingState", holding(accountKey, mineSource, true, 300))],
   [holdTheirs, encode("holdingState", holding(accountKey, theirSource, false, 40))],
@@ -144,7 +139,8 @@ const browserRead = async () => {
 };
 
 describe("Account snapshot on the server", () => {
-  it("reads Gemas, Positions and native custody for the Account", async () => {
+  it("reads Gemas, Positions and native Debt derived from the clock for the Account", async () => {
+    at(0);
     const { deps } = fake();
     const snap = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, {}, deps));
     expect(snap.exists).toBe(true);
@@ -159,12 +155,25 @@ describe("Account snapshot on the server", () => {
     expect(own.address.equals(mine)).toBe(true);
     expect(own.principal).toBe(2);
     expect(own.advance?.gemasIssued).toBe(300);
-    expect(own.native?.vaultShares).toBe(2_000_000_000n);
+    expect(own.native?.openedAt).toBe(OPENED_AT);
+    expect(own.native?.yieldFeeBps).toBe(2000);
+    expect(own.advance?.debtGemas).toBe(300);
     expect(own.native?.source?.math.issued).toBe(300n);
     expect(snap.market?.pool.speedup).toBe(4380);
   });
 
+  it("shows the Debt repaid and the Gemas redeemable once the clock has run, with nothing cranked", async () => {
+    // 2 SOL at 5%, Yield Fee 20%, speedup 4,380: about 11,111 units a second against 300 owed.
+    at(60);
+    const { deps } = fake();
+    const snap = decodeState<Awaited<ReturnType<typeof browserRead>>>(await getAccountState(authority, {}, deps));
+    expect(snap.positions[0].advance?.debtGemas).toBe(0);
+    const mineHolding = snap.holdings.find((h) => h.holding.equals(holdMine))!;
+    expect([mineHolding.sourceDebt, mineHolding.redeemable]).toEqual([0n, 300n]);
+  });
+
   it("equals the browser read of the same accounts", async () => {
+    at(0);
     const { deps } = fake();
     const server = decodeState<Awaited<ReturnType<typeof browserRead>>>(JSON.parse(JSON.stringify(await getAccountState(authority, {}, deps))));
     const browser = await browserRead();
