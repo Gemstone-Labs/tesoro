@@ -268,8 +268,7 @@ pub struct ReturnOwn<'info> {
     pub holding: Account<'info, HoldingState>,
 }
 
-/// For a native Position `remaining_accounts` must be `[pool, treasury]`: its Debt is computed from
-/// the clock.
+/// For a native Position `remaining_accounts` must be `[pool]`: its Debt is computed from the clock.
 pub(crate) fn return_own<'info>(
     mut ctx: Context<'_, '_, 'info, 'info, ReturnOwn<'info>>,
     amount: u64,
@@ -327,7 +326,7 @@ pub struct Redeem<'info> {
     pub holding: Account<'info, HoldingState>,
 }
 
-/// For a native Position `remaining_accounts` must be `[treasury, pool, holder_token_account, mint,
+/// For a native Position `remaining_accounts` must be `[pool, holder_token_account, mint,
 /// yield_config, yield_authority, sim_lst_program, token_program]`: the yield the Gemas are worth is
 /// computed from the clock and minted to the holder in the same transaction.
 pub(crate) fn redeem<'info>(
@@ -426,8 +425,8 @@ pub struct Unlock<'info> {
     pub position: Account<'info, PositionState>,
 }
 
-/// For a native Position `remaining_accounts` must be `[custody, treasury, vault, pool,
-/// owner_token_account, mint, yield_config, yield_authority, sim_lst_program, token_program]`, then
+/// For a native Position `remaining_accounts` must be `[custody, vault, pool, owner_token_account,
+/// mint, yield_config, yield_authority, sim_lst_program, token_program]`, then
 /// the open Advance's Source when it has one: Debt is computed from the clock (it must be zero),
 /// Principal returns from the shared vault and the free yield is minted to the owner.
 pub(crate) fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -> Result<()> {
