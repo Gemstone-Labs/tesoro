@@ -2068,6 +2068,7 @@ fn protections_keep_a_fixed_size_with_room_for_break_and_self_exclusion() {
     let p = Protections::default();
     assert_eq!(p.try_to_vec().unwrap().len(), Protections::SPACE);
     assert_eq!((p.break_until, p.self_exclusion_until), (0, 0));
+}
 
 #[test]
 fn a_rank_is_paid_only_after_the_window_and_can_be_voided_inside_it() {

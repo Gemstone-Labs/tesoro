@@ -55,6 +55,12 @@ pub mod tesoro_core {
         instructions::admin::init_leaderboard(ctx, leaderboard_bps)
     }
 
+    /// Admin only: turns the Invite gate on or off and sets the key that must co-sign
+    /// `create_account` while it is on.
+    pub fn set_invite_gate(ctx: Context<SetInviteGate>, required: bool, key: Pubkey) -> Result<()> {
+        instructions::admin::set_invite_gate(ctx, required, key)
+    }
+
     // --- Leaderboard seasons ----------------------------------------------------------------
 
     pub fn record_season<'info>(

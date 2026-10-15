@@ -180,6 +180,7 @@ impl Env {
             tesoro_core::accounts::CreateAccount {
                 authority: key,
                 account,
+                invite_gate: tesoro_core::state::invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::CreateAccount {
