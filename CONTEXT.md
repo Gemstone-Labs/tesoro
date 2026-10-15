@@ -56,6 +56,10 @@ _Avoid_: wallet, user
 The display name and picture a Player chose for their Account, kept on chain and public. It decorates the Account; it holds nothing and is not the Account. Names are labels, not identities: they are not unique.
 _Avoid_: account (the Profile is only how the Account is shown), username, handle
 
+**Invite**:
+A one-time code emailed to one waitlist member that allows exactly one Account to be created on mainnet, used up when that Account is created. Every mainnet Account needs one until the public launch; members cannot pass on extra Invites.
+_Avoid_: referral, access code, whitelist spot
+
 **Name service name**:
 A `.sol` (Solana Name Service) or `.eth` (ENS) primary name of a wallet the Player attached to their Profile. It is shown with a verified mark because the registry says the wallet owns it and the wallet proved it belongs to the Account.
 
@@ -71,7 +75,7 @@ _Avoid_: level, round, puzzle
 In UI copy the Seed is never named: Players see "the same pieces" (Block Puzzle).
 
 **Match**:
-A head-to-head contest between two players with equal Gema entries (500, 1,000 or 2,500), settled once: the winner takes the Pot minus Fees; a draw, abandonment or no-show refunds both entries.
+A head-to-head contest between two players with equal Gema entries (100, 500 or 1,000 on mainnet; 500, 1,000 or 2,500 in test mode), settled once: the winner takes the Pot minus Fees; a draw, abandonment or no-show refunds both entries.
 _Avoid_: game (the catalogue title), bet, wager, contest
 
 **Pot**:
@@ -111,11 +115,11 @@ The Gemas collected from Leaderboard Fees, held by a Tesoro Account that no pers
 _Avoid_: prize fund, jackpot, treasury (a Treasury is Tesoro's own holdings)
 
 **Season**:
-One week of the Leaderboard, Monday 00:00 UTC to the next Monday, numbered from 1 (Season 1 starts on 2026-10-05). The Leaderboard Pool is paid out when a Season ends, and what is not paid rolls into the next.
+One week of the Leaderboard, Monday 00:00 UTC to the next Monday, numbered from 1 (Season 1 starts on 2026-10-05). The Leaderboard Pool is paid out 48 hours after a Season ends, once Tesoro has had the chance to void Players found cheating; a voided Player's share, and anything else not paid, rolls into the next.
 _Avoid_: round, epoch, tournament
 
 **Points**:
-What a won Match earns its Player in a Season: one point for every 100 Gemas of entry, so 5, 10 and 25 for the three entries, the same in every game. Losses, draws and refunds earn none. A backed Match earns them for the Player who played, not for the Backer. Ties in a Season go to the Player who first won in it.
+What a won Match earns its Player in a Season: one point for every 100 Gemas of entry, the same in every game. Losses, draws and refunds earn none. A backed Match earns them for the Player who played, not for the Backer. Only a Player's first 3 wins against the same opponent in a Season earn Points; later wins still pay the Pot. Ties in a Season go to the Player who first won in it.
 _Avoid_: score (a game's own result), XP, rank
 
 **Studio**:
@@ -151,9 +155,23 @@ To turn Gemas into their Source asset, possible only as far as the Source Positi
 _Avoid_: withdraw, cash out, claim
 
 **Instant Redeem**:
-Turning won Gemas into their Source asset now, before the Source's yield has landed, for 65% of their value. The Treasury pays it and takes the Gemas; Tesoro keeps the other 35% (the **Instant Redeem Fee**). Only free Gemas the holder won whose yield has not landed yet (landed Gemas are Redeemed at full value), never their own-Sourced ones; the Source's Debt and counts are untouched.
+Turning won Gemas into their Source asset now, before the Source's yield has landed, for 75% of their value, while the Treasury of that asset holds enough to pay it. The Treasury pays it and takes the Gemas; Tesoro keeps the other 25% (the **Instant Redeem Fee**). Only free Gemas the holder won whose yield has not landed yet (landed Gemas are Redeemed at full value), never their own-Sourced ones; the Source's Debt and counts are untouched.
 _Avoid_: early withdrawal, cash out, sell
 
 **Treasury**:
 Tesoro's own holdings, one per asset (simSOL on Solana, a balance inside each EVM vault). It collects the Yield Fee, pays Instant Redeems, and is refilled when the Gemas it bought are redeemed at full value as the Source's yield lands. Not the Leaderboard Pool, and not a Position.
 _Avoid_: reserve, vault (a Position's custody), pool
+
+### Protections
+
+**Entry Limit**:
+A Player's own cap on the Gemas they may enter into Matches in any 7 days. Off until they set it; lowering applies at once, raising applies 24 hours later.
+_Avoid_: loss limit, betting limit, wager cap
+
+**Break**:
+A period of 1 day to 6 weeks, chosen by the Player, in which they cannot enter Matches. It cannot be ended early. Redeem and Unlock keep working.
+_Avoid_: cool-off, pause, timeout
+
+**Self-Exclusion**:
+A period of 6 months or more, chosen by the Player, in which they cannot enter Matches, take Advances or Extend. It cannot be ended early. Redeem and Unlock keep working.
+_Avoid_: ban, account closure, lockout
