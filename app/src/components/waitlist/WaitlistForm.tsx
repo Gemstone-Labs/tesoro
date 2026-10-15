@@ -6,6 +6,7 @@ import { art } from "@/lib/art";
 import { appHref } from "@/lib/landing/config";
 import { gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
 import { PackReveal } from "./PackReveal";
+import { TurnstileField } from "./TurnstileField";
 
 const IDLE: WaitlistState = { status: "idle" };
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.playtesoro.com";
@@ -106,6 +107,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
           <input name="company" tabIndex={-1} autoComplete="off" />
         </label>
       </div>
+      <TurnstileField resetKey={state} />
       <input type="hidden" name="utm_source" ref={source} />
       <input type="hidden" name="referrer" ref={referrer} />
       <p id="wl-error" className="wl-error" role="alert">
