@@ -1052,6 +1052,54 @@ fn only_the_game_authority_extends_a_deadline_forward_and_within_the_cap() {
     assert_eq!(custom_code(&err), core(CoreError::NotExpired));
 }
 
+#[test]
+fn the_game_authority_extends_an_open_match_so_a_queue_entry_can_wait_a_day() {
+    let mut d = duel();
+    let m = d
+        .env
+        .open_match(&d.alice, ENTRY, &[d.a_holding])
+        .expect("open");
+    let opened = d.env.load::<MatchState>(match_pda(m)).inner;
+    assert_eq!(opened.status, MatchStatus::Open);
+    let now = d.env.now();
+    assert_eq!(opened.deadline, now + 3_600);
+    let game = d.env.game_auth.insecure_clone();
+    let alice = d.alice.kp.insecure_clone();
+    let extend = |d: &mut Duel, signer: &Keypair, deadline: i64| {
+        let i = ix(
+            accounts::ExtendMatchDeadline {
+                game_authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                match_state: match_pda(m),
+            },
+            instruction::ExtendMatchDeadline {
+                new_deadline: deadline,
+            },
+            vec![],
+        );
+        d.env.send(&[i], signer, &[])
+    };
+    let err = extend(&mut d, &alice, now + 86_400).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    extend(&mut d, &game, now + 86_400).expect("extend open");
+    assert_eq!(
+        d.env.load::<MatchState>(match_pda(m)).inner.deadline,
+        now + 86_400
+    );
+
+    // A stranger cannot refund at the old deadline; after 24 h anyone can.
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    d.env.set_time(now + 3_601);
+    let payouts = d.env.refund_accounts(m);
+    let err = d.env.refund(&stranger, m, payouts.clone()).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::NotExpired));
+    d.env.set_time(now + 86_401);
+    d.env
+        .refund(&stranger, m, payouts)
+        .expect("refund after 24 h");
+}
+
 /// Carol backs Dave (no Position, so no Debt) against Bob.
 struct Backing {
     d: Duel,

@@ -132,7 +132,7 @@ Alice's client also sent a second `finalize` (`5c7im2hM...`) that failed with th
 
 ## Known limits
 
-- **tesoro_core refund timer.** A tesoro_core Match can be refunded by anyone 1 hour after it becomes Active (`MATCH_TIMEOUT_SECS`). `create_match` therefore pushes the deadline out by `TABLE_WINDOW_SECS` (24 h) through the Game authority (audit F-03); a cancelled table still refunds through `finalize`. Tables created before that change keep the 1 h timer.
+- **tesoro_core refund timer.** A tesoro_core Match can be refunded by anyone 1 hour after it becomes Active (`MATCH_TIMEOUT_SECS`). `create_match` therefore pushes the deadline out by `TABLE_WINDOW_SECS` (24 h) through the Game authority (audit F-03); a cancelled table still refunds through `finalize`. Tables created before that change keep the 1 h timer. The table plays inside the rollup, which cannot call tesoro_core, so there is no later extension point: the one 24 h push at `create_match` has to cover the whole table (a sit-and-go lasts minutes). An unjoined Hold'em Queue entry keeps tesoro_core's 1 h window (a live game does not wait a day for an opponent).
 - **Delegation is pinned to the TEE validator** (`TEE_VALIDATOR`): `delegate_match` refuses any other validator, or none (audit F-01). `init_permissions` accepts an existing permission address only if it is a private permission of that account owned by the permission program (audit F-02).
 - The table permission lists both Players, so there is no spectator view yet.
 - TEE operator / Intel TDX is the trust root for hidden state (S1). VRF late delivery cannot forfeit either Player.

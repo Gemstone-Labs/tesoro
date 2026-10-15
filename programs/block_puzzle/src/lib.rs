@@ -68,6 +68,9 @@ pub const SUBMISSION_SECS: i64 = 24 * 60 * 60;
 /// How long past the submission deadline `tesoro_core` keeps refunds closed, so a Game
 /// settlement always wins the race against a plain refund.
 pub const SETTLE_GRACE_SECS: i64 = 60 * 60;
+/// How long an Open Match waits for an opponent before anybody may refund it. The opener can play
+/// before pairing, so the Queue holds a Block Puzzle entry a day rather than tesoro_core's hour.
+pub const QUEUE_WINDOW_SECS: i64 = 24 * 60 * 60;
 /// Moves per `play` transaction (compute bound).
 pub const MAX_PLAY_BATCH: usize = 40;
 
@@ -159,13 +162,14 @@ pub mod block_puzzle {
     /// somebody joined before its Session existed (`tesoro_core::join_match` cannot require one)
     /// is still bound while its refund window is open, and `join_session` follows.
     ///
-    /// The opener's Board deadline is the Queue window's end plus `SUBMISSION_SECS`, which is never
-    /// earlier than the joiner's (`join + SUBMISSION_SECS`, joins happen inside the window). Joining
-    /// in the last second of the window therefore cannot forfeit an opener who has not begun: the
-    /// opener keeps the same time to play as the joiner.
+    /// The Queue window is `QUEUE_WINDOW_SECS`: while the Match is Open this pushes tesoro_core's
+    /// refund deadline out to a day from now. The opener's Board deadline is the window's end plus
+    /// `SUBMISSION_SECS`, which is never earlier than the joiner's (`join + SUBMISSION_SECS`, joins
+    /// happen inside the window). Joining in the last second of the window therefore cannot forfeit
+    /// an opener who has not begun: the opener keeps the same time to play as the joiner.
     pub fn open_session(ctx: Context<OpenSession>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
-        let opener_deadline = {
+        let (window_end, is_open) = {
             let m = &ctx.accounts.match_state.inner;
             require!(
                 m.game == crate::ID.to_bytes()
@@ -177,11 +181,37 @@ pub mod block_puzzle {
                 BlockPuzzleError::InvalidAccount
             );
             require!(now < m.deadline, BlockPuzzleError::DeadlinePassed);
-            m.deadline
-                .max(now)
-                .checked_add(SUBMISSION_SECS)
-                .ok_or(BlockPuzzleError::Overflow)?
+            let is_open = m.status == MatchStatus::Open;
+            let window_end = if is_open {
+                m.deadline.max(
+                    now.checked_add(QUEUE_WINDOW_SECS)
+                        .ok_or(BlockPuzzleError::Overflow)?,
+                )
+            } else {
+                m.deadline
+            };
+            (window_end, is_open)
         };
+        let opener_deadline = window_end
+            .checked_add(SUBMISSION_SECS)
+            .ok_or(BlockPuzzleError::Overflow)?;
+
+        if is_open {
+            let authority_bump = [ctx.bumps.authority];
+            let signer: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &authority_bump]];
+            tesoro_core::cpi::extend_match_deadline(
+                CpiContext::new_with_signer(
+                    ctx.accounts.tesoro_core_program.to_account_info(),
+                    tesoro_core::cpi::accounts::ExtendMatchDeadline {
+                        game_authority: ctx.accounts.authority.to_account_info(),
+                        config: ctx.accounts.config.to_account_info(),
+                        match_state: ctx.accounts.match_state.to_account_info(),
+                    },
+                    signer,
+                ),
+                window_end,
+            )?;
+        }
 
         // Each delegated account pays the rent of its ephemeral permission from its own balance.
         prefund_permission(
@@ -735,7 +765,7 @@ fn pack(m: MoveArg) -> u32 {
 pub struct OpenSession<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(owner = tesoro_core::ID)]
+    #[account(mut, owner = tesoro_core::ID)]
     pub match_state: Account<'info, MatchState>,
     #[account(owner = tesoro_core::ID)]
     pub account_a: Account<'info, TesoroAccount>,
@@ -754,6 +784,13 @@ pub struct OpenSession<'info> {
         seeds = [VAULT_SEED, session.key().as_ref()], bump
     )]
     pub vault: Account<'info, SeedVault>,
+    /// CHECK: the Game's authority PDA; signs the `tesoro_core` CPI
+    #[account(seeds = [AUTHORITY_SEED], bump)]
+    pub authority: UncheckedAccount<'info>,
+    /// CHECK: `tesoro_core` config, validated by `tesoro_core`
+    #[account(owner = tesoro_core::ID)]
+    pub config: UncheckedAccount<'info>,
+    pub tesoro_core_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
 }
 

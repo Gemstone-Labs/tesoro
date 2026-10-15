@@ -1377,10 +1377,11 @@
         "somebody joined before its Session existed (`tesoro_core::join_match` cannot require one)",
         "is still bound while its refund window is open, and `join_session` follows.",
         "",
-        "The opener's Board deadline is the Queue window's end plus `SUBMISSION_SECS`, which is never",
-        "earlier than the joiner's (`join + SUBMISSION_SECS`, joins happen inside the window). Joining",
-        "in the last second of the window therefore cannot forfeit an opener who has not begun: the",
-        "opener keeps the same time to play as the joiner."
+        "The Queue window is `QUEUE_WINDOW_SECS`: while the Match is Open this pushes tesoro_core's",
+        "refund deadline out to a day from now. The opener's Board deadline is the window's end plus",
+        "`SUBMISSION_SECS`, which is never earlier than the joiner's (`join + SUBMISSION_SECS`, joins",
+        "happen inside the window). Joining in the last second of the window therefore cannot forfeit",
+        "an opener who has not begun: the opener keeps the same time to play as the joiner."
       ],
       "discriminator": [
         130,
@@ -1399,7 +1400,8 @@
           "signer": true
         },
         {
-          "name": "match_state"
+          "name": "match_state",
+          "writable": true
         },
         {
           "name": "account_a"
@@ -1453,6 +1455,34 @@
               }
             ]
           }
+        },
+        {
+          "name": "authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "tesoro_core_program",
+          "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
         },
         {
           "name": "system_program",
@@ -2183,6 +2213,26 @@
             "type": {
               "array": [
                 "u32",
+                120
+              ]
+            }
+          },
+          {
+            "name": "start_slot",
+            "docs": [
+              "Clock slot of `begin_run`. Appended after `log` so earlier fields keep their offsets."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "move_slots",
+            "docs": [
+              "Per logged move: slots from `start_slot` to the transaction that carried it. A batch",
+              "(up to 40 moves) shares one offset, so reviewers read the cadence of batches, not of moves."
+            ],
+            "type": {
+              "array": [
+                "u16",
                 120
               ]
             }
