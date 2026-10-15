@@ -3310,9 +3310,15 @@ fn an_open_that_asks_for_more_than_the_deposit_minted_reverts_the_whole_transact
     // Nothing moved: no token account, no Position, the pool is as it was, SOL is intact bar the fee.
     assert!(env.svm.get_account(&s(ata)).is_none());
     assert!(env.svm.get_account(&s(pos.position)).is_none());
-    assert_eq!(env.svm.get_account(&s(JITO_POOL)).unwrap().data, pool_before);
+    assert_eq!(
+        env.svm.get_account(&s(JITO_POOL)).unwrap().data,
+        pool_before
+    );
     let spent = sol_before - env.svm.get_balance(&alice.kp.pubkey()).unwrap();
-    assert!(spent <= 5_000, "only the signature fee left the wallet: {spent}");
+    assert!(
+        spent <= 5_000,
+        "only the signature fee left the wallet: {spent}"
+    );
 }
 
 #[test]
