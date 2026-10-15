@@ -6,7 +6,6 @@ import { MIN_SOL_LAMPORTS } from "./config";
 import { createAccountIx } from "./match-flow";
 import { ensureSol, type GetToken } from "./demo-client";
 import {
-  accrueNativeYieldIx,
   createSimSolAtaIx,
   extendNativeAdvanceIx,
   faucetIx,
@@ -19,13 +18,22 @@ import {
   takeNativeAdvanceIx,
   unlockIx,
   type NativeInfo,
+  type TokenCustody,
 } from "./native";
+import { createAtaIdempotentIx } from "./stake-pool";
+import { accrueYieldIx, loadTokenCustody } from "./stake-market";
 import { extendFailure, plainError } from "@/lib/errors";
 
 /** The one line a Player sees for a failed Wallet action (see lib/errors.ts). */
 export const friendlyError = plainError;
 
 const send = (signer: ChainSigner, ixs: TransactionInstruction[]) => getChain().sendBase(signer, ixs);
+
+/** A real staking token's custody (stake pool, Treasury vault) or undefined for simSOL, read when the action is sent. */
+const tokenOf = (position: PublicKey) => loadTokenCustody(getChain().base, position);
+
+/** Creates the holder's token account for the payout: the Position's staking token, or simSOL. */
+const payoutAtaIx = (holder: PublicKey, tok?: TokenCustody) => (tok ? createAtaIdempotentIx(holder, holder, tok.mint) : createSimSolAtaIx(holder, holder));
 
 /**
  * SIMULATED faucet: 10 simSOL per hour. Tops up SOL for fees first when the wallet is nearly empty, and
@@ -79,7 +87,8 @@ export async function takeNextAdvance(
   onStep("Preparing");
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Taking the Advance");
-  return send(signer, [accrueNativeYieldIx(info.position, info.openAdvance), takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months)]);
+  const tok = await tokenOf(info.position);
+  return send(signer, [accrueYieldIx(info, tok), takeNativeAdvanceIx(signer.publicKey, info.position, info.advances, months, tok?.mint)]);
 }
 
 /**
@@ -98,8 +107,9 @@ export async function extendAdvance(
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Extending the Advance");
   try {
+    const tok = await tokenOf(info.position);
     return await send(signer, [
-      accrueNativeYieldIx(info.position, info.openAdvance),
+      accrueYieldIx(info, tok),
       extendNativeAdvanceIx(signer.publicKey, info.position, info.source.index, extraMonths),
     ]);
   } catch (e) {
@@ -114,26 +124,35 @@ export async function setExtendLimit(signer: ChainSigner, getToken: GetToken, mo
 }
 
 /** Permissionless crank: applies the vault's accrued yield to the Position's Debt. */
-export const refreshYield = (signer: ChainSigner, info: NativeInfo) => send(signer, [accrueNativeYieldIx(info.position, info.openAdvance)]);
+export const refreshYield = async (signer: ChainSigner, info: NativeInfo) => send(signer, [accrueYieldIx(info, await tokenOf(info.position))]);
 
 /** Redeem Gemas of one native Source into simSOL. The token account is created if the holder has none. */
-export const redeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint) =>
-  send(signer, [createSimSolAtaIx(signer.publicKey, signer.publicKey), redeemIx(signer.publicKey, position, source, gemas)]);
+export async function redeemNative(signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint) {
+  const tok = await tokenOf(position);
+  return send(signer, [payoutAtaIx(signer.publicKey, tok), redeemIx(signer.publicKey, position, source, gemas, tok)]);
+}
 
 /**
  * Instant Redeem of won Gemas of one native Source: the `landed` Gemas (yield already in) are redeemed in full first, then the treasury
  * vault buys `gemas` still pending and pays simSOL into the holder's token account, all in one transaction.
  */
-export const instantRedeemNative = (signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, landed: bigint) =>
-  send(signer, [
-    createSimSolAtaIx(signer.publicKey, signer.publicKey),
-    ...(landed > 0n ? [redeemIx(signer.publicKey, position, source, landed)] : []),
-    instantRedeemIx(signer.publicKey, position, source, gemas),
+export async function instantRedeemNative(signer: ChainSigner, position: PublicKey, source: PublicKey, gemas: bigint, landed: bigint) {
+  const tok = await tokenOf(position);
+  return send(signer, [
+    payoutAtaIx(signer.publicKey, tok),
+    ...(landed > 0n ? [redeemIx(signer.publicKey, position, source, landed, tok)] : []),
+    instantRedeemIx(signer.publicKey, position, source, gemas, tok),
   ]);
+}
 
 /** Unlock: crank first so the Debt the program sees is current, then return the Principal. */
-export const unlockNative = (signer: ChainSigner, info: NativeInfo) =>
-  send(signer, [accrueNativeYieldIx(info.position, info.openAdvance), unlockIx(signer.publicKey, info.position)]);
+export async function unlockNative(signer: ChainSigner, info: NativeInfo) {
+  const tok = await tokenOf(info.position);
+  return send(signer, [...(tok ? [payoutAtaIx(signer.publicKey, tok)] : []), accrueYieldIx(info, tok), unlockIx(signer.publicKey, info.position, tok)]);
+}
 
 /** After Unlock: releases whatever the vault holds beyond the yield still owed to holders. */
-export const sweepNative = (signer: ChainSigner, info: NativeInfo) => send(signer, [sweepNativeSurplusIx(signer.publicKey, info.position)]);
+export async function sweepNative(signer: ChainSigner, info: NativeInfo) {
+  const tok = await tokenOf(info.position);
+  return send(signer, [...(tok ? [payoutAtaIx(signer.publicKey, tok)] : []), sweepNativeSurplusIx(signer.publicKey, info.position, tok)]);
+}

@@ -76,7 +76,7 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
       from: holder(h),
       gemas: Number(line.gemas),
       amount: Number(line.payout) / UNITS[h.asset],
-      token: TOKEN[h.asset],
+      token: h.asset === "SOL" ? market?.token?.symbol ?? TOKEN.SOL : TOKEN[h.asset],
       later: !h.native,
     }));
     const assets = [...new Set(won.map((h) => h.asset))];

@@ -293,7 +293,7 @@ export function NativePositionCard({ position, market, onRedeem, extend = EXTEND
       )}
       {!locked && surplus !== 0n && (
         <Button size="sm" block disabled={!signer || a.busy !== null} onClick={() => signer && a.run("sweep", () => sweepNative(signer, info))}>
-          {a.busy === "sweep" ? "Collecting…" : surplus ? `Collect leftover yield · ${fmtSol(surplus, 4)} simSOL` : "Collect leftover yield"}
+          {a.busy === "sweep" ? "Collecting…" : surplus ? `Collect leftover yield · ${fmtSol(surplus, 4)} ${market?.token?.symbol ?? "simSOL"}` : "Collect leftover yield"}
         </Button>
       )}
       {a.done && <Sig label={a.done.label} sig={a.done.sig} />}
@@ -496,7 +496,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
       from: from(h),
       gemas: Number(h.redeemable),
       amount: pool ? Number(redeemPayoutShares(h, h.redeemable, rateAt(pool))) / LAMPORTS : null,
-      token: "simSOL",
+      token: snapshot?.market?.token?.symbol ?? "simSOL",
       later: false,
     })),
     ...ethRows.map((h) => ({
