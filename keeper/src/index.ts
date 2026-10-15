@@ -1,4 +1,5 @@
 import { Budget, log, runJob, type Ctx } from "./act.ts";
+import { alertsJob } from "./alerts-job.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
 import { NETS, checkEvmAtStart, ethYieldJob } from "./eth.ts";
@@ -19,7 +20,7 @@ const MAX_BACKOFF_MS = 5 * 60_000;
 /** A pass is at most ~6 jobs x KEEPER_JOB_LIMIT_SECS plus a backoff sleep; no pass finished in this long means the loop is stuck. */
 const WATCHDOG_MS = Number(process.env.KEEPER_WATCHDOG_SECS ?? 20 * 60) * 1000;
 
-async function pass(ctx: Ctx) {
+async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
   ctx.now = await clusterNow(ctx.conn);
   ctx.budget.observe(await ctx.conn.getBalance(ctx.payer.publicKey));
   // Price first: Advances stop 24 h after the last set_price, so it must not wait behind slower jobs.
@@ -36,6 +37,8 @@ async function pass(ctx: Ctx) {
     ["notify-events", notifyEventsJob],
   ];
   for (const [name, job] of jobs) await runJob(name, job, ctx);
+  // Last, so the alerts see this pass's outcomes.
+  await runJob("alerts", alerts, ctx);
 }
 
 async function main() {
@@ -61,13 +64,14 @@ async function main() {
     if (process.env.KEEPER_HEALTH_PORT) startHealthServer(health, Number(process.env.KEEPER_HEALTH_PORT), (m) => log("keeper", "-", m), process.env.KEEPER_HEALTH_HOST || undefined);
   }
 
+  const alerts = alertsJob(health);
   let delay = s.intervalMs;
   do {
     rateLimit.hits = 0;
     const started = Date.now();
     let ok = true;
     try {
-      await pass(ctx);
+      await pass(ctx, s.once ? async () => 0 : alerts);
     } catch (e) {
       // A dropped connection before any job ran (cluster time, balance) must not end the loop.
       if (s.once) throw e;
