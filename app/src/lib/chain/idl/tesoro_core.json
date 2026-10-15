@@ -412,6 +412,120 @@
       "args": []
     },
     {
+      "name": "accrue_stake_pool_yield",
+      "docs": [
+        "Permissionless crank of a stake pool Position: Yield Fee on the rate's growth, then yield."
+      ],
+      "discriminator": [
+        244,
+        112,
+        79,
+        128,
+        184,
+        246,
+        164,
+        35
+      ],
+      "accounts": [
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "source",
+          "docs": [
+            "The Position's open Advance, when it has one."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "apply_offer",
       "discriminator": [
         196,
@@ -1008,6 +1122,34 @@
               {
                 "kind": "account",
                 "path": "backer_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
               }
             ]
           }
@@ -1786,8 +1928,7 @@
           }
         },
         {
-          "name": "mint",
-          "address": "3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ"
+          "name": "mint"
         },
         {
           "name": "treasury_vault",
@@ -1835,6 +1976,113 @@
           "type": "u16"
         }
       ]
+    },
+    {
+      "name": "init_treasury_vault",
+      "docs": [
+        "Admin: the Treasury's vault of one more token."
+      ],
+      "discriminator": [
+        136,
+        50,
+        206,
+        62,
+        144,
+        161,
+        93,
+        19
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "treasury_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "initialize_config",
@@ -2088,30 +2336,11 @@
         },
         {
           "name": "treasury_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              }
-            ]
-          }
+          "docs": [
+            "The Treasury's vault of the Position's token: its original vault, or the one at",
+            "`[\"treasury_vault\", mint]`."
+          ],
+          "writable": true
         },
         {
           "name": "holder_token",
@@ -2120,58 +2349,8 @@
         {
           "name": "pool",
           "docs": [
-            "The canonical sim_lst Pool, whose rate converts the payout to simSOL."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  111,
-                  108
-                ]
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                7,
-                154,
-                161,
-                69,
-                216,
-                177,
-                40,
-                67,
-                215,
-                30,
-                166,
-                242,
-                144,
-                228,
-                213,
-                146,
-                76,
-                46,
-                113,
-                198,
-                206,
-                125,
-                111,
-                40,
-                115,
-                27,
-                40,
-                112,
-                130,
-                25,
-                11,
-                236
-              ]
-            }
-          }
+            "simSOL, or a stake pool whose pool mint is the token. Checked on read."
+          ]
         },
         {
           "name": "token_program",
@@ -2418,6 +2597,34 @@
               {
                 "kind": "account",
                 "path": "player_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
               }
             ]
           }
@@ -2813,6 +3020,34 @@
               {
                 "kind": "account",
                 "path": "player_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
               }
             ]
           }
@@ -3389,6 +3624,183 @@
         {
           "name": "rate_bps",
           "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "open_stake_pool_position",
+      "docs": [
+        "Opens a Position with the staking token the `SolSource` setting names (required)."
+      ],
+      "discriminator": [
+        229,
+        139,
+        109,
+        61,
+        35,
+        249,
+        202,
+        211
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sol_source",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  108,
+                  95,
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_apy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  95,
+                  97,
+                  112,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "owner_token",
+          "writable": true
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "token_amount",
+          "type": "u64"
         }
       ]
     },
@@ -4491,6 +4903,87 @@
       ]
     },
     {
+      "name": "set_entry_limit",
+      "discriminator": [
+        204,
+        65,
+        54,
+        226,
+        116,
+        244,
+        2,
+        145
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "gemas",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "set_evm_address",
       "discriminator": [
         138,
@@ -4978,6 +5471,84 @@
       ]
     },
     {
+      "name": "set_sol_source",
+      "docs": [
+        "Admin: the token new Solana-native Positions open with (existing Positions keep theirs)."
+      ],
+      "discriminator": [
+        8,
+        236,
+        167,
+        200,
+        127,
+        188,
+        229,
+        153
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sol_source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  108,
+                  95,
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "set_source_authority",
       "discriminator": [
         80,
@@ -5037,6 +5608,86 @@
         {
           "name": "authority",
           "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_token_apy",
+      "docs": [
+        "Oracle authority: the APY new Positions of a staking token are sized on."
+      ],
+      "discriminator": [
+        52,
+        205,
+        110,
+        187,
+        112,
+        90,
+        190,
+        116
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_apy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  95,
+                  97,
+                  112,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "apy_bps",
+          "type": "u16"
         }
       ]
     },
@@ -5185,7 +5836,11 @@
           "writable": true
         },
         {
-          "name": "pool"
+          "name": "pool",
+          "docs": [
+            "checked against the custody on read. A real token adds `[treasury, treasury_vault]` as",
+            "remaining accounts."
+          ]
         },
         {
           "name": "token_program",
@@ -5418,41 +6073,9 @@
                 ]
               },
               {
-                "kind": "const",
-                "value": [
-                  35,
-                  157,
-                  106,
-                  206,
-                  250,
-                  168,
-                  141,
-                  111,
-                  63,
-                  255,
-                  166,
-                  173,
-                  253,
-                  158,
-                  121,
-                  120,
-                  0,
-                  19,
-                  215,
-                  247,
-                  105,
-                  111,
-                  139,
-                  199,
-                  36,
-                  7,
-                  197,
-                  30,
-                  126,
-                  15,
-                  209,
-                  93
-                ]
+                "kind": "account",
+                "path": "position.inner.source_asset",
+                "account": "PositionState"
               }
             ]
           }
@@ -5803,6 +6426,19 @@
       ]
     },
     {
+      "name": "ProtectionsState",
+      "discriminator": [
+        112,
+        203,
+        73,
+        49,
+        122,
+        32,
+        159,
+        182
+      ]
+    },
+    {
       "name": "RequestState",
       "discriminator": [
         106,
@@ -5826,6 +6462,19 @@
         189,
         152,
         52
+      ]
+    },
+    {
+      "name": "SolSource",
+      "discriminator": [
+        58,
+        91,
+        73,
+        126,
+        165,
+        35,
+        157,
+        247
       ]
     },
     {
@@ -5865,6 +6514,19 @@
         217,
         197,
         178
+      ]
+    },
+    {
+      "name": "TokenApy",
+      "discriminator": [
+        16,
+        168,
+        227,
+        97,
+        241,
+        141,
+        167,
+        96
       ]
     },
     {
@@ -5919,6 +6581,19 @@
         108,
         78,
         113
+      ]
+    },
+    {
+      "name": "EntryLimitSet",
+      "discriminator": [
+        190,
+        109,
+        224,
+        83,
+        188,
+        254,
+        55,
+        204
       ]
     },
     {
@@ -6078,6 +6753,32 @@
       ]
     },
     {
+      "name": "SolSourceSet",
+      "discriminator": [
+        43,
+        59,
+        65,
+        35,
+        70,
+        186,
+        176,
+        222
+      ]
+    },
+    {
+      "name": "TokenApySet",
+      "discriminator": [
+        1,
+        168,
+        176,
+        104,
+        201,
+        156,
+        49,
+        34
+      ]
+    },
+    {
       "name": "TreasuryFunded",
       "discriminator": [
         172,
@@ -6220,6 +6921,11 @@
       "code": 6017,
       "name": "TreasuryShort",
       "msg": "the treasury cannot pay this instant redeem now"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidStakePool",
+      "msg": "account is not a stake pool of the staking token"
     }
   ],
   "types": [
@@ -6406,6 +7112,76 @@
               "Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so",
               "readers show the fee only for Matches opened at or after it. Zero until then."
             ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntryLimit",
+      "docs": [
+        "The Gemas a Player may enter in one period. Zero is off."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gemas",
+            "docs": [
+              "The limit in force, before any due raise (zero = off)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending_gemas",
+            "docs": [
+              "A raise waiting for `pending_at` (zero `pending_at` = none). A pending zero means \"off\"."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending_at",
+            "type": "i64"
+          },
+          {
+            "name": "window_start",
+            "docs": [
+              "When the current period began (zero = no entry counted yet) and the Gemas entered in it."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "window_used",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntryLimitSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "docs": [
+              "The limit in force after the change, in Gemas (zero = off)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending_gemas",
+            "docs": [
+              "A raise waiting for `pending_at` (zero = none); a pending zero means the limit is removed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending_at",
             "type": "i64"
           }
         ]
@@ -6889,7 +7665,9 @@
           {
             "name": "loser",
             "docs": [
-              "The Account that played on the losing side (all zeroes if that seat was empty). Events from before this field have no loser."
+              "The Account that played on the losing side (the opponent of `player`); all zeroes if that",
+              "seat was empty. Last field, so events from before it was added are the same bytes minus",
+              "these 32 and read as having no known opponent (ADR 0011)."
             ],
             "type": "pubkey"
           }
@@ -7589,6 +8367,78 @@
       }
     },
     {
+      "name": "Protections",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "entry_limit",
+            "type": {
+              "defined": {
+                "name": "EntryLimit"
+              }
+            }
+          },
+          {
+            "name": "break_until",
+            "docs": [
+              "Reserved for Break: no Match entries until this time."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "self_exclusion_until",
+            "docs": [
+              "Reserved for Self-Exclusion: no Match entries, Advances or Extends until this time."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                48
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtectionsState",
+      "docs": [
+        "A Player's Protections. Seeds `[\"protections\", account]`; created by the first",
+        "`set_entry_limit` (or any later Protection), paid by the owner. A Player who never set one has no",
+        "account, which means no Protection is in force: every Match entry and Backing still passes the",
+        "(empty) PDA address, so a direct transaction cannot leave it out."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "account",
+            "docs": [
+              "The `TesoroAccount` these belong to; the default key until first used."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "Protections"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Redeemed",
       "docs": [
         "The seam for `PayYield`: source-chain units owed to the redeeming Account's address there."
@@ -7914,6 +8764,56 @@
       }
     },
     {
+      "name": "SolSource",
+      "docs": [
+        "Which token new Solana-native Positions open with: an admin setting (`set_sol_source`), seeds",
+        "`[\"sol_source\"]`. A Position never reads it after opening; it keeps the mint it recorded and the",
+        "pool its custody recorded, so changing the setting touches no existing Position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "Active staking token (mint) for new native Positions."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "docs": [
+              "Account that values that token (the `sim_lst` Pool today)."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SolSourceSet",
+      "docs": [
+        "The admin changed the token new Solana-native Positions open with."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "Source",
       "docs": [
         "The Advance a Gema was issued from."
@@ -8090,6 +8990,54 @@
                 "name": "Account"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenApy",
+      "docs": [
+        "The APY (basis points a year) a staking token's Positions are sized on, published by the oracle",
+        "authority (the keeper): `[\"token_apy\", mint]`. A real token has no `apy_bps` of its own, so",
+        "this is where a new Position's `rate_bps` comes from."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "apy_bps",
+            "type": "u16"
+          },
+          {
+            "name": "updated_ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenApySet",
+      "docs": [
+        "The oracle authority published a staking token's APY."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "apy_bps",
+            "type": "u16"
           }
         ]
       }

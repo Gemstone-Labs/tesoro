@@ -23,6 +23,8 @@ pub const SEASON_SEED: &[u8] = b"season";
 pub const LEADERBOARD_SEED: &[u8] = b"leaderboard";
 pub const PROFILE_SEED: &[u8] = b"profile";
 pub const EXTEND_LIMIT_SEED: &[u8] = b"extend_limit";
+/// A Player's Protections (Entry Limit now; Break and Self-Exclusion later): `["protections", account]`.
+pub const PROTECTIONS_SEED: &[u8] = b"protections";
 /// The Treasury: its config account, and the address that owns the Treasury Account and the
 /// treasury simSOL vault (`["treasury"]`). Nobody can sign for it outside this program.
 pub const TREASURY_SEED: &[u8] = b"treasury";
@@ -429,6 +431,32 @@ pub struct ExtendLimitState {
 
 impl ExtendLimitState {
     pub const SPACE: usize = 8 + 1 + 32 + ledger::ExtendLimit::SPACE;
+}
+
+/// A Player's Protections. Seeds `["protections", account]`; created by the first
+/// `set_entry_limit` (or any later Protection), paid by the owner. A Player who never set one has no
+/// account, which means no Protection is in force: every Match entry and Backing still passes the
+/// (empty) PDA address, so a direct transaction cannot leave it out.
+#[account]
+pub struct ProtectionsState {
+    pub bump: u8,
+    /// The `TesoroAccount` these belong to; the default key until first used.
+    pub account: Pubkey,
+    pub inner: ledger::Protections,
+}
+
+impl ProtectionsState {
+    pub const SPACE: usize = 8 + 1 + 32 + ledger::Protections::SPACE;
+}
+
+#[event]
+pub struct EntryLimitSet {
+    pub account: Pubkey,
+    /// The limit in force after the change, in Gemas (zero = off).
+    pub gemas: u64,
+    /// A raise waiting for `pending_at` (zero = none); a pending zero means the limit is removed.
+    pub pending_gemas: u64,
+    pub pending_at: i64,
 }
 
 #[event]

@@ -188,6 +188,10 @@ pub mod tesoro_core {
         instructions::native::set_extend_limit(ctx, months)
     }
 
+    pub fn set_entry_limit(ctx: Context<SetEntryLimit>, gemas: u64) -> Result<()> {
+        instructions::native::set_entry_limit(ctx, gemas)
+    }
+
     pub fn accrue_native_yield(ctx: Context<AccrueNativeYield>) -> Result<()> {
         instructions::native::accrue_native_yield(ctx)
     }

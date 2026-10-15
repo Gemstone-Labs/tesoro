@@ -11,6 +11,7 @@ pub mod extend_limit;
 pub mod matches;
 pub mod money;
 pub mod native;
+pub mod protections;
 pub mod season;
 
 #[cfg(test)]
@@ -25,6 +26,7 @@ pub use native::{
     shares_for_units_ceil, shares_for_units_floor, shares_value, stake_pool_rate, surplus_shares,
     yield_fee_shares, StakePoolRead,
 };
+pub use protections::*;
 pub use season::*;
 
 /// Identity of an Account, Position, Source, Game, ... (a Solana public key in the program).
@@ -118,6 +120,7 @@ core_errors! {
     ExtendLimitReached => "this extend would go over your extend limit for the period",
     InvalidExtendLimit => "the extend limit is 0 to 11 months",
     BadStakePool => "account data is not an initialised stake pool with pool tokens",
+    EntryLimitReached => "this entry would go over your entry limit for the period",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

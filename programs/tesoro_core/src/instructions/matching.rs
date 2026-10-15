@@ -34,6 +34,13 @@ pub struct OpenMatch<'info> {
         bump = player_account.bump
     )]
     pub player_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Player Account's Protections address; empty when none is set (see `count_entry`).
+    #[account(
+        mut,
+        seeds = [PROTECTIONS_SEED, player_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         init,
         payer = player_authority,
@@ -56,6 +63,7 @@ pub(crate) fn open_match<'info>(
         config.fee_terms(game_entry(config, &game)?)
     };
     let player = ctx.accounts.player_account.key();
+    count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let mut holdings = load_holdings(&player, ctx.remaining_accounts)?;
     let acct = &mut ctx.accounts.player_account.inner;
     let lines = with_holdings(&mut holdings, |hs| ledger::draw_entry(acct, hs, entry))?;
@@ -82,6 +90,13 @@ pub struct JoinMatch<'info> {
         bump = player_account.bump
     )]
     pub player_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Player Account's Protections address; empty when none is set (see `count_entry`).
+    #[account(
+        mut,
+        seeds = [PROTECTIONS_SEED, player_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [MATCH_SEED, &match_state.id.to_le_bytes()],
@@ -95,6 +110,7 @@ pub(crate) fn join_match<'info>(
 ) -> Result<()> {
     let player = ctx.accounts.player_account.key();
     let entry = ctx.accounts.match_state.inner.entry;
+    count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let mut holdings = load_holdings(&player, ctx.remaining_accounts)?;
     let acct = &mut ctx.accounts.player_account.inner;
     let lines = with_holdings(&mut holdings, |hs| ledger::draw_entry(acct, hs, entry))?;

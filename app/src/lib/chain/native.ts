@@ -58,6 +58,7 @@ const DISC = {
   instant_redeem: "bb6bd07de0ed285d",
   redeem_treasury: "109798e01b5bb9cd",
   set_extend_limit: "419bcc697b0524a5",
+  set_entry_limit: "cc4136e274f40291",
   open_stake_pool_position: "e58b6d3d23f9cad3",
   accrue_stake_pool_yield: "f4704f80b8f6a423",
   set_token_apy: "34cd6ebb705abe74",
@@ -234,6 +235,16 @@ export const setExtendLimitIx = (owner: PublicKey, months: number) =>
     [meta(owner, true, true), meta(accountPda(owner)), meta(extendLimitPda(accountPda(owner)), true), meta(SystemProgram.programId)],
     "set_extend_limit",
     Buffer.from([months]),
+  );
+
+export const protectionsPda = (account: PublicKey) => pda([s("protections"), account.toBuffer()]);
+
+/** Sets the owner's Entry Limit in Gemas (0 = none): a lower limit applies at once, a higher one 24 hours later. The owner pays for their Protections account on first use. */
+export const setEntryLimitIx = (owner: PublicKey, gemas: number | bigint) =>
+  core(
+    [meta(owner, true, true), meta(accountPda(owner)), meta(protectionsPda(accountPda(owner)), true), meta(SystemProgram.programId)],
+    "set_entry_limit",
+    u64(gemas),
   );
 
 /** Permissionless; mints the Yield Fee into the treasury vault. `openAdvance` is the Position's open Advance index, if any (the optional account). */

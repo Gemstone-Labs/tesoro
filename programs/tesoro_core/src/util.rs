@@ -102,3 +102,21 @@ pub fn credit_payouts<'info>(
     }
     Ok(())
 }
+
+/// Counts `gemas` of the Player Account `account` being put at risk against its Entry Limit.
+/// `protections` is the Account's `["protections", account]` address (checked by the caller's
+/// seeds); when nothing lives there the Player set no Protection and nothing is counted.
+pub fn count_entry(protections: &AccountInfo, gemas: u64) -> Result<()> {
+    if protections.owner != &crate::ID || protections.data_is_empty() {
+        return Ok(());
+    }
+    require!(protections.is_writable, TesoroError::NotWritable);
+    let mut data = protections.try_borrow_mut_data()?;
+    let mut p = ProtectionsState::try_deserialize(&mut &data[..])?;
+    p.inner
+        .entry_limit
+        .record_entry(now()?, gemas)
+        .map_err(core_err)?;
+    p.try_serialize(&mut &mut data[..])?;
+    Ok(())
+}
