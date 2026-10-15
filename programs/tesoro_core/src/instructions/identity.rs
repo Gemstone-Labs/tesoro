@@ -14,10 +14,33 @@ pub struct CreateAccount<'info> {
         bump
     )]
     pub account: Account<'info, TesoroAccount>,
+    /// CHECK: the Invite gate setting (`["invite_gate"]`); read by hand because it does not exist
+    /// until the admin first sets it, and no account means the gate is off. When the gate is on the
+    /// Invite key must also sign, passed as the first remaining account.
+    #[account(seeds = [INVITE_GATE_SEED], bump)]
+    pub invite_gate: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
+fn require_invite(ctx: &Context<CreateAccount>) -> Result<()> {
+    let info = ctx.accounts.invite_gate.to_account_info();
+    if info.owner != &crate::ID || info.data_is_empty() {
+        return Ok(());
+    }
+    let gate = InviteGate::try_deserialize(&mut &info.data.borrow()[..])?;
+    if !gate.required {
+        return Ok(());
+    }
+    let signed = ctx
+        .remaining_accounts
+        .first()
+        .is_some_and(|k| k.is_signer && *k.key == gate.key);
+    require!(signed, TesoroError::InviteRequired);
+    Ok(())
+}
+
 pub(crate) fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20]) -> Result<()> {
+    require_invite(&ctx)?;
     let account = &mut ctx.accounts.account;
     account.bump = ctx.bumps.account;
     account.authority = ctx.accounts.authority.key();

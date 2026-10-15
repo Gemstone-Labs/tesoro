@@ -247,3 +247,36 @@ pub(crate) fn init_leaderboard(ctx: Context<InitLeaderboard>, leaderboard_bps: u
     }
     Ok(())
 }
+
+#[derive(Accounts)]
+pub struct SetInviteGate<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = InviteGate::SPACE,
+        seeds = [INVITE_GATE_SEED],
+        bump
+    )]
+    pub invite_gate: Account<'info, InviteGate>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_invite_gate(ctx: Context<SetInviteGate>, required: bool, key: Pubkey) -> Result<()> {
+    require!(
+        !required || key != Pubkey::default(),
+        TesoroError::InviteKeyMissing
+    );
+    let gate = &mut ctx.accounts.invite_gate;
+    gate.bump = ctx.bumps.invite_gate;
+    gate.required = required;
+    gate.key = key;
+    Ok(())
+}

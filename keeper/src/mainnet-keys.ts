@@ -5,7 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import { BorshInstructionCoder, type Idl } from "@coral-xyz/anchor";
-import { PublicKey, TransactionInstruction, type AccountMeta } from "@solana/web3.js";
+import { PublicKey, SystemProgram, TransactionInstruction, type AccountMeta } from "@solana/web3.js";
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
 
 export const BPF_LOADER_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -34,7 +34,7 @@ export interface PlanInput {
   oracle: PublicKey;
   /** tesoro_core platform fee; `update_config` replaces it, so it is stated, never guessed. */
   platformBps: number;
-  /** New Invite key, when the program has an instruction for it (ADR 0011). */
+  /** New Invite key (ADR 0011): the plan adds the `set_invite_gate` step that turns the gate on with it. */
   invite?: PublicKey;
   programs?: Partial<Record<ProgramName, string>>;
   includeSimLst?: boolean;
@@ -107,6 +107,15 @@ export function updateConfigIx(core: PublicKey, admin: PublicKey, oracle: Public
   });
 }
 
+/** tesoro_core `set_invite_gate` (ADR 0011): admin only; while `required`, `create_account` needs `key` as a co-signer. */
+export function setInviteGateIx(core: PublicKey, admin: PublicKey, required: boolean, key: PublicKey) {
+  return new TransactionInstruction({
+    programId: core,
+    keys: [meta(admin, true, true), meta(coreConfigPda(core), false, false), meta(pda(core, [Buffer.from("invite_gate")]), false, true), meta(SystemProgram.programId, false, false)],
+    data: coder.encode("set_invite_gate", { required, key }),
+  });
+}
+
 export function coreSetAdminIx(core: PublicKey, upgradeAuthority: PublicKey, newAdmin: PublicKey) {
   return new TransactionInstruction({
     programId: core,
@@ -142,7 +151,6 @@ function anchorData(name: string, args: Buffer): Buffer {
   return Buffer.concat([createHash("sha256").update(`global:${name}`).digest().subarray(0, 8), args]);
 }
 
-const idlHas = (name: string) => (coreIdl as Idl).instructions.some((i) => i.name === name);
 
 export function buildPlan(input: PlanInput): Step[] {
   const ids = Object.fromEntries(
@@ -193,23 +201,17 @@ export function buildPlan(input: PlanInput): Step[] {
   });
 
   if (input.invite) {
-    if (idlHas("set_invite_key")) {
-      steps.push({
-        kind: "note",
-        id: "4",
-        title: "Invite key: set_invite_key exists in the IDL",
-        why: `Wire it by hand: the instruction's arguments were not known when this script was written. New Invite key ${input.invite.toBase58()}. Sign with the vault.`,
-      });
-    } else {
-      steps.push({
-        kind: "note",
-        id: "4",
-        title: "Invite key: no instruction yet",
-        why:
-          `ADR 0011's Invite gate is not in the IDL (no set_invite_key / set_invite). When it lands, the admin (the vault) sets ${input.invite.toBase58()}; ` +
-          "extend buildPlan() with that instruction. Until then nothing to send.",
-      });
-    }
+    steps.push({
+      kind: "solana",
+      id: "4",
+      title: "tesoro_core: turn the Invite gate on with the Invite key",
+      signer: "vault",
+      why:
+        `set_invite_gate(required = true, key = ${input.invite.toBase58()}) is admin only, and step 2 made the vault the admin, so this is a Squads proposal. ` +
+        `Send it only AFTER the vault's own Account ${feeAccount.toBase58()} exists (step 0): once the gate is on, create_account needs the Invite key's co-signature. ` +
+        "Turning the gate off at public launch is the same instruction with required = false.",
+      ix: setInviteGateIx(core, vault, true, input.invite),
+    });
   }
 
   const names = [...MAINNET_PROGRAMS, ...(input.includeSimLst ? (["sim_lst"] as ProgramName[]) : [])];

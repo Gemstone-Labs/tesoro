@@ -1050,6 +1050,29 @@
           }
         },
         {
+          "name": "invite_gate",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  118,
+                  105,
+                  116,
+                  101,
+                  95,
+                  103,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -5180,6 +5203,89 @@
       ]
     },
     {
+      "name": "set_invite_gate",
+      "discriminator": [
+        161,
+        157,
+        168,
+        234,
+        212,
+        134,
+        140,
+        44
+      ],
+      "docs": [
+        "Admin only: turns the Invite gate on or off and sets the key that must co-sign",
+        "`create_account` while it is on."
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "invite_gate",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  118,
+                  105,
+                  116,
+                  101,
+                  95,
+                  103,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "required",
+          "type": "bool"
+        },
+        {
+          "name": "key",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "set_name_evm",
       "discriminator": [
         88,
@@ -6499,6 +6605,19 @@
       ]
     },
     {
+      "name": "InviteGate",
+      "discriminator": [
+        56,
+        66,
+        44,
+        13,
+        3,
+        159,
+        191,
+        143
+      ]
+    },
+    {
       "name": "MatchState",
       "discriminator": [
         250,
@@ -6629,6 +6748,19 @@
       ]
     },
     {
+      "name": "SeasonWindowState",
+      "discriminator": [
+        4,
+        209,
+        198,
+        40,
+        87,
+        32,
+        39,
+        122
+      ]
+    },
+    {
       "name": "SolSource",
       "discriminator": [
         58,
@@ -6717,19 +6849,6 @@
         7,
         255,
         18
-      ]
-    },
-    {
-      "name": "SeasonWindowState",
-      "discriminator": [
-        4,
-        209,
-        198,
-        40,
-        87,
-        32,
-        39,
-        122
       ]
     }
   ],
@@ -7116,6 +7235,41 @@
       "code": 6018,
       "name": "InvalidStakePool",
       "msg": "account is not a stake pool of the staking token"
+    },
+    {
+      "code": 6019,
+      "name": "StaleApy",
+      "msg": "the staking token's published APY is too old to size an Advance"
+    },
+    {
+      "code": 6020,
+      "name": "ApyCeilingNotSet",
+      "msg": "the admin has not set an APY ceiling for this staking token"
+    },
+    {
+      "code": 6021,
+      "name": "BadPriceFeed",
+      "msg": "the price feed account is not the mapped Pyth feed, or is not a verified price update"
+    },
+    {
+      "code": 6022,
+      "name": "PriceTooUncertain",
+      "msg": "the price feed's confidence interval is too wide to issue Gemas on"
+    },
+    {
+      "code": 6023,
+      "name": "OnchainPriceRequired",
+      "msg": "this asset is priced from its on-chain feed; use the on-chain Advance"
+    },
+    {
+      "code": 6024,
+      "name": "InviteRequired",
+      "msg": "creating an Account needs an Invite"
+    },
+    {
+      "code": 6025,
+      "name": "InviteKeyMissing",
+      "msg": "an Invite key is needed to turn the Invite gate on"
     }
   ],
   "types": [
@@ -7634,6 +7788,29 @@
           {
             "name": "payout_units",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InviteGate",
+      "docs": [
+        "While `required`, `create_account` needs `key` as an extra signer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "required",
+            "type": "bool"
+          },
+          {
+            "name": "key",
+            "type": "pubkey"
           }
         ]
       }
@@ -8866,6 +9043,26 @@
       }
     },
     {
+      "name": "SeasonRankVoided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "rank",
+            "type": "u8"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "SeasonRecorded",
       "type": {
         "kind": "struct",
@@ -8903,6 +9100,61 @@
             "type": {
               "defined": {
                 "name": "Season"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonWindow",
+      "docs": [
+        "The payout window of a recorded Season (ADR 0011), kept beside the `Season` so that Seasons",
+        "recorded before the window existed keep their layout. Created by the same `record_season`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "number",
+            "type": "u32"
+          },
+          {
+            "name": "recorded_at",
+            "docs": [
+              "Unix seconds `record_season` ran."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "voided_mask",
+            "docs": [
+              "Bit `i` set once rank `i` was voided: it pays nothing and its share stays in the pool."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonWindowState",
+      "docs": [
+        "The payout window of a recorded season (ADR 0011): when it was recorded and which ranks the",
+        "admin voided. A separate account so `SeasonState` keeps its layout. Created by",
+        "`record_season`; seeds `[\"season_window\", number as u32 LE]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "SeasonWindow"
               }
             }
           }
@@ -9397,81 +9649,6 @@
           {
             "name": "shares",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SeasonWindowState",
-      "docs": [
-        "The payout window of a recorded season (ADR 0011): when it was recorded and which ranks the",
-        "admin voided. A separate account so `SeasonState` keeps its layout. Created by",
-        "`record_season`; seeds `[\"season_window\", number as u32 LE]`."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "inner",
-            "type": {
-              "defined": {
-                "name": "SeasonWindow"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "SeasonWindow",
-      "docs": [
-        "The payout window of a recorded Season (ADR 0011), kept beside the `Season` so that Seasons",
-        "recorded before the window existed keep their layout. Created by the same `record_season`."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "number",
-            "type": "u32"
-          },
-          {
-            "name": "recorded_at",
-            "docs": [
-              "Unix seconds `record_season` ran."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "voided_mask",
-            "docs": [
-              "Bit `i` set once rank `i` was voided: it pays nothing and its share stays in the pool."
-            ],
-            "type": "u16"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SeasonRankVoided",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "season",
-            "type": "u32"
-          },
-          {
-            "name": "rank",
-            "type": "u8"
-          },
-          {
-            "name": "account",
-            "type": "pubkey"
           }
         ]
       }

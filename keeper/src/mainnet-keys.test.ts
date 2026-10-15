@@ -50,3 +50,16 @@ test("describe prints signer, accounts and data without any key material", () =>
   assert.ok(!/secret|private key file/i.test(out.replace(/CURRENT_OWNER_KEY/g, "")));
   assert.equal(setUpgradeAuthorityIx(k(), k(), k()).keys.length, 3);
 });
+
+test("an Invite key adds the vault-signed set_invite_gate step, after the admin moved", () => {
+  const input = { ...base(), invite: k() };
+  const steps = buildPlan(input);
+  const i = steps.findIndex((s) => s.title.includes("Invite gate"));
+  assert.ok(i > steps.findIndex((s) => s.title.includes("rotate Config.admin")));
+  const step = steps[i] as SolanaStep;
+  assert.equal(step.signer, "vault");
+  assert.ok(step.ix.keys[0].isSigner && step.ix.keys[0].pubkey.equals(input.vault));
+  assert.equal(step.ix.data[8], 1);
+  assert.deepEqual([...step.ix.data.subarray(9, 41)], [...input.invite.toBytes()]);
+  assert.ok(!buildPlan(base()).some((s) => s.title.includes("Invite gate")));
+});

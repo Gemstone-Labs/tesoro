@@ -25,12 +25,13 @@ Per Source: `issued`, `returned` (cancelled by the owner), `redeemed`, `yield_un
 | `MatchState` | Match (and its Pot, in escrow as lines) | `["match", id_le]` |
 | `RequestState` | Request | `["request", player_account, nonce_le]` |
 | `OfferState` | Offer (and the reservation) | `["offer", backer_account, nonce_le]` |
+| `InviteGate` | Invite gate setting (ADR 0011) | `["invite_gate"]` |
 
 `Account` is `TesoroAccount` on chain because `Account` is Anchor's wrapper type. Every account stores its canonical bump. Ledger identities are PDA addresses: an Account key is its `TesoroAccount` address, a Source key is its `SourceState` address.
 
 ## Instructions
 
-Config: `initialize_config`, `update_config`, `register_game`, `remove_game` (admin). Identity: `create_account`, `set_evm_address`, `open_holding` (anyone pays; own-sourced iff the Source belongs to the Account).
+Config: `initialize_config`, `update_config`, `register_game`, `remove_game` (admin). Invite gate (admin): `set_invite_gate(required, key)`. Identity: `create_account` (takes the `invite_gate` PDA; while the gate is required the Invite `key` must also sign, passed as the first remaining account, else `InviteRequired`; no gate account means off), `set_evm_address`, `open_holding` (anyone pays; own-sourced iff the Source belongs to the Account).
 Position: `open_position` (oracle), `open_native_position`, `take_native_advance`, `extend_native_advance`, `accrue_native_yield`, `sweep_native_surplus`, `set_price` (see Solana-native Positions below), `take_advance` (owner picks the Horizon, oracle supplies the price, both sign), `apply_yield` (oracle; idempotent by `seq`), `return_own`, `redeem` (refuses EVM-sourced Sources: they use `redeem_from_source`, co-signed by the chain's source authority, called by the bridge's `redeem_to_evm`), `claim_free_yield`, `unlock`.
 Match: `open_match`, `join_match`, `open_match_backed`, `join_match_backed`, `settle_match` (registered Game authority only), `extend_match_deadline` (registered Game authority only), `refund_match`.
 Backing: `create_request`, `cancel_request`, `create_offer`, `accept_directed`, `apply_offer`, `accept_applicant`, `cancel_offer`, `expire_offer` (both take the accepted Request as an optional account, required when the Offer had one, and return it to Open).
@@ -187,3 +188,13 @@ Changed account lists (order matters for clients):
 Errors appended: `TreasuryShort` (6017); ledger `NotWonGemas`, `ExceedsPending` (2026-10-13), `AdvanceRepaid` (Extend); `ExtendCoolingDown`, `ExtendLimitReached`, `InvalidExtendLimit` (Extend limits).
 
 `extend_native_advance` also changed its account list (ADR 0009): `extend_limit` and `system_program` are appended, and `owner_authority` is writable.
+
+## Invite gate (ADR 0011)
+
+`InviteGate { bump, required, key }` is its own PDA (`["invite_gate"]`, created by the admin's first `set_invite_gate`, rent paid by the admin) so `Config` keeps its layout and nothing needs a realloc. `create_account` always carries the PDA: a missing or never-set gate means off. Turning it on needs a non-default key (`InviteKeyMissing`). Only `Config.admin` can set it; `required = false` switches the gate off for public launch.
+
+The `create_account` account list gained `invite_gate` (before `system_program`). Anchor clients resolve it from the IDL; hand-built instructions must add it. The deployed program must be upgraded before a client that sends the new list; the gate itself changes nothing until the admin turns it on.
+
+Server flow (`app/src/server/invite/`): `POST /api/invite/redeem` takes a wallet-signed request (scope `tesoro-invite`, field `code`). It checks the code against the Invite store, marks it used by the signing wallet in one statement, stores the Invite's email as the wallet's verified notification email, and only then builds `create_account` (Player as fee payer), signs it with `INVITE_SECRET_KEY` and returns it. The Player signs and sends it. The same wallet asking again gets a fresh co-signed transaction; another wallet is refused (`code-used`); a wallet that already has an Account is refused before a code is spent. Codes are 16 Crockford base32 characters (80 bits), stored as SHA-256 of the normalised code (`invites` table, migration `0003_invites.sql`). Create codes with `newInviteCode()` + `hashCode()` + `InviteStore.create()` from `app/src/server/invite/store.ts`.
+
+Order for mainnet: create the multisig vault's own Account first, then turn the gate on (`keeper/src/mainnet-keys.ts` plans the `set_invite_gate` step, signed by the vault).

@@ -103,6 +103,7 @@ impl Env {
                 accounts::CreateAccount {
                     authority: key,
                     account: platform,
+                    invite_gate: invite_gate_pda(),
                     system_program: anchor_lang::system_program::ID,
                 },
                 instruction::CreateAccount {

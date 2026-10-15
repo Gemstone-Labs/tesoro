@@ -55,6 +55,10 @@ pub enum TesoroError {
     PriceTooUncertain,
     #[msg("this asset is priced from its on-chain feed; use the on-chain Advance")]
     OnchainPriceRequired,
+    #[msg("creating an Account needs an Invite")]
+    InviteRequired,
+    #[msg("an Invite key is needed to turn the Invite gate on")]
+    InviteKeyMissing,
 }
 
 pub fn core_err(e: CoreError) -> Error {

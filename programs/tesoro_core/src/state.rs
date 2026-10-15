@@ -57,6 +57,25 @@ pub const TOKEN_APY_SEED: &[u8] = b"token_apy";
 /// How old the issuance price may be when an Advance is taken.
 pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
 pub const SOURCE_AUTHORITY_SEED: &[u8] = b"source_auth";
+/// The Invite gate setting (ADR 0011): `["invite_gate"]`. Its own account so `Config` keeps its layout.
+pub const INVITE_GATE_SEED: &[u8] = b"invite_gate";
+
+/// Address of the Invite gate account (it may not exist yet: no account means the gate is off).
+pub fn invite_gate_pda() -> Pubkey {
+    Pubkey::find_program_address(&[INVITE_GATE_SEED], &crate::ID).0
+}
+
+/// While `required`, `create_account` needs `key` as an extra signer.
+#[account]
+pub struct InviteGate {
+    pub bump: u8,
+    pub required: bool,
+    pub key: Pubkey,
+}
+
+impl InviteGate {
+    pub const SPACE: usize = 8 + 1 + 1 + 32;
+}
 
 pub const MAX_GAMES: usize = 8;
 
