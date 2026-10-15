@@ -1,10 +1,11 @@
 import "server-only";
 import { DemoHttpError } from "../request-auth";
+import { SITE_URL } from "@/lib/site";
 import { senderFromEnv } from "./sender";
 import type { NotifyDeps } from "./service";
 import { supabaseNotifyStore } from "./supabase-store";
 
-export const siteUrl = () => process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.playtesoro.com";
+export const siteUrl = () => SITE_URL;
 
 /** The production wiring: Supabase store, Resend sender. Fails plainly when email is not set up. */
 export function notifyDeps(): NotifyDeps {

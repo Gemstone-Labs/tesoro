@@ -32,5 +32,3 @@ export const hyperEvmTestnet = defineChain({
 /** EVM networks the Account's EVM address is used on. Hoodi is the default. */
 export const EVM_CHAINS = [hoodi, hyperEvmTestnet] as const;
 
-export const SOLANA_DEVNET_RPC = "https://api.devnet.solana.com";
-export const SOLANA_DEVNET_WS = "wss://api.devnet.solana.com";
