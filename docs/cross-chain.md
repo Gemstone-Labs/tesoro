@@ -136,3 +136,100 @@ The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH
 Deploy (orchestrator only): the vault needs about 3.37M gas, above HyperEVM's small-block limit, so switch the deployer to big blocks first (`evmUserModify usingBigBlocks`, as in `docs/deployments.md`), run `forge script script/DeployMainnetKHype.s.sol --rpc-url hyperevm --broadcast --slow` (`HYPEREVM_MAINNET_RPC`, `VAULT_OWNER` = multisig, `EVM_DEPLOYER_PRIVATE_KEY`), then switch big blocks off. `contracts/script/deploy-oapp.sh hyperevm-mainnet khype <adapter>` is the manual equivalent. Afterwards `setPeer(30168, <Store PDA>)` from the owner, wire the pathway (`bridge/scripts/lz.ts`), register the vault with `set_peer_config` (eid 30367, 18 decimals), and set `NEXT_PUBLIC_KHYPE_VAULT` so the app lists it.
 
 App: on the mainnet cluster the HYPE tab uses the same Player-pays path as ETH (quote of gas and LayerZero fee before signing, no relayer top-up, no faucet card); the HyperEVM eid, explorer and LayerZero Scan links follow the cluster. Optional fork test: `HYPEREVM_MAINNET_RPC=https://rpc.hyperliquid.xyz/evm forge test --match-contract KHypeMainnetForkTest`.
+
+## Mainnet wiring (Ethereum and HyperEVM to Solana mainnet, ticket 17, not run)
+
+Nothing here has been sent on any chain. `bridge/scripts/lz-mainnet.ts` plans one pathway at a time and is a dry run unless `--execute` is given (Solana steps only, signed by the delegate keypair; the EVM steps are printed as calldata for the vault owner and never sent by the script). `--verify` reads the pathway back (Solana through the LayerZero SDK, EVM through `cast call`) and exits non-zero on any mismatch. It needs `cast` (Foundry) on the path.
+
+```
+cd bridge && pnpm install --frozen-lockfile --ignore-workspace
+pnpm lz-mainnet --pathway ethereum|hyperevm --vault 0x<vault> --safe 0x<vault owner Safe> \
+  --delegate <Solana delegate pubkey> --decimals 18 --rate-bps <bps> \
+  [--program-id <tesoro_bridge mainnet id>] [--dvns layerzero-labs,nethermind] [--safe-json batch.json] \
+  [--rpc <solana mainnet url>] [--evm-rpc <url>] [--verify] [--execute --keypair <delegate keypair>]
+```
+
+### Run order
+
+1. **Deploy the vault** (`script/DeployMainnetWstETH.s.sol` or `DeployMainnetKHype.s.sol`) with `VAULT_OWNER` = the chain's Safe. The vault owner is also its LayerZero delegate, so every EVM step below is a Safe transaction. Record the vault address.
+2. **Deploy or upgrade `tesoro_bridge`** on Solana mainnet (orchestrator; ticket 26). The Store PDA is `["Store"]` under the program id, so the peer address on EVM (`0x60ae58df...c792` for `5bzDVZ...vTQ`) is known before the deploy; pass `--program-id` if the mainnet id differs.
+3. **Wire.** Per pathway: run the script as a dry run and read every address against the table below; run `--execute` for Solana (first pathway also runs `init_store`; the delegate key is the deployer until step 5); send the printed EVM calls from the Safe (`--safe-json` writes a Safe Transaction Builder batch). The Solana `set_peer_config` also creates the `VaultTreasury`.
+4. **Verify.** Run again with `--verify --rpc ... ` and require "All checks passed". Then `pnpm lz quote <eid> <vault> 3` (bridge outbound fee) and the EVM `quotePositionLocked()` / `quoteYieldAccrued()`, and send one small real message each way before opening to players: `init_position`, then `openPosition` of a minimal amount, `apply_locked`, `reportYield`, `apply_yield`; check LayerZero Scan (`layerzeroscan.com`) shows DELIVERED.
+5. **Hand over** per `docs/mainnet-keys.md`: `tesoro_bridge.set_admin(<Squads vault>)` (moves `Store.admin` and the endpoint delegate in one call), program upgrade authority, and on EVM nothing further if the vault was deployed with the Safe as owner (otherwise `setDelegate` then `transferOwnership`). After this, any pathway change (including a new vault's `set_peer_config`) is a Squads proposal or Safe transaction. Finally set `NEXT_PUBLIC_WSTETH_VAULT` / `NEXT_PUBLIC_KHYPE_VAULT` and register the vault with `register_game`-style admin steps listed in the mainnet runbook.
+
+### Endpoint ids and addresses
+
+Source: LayerZero metadata API (`https://metadata.layerzero-api.com/v1/metadata` and `/v1/metadata/dvns`), read 2026-10-15, and cross-checked on chain (`endpoint.eid()`, `defaultSendLibrary`, `getUlnConfig`, `getExecutorConfig`; Solana through `getDefault*ConfigState`).
+
+| | Ethereum | HyperEVM | Solana |
+|---|---|---|---|
+| eid | 30101 | 30367 | 30168 |
+| EndpointV2 | `0x1a44076050125825900e736c501f859c50fE728c` | `0x3A73033C0b1407574C76BdBAc67f126f6b4a9AA9` | `76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6` |
+| SendUln302 | `0xbB2Ea70C9E858123480642Cf96acbcCE1372dCe1` | `0xfd76d9CB0Bac839725aB79127E7411fe71b1e3CA` | `7a4WjyR8VZ7yZz5XJAKm39BUGn5iT9CKcv2pmG9tdXVH` (send and receive) |
+| ReceiveUln302 | `0xc02Ab410f0734EFa3F14628780e6e695156024C2` | `0x7cacBe439EaD55fa1c22790330b12835c6884a91` | same program |
+| Default executor | `0x173272739Bd7Aa6e4e214714048a9fE699453059` | `0x41Bdb4aa4A63a5b2Efc531858d3118392B1A1C3d` | PDA `AwrbHeCyniXaQhiJZkLhgWdUCteeWSGaSN1sTfLiY7xK` |
+| DVN: LayerZero Labs | `0x589dEDbD617e0CBcB916A9223F4d1300c294236b` | `0xc097ab8CD7b053326DFe9fB3E3a31a0CCe3B526f` | `4VDjp6XQaxoZf5RGwiPU9NR1EXSZn2TP4ATMmiSzLfhb` |
+| DVN: Nethermind | `0xa59BA433ac34D2927232918Ef5B2eaAfcF130BA5` | `0x8E49eF1DfAe17e547CA0E7526FfDA81FbaCA810A` | `GPjyWr8vCotGuFubDpTxDxy9Vj1ZeEN4F2dwRmFiaGab` |
+| DVN: Canary (optional add) | `0xa4fE5A5B9A846458a70Cd0748228aED3bF65c2cd` | `0x83342EC538dF0460e730a8F543Fe63063e2D44C4` | `7jMeX5mzXnSSKYd8DxBDP4xMnkNFZZZm5W28FWUTbwU3` |
+| DVN: Horizen (optional add) | `0x380275805876Ff19055EA900CDb2B46a94ecF20D` | `0xBB83Ecf372CbB6daa629ea9A9A53BEC6d601F229` | `HR9NQKK1ynW9NzgdM37dU5CBtqRHTukmbMKS7qkwSkHX` |
+
+The list of production DVNs that exist on all three chains has 20 entries (the metadata `dvns` of `ethereum`, `hyperliquid` and `solana` intersected), among them LayerZero Labs, Nethermind, Canary, Horizen Labs, P2P, Luganodes, Nansen, Fidelity, Deutsche Telekom and USDT0.
+
+### Configuration chosen
+
+| Setting | Value | Why |
+|---|---|---|
+| Libraries | Pinned to SendUln302 / ReceiveUln302 (Solana: ULN program) on both sides, grace period 0 | Equal to today's defaults, but an explicit choice so a later change of the endpoint default cannot move the pathway. |
+| Required DVNs | **LayerZero Labs + Nethermind**, 2 required, 0 optional, on both directions and all three chains | The ticket asks for LayerZero Labs plus one other production DVN available on all three chains. Nethermind is a long-running DVN and is in the default set on every one of the three chains. Testnet used the single LayerZero Labs default. |
+| Confirmations Ethereum -> Solana | 15 (set on the Ethereum send config, mirrored on the Solana receive config) | LayerZero's default for 30101 -> 30168, read on both sides. |
+| Confirmations Solana -> Ethereum | 32 (Solana send config, mirrored on the Ethereum receive config) | LayerZero's default, read on both sides. |
+| Confirmations HyperEVM -> Solana | 1 (HyperEVM send, Solana receive) | LayerZero's default for 30367; HyperEVM blocks are final after one block. Raise with `--send-confirmations` if the founders want a margin. |
+| Confirmations Solana -> HyperEVM | 32 | LayerZero's default. |
+| Executor | The default executor of each chain, max message size 200 B (EVM send) and 10,000 B (Solana send) | Same as the defaults. Our largest message is 126 B (`PositionLocked`). |
+| EVM -> Solana receive gas | Set by the vault per message: `solanaReceiveCu` = 200,000 compute units, native drop 0 (`PositionVaultOApp._options`) | Same as testnet. Observed use was about 57,000. The executor caps the native drop to Solana at 0, so rent is paid by `init_position` beforehand (see "Flow and who pays"). |
+| Solana -> EVM receive gas | Enforced options in `PeerConfig`: type-3 `lzReceive` gas 250,000, value 0 (`--evm-receive-gas`) | Same as the testnet default in `bridge/scripts/lz.ts` (`0x0003010011010000000000000000000000000003d090` on the live devnet peers). |
+
+**Trade-off to decide:** LayerZero's own defaults on all three mainnet pathways are 4 required DVNs (LayerZero Labs, Nethermind, Canary, Horizen), read on chain on 2026-10-15. Two required is faster and has fewer liveness dependencies, but a forged message needs only two DVNs to collude or be compromised instead of four. A message mints Gemas against a Position, so the founders should decide whether 2, 3 (`--dvns layerzero-labs,nethermind,canary`) or the default 4 fits. The script takes any subset of the four listed; the verify step checks exactly the set given.
+
+### Dry run (placeholders: vault `0x1111...1111`, Safe `0x2222...2222`, delegate = the devnet deployer pubkey, mainnet program id assumed equal to the devnet id)
+
+```
+pnpm lz-mainnet --pathway ethereum --vault 0x1111111111111111111111111111111111111111 \
+  --safe 0x2222222222222222222222222222222222222222 --delegate 7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M \
+  --decimals 18 --rate-bps 300
+```
+
+```
+MODE: DRY RUN (nothing is sent; --execute would send the Solana steps)
+pathway   Ethereum (eid 30101) <-> Solana mainnet (eid 30168)
+bridge    program 5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ  Store PDA 7WQLHW8EuyV1V8tWNh8DQGu7mVRgaHGgLU7fi8G91rVw  (0x60ae58df1215bf45cc054e633b49c92a3b1309f76075bac72b26e0c6e1c0c792)
+DVNs      layerzero-labs + nethermind (all required, none optional)   confirmations: Ethereum->Solana 15, Solana->Ethereum 32
+
+== SOLANA (signed by the delegate key until set_admin moves it to the multisig)
+S1. tesoro_bridge init_store (once for the whole bridge, skip on the second pathway)
+S2. tesoro_bridge set_peer_config eid 30101
+    vault 0x1111...1111, decimals 18, rate 300 bps, enforced send options type-3 lzReceive gas 250000 (0x0003010011010000000000000000000000000003d090); also creates VaultTreasury 6gJxmie4naZykwGETsHkjtNNcVHW7PHHTMAw8qKRYMYV
+S3. endpoint pathway init (nonce, send library, receive library) for eid 30101
+S4. ULN config init for eid 30101
+S5. pin send and receive library to ULN 302 for eid 30101
+S6. executor, send ULN and receive ULN config for eid 30101
+    executor AwrbHeCy... max message 10000 B; required DVNs layerzero-labs + nethermind (4VDjp6XQ..., GPjyWr8v...); send confirmations 32 (Solana -> Ethereum); receive confirmations 15 (Ethereum -> Solana)
+
+== EVM (calls from the vault owner / delegate Safe; not sent by this script)
+E1. vault setPeer(30168, Store PDA)
+    cast send 0x1111...1111 "setPeer(uint32,bytes32)" "30168" "0x60ae58df...c792"
+E2. endpoint setSendLibrary(vault, 30168, SendUln302)      0x1a44...E728c <- 0xbB2Ea70C...dCe1
+E3. endpoint setReceiveLibrary(vault, 30168, ReceiveUln302, grace 0)   <- 0xc02Ab410...24C2
+E4. endpoint setConfig on SendUln302: executor + send ULN
+    executor 0x1732...3059 max 200 B; DVNs layerzero-labs + nethermind; confirmations 15 (Ethereum -> Solana)
+E5. endpoint setConfig on ReceiveUln302: receive ULN
+    DVNs layerzero-labs + nethermind; confirmations 32 (Solana -> Ethereum)
+```
+
+The real output also prints each Solana instruction (program, account count, data) and the full `cast send` line and calldata for every EVM call. The HyperEVM pathway is the same command with `--pathway hyperevm` (eid 30367, send confirmations 1, Solana-to-HyperEVM 32, `--rate-bps 500` for kHYPE as an example; the real rate comes from the APY ceiling work, ticket 11). Read-back against a vault that is not deployed reports `FAIL vault ... has code` and `FAIL Store ... exists`, which is the expected state before step 1.
+
+### What the script does not do
+
+- Create the Safes, deploy the vault or the bridge, hold any key, or send an EVM transaction.
+- Set `rate_bps` or `decimals` for you: both are required arguments (18 decimals for wstETH and kHYPE).
+- Check that a Safe exists on HyperEVM mainnet (open item in `docs/mainnet-keys.md`).
