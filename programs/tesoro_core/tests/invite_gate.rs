@@ -170,7 +170,11 @@ fn create_account(authority: APk, invite: Option<APk>) -> Instruction {
         },
     );
     if let Some(k) = invite {
-        i.accounts.push(solana_sdk::instruction::AccountMeta::new_readonly(s(k), true));
+        i.accounts
+            .push(solana_sdk::instruction::AccountMeta::new_readonly(
+                s(k),
+                true,
+            ));
     }
     i
 }
@@ -189,7 +193,8 @@ fn gate_on_refuses_without_the_invite_key_and_accepts_with_it() {
     let mut env = Env::new();
     let admin = env.admin.insecure_clone();
     let invite = env.invite.insecure_clone();
-    env.set_gate(&admin, true, a(invite.pubkey())).expect("gate on");
+    env.set_gate(&admin, true, a(invite.pubkey()))
+        .expect("gate on");
 
     let p = env.player();
     let err = env
@@ -219,7 +224,8 @@ fn gate_on_refuses_without_the_invite_key_and_accepts_with_it() {
 fn gate_off_again_needs_no_co_sign() {
     let mut env = Env::new();
     let admin = env.admin.insecure_clone();
-    env.set_gate(&admin, true, a(env.invite.pubkey())).expect("on");
+    env.set_gate(&admin, true, a(env.invite.pubkey()))
+        .expect("on");
     env.set_gate(&admin, false, APk::default()).expect("off");
     let p = env.player();
     env.send(&[create_account(a(p.pubkey()), None)], &[&p])

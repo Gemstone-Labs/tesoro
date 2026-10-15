@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { LimitsView, type LimitsViewProps } from "@/components/account/Limits";
 import { entryLimitView, type EntryLimitData } from "@/lib/chain/entry-limit";
+import { awayView, type AwayData } from "@/lib/chain/protections";
 import { extendLimitView, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import "@/app/(app)/wallet/advance-sheet.css";
 
@@ -11,6 +12,8 @@ const noop = () => {};
 const entry = (l: Partial<EntryLimitData>) => entryLimitView({ gemas: 0, pendingGemas: 0, pendingAt: 0, windowStart: 0, windowUsed: 0, ...l }, NOW);
 const extend = (l: Partial<ExtendLimitData>) => extendLimitView({ months: 3, pendingMonths: 0, pendingAt: 0, windowStart: 0, windowMonths: 0, lastExtendAt: 0, ...l }, NOW, 0);
 
+const away = (a: Partial<AwayData>) => awayView({ breakUntil: 0, selfExclusionUntil: 0, ...a }, NOW);
+
 const meta = {
   title: "Components/account/Limits",
   component: LimitsView,
@@ -19,8 +22,8 @@ const meta = {
       <LimitsView {...args} />
     </div>
   ),
-  args: { entry: entry({}), extend: extend({}), busy: null, error: null, onSetEntry: noop, onSetExtend: noop, onRetry: noop } satisfies LimitsViewProps,
-  argTypes: { entry: { control: false }, extend: { control: false }, onSetEntry: { control: false }, onSetExtend: { control: false }, onRetry: { control: false } },
+  args: { entry: entry({}), extend: extend({}), away: away({}), now: NOW, busy: null, error: null, onSetEntry: noop, onSetExtend: noop, onStartBreak: noop, onStartSelfExclusion: noop, onRetry: noop } satisfies LimitsViewProps,
+  argTypes: { entry: { control: false }, extend: { control: false }, onSetEntry: { control: false }, onSetExtend: { control: false }, away: { control: false }, onStartBreak: { control: false }, onStartSelfExclusion: { control: false }, onRetry: { control: false } },
 } satisfies Meta<typeof LimitsView>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -37,6 +40,13 @@ export const EntryRaisePending: Story = { args: { entry: entry({ gemas: 500, pen
 export const EntryRemovalPending: Story = { args: { entry: entry({ gemas: 1_000, pendingGemas: 0, pendingAt: NOW + 3 * 3_600 }) } };
 export const ExtendLimitUsed: Story = { args: { extend: extend({ windowStart: NOW - 5 * DAY, windowMonths: 2, lastExtendAt: NOW - 5 * DAY }), entry: entry({ gemas: 1_000 }) } };
 export const ExtendRaisePending: Story = { args: { extend: extend({ months: 1, pendingMonths: 6, pendingAt: NOW + 8 * 3_600 }) } };
-export const Loading: Story = { args: { entry: null, extend: null } };
+export const Loading: Story = { args: { entry: null, extend: null, away: null } };
+/** A Break running: the end date, and only longer choices are offered. */
+export const OnABreak: Story = { args: { away: away({ breakUntil: NOW + 10 * DAY }) } };
+/** A Self-Excluded Player: the end date shows and the Break cannot be ended either. */
+export const SelfExcluded: Story = { args: { away: away({ selfExclusionUntil: NOW + 400 * DAY, breakUntil: NOW + 3 * DAY }) } };
+/** The longest Break is already running: nothing longer to offer. */
+export const LongestBreak: Story = { args: { away: away({ breakUntil: NOW + 42 * DAY }) } };
+export const StartingABreak: Story = { args: { busy: "break" } };
 export const Saving: Story = { args: { entry: entry({ gemas: 1_000 }), busy: "entry" } };
 export const SaveFailed: Story = { args: { error: "That didn’t go through. Try again." } };

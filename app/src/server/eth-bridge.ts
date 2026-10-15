@@ -20,7 +20,7 @@ import { createSignerFromKeypair, publicKey as umiKey, signerIdentity } from "@m
 import { fromWeb3JsKeypair, toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
 import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi";
 import { CLUSTER } from "@/lib/cluster-settings";
-import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, onchainPricePda, parsePythPrice, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
+import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
 import {
   BRIDGE_AUTHORITY,
   BRIDGE_ID,
@@ -527,6 +527,7 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
       key(configPda()),
       key(treasuryPda()),
       key(ownerAccount, false, true),
+      key(protectionsPda(ownerAccount)),
       key(cp, false, true),
       key(onchainPricePda(new PublicKey(info.data.subarray(74, 106)))),
       key(pythFeedAddress(asset)),
@@ -543,6 +544,7 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
       key(configPda()),
       key(treasuryPda()),
       key(ownerAccount, false, true),
+      key(protectionsPda(ownerAccount)),
       key(cp, false, true),
       key(source, false, true),
       key(holdingPda(ownerAccount, source), false, true),

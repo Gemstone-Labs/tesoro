@@ -90,7 +90,8 @@ pub(crate) fn record_season<'info>(
         .checked_add(pool.won_total)
         .ok_or_else(|| error!(TesoroError::InvalidAccount))?;
     let recorded_at = now()?;
-    let inner = ledger::Season::record(number, recorded_at, pool_total, &ranking).map_err(core_err)?;
+    let inner =
+        ledger::Season::record(number, recorded_at, pool_total, &ranking).map_err(core_err)?;
     emit!(SeasonRecorded {
         season: number,
         pool_total,

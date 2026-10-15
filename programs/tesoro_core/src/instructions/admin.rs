@@ -269,7 +269,11 @@ pub struct SetInviteGate<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn set_invite_gate(ctx: Context<SetInviteGate>, required: bool, key: Pubkey) -> Result<()> {
+pub(crate) fn set_invite_gate(
+    ctx: Context<SetInviteGate>,
+    required: bool,
+    key: Pubkey,
+) -> Result<()> {
     require!(
         !required || key != Pubkey::default(),
         TesoroError::InviteKeyMissing

@@ -252,8 +252,8 @@ describe("payout accounts of a stake pool custody", () => {
 
   it("another Advance is priced by the token's own feed", () => {
     const ix = takeNativeAdvanceIx(holder, position, 1, 3, JITO_MINT);
-    expect(ix.keys[3].pubkey.equals(pda([s("price"), JITO_MINT.toBuffer()]))).toBe(true);
-    expect(extendNativeAdvanceIx(holder, position, 0, 2).keys.length).toBe(8);
+    expect(ix.keys[4].pubkey.equals(pda([s("price"), JITO_MINT.toBuffer()]))).toBe(true);
+    expect(extendNativeAdvanceIx(holder, position, 0, 2).keys.length).toBe(9);
   });
 
   it("test mode keeps the simSOL accounts and no Treasury extras", () => {

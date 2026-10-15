@@ -13,7 +13,7 @@ use crate::pyth::{
     MAX_ONCHAIN_CONF_BPS, MAX_ONCHAIN_PRICE_AGE_SECS, PRICE_UPDATE_V2, PYTH_RECEIVER,
 };
 use crate::state::*;
-use crate::util::now;
+use crate::util::{now, require_can_advance};
 use anchor_lang::prelude::*;
 
 /// Admin: maps `asset` (the `source_asset` of the Positions to price) to a Pyth feed.
@@ -108,6 +108,12 @@ pub struct TakeNativeAdvanceOnchain<'info> {
         bump = owner_account.bump
     )]
     pub owner_account: Account<'info, TesoroAccount>,
+    /// CHECK: the owner's Protections address; a Self-Excluded owner takes no Advance.
+    #[account(
+        seeds = [PROTECTIONS_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
@@ -151,6 +157,7 @@ pub(crate) fn take_native_advance_onchain(
     horizon_months: u8,
 ) -> Result<()> {
     let a = &mut ctx.accounts;
+    require_can_advance(&a.protections.to_account_info())?;
     let price = a
         .onchain_price
         .read(&a.price_feed.to_account_info(), now()?)?;
@@ -190,6 +197,12 @@ pub struct TakeAdvanceOnchain<'info> {
         bump = owner_account.bump
     )]
     pub owner_account: Account<'info, TesoroAccount>,
+    /// CHECK: the owner's Protections address; a Self-Excluded owner takes no Advance.
+    #[account(
+        seeds = [PROTECTIONS_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
@@ -231,6 +244,7 @@ pub(crate) fn take_advance_onchain(
     let a = ctx.accounts;
     // A native Position is advanced by the owner alone through `take_native_advance_onchain`.
     require!(!is_native(&a.position), TesoroError::NativePosition);
+    require_can_advance(&a.protections.to_account_info())?;
     let price = a
         .onchain_price
         .read(&a.price_feed.to_account_info(), now()?)?;

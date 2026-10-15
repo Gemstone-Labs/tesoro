@@ -543,6 +543,7 @@ pub mod holdem {
                         caller: ctx.accounts.authority.to_account_info(),
                         config: ctx.accounts.config.to_account_info(),
                         match_state: ctx.accounts.tesoro_match.to_account_info(),
+                        opener_protections: None,
                     },
                     signer_seeds,
                 )

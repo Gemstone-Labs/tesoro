@@ -124,6 +124,11 @@ core_errors! {
     PayoutWindowOpen => "the season payout window is still open; ranks are paid 48 hours after it is recorded",
     PayoutWindowClosed => "the season payout window has closed; a rank can no longer be voided",
     RankVoided => "this rank was voided and pays nothing",
+    OnBreak => "you are on a Break, so you cannot do this until it ends",
+    SelfExcluded => "you are Self-Excluded, so you cannot do this until it ends",
+    InvalidBreak => "a Break is 1 to 42 days",
+    InvalidSelfExclusion => "Self-Exclusion is 6 to 60 months",
+    ProtectionCannotShorten => "a Break or Self-Exclusion cannot end earlier than it already does",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

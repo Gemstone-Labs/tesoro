@@ -262,6 +262,7 @@ async function main() {
                 programId: CORE,
                 keys: [
                     meta(oracle.publicKey, true, true), meta(owner.publicKey, true), meta(configPda), meta(coreTreasury), meta(ownerAccount, false, true),
+                    meta(PublicKey.findProgramAddressSync([Buffer.from('protections'), ownerAccount.toBuffer()], CORE)[0]),
                     meta(cp, false, true), meta(source, false, true), meta(holdingPda(ownerAccount, source), false, true), meta(SystemProgram.programId),
                 ],
                 data: Buffer.concat([disc('take_advance'), Buffer.from([Number(a[3])]), u64le(BigInt(a[4]))]),

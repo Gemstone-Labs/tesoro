@@ -1,9 +1,8 @@
 //! A Player's Protections (ADR 0011 and CONTEXT.md): rules the Player sets on their own play.
 //!
 //! One `Protections` value lives in one account per Player Account (`["protections", account]`).
-//! It holds the Entry Limit now. `break_until` and `self_exclusion_until` are reserved for Break
-//! and Self-Exclusion (unix seconds, zero = none) and are not read by any rule yet; `reserved`
-//! keeps the serialized size fixed so those rules can take their bytes without reallocating.
+//! It holds the Entry Limit, the end of a Break and the end of a Self-Exclusion (unix seconds,
+//! zero = none); `reserved` keeps the serialized size fixed for later rules.
 //!
 //! All times are unix seconds of the real clock, not the simulated yield clock.
 
@@ -14,8 +13,15 @@ use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
 pub const ENTRY_LIMIT_PERIOD_SECS: i64 = 7 * 24 * 60 * 60;
 /// Wait before a raised Entry Limit (or removing it) takes effect.
 pub const ENTRY_LIMIT_RAISE_WAIT_SECS: i64 = 24 * 60 * 60;
-/// Bytes kept free in `Protections` for Break and Self-Exclusion.
+/// Bytes kept free in `Protections` for later rules.
 pub const PROTECTIONS_RESERVED: usize = 48;
+pub const BREAK_MAX_DAYS: u16 = 42;
+pub const SELF_EXCLUSION_MIN_MONTHS: u16 = 6;
+/// Longest Self-Exclusion one call can set (5 years); a later call can extend it.
+pub const SELF_EXCLUSION_MAX_MONTHS: u16 = 60;
+pub const DAY_SECS: i64 = 24 * 60 * 60;
+/// A Self-Exclusion month is 30 days.
+pub const MONTH_SECS: i64 = 30 * DAY_SECS;
 
 /// The Gemas a Player may enter in one period. Zero is off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, AnchorSerialize, AnchorDeserialize)]
@@ -117,9 +123,9 @@ impl EntryLimit {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
 pub struct Protections {
     pub entry_limit: EntryLimit,
-    /// Reserved for Break: no Match entries until this time.
+    /// A Break: no Match entries, Requests, Offers or being backed until this time.
     pub break_until: i64,
-    /// Reserved for Self-Exclusion: no Match entries, Advances or Extends until this time.
+    /// A Self-Exclusion: all of a Break, plus no Advances or Extends, until this time.
     pub self_exclusion_until: i64,
     pub reserved: [u8; PROTECTIONS_RESERVED],
 }
@@ -137,4 +143,66 @@ impl Default for Protections {
 
 impl Protections {
     pub const SPACE: usize = EntryLimit::SPACE + 8 + 8 + PROTECTIONS_RESERVED;
+
+    pub fn on_break(&self, now: i64) -> bool {
+        now < self.break_until
+    }
+
+    pub fn self_excluded(&self, now: i64) -> bool {
+        now < self.self_exclusion_until
+    }
+
+    /// Refuses Match entries, Requests, Offers and being backed during a Break or Self-Exclusion.
+    pub fn check_play(&self, now: i64) -> CoreResult<()> {
+        if self.self_excluded(now) {
+            return Err(CoreError::SelfExcluded);
+        }
+        if self.on_break(now) {
+            return Err(CoreError::OnBreak);
+        }
+        Ok(())
+    }
+
+    /// Refuses new Advances and Extends during a Self-Exclusion. A Break leaves them open.
+    pub fn check_advance(&self, now: i64) -> CoreResult<()> {
+        if self.self_excluded(now) {
+            return Err(CoreError::SelfExcluded);
+        }
+        Ok(())
+    }
+
+    /// True while a Break or Self-Exclusion is in force (what clean-up looks at).
+    pub fn away(&self, now: i64) -> bool {
+        self.on_break(now) || self.self_excluded(now)
+    }
+
+    fn lengthen(current: i64, now: i64, secs: i64) -> CoreResult<i64> {
+        let end = now.checked_add(secs).ok_or(CoreError::Math)?;
+        if end < current {
+            return Err(CoreError::ProtectionCannotShorten);
+        }
+        Ok(end)
+    }
+
+    /// Starts a Break of `days` from `now`, or extends the one running. Never ends it earlier.
+    pub fn set_break(&mut self, now: i64, days: u16) -> CoreResult<()> {
+        if days == 0 || days > BREAK_MAX_DAYS {
+            return Err(CoreError::InvalidBreak);
+        }
+        self.break_until = Self::lengthen(self.break_until, now, i64::from(days) * DAY_SECS)?;
+        Ok(())
+    }
+
+    /// Starts a Self-Exclusion of `months` (30 days each) from `now`, or extends the one running.
+    pub fn set_self_exclusion(&mut self, now: i64, months: u16) -> CoreResult<()> {
+        if !(SELF_EXCLUSION_MIN_MONTHS..=SELF_EXCLUSION_MAX_MONTHS).contains(&months) {
+            return Err(CoreError::InvalidSelfExclusion);
+        }
+        self.self_exclusion_until = Self::lengthen(
+            self.self_exclusion_until,
+            now,
+            i64::from(months) * MONTH_SECS,
+        )?;
+        Ok(())
+    }
 }

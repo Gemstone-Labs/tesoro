@@ -12,7 +12,11 @@ import {
   quoteExtendAdvance,
   quoteNativeAdvance,
   rateAt,
+  setBreakIx,
   setEntryLimitIx,
+  setSelfExclusionIx,
+  protectionsPda,
+  accountPda,
   setExtendLimitIx,
   redeemIx,
   redeemPayoutShares,
@@ -43,12 +47,12 @@ describe("real token sizing", () => {
   const pos = sourcePda(owner, 0);
   const mint = new PublicKey("J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn");
   it("passes the token's APY account after the fixed ones; simSOL passes none", () => {
-    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(8);
-    expect(extendNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(8);
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(9);
+    expect(extendNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(9);
     for (const ix of [takeNativeAdvanceIx(owner, pos, 0, 3, mint), extendNativeAdvanceIx(owner, pos, 0, 3, mint)]) {
-      expect(ix.keys).toHaveLength(9);
-      expect(ix.keys[8].pubkey.equals(tokenApyPda(mint))).toBe(true);
-      expect(ix.keys[8].isWritable || ix.keys[8].isSigner).toBe(false);
+      expect(ix.keys).toHaveLength(10);
+      expect(ix.keys[9].pubkey.equals(tokenApyPda(mint))).toBe(true);
+      expect(ix.keys[9].isWritable || ix.keys[9].isSigner).toBe(false);
     }
   });
   it("sizes a real token on the market's APY and simSOL on the Position's own", () => {
@@ -73,6 +77,8 @@ describe("native instructions", () => {
       [extendNativeAdvanceIx(owner, pos, 0, 3).data, "extend_native_advance"],
       [setExtendLimitIx(owner, 2).data, "set_extend_limit"],
       [setEntryLimitIx(owner, 500).data, "set_entry_limit"],
+      [setBreakIx(owner, 3).data, "set_break"],
+      [setSelfExclusionIx(owner, 6).data, "set_self_exclusion"],
       [accrueNativeYieldIx(pos, null).data, "accrue_native_yield"],
       [redeemIx(owner, pos, pos, 1n).data, "redeem"],
       [unlockIx(owner, pos).data, "unlock"],
@@ -97,6 +103,8 @@ describe("native instructions", () => {
       [extendNativeAdvanceIx(owner, pos, 0, 3), "extend_native_advance"],
       [setExtendLimitIx(owner, 2), "set_extend_limit"],
       [setEntryLimitIx(owner, 500), "set_entry_limit"],
+      [setBreakIx(owner, 3), "set_break"],
+      [setSelfExclusionIx(owner, 6), "set_self_exclusion"],
       [initTreasuryIx(owner, 2000, 3500), "init_treasury"],
       [fundTreasuryIx(owner, 1n), "fund_treasury"],
       [instantRedeemIx(owner, pos, pos, 1n), "instant_redeem"],
@@ -122,7 +130,7 @@ describe("native instructions", () => {
     expect(initTreasuryIx(owner, 2000, 3500).keys).toHaveLength(count("init_treasury"));
     expect(fundTreasuryIx(owner, 1n).keys).toHaveLength(count("fund_treasury"));
     expect(redeemTreasuryIx(pos, pos, 1n).keys).toHaveLength(count("redeem_treasury") + 5);
-    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys[4].pubkey.equals(treasuryPda())).toBe(true);
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys[5].pubkey.equals(treasuryPda())).toBe(true);
     expect(accrueNativeYieldIx(pos, null).keys[9].pubkey.equals(treasuryPda())).toBe(true);
     expect(accrueNativeYieldIx(pos, null).keys[10].pubkey.equals(treasuryVaultPda())).toBe(true);
     expect(initTreasuryIx(owner, 2000, 3500).data.subarray(8).toString("hex")).toBe("d007ac0d");
@@ -134,8 +142,9 @@ describe("native instructions", () => {
     const spec = (idl.instructions as { name: string; accounts: unknown[] }[]).find((i) => i.name === "extend_native_advance")!;
     expect(ix.keys).toHaveLength(spec.accounts.length);
     expect(ix.data.subarray(8).toString("hex")).toBe("04");
-    expect(ix.keys[3].pubkey.equals(treasuryPda())).toBe(true);
-    expect(ix.keys[4].pubkey.equals(sourcePda(pos, 2))).toBe(true);
+    expect(ix.keys[4].pubkey.equals(treasuryPda())).toBe(true);
+    expect(ix.keys[5].pubkey.equals(sourcePda(pos, 2))).toBe(true);
+    expect(ix.keys[2].pubkey.equals(protectionsPda(accountPda(owner)))).toBe(true);
   });
 
   it("redeem and unlock carry the five payout accounts", () => {

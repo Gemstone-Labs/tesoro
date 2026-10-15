@@ -283,6 +283,7 @@ impl Env {
                 config,
                 treasury: tesoro_core_treasury(),
                 owner_account: account,
+                protections: core_pda(&[PROTECTIONS_SEED, account.as_ref()]),
                 position,
                 source,
                 holding,
@@ -395,6 +396,10 @@ impl Env {
         id
     }
 
+    fn opener_account(&self, id: u64) -> APk {
+        APk::new_from_array(self.load_core::<MatchState>(match_pda(id)).inner.a.player)
+    }
+
     fn join(&mut self, bob: &Person, id: u64) -> Res {
         let join = core_ix(
             tesoro_core::accounts::JoinMatch {
@@ -402,6 +407,7 @@ impl Env {
                 player_account: bob.account,
                 protections: core_pda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
                 match_state: match_pda(id),
+                opener_protections: core_pda(&[PROTECTIONS_SEED, self.opener_account(id).as_ref()]),
             },
             tesoro_core::instruction::JoinMatch {},
             vec![rem(bob.holding)],
@@ -896,6 +902,7 @@ fn a_match_nobody_joins_is_refunded_to_the_opener_after_they_played() {
                 caller,
                 config: core_pda(&[CONFIG_SEED]),
                 match_state: match_pda(id),
+                opener_protections: None,
             }
             .to_account_metas(None),
         );
@@ -933,6 +940,7 @@ fn the_opener_can_cancel_an_unjoined_match_at_once() {
             caller: alice.key,
             config: core_pda(&[CONFIG_SEED]),
             match_state: match_pda(id),
+            opener_protections: None,
         }
         .to_account_metas(None),
     );

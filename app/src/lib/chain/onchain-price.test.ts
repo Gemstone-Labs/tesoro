@@ -58,7 +58,7 @@ describe("Advance accounts per cluster", () => {
   it("test mode prices from the keeper's account", () => {
     const mint = Keypair.generate().publicKey;
     const ix = takeNativeAdvanceIx(Keypair.generate().publicKey, Keypair.generate().publicKey, 0, 3, mint);
-    expect(ix.keys[3].pubkey.equals(solPriceKey(mint))).toBe(true);
+    expect(ix.keys[4].pubkey.equals(solPriceKey(mint))).toBe(true);
     expect(solPriceKey(mint).equals(pythFeedAddress("SOL"))).toBe(false);
   });
 
@@ -72,8 +72,9 @@ describe("Advance accounts per cluster", () => {
     const owner = Keypair.generate().publicKey;
     const ix = n.takeNativeAdvanceIx(owner, Keypair.generate().publicKey, 0, 12, mint);
     const keys = ix.keys.map((k) => k.pubkey.toBase58());
-    expect(keys[3]).toBe(n.onchainPricePda(mint).toBase58());
-    expect(keys[4]).toBe(n.pythFeedAddress("SOL").toBase58());
+    expect(keys[2]).toBe(n.protectionsPda(n.accountPda(owner)).toBase58());
+    expect(keys[4]).toBe(n.onchainPricePda(mint).toBase58());
+    expect(keys[5]).toBe(n.pythFeedAddress("SOL").toBase58());
     expect(ix.data.subarray(0, 8).toString("hex")).toBe("2af855d76194c9ac");
     expect(keys).not.toContain(PublicKey.findProgramAddressSync([Buffer.from("price"), mint.toBuffer()], n.TESORO_CORE_ID)[0].toBase58());
     expect(n.solPriceKey(mint).toBase58()).toBe(n.pythFeedAddress("SOL").toBase58());

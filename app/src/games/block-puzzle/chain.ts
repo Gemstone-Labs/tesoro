@@ -16,6 +16,7 @@
  * A Player's `play` calls go to the private rollup (TEE); everything else to the base layer.
  * Scores are never sent: the program replays the moves with the same engine as `./engine.ts`.
  */
+import { protectionsPda } from "../../lib/chain/native";
 import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import {
@@ -269,6 +270,12 @@ export class BlockPuzzleChain {
     return this.sendBase(signer, [ix, session]);
   }
 
+  /** The Protections address of the Account that opened the Match (a Player on a Break or Self-Excluded cannot be joined or kept waiting). */
+  async openerProtections(matchId: bigint): Promise<PublicKey> {
+    const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
+    return protectionsPda(new PublicKey(Uint8Array.from(m.inner.a.player)));
+  }
+
   /** Seat 1 joins with an equal entry; for Block Puzzle also binds to the Session (one transaction). */
   async joinMatch(signer: ChainSigner, matchId: bigint, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
     const a = BlockPuzzleChain.addresses(matchId);
@@ -278,6 +285,7 @@ export class BlockPuzzleChain {
         playerAuthority: signer.publicKey,
         playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
         matchState: a.match,
+        openerProtections: await this.openerProtections(matchId),
       })
       .remainingAccounts(holdings.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })))
       .instruction();
@@ -514,7 +522,7 @@ export class BlockPuzzleChain {
     const remaining = await this.payoutAccounts(caller, matchId, "draw");
     const ix = await this.core.methods
       .refundMatch()
-      .accountsPartial({ caller: caller.publicKey, config: a.config, matchState: a.match })
+      .accountsPartial({ caller: caller.publicKey, config: a.config, matchState: a.match, openerProtections: await this.openerProtections(matchId) })
       .remainingAccounts(remaining)
       .instruction();
     return this.sendBase(caller, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);

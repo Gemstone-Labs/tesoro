@@ -103,6 +103,12 @@ pub struct JoinMatch<'info> {
         bump = match_state.bump
     )]
     pub match_state: Box<Account<'info, MatchState>>,
+    /// CHECK: the opener's Protections address; nobody joins a Match whose opener is away.
+    #[account(
+        seeds = [PROTECTIONS_SEED, match_state.inner.a.player.as_ref()],
+        bump
+    )]
+    pub opener_protections: UncheckedAccount<'info>,
 }
 
 pub(crate) fn join_match<'info>(
@@ -110,6 +116,7 @@ pub(crate) fn join_match<'info>(
 ) -> Result<()> {
     let player = ctx.accounts.player_account.key();
     let entry = ctx.accounts.match_state.inner.entry;
+    require_can_play(&ctx.accounts.opener_protections.to_account_info())?;
     count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let mut holdings = load_holdings(&player, ctx.remaining_accounts)?;
     let acct = &mut ctx.accounts.player_account.inner;
@@ -141,6 +148,12 @@ pub struct OpenMatchBacked<'info> {
         bump = player_account.bump
     )]
     pub player_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Player's Protections address; a Player who is away cannot be backed.
+    #[account(
+        seeds = [PROTECTIONS_SEED, player_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
@@ -154,6 +167,12 @@ pub struct OpenMatchBacked<'info> {
         constraint = backer_account.key().to_bytes() == offer.inner.backer @ TesoroError::InvalidAccount
     )]
     pub backer_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Backer's Protections address; a Backer who is away cannot fund a Match.
+    #[account(
+        seeds = [PROTECTIONS_SEED, backer_account.key().as_ref()],
+        bump
+    )]
+    pub backer_protections: UncheckedAccount<'info>,
     #[account(
         init,
         payer = player_authority,
@@ -175,6 +194,8 @@ pub(crate) fn open_match_backed<'info>(
         let config = &ctx.accounts.config;
         config.fee_terms(game_entry(config, &game)?)
     };
+    require_can_play(&ctx.accounts.protections.to_account_info())?;
+    require_can_play(&ctx.accounts.backer_protections.to_account_info())?;
     let side = consume_offer(
         &mut ctx.accounts.offer,
         &mut ctx.accounts.backer_account,
@@ -199,6 +220,12 @@ pub struct JoinMatchBacked<'info> {
         bump = player_account.bump
     )]
     pub player_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Player's Protections address; a Player who is away cannot be backed.
+    #[account(
+        seeds = [PROTECTIONS_SEED, player_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
@@ -212,12 +239,24 @@ pub struct JoinMatchBacked<'info> {
         constraint = backer_account.key().to_bytes() == offer.inner.backer @ TesoroError::InvalidAccount
     )]
     pub backer_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Backer's Protections address; a Backer who is away cannot fund a Match.
+    #[account(
+        seeds = [PROTECTIONS_SEED, backer_account.key().as_ref()],
+        bump
+    )]
+    pub backer_protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [MATCH_SEED, &match_state.id.to_le_bytes()],
         bump = match_state.bump
     )]
     pub match_state: Box<Account<'info, MatchState>>,
+    /// CHECK: the opener's Protections address; nobody joins a Match whose opener is away.
+    #[account(
+        seeds = [PROTECTIONS_SEED, match_state.inner.a.player.as_ref()],
+        bump
+    )]
+    pub opener_protections: UncheckedAccount<'info>,
 }
 
 pub(crate) fn join_match_backed<'info>(
@@ -227,6 +266,9 @@ pub(crate) fn join_match_backed<'info>(
         let m = &ctx.accounts.match_state.inner;
         (Pubkey::new_from_array(m.game), m.entry)
     };
+    require_can_play(&ctx.accounts.opener_protections.to_account_info())?;
+    require_can_play(&ctx.accounts.protections.to_account_info())?;
+    require_can_play(&ctx.accounts.backer_protections.to_account_info())?;
     let side = consume_offer(
         &mut ctx.accounts.offer,
         &mut ctx.accounts.backer_account,
@@ -344,6 +386,13 @@ pub struct RefundMatch<'info> {
         bump = match_state.bump
     )]
     pub match_state: Box<Account<'info, MatchState>>,
+    /// CHECK: the opener's Protections address. Optional: when the opener of a Match nobody joined
+    /// is on a Break or Self-Excluded, anyone may refund it at once.
+    #[account(
+        seeds = [PROTECTIONS_SEED, match_state.inner.a.player.as_ref()],
+        bump
+    )]
+    pub opener_protections: Option<UncheckedAccount<'info>>,
 }
 
 pub(crate) fn refund_match<'info>(
@@ -362,11 +411,18 @@ pub(crate) fn refund_match<'info>(
             Pubkey::find_program_address(&[ACCOUNT_SEED, caller.as_ref()], &crate::ID);
         opener.to_bytes() == m.a.player
     };
+    let opener_away = match (
+        &ctx.accounts.opener_protections,
+        m.status == MatchStatus::Open,
+    ) {
+        (Some(p), true) => is_away(&p.to_account_info())?,
+        _ => false,
+    };
     let payouts = ctx
         .accounts
         .match_state
         .inner
-        .refund(now()?, is_game || is_opener)
+        .refund(now()?, is_game || is_opener || opener_away)
         .map_err(core_err)?;
     credit_payouts(&payouts, ctx.remaining_accounts)
 }

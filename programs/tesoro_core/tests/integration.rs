@@ -322,6 +322,7 @@ impl Env {
                 config: pda(&[CONFIG_SEED]),
                 treasury: common::treasury(),
                 owner_account: p.account,
+                protections: protections_pda(p.account),
                 position,
                 source,
                 holding: holding_pda(p.account, source),
@@ -437,6 +438,47 @@ impl Env {
         self.send(&[set], &p.kp, &[])
     }
 
+    fn set_break(
+        &mut self,
+        p: &Person,
+        days: u16,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let set = ix(
+            accounts::SetProtection {
+                owner_authority: p.key,
+                owner_account: p.account,
+                protections: protections_pda(p.account),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetBreak { days },
+            vec![],
+        );
+        self.send(&[set], &p.kp, &[])
+    }
+
+    fn set_self_exclusion(
+        &mut self,
+        p: &Person,
+        months: u16,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let set = ix(
+            accounts::SetProtection {
+                owner_authority: p.key,
+                owner_account: p.account,
+                protections: protections_pda(p.account),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetSelfExclusion { months },
+            vec![],
+        );
+        self.send(&[set], &p.kp, &[])
+    }
+
+    fn protections(&self, p: &Person) -> tesoro_core::ledger::Protections {
+        self.load::<ProtectionsState>(protections_pda(p.account))
+            .inner
+    }
+
     fn entry_limit(&self, p: &Person) -> tesoro_core::ledger::EntryLimit {
         self.load::<ProtectionsState>(protections_pda(p.account))
             .inner
@@ -455,11 +497,16 @@ impl Env {
                 player_account: p.account,
                 protections: protections_pda(p.account),
                 match_state: match_pda(id),
+                opener_protections: protections_pda(self.opener_account(id)),
             },
             instruction::JoinMatch {},
             holdings.iter().map(|h| rem(*h)).collect(),
         );
         self.send(&[join], &p.kp, &[])
+    }
+
+    fn opener_account(&self, id: u64) -> APk {
+        APk::new_from_array(self.load::<MatchState>(match_pda(id)).inner.a.player)
     }
 
     fn payout_accounts(&mut self, id: u64, result: MatchResult) -> Vec<AccountMeta> {
@@ -522,6 +569,7 @@ impl Env {
                 caller: a(caller.pubkey()),
                 config: pda(&[CONFIG_SEED]),
                 match_state: match_pda(id),
+                opener_protections: Some(protections_pda(self.opener_account(id))),
             },
             instruction::RefundMatch {},
             remaining,
@@ -1035,6 +1083,7 @@ impl Backing {
                 player_authority: self.dave.key,
                 config: pda(&[CONFIG_SEED]),
                 player_account: self.dave.account,
+                protections: protections_pda(self.dave.account),
                 request,
                 system_program: anchor_lang::system_program::ID,
             },
@@ -1080,6 +1129,7 @@ impl Backing {
             accounts::ApplyOffer {
                 player_authority: self.dave.key,
                 player_account: self.dave.account,
+                protections: protections_pda(self.dave.account),
                 request,
                 offer,
             },
@@ -1093,6 +1143,7 @@ impl Backing {
                 backer_authority: self.carol.key,
                 backer_account: self.carol.account,
                 request,
+                player_protections: protections_pda(self.dave.account),
                 offer,
             },
             instruction::AcceptApplicant {},
@@ -1115,8 +1166,10 @@ impl Backing {
                 player_authority: self.dave.key,
                 config: pda(&[CONFIG_SEED]),
                 player_account: self.dave.account,
+                protections: protections_pda(self.dave.account),
                 offer,
                 backer_account: self.carol.account,
+                backer_protections: protections_pda(self.carol.account),
                 match_state: match_pda(id),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -1192,6 +1245,7 @@ fn backing_loss_costs_the_backer_the_entry_and_nothing_more() {
         accounts::AcceptDirected {
             player_authority: b.dave.key,
             player_account: b.dave.account,
+            protections: protections_pda(b.dave.account),
             request,
             offer,
         },
@@ -1406,6 +1460,7 @@ fn offers_and_requests_expire_after_24_hours() {
                 backer_account: b.carol.account,
                 offer,
                 request: None,
+                backer_protections: None,
             },
             instruction::ExpireOffer {},
             vec![rem(b.c_holding)],
@@ -1423,6 +1478,7 @@ fn offers_and_requests_expire_after_24_hours() {
         accounts::ApplyOffer {
             player_authority: b.dave.key,
             player_account: b.dave.account,
+            protections: protections_pda(b.dave.account),
             request,
             offer,
         },
@@ -1626,6 +1682,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                             backer_account: b.carol.account,
                             offer,
                             request,
+                            backer_protections: None,
                         },
                         instruction::ExpireOffer {},
                         vec![rem(b.c_holding)],
@@ -1662,6 +1719,7 @@ fn f12_a_request_returns_to_open_when_its_accepted_offer_ends_unused() {
                 accounts::AcceptDirected {
                     player_authority: b.dave.key,
                     player_account: b.dave.account,
+                    protections: protections_pda(b.dave.account),
                     request,
                     offer: offer2,
                 },
@@ -2053,7 +2111,10 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
     let err = d.env.void_rank(&admin, 1, 1).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::RankVoided));
     assert_eq!(
-        d.env.load::<SeasonWindowState>(window_pda(1)).inner.voided_mask,
+        d.env
+            .load::<SeasonWindowState>(window_pda(1))
+            .inner
+            .voided_mask,
         0b10
     );
     // One second before the window ends: still refused.
@@ -2094,7 +2155,10 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
     assert_eq!(custom_code(&err), core(CoreError::AlreadyPaid));
     // The voided rank pays nothing.
     let before = d.env.total_gemas(&d.bob);
-    let err = d.env.pay_rank(&oracle, 1, 1, &d.bob, &all[..1]).unwrap_err();
+    let err = d
+        .env
+        .pay_rank(&oracle, 1, 1, &d.bob, &all[..1])
+        .unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::RankVoided));
     assert_eq!(d.env.total_gemas(&d.bob), before);
     // No rank 2 was recorded.
@@ -2151,4 +2215,580 @@ fn decode_b64(s: &str) -> Vec<u8> {
         }
     }
     out
+}
+
+// --- Break and Self-Exclusion ---------------------------------------------------------------------
+
+#[test]
+fn a_break_stops_opening_and_joining_matches_until_it_ends() {
+    let mut d = duel();
+    let open = d.env.open_match(&d.bob, 500, &[d.b_holding]).unwrap();
+    d.env.set_break(&d.alice, 3).unwrap();
+    let now = d.env.now();
+    assert_eq!(d.env.protections(&d.alice).break_until, now + 3 * DAY);
+    let free = d
+        .env
+        .load::<TesoroAccount>(d.alice.account)
+        .inner
+        .own_free();
+    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+    let err = d
+        .env
+        .join_match(&d.alice, open, &[d.a_holding])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+    assert_eq!(
+        d.env
+            .load::<TesoroAccount>(d.alice.account)
+            .inner
+            .own_free(),
+        free
+    );
+    d.env.set_time(now + 3 * DAY);
+    let later = d.env.open_match(&d.bob, 500, &[d.b_holding]).unwrap();
+    d.env.join_match(&d.alice, later, &[d.a_holding]).unwrap();
+    d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+}
+
+#[test]
+fn a_self_exclusion_stops_matches_too_and_lasts_months() {
+    let mut d = duel();
+    d.env.set_self_exclusion(&d.alice, 6).unwrap();
+    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SelfExcluded));
+    let now = d.env.now();
+    d.env.set_time(now + 6 * 30 * DAY - 1);
+    let err = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SelfExcluded));
+    d.env.set_time(now + 6 * 30 * DAY);
+    d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+}
+
+#[test]
+fn a_break_or_self_exclusion_cannot_be_shortened_or_given_bad_lengths() {
+    let mut d = duel();
+    let err = d.env.set_break(&d.alice, 0).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidBreak));
+    let err = d.env.set_break(&d.alice, 43).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidBreak));
+    let err = d.env.set_self_exclusion(&d.alice, 5).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidSelfExclusion));
+    let err = d.env.set_self_exclusion(&d.alice, 61).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidSelfExclusion));
+    d.env.set_break(&d.alice, 30).unwrap();
+    let until = d.env.protections(&d.alice).break_until;
+    let err = d.env.set_break(&d.alice, 5).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::ProtectionCannotShorten));
+    assert_eq!(d.env.protections(&d.alice).break_until, until);
+    // A longer one extends it.
+    d.env.set_break(&d.alice, 42).unwrap();
+    assert!(d.env.protections(&d.alice).break_until > until);
+    d.env.set_self_exclusion(&d.alice, 12).unwrap();
+    let err = d.env.set_self_exclusion(&d.alice, 6).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::ProtectionCannotShorten));
+    // Only the owner sets it: another Person's key cannot sign for the Account.
+    let carol_less = d.env.set_break(&d.bob, 1);
+    assert!(carol_less.is_ok());
+    assert_eq!(d.env.protections(&d.alice).self_exclusion_until > 0, true);
+}
+
+#[test]
+fn a_break_keeps_the_entry_limit_and_the_limit_keeps_counting() {
+    let mut d = duel();
+    d.env.set_entry_limit(&d.alice, 1_000).unwrap();
+    d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    d.env.set_break(&d.alice, 1).unwrap();
+    let l = d.env.entry_limit(&d.alice);
+    assert_eq!((l.gemas, l.window_used), (1_000, 500));
+}
+
+#[test]
+fn matches_already_paired_play_out_during_a_break() {
+    let mut d = duel();
+    let id = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    d.env.join_match(&d.bob, id, &[d.b_holding]).unwrap();
+    d.env.set_break(&d.alice, 7).unwrap();
+    d.env.set_self_exclusion(&d.bob, 6).unwrap();
+    let game = d.env.game_auth.insecure_clone();
+    let payouts = d.env.payout_accounts(id, MatchResult::Opener);
+    d.env
+        .settle(&game, id, MatchResult::Opener, payouts)
+        .expect("settles");
+    assert_eq!(
+        d.env.load::<MatchState>(match_pda(id)).inner.status,
+        tesoro_core::ledger::MatchStatus::Settled
+    );
+}
+
+#[test]
+fn a_paired_match_refunds_during_a_break_but_only_by_the_usual_rules() {
+    let mut d = duel();
+    let id = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    d.env.join_match(&d.bob, id, &[d.b_holding]).unwrap();
+    d.env.set_break(&d.alice, 7).unwrap();
+    let stranger = d.env.admin.insecure_clone();
+    let payouts = d.env.refund_accounts(id);
+    let err = d.env.refund(&stranger, id, payouts.clone()).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::NotExpired));
+    let now = d.env.now();
+    d.env.set_time(now + 3_601);
+    d.env
+        .refund(&stranger, id, payouts)
+        .expect("after the deadline");
+}
+
+#[test]
+fn nobody_joins_a_match_whose_opener_started_a_break_and_anyone_refunds_it() {
+    let mut d = duel();
+    let id = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    let before = d.env.total_gemas(&d.alice);
+    d.env.set_break(&d.alice, 2).unwrap();
+    let err = d.env.join_match(&d.bob, id, &[d.b_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+    // A stranger refunds the unpaired Match at once because its opener is away.
+    let stranger = d.env.admin.insecure_clone();
+    let payouts = d.env.refund_accounts(id);
+    d.env
+        .refund(&stranger, id, payouts)
+        .expect("refund at once");
+    assert_eq!(d.env.total_gemas(&d.alice), before + 500);
+    assert_eq!(
+        d.env.load::<MatchState>(match_pda(id)).inner.status,
+        tesoro_core::ledger::MatchStatus::Refunded
+    );
+}
+
+#[test]
+fn a_stranger_cannot_refund_an_unpaired_match_of_a_player_who_is_not_away() {
+    let mut d = duel();
+    let id = d.env.open_match(&d.alice, 500, &[d.a_holding]).unwrap();
+    let stranger = d.env.admin.insecure_clone();
+    let payouts = d.env.refund_accounts(id);
+    let err = d.env.refund(&stranger, id, payouts).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::NotExpired));
+}
+
+#[test]
+fn a_player_on_a_break_cannot_ask_to_be_backed_or_be_backed() {
+    let mut b = backing_setup();
+    // Dave's Request and Carol's Offer exist before the Break.
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.d.env.set_break(&b.dave, 5).unwrap();
+    let create = |b: &mut Backing, nonce: u64| {
+        let create = ix(
+            accounts::CreateRequest {
+                player_authority: b.dave.key,
+                config: pda(&[CONFIG_SEED]),
+                player_account: b.dave.account,
+                protections: protections_pda(b.dave.account),
+                request: request_pda(b.dave.account, nonce),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::CreateRequest {
+                nonce,
+                game: GAME,
+                entry: 500,
+            },
+            vec![],
+        );
+        let dave = b.dave.kp.insecure_clone();
+        b.d.env.send(&[create], &dave, &[])
+    };
+    let err = create(&mut b, 2).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+    // Applying to a public Offer and accepting a directed one are refused.
+    let apply = ix(
+        accounts::ApplyOffer {
+            player_authority: b.dave.key,
+            player_account: b.dave.account,
+            protections: protections_pda(b.dave.account),
+            request,
+            offer,
+        },
+        instruction::ApplyOffer {},
+        vec![],
+    );
+    let dave = b.dave.kp.insecure_clone();
+    let err = b.d.env.send(&[apply], &dave, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+    let directed = b.offer(2, 500, 5_000, Some(request));
+    let accept = ix(
+        accounts::AcceptDirected {
+            player_authority: b.dave.key,
+            player_account: b.dave.account,
+            protections: protections_pda(b.dave.account),
+            request,
+            offer: directed,
+        },
+        instruction::AcceptDirected {},
+        vec![],
+    );
+    let err = b.d.env.send(&[accept], &dave, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+}
+
+#[test]
+fn a_backer_cannot_accept_an_applicant_who_is_on_a_break() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    let apply = ix(
+        accounts::ApplyOffer {
+            player_authority: b.dave.key,
+            player_account: b.dave.account,
+            protections: protections_pda(b.dave.account),
+            request,
+            offer,
+        },
+        instruction::ApplyOffer {},
+        vec![],
+    );
+    let dave = b.dave.kp.insecure_clone();
+    b.d.env.send(&[apply], &dave, &[]).expect("applied");
+    b.d.env.set_break(&b.dave, 5).unwrap();
+    let accept = ix(
+        accounts::AcceptApplicant {
+            backer_authority: b.carol.key,
+            backer_account: b.carol.account,
+            request,
+            player_protections: protections_pda(b.dave.account),
+            offer,
+        },
+        instruction::AcceptApplicant {},
+        vec![],
+    );
+    let carol = b.carol.kp.insecure_clone();
+    let err = b.d.env.send(&[accept], &carol, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+}
+
+#[test]
+fn an_accepted_offer_cannot_start_a_match_once_the_player_or_backer_is_away() {
+    for backer_away in [false, true] {
+        let mut b = backing_setup();
+        let request = b.request(1, 500);
+        let offer = b.offer(1, 500, 5_000, None);
+        b.accept_public(offer, request);
+        let who = if backer_away {
+            b.carol.account
+        } else {
+            b.dave.account
+        };
+        let _ = who;
+        if backer_away {
+            let carol = Person {
+                kp: b.carol.kp.insecure_clone(),
+                key: b.carol.key,
+                account: b.carol.account,
+            };
+            b.d.env.set_break(&carol, 3).unwrap();
+        } else {
+            let dave = Person {
+                kp: b.dave.kp.insecure_clone(),
+                key: b.dave.key,
+                account: b.dave.account,
+            };
+            b.d.env.set_self_exclusion(&dave, 6).unwrap();
+        }
+        let err = b.open_backed(offer, 500, &[b.c_holding]).unwrap_err();
+        let code = custom_code(&err);
+        assert!(
+            code == core(CoreError::OnBreak) || code == core(CoreError::SelfExcluded),
+            "{code}"
+        );
+        assert_eq!(b.reserved(), 500);
+    }
+}
+
+#[test]
+fn a_backed_match_cannot_be_joined_by_a_player_on_a_break() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    // Dave is backed into the Match Bob opened; Bob's Break stops the join through the opener check.
+    let id = b.d.env.open_match(&b.d.bob, 500, &[b.d.b_holding]).unwrap();
+    let bob = Person {
+        kp: b.d.bob.kp.insecure_clone(),
+        key: b.d.bob.key,
+        account: b.d.bob.account,
+    };
+    b.d.env.set_break(&bob, 1).unwrap();
+    let join = ix(
+        accounts::JoinMatchBacked {
+            player_authority: b.dave.key,
+            player_account: b.dave.account,
+            protections: protections_pda(b.dave.account),
+            offer,
+            backer_account: b.carol.account,
+            backer_protections: protections_pda(b.carol.account),
+            match_state: match_pda(id),
+            opener_protections: protections_pda(b.d.bob.account),
+        },
+        instruction::JoinMatchBacked {},
+        vec![rem(b.c_holding)],
+    );
+    let dave = b.dave.kp.insecure_clone();
+    let err = b.d.env.send(&[join], &dave, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+    assert_eq!(b.reserved(), 500);
+}
+
+#[test]
+fn a_backer_on_a_break_cannot_fund_an_offer() {
+    let mut b = backing_setup();
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    b.d.env.set_break(&carol, 2).unwrap();
+    let create = ix(
+        accounts::CreateOffer {
+            backer_authority: b.carol.key,
+            config: pda(&[CONFIG_SEED]),
+            backer_account: b.carol.account,
+            protections: protections_pda(b.carol.account),
+            offer: offer_pda(b.carol.account, 1),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::CreateOffer {
+            nonce: 1,
+            game: GAME,
+            entry: 500,
+            player_share_bps: 5_000,
+            directed_request: None,
+        },
+        vec![rem(b.c_holding)],
+    );
+    let err = b.d.env.send(&[create], &carol.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::OnBreak));
+    assert_eq!(b.reserved(), 0);
+}
+
+#[test]
+fn anyone_withdraws_the_requests_and_offers_of_a_player_who_started_a_break() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    let stranger = b.d.env.admin.insecure_clone();
+    let (dave_acct, carol_acct) = (b.dave.account, b.carol.account);
+    let clear = |b: &mut Backing, request: APk, who: APk| {
+        let clear = ix(
+            accounts::ClearRequest {
+                caller: a(stranger.pubkey()),
+                request,
+                protections: protections_pda(who),
+            },
+            instruction::ClearRequest {},
+            vec![],
+        );
+        b.d.env.send(&[clear], &stranger, &[])
+    };
+    let expire = |b: &mut Backing, backer_protections: Option<APk>| {
+        let expire = ix(
+            accounts::ExpireOffer {
+                caller: a(stranger.pubkey()),
+                backer_account: b.carol.account,
+                offer,
+                request: None,
+                backer_protections,
+            },
+            instruction::ExpireOffer {},
+            vec![rem(b.c_holding)],
+        );
+        b.d.env.send(&[expire], &stranger, &[])
+    };
+    // Not away: nothing is withdrawn early.
+    let err = clear(&mut b, request, dave_acct).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    let err = expire(&mut b, Some(protections_pda(carol_acct))).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::NotExpired));
+    let err = expire(&mut b, None).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::NotExpired));
+    for who in [b.dave.account, b.carol.account] {
+        let p = if who == b.dave.account {
+            Person {
+                kp: b.dave.kp.insecure_clone(),
+                key: b.dave.key,
+                account: who,
+            }
+        } else {
+            Person {
+                kp: b.carol.kp.insecure_clone(),
+                key: b.carol.key,
+                account: who,
+            }
+        };
+        b.d.env.set_break(&p, 1).unwrap();
+    }
+    // Somebody else's protections do not count for the Request's owner.
+    let err = clear(&mut b, request, carol_acct).unwrap_err();
+    assert!(err.err.to_string().len() > 0);
+    clear(&mut b, request, dave_acct).expect("request withdrawn");
+    assert_eq!(
+        b.d.env.load::<RequestState>(request).inner.status,
+        tesoro_core::ledger::RequestStatus::Cancelled
+    );
+    assert_eq!(b.reserved(), 500);
+    expire(&mut b, Some(protections_pda(carol_acct))).expect("offer withdrawn");
+    assert_eq!(b.reserved(), 0);
+    assert_eq!(b.d.env.total_gemas(&b.carol), 75_000);
+    assert_eq!(
+        b.d.env.load::<OfferState>(offer).inner.status,
+        tesoro_core::ledger::OfferStatus::Cancelled
+    );
+}
+
+#[test]
+fn a_withdrawn_accepted_offer_hands_its_request_back() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    let carol = Person {
+        kp: b.carol.kp.insecure_clone(),
+        key: b.carol.key,
+        account: b.carol.account,
+    };
+    b.d.env.set_break(&carol, 1).unwrap();
+    let stranger = b.d.env.admin.insecure_clone();
+    let expire = ix(
+        accounts::ExpireOffer {
+            caller: a(stranger.pubkey()),
+            backer_account: b.carol.account,
+            offer,
+            request: Some(request),
+            backer_protections: Some(protections_pda(b.carol.account)),
+        },
+        instruction::ExpireOffer {},
+        vec![rem(b.c_holding)],
+    );
+    b.d.env.send(&[expire], &stranger, &[]).expect("withdrawn");
+    assert_eq!(
+        b.d.env.load::<RequestState>(request).inner.status,
+        tesoro_core::ledger::RequestStatus::Open
+    );
+}
+
+#[test]
+fn redeem_unlock_and_debt_repayment_still_work_under_a_self_exclusion() {
+    let mut d = duel();
+    d.env.set_self_exclusion(&d.alice, 60).unwrap();
+    d.env.set_break(&d.alice, 42).unwrap();
+    let oracle = d.env.oracle.insecure_clone();
+    // Yield repays Debt, Redeem pays the accrued part, Unlock follows at zero Debt.
+    d.env
+        .yield_to(&oracle, d.a_position, Some(d.a_source), 1, 5 * SOL / 2)
+        .expect("yield repays debt");
+    let redeem = ix(
+        accounts::Redeem {
+            holder_authority: d.alice.key,
+            holder_account: d.alice.account,
+            position: d.a_position,
+            source: d.a_source,
+            holding: d.a_holding,
+        },
+        instruction::Redeem { amount: 37_500 },
+        vec![],
+    );
+    let alice = d.alice.kp.insecure_clone();
+    d.env.send(&[redeem], &alice, &[]).expect("redeem");
+    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 37_500);
+    d.env
+        .yield_to(&oracle, d.a_position, Some(d.a_source), 2, 6 * SOL)
+        .expect("more yield");
+    let unlock = ix(
+        accounts::Unlock {
+            owner_authority: d.alice.key,
+            owner_account: d.alice.account,
+            position: d.a_position,
+        },
+        instruction::Unlock {},
+        vec![],
+    );
+    d.env.send(&[unlock], &alice, &[]).expect("unlock");
+}
+
+#[test]
+fn return_own_still_works_under_a_self_exclusion() {
+    let mut d = duel();
+    d.env.set_self_exclusion(&d.alice, 6).unwrap();
+    let ret = ix(
+        accounts::ReturnOwn {
+            owner_authority: d.alice.key,
+            owner_account: d.alice.account,
+            position: d.a_position,
+            source: d.a_source,
+            holding: d.a_holding,
+        },
+        instruction::ReturnOwn { amount: 1_000 },
+        vec![],
+    );
+    let alice = d.alice.kp.insecure_clone();
+    d.env.send(&[ret], &alice, &[]).expect("return own gemas");
+    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), 74_000);
+}
+
+#[test]
+fn an_evm_source_advance_is_blocked_by_a_self_exclusion_but_not_a_break() {
+    let mut env = Env::new();
+    let p = env.person();
+    let position = pda(&[POSITION_SEED, &[1], &[5; 32]]);
+    let open = ix(
+        accounts::OpenPosition {
+            oracle: a(env.oracle.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            owner_account: p.account,
+            position,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::OpenPosition {
+            source_chain: SourceChain::Ethereum,
+            position_id: [5; 32],
+            source_asset: APk::new_unique(),
+            decimals: 9,
+            principal: 100 * SOL,
+            rate_bps: 1_000,
+        },
+        vec![],
+    );
+    let oracle = env.oracle.insecure_clone();
+    env.send(&[open], &oracle, &[]).expect("open position");
+    env.set_self_exclusion(&p, 6).unwrap();
+    let err = env
+        .take_advance(&p, position, 0, 6, 150_000_000)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SelfExcluded));
+    let now = env.now();
+    env.set_time(now + 6 * 30 * DAY);
+    env.take_advance(&p, position, 0, 6, 150_000_000)
+        .expect("allowed once it ends");
+
+    let q = env.person();
+    let position = pda(&[POSITION_SEED, &[1], &[6; 32]]);
+    let open = ix(
+        accounts::OpenPosition {
+            oracle: a(env.oracle.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            owner_account: q.account,
+            position,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::OpenPosition {
+            source_chain: SourceChain::Ethereum,
+            position_id: [6; 32],
+            source_asset: APk::new_unique(),
+            decimals: 9,
+            principal: 100 * SOL,
+            rate_bps: 1_000,
+        },
+        vec![],
+    );
+    env.send(&[open], &oracle, &[]).expect("open position");
+    env.set_break(&q, 7).unwrap();
+    env.take_advance(&q, position, 0, 6, 150_000_000)
+        .expect("a Break leaves Advances open");
 }

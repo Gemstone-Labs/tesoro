@@ -69,6 +69,8 @@ const DISC = {
   redeem_treasury: "109798e01b5bb9cd",
   set_extend_limit: "419bcc697b0524a5",
   set_entry_limit: "cc4136e274f40291",
+  set_break: "b14fb7a634797308",
+  set_self_exclusion: "91693682c05e403c",
   open_stake_pool_position: "e58b6d3d23f9cad3",
   accrue_stake_pool_yield: "f4704f80b8f6a423",
   set_token_apy: "34cd6ebb705abe74",
@@ -255,6 +257,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
       [
         meta(owner, true, true),
         meta(accountPda(owner), true),
+        meta(protectionsPda(accountPda(owner))),
         meta(position, true),
         meta(onchainPricePda(mint)),
         meta(pythFeedAddress("SOL")),
@@ -272,6 +275,7 @@ export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advan
     [
       meta(owner, true, true),
       meta(accountPda(owner), true),
+      meta(protectionsPda(accountPda(owner))),
       meta(position, true),
       meta(mint ? pda([s("price"), mint.toBuffer()]) : PRICE_FEED),
       meta(treasuryPda()),
@@ -294,6 +298,7 @@ export function extendNativeAdvanceIx(owner: PublicKey, position: PublicKey, sou
     [
       meta(owner, true, true),
       meta(accountPda(owner), true),
+      meta(protectionsPda(accountPda(owner))),
       meta(position, true),
       meta(treasuryPda()),
       meta(src, true),
@@ -323,6 +328,28 @@ export const setEntryLimitIx = (owner: PublicKey, gemas: number | bigint) =>
     [meta(owner, true, true), meta(accountPda(owner)), meta(protectionsPda(accountPda(owner)), true), meta(SystemProgram.programId)],
     "set_entry_limit",
     u64(gemas),
+  );
+
+const u16 = (n: number) => {
+  const b = Buffer.alloc(2);
+  view(b).setUint16(0, n, true);
+  return b;
+};
+
+/** Starts a Break of 1 to 42 days, or lengthens the one running. It cannot be ended or shortened. */
+export const setBreakIx = (owner: PublicKey, days: number) =>
+  core(
+    [meta(owner, true, true), meta(accountPda(owner)), meta(protectionsPda(accountPda(owner)), true), meta(SystemProgram.programId)],
+    "set_break",
+    u16(days),
+  );
+
+/** Starts a Self-Exclusion of 6 to 60 months (30 days each), or lengthens the one running. It cannot be ended or shortened. */
+export const setSelfExclusionIx = (owner: PublicKey, months: number) =>
+  core(
+    [meta(owner, true, true), meta(accountPda(owner)), meta(protectionsPda(accountPda(owner)), true), meta(SystemProgram.programId)],
+    "set_self_exclusion",
+    u16(months),
   );
 
 /** Permissionless; mints the Yield Fee into the treasury vault. `openAdvance` is the Position's open Advance index, if any (the optional account). */

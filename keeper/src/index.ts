@@ -1,6 +1,7 @@
 import { Budget, log, runJob, type Ctx } from "./act.ts";
 import { stakeApyJob } from "./apy.ts";
 import { alertsJob } from "./alerts-job.ts";
+import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
 import { NETS, checkEvmAtStart, ethYieldJob } from "./eth.ts";
@@ -29,6 +30,7 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
     ...(priceJobEnabled() ? ([["price", priceJob]] as [string, (c: Ctx) => Promise<number>][]) : []),
     ["match", matchHygiene],
     ["backing", backingHygiene],
+    ["away", awayCleanup],
     ["apy", stakeApyJob],
     ["yield", yieldJob],
     ["bridge", bridgeJob],

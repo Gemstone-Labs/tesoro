@@ -528,6 +528,20 @@ impl ProtectionsState {
 }
 
 #[event]
+pub struct BreakSet {
+    pub account: Pubkey,
+    /// When the Break ends (unix seconds).
+    pub until: i64,
+}
+
+#[event]
+pub struct SelfExclusionSet {
+    pub account: Pubkey,
+    /// When the Self-Exclusion ends (unix seconds).
+    pub until: i64,
+}
+
+#[event]
 pub struct EntryLimitSet {
     pub account: Pubkey,
     /// The limit in force after the change, in Gemas (zero = off).

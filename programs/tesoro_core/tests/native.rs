@@ -471,6 +471,7 @@ impl Env {
             accounts::TakeNativeAdvance {
                 owner_authority: p.key,
                 owner_account: p.account,
+                protections: pda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position: pos.position,
                 price_feed: feed,
                 treasury: pda(&[TREASURY_SEED]),
@@ -484,6 +485,36 @@ impl Env {
             self.apy_remaining(pos),
         );
         self.send(&[advance], &p.kp, &[]).map(|_| source)
+    }
+
+    fn protect(&mut self, p: &Person, ix_data: Vec<u8>) -> Result<(), Failed> {
+        let set = Instruction {
+            program_id: s(tesoro_core::ID),
+            accounts: accounts::SetProtection {
+                owner_authority: p.key,
+                owner_account: p.account,
+                protections: pda(&[PROTECTIONS_SEED, p.account.as_ref()]),
+                system_program: anchor_lang::system_program::ID,
+            }
+            .to_account_metas(None)
+            .into_iter()
+            .map(|m| AccountMeta {
+                pubkey: s(m.pubkey),
+                is_signer: m.is_signer,
+                is_writable: m.is_writable,
+            })
+            .collect(),
+            data: ix_data,
+        };
+        self.send(&[set], &p.kp, &[])
+    }
+
+    fn take_break(&mut self, p: &Person, days: u16) -> Result<(), Failed> {
+        self.protect(p, instruction::SetBreak { days }.data())
+    }
+
+    fn self_exclude(&mut self, p: &Person, months: u16) -> Result<(), Failed> {
+        self.protect(p, instruction::SetSelfExclusion { months }.data())
     }
 
     fn extend_limit(&self, p: &Person) -> APk {
@@ -515,6 +546,7 @@ impl Env {
             accounts::ExtendNativeAdvance {
                 owner_authority: p.key,
                 owner_account: p.account,
+                protections: pda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position: pos.position,
                 treasury: pda(&[TREASURY_SEED]),
                 source,
@@ -742,6 +774,7 @@ fn only_the_owner_takes_an_advance() {
         accounts::TakeNativeAdvance {
             owner_authority: mallory.key,
             owner_account: mallory.account,
+            protections: pda(&[PROTECTIONS_SEED, mallory.account.as_ref()]),
             position: pos.position,
             price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
             treasury: pda(&[TREASURY_SEED]),
@@ -3539,6 +3572,7 @@ fn no_ceiling_means_no_stake_pool_advance_and_the_apy_account_cannot_be_left_out
         accounts::TakeNativeAdvance {
             owner_authority: alice.key,
             owner_account: alice.account,
+            protections: pda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
             position: pos.position,
             price_feed: pda(&[PRICE_SEED, mint.as_ref()]),
             treasury: pda(&[TREASURY_SEED]),
@@ -3634,6 +3668,7 @@ impl Env {
             accounts::TakeNativeAdvanceOnchain {
                 owner_authority: p.key,
                 owner_account: p.account,
+                protections: pda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position: pos.position,
                 onchain_price: onchain_price_pda(asset),
                 price_feed: feed,
@@ -3673,6 +3708,14 @@ fn priced_env() -> (Env, Jito, Person, Pos, APk) {
     put_feed(&mut env, feed, PYTH_SOL_USD, FEED_150, 5_000_000, now);
     map_price(&mut env, jito.mint, feed, PYTH_SOL_USD).expect("map");
     (env, jito, alice, pos, feed)
+}
+
+#[test]
+fn a_self_excluded_owner_takes_no_feed_priced_advance() {
+    let (mut env, _jito, alice, pos, feed) = priced_env();
+    env.self_exclude(&alice, 6).unwrap();
+    let err = env.advance_onchain(&alice, pos, feed, 1).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::SelfExcluded));
 }
 
 #[test]
@@ -3857,6 +3900,7 @@ fn evm_advance_ix(
                 config: pda(&[CONFIG_SEED]),
                 treasury: pda(&[TREASURY_SEED]),
                 owner_account: p.account,
+                protections: pda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position,
                 onchain_price: onchain_price_pda(asset),
                 price_feed: feed,
@@ -3874,6 +3918,7 @@ fn evm_advance_ix(
                 config: pda(&[CONFIG_SEED]),
                 treasury: pda(&[TREASURY_SEED]),
                 owner_account: p.account,
+                protections: pda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position,
                 source,
                 holding,
@@ -3922,4 +3967,49 @@ fn once_mapped_the_oracle_cannot_name_the_price_of_an_evm_advance() {
     let source = pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
     // 10 ETH at 4% for 3 months = 0.1 ETH, 80% = 0.08 ETH at $3,000 = 24,000 cents.
     assert_eq!(env.load::<SourceState>(source).inner.issued, 24_000);
+}
+
+#[test]
+fn a_self_exclusion_stops_new_and_extended_advances_but_a_break_does_not() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let pos = env.open(&alice, 2 * SOL).unwrap();
+    env.take_break(&alice, 7).unwrap();
+    let source = env
+        .advance_native(&alice, pos, 3)
+        .expect("a Break leaves Advances open");
+    let first = env.gemas(&alice, source);
+    env.give_won(&alice, &bob, source, first);
+    env.advance(MONTH);
+    env.crank(&alice.kp, pos).unwrap();
+    env.extend_native(&alice, pos, source, 1)
+        .expect("a Break leaves Extends open");
+
+    env.self_exclude(&alice, 6).unwrap();
+    env.advance(DAY);
+    let err = env.extend_native(&alice, pos, source, 1).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::SelfExcluded));
+    let carol = env.staker();
+    let pos2 = env.open(&alice, SOL).expect("locking still works");
+    let err = env.advance_native(&alice, pos2, 3).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::SelfExcluded));
+    // Another Player's Self-Exclusion changes nothing for them.
+    env.set_price(PRICE).unwrap();
+    let pos3 = env.open(&carol, SOL).unwrap();
+    env.advance_native(&carol, pos3, 3).unwrap();
+}
+
+#[test]
+fn repayment_unlock_and_sweep_work_during_a_self_exclusion() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let pos = env.open(&alice, 2 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    env.self_exclude(&alice, 6).unwrap();
+    env.advance(MONTH + 1);
+    env.crank(&alice.kp, pos).expect("the crank repays Debt");
+    assert_eq!(env.debt(source), 0);
+    env.unlock(&alice, pos).expect("unlock");
+    env.sweep(&alice, pos).expect("sweep");
 }
