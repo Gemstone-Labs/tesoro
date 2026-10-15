@@ -1524,9 +1524,11 @@ fn put_core_treasury(svm: &mut litesvm::LiteSVM) {
         instant_fee_bps: 3_500,
         account: Default::default(),
         vault: Default::default(),
-        fee_units: 0,
+        fee_minted: 0,
         instant_units: 0,
         funded_shares: 0,
+        withdrawn_units: 0,
+        company: Default::default(),
     };
     let mut data = Vec::new();
     anchor_lang::AccountSerialize::try_serialize(&treasury, &mut data).expect("serialize");

@@ -271,8 +271,9 @@ impl NativeCustody {
 }
 
 /// Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the
-/// `NativeCustody` pool totals (ADR 0010; withdrawing it is ticket 04), it pays Solana Instant
-/// Redeems from `vault`, and holds the Gemas it bought in `account`, a
+/// `NativeCustody` pool totals (ADR 0010) and minted lazily: its balance is the unminted fee
+/// (`earned_fee - fee_minted`) plus the simSOL in `vault`. It pays Solana Instant Redeems and
+/// `withdraw_treasury` from `vault` first, then by minting the shortfall out of the unminted fee, and holds the Gemas it bought in `account`, a
 /// `TesoroAccount` whose authority is this PDA. Seeds `["treasury"]`. Its fee rates apply on every
 /// chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source.
 #[account]
@@ -288,16 +289,21 @@ pub struct Treasury {
     pub account: Pubkey,
     /// simSOL token account (`["treasury_vault"]`), authority = this PDA.
     pub vault: Pubkey,
-    /// Unused since the Yield Fee is computed, not minted per crank; kept so the layout stays put.
-    pub fee_units: u64,
+    /// SOL units of earned Yield Fee already minted out as simSOL (to a withdrawal or an Instant
+    /// Redeem payout). Never above `PoolTotals::earned_fee`; the difference is the unminted fee.
+    pub fee_minted: u64,
     /// SOL units paid out by Solana Instant Redeems, cumulative.
     pub instant_units: u64,
     /// simSOL shares the admin funded the vault with, cumulative.
     pub funded_shares: u64,
+    /// SOL units withdrawn to the company wallet, cumulative.
+    pub withdrawn_units: u64,
+    /// The wallet whose simSOL account `withdraw_treasury` pays; unset (default) refuses.
+    pub company: Pubkey,
 }
 
 impl Treasury {
-    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8;
+    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32;
 }
 
 /// SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority
@@ -423,6 +429,16 @@ pub struct InstantRedeemed {
     pub gemas: u64,
     pub source_units: u64,
     pub payout_units: u64,
+}
+
+/// The admin withdrew `units` SOL (`shares` simSOL, `minted_units` of it freshly minted from the
+/// earned Yield Fee) to the company wallet.
+#[event]
+pub struct TreasuryWithdrawn {
+    pub company: Pubkey,
+    pub units: u64,
+    pub shares: u64,
+    pub minted_units: u64,
 }
 
 #[event]
