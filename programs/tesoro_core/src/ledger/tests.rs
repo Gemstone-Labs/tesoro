@@ -2090,10 +2090,7 @@ fn a_rank_is_paid_only_after_the_window_and_can_be_voided_inside_it() {
     assert_eq!(w.check_pay(2, opens), Ok(()));
 
     // Too late once the window has passed; a paid rank cannot be voided.
-    assert_eq!(
-        w.void(&season, 0, opens),
-        Err(CoreError::PayoutWindowClosed)
-    );
+    assert_eq!(w.void(&season, 0, opens), Err(CoreError::PayoutWindowClosed));
     let mut paid = season.clone();
     paid.pay(2).unwrap();
     assert_eq!(w.void(&paid, 2, end + 70), Err(CoreError::AlreadyPaid));
