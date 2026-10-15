@@ -2369,9 +2369,7 @@ fn a_position_keeps_its_token_after_the_active_token_changes() {
     assert_eq!(env.load::<SolSource>(sol_source()).mint, other_mint);
 
     // The new token is not what an opening with the old pool carries.
-    let err = open_with_source(&mut env, &bob, SOL)
-        .err()
-        .expect("refused");
+    let err = open_with_source(&mut env, &bob, SOL).expect_err("refused");
     assert_eq!(code(&err), ERR_INVALID_MINT);
     // The oracle cannot register the new token as a Solana Position either.
     let nonce = 9u8;
@@ -2770,7 +2768,7 @@ fn a_real_token_cannot_open_without_the_setting_the_pool_or_a_published_apy() {
     // The legacy open cannot carry it, with the setting or without.
     let (legacy, _) = env.open_ix_with(&alice, 90, SOL, env.pool, mint);
     assert_eq!(
-        code(&env.send(&[legacy.clone()], &alice.kp, &[]).unwrap_err()),
+        code(&env.send(&std::slice::from_ref(&legacy), &alice.kp, &[]).unwrap_err()),
         ERR_INVALID_MINT
     );
     set_sol_source(&mut env, mint, jito.pool).unwrap();
@@ -3087,7 +3085,7 @@ fn the_treasury_redeems_what_it_bought_into_its_vault_of_the_token() {
         ],
     );
     let payer = env.person();
-    env.send(&[redeem.clone()], &payer.kp, &[]).expect("redeem");
+    env.send(&std::slice::from_ref(&redeem), &payer.kp, &[]).expect("redeem");
     assert!(env.token_balance(vault) > before);
 
     // Only its own vault of the token: the simSOL vault is refused.

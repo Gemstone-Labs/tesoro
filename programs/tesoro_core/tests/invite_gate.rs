@@ -3,7 +3,7 @@
 #![allow(clippy::result_large_err)]
 
 use anchor_lang::prelude::Pubkey as APk;
-use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
+use anchor_lang::{InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey as Pk;
