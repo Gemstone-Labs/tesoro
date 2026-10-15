@@ -192,6 +192,14 @@ pub mod tesoro_core {
         instructions::native::set_entry_limit(ctx, gemas)
     }
 
+    pub fn set_break(ctx: Context<SetProtection>, days: u16) -> Result<()> {
+        instructions::native::set_break(ctx, days)
+    }
+
+    pub fn set_self_exclusion(ctx: Context<SetProtection>, months: u16) -> Result<()> {
+        instructions::native::set_self_exclusion(ctx, months)
+    }
+
     pub fn accrue_native_yield(ctx: Context<AccrueNativeYield>) -> Result<()> {
         instructions::native::accrue_native_yield(ctx)
     }
@@ -408,6 +416,10 @@ pub mod tesoro_core {
             player_share_bps,
             directed_request,
         )
+    }
+
+    pub fn clear_request(ctx: Context<ClearRequest>) -> Result<()> {
+        instructions::backing::clear_request(ctx)
     }
 
     pub fn accept_directed(ctx: Context<AcceptDirected>) -> Result<()> {

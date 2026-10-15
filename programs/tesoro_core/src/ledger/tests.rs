@@ -2069,3 +2069,99 @@ fn protections_keep_a_fixed_size_with_room_for_break_and_self_exclusion() {
     assert_eq!(p.try_to_vec().unwrap().len(), Protections::SPACE);
     assert_eq!((p.break_until, p.self_exclusion_until), (0, 0));
 }
+
+// --- Break and Self-Exclusion -------------------------------------------------------------------
+
+#[test]
+fn no_protection_blocks_anything() {
+    let p = Protections::default();
+    assert_eq!(p.check_play(T), Ok(()));
+    assert_eq!(p.check_advance(T), Ok(()));
+    assert!(!p.away(T));
+}
+
+#[test]
+fn a_break_blocks_play_until_it_ends_but_not_advances() {
+    let mut p = Protections::default();
+    p.set_break(T, 3).unwrap();
+    assert_eq!(p.break_until, T + 3 * DAY);
+    assert_eq!(p.check_play(T + 3 * DAY - 1), Err(CoreError::OnBreak));
+    assert_eq!(p.check_advance(T + 1), Ok(()));
+    assert!(p.away(T + 1));
+    assert_eq!(p.check_play(T + 3 * DAY), Ok(()));
+    assert!(!p.away(T + 3 * DAY));
+}
+
+#[test]
+fn a_self_exclusion_blocks_play_and_advances() {
+    let mut p = Protections::default();
+    p.set_self_exclusion(T, 6).unwrap();
+    assert_eq!(p.self_exclusion_until, T + 180 * DAY);
+    assert_eq!(p.check_play(T + 1), Err(CoreError::SelfExcluded));
+    assert_eq!(p.check_advance(T + 1), Err(CoreError::SelfExcluded));
+    assert_eq!(p.check_play(T + 180 * DAY), Ok(()));
+    assert_eq!(p.check_advance(T + 180 * DAY), Ok(()));
+}
+
+#[test]
+fn a_break_is_one_to_forty_two_days() {
+    let mut p = Protections::default();
+    assert_eq!(p.set_break(T, 0), Err(CoreError::InvalidBreak));
+    assert_eq!(p.set_break(T, 43), Err(CoreError::InvalidBreak));
+    p.set_break(T, 1).unwrap();
+    p.set_break(T, 42).unwrap();
+    assert_eq!(p.break_until, T + 42 * DAY);
+}
+
+#[test]
+fn a_self_exclusion_is_six_to_sixty_months() {
+    let mut p = Protections::default();
+    assert_eq!(
+        p.set_self_exclusion(T, 5),
+        Err(CoreError::InvalidSelfExclusion)
+    );
+    assert_eq!(
+        p.set_self_exclusion(T, 61),
+        Err(CoreError::InvalidSelfExclusion)
+    );
+    p.set_self_exclusion(T, 60).unwrap();
+    assert_eq!(p.self_exclusion_until, T + 1_800 * DAY);
+}
+
+#[test]
+fn a_break_or_self_exclusion_cannot_end_earlier() {
+    let mut p = Protections::default();
+    p.set_break(T, 10).unwrap();
+    let before = p;
+    assert_eq!(
+        p.set_break(T + DAY, 2),
+        Err(CoreError::ProtectionCannotShorten)
+    );
+    assert_eq!(p, before);
+    p.set_break(T + DAY, 10).unwrap();
+    assert_eq!(p.break_until, T + 11 * DAY);
+    p.set_self_exclusion(T, 12).unwrap();
+    assert_eq!(
+        p.set_self_exclusion(T + DAY, 6),
+        Err(CoreError::ProtectionCannotShorten)
+    );
+}
+
+#[test]
+fn a_new_break_can_follow_an_ended_one_and_is_independent_of_self_exclusion() {
+    let mut p = Protections::default();
+    p.set_break(T, 1).unwrap();
+    p.set_break(T + 5 * DAY, 1).unwrap();
+    assert_eq!(p.break_until, T + 6 * DAY);
+    assert_eq!(p.self_exclusion_until, 0);
+    p.set_self_exclusion(T, 6).unwrap();
+    assert_eq!(p.break_until, T + 6 * DAY);
+}
+
+#[test]
+fn protections_keep_the_entry_limit_when_a_break_is_set() {
+    let mut p = Protections::default();
+    p.entry_limit.set_limit(T, 1_000).unwrap();
+    p.set_break(T, 7).unwrap();
+    assert_eq!(p.entry_limit.effective(T), 1_000);
+}

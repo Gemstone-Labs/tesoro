@@ -77,6 +77,34 @@
           }
         },
         {
+          "name": "player_protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.inner.player",
+                "account": "RequestState"
+              }
+            ]
+          }
+        },
+        {
           "name": "offer",
           "writable": true,
           "pda": {
@@ -143,6 +171,33 @@
               {
                 "kind": "account",
                 "path": "player_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
               }
             ]
           }
@@ -561,6 +616,33 @@
               {
                 "kind": "account",
                 "path": "player_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
               }
             ]
           }
@@ -1008,6 +1090,84 @@
       ]
     },
     {
+      "name": "clear_request",
+      "discriminator": [
+        205,
+        190,
+        204,
+        164,
+        128,
+        146,
+        197,
+        235
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.inner.player",
+                "account": "RequestState"
+              },
+              {
+                "kind": "account",
+                "path": "request.nonce",
+                "account": "RequestState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.inner.player",
+                "account": "RequestState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_account",
       "discriminator": [
         99,
@@ -1270,6 +1430,33 @@
           }
         },
         {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
           "name": "request",
           "writable": true,
           "pda": {
@@ -1420,6 +1607,38 @@
               }
             ]
           }
+        },
+        {
+          "name": "backer_protections",
+          "docs": [
+            "Self-Excluded, anyone may withdraw their unused Offer at once."
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.inner.backer",
+                "account": "OfferState"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -1528,6 +1747,33 @@
               {
                 "kind": "account",
                 "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
               }
             ]
           }
@@ -2651,6 +2897,34 @@
               }
             ]
           }
+        },
+        {
+          "name": "opener_protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.a.player",
+                "account": "MatchState"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -2691,6 +2965,33 @@
               {
                 "kind": "account",
                 "path": "player_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
               }
             ]
           }
@@ -2749,6 +3050,33 @@
           }
         },
         {
+          "name": "backer_protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
+              }
+            ]
+          }
+        },
+        {
           "name": "match_state",
           "writable": true,
           "pda": {
@@ -2766,6 +3094,34 @@
               {
                 "kind": "account",
                 "path": "match_state.id",
+                "account": "MatchState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "opener_protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.a.player",
                 "account": "MatchState"
               }
             ]
@@ -3154,6 +3510,33 @@
           }
         },
         {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player_account"
+              }
+            ]
+          }
+        },
+        {
           "name": "offer",
           "writable": true,
           "pda": {
@@ -3202,6 +3585,33 @@
                 "kind": "account",
                 "path": "backer_account.authority",
                 "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "backer_protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "backer_account"
               }
             ]
           }
@@ -4557,6 +4967,38 @@
               }
             ]
           }
+        },
+        {
+          "name": "opener_protections",
+          "docs": [
+            "is on a Break or Self-Excluded, anyone may refund it at once."
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.a.player",
+                "account": "MatchState"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -4899,6 +5341,87 @@
         {
           "name": "new_admin",
           "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_break",
+      "discriminator": [
+        177,
+        79,
+        183,
+        166,
+        52,
+        121,
+        115,
+        8
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "days",
+          "type": "u16"
         }
       ]
     },
@@ -5471,6 +5994,87 @@
       ]
     },
     {
+      "name": "set_self_exclusion",
+      "discriminator": [
+        145,
+        105,
+        54,
+        130,
+        192,
+        94,
+        64,
+        60
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "months",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "set_sol_source",
       "docs": [
         "Admin: the token new Solana-native Positions open with (existing Positions keep theirs)."
@@ -5687,6 +6291,89 @@
       "args": [
         {
           "name": "apy_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "set_token_apy_ceiling",
+      "docs": [
+        "Admin: the ceiling on the APY a staking token's Advances are sized on."
+      ],
+      "discriminator": [
+        4,
+        10,
+        80,
+        252,
+        224,
+        215,
+        217,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_apy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  95,
+                  97,
+                  112,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "ceiling_bps",
           "type": "u16"
         }
       ]
@@ -5937,6 +6624,33 @@
           }
         },
         {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
           "name": "position",
           "writable": true
         },
@@ -6050,6 +6764,33 @@
               {
                 "kind": "account",
                 "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
               }
             ]
           }
@@ -6584,6 +7325,19 @@
       ]
     },
     {
+      "name": "BreakSet",
+      "discriminator": [
+        29,
+        116,
+        120,
+        35,
+        200,
+        75,
+        195,
+        104
+      ]
+    },
+    {
       "name": "EntryLimitSet",
       "discriminator": [
         190,
@@ -6753,6 +7507,19 @@
       ]
     },
     {
+      "name": "SelfExclusionSet",
+      "discriminator": [
+        197,
+        238,
+        181,
+        27,
+        27,
+        153,
+        192,
+        114
+      ]
+    },
+    {
       "name": "SolSourceSet",
       "discriminator": [
         43,
@@ -6763,6 +7530,19 @@
         186,
         176,
         222
+      ]
+    },
+    {
+      "name": "TokenApyCeilingSet",
+      "discriminator": [
+        85,
+        67,
+        190,
+        31,
+        24,
+        226,
+        30,
+        187
       ]
     },
     {
@@ -6926,6 +7706,16 @@
       "code": 6018,
       "name": "InvalidStakePool",
       "msg": "account is not a stake pool of the staking token"
+    },
+    {
+      "code": 6019,
+      "name": "StaleApy",
+      "msg": "the staking token's published APY is too old to size an Advance"
+    },
+    {
+      "code": 6020,
+      "name": "ApyCeilingNotSet",
+      "msg": "the admin has not set an APY ceiling for this staking token"
     }
   ],
   "types": [
@@ -7043,6 +7833,25 @@
             "fields": [
               "u8"
             ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "BreakSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "until",
+            "docs": [
+              "When the Break ends (unix seconds)."
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -8382,14 +9191,14 @@
           {
             "name": "break_until",
             "docs": [
-              "Reserved for Break: no Match entries until this time."
+              "A Break: no Match entries, Requests, Offers or being backed until this time."
             ],
             "type": "i64"
           },
           {
             "name": "self_exclusion_until",
             "docs": [
-              "Reserved for Self-Exclusion: no Match entries, Advances or Extends until this time."
+              "A Self-Exclusion: all of a Break, plus no Advances or Extends, until this time."
             ],
             "type": "i64"
           },
@@ -8720,6 +9529,25 @@
       }
     },
     {
+      "name": "SelfExclusionSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "until",
+            "docs": [
+              "When the Self-Exclusion ends (unix seconds)."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Side",
       "docs": [
         "One entrant. `funder == player` unless the entry is backed; then `share_bps` is the Player's",
@@ -8997,9 +9825,11 @@
     {
       "name": "TokenApy",
       "docs": [
-        "The APY (basis points a year) a staking token's Positions are sized on, published by the oracle",
-        "authority (the keeper): `[\"token_apy\", mint]`. A real token has no `apy_bps` of its own, so",
-        "this is where a new Position's `rate_bps` comes from."
+        "The APY (basis points a year) a staking token's Positions are sized on: `[\"token_apy\", mint]`.",
+        "A real token has no `apy_bps` of its own, so this is where a Position's `rate_bps` comes from.",
+        "The oracle authority (the keeper) publishes the trailing 30-day APY (`apy_bps`, `updated_ts`);",
+        "the admin sets `ceiling_bps`. Sizing uses `min(apy_bps, ceiling_bps)`; a ceiling of 0 (never",
+        "set) sizes nothing, and an Advance refuses a published APY older than `MAX_APY_AGE_SECS`."
       ],
       "type": {
         "kind": "struct",
@@ -9019,6 +9849,29 @@
           {
             "name": "updated_ts",
             "type": "i64"
+          },
+          {
+            "name": "ceiling_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenApyCeilingSet",
+      "docs": [
+        "The admin set the ceiling on a staking token's sizing APY."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "ceiling_bps",
+            "type": "u16"
           }
         ]
       }

@@ -2,6 +2,7 @@ use crate::error::{core_err, TesoroError};
 use crate::instructions::native::{is_native, pay_redeem, release_surplus};
 use crate::ledger::{self, SourceChain};
 use crate::state::*;
+use crate::util::require_can_advance;
 use anchor_lang::prelude::*;
 
 pub(crate) fn chain_byte(chain: SourceChain) -> u8 {
@@ -94,6 +95,12 @@ pub struct TakeAdvance<'info> {
         bump = owner_account.bump
     )]
     pub owner_account: Account<'info, TesoroAccount>,
+    /// CHECK: the owner's Protections address; a Self-Excluded owner takes no Advance.
+    #[account(
+        seeds = [PROTECTIONS_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
@@ -125,6 +132,7 @@ pub(crate) fn take_advance(
     horizon_months: u8,
     price_micro_usd: u64,
 ) -> Result<()> {
+    require_can_advance(&ctx.accounts.protections.to_account_info())?;
     let a = ctx.accounts;
     issue_advance(
         &mut a.position,

@@ -121,6 +121,11 @@ core_errors! {
     InvalidExtendLimit => "the extend limit is 0 to 11 months",
     BadStakePool => "account data is not an initialised stake pool with pool tokens",
     EntryLimitReached => "this entry would go over your entry limit for the period",
+    OnBreak => "you are on a Break, so you cannot do this until it ends",
+    SelfExcluded => "you are Self-Excluded, so you cannot do this until it ends",
+    InvalidBreak => "a Break is 1 to 42 days",
+    InvalidSelfExclusion => "Self-Exclusion is 6 to 60 months",
+    ProtectionCannotShorten => "a Break or Self-Exclusion cannot end earlier than it already does",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

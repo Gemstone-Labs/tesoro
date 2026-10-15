@@ -407,6 +407,7 @@ fn cu_profile_apply_yield_from_source() {
             config: pda(&[CONFIG_SEED]),
             treasury: common::treasury(),
             owner_account: env.owner_account,
+            protections: pda(&[PROTECTIONS_SEED, env.owner_account.as_ref()]),
             position,
             source,
             holding: pda(&[HOLDING_SEED, env.owner_account.as_ref(), source.as_ref()]),
