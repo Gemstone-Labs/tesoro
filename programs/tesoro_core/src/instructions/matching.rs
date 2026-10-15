@@ -286,6 +286,7 @@ pub(crate) fn settle_match<'info>(
     if let Outcome::Winner(i) = outcome {
         let m = &ctx.accounts.match_state.inner;
         let side = if i == 0 { Some(&m.a) } else { m.b.as_ref() };
+        let other = if i == 0 { m.b.as_ref() } else { Some(&m.a) };
         if let Some(side) = side {
             let ts = now()?;
             emit!(MatchWon {
@@ -298,6 +299,7 @@ pub(crate) fn settle_match<'info>(
                 pool_fee: m.leaderboard_due(&lb).map_err(core_err)?,
                 season: ledger::season_at(ts).unwrap_or(0),
                 ts,
+                loser: Pubkey::new_from_array(other.map_or([0u8; 32], |o| o.player)),
             });
         }
     }

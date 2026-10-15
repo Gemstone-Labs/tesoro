@@ -546,6 +546,10 @@ pub struct MatchWon {
     pub pool_fee: u64,
     pub season: u32,
     pub ts: i64,
+    /// The Account that played on the losing side (the opponent of `player`); all zeroes if that
+    /// seat was empty. Last field, so events from before it was added are the same bytes minus
+    /// these 32 and read as having no known opponent (ADR 0011).
+    pub loser: Pubkey,
 }
 
 #[event]

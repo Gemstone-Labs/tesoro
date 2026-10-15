@@ -105,18 +105,31 @@ export async function fetchSeasonRecord(conn: Connection, n: number): Promise<Se
 
 const winCache = new Map<string, Win | null>();
 
-/** Parses the `MatchWon` events of one transaction's logs. */
+const WON_DISC = Buffer.from((coreIdl as any).events.find((e: any) => e.name === "MatchWon").discriminator);
+/** Body of `MatchWon` before it named the loser: match_id, game, entry, player, funder, points, pool_fee, season, ts. */
+const WON_BODY_V1 = 8 + 32 + 8 + 32 + 32 + 8 + 8 + 4 + 8;
+const ZERO_KEY = PublicKey.default.toBase58();
+
+/**
+ * Parses the `MatchWon` events of one transaction's logs. By hand, because events written before the loser
+ * was added are 32 bytes shorter and the current IDL would refuse them (they read as uncapped).
+ */
 export function winsFromLogs(logs: string[], signature: string): Win[] {
-  const parser = new anchor.EventParser(CORE, new anchor.BorshCoder(coreIdl as any));
   const out: Win[] = [];
-  for (const ev of parser.parseLogs(logs)) {
-    if (ev.name !== "MatchWon" && ev.name !== "matchWon") continue;
-    const d: any = ev.data;
+  for (const line of logs) {
+    const at = line.indexOf("Program data: ");
+    if (at < 0) continue;
+    const buf = Buffer.from(line.slice(at + 14), "base64");
+    if (buf.length < 8 + WON_BODY_V1 || !buf.subarray(0, 8).equals(WON_DISC)) continue;
+    const v = new DataView(buf.buffer, buf.byteOffset + 8, buf.length - 8);
+    const key = (o: number) => new PublicKey(buf.subarray(8 + o, 8 + o + 32)).toBase58();
+    const loser = buf.length >= 8 + WON_BODY_V1 + 32 ? key(WON_BODY_V1) : undefined;
     out.push({
-      player: new PublicKey(d.player).toBase58(),
-      points: Number(d.points.toString()),
-      ts: Number(d.ts.toString()),
-      matchId: d.matchId?.toString() ?? d.match_id.toString(),
+      player: key(48),
+      points: Number(v.getBigUint64(112, true)),
+      ts: Number(v.getBigInt64(132, true)),
+      matchId: v.getBigUint64(0, true).toString(),
+      ...(loser && loser !== ZERO_KEY ? { loser } : {}),
     });
   }
   void signature;

@@ -40,7 +40,8 @@ export default function Page() {
       <p>Losses, draws and refunds earn nothing. The game does not matter: a win in Block Puzzle, Hold&apos;em or Trading Duel counts the same at the same entry.</p>
       <p>
         When a <Link href="/docs/backing">Backer</Link> funds the entry, the points go to the Player who played, not to the Backer. If two Players finish
-        on the same points, the one who won first that week ranks higher.
+        on the same points, the one who won first that week ranks higher. Only your first 3 wins against the same opponent in a season earn points;
+        later wins against them still count as wins but add none.
       </p>
 
       <H2 id="prizes">Who gets paid</H2>

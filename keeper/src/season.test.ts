@@ -31,6 +31,23 @@ describe("ranking", () => {
   });
 });
 
+describe("points cap per opponent", () => {
+  const w = (player: string, loser: string | undefined, n: number) => ({ player, loser, points: 10, ts: 100 + n, matchId: String(n) });
+  it("the 4th win against the same opponent earns 0 Points", () => {
+    const wins = [1, 2, 3, 4, 5].map((n) => w("a", "b", n));
+    const top = topRanks(wins);
+    assert.deepEqual([top[0].points, top[0].wins], [30, 5]);
+  });
+  it("counts each opponent on its own and by event time, and never caps unnamed losers", () => {
+    const wins = [w("a", "c", 9), w("a", "b", 4), w("a", "b", 3), w("a", "b", 2), w("a", "b", 1), w("a", undefined, 5), w("a", undefined, 6), w("a", undefined, 7), w("a", undefined, 8)];
+    assert.equal(topRanks(wins)[0].points, 30 + 10 + 40);
+  });
+  it("a capped win does not move the tie-break", () => {
+    const wins = [...[1, 2, 3, 4].map((n) => w("a", "b", n)), w("c", "d", 50), w("c", "d", 51), w("c", "d", 52)];
+    assert.deepEqual(topRanks(wins).map((r) => r.account), ["a", "c"]);
+  });
+});
+
 describe("prize holdings", () => {
   it("drains the pool in Source order, the last one partly", () => {
     const pool = [holding(3, 100n), holding(1, 4n), holding(2, 0n), holding(5, 50n)];

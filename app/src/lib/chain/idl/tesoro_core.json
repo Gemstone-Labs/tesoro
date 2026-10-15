@@ -6885,6 +6885,13 @@
           {
             "name": "ts",
             "type": "i64"
+          },
+          {
+            "name": "loser",
+            "docs": [
+              "The Account that played on the losing side (all zeroes if that seat was empty). Events from before this field have no loser."
+            ],
+            "type": "pubkey"
           }
         ]
       }
