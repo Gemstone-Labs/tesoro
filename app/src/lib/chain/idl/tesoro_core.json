@@ -2160,6 +2160,114 @@
           }
         },
         {
+          "name": "custody",
+          "docs": [
+            "The shared native custody, whose pool totals give the earned Yield Fee."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "address": "3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ"
+        },
+        {
+          "name": "yield_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  105,
+                  101,
+                  108,
+                  100,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "yield_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  105,
+                  101,
+                  108,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sim_lst_program",
+          "address": "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -4936,6 +5044,76 @@
       ]
     },
     {
+      "name": "set_treasury_company",
+      "docs": [
+        "Sets the company wallet that `withdraw_treasury` pays (admin)."
+      ],
+      "discriminator": [
+        54,
+        16,
+        238,
+        139,
+        216,
+        12,
+        133,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "company",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "settle_match",
       "discriminator": [
         71,
@@ -5545,6 +5723,269 @@
           "type": "u16"
         }
       ]
+    },
+    {
+      "name": "withdraw_treasury",
+      "docs": [
+        "Withdraws `amount` SOL units of the Treasury balance to the company wallet (admin)."
+      ],
+      "discriminator": [
+        40,
+        63,
+        122,
+        158,
+        144,
+        216,
+        83,
+        96
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "company_token",
+          "writable": true
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "custody",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "address": "3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ"
+        },
+        {
+          "name": "yield_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  105,
+                  101,
+                  108,
+                  100,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "yield_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  105,
+                  101,
+                  108,
+                  100
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sim_lst_program",
+          "address": "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -5755,6 +6196,19 @@
         168,
         253
       ]
+    },
+    {
+      "name": "YieldConfig",
+      "discriminator": [
+        249,
+        13,
+        186,
+        63,
+        85,
+        7,
+        255,
+        18
+      ]
     }
   ],
   "events": [
@@ -5941,6 +6395,19 @@
       ]
     },
     {
+      "name": "TreasuryWithdrawn",
+      "discriminator": [
+        143,
+        181,
+        157,
+        169,
+        87,
+        155,
+        170,
+        46
+      ]
+    },
+    {
       "name": "YieldApplied",
       "discriminator": [
         61,
@@ -6062,6 +6529,11 @@
       "code": 6018,
       "name": "SourceRequired",
       "msg": "the open Advance's Source must be supplied"
+    },
+    {
+      "code": 6019,
+      "name": "CompanyNotSet",
+      "msg": "the Treasury has no company wallet set"
     }
   ],
   "types": [
@@ -7924,8 +8396,9 @@
       "name": "Treasury",
       "docs": [
         "Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the",
-        "`NativeCustody` pool totals (ADR 0010; withdrawing it is ticket 04), it pays Solana Instant",
-        "Redeems from `vault`, and holds the Gemas it bought in `account`, a",
+        "`NativeCustody` pool totals (ADR 0010) and minted lazily: its balance is the unminted fee",
+        "(`earned_fee - fee_minted`) plus the simSOL in `vault`. It pays Solana Instant Redeems and",
+        "`withdraw_treasury` from `vault` first, then by minting the shortfall out of the unminted fee, and holds the Gemas it bought in `account`, a",
         "`TesoroAccount` whose authority is this PDA. Seeds `[\"treasury\"]`. Its fee rates apply on every",
         "chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source."
       ],
@@ -7973,9 +8446,10 @@
             "type": "pubkey"
           },
           {
-            "name": "fee_units",
+            "name": "fee_minted",
             "docs": [
-              "Unused since the Yield Fee is computed, not minted per crank; kept so the layout stays put."
+              "SOL units of earned Yield Fee already minted out as simSOL (to a withdrawal or an Instant",
+              "Redeem payout). Never above `PoolTotals::earned_fee`; the difference is the unminted fee."
             ],
             "type": "u64"
           },
@@ -7992,6 +8466,20 @@
               "simSOL shares the admin funded the vault with, cumulative."
             ],
             "type": "u64"
+          },
+          {
+            "name": "withdrawn_units",
+            "docs": [
+              "SOL units withdrawn to the company wallet, cumulative."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "company",
+            "docs": [
+              "The wallet whose simSOL account `withdraw_treasury` pays; unset (default) refuses."
+            ],
+            "type": "pubkey"
           }
         ]
       }
@@ -8003,6 +8491,34 @@
         "fields": [
           {
             "name": "shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryWithdrawn",
+      "docs": [
+        "The admin withdrew `units` SOL (`shares` simSOL, `minted_units` of it freshly minted from the",
+        "earned Yield Fee) to the company wallet."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "company",
+            "type": "pubkey"
+          },
+          {
+            "name": "units",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "minted_units",
             "type": "u64"
           }
         ]
@@ -8044,6 +8560,25 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "YieldConfig",
+      "docs": [
+        "The authority allowed to mint simulated yield."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }

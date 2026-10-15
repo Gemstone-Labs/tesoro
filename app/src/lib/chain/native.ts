@@ -8,8 +8,8 @@ import {
   type AccountMeta,
 } from "@solana/web3.js";
 import { debtGemas, sourceView, unitsToRepayTotal, type SourceMath } from "./ledger";
-import { parseTreasury, parseVaultShares, type TreasuryRates } from "./fees";
-import { DEFAULT_YIELD_FEE_BPS, SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PositionClock } from "./yield";
+import { parseFeeMinted, parsePoolTotals, parseTreasury, parseVaultShares, type TreasuryRates } from "./fees";
+import { DEFAULT_YIELD_FEE_BPS, SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PoolTotals, type PositionClock } from "./yield";
 
 /**
  * Solana-native Positions (one shared simSOL custody, tesoro_core) and the SIMULATED sim_lst pool. Instructions
@@ -51,6 +51,8 @@ const DISC = {
   take_native_advance: "db4fb2d566baf470",
   extend_native_advance: "d0c7fde715af8ee9",
   init_native_custody: "43d4ae0fe7cf117b",
+  set_treasury_company: "3610ee8bd80c8509",
+  withdraw_treasury: "283f7a9e90d85360",
   redeem: "b80c569546c461e1",
   unlock: "659b28159ebd38cb",
   init_treasury: "6998ad339e97310e",
@@ -262,6 +264,12 @@ export function instantRedeemIx(holder: PublicKey, position: PublicKey, source: 
       meta(treasuryVaultPda(), true),
       meta(simSolAta(holder), true),
       meta(POOL),
+      // The Treasury pays from its vault first and mints the rest of what it has earned.
+      meta(nativeCustodyPda()),
+      meta(SIM_SOL_MINT, true),
+      meta(yieldConfigPda()),
+      meta(yieldAuthorityPda()),
+      meta(SIM_LST_ID),
       meta(TOKEN_PROGRAM_ID),
       meta(SystemProgram.programId),
     ],
@@ -324,6 +332,31 @@ export function unlockIx(owner: PublicKey, position: PublicKey, openAdvance: num
 
 /** The accounts a native `return_own` adds after its own: the sim_lst pool, whose speedup times the Position's yield. */
 export const returnOwnRemaining = (): AccountMeta[] => [meta(POOL)];
+
+/** Admin: sets the wallet `withdraw_treasury` pays. Required before any withdrawal. */
+export const setTreasuryCompanyIx = (admin: PublicKey, company: PublicKey) =>
+  core([meta(admin, false, true), meta(CONFIG), meta(treasuryPda(), true)], "set_treasury_company", company.toBuffer());
+
+/** Admin: pays `units` (SOL base units) of the Treasury's balance to the company wallet's simSOL account. */
+export const withdrawTreasuryIx = (admin: PublicKey, company: PublicKey, units: bigint) =>
+  core(
+    [
+      meta(admin, false, true),
+      meta(CONFIG),
+      meta(treasuryPda(), true),
+      meta(treasuryVaultPda(), true),
+      meta(simSolAta(company), true),
+      meta(POOL),
+      meta(nativeCustodyPda()),
+      meta(SIM_SOL_MINT, true),
+      meta(yieldConfigPda()),
+      meta(yieldAuthorityPda()),
+      meta(SIM_LST_ID),
+      meta(TOKEN_PROGRAM_ID),
+    ],
+    "withdraw_treasury",
+    u64(units),
+  );
 
 /** Admin, once: creates the shared custody and its simSOL vault. */
 export const initNativeCustodyIx = (admin: PublicKey) =>
@@ -466,6 +499,8 @@ export interface NativeMarket {
   treasury: TreasuryRates | null;
   /** simSOL the treasury vault holds to pay Instant Redeems; null while there is no Treasury. */
   treasuryShares: bigint | null;
+  /** What the earned, unminted Yield Fee is computed from; null while there is no Treasury or shared custody. */
+  treasuryClaim: { totals: PoolTotals; feeMinted: bigint } | null;
 }
 
 export interface NativeInfo {
@@ -488,15 +523,15 @@ export interface NativeInfo {
   source: { key: PublicKey; index: number; horizonMonths: number; math: SourceMath } | null;
 }
 
-/** The accounts `marketFrom` reads, in order: pool, price feed, the wallet's simSOL token account, Treasury, Treasury vault. */
-export const marketKeys = (wallet: PublicKey) => [POOL, PRICE_FEED, simSolAta(wallet), treasuryPda(), treasuryVaultPda()];
+/** The accounts `marketFrom` reads, in order: pool, price feed, the wallet's simSOL token account, Treasury, Treasury vault, shared custody. */
+export const marketKeys = (wallet: PublicKey) => [POOL, PRICE_FEED, simSolAta(wallet), treasuryPda(), treasuryVaultPda(), nativeCustodyPda()];
 
 export async function fetchNativeMarket(c: Connection, wallet: PublicKey): Promise<NativeMarket> {
   return marketFrom(await c.getMultipleAccountsInfo(marketKeys(wallet), "confirmed"));
 }
 
 /** The market from the accounts of `marketKeys`, already read. Throws when the pool does not exist. */
-export function marketFrom([pool, feed, ata, treasuryInfo, treasuryVault]: (AccountInfo<Buffer> | null)[]): NativeMarket {
+export function marketFrom([pool, feed, ata, treasuryInfo, treasuryVault, custodyInfo]: (AccountInfo<Buffer> | null)[]): NativeMarket {
   if (!pool) throw new Error("sim_lst pool not initialized");
   const d = Buffer.from(pool.data);
   let simSol = 0n;
@@ -508,11 +543,15 @@ export function marketFrom([pool, feed, ata, treasuryInfo, treasuryVault]: (Acco
     price = { microUsd: rdU64(f, 41), updatedTs: Number(rdI64(f, 49)) };
   }
   const treasury = treasuryInfo && treasuryInfo.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasuryInfo.data) : null;
+  const totals = custodyInfo && custodyInfo.owner.equals(TESORO_CORE_ID) ? parsePoolTotals(custodyInfo.data) : null;
+  const feeMinted = treasuryInfo && treasury ? parseFeeMinted(treasuryInfo.data) : null;
+  const claim = totals && feeMinted !== null ? { totals, feeMinted } : null;
   return {
     pool: { baseRate: rdU64(d, 72), baseTs: Number(rdI64(d, 80)), apyBps: rdU32(d, 88), speedup: rdU32(d, 92) },
     price,
     simSol,
     treasury,
+    treasuryClaim: claim,
     treasuryShares: treasury ? (treasuryVault && parseVaultShares(treasuryVault.data)) ?? 0n : null,
   };
 }

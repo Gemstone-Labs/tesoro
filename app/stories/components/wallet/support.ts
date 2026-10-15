@@ -14,6 +14,7 @@ export const NATIVE_MARKET: NativeMarket = {
   simSol: 12_500_000_000n,
   treasury: { yieldFeeBps: 2000, instantFeeBps: 3500 },
   treasuryShares: 8_000_000_000n,
+  treasuryClaim: { totals: { feeWeight: 0n, feeWeightTime: 0n, realisedFee: 0n, openPositions: 0n }, feeMinted: 0n },
 };
 
 /** A SOL Position of 40 SOL with an Advance that is half repaid (or fully repaid, or unlocked). */

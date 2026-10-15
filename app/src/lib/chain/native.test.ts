@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import idl from "./idl/tesoro_core.json";
 import {
   initNativeCustodyIx,
+  setTreasuryCompanyIx,
+  withdrawTreasuryIx,
   extendNativeAdvanceIx,
   faucetIx,
   openNativePositionIx,
@@ -59,6 +61,8 @@ describe("native instructions", () => {
       [extendNativeAdvanceIx(owner, pos, 0, 3).data, "extend_native_advance"],
       [setExtendLimitIx(owner, 2).data, "set_extend_limit"],
       [initNativeCustodyIx(owner).data, "init_native_custody"],
+      [setTreasuryCompanyIx(owner, owner).data, "set_treasury_company"],
+      [withdrawTreasuryIx(owner, owner, 1n).data, "withdraw_treasury"],
       [redeemIx(owner, pos, pos, 1n).data, "redeem"],
       [unlockIx(owner, pos).data, "unlock"],
       [initTreasuryIx(owner, 2000, 3500).data, "init_treasury"],
@@ -73,6 +77,8 @@ describe("native instructions", () => {
     const pos = sourcePda(owner, 0);
     const cases: [ReturnType<typeof unlockIx>, string][] = [
       [initNativeCustodyIx(owner), "init_native_custody"],
+      [setTreasuryCompanyIx(owner, owner), "set_treasury_company"],
+      [withdrawTreasuryIx(owner, owner, 1n), "withdraw_treasury"],
       [redeemIx(owner, pos, pos, 1n), "redeem"],
       [unlockIx(owner, pos), "unlock"],
       [openNativePositionIx(owner, 1, 1n, pos), "open_native_position"],
@@ -99,6 +105,8 @@ describe("native instructions", () => {
     const pos = sourcePda(owner, 0);
     const count = (name: string) => (idl.instructions as { name: string; accounts: unknown[] }[]).find((i) => i.name === name)!.accounts.length;
     expect(initNativeCustodyIx(owner).keys).toHaveLength(count("init_native_custody"));
+    expect(withdrawTreasuryIx(owner, owner, 1n).keys).toHaveLength(count("withdraw_treasury"));
+    expect(setTreasuryCompanyIx(owner, owner).keys).toHaveLength(count("set_treasury_company"));
     expect(openNativePositionIx(owner, 1, 1n, pos).keys).toHaveLength(count("open_native_position"));
     expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(count("take_native_advance"));
     expect(instantRedeemIx(owner, pos, pos, 1n).keys).toHaveLength(count("instant_redeem"));

@@ -89,6 +89,25 @@ export interface PositionClock {
 export const positionAccrued = (p: PositionClock, speedup: number | bigint, nowSec: number): AccruedYield =>
   accruedYieldAt(p.principal, growthSinceOpen(p.rateBps, p.openedAt, nowSec, speedup), p.yieldFeeBps);
 
+/** The pool-wide totals behind the Treasury's Yield Fee claim (`NativeCustody`, Rust `PoolTotals`). */
+export interface PoolTotals {
+  feeWeight: bigint;
+  feeWeightTime: bigint;
+  realisedFee: bigint;
+  openPositions: bigint;
+}
+
+/**
+ * Yield Fee earned by the Treasury at `nowSec`, SOL units (Rust `PoolTotals::earned_fee`): conservative, never more than the sum of
+ * the per-Position fees. Unminted until the Treasury pays out.
+ */
+export function earnedFee(t: PoolTotals, nowSec: number, speedup: number | bigint = SPEEDUP): bigint {
+  const weighted = (t.feeWeight * BigInt(nowSec) - t.feeWeightTime) * BigInt(speedup);
+  const live = weighted / (BPS * BPS * YEAR_SECS);
+  const allowance = t.openPositions * 2n;
+  return (live > allowance ? live - allowance : 0n) + t.realisedFee;
+}
+
 /**
  * Smallest `nowSec` at which a Position's net Accrued Yield reaches `target` (null when it never will).
  * Starts from the closed form and steps over the floors, so it agrees with `positionAccrued` to the second.

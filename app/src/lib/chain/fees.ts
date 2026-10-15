@@ -1,4 +1,4 @@
-import { DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS, instantPayout } from "./yield";
+import { DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS, earnedFee, instantPayout, type PoolTotals } from "./yield";
 import type { SourceMath } from "./ledger";
 
 /**
@@ -23,8 +23,28 @@ export const DEFAULT_RATES: TreasuryRates = { yieldFeeBps: DEFAULT_YIELD_FEE_BPS
 /** The rates in force: the Treasury's, or the launch rates while it cannot be read. */
 export const ratesOf = (t: TreasuryRates | null | undefined): TreasuryRates => t ?? DEFAULT_RATES;
 
-/** `Treasury`: disc 8, bump, vault_bump, account_bump, yield_fee_bps u16, instant_fee_bps u16, account, vault, fee_units, instant_units, funded_shares. */
-export const TREASURY_LEN = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8;
+/** `Treasury`: disc 8, bump, vault_bump, account_bump, yield_fee_bps u16, instant_fee_bps u16, account, vault, fee_minted, instant_units, funded_shares, withdrawn_units, company. */
+export const TREASURY_LEN = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32;
+const FEE_MINTED_AT = 8 + 3 + 2 + 2 + 32 + 32;
+
+/** SOL units of earned Yield Fee already minted out as simSOL; null on a wrong size. */
+export const parseFeeMinted = (d: Uint8Array): bigint | null => (d.length === TREASURY_LEN ? rdU64(d, FEE_MINTED_AT) : null);
+
+/** `NativeCustody`: disc 8, bump, vault_bump, pool, mint, vault, then principal, fee_weight, fee_weight_time, realised_fee (u128) and open_positions (u64). */
+export const NATIVE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8;
+
+export function parsePoolTotals(d: Uint8Array): PoolTotals | null {
+  if (d.length !== NATIVE_CUSTODY_LEN) return null;
+  const o = 8 + 2 + 3 * 32 + 16;
+  return { feeWeight: rdU128(d, o), feeWeightTime: rdU128(d, o + 16), realisedFee: rdU128(d, o + 32), openPositions: rdU64(d, o + 48) };
+}
+
+/** What the Treasury has to pay SOL Instant Redeems with, in SOL units (exactly the program's balance): the unminted Yield Fee earned plus the vault's simSOL at the rate. */
+export function treasuryBalanceUnits(a: { totals: PoolTotals; feeMinted: bigint; vaultShares: bigint; rate: bigint; speedup: number; nowSec: number }): bigint {
+  const earned = earnedFee(a.totals, a.nowSec, a.speedup);
+  const unminted = earned > a.feeMinted ? earned - a.feeMinted : 0n;
+  return unminted + (a.vaultShares * a.rate) / RATE_SCALE;
+}
 
 export function parseTreasury(d: Uint8Array): TreasuryRates | null {
   if (d.length !== TREASURY_LEN) return null;
