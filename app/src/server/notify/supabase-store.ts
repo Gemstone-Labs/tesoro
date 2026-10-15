@@ -71,4 +71,16 @@ export const supabaseNotifyStore: NotifyStore = {
       .eq("authority", authority);
     fail("digest", error);
   },
+  async digestHolders() {
+    const { data, error } = await db().from("notify_settings").select("authority, email, verified, enabled, sent_day, sent_today, digest").filter("digest", "neq", "[]").limit(1000);
+    fail("digest list", error);
+    return (data ?? [])
+      .filter((d) => Array.isArray(d.digest) && d.digest.length > 0)
+      .map((d) => ({ authority: d.authority, record: { email: d.email, verified: d.verified, enabled: d.enabled, sentDay: d.sent_day, sentToday: d.sent_today, digest: d.digest } satisfies NotifyRecord }));
+  },
+  async clearDigest(authority, count) {
+    const r = await this.get(authority);
+    const { error } = await db().from("notify_settings").update({ digest: (r?.digest ?? []).slice(count) }).eq("authority", authority);
+    fail("digest clear", error);
+  },
 };

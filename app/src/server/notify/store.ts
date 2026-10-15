@@ -23,6 +23,10 @@ export interface NotifyStore {
   /** Counts one sent email on `day`, resetting the counter on a new day. */
   recordSent(authority: string, day: string): Promise<void>;
   addDigest(authority: string, day: string, message: { subject: string; body: string }): Promise<void>;
+  /** Accounts that have messages held for a digest. */
+  digestHolders(): Promise<{ authority: string; record: NotifyRecord }[]>;
+  /** Drops the first `count` held messages (those a digest just took), keeping any added since. */
+  clearDigest(authority: string, count: number): Promise<void>;
 }
 
 export const sentOn = (r: NotifyRecord | null, day: string) => (r && r.sentDay === day ? r.sentToday : 0);
@@ -72,5 +76,12 @@ export class MemoryNotifyStore implements NotifyStore {
     const r = this.records.get(authority);
     if (r) r.digest.push(message);
     void day;
+  }
+  async digestHolders() {
+    return [...this.records].filter(([, r]) => r.digest.length > 0).map(([authority, r]) => ({ authority, record: { ...r, digest: [...r.digest] } }));
+  }
+  async clearDigest(authority: string, count: number) {
+    const r = this.records.get(authority);
+    if (r) r.digest = r.digest.slice(count);
   }
 }

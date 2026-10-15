@@ -3,6 +3,8 @@ import type { GameId } from "@/lib/mock/types";
 import { takeAll, WindowLimiter } from "../rate-limit";
 import { DemoHttpError, NonceStore, verifySignedRequest, type AuthEnv } from "../request-auth";
 import type { MatchSettledEvent } from "./decide";
+import { parseEvents } from "./events";
+import { sendDigests, type DigestSummary } from "./digest";
 import { handleEvent, setEmail, setEnabled, status, type EventOutcome, type NotifyDeps, type NotifyStatus } from "./service";
 
 const STEPS = ["status", "set-email", "set-enabled"] as const;
@@ -85,3 +87,19 @@ export async function handleSettled(deps: NotifyDeps, secret: string | undefined
   return { outcomes };
 }
 
+
+/** The keeper's push of other events (see events.ts), protected by the shared secret. Each fact is told once. */
+export async function handleEvents(deps: NotifyDeps, secret: string | undefined, authorization: string | null, raw: unknown): Promise<{ outcomes: EventOutcome[] }> {
+  if (!secret) throw new DemoHttpError(503, "not-configured", "Notifications are not configured on this server.");
+  if (!secretOk(authorization, secret)) throw new DemoHttpError(401, "unauthorized", "Not allowed.");
+  const outcomes: EventOutcome[] = [];
+  for (const event of parseEvents(raw)) outcomes.push(await handleEvent(deps, event));
+  return { outcomes };
+}
+
+/** The keeper's once-a-day call: one digest email per Player with held messages, then the held messages are cleared. */
+export async function handleDigest(deps: NotifyDeps, secret: string | undefined, authorization: string | null): Promise<DigestSummary> {
+  if (!secret) throw new DemoHttpError(503, "not-configured", "Notifications are not configured on this server.");
+  if (!secretOk(authorization, secret)) throw new DemoHttpError(401, "unauthorized", "Not allowed.");
+  return sendDigests(deps);
+}
