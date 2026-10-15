@@ -25,6 +25,7 @@ Two internal reviews. **No external audit.**
 - The oracle key and price feed are trusted. A wrong price mints the wrong number of Gemas.
 - Privacy depends on MagicBlock's TEE attestation. Cross-chain messages depend on the LayerZero DVN set.
 - One admin key holds every admin power and can upgrade every program.
+  The mainnet plan (2-of-3 Squads multisig, separate hot keys): [`docs/mainnet-keys.md`](docs/mainnet-keys.md).
 
 ## Key compromise (2026-10-01)
 
