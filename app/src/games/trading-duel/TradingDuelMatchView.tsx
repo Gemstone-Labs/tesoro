@@ -4,6 +4,7 @@ import { Button, Chip, GemaAmount, Notice } from "@/components/ui";
 import { usePlayerLabel } from "@/components/account/Player";
 import { shownIdentity } from "@/lib/identity/display";
 import { useAccount } from "@/lib/account";
+import { assetIndexFromParam } from "@/lib/chain/match-id";
 import { matchDelta, matchFee, seatResult } from "@/lib/chain/ledger";
 import { refundMatch } from "@/lib/chain/match-flow";
 import { BackingSplit } from "@/components/match/BackingSplit";
@@ -81,6 +82,8 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         scoreNote={duel?.status === STATUS.over ? `${asset.symbol} ended at ${usdMid(duel.track.last ?? duel.anchor, asset)}${isDraw(duel) ? " · equal points: a draw, both entries refunded" : ""}` : undefined}
         momentKey={m.id.toString()}
         playAgainHref={`/play/queue?game=trading-duel&asset=${asset.symbol.toLowerCase()}&entry=${m.entry}`}
+        opponent={m.opponent}
+        asset={assetIndexFromParam(asset.symbol.toLowerCase())}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {view.error && <p className="status err" role="alert">{view.error}</p>}
