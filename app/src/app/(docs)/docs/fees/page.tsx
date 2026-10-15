@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { PayoutBar } from "@/components/docs/visual";
+import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
 
 export const metadata: Metadata = { title: "Fees", alternates: { canonical: "/docs/fees" } };
 
@@ -15,7 +16,7 @@ export default function Page() {
         rows={[
           ["Platform Fee", "2% of each Pot", "The loser's Gemas, when a Match settles."],
           ["Yield Fee", "20% of the yield", "Yield your Positions earn, as it arrives. Never the Principal."],
-          ["Instant Redeem Fee", "35% of the value", "Won Gemas you choose to redeem before their yield has landed."],
+          ["Instant Redeem Fee", `${INSTANT_FEE_PCT}% of the value`, "Won Gemas you choose to redeem before their yield has landed."],
         ]}
         caption="Tesoro's revenue"
       />
@@ -28,8 +29,8 @@ export default function Page() {
 
       <H2 id="instant-redeem">Instant Redeem Fee</H2>
       <p>
-        Gemas you won normally become redeemable as their Source&apos;s yield lands. <b>Redeem now</b> skips the wait: you get <b>65%</b> of their
-        value today and Tesoro keeps <b>35%</b>, then waits for the yield itself. It is optional, and only for Gemas you won. See{" "}
+        Gemas you won normally become redeemable as their Source&apos;s yield lands. <b>Redeem now</b> skips the wait: you get <b>{INSTANT_PAYOUT_PCT}%</b> of their
+        value today and Tesoro keeps <b>{INSTANT_FEE_PCT}%</b>, then waits for the yield itself. It is optional, and only for Gemas you won. See{" "}
         <Link href="/docs/gemas#instant-redeem">Gemas</Link>.
       </p>
 

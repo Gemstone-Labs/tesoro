@@ -8,8 +8,12 @@ export const RETRY = "That didn’t go through. Try again in a moment.";
 /** Sent but not confirmed: it may still land, so a retry could do it twice. */
 export const UNCONFIRMED = "Sent, but not confirmed yet. Wait a moment and check before trying again.";
 
+/** The program refused an Instant Redeem because the Treasury holds less than the payout (tesoro_core TreasuryShort, 6017 = 0x1781). */
+export const INSTANT_UNAVAILABLE = "Instant Redeem unavailable right now. Tesoro's Treasury cannot pay it at the moment. Redeem at full value as the yield lands, or try again later.";
+
 export function plainError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e);
+  if (/TreasuryShort|treasury cannot pay|custom program error: 0x1781|"Custom":\s*6017\b/i.test(text)) return INSTANT_UNAVAILABLE;
   const err = e as { code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001 || /user rejected|rejected the request|user denied/i.test(text)) {
     return "You cancelled the request in your wallet.";

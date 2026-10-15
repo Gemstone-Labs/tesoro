@@ -3,7 +3,7 @@
  * the simSOL vault, or changes the rates) and `fund_treasury` (moves simSOL from the admin into the vault so Instant
  * Redeems can be paid before any Yield Fee has accrued). Run after `tesoro_core` is upgraded, before the keeper restarts.
  *
- *   pnpm --filter @tesoro/keeper exec tsx scripts/fund-treasury.ts [--shares 10000000000] [--yield-bps 2000] [--instant-bps 3500] [--no-fund] [--dry-run]
+ *   pnpm --filter @tesoro/keeper exec tsx scripts/fund-treasury.ts [--shares 10000000000] [--yield-bps 2000] [--instant-bps 2500] [--no-fund] [--dry-run]
  *
  * `--shares` is simSOL base units (9 decimals; default 10 simSOL). When the admin holds less, the SIMULATED faucet is
  * used first (10 simSOL, once per cooldown). `--dry-run` only simulates the transactions.
