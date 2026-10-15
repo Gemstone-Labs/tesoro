@@ -183,13 +183,29 @@ contract PositionVault {
     // ---------------------------------------------------------------- outbound
 
     function openPosition(uint256 lstAmount, uint8 horizonMonths) external payable returns (uint64 id) {
+        return _open(msg.sender, lstAmount, horizonMonths);
+    }
+
+    /// @notice Opens a Position owned by `owner` with LST pulled from the caller. Used by the stake-and-open zaps
+    ///         (`StakeZap`): the Player's coin is staked and locked in one transaction. The caller pays the
+    ///         LayerZero fee and, as `msg.sender` of the send, receives the refund of the excess.
+    function openPositionFor(address owner, uint256 lstAmount, uint8 horizonMonths)
+        external
+        payable
+        returns (uint64 id)
+    {
+        if (owner == address(0)) revert ZeroAmount();
+        return _open(owner, lstAmount, horizonMonths);
+    }
+
+    function _open(address owner, uint256 lstAmount, uint8 horizonMonths) internal returns (uint64 id) {
         if (lstAmount == 0) revert ZeroAmount();
         if (horizonMonths < 1 || horizonMonths > 12) revert BadHorizon();
 
         uint256 rate = rateSource.underlyingPerShare();
         id = ++nextPositionId;
         Position storage p = _positions[id];
-        p.owner = msg.sender;
+        p.owner = owner;
         p.principalShares = lstAmount;
         p.principalUnderlying = (lstAmount * rate) / RATE_SCALE;
         // tesoro_core keeps Principal as u64; a larger Position could never open on Solana and never unlock.
@@ -203,14 +219,14 @@ contract PositionVault {
 
         if (!lst.transferFrom(msg.sender, address(this), lstAmount)) revert TransferFailed();
 
-        emit PositionLocked(id, msg.sender, lstAmount, horizonMonths, seq);
+        emit PositionLocked(id, owner, lstAmount, horizonMonths, seq);
         _send(
             abi.encode(
                 MSG_POSITION_LOCKED,
                 sourceChain,
                 id,
                 seq,
-                bytes32(uint256(uint160(msg.sender))),
+                bytes32(uint256(uint160(owner))),
                 bytes32(uint256(uint160(address(lst)))),
                 lstAmount,
                 p.principalUnderlying,
