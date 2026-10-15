@@ -743,6 +743,38 @@ fn f03_a_live_table_cannot_be_refunded_from_tesoro_core_after_an_hour() {
     assert_eq!(env.tesoro_status(), MatchStatus::Active);
 }
 
+/// The table plays in the rollup, where tesoro_core cannot be called, so the single push at
+/// `create_match` covers the whole table: the deadline is a full table window from creation, and
+/// only then can a stranger refund.
+#[test]
+fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
+    let mut env = ready(0);
+    let deadline = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
+    assert_eq!(deadline, T0 + holdem::TABLE_WINDOW_SECS);
+    env.set_time(deadline - 1);
+    let remaining = env.payout_metas(true);
+    let caller = env.bob.kp.insecure_clone();
+    let refund = ix(
+        tesoro_core::ID,
+        tesoro_core::accounts::RefundMatch {
+            caller: a(caller.pubkey()),
+            config: tpda(&[CONFIG_SEED]),
+            match_state: tmatch_pda(env.id),
+        },
+        tesoro_core::instruction::RefundMatch {},
+        remaining,
+    );
+    let err = env.send(&[refund.clone()], &caller, &[]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        tesoro_core::error::CORE_ERROR_OFFSET + tesoro_core::ledger::CoreError::NotExpired.code()
+    );
+    env.set_time(deadline);
+    env.send(&[refund], &caller, &[])
+        .expect("anyone refunds once the table window is over");
+    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
+}
+
 #[test]
 fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
     let mut env = Env::new();
