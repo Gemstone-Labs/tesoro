@@ -28,7 +28,7 @@ export function fitSize(text: string, max: number, width: number, em = 0.56): nu
 
 type Props = { gem: SpotGem; src: string; F: CardFonts };
 
-function Lockup({ height }: { height: number }) {
+export function Lockup({ height }: { height: number }) {
   const p = PALETTE.dark;
   const wordH = height * 0.46;
   const wordW = (WORDMARK.w / WORDMARK.h) * wordH;
@@ -54,7 +54,7 @@ const octagon = (x: number, y: number, w: number, h: number, c: number) =>
  * The gem in an octagon window, its colour as the frame and a halo behind. The art is a clipped
  * background image with no background colour: next/og does not clip a colour.
  */
-function Window({ src, size, hex, halo = 0.35 }: { src: string; size: number; hex: string; halo?: number }) {
+export function Window({ src, size, hex, halo = 0.35 }: { src: string; size: number; hex: string; halo?: number }) {
   const c = size * 0.27;
   return (
     <div
@@ -94,7 +94,7 @@ function Window({ src, size, hex, halo = 0.35 }: { src: string; size: number; he
 }
 
 /** Light rays in the gem's colour, centred on (cx, cy). */
-function Rays({
+export function Rays({
   cx,
   cy,
   hex,
@@ -133,7 +133,7 @@ function Rays({
 }
 
 /** The waitlist's octagon texture, faint, over the whole card. */
-function Texture({ w = CARD.width, h = CARD.height }: { w?: number; h?: number }) {
+export function Texture({ w = CARD.width, h = CARD.height }: { w?: number; h?: number }) {
   const tile = (x: number, y: number) =>
     `M${x + 70} ${y + 40}h180l40 40v120l-40 40H${x + 70}l-40-40V${y + 80}z M${x + 270} ${y + 220}l80 80M${x + 350} ${y}l10 10`;
   const d = [0, 360, 720, 1080].flatMap((x) => [0, 300, 600].map((y) => tile(x, y))).join(" ");
@@ -144,7 +144,7 @@ function Texture({ w = CARD.width, h = CARD.height }: { w?: number; h?: number }
   );
 }
 
-function Fill({ children, style }: { children?: ReactNode; style?: CSSProperties }) {
+export function Fill({ children, style }: { children?: ReactNode; style?: CSSProperties }) {
   return (
     <div
       style={{
@@ -162,7 +162,7 @@ function Fill({ children, style }: { children?: ReactNode; style?: CSSProperties
   );
 }
 
-function Tagline({ F, size }: { F: CardFonts; size: number }) {
+export function Tagline({ F, size }: { F: CardFonts; size: number }) {
   return (
     <div
       style={{
