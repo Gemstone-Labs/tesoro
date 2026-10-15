@@ -12,6 +12,8 @@ export const LEADERBOARD_BPS = 100;
 /** Ranks that are paid, and each one's share of the pool in basis points (sums to 10,000). */
 export const PRIZE_BPS = [2500, 1800, 1300, 1000, 800, 700, 600, 500, 400, 400] as const;
 export const PRIZE_PLACES = PRIZE_BPS.length;
+/** How long after a Season is recorded its ranks may not be paid; the admin can void a rank inside it (ADR 0011). */
+export const PAYOUT_WINDOW_SECS = 48 * 60 * 60;
 /** A won Match earns `entry / POINTS_DIVISOR` points. */
 export const POINTS_DIVISOR = 100;
 
@@ -31,6 +33,21 @@ export const pointsForWin = (entry: number | bigint) => Number(BigInt(entry) / B
 /** What each rank is paid from a pool of `poolTotal` Gemas, floored as in the program. */
 export function prizeAmounts(poolTotal: bigint, ranked: number): bigint[] {
   return PRIZE_BPS.map((bps, i) => (i < ranked ? (poolTotal * BigInt(bps)) / 10_000n : 0n));
+}
+
+/** First second a recorded Season's ranks may be paid. */
+export const payoutOpensAt = (recordedAt: number) => recordedAt + PAYOUT_WINDOW_SECS;
+
+export type RankPayout = "paid" | "voided" | "waiting" | "due";
+
+/**
+ * Where a recorded rank stands: paid, voided (never paid; its share stays in the pool), waiting for the
+ * payout window to pass, or due (the keeper pays it next). `opensAt` null: recorded before the window existed.
+ */
+export function rankPayout(rank: { paid: boolean; voided: boolean }, opensAt: number | null, nowSecs: number): RankPayout {
+  if (rank.paid) return "paid";
+  if (rank.voided) return "voided";
+  return opensAt !== null && nowSecs < opensAt ? "waiting" : "due";
 }
 
 /** One won Match, as emitted by `MatchWon`. */

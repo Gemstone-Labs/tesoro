@@ -16,6 +16,11 @@ export const POOL_AUTHORITY = pda([Buffer.from("leaderboard")]);
 /** The Leaderboard Pool: a TesoroAccount, so its Gemas move like any other Account's. */
 export const POOL_ACCOUNT = pda([Buffer.from("account"), POOL_AUTHORITY.toBuffer()]);
 export const CONFIG = pda([Buffer.from("config")]);
+export const seasonWindowPda = (n: number) => {
+  const b = Buffer.alloc(4);
+  b.writeUInt32LE(n);
+  return pda([Buffer.from("season_window"), b]);
+};
 export const seasonPda = (n: number) => {
   const b = Buffer.alloc(4);
   b.writeUInt32LE(n);
@@ -84,14 +89,20 @@ export interface SeasonRecord {
   points: number[];
   amounts: bigint[];
   paidMask: number;
+  /** Unix seconds it was recorded, and the ranks voided inside the payout window. Null/0 for a Season recorded before the window existed. */
+  recordedAt: number | null;
+  voidedMask: number;
 }
 
 /** A recorded season, or null while nobody has recorded it. */
 export async function fetchSeasonRecord(conn: Connection, n: number): Promise<SeasonRecord | null> {
   const info = await conn.getAccountInfo(seasonPda(n), "confirmed");
   if (!info) return null;
-  const s: any = new anchor.BorshAccountsCoder(coreIdl as any).decode("SeasonState", Buffer.from(info.data)).inner;
+  const coder = new anchor.BorshAccountsCoder(coreIdl as any);
+  const s: any = coder.decode("SeasonState", Buffer.from(info.data)).inner;
   const count = Number(s.count);
+  const windowInfo = await conn.getAccountInfo(seasonWindowPda(n), "confirmed");
+  const w: any = windowInfo ? coder.decode("SeasonWindowState", Buffer.from(windowInfo.data)).inner : null;
   return {
     number: Number(s.number),
     poolTotal: BigInt(s.pool_total?.toString() ?? s.poolTotal.toString()),
@@ -100,6 +111,8 @@ export async function fetchSeasonRecord(conn: Connection, n: number): Promise<Se
     points: (s.points as any[]).slice(0, count).map((p) => Number(p.toString())),
     amounts: (s.amounts as any[]).slice(0, count).map((a) => BigInt(a.toString())),
     paidMask: Number(s.paidMask ?? s.paid_mask),
+    recordedAt: w ? Number((w.recordedAt ?? w.recorded_at).toString()) : null,
+    voidedMask: w ? Number(w.voidedMask ?? w.voided_mask) : 0,
   };
 }
 
