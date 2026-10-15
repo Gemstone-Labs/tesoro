@@ -6,6 +6,7 @@ let ip = "1.1.1.1";
 let n = 0;
 vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-forwarded-for": `${ip}, 10.0.0.1` }) }));
 
+import { setVerifier } from "@/server/turnstile";
 import { parseEmail } from "@/lib/email";
 import { joinWaitlist } from "./waitlist-action";
 
@@ -18,6 +19,8 @@ const idle = { status: "idle" } as const;
 
 beforeEach(() => {
   join.mockReset().mockResolvedValue(undefined);
+  setVerifier(null);
+  vi.unstubAllEnvs();
   ip = `9.9.${Math.floor(++n / 250)}.${n % 250}`;
 });
 
@@ -61,5 +64,41 @@ describe("joinWaitlist", () => {
     join.mockRejectedValue(new Error("not configured"));
     const r = await joinWaitlist(idle, form({ email: "a@b.co" }));
     expect(r).toEqual({ status: "error", message: expect.stringContaining("couldn't save") });
+  });
+});
+
+describe("joinWaitlist with Turnstile configured", () => {
+  const verify = vi.fn();
+  beforeEach(() => {
+    vi.stubEnv("TURNSTILE_SECRET_KEY", "secret");
+    verify.mockReset().mockResolvedValue(true);
+    setVerifier(verify);
+  });
+  it("rejects a missing token without calling Cloudflare or storing", async () => {
+    const r = await joinWaitlist(idle, form({ email: "a@b.co" }));
+    expect(r).toEqual({ status: "error", message: expect.stringContaining("check") });
+    expect(verify).not.toHaveBeenCalled();
+    expect(join).not.toHaveBeenCalled();
+  });
+  it("rejects a token Cloudflare refuses", async () => {
+    verify.mockResolvedValue(false);
+    const r = await joinWaitlist(idle, form({ email: "a@b.co", "cf-turnstile-response": "bad" }));
+    expect(r.status).toBe("error");
+    expect(join).not.toHaveBeenCalled();
+  });
+  it("stores when the token is valid, passing the client IP", async () => {
+    const r = await joinWaitlist(idle, form({ email: "a@b.co", "cf-turnstile-response": "good" }));
+    expect(r.status).toBe("ok");
+    expect(verify).toHaveBeenCalledWith("good", ip);
+    expect(join).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("joinWaitlist without Turnstile configured", () => {
+  it("skips verification", async () => {
+    const verify = vi.fn().mockResolvedValue(false);
+    setVerifier(verify);
+    expect((await joinWaitlist(idle, form({ email: "a@b.co" }))).status).toBe("ok");
+    expect(verify).not.toHaveBeenCalled();
   });
 });
