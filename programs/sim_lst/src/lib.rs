@@ -1,15 +1,16 @@
 //! `sim_lst` — SIMULATED liquid staking token for Tesoro's devnet demo.
 //!
-//! Nothing here is real staking. The pool mints `simSOL` for deposited devnet SOL and its
-//! exchange rate (SOL per simSOL) grows on an accelerated clock. The yield is paid out of an
-//! admin-funded reserve held in the vault; withdrawals beyond the vault's balance are refused.
+//! Nothing here is real staking (ADR 0010). The pool mints `simSOL` for deposited devnet SOL at a
+//! constant exchange rate: `current_rate` returns the checkpointed `base_rate` (RATE_SCALE = 1e9
+//! fixed point), so deposit and withdraw price at a fixed SOL value per simSOL. No clock moves it.
 //!
-//! Rate: constant. `current_rate` returns the checkpointed `base_rate` (RATE_SCALE = 1e9 fixed
-//! point), so deposit and withdraw price at a fixed SOL value per simSOL. Yield does not come from
-//! the rate: each Position earns `principal * apy * simulated_time` and the tesoro_core yield
-//! authority mints it into the Position's vault with `mint_yield` (see docs/yield-model.md).
-//! `apy_bps` and `speedup` stay in the Pool as the yield parameters. Default `speedup` is 4,380
-//! (1 simulated month = 1/12 year = 10 real minutes).
+//! Yield is computed, never cranked. Each Position earns `principal * apy * simulated_time` from its
+//! own open time ([`yield_units`], [`Pool::yield_units`]). Nothing is minted while it accrues: the
+//! tesoro_core yield authority calls `mint_yield` only at the moment yield is paid out (Redeem,
+//! Unlock, a Treasury withdrawal), minting exactly that amount to the payout destination.
+//!
+//! The Pool is the one home of the devnet test APY (`apy_bps`) and the time speed-up (`speedup`,
+//! default 4,380: 1 simulated month = 1/12 year = 10 real minutes). tesoro_core reads both from it.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{self, Transfer};
@@ -193,8 +194,10 @@ pub mod sim_lst {
         Ok(())
     }
 
-    /// Yield authority only: mints `shares` simSOL of simulated yield to `destination`. The
-    /// shares are backed by the admin-funded reserve, like the faucet's are not.
+    /// Yield authority only: mints `shares` simSOL, exactly the simulated yield being paid out now,
+    /// to any simSOL token account (a Player's, the company wallet's, a vault). The rate is flat,
+    /// so `shares` is the payout's units divided by the rate. The only mint path besides the
+    /// faucet and deposit; the yield is backed by the admin-funded reserve, the faucet's is not.
     pub fn mint_yield(ctx: Context<MintYield>, shares: u64) -> Result<()> {
         let pool = &ctx.accounts.pool;
         require!(!pool.paused, SimLstError::Paused);
@@ -259,8 +262,15 @@ pub fn current_rate(pool: &Pool, _now: i64) -> Result<u64> {
     Ok(pool.base_rate)
 }
 
+impl Pool {
+    /// [`yield_units`] with this Pool's test APY and speed-up.
+    pub fn yield_units(&self, principal: u64, elapsed: i64) -> Result<u64> {
+        yield_units(principal, self.apy_bps, elapsed, self.speedup)
+    }
+}
+
 /// Simulated yield of one Position: `principal * apy * elapsed * speedup / (10_000 * year)`, linear
-/// and rounded down. The same function sizes what `mint_yield` mints.
+/// and rounded down. The same function sizes what is minted at payout.
 pub fn yield_units(principal: u64, apy_bps: u32, elapsed: i64, speedup: u32) -> Result<u64> {
     let elapsed = u128::try_from(elapsed.max(0)).map_err(|_| SimLstError::MathOverflow)?;
     let v = u128::from(principal)
@@ -330,7 +340,7 @@ pub struct Pool {
     pub base_rate: u64,
     pub base_ts: i64,
     pub apy_bps: u32,
-    /// Yield-clock multiplier; 4,320 = 1 month of yield per 10 minutes.
+    /// Yield-clock multiplier; 4,380 = 1 month of yield per 10 minutes.
     pub speedup: u32,
     pub faucet_amount: u64,
     pub faucet_cooldown: i64,
