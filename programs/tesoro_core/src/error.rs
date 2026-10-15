@@ -45,6 +45,8 @@ pub enum TesoroError {
     TreasuryShort,
     #[msg("the open Advance's Source must be supplied")]
     SourceRequired,
+    #[msg("the Treasury has no company wallet set")]
+    CompanyNotSet,
 }
 
 pub fn core_err(e: CoreError) -> Error {

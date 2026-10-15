@@ -155,11 +155,11 @@ Instructions:
 
 Removed: `accrue_native_yield`, `sweep_native_surplus` (the vault holds Principal only and yield is minted when paid, so no surplus can build up), `migrate_native_custody`, events `YieldFeeTaken` and `NativeCustodyMigrated`. `NativePayout.kind`: 0 redeem (minted), 1 unlock Principal (vault), 2 unlock free yield (minted).
 
-**Treasury claim.** `PoolTotals::earned_fee(now, speedup)` over the stored totals, weighted by each Position's own `Principal x rate_bps x fee_bps` (`fee_weight`, `fee_weight_time`), is conservative: at most the sum of the per-Position fees and at least that sum minus `2N + 2` (N = Locked Positions). Withdrawal and the Instant Redeem balance rules are ticket 04; for now `instant_redeem` still pays from the treasury vault (`TreasuryShort` when it cannot) and the Yield Fee is not minted anywhere.
+**Treasury claim.** `PoolTotals::earned_fee(now, speedup)` over the stored totals, weighted by each Position's own `Principal x rate_bps x fee_bps` (`fee_weight`, `fee_weight_time`), is conservative: at most the sum of the per-Position fees and at least that sum minus `2N + 2` (N = Locked Positions). The fee is minted lazily, only when the Treasury pays out: see **Treasury balance** below.
 
 The Yield Fee and APY are fixed per Position at open, so a Treasury fee change applies only to Positions opened afterwards and the claim stays at most the sum of per-Position fees (test `a_fee_change_never_applies_backwards`). `speedup` is the one value read live from the canonical sim_lst Pool (a devnet constant by founder decision); changing it bends every open curve. `instant_redeem` still reads the Instant Redeem fee live.
 
-Errors appended: `SourceRequired` (6018).
+Errors appended: `SourceRequired` (6018), `CompanyNotSet` (6019).
 
 Tests: `ledger/native.rs` (property test over random Time/Advance/Redeem/ReturnOwn/Unlock sequences: minted never exceeds net Accrued Yield; closed Sources fully covered), `tests/native.rs` (LiteSVM with the real sim_lst: open -> Advance -> warp -> Redeem -> Unlock with no crank, second Advance after Debt 0, Extend with limits, Instant Redeem, pool totals within the proven bound, validation and a randomized on-chain sequence).
 
@@ -167,11 +167,13 @@ Tests: `ledger/native.rs` (property test over random Time/Advance/Redeem/ReturnO
 
 Flow: `create_account` (once) -> sim_lst `faucet` -> one tx of `open_native_position(nonce, lst)` + `take_native_advance(months)` (source index = `advances`, no `prev_source`) -> read Debt with `position_accrued` + `source_view` (no keeper) -> `redeem` with the eight remaining accounts -> `unlock` with the ten (+ Source) remaining accounts. Keep the price feed fresh (`set_price` from the keeper, < 24 h old). Oracle Positions keep working with no remaining accounts for `redeem` and `unlock`.
 
-## Yield Fee, Instant Redeem and the Treasury (2026-10-12, ADR 0007)
+## Yield Fee, Instant Redeem and the Treasury (2026-10-12, ADR 0007; balance by math, ADR 0010)
+
+**Treasury balance** (SOL units, O(1)): `earned_fee(now, speedup) - fee_minted` (the Yield Fee earned by native Positions, never minted until paid) plus the simSOL in the treasury vault valued at the rate (funding and `redeem_treasury` refills land in the vault). `pay_from_treasury` pays Instant Redeem and withdrawals the same way: vault first, the shortfall shares minted by `sim_lst::mint_yield` straight to the destination, `fee_minted += ceil(value of minted shares)`, refused (`TreasuryShort`) when that would pass `earned_fee`. So `fee_minted <= earned_fee` always, and `earned_fee` itself is at most the sum of the per-Position fees (conservative). The Treasury never pays more than fee earned + simSOL it received.
 
 | On chain | Seeds | Notes |
 |---|---|---|
-| `Treasury` | `["treasury"]` | `yield_fee_bps`, `instant_fee_bps`, `account`, `vault`, `fee_units` (cumulative SOL units minted as Yield Fee), `instant_units` (paid by SOL Instant Redeem), `funded_shares` |
+| `Treasury` | `["treasury"]` | `yield_fee_bps`, `instant_fee_bps`, `account`, `vault`, `fee_minted` (cumulative SOL units of earned Yield Fee already minted out as simSOL), `instant_units` (paid by SOL Instant Redeem), `funded_shares`, `withdrawn_units` (cumulative SOL units withdrawn), `company` (wallet `withdraw_treasury` pays; default = unset) |
 | Treasury Account | `["account", treasury_pda]` | a `TesoroAccount` with the Treasury PDA as authority: holds the Gemas it bought; nobody can sign for it |
 | Treasury vault (simSOL token account) | `["treasury_vault"]` | authority = the Treasury PDA |
 
@@ -179,7 +181,9 @@ Instructions (new):
 
 - `init_treasury(yield_fee_bps, instant_fee_bps)` (admin; calling it again changes the rates). Accounts: admin, config, treasury, treasury_account, mint (`SIM_SOL_MINT`), treasury_vault, token program, system program.
 - `fund_treasury(shares)` (admin): moves simSOL from the admin into the treasury vault. Event `TreasuryFunded`.
-- `instant_redeem(amount)` (native SOL Sources): holder_authority, holder_account, position, source, holding, treasury, treasury_account, treasury_holding (created for the holder if missing), treasury_vault, holder_token, pool, token program, system program. Pays simSOL `floor(payout * 1e9 / rate)` from the treasury vault in the same transaction. Event `InstantRedeemed`.
+- `instant_redeem(amount)` (native SOL Sources): holder_authority, holder_account, position, source, holding, treasury, treasury_account, treasury_holding (created for the holder if missing), treasury_vault, holder_token, pool, custody (`["native"]`), mint, yield_config (sim_lst `["yield_config"]`), yield_authority (core `["yield"]`), sim_lst_program, token program, system program. Pays simSOL `floor(payout * 1e9 / rate)` in the same transaction from the Treasury balance (vault first, then minted out of the unminted Yield Fee); `TreasuryShort` beyond it. Event `InstantRedeemed`.
+- `set_treasury_company(company)` (admin): sets the wallet `withdraw_treasury` pays. Accounts: admin, config, treasury.
+- `withdraw_treasury(amount)` (admin; `amount` in SOL units): pays the company wallet's simSOL account `floor(amount * 1e9 / rate)` the same way as Instant Redeem. Accounts: admin, config, treasury, treasury_vault, company_token (simSOL account owned by `treasury.company`), pool, custody, mint, yield_config, yield_authority, sim_lst_program, token program. Errors: `Unauthorized` (not admin), `CompanyNotSet` (6019, appended after `SourceRequired`), `InvalidAccount` (destination not owned by the company wallet), `TreasuryShort` (beyond the balance). Event `TreasuryWithdrawn { company, units, shares, minted_units }`.
 - `instant_redeem_from_source(amount) -> u64` (EVM Sources; holder and the chain's source authority sign): same ledger step, no payout; returns the payout in source units and the bridge records and caps it.
 - `redeem_treasury(amount)` (native SOL, permissionless crank): the Treasury Account redeems its Holding under the normal Redeem rules; the simSOL goes into the treasury vault. `redeem_treasury_from_source(amount)` is the EVM twin, signed by the source authority.
 

@@ -206,6 +206,16 @@ pub mod tesoro_core {
         instructions::treasury::fund_treasury(ctx, shares)
     }
 
+    /// Sets the company wallet that `withdraw_treasury` pays (admin).
+    pub fn set_treasury_company(ctx: Context<SetTreasuryCompany>, company: Pubkey) -> Result<()> {
+        instructions::treasury::set_treasury_company(ctx, company)
+    }
+
+    /// Withdraws `amount` SOL units of the Treasury balance to the company wallet (admin).
+    pub fn withdraw_treasury(ctx: Context<WithdrawTreasury>, amount: u64) -> Result<()> {
+        instructions::treasury::withdraw_treasury(ctx, amount)
+    }
+
     pub fn instant_redeem(ctx: Context<InstantRedeem>, amount: u64) -> Result<()> {
         instructions::treasury::instant_redeem(ctx, amount)
     }
