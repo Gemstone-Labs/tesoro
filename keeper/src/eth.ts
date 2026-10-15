@@ -249,6 +249,11 @@ export async function ethYieldJob(ctx: Ctx): Promise<number> {
     return 0;
   }
   let key: string | undefined = evmKeyFromEnv("KEEPER_EVM_PRIVATE_KEY");
+  if (!key && keeperCluster().id === "mainnet") {
+    // docs/mainnet-keys.md: the EVM deployer/owner key must never double as the keeper's reportYield key.
+    log("eth", "-", `SKIP ${owing.length} Position(s) with Debt: on mainnet the keeper needs its own KEEPER_EVM_PRIVATE_KEY (the deployer env file is not read)`);
+    return 0;
+  }
   if (!key) {
     if (!existsSync(s.evmEnvPath)) {
       log("eth", "-", `SKIP ${owing.length} Position(s) with Debt: no EVM key (KEEPER_EVM_PRIVATE_KEY or ${s.evmEnvPath})`);
