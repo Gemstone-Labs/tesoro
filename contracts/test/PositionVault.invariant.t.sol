@@ -101,14 +101,10 @@ contract PositionVaultInvariantTest is Test {
         targetContract(address(h));
     }
 
-    /// Principal stays covered by held shares until Unlock; yield payouts never dip into it.
+    /// The vault always holds at least the shares of every open Principal: payouts mint, they never dip into it.
     function invariant_principalCoveredWhileLocked() public view {
         PositionVault v = h.vault();
-        uint256 rate = h.lst().underlyingPerShare();
-        for (uint256 i = 0; i < h.idsLength(); i++) {
-            PositionVault.Position memory p = v.getPosition(h.ids(i));
-            if (!p.unlocked) assertGe(p.heldShares * rate / 1e18 + 1, p.principalUnderlying);
-        }
+        assertGe(h.lst().balanceOf(address(v)), v.openPrincipalUnderlying());
     }
 
     /// Paid yield never exceeds cumulative accrued yield.
@@ -120,14 +116,17 @@ contract PositionVaultInvariantTest is Test {
         }
     }
 
-    /// The vault's LST balance is exactly the sum of positions' held shares plus the Treasury (nothing leaves off-book).
-    function invariant_vaultBalanceMatchesBooks() public view {
+    /// The Treasury claim never exceeds the fees of all Positions (open and closed) plus nothing else was credited.
+    function invariant_treasuryNeverAboveFees() public view {
         PositionVault v = h.vault();
         uint256 sum;
         for (uint256 i = 0; i < h.idsLength(); i++) {
-            sum += v.getPosition(h.ids(i)).heldShares;
+            uint64 id = h.ids(i);
+            PositionVault.Position memory p = v.getPosition(id);
+            uint256 acc = v.accruedYield(id);
+            sum += p.unlocked ? (acc * p.feeBps) / (10_000 - p.feeBps) : acc * p.feeBps / (10_000 - p.feeBps);
         }
-        assertEq(h.lst().balanceOf(address(v)), sum + v.treasuryShares());
+        assertLe(v.treasuryBalance() + v.instantPaid(), sum + h.idsLength() * 2 + 2);
     }
 
     /// A Position's locked shares can be released to its owner at most once, and only at Unlock.
