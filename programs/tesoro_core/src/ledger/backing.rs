@@ -24,8 +24,8 @@ pub struct Request {
 }
 
 impl Request {
-    pub fn new(player: Key, game: Key, entry: u64, now: i64) -> CoreResult<Self> {
-        if !is_ladder_entry(entry) {
+    pub fn new(player: Key, game: Key, entry: u64, sizes: &[u64], now: i64) -> CoreResult<Self> {
+        if !is_ladder_entry(entry, sizes) {
             return Err(CoreError::InvalidEntry);
         }
         Ok(Self {
@@ -104,13 +104,14 @@ impl Offer {
         backer: Key,
         game: Key,
         entry: u64,
+        sizes: &[u64],
         player_share_bps: u16,
         kind: OfferKind,
         now: i64,
         account: &mut Account,
         holdings: &mut [Holding],
     ) -> CoreResult<Self> {
-        if !is_ladder_entry(entry) {
+        if !is_ladder_entry(entry, sizes) {
             return Err(CoreError::InvalidEntry);
         }
         if player_share_bps as u128 > BPS {

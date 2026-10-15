@@ -55,6 +55,7 @@ pub(crate) fn initialize_config(
     config.leaderboard_bps = 0;
     config.pool_account = Pubkey::default();
     config.leaderboard_since = 0;
+    config.entry_sizes = [0; crate::ledger::MAX_ENTRY_SIZES];
     Ok(())
 }
 
@@ -245,5 +246,32 @@ pub(crate) fn init_leaderboard(ctx: Context<InitLeaderboard>, leaderboard_bps: u
     if config.leaderboard_since == 0 {
         config.leaderboard_since = crate::util::now()?;
     }
+    Ok(())
+}
+
+/// Sets the entry sizes (admin). Extends a Config that predates the field. Matches, Requests and
+/// Offers already open keep the entry they were made with.
+#[derive(Accounts)]
+pub struct SetEntrySizes<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized,
+        realloc = Config::SPACE,
+        realloc::payer = admin,
+        realloc::zero = true
+    )]
+    pub config: Box<Account<'info, Config>>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_entry_sizes(ctx: Context<SetEntrySizes>, sizes: Vec<u64>) -> Result<()> {
+    crate::ledger::validate_entry_sizes(&sizes).map_err(core_err)?;
+    let mut padded = [0u64; crate::ledger::MAX_ENTRY_SIZES];
+    padded[..sizes.len()].copy_from_slice(&sizes);
+    ctx.accounts.config.entry_sizes = padded;
     Ok(())
 }

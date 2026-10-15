@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
+import { fmtEntryList } from "@/lib/format";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { Coins, Gem, Lock, RefreshCcw, Swords } from "lucide-react";
@@ -16,7 +18,7 @@ export default function Page() {
           { icon: Lock, tone: "emerald", title: "Open a Position", body: <>Lock a staking token in your Wallet. Its Principal is locked and never played.</> },
           { icon: Coins, tone: "emerald", title: "Take an Advance", body: <>Pick a Horizon of 1 to 12 months. You receive 80% of the Position&apos;s projected yield over it, upfront. The other 20% is Tesoro&apos;s Yield Fee.</> },
           { icon: Gem, tone: "emerald", title: "Hold Gemas", body: <>The Advance arrives as Gemas, worth $0.01 each at the moment they are issued.</> },
-          { icon: Swords, tone: "sapphire", title: "Play Matches", body: <>Enter 500, 1,000 or 2,500 Gemas in a head-to-head game. The winner takes the Pot minus Fees.</> },
+          { icon: Swords, tone: "sapphire", title: "Play Matches", body: <>Enter {fmtEntryList(ENTRY_SIZES)} Gemas in a head-to-head game. The winner takes the Pot minus Fees.</> },
           { icon: RefreshCcw, tone: "emerald", title: "Repay and Redeem", body: <>Your Position&apos;s yield repays its Debt on its own. Gemas you win turn into their Source asset as the loser&apos;s yield lands, or right away for {INSTANT_PAYOUT_PCT}% of their value with Redeem now.</> },
         ]}
         result={{ title: "What you have at the end", body: <>Your Principal back after Unlock, plus whatever you won and redeemed. Matches only ever risk the Gemas you enter.</> }}

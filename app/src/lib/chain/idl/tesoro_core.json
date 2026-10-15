@@ -5044,6 +5044,63 @@
       ]
     },
     {
+      "name": "set_entry_sizes",
+      "docs": [
+        "Sets the entry sizes in Gemas (1 to 4, each a multiple of 100). Admin only."
+      ],
+      "discriminator": [
+        191,
+        120,
+        33,
+        255,
+        62,
+        48,
+        21,
+        129
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "sizes",
+          "type": {
+            "vec": "u64"
+          }
+        }
+      ]
+    },
+    {
       "name": "set_evm_address",
       "discriminator": [
         138,
@@ -5341,6 +5398,110 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "set_onchain_price",
+      "docs": [
+        "Admin: where an asset's Advances read their USD price on mainnet (a Pyth push feed)."
+      ],
+      "discriminator": [
+        30,
+        142,
+        58,
+        99,
+        215,
+        185,
+        76,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "onchain_price",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  110,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "feed"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "asset",
+          "type": "pubkey"
+        },
+        {
+          "name": "feed_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "max_age_secs",
+          "type": "u32"
+        },
+        {
+          "name": "max_conf_bps",
+          "type": "u16"
+        }
+      ]
     },
     {
       "name": "set_price",
@@ -5752,6 +5913,89 @@
       ]
     },
     {
+      "name": "set_token_apy_ceiling",
+      "docs": [
+        "Admin: the ceiling on the APY a staking token's Advances are sized on."
+      ],
+      "discriminator": [
+        4,
+        10,
+        80,
+        252,
+        224,
+        215,
+        217,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_apy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  95,
+                  97,
+                  112,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "ceiling_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "settle_match",
       "discriminator": [
         71,
@@ -6073,6 +6317,201 @@
       ]
     },
     {
+      "name": "take_advance_onchain",
+      "docs": [
+        "`take_advance` priced from the asset's Pyth feed instead of a price the oracle names."
+      ],
+      "discriminator": [
+        119,
+        88,
+        86,
+        87,
+        113,
+        148,
+        180,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Its Yield Fee sizes the Advance."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "onchain_price",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  110,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.source_asset",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_feed"
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.advances",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "horizon_months",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "take_native_advance",
       "discriminator": [
         219,
@@ -6139,6 +6578,179 @@
               }
             ]
           }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Its Yield Fee sizes the Advance."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.advances",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "horizon_months",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "take_native_advance_onchain",
+      "docs": [
+        "`take_native_advance` priced from the asset's Pyth feed instead of the keeper's price."
+      ],
+      "discriminator": [
+        42,
+        248,
+        85,
+        215,
+        97,
+        148,
+        201,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "onchain_price",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  110,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.source_asset",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_feed"
         },
         {
           "name": "treasury",
@@ -6538,6 +7150,19 @@
       ]
     },
     {
+      "name": "OnchainPrice",
+      "discriminator": [
+        229,
+        94,
+        251,
+        135,
+        63,
+        85,
+        228,
+        205
+      ]
+    },
+    {
       "name": "Pool",
       "discriminator": [
         241,
@@ -6629,6 +7254,19 @@
       ]
     },
     {
+      "name": "SeasonWindowState",
+      "discriminator": [
+        4,
+        209,
+        198,
+        40,
+        87,
+        32,
+        39,
+        122
+      ]
+    },
+    {
       "name": "SolSource",
       "discriminator": [
         58,
@@ -6717,19 +7355,6 @@
         7,
         255,
         18
-      ]
-    },
-    {
-      "name": "SeasonWindowState",
-      "discriminator": [
-        4,
-        209,
-        198,
-        40,
-        87,
-        32,
-        39,
-        122
       ]
     }
   ],
@@ -6865,6 +7490,19 @@
       ]
     },
     {
+      "name": "OnchainPriceSet",
+      "discriminator": [
+        124,
+        158,
+        191,
+        102,
+        178,
+        94,
+        92,
+        121
+      ]
+    },
+    {
       "name": "PositionUnlocked",
       "discriminator": [
         174,
@@ -6917,6 +7555,19 @@
       ]
     },
     {
+      "name": "SeasonRankVoided",
+      "discriminator": [
+        75,
+        26,
+        186,
+        49,
+        222,
+        194,
+        191,
+        88
+      ]
+    },
+    {
       "name": "SeasonRecorded",
       "discriminator": [
         80,
@@ -6940,6 +7591,19 @@
         186,
         176,
         222
+      ]
+    },
+    {
+      "name": "TokenApyCeilingSet",
+      "discriminator": [
+        85,
+        67,
+        190,
+        31,
+        24,
+        226,
+        30,
+        187
       ]
     },
     {
@@ -7005,19 +7669,6 @@
         152,
         82,
         23
-      ]
-    },
-    {
-      "name": "SeasonRankVoided",
-      "discriminator": [
-        75,
-        26,
-        186,
-        49,
-        222,
-        194,
-        191,
-        88
       ]
     }
   ],
@@ -7116,6 +7767,31 @@
       "code": 6018,
       "name": "InvalidStakePool",
       "msg": "account is not a stake pool of the staking token"
+    },
+    {
+      "code": 6019,
+      "name": "StaleApy",
+      "msg": "the staking token's published APY is too old to size an Advance"
+    },
+    {
+      "code": 6020,
+      "name": "ApyCeilingNotSet",
+      "msg": "the admin has not set an APY ceiling for this staking token"
+    },
+    {
+      "code": 6021,
+      "name": "BadPriceFeed",
+      "msg": "the price feed account is not the mapped Pyth feed, or is not a verified price update"
+    },
+    {
+      "code": 6022,
+      "name": "PriceTooUncertain",
+      "msg": "the price feed's confidence interval is too wide to issue Gemas on"
+    },
+    {
+      "code": 6023,
+      "name": "OnchainPriceRequired",
+      "msg": "this asset is priced from its on-chain feed; use the on-chain Advance"
     }
   ],
   "types": [
@@ -7303,6 +7979,20 @@
               "readers show the fee only for Matches opened at or after it. Zero until then."
             ],
             "type": "i64"
+          },
+          {
+            "name": "entry_sizes",
+            "docs": [
+              "Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /",
+              "1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard",
+              "fields: an account created before reads them as zero from its zeroed tail."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
           }
         ]
       }
@@ -8217,6 +8907,91 @@
       }
     },
     {
+      "name": "OnchainPrice",
+      "docs": [
+        "Where an asset's Advances read their USD price on mainnet (ADR 0010): the Pyth sponsored push",
+        "feed account and the feed id it must carry. Admin-set, seeds `[\"onchain_price\", source_asset]`.",
+        "While it exists the oracle-supplied price path (`take_advance`) is closed for that asset."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "asset",
+            "docs": [
+              "The `source_asset` of the Positions it prices (the staking token's mint or EVM key)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "feed",
+            "docs": [
+              "The `PriceUpdateV2` account the price is read from (owned by the Pyth receiver)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "feed_id",
+            "docs": [
+              "The Pyth feed id of the asset's underlying coin (SOL/USD, ETH/USD, HYPE/USD)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "max_age_secs",
+            "docs": [
+              "The oldest price an Advance accepts; the program caps it at `pyth::MAX_ONCHAIN_PRICE_AGE_SECS`."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_conf_bps",
+            "docs": [
+              "The widest confidence interval an Advance accepts, share of the price in basis points."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OnchainPriceSet",
+      "docs": [
+        "The admin mapped an asset to the Pyth feed its Advances are priced from."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "feed",
+            "type": "pubkey"
+          },
+          {
+            "name": "feed_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Pool",
       "type": {
         "kind": "struct",
@@ -8866,6 +9641,26 @@
       }
     },
     {
+      "name": "SeasonRankVoided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "rank",
+            "type": "u8"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "SeasonRecorded",
       "type": {
         "kind": "struct",
@@ -8903,6 +9698,61 @@
             "type": {
               "defined": {
                 "name": "Season"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonWindow",
+      "docs": [
+        "The payout window of a recorded Season (ADR 0011), kept beside the `Season` so that Seasons",
+        "recorded before the window existed keep their layout. Created by the same `record_season`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "number",
+            "type": "u32"
+          },
+          {
+            "name": "recorded_at",
+            "docs": [
+              "Unix seconds `record_season` ran."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "voided_mask",
+            "docs": [
+              "Bit `i` set once rank `i` was voided: it pays nothing and its share stays in the pool."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonWindowState",
+      "docs": [
+        "The payout window of a recorded season (ADR 0011): when it was recorded and which ranks the",
+        "admin voided. A separate account so `SeasonState` keeps its layout. Created by",
+        "`record_season`; seeds `[\"season_window\", number as u32 LE]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "SeasonWindow"
               }
             }
           }
@@ -9187,9 +10037,11 @@
     {
       "name": "TokenApy",
       "docs": [
-        "The APY (basis points a year) a staking token's Positions are sized on, published by the oracle",
-        "authority (the keeper): `[\"token_apy\", mint]`. A real token has no `apy_bps` of its own, so",
-        "this is where a new Position's `rate_bps` comes from."
+        "The APY (basis points a year) a staking token's Positions are sized on: `[\"token_apy\", mint]`.",
+        "A real token has no `apy_bps` of its own, so this is where a Position's `rate_bps` comes from.",
+        "The oracle authority (the keeper) publishes the trailing 30-day APY (`apy_bps`, `updated_ts`);",
+        "the admin sets `ceiling_bps`. Sizing uses `min(apy_bps, ceiling_bps)`; a ceiling of 0 (never",
+        "set) sizes nothing, and an Advance refuses a published APY older than `MAX_APY_AGE_SECS`."
       ],
       "type": {
         "kind": "struct",
@@ -9209,6 +10061,29 @@
           {
             "name": "updated_ts",
             "type": "i64"
+          },
+          {
+            "name": "ceiling_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TokenApyCeilingSet",
+      "docs": [
+        "The admin set the ceiling on a staking token's sizing APY."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "ceiling_bps",
+            "type": "u16"
           }
         ]
       }
@@ -9397,81 +10272,6 @@
           {
             "name": "shares",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SeasonWindowState",
-      "docs": [
-        "The payout window of a recorded season (ADR 0011): when it was recorded and which ranks the",
-        "admin voided. A separate account so `SeasonState` keeps its layout. Created by",
-        "`record_season`; seeds `[\"season_window\", number as u32 LE]`."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "inner",
-            "type": {
-              "defined": {
-                "name": "SeasonWindow"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "SeasonWindow",
-      "docs": [
-        "The payout window of a recorded Season (ADR 0011), kept beside the `Season` so that Seasons",
-        "recorded before the window existed keep their layout. Created by the same `record_season`."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "number",
-            "type": "u32"
-          },
-          {
-            "name": "recorded_at",
-            "docs": [
-              "Unix seconds `record_season` ran."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "voided_mask",
-            "docs": [
-              "Bit `i` set once rank `i` was voided: it pays nothing and its share stays in the pool."
-            ],
-            "type": "u16"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SeasonRankVoided",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "season",
-            "type": "u32"
-          },
-          {
-            "name": "rank",
-            "type": "u8"
-          },
-          {
-            "name": "account",
-            "type": "pubkey"
           }
         ]
       }

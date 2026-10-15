@@ -45,7 +45,7 @@ export default function Page() {
       <DataTable
         head={["Instruction", "Who", "Effect"]}
         rows={[
-          [<code key="1">open_match(match_id, game, entry)</code>, "A Player", "Creates the Match, draws the opener's entry from their Holdings, and snapshots the Platform and Studio Fee basis points. Entries: 500, 1,000 or 2,500."],
+          [<code key="1">open_match(match_id, game, entry)</code>, "A Player", "Creates the Match, draws the opener's entry from their Holdings, and snapshots the Platform and Studio Fee basis points. Entries are set by the admin (mainnet 100, 500 or 1,000; test mode 500, 1,000 or 2,500)."],
           [<code key="2">join_match</code>, "A Player", "Draws the joiner's entry, sets status Active, sets the refund deadline to one hour later."],
           [<><code>open_match_backed</code>, <code>join_match_backed</code></>, "A backed Player", "The same, funded by an accepted Offer's reserved Gemas. The Player's own Gemas are never touched."],
           [<code key="4">extend_match_deadline(new_deadline)</code>, "Game authority", "Pushes an Active, unexpired Match's refund deadline later, never earlier and at most 7 days from now, so a slow Game cannot be refunded out from under itself."],

@@ -2052,7 +2052,10 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
     let err = d.env.void_rank(&admin, 1, 1).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::RankVoided));
     assert_eq!(
-        d.env.load::<SeasonWindowState>(window_pda(1)).inner.voided_mask,
+        d.env
+            .load::<SeasonWindowState>(window_pda(1))
+            .inner
+            .voided_mask,
         0b10
     );
     // One second before the window ends: still refused.
@@ -2093,7 +2096,10 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
     assert_eq!(custom_code(&err), core(CoreError::AlreadyPaid));
     // The voided rank pays nothing.
     let before = d.env.total_gemas(&d.bob);
-    let err = d.env.pay_rank(&oracle, 1, 1, &d.bob, &all[..1]).unwrap_err();
+    let err = d
+        .env
+        .pay_rank(&oracle, 1, 1, &d.bob, &all[..1])
+        .unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::RankVoided));
     assert_eq!(d.env.total_gemas(&d.bob), before);
     // No rank 2 was recorded.
@@ -2150,4 +2156,97 @@ fn decode_b64(s: &str) -> Vec<u8> {
         }
     }
     out
+}
+
+// --- Entry sizes ------------------------------------------------------------------------------
+
+impl Env {
+    fn set_entry_sizes(
+        &mut self,
+        signer: &Keypair,
+        sizes: &[u64],
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let set = ix(
+            accounts::SetEntrySizes {
+                admin: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetEntrySizes {
+                sizes: sizes.to_vec(),
+            },
+            vec![],
+        );
+        self.send(&[set], signer, &[])
+    }
+}
+
+#[test]
+fn entry_sizes_default_to_the_ladder_even_on_a_config_that_predates_the_field() {
+    let mut d = duel();
+    // The layout before the Leaderboard fields has no room for the setting: it reads as zero.
+    let config = s(pda(&[CONFIG_SEED]));
+    let mut acct = d.env.svm.get_account(&config).expect("config");
+    acct.data.truncate(Config::LEGACY_SPACE);
+    d.env.svm.set_account(config, acct).expect("legacy config");
+    assert_eq!(
+        d.env.load::<Config>(pda(&[CONFIG_SEED])).entries(),
+        vec![500, 1_000, 2_500]
+    );
+    let err = d.env.open_match(&d.alice, 100, &[d.a_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
+    d.env
+        .open_match(&d.alice, 500, &[d.a_holding])
+        .expect("500 is a default size");
+}
+
+#[test]
+fn admin_sets_entry_sizes_and_matches_outside_them_are_refused() {
+    let mut d = duel();
+    let admin = d.env.admin.insecure_clone();
+    // Only the admin sets them.
+    let outsider = d.alice.kp.insecure_clone();
+    let err = d.env.set_entry_sizes(&outsider, &[100, 500]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        u32::from(tesoro_core::error::TesoroError::Unauthorized)
+    );
+    // Not a multiple of 100, zero, duplicated, empty or more than four: refused.
+    for bad in [
+        vec![150],
+        vec![0, 100],
+        vec![100, 100],
+        vec![],
+        vec![100, 200, 300, 400, 500],
+    ] {
+        let err = d.env.set_entry_sizes(&admin, &bad).unwrap_err();
+        assert_eq!(custom_code(&err), core(CoreError::InvalidEntry), "{bad:?}");
+    }
+    d.env
+        .set_entry_sizes(&admin, &[100, 500, 1_000])
+        .expect("mainnet sizes");
+    assert_eq!(
+        d.env.load::<Config>(pda(&[CONFIG_SEED])).entries(),
+        vec![100, 500, 1_000]
+    );
+    // 100 now opens and 2,500 (a default size) no longer does.
+    let err = d
+        .env
+        .open_match(&d.alice, 2_500, &[d.a_holding])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
+    let m = d
+        .env
+        .open_match(&d.alice, 100, &[d.a_holding])
+        .expect("100 is allowed");
+    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    d.env
+        .open_match(&d.alice, 500, &[d.a_holding])
+        .expect("500 stays allowed");
+    // Setting them again replaces the list.
+    d.env
+        .set_entry_sizes(&admin, &[500, 1_000, 2_500])
+        .expect("back");
+    let err = d.env.open_match(&d.alice, 100, &[d.a_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
 }

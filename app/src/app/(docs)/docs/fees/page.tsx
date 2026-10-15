@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
+import { fmtGemas } from "@/lib/format";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { PayoutBar } from "@/components/docs/visual";
@@ -58,11 +60,12 @@ export default function Page() {
       <H2 id="examples">What a win pays</H2>
       <DataTable
         head={["Entry", "Pot", "Platform 2%", "Studio 3%", "Leaderboard 1%", "Winner receives", "Winner's gain"]}
-        rows={[
-          ["500", "1,000", "20", "30", "10", "940", "+440"],
-          ["1,000", "2,000", "40", "60", "20", "1,880", "+880"],
-          ["2,500", "5,000", "100", "150", "50", "4,700", "+2,200"],
-        ]}
+        rows={ENTRY_SIZES.map((e) => {
+          const pot = e * 2;
+          const [platform, studio, board] = [pot * 0.02, pot * 0.03, pot * 0.01];
+          const win = pot - platform - studio - board;
+          return [e, pot, platform, studio, board, win, `+${fmtGemas(win - e)}`].map((v) => (typeof v === "number" ? fmtGemas(v) : v));
+        })}
         caption="In Gemas. The loser loses their entry in every case"
       />
       <p>

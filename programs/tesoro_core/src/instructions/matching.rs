@@ -58,9 +58,12 @@ pub(crate) fn open_match<'info>(
     game: Pubkey,
     entry: u64,
 ) -> Result<()> {
-    let fees = {
+    let (fees, entries) = {
         let config = &ctx.accounts.config;
-        config.fee_terms(game_entry(config, &game)?)
+        (
+            config.fee_terms(game_entry(config, &game)?),
+            config.entries(),
+        )
     };
     let player = ctx.accounts.player_account.key();
     count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
@@ -73,7 +76,8 @@ pub(crate) fn open_match<'info>(
         share_bps: 0,
         lines,
     };
-    let m = ledger::Match::open(game.to_bytes(), entry, fees, side, now()?).map_err(core_err)?;
+    let m = ledger::Match::open(game.to_bytes(), entry, &entries, fees, side, now()?)
+        .map_err(core_err)?;
     let state = &mut ctx.accounts.match_state;
     state.bump = ctx.bumps.match_state;
     state.id = match_id;
@@ -171,9 +175,12 @@ pub(crate) fn open_match_backed<'info>(
     game: Pubkey,
     entry: u64,
 ) -> Result<()> {
-    let fees = {
+    let (fees, entries) = {
         let config = &ctx.accounts.config;
-        config.fee_terms(game_entry(config, &game)?)
+        (
+            config.fee_terms(game_entry(config, &game)?),
+            config.entries(),
+        )
     };
     let side = consume_offer(
         &mut ctx.accounts.offer,
@@ -183,7 +190,8 @@ pub(crate) fn open_match_backed<'info>(
         entry,
         ctx.remaining_accounts,
     )?;
-    let m = ledger::Match::open(game.to_bytes(), entry, fees, side, now()?).map_err(core_err)?;
+    let m = ledger::Match::open(game.to_bytes(), entry, &entries, fees, side, now()?)
+        .map_err(core_err)?;
     let state = &mut ctx.accounts.match_state;
     state.bump = ctx.bumps.match_state;
     state.id = match_id;

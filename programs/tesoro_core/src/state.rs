@@ -92,15 +92,34 @@ pub struct Config {
     /// Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so
     /// readers show the fee only for Matches opened at or after it. Zero until then.
     pub leaderboard_since: i64,
+    /// Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /
+    /// 1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard
+    /// fields: an account created before reads them as zero from its zeroed tail.
+    pub entry_sizes: [u64; ledger::MAX_ENTRY_SIZES],
 }
 
 impl Config {
-    pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8;
+    pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8 + 8 * ledger::MAX_ENTRY_SIZES;
     /// The layout before the Leaderboard fields.
     pub const LEGACY_SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 4 + MAX_GAMES * (32 + 32 + 2 + 32);
 
     pub fn game(&self, game: &Pubkey) -> Option<&GameEntry> {
         self.games.iter().find(|g| g.game == *game)
+    }
+
+    /// The entry sizes in force: the admin's list, or the default ladder while none is set.
+    pub fn entries(&self) -> Vec<u64> {
+        let set: Vec<u64> = self
+            .entry_sizes
+            .iter()
+            .copied()
+            .filter(|&e| e != 0)
+            .collect();
+        if set.is_empty() {
+            ledger::LADDER.to_vec()
+        } else {
+            set
+        }
     }
 
     pub fn leaderboard_terms(&self) -> ledger::LeaderboardTerms {

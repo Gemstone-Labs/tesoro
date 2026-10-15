@@ -44,6 +44,7 @@ pub(crate) fn create_request(
         ctx.accounts.player_account.key().to_bytes(),
         game.to_bytes(),
         entry,
+        &ctx.accounts.config.entries(),
         now()?,
     )
     .map_err(core_err)?;
@@ -125,12 +126,14 @@ pub(crate) fn create_offer<'info>(
         None => OfferKind::Public,
     };
     let now = now()?;
+    let sizes = ctx.accounts.config.entries();
     let acct = &mut ctx.accounts.backer_account.inner;
     let created = with_holdings(&mut holdings, |hs| {
         ledger::Offer::create(
             backer.to_bytes(),
             game.to_bytes(),
             entry,
+            &sizes,
             player_share_bps,
             kind,
             now,

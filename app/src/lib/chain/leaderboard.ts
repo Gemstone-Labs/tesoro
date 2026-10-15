@@ -52,6 +52,24 @@ export function parseLeaderboardTerms(data: Uint8Array): LeaderboardTerms {
   return { bps: d.getUint16(at, true), recipient: pool, since: Number(d.getBigInt64(at + 34, true)) };
 }
 
+/**
+ * The entry sizes set on-chain (`Config.entry_sizes`: four u64 after the Leaderboard fields, zero-padded),
+ * or null while none is set (the program then allows 500 / 1,000 / 2,500) or the account predates the field.
+ * The pickers read `cluster-settings`, which mirrors what the admin sets; this is the check against the chain.
+ */
+export function parseEntrySizes(data: Uint8Array): number[] | null {
+  const d = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (data.length < GAMES_AT + 4) return null;
+  const at = GAMES_AT + 4 + d.getUint32(GAMES_AT, true) * GAME_BYTES + 2 + 32 + 8;
+  if (data.length < at + 4 * 8) return null;
+  const sizes: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const n = Number(d.getBigUint64(at + i * 8, true));
+    if (n > 0) sizes.push(n);
+  }
+  return sizes.length ? sizes : null;
+}
+
 const TERMS_TTL_MS = 60_000;
 let cached: { at: number; terms: LeaderboardTerms; conn: Connection } | null = null;
 
