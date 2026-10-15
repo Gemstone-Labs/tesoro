@@ -467,7 +467,8 @@ impl World {
                     share_bps: 0,
                     lines,
                 };
-                let m = Match::open(GAME, entry, fees(), side, self.now).map_err(|_| ())?;
+                let m =
+                    Match::open(GAME, entry, &LADDER, fees(), side, self.now).map_err(|_| ())?;
                 self.matches.push(m);
             }
             Op::JoinMatch { a, m } => {
@@ -525,7 +526,8 @@ impl World {
             }
             Op::Time { dt } => self.now += dt,
             Op::Request { a, e } => {
-                let r = Request::new(akey(a), GAME, LADDER[e], self.now).map_err(|_| ())?;
+                let r =
+                    Request::new(akey(a), GAME, LADDER[e], &LADDER, self.now).map_err(|_| ())?;
                 if self.requests.len() >= 12 {
                     return Err(());
                 }
@@ -549,7 +551,7 @@ impl World {
                 let now = self.now;
                 let offer = self
                     .with_holdings(a, &sis, |acct, hs| {
-                        Offer::create(akey(a), GAME, entry, share, kind, now, acct, hs)
+                        Offer::create(akey(a), GAME, entry, &LADDER, share, kind, now, acct, hs)
                     })
                     .map_err(|_| ())?;
                 self.offers.push(offer);
@@ -646,8 +648,8 @@ impl World {
                 match open {
                     Some(i) => self.matches[i].join(side, now).map_err(|_| ())?,
                     None => {
-                        let m =
-                            Match::open(GAME, offer.entry, fees(), side, now).map_err(|_| ())?;
+                        let m = Match::open(GAME, offer.entry, &LADDER, fees(), side, now)
+                            .map_err(|_| ())?;
                         self.matches.push(m);
                     }
                 }
@@ -1081,6 +1083,7 @@ fn match_settles_once_and_pays_fees_in_gemas() {
     let mut m = Match::open(
         GAME,
         1_000,
+        &LADDER,
         fees(),
         side(akey(0), akey(0), 0, &[(1, 1_000)]),
         0,
@@ -1109,6 +1112,7 @@ fn backing_win_returns_entry_then_splits_and_loss_costs_the_entry() {
         let mut m = Match::open(
             GAME,
             500,
+            &LADDER,
             fees(),
             side(akey(0), akey(2), 4_000, &[(8, 500)]),
             0,
@@ -1152,6 +1156,7 @@ fn offers_expire_and_cannot_be_revoked_after_match_start() {
         akey(2),
         GAME,
         500,
+        &LADDER,
         5_000,
         OfferKind::Public,
         0,
@@ -1160,7 +1165,7 @@ fn offers_expire_and_cannot_be_revoked_after_match_start() {
     )
     .unwrap();
     assert_eq!((hs[0].reserved, acct.own_reserved), (500, 500));
-    let mut req = Request::new(akey(0), GAME, 500, 0).unwrap();
+    let mut req = Request::new(akey(0), GAME, 500, &LADDER, 0).unwrap();
     offer.apply(&req, rkey(0), 10).unwrap();
     assert_eq!(
         offer.apply(&req, rkey(0), 11),
@@ -1191,6 +1196,7 @@ fn offers_expire_and_cannot_be_revoked_after_match_start() {
         akey(2),
         GAME,
         500,
+        &LADDER,
         5_000,
         OfferKind::Public,
         0,
@@ -1330,7 +1336,7 @@ proptest! {
 
         let a_side = Side { player: akey(0), funder: akey(0), share_bps: 0, lines: a_lines };
         let b_side = Side { player: akey(1), funder: akey(1), share_bps: 0, lines: b_lines };
-        let mut m = Match::open(GAME, entry, fees(), a_side.clone(), 0).unwrap();
+        let mut m = Match::open(GAME, entry, &LADDER, fees(), a_side.clone(), 0).unwrap();
         m.join(b_side.clone(), 1).unwrap();
         let outcome = if opener_wins { Outcome::Winner(0) } else { Outcome::Winner(1) };
         let payouts = m.settle(outcome).unwrap();
@@ -1382,6 +1388,7 @@ fn a_backed_entry_over_eight_sources_settles_with_bounded_payouts() {
         akey(2),
         GAME,
         500,
+        &LADDER,
         4_000,
         OfferKind::Public,
         0,
@@ -1390,14 +1397,14 @@ fn a_backed_entry_over_eight_sources_settles_with_bounded_payouts() {
     )
     .unwrap();
     assert_eq!(hs.iter().filter(|h| h.reserved > 0).count(), 8);
-    let mut req = Request::new(akey(0), GAME, 500, 0).unwrap();
+    let mut req = Request::new(akey(0), GAME, 500, &LADDER, 0).unwrap();
     offer.apply(&req, rkey(0), 10).unwrap();
     offer.accept_applicant(&mut req, rkey(0), 20).unwrap();
     let a_side = offer
         .consume(akey(0), GAME, 500, 30, &mut acct, &mut hs)
         .unwrap();
     assert_eq!(a_side.lines.len(), 8);
-    let mut m = Match::open(GAME, 500, fees(), a_side, 30).unwrap();
+    let mut m = Match::open(GAME, 500, &LADDER, fees(), a_side, 30).unwrap();
     let b = side(
         akey(1),
         akey(1),
@@ -1435,6 +1442,7 @@ fn leaderboard_fee_comes_from_the_loser_after_platform_and_studio() {
         let mut m = Match::open(
             GAME,
             1_000,
+            &LADDER,
             fees(),
             side(akey(0), funder, 4_000, &[(1, 1_000)]),
             0,
@@ -1483,7 +1491,15 @@ fn leaderboard_fee_comes_from_the_loser_after_platform_and_studio() {
 
 #[test]
 fn all_fees_together_stay_under_the_cap() {
-    let mut m = Match::open(GAME, 500, fees(), side(akey(0), akey(0), 0, &[(1, 500)]), 0).unwrap();
+    let mut m = Match::open(
+        GAME,
+        500,
+        &LADDER,
+        fees(),
+        side(akey(0), akey(0), 0, &[(1, 500)]),
+        0,
+    )
+    .unwrap();
     m.join(side(akey(1), akey(1), 0, &[(2, 500)]), 1).unwrap();
     let hot = LeaderboardTerms {
         bps: MAX_TOTAL_FEE_BPS,
@@ -2193,4 +2209,23 @@ fn protections_keep_the_entry_limit_when_a_break_is_set() {
     p.entry_limit.set_limit(T, 1_000).unwrap();
     p.set_break(T, 7).unwrap();
     assert_eq!(p.entry_limit.effective(T), 1_000);
+}
+
+#[test]
+fn entry_sizes_are_1_to_4_distinct_multiples_of_100_and_points_stay_entry_over_100() {
+    assert!(validate_entry_sizes(&[100, 500, 1_000]).is_ok());
+    assert!(validate_entry_sizes(&LADDER).is_ok());
+    assert!(validate_entry_sizes(&[100, 200, 300, 400]).is_ok());
+    for bad in [
+        &[][..],
+        &[0],
+        &[150],
+        &[100, 100],
+        &[100, 200, 300, 400, 500],
+    ] {
+        assert_eq!(validate_entry_sizes(bad), Err(CoreError::InvalidEntry));
+    }
+    assert_eq!([100u64, 500, 1_000].map(points_for_win), [1, 5, 10]);
+    assert!(is_ladder_entry(100, &[100, 500]) && !is_ladder_entry(1_000, &[100, 500]));
+    assert!(!is_ladder_entry(0, &[0, 100]));
 }

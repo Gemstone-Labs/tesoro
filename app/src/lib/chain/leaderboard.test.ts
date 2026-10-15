@@ -2,7 +2,7 @@ import { BN, BorshCoder } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import idl from "./idl/tesoro_core.json";
-import { NO_LEADERBOARD, POOL_ACCOUNT, parseLeaderboardTerms, poolTotalOf, seasonPda, winsFromLogs } from "./leaderboard";
+import { NO_LEADERBOARD, POOL_ACCOUNT, parseEntrySizes, parseLeaderboardTerms, poolTotalOf, seasonPda, winsFromLogs } from "./leaderboard";
 import { leaderboardBpsFor, setLeaderboardSince } from "./season";
 
 const HEAD = 8 + 1 + 32 + 32 + 2 + 32;
@@ -32,6 +32,23 @@ describe("Config leaderboard terms", () => {
   it("is off for a Config that predates the Leaderboard or has no pool", () => {
     expect(parseLeaderboardTerms(config(3))).toEqual(NO_LEADERBOARD);
     expect(parseLeaderboardTerms(config(3, { bps: 100, pool: PublicKey.default, since: 0 }).subarray(0, HEAD + 4 + 3 * 98))).toEqual(NO_LEADERBOARD);
+  });
+});
+
+describe("Config entry sizes", () => {
+  const withSizes = (games: number, sizes: number[]) => {
+    const base = config(games, { bps: 100, pool: POOL_ACCOUNT, since: 1_791_200_000 });
+    const buf = Buffer.concat([base, Buffer.alloc(32)]);
+    const at = HEAD + 4 + games * 98 + 42;
+    sizes.forEach((n, i) => buf.writeBigUInt64LE(BigInt(n), at + i * 8));
+    return buf;
+  };
+  it("reads the sizes after the Leaderboard fields, wherever the Games list ends", () => {
+    for (const games of [0, 3, 8]) expect(parseEntrySizes(withSizes(games, [100, 500, 1000]))).toEqual([100, 500, 1000]);
+  });
+  it("is null while none is set, and for a Config that predates the field", () => {
+    expect(parseEntrySizes(withSizes(3, []))).toBeNull();
+    expect(parseEntrySizes(config(3).subarray(0, HEAD + 4 + 3 * 98 + 42))).toBeNull();
   });
 });
 

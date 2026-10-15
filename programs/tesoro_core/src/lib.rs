@@ -61,6 +61,11 @@ pub mod tesoro_core {
         instructions::admin::set_invite_gate(ctx, required, key)
     }
 
+    /// Sets the entry sizes in Gemas (1 to 4, each a multiple of 100). Admin only.
+    pub fn set_entry_sizes(ctx: Context<SetEntrySizes>, sizes: Vec<u64>) -> Result<()> {
+        instructions::admin::set_entry_sizes(ctx, sizes)
+    }
+
     // --- Leaderboard seasons ----------------------------------------------------------------
 
     pub fn record_season<'info>(

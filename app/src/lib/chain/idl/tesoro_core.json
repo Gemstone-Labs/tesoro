@@ -5594,6 +5594,63 @@
       ]
     },
     {
+      "name": "set_entry_sizes",
+      "docs": [
+        "Sets the entry sizes in Gemas (1 to 4, each a multiple of 100). Admin only."
+      ],
+      "discriminator": [
+        191,
+        120,
+        33,
+        255,
+        62,
+        48,
+        21,
+        129
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "sizes",
+          "type": {
+            "vec": "u64"
+          }
+        }
+      ]
+    },
+    {
       "name": "set_evm_address",
       "discriminator": [
         138,
@@ -8812,6 +8869,20 @@
               "readers show the fee only for Matches opened at or after it. Zero until then."
             ],
             "type": "i64"
+          },
+          {
+            "name": "entry_sizes",
+            "docs": [
+              "Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /",
+              "1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard",
+              "fields: an account created before reads them as zero from its zeroed tail."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
           }
         ]
       }

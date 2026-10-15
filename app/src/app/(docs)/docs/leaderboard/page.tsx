@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
+import { fmtGemas } from "@/lib/format";
 import Link from "next/link";
 import { DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { SeasonDiagram, Shot } from "@/components/docs/visual";
@@ -31,11 +33,7 @@ export default function Page() {
       <p>You earn points when you <b>win</b> a Match, scaled by its entry:</p>
       <DataTable
         head={["Entry", "Points for a win"]}
-        rows={[
-          ["500 Gemas", "5"],
-          ["1,000 Gemas", "10"],
-          ["2,500 Gemas", "25"],
-        ]}
+        rows={ENTRY_SIZES.map((e) => [`${fmtGemas(e)} Gemas`, String(e / 100)])}
       />
       <p>Losses, draws and refunds earn nothing. The game does not matter: a win in Block Puzzle, Hold&apos;em or Trading Duel counts the same at the same entry.</p>
       <p>

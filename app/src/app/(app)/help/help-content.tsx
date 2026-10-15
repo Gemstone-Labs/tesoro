@@ -1,6 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { fmtGemas } from "@/lib/format";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
+import { fmtEntryList } from "@/lib/format";
 import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
 
 export const STEPS: { title: string; text: string; href: string; cta: string }[] = [
@@ -82,7 +85,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "How does a Match work?",
         a: (
           <p>
-            Two Players enter the same amount: 500, 1,000 or 2,500 Gemas. The winner takes the Pot minus Fees. A draw, an abandoned Match or
+            Two Players enter the same amount: {fmtEntryList(ENTRY_SIZES)} Gemas. The winner takes the Pot minus Fees. A draw, an abandoned Match or
             a no-show refunds both entries. Every Match is settled once and recorded on Solana, where anyone can check it.
           </p>
         ),
@@ -187,7 +190,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <>
             <p>
-              Every Match you win earns points, the same in every game: 5 for a 500 Gema entry, 10 for 1,000 and 25 for 2,500. Losses, draws and
+              Every Match you win earns points, the same in every game: one for every 100 Gemas of entry ({ENTRY_SIZES.map((e) => `${e / 100} for ${fmtGemas(e)}`).join(", ")}). Losses, draws and
               refunds earn none. When a Backer funds your entry, you get the points, because you played.
             </p>
             <p>

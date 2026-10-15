@@ -176,8 +176,15 @@ fn finish(payouts: Vec<Payout>) -> CoreResult<Vec<Payout>> {
 }
 
 impl Match {
-    pub fn open(game: Key, entry: u64, fees: FeeTerms, a: Side, now: i64) -> CoreResult<Self> {
-        if !is_ladder_entry(entry) {
+    pub fn open(
+        game: Key,
+        entry: u64,
+        sizes: &[u64],
+        fees: FeeTerms,
+        a: Side,
+        now: i64,
+    ) -> CoreResult<Self> {
+        if !is_ladder_entry(entry, sizes) {
             return Err(CoreError::InvalidEntry);
         }
         fees.validate()?;
