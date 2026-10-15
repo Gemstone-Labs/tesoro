@@ -31,6 +31,11 @@ export function parseTreasury(d: Uint8Array): TreasuryRates | null {
   return { yieldFeeBps: view(d).getUint16(11, true), instantFeeBps: view(d).getUint16(13, true) };
 }
 
+/** The Treasury's original vault (the token it was created with), as recorded in `Treasury.vault`. Null on a wrong size. */
+export function parseTreasuryVaultKey(d: Uint8Array): Uint8Array | null {
+  return d.length === TREASURY_LEN ? d.subarray(8 + 3 + 2 + 2 + 32, 8 + 3 + 2 + 2 + 64) : null;
+}
+
 /** The treasury simSOL vault is an SPL token account: its balance sits at byte 64. */
 export const parseVaultShares = (d: Uint8Array): bigint | null => (d.length >= 72 ? rdU64(d, 64) : null);
 

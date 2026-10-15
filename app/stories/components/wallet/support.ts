@@ -23,6 +23,9 @@ export function nativePosition(state: "debt" | "repaid" | "unlocked" = "debt"): 
   const native: NativeInfo = {
     position: key(401),
     custody: key(402),
+    mint: key(404),
+    pool: key(405),
+    stakePool: false,
     status: state === "unlocked" ? "unlocked" : "locked",
     principalLamports: 40_000_000_000n,
     rateBps: 700,

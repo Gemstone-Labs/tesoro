@@ -1,8 +1,10 @@
 import { BN } from "@coral-xyz/anchor";
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import { debtGemas, debtUnits, instantSplit, redeemableFor, type SourceMath } from "./ledger";
-import { SIM_SOL_MINT, TESORO_CORE_ID, custodyPda, marketFrom, marketKeys, nativeInfoFrom, vaultPda, type NativeInfo } from "./native";
+import { TESORO_CORE_ID, custodyPda, marketFrom, marketKeys, nativeInfoFrom, vaultPda, type NativeInfo } from "./native";
 import { parseEthPositionId } from "./eth";
+import { CLUSTER } from "../cluster-settings";
+import { solSourceOf, stakeMarketFrom, stakeMarketKeys, stakeMarketKeys2 } from "./stake-market";
 import type { AccountSnapshot, ChainAdvance, ChainHolding, ChainPosition } from "./read";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
@@ -47,7 +49,15 @@ function sourceMath(inner: any): SourceMath {
   };
 }
 
-const isNativePosition = (pos: any) => !!pos && pk(pos.inner.sourceAsset).equals(SIM_SOL_MINT) && enumKey(pos.inner.sourceChain) === "solana";
+/** A Solana Position is native when it has token custody: the sim_lst simSOL or a real staking token (any Solana Position the app reads has one). */
+const isNativePosition = (pos: any) => !!pos && enumKey(pos.inner.sourceChain) === "solana";
+
+/** The staking token's market (round two reads the pool, APY, price feed, token account and Treasury vault). Null while no token is set. */
+async function stakeMarket(src: StateSource, authority: PublicKey, [setting, treasury]: Info[]) {
+  const source = solSourceOf(setting);
+  if (!source) return null;
+  return stakeMarketFrom(source, treasury, await src.infos(stakeMarketKeys2(authority, source, treasury)));
+}
 
 /**
  * The Account without its Matches (`matchesLoaded` false): SOL, Gemas, Positions and the simSOL market.
@@ -58,11 +68,12 @@ const isNativePosition = (pos: any) => !!pos && pk(pos.inner.sourceAsset).equals
 export async function readAccountState(src: StateSource, authority: PublicKey, accountKey: PublicKey): Promise<AccountSnapshot> {
   const lists = src.lists(accountKey);
   lists.catch(() => undefined);
-  const [accountAndMarket, lamports] = await Promise.all([src.infos([accountKey, ...marketKeys(authority)]), src.balance(authority).catch(() => 0)]);
+  const real = CLUSTER.yieldModel === "real";
+  const [accountAndMarket, lamports] = await Promise.all([src.infos([accountKey, ...(real ? stakeMarketKeys() : marketKeys(authority))]), src.balance(authority).catch(() => 0)]);
   const [accountInfo, ...marketInfos] = accountAndMarket;
   let market = null;
   try {
-    market = marketFrom(marketInfos);
+    market = real ? await stakeMarket(src, authority, marketInfos) : marketFrom(marketInfos);
   } catch (e) {
     console.warn("native market", e);
   }

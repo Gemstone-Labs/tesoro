@@ -99,6 +99,20 @@ export const holdingPda = (account: PublicKey, source: PublicKey) => pda([s("hol
 export const simSolAta = (owner: PublicKey) =>
   PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), SIM_SOL_MINT.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
 
+/** The owner's associated token account of `mint`. */
+export const ataOf = (owner: PublicKey, mint: PublicKey) =>
+  PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
+
+/**
+ * What a payout of a custody holding a real staking token needs beyond the simSOL defaults: the token, the stake pool that
+ * values it and the Treasury's vault of that token. Absent (undefined) means a simSOL custody.
+ */
+export interface TokenCustody {
+  mint: PublicKey;
+  pool: PublicKey;
+  treasuryVault: PublicKey;
+}
+
 export const meta = (pubkey: PublicKey, isWritable = false, isSigner = false): AccountMeta => ({ pubkey, isSigner, isWritable });
 export const core = (keys: AccountMeta[], name: keyof typeof DISC, ...args: Buffer[]) =>
   new TransactionInstruction({ programId: TESORO_CORE_ID, keys, data: Buffer.concat([disc(name), ...args]) });
@@ -235,23 +249,31 @@ export const accrueNativeYieldIx = (position: PublicKey, openAdvance: number | n
     "accrue_native_yield",
   );
 
-const payoutRemaining = (position: PublicKey, dest: PublicKey): AccountMeta[] => [
+/** The holder's token account for payouts: simSOL by default. */
+const payoutAta = (holder: PublicKey, tok?: TokenCustody) => (tok ? ataOf(holder, tok.mint) : simSolAta(holder));
+
+/**
+ * `[custody, vault, destination, pool, token_program]`, plus `[treasury, treasury_vault]` when `settleFee` and the custody is a
+ * stake pool one (Unlock and sweep let the vault's surplus leave, so the Yield Fee on the rate's growth is settled first).
+ */
+const payoutRemaining = (position: PublicKey, dest: PublicKey, tok?: TokenCustody, settleFee = false): AccountMeta[] => [
   meta(custodyPda(position), true),
   meta(vaultPda(position), true),
   meta(dest, true),
-  meta(POOL),
+  meta(tok ? tok.pool : POOL),
   meta(TOKEN_PROGRAM_ID),
+  ...(tok && settleFee ? [meta(treasuryPda(), true), meta(tok.treasuryVault, true)] : []),
 ];
 
 /** Redeem Gemas of `source`: the holder is paid simSOL into their own token account. */
-export function redeemIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint) {
+export function redeemIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, tok?: TokenCustody) {
   const account = accountPda(holder);
   const i = core(
     [meta(holder, false, true), meta(account, true), meta(position), meta(source, true), meta(holdingPda(account, source), true)],
     "redeem",
     u64(gemas),
   );
-  i.keys.push(...payoutRemaining(position, simSolAta(holder)));
+  i.keys.push(...payoutRemaining(position, payoutAta(holder, tok), tok));
   return i;
 }
 
@@ -259,7 +281,7 @@ export function redeemIx(holder: PublicKey, position: PublicKey, source: PublicK
  * Instant Redeem: the holder sells won Gemas of a native Source and the treasury vault pays simSOL into
  * their token account in the same transaction (fails when the vault holds less).
  */
-export function instantRedeemIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint) {
+export function instantRedeemIx(holder: PublicKey, position: PublicKey, source: PublicKey, gemas: bigint, tok?: TokenCustody) {
   const account = accountPda(holder);
   const treasuryAccount = treasuryAccountPda();
   return core(
@@ -272,9 +294,9 @@ export function instantRedeemIx(holder: PublicKey, position: PublicKey, source: 
       meta(treasuryPda(), true),
       meta(treasuryAccount, true),
       meta(holdingPda(treasuryAccount, source), true),
-      meta(treasuryVaultPda(), true),
-      meta(simSolAta(holder), true),
-      meta(POOL),
+      meta(tok ? tok.treasuryVault : treasuryVaultPda(), true),
+      meta(payoutAta(holder, tok), true),
+      meta(tok ? tok.pool : POOL),
       meta(TOKEN_PROGRAM_ID),
       meta(SystemProgram.programId),
     ],
@@ -284,14 +306,14 @@ export function instantRedeemIx(holder: PublicKey, position: PublicKey, source: 
 }
 
 /** Permissionless: the Treasury Account redeems Gemas it bought; the simSOL goes into the treasury vault. */
-export function redeemTreasuryIx(position: PublicKey, source: PublicKey, gemas: bigint) {
+export function redeemTreasuryIx(position: PublicKey, source: PublicKey, gemas: bigint, tok?: TokenCustody) {
   const treasuryAccount = treasuryAccountPda();
   const i = core(
     [meta(treasuryPda()), meta(treasuryAccount, true), meta(position), meta(source, true), meta(holdingPda(treasuryAccount, source), true)],
     "redeem_treasury",
     u64(gemas),
   );
-  i.keys.push(...payoutRemaining(position, treasuryVaultPda()));
+  i.keys.push(...payoutRemaining(position, tok ? tok.treasuryVault : treasuryVaultPda(), tok));
   return i;
 }
 
@@ -325,26 +347,29 @@ export const fundTreasuryIx = (admin: PublicKey, shares: bigint) =>
   );
 
 /** Debt must be zero on chain (send `accrueNativeYieldIx` first). Returns the Principal shares to the owner. */
-export function unlockIx(owner: PublicKey, position: PublicKey) {
+export function unlockIx(owner: PublicKey, position: PublicKey, tok?: TokenCustody) {
   const i = core([meta(owner, false, true), meta(accountPda(owner)), meta(position, true)], "unlock");
-  i.keys.push(...payoutRemaining(position, simSolAta(owner)));
+  i.keys.push(...payoutRemaining(position, payoutAta(owner, tok), tok, true));
   return i;
 }
 
-export const sweepNativeSurplusIx = (owner: PublicKey, position: PublicKey) =>
-  core(
+export const sweepNativeSurplusIx = (owner: PublicKey, position: PublicKey, tok?: TokenCustody) => {
+  const i = core(
     [
       meta(owner, false, true),
       meta(accountPda(owner)),
       meta(position),
       meta(custodyPda(position), true),
       meta(vaultPda(position), true),
-      meta(simSolAta(owner), true),
-      meta(POOL),
+      meta(payoutAta(owner, tok), true),
+      meta(tok ? tok.pool : POOL),
       meta(TOKEN_PROGRAM_ID),
     ],
     "sweep_native_surplus",
   );
+  if (tok) i.keys.push(meta(treasuryPda(), true), meta(tok.treasuryVault, true));
+  return i;
+};
 
 // --- Pure math ---------------------------------------------------------------------------------
 
@@ -365,17 +390,22 @@ export interface YieldClock {
   rateBps: number;
   /** Unix seconds up to which yield is minted into the vault. */
   lastAccrualTs: number;
+  /** A real staking token: its yield is the pool rate's growth, already in the pool's rate, so nothing is projected on top; the rate only times the Unlock Estimate. */
+  realized?: boolean;
 }
 
-/** The yield clock of a Locked, migrated custody; null when nothing more will be minted. */
-export const yieldClockOf = (info: Pick<NativeInfo, "status" | "rateBps" | "lastAccrualTs">): YieldClock | null =>
-  info.status === "locked" && info.lastAccrualTs !== null ? { rateBps: info.rateBps, lastAccrualTs: info.lastAccrualTs } : null;
+/** The yield clock of a Locked, migrated custody; null when nothing more will be minted. A stake pool custody always has one (its rate is the Position's recorded APY). */
+export const yieldClockOf = (info: Pick<NativeInfo, "status" | "rateBps" | "lastAccrualTs"> & { stakePool?: boolean }): YieldClock | null => {
+  if (info.status !== "locked") return null;
+  if (info.stakePool) return { rateBps: info.rateBps, lastAccrualTs: info.lastAccrualTs ?? 0, realized: true };
+  return info.lastAccrualTs !== null ? { rateBps: info.rateBps, lastAccrualTs: info.lastAccrualTs } : null;
+};
 
 /** Cumulative accrued yield (SOL units, net of the Yield Fee) as the program would read it after a crank at `nowMs`. */
 export function accruedAt(args: { vaultShares: bigint; redeemedUnits: bigint; principalLamports: bigint; pool: PoolParams; clock?: YieldClock | null; nowMs: number; yieldFeeBps?: number }): bigint {
   const { vaultShares, redeemedUnits, principalLamports, pool, clock, nowMs } = args;
   const minted = sharesValue(vaultShares, rateAt(pool)) + redeemedUnits - principalLamports;
-  const pending = clock
+  const pending = clock && !clock.realized
     ? netOfYieldFee(
         accruedYield({
           principal: principalLamports,
@@ -478,11 +508,18 @@ export interface NativeMarket {
   treasury: TreasuryRates | null;
   /** simSOL the treasury vault holds to pay Instant Redeems; null while there is no Treasury. */
   treasuryShares: bigint | null;
+  /** Set on a cluster with a real staking token (`pool` then holds the stake pool's rate and the token's trailing APY, speedup 1; `simSol` the wallet's balance of the token). */
+  token?: TokenCustody & { symbol: string };
 }
 
 export interface NativeInfo {
   position: PublicKey;
   custody: PublicKey;
+  /** The token the custody holds and the account that values it (the sim_lst Pool, or a stake pool). */
+  mint: PublicKey;
+  pool: PublicKey;
+  /** The custody is valued by an SPL stake pool (a real staking token): yield is the pool rate's growth, Unlock and sweep settle the Yield Fee. */
+  stakePool: boolean;
   status: "locked" | "unlocked";
   principalLamports: bigint;
   rateBps: number;
@@ -498,7 +535,7 @@ export interface NativeInfo {
   source: { key: PublicKey; index: number; horizonMonths: number; math: SourceMath } | null;
 }
 
-/** The accounts `marketFrom` reads, in order: pool, price feed, the wallet's simSOL token account, Treasury, Treasury vault. */
+/** Test mode (sim_lst). On a cluster with a real staking token use `fetchMarket` (stake-market.ts). The accounts `marketFrom` reads, in order: pool, price feed, the wallet's simSOL token account, Treasury, Treasury vault. */
 export const marketKeys = (wallet: PublicKey) => [POOL, PRICE_FEED, simSolAta(wallet), treasuryPda(), treasuryVaultPda()];
 
 export async function fetchNativeMarket(c: Connection, wallet: PublicKey): Promise<NativeMarket> {
@@ -556,6 +593,11 @@ export async function fetchNativeInfo(c: Connection, position: PublicKey): Promi
   return nativeInfoFrom(position, pos, cust, vault, src);
 }
 
+/** `NativeCustody::SPACE` and the trailing stake pool marker (tesoro_core state.rs): a custody valued by a stake pool is allocated past `SPACE` with marker 2 and the last rate the fee was settled at. */
+const CUSTODY_SPACE = 8 + 2 + 5 * 32 + 5 * 8;
+const STAKE_POOL_SPACE = CUSTODY_SPACE + 1 + 8;
+const STAKE_POOL_MARKER = 2;
+
 /** Byte offset of `advances` in a PositionState: disc, bump, id, owner, chain, asset, decimals, principal, rate, status. */
 const NATIVE_ADVANCES_AT = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1;
 
@@ -583,6 +625,8 @@ export function nativeInfoFrom(
   const freeYield = rdU64(d, o + 8);
   // NativeCustody: disc 8, bump, vault_bump, 5 keys (position, owner, pool, mint, vault), rate_at_open, deposited, redeemed
   const redeemedUnits = rdU64(cust.data, 8 + 2 + 5 * 32 + 16);
+  const key = (at: number) => new PublicKey(cust.data.subarray(at, at + 32));
+  const stakePool = cust.data.length >= STAKE_POOL_SPACE && cust.data[CUSTODY_SPACE] === STAKE_POOL_MARKER;
   // Since F-05 the program reads yield from `tracked_shares` (after redeemed_units), never from the vault's token balance:
   // simSOL sent straight to the vault is not yield. Mirror that, or a top-up shows a Debt that is not really repaid.
   const TRACKED_AT = 8 + 2 + 5 * 32 + 24;
@@ -594,6 +638,9 @@ export function nativeInfoFrom(
   return {
     position,
     custody,
+    pool: key(8 + 2 + 2 * 32),
+    mint: key(8 + 2 + 3 * 32),
+    stakePool,
     status,
     principalLamports,
     rateBps,
