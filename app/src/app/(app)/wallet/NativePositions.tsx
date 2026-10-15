@@ -14,6 +14,7 @@ import {
   projectedDebtGemas,
   quoteExtendAdvance,
   quoteNativeAdvance,
+  sizingRateBps,
   rateAt,
   surplusShares,
   accruedAt,
@@ -164,7 +165,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   return (
     <OpenFormView
       chain="SOL"
-      apy={market ? `${market.pool.apyBps / 100}% APY` : undefined}
+      apy={market && market.pool.apyBps > 0 ? `${market.pool.apyBps / 100}% APY` : undefined}
       inert={!market}
       amountText={text}
       onAmount={setText}
@@ -322,7 +323,8 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
   const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
   const { yieldFeeBps } = ratesOf(market?.treasury);
-  const quote = priceOk ? quoteNativeAdvance(info.principalLamports, info.rateBps, months, market!.price!.microUsd, yieldFeeBps) : null;
+  const rateBps = sizingRateBps(info, market);
+  const quote = priceOk ? quoteNativeAdvance(info.principalLamports, rateBps, months, market!.price!.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   // The Advance is the Horizon's projected yield at the Position's own rate net of the Yield Fee, which is all the Position earns, so yield repays it in exactly the Horizon.
   const unlock = gemas > 0 ? now + months * SIM_MONTH_MIN * 60_000 : null;
@@ -342,7 +344,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
     <AdvanceFormView
       chain="SOL"
       title={title}
-      apy={`${(info.rateBps / 100).toFixed(1)}% APY`}
+      apy={rateBps > 0 ? `${(rateBps / 100).toFixed(1)}% APY` : undefined}
       months={months}
       onMonths={setMonths}
       yieldText={`${quote ? fmtSol(quote.projectedUnits) : "0"} SOL`}
@@ -410,9 +412,10 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
   const months = Math.max(1, Math.min(picked, view.maxMonths));
   const pool = market?.pool ?? null;
   const { yieldFeeBps } = ratesOf(market?.treasury);
-  const quote = quoteExtendAdvance(info.principalLamports, info.rateBps, source.math, source.horizonMonths, months, yieldFeeBps);
+  const rateBps = sizingRateBps(info, market);
+  const quote = quoteExtendAdvance(info.principalLamports, rateBps, source.math, source.horizonMonths, months, yieldFeeBps);
   const gemas = Number(quote.gemas);
-  const addedYield = advanceUnits(info.principalLamports, info.rateBps, source.horizonMonths + months, yieldFeeBps) - advanceUnits(info.principalLamports, info.rateBps, source.horizonMonths, yieldFeeBps);
+  const addedYield = advanceUnits(info.principalLamports, rateBps, source.horizonMonths + months, yieldFeeBps) - advanceUnits(info.principalLamports, rateBps, source.horizonMonths, yieldFeeBps);
   const clock = yieldClockOf(info);
   const unlock =
     pool && gemas > 0
