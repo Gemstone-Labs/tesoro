@@ -130,8 +130,8 @@ contract PositionVaultOAppTest is Test {
         assertEq(uint8(m[0]), 2);
         assertEq(bytes8(_slice(m, 37, 8)), bytes8(uint64(2)));
         assertEq(bytes16(_slice(m, 45, 16)), bytes16(uint128(accrued)));
-        assertGt(vault.treasuryIn(), 0);
-        assertEq(bytes16(_slice(m, 61, 16)), bytes16(uint128(vault.treasuryIn())));
+        assertGt(vault.treasuryBalance(), 0);
+        assertEq(bytes16(_slice(m, 61, 16)), bytes16(uint128(vault.treasuryBalance())));
     }
 
     function _instant(uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
@@ -141,26 +141,46 @@ contract PositionVaultOAppTest is Test {
     function test_pay_instant_pays_from_the_treasury() public {
         uint64 id = _open(1e18);
         vm.warp(block.timestamp + 600);
-        vault.accrue(id);
-        uint256 treasury = vault.treasuryShares();
+        uint256 treasury = vault.treasuryBalance();
         assertGt(treasury, 1000);
         _recv(_instant(id, 1, redeemer, uint128(treasury / 2)));
         assertEq(lst.balanceOf(redeemer), treasury / 2);
         assertEq(vault.instantPaid(), treasury / 2);
-        assertEq(vault.treasuryShares(), treasury - treasury / 2);
+        assertApproxEqAbs(vault.treasuryBalance(), treasury - treasury / 2, 1);
         _recv(_instant(id, 1, redeemer, uint128(treasury / 2))); // replay
         assertEq(lst.balanceOf(redeemer), treasury / 2);
     }
 
-    function test_pay_instant_short_reverts_then_succeeds_after_funding() public {
+    function test_pay_instant_short_is_refused_and_refunded_over_the_wire() public {
         uint64 id = _open(1e18);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1e17, 0));
-        _recv(_instant(id, 1, redeemer, 1e17));
-        lst.faucet(address(this));
-        lst.approve(address(vault), type(uint256).max);
-        vault.fundTreasury(1e17);
-        _recv(_instant(id, 1, redeemer, 1e17));
-        assertEq(lst.balanceOf(redeemer), 1e17);
+        _recv(_instant(id, 4, redeemer, 1e17)); // empty Treasury: no revert, nothing paid
+        assertEq(lst.balanceOf(redeemer), 0);
+        assertEq(vault.refusedInstant(id, 4), 1e17);
+
+        uint256 sendsBefore = ep.sends();
+        vault.refundInstant{value: 0.0001 ether}(id, 4);
+        assertEq(ep.sends(), sendsBefore + 1);
+        bytes memory m = ep.lastMessage();
+        assertEq(m.length, 69);
+        assertEq(uint8(m[0]), 6);
+        assertEq(bytes4(_slice(m, 1, 4)), bytes4(HOODI));
+        assertEq(bytes32(_slice(m, 5, 32)), _key(id));
+        assertEq(bytes8(_slice(m, 37, 8)), bytes8(uint64(2))); // the position's next outbound seq
+        assertEq(bytes8(_slice(m, 45, 8)), bytes8(uint64(4))); // the refused inbound seq
+        assertEq(bytes16(_slice(m, 53, 16)), bytes16(uint128(1e17)));
+        assertEq(vault.quoteInstantRefund(), ep.fee());
+    }
+
+    function test_withdraw_treasury_is_owner_only() public {
+        uint64 id = _open(1e18);
+        vm.warp(block.timestamp + 600);
+        uint256 treasury = vault.treasuryBalance();
+        vm.prank(alice);
+        vm.expectRevert();
+        vault.withdrawTreasury(1, alice);
+        vault.withdrawTreasury(treasury / 2, redeemer);
+        assertEq(lst.balanceOf(redeemer), treasury / 2);
+        assertEq(id, 1);
     }
 
     function test_pay_instant_rejects_wrong_length() public {

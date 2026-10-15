@@ -15,10 +15,14 @@ import {PositionVault} from "./PositionVault.sol";
 /// Wire format (identical to bridge/programs/tesoro_bridge/src/msg_codec.rs; abi.encodePacked, big-endian):
 ///   header  : uint8 msgType | uint32 sourceChain | bytes32 positionId | uint64 seq                    (45 bytes)
 ///   1 PositionLocked (EVM to Solana): header | bytes32 owner | bytes32 lst | uint128 principalUnderlying | uint8 horizon
-///   2 YieldAccrued   (EVM to Solana): header | uint128 cumulativeAccruedUnderlying | uint128 treasuryIn  (77 bytes)
+///   2 YieldAccrued   (EVM to Solana): header | uint128 cumulativeAccruedUnderlying | uint128 treasuryBalance (77 bytes)
+///                     treasuryBalance = what the vault Treasury can still pay now. It rises with fees and refills and FALLS
+///                     with Instant Redeems and withdrawals (it used to be the only-growing treasuryIn).
 ///   3 Unlock         (Solana to EVM): header | uint128 0
 ///   4 PayYield       (Solana to EVM): header | bytes32 to | uint128 amountUnderlying
-///   5 PayInstant     (Solana to EVM): header | bytes32 to | uint128 amountUnderlying (paid from the Treasury)
+///   5 PayInstant     (Solana to EVM): header | bytes32 to | uint128 amountUnderlying (paid from the Treasury, or refused)
+///   6 InstantRefund  (EVM to Solana): header | uint64 refusedSeq | uint128 amountUnderlying  (69 bytes). Sent by
+///                     `refundInstant` for a PayInstant the Treasury could not cover; `refusedSeq` is that message's seq.
 /// `sourceChain` is this chain's LayerZero eid. `positionId` = vault address (20 bytes) | vault position id
 /// (uint64) | 4 zero bytes, so several vaults on one chain never collide on Solana and a vault can only
 /// speak for its own Positions.
@@ -65,6 +69,11 @@ contract PositionVaultOApp is PositionVault, OApp {
         return _quote(solanaEid, _packLocked(1, 1, 1, bytes32(0), bytes32(0), 1, 1), _options(), false).nativeFee;
     }
 
+    /// @notice Native fee to send `refundInstant`'s message.
+    function quoteInstantRefund() external view returns (uint256) {
+        return _quote(solanaEid, _packRefund(1, 1, 1, 1, 1), _options(), false).nativeFee;
+    }
+
     /// @notice Native fee to send `reportYield`'s message.
     function quoteYieldAccrued() external view returns (uint256) {
         return _quote(solanaEid, _packYield(1, 1, 1, 1, 1), _options(), false).nativeFee;
@@ -92,8 +101,12 @@ contract PositionVaultOApp is PositionVault, OApp {
                 uint8(uint256(_word(payload, 9)))
             );
         } else if (msgType == MSG_YIELD_ACCRUED) {
-            // words: accrued, rate, timestamp, treasuryIn
+            // words: accrued, rate, timestamp, treasuryBalance
             message = _packYield(chain, key, seq, _u128(uint256(_word(payload, 4))), _u128(uint256(_word(payload, 7))));
+        } else if (msgType == MSG_INSTANT_REFUND) {
+            // words: refusedSeq, amount
+            message =
+                _packRefund(chain, key, seq, uint64(uint256(_word(payload, 4))), _u128(uint256(_word(payload, 5))));
         } else {
             revert InvalidMessageType();
         }
@@ -150,12 +163,20 @@ contract PositionVaultOApp is PositionVault, OApp {
         return abi.encodePacked(MSG_POSITION_LOCKED, chain, bytes32(key), seq, owner, asset, principal, horizon);
     }
 
-    function _packYield(uint32 chain, uint256 key, uint64 seq, uint128 cumulative, uint128 treasuryIn_)
+    function _packYield(uint32 chain, uint256 key, uint64 seq, uint128 cumulative, uint128 treasury)
         internal
         pure
         returns (bytes memory)
     {
-        return abi.encodePacked(MSG_YIELD_ACCRUED, chain, bytes32(key), seq, cumulative, treasuryIn_);
+        return abi.encodePacked(MSG_YIELD_ACCRUED, chain, bytes32(key), seq, cumulative, treasury);
+    }
+
+    function _packRefund(uint32 chain, uint256 key, uint64 seq, uint64 refusedSeq, uint128 amount)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodePacked(MSG_INSTANT_REFUND, chain, bytes32(key), seq, refusedSeq, amount);
     }
 
     function _options() internal view returns (bytes memory) {
