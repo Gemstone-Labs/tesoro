@@ -7,6 +7,7 @@ import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, SimulatedYiel
 import { art } from "@/lib/art";
 import { pointsForWin } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
+import { canRematch, rematchHref } from "@/lib/rematch";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { MomentOverlay } from "./MomentOverlay";
@@ -29,6 +30,9 @@ export interface MatchResultProps {
   scores: [string, string] | null;
   scoreNote?: string;
   playAgainHref: string;
+  /** The opponent of this Match and the Trading Duel asset, when known: enables Rematch (a pre-filled Challenge). */
+  opponent?: string | null;
+  asset?: number | null;
   /** Show the win overlay once per key (the Match id); without one it shows on every mount. */
   momentKey?: string;
   /** How a Backing paid out (BackingSplit), for backed Matches. */
@@ -172,6 +176,9 @@ export function MatchResult(p: MatchResultProps) {
             <Button variant="money" size="lg" href="/backing">Back a Player</Button>
           ) : (
             <Button variant="money" size="lg" href={p.playAgainHref}>Play again</Button>
+          )}
+          {canRematch({ role, outcome, opponent: p.opponent }) && (
+            <Button size="lg" href={rematchHref({ game: p.game, asset: p.asset, entry: p.entry, opponent: p.opponent! })}>Rematch</Button>
           )}
           <Button size="lg" href="/lobby">Lobby</Button>
           <Button size="lg" href="/wallet">Wallet</Button>
