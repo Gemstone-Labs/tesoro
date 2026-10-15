@@ -264,14 +264,15 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const stake = native ? quoteNativeStake({ stakeWei: shares, rate: terms?.rate ?? WEI, minStakeWei: terms?.minStakeWei }) : null;
   const rate = market ? simRateAt(market.rate) : WEI;
   const principal = stake ? stake.principalWei : underlyingOf(shares, rate);
-  const quote = price && principal > 0n ? quoteEthAdvance(principal, Number(market?.rate.apyBps ?? 500n), months, price.microUsd, yieldFeeBps) : null;
+  const apyBps = market ? market.apyBps : 500n;
+  const quote = price && principal > 0n && apyBps !== null ? quoteEthAdvance(principal, Number(apyBps), months, price.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   const estimate =
-    quote && market && gemas > 0
+    quote && market && gemas > 0 && apyBps !== null
       ? ethUnlockEstimateMs({
           source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 22n, unitDen: price!.microUsd },
           position: { heldShares: shares, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n },
-          rate: market.rate,
+          rate: { ...market.rate, apyBps },
           nowMs: now,
           yieldFeeBps,
         })
@@ -282,7 +283,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   const tooMuch = !!market && (native ? shares + fee > balance : shares > balance);
   const tooBig = principal > MAX_PRINCIPAL_WEI;
   const stakeProblem = stake ? nativeStakeProblem(stake, terms?.minStakeWei, net.native) : null;
-  const valid = !!ctx && !!market && shares > 0n && !tooMuch && !tooBig && gemas > 0 && !stakeProblem && (!native || !!terms);
+  const valid = !!ctx && !!market && shares > 0n && !tooMuch && !tooBig && (gemas > 0 || apyBps === null) && !stakeProblem && (!native || !!terms);
   // Mainnet: gas and the LayerZero fee are the Player's, shown here before anything is signed.
   const payOwn = playerPaysGas();
   const [cost, setCost] = useState<OpenCostQuote | null>(null);
@@ -298,7 +299,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   return (
     <OpenFormView
       chain={unit as "ETH" | "HYPE"}
-      apy={market ? `${Number(market.rate.apyBps) / 100}% APY` : undefined}
+      apy={market ? (market.apyBps === null ? "APY —" : `${Number(market.apyBps) / 100}% APY`) : undefined}
       inert={!market}
       head={
         <>
@@ -620,7 +621,9 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
     };
   }, [load]);
 
-  const rate = (market ?? rateMarket)?.rate ?? null;
+  const marketRate = (market ?? rateMarket)?.rate ?? null;
+  // A real-token vault has no APY of its own: the Position's recorded rate is the one its Advance was sized on.
+  const rate = marketRate && vault && !vault.simulated && state?.core ? { ...marketRate, apyBps: BigInt(state.core.rateBps) } : marketRate;
   const src = state?.source?.math ?? null;
   const onChainDebt = src ? debtGemas(src) : 0n;
   const debtWei = src ? debtUnits(src) : 0n;

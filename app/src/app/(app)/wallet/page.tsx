@@ -15,7 +15,7 @@ import { returnRows } from "@/lib/chain/return-own";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
-import { vaultsOn } from "@/lib/chain/eth";
+import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
@@ -234,8 +234,8 @@ export default function Wallet() {
       <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
-          {tab === "ETH" && (onChain ? <EthOpenForm vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
-          {tab === "HYPE" && (onChain ? <EthOpenForm vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
+          {tab === "ETH" && (onChain ? <EthVaultForm unit="ETH" vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
+          {tab === "HYPE" && (onChain ? <EthVaultForm unit="HYPE" vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>
       </Sheet>
       <NativeRedeemSheet open={redeemOpen && onChain} onClose={() => setRedeemOpen(false)} />
@@ -245,6 +245,12 @@ export default function Wallet() {
       <RedeemSheet open={redeemOpen && offline} onClose={() => setRedeemOpen(false)} />
     </div>
   );
+}
+
+/** The ETH and HYPE tabs: on the mainnet cluster a chain whose vault address is not set has nothing to open yet. */
+function EthVaultForm({ unit, vault, onOpened }: { unit: "ETH" | "HYPE"; vault: EthVault | undefined; onOpened: (opKey: string) => void }) {
+  if (!vault) return <p className="note">Opening a {unit} Position is not available yet. It will appear here as soon as it is.</p>;
+  return <EthOpenForm vault={vault} onOpened={onOpened} />;
 }
 
 /** The open form's shape before there is a market to quote from. */

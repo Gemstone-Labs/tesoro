@@ -16,8 +16,8 @@ import { DEFAULT_YIELD_FEE_BPS, accruedYield, advanceUnits, netOfYieldFee } from
  */
 
 export const BRIDGE_ID = new PublicKey("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ");
-/** Tesoro chain tag for Ethereum Hoodi (LayerZero eid). */
-export const HOODI_EID = 40449;
+/** Tesoro chain tag for Ethereum: Hoodi (LayerZero eid 40449) in test mode, Ethereum mainnet (eid 30101) on the mainnet cluster. */
+export const HOODI_EID = CLUSTER.id === "mainnet" ? 30101 : 40449;
 export const HOODI_CHAIN_BYTE = 1;
 /** HyperEVM: testnet (chain 998, LayerZero eid 40362) in test mode, mainnet (chain 999, eid 30367) on the mainnet cluster. */
 export const HYPEREVM_EID = CLUSTER.id === "mainnet" ? 30367 : 40362;
@@ -25,9 +25,10 @@ export const HYPEREVM_CHAIN_BYTE = 2;
 const MAINNET = CLUSTER.id === "mainnet";
 export const LZ_SCAN_API = MAINNET ? "https://scan.layerzero-api.com/v1" : "https://scan-testnet.layerzero-api.com/v1";
 export const lzScanUrl = (txHash: string) => `https://${MAINNET ? "" : "testnet."}layerzeroscan.com/tx/${txHash}`;
-export const hoodiTx = (hash: string) => `https://hoodi.etherscan.io/tx/${hash}`;
+export const hoodiTx = (hash: string) => `https://${MAINNET ? "" : "hoodi."}etherscan.io/tx/${hash}`;
 export const hyperEvmTx = (hash: string) => (MAINNET ? `https://hyperevmscan.io/tx/${hash}` : `https://testnet.purrsec.com/tx/${hash}`);
 
+/** `hoodi` is the Ethereum slot: Hoodi in test mode, Ethereum mainnet on the mainnet cluster (chains.ts picks the chain and RPC). */
 export type NetKey = "hoodi" | "hyperevm";
 
 /** An EVM network a vault can live on: its LayerZero id, the tesoro_core chain byte, RPC and native token. */
@@ -47,7 +48,7 @@ export interface EvmNet {
 }
 
 export const NETS: Record<NetKey, EvmNet> = {
-  hoodi: { key: "hoodi", chain: hoodi, eid: HOODI_EID, chainByte: HOODI_CHAIN_BYTE, rpc: HOODI_RPC, label: "Hoodi", native: "ETH", tx: hoodiTx },
+  hoodi: { key: "hoodi", chain: hoodi, eid: HOODI_EID, chainByte: HOODI_CHAIN_BYTE, rpc: HOODI_RPC, label: MAINNET ? "Ethereum" : "Hoodi", native: "ETH", tx: hoodiTx },
   hyperevm: { key: "hyperevm", chain: hyperEvmTestnet, eid: HYPEREVM_EID, chainByte: HYPEREVM_CHAIN_BYTE, rpc: HYPEREVM_RPC, label: "HyperEVM", native: "HYPE", tx: hyperEvmTx },
 };
 
@@ -62,7 +63,7 @@ const SIM_VAULT_ADDRESSES = {
 } as const satisfies Record<NetKey, { vault: Address; lst: Address }>;
 
 export interface EthVault {
-  key: "sim" | "sim-hype" | "khype";
+  key: "sim" | "sim-hype" | "wsteth" | "khype";
   net: NetKey;
   label: string;
   address: Address;
@@ -74,45 +75,54 @@ export interface EthVault {
 }
 
 /**
- * The vaults the app opens Positions in. The real-Lido wstETH vault on Hoodi (0x61B4...57b5) is wired
- * on Solana but is not listed: there is no wstETH faucet (docs/cross-chain.md).
+ * Lido wstETH on Ethereum mainnet (docs.lido.fi/deployed-contracts). The vault (contracts/script, WstETHRateAdapter) and the
+ * LidoZap have no address until the orchestrator deploys them: set NEXT_PUBLIC_WSTETH_VAULT and NEXT_PUBLIC_LIDO_ZAP on the
+ * mainnet cluster and the ETH tab lists them.
  */
+export const WSTETH_TOKEN: Address = "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0";
 /**
  * Kinetiq kHYPE on HyperEVM mainnet (kinetiq.xyz/docs/contracts-and-audits; token and StakingAccountant read on chain 2026-10-15).
  * The vault (contracts/script/DeployMainnetKHype.s.sol) has no address until the orchestrator deploys it: set
- * NEXT_PUBLIC_KHYPE_VAULT on the mainnet cluster and the HYPE tab lists it.
+ * NEXT_PUBLIC_KHYPE_VAULT (and NEXT_PUBLIC_KINETIQ_ZAP for HYPE -> kHYPE through StakingManager 0x393D0B87Ed38fc779FD9611144aE649BA6082109).
  */
 export const KHYPE_TOKEN: Address = "0xfD739d4e423301CE9385c1fb8850539D657C296D";
 export const KHYPE_ACCOUNTANT: Address = "0x9209648Ec9D448EF57116B73A2f081835643dc7A";
-const KHYPE_VAULT = process.env.NEXT_PUBLIC_KHYPE_VAULT;
-/** KinetiqZap for that vault (HYPE -> kHYPE through StakingManager 0x393D0B87Ed38fc779FD9611144aE649BA6082109). Unset: kHYPE only. */
-const KINETIQ_ZAP = process.env.NEXT_PUBLIC_KINETIQ_ZAP;
-const MAINNET_VAULTS: EthVault[] =
-  MAINNET && KHYPE_VAULT && isAddress(KHYPE_VAULT)
-    ? [{ key: "khype", net: "hyperevm", label: "Kinetiq staked HYPE (kHYPE)", address: KHYPE_VAULT, lst: KHYPE_TOKEN, symbol: "kHYPE", simulated: false, zap: KINETIQ_ZAP && isAddress(KINETIQ_ZAP) ? KINETIQ_ZAP : undefined }]
-    : [];
 
-export const ETH_VAULTS: EthVault[] = [
-  {
-    key: "sim",
-    net: "hoodi",
-    label: "Simulated ETH (simETH)",
-    address: SIM_VAULT_ADDRESSES.hoodi.vault,
-    lst: SIM_VAULT_ADDRESSES.hoodi.lst,
-    symbol: "simETH",
-    simulated: true,
-  },
-  {
-    key: "sim-hype",
-    net: "hyperevm",
-    label: "Simulated HYPE (simHYPE)",
-    address: SIM_VAULT_ADDRESSES.hyperevm.vault,
-    lst: SIM_VAULT_ADDRESSES.hyperevm.lst,
-    symbol: "simHYPE",
-    simulated: true,
-  },
-  ...MAINNET_VAULTS,
-];
+export interface VaultEnv {
+  wstethVault?: string;
+  lidoZap?: string;
+  khypeVault?: string;
+  kinetiqZap?: string;
+}
+
+const addr = (v: string | undefined): Address | undefined => (v && isAddress(v) ? v : undefined);
+
+/**
+ * The vaults a cluster lists. Test mode: the two SimLST vaults. Mainnet: the real-token vaults whose address is set,
+ * nothing simulated. The real-Lido wstETH vault on Hoodi (0x61B4...57b5) is wired on Solana but not listed: no wstETH faucet.
+ */
+export function buildEthVaults(clusterId: "test" | "mainnet", env: VaultEnv): EthVault[] {
+  if (clusterId === "test") {
+    return [
+      { key: "sim", net: "hoodi", label: "Simulated ETH (simETH)", address: SIM_VAULT_ADDRESSES.hoodi.vault, lst: SIM_VAULT_ADDRESSES.hoodi.lst, symbol: "simETH", simulated: true },
+      { key: "sim-hype", net: "hyperevm", label: "Simulated HYPE (simHYPE)", address: SIM_VAULT_ADDRESSES.hyperevm.vault, lst: SIM_VAULT_ADDRESSES.hyperevm.lst, symbol: "simHYPE", simulated: true },
+    ];
+  }
+  const out: EthVault[] = [];
+  const wsteth = addr(env.wstethVault);
+  if (wsteth) out.push({ key: "wsteth", net: "hoodi", label: "Lido staked ETH (wstETH)", address: wsteth, lst: WSTETH_TOKEN, symbol: "wstETH", simulated: false, zap: addr(env.lidoZap) });
+  const khype = addr(env.khypeVault);
+  if (khype) out.push({ key: "khype", net: "hyperevm", label: "Kinetiq staked HYPE (kHYPE)", address: khype, lst: KHYPE_TOKEN, symbol: "kHYPE", simulated: false, zap: addr(env.kinetiqZap) });
+  return out;
+}
+
+/** Next inlines NEXT_PUBLIC_ variables only when they are written out in full, so each is spelled out. */
+export const ETH_VAULTS: EthVault[] = buildEthVaults(CLUSTER.id, {
+  wstethVault: process.env.NEXT_PUBLIC_WSTETH_VAULT,
+  lidoZap: process.env.NEXT_PUBLIC_LIDO_ZAP,
+  khypeVault: process.env.NEXT_PUBLIC_KHYPE_VAULT,
+  kinetiqZap: process.env.NEXT_PUBLIC_KINETIQ_ZAP,
+});
 export const isKnownVault = (v: string) => ETH_VAULTS.some((x) => x.address.toLowerCase() === v.toLowerCase());
 export const vaultByAddress = (v: string) => ETH_VAULTS.find((x) => x.address.toLowerCase() === v.toLowerCase()) ?? null;
 export const vaultsOn = (net: NetKey) => ETH_VAULTS.filter((v) => v.net === net);
@@ -137,6 +147,7 @@ export const vaultAbi = parseAbi([
   "function nextPositionId() view returns (uint64)",
   "function quotePositionLocked() view returns (uint256)",
   "function quoteYieldAccrued() view returns (uint256)",
+  "function rateSource() view returns (address)",
   "function accruedYield(uint64) view returns (uint256)",
   "function payableYield(uint64) view returns (uint256)",
   "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 heldShares, uint256 paidUnderlying, uint256 frozenAccrued, uint64 openTime, uint64 outSeq, uint64 inSeq, uint8 horizonMonths, bool unlocked))",
@@ -161,6 +172,9 @@ export const lstAbi = parseAbi([
   "function apyBps() view returns (uint256)",
   "function speedup() view returns (uint256)",
 ]);
+
+/** The vault's exchange-rate source (WstETHRateAdapter, KHypeRateAdapter; SimLST itself on test vaults). */
+const rateSourceAbi = parseAbi(["function underlyingPerShare() view returns (uint256)"]);
 
 /**
  * Public EVM RPCs rate-limit per request ("Request exceeds defined limit" on HyperEVM) and answer slowly under load
@@ -490,6 +504,7 @@ export function simRateAt(r: SimRate): bigint {
 export interface EthMarket {
   address: Address;
   ethBalance: bigint;
+  /** The Player's balance of the vault's staking token (simETH, simHYPE, wstETH, kHYPE). */
   simEth: bigint;
   allowance: bigint;
   /** Native fee for `openPosition` / `reportYield` messages (before headroom). */
@@ -497,22 +512,48 @@ export interface EthMarket {
   quoteYield: bigint;
   nextPositionId: bigint;
   rate: SimRate;
+  /** The APY an Advance is quoted on: SimLST's configured rate, or null on a real-token vault until the trailing figure is published (ticket 11). */
+  apyBps: bigint | null;
   faucetAmount: bigint;
   /** Unix seconds the faucet is next available for this address (0 when available now). */
   faucetAvailableAt: number;
 }
 
-export async function fetchEthMarket(vault: EthVault, owner: Address): Promise<EthMarket> {
-  const c = evmClient(NETS[vault.net]);
+/** The slice of a viem client the market read uses; tests pass a fake. */
+export type MarketClient = Pick<PublicClient, "readContract" | "getBalance"> & { chain?: PublicClient["chain"]; multicall?: PublicClient["multicall"] };
+
+export async function fetchEthMarket(vault: EthVault, owner: Address, client?: MarketClient): Promise<EthMarket> {
+  const c = (client ?? evmClient(NETS[vault.net])) as PublicClient;
   const lst = { address: vault.lst, abi: lstAbi } as const;
   const v = { address: vault.address, abi: vaultAbi } as const;
+  const common = [
+    { ...lst, functionName: "balanceOf", args: [owner] },
+    { ...lst, functionName: "allowance", args: [owner, vault.address] },
+    { ...v, functionName: "quotePositionLocked" },
+    { ...v, functionName: "quoteYieldAccrued" },
+    { ...v, functionName: "nextPositionId" },
+  ];
+  if (!vault.simulated) {
+    // A real staking token has no faucet and no SimLST rate fields: the rate comes from the vault's rate source.
+    const [r, ethBalance] = await Promise.all([readMany(c, [...common, { ...v, functionName: "rateSource" }]), c.getBalance({ address: owner })]);
+    const [underlyingPerShare] = await readMany(c, [{ address: r[5] as Address, abi: rateSourceAbi, functionName: "underlyingPerShare" }]);
+    return {
+      address: owner,
+      ethBalance,
+      simEth: r[0] as bigint,
+      allowance: r[1] as bigint,
+      quoteOpen: r[2] as bigint,
+      quoteYield: r[3] as bigint,
+      nextPositionId: r[4] as bigint,
+      rate: { baseRate: underlyingPerShare as bigint, baseTime: BigInt(Math.floor(Date.now() / 1000)), apyBps: 0n, speedup: 1n },
+      apyBps: null,
+      faucetAmount: 0n,
+      faucetAvailableAt: 0,
+    };
+  }
   const [r, ethBalance] = await Promise.all([
     readMany(c, [
-      { ...lst, functionName: "balanceOf", args: [owner] },
-      { ...lst, functionName: "allowance", args: [owner, vault.address] },
-      { ...v, functionName: "quotePositionLocked" },
-      { ...v, functionName: "quoteYieldAccrued" },
-      { ...v, functionName: "nextPositionId" },
+      ...common,
       { ...lst, functionName: "baseRate" },
       { ...lst, functionName: "baseTime" },
       { ...lst, functionName: "apyBps" },
@@ -534,6 +575,7 @@ export async function fetchEthMarket(vault: EthVault, owner: Address): Promise<E
     quoteYield: r[3] as bigint,
     nextPositionId: r[4] as bigint,
     rate: { baseRate: r[5] as bigint, baseTime: r[6] as bigint, apyBps: r[7] as bigint, speedup: r[8] as bigint },
+    apyBps: r[7] as bigint,
     faucetAmount: r[9] as bigint,
     faucetAvailableAt: availableAt,
   };
