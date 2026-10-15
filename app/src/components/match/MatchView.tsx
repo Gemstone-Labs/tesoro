@@ -267,6 +267,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         backed={!!m.backing}
         scores={scores && outcome !== "refunded" ? [String(scores[0]), String(scores[1])] : null}
         momentKey={m.id.toString()}
+        matchId={m.id.toString()}
         playAgainHref={`/play/queue?entry=${m.entry}`}
         opponent={m.opponent}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
