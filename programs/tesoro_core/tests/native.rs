@@ -119,7 +119,7 @@ struct Person {
 }
 
 /// A native Position and the addresses around it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Pos {
     position: APk,
     custody: APk,
@@ -444,14 +444,21 @@ impl Env {
     }
 
     fn advance_native(&mut self, p: &Person, pos: Pos, months: u8) -> Result<APk, Failed> {
-        let index = self.load::<PositionState>(pos.position).inner.advances;
-        let source = self.source(pos, index);
+        let state = self.load::<PositionState>(pos.position);
+        let source = self.source(pos, state.inner.advances);
+        // The feed of the Position's own token when one is set, else the simSOL feed.
+        let own_feed = pda(&[PRICE_SEED, &state.inner.source_asset]);
+        let feed = if self.svm.get_account(&s(own_feed)).is_some() {
+            own_feed
+        } else {
+            pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()])
+        };
         let advance = tix(
             accounts::TakeNativeAdvance {
                 owner_authority: p.key,
                 owner_account: p.account,
                 position: pos.position,
-                price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
+                price_feed: feed,
                 treasury: pda(&[TREASURY_SEED]),
                 source,
                 holding: self.holding(p, source),
@@ -2370,4 +2377,737 @@ fn changing_the_active_token_leaves_an_existing_treasury_vault_alone() {
         spl_token::state::Account::unpack(&env.svm.get_account(&s(treasury.vault)).unwrap().data)
             .unwrap();
     assert_eq!(vault.mint.to_bytes(), SIM_SOL_MINT.to_bytes());
+}
+
+// --- A real staking token: stake pool rate, no mint step (ADR 0010) ------------------------------
+
+const ERR_INVALID_POOL: u32 = 6007;
+const ERR_INVALID_STAKE_POOL: u32 = 6018;
+const ACCOUNT_NOT_INITIALIZED: u32 = 3012;
+/// 1 jitoSOL starts out worth 1.2 SOL.
+const JITO_RATE: u64 = 1_200_000_000;
+
+struct Jito {
+    mint: APk,
+    pool: APk,
+}
+
+/// The bytes of a `StakePool` account (SPL stake pool layout) with the fields the program reads.
+fn stake_pool_bytes(mint: APk, total_lamports: u64, supply: u64) -> Vec<u8> {
+    let mut data = vec![0u8; 611];
+    data[0] = 1;
+    data[162..194].copy_from_slice(mint.as_ref());
+    data[258..266].copy_from_slice(&total_lamports.to_le_bytes());
+    data[266..274].copy_from_slice(&supply.to_le_bytes());
+    data
+}
+
+fn put_account(env: &mut Env, key: APk, owner: APk, data: Vec<u8>) {
+    env.svm
+        .set_account(
+            s(key),
+            solana_sdk::account::Account {
+                lamports: SOL / 10,
+                data,
+                owner: s(owner),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+}
+
+/// A stake pool account owned by the SPL stake pool program.
+fn set_stake_pool(env: &mut Env, pool: APk, mint: APk, total_lamports: u64, supply: u64) {
+    let data = stake_pool_bytes(mint, total_lamports, supply);
+    put_account(env, pool, STAKE_POOL_PROGRAMS[0], data);
+}
+
+/// Moves the pool's exchange rate to `rate` with 1,000 jitoSOL outstanding.
+fn set_jito_rate(env: &mut Env, jito: &Jito, rate: u64) {
+    set_stake_pool(env, jito.pool, jito.mint, 1_000 * rate, 1_000 * SOL);
+}
+
+fn jito_rate(env: &Env, jito: &Jito) -> u64 {
+    let data = env.svm.get_account(&s(jito.pool)).unwrap().data;
+    let read = ledger::parse_stake_pool(&data).unwrap();
+    native::stake_pool_rate(read.total_lamports, read.pool_token_supply).unwrap()
+}
+
+/// A token account of `owner` for `mint` holding `amount`.
+fn plant_token(env: &mut Env, owner: APk, mint: APk, amount: u64) -> APk {
+    let key = get_associated_token_address(&owner, &mint);
+    let mut data = vec![0u8; spl_token::state::Account::LEN];
+    data[0..32].copy_from_slice(mint.as_ref());
+    data[32..64].copy_from_slice(owner.as_ref());
+    data[64..72].copy_from_slice(&amount.to_le_bytes());
+    data[108] = 1;
+    put_account(env, key, TOKEN_PROGRAM_ID, data);
+    key
+}
+
+fn set_token_apy_ix(oracle: APk, mint: APk, apy_bps: u16) -> Instruction {
+    tix(
+        accounts::SetTokenApy {
+            oracle,
+            config: pda(&[CONFIG_SEED]),
+            mint,
+            token_apy: pda(&[TOKEN_APY_SEED, mint.as_ref()]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::SetTokenApy { apy_bps },
+        vec![],
+    )
+}
+
+fn token_treasury_vault(mint: APk) -> APk {
+    pda(&[TREASURY_VAULT_SEED, mint.as_ref()])
+}
+
+fn init_treasury_vault(env: &mut Env, mint: APk) -> Result<(), Failed> {
+    let admin = env.admin.insecure_clone();
+    let init = tix(
+        accounts::InitTreasuryVault {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            treasury: pda(&[TREASURY_SEED]),
+            mint,
+            treasury_vault: token_treasury_vault(mint),
+            token_program: TOKEN_PROGRAM_ID,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::InitTreasuryVault {},
+        vec![],
+    );
+    env.send(&[init], &admin, &[])
+}
+
+/// jitoSOL as the active token: a stake pool at 1.2 SOL a token, a published APY of 7%, the
+/// Treasury's vault of the token and a USD price for it.
+fn jito_env() -> (Env, Jito) {
+    let mut env = Env::new();
+    let mint = plant_mint(&mut env);
+    let pool = APk::new_unique();
+    let jito = Jito { mint, pool };
+    set_jito_rate(&mut env, &jito, JITO_RATE);
+    set_sol_source(&mut env, mint, pool).unwrap();
+    let oracle = env.oracle.insecure_clone();
+    let publish = set_token_apy_ix(a(oracle.pubkey()), mint, 700);
+    env.send(&[publish], &oracle, &[]).expect("publish APY");
+    init_treasury_vault(&mut env, mint).expect("treasury vault");
+    let feed = PriceFeed {
+        bump: pda_bump(&[PRICE_SEED, mint.as_ref()]),
+        asset: mint,
+        price_micro_usd: PRICE,
+        updated_ts: env.now(),
+    };
+    env.write(pda(&[PRICE_SEED, mint.as_ref()]), &feed, PriceFeed::SPACE);
+    (env, jito)
+}
+
+impl Env {
+    /// A person holding `amount` of `mint` in their associated token account.
+    fn holder_of(&mut self, mint: APk, amount: u64) -> (Person, APk) {
+        let p = self.person();
+        let token = plant_token(self, p.key, mint, amount);
+        (p, token)
+    }
+
+    fn open_stake_ix(&mut self, jito: &Jito, p: &Person, amount: u64) -> (Instruction, Pos) {
+        let nonce = self.next_nonce;
+        self.next_nonce += 1;
+        let position = pda(&[
+            POSITION_SEED,
+            &[0],
+            &tesoro_core::native_position_id(&p.key, nonce),
+        ]);
+        let custody = pda(&[NATIVE_SEED, position.as_ref()]);
+        let vault = pda(&[NATIVE_VAULT_SEED, position.as_ref()]);
+        let open = tix(
+            accounts::OpenStakePoolPosition {
+                owner_authority: p.key,
+                owner_account: p.account,
+                sol_source: sol_source(),
+                token_apy: pda(&[TOKEN_APY_SEED, jito.mint.as_ref()]),
+                pool: jito.pool,
+                mint: jito.mint,
+                owner_token: get_associated_token_address(&p.key, &jito.mint),
+                position,
+                custody,
+                vault,
+                token_program: TOKEN_PROGRAM_ID,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::OpenStakePoolPosition {
+                nonce,
+                token_amount: amount,
+            },
+            vec![],
+        );
+        (
+            open,
+            Pos {
+                position,
+                custody,
+                vault,
+            },
+        )
+    }
+
+    fn open_stake(&mut self, jito: &Jito, p: &Person, amount: u64) -> Result<Pos, Failed> {
+        let (open, pos) = self.open_stake_ix(jito, p, amount);
+        self.send(&[open], &p.kp, &[]).map(|_| pos)
+    }
+
+    fn crank_stake_ix(&self, jito: &Jito, pos: Pos) -> Instruction {
+        let p = self.position(pos);
+        let source = p.open_advance.map(|index| self.source(pos, index));
+        tix(
+            accounts::AccrueStakePoolYield {
+                position: pos.position,
+                custody: pos.custody,
+                vault: pos.vault,
+                pool: jito.pool,
+                treasury: pda(&[TREASURY_SEED]),
+                treasury_vault: token_treasury_vault(jito.mint),
+                token_program: TOKEN_PROGRAM_ID,
+                source,
+            },
+            instruction::AccrueStakePoolYield {},
+            vec![],
+        )
+    }
+
+    fn crank_stake(&mut self, jito: &Jito, payer: &Keypair, pos: Pos) -> Result<(), Failed> {
+        let crank = self.crank_stake_ix(jito, pos);
+        self.send(&[crank], payer, &[])
+    }
+
+    fn stake_redeem(
+        &mut self,
+        jito: &Jito,
+        p: &Person,
+        pos: Pos,
+        source: APk,
+        amount: u64,
+    ) -> Result<(), Failed> {
+        let dest = get_associated_token_address(&p.key, &jito.mint);
+        let mut redeem = self.redeem_ix(p, pos, source, amount, dest);
+        redeem.accounts[8] = AccountMeta::new_readonly(s(jito.pool), false);
+        self.send(&[redeem], &p.kp, &[])
+    }
+
+    fn stake_unlock_ix(&self, jito: &Jito, p: &Person, pos: Pos, with_fee: bool) -> Instruction {
+        let dest = get_associated_token_address(&p.key, &jito.mint);
+        let mut unlock = self.unlock_ix(p, pos, dest);
+        unlock.accounts[6] = AccountMeta::new_readonly(s(jito.pool), false);
+        if with_fee {
+            unlock
+                .accounts
+                .push(AccountMeta::new(s(pda(&[TREASURY_SEED])), false));
+            unlock
+                .accounts
+                .push(AccountMeta::new(s(token_treasury_vault(jito.mint)), false));
+        }
+        unlock
+    }
+
+    fn stake_instant_redeem_ix(
+        &self,
+        jito: &Jito,
+        p: &Person,
+        pos: Pos,
+        source: APk,
+        amount: u64,
+    ) -> Instruction {
+        let mut ix = self.instant_redeem_ix(p, pos, source, amount);
+        // treasury_vault, holder_token, pool are accounts 8, 9 and 10 of the instruction.
+        ix.accounts[8] = AccountMeta::new(s(token_treasury_vault(jito.mint)), false);
+        ix.accounts[9] =
+            AccountMeta::new(s(get_associated_token_address(&p.key, &jito.mint)), false);
+        ix.accounts[10] = AccountMeta::new_readonly(s(jito.pool), false);
+        ix
+    }
+
+    /// Every jitoSOL token of a Position is in its vault, the Treasury's vault or a payout.
+    fn check_stake_invariants(&self, jito: &Jito, pos: Pos) {
+        let (position, custody) = (self.position(pos), self.custody(pos));
+        let rate = jito_rate(self, jito);
+        assert!(custody.tracked_shares <= self.token_balance(pos.vault));
+        native::check_cover(
+            custody.tracked_shares,
+            &position,
+            custody.redeemed_units,
+            rate,
+        )
+        .expect("tracked shares cover principal and the yield owed");
+        assert!(custody.redeemed_units <= position.cumulative_yield);
+    }
+
+    fn mint_supply(&self, mint: APk) -> u64 {
+        spl_token::state::Mint::unpack(&self.svm.get_account(&s(mint)).unwrap().data)
+            .unwrap()
+            .supply
+    }
+}
+
+#[test]
+fn a_position_opens_with_the_active_staking_token_and_records_its_value_in_sol() {
+    let (mut env, jito) = jito_env();
+    let (alice, alice_token) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).expect("open");
+
+    assert_eq!(env.token_balance(alice_token), 0);
+    assert_eq!(env.token_balance(pos.vault), 10 * SOL);
+    let position = env.position(pos);
+    // 10 jitoSOL at 1.2 SOL each.
+    assert_eq!(position.principal, 12 * SOL);
+    assert_eq!(position.source_asset, jito.mint.to_bytes());
+    assert_eq!(position.rate_bps, 700, "the published APY");
+    let custody = env.custody(pos);
+    assert_eq!((custody.mint, custody.pool), (jito.mint, jito.pool));
+    assert_eq!(custody.rate_at_open, JITO_RATE);
+    let data = env.svm.get_account(&s(pos.custody)).unwrap().data;
+    assert_eq!(data.len(), NativeCustody::STAKE_POOL_SPACE);
+    assert_eq!(NativeCustody::stake_pool_last_rate(&data), Some(JITO_RATE));
+    assert!(PositionState::has_native_marker(
+        &env.svm.get_account(&s(pos.position)).unwrap().data
+    ));
+    env.advance_native(&alice, pos, 1)
+        .expect("native gates pass");
+    env.check_stake_invariants(&jito, pos);
+}
+
+#[test]
+fn a_real_token_cannot_open_without_the_setting_the_pool_or_a_published_apy() {
+    let mut env = Env::new();
+    let mint = plant_mint(&mut env);
+    let jito = Jito {
+        mint,
+        pool: APk::new_unique(),
+    };
+    set_jito_rate(&mut env, &jito, JITO_RATE);
+    let (alice, _) = env.holder_of(mint, 10 * SOL);
+    env.faucet(&alice).unwrap();
+
+    // No setting: the SolSource account does not exist.
+    let err = env.open_stake(&jito, &alice, SOL).unwrap_err();
+    assert_eq!(code(&err), ACCOUNT_NOT_INITIALIZED);
+    // The legacy open cannot carry it, with the setting or without.
+    let (legacy, _) = env.open_ix_with(&alice, 90, SOL, env.pool, mint);
+    assert_eq!(
+        code(&env.send(&[legacy.clone()], &alice.kp, &[]).unwrap_err()),
+        ERR_INVALID_MINT
+    );
+    set_sol_source(&mut env, mint, jito.pool).unwrap();
+    assert_eq!(
+        code(&env.send(&[legacy], &alice.kp, &[]).unwrap_err()),
+        ERR_INVALID_MINT
+    );
+
+    // No published APY yet.
+    let err = env.open_stake(&jito, &alice, SOL).unwrap_err();
+    assert_eq!(code(&err), ACCOUNT_NOT_INITIALIZED);
+    let oracle = env.oracle.insecure_clone();
+    let publish = set_token_apy_ix(a(oracle.pubkey()), mint, 700);
+    env.send(&[publish], &oracle, &[]).unwrap();
+    env.open_stake(&jito, &alice, SOL).expect("now it opens");
+}
+
+#[test]
+fn only_the_oracle_authority_publishes_an_apy_and_it_is_capped() {
+    let (mut env, jito) = jito_env();
+    let mallory = env.person();
+    let publish = set_token_apy_ix(mallory.key, jito.mint, 9_000);
+    let err = env.send(&[publish], &mallory.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), 6000);
+    let oracle = env.oracle.insecure_clone();
+    let too_high = set_token_apy_ix(a(oracle.pubkey()), jito.mint, 10_001);
+    let err = env.send(&[too_high], &oracle, &[]).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::InvalidBps));
+    let fine = set_token_apy_ix(a(oracle.pubkey()), jito.mint, 450);
+    env.send(&[fine], &oracle, &[]).unwrap();
+    let apy = env.load::<TokenApy>(pda(&[TOKEN_APY_SEED, jito.mint.as_ref()]));
+    assert_eq!((apy.mint, apy.apy_bps), (jito.mint, 450));
+}
+
+#[test]
+fn the_pool_must_be_a_stake_pool_of_the_token() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    // Owned by another program.
+    put_account(
+        &mut env,
+        jito.pool,
+        APk::new_unique(),
+        stake_pool_bytes(jito.mint, 1_200 * SOL, 1_000 * SOL),
+    );
+    let err = env.open_stake(&jito, &alice, SOL).unwrap_err();
+    assert_eq!(code(&err), ERR_INVALID_STAKE_POOL);
+    // A stake pool of another token.
+    set_stake_pool(
+        &mut env,
+        jito.pool,
+        APk::new_unique(),
+        1_200 * SOL,
+        1_000 * SOL,
+    );
+    let err = env.open_stake(&jito, &alice, SOL).unwrap_err();
+    assert_eq!(code(&err), ERR_INVALID_STAKE_POOL);
+    // A pool with no tokens has no rate.
+    set_stake_pool(&mut env, jito.pool, jito.mint, 1_200 * SOL, 0);
+    let err = env.open_stake(&jito, &alice, SOL).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::BadStakePool));
+    // Not the pool the setting names.
+    let other = Jito {
+        mint: jito.mint,
+        pool: APk::new_unique(),
+    };
+    set_jito_rate(&mut env, &other, JITO_RATE);
+    let err = env.open_stake(&other, &alice, SOL).unwrap_err();
+    assert_eq!(code(&err), ERR_INVALID_POOL);
+    set_jito_rate(&mut env, &jito, JITO_RATE);
+    env.open_stake(&jito, &alice, SOL)
+        .expect("a real pool opens");
+}
+
+#[test]
+fn yield_is_the_rate_growth_with_the_fee_taken_in_tokens_and_nothing_minted() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    // 12 SOL at 7% for a month = 0.07 SOL, 80% of it at $150 = 840 Gemas of Debt.
+    assert_eq!(env.debt(source), 840);
+    let supply_before = env.mint_supply(jito.mint);
+    let cranker = env.person();
+
+    // The rate has not moved: nothing accrues, nothing is charged.
+    env.crank_stake(&jito, &cranker.kp, pos).unwrap();
+    assert_eq!(env.position(pos).cumulative_yield, 0);
+    assert_eq!(env.token_balance(token_treasury_vault(jito.mint)), 0);
+
+    // jitoSOL goes from 1.20 to 1.22 SOL: the vault's 10 tokens gained 0.2 SOL.
+    set_jito_rate(&mut env, &jito, 1_220_000_000);
+    env.crank_stake(&jito, &cranker.kp, pos).expect("crank");
+    let fee = native::yield_fee_shares(10 * SOL, JITO_RATE, 1_220_000_000, YIELD_FEE_BPS).unwrap();
+    assert!(fee > 0);
+    assert_eq!(env.token_balance(token_treasury_vault(jito.mint)), fee);
+    assert_eq!(env.token_balance(pos.vault), 10 * SOL - fee);
+    assert_eq!(env.custody(pos).tracked_shares, 10 * SOL - fee);
+    assert_eq!(
+        env.mint_supply(jito.mint),
+        supply_before,
+        "nothing is minted"
+    );
+    // The Position keeps 80% of the 0.2 SOL, the Treasury 20%.
+    let position = env.position(pos);
+    assert!(position.cumulative_yield.abs_diff(160_000_000) <= 2);
+    assert!(env.treasury().fee_units.abs_diff(40_000_000) <= 2);
+    assert_eq!(env.debt(source), 0, "the rate growth repaid the Debt");
+    let data = env.svm.get_account(&s(pos.custody)).unwrap().data;
+    assert_eq!(
+        NativeCustody::stake_pool_last_rate(&data),
+        Some(1_220_000_000)
+    );
+    env.check_stake_invariants(&jito, pos);
+
+    // Cranking again at the same rate, or after the rate dipped and came back, takes no second fee.
+    let (vault_balance, treasury_balance) = (
+        env.token_balance(pos.vault),
+        env.token_balance(token_treasury_vault(jito.mint)),
+    );
+    env.crank_stake(&jito, &cranker.kp, pos).unwrap();
+    set_jito_rate(&mut env, &jito, 1_210_000_000);
+    env.crank_stake(&jito, &cranker.kp, pos).unwrap();
+    set_jito_rate(&mut env, &jito, 1_220_000_000);
+    env.crank_stake(&jito, &cranker.kp, pos).unwrap();
+    assert_eq!(env.token_balance(pos.vault), vault_balance);
+    assert_eq!(
+        env.token_balance(token_treasury_vault(jito.mint)),
+        treasury_balance
+    );
+    env.check_stake_invariants(&jito, pos);
+}
+
+#[test]
+fn redeem_and_unlock_pay_the_token_and_settle_the_fee_on_unseen_growth() {
+    let (mut env, jito) = jito_env();
+    let (alice, alice_token) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    set_jito_rate(&mut env, &jito, 1_220_000_000);
+    env.crank_stake(&jito, &alice.kp, pos).unwrap();
+
+    // Redeem: 840 Gemas of 0.056 SOL, paid in jitoSOL at the pool rate.
+    let rate = jito_rate(&env, &jito);
+    env.stake_redeem(&jito, &alice, pos, source, 840)
+        .expect("redeem");
+    let units = 56_000_000;
+    let paid = native::shares_for_units_floor(units, rate).unwrap();
+    assert_eq!(env.token_balance(alice_token), paid);
+    assert_eq!(env.custody(pos).redeemed_units, units);
+    env.check_stake_invariants(&jito, pos);
+
+    // The pool earns more before Unlock, and nobody cranks. Unlock without the Treasury accounts
+    // is refused: the surplus would leave without its fee.
+    set_jito_rate(&mut env, &jito, 1_250_000_000);
+    let treasury_before = env.token_balance(token_treasury_vault(jito.mint));
+    let bare = env.stake_unlock_ix(&jito, &alice, pos, false);
+    let err = env.send(&[bare], &alice.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_REMAINING);
+    let unlock = env.stake_unlock_ix(&jito, &alice, pos, true);
+    env.send(&[unlock], &alice.kp, &[]).expect("unlock");
+
+    assert_eq!(env.position(pos).status, PositionStatus::Unlocked);
+    assert!(
+        env.token_balance(token_treasury_vault(jito.mint)) > treasury_before,
+        "the growth since the last crank paid its Yield Fee at Unlock"
+    );
+    // The owner got Principal back in the token: at least what it was worth, and the vault is empty.
+    let owner_tokens = env.token_balance(alice_token);
+    assert!(native::shares_value(owner_tokens - paid, 1_250_000_000).unwrap() >= 12 * SOL);
+    assert_eq!(env.token_balance(pos.vault), 0);
+    // Every token is accounted for: owner, Treasury, nothing left behind.
+    assert_eq!(
+        owner_tokens + env.token_balance(token_treasury_vault(jito.mint)),
+        10 * SOL
+    );
+}
+
+#[test]
+fn a_fee_cannot_be_skipped_by_sweeping_instead_of_unlocking() {
+    let (mut env, jito) = jito_env();
+    let (alice, alice_token) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    set_jito_rate(&mut env, &jito, 1_220_000_000);
+    env.crank_stake(&jito, &alice.kp, pos).unwrap();
+    env.stake_redeem(&jito, &alice, pos, source, 840).unwrap();
+    let unlock = env.stake_unlock_ix(&jito, &alice, pos, true);
+    env.send(&[unlock], &alice.kp, &[]).unwrap();
+
+    // Something is left to sweep only if a holder still has yield owed; here a donation to the
+    // vault is the owner's. Growth afterwards is settled with its fee on the sweep too.
+    let vault_before = env.token_balance(pos.vault);
+    set_jito_rate(&mut env, &jito, 1_300_000_000);
+    let sweep = |env: &Env, with_fee: bool| {
+        let mut ix = tix(
+            accounts::SweepNativeSurplus {
+                owner_authority: alice.key,
+                owner_account: alice.account,
+                position: pos.position,
+                custody: pos.custody,
+                vault: pos.vault,
+                owner_token: alice_token,
+                pool: jito.pool,
+                token_program: TOKEN_PROGRAM_ID,
+            },
+            instruction::SweepNativeSurplus {},
+            vec![],
+        );
+        if with_fee {
+            ix.accounts
+                .push(AccountMeta::new(s(pda(&[TREASURY_SEED])), false));
+            ix.accounts
+                .push(AccountMeta::new(s(token_treasury_vault(jito.mint)), false));
+        }
+        let _ = env;
+        ix
+    };
+    let bare = sweep(&env, false);
+    let err = env.send(&[bare], &alice.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_REMAINING);
+    let with_fee = sweep(&env, true);
+    env.send(&[with_fee], &alice.kp, &[])
+        .expect("sweep with the fee accounts");
+    assert_eq!(env.token_balance(pos.vault), vault_before);
+}
+
+#[test]
+fn instant_redeem_pays_the_positions_token_from_the_treasurys_vault_of_that_token() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let (bob, bob_token) = env.holder_of(jito.mint, 0);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    // A long Horizon, so most of Bob's Gemas are still pending after a little growth.
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    env.give_won(&alice, &bob, source, 1_000);
+
+    // The Treasury has no jitoSOL yet (its simSOL does not count).
+    env.fund_treasury(SOL).unwrap();
+    let short = env.stake_instant_redeem_ix(&jito, &bob, pos, source, 1_000);
+    let err = env.send(&[short], &bob.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_TREASURY_SHORT);
+
+    // The Yield Fee of the token's Positions fills the vault of that token.
+    set_jito_rate(&mut env, &jito, 1_220_000_000);
+    env.crank_stake(&jito, &alice.kp, pos).unwrap();
+    let vault = token_treasury_vault(jito.mint);
+    let fee = env.token_balance(vault);
+    assert!(fee > 0);
+    let landed = env.load::<SourceState>(source).inner.redeemable_for(1_000);
+    let pending = 1_000 - landed;
+    let units = env
+        .load::<SourceState>(source)
+        .inner
+        .units_for(pending)
+        .unwrap();
+    let payout = units * 6_500 / 10_000;
+    let instant = env.stake_instant_redeem_ix(&jito, &bob, pos, source, pending);
+    env.send(&[instant], &bob.kp, &[]).expect("instant redeem");
+    let shares = native::shares_for_units_floor(payout, jito_rate(&env, &jito)).unwrap();
+    assert_eq!(env.token_balance(bob_token), shares, "paid in the token");
+    assert_eq!(env.token_balance(vault), fee - shares);
+    assert_eq!(env.treasury().instant_units, payout);
+
+    // The simSOL vault cannot pay a jitoSOL Position, nor the sim pool price it.
+    let mut wrong_vault = env.stake_instant_redeem_ix(&jito, &bob, pos, source, 1);
+    wrong_vault.accounts[8] = AccountMeta::new(s(env.treasury_vault()), false);
+    let err = env.send(&[wrong_vault], &bob.kp, &[]).unwrap_err();
+    assert_eq!(
+        code(&err),
+        2014,
+        "the holder's jitoSOL account is not of the simSOL vault's mint"
+    );
+    let mut wrong_pool = env.stake_instant_redeem_ix(&jito, &bob, pos, source, 1);
+    wrong_pool.accounts[10] = AccountMeta::new_readonly(s(env.pool), false);
+    let err = env.send(&[wrong_pool], &bob.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_INVALID_POOL);
+}
+
+#[test]
+fn the_treasury_redeems_what_it_bought_into_its_vault_of_the_token() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let (bob, _) = env.holder_of(jito.mint, 0);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    env.give_won(&alice, &bob, source, 1_000);
+    set_jito_rate(&mut env, &jito, 1_220_000_000);
+    env.crank_stake(&jito, &alice.kp, pos).unwrap();
+    let landed = env.load::<SourceState>(source).inner.redeemable_for(1_000);
+    let instant = env.stake_instant_redeem_ix(&jito, &bob, pos, source, 1_000 - landed);
+    env.send(&[instant], &bob.kp, &[]).unwrap();
+
+    set_jito_rate(&mut env, &jito, 1_400_000_000);
+    env.crank_stake(&jito, &alice.kp, pos).unwrap();
+    let vault = token_treasury_vault(jito.mint);
+    let before = env.token_balance(vault);
+    let redeem = tix(
+        accounts::RedeemTreasury {
+            treasury: pda(&[TREASURY_SEED]),
+            treasury_account: treasury_account(),
+            position: pos.position,
+            source,
+            treasury_holding: env.treasury_holding(source),
+        },
+        instruction::RedeemTreasury { amount: 1 },
+        vec![
+            rem(pos.custody, true),
+            rem(pos.vault, true),
+            rem(vault, true),
+            rem(jito.pool, false),
+            rem(TOKEN_PROGRAM_ID, false),
+        ],
+    );
+    let payer = env.person();
+    env.send(&[redeem.clone()], &payer.kp, &[]).expect("redeem");
+    assert!(env.token_balance(vault) > before);
+
+    // Only its own vault of the token: the simSOL vault is refused.
+    let mut wrong = redeem;
+    wrong.accounts[5 + 2] = AccountMeta::new(s(env.treasury_vault()), false);
+    let err = env.send(&[wrong], &payer.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_INVALID_MINT);
+}
+
+#[test]
+fn the_two_kinds_of_custody_keep_to_their_own_crank() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let stake = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    let sim = env.person();
+    env.faucet(&sim).unwrap();
+    let simple = env.open(&sim, 5 * SOL).unwrap();
+    let payer = env.person();
+
+    // The simSOL crank cannot value a stake pool custody.
+    let mut wrong = tix(
+        accounts::AccrueNativeYield {
+            position: stake.position,
+            custody: stake.custody,
+            vault: stake.vault,
+            pool: jito.pool,
+            mint: jito.mint,
+            yield_config: sim_pda(&[sim_lst::YIELD_SEED]),
+            yield_authority: pda(&[YIELD_SEED]),
+            sim_lst_program: sim_lst::ID,
+            token_program: TOKEN_PROGRAM_ID,
+            treasury: pda(&[TREASURY_SEED]),
+            treasury_vault: env.treasury_vault(),
+            source: None,
+        },
+        instruction::AccrueNativeYield {},
+        vec![],
+    );
+    wrong.accounts[0].is_writable = true;
+    let err = env.send(&[wrong], &payer.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ACCOUNT_OWNED_BY_WRONG_PROGRAM);
+
+    // The stake pool crank refuses a simSOL custody, and the wrong Treasury vault.
+    let mut on_sim = env.crank_stake_ix(&jito, stake);
+    on_sim.accounts[0] = AccountMeta::new(s(simple.position), false);
+    on_sim.accounts[1] = AccountMeta::new(s(simple.custody), false);
+    on_sim.accounts[2] = AccountMeta::new(s(simple.vault), false);
+    on_sim.accounts[3] = AccountMeta::new_readonly(s(env.pool), false);
+    let err = env.send(&[on_sim], &payer.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_INVALID_ACCOUNT);
+    let mut wrong_vault = env.crank_stake_ix(&jito, stake);
+    wrong_vault.accounts[5] = AccountMeta::new(s(env.treasury_vault()), false);
+    let err = env.send(&[wrong_vault], &payer.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_INVALID_MINT);
+}
+
+#[test]
+fn switching_the_active_token_leaves_a_stake_pool_position_alone() {
+    let (mut env, jito) = jito_env();
+    let (alice, alice_token) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+
+    let other_mint = plant_mint(&mut env);
+    let other_pool = APk::new_unique();
+    set_stake_pool(&mut env, other_pool, other_mint, 1_000 * SOL, 1_000 * SOL);
+    set_sol_source(&mut env, other_mint, other_pool).unwrap();
+    // New openings of the old token are refused; the Position goes on with its own token.
+    let (bob, _) = env.holder_of(jito.mint, SOL);
+    assert_eq!(
+        code(&env.open_stake(&jito, &bob, SOL).unwrap_err()),
+        ERR_INVALID_POOL
+    );
+    set_jito_rate(&mut env, &jito, 1_230_000_000);
+    env.crank_stake(&jito, &alice.kp, pos).expect("crank");
+    env.stake_redeem(&jito, &alice, pos, source, 840)
+        .expect("redeem");
+    assert!(env.token_balance(alice_token) > 0);
+    let unlock = env.stake_unlock_ix(&jito, &alice, pos, true);
+    env.send(&[unlock], &alice.kp, &[]).expect("unlock");
+    assert_eq!(env.position(pos).status, PositionStatus::Unlocked);
+}
+
+#[test]
+fn a_stake_pool_custody_is_a_marker_past_the_unchanged_layout() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, SOL).unwrap();
+    let mut data = env.svm.get_account(&s(pos.custody)).unwrap().data;
+    // The struct is what live custodies have; the eight bytes after it are the marker and the rate.
+    assert_eq!(NativeCustody::SPACE, 8 + 1 + 1 + 5 * 32 + 5 * 8);
+    NativeCustody::try_deserialize(&mut &data[..NativeCustody::SPACE]).expect("same layout");
+    data.truncate(NativeCustody::SPACE);
+    assert!(
+        !NativeCustody::is_stake_pool(&data),
+        "no marker, a sim_lst custody"
+    );
 }

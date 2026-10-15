@@ -192,8 +192,36 @@ pub mod tesoro_core {
         instructions::native::accrue_native_yield(ctx)
     }
 
-    pub fn sweep_native_surplus(ctx: Context<SweepNativeSurplus>) -> Result<()> {
+    pub fn sweep_native_surplus<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SweepNativeSurplus<'info>>,
+    ) -> Result<()> {
         instructions::native::sweep_native_surplus(ctx)
+    }
+
+    // --- Real staking tokens (stake pool rate, no mint step; ADR 0010) -----------------------
+
+    /// Oracle authority: the APY new Positions of a staking token are sized on.
+    pub fn set_token_apy(ctx: Context<SetTokenApy>, apy_bps: u16) -> Result<()> {
+        instructions::stake_pool::set_token_apy(ctx, apy_bps)
+    }
+
+    /// Admin: the Treasury's vault of one more token.
+    pub fn init_treasury_vault(ctx: Context<InitTreasuryVault>) -> Result<()> {
+        instructions::stake_pool::init_treasury_vault(ctx)
+    }
+
+    /// Opens a Position with the staking token the `SolSource` setting names (required).
+    pub fn open_stake_pool_position(
+        ctx: Context<OpenStakePoolPosition>,
+        nonce: u64,
+        token_amount: u64,
+    ) -> Result<()> {
+        instructions::stake_pool::open_stake_pool_position(ctx, nonce, token_amount)
+    }
+
+    /// Permissionless crank of a stake pool Position: Yield Fee on the rate's growth, then yield.
+    pub fn accrue_stake_pool_yield(ctx: Context<AccrueStakePoolYield>) -> Result<()> {
+        instructions::stake_pool::accrue_stake_pool_yield(ctx)
     }
 
     /// Extends a custody opened before `tracked_shares` existed. Permissionless.

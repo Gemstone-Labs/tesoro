@@ -39,3 +39,12 @@ Minted yield shares are not backed by deposited SOL/ETH: withdrawals are paid fr
 ## App
 
 One function (`app/src/lib/chain/yield.ts`) gives accrued yield for a Position at time `t` from `(principal, rateBps, sinceSec, speedup)`. The quote, Unlock Estimate, projected Debt and charts all use it. A fresh Advance of N months reads `N * 10` minutes.
+
+## Real staking tokens (mainnet, ADR 0010)
+
+Test mode above is unchanged. On a mainnet-configured cluster the Position token is an SPL stake pool token (jitoSOL today) and nothing is minted:
+
+* **Rate.** `total_lamports / pool_token_supply` of the `StakePool` account, 1e9 fixed point. The account must be owned by an SPL stake pool program (`STAKE_POOL_PROGRAMS`) and name the token as its pool mint.
+* **Open.** `open_stake_pool_position(nonce, token_amount)` requires the `["sol_source"]` setting (mint and pool) and the token's published APY `["token_apy", mint]` (`set_token_apy`, oracle authority, at most 100%). Principal = tokens x rate; `rate_bps` = the published APY. The custody is allocated `NativeCustody::STAKE_POOL_SPACE` (the live layout plus a marker byte and the rate high-water mark), so no live account changes.
+* **Yield.** `accrue_stake_pool_yield` (permissionless) takes the Yield Fee on the rate's growth since the high-water mark: `fee_bps` of the growth, paid in tokens from the Position's vault to the Treasury vault of that token (`["treasury_vault", mint]`, created by the admin with `init_treasury_vault`), and out of `tracked_shares`. The Position keeps the rest; cumulative yield is still `tracked_shares * rate - principal + redeemed`. The same fee is settled inside Unlock and sweep (they pass `[treasury, treasury_vault]` as two extra remaining accounts), so surplus never leaves untaxed.
+* **Out.** Redeem and Unlock pay the token. Instant Redeem pays from the Treasury vault of the Position's token, priced by the pool passed as `pool`.

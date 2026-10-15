@@ -12,12 +12,11 @@
 use crate::error::{core_err, TesoroError};
 use crate::instructions::native::{active_source, is_native, pay_redeem};
 use crate::instructions::position::chain_byte;
+use crate::instructions::stake_pool::{check_treasury_vault, rate_for_mint};
 use crate::ledger::{self, native, SourceChain, MAX_INSTANT_FEE_BPS, MAX_YIELD_FEE_BPS};
 use crate::state::*;
-use crate::util::now;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
-use sim_lst::Pool;
 
 // --- Setup -----------------------------------------------------------------------------------
 
@@ -233,22 +232,15 @@ pub struct InstantRedeem<'info> {
         bump
     )]
     pub treasury_holding: Box<Account<'info, HoldingState>>,
-    #[account(
-        mut,
-        seeds = [TREASURY_VAULT_SEED],
-        bump = treasury.vault_bump
-    )]
+    /// The Treasury's vault of the Position's token: its original vault, or the one at
+    /// `["treasury_vault", mint]`.
+    #[account(mut)]
     pub treasury_vault: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = treasury_vault.mint, token::authority = holder_authority)]
     pub holder_token: Box<Account<'info, TokenAccount>>,
-    /// The canonical sim_lst Pool, whose rate converts the payout to simSOL.
-    #[account(
-        seeds = [sim_lst::POOL_SEED],
-        seeds::program = sim_lst::ID,
-        bump = pool.bump,
-        constraint = pool.mint == treasury_vault.mint @ TesoroError::InvalidPool
-    )]
-    pub pool: Box<Account<'info, Pool>>,
+    /// CHECK: the account that values the Position's token: the canonical `sim_lst` Pool for
+    /// simSOL, or a stake pool whose pool mint is the token. Checked on read.
+    pub pool: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
@@ -272,7 +264,9 @@ pub(crate) fn instant_redeem(ctx: Context<InstantRedeem>, amount: u64) -> Result
         &mut a.treasury_holding,
         amount,
     )?;
-    let rate = sim_lst::current_rate(&a.pool, now()?)?;
+    let token = Pubkey::new_from_array(a.position.inner.source_asset);
+    check_treasury_vault(&a.treasury, &a.treasury_vault, &token)?;
+    let rate = rate_for_mint(&a.pool.to_account_info(), &token)?;
     let shares = native::shares_for_units_floor(payout, rate).map_err(core_err)?;
     if shares == 0 {
         return Err(core_err(ledger::CoreError::ZeroShares));
@@ -462,11 +456,8 @@ pub(crate) fn redeem_treasury<'info>(
     let [_, _, destination, ..] = remaining else {
         return err!(TesoroError::BadRemainingAccounts);
     };
-    require_keys_eq!(
-        *destination.key,
-        a.treasury.vault,
-        TesoroError::InvalidAccount
-    );
+    let destination_vault = Account::<TokenAccount>::try_from(destination)?;
+    check_treasury_vault(&a.treasury, &destination_vault, &destination_vault.mint)?;
     pay_redeem(
         &a.position,
         &a.position.key(),
