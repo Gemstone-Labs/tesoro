@@ -15,6 +15,7 @@
 
 use crate::error::{core_err, TesoroError};
 use crate::instructions::position::{chain_byte, issue_advance};
+use crate::instructions::stake_pool::{self, custody_rate, load_fee_accounts, FeeAccounts};
 use crate::ledger::{self, native, CoreError, SourceChain};
 use crate::state::*;
 use crate::util::now;
@@ -541,33 +542,44 @@ pub(crate) fn accrue_native_yield(mut ctx: Context<AccrueNativeYield>) -> Result
     if a.position.inner.status == ledger::PositionStatus::Locked {
         mint_accrued_yield(a, now, rate, bump)?;
     }
+    apply_cumulative_yield(&mut a.position, &a.custody, a.source.as_mut(), rate)
+}
+
+/// Applies the yield the vault's tracked shares hold at `rate` to the Position (and its open
+/// Advance): Debt is repaid first, the rest is free yield. Shared by the simSOL and stake pool
+/// cranks; a replay or a rate that has not moved changes nothing.
+pub(crate) fn apply_cumulative_yield(
+    position: &mut Account<PositionState>,
+    custody: &Account<NativeCustody>,
+    source: Option<&mut Account<SourceState>>,
+    rate: u64,
+) -> Result<()> {
     let cumulative = native::accrued_yield(
-        a.custody.tracked_shares,
+        custody.tracked_shares,
         rate,
-        a.custody.redeemed_units,
-        a.position.inner.principal,
+        custody.redeemed_units,
+        position.inner.principal,
     )
     .map_err(core_err)?;
-    if cumulative <= a.position.inner.cumulative_yield {
+    if cumulative <= position.inner.cumulative_yield {
         return Ok(());
     }
-    let seq = a
-        .position
+    let seq = position
         .inner
         .last_seq
         .checked_add(1)
         .ok_or(TesoroError::InvalidAccount)?;
-    let position_key = a.position.key();
-    let source = a.source.as_mut().map(|s| &mut s.inner);
-    a.position
+    let position_key = position.key();
+    let mut source = source;
+    position
         .inner
-        .apply_yield(source, seq, cumulative)
+        .apply_yield(source.as_mut().map(|s| &mut s.inner), seq, cumulative)
         .map_err(core_err)?;
     emit!(YieldApplied {
         position: position_key,
         seq,
         cumulative,
-        debt_gemas: a.source.as_ref().map_or(0, |s| s.inner.debt()),
+        debt_gemas: source.as_ref().map_or(0, |s| s.inner.debt()),
     });
     Ok(())
 }
@@ -649,21 +661,38 @@ fn mint_yield_to<'info>(
 
 /// The accounts a payout needs, loaded from `remaining_accounts` for the legacy `redeem` and
 /// `unlock` instructions (whose fixed accounts cannot change): `[custody, vault, destination,
-/// pool, token_program]`.
+/// pool, token_program]`. `pool` is the account that values the custody's token: the `sim_lst`
+/// Pool, or the stake pool of a real token. A payout that lets the vault's surplus leave (Unlock,
+/// sweep) of a real token adds `[treasury, treasury_vault]` so the Yield Fee on the rate's growth
+/// is settled first.
 pub(crate) struct Custody<'info> {
     pub custody: Account<'info, NativeCustody>,
     pub vault: Account<'info, TokenAccount>,
     pub destination: Account<'info, TokenAccount>,
-    pub pool: Account<'info, Pool>,
+    pub rate: u64,
     pub token_program: AccountInfo<'info>,
+    pub fee: Option<FeeAccounts<'info>>,
+}
+
+impl Custody<'_> {
+    /// Writes back what the payout changed.
+    fn exit(&self) -> Result<()> {
+        self.custody.exit(&crate::ID)?;
+        if let Some(fee) = &self.fee {
+            fee.treasury.exit(&crate::ID)?;
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn load_custody<'info>(
     remaining: &'info [AccountInfo<'info>],
     position: &Pubkey,
     wallet: &Pubkey,
+    settle_fee: bool,
 ) -> Result<Custody<'info>> {
-    let [custody_info, vault_info, dest_info, pool_info, token_program] = remaining else {
+    let [custody_info, vault_info, dest_info, pool_info, token_program, rest @ ..] = remaining
+    else {
         return err!(TesoroError::BadRemainingAccounts);
     };
     require!(
@@ -684,16 +713,42 @@ pub(crate) fn load_custody<'info>(
     require_keys_neq!(vault.key(), destination.key(), TesoroError::InvalidAccount);
     require_keys_eq!(destination.mint, custody.mint, TesoroError::InvalidMint);
     require_keys_eq!(destination.owner, *wallet, TesoroError::InvalidAccount);
-    require_keys_eq!(*pool_info.key, custody.pool, TesoroError::InvalidPool);
-    let pool = Account::<Pool>::try_from(pool_info)?;
     require_keys_eq!(*token_program.key, token::ID, TesoroError::InvalidAccount);
-    Ok(Custody {
+    let rate = custody_rate(&custody, pool_info)?;
+    let stake_pool = stake_pool::is_stake_pool_custody(&custody);
+    let fee = if stake_pool && settle_fee {
+        Some(load_fee_accounts(rest)?)
+    } else {
+        require!(rest.is_empty(), TesoroError::BadRemainingAccounts);
+        None
+    };
+    let mut c = Custody {
         custody,
         vault,
         destination,
-        pool,
+        rate,
         token_program: token_program.clone(),
-    })
+        fee,
+    };
+    c.settle_fee()?;
+    Ok(c)
+}
+
+impl Custody<'_> {
+    /// Takes the Yield Fee on the pool rate's growth, when this custody pays one.
+    pub(crate) fn settle_fee(&mut self) -> Result<()> {
+        let Some(fee) = self.fee.as_mut() else {
+            return Ok(());
+        };
+        stake_pool::settle_yield_fee(
+            &mut self.custody,
+            &mut self.vault,
+            &mut fee.treasury,
+            &mut fee.vault,
+            &self.token_program,
+            self.rate,
+        )
+    }
 }
 
 fn pay_shares<'info>(c: &Custody<'info>, shares: u64) -> Result<()> {
@@ -721,8 +776,8 @@ pub(crate) fn pay_redeem<'info>(
     units: u64,
     remaining: &'info [AccountInfo<'info>],
 ) -> Result<()> {
-    let mut c = load_custody(remaining, position_key, holder_authority)?;
-    let rate = sim_lst::current_rate(&c.pool, now()?)?;
+    let mut c = load_custody(remaining, position_key, holder_authority, false)?;
+    let rate = c.rate;
     let shares = native::shares_for_units_floor(units, rate).map_err(core_err)?;
     if shares == 0 {
         return Err(core_err(CoreError::ZeroShares));
@@ -749,7 +804,7 @@ pub(crate) fn pay_redeem<'info>(
         rate,
     )
     .map_err(core_err)?;
-    c.custody.exit(&crate::ID)?;
+    c.exit()?;
     emit!(NativePayout {
         position: *position_key,
         to: c.destination.key(),
@@ -769,7 +824,7 @@ pub(crate) fn release_surplus<'info>(
     remaining: &'info [AccountInfo<'info>],
     kind: u8,
 ) -> Result<()> {
-    let mut c = load_custody(remaining, position_key, owner_authority)?;
+    let mut c = load_custody(remaining, position_key, owner_authority, true)?;
     require_keys_eq!(
         c.custody.owner_authority,
         *owner_authority,
@@ -784,7 +839,7 @@ pub(crate) fn release<'info>(
     position_key: &Pubkey,
     kind: u8,
 ) -> Result<()> {
-    let rate = sim_lst::current_rate(&c.pool, now()?)?;
+    let rate = c.rate;
     let surplus = native::surplus_shares(
         c.vault.amount,
         &position.inner,
@@ -805,7 +860,7 @@ pub(crate) fn release<'info>(
         rate,
     )
     .map_err(core_err)?;
-    c.custody.exit(&crate::ID)?;
+    c.exit()?;
     emit!(NativePayout {
         position: *position_key,
         to: c.destination.key(),
@@ -849,20 +904,35 @@ pub struct SweepNativeSurplus<'info> {
         token::authority = owner_authority
     )]
     pub owner_token: Account<'info, TokenAccount>,
+    /// CHECK: the account that values the custody's token (the `sim_lst` Pool or a stake pool),
+    /// checked against the custody on read. A real token adds `[treasury, treasury_vault]` as
+    /// remaining accounts.
     #[account(address = custody.pool @ TesoroError::InvalidPool)]
-    pub pool: Account<'info, Pool>,
+    pub pool: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
 }
 
-pub(crate) fn sweep_native_surplus(mut ctx: Context<SweepNativeSurplus>) -> Result<()> {
-    let a = &mut ctx.accounts;
+pub(crate) fn sweep_native_surplus<'info>(
+    ctx: Context<'_, '_, 'info, 'info, SweepNativeSurplus<'info>>,
+) -> Result<()> {
+    let remaining = ctx.remaining_accounts;
+    let a = ctx.accounts;
+    let rate = custody_rate(&a.custody, &a.pool.to_account_info())?;
+    let fee = if stake_pool::is_stake_pool_custody(&a.custody) {
+        Some(load_fee_accounts(remaining)?)
+    } else {
+        require!(remaining.is_empty(), TesoroError::BadRemainingAccounts);
+        None
+    };
     let mut c = Custody {
         custody: a.custody.clone(),
         vault: a.vault.clone(),
         destination: a.owner_token.clone(),
-        pool: a.pool.clone(),
+        rate,
         token_program: a.token_program.to_account_info(),
+        fee,
     };
+    c.settle_fee()?;
     release(&mut c, &a.position, &a.position.key(), 2)?;
     a.custody.tracked_shares = c.custody.tracked_shares;
     Ok(())

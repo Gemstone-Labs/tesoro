@@ -21,8 +21,9 @@ pub use extend_limit::*;
 pub use matches::*;
 pub use money::*;
 pub use native::{
-    accrued_yield, check_cover, owed_units, required_shares, shares_for_units_ceil,
-    shares_for_units_floor, shares_value, surplus_shares,
+    accrued_yield, check_cover, owed_units, parse_stake_pool, required_shares,
+    shares_for_units_ceil, shares_for_units_floor, shares_value, stake_pool_rate, surplus_shares,
+    yield_fee_shares, StakePoolRead,
 };
 pub use season::*;
 
@@ -116,6 +117,7 @@ core_errors! {
     ExtendCoolingDown => "an extend needs 24 hours since your last one",
     ExtendLimitReached => "this extend would go over your extend limit for the period",
     InvalidExtendLimit => "the extend limit is 0 to 11 months",
+    BadStakePool => "account data is not an initialised stake pool with pool tokens",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

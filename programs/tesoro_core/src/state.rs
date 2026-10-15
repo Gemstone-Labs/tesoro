@@ -39,6 +39,16 @@ pub const SOL_SOURCE_SEED: &[u8] = b"sol_source";
 /// this `source_asset` is native whether or not it has the native marker. Everything newer is
 /// recognised by the marker (`PositionState::is_native`), whichever token it holds.
 pub const SIM_SOL_MINT: Pubkey = pubkey!("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ");
+/// SPL stake pool programs whose `StakePool` account can value a staking token (ADR 0010): the
+/// vanilla SPL program (jitoSOL, bSOL, ...) and Sanctum's two forks. The pool account must be owned
+/// by one of them and name the token as its pool mint.
+pub const STAKE_POOL_PROGRAMS: [Pubkey; 3] = [
+    pubkey!("SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy"),
+    pubkey!("SP12tWFxD9oJsVWNavTTBZvMbA6gkAmxtVgxdqvyvhY"),
+    pubkey!("SPMBzsVUuoHA4Jm6KunbsotaahvVikZs1JyTW6iJvbn"),
+];
+/// Seed of a staking token's published APY: `["token_apy", mint]`.
+pub const TOKEN_APY_SEED: &[u8] = b"token_apy";
 /// How old the issuance price may be when an Advance is taken.
 pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
 pub const SOURCE_AUTHORITY_SEED: &[u8] = b"source_auth";
@@ -296,6 +306,51 @@ impl NativeCustody {
     pub const VAULT_OFFSET: usize = 8 + 2 + 4 * 32;
     pub const DEPOSITED_OFFSET: usize = 8 + 2 + 5 * 32 + 8;
     pub const TRACKED_OFFSET: usize = Self::LEGACY_SPACE;
+
+    /// A custody valued by an SPL stake pool (a real staking token) is allocated past `SPACE` with
+    /// a marker byte and the highest pool rate the Yield Fee has been taken at. Deserialisation
+    /// ignores trailing bytes, so no live custody changes layout; custodies without the marker are
+    /// valued by the `sim_lst` Pool.
+    pub const STAKE_POOL_SPACE: usize = Self::SPACE + 1 + 8;
+    pub const STAKE_POOL_MARKER: u8 = 2;
+
+    /// Whether the account data of a custody is valued by a stake pool.
+    pub fn is_stake_pool(data: &[u8]) -> bool {
+        data.len() >= Self::STAKE_POOL_SPACE
+            && data.get(Self::SPACE) == Some(&Self::STAKE_POOL_MARKER)
+    }
+
+    /// The highest pool rate (1e9 fixed point) the Yield Fee has been settled at.
+    pub fn stake_pool_last_rate(data: &[u8]) -> Option<u64> {
+        if !Self::is_stake_pool(data) {
+            return None;
+        }
+        let bytes = data.get(Self::SPACE + 1..Self::STAKE_POOL_SPACE)?;
+        Some(u64::from_le_bytes(bytes.try_into().ok()?))
+    }
+
+    pub fn set_stake_pool_last_rate(data: &mut [u8], rate: u64) -> bool {
+        if !Self::is_stake_pool(data) {
+            return false;
+        }
+        data[Self::SPACE + 1..Self::STAKE_POOL_SPACE].copy_from_slice(&rate.to_le_bytes());
+        true
+    }
+}
+
+/// The APY (basis points a year) a staking token's Positions are sized on, published by the oracle
+/// authority (the keeper): `["token_apy", mint]`. A real token has no `apy_bps` of its own, so
+/// this is where a new Position's `rate_bps` comes from.
+#[account]
+pub struct TokenApy {
+    pub bump: u8,
+    pub mint: Pubkey,
+    pub apy_bps: u16,
+    pub updated_ts: i64,
+}
+
+impl TokenApy {
+    pub const SPACE: usize = 8 + 1 + 32 + 2 + 8;
 }
 
 /// Tesoro's Treasury (CONTEXT.md): collects the Yield Fee on Solana-native Positions (simSOL in
@@ -604,6 +659,13 @@ mod profile_tests {
         assert!(Profile::avatar_is_valid(AvatarChoice::Animal(11)));
         assert!(!Profile::avatar_is_valid(AvatarChoice::Animal(12)));
     }
+}
+
+/// The oracle authority published a staking token's APY.
+#[event]
+pub struct TokenApySet {
+    pub mint: Pubkey,
+    pub apy_bps: u16,
 }
 
 /// The admin changed the token new Solana-native Positions open with.

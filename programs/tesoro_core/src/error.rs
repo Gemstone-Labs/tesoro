@@ -43,6 +43,8 @@ pub enum TesoroError {
     LeaderboardOff,
     #[msg("the treasury cannot pay this instant redeem now")]
     TreasuryShort,
+    #[msg("account is not a stake pool of the staking token")]
+    InvalidStakePool,
 }
 
 pub fn core_err(e: CoreError) -> Error {
