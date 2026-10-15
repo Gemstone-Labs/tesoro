@@ -419,6 +419,9 @@ impl Env {
                 session,
                 board_0: board_pda(session, 0),
                 vault: vault_pda(session),
+                authority: authority(),
+                config: core_pda(&[CONFIG_SEED]),
+                tesoro_core_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
             },
             block_puzzle::instruction::OpenSession {},
@@ -447,6 +450,27 @@ impl Env {
             vec![],
         );
         let payer = self.stranger.insecure_clone();
+        self.send(&[ix], &payer, &[])
+    }
+
+    /// A stranger asks tesoro_core to refund an unjoined Match of `alice`.
+    fn refund_as_stranger(&mut self, alice: &Person, id: u64) -> Res {
+        let payer = self.stranger.insecure_clone();
+        let mut metas = to_metas(
+            tesoro_core::accounts::RefundMatch {
+                caller: a(payer.pubkey()),
+                config: core_pda(&[CONFIG_SEED]),
+                match_state: match_pda(id),
+            }
+            .to_account_metas(None),
+        );
+        metas.push(rem(alice.account));
+        metas.push(rem(alice.holding));
+        let ix = Instruction {
+            program_id: s(tesoro_core::ID),
+            accounts: metas,
+            data: tesoro_core::instruction::RefundMatch {}.data(),
+        };
         self.send(&[ix], &payer, &[])
     }
 
@@ -660,6 +684,8 @@ fn a_session_needs_an_open_match_of_this_game_opened_by_the_account_given() {
     let m = env.load_core::<MatchState>(match_pda(id)).inner;
     assert_eq!(session.players[0], alice.key);
     assert!(!session.joined);
+    // The Queue holds the entry a day, not tesoro_core's hour.
+    assert_eq!(m.deadline, env.now() + block_puzzle::QUEUE_WINDOW_SECS);
     let opener_deadline = m.deadline + block_puzzle::SUBMISSION_SECS;
     assert_eq!(session.opener_deadline, opener_deadline);
     let board: Board = env.load_bp(env.board(id, 0));
@@ -671,11 +697,32 @@ fn a_session_needs_an_open_match_of_this_game_opened_by_the_account_given() {
     // The Queue window cannot be past.
     let id3 = env.open(&alice);
     env.set_time(env.now() + tesoro_core::ledger::MATCH_TIMEOUT_SECS);
+
     let err = env.open_session(&alice, id3).unwrap_err();
     assert_eq!(
         code(&err),
         bp_err(block_puzzle::BlockPuzzleError::DeadlinePassed)
     );
+}
+
+#[test]
+fn an_unjoined_block_puzzle_match_waits_a_day_before_anyone_can_refund_it() {
+    let (mut env, alice, _bob) = Env::new();
+    let (id, _) = env.opened(&alice);
+    let t0 = env.now();
+    // An hour in the Match is still Open and joinable; the refund is not open to a stranger.
+    env.set_time(t0 + tesoro_core::ledger::MATCH_TIMEOUT_SECS + 1);
+    let err = env.refund_as_stranger(&alice, id).unwrap_err();
+    assert_eq!(
+        code(&err),
+        6000 + 100 + tesoro_core::ledger::CoreError::NotExpired.code()
+    );
+    assert_eq!(env.total(&alice), 75_000 - ENTRY);
+    // The window closes a day after the Session opened.
+    env.set_time(t0 + block_puzzle::QUEUE_WINDOW_SECS + 1);
+    env.refund_as_stranger(&alice, id)
+        .expect("refund after a day");
+    assert_eq!(env.total(&alice), 75_000);
 }
 
 #[test]
@@ -910,7 +957,7 @@ fn a_match_nobody_joins_is_refunded_to_the_opener_after_they_played() {
     let ix = refund(&env, a(payer.pubkey()));
     assert!(env.send(std::slice::from_ref(&ix), &payer, &[]).is_err());
     // Expired means nobody can join either.
-    env.set_time(env.now() + tesoro_core::ledger::MATCH_TIMEOUT_SECS);
+    env.set_time(env.now() + block_puzzle::QUEUE_WINDOW_SECS);
     let err = env.join(&bob, id).unwrap_err();
     assert_eq!(
         code(&err),

@@ -300,6 +300,9 @@ export class BlockPuzzleChain {
         session: a.session,
         board0: a.boards[0],
         vault: a.vault,
+        authority: a.authority,
+        config: a.config,
+        tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
