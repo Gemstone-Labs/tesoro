@@ -151,7 +151,8 @@ pub struct PositionState {
 }
 
 impl PositionState {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8;
+    pub const SPACE: usize =
+        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
 }
 
 #[account]
@@ -226,49 +227,49 @@ impl OfferState {
         + ledger::MAX_ENTRY_SOURCES * 41;
 }
 
-/// Custody of one native Position: the simSOL vault and what is needed to value it.
+/// The one custody of every native Position (ADR 0010): a single simSOL vault holding their
+/// Principal, and the pool totals behind the Treasury's Yield Fee claim. Seeds `["native"]`; the
+/// vault is `["native_vault"]` with this account as authority. Yield is never held here: it is
+/// minted by `sim_lst` at the moment it is paid out.
 #[account]
 pub struct NativeCustody {
     pub bump: u8,
     pub vault_bump: u8,
-    pub position: Pubkey,
-    pub owner_authority: Pubkey,
-    /// The `sim_lst` Pool (canonical PDA) whose rate values the vault.
+    /// The canonical `sim_lst` Pool (test APY and speedup live there).
     pub pool: Pubkey,
     pub mint: Pubkey,
-    /// Token account (PDA) holding the Position's simSOL, authority = this custody.
+    /// Token account (PDA) holding the Principal of every Locked native Position.
     pub vault: Pubkey,
-    /// sim_lst rate at open (1e9 fixed point, SOL per simSOL).
-    pub rate_at_open: u64,
-    /// simSOL deposited at open, base units. Informational: the vault balance is authoritative.
-    pub deposited_shares: u64,
-    /// SOL base units paid to Gema holders from the vault by `redeem`.
-    pub redeemed_units: u64,
-    /// Shares this custody accounts for: deposited at open minus paid out. Yield and cover are read
-    /// from this, never from the vault's token balance, so simSOL sent straight to the vault is not
-    /// yield (ADR 0001: Principal never pays Debt, not even by top-up). Appended after the original
-    /// layout; custodies opened before it are extended by `migrate_native_custody`.
-    pub tracked_shares: u64,
-    /// Unix time up to which yield has been minted into the vault (per-Position yield model,
-    /// docs/yield-model.md). Appended after `tracked_shares`; older custodies are extended by
-    /// `migrate_native_custody`, which starts it at the migration time.
-    pub last_accrual_ts: i64,
+    /// `PoolTotals` (`ledger::yield_math`), updated only on open and unlock.
+    pub principal: u128,
+    pub principal_time: u128,
+    pub realised_fee: u128,
+    pub open_positions: u64,
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = Self::TRACKED_SPACE + 8;
-    /// The layout with `tracked_shares` and before `last_accrual_ts`.
-    pub const TRACKED_SPACE: usize = Self::LEGACY_SPACE + 8;
-    /// The layout before `tracked_shares`.
-    pub const LEGACY_SPACE: usize = 8 + 1 + 1 + 5 * 32 + 3 * 8;
-    /// Offsets inside the account data, after the 8-byte discriminator.
-    pub const VAULT_OFFSET: usize = 8 + 2 + 4 * 32;
-    pub const DEPOSITED_OFFSET: usize = 8 + 2 + 5 * 32 + 8;
-    pub const TRACKED_OFFSET: usize = Self::LEGACY_SPACE;
+    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 3 * 16 + 8;
+
+    pub fn totals(&self) -> ledger::PoolTotals {
+        ledger::PoolTotals {
+            principal: self.principal,
+            principal_time: self.principal_time,
+            realised_fee: self.realised_fee,
+            open_positions: self.open_positions,
+        }
+    }
+
+    pub fn set_totals(&mut self, t: ledger::PoolTotals) {
+        self.principal = t.principal;
+        self.principal_time = t.principal_time;
+        self.realised_fee = t.realised_fee;
+        self.open_positions = t.open_positions;
+    }
 }
 
-/// Tesoro's Treasury (CONTEXT.md): collects the Yield Fee on Solana-native Positions (simSOL in
-/// `vault`), pays Solana Instant Redeems from it, and holds the Gemas it bought in `account`, a
+/// Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the
+/// `NativeCustody` pool totals (ADR 0010; withdrawing it is ticket 04), it pays Solana Instant
+/// Redeems from `vault`, and holds the Gemas it bought in `account`, a
 /// `TesoroAccount` whose authority is this PDA. Seeds `["treasury"]`. Its fee rates apply on every
 /// chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source.
 #[account]
@@ -284,7 +285,7 @@ pub struct Treasury {
     pub account: Pubkey,
     /// simSOL token account (`["treasury_vault"]`), authority = this PDA.
     pub vault: Pubkey,
-    /// SOL units minted into the vault as Yield Fee, cumulative.
+    /// Unused since the Yield Fee is computed, not minted per crank; kept so the layout stays put.
     pub fee_units: u64,
     /// SOL units paid out by Solana Instant Redeems, cumulative.
     pub instant_units: u64,
@@ -397,22 +398,16 @@ pub struct NativePositionOpened {
     pub principal_sol: u64,
 }
 
-/// simSOL paid out of a Position's vault.
+/// simSOL paid to `to` for a native Position.
 #[event]
 pub struct NativePayout {
     pub position: Pubkey,
     pub to: Pubkey,
     pub shares: u64,
     pub sol_units: u64,
-    /// 0 = redeem, 1 = unlock, 2 = sweep.
+    /// 0 = redeem (yield minted), 1 = unlock Principal (from the vault), 2 = unlock free yield
+    /// (minted).
     pub kind: u8,
-}
-
-#[event]
-pub struct NativeCustodyMigrated {
-    pub position: Pubkey,
-    pub deposited_shares: u64,
-    pub tracked_shares: u64,
 }
 
 /// Won Gemas sold to the Treasury: `payout_units` is paid now (on Solana in the same transaction,
@@ -425,14 +420,6 @@ pub struct InstantRedeemed {
     pub gemas: u64,
     pub source_units: u64,
     pub payout_units: u64,
-}
-
-/// The Yield Fee on one `accrue_native_yield`, minted into the treasury vault.
-#[event]
-pub struct YieldFeeTaken {
-    pub position: Pubkey,
-    pub units: u64,
-    pub shares: u64,
 }
 
 #[event]

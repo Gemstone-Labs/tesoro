@@ -1,7 +1,7 @@
 //! The Treasury (CONTEXT.md, ADR 0007): Tesoro's Yield Fee and Instant Redeem.
 //!
-//! * The Yield Fee on Solana-native Positions is minted into the treasury simSOL vault by
-//!   `accrue_native_yield`; EVM vaults keep theirs at the source.
+//! * The Yield Fee on Solana-native Positions is computed from the `NativeCustody` pool totals
+//!   (ADR 0010; withdrawing it is ticket 04); EVM vaults keep theirs at the source.
 //! * Instant Redeem: a holder sells won Gemas to the Treasury Account for their value less the
 //!   Instant Redeem Fee. On Solana the treasury vault pays in the same transaction
 //!   (`instant_redeem`); for EVM Sources the bridge records the payout and the vault's treasury pays
@@ -10,9 +10,9 @@
 //!   (`redeem_treasury`, `redeem_treasury_from_source`), which refills the treasury on that chain.
 
 use crate::error::{core_err, TesoroError};
-use crate::instructions::native::{is_native, pay_redeem};
+use crate::instructions::native::{is_native, redeem_treasury_native};
 use crate::instructions::position::chain_byte;
-use crate::ledger::{self, native, SourceChain, MAX_INSTANT_FEE_BPS, MAX_YIELD_FEE_BPS};
+use crate::ledger::{self, native, Source, SourceChain, MAX_INSTANT_FEE_BPS, MAX_YIELD_FEE_BPS};
 use crate::state::*;
 use crate::util::now;
 use anchor_lang::prelude::*;
@@ -142,7 +142,7 @@ pub(crate) fn fund_treasury(ctx: Context<FundTreasury>, shares: u64) -> Result<(
 /// Moves `amount` won Gemas into the Treasury Account and returns `(units, payout)`.
 fn sell_to_treasury(
     treasury: &Treasury,
-    source: &SourceState,
+    source: &Source,
     holder_account: &mut TesoroAccount,
     holding: &mut HoldingState,
     treasury_account: &mut TesoroAccount,
@@ -150,7 +150,7 @@ fn sell_to_treasury(
     amount: u64,
 ) -> Result<(u64, u64)> {
     ledger::instant_redeem(
-        &source.inner,
+        source,
         &mut holder_account.inner,
         &mut holding.inner,
         &mut treasury_account.inner,
@@ -251,16 +251,26 @@ pub(crate) fn instant_redeem(ctx: Context<InstantRedeem>, amount: u64) -> Result
         &treasury_account_key,
         &source_key,
     );
+    let ts = now()?;
+    let net = native::position_accrued(
+        &a.position.inner,
+        a.pool.speedup,
+        a.treasury.yield_fee_bps,
+        ts,
+    )
+    .map_err(core_err)?;
+    let view =
+        native::source_view(&a.position.inner, &a.source.inner, net.net).map_err(core_err)?;
     let (units, payout) = sell_to_treasury(
         &a.treasury,
-        &a.source,
+        &view,
         &mut a.holder_account,
         &mut a.holding,
         &mut a.treasury_account,
         &mut a.treasury_holding,
         amount,
     )?;
-    let rate = sim_lst::current_rate(&a.pool, now()?)?;
+    let rate = sim_lst::current_rate(&a.pool, ts)?;
     let shares = native::shares_for_units_floor(payout, rate).map_err(core_err)?;
     if shares == 0 {
         return Err(core_err(ledger::CoreError::ZeroShares));
@@ -372,7 +382,7 @@ pub(crate) fn instant_redeem_from_source(
     );
     let (units, payout) = sell_to_treasury(
         &a.treasury,
-        &a.source,
+        &a.source.inner,
         &mut a.holder_account,
         &mut a.holding,
         &mut a.treasury_account,
@@ -395,7 +405,8 @@ pub(crate) fn instant_redeem_from_source(
 /// The Treasury Account redeems Gemas of a Solana-native Source it bought, by the normal Redeem
 /// rules (only up to its pro rata share of accrued yield); the simSOL goes into the treasury vault.
 /// Permissionless: nobody can sign for the Treasury Account and the destination is fixed.
-/// `remaining_accounts`: `[custody, vault, treasury_vault, pool, token_program]`.
+/// `remaining_accounts`: `[pool, treasury_vault, mint, yield_config, yield_authority,
+/// sim_lst_program, token_program]`; the yield is minted at redeem.
 #[derive(Accounts)]
 pub struct RedeemTreasury<'info> {
     #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
@@ -433,35 +444,25 @@ pub(crate) fn redeem_treasury<'info>(
 ) -> Result<()> {
     let remaining = ctx.remaining_accounts;
     let a = ctx.accounts;
-    let units = ledger::redeem(
-        &mut a.source.inner,
-        &mut a.treasury_account.inner,
-        &mut a.treasury_holding.inner,
+    let position_key = a.position.key();
+    let units = redeem_treasury_native(
+        &a.position,
+        &position_key,
+        &mut a.source,
+        &mut a.treasury_account,
+        &mut a.treasury_holding,
+        &a.treasury,
         amount,
-    )
-    .map_err(core_err)?;
+        remaining,
+    )?;
     emit!(Redeemed {
-        position: a.position.key(),
+        position: position_key,
         source: a.source.key(),
         account: a.treasury_account.key(),
         gemas: amount,
         source_units: units,
     });
-    let [_, _, destination, ..] = remaining else {
-        return err!(TesoroError::BadRemainingAccounts);
-    };
-    require_keys_eq!(
-        *destination.key,
-        a.treasury.vault,
-        TesoroError::InvalidAccount
-    );
-    pay_redeem(
-        &a.position,
-        &a.position.key(),
-        &a.treasury.key(),
-        units,
-        remaining,
-    )
+    Ok(())
 }
 
 /// The Treasury Account redeems Gemas of an EVM-sourced Advance it bought, signed by the chain's

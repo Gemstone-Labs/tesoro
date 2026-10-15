@@ -9,6 +9,7 @@
 //! * The Treasury claim comes from pool totals that change only when a Position opens or unlocks.
 
 use super::*;
+use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
 
 /// Seconds in a year, as in sim_lst.
 pub const YEAR_SECS: u128 = 31_536_000;
@@ -106,7 +107,7 @@ pub fn source_now(source: &Source, net_accrued: u64, applied_before: u64) -> Cor
 }
 
 /// Pool-wide totals behind the Treasury's Yield Fee claim. Change only on open and unlock.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
 pub struct PoolTotals {
     /// `P = sum Principal` of Locked Positions.
     pub principal: u128,

@@ -1,17 +1,14 @@
-//! Solana-native Positions: the Principal is real simSOL (`sim_lst`) held in a vault that only this
-//! program controls, and yield is read from the pool's rate instead of being reported by the oracle.
+//! Solana-native Positions without a crank (ADR 0010).
 //!
-//! Custody model (see `ledger::native` for the arithmetic). The vault of a Position (a token
-//! account PDA, authority = its `NativeCustody`) holds the shares deposited at open. Shares leave
-//! only by:
+//! * Custody: one simSOL vault (`NativeCustody`) holds the Principal of every Locked native
+//!   Position; each Position records its `custody_shares`, `opened_at`, `principal` and `rate_bps`.
+//! * Debt, redeemable amounts and free yield are computed from `ledger::yield_math` at `Clock` now
+//!   by every instruction that needs them. Nothing records yield.
+//! * Yield is minted by `sim_lst::mint_yield` exactly at the moment it is paid (Redeem, Unlock);
+//!   Principal returns from the shared vault at Unlock.
+//! * The pool totals behind the Treasury's Yield Fee claim change only on open and unlock.
 //!
-//! * `redeem`: shares worth the redeemed accrued yield at the current rate go to the holder;
-//! * `unlock` / `sweep_native_surplus`: everything beyond `ceil((Principal + owed yield) / rate)`
-//!   (Principal is released only once Debt is zero; the owed yield of holders who have not redeemed
-//!   yet stays in the vault, valued at the current rate, so a later redeem is always covered).
-//!
-//! Every payout ends by re-checking that the vault covers Principal (while Locked) plus the applied
-//! but unredeemed yield. The oracle can never open, credit yield to, or unlock a native Position.
+//! The oracle can never open, credit yield to, or unlock a native Position.
 
 use crate::error::{core_err, TesoroError};
 use crate::instructions::position::{chain_byte, issue_advance};
@@ -73,10 +70,65 @@ pub(crate) fn set_price(ctx: Context<SetPrice>, price_micro_usd: u64) -> Result<
     Ok(())
 }
 
+// --- Custody setup ---------------------------------------------------------------------------
+
+/// Creates the shared custody and its simSOL vault. Admin only, once.
+#[derive(Accounts)]
+pub struct InitNativeCustody<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
+    /// The canonical sim_lst Pool: owned by the sim_lst program and at its `["pool"]` PDA.
+    #[account(
+        seeds = [sim_lst::POOL_SEED],
+        seeds::program = sim_lst::ID,
+        bump = pool.bump,
+        constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
+    )]
+    pub pool: Box<Account<'info, Pool>>,
+    #[account(address = pool.mint @ TesoroError::InvalidMint)]
+    pub mint: Box<Account<'info, Mint>>,
+    #[account(
+        init,
+        payer = admin,
+        space = NativeCustody::SPACE,
+        seeds = [NATIVE_SEED],
+        bump
+    )]
+    pub custody: Box<Account<'info, NativeCustody>>,
+    #[account(
+        init,
+        payer = admin,
+        seeds = [NATIVE_VAULT_SEED],
+        bump,
+        token::mint = mint,
+        token::authority = custody
+    )]
+    pub vault: Box<Account<'info, TokenAccount>>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn init_native_custody(ctx: Context<InitNativeCustody>) -> Result<()> {
+    let a = ctx.accounts;
+    a.custody.bump = ctx.bumps.custody;
+    a.custody.vault_bump = ctx.bumps.vault;
+    a.custody.pool = a.pool.key();
+    a.custody.mint = a.mint.key();
+    a.custody.vault = a.vault.key();
+    a.custody.set_totals(ledger::PoolTotals::default());
+    Ok(())
+}
+
 // --- Open ------------------------------------------------------------------------------------
 
-/// The owner deposits simSOL into the Position's vault. Principal is recorded in SOL at the
-/// current sim_lst rate. No oracle involved.
+/// The owner deposits simSOL into the shared vault. Principal is recorded in SOL at the current
+/// sim_lst rate, and the Position joins the pool totals. No oracle involved.
 #[derive(Accounts)]
 #[instruction(nonce: u64)]
 pub struct OpenNativePosition<'info> {
@@ -116,21 +168,13 @@ pub struct OpenNativePosition<'info> {
     )]
     pub position: Account<'info, PositionState>,
     #[account(
-        init,
-        payer = owner_authority,
-        space = NativeCustody::SPACE,
-        seeds = [NATIVE_SEED, position.key().as_ref()],
-        bump
+        mut,
+        seeds = [NATIVE_SEED],
+        bump = custody.bump,
+        constraint = custody.pool == pool.key() @ TesoroError::InvalidPool
     )]
     pub custody: Account<'info, NativeCustody>,
-    #[account(
-        init,
-        payer = owner_authority,
-        seeds = [NATIVE_VAULT_SEED, position.key().as_ref()],
-        bump,
-        token::mint = mint,
-        token::authority = custody
-    )]
+    #[account(mut, address = custody.vault @ TesoroError::InvalidAccount)]
     pub vault: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -145,10 +189,12 @@ pub(crate) fn open_native_position(
     if lst_amount == 0 {
         return Err(core_err(CoreError::ZeroAmount));
     }
-    let rate = sim_lst::current_rate(&a.pool, now()?)?;
+    let ts = now()?;
+    let rate = sim_lst::current_rate(&a.pool, ts)?;
     let principal = native::shares_value(lst_amount, rate).map_err(core_err)?;
     let rate_bps = u16::try_from(a.pool.apy_bps).map_err(|_| error!(TesoroError::InvalidPool))?;
 
+    let before = a.vault.amount;
     token::transfer(
         CpiContext::new(
             a.token_program.to_account_info(),
@@ -161,7 +207,13 @@ pub(crate) fn open_native_position(
         lst_amount,
     )?;
     a.vault.reload()?;
-    require_eq!(a.vault.amount, lst_amount, TesoroError::InvalidAccount);
+    require_eq!(
+        a.vault.amount,
+        before
+            .checked_add(lst_amount)
+            .ok_or(TesoroError::InvalidAccount)?,
+        TesoroError::InvalidAccount
+    );
 
     let position_key = a.position.key();
     a.position.bump = ctx.bumps.position;
@@ -175,19 +227,12 @@ pub(crate) fn open_native_position(
         rate_bps,
     )
     .map_err(core_err)?;
+    a.position.inner.opened_at = ts;
+    a.position.inner.custody_shares = lst_amount;
 
-    a.custody.bump = ctx.bumps.custody;
-    a.custody.vault_bump = ctx.bumps.vault;
-    a.custody.position = position_key;
-    a.custody.owner_authority = a.owner_authority.key();
-    a.custody.pool = a.pool.key();
-    a.custody.mint = a.mint.key();
-    a.custody.vault = a.vault.key();
-    a.custody.rate_at_open = rate;
-    a.custody.deposited_shares = lst_amount;
-    a.custody.redeemed_units = 0;
-    a.custody.tracked_shares = lst_amount;
-    a.custody.last_accrual_ts = now()?;
+    let mut totals = a.custody.totals();
+    totals.add_position(principal, ts).map_err(core_err)?;
+    a.custody.set_totals(totals);
 
     emit!(NativePositionOpened {
         position: position_key,
@@ -202,6 +247,8 @@ pub(crate) fn open_native_position(
 // --- Advance ---------------------------------------------------------------------------------
 
 /// An Advance against a native Position priced by the on-chain `PriceFeed`: the owner signs alone.
+/// When the Position still has its previous Advance open (Debt zero by now, but nothing has
+/// closed it), that Source is passed as `prev_source` and closed here.
 #[derive(Accounts)]
 pub struct TakeNativeAdvance<'info> {
     #[account(mut)]
@@ -226,9 +273,25 @@ pub struct TakeNativeAdvance<'info> {
         constraint = price_feed.asset.to_bytes() == position.inner.source_asset @ TesoroError::InvalidAccount
     )]
     pub price_feed: Account<'info, PriceFeed>,
-    /// Its Yield Fee sizes the Advance.
+    /// Its Yield Fee sizes the Advance and the Accrued Yield.
     #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
     pub treasury: Box<Account<'info, Treasury>>,
+    /// The canonical sim_lst Pool, whose speedup times the yield.
+    #[account(
+        seeds = [sim_lst::POOL_SEED],
+        seeds::program = sim_lst::ID,
+        bump = pool.bump,
+        constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
+    )]
+    pub pool: Box<Account<'info, Pool>>,
+    /// The Position's open Advance, when it has one.
+    #[account(
+        mut,
+        seeds = [SOURCE_SEED, position.key().as_ref(), &prev_source.inner.index.to_le_bytes()],
+        bump = prev_source.bump,
+        constraint = prev_source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
+    )]
+    pub prev_source: Option<Account<'info, SourceState>>,
     #[account(
         init,
         payer = owner_authority,
@@ -253,13 +316,30 @@ pub(crate) fn take_native_advance(
     horizon_months: u8,
 ) -> Result<()> {
     let a = &mut ctx.accounts;
-    let age = now()?
+    let ts = now()?;
+    let age = ts
         .checked_sub(a.price_feed.updated_ts)
         .ok_or(TesoroError::StalePrice)?;
     require!(
         a.price_feed.price_micro_usd > 0 && (0..=MAX_PRICE_AGE_SECS).contains(&age),
         TesoroError::StalePrice
     );
+    let net = native::position_accrued(
+        &a.position.inner,
+        a.pool.speedup,
+        a.treasury.yield_fee_bps,
+        ts,
+    )
+    .map_err(core_err)?;
+    if a.position.inner.open_advance.is_some() && a.prev_source.is_none() {
+        return err!(TesoroError::SourceRequired);
+    }
+    native::prepare_advance(
+        &mut a.position.inner,
+        a.prev_source.as_mut().map(|s| &mut s.inner),
+        net.net,
+    )
+    .map_err(core_err)?;
     issue_advance(
         &mut a.position,
         &mut a.source,
@@ -295,9 +375,17 @@ pub struct ExtendNativeAdvance<'info> {
         constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
     )]
     pub position: Account<'info, PositionState>,
-    /// Its Yield Fee sizes the added months.
+    /// Its Yield Fee sizes the added months and the Accrued Yield.
     #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
     pub treasury: Box<Account<'info, Treasury>>,
+    /// The canonical sim_lst Pool, whose speedup times the yield.
+    #[account(
+        seeds = [sim_lst::POOL_SEED],
+        seeds::program = sim_lst::ID,
+        bump = pool.bump,
+        constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
+    )]
+    pub pool: Box<Account<'info, Pool>>,
     #[account(
         mut,
         seeds = [SOURCE_SEED, position.key().as_ref(), &source.inner.index.to_le_bytes()],
@@ -336,11 +424,22 @@ pub(crate) fn extend_native_advance(
         .inner
         .record_extend(now()?, extra_months)
         .map_err(core_err)?;
+    let ts = now()?;
+    let net = native::position_accrued(
+        &a.position.inner,
+        a.pool.speedup,
+        a.treasury.yield_fee_bps,
+        ts,
+    )
+    .map_err(core_err)?;
+    let mut source =
+        native::source_view(&a.position.inner, &a.source.inner, net.net).map_err(core_err)?;
     let gemas = a
         .position
         .inner
-        .extend_advance(&mut a.source.inner, extra_months, a.treasury.yield_fee_bps)
+        .extend_advance(&mut source, extra_months, a.treasury.yield_fee_bps)
         .map_err(core_err)?;
+    a.source.inner = source;
     a.holding
         .inner
         .credit(&mut a.owner_account.inner, gemas)
@@ -404,484 +503,376 @@ pub(crate) fn set_extend_limit(ctx: Context<SetExtendLimit>, months: u8) -> Resu
     Ok(())
 }
 
-// --- Yield crank -----------------------------------------------------------------------------
+// --- Loading accounts from `remaining_accounts` ------------------------------------------------
+//
+// `redeem`, `unlock` and `return_own` also serve Positions of other chains, so their fixed
+// accounts do not change; a native Position adds the accounts below after them.
 
-/// Anyone can call. First mints the simulated yield the Position earned since `last_accrual_ts`
-/// (`principal * apy * dt * speedup / year`) through `sim_lst::mint_yield`: the Yield Fee into the
-/// treasury vault, the rest into the Position's vault. Then reads cumulative accrued yield from the
-/// vault's shares (so only the Position's share counts) and applies it like the oracle's
-/// `YieldAccrued`: Debt is repaid first, the rest is free yield. Nothing accrues after Unlock.
-#[derive(Accounts)]
-pub struct AccrueNativeYield<'info> {
-    #[account(
-        mut,
-        seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
-        bump = position.bump
-    )]
-    pub position: Account<'info, PositionState>,
-    #[account(
-        mut,
-        seeds = [NATIVE_SEED, position.key().as_ref()],
-        bump = custody.bump,
-        constraint = custody.position == position.key() @ TesoroError::InvalidAccount
-    )]
-    pub custody: Account<'info, NativeCustody>,
-    #[account(mut, address = custody.vault @ TesoroError::InvalidAccount)]
-    pub vault: Account<'info, TokenAccount>,
-    #[account(address = custody.pool @ TesoroError::InvalidPool)]
-    pub pool: Account<'info, Pool>,
-    #[account(mut, address = custody.mint @ TesoroError::InvalidMint)]
-    pub mint: Account<'info, Mint>,
-    /// sim_lst's record of the yield authority.
-    #[account(seeds = [sim_lst::YIELD_SEED], seeds::program = sim_lst::ID, bump = yield_config.bump)]
-    pub yield_config: Account<'info, sim_lst::YieldConfig>,
-    /// CHECK: this program's `["yield"]` PDA; it only signs the `mint_yield` CPI.
-    #[account(seeds = [YIELD_SEED], bump)]
-    pub yield_authority: UncheckedAccount<'info>,
-    pub sim_lst_program: Program<'info, sim_lst::program::SimLst>,
-    pub token_program: Program<'info, Token>,
-    /// Receives the Yield Fee.
-    #[account(mut, seeds = [TREASURY_SEED], bump = treasury.bump)]
-    pub treasury: Box<Account<'info, Treasury>>,
-    #[account(mut, address = treasury.vault @ TesoroError::InvalidAccount)]
-    pub treasury_vault: Box<Account<'info, TokenAccount>>,
-    /// The Position's open Advance, when it has one.
-    #[account(
-        mut,
-        seeds = [SOURCE_SEED, position.key().as_ref(), &source.inner.index.to_le_bytes()],
-        bump = source.bump,
-        constraint = source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
-    )]
-    pub source: Option<Account<'info, SourceState>>,
+/// The canonical sim_lst Pool: owned by sim_lst, discriminator and PDA address checked.
+pub(crate) fn load_pool<'info>(info: &'info AccountInfo<'info>) -> Result<Account<'info, Pool>> {
+    let pool = Account::<Pool>::try_from(info)?;
+    let expected =
+        Pubkey::create_program_address(&[sim_lst::POOL_SEED, &[pool.bump]], &sim_lst::ID)
+            .map_err(|_| error!(TesoroError::InvalidPool))?;
+    require_keys_eq!(expected, *info.key, TesoroError::InvalidPool);
+    require_keys_eq!(pool.mint, SIM_SOL_MINT, TesoroError::InvalidPool);
+    Ok(pool)
 }
 
-pub(crate) fn accrue_native_yield(mut ctx: Context<AccrueNativeYield>) -> Result<()> {
-    let bump = ctx.bumps.yield_authority;
-    let a = &mut ctx.accounts;
-    let now = now()?;
-    let rate = sim_lst::current_rate(&a.pool, now)?;
-    if a.position.inner.status == ledger::PositionStatus::Locked {
-        mint_accrued_yield(a, now, rate, bump)?;
-    }
-    let cumulative = native::accrued_yield(
-        a.custody.tracked_shares,
-        rate,
-        a.custody.redeemed_units,
-        a.position.inner.principal,
-    )
-    .map_err(core_err)?;
-    if cumulative <= a.position.inner.cumulative_yield {
-        return Ok(());
-    }
-    let seq = a
-        .position
-        .inner
-        .last_seq
-        .checked_add(1)
-        .ok_or(TesoroError::InvalidAccount)?;
-    let position_key = a.position.key();
-    let source = a.source.as_mut().map(|s| &mut s.inner);
-    a.position
-        .inner
-        .apply_yield(source, seq, cumulative)
-        .map_err(core_err)?;
-    emit!(YieldApplied {
-        position: position_key,
-        seq,
-        cumulative,
-        debt_gemas: a.source.as_ref().map_or(0, |s| s.inner.debt()),
-    });
-    Ok(())
+pub(crate) fn load_treasury<'info>(
+    info: &'info AccountInfo<'info>,
+) -> Result<Account<'info, Treasury>> {
+    let treasury = Account::<Treasury>::try_from(info)?;
+    let expected = Pubkey::create_program_address(&[TREASURY_SEED, &[treasury.bump]], &crate::ID)
+        .map_err(|_| error!(TesoroError::InvalidAccount))?;
+    require_keys_eq!(expected, *info.key, TesoroError::InvalidAccount);
+    Ok(treasury)
 }
 
-/// Mints the yield earned since `last_accrual_ts`: the Yield Fee into the treasury vault, the rest
-/// into the Position's vault. When the Position's part is under one share nothing is minted and the
-/// timestamp stays put, so the time carries into the next crank instead of being lost.
-fn mint_accrued_yield(a: &mut AccrueNativeYield, now: i64, rate: u64, bump: u8) -> Result<()> {
-    let dt = now.saturating_sub(a.custody.last_accrual_ts);
-    if dt <= 0 {
-        return Ok(());
-    }
-    let units = sim_lst::yield_units(
-        a.position.inner.principal,
-        u32::from(a.position.inner.rate_bps),
-        dt,
-        a.pool.speedup,
-    )?;
-    let (keep_units, fee_units) =
-        ledger::split_yield_fee(units, a.treasury.yield_fee_bps).map_err(core_err)?;
-    let shares = native::shares_for_units_floor(keep_units, rate).map_err(core_err)?;
-    if shares == 0 {
-        return Ok(());
-    }
-    let fee_shares = native::shares_for_units_floor(fee_units, rate).map_err(core_err)?;
-    let vault = a.vault.to_account_info();
-    mint_yield_to(a, &vault, shares, bump)?;
-    a.vault.reload()?;
-    if fee_shares > 0 {
-        let treasury_vault = a.treasury_vault.to_account_info();
-        mint_yield_to(a, &treasury_vault, fee_shares, bump)?;
-        a.treasury_vault.reload()?;
-        let fee_value = native::shares_value(fee_shares, rate).map_err(core_err)?;
-        a.treasury.fee_units = a
-            .treasury
-            .fee_units
-            .checked_add(fee_value)
-            .ok_or(TesoroError::InvalidAccount)?;
-        emit!(YieldFeeTaken {
-            position: a.position.key(),
-            units: fee_value,
-            shares: fee_shares,
-        });
-    }
-    a.custody.tracked_shares = a
-        .custody
-        .tracked_shares
-        .checked_add(shares)
-        .ok_or(TesoroError::InvalidAccount)?;
-    a.custody.last_accrual_ts = now;
-    Ok(())
+fn load_custody<'info>(info: &'info AccountInfo<'info>) -> Result<Account<'info, NativeCustody>> {
+    require!(info.is_writable, TesoroError::NotWritable);
+    let custody = Account::<NativeCustody>::try_from(info)?;
+    let expected = Pubkey::create_program_address(&[NATIVE_SEED, &[custody.bump]], &crate::ID)
+        .map_err(|_| error!(TesoroError::InvalidAccount))?;
+    require_keys_eq!(expected, *info.key, TesoroError::InvalidAccount);
+    Ok(custody)
 }
 
-fn mint_yield_to<'info>(
-    a: &AccrueNativeYield<'info>,
-    destination: &AccountInfo<'info>,
-    shares: u64,
-    bump: u8,
-) -> Result<()> {
-    let seeds: &[&[u8]] = &[YIELD_SEED, &[bump]];
-    sim_lst::cpi::mint_yield(
-        CpiContext::new_with_signer(
-            a.sim_lst_program.to_account_info(),
-            sim_lst::cpi::accounts::MintYield {
-                authority: a.yield_authority.to_account_info(),
-                config: a.yield_config.to_account_info(),
-                pool: a.pool.to_account_info(),
-                mint: a.mint.to_account_info(),
-                destination: destination.clone(),
-                token_program: a.token_program.to_account_info(),
-            },
-            &[seeds],
-        ),
-        shares,
-    )
-}
-
-// --- Payouts ---------------------------------------------------------------------------------
-
-/// The accounts a payout needs, loaded from `remaining_accounts` for the legacy `redeem` and
-/// `unlock` instructions (whose fixed accounts cannot change): `[custody, vault, destination,
-/// pool, token_program]`.
-pub(crate) struct Custody<'info> {
-    pub custody: Account<'info, NativeCustody>,
-    pub vault: Account<'info, TokenAccount>,
-    pub destination: Account<'info, TokenAccount>,
-    pub pool: Account<'info, Pool>,
-    pub token_program: AccountInfo<'info>,
-}
-
-pub(crate) fn load_custody<'info>(
-    remaining: &'info [AccountInfo<'info>],
+/// The Source of `position` at `index`, writable.
+fn load_source<'info>(
+    info: &'info AccountInfo<'info>,
     position: &Pubkey,
-    wallet: &Pubkey,
-) -> Result<Custody<'info>> {
-    let [custody_info, vault_info, dest_info, pool_info, token_program] = remaining else {
-        return err!(TesoroError::BadRemainingAccounts);
-    };
-    require!(
-        custody_info.is_writable && vault_info.is_writable && dest_info.is_writable,
-        TesoroError::NotWritable
-    );
-    let custody = Account::<NativeCustody>::try_from(custody_info)?;
+    index: u32,
+) -> Result<Account<'info, SourceState>> {
+    require!(info.is_writable, TesoroError::NotWritable);
+    let source = Account::<SourceState>::try_from(info)?;
     let expected = Pubkey::create_program_address(
-        &[NATIVE_SEED, position.as_ref(), &[custody.bump]],
+        &[
+            SOURCE_SEED,
+            position.as_ref(),
+            &index.to_le_bytes(),
+            &[source.bump],
+        ],
         &crate::ID,
     )
     .map_err(|_| error!(TesoroError::InvalidAccount))?;
-    require_keys_eq!(expected, *custody_info.key, TesoroError::InvalidAccount);
-    require_keys_eq!(custody.position, *position, TesoroError::InvalidAccount);
-    require_keys_eq!(*vault_info.key, custody.vault, TesoroError::InvalidAccount);
-    let vault = Account::<TokenAccount>::try_from(vault_info)?;
+    require_keys_eq!(expected, *info.key, TesoroError::InvalidAccount);
+    require_eq!(source.inner.index, index, TesoroError::InvalidAccount);
+    require!(
+        source.inner.position == position.to_bytes(),
+        TesoroError::InvalidAccount
+    );
+    Ok(source)
+}
+
+/// Who the minted yield is for: a wallet (its token account) or one fixed vault.
+pub(crate) enum Payee<'a> {
+    Wallet(&'a Pubkey),
+    Vault(&'a Pubkey),
+}
+
+/// Everything a yield payout needs: `[pool, destination, mint, yield_config, yield_authority,
+/// sim_lst_program, token_program]`.
+pub(crate) struct YieldMint<'info> {
+    pub pool: Account<'info, Pool>,
+    pub destination: Account<'info, TokenAccount>,
+    mint: &'info AccountInfo<'info>,
+    yield_config: &'info AccountInfo<'info>,
+    yield_authority: &'info AccountInfo<'info>,
+    sim_lst_program: &'info AccountInfo<'info>,
+    token_program: &'info AccountInfo<'info>,
+    authority_bump: u8,
+}
+
+pub(crate) const YIELD_MINT_ACCOUNTS: usize = 7;
+
+pub(crate) fn load_yield_mint<'info>(
+    accounts: &'info [AccountInfo<'info>],
+    payee: Payee,
+) -> Result<YieldMint<'info>> {
+    let [pool_info, dest_info, mint, yield_config, yield_authority, sim_lst_program, token_program] =
+        accounts
+    else {
+        return err!(TesoroError::BadRemainingAccounts);
+    };
+    require!(
+        dest_info.is_writable && mint.is_writable,
+        TesoroError::NotWritable
+    );
+    let pool = load_pool(pool_info)?;
+    require_keys_eq!(*mint.key, pool.mint, TesoroError::InvalidMint);
     let destination = Account::<TokenAccount>::try_from(dest_info)?;
-    require_keys_neq!(vault.key(), destination.key(), TesoroError::InvalidAccount);
-    require_keys_eq!(destination.mint, custody.mint, TesoroError::InvalidMint);
-    require_keys_eq!(destination.owner, *wallet, TesoroError::InvalidAccount);
-    require_keys_eq!(*pool_info.key, custody.pool, TesoroError::InvalidPool);
-    let pool = Account::<Pool>::try_from(pool_info)?;
+    require_keys_eq!(destination.mint, pool.mint, TesoroError::InvalidMint);
+    match payee {
+        Payee::Wallet(wallet) => {
+            require_keys_eq!(destination.owner, *wallet, TesoroError::InvalidAccount)
+        }
+        Payee::Vault(vault) => {
+            require_keys_eq!(*dest_info.key, *vault, TesoroError::InvalidAccount)
+        }
+    }
+    let config = Account::<sim_lst::YieldConfig>::try_from(yield_config)?;
+    let expected =
+        Pubkey::create_program_address(&[sim_lst::YIELD_SEED, &[config.bump]], &sim_lst::ID)
+            .map_err(|_| error!(TesoroError::InvalidAccount))?;
+    require_keys_eq!(expected, *yield_config.key, TesoroError::InvalidAccount);
+    let (authority, authority_bump) = Pubkey::find_program_address(&[YIELD_SEED], &crate::ID);
+    require_keys_eq!(authority, *yield_authority.key, TesoroError::InvalidAccount);
+    require_keys_eq!(config.authority, authority, TesoroError::InvalidAccount);
+    require_keys_eq!(
+        *sim_lst_program.key,
+        sim_lst::ID,
+        TesoroError::InvalidAccount
+    );
     require_keys_eq!(*token_program.key, token::ID, TesoroError::InvalidAccount);
-    Ok(Custody {
-        custody,
-        vault,
-        destination,
+    Ok(YieldMint {
         pool,
-        token_program: token_program.clone(),
+        destination,
+        mint,
+        yield_config,
+        yield_authority,
+        sim_lst_program,
+        token_program,
+        authority_bump,
     })
 }
 
-fn pay_shares<'info>(c: &Custody<'info>, shares: u64) -> Result<()> {
-    let seeds: &[&[u8]] = &[NATIVE_SEED, c.custody.position.as_ref(), &[c.custody.bump]];
+impl<'info> YieldMint<'info> {
+    /// Mints `units` SOL of yield, in simSOL at the rate, to the destination and reports it.
+    pub(crate) fn pay(&self, position: &Pubkey, units: u64, kind: u8) -> Result<()> {
+        let rate = sim_lst::current_rate(&self.pool, now()?)?;
+        let shares = native::shares_for_units_floor(units, rate).map_err(core_err)?;
+        if shares == 0 {
+            return Err(core_err(CoreError::ZeroShares));
+        }
+        let seeds: &[&[u8]] = &[YIELD_SEED, &[self.authority_bump]];
+        sim_lst::cpi::mint_yield(
+            CpiContext::new_with_signer(
+                self.sim_lst_program.clone(),
+                sim_lst::cpi::accounts::MintYield {
+                    authority: self.yield_authority.clone(),
+                    config: self.yield_config.clone(),
+                    pool: self.pool.to_account_info(),
+                    mint: self.mint.clone(),
+                    destination: self.destination.to_account_info(),
+                    token_program: self.token_program.clone(),
+                },
+                &[seeds],
+            ),
+            shares,
+        )?;
+        emit!(NativePayout {
+            position: *position,
+            to: self.destination.key(),
+            shares,
+            sol_units: units,
+            kind,
+        });
+        Ok(())
+    }
+}
+
+// --- Redeem, Unlock, return_own for native Positions ------------------------------------------
+
+/// `redeem` of a native Source. `remaining`: `[treasury, pool, destination, mint, yield_config,
+/// yield_authority, sim_lst_program, token_program]`. The Source is brought to its derived state
+/// first; the yield for the redeemed Gemas is minted to the holder's simSOL account.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn redeem_native<'info>(
+    position: &PositionState,
+    position_key: &Pubkey,
+    source: &mut SourceState,
+    holder_account: &mut TesoroAccount,
+    holding: &mut HoldingState,
+    holder_authority: &Pubkey,
+    amount: u64,
+    remaining: &'info [AccountInfo<'info>],
+) -> Result<u64> {
+    let [treasury_info, rest @ ..] = remaining else {
+        return err!(TesoroError::BadRemainingAccounts);
+    };
+    let treasury = load_treasury(treasury_info)?;
+    let y = load_yield_mint(rest, Payee::Wallet(holder_authority))?;
+    redeem_with(
+        position,
+        position_key,
+        source,
+        holder_account,
+        holding,
+        &treasury,
+        &y,
+        amount,
+    )
+}
+
+/// `redeem_treasury` of a native Source: the yield is minted into the treasury vault.
+/// `remaining`: `[pool, destination, mint, yield_config, yield_authority, sim_lst_program,
+/// token_program]`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn redeem_treasury_native<'info>(
+    position: &PositionState,
+    position_key: &Pubkey,
+    source: &mut SourceState,
+    treasury_account: &mut TesoroAccount,
+    treasury_holding: &mut HoldingState,
+    treasury: &Treasury,
+    amount: u64,
+    remaining: &'info [AccountInfo<'info>],
+) -> Result<u64> {
+    let y = load_yield_mint(remaining, Payee::Vault(&treasury.vault))?;
+    redeem_with(
+        position,
+        position_key,
+        source,
+        treasury_account,
+        treasury_holding,
+        treasury,
+        &y,
+        amount,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn redeem_with(
+    position: &PositionState,
+    position_key: &Pubkey,
+    source: &mut SourceState,
+    account: &mut TesoroAccount,
+    holding: &mut HoldingState,
+    treasury: &Treasury,
+    y: &YieldMint,
+    amount: u64,
+) -> Result<u64> {
+    let net = native::position_accrued(
+        &position.inner,
+        y.pool.speedup,
+        treasury.yield_fee_bps,
+        now()?,
+    )
+    .map_err(core_err)?;
+    source.inner =
+        native::source_view(&position.inner, &source.inner, net.net).map_err(core_err)?;
+    let units = ledger::redeem(
+        &mut source.inner,
+        &mut account.inner,
+        &mut holding.inner,
+        amount,
+    )
+    .map_err(core_err)?;
+    y.pay(position_key, units, 0)?;
+    Ok(units)
+}
+
+/// `unlock` of a native Position. `remaining`: `[custody, treasury, vault, pool, destination,
+/// mint, yield_config, yield_authority, sim_lst_program, token_program]`, then the open Advance's
+/// Source when the Position has one. Principal returns from the shared vault; the free yield is
+/// minted.
+pub(crate) fn unlock_native_position<'info>(
+    position: &mut Account<PositionState>,
+    owner_authority: &Pubkey,
+    remaining: &'info [AccountInfo<'info>],
+) -> Result<()> {
+    let [custody_info, treasury_info, vault_info, rest @ ..] = remaining else {
+        return err!(TesoroError::BadRemainingAccounts);
+    };
+    require!(
+        rest.len() >= YIELD_MINT_ACCOUNTS,
+        TesoroError::BadRemainingAccounts
+    );
+    let (mint_accounts, tail) = rest.split_at(YIELD_MINT_ACCOUNTS);
+    let mut custody = load_custody(custody_info)?;
+    let treasury = load_treasury(treasury_info)?;
+    require_keys_eq!(*vault_info.key, custody.vault, TesoroError::InvalidAccount);
+    require!(vault_info.is_writable, TesoroError::NotWritable);
+    let y = load_yield_mint(mint_accounts, Payee::Wallet(owner_authority))?;
+    require_keys_eq!(y.pool.key(), custody.pool, TesoroError::InvalidPool);
+
+    let position_key = position.key();
+    let ts = now()?;
+    let net = native::position_accrued(&position.inner, y.pool.speedup, treasury.yield_fee_bps, ts)
+        .map_err(core_err)?;
+    let mut open = match position.inner.open_advance {
+        Some(index) => {
+            let info = tail.first().ok_or(TesoroError::SourceRequired)?;
+            Some(load_source(info, &position_key, index)?)
+        }
+        None => None,
+    };
+    let free = native::unlock_native(
+        &mut position.inner,
+        open.as_mut().map(|s| &mut s.inner),
+        net.net,
+    )
+    .map_err(core_err)?;
+    if let Some(source) = open.as_ref() {
+        source.exit(&crate::ID)?;
+    }
+
+    let shares = position.inner.custody_shares;
+    let mut totals = custody.totals();
+    totals
+        .remove_position(position.inner.principal, position.inner.opened_at, net.fee)
+        .map_err(core_err)?;
+    custody.set_totals(totals);
+    position.inner.custody_shares = 0;
+    let custody_bump = custody.bump;
+    custody.exit(&crate::ID)?;
+
+    let seeds: &[&[u8]] = &[NATIVE_SEED, &[custody_bump]];
     token::transfer(
         CpiContext::new_with_signer(
-            c.token_program.clone(),
+            y.token_program.clone(),
             Transfer {
-                from: c.vault.to_account_info(),
-                to: c.destination.to_account_info(),
-                authority: c.custody.to_account_info(),
+                from: vault_info.clone(),
+                to: y.destination.to_account_info(),
+                authority: custody_info.clone(),
             },
             &[seeds],
         ),
         shares,
-    )
-}
-
-/// Pays a redeeming Gema holder `units` SOL of accrued yield, in simSOL at the current rate.
-/// Never reduces below what Principal and the other holders' unredeemed yield need.
-pub(crate) fn pay_redeem<'info>(
-    position: &PositionState,
-    position_key: &Pubkey,
-    holder_authority: &Pubkey,
-    units: u64,
-    remaining: &'info [AccountInfo<'info>],
-) -> Result<()> {
-    let mut c = load_custody(remaining, position_key, holder_authority)?;
-    let rate = sim_lst::current_rate(&c.pool, now()?)?;
-    let shares = native::shares_for_units_floor(units, rate).map_err(core_err)?;
-    if shares == 0 {
-        return Err(core_err(CoreError::ZeroShares));
-    }
-    if c.custody.tracked_shares < shares {
-        return Err(core_err(CoreError::VaultShortfall));
-    }
-    c.custody.redeemed_units = c
-        .custody
-        .redeemed_units
-        .checked_add(units)
-        .ok_or(TesoroError::InvalidAccount)?;
-    c.custody.tracked_shares = c
-        .custody
-        .tracked_shares
-        .checked_sub(shares)
-        .ok_or(TesoroError::InvalidAccount)?;
-    pay_shares(&c, shares)?;
-    c.vault.reload()?;
-    native::check_cover(
-        c.custody.tracked_shares,
-        &position.inner,
-        c.custody.redeemed_units,
-        rate,
-    )
-    .map_err(core_err)?;
-    c.custody.exit(&crate::ID)?;
+    )?;
+    let rate = sim_lst::current_rate(&y.pool, ts)?;
     emit!(NativePayout {
-        position: *position_key,
-        to: c.destination.key(),
+        position: position_key,
+        to: y.destination.key(),
         shares,
-        sol_units: units,
-        kind: 0,
+        sol_units: native::shares_value(shares, rate).map_err(core_err)?,
+        kind: 1,
     });
+    if free > 0 {
+        y.pay(&position_key, free, 2)?;
+    }
     Ok(())
 }
 
-/// Returns to the owner everything the vault holds beyond the yield still owed to holders.
-/// The Position must already be Unlocked (Debt zero).
-pub(crate) fn release_surplus<'info>(
-    position: &PositionState,
-    position_key: &Pubkey,
-    owner_authority: &Pubkey,
+/// `return_own` of a native Source. `remaining`: `[pool, treasury]`.
+pub(crate) fn return_own_native_source<'info>(
+    position: &mut PositionState,
+    source: &mut SourceState,
+    account: &mut TesoroAccount,
+    holding: &mut HoldingState,
+    amount: u64,
     remaining: &'info [AccountInfo<'info>],
-    kind: u8,
 ) -> Result<()> {
-    let mut c = load_custody(remaining, position_key, owner_authority)?;
-    require_keys_eq!(
-        c.custody.owner_authority,
-        *owner_authority,
-        TesoroError::Unauthorized
-    );
-    release(&mut c, position, position_key, kind)
-}
-
-pub(crate) fn release<'info>(
-    c: &mut Custody<'info>,
-    position: &PositionState,
-    position_key: &Pubkey,
-    kind: u8,
-) -> Result<()> {
-    let rate = sim_lst::current_rate(&c.pool, now()?)?;
-    let surplus = native::surplus_shares(
-        c.vault.amount,
+    let [pool_info, treasury_info] = remaining else {
+        return err!(TesoroError::BadRemainingAccounts);
+    };
+    let pool = load_pool(pool_info)?;
+    let treasury = load_treasury(treasury_info)?;
+    let net = native::position_accrued(
         &position.inner,
-        c.custody.redeemed_units,
-        rate,
+        pool.speedup,
+        treasury.yield_fee_bps,
+        now()?,
     )
     .map_err(core_err)?;
-    if surplus > 0 {
-        pay_shares(c, surplus)?;
-        c.vault.reload()?;
-    }
-    // Whatever was not tracked (simSOL sent straight to the vault) leaves with the surplus.
-    c.custody.tracked_shares = c.custody.tracked_shares.min(c.vault.amount);
-    native::check_cover(
-        c.custody.tracked_shares,
-        &position.inner,
-        c.custody.redeemed_units,
-        rate,
+    native::return_own_native(
+        &mut position.inner,
+        &mut source.inner,
+        &mut account.inner,
+        &mut holding.inner,
+        amount,
+        net.net,
     )
-    .map_err(core_err)?;
-    c.custody.exit(&crate::ID)?;
-    emit!(NativePayout {
-        position: *position_key,
-        to: c.destination.key(),
-        shares: surplus,
-        sol_units: native::shares_value(surplus, rate).map_err(core_err)?,
-        kind,
-    });
-    Ok(())
-}
-
-/// After Unlock the owner can reclaim whatever the vault holds beyond the yield still owed
-/// (the owed part is valued at the current rate, so the reserve set at unlock shrinks as the
-/// rate grows and holders redeem).
-#[derive(Accounts)]
-pub struct SweepNativeSurplus<'info> {
-    pub owner_authority: Signer<'info>,
-    #[account(
-        seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
-        bump = owner_account.bump
-    )]
-    pub owner_account: Account<'info, TesoroAccount>,
-    #[account(
-        seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
-        bump = position.bump,
-        constraint = position.inner.owner == owner_account.key().to_bytes() @ TesoroError::Unauthorized
-    )]
-    pub position: Account<'info, PositionState>,
-    #[account(
-        mut,
-        seeds = [NATIVE_SEED, position.key().as_ref()],
-        bump = custody.bump,
-        constraint = custody.position == position.key() @ TesoroError::InvalidAccount,
-        constraint = custody.owner_authority == owner_authority.key() @ TesoroError::Unauthorized
-    )]
-    pub custody: Account<'info, NativeCustody>,
-    #[account(mut, address = custody.vault @ TesoroError::InvalidAccount)]
-    pub vault: Account<'info, TokenAccount>,
-    #[account(
-        mut,
-        token::mint = custody.mint,
-        token::authority = owner_authority
-    )]
-    pub owner_token: Account<'info, TokenAccount>,
-    #[account(address = custody.pool @ TesoroError::InvalidPool)]
-    pub pool: Account<'info, Pool>,
-    pub token_program: Program<'info, Token>,
-}
-
-pub(crate) fn sweep_native_surplus(mut ctx: Context<SweepNativeSurplus>) -> Result<()> {
-    let a = &mut ctx.accounts;
-    let mut c = Custody {
-        custody: a.custody.clone(),
-        vault: a.vault.clone(),
-        destination: a.owner_token.clone(),
-        pool: a.pool.clone(),
-        token_program: a.token_program.to_account_info(),
-    };
-    release(&mut c, &a.position, &a.position.key(), 2)?;
-    a.custody.tracked_shares = c.custody.tracked_shares;
-    Ok(())
-}
-
-// --- Migration -------------------------------------------------------------------------------
-
-/// Extends a custody opened before `tracked_shares` (original layout) or before `last_accrual_ts`
-/// (tracked layout) to the current one. Permissionless; the payer covers the extra rent. For the
-/// original layout the count starts at `min(vault balance, deposited at open)`: shares paid out
-/// since open only lower the balance, and the deposit caps anything added to the vault directly.
-/// `last_accrual_ts` starts at the migration time: the Position earns the per-Position yield
-/// from here on and keeps whatever the old rate model already gave it.
-#[derive(Accounts)]
-pub struct MigrateNativeCustody<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(
-        seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
-        bump = position.bump,
-        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
-    )]
-    pub position: Account<'info, PositionState>,
-    /// CHECK: the custody PDA of `position`, read and resized by hand because its old layout no
-    /// longer deserializes; owner, seeds, discriminator and length are checked below.
-    #[account(
-        mut,
-        seeds = [NATIVE_SEED, position.key().as_ref()],
-        bump,
-        owner = crate::ID @ TesoroError::InvalidAccount
-    )]
-    pub custody: UncheckedAccount<'info>,
-    #[account(
-        seeds = [NATIVE_VAULT_SEED, position.key().as_ref()],
-        bump
-    )]
-    pub vault: Account<'info, TokenAccount>,
-    pub system_program: Program<'info, System>,
-}
-
-pub(crate) fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Result<()> {
-    let a = &ctx.accounts;
-    let info = a.custody.to_account_info();
-    let (deposited, tracked) = {
-        let data = info.try_borrow_data()?;
-        let len = data.len();
-        require!(
-            len == NativeCustody::LEGACY_SPACE || len == NativeCustody::TRACKED_SPACE,
-            TesoroError::InvalidAccount
-        );
-        require!(
-            data[..8] == *NativeCustody::DISCRIMINATOR,
-            TesoroError::InvalidAccount
-        );
-        let vault_key =
-            Pubkey::try_from(&data[NativeCustody::VAULT_OFFSET..NativeCustody::VAULT_OFFSET + 32])
-                .map_err(|_| error!(TesoroError::InvalidAccount))?;
-        require_keys_eq!(vault_key, a.vault.key(), TesoroError::InvalidAccount);
-        let deposited = u64::from_le_bytes(
-            data[NativeCustody::DEPOSITED_OFFSET..NativeCustody::DEPOSITED_OFFSET + 8]
-                .try_into()
-                .map_err(|_| error!(TesoroError::InvalidAccount))?,
-        );
-        let tracked = if len == NativeCustody::TRACKED_SPACE {
-            u64::from_le_bytes(
-                data[NativeCustody::TRACKED_OFFSET..NativeCustody::TRACKED_OFFSET + 8]
-                    .try_into()
-                    .map_err(|_| error!(TesoroError::InvalidAccount))?,
-            )
-        } else {
-            deposited.min(a.vault.amount)
-        };
-        (deposited, tracked)
-    };
-    let rent = Rent::get()?.minimum_balance(NativeCustody::SPACE);
-    let missing = rent.saturating_sub(info.lamports());
-    if missing > 0 {
-        anchor_lang::system_program::transfer(
-            CpiContext::new(
-                a.system_program.to_account_info(),
-                anchor_lang::system_program::Transfer {
-                    from: a.payer.to_account_info(),
-                    to: info.clone(),
-                },
-            ),
-            missing,
-        )?;
-    }
-    info.resize(NativeCustody::SPACE)?;
-    let mut data = info.try_borrow_mut_data()?;
-    data[NativeCustody::LEGACY_SPACE..NativeCustody::TRACKED_SPACE]
-        .copy_from_slice(&tracked.to_le_bytes());
-    data[NativeCustody::TRACKED_SPACE..].copy_from_slice(&now()?.to_le_bytes());
-    emit!(NativeCustodyMigrated {
-        position: a.position.key(),
-        deposited_shares: deposited,
-        tracked_shares: tracked,
-    });
-    Ok(())
+    .map_err(core_err)
 }
