@@ -252,6 +252,7 @@ impl Env {
         let (account, kp) = self.person_account();
         let position = core_pda(&[POSITION_SEED, &[0], &[id; 32]]);
         let config = core_pda(&[CONFIG_SEED]);
+        let asset = APk::new_unique();
         let open = core_ix(
             tesoro_core::accounts::OpenPosition {
                 oracle: a(self.oracle.pubkey()),
@@ -263,7 +264,7 @@ impl Env {
             tesoro_core::instruction::OpenPosition {
                 source_chain: SourceChain::Solana,
                 position_id: [id; 32],
-                source_asset: APk::new_unique(),
+                source_asset: asset,
                 decimals: 9,
                 principal: 100 * SOL,
                 rate_bps: 1_000,
@@ -290,7 +291,14 @@ impl Env {
                 horizon_months: 6,
                 price_micro_usd: 150_000_000,
             },
-            vec![],
+            vec![AccountMeta::new_readonly(
+                s(APk::find_program_address(
+                    &[tesoro_core::state::ONCHAIN_PRICE_SEED, asset.as_ref()],
+                    &tesoro_core::ID,
+                )
+                .0),
+                false,
+            )],
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&kp]).expect("advance");

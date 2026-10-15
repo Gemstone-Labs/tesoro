@@ -200,6 +200,7 @@ impl Env {
     /// Position + Advance: 75_000 Gemas of the staker's own Source.
     fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
         let position = tpda(&[POSITION_SEED, &[0], &[id; 32]]);
+        let asset = APk::new_unique();
         let open = ix(
             tesoro_core::ID,
             tesoro_core::accounts::OpenPosition {
@@ -212,7 +213,7 @@ impl Env {
             tesoro_core::instruction::OpenPosition {
                 source_chain: SourceChain::Solana,
                 position_id: [id; 32],
-                source_asset: APk::new_unique(),
+                source_asset: asset,
                 decimals: 9,
                 principal: 100 * SOL,
                 rate_bps: 1_000,
@@ -240,7 +241,14 @@ impl Env {
                 horizon_months: 6,
                 price_micro_usd: 150_000_000,
             },
-            vec![],
+            vec![AccountMeta::new_readonly(
+                s(APk::find_program_address(
+                    &[tesoro_core::state::ONCHAIN_PRICE_SEED, asset.as_ref()],
+                    &tesoro_core::ID,
+                )
+                .0),
+                false,
+            )],
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
