@@ -3,7 +3,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { readAccountState, type StateSource } from "@/lib/chain/account-state";
-import { DEFAULT_BASE_RPC } from "@/lib/chain/rpc-config";
+import { baseRpc } from "@/lib/chain/rpc-config";
 import { encodeState } from "@/lib/chain/snapshot-wire";
 import { getAccounts, getOwnedFresh, parseQuery, type GpaQuery } from "./gpa";
 
@@ -62,7 +62,7 @@ export function serverStateSource(deps: SnapshotDeps, opts: { fresh?: boolean } 
 }
 
 let conn: Connection | null = null;
-const connection = () => (conn ??= new Connection(process.env.TESORO_BASE_RPC || DEFAULT_BASE_RPC, { commitment: "confirmed" }));
+const connection = () => (conn ??= new Connection(baseRpc(process.env.TESORO_BASE_RPC), { commitment: "confirmed" }));
 
 /** JSON for `/api/account/<authority>`. `fresh`: the Account just sent a transaction, so its own Holdings and Positions are read upstream and merged over the cached lists. */
 export async function getAccountState(authority: PublicKey, opts: { fresh?: boolean } = {}, deps: SnapshotDeps = { lists: getAccounts, owned: getOwnedFresh, connection: connection() }): Promise<unknown> {

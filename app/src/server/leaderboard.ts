@@ -1,7 +1,7 @@
 import { Connection } from "@solana/web3.js";
 import { fetchLeaderboardTerms, fetchPoolTotal, fetchSeasonRecord, fetchSeasonWins } from "@/lib/chain/leaderboard";
 import type { LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
-import { DEFAULT_BASE_RPC } from "@/lib/chain/rpc-config";
+import { baseRpc } from "@/lib/chain/rpc-config";
 import { seasonAt, seasonEnd, seasonStart, standings } from "@/lib/chain/season";
 
 const TOP = 50;
@@ -9,7 +9,7 @@ const FRESH_MS = 30_000;
 const STALE_MS = 10 * 60_000;
 
 let conn: Connection | null = null;
-const connection = () => (conn ??= new Connection(process.env.TESORO_BASE_RPC || DEFAULT_BASE_RPC, { commitment: "confirmed" }));
+const connection = () => (conn ??= new Connection(baseRpc(process.env.TESORO_BASE_RPC), { commitment: "confirmed" }));
 
 interface Built {
   view: LeaderboardView;

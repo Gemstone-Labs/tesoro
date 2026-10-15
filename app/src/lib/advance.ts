@@ -9,7 +9,7 @@ export const ASSET_USD: Record<Asset, number> = { SOL: 150, ETH: 3000, HYPE: 40 
 export const SIM_MINUTES_PER_MONTH = 10;
 
 /** Horizon every Open a Position and Take an Advance form starts at, in months. */
-export const DEFAULT_HORIZON_MONTHS = 1;
+export { DEFAULT_HORIZON_MONTHS } from "./cluster-settings";
 
 export interface AdvanceQuote {
   horizonMonths: number;

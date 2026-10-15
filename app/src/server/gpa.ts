@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { utils } from "@coral-xyz/anchor";
 import coreIdl from "../lib/chain/idl/tesoro_core.json";
-import { DEFAULT_GPA_RPC } from "../lib/chain/rpc-config";
+import { gpaRpc } from "../lib/chain/rpc-config";
 import { WindowLimiter } from "./rate-limit";
 
 /**
@@ -96,7 +96,7 @@ export interface ListCacheOptions {
  */
 export function createListCache(opts: ListCacheOptions = {}) {
   const doFetch = opts.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
-  const url = opts.url ?? (() => process.env.TESORO_GPA_RPC || DEFAULT_GPA_RPC);
+  const url = opts.url ?? (() => gpaRpc(process.env.TESORO_GPA_RPC));
   const now = opts.now ?? Date.now;
   const cache = new Map<string, Entry>();
   let backoffUntil = 0;

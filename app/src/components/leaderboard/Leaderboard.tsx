@@ -7,6 +7,7 @@ import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
 import { Button, CountUp, GemaMark, GemaUsd } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import type { LastSeason, LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
@@ -23,7 +24,7 @@ const prize = (pool: number, i: number) => Math.floor((pool * PRIZE_BPS[i]) / 10
 const PAGE = 15;
 /** Whether the Payout scale band is shown: remembered per browser. */
 const PAYOUT_KEY = "tesoro.leaderboard.payout";
-const ENTRIES = [500, 1000, 2500] as const;
+const ENTRIES = ENTRY_SIZES;
 const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const ord = (n: number) => {
   const t = n % 100;

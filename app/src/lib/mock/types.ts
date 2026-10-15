@@ -7,7 +7,8 @@ export type Chain = "SOL" | "ETH" | "HYPE";
 /** Each Position's asset is the native asset of its chain. */
 export type Asset = Chain;
 export type GameId = "block-puzzle" | "holdem" | "trading-duel";
-export type EntrySize = 500 | 1000 | 2500;
+/** One of the active cluster's entry sizes (src/lib/cluster-settings.ts). */
+export type EntrySize = number;
 
 export interface Account {
   id: string;
