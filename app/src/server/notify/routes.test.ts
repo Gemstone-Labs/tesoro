@@ -87,6 +87,14 @@ describe("email opt-in", () => {
     expect(await code(settings(deps, { ...body, signature: "AAAA" }))).toBe("bad-signature");
   });
 
+  it("caps verify emails to one address at 3 an hour", async () => {
+    const { deps, sender } = setup();
+    const to = { email: "capped@example.com" };
+    for (let i = 0; i < 3; i++) expect(await code(settings(deps, signed(Keypair.generate(), "set-email", to)))).toBe("ok");
+    expect(await code(settings(deps, signed(Keypair.generate(), "set-email", to)))).toBe("rate-limited");
+    expect(sender.sent).toHaveLength(3);
+  });
+
   it("the off switch stops all emails, and turning it back on restores them", async () => {
     const { deps, sender } = setup();
     const kp = Keypair.generate();

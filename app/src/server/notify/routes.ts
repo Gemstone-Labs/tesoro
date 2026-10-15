@@ -1,11 +1,15 @@
 import { timingSafeEqual } from "node:crypto";
 import type { GameId } from "@/lib/mock/types";
+import { takeAll, WindowLimiter } from "../rate-limit";
 import { DemoHttpError, NonceStore, verifySignedRequest, type AuthEnv } from "../request-auth";
 import type { MatchSettledEvent } from "./decide";
 import { handleEvent, setEmail, setEnabled, status, type EventOutcome, type NotifyDeps, type NotifyStatus } from "./service";
 
 const STEPS = ["status", "set-email", "set-enabled"] as const;
 const nonces = new NonceStore();
+// Verify links go to addresses the caller typed: cap them per Account and per address.
+const byAuthority = new WindowLimiter(5, 60 * 60_000);
+const byAddress = new WindowLimiter(3, 60 * 60_000);
 
 /** A Player's own settings: wallet-signed like the other server routes. */
 export async function handleSettings(deps: NotifyDeps, body: unknown, authorization: string | null, env?: AuthEnv, now?: number): Promise<NotifyStatus> {
@@ -13,7 +17,17 @@ export async function handleSettings(deps: NotifyDeps, body: unknown, authorizat
   const authority = req.address.toBase58();
   if (req.step === "set-email") {
     if (typeof req.fields.email !== "string") throw new DemoHttpError(400, "bad-request", "Malformed request.");
-    return setEmail(deps, authority, req.fields.email);
+    const refund = takeAll([
+      [byAuthority, authority],
+      [byAddress, req.fields.email.trim().toLowerCase()],
+    ]);
+    if (!refund) throw new DemoHttpError(429, "rate-limited", "Too many tries. Try again in an hour.");
+    try {
+      return await setEmail(deps, authority, req.fields.email);
+    } catch (e) {
+      refund();
+      throw e;
+    }
   }
   if (req.step === "set-enabled") return setEnabled(deps, authority, Number(req.fields.enabled) === 1);
   return status(deps, authority);
