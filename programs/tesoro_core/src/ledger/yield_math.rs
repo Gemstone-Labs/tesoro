@@ -114,6 +114,8 @@ pub struct PoolTotals {
     pub principal_time: u128,
     /// Yield Fees of Positions already unlocked, units.
     pub realised_fee: u128,
+    /// Number of Locked Positions in the totals; sizes the rounding allowance.
+    pub open_positions: u64,
 }
 
 impl PoolTotals {
@@ -127,8 +129,10 @@ impl PoolTotals {
             .checked_mul(at)
             .and_then(|x| self.principal_time.checked_add(x))
             .ok_or(CoreError::Math)?;
+        let n = self.open_positions.checked_add(1).ok_or(CoreError::Math)?;
         self.principal = p;
         self.principal_time = pt;
+        self.open_positions = n;
         Ok(())
     }
 
@@ -148,16 +152,21 @@ impl PoolTotals {
             .realised_fee
             .checked_add(fee as u128)
             .ok_or(CoreError::Math)?;
+        let n = self.open_positions.checked_sub(1).ok_or(CoreError::Math)?;
         self.principal = p;
         self.principal_time = pt;
         self.realised_fee = realised;
+        self.open_positions = n;
         Ok(())
     }
 
     /// Yield Fee earned by the Treasury at `now`, units: the fee share of
     /// `APY * speedup * (P*now - PT) / YEAR` over Locked Positions, plus the realised total.
-    /// Against the sum of N per-Position fees (each floored twice) it is never more than 2 below
-    /// and at most 2N above: `sum - 2 <= earned <= sum + 2N`.
+    /// Conservative: never more than the sum of the per-Position fees. With N open Positions the
+    /// pooled fee `floor(floor(X) * fee / BPS)` is at most the exact fee `E`, while the per-Position
+    /// sum exceeds `E - 1.5N` (each Position floors its gross and its fee). Subtracting an
+    /// allowance of `2N` therefore gives `sum - (2N + 2) <= earned <= sum` (realised fees of
+    /// unlocked Positions are exact and added on top).
     pub fn earned_fee(
         &self,
         apy_bps: u16,
@@ -182,7 +191,8 @@ impl PoolTotals {
             rate,
             BPS.checked_mul(YEAR_SECS).ok_or(CoreError::Math)?,
         )?;
-        let live = mul_div_floor(gross, fee_bps as u128, BPS)?;
+        let live = mul_div_floor(gross, fee_bps as u128, BPS)?
+            .saturating_sub((self.open_positions as u128).saturating_mul(2));
         to_u64(live.checked_add(self.realised_fee).ok_or(CoreError::Math)?)
     }
 
@@ -367,12 +377,12 @@ mod tests {
         assert_eq!(
             t.earned_fee(495, T0 + MONTH_REAL, DEVNET_SPEEDUP, FEE)
                 .unwrap(),
-            8_250_000
+            8_249_998
         );
         assert_eq!(
             t.withdrawable(495, T0 + MONTH_REAL, DEVNET_SPEEDUP, FEE, 3_000_000)
                 .unwrap(),
-            5_250_000
+            5_249_998
         );
         assert_eq!(
             t.withdrawable(495, T0 + MONTH_REAL, DEVNET_SPEEDUP, FEE, u64::MAX)
@@ -392,7 +402,7 @@ mod tests {
         let a = accrued_yield_at(10 * SOL, g, FEE).unwrap();
         t.remove_position(10 * SOL, T0, a.fee).unwrap();
         let after = t.earned_fee(495, now, DEVNET_SPEEDUP, FEE).unwrap();
-        assert!(before.abs_diff(after) <= 2, "{before} vs {after}");
+        assert!(before.abs_diff(after) <= 4, "{before} vs {after}");
         // The unlocked Position no longer grows the claim.
         let later = t.earned_fee(495, now + 600, DEVNET_SPEEDUP, FEE).unwrap();
         let single = {
@@ -422,8 +432,8 @@ mod tests {
             }
             let pool = t.earned_fee(apy, now, DEVNET_SPEEDUP, fee).unwrap() as u128;
             let n = positions.len() as u128;
-            prop_assert!(sum <= pool + 2, "pool {pool} sum {sum}");
-            prop_assert!(pool <= sum + 2 * n, "pool {pool} sum {sum}");
+            prop_assert!(sum <= pool + 2 + 2 * n, "pool {pool} sum {sum}");
+            prop_assert!(pool <= sum, "pool {pool} sum {sum}");
         }
 
         #[test]
@@ -461,12 +471,11 @@ mod tests {
             principal: u128::MAX,
             principal_time: 0,
             realised_fee: 0,
+            open_positions: 0,
         };
         assert_eq!(big.add_position(1, T0), Err(CoreError::Math));
         big.principal_time = u128::MAX;
-        assert_eq!(
-            big.add_position(0, i64::MAX),
-            Err(CoreError::Math).or(Ok(()))
-        );
+        assert_eq!(big.add_position(2, i64::MAX), Err(CoreError::Math));
+        assert_eq!(big.add_position(1, -1), Err(CoreError::Math));
     }
 }
