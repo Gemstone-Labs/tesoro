@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronDown, Eye, LogOut, Pencil, User, Wallet } from "lucide-react";
+import { ChevronDown, Eye, LogOut, Pencil, ShieldCheck, User, Wallet } from "lucide-react";
 import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
 import { useAuth } from "@/lib/auth/context";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
+import { setLimitsOpen } from "@/lib/identity/limits-sheet";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { useChainData } from "@/lib/chain/ChainDataProvider";
 
@@ -68,6 +69,11 @@ export function AccountMenu() {
           {me && (
             <button type="button" role="menuitem" onClick={() => { setOpen(false); setEditProfileOpen(true); }}>
               <Pencil aria-hidden="true" /> Edit profile
+            </button>
+          )}
+          {me && (
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); setLimitsOpen(true); }}>
+              <ShieldCheck aria-hidden="true" /> Limits
             </button>
           )}
           <Link href="/wallet" role="menuitem" onClick={() => setOpen(false)}>

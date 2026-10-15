@@ -1283,9 +1283,10 @@ fn an_entry_limit_stops_opening_and_joining_over_it() {
     // A new period (7 days after the first entry) opens room again.
     let now = d.env.now();
     d.env.set_time(now + 7 * DAY - 1);
-    assert!(d.env.join_match(&d.bob, m2, &[d.b_holding]).is_err());
+    let err = d.env.open_match(&d.bob, 500, &[d.b_holding]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::EntryLimitReached));
     d.env.set_time(now + 7 * DAY);
-    d.env.join_match(&d.bob, m2, &[d.b_holding]).unwrap();
+    d.env.open_match(&d.bob, 500, &[d.b_holding]).unwrap();
     assert_eq!(d.env.entry_limit(&d.bob).window_used, 500);
 }
 

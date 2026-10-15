@@ -13,6 +13,7 @@ import {
   openNativePositionIx,
   positionPda,
   redeemIx,
+  setEntryLimitIx,
   setExtendLimitIx,
   sweepNativeSurplusIx,
   takeNativeAdvanceIx,
@@ -121,6 +122,12 @@ export async function extendAdvance(
 export async function setExtendLimit(signer: ChainSigner, getToken: GetToken, months: number): Promise<string> {
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
   return send(signer, [setExtendLimitIx(signer.publicKey, months)]);
+}
+
+/** Sets the owner's Entry Limit in Gemas (0 = none): lower applies at once, higher (or none) 24 hours later. */
+export async function setEntryLimit(signer: ChainSigner, getToken: GetToken, gemas: number): Promise<string> {
+  await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
+  return send(signer, [setEntryLimitIx(signer.publicKey, gemas)]);
 }
 
 /** Permissionless crank: applies the vault's accrued yield to the Position's Debt. */

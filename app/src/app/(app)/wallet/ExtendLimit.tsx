@@ -8,7 +8,7 @@ import { fmtWhen } from "@/lib/format";
 const at = (secs: number) => fmtWhen(secs * 1000);
 
 /** What this Advance commits, how much of the Extend Limit is used, why Extend may be waiting, and the control to change the limit. */
-export function ExtendLimitPanel({ view, busy, error, onSet, onRetry }: { view: ExtendLimitView; busy: boolean; error: string | null; onSet: (months: number) => void; onRetry: () => void }) {
+export function ExtendLimitPanel({ view, busy, error, onSet, onRetry, showCommitted = true }: { view: ExtendLimitView; busy: boolean; error: string | null; onSet: (months: number) => void; onRetry: () => void; showCommitted?: boolean }) {
   // Until the Player picks, the select shows the limit in force, whenever it was read.
   const [picked, setPicked] = useState<number | null>(null);
   const pick = picked ?? view.limit;
@@ -16,7 +16,7 @@ export function ExtendLimitPanel({ view, busy, error, onSet, onRetry }: { view: 
   const unknown = view.blocked?.kind === "unknown";
   return (
     <div className="ext-limit">
-      <p className="note"><b>{view.committed} of 12 months</b> are committed on this Advance.</p>
+      {showCommitted && <p className="note"><b>{view.committed} of 12 months</b> are committed on this Advance.</p>}
       {!unknown && <p className="note">
         Extend Limit: <b>{view.used} of {view.limit} {view.limit === 1 ? "month" : "months"}</b> used
         {view.resetsAt !== null ? <> · resets {at(view.resetsAt)}</> : " this 30-day period"}.
