@@ -115,7 +115,7 @@ The Gemas collected from Leaderboard Fees, held by a Tesoro Account that no pers
 _Avoid_: prize fund, jackpot, treasury (a Treasury is Tesoro's own holdings)
 
 **Season**:
-One week of the Leaderboard, Monday 00:00 UTC to the next Monday, numbered from 1 (Season 1 starts on 2026-10-05). The Leaderboard Pool is paid out 48 hours after a Season ends, once Tesoro has had the chance to void Players found cheating; a voided Player's share, and anything else not paid, rolls into the next.
+One week of the Leaderboard, Monday 00:00 UTC to the next Monday, numbered from 1 (Season 1 starts on 2026-10-05). The Leaderboard Pool is paid out 48 hours after the Season is recorded (shortly after it ends), once Tesoro has had the chance to void Players found cheating; a voided Player's slot pays nothing, the other ranks keep their places, and the voided share, and anything else not paid, rolls into the next.
 _Avoid_: round, epoch, tournament
 
 **Points**:

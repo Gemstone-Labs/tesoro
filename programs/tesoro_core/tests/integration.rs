@@ -11,7 +11,7 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
-use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain};
+use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain, PAYOUT_WINDOW_SECS};
 use tesoro_core::state::*;
 use tesoro_core::{accounts, instruction};
 
@@ -1610,6 +1610,9 @@ fn a_ninth_holding_is_refused() {
 fn pool_pda() -> APk {
     account_pda(pda(&[LEADERBOARD_SEED]))
 }
+fn window_pda(n: u32) -> APk {
+    pda(&[SEASON_WINDOW_SEED, &n.to_le_bytes()])
+}
 fn season_pda(n: u32) -> APk {
     pda(&[SEASON_SEED, &n.to_le_bytes()])
 }
@@ -1658,6 +1661,7 @@ impl Env {
                 config: pda(&[CONFIG_SEED]),
                 pool_account: pool_pda(),
                 season: season_pda(n),
+                season_window: window_pda(n),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::RecordSeason {
@@ -1692,6 +1696,25 @@ impl Env {
         out
     }
 
+    fn void_rank(
+        &mut self,
+        signer: &Keypair,
+        n: u32,
+        rank: u8,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let void = ix(
+            accounts::VoidSeasonRank {
+                admin: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                season: season_pda(n),
+                season_window: window_pda(n),
+            },
+            instruction::VoidSeasonRank { rank },
+            vec![],
+        );
+        self.send(&[void], signer, &[])
+    }
+
     fn pay_rank(
         &mut self,
         signer: &Keypair,
@@ -1713,6 +1736,7 @@ impl Env {
                 authority: a(signer.pubkey()),
                 config: pda(&[CONFIG_SEED]),
                 season: season_pda(n),
+                season_window: window_pda(n),
                 pool_account: pool_pda(),
                 winner_account: winner.account,
             },
@@ -1833,8 +1857,44 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
     // Recorded once.
     assert!(d.env.record_season(&admin, 1, &[(&d.alice, 10)]).is_err());
 
-    // The wrong winner, the wrong Holding order and a stranger are refused.
+    let window = d.env.load::<SeasonWindowState>(window_pda(1)).inner;
+    let recorded_at = season_end(1).unwrap() + 60;
+    assert_eq!((window.recorded_at, window.voided_mask), (recorded_at, 0));
+
+    // Inside the 48-hour window nothing is paid.
     let all: Vec<APk> = sources.iter().map(|(src, _)| *src).collect();
+    let err = d
+        .env
+        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowOpen));
+    // Only the admin voids; the keeper and strangers cannot.
+    let err = d.env.void_rank(&oracle, 1, 1).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    let err = d.env.void_rank(&stranger, 1, 1).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    let err = d.env.void_rank(&admin, 1, 2).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::SeasonInvalid));
+    d.env.void_rank(&admin, 1, 1).expect("void bob");
+    let err = d.env.void_rank(&admin, 1, 1).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::RankVoided));
+    assert_eq!(
+        d.env.load::<SeasonWindowState>(window_pda(1)).inner.voided_mask,
+        0b10
+    );
+    // One second before the window ends: still refused.
+    d.env.set_time(recorded_at + PAYOUT_WINDOW_SECS - 1);
+    let err = d
+        .env
+        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
+        .unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowOpen));
+    d.env.set_time(recorded_at + PAYOUT_WINDOW_SECS);
+    // Too late to void now.
+    let err = d.env.void_rank(&admin, 1, 0).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowClosed));
+
+    // The wrong winner, the wrong Holding order and a stranger are refused.
     let err = d
         .env
         .pay_rank(&oracle, 1, 0, &d.bob, &all[..1])
@@ -1858,27 +1918,25 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
         .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
         .unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::AlreadyPaid));
-    // Rank 1 (5 Gemas) may span two Holdings, drained in Source order.
-    let left_first = d.env.pool_sources(&[d.a_source, d.b_source])[0].1;
-    let span: &[APk] = if left_first >= 5 { &all[..1] } else { &all };
+    // The voided rank pays nothing.
     let before = d.env.total_gemas(&d.bob);
-    d.env
-        .pay_rank(&oracle, 1, 1, &d.bob, span)
-        .expect("pay 2nd");
-    assert_eq!(d.env.total_gemas(&d.bob), before + 5);
+    let err = d.env.pay_rank(&oracle, 1, 1, &d.bob, &all[..1]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::RankVoided));
+    assert_eq!(d.env.total_gemas(&d.bob), before);
     // No rank 2 was recorded.
     assert!(d.env.pay_rank(&oracle, 1, 2, &d.alice, &all[..1]).is_err());
 
-    // 30 - 12 stays in the pool: it rolls into the next season, Sources intact.
+    // 30 - 7 stays in the pool (the unfilled and the voided shares): it rolls into the next
+    // season, Sources intact.
     let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
-    assert_eq!(pool.won_total + pool.own_total, 18);
+    assert_eq!(pool.won_total + pool.own_total, 23);
     assert_eq!(
         d.env
             .pool_sources(&[d.a_source, d.b_source])
             .iter()
             .map(|(_, n)| n)
             .sum::<u64>(),
-        18
+        23
     );
     for src in [d.a_source, d.b_source] {
         let total: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]

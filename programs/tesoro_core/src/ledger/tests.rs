@@ -1921,3 +1921,29 @@ fn the_twelve_month_horizon_still_caps_an_extend_inside_the_limit() {
         Err(CoreError::InvalidHorizon)
     );
 }
+
+#[test]
+fn a_rank_is_paid_only_after_the_window_and_can_be_voided_inside_it() {
+    let end = season_end(1).unwrap();
+    let season = Season::record(1, end, 10_000, &ranked(&[50, 40, 30])).unwrap();
+    let mut w = SeasonWindow::new(1, end + 60);
+    let opens = end + 60 + PAYOUT_WINDOW_SECS;
+    assert_eq!(PAYOUT_WINDOW_SECS, 172_800);
+    assert_eq!(w.check_pay(0, opens - 1), Err(CoreError::PayoutWindowOpen));
+    assert_eq!(w.check_pay(0, opens), Ok(()));
+
+    assert_eq!(w.void(&season, 3, end + 61), Err(CoreError::SeasonInvalid));
+    assert_eq!(w.void(&season, 1, end + 61), Ok(()));
+    assert_eq!(w.void(&season, 1, end + 62), Err(CoreError::RankVoided));
+    assert!(w.voided(1) && !w.voided(0) && !w.voided(2));
+    // Nobody moves up: rank 2 keeps its own slot and amount.
+    assert_eq!(season.amounts[..3], [2_500, 1_800, 1_300]);
+    assert_eq!(w.check_pay(1, opens), Err(CoreError::RankVoided));
+    assert_eq!(w.check_pay(2, opens), Ok(()));
+
+    // Too late once the window has passed; a paid rank cannot be voided.
+    assert_eq!(w.void(&season, 0, opens), Err(CoreError::PayoutWindowClosed));
+    let mut paid = season.clone();
+    paid.pay(2).unwrap();
+    assert_eq!(w.void(&paid, 2, end + 70), Err(CoreError::AlreadyPaid));
+}

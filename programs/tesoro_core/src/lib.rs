@@ -71,6 +71,12 @@ pub mod tesoro_core {
         instructions::season::pay_season_rank(ctx, rank)
     }
 
+    /// Admin only, inside the 48-hour payout window: the rank pays nothing and its share stays in
+    /// the pool for the next season.
+    pub fn void_season_rank(ctx: Context<VoidSeasonRank>, rank: u8) -> Result<()> {
+        instructions::season::void_season_rank(ctx, rank)
+    }
+
     // --- Accounts and Holdings --------------------------------------------------------------
 
     pub fn create_account(ctx: Context<CreateAccount>, evm_address: [u8; 20]) -> Result<()> {

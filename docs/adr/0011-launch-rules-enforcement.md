@@ -19,3 +19,10 @@ Proposed (founder, Oct 15, 2026). At mainnet launch only waitlist members may pl
 
 - The oracle remains trusted for Points, as it is today; the 48-hour window and public events are the check.
 - These rules ship in the same `tesoro_core` upgrade as the Protections (Entry Limit, Break, Self-Exclusion), Block Puzzle move timing and mainnet entry sizes, before the programs are frozen for audit.
+
+## Implementation notes (payout window)
+
+- `record_season` also creates a `SeasonWindowState` PDA (`["season_window", number]`) with the record time and a voided-rank mask. It is a separate account so the `SeasonState` layout is untouched and Seasons recorded before the upgrade stay decodable; those have no window account and `pay_season_rank` (which now takes it) cannot pay them.
+- `pay_season_rank` is refused with `PayoutWindowOpen` until `PAYOUT_WINDOW_SECS` (48 h) after the record, and with `RankVoided` for a voided rank.
+- `void_season_rank(rank)` is admin only (the keeper's oracle key cannot), valid only inside the window and before the rank is paid. The slot pays nothing and the other ranks keep their places and amounts; the voided share stays in the Pool for the next Season, like an unfilled rank.
+- The keeper records at Season end, then pays only unpaid, unvoided ranks once the on-chain record time plus 48 h has passed; it keeps no state, so a restart changes nothing. The Leaderboard shows "paying out <date>" during the window and "not paid" for voided ranks.
