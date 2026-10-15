@@ -67,6 +67,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         backed={!!m.backing}
         scores={outcome === "refunded" ? null : [outcome === "won" ? "Won" : "Lost", outcome === "won" ? "Lost" : "Won"]}
         momentKey={m.id.toString()}
+        matchId={m.id.toString()}
         playAgainHref={`/play/queue?game=holdem&entry=${m.entry}`}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
