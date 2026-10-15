@@ -60,6 +60,8 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
         <p className="wl-more">
           <Link href="/welcome">How it works</Link>
           <Link href="/docs">Docs</Link>
+          <Link href="/terms">Terms</Link>
+          <Link href="/privacy">Privacy</Link>
         </p>
       </main>
     </div>

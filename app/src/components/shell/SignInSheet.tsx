@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useLoginWithEmail } from "@privy-io/react-auth";
 import { TesoroMark } from "@/components/brand";
@@ -141,6 +142,9 @@ function SignInForm({ onSignedIn, onWallet }: { onSignedIn: () => void; onWallet
           <AlertIcon /> {error}
         </div>
       )}
+      <p className="signin-foot">
+        By continuing you agree to the <Link href="/terms" target="_blank">Terms</Link> and <Link href="/privacy" target="_blank">Privacy Policy</Link>.
+      </p>
       <p className="signin-foot">
         One Account works on Solana, Ethereum and HYPE.
         <br />
