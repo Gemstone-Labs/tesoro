@@ -164,16 +164,16 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
   const [done, setDone] = useState<string | null>(null);
   const now = useNow(15_000);
   const cooling = market && market.faucetAvailableAt * 1000 > now;
-  const lowGas = net.key === "hyperevm" && !!market && market.ethBalance < MIN_HYPE_WEI;
+  const lowGas = vault.simulated && net.key === "hyperevm" && !!market && market.ethBalance < MIN_HYPE_WEI;
 
   return (
     <div className="wl-faucet">
       <div className="spread">
         <span className="hstack">
           <ChainChip chain={net.native} />
-          <span className="meta">{net.label} testnet</span>
+          <span className="meta">{vault.simulated ? `${net.label} testnet` : net.label}</span>
         </span>
-        <Chip tone="warn">Simulated</Chip>
+        {vault.simulated && <Chip tone="warn">Simulated</Chip>}
       </div>
       <dl className="kv">
         <dt>Your wallet address</dt>
@@ -183,6 +183,7 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
         <dt>Your {vault.symbol}</dt>
         <dd className="tnum">{market ? fmtEth(market.simEth, 3) : "—"} {vault.symbol}</dd>
       </dl>
+      {vault.simulated && (
       <Button
         size="sm"
         block
@@ -198,6 +199,7 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
       >
         {a.busy === "faucet" ? `Getting ${vault.symbol}…` : cooling ? "Faucet cooling down" : `Get test ${vault.symbol}`}
       </Button>
+      )}
       {lowGas && (
         <>
           <p className="meta">Free test HYPE for network fees, once a day per wallet.</p>
@@ -650,8 +652,8 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
       series={series}
       notes={
         <>
-          {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol} (simulated) to your wallet on {net.label}.</p>}
-          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated). Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
+          {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol}{vault?.simulated === false ? "" : " (simulated)"} to your wallet on {net.label}.</p>}
+          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native}{vault?.simulated === false ? "" : " (simulated)"}. Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {unreported > 0n && locked && (
             <p className="note">
               <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to apply it (a small cross-chain fee).

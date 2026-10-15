@@ -1,7 +1,8 @@
 import "./polyfill";
 import { PublicKey, SystemProgram, TransactionInstruction, type Connection } from "@solana/web3.js";
-import { createPublicClient, http, parseAbi, type Address, type Chain, type Hex, type PublicClient } from "viem";
+import { createPublicClient, http, isAddress, parseAbi, type Address, type Chain, type Hex, type PublicClient } from "viem";
 import { HOODI_RPC, HYPEREVM_RPC, hoodi, hyperEvmTestnet } from "@/lib/chains";
+import { CLUSTER } from "@/lib/cluster-settings";
 
 export { HOODI_RPC, HYPEREVM_RPC };
 import { TESORO_CORE_ID, meta, parseSource, pda, rdU32, rdU64, s, sourcePda, treasuryAccountPda, treasuryPda, u64 } from "./native";
@@ -18,13 +19,14 @@ export const BRIDGE_ID = new PublicKey("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfd
 /** Tesoro chain tag for Ethereum Hoodi (LayerZero eid). */
 export const HOODI_EID = 40449;
 export const HOODI_CHAIN_BYTE = 1;
-/** HyperEVM testnet (chain 998, LayerZero eid 40362). */
-export const HYPEREVM_EID = 40362;
+/** HyperEVM: testnet (chain 998, LayerZero eid 40362) in test mode, mainnet (chain 999, eid 30367) on the mainnet cluster. */
+export const HYPEREVM_EID = CLUSTER.id === "mainnet" ? 30367 : 40362;
 export const HYPEREVM_CHAIN_BYTE = 2;
-export const LZ_SCAN_API = "https://scan-testnet.layerzero-api.com/v1";
-export const lzScanUrl = (txHash: string) => `https://testnet.layerzeroscan.com/tx/${txHash}`;
+const MAINNET = CLUSTER.id === "mainnet";
+export const LZ_SCAN_API = MAINNET ? "https://scan.layerzero-api.com/v1" : "https://scan-testnet.layerzero-api.com/v1";
+export const lzScanUrl = (txHash: string) => `https://${MAINNET ? "" : "testnet."}layerzeroscan.com/tx/${txHash}`;
 export const hoodiTx = (hash: string) => `https://hoodi.etherscan.io/tx/${hash}`;
-export const hyperEvmTx = (hash: string) => `https://testnet.purrsec.com/tx/${hash}`;
+export const hyperEvmTx = (hash: string) => (MAINNET ? `https://hyperevmscan.io/tx/${hash}` : `https://testnet.purrsec.com/tx/${hash}`);
 
 export type NetKey = "hoodi" | "hyperevm";
 
@@ -60,7 +62,7 @@ const SIM_VAULT_ADDRESSES = {
 } as const satisfies Record<NetKey, { vault: Address; lst: Address }>;
 
 export interface EthVault {
-  key: "sim" | "sim-hype";
+  key: "sim" | "sim-hype" | "khype";
   net: NetKey;
   label: string;
   address: Address;
@@ -73,6 +75,19 @@ export interface EthVault {
  * The vaults the app opens Positions in. The real-Lido wstETH vault on Hoodi (0x61B4...57b5) is wired
  * on Solana but is not listed: there is no wstETH faucet (docs/cross-chain.md).
  */
+/**
+ * Kinetiq kHYPE on HyperEVM mainnet (kinetiq.xyz/docs/contracts-and-audits; token and StakingAccountant read on chain 2026-10-15).
+ * The vault (contracts/script/DeployMainnetKHype.s.sol) has no address until the orchestrator deploys it: set
+ * NEXT_PUBLIC_KHYPE_VAULT on the mainnet cluster and the HYPE tab lists it.
+ */
+export const KHYPE_TOKEN: Address = "0xfD739d4e423301CE9385c1fb8850539D657C296D";
+export const KHYPE_ACCOUNTANT: Address = "0x9209648Ec9D448EF57116B73A2f081835643dc7A";
+const KHYPE_VAULT = process.env.NEXT_PUBLIC_KHYPE_VAULT;
+const MAINNET_VAULTS: EthVault[] =
+  MAINNET && KHYPE_VAULT && isAddress(KHYPE_VAULT)
+    ? [{ key: "khype", net: "hyperevm", label: "Kinetiq staked HYPE (kHYPE)", address: KHYPE_VAULT, lst: KHYPE_TOKEN, symbol: "kHYPE", simulated: false }]
+    : [];
+
 export const ETH_VAULTS: EthVault[] = [
   {
     key: "sim",
@@ -92,6 +107,7 @@ export const ETH_VAULTS: EthVault[] = [
     symbol: "simHYPE",
     simulated: true,
   },
+  ...MAINNET_VAULTS,
 ];
 export const isKnownVault = (v: string) => ETH_VAULTS.some((x) => x.address.toLowerCase() === v.toLowerCase());
 export const vaultByAddress = (v: string) => ETH_VAULTS.find((x) => x.address.toLowerCase() === v.toLowerCase()) ?? null;

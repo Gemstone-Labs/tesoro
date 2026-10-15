@@ -49,4 +49,19 @@ describe("mainnet: the Player pays gas and the LayerZero fee", () => {
     await expect(openEthPosition(ctx, ETH_VAULTS[0], 10n ** 17n, 12)).rejects.toThrow(/gas and the cross-chain fee/);
     expect(calls).toEqual([]);
   });
+
+  it("HYPE: never asks the relayer for HYPE and says what to add", async () => {
+    state.balance = 0n;
+    const hype = { key: "hyperevm", native: "HYPE" } as never;
+    await ensureGas(ctx, hype);
+    await expect(requestGas(ctx, hype)).rejects.toThrow(/Add HYPE/);
+    expect(calls).toEqual([]);
+  });
+
+  it("HYPE: stops before any signature when the wallet cannot cover gas and the fee", async () => {
+    state.balance = 1_000n;
+    const hypeVault = ETH_VAULTS.find((v) => v.net === "hyperevm")!;
+    await expect(openEthPosition(ctx, hypeVault, 10n ** 17n, 12)).rejects.toThrow(/HYPE in your wallet for gas and the cross-chain fee/);
+    expect(calls).toEqual([]);
+  });
 });

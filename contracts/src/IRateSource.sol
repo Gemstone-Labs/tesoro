@@ -23,6 +23,11 @@ interface IWstETH {
     function stEthPerToken() external view returns (uint256);
 }
 
+/// @notice Kinetiq StakingAccountant: `kHYPEToHYPE(x)` is the HYPE worth of x kHYPE (both 18 decimals).
+interface IKinetiqAccountant {
+    function kHYPEToHYPE(uint256 kHYPEAmount) external view returns (uint256);
+}
+
 /// @notice Outbound side of the messaging seam. LayerZero's endpoint (via an OApp) replaces this.
 interface IMessageEndpoint {
     function send(bytes calldata payload) external;
