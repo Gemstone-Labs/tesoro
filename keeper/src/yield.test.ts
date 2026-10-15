@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { Keypair } from "@solana/web3.js";
 import type { PoolParams } from "../../app/src/lib/chain/native.ts";
 import { Budget, act, type ActCtx } from "./act.ts";
-import { batches, crankGain, crankReason, type Reading } from "./yield.ts";
+import { batches, crankGain, crankReason, stakeCrankGain, stakeCustodyRate, type Reading } from "./yield.ts";
 
 // 1 SOL Principal held as 1e9 shares at the constant rate 1.0 (7% APY, 4,380x); an Advance of 80 Gemas at 100,000 lamports per Gema.
 const pool: PoolParams = { baseRate: 1_000_000_000n, baseTs: 0, apyBps: 700, speedup: 4380 };
@@ -64,5 +64,45 @@ describe("native yield cranks (OC-06)", () => {
     const third = await act(ctx, "yield", "-", "crank", spend, share);
     assert.deepEqual(third, { ok: false, detail: "budget" });
     assert.equal((await act(ctx, "match", "-", "refund", spend)).ok, true, "a refund still goes through");
+  });
+});
+
+describe("stake pool custody cranks (ADR 0010)", () => {
+  // 10 tokens at 1.2 SOL each, an Advance of 80 Gemas at 100,000 lamports per Gema, the fee settled at 1.2.
+  const RATE = 1_200_000_000n;
+  const stake = (over: Partial<Reading> = {}) => ({ ...reading({ principal: 12_000_000_000n, trackedShares: 10_000_000_000n, lastAccrualTs: null, ...over }), lastRate: RATE });
+
+  it("repays nothing while the pool rate has not grown", () => {
+    assert.deepEqual(stakeCrankGain(stake(), RATE), { gain: 0n, clears: false });
+    assert.deepEqual(stakeCrankGain(stake(), RATE - 1n), { gain: 0n, clears: false }, "a rate below its high water mark");
+  });
+
+  it("repays the growth net of the Yield Fee the program takes first", () => {
+    // 10 tokens gain 0.0005 SOL each = 5,000,000 lamports; the Treasury takes 20%: about 40 Gemas.
+    const g = stakeCrankGain(stake(), 1_200_500_000n, 2_000)!;
+    assert.ok(g.gain >= 39n && g.gain <= 40n, `gain ${g.gain}`);
+    assert.equal(g.clears, false);
+    assert.equal(stakeCrankGain(stake(), 1_200_500_000n, 0)!.gain, 50n, "no fee: all of it");
+  });
+
+  it("clears the Debt once the growth covers it, and caps the gain at the Debt", () => {
+    const g = stakeCrankGain(stake(), 1_230_000_000n, 2_000)!;
+    assert.deepEqual(g, { gain: 80n, clears: true });
+  });
+
+  it("cannot compute without the Source or the tracked shares", () => {
+    assert.equal(stakeCrankGain(stake({ source: null }), 1_300_000_000n), null);
+    assert.equal(stakeCrankGain(stake({ trackedShares: null }), 1_300_000_000n), null);
+  });
+
+  it("recognises a stake pool custody by its marker and reads the fee rate", () => {
+    const legacy = Buffer.alloc(210);
+    assert.equal(stakeCustodyRate(legacy), null, "a sim_lst custody has no marker");
+    const marked = Buffer.alloc(219);
+    marked[210] = 2;
+    marked.writeBigUInt64LE(1_234_000_000n, 211);
+    assert.equal(stakeCustodyRate(marked), 1_234_000_000n);
+    marked[210] = 1;
+    assert.equal(stakeCustodyRate(marked), null);
   });
 });

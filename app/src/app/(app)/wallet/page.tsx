@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { CLUSTER } from "@/lib/cluster-settings";
 import { Button, Card, ChainChip, FacetCrown, GemaMark, GemaUsd, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
@@ -13,6 +14,7 @@ import { AdvanceSheet } from "./AdvanceSheet";
 import type { ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
+import { StakeOpenForm } from "./StakeOpen";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
@@ -21,6 +23,8 @@ import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
 
 const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
+
+const REAL = CLUSTER.yieldModel === "real";
 
 export default function Wallet() {
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
@@ -45,7 +49,9 @@ export default function Wallet() {
     id: "wallet-first",
     pose: "himExplain",
     title: "Pending is not lost",
-    text: "Gemas you win stay Pending until the yield of their Source lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
+    text: REAL
+      ? "Gemas you win stay Pending until the yield of their Source lands, then they become redeemable."
+      : "Gemas you win stay Pending until the yield of their Source lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
   });
 
   if (auth.status === "signed-out") {
@@ -178,10 +184,10 @@ export default function Wallet() {
         </div>
         {error && (
           <p className="status err wl-hero-err" role="alert">
-            Could not read your Account from Solana devnet. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
+            Could not read your Account from {CLUSTER.solana.label}. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
           </p>
         )}
-        <SimulatedYieldLabel className="wl-hero-sim" />
+        {!REAL && <SimulatedYieldLabel className="wl-hero-sim" />}
         <details className="wl-pbs">
           <summary>Pending by Source</summary>
           <p className="meta">Each Source becomes redeemable as its Position&apos;s yield lands.</p>
@@ -228,12 +234,12 @@ export default function Wallet() {
 
       <footer className="wl-foot">
         {hasPositions && <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>}
-        {onChain && <p className="note">Redeem pays simSOL (simulated) from the yield your Source Position has earned so far.</p>}
+        {onChain && <p className="note">{REAL ? "Redeem pays the staking token of the Source (jitoSOL for SOL Positions) from the yield your Source Position has earned so far." : "Redeem pays simSOL (simulated) from the yield your Source Position has earned so far."}</p>}
       </footer>
 
       <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
         <OpenPanel tab={tab} onTab={setTab}>
-          {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
+          {tab === "SOL" && (onChain ? (REAL ? <StakeOpenForm onDone={() => setOpenSheet(false)} /> : <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} />) : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
           {tab === "ETH" && (onChain ? <EthVaultForm unit="ETH" vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
           {tab === "HYPE" && (onChain ? <EthVaultForm unit="HYPE" vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>

@@ -3111,3 +3111,230 @@ fn a_stake_pool_custody_is_a_marker_past_the_unchanged_layout() {
         "no marker, a sim_lst custody"
     );
 }
+
+// --- Plain SOL: the stake pool's own deposit, then the Position, in one transaction -------------
+//
+// These run the real SPL stake pool program against a snapshot of the live jitoSOL pool
+// (tests/fixtures: program dumped from mainnet-beta, pool, reserve, mint and manager fee account
+// read on 2026-10-15), so the deposit's accounts and data are the ones the pool really takes.
+
+/// The vanilla SPL stake pool program (jitoSOL's).
+const SPL_STAKE_POOL: APk = STAKE_POOL_PROGRAMS[0];
+const JITO_POOL: APk = APk::from_str_const("Jito4APyf642JPZPx3hGc6WWJ8zPKtRbRs4P815Awbb");
+const JITO_MINT: APk = APk::from_str_const("J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn");
+const JITO_RESERVE: APk = APk::from_str_const("BgKUXdS29YcHCFrPm5M8oLHiTzZaMDjsebggjoaQ6KFL");
+const JITO_FEE_ACCOUNT: APk = APk::from_str_const("8yoigZfzZ1nNaadumY9uPVD118225UYHTDpmjpr2nrSa");
+/// The slippage floor the app opens with after a quote, in basis points.
+const SLIPPAGE_BPS: u64 = 50;
+
+fn fixture(name: &str) -> Vec<u8> {
+    std::fs::read(format!(
+        "{}/tests/fixtures/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap_or_else(|e| panic!("fixture {name}: {e}"))
+}
+
+fn plant_fixture(env: &mut Env, key: APk, owner: APk, name: &str, lamports: u64) {
+    env.svm
+        .set_account(
+            s(key),
+            solana_sdk::account::Account {
+                lamports,
+                data: fixture(name),
+                owner: s(owner),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+}
+
+/// The live jitoSOL pool as the active token, with the real stake pool program loaded.
+fn real_jito_env() -> (Env, Jito) {
+    let mut env = Env::new();
+    let program = fixture("spl_stake_pool.so");
+    env.svm.add_program(s(SPL_STAKE_POOL), &program).unwrap();
+    plant_fixture(&mut env, JITO_POOL, SPL_STAKE_POOL, "jito_pool.bin", SOL);
+    plant_fixture(
+        &mut env,
+        JITO_RESERVE,
+        anchor_lang::solana_program::stake::program::ID,
+        "jito_reserve.bin",
+        5_333_682_558_151,
+    );
+    plant_fixture(&mut env, JITO_MINT, TOKEN_PROGRAM_ID, "jito_mint.bin", SOL);
+    plant_fixture(
+        &mut env,
+        JITO_FEE_ACCOUNT,
+        TOKEN_PROGRAM_ID,
+        "jito_fee.bin",
+        SOL,
+    );
+    env.svm.set_sysvar(&Clock {
+        unix_timestamp: T0,
+        epoch: 1_058,
+        ..Clock::default()
+    });
+    let jito = Jito {
+        mint: JITO_MINT,
+        pool: JITO_POOL,
+    };
+    set_sol_source(&mut env, JITO_MINT, JITO_POOL).unwrap();
+    let oracle = env.oracle.insecure_clone();
+    let publish = set_token_apy_ix(a(oracle.pubkey()), JITO_MINT, 700);
+    env.send(&[publish], &oracle, &[]).expect("publish APY");
+    init_treasury_vault(&mut env, JITO_MINT).expect("treasury vault");
+    (env, jito)
+}
+
+fn pool_withdraw_authority() -> APk {
+    APk::find_program_address(&[JITO_POOL.as_ref(), b"withdraw"], &SPL_STAKE_POOL).0
+}
+
+/// `DepositSol` (instruction 14) into the pool, minting to `dest`.
+fn deposit_sol_ix(from: APk, dest: APk, lamports: u64) -> Instruction {
+    let mut data = vec![14u8];
+    data.extend_from_slice(&lamports.to_le_bytes());
+    let meta = |k: APk, w: bool, sig: bool| AccountMeta {
+        pubkey: s(k),
+        is_signer: sig,
+        is_writable: w,
+    };
+    Instruction {
+        program_id: s(SPL_STAKE_POOL),
+        accounts: vec![
+            meta(JITO_POOL, true, false),
+            meta(pool_withdraw_authority(), false, false),
+            meta(JITO_RESERVE, true, false),
+            meta(from, true, true),
+            meta(dest, true, false),
+            meta(JITO_FEE_ACCOUNT, true, false),
+            meta(dest, true, false),
+            meta(JITO_MINT, true, false),
+            meta(anchor_lang::system_program::ID, false, false),
+            meta(TOKEN_PROGRAM_ID, false, false),
+        ],
+        data,
+    }
+}
+
+fn create_ata_idempotent_ix(payer: APk, owner: APk, mint: APk) -> Instruction {
+    let meta = |k: APk, w: bool, sig: bool| AccountMeta {
+        pubkey: s(k),
+        is_signer: sig,
+        is_writable: w,
+    };
+    Instruction {
+        program_id: s(ATA_PROGRAM_ID),
+        accounts: vec![
+            meta(payer, true, true),
+            meta(get_associated_token_address(&owner, &mint), true, false),
+            meta(owner, false, false),
+            meta(mint, false, false),
+            meta(anchor_lang::system_program::ID, false, false),
+            meta(TOKEN_PROGRAM_ID, false, false),
+        ],
+        data: vec![1],
+    }
+}
+
+/// Pool tokens a deposit of `lamports` mints at the pool's current balances, with no deposit fee.
+fn quote_deposit(env: &Env, lamports: u64) -> u64 {
+    let data = env.svm.get_account(&s(JITO_POOL)).unwrap().data;
+    let read = ledger::parse_stake_pool(&data).unwrap();
+    (lamports as u128 * read.pool_token_supply as u128 / read.total_lamports as u128) as u64
+}
+
+#[test]
+fn plain_sol_is_staked_into_the_pool_and_opened_as_a_position_in_one_transaction() {
+    let (mut env, jito) = real_jito_env();
+    let alice = env.person();
+    let ata = get_associated_token_address(&alice.key, &JITO_MINT);
+    let lamports = 10 * SOL;
+    let quoted = quote_deposit(&env, lamports);
+    let floor = quoted * (10_000 - SLIPPAGE_BPS) / 10_000;
+    let sol_before = env.svm.get_balance(&alice.kp.pubkey()).unwrap();
+
+    let (open, pos) = env.open_stake_ix(&jito, &alice, floor);
+    let ixs = [
+        create_ata_idempotent_ix(alice.key, alice.key, JITO_MINT),
+        deposit_sol_ix(alice.key, ata, lamports),
+        open,
+    ];
+    env.send(&ixs, &alice.kp, &[]).expect("deposit then open");
+
+    // The pool minted what the quote said, and the Position holds the floor of it.
+    let leftover = env.token_balance(ata);
+    assert_eq!(env.token_balance(pos.vault), floor);
+    assert_eq!(leftover, quoted - floor, "only the slippage margin stays");
+    assert_eq!(
+        sol_before - env.svm.get_balance(&alice.kp.pubkey()).unwrap() - lamports,
+        // rent of the ATA, Position, custody and vault accounts plus the signature fee
+        env.svm
+            .get_balance(&s(pos.position))
+            .unwrap()
+            .saturating_add(env.svm.get_balance(&s(pos.custody)).unwrap())
+            .saturating_add(env.svm.get_balance(&s(pos.vault)).unwrap())
+            .saturating_add(env.svm.get_balance(&s(ata)).unwrap())
+            + 5_000
+    );
+    let position = env.position(pos);
+    assert_eq!(position.source_asset, JITO_MINT.to_bytes());
+    // Principal is worth about the SOL put in, never more.
+    assert!(position.principal <= lamports);
+    assert!(position.principal >= lamports * (10_000 - SLIPPAGE_BPS - 1) / 10_000);
+    assert_eq!(position.rate_bps, 700);
+    env.check_stake_invariants(&jito, pos);
+}
+
+#[test]
+fn an_open_that_asks_for_more_than_the_deposit_minted_reverts_the_whole_transaction() {
+    let (mut env, jito) = real_jito_env();
+    let alice = env.person();
+    let ata = get_associated_token_address(&alice.key, &JITO_MINT);
+    let lamports = 10 * SOL;
+    let quoted = quote_deposit(&env, lamports);
+    let pool_before = env.svm.get_account(&s(JITO_POOL)).unwrap().data;
+    let sol_before = env.svm.get_balance(&alice.kp.pubkey()).unwrap();
+
+    let (open, pos) = env.open_stake_ix(&jito, &alice, quoted + 1);
+    let ixs = [
+        create_ata_idempotent_ix(alice.key, alice.key, JITO_MINT),
+        deposit_sol_ix(alice.key, ata, lamports),
+        open,
+    ];
+    env.send(&ixs, &alice.kp, &[])
+        .expect_err("the pool minted less than the open asks for");
+
+    // Nothing moved: no token account, no Position, the pool is as it was, SOL is intact bar the fee.
+    assert!(env.svm.get_account(&s(ata)).is_none());
+    assert!(env.svm.get_account(&s(pos.position)).is_none());
+    assert_eq!(
+        env.svm.get_account(&s(JITO_POOL)).unwrap().data,
+        pool_before
+    );
+    let spent = sol_before - env.svm.get_balance(&alice.kp.pubkey()).unwrap();
+    assert!(
+        spent <= 5_000,
+        "only the signature fee left the wallet: {spent}"
+    );
+}
+
+#[test]
+fn a_second_deposit_reuses_the_token_account_without_failing() {
+    let (mut env, jito) = real_jito_env();
+    let alice = env.person();
+    let ata = get_associated_token_address(&alice.key, &JITO_MINT);
+    for _ in 0..2 {
+        let quoted = quote_deposit(&env, 5 * SOL);
+        let floor = quoted * (10_000 - SLIPPAGE_BPS) / 10_000;
+        let (open, _) = env.open_stake_ix(&jito, &alice, floor);
+        let ixs = [
+            create_ata_idempotent_ix(alice.key, alice.key, JITO_MINT),
+            deposit_sol_ix(alice.key, ata, 5 * SOL),
+            open,
+        ];
+        env.send(&ixs, &alice.kp, &[]).expect("open again");
+    }
+}
