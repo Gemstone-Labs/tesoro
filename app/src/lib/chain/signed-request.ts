@@ -5,7 +5,7 @@
  */
 export const SIGNED_FIELDS = ["evm", "vault", "id", "months", "position", "sourceIndex", "email", "enabled"] as const;
 export type SignedFields = Partial<Record<(typeof SIGNED_FIELDS)[number], string | number>>;
-export type SignedScope = "tesoro-demo" | "tesoro-eth" | "tesoro-notify";
+export type SignedScope = "tesoro-demo" | "tesoro-eth" | "tesoro-notify" | "tesoro-admin";
 
 export const signedMessage = (scope: SignedScope, step: string, address: string, ts: number, nonce: string, fields: SignedFields) =>
   `${scope}|${step}|${address}|${ts}|${nonce}|${JSON.stringify(SIGNED_FIELDS.map((k) => fields[k] ?? null))}`;

@@ -66,6 +66,7 @@ Legend: **R** required, **O** optional, **-** not read. Visibility: **public** s
 | `NOTIFY_FROM` | secret | O | R for email | R | `Tesoro <hello@mail.playtesoro.com>` |
 | `NOTIFY_SECRET` | secret | O | R for email | R (shared with that cluster's keeper) | 32+ random bytes, hex |
 | `ALERT_EMAILS` | secret | O | R for keeper alerts | R | `a@x.com,b@y.com`: the founders who get keeper alerts (POST `/api/notify/alert`, `NOTIFY_SECRET`); recipients are never read from a request |
+| `ADMIN_WALLETS` | secret | O (empty: `/admin/review` refuses everyone) | R | R | `7zr1...,GXQs...`: base58 wallets (comma separated) allowed to open `/admin/review`; the route checks a wallet-signed request against this list on every call |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | public | O (empty: skipped) | R | R | `0x4AAAAAAA...` |
 | `TURNSTILE_SECRET_KEY` | secret | O | R | R | `0x4AAAAAAA...` |
 
