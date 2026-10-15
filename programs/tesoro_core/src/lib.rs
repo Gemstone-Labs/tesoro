@@ -103,8 +103,8 @@ pub mod tesoro_core {
 
     // --- Positions, Advances, Debt, Redeem --------------------------------------------------
 
-    pub fn open_position(
-        ctx: Context<OpenPosition>,
+    pub fn open_position<'info>(
+        ctx: Context<'_, '_, 'info, 'info, OpenPosition<'info>>,
         source_chain: ledger::SourceChain,
         position_id: [u8; 32],
         source_asset: Pubkey,
@@ -160,6 +160,11 @@ pub mod tesoro_core {
         instructions::native::set_price(ctx, price_micro_usd)
     }
 
+    /// Admin: the token new Solana-native Positions open with (existing Positions keep theirs).
+    pub fn set_sol_source(ctx: Context<SetSolSource>) -> Result<()> {
+        instructions::native::set_sol_source(ctx)
+    }
+
     pub fn open_native_position(
         ctx: Context<OpenNativePosition>,
         nonce: u64,
@@ -199,8 +204,8 @@ pub mod tesoro_core {
     // --- Treasury: Yield Fee and Instant Redeem (ADR 0007) ----------------------------------
 
     /// Creates the Treasury (config, Treasury Account, simSOL vault) or changes its fee rates.
-    pub fn init_treasury(
-        ctx: Context<InitTreasury>,
+    pub fn init_treasury<'info>(
+        ctx: Context<'_, '_, 'info, 'info, InitTreasury<'info>>,
         yield_fee_bps: u16,
         instant_fee_bps: u16,
     ) -> Result<()> {

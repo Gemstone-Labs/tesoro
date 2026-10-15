@@ -10,7 +10,7 @@
 //!   (`redeem_treasury`, `redeem_treasury_from_source`), which refills the treasury on that chain.
 
 use crate::error::{core_err, TesoroError};
-use crate::instructions::native::{is_native, pay_redeem};
+use crate::instructions::native::{active_source, is_native, pay_redeem};
 use crate::instructions::position::chain_byte;
 use crate::ledger::{self, native, SourceChain, MAX_INSTANT_FEE_BPS, MAX_YIELD_FEE_BPS};
 use crate::state::*;
@@ -48,7 +48,6 @@ pub struct InitTreasury<'info> {
         bump
     )]
     pub treasury_account: Box<Account<'info, TesoroAccount>>,
-    #[account(address = SIM_SOL_MINT @ TesoroError::InvalidMint)]
     pub mint: Box<Account<'info, Mint>>,
     #[account(
         init_if_needed,
@@ -63,13 +62,26 @@ pub struct InitTreasury<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn init_treasury(
-    ctx: Context<InitTreasury>,
+pub(crate) fn init_treasury<'info>(
+    ctx: Context<'_, '_, 'info, 'info, InitTreasury<'info>>,
     yield_fee_bps: u16,
     instant_fee_bps: u16,
 ) -> Result<()> {
     if yield_fee_bps > MAX_YIELD_FEE_BPS || instant_fee_bps > MAX_INSTANT_FEE_BPS {
         return Err(core_err(ledger::CoreError::InvalidBps));
+    }
+    // A new vault holds the `SolSource` token when it is passed as the first remaining account,
+    // else simSOL. An existing vault keeps its token (re-running this only changes the fee rates).
+    if ctx.accounts.treasury.vault == Pubkey::default() {
+        let expected_mint = match active_source(ctx.remaining_accounts)? {
+            Some(source) => source.mint,
+            None => SIM_SOL_MINT,
+        };
+        require_keys_eq!(
+            ctx.accounts.mint.key(),
+            expected_mint,
+            TesoroError::InvalidMint
+        );
     }
     let treasury_key = ctx.accounts.treasury.key();
     let account = &mut ctx.accounts.treasury_account;
@@ -107,7 +119,7 @@ pub struct FundTreasury<'info> {
     pub treasury: Box<Account<'info, Treasury>>,
     #[account(mut, address = treasury.vault @ TesoroError::InvalidAccount)]
     pub treasury_vault: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = SIM_SOL_MINT, token::authority = admin)]
+    #[account(mut, token::mint = treasury_vault.mint, token::authority = admin)]
     pub admin_token: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
 }
@@ -190,7 +202,7 @@ pub struct InstantRedeem<'info> {
     #[account(
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
-        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
+        constraint = is_native(&position) @ TesoroError::NotNativePosition
     )]
     pub position: Box<Account<'info, PositionState>>,
     #[account(
@@ -227,14 +239,14 @@ pub struct InstantRedeem<'info> {
         bump = treasury.vault_bump
     )]
     pub treasury_vault: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = SIM_SOL_MINT, token::authority = holder_authority)]
+    #[account(mut, token::mint = treasury_vault.mint, token::authority = holder_authority)]
     pub holder_token: Box<Account<'info, TokenAccount>>,
     /// The canonical sim_lst Pool, whose rate converts the payout to simSOL.
     #[account(
         seeds = [sim_lst::POOL_SEED],
         seeds::program = sim_lst::ID,
         bump = pool.bump,
-        constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
+        constraint = pool.mint == treasury_vault.mint @ TesoroError::InvalidPool
     )]
     pub pool: Box<Account<'info, Pool>>,
     pub token_program: Program<'info, Token>,
@@ -409,7 +421,7 @@ pub struct RedeemTreasury<'info> {
     #[account(
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
-        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
+        constraint = is_native(&position) @ TesoroError::NotNativePosition
     )]
     pub position: Box<Account<'info, PositionState>>,
     #[account(

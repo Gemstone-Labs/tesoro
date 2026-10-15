@@ -23,9 +23,75 @@ use anchor_lang::solana_program::hash::hashv;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 use sim_lst::Pool;
 
-/// A Solana Position backed by simSOL custody rather than by an oracle fact.
-pub fn is_native(position: &ledger::Position) -> bool {
-    position.source_chain == SourceChain::Solana && position.source_asset == SIM_SOL_MINT.to_bytes()
+/// A Solana Position backed by token custody rather than by an oracle fact: it carries the native
+/// marker `open_native_position` writes, or is a simSOL Position opened before the marker existed.
+pub fn is_native(state: &Account<PositionState>) -> bool {
+    let position = &state.inner;
+    position.source_chain == SourceChain::Solana
+        && (position.source_asset == SIM_SOL_MINT.to_bytes()
+            || state
+                .to_account_info()
+                .try_borrow_data()
+                .is_ok_and(|data| PositionState::has_native_marker(&data)))
+}
+
+/// The active `SolSource`, when the caller passes it as the first remaining account.
+///
+/// Optional so instructions that predate the setting keep their account lists: without it the
+/// legacy simSOL token applies. A passed account must be the program's own `SolSource` PDA.
+pub fn active_source(remaining: &[AccountInfo]) -> Result<Option<SolSource>> {
+    let Some(info) = remaining.first() else {
+        return Ok(None);
+    };
+    require_keys_eq!(
+        *info.key,
+        Pubkey::find_program_address(&[SOL_SOURCE_SEED], &crate::ID).0,
+        TesoroError::InvalidAccount
+    );
+    require_keys_eq!(*info.owner, crate::ID, TesoroError::InvalidAccount);
+    Ok(Some(SolSource::try_deserialize(
+        &mut &info.try_borrow_data()?[..],
+    )?))
+}
+
+// --- Setting: which token new native Positions open with ---------------------------------------
+
+/// The admin sets the staking token new Solana-native Positions open with. Existing Positions
+/// keep the token they opened with.
+#[derive(Accounts)]
+pub struct SetSolSource<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = SolSource::SPACE,
+        seeds = [SOL_SOURCE_SEED],
+        bump
+    )]
+    pub sol_source: Account<'info, SolSource>,
+    pub mint: Account<'info, Mint>,
+    /// CHECK: only its address is stored; each opening validates it against the token's pool.
+    pub pool: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_sol_source(ctx: Context<SetSolSource>) -> Result<()> {
+    let a = ctx.accounts;
+    a.sol_source.bump = ctx.bumps.sol_source;
+    a.sol_source.mint = a.mint.key();
+    a.sol_source.pool = a.pool.key();
+    emit!(SolSourceSet {
+        mint: a.mint.key(),
+        pool: a.pool.key(),
+    });
+    Ok(())
 }
 
 /// Position ids of native Positions are derived from their owner and a nonce so nobody else can
@@ -75,8 +141,10 @@ pub(crate) fn set_price(ctx: Context<SetPrice>, price_micro_usd: u64) -> Result<
 
 // --- Open ------------------------------------------------------------------------------------
 
-/// The owner deposits simSOL into the Position's vault. Principal is recorded in SOL at the
-/// current sim_lst rate. No oracle involved.
+/// The owner deposits the active staking token into the Position's vault. Principal is recorded in
+/// SOL at the current sim_lst rate. No oracle involved.
+///
+/// The token is the `SolSource` setting, passed as the first remaining account; without it, simSOL.
 #[derive(Accounts)]
 #[instruction(nonce: u64)]
 pub struct OpenNativePosition<'info> {
@@ -91,8 +159,7 @@ pub struct OpenNativePosition<'info> {
     #[account(
         seeds = [sim_lst::POOL_SEED],
         seeds::program = sim_lst::ID,
-        bump = pool.bump,
-        constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
+        bump = pool.bump
     )]
     pub pool: Account<'info, Pool>,
     #[account(address = pool.mint @ TesoroError::InvalidMint)]
@@ -106,7 +173,7 @@ pub struct OpenNativePosition<'info> {
     #[account(
         init,
         payer = owner_authority,
-        space = PositionState::SPACE,
+        space = PositionState::NATIVE_SPACE,
         seeds = [
             POSITION_SEED,
             &[chain_byte(SourceChain::Solana)],
@@ -141,9 +208,17 @@ pub(crate) fn open_native_position(
     nonce: u64,
     lst_amount: u64,
 ) -> Result<()> {
+    let source = active_source(ctx.remaining_accounts)?;
     let a = &mut ctx.accounts;
     if lst_amount == 0 {
         return Err(core_err(CoreError::ZeroAmount));
+    }
+    match source {
+        Some(s) => {
+            require_keys_eq!(a.mint.key(), s.mint, TesoroError::InvalidMint);
+            require_keys_eq!(a.pool.key(), s.pool, TesoroError::InvalidPool);
+        }
+        None => require_keys_eq!(a.mint.key(), SIM_SOL_MINT, TesoroError::InvalidPool),
     }
     let rate = sim_lst::current_rate(&a.pool, now()?)?;
     let principal = native::shares_value(lst_amount, rate).map_err(core_err)?;
@@ -169,12 +244,15 @@ pub(crate) fn open_native_position(
     a.position.inner = ledger::Position::new(
         a.owner_account.key().to_bytes(),
         SourceChain::Solana,
-        SIM_SOL_MINT.to_bytes(),
+        a.mint.key().to_bytes(),
         a.mint.decimals,
         principal,
         rate_bps,
     )
     .map_err(core_err)?;
+
+    a.position.to_account_info().try_borrow_mut_data()?[PositionState::SPACE] =
+        PositionState::NATIVE_MARKER;
 
     a.custody.bump = ctx.bumps.custody;
     a.custody.vault_bump = ctx.bumps.vault;
@@ -217,11 +295,11 @@ pub struct TakeNativeAdvance<'info> {
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
         constraint = position.inner.owner == owner_account.key().to_bytes() @ TesoroError::Unauthorized,
-        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
+        constraint = is_native(&position) @ TesoroError::NotNativePosition
     )]
     pub position: Account<'info, PositionState>,
     #[account(
-        seeds = [PRICE_SEED, SIM_SOL_MINT.as_ref()],
+        seeds = [PRICE_SEED, position.inner.source_asset.as_ref()],
         bump = price_feed.bump,
         constraint = price_feed.asset.to_bytes() == position.inner.source_asset @ TesoroError::InvalidAccount
     )]
@@ -292,7 +370,7 @@ pub struct ExtendNativeAdvance<'info> {
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
         constraint = position.inner.owner == owner_account.key().to_bytes() @ TesoroError::Unauthorized,
-        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
+        constraint = is_native(&position) @ TesoroError::NotNativePosition
     )]
     pub position: Account<'info, PositionState>,
     /// Its Yield Fee sizes the added months.
@@ -805,7 +883,7 @@ pub struct MigrateNativeCustody<'info> {
     #[account(
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
-        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
+        constraint = is_native(&position) @ TesoroError::NotNativePosition
     )]
     pub position: Account<'info, PositionState>,
     /// CHECK: the custody PDA of `position`, read and resized by hand because its old layout no
