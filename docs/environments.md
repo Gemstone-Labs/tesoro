@@ -61,6 +61,7 @@ Legend: **R** required, **O** optional, **-** not read. Visibility: **public** s
 | `RESEND_API_KEY` | secret | O | R for email | R | `re_...` |
 | `NOTIFY_FROM` | secret | O | R for email | R | `Tesoro <hello@mail.playtesoro.com>` |
 | `NOTIFY_SECRET` | secret | O | R for email | R (shared with that cluster's keeper) | 32+ random bytes, hex |
+| `ALERT_EMAILS` | secret | O | R for keeper alerts | R | `a@x.com,b@y.com`: the founders who get keeper alerts (POST `/api/notify/alert`, `NOTIFY_SECRET`); recipients are never read from a request |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | public | O (empty: skipped) | R | R | `0x4AAAAAAA...` |
 | `TURNSTILE_SECRET_KEY` | secret | O | R | R | `0x4AAAAAAA...` |
 
@@ -98,6 +99,15 @@ The keeper loads `app/.env.local` for any variable its own env leaves unset (loc
 | `NOTIFY_URL` | R for email | R for email | the same deployment's `https://<host>/api/notify/` (trailing slash); test keeper points at the test host, mainnet keeper at www |
 | `NOTIFY_SECRET` | R for email | R for email | equal to that deployment's `NOTIFY_SECRET` |
 | `KEEPER_DIGEST_HOUR_UTC` | O (8) | O (8) | `8` |
+| `ALERT_COMMIT_PENDING_SECS` | O (1800) | O | commits pending longer than this raise an alert |
+| `ALERT_JOB_FAILS` | O (5) | O | a job that threw this many passes in a row raises an alert |
+| `ALERT_JOB_STALE_SECS` | O (1800) | O | a job with no successful run for this long raises an alert |
+| `ALERT_REMINDER_SECS` | O (14400) | O | an alert that lasts is repeated at most this often; a "recovered" mail ends it |
+| `ALERT_MIN_SOL_KEEPER`, `_ORACLE`, `_RELAYER` | O (0.3 / 0.2 / 0.3) | O | minimum SOL per key |
+| `ALERT_MIN_ETH_KEEPER`, `_RELAYER` | O (0.01) | O | minimum native balance of the EVM keys on Ethereum |
+| `ALERT_MIN_HYPE_KEEPER`, `_RELAYER` | O (0.05) | O | minimum native balance of the EVM keys on HyperEVM |
+| `ALERT_ORACLE_SOL_ADDRESS`, `ALERT_RELAYER_SOL_ADDRESS` | O | R to watch them | public addresses (the keeper payer is always watched) |
+| `ALERT_KEEPER_EVM_ADDRESS`, `ALERT_RELAYER_EVM_ADDRESS` | O | R to watch them | `0x...`; the keeper's defaults to the address of `KEEPER_EVM_PRIVATE_KEY` |
 | `KEEPER_HEALTH_HOST`, `KEEPER_HEALTH_PORT` | O | O | `127.0.0.1`, `8787` (one keeper per host or a second port) |
 | `KEEPER_STATE_DIR` | O | R: separate dir per cluster | `~/.local/state/tesoro-keeper-mainnet` |
 | `KEEPER_INTERVAL_SECS`, `KEEPER_WATCHDOG_SECS`, `KEEPER_JOB_LIMIT_SECS`, `KEEPER_RPC_TIMEOUT_MS` | O | O | loop timing |
