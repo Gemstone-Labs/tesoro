@@ -18,6 +18,8 @@ pub const NATIVE_VAULT_SEED: &[u8] = b"native_vault";
 /// PDA that signs `sim_lst::mint_yield`; sim_lst records it as the one yield authority.
 pub const YIELD_SEED: &[u8] = b"yield";
 pub const PRICE_SEED: &[u8] = b"price";
+/// Seed of an asset's on-chain price mapping: `["onchain_price", source_asset]`.
+pub const ONCHAIN_PRICE_SEED: &[u8] = b"onchain_price";
 pub const SEASON_SEED: &[u8] = b"season";
 /// Address (never a signer) that owns the Leaderboard Pool Account: `["leaderboard"]`.
 pub const LEADERBOARD_SEED: &[u8] = b"leaderboard";
@@ -404,6 +406,49 @@ impl PriceFeed {
     pub const SPACE: usize = 8 + 1 + 32 + 8 + 8;
 }
 
+/// Where an asset's Advances read their USD price on mainnet (ADR 0010): the Pyth sponsored push
+/// feed account and the feed id it must carry. Admin-set, seeds `["onchain_price", source_asset]`.
+/// While it exists the oracle-supplied price path (`take_advance`) is closed for that asset.
+#[account]
+pub struct OnchainPrice {
+    pub bump: u8,
+    /// The `source_asset` of the Positions it prices (the staking token's mint or EVM key).
+    pub asset: Pubkey,
+    /// The `PriceUpdateV2` account the price is read from (owned by the Pyth receiver).
+    pub feed: Pubkey,
+    /// The Pyth feed id of the asset's underlying coin (SOL/USD, ETH/USD, HYPE/USD).
+    pub feed_id: [u8; 32],
+    /// The oldest price an Advance accepts; the program caps it at `pyth::MAX_ONCHAIN_PRICE_AGE_SECS`.
+    pub max_age_secs: u32,
+    /// The widest confidence interval an Advance accepts, share of the price in basis points.
+    pub max_conf_bps: u16,
+}
+
+impl OnchainPrice {
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 32 + 4 + 2;
+
+    /// The micro-USD price of one whole unit of the asset, read from the feed account `info`.
+    pub fn read(&self, info: &AccountInfo, now: i64) -> Result<u64> {
+        use crate::error::TesoroError;
+        use crate::pyth::{read_micro_usd, PythError, PYTH_RECEIVER};
+        require_keys_eq!(*info.key, self.feed, TesoroError::BadPriceFeed);
+        require_keys_eq!(*info.owner, PYTH_RECEIVER, TesoroError::BadPriceFeed);
+        let data = info.try_borrow_data()?;
+        read_micro_usd(
+            &data,
+            &self.feed_id,
+            now,
+            self.max_age_secs,
+            self.max_conf_bps,
+        )
+        .map_err(|e| match e {
+            PythError::BadFeed => error!(TesoroError::BadPriceFeed),
+            PythError::Stale => error!(TesoroError::StalePrice),
+            PythError::LowConfidence => error!(TesoroError::PriceTooUncertain),
+        })
+    }
+}
+
 pub fn key(p: &Pubkey) -> Key {
     p.to_bytes()
 }
@@ -532,6 +577,14 @@ pub struct YieldFeeTaken {
 #[event]
 pub struct TreasuryFunded {
     pub shares: u64,
+}
+
+/// The admin mapped an asset to the Pyth feed its Advances are priced from.
+#[event]
+pub struct OnchainPriceSet {
+    pub asset: Pubkey,
+    pub feed: Pubkey,
+    pub feed_id: [u8; 32],
 }
 
 #[event]
