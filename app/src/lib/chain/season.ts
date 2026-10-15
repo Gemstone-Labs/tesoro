@@ -15,6 +15,9 @@ export const PRIZE_PLACES = PRIZE_BPS.length;
 /** A won Match earns `entry / POINTS_DIVISOR` points. */
 export const POINTS_DIVISOR = 100;
 
+/** Only a Player's first this-many wins against the same opponent in a Season earn Points (ADR 0011). */
+export const WINS_PER_OPPONENT = 3;
+
 /** Season number (from 1) containing `ts` (unix seconds); 0 before the first season. */
 export function seasonAt(ts: number): number {
   return ts < SEASON_EPOCH ? 0 : Math.floor((ts - SEASON_EPOCH) / SEASON_SECS) + 1;
@@ -38,6 +41,8 @@ export interface Win {
   /** Unix seconds the Match settled. */
   ts: number;
   matchId: string;
+  /** TesoroAccount that lost. Absent on events from before `MatchWon` named the loser: those are never capped. */
+  loser?: string;
 }
 
 export interface Standing {
@@ -49,13 +54,31 @@ export interface Standing {
   firstWinTs: number;
 }
 
+const byTime = (a: Win, b: Win) => a.ts - b.ts || (a.matchId.length - b.matchId.length || (a.matchId < b.matchId ? -1 : a.matchId > b.matchId ? 1 : 0));
+
 /**
- * The season table from its wins. Order: points (most first), then the earlier first win of the
- * season, then the Account key (so the order is total and every reader agrees).
+ * The Points each win earns: its own, except a Player's 4th and later wins against the same opponent
+ * (counted in event time order) earn 0. Wins with no known loser are never capped.
+ */
+export function cappedWins(wins: Win[]): Win[] {
+  const seen = new Map<string, number>();
+  return [...wins].sort(byTime).map((w) => {
+    if (!w.loser) return w;
+    const key = `${w.player}>${w.loser}`;
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    return n > WINS_PER_OPPONENT ? { ...w, points: 0 } : w;
+  });
+}
+
+/**
+ * The season table from its wins. Points are capped per opponent (`cappedWins`); `wins` still counts every
+ * win, since it is the result and not what pays. Order: points (most first), then the earlier first win of the
+ * season (always a Points-earning one), then the Account key (so the order is total and every reader agrees).
  */
 export function standings(wins: Win[]): Standing[] {
   const by = new Map<string, Standing>();
-  for (const w of wins) {
+  for (const w of cappedWins(wins)) {
     const s = by.get(w.player);
     if (s) {
       s.points += w.points;

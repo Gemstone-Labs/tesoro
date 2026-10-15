@@ -1755,6 +1755,17 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
         .filter(|l| l.starts_with("Program data:"))
         .count();
     assert_eq!(won_events, 2, "MatchSettled and MatchWon");
+    let won: Vec<Vec<u8>> = d
+        .env
+        .last_logs
+        .iter()
+        .filter_map(|l| l.strip_prefix("Program data: "))
+        .map(decode_b64)
+        .filter(|b| b.len() == 8 + 172)
+        .collect();
+    assert_eq!(won.len(), 1, "one MatchWon, layout with the loser last");
+    assert_eq!(&won[0][8 + 48..8 + 80], d.alice.account.as_ref(), "player");
+    assert_eq!(&won[0][8 + 140..], d.bob.account.as_ref(), "loser");
     assert_eq!(d.env.total_gemas(&d.env.platform), 40);
     assert_eq!(d.env.total_gemas(&d.env.studio), 60);
     let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
@@ -1886,4 +1897,26 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
                 .unwrap_or(0);
         assert_eq!(total, d.env.load::<SourceState>(src).inner.outstanding());
     }
+}
+
+fn decode_b64(s: &str) -> Vec<u8> {
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        _ => 63,
+    } as u32;
+    let mut out = Vec::new();
+    let (mut acc, mut bits) = (0u32, 0);
+    for c in s.bytes().take_while(|c| *c != b'=') {
+        acc = (acc << 6) | val(c);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    out
 }
