@@ -43,3 +43,64 @@ export const netApyPct = (rateBps: number, feeBps: number): number => (rateBps *
 
 /** The Instant Redeem rules of tesoro_core `instant_redeem`: `units` is the Gemas' full value, `payout` what is paid now. */
 export const instantPayout = (units: bigint, instantFeeBps: number): bigint => (units * (BPS - BigInt(instantFeeBps))) / BPS;
+
+// --- Accrued Yield computed on the spot (ADR 0010) -------------------------------------------------
+// Mirrors programs/tesoro_core/src/ledger/yield_math.rs and ledger/native.rs. Nothing records yield:
+// Debt and the amount a Gema redeems for are derived from the clock, so these bigint ports must match
+// the Rust numbers exactly (shared fixtures in yield-math.fixtures.json).
+
+/** Growth since a Position opened as the exact ratio `num / den` (mainnet will return `rate now / rate at open` through the same shape). */
+export interface Growth {
+  num: bigint;
+  den: bigint;
+}
+
+/** Devnet growth since open: `1 + apy * (now - openedAt) * speedup / year`; one when `now` is before the open. */
+export function growthSinceOpen(apyBps: number, openedAtSec: number, nowSec: number, speedup: number | bigint = SPEEDUP): Growth {
+  const elapsed = BigInt(Math.max(0, Math.floor(nowSec) - Math.floor(openedAtSec)));
+  const den = BPS * YEAR_SECS;
+  return { num: den + BigInt(apyBps) * elapsed * BigInt(speedup), den };
+}
+
+export interface AccruedYield {
+  gross: bigint;
+  /** The Yield Fee, floored so rounding favours the Position. */
+  fee: bigint;
+  /** What counts toward Debt and free yield: `gross - fee`. */
+  net: bigint;
+}
+
+/** `Principal * (growth - 1)` floored, then split by the Position's Yield Fee. */
+export function accruedYieldAt(principal: bigint, growth: Growth, feeBps: number): AccruedYield {
+  const gross = growth.num > growth.den ? (principal * (growth.num - growth.den)) / growth.den : 0n;
+  const fee = (gross * BigInt(feeBps)) / BPS;
+  return { gross, fee, net: gross - fee };
+}
+
+/** What a native Position fixes at open: its Principal, rate, Yield Fee and the time it opened (Unix seconds). */
+export interface PositionClock {
+  principal: bigint;
+  rateBps: number;
+  yieldFeeBps: number;
+  openedAt: number;
+}
+
+/** Net Accrued Yield of a native Position at `nowSec`; only `speedup` is read live from the sim_lst pool. */
+export const positionAccrued = (p: PositionClock, speedup: number | bigint, nowSec: number): AccruedYield =>
+  accruedYieldAt(p.principal, growthSinceOpen(p.rateBps, p.openedAt, nowSec, speedup), p.yieldFeeBps);
+
+/**
+ * Smallest `nowSec` at which a Position's net Accrued Yield reaches `target` (null when it never will).
+ * Starts from the closed form and steps over the floors, so it agrees with `positionAccrued` to the second.
+ */
+export function secondsUntilNet(p: PositionClock, speedup: number | bigint, target: bigint): number | null {
+  if (target <= 0n) return p.openedAt;
+  const keep = BPS - BigInt(p.yieldFeeBps);
+  const perSec = p.principal * BigInt(p.rateBps) * BigInt(speedup) * keep;
+  if (perSec <= 0n) return null;
+  let elapsed = (target * BPS * BPS * YEAR_SECS) / perSec;
+  const net = (e: bigint) => positionAccrued(p, speedup, p.openedAt + Number(e)).net;
+  while (elapsed > 0n && net(elapsed - 1n) >= target) elapsed--;
+  while (net(elapsed) < target) elapsed++;
+  return p.openedAt + Number(elapsed);
+}

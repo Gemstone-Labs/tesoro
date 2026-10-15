@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { EntryError, MAX_ENTRY_SOURCES, backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, entryProblem, instantSplit, matchDelta, planEntry, redeemableFor, returnableGemas, seatResult, unitsToRepay, type SourceMath } from "./ledger";
+import fixtures from "./yield-math.fixtures.json";
+import { EntryError, MAX_ENTRY_SOURCES, backedSplit, gemasInAsset, backerDelta, covered, debtGemas, feeGemas, entryProblem, instantSplit, matchDelta, planEntry, redeemable, redeemableFor, returnableGemas, seatResult, sourceNow, sourceView, unitsToRepay, unitsToRepayTotal, type SourceMath } from "./ledger";
 
 // The demo Advance: 7,500 Gemas at $150 (unit = 1e13 / 150e6 lamports per Gema).
 const src = (over: Partial<SourceMath> = {}): SourceMath => ({
@@ -210,5 +211,32 @@ describe("gemasInAsset", () => {
     expect(gemasInAsset(7500n, { unitDen: 150_000_000n })).toBeCloseTo(0.5); // $75 of SOL at $150
     expect(gemasInAsset(620n, { unitDen: 3_000_000_000n })).toBeCloseTo(0.0020667, 6); // $6.20 of ETH at $3,000
     expect(gemasInAsset(100n, { unitDen: 0n })).toBe(0);
+  });
+});
+
+describe("Source at the clock (ADR 0010)", () => {
+  const f = fixtures.source;
+  const source: SourceMath = { issued: BigInt(f.issued), returned: BigInt(f.returned), redeemed: BigInt(f.redeemed), yieldUnits: 0n, unitNum: BigInt(f.unitNum), unitDen: BigInt(f.unitDen) };
+
+  it("owes what the Rust ledger says to repay everything live", () => {
+    expect(unitsToRepayTotal(source)).toBe(BigInt(f.owedTotal));
+  });
+
+  it("matches the Rust ledger for Debt, redeemable and free yield", () => {
+    for (const c of fixtures.sourceNow) {
+      const now = sourceNow(source, BigInt(c.net), BigInt(c.applied));
+      expect(now.source.yieldUnits, JSON.stringify(c)).toBe(BigInt(c.yieldUnits));
+      expect(debtGemas(now.source)).toBe(BigInt(c.debt));
+      expect(redeemable(now.source)).toBe(BigInt(c.redeemable));
+      expect(now.freeUnits).toBe(BigInt(c.free));
+    }
+  });
+
+  it("derives only the open Advance, never lowers a stored yield, and reads a closed Source as stored", () => {
+    const open = { openAdvance: 2, appliedNet: 30_000_000n };
+    expect(sourceView(open, 2, source, 50_000_000n).yieldUnits).toBe(20_000_000n);
+    expect(sourceView(open, 2, { ...source, yieldUnits: 25_000_000n }, 50_000_000n).yieldUnits).toBe(25_000_000n);
+    expect(sourceView(open, 1, { ...source, yieldUnits: 9n }, 999_000_000n).yieldUnits).toBe(9n);
+    expect(sourceView({ openAdvance: null, appliedNet: 0n }, 2, source, 999_000_000n).yieldUnits).toBe(0n);
   });
 });
