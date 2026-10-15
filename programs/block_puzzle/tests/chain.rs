@@ -468,6 +468,7 @@ impl Env {
                 caller: a(payer.pubkey()),
                 config: core_pda(&[CONFIG_SEED]),
                 match_state: match_pda(id),
+                opener_protections: None,
             }
             .to_account_metas(None),
         );

@@ -2681,6 +2681,45 @@
                 }
               }
             }
+          },
+          {
+            "name": "leaderboard_bps",
+            "docs": [
+              "Leaderboard Fee in basis points of the Pot. Appended after `games`: an account created",
+              "before it reads the fields as zero (the unused tail of the account is zeroed) and is",
+              "extended by `init_leaderboard`."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "pool_account",
+            "docs": [
+              "The Leaderboard Pool: `TesoroAccount` owned by the `[\"leaderboard\"]` address. Zero until",
+              "`init_leaderboard`; the fee is off while it is."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "leaderboard_since",
+            "docs": [
+              "Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so",
+              "readers show the fee only for Matches opened at or after it. Zero until then."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "entry_sizes",
+            "docs": [
+              "Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /",
+              "1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard",
+              "fields: an account created before reads them as zero from its zeroed tail."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
           }
         ]
       }

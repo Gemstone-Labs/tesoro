@@ -764,6 +764,7 @@ fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
             caller: a(caller.pubkey()),
             config: tpda(&[CONFIG_SEED]),
             match_state: tmatch_pda(env.id),
+            opener_protections: None,
         },
         tesoro_core::instruction::RefundMatch {},
         remaining,

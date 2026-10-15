@@ -2216,6 +2216,20 @@
               "readers show the fee only for Matches opened at or after it. Zero until then."
             ],
             "type": "i64"
+          },
+          {
+            "name": "entry_sizes",
+            "docs": [
+              "Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /",
+              "1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard",
+              "fields: an account created before reads them as zero from its zeroed tail."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
           }
         ]
       }
