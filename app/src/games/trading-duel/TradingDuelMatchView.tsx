@@ -81,6 +81,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         scores={scores}
         scoreNote={duel?.status === STATUS.over ? `${asset.symbol} ended at ${usdMid(duel.track.last ?? duel.anchor, asset)}${isDraw(duel) ? " · equal points: a draw, both entries refunded" : ""}` : undefined}
         momentKey={m.id.toString()}
+        matchId={m.id.toString()}
         playAgainHref={`/play/queue?game=trading-duel&asset=${asset.symbol.toLowerCase()}&entry=${m.entry}`}
         opponent={m.opponent}
         asset={assetIndexFromParam(asset.symbol.toLowerCase())}
