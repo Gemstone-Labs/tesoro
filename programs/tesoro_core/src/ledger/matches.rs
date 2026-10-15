@@ -320,10 +320,11 @@ impl Match {
         finish(out)
     }
 
-    /// Pushes the refund deadline of an Active Match out (never in), for Games whose Matches
-    /// outlast `MATCH_TIMEOUT_SECS`. At most `MAX_MATCH_EXTENSION_SECS` from `now`.
+    /// Pushes the refund deadline of an Open or Active Match out (never in), for Games whose
+    /// Matches outlast `MATCH_TIMEOUT_SECS` or can be played before a second Player joins. At most
+    /// `MAX_MATCH_EXTENSION_SECS` from `now`.
     pub fn extend_deadline(&mut self, now: i64, new_deadline: i64) -> CoreResult<()> {
-        if self.status != MatchStatus::Active {
+        if !matches!(self.status, MatchStatus::Open | MatchStatus::Active) {
             return Err(CoreError::InvalidStatus);
         }
         if now >= self.deadline {

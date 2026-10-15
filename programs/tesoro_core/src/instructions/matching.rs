@@ -371,8 +371,8 @@ pub(crate) fn refund_match<'info>(
     credit_payouts(&payouts, ctx.remaining_accounts)
 }
 
-/// A registered Game's authority pushes an Active Match's refund deadline out, so an async Game
-/// can outlast the default 1h window. Never moves it earlier; capped at `MAX_MATCH_EXTENSION_SECS`.
+/// A registered Game's authority pushes an Open or Active Match's refund deadline out, so an async
+/// Game can outlast the default 1h window (an Open Match waits longer for an opponent too). Never moves it earlier; capped at `MAX_MATCH_EXTENSION_SECS`.
 #[derive(Accounts)]
 pub struct ExtendMatchDeadline<'info> {
     pub game_authority: Signer<'info>,
