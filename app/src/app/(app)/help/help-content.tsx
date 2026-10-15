@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
 
 export const STEPS: { title: string; text: string; href: string; cta: string }[] = [
   { title: "Open a Position", text: "Lock a staking token in your Wallet. Its Principal is never played.", href: "/wallet", cta: "Wallet" },
   { title: "Take an Advance", text: "Get 80% of its projected yield for 1–12 months upfront, as Gemas.", href: "/wallet", cta: "Wallet" },
   { title: "Play a Match", text: "Pick a game and an entry. Win the Pot minus Fees.", href: "/play", cta: "Play" },
-  { title: "Redeem", text: "Turn Gemas into their Source asset as its yield lands, or now for 65%.", href: "/wallet", cta: "Wallet" },
+  { title: "Redeem", text: `Turn Gemas into their Source asset as its yield lands, or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/wallet", cta: "Wallet" },
 ];
 
 export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[] = [
@@ -166,17 +167,17 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Can I redeem won Gemas now?",
         a: (
           <p>
-            Yes. Redeem now pays you 65% of the Gemas&apos; value in their Source asset today, instead of waiting for that Source&apos;s yield to
+            Yes. Redeem now pays you {INSTANT_PAYOUT_PCT}% of the Gemas&apos; value in their Source asset today, instead of waiting for that Source&apos;s yield to
             land. It works for Gemas you won in SOL, ETH or HYPE. Your own Gemas cannot be redeemed this way.
           </p>
         ),
       },
       {
-        q: "Why only 65% when I redeem now?",
+        q: `Why only ${INSTANT_PAYOUT_PCT}% when I redeem now?`,
         a: (
           <p>
-            Because Tesoro pays you today and waits for the yield itself. It takes your Gemas, keeps 35% for the wait and the risk, and redeems the
-            Gemas at full value later. If you can wait, a normal Redeem pays 100%. If Tesoro&apos;s balance for that asset is short, Redeem now is
+            Because Tesoro pays you today and waits for the yield itself. It takes your Gemas, keeps {INSTANT_FEE_PCT}% for the wait and the risk, and redeems the
+            Gemas at full value later. If you can wait, a normal Redeem pays 100%. If Tesoro&apos;s balance for that asset is short, Instant Redeem is
             refused and nothing moves.
           </p>
         ),

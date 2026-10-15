@@ -5,6 +5,7 @@ import { Button, Busy, ChainGlyph, CheckIcon, ClockIcon, GemaAmount, GemaMark, S
 import { Receipts, type Receipt } from "@/components/match/Receipts";
 import { gemasToAsset } from "@/lib/advance";
 import { redeemableOf, useAccount } from "@/lib/account";
+import { INSTANT_UNAVAILABLE_TITLE } from "@/lib/chain/fees";
 import { friendlyError } from "@/lib/chain/native-flow";
 import type { ChainPosition } from "@/lib/chain/read";
 import { returnOwn, returnRows } from "@/lib/chain/return-own";
@@ -110,7 +111,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       )}
       {showInstant && (instant.unavailable || shown.length === 0) ? (
         <div className="mx-empty">
-          <b>Redeem now is not available</b>
+          <b>{INSTANT_UNAVAILABLE_TITLE}</b>
           <p className="meta">{instant.unavailable ?? "None of your won Gemas are waiting on yield. Redeem them at full value."}</p>
           <Button block onClick={onClose}>Close</Button>
         </div>

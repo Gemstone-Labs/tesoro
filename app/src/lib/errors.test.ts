@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADVANCE_REPAID, BUSY, RETRY, UNCONFIRMED, extendFailure, plainError } from "./errors";
+import { ADVANCE_REPAID, INSTANT_UNAVAILABLE, BUSY, RETRY, UNCONFIRMED, extendFailure, plainError } from "./errors";
 
 describe("plainError", () => {
   it("keeps the program's own message", () => {
@@ -37,5 +37,16 @@ describe("extendFailure", () => {
   it("leaves other failures alone", () => {
     const e = new Error("x");
     expect(extendFailure(e)).toBe(e);
+  });
+});
+
+describe("Instant Redeem TreasuryShort", () => {
+  it("shows the unavailable line for the program message and the raw code", () => {
+    expect(plainError(new Error("failed\nProgram log: AnchorError Error Code: TreasuryShort. Error Message: the treasury cannot pay this instant redeem now."))).toBe(INSTANT_UNAVAILABLE);
+    expect(plainError(new Error("Simulation failed. \nMessage: custom program error: 0x1781"))).toBe(INSTANT_UNAVAILABLE);
+    expect(plainError(new Error(`tx failed ${"5".repeat(64)}: {"InstructionError":[0,{"Custom":6017}]}`))).toBe(INSTANT_UNAVAILABLE);
+  });
+  it("does not catch other custom errors", () => {
+    expect(plainError(new Error("Simulation failed. \nMessage: custom program error: 0x1771"))).toBe(RETRY);
   });
 });

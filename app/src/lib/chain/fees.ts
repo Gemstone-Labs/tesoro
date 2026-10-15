@@ -136,3 +136,14 @@ export function replanInstant(confirmed: InstantLine[], fresh: InstantLine[]): I
   if (!shrank) return { kind: "send", lines };
   return { kind: "smaller", lines, gemas: lines.reduce((s, l) => s + l.gemas, 0n) };
 }
+
+export const INSTANT_NOT_OPEN = "Tesoro has not opened Instant Redeem yet.";
+export const INSTANT_UNAVAILABLE_TITLE = "Instant Redeem unavailable right now";
+export const INSTANT_UNAVAILABLE_BODY =
+  "Tesoro's Treasury cannot pay for these Gemas right now. Redeem at full value as their yield lands, or try again later.";
+
+/** Why Instant Redeem cannot be used, or null: no Treasury yet, or a Treasury too short to pay for any won Gemas. */
+export function instantUnavailable({ setUp, payableRows }: { setUp: boolean; payableRows: number }): string | null {
+  if (!setUp) return INSTANT_NOT_OPEN;
+  return payableRows === 0 ? INSTANT_UNAVAILABLE_BODY : null;
+}

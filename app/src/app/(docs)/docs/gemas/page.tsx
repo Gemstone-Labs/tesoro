@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { Shot, SourceDiagram } from "@/components/docs/visual";
+import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
 
 export const metadata: Metadata = { title: "Gemas", alternates: { canonical: "/docs/gemas" } };
 
@@ -51,8 +52,8 @@ export default function Page() {
 
       <H2 id="instant-redeem">Redeem now</H2>
       <p>
-        If you do not want to wait for a Source&apos;s yield, you can <b>Redeem now</b> Gemas you won. You receive <b>65%</b> of their value in the
-        Source asset today. Tesoro keeps the other <b>35%</b>, takes the Gemas and waits for the yield itself, so you never have to.
+        If you do not want to wait for a Source&apos;s yield, you can <b>Redeem now</b> Gemas you won. You receive <b>{INSTANT_PAYOUT_PCT}%</b> of their value in the
+        Source asset today. Tesoro keeps the other <b>{INSTANT_FEE_PCT}%</b>, takes the Gemas and waits for the yield itself, so you never have to.
       </p>
       <ul>
         <li>It works for SOL, ETH and HYPE Gemas you won. Your own Gemas, the ones from your own Positions, cannot be redeemed this way.</li>
