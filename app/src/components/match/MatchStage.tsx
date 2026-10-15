@@ -5,6 +5,7 @@ import { ChartCandlestick, Check, ChevronDown, Clock, Copy, EyeOff, Hourglass, L
 import { Busy, CountUp, GemaMark } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { commitCopy, type CommitState } from "@/lib/chain/commit-pending";
+import { refundByText } from "@/lib/chain/match-status";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES, type GameId } from "@/lib/mock";
 import "./match-stage.css";
@@ -34,14 +35,27 @@ export interface StageInfo {
   backedShareBps?: number | null;
   /** Closing: the result is in and waiting to be committed to the chain. */
   commit?: CommitState | null;
+  /** The Match is past its settle time and not settled (from `matchStanding`): it refunds by `refundBy`. */
+  delayed?: { refundBy: number; refundOpen: boolean } | null;
 }
 
 const HIDDEN: Record<GameId, string> = { "block-puzzle": "Pieces hidden", holdem: "Cards hidden", "trading-duel": "Picks hidden" };
+
+/** Plain words for a Match that should have settled: the Gemas are safe and the refund has a time. */
+export function delayedCopy(d: { refundBy: number; refundOpen: boolean }): { title: string; line: string } {
+  return d.refundOpen
+    ? { title: "Delayed, refund is open", line: "This Match should have settled by now. Your entry is safe: refund the Match to get it back, or wait for the result." }
+    : {
+        title: "Delayed",
+        line: `This Match should have settled by now. Your entry is safe: if it has not settled by ${refundByText(d.refundBy, Date.now())}, it is refunded. You can leave this page.`,
+      };
+}
 
 /** Title and one line per state: everything else is a chip or sits behind "How this works". */
 function copy(m: StageInfo): { kicker: string; title: string; line: string } {
   const g = GAME_NAMES[m.game];
   const opp = "your opponent";
+  if (m.delayed && (m.kind === "awaiting" || m.kind === "closing")) return { kicker: `${g} · Match delayed`, ...delayedCopy(m.delayed) };
   switch (m.kind) {
     case "waiting-run":
       return { kicker: `${g} · score in`, title: "Waiting for an opponent", line: "They get the same pieces and play against your score." };
@@ -126,6 +140,12 @@ function Facts({ m, now }: { m: StageInfo; now: number }) {
           90 s
         </li>
       )}
+      {m.delayed && !m.delayed.refundOpen ? (
+        <li>
+          <Hourglass aria-hidden="true" />
+          Refunds by <b className="tnum">{refundByText(m.delayed.refundBy, now)}</b>
+        </li>
+      ) : null}
       {m.deadline && (m.kind === "waiting" || m.kind === "waiting-run") ? (
         <li>
           <Hourglass aria-hidden="true" />

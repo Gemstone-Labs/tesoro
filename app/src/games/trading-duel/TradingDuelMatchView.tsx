@@ -10,6 +10,8 @@ import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { Receipts } from "@/components/match/Receipts";
+import { delayedOf } from "@/lib/chain/match-status";
+import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction } from "@/components/match/MatchStage";
 import { useGuideHidden } from "@/components/guide/Guide";
 import { STATUS } from "./chain";
@@ -34,6 +36,7 @@ function useSide(account: string | null | undefined, fallback: string): GridSide
 export function TradingDuelMatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
+  const nowSecs = useNowSecs();
   const id = (() => {
     try {
       return BigInt(matchId);
@@ -100,6 +103,7 @@ export function TradingDuelMatchView({ matchId }: { matchId: string }) {
         asset={asset.symbol}
         step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" && !view.commit ? view.note || "Saving the result" : undefined}
         commit={kind === "closing" ? view.commit : null}
+        delayed={kind === "closing" ? delayedOf(m, nowSecs) : null}
         deadline={m.deadline || undefined}
         challengeLink={m.challenge && kind === "waiting" ? link : null}
         backedShareBps={m.backing && m.seat !== null ? m.backing.shareBps : null}
