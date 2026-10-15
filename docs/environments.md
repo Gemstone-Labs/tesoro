@@ -48,6 +48,10 @@ Legend: **R** required, **O** optional, **-** not read. Visibility: **public** s
 | `NEXT_PUBLIC_HOODI_RPC` | public | O | O (default publicnode) | - | `https://ethereum-hoodi-rpc.publicnode.com` |
 | `NEXT_PUBLIC_ETHEREUM_RPC` | public | - | - | R Alchemy, key restricted to the host | `https://eth-mainnet.g.alchemy.com/v2/<key>` |
 | `NEXT_PUBLIC_HYPEREVM_RPC` | public | O (testnet default) | O | R Alchemy HyperEVM | `https://hyperliquid-mainnet.g.alchemy.com/v2/<key>` |
+| `NEXT_PUBLIC_WSTETH_VAULT` | public | - | - | R after deploy (Ethereum wstETH vault; the ETH tab says "not available yet" while unset) | `0x…` |
+| `NEXT_PUBLIC_LIDO_ZAP` | public | - | - | R after deploy (open with plain ETH) | `0x…` |
+| `NEXT_PUBLIC_KHYPE_VAULT` | public | - | - | R after deploy (HyperEVM kHYPE vault) | `0x…` |
+| `NEXT_PUBLIC_KINETIQ_ZAP` | public | - | - | R after deploy (open with plain HYPE) | `0x…` |
 | `TESORO_SOL_MAINNET_RPC`, `TESORO_ETH_MAINNET_RPC` | secret | O | O | O | name lookups (`.sol`, `.eth`) read mainnet in every deployment; default to public RPCs |
 | `TESORO_HLN_API`, `TESORO_HLN_API_KEY` | secret | O | O | O (own key) | Hyperliquid Names lookup |
 
