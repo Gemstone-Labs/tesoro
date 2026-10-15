@@ -1,4 +1,5 @@
 import { ChainsStage } from "./chains/ChainsStage";
+import { BRAND } from "@/lib/brand";
 
 export function Multichain() {
   return (
@@ -9,7 +10,7 @@ export function Multichain() {
             One ledger, every chain
           </h2>
           <p className="lp-lede" data-reveal>
-            Positions stay on their home chains; Tesoro connects them to the Solana ledger.
+            Positions stay on their home chains; {BRAND.name} connects them to the Solana ledger.
           </p>
         </header>
         <div data-reveal>

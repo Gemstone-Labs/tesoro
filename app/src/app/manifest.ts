@@ -1,9 +1,10 @@
 import type { MetadataRoute } from "next";
+import { BRAND } from "@/lib/brand";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Tesoro",
-    short_name: "Tesoro",
+    name: BRAND.name,
+    short_name: BRAND.name,
     description: "Play now with yield you haven't earned yet. Skill games on Solana; your staking Principal is never played.",
     start_url: "/lobby",
     display: "standalone",

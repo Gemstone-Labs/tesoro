@@ -8,6 +8,7 @@ import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/P
 import { TesoroLogo } from "@/components/brand";
 import { useAccount } from "@/lib/account";
 import { accountKeyOf } from "@/lib/chain/account-key";
+import { BRAND } from "@/lib/brand";
 
 type NavItem = { href: string; label: string; Icon: LucideIcon };
 const LOBBY: NavItem = { href: "/lobby", label: "Lobby", Icon: House };
@@ -33,7 +34,7 @@ export function isHere(path: string, href: string): boolean {
 
 export function Wordmark({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <Link href="/lobby" className="wordmark" aria-label="Tesoro, home" onClick={onNavigate}>
+    <Link href="/lobby" className="wordmark" aria-label={`${BRAND.name}, home`} onClick={onNavigate}>
       <TesoroLogo height={34} />
     </Link>
   );

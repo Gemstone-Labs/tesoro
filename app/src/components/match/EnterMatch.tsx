@@ -20,6 +20,7 @@ import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
 import { plainError } from "@/lib/errors";
 import "./enter.css";
+import { BRAND } from "@/lib/brand";
 
 export type EnterKind =
   | { kind: "queue"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string }
@@ -254,7 +255,7 @@ export function EnterMatch(props: EnterKind) {
             {!found && <p className="meta">{waitLine}</p>}
           </>
         )}
-        {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your Tesoro Account as part of this step.</p>}
+        {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your {BRAND.name} Account as part of this step.</p>}
       </div>
     </section>
   );

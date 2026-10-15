@@ -9,6 +9,7 @@ import { THEME_KEY, type Theme } from "@/components/landing/theme";
 import { useTheme } from "@/components/landing/useTheme";
 import { NavList } from "./NavList";
 import { ALL_PAGES } from "./nav";
+import { BRAND } from "@/lib/brand";
 
 export function DocsHeader() {
   const theme = useTheme();
@@ -66,7 +67,7 @@ export function DocsHeader() {
         <button type="button" className="icon-btn cut docs-menu-btn" aria-expanded={menu} aria-controls="docs-menu" onClick={() => setMenu((m) => !m)} aria-label={menu ? "Close menu" : "Open menu"}>
           {menu ? <X aria-hidden /> : <Menu aria-hidden />}
         </button>
-        <Link href="/" className="docs-logo" aria-label="Tesoro, home">
+        <Link href="/" className="docs-logo" aria-label={`${BRAND.name}, home`}>
           <TesoroLogo height={28} tone="dark" className="on-dark" />
           <TesoroLogo height={28} tone="light" className="on-light" />
         </Link>

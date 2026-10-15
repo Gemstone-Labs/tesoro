@@ -9,6 +9,7 @@ import { CLUSTER } from "@/lib/cluster-settings";
 import { inviteFromSearch } from "@/lib/invite-link";
 import { plainError } from "@/lib/errors";
 import { TEST_ORIGIN } from "@/lib/site";
+import { BRAND } from "@/lib/brand";
 import "./account.css";
 
 export interface InviteEntryViewProps {
@@ -57,7 +58,7 @@ export function InviteEntryView({ code, onCode, onSubmit, busy = null, error = n
         {busy ?? "Use my Invite"}
       </Button>
       <p className="meta">
-        No code yet? <a href={TEST_ORIGIN}>Try test mode at test.playtesoro.com</a>, open to everyone.
+        No code yet? <a href={TEST_ORIGIN}>Try test mode at test.{BRAND.domain}</a>, open to everyone.
       </p>
     </form>
   );

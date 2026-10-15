@@ -6,10 +6,11 @@ import { DocsHeader } from "@/components/docs/DocsHeader";
 import { NavList } from "@/components/docs/NavList";
 import { TocRail } from "@/components/docs/TocRail";
 import { ThemeBoot } from "@/components/landing/ThemeBoot";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: { default: "Docs · Tesoro", template: "%s · Tesoro Docs" },
-  description: "How Tesoro works, in plain words for players and in full detail for developers.",
+  title: { default: `Docs · ${BRAND.name}`, template: `%s · ${BRAND.name} Docs` },
+  description: `How ${BRAND.name} works, in plain words for players and in full detail for developers.`,
 };
 
 /** Docs: static pages with the landing's light and dark themes, none of the app's providers or chain calls. */

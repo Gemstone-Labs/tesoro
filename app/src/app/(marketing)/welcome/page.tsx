@@ -10,9 +10,10 @@ import { LandingMotion } from "@/components/landing/LandingMotion";
 import { Multichain } from "@/components/landing/Multichain";
 import { Nav } from "@/components/landing/Nav";
 import { Studios } from "@/components/landing/Studios";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: "Tesoro · Play now with yield you haven't earned yet",
+  title: `${BRAND.name} · Play now with yield you haven't earned yet`,
   alternates: { canonical: "/welcome" },
 };
 

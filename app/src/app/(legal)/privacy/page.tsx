@@ -3,17 +3,18 @@ import Link from "next/link";
 import { LegalPage, Section } from "@/components/legal/LegalPage";
 import { DataTable } from "@/components/docs/prose";
 import { ENTITY } from "@/lib/legal/entity";
+import { BRAND } from "@/lib/brand";
 
 // DRAFT PENDING LEGAL REVIEW: written in-house, not yet reviewed by a lawyer. See lib/legal/entity.ts.
 const TITLE = "Privacy Policy";
-const DESCRIPTION = "What Tesoro collects, why, who sees it, and your choices.";
+const DESCRIPTION = `What ${BRAND.name} collects, why, who sees it, and your choices.`;
 
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   alternates: { canonical: "/privacy" },
-  openGraph: { title: `${TITLE} · Tesoro`, description: DESCRIPTION, siteName: "Tesoro", type: "website", images: "/opengraph-image.png" },
-  twitter: { card: "summary_large_image", title: `${TITLE} · Tesoro`, description: DESCRIPTION, images: "/twitter-image.png" },
+  openGraph: { title: `${TITLE} · ${BRAND.name}`, description: DESCRIPTION, siteName: BRAND.name, type: "website", images: "/opengraph-image.png" },
+  twitter: { card: "summary_large_image", title: `${TITLE} · ${BRAND.name}`, description: DESCRIPTION, images: "/twitter-image.png" },
 };
 
 export default function Privacy() {
@@ -21,14 +22,14 @@ export default function Privacy() {
     <LegalPage title={TITLE} lede={DESCRIPTION}>
       <Section id="who" title="Who we are">
         <p>
-          {ENTITY.name}, {ENTITY.form}, {ENTITY.address}, runs Tesoro and decides how the data described here is used. This policy explains it. It goes with our{" "}
+          {ENTITY.name}, {ENTITY.form}, {ENTITY.address}, runs {BRAND.name} and decides how the data described here is used. This policy explains it. It goes with our{" "}
           <Link href="/terms">Terms of Service</Link>. Questions: {ENTITY.privacyEmail}.
         </p>
       </Section>
 
       <Section id="public" title="Read this first: blockchains are public">
         <p>
-          Tesoro is built on public blockchains. Your wallet addresses, your Positions, Advances, Gemas, Matches, Backings, Season results, and your Profile name and
+          {BRAND.name} is built on public blockchains. Your wallet addresses, your Positions, Advances, Gemas, Matches, Backings, Season results, and your Profile name and
           picture are written on chain. Anyone can read them, forever, and nobody, including us, can edit or erase them. If someone links an address to your
           identity, they can see everything it has done. Choose your Profile name and picture with that in mind, and never put personal details in them.
         </p>
@@ -43,7 +44,7 @@ export default function Privacy() {
             ["Profile name and picture", "You choose them. Public, kept on chain.", "To show you to other Players."],
             ["18+ confirmation", "You tell us once, before your first Match.", "To record that you said you are at least 18. Self-declared; we do not check your age."],
             ["Protections and fair-play records", "Your Entry Limit, Break, Self-Exclusion, and signals used to find bots and multiple Accounts.", "To enforce your limits and our fair-play rules."],
-            ["Server logs and device data", "Your browser when you use our site: IP address, browser type, pages and times, errors.", "To keep Tesoro secure and working, stop abuse, and fix bugs."],
+            ["Server logs and device data", "Your browser when you use our site: IP address, browser type, pages and times, errors.", `To keep ${BRAND.name} secure and working, stop abuse, and fix bugs.`],
             ["Messages to us", "What you send us.", "To reply and keep a record."],
           ]}
         />
@@ -52,20 +53,20 @@ export default function Privacy() {
 
       <Section id="use" title="How we use it">
         <ul>
-          <li>To provide Tesoro: sign-in, Accounts, Matches, redemptions, Seasons and payouts.</li>
+          <li>To provide {BRAND.name}: sign-in, Accounts, Matches, redemptions, Seasons and payouts.</li>
           <li>To send Invites, service notices and the notification emails you turned on. You can turn them off.</li>
-          <li>To keep Tesoro safe: finding bots, multiple Accounts and cheating, and handling disputes.</li>
+          <li>To keep {BRAND.name} safe: finding bots, multiple Accounts and cheating, and handling disputes.</li>
           <li>To follow the law and protect our rights.</li>
-          <li>To understand how Tesoro is used, so we can improve it, in aggregate.</li>
+          <li>To understand how {BRAND.name} is used, so we can improve it, in aggregate.</li>
         </ul>
         <p>
           Where the law asks for a legal basis (for example in the UK and EU), we rely on performing our contract with you, our legitimate interest in running and
-          protecting Tesoro, your consent (for example for marketing email), and legal obligations.
+          protecting {BRAND.name}, your consent (for example for marketing email), and legal obligations.
         </p>
       </Section>
 
       <Section id="share" title="Who we share it with">
-        <p>We use these services to run Tesoro. Each sees only what it needs, and has its own privacy policy.</p>
+        <p>We use these services to run {BRAND.name}. Each sees only what it needs, and has its own privacy policy.</p>
         <DataTable
           head={["Provider", "For", "What it sees"]}
           rows={[
@@ -81,14 +82,14 @@ export default function Privacy() {
           ]}
         />
         <p>
-          We may also share data with professional advisers, with a buyer if Gemstone Labs is sold or merged, and with authorities when the law requires it or to
-          protect Players and Tesoro. Providers may change as Tesoro grows; we will update this list.
+          We may also share data with professional advisers, with a buyer if {BRAND.companyName} is sold or merged, and with authorities when the law requires it or to
+          protect Players and {BRAND.name}. Providers may change as {BRAND.name} grows; we will update this list.
         </p>
       </Section>
 
       <Section id="transfers" title="Where it goes">
         <p>
-          Gemstone Labs is in the United States, and so are many of our providers. If you are elsewhere, your data will be processed in the United States and other
+          {BRAND.companyName} is in the United States, and so are many of our providers. If you are elsewhere, your data will be processed in the United States and other
           countries that may have different data laws. Where required, we use legal safeguards for these transfers.
         </p>
       </Section>
@@ -118,7 +119,7 @@ export default function Privacy() {
       </Section>
 
       <Section id="age" title="Age">
-        <p>Tesoro is for people aged {ENTITY.minAge} and over. We do not knowingly collect data from anyone younger. If you think a child has given us data, write to us and we will delete it.</p>
+        <p>{BRAND.name} is for people aged {ENTITY.minAge} and over. We do not knowingly collect data from anyone younger. If you think a child has given us data, write to us and we will delete it.</p>
       </Section>
 
       <Section id="cookies" title="Cookies and similar tools">

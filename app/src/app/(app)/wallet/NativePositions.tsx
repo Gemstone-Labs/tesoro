@@ -40,6 +40,7 @@ import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
 import { OpenFormView } from "./OpenPanel";
 import { ExtendLimitPanel } from "./ExtendLimit";
 import { PositionTile, sampledSeries } from "./PositionTile";
+import { BRAND } from "@/lib/brand";
 
 const fmtSol = (lamports: bigint | number, digits = 4) => (Number(lamports) / LAMPORTS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
@@ -257,7 +258,7 @@ export function NativePositionCard({ position, market, onRedeem, extend = EXTEND
       series={series}
       notes={
         <>
-          <p className="note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated). Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
+          <p className="note">Accrued yield {fmtSol(accruedYield, 5)} SOL (simulated). {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {unapplied > 0n && locked && (
             <p className="note">
               <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unapplied))} Gemas of Debt are already repaid by yield and get applied on the next refresh (it happens automatically every ~20 s).

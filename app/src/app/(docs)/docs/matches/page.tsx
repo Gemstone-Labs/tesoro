@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { GameCards, PayoutBar, Shot } from "@/components/docs/visual";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Games and Matches", alternates: { canonical: "/docs/matches" } };
 
@@ -22,7 +23,7 @@ export default function Page() {
         ]}
       />
       <p>
-        Only the Game&apos;s own program can settle its Matches. Tesoro never decides a result by hand. See <Link href="/docs/fairness">Fairness and
+        Only the Game&apos;s own program can settle its Matches. {BRAND.name} never decides a result by hand. See <Link href="/docs/fairness">Fairness and
         privacy</Link>.
       </p>
 
@@ -35,7 +36,7 @@ export default function Page() {
           opponent is paired.
         </li>
         <li>
-          <b>Challenge.</b> Open a Match for a specific opponent and send them a link. The link is the only way a Challenge reaches them: Tesoro does not
+          <b>Challenge.</b> Open a Match for a specific opponent and send them a link. The link is the only way a Challenge reaches them: {BRAND.name} does not
           deliver it for you.
         </li>
         <li>
@@ -55,7 +56,7 @@ export default function Page() {
         <li>If you are first, you have a one-hour Queue window for an opponent to join. After someone joins, they have 24 hours to play their run; if they never begin, you win by forfeit.</li>
       </ul>
 
-      <Shot name="block-puzzle" url="playtesoro.com/play/…" alt="A Block Puzzle run: the board, the three pieces and the score" caption="A Block Puzzle run. Both Players get the same pieces." />
+      <Shot name="block-puzzle" url={`${BRAND.domain}/play/…`} alt="A Block Puzzle run: the board, the three pieces and the score" caption="A Block Puzzle run. Both Players get the same pieces." />
 
       <H2 id="holdem">Hold&apos;em</H2>
       <p>
@@ -68,7 +69,7 @@ export default function Page() {
         <li>The deck is shuffled with randomness from both Players and a random-number service; nobody can see the deck, and your hole cards are visible only to you. Cards are revealed only at a showdown.</li>
       </ul>
 
-      <Shot name="holdem" url="playtesoro.com/play/…" alt="A Hold'em table, heads-up, with the pot and action buttons" caption="Heads-up Hold'em. Only you see your hole cards." />
+      <Shot name="holdem" url={`${BRAND.domain}/play/…`} alt="A Hold'em table, heads-up, with the pot and action buttons" caption="Heads-up Hold'em. Only you see your hole cards." />
 
       <H2 id="trading-duel">Trading Duel</H2>
       <p>

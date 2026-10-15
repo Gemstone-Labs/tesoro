@@ -3,6 +3,7 @@ import Link from "next/link";
 import { DocPage, H2 } from "@/components/docs/prose";
 import { Eye, EyeOff, Gamepad2, Calculator, Scale } from "lucide-react";
 import { Pipeline } from "@/components/docs/visual";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Fairness and privacy", alternates: { canonical: "/docs/fairness" } };
 
@@ -17,13 +18,13 @@ export default function Page() {
 ]} />}>
       <p>
         A head-to-head game is only fair if neither Player can see what they should not, and the result is calculated by rules both Players can
-        check. This page says how Tesoro does that, and where you still have to trust someone.
+        check. This page says how {BRAND.name} does that, and where you still have to trust someone.
       </p>
 
       <H2 id="no-game-servers">Games run on chain, not on our servers</H2>
       <p>
-        Each Game is a program on Solana, not a server owned by Tesoro or by the Game&apos;s maker. The program holds the Match state and works out the
-        result, and only the Game&apos;s registered program can settle a Match&apos;s Pot. Nobody at Tesoro types in a winner.
+        Each Game is a program on Solana, not a server owned by {BRAND.name} or by the Game&apos;s maker. The program holds the Match state and works out the
+        result, and only the Game&apos;s registered program can settle a Match&apos;s Pot. Nobody at {BRAND.name} types in a winner.
       </p>
 
       <H2 id="hidden-information">Hidden information stays hidden</H2>
@@ -34,14 +35,14 @@ export default function Page() {
       </ul>
       <p>
         This is done with MagicBlock&apos;s private environment, which runs on secure hardware. Randomness comes from a verifiable random-number service
-        and, in Hold&apos;em, from secrets both Players contribute, so neither a Player nor Tesoro can steer the shuffle.
+        and, in Hold&apos;em, from secrets both Players contribute, so neither a Player nor {BRAND.name} can steer the shuffle.
       </p>
 
       <H2 id="results">Results you can check</H2>
       <ul>
         <li>Your Block Puzzle score is the game program&apos;s replay of your moves. There is no way to submit a score, and an illegal move is rejected.</li>
         <li>The settlement of every Match is a transaction on Solana. Anyone can open the Match page and see the result, the Fees and who got what.</li>
-        <li>Time limits, such as a Hold&apos;em turn or a Block Puzzle run, are enforced by the program, and anyone can trigger a timeout or a refund; you do not have to wait for Tesoro.</li>
+        <li>Time limits, such as a Hold&apos;em turn or a Block Puzzle run, are enforced by the program, and anyone can trigger a timeout or a refund; you do not have to wait for {BRAND.name}.</li>
       </ul>
 
       <H2 id="what-you-trust">What you still have to trust</H2>

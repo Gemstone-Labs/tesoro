@@ -81,6 +81,7 @@ import {
 } from "@/lib/chain/eth-track";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
+import { BRAND } from "@/lib/brand";
 
 const solscan = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -351,7 +352,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       }
       note={
         <>
-          You sign once to link your wallet, then {native ? `stake your ${unit} with ${vault.symbol === "kHYPE" ? "Kinetiq" : "Lido"} and open in one step` : "approve and open"} on {net.label}. Once your Position reaches Tesoro, in about 2 to 5
+          You sign once to link your wallet, then {native ? `stake your ${unit} with ${vault.symbol === "kHYPE" ? "Kinetiq" : "Lido"} and open in one step` : "approve and open"} on {net.label}. Once your Position reaches {BRAND.name}, in about 2 to 5
           minutes, your Advance is taken while this page or your Wallet is open. The Unlock Estimate is an estimate, not a promise.{" "}
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
@@ -685,7 +686,7 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
       notes={
         <>
           {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol}{vault?.simulated === false ? "" : " (simulated)"} to your wallet on {net.label}.</p>}
-          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native}{vault?.simulated === false ? "" : " (simulated)"}. Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
+          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native}{vault?.simulated === false ? "" : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {unreported > 0n && locked && (
             <p className="note">
               <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to apply it (a small cross-chain fee).

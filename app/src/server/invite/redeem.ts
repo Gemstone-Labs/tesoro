@@ -2,6 +2,7 @@ import { DemoHttpError, NonceStore, verifySignedRequest, type AuthEnv } from "..
 import type { NotifyStore } from "../notify/store";
 import { WindowLimiter, takeAll } from "../rate-limit";
 import { hashCode, normalizeCode, type InviteStore } from "./store";
+import { BRAND } from "../../lib/brand";
 
 export interface RedeemDeps {
   invites: InviteStore;
@@ -34,7 +35,7 @@ export async function handleRedeem(deps: RedeemDeps, body: unknown, authorizatio
   if (!takeAll([[byAuthority, authority], ...(req.sub ? ([[bySub, req.sub]] as const) : [])])) {
     throw new DemoHttpError(429, "rate-limited", "Too many tries. Try again in an hour.");
   }
-  if (await deps.accountExists(authority)) throw new DemoHttpError(409, "has-account", "This wallet already has a Tesoro Account.");
+  if (await deps.accountExists(authority)) throw new DemoHttpError(409, "has-account", `This wallet already has a ${BRAND.name} Account.`);
 
   const claim = await deps.invites.claim(hashCode(code), authority);
   if (claim.state === "unknown") throw new DemoHttpError(404, "unknown-code", "That Invite code isn’t valid.");
