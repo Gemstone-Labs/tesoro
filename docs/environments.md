@@ -82,6 +82,7 @@ Each is the keypair file's JSON array (Solana) or a 0x hex key (EVM). Locally th
 | `TESORO_ORACLE_SECRET_KEY` | secret | R | R only if a route needs it | test mode oracle; mainnet reads on-chain feeds |
 | `TESORO_RELAYER_EVM_PRIVATE_KEY` | secret | R | R only for relay routes | EVM relayer; the mainnet cluster refuses the top-up and faucet steps |
 | `TESORO_HYPE_TOPUP_MAX_PER_HOUR` | secret | O | - | test-mode HYPE drip cap |
+| `INVITE_SECRET_KEY` | secret | - | R | the single-purpose Invite key (ADR 0011): base58 or the keypair JSON array. Co-signs `create_account` after a valid code. Its public key is what `set_invite_gate` registers. Never logged. Production-only; needs `SUPABASE_*` for the `invites` table (migration `0003_invites.sql`). No `NEXT_PUBLIC_` variable is needed: the browser never sees the key. |
 
 Never reuse a test key on mainnet. The single-purpose mainnet keys are ticket 36.
 
