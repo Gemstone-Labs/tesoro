@@ -1,4 +1,5 @@
 import { Budget, log, runJob, type Ctx } from "./act.ts";
+import { stakeApyJob } from "./apy.ts";
 import { alertsJob } from "./alerts-job.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
@@ -28,6 +29,7 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
     ["price", priceJob],
     ["match", matchHygiene],
     ["backing", backingHygiene],
+    ["apy", stakeApyJob],
     ["yield", yieldJob],
     ["bridge", bridgeJob],
     ["eth", ethYieldJob],
