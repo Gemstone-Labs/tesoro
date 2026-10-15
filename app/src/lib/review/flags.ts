@@ -162,3 +162,17 @@ export function reviewFlags(seasons: SeasonInput[]): Flag[] {
     .sort((a, b) => b.season - a.season)
     .flatMap((s) => [...timingFlags(s.season, s.runs), ...pairFlags(s.season, s.wins), ...winRateFlags(s.season, s.wins)]);
 }
+
+export interface ReviewSeason {
+  number: number;
+  /** "current", or "payout-window" for the Season that ended less than 48 hours ago. */
+  phase: "current" | "payout-window";
+  windowEnds?: number;
+}
+
+export interface ReviewReply {
+  now: number;
+  seasons: ReviewSeason[];
+  flags: Flag[];
+}
+
