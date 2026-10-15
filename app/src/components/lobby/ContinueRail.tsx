@@ -8,7 +8,10 @@ import { GemaMark } from "@/components/ui";
 import { CATALOGUE } from "@/lib/catalogue";
 import { commitPendingKey } from "@/lib/chain/commit-pending";
 import { matchFee } from "@/lib/chain/ledger";
+import { probeRun, type RunStage } from "@/lib/chain/match-flow";
 import { delayedLine, matchStanding } from "@/lib/chain/match-status";
+import { playRunLine, unplayedRun } from "@/lib/chain/run-status";
+import { useAccount } from "@/lib/account";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
@@ -18,9 +21,11 @@ const subscribeNothing = () => () => {};
 const nowSecs = () => Math.floor(Date.now() / 1000);
 
 /** Where a Match stands for its Player, and the action that card leads to. A Match with an opponent comes first. */
-function stage(m: ChainMatch, sending = false, nowMs = Date.now()) {
+function stage(m: ChainMatch, sending = false, nowMs = Date.now(), run?: RunStage) {
   const standing = matchStanding(m, Math.floor(nowMs / 1000));
   if (standing.kind === "delayed") return { key: "delayed", status: delayedLine(standing, nowMs), action: "View", ready: false };
+  const unplayed = unplayedRun(m, Math.floor(nowMs / 1000), run);
+  if (unplayed) return { key: "ready", status: playRunLine(unplayed, nowMs), action: "Play", ready: true };
   if (m.status === "active" && sending) return { key: "sending", status: "Result on its way", action: "View", ready: false };
   if (m.status === "active") return { key: "ready", status: "Opponent found", action: "Resume", ready: true };
   if (m.challenge) return { key: "waiting", status: "Waiting for your friend", action: "Open", ready: false };
@@ -34,6 +39,36 @@ function timeLeft(s: number) {
   return `${Math.floor(s / 3600)} h${min ? ` ${min} min` : ""} left`;
 }
 
+/** Where the Player's own run stands in each open Block Puzzle Match (the Board lives in the rollup, so it is probed without ever asking the wallet to sign on the Lobby). */
+function useRunStages(matches: ChainMatch[]) {
+  const { auth } = useAccount();
+  const signer = auth.signer;
+  const [stages, setStages] = useState<Record<string, RunStage>>({});
+  const ids = matches
+    .filter((m) => m.game === "block-puzzle" && m.seat !== null && m.session && !m.session.settled)
+    .map((m) => m.id.toString())
+    .join(",");
+  useEffect(() => {
+    if (!signer || !ids) return;
+    let stopped = false;
+    const wanted = new Set(ids.split(","));
+    for (const m of matches) {
+      const k = m.id.toString();
+      if (!wanted.has(k)) continue;
+      probeRun(signer, m, false, true).then(
+        (r) => !stopped && setStages((s) => (s[k] === r ? s : { ...s, [k]: r })),
+        () => undefined,
+      );
+    }
+    return () => {
+      stopped = true;
+    };
+    // Probe when the set of Matches changes, not on every Account refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signer, ids]);
+  return stages;
+}
+
 /** The Player's open Matches: game art, where each stands, what is in and what it pays, and the time left. */
 export function ContinueRail({ matches }: { matches: ChainMatch[] }) {
   const [now, setNow] = useState(nowSecs);
@@ -42,7 +77,8 @@ export function ContinueRail({ matches }: { matches: ChainMatch[] }) {
     return () => clearInterval(t);
   }, []);
   const sending = useSyncExternalStore(subscribeNothing, commitPendingKey, () => "");
-  const st = (m: ChainMatch) => stage(m, sending.split(",").includes(m.id.toString()), now * 1000);
+  const runs = useRunStages(matches);
+  const st = (m: ChainMatch) => stage(m, sending.split(",").includes(m.id.toString()), now * 1000, runs[m.id.toString()]);
   const sorted = [...matches].sort((a, b) => Number(st(b).ready) - Number(st(a).ready) || a.deadline - b.deadline);
 
   return (

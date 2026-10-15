@@ -17,7 +17,7 @@ export async function flowEntry(onStep?: (s: string) => void): Promise<real.Ente
 }
 
 export const enterQueue = (...a: Parameters<typeof real.enterQueue>) => (flowFrame() ? flowEntry(a[4]) : real.enterQueue(...a));
-export const createChallenge = async (...a: Parameters<typeof real.createChallenge>) => (flowFrame() ? (await flowEntry()).id : real.createChallenge(...a));
+export const createChallenge = async (...a: Parameters<typeof real.createChallenge>) => (flowFrame() ? (await flowEntry(a[5])).id : real.createChallenge(...a));
 export const joinChallenge = async (...a: Parameters<typeof real.joinChallenge>) => (flowFrame() ? void (await flowEntry()) : real.joinChallenge(...a));
 
 export const ensureJoined = async () => {};
