@@ -389,21 +389,23 @@ function holdemChallenge(): Frame[] {
       steps: [
         {
           label: "Checking your SOL and Account",
+          status: "Checking your SOL and Account…",
           layers: ["server", "solana"],
           what: "New Challenge from the Game page. Opening the page is the confirmation. SOL for fees and the Tesoro Account first.",
           calls: ["ensureSol → POST /api/demo (fund)", "tesoro_core.create_account (first time only)"],
         },
         {
           label: "Opening the Challenge",
+          status: "Opening your Challenge…",
           layers: ["wallet", "solana"],
-          what: "open_match with an odd id: the Queue never picks it, only the link joins it. The page keeps showing the first line while this lands (createChallenge reports no steps).",
+          what: "open_match with an odd id: the Queue never picks it, only the link joins it. The status line reads Opening your Challenge… while this lands.",
           calls: ["tesoro_core.open_match (odd id)"],
         },
         {
           label: "Challenge opened",
           entered: "opened",
           layers: ["app"],
-          what: "No status line here: the page goes straight to the Match.",
+          what: "The page goes straight to the Match.",
           calls: ["router.replace(/play/match/<id>)"],
           ms: 1200,
         },
