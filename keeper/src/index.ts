@@ -6,6 +6,7 @@ import { loadPayer, settings, shortKey } from "./env.ts";
 import { Health, startHealthServer, startWatchdog } from "./health.ts";
 import { matchHygiene } from "./matches.ts";
 import { notifyJob } from "./notify.ts";
+import { notifyEventsJob } from "./notify-events.ts";
 import { priceJob } from "./price.ts";
 import { Connection } from "@solana/web3.js";
 import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
@@ -32,6 +33,7 @@ async function pass(ctx: Ctx) {
     ["treasury", treasuryJob],
     ["season", seasonJob],
     ["notify", notifyJob],
+    ["notify-events", notifyEventsJob],
   ];
   for (const [name, job] of jobs) await runJob(name, job, ctx);
 }
