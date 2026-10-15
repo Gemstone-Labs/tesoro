@@ -12,6 +12,7 @@ pub mod matches;
 pub mod money;
 pub mod native;
 pub mod season;
+pub mod yield_math;
 
 #[cfg(test)]
 mod tests;
@@ -25,6 +26,7 @@ pub use native::{
     shares_for_units_floor, shares_value, surplus_shares,
 };
 pub use season::*;
+pub use yield_math::*;
 
 /// Identity of an Account, Position, Source, Game, ... (a Solana public key in the program).
 pub type Key = [u8; 32];

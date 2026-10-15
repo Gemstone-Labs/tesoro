@@ -308,7 +308,7 @@ impl Source {
     }
 
     /// Source-asset units of accrued yield needed to repay everything still live.
-    fn units_to_repay_total(&self) -> CoreResult<u64> {
+    pub(crate) fn units_to_repay_total(&self) -> CoreResult<u64> {
         to_u64(mul_div_ceil(
             self.live() as u128,
             self.unit_num,
