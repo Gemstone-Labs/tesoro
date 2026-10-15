@@ -196,6 +196,78 @@ pub(crate) fn set_token_apy(ctx: Context<SetTokenApy>, apy_bps: u16) -> Result<(
 /// The highest APY the oracle authority can publish: 100% a year.
 pub const MAX_TOKEN_APY_BPS: u16 = 10_000;
 
+/// An Advance or Extend on a real token refuses a published APY older than this (3 days).
+pub const MAX_APY_AGE_SECS: i64 = 3 * 86_400;
+
+/// The admin sets the ceiling Advances are sized under, creating the `TokenApy` if the oracle has
+/// not published yet. Publishing never touches the ceiling and the ceiling never touches the
+/// published APY.
+#[derive(Accounts)]
+pub struct SetTokenApyCeiling<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
+    pub mint: Account<'info, Mint>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = TokenApy::SPACE,
+        seeds = [TOKEN_APY_SEED, mint.key().as_ref()],
+        bump
+    )]
+    pub token_apy: Account<'info, TokenApy>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_token_apy_ceiling(
+    ctx: Context<SetTokenApyCeiling>,
+    ceiling_bps: u16,
+) -> Result<()> {
+    if ceiling_bps > MAX_TOKEN_APY_BPS {
+        return Err(core_err(CoreError::InvalidBps));
+    }
+    let a = ctx.accounts;
+    a.token_apy.bump = ctx.bumps.token_apy;
+    a.token_apy.mint = a.mint.key();
+    a.token_apy.ceiling_bps = ceiling_bps;
+    emit!(TokenApyCeilingSet {
+        mint: a.mint.key(),
+        ceiling_bps,
+    });
+    Ok(())
+}
+
+/// Re-reads the sizing APY of a real token into the Position before an Advance or Extend, so they
+/// follow the trailing APY under the ceiling. A simSOL Position keeps its fixed rate and needs no
+/// account. For a real token the `TokenApy` of its mint is the first remaining account (it cannot
+/// be left out), the published APY must be fresh and the ceiling set.
+pub fn refresh_position_rate(
+    position: &mut Account<PositionState>,
+    remaining: &[AccountInfo],
+) -> Result<()> {
+    if position.inner.source_asset == SIM_SOL_MINT.to_bytes() {
+        return Ok(());
+    }
+    let info = remaining.first().ok_or(TesoroError::BadRemainingAccounts)?;
+    require_keys_eq!(
+        *info.key,
+        Pubkey::find_program_address(&[TOKEN_APY_SEED, &position.inner.source_asset], &crate::ID).0,
+        TesoroError::InvalidAccount
+    );
+    require_keys_eq!(*info.owner, crate::ID, TesoroError::InvalidAccount);
+    let apy = TokenApy::try_deserialize(&mut &info.try_borrow_data()?[..])?;
+    let age = now()?.saturating_sub(apy.updated_ts);
+    require!(age <= MAX_APY_AGE_SECS, TesoroError::StaleApy);
+    require!(apy.ceiling_bps > 0, TesoroError::ApyCeilingNotSet);
+    position.inner.rate_bps = apy.effective_bps();
+    Ok(())
+}
+
 // --- Treasury vault of a token ---------------------------------------------------------------
 
 /// Creates the Treasury's vault of one more token (`["treasury_vault", mint]`), where the Yield
@@ -332,7 +404,7 @@ pub(crate) fn open_stake_pool_position(
         a.mint.key().to_bytes(),
         a.mint.decimals,
         principal,
-        a.token_apy.apy_bps,
+        a.token_apy.effective_bps(),
     )
     .map_err(core_err)?;
     a.position.to_account_info().try_borrow_mut_data()?[PositionState::SPACE] =

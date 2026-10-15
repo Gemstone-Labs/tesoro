@@ -338,19 +338,27 @@ impl NativeCustody {
     }
 }
 
-/// The APY (basis points a year) a staking token's Positions are sized on, published by the oracle
-/// authority (the keeper): `["token_apy", mint]`. A real token has no `apy_bps` of its own, so
-/// this is where a new Position's `rate_bps` comes from.
+/// The APY (basis points a year) a staking token's Positions are sized on: `["token_apy", mint]`.
+/// A real token has no `apy_bps` of its own, so this is where a Position's `rate_bps` comes from.
+/// The oracle authority (the keeper) publishes the trailing 30-day APY (`apy_bps`, `updated_ts`);
+/// the admin sets `ceiling_bps`. Sizing uses `min(apy_bps, ceiling_bps)`; a ceiling of 0 (never
+/// set) sizes nothing, and an Advance refuses a published APY older than `MAX_APY_AGE_SECS`.
 #[account]
 pub struct TokenApy {
     pub bump: u8,
     pub mint: Pubkey,
     pub apy_bps: u16,
     pub updated_ts: i64,
+    pub ceiling_bps: u16,
 }
 
 impl TokenApy {
-    pub const SPACE: usize = 8 + 1 + 32 + 2 + 8;
+    pub const SPACE: usize = 8 + 1 + 32 + 2 + 8 + 2;
+
+    /// The APY a sizing may use: the lower of the published APY and the ceiling.
+    pub fn effective_bps(&self) -> u16 {
+        self.apy_bps.min(self.ceiling_bps)
+    }
 }
 
 /// Tesoro's Treasury (CONTEXT.md): collects the Yield Fee on Solana-native Positions (simSOL in
@@ -666,6 +674,13 @@ mod profile_tests {
 pub struct TokenApySet {
     pub mint: Pubkey,
     pub apy_bps: u16,
+}
+
+/// The admin set the ceiling on a staking token's sizing APY.
+#[event]
+pub struct TokenApyCeilingSet {
+    pub mint: Pubkey,
+    pub ceiling_bps: u16,
 }
 
 /// The admin changed the token new Solana-native Positions open with.

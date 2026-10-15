@@ -443,6 +443,16 @@ impl Env {
         pda(&[HOLDING_SEED, p.account.as_ref(), source.as_ref()])
     }
 
+    /// The published APY of a real token Position's mint, passed as a remaining account; simSOL
+    /// Positions pass nothing.
+    fn apy_remaining(&self, pos: Pos) -> Vec<AccountMeta> {
+        let state = self.load::<PositionState>(pos.position);
+        if state.inner.source_asset == SIM_SOL_MINT.to_bytes() {
+            return vec![];
+        }
+        vec![rem(pda(&[TOKEN_APY_SEED, &state.inner.source_asset]), false)]
+    }
+
     fn advance_native(&mut self, p: &Person, pos: Pos, months: u8) -> Result<APk, Failed> {
         let state = self.load::<PositionState>(pos.position);
         let source = self.source(pos, state.inner.advances);
@@ -467,7 +477,7 @@ impl Env {
             instruction::TakeNativeAdvance {
                 horizon_months: months,
             },
-            vec![],
+            self.apy_remaining(pos),
         );
         self.send(&[advance], &p.kp, &[]).map(|_| source)
     }
@@ -509,7 +519,7 @@ impl Env {
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::ExtendNativeAdvance { extra_months },
-            vec![],
+            self.apy_remaining(pos),
         );
         self.send(&[extend], &p.kp, &[])
     }
@@ -2460,6 +2470,32 @@ fn set_token_apy_ix(oracle: APk, mint: APk, apy_bps: u16) -> Instruction {
     )
 }
 
+fn set_ceiling_ix(admin: APk, mint: APk, ceiling_bps: u16) -> Instruction {
+    tix(
+        accounts::SetTokenApyCeiling {
+            admin,
+            config: pda(&[CONFIG_SEED]),
+            mint,
+            token_apy: pda(&[TOKEN_APY_SEED, mint.as_ref()]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::SetTokenApyCeiling { ceiling_bps },
+        vec![],
+    )
+}
+
+fn set_ceiling(env: &mut Env, mint: APk, ceiling_bps: u16) -> Result<(), Failed> {
+    let admin = env.admin.insecure_clone();
+    let set = set_ceiling_ix(a(admin.pubkey()), mint, ceiling_bps);
+    env.send(&[set], &admin, &[])
+}
+
+fn publish_apy(env: &mut Env, mint: APk, apy_bps: u16) -> Result<(), Failed> {
+    let oracle = env.oracle.insecure_clone();
+    let publish = set_token_apy_ix(a(oracle.pubkey()), mint, apy_bps);
+    env.send(&[publish], &oracle, &[])
+}
+
 fn token_treasury_vault(mint: APk) -> APk {
     pda(&[TREASURY_VAULT_SEED, mint.as_ref()])
 }
@@ -2494,6 +2530,7 @@ fn jito_env() -> (Env, Jito) {
     let oracle = env.oracle.insecure_clone();
     let publish = set_token_apy_ix(a(oracle.pubkey()), mint, 700);
     env.send(&[publish], &oracle, &[]).expect("publish APY");
+    set_ceiling(&mut env, mint, 1_000).expect("ceiling");
     init_treasury_vault(&mut env, mint).expect("treasury vault");
     let feed = PriceFeed {
         bump: pda_bump(&[PRICE_SEED, mint.as_ref()]),
@@ -2711,6 +2748,7 @@ fn a_real_token_cannot_open_without_the_setting_the_pool_or_a_published_apy() {
     let oracle = env.oracle.insecure_clone();
     let publish = set_token_apy_ix(a(oracle.pubkey()), mint, 700);
     env.send(&[publish], &oracle, &[]).unwrap();
+    set_ceiling(&mut env, mint, 1_000).unwrap();
     env.open_stake(&jito, &alice, SOL).expect("now it opens");
 }
 
@@ -3337,4 +3375,173 @@ fn a_second_deposit_reuses_the_token_account_without_failing() {
         ];
         env.send(&ixs, &alice.kp, &[]).expect("open again");
     }
+}
+
+// --- Trailing APY under a ceiling (ADR 0010, ticket 11) ---------------------------------------
+
+const ERR_STALE_APY: u32 = 6019;
+const ERR_CEILING_NOT_SET: u32 = 6020;
+const DAY: i64 = 86_400;
+
+impl Env {
+    /// Re-stamps a token's USD price so the Advance's own staleness check passes after a warp.
+    fn write_feed_fresh(&mut self, mint: APk) {
+        let feed = PriceFeed {
+            bump: pda_bump(&[PRICE_SEED, mint.as_ref()]),
+            asset: mint,
+            price_micro_usd: PRICE,
+            updated_ts: self.now(),
+        };
+        self.write(pda(&[PRICE_SEED, mint.as_ref()]), &feed, PriceFeed::SPACE);
+    }
+}
+
+fn rate_bps_of(env: &Env, pos: Pos) -> u16 {
+    env.load::<PositionState>(pos.position).inner.rate_bps
+}
+
+#[test]
+fn a_position_opens_and_is_advanced_on_the_lower_of_the_apy_and_the_ceiling() {
+    let (mut env, jito) = jito_env();
+    let alice = env.holder_of(jito.mint, 10 * SOL);
+    let (alice, _) = alice;
+    // Published 7%, ceiling 10%: the published APY applies.
+    let pos = env.open_stake(&jito, &alice, SOL).unwrap();
+    assert_eq!(rate_bps_of(&env, pos), 700);
+    // The ceiling drops under the APY: the Advance follows it, not the open-time rate.
+    set_ceiling(&mut env, jito.mint, 300).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    assert_eq!(rate_bps_of(&env, pos), 300);
+    let at_300 = env.load::<SourceState>(source).inner.issued;
+    // A spike in the published APY cannot lift it past the ceiling.
+    publish_apy(&mut env, jito.mint, 9_000).unwrap();
+    let pos2 = env.open_stake(&jito, &alice, SOL).unwrap();
+    assert_eq!(rate_bps_of(&env, pos2), 300);
+    let source2 = env.advance_native(&alice, pos2, 12).unwrap();
+    assert_eq!(env.load::<SourceState>(source2).inner.issued, at_300);
+    // Raising the ceiling above the published APY sizes on the published APY.
+    set_ceiling(&mut env, jito.mint, 10_000).unwrap();
+    let pos3 = env.open_stake(&jito, &alice, SOL).unwrap();
+    assert_eq!(rate_bps_of(&env, pos3), 9_000);
+}
+
+#[test]
+fn an_extend_follows_the_current_apy_for_the_added_months_only() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 2 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 3).unwrap();
+    let base = env.load::<SourceState>(source).inner.issued;
+    env.advance(DAY + 1);
+    env.write_feed_fresh(jito.mint);
+    publish_apy(&mut env, jito.mint, 350).unwrap();
+    let holding = env.holding(&alice, source);
+    let before = env.load::<HoldingState>(holding).inner.amount;
+    env.extend_native(&alice, pos, source, 3).unwrap();
+    assert_eq!(rate_bps_of(&env, pos), 350);
+    let minted = env.load::<HoldingState>(holding).inner.amount - before;
+    // Half the rate over the same number of months mints about half the first three months.
+    assert!(minted > 0 && minted < base, "{minted} vs {base}");
+}
+
+#[test]
+fn only_the_admin_sets_the_ceiling_and_the_oracle_does_not_touch_it() {
+    let (mut env, jito) = jito_env();
+    let mallory = env.person();
+    let err = env
+        .send(
+            &[set_ceiling_ix(mallory.key, jito.mint, 5_000)],
+            &mallory.kp,
+            &[],
+        )
+        .unwrap_err();
+    assert_eq!(code(&err), 6000);
+    // The oracle authority is not the admin.
+    let oracle = env.oracle.insecure_clone();
+    let err = env
+        .send(&[set_ceiling_ix(a(oracle.pubkey()), jito.mint, 5_000)], &oracle, &[])
+        .unwrap_err();
+    assert_eq!(code(&err), 6000);
+    let err = set_ceiling(&mut env, jito.mint, 10_001).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::InvalidBps));
+    // Publishing leaves the ceiling; setting it leaves the published APY and its time.
+    let key = pda(&[TOKEN_APY_SEED, jito.mint.as_ref()]);
+    publish_apy(&mut env, jito.mint, 450).unwrap();
+    assert_eq!(env.load::<TokenApy>(key).ceiling_bps, 1_000);
+    env.advance(100);
+    set_ceiling(&mut env, jito.mint, 600).unwrap();
+    let apy = env.load::<TokenApy>(key);
+    assert_eq!((apy.apy_bps, apy.ceiling_bps), (450, 600));
+    assert!(apy.updated_ts < env.now());
+}
+
+#[test]
+fn a_stale_published_apy_refuses_an_advance_and_an_extend() {
+    let (mut env, jito) = jito_env();
+    let (alice, _) = env.holder_of(jito.mint, 10 * SOL);
+    let pos = env.open_stake(&jito, &alice, 2 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(3 * DAY + 60);
+    env.write_feed_fresh(jito.mint);
+    let err = env.extend_native(&alice, pos, source, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_STALE_APY);
+    publish_apy(&mut env, jito.mint, 700).unwrap();
+    env.extend_native(&alice, pos, source, 1).unwrap();
+    // Just inside the window still works for a fresh Position.
+    env.advance(3 * DAY);
+    env.write_feed_fresh(jito.mint);
+    let pos2 = env.open_stake(&jito, &alice, SOL).unwrap();
+    env.advance_native(&alice, pos2, 1).expect("exactly 3 days old");
+    env.advance(1);
+    env.write_feed_fresh(jito.mint);
+    let pos3 = env.open_stake(&jito, &alice, SOL).unwrap();
+    let err = env.advance_native(&alice, pos3, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_STALE_APY);
+}
+
+#[test]
+fn no_ceiling_means_no_stake_pool_advance_and_the_apy_account_cannot_be_left_out() {
+    let (mut env, _) = jito_env();
+    let mint = plant_mint(&mut env);
+    let pool = APk::new_unique();
+    let other = Jito { mint, pool };
+    set_stake_pool(&mut env, pool, mint, 1_000 * JITO_RATE, 1_000 * SOL);
+    set_sol_source(&mut env, mint, pool).unwrap();
+    publish_apy(&mut env, mint, 700).unwrap();
+    init_treasury_vault(&mut env, mint).unwrap();
+    let feed = PriceFeed {
+        bump: pda_bump(&[PRICE_SEED, mint.as_ref()]),
+        asset: mint,
+        price_micro_usd: PRICE,
+        updated_ts: env.now(),
+    };
+    env.write(pda(&[PRICE_SEED, mint.as_ref()]), &feed, PriceFeed::SPACE);
+    let (alice, _) = env.holder_of(mint, 10 * SOL);
+    let pos = env.open_stake(&other, &alice, SOL).unwrap();
+    assert_eq!(rate_bps_of(&env, pos), 0);
+    let err = env.advance_native(&alice, pos, 1).unwrap_err();
+    assert_eq!(code(&err), ERR_CEILING_NOT_SET);
+    set_ceiling(&mut env, mint, 500).unwrap();
+
+    // Without the account an Advance cannot fall back to the stored rate.
+    let state = env.load::<PositionState>(pos.position);
+    let source = env.source(pos, state.inner.advances);
+    let advance = tix(
+        accounts::TakeNativeAdvance {
+            owner_authority: alice.key,
+            owner_account: alice.account,
+            position: pos.position,
+            price_feed: pda(&[PRICE_SEED, mint.as_ref()]),
+            treasury: pda(&[TREASURY_SEED]),
+            source,
+            holding: env.holding(&alice, source),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::TakeNativeAdvance { horizon_months: 1 },
+        vec![],
+    );
+    let err = env.send(&[advance], &alice.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_BAD_REMAINING);
+    env.advance_native(&alice, pos, 1).unwrap();
+    assert_eq!(rate_bps_of(&env, pos), 500);
 }
