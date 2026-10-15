@@ -6,6 +6,7 @@ import { AlertIcon, Button } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { claimInvite } from "@/lib/chain/invite-client";
 import { CLUSTER } from "@/lib/cluster-settings";
+import { inviteFromSearch } from "@/lib/invite-link";
 import { plainError } from "@/lib/errors";
 import { TEST_ORIGIN } from "@/lib/site";
 import "./account.css";
@@ -68,7 +69,7 @@ const OPEN_PREFIXES = ["/leaderboard", "/help", "/account"];
 export function InviteGate({ children }: { children: ReactNode }) {
   const { auth, snapshot, onChain, loading, refresh } = useAccount();
   const path = usePathname();
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(() => (typeof window === "undefined" ? "" : inviteFromSearch(window.location.search)));
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const signer = auth.signer;
