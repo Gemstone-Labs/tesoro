@@ -26,8 +26,6 @@ export interface Settings {
   once: boolean;
   /** Max lamports the keeper payer may spend (fees + rent) in any rolling hour. */
   hourlyCapLamports: number;
-  /** Share of that cap the yield cranks may use. */
-  yieldShare: number;
   /** Max LayerZero fee of one Solana-side send, and the max the keeper pays for them in any rolling hour. */
   maxLzFeeLamports: number;
   lzHourlyCapLamports: number;
@@ -59,7 +57,6 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
     once: flag("once"),
     hourlyCapLamports: Math.round(num(value("max-sol-per-hour") ?? env.KEEPER_MAX_SOL_PER_HOUR, 0.5) * LAMPORTS_PER_SOL),
-    yieldShare: Math.min(1, Math.max(0, num(env.KEEPER_YIELD_BUDGET_SHARE, 0.2))),
     maxLzFeeLamports: Math.round(num(value("max-lz-fee-sol") ?? env.KEEPER_MAX_LZ_FEE_SOL, 0.005) * LAMPORTS_PER_SOL),
     lzHourlyCapLamports: Math.round(num(value("max-lz-sol-per-hour") ?? env.KEEPER_MAX_LZ_SOL_PER_HOUR, 0.05) * LAMPORTS_PER_SOL),
     hoodiRpc: value("hoodi-rpc") ?? env.KEEPER_HOODI_RPC ?? "https://ethereum-hoodi-rpc.publicnode.com",

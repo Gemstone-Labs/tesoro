@@ -10,7 +10,6 @@ import { Connection } from "@solana/web3.js";
 import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
 import { seasonJob } from "./season.ts";
 import { treasuryJob } from "./treasury.ts";
-import { yieldJob } from "./yield.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const MAX_BACKOFF_MS = 5 * 60_000;
@@ -25,7 +24,6 @@ async function pass(ctx: Ctx) {
     ["price", priceJob],
     ["match", matchHygiene],
     ["backing", backingHygiene],
-    ["yield", yieldJob],
     ["bridge", bridgeJob],
     ["eth", ethYieldJob],
     ["treasury", treasuryJob],
@@ -46,7 +44,6 @@ async function main() {
     lz: new Budget(s.lzHourlyCapLamports),
     eth: new Budget(Math.round(s.ethHourlyCapEth * 1e9)),
     hype: new Budget(Math.round(s.hypeHourlyCapHype * 1e9)),
-    yieldShare: new Budget(Math.round(s.hourlyCapLamports * s.yieldShare)),
   };
   const balance = await conn.getBalance(payer.publicKey);
   log("keeper", "-", `start cluster=devnet rpc=${hostOf(s.rpc)} gpa=${hostOf(s.gpaRpc)} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);
