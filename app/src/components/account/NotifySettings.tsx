@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth/context";
 import { notifyCall, type NotifyStatus } from "@/lib/chain/notify-client";
 import { plainError } from "@/lib/errors";
 import "./account.css";
+import { BRAND } from "@/lib/brand";
 
 export interface NotifySettingsViewProps {
   /** Null while it loads. */
@@ -55,7 +56,7 @@ export function NotifySettingsView({ status, busy = null, error = null, draft, o
           <input type="checkbox" checked={status.enabled} disabled={busy !== null} onChange={(e) => onToggle(e.target.checked)} />
           <span>
             <b>Send me emails</b>
-            <small className="meta">Turn this off to stop all emails from Tesoro.</small>
+            <small className="meta">Turn this off to stop all emails from {BRAND.name}.</small>
           </span>
         </label>
       )}

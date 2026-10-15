@@ -2,22 +2,23 @@ import type { Metadata } from "next";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { Handshake, ShieldCheck } from "lucide-react";
 import { Compare } from "@/components/docs/visual";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Risks and limits", alternates: { canonical: "/docs/risks" } };
 
 export default function Page() {
   return (
     <DocPage href="/docs/risks" hero={<Compare
-  left={{ title: "Trusted, not enforced", icon: Handshake, tone: "amber", items: ["The issuance price, from a Tesoro-controlled key", "Hidden information, kept by MagicBlock's secure environment", "Cross-chain messages, delivered by LayerZero", "Program upgrades, by one admin key"] }}
+  left={{ title: "Trusted, not enforced", icon: Handshake, tone: "amber", items: [`The issuance price, from a ${BRAND.name}-controlled key`, "Hidden information, kept by MagicBlock's secure environment", "Cross-chain messages, delivered by LayerZero", "Program upgrades, by one admin key"] }}
   right={{ title: "Enforced by the programs", icon: ShieldCheck, tone: "emerald", items: ["Principal is never entered into a Match or used to pay Debt", "A Match is settled exactly once, by the Game's own program", "Fees are fixed when the Match opens", "Anyone can trigger a timeout or a refund"] }}
 />}>
       <Callout kind="warn" title="Read this first">
-        <p>Tesoro runs on smart contracts. Read this page before you lock anything you are not ready to lose access to for a while.</p>
+        <p>{BRAND.name} runs on smart contracts. Read this page before you lock anything you are not ready to lose access to for a while.</p>
       </Callout>
 
       <H2 id="prices">Prices come from a trusted key</H2>
       <p>
-        The price used to size an Advance is written by a Tesoro-controlled key from public price sources. A wrong price would issue the wrong number
+        The price used to size an Advance is written by a {BRAND.name}-controlled key from public price sources. A wrong price would issue the wrong number
         of Gemas. It is used once, at issuance, and never again.
       </p>
 
@@ -35,7 +36,7 @@ export default function Page() {
       <H2 id="economic">Limits of the model</H2>
       <ul>
         <li><b>Won Gemas wait for real yield.</b> If a loser&apos;s staking yield collapses, the Gemas you won from them stay pending with no end date. This is by design.</li>
-        <li><b>Redeem now is limited by Tesoro&apos;s holdings.</b> It pays from Tesoro&apos;s own balance for that asset. When the balance is short, the request is refused until it is topped up or refilled, and you can always wait for a normal Redeem instead.</li>
+        <li><b>Redeem now is limited by {BRAND.name}&apos;s holdings.</b> It pays from {BRAND.name}&apos;s own balance for that asset. When the balance is short, the request is refused until it is topped up or refilled, and you can always wait for a normal Redeem instead.</li>
         <li><b>Many small Sources.</b> An entry draws on at most 8 Sources. If your Gemas are spread over more, redeem some small balances first.</li>
         <li><b>You can lose your entry.</b> Every Match is a contest of skill against another Player, and you can lose what you enter. A Backer can lose the whole entry they fund.</li>
         <li><b>Skill is not luck-free.</b> Block Puzzle shares the same pieces between Players, but Hold&apos;em has chance in every hand.</li>
@@ -48,7 +49,7 @@ export default function Page() {
           ["The price key", "The issuance price of an Advance.", "A wrong price mis-sizes an Advance at issuance."],
           ["MagicBlock's secure environment", "Keeping hidden cards, pieces and positions hidden.", "Hidden information could be seen early."],
           ["LayerZero's verification network", "Delivering cross-chain messages truthfully.", "A false message could report false yield. A vault still pays out no more than the yield it has accrued."],
-          ["The admin key", "Registering Games, setting fees (Platform, Yield and Instant Redeem), funding Tesoro&apos;s holdings, upgrading programs.", "A single key can change the rules or the programs."],
+          ["The admin key", `Registering Games, setting fees (Platform, Yield and Instant Redeem), funding ${BRAND.name}&apos;s holdings, upgrading programs.`, "A single key can change the rules or the programs."],
           ["The keeper", "Liveness only: cranking yield, relaying messages, expiring offers.", "If it stops, anyone can send the same transactions, but things go slower."],
         ]}
       />
@@ -56,7 +57,7 @@ export default function Page() {
       <H2 id="legal">Legal</H2>
       <p>
         Rules about skill games, prizes, staking products and Backing differ by country
-        and region, and may restrict what you can do or whether you can use Tesoro at all. Nothing in these docs is legal or financial advice, and
+        and region, and may restrict what you can do or whether you can use {BRAND.name} at all. Nothing in these docs is legal or financial advice, and
         you are responsible for following the rules where you live.
       </p>
     </DocPage>

@@ -62,6 +62,7 @@ import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
 import { verifySignedRequest } from "./request-auth";
 import { isTransient, retryRead, retryingReads } from "./retry";
+import { BRAND } from "../lib/brand";
 
 const DAY = 24 * 60 * 60 * 1000;
 const FUND_BELOW = parseEther("0.004");
@@ -257,7 +258,7 @@ async function applyLocked(vault: string, pid: Buffer) {
   if (!view || view.lastInSeq === 0n) throw new DemoHttpError(409, "not-delivered", "Still crossing chains. This continues automatically.");
   const link = evmLinkPda(view.ownerEvm);
   const linkInfo = await conn.getAccountInfo(link);
-  if (!linkInfo) throw new DemoHttpError(409, "not-linked", "This wallet is not linked to a Tesoro Account yet.");
+  if (!linkInfo) throw new DemoHttpError(409, "not-linked", `This wallet is not linked to a ${BRAND.name} Account yet.`);
   const account = new PublicKey(linkInfo.data.subarray(8 + 20, 8 + 52));
   const relayer = relayerKey();
   const ix = new TransactionInstruction({

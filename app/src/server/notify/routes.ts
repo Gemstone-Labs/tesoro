@@ -6,6 +6,7 @@ import type { MatchSettledEvent } from "./decide";
 import { parseEvents } from "./events";
 import { sendDigests, type DigestSummary } from "./digest";
 import { handleEvent, setEmail, setEnabled, status, type EventOutcome, type NotifyDeps, type NotifyStatus } from "./service";
+import { BRAND } from "../../lib/brand";
 
 const STEPS = ["status", "set-email", "set-enabled"] as const;
 const nonces = new NonceStore();
@@ -124,7 +125,7 @@ export async function handleAlert(deps: NotifyDeps, secret: string | undefined, 
   const title = text(b.title, 120);
   const source = text(b.source, 40);
   const body = [text(b.detail, 1000), source && `Keeper: ${source}`, kind === "recovered" ? "This has cleared." : "Check the keeper and its logs."].filter(Boolean).join("\n\n");
-  const results = await Promise.allSettled(to.map((addr) => deps.sender.send({ to: addr, subject: `[Tesoro ${kind}] ${title}`, text: body })));
+  const results = await Promise.allSettled(to.map((addr) => deps.sender.send({ to: addr, subject: `[${BRAND.name} ${kind}] ${title}`, text: body })));
   const sent = results.filter((r) => r.status === "fulfilled").length;
   if (!sent) throw new DemoHttpError(502, "send-failed", "No alert email could be sent.");
   return { sent };

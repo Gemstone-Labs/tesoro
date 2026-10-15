@@ -1,8 +1,9 @@
+import { BRAND } from "./brand";
 import { activeCluster, type ClusterId } from "./cluster-settings";
 
 /** The one host that search engines may index. The test host and previews never are. */
-export const PRODUCTION_HOST = "www.playtesoro.com";
-export const TEST_ORIGIN = "https://test.playtesoro.com";
+export const PRODUCTION_HOST = `www.${BRAND.domain}`;
+export const TEST_ORIGIN = `https://test.${BRAND.domain}`;
 export const PRODUCTION_ORIGIN = `https://${PRODUCTION_HOST}`;
 
 interface SiteEnv {

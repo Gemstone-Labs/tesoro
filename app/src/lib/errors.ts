@@ -1,3 +1,4 @@
+import { BRAND } from "./brand";
 /**
  * The one line a Player sees for a failed action. Program messages ("Error Message: …") and our own
  * sentences pass through; transport and infrastructure failures (signatures, logs, rollup steps,
@@ -9,7 +10,7 @@ export const RETRY = "That didn’t go through. Try again in a moment.";
 export const UNCONFIRMED = "Sent, but not confirmed yet. Wait a moment and check before trying again.";
 
 /** The program refused an Instant Redeem because the Treasury holds less than the payout (tesoro_core TreasuryShort, 6017 = 0x1781). */
-export const INSTANT_UNAVAILABLE = "Instant Redeem unavailable right now. Tesoro's Treasury cannot pay it at the moment. Redeem at full value as the yield lands, or try again later.";
+export const INSTANT_UNAVAILABLE = `Instant Redeem unavailable right now. ${BRAND.name}'s Treasury cannot pay it at the moment. Redeem at full value as the yield lands, or try again later.`;
 
 export function plainError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e);

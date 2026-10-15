@@ -3,6 +3,7 @@ import { Barlow_Condensed, IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/go
 import "./globals.css";
 import { GemaDefs } from "@/components/ui/gema";
 import { SITE_INDEXABLE, SITE_URL } from "@/lib/site";
+import { BRAND } from "@/lib/brand";
 
 const schibsted = Schibsted_Grotesk({
   subsets: ["latin"],
@@ -30,10 +31,10 @@ const DESCRIPTION = "Play now with yield you haven't earned yet. Skill games on 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   robots: SITE_INDEXABLE ? undefined : { index: false, follow: false },
-  title: "Tesoro",
+  title: BRAND.name,
   description: DESCRIPTION,
-  openGraph: { title: "Tesoro", description: DESCRIPTION, siteName: "Tesoro", type: "website" },
-  twitter: { card: "summary_large_image", title: "Tesoro", description: DESCRIPTION },
+  openGraph: { title: BRAND.name, description: DESCRIPTION, siteName: BRAND.name, type: "website" },
+  twitter: { card: "summary_large_image", title: BRAND.name, description: DESCRIPTION },
 };
 
 export const viewport: Viewport = {

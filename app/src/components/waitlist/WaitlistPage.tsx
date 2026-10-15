@@ -10,6 +10,7 @@ import { WAITLIST_KICKER, WAITLIST_LEDE } from "@/lib/waitlist-copy";
 import { waitingLabel } from "@/lib/waitlist-count";
 import type { SpotGem } from "@/lib/waitlist-spot";
 import { count } from "@/server/waitlist";
+import { BRAND } from "@/lib/brand";
 
 /** The waitlist page. `invite` is the spot whose shared link brought the visitor here. */
 export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
@@ -29,7 +30,7 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
       <Divider />
       <LivingTexture />
       <header className="wl-top">
-        <Link href="/" className="wl-logo" aria-label="Tesoro">
+        <Link href="/" className="wl-logo" aria-label={BRAND.name}>
           <TesoroLogo height={30} tone="dark" />
         </Link>
         <nav className="wl-nav" aria-label="Elsewhere">

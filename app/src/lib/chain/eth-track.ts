@@ -1,5 +1,6 @@
 import type { CrossChainStep } from "@/components/ui/money";
 import { LZ_SCAN_API, netOfVault, vaultByAddress, type EthState, type VaultPosition } from "./eth";
+import { BRAND } from "../brand";
 
 /**
  * Cross-chain operations on an ETH or HYPE Position that take minutes: open (EVM chain to Solana), report yield
@@ -47,14 +48,14 @@ export const opSteps = (kind: EthOpKind, vault: string): CrossChainStep[] => {
   return {
     open: [
       { title: `${w.net} confirmed`, note: `Your Position is open on ${w.net}` },
-      { title: "Reached Solana", note: "Tesoro received your Position" },
+      { title: "Reached Solana", note: `${BRAND.name} received your Position` },
       { title: "Position recorded", note: "Added to your Account" },
       { title: "Advance taken", note: "At today’s price, for your Horizon" },
       { title: "Gemas available", note: "Gemas credited to your Account" },
     ],
     yield: [
       { title: `${w.net} confirmed`, note: `Yield report sent from ${w.net}` },
-      { title: "Reached Solana", note: "Tesoro received the yield report" },
+      { title: "Reached Solana", note: `${BRAND.name} received the yield report` },
       { title: "Debt updated", note: "The yield paid down your Debt" },
     ],
     redeem: [
@@ -63,7 +64,7 @@ export const opSteps = (kind: EthOpKind, vault: string): CrossChainStep[] => {
       { title: `${w.symbol} on ${w.net}`, note: "Paid to your wallet" },
     ],
     instant: [
-      { title: "Sold to Tesoro", note: "Your Gemas are exchanged and the payout is recorded" },
+      { title: `Sold to ${BRAND.name}`, note: "Your Gemas are exchanged and the payout is recorded" },
       { title: `On its way to ${w.net}`, note: "The payout is crossing chains" },
       { title: `${w.symbol} on ${w.net}`, note: "Paid to your wallet" },
     ],

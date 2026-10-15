@@ -1,6 +1,7 @@
 import type { Email } from "../notify/decide";
 import type { EmailSender } from "../notify/sender";
 import { hashCode, newInviteCode, type InviteStore } from "./store";
+import { BRAND } from "../../lib/brand";
 
 export interface Member {
   email: string;
@@ -37,9 +38,9 @@ export interface RunResult {
 export function inviteEmail(site: string, code: string): Omit<Email, "to"> {
   const link = `${site}/lobby?invite=${code}`;
   return {
-    subject: "Your Tesoro Invite",
+    subject: `Your ${BRAND.name} Invite`,
     text: [
-      "Tesoro is where you play skill games now and pay later, with the yield on your staked crypto.",
+      `${BRAND.name} is where you play skill games now and pay later, with the yield on your staked crypto.`,
       "",
       "You are on the waitlist and your Invite is ready.",
       "",

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { ChainPath, ThemedArt } from "@/components/docs/visual";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Chains", alternates: { canonical: "/docs/chains" } };
 
@@ -11,7 +12,7 @@ export default function Page() {
       <H2 id="one-ledger">One ledger, three places to stake</H2>
       <p>
         Gemas, Debt, Matches and Backings all live on <b>Solana</b>. Positions can be opened on Solana, Ethereum or HyperEVM. A Position opened on
-        Ethereum or HyperEVM stays there, with its Principal locked in a vault on that chain, and Tesoro&apos;s Solana ledger is told about it. So a
+        Ethereum or HyperEVM stays there, with its Principal locked in a vault on that chain, and {BRAND.name}&apos;s Solana ledger is told about it. So a
         Gema from any chain plays at the same table and settles in the same place.
       </p>
       <DataTable

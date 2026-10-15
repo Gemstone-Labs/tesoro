@@ -4,6 +4,7 @@ import { GemaMark } from "@/components/ui/gema";
 import { art } from "@/lib/art";
 import { OUTBOUND } from "@/lib/landing/config";
 import { ArriveFlow } from "./ArriveFlow";
+import { BRAND } from "@/lib/brand";
 
 const CATALOGUE = [
   { src: art.blockPuzzleTile, name: "Block Puzzle", live: true },
@@ -63,13 +64,13 @@ export function Studios() {
             Built for studios
           </h2>
           <p className="lp-lede lp-measure" data-reveal>
-            Bring a skill game. Tesoro brings Players who already hold Gemas, and the settlement on chain.
+            Bring a skill game. {BRAND.name} brings Players who already hold Gemas, and the settlement on chain.
           </p>
         </header>
         <div className="lp-bento">
           <article className="lp-tile lp-tile-list cut cut-frame" data-reveal>
             <h3 className="lp-h3">List your game for free.</h3>
-            <ul className="lp-catalogue" aria-label="Games on Tesoro">
+            <ul className="lp-catalogue" aria-label={`Games on ${BRAND.name}`}>
               {CATALOGUE.map((g) => (
                 <li key={g.name} className={`cut cut-card${g.live ? "" : " soon"}`}>
                   <picture>

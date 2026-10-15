@@ -1,5 +1,6 @@
 import { footer, type Email } from "./decide";
 import type { NotifyDeps } from "./service";
+import { BRAND } from "../../lib/brand";
 
 export interface DigestSummary {
   sent: number;
@@ -12,7 +13,7 @@ export function digestEmail(to: string, messages: { subject: string; body: strin
   const n = messages.length;
   return {
     to,
-    subject: `Your Tesoro update: ${n} ${n === 1 ? "thing" : "things"} happened`,
+    subject: `Your ${BRAND.name} update: ${n} ${n === 1 ? "thing" : "things"} happened`,
     text: `Here is what happened since your last email:\n\n${messages.map((m) => `- ${m.body}`).join("\n")}${footer(siteUrl)}`,
   };
 }

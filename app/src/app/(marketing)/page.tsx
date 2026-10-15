@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { WaitlistPage } from "@/components/waitlist/WaitlistPage";
 import { WAITLIST_DESCRIPTION as DESCRIPTION } from "@/lib/waitlist-copy";
+import { BRAND } from "@/lib/brand";
 
 
 export const metadata: Metadata = {
-  title: "Tesoro · Join the waitlist",
+  title: `${BRAND.name} · Join the waitlist`,
   description: DESCRIPTION,
-  openGraph: { title: "Tesoro · Join the waitlist", description: DESCRIPTION, siteName: "Tesoro", type: "website", images: "/opengraph-image.png" },
-  twitter: { card: "summary_large_image", title: "Tesoro · Join the waitlist", description: DESCRIPTION, images: "/twitter-image.png" },
+  openGraph: { title: `${BRAND.name} · Join the waitlist`, description: DESCRIPTION, siteName: BRAND.name, type: "website", images: "/opengraph-image.png" },
+  twitter: { card: "summary_large_image", title: `${BRAND.name} · Join the waitlist`, description: DESCRIPTION, images: "/twitter-image.png" },
   alternates: { canonical: "/" },
 };
 

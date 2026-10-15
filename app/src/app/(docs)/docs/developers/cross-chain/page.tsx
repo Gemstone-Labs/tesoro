@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { ChainPath } from "@/components/docs/visual";
 import { INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Cross-chain with LayerZero V2", alternates: { canonical: "/docs/developers/cross-chain" } };
 
@@ -10,7 +11,7 @@ export default function Page() {
     <DocPage href="/docs/developers/cross-chain" hero={<ChainPath detail />}>
       <p>
         Positions stay on their home chains while Gemas, Debt, Matches and Backings live on Solana, so four messages cross chains. They travel over
-        LayerZero V2, which reaches all three chains with managed relaying, rather than a relayer run by Tesoro.
+        LayerZero V2, which reaches all three chains with managed relaying, rather than a relayer run by {BRAND.name}.
       </p>
 
       <H2 id="messages">The four messages</H2>
@@ -68,7 +69,7 @@ export default function Page() {
           EVM-sourced Sources.
         </li>
         <li>
-          <b>Redeem now.</b> The holder calls <code>tesoro_bridge::instant_redeem_to_evm</code>, which moves their won Gemas to Tesoro&apos;s Treasury Account and
+          <b>Redeem now.</b> The holder calls <code>tesoro_bridge::instant_redeem_to_evm</code>, which moves their won Gemas to {BRAND.name}&apos;s Treasury Account and
           pays {INSTANT_PAYOUT_PCT}% of their value. The bridge keeps a mirror of each vault&apos;s Treasury (<code>VaultTreasury</code>) and refuses a payout the vault has not reported
           funds for. Anyone then calls <code>send_pay_instant</code> (message type 5), and the vault pays from its Treasury. To refill, the Treasury Account redeems the
           Gemas it bought as the yield lands (<code>redeem_treasury_to_evm</code>) and a <code>PayYield</code> to the vault&apos;s own address books the proceeds into its Treasury.

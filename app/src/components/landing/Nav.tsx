@@ -6,6 +6,7 @@ import { TesoroLogo } from "@/components/brand";
 import { appHref } from "@/lib/landing/config";
 import { THEME_KEY, type Theme } from "./theme";
 import { useTheme } from "./useTheme";
+import { BRAND } from "@/lib/brand";
 
 const LINKS = [
   ["How it works", "#how-it-works"],
@@ -37,7 +38,7 @@ export function Nav() {
   return (
     <header className="lp-nav" data-scrolled={scrolled}>
       <div className="lp-nav-in">
-        <a href="#top" className="lp-logo" aria-label="Tesoro, back to top">
+        <a href="#top" className="lp-logo" aria-label={`${BRAND.name}, back to top`}>
           <TesoroLogo height={30} tone="dark" className="on-dark" />
           <TesoroLogo height={30} tone="light" className="on-light" />
         </a>

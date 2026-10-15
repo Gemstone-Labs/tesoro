@@ -1,5 +1,6 @@
 import { DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS, instantPayout } from "./yield";
 import type { SourceMath } from "./ledger";
+import { BRAND } from "../brand";
 
 /**
  * Tesoro's Treasury as the app reads it, as pure decoders and math: the Yield Fee and Instant Redeem Fee rates
@@ -142,10 +143,10 @@ export function replanInstant(confirmed: InstantLine[], fresh: InstantLine[]): I
   return { kind: "smaller", lines, gemas: lines.reduce((s, l) => s + l.gemas, 0n) };
 }
 
-export const INSTANT_NOT_OPEN = "Tesoro has not opened Instant Redeem yet.";
+export const INSTANT_NOT_OPEN = `${BRAND.name} has not opened Instant Redeem yet.`;
 export const INSTANT_UNAVAILABLE_TITLE = "Instant Redeem unavailable right now";
 export const INSTANT_UNAVAILABLE_BODY =
-  "Tesoro's Treasury cannot pay for these Gemas right now. Redeem at full value as their yield lands, or try again later.";
+  `${BRAND.name}'s Treasury cannot pay for these Gemas right now. Redeem at full value as their yield lands, or try again later.`;
 
 /** Why Instant Redeem cannot be used, or null: no Treasury yet, or a Treasury too short to pay for any won Gemas. */
 export function instantUnavailable({ setUp, payableRows }: { setUp: boolean; payableRows: number }): string | null {

@@ -4,9 +4,11 @@
  *
  * Every bracketed value below is a placeholder the founder must fill before mainnet launch.
  */
+import { BRAND } from "../brand";
+
 export const ENTITY = {
-  name: "Gemstone Labs, Inc.",
-  product: "Tesoro",
+  name: BRAND.legalName,
+  product: BRAND.name,
   form: "a Delaware corporation",
   address: "[REGISTERED ADDRESS]",
   contactEmail: "[CONTACT EMAIL]",

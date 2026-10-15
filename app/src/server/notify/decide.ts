@@ -1,4 +1,5 @@
 import type { GameId } from "@/lib/mock/types";
+import { BRAND } from "../../lib/brand";
 
 /** Past this many emails in one day, further events wait for the daily digest. */
 export const DAILY_LIMIT = 5;
@@ -150,13 +151,13 @@ export function describe(e: NotifyEvent): Message {
   }
 }
 
-export const footer = (siteUrl: string) => `\n\nSee it in Tesoro: ${siteUrl}\nTurn these emails off any time in Edit profile.`;
+export const footer = (siteUrl: string) => `\n\nSee it in ${BRAND.name}: ${siteUrl}\nTurn these emails off any time in Edit profile.`;
 
 /**
  * Who gets what for one event. Only a verified address with notifications on gets mail. Up to
  * `DAILY_LIMIT` emails a day go out at once; after that an event is held for the digest.
  */
-export function decide(event: NotifyEvent, prefs: NotifyPrefs | null, sentToday: number, siteUrl = "https://www.playtesoro.com"): Decision {
+export function decide(event: NotifyEvent, prefs: NotifyPrefs | null, sentToday: number, siteUrl = `https://www.${BRAND.domain}`): Decision {
   if (!prefs) return { emails: [], digest: [], skipped: "no-address" };
   if (!prefs.verified) return { emails: [], digest: [], skipped: "unverified" };
   if (!prefs.enabled) return { emails: [], digest: [], skipped: "off" };

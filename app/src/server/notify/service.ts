@@ -2,6 +2,7 @@ import { DemoHttpError } from "../request-auth";
 import { decide, type NotifyEvent } from "./decide";
 import type { EmailSender } from "./sender";
 import { sentOn, type NotifyStore } from "./store";
+import { BRAND } from "../../lib/brand";
 
 export interface NotifyDeps {
   store: NotifyStore;
@@ -56,7 +57,7 @@ export async function setEmail(deps: NotifyDeps, authority: string, email: strin
   await deps.store.saveEmail(authority, address, token);
   await deps.sender.send({
     to: address,
-    subject: "Confirm your email for Tesoro",
+    subject: `Confirm your email for ${BRAND.name}`,
     text: `Confirm this address to get an email when your Match settles:\n${deps.siteUrl}/api/notify/verify?token=${token}\n\nIf this wasn’t you, ignore this email and nothing will be sent.`,
   });
   return status(deps, authority);

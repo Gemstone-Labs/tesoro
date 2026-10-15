@@ -5,8 +5,9 @@ import { BustCard, Button } from "@/components/ui";
 import { HelpSearch } from "./HelpSearch";
 import { STEPS, TOPICS } from "./help-content";
 import "./help.css";
+import { BRAND } from "@/lib/brand";
 
-export const metadata: Metadata = { title: "Help · Tesoro" };
+export const metadata: Metadata = { title: `Help · ${BRAND.name}` };
 
 export default function HelpPage() {
   return (
@@ -14,7 +15,7 @@ export default function HelpPage() {
       <header className="page-head">
         <div>
           <h1 className="page-title">Help</h1>
-          <p className="page-sub">How Tesoro works, and what to do when something gets stuck.</p>
+          <p className="page-sub">How {BRAND.name} works, and what to do when something gets stuck.</p>
         </div>
       </header>
 
