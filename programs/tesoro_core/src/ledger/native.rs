@@ -31,6 +31,11 @@ pub fn shares_for_units_floor(units: u64, rate: u64) -> CoreResult<u64> {
     to_u64(mul_div_floor(units as u128, RATE_SCALE, rate as u128)?)
 }
 
+/// SOL base units worth `shares` at `rate`, rounded up (what minting `shares` costs the fee).
+pub fn shares_value_ceil(shares: u64, rate: u64) -> CoreResult<u64> {
+    to_u64(mul_div_ceil(shares as u128, rate as u128, RATE_SCALE)?)
+}
+
 /// Net Accrued Yield of a native Position at `now`. The Position's own `rate_bps`, `yield_fee_bps`
 /// and `opened_at` (all fixed at open) decide it; only `speedup` is read live from the sim_lst Pool
 /// (a devnet constant by founder decision).

@@ -16,6 +16,7 @@ use solana_sdk::pubkey::Pubkey as Pk;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
+use tesoro_core::error::TesoroError;
 use tesoro_core::ledger::{self, native, PositionStatus};
 use tesoro_core::state::*;
 use tesoro_core::{accounts, instruction};
@@ -1809,6 +1810,62 @@ impl Env {
         self.send(&[fund], &admin, &[])
     }
 
+    fn set_company(&mut self, company: APk) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let set = tix(
+            accounts::SetTreasuryCompany {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                treasury: pda(&[TREASURY_SEED]),
+            },
+            instruction::SetTreasuryCompany { company },
+            vec![],
+        );
+        self.send(&[set], &admin, &[])
+    }
+
+    fn withdraw_ix(&self, signer: APk, company_token: APk, amount: u64) -> Instruction {
+        tix(
+            accounts::WithdrawTreasury {
+                admin: signer,
+                config: pda(&[CONFIG_SEED]),
+                treasury: pda(&[TREASURY_SEED]),
+                treasury_vault: self.treasury_vault(),
+                company_token,
+                pool: self.pool,
+                custody: pda(&[NATIVE_SEED]),
+                mint: self.mint,
+                yield_config: sim_pda(&[sim_lst::YIELD_SEED]),
+                yield_authority: pda(&[YIELD_SEED]),
+                sim_lst_program: sim_lst::ID,
+                token_program: TOKEN_PROGRAM_ID,
+            },
+            instruction::WithdrawTreasury { amount },
+            vec![],
+        )
+    }
+
+    fn withdraw(&mut self, company_token: APk, amount: u64) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let ix = self.withdraw_ix(a(admin.pubkey()), company_token, amount);
+        self.send(&[ix], &admin, &[])
+    }
+
+    /// Yield Fee earned by the pool at the clock, in SOL units.
+    fn earned_fee(&self) -> u64 {
+        let custody = self.load::<NativeCustody>(pda(&[NATIVE_SEED]));
+        let speedup = self.load::<sim_lst::Pool>(self.pool).speedup;
+        custody.totals().earned_fee(self.now(), speedup).unwrap()
+    }
+
+    /// The Treasury balance in SOL units: unminted fee plus the vault at the rate.
+    fn treasury_balance(&self) -> u64 {
+        let unminted = self.earned_fee() - self.treasury().fee_minted;
+        let vault =
+            native::shares_value(self.token_balance(self.treasury_vault()), self.rate()).unwrap();
+        unminted + vault
+    }
+
     fn instant_redeem_ix(&self, p: &Person, pos: Pos, source: APk, amount: u64) -> Instruction {
         tix(
             accounts::InstantRedeem {
@@ -1823,6 +1880,11 @@ impl Env {
                 treasury_vault: self.treasury_vault(),
                 holder_token: p.token,
                 pool: self.pool,
+                custody: pda(&[NATIVE_SEED]),
+                mint: self.mint,
+                yield_config: sim_pda(&[sim_lst::YIELD_SEED]),
+                yield_authority: pda(&[YIELD_SEED]),
+                sim_lst_program: sim_lst::ID,
                 token_program: TOKEN_PROGRAM_ID,
                 system_program: anchor_lang::system_program::ID,
             },
@@ -2015,6 +2077,172 @@ fn only_won_gemas_are_redeemed_instantly() {
     let err = env.instant_redeem(&alice, pos, source, 100).unwrap_err();
     assert_eq!(code(&err), core_code(ledger::CoreError::NotWonGemas));
     assert_eq!(env.gemas(&alice, source), 2_100);
+}
+
+#[test]
+fn the_treasury_balance_is_the_unminted_fee_plus_the_vault_and_pays_both_ways() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let company = env.staker();
+    env.set_company(company.key).unwrap();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 3).unwrap();
+    env.give_won(&alice, &bob, source, 60);
+    env.advance(MONTH);
+    let earned = env.earned_fee();
+    assert!(earned > 1_000_000, "10 SOL at 7% pays a fee in a month");
+    assert_eq!(env.treasury().fee_minted, 0);
+    assert_eq!(env.token_balance(env.treasury_vault()), 0);
+    assert_eq!(env.treasury_balance(), earned);
+    let supply = env.supply();
+    let company_before = env.token_balance(company.token);
+
+    // Withdraw part of it: minted fresh, the vault stays empty.
+    env.withdraw(company.token, earned / 2)
+        .expect("withdraw half");
+    let got = env.token_balance(company.token) - company_before;
+    assert_eq!(
+        got,
+        native::shares_for_units_floor(earned / 2, env.rate()).unwrap()
+    );
+    assert_eq!(env.supply() - supply, got);
+    let t = env.treasury();
+    assert_eq!(t.withdrawn_units, earned / 2);
+    assert!(t.fee_minted >= earned / 2 && t.fee_minted <= earned / 2 + 1);
+    assert_eq!(env.token_balance(env.treasury_vault()), 0);
+
+    // Instant Redeem draws from the same unminted fee.
+    let bob_before = env.token_balance(bob.token);
+    env.instant_redeem(&bob, pos, source, 30).expect("instant");
+    assert!(env.token_balance(bob.token) > bob_before);
+    assert!(env.treasury().fee_minted <= env.earned_fee());
+    assert!(env.treasury().instant_units > 0);
+
+    // Withdraw everything left: nothing more can be paid, in either direction.
+    let rest = env.treasury_balance();
+    env.withdraw(company.token, rest).expect("withdraw all");
+    assert!(env.treasury_balance() <= 1);
+    assert!(env.treasury().fee_minted <= env.earned_fee());
+    let err = env.withdraw(company.token, SOL / 1_000).unwrap_err();
+    assert_eq!(code(&err), ERR_TREASURY_SHORT);
+    let err = env.instant_redeem(&bob, pos, source, 10).unwrap_err();
+    assert_eq!(code(&err), ERR_TREASURY_SHORT);
+    assert_eq!(env.gemas(&bob, source), 30);
+
+    // Gemas the Treasury bought redeem later at full value and refill the vault.
+    env.advance(3 * MONTH + 1);
+    assert_eq!(env.debt(source), 0);
+    let carol = env.staker();
+    env.redeem_treasury(&carol.kp, pos, source, 30)
+        .expect("refill");
+    let refill = env.token_balance(env.treasury_vault());
+    assert!(refill > 0);
+
+    // The vault pays first: an Instant Redeem now leaves the minted-fee counter alone.
+    let dave = env.staker();
+    let pos2 = env.open(&dave, 10 * SOL).unwrap();
+    let source2 = env.advance_native(&dave, pos2, 12).unwrap();
+    env.give_won(&dave, &bob, source2, 10);
+    let minted_before = env.treasury().fee_minted;
+    env.instant_redeem(&bob, pos2, source2, 10)
+        .expect("instant from the vault");
+    assert_eq!(env.treasury().fee_minted, minted_before);
+    assert!(env.token_balance(env.treasury_vault()) < refill);
+
+    // Withdraw beyond fee + vault is refused; exactly the balance is paid.
+    let balance = env.treasury_balance();
+    let err = env
+        .withdraw(company.token, balance + balance / 10 + 10)
+        .unwrap_err();
+    assert_eq!(code(&err), ERR_TREASURY_SHORT);
+    env.withdraw(company.token, balance)
+        .expect("withdraw the balance");
+    assert!(env.treasury_balance() <= 1);
+    assert!(env.treasury().fee_minted <= env.earned_fee());
+}
+
+#[test]
+fn only_the_admin_withdraws_and_only_to_the_company_wallet() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let company = env.staker();
+    let mallory = env.staker();
+    env.open(&alice, 10 * SOL).unwrap();
+    env.advance(MONTH);
+    let amount = env.earned_fee() / 2;
+    // No company wallet set yet.
+    let err = env.withdraw(company.token, amount).unwrap_err();
+    assert_eq!(code(&err), 6000 + TesoroError::CompanyNotSet as u32);
+    // Only the admin sets it.
+    let mut set = tix(
+        accounts::SetTreasuryCompany {
+            admin: mallory.key,
+            config: pda(&[CONFIG_SEED]),
+            treasury: pda(&[TREASURY_SEED]),
+        },
+        instruction::SetTreasuryCompany {
+            company: mallory.key,
+        },
+        vec![],
+    );
+    set.accounts[0].is_signer = true;
+    let err = env.send(&[set], &mallory.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), 6000);
+    env.set_company(company.key).unwrap();
+    // Not the admin.
+    let ix = env.withdraw_ix(mallory.key, mallory.token, amount);
+    let err = env.send(&[ix], &mallory.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), 6000);
+    // Not to another wallet, even as the admin.
+    let err = env.withdraw(mallory.token, amount).unwrap_err();
+    assert_eq!(code(&err), 6000 + TesoroError::InvalidAccount as u32);
+    assert_eq!(env.treasury().fee_minted, 0);
+    env.withdraw(company.token, amount)
+        .expect("the admin pays the company");
+}
+
+/// Withdrawing at many points in time never takes more than the fee the Positions earned plus
+/// what was put into the vault, and `fee_minted` never passes the earned fee.
+#[test]
+fn withdrawals_never_exceed_the_earned_fee_plus_the_vault() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let bob = env.staker();
+    let company = env.staker();
+    env.set_company(company.key).unwrap();
+    env.fund_treasury(SOL / 10).unwrap();
+    env.open(&alice, 10 * SOL).unwrap();
+    env.open(&bob, 7 * SOL).unwrap();
+    let funded = env.token_balance(env.treasury_vault());
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    let mut paid_units = 0u64;
+    for _ in 0..40 {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        env.advance(((seed >> 40) % 300) as i64 + 1);
+        let balance = env.treasury_balance();
+        let ask = (balance as u128 * ((seed >> 20) % 130) as u128 / 100) as u64 + 1;
+        match env.withdraw(company.token, ask) {
+            Ok(()) => {
+                assert!(ask <= balance, "paid {ask} above the balance {balance}");
+                paid_units += ask;
+            }
+            Err(e) => {
+                assert_eq!(code(&e), ERR_TREASURY_SHORT);
+                assert!(
+                    ask > balance || ask < 2,
+                    "refused {ask} within the balance {balance}"
+                );
+            }
+        }
+        let t = env.treasury();
+        assert!(t.fee_minted <= env.earned_fee());
+        let funded_units = native::shares_value(funded, env.rate()).unwrap();
+        assert!(paid_units <= env.earned_fee() + funded_units);
+    }
+    assert!(paid_units > 0);
 }
 
 #[test]
