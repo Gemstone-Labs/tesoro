@@ -181,7 +181,8 @@ const isProgramOwned = async (k: PublicKey) => (await boardOwner(k))?.equals(BLO
  * anyone is paired. `verifySeed` also pings the rollup to check the Seed is drawn (a tiny
  * transaction), so "ready" is only reported when Start will work.
  */
-export async function probeRun(signer: ChainSigner, m: ChainMatch, verifySeed = true): Promise<RunStage> {
+/** `quiet`: never ask the wallet to sign; a delegated Board without a rollup session already open throws instead. */
+export async function probeRun(signer: ChainSigner, m: ChainMatch, verifySeed = true, quiet = false): Promise<RunStage> {
   const chain = getChain();
   if (!m.session || m.seat === null) return "needs-prep";
   const a = BlockPuzzleChain.addresses(m.id);
@@ -192,6 +193,7 @@ export async function probeRun(signer: ChainSigner, m: ChainMatch, verifySeed = 
     return board.sealed ? "committed" : "needs-prep";
   }
   if (!info?.owner.equals(DELEGATION_PROGRAM_ID)) return "needs-prep";
+  if (quiet && !chain.hasTeeSession(signer)) throw new Error("No rollup session yet.");
   const own: any = await chain.fetchOwnBoard(signer, m.id, seat).catch(() => null);
   if (!own || !own.permissionReady) return "needs-prep";
   if (own.finished || own.over) return "finished";

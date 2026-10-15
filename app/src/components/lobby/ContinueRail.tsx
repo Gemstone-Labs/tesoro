@@ -39,7 +39,7 @@ function timeLeft(s: number) {
   return `${Math.floor(s / 3600)} h${min ? ` ${min} min` : ""} left`;
 }
 
-/** Where the Player's own run stands in each open Block Puzzle Match (the Board lives in the rollup, so it is probed). */
+/** Where the Player's own run stands in each open Block Puzzle Match (the Board lives in the rollup, so it is probed without ever asking the wallet to sign on the Lobby). */
 function useRunStages(matches: ChainMatch[]) {
   const { auth } = useAccount();
   const signer = auth.signer;
@@ -55,7 +55,7 @@ function useRunStages(matches: ChainMatch[]) {
     for (const m of matches) {
       const k = m.id.toString();
       if (!wanted.has(k)) continue;
-      probeRun(signer, m, false).then(
+      probeRun(signer, m, false, true).then(
         (r) => !stopped && setStages((s) => (s[k] === r ? s : { ...s, [k]: r })),
         () => undefined,
       );

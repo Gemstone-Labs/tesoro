@@ -154,6 +154,11 @@ export class BlockPuzzleChain {
   // ---- transport ----------------------------------------------------------------------------
 
   /** One TEE connection per Player: the auth token binds reads to that wallet. */
+  /** True when this signer already has a rollup session, so reading through it asks for no signature. */
+  hasTeeSession(signer: ChainSigner): boolean {
+    return this.tees.has(signer.publicKey.toBase58());
+  }
+
   async tee(signer: ChainSigner): Promise<Connection> {
     const k = signer.publicKey.toBase58();
     const cached = this.tees.get(k);
