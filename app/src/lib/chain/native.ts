@@ -7,6 +7,7 @@ import {
   TransactionInstruction,
   type AccountMeta,
 } from "@solana/web3.js";
+import { CLUSTER } from "../cluster-settings";
 import { covered, live, unitsToRepay, type SourceMath } from "./ledger";
 import { parseTreasury, parseVaultShares, type TreasuryRates } from "./fees";
 import { DEFAULT_YIELD_FEE_BPS, advanceUnits, accruedYield, netOfYieldFee, secondsToAccrue } from "./yield";
@@ -26,8 +27,14 @@ export const RATE_SCALE = 1_000_000_000n;
 export const LAMPORTS = 1_000_000_000;
 /** Wall-clock minutes of one simulated month (speedup 4,380 = 1/12 year per 10 minutes, `lib/chain/yield.ts`). */
 export const SIM_MONTH_MIN = 10;
-/** The feed is only accepted by `take_native_advance` for this long. */
-export const MAX_PRICE_AGE_SECS = 24 * 60 * 60;
+/** Mainnet: Advances read the asset's Pyth push feed and refuse a price older than this (`pyth::MAX_ONCHAIN_PRICE_AGE_SECS`). */
+export const PYTH_MAX_AGE_SECS = 120;
+/** Mainnet: the widest confidence interval an Advance accepts, basis points of the price (`pyth::MAX_ONCHAIN_CONF_BPS`). */
+export const PYTH_MAX_CONF_BPS = 500;
+/** How old the issuance price may be when an Advance is taken: the keeper's feed 24 h in test mode, the Pyth feed 2 min on mainnet. */
+export const MAX_PRICE_AGE_SECS = CLUSTER.priceSource === "onchain" ? PYTH_MAX_AGE_SECS : 24 * 60 * 60;
+/** A quote is offered only while the price is at least this much younger than the limit, so it is still accepted when the Player signs. */
+export const PRICE_QUOTE_MARGIN_SECS = CLUSTER.priceSource === "onchain" ? 30 : 60;
 
 export const pda = (seeds: (Buffer | Uint8Array)[], program = TESORO_CORE_ID) => PublicKey.findProgramAddressSync(seeds, program)[0];
 export const s = (x: string) => Buffer.from(x);
@@ -46,6 +53,9 @@ export const u64 = (n: bigint | number) => {
 const DISC = {
   faucet: "00623b1e908e710c",
   set_price: "1013b608955348b5",
+  set_onchain_price: "1e8e3a63d7b94cc7",
+  take_native_advance_onchain: "2af855d76194c9ac",
+  take_advance_onchain: "775856577194b45b",
   open_native_position: "b7d9396b6a5048f1",
   take_native_advance: "db4fb2d566baf470",
   extend_native_advance: "d0c7fde715af8ee9",
@@ -179,6 +189,54 @@ export function openNativePositionIx(owner: PublicKey, nonce: bigint | number, l
   );
 }
 
+// --- Mainnet prices: Pyth sponsored push feeds (ADR 0010) ---------------------------------------------
+
+/** The Pyth receiver program, owner of `PriceUpdateV2` accounts, and the push oracle program that derives the sponsored feed addresses. */
+export const PYTH_RECEIVER = new PublicKey("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
+export const PYTH_PUSH_ORACLE = new PublicKey("pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT");
+/** Pyth feed ids of the underlying coins. */
+export const PYTH_FEED_IDS = {
+  SOL: "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
+  ETH: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+  HYPE: "4279e31cc369bbcc2faf022b382b080e32a8e689ff20fbc530d2a603eb6cd98b",
+} as const;
+export type PythAsset = keyof typeof PYTH_FEED_IDS;
+/** The sponsored push feed account of `asset` (shard 0): PDA `[u16 shard, feed id]` of the push oracle. */
+export const pythFeedAddress = (asset: PythAsset) => PublicKey.findProgramAddressSync([Buffer.from([0, 0]), Buffer.from(PYTH_FEED_IDS[asset], "hex")], PYTH_PUSH_ORACLE)[0];
+/** `["onchain_price", source_asset]`: the admin's mapping of an asset to its feed. */
+export const onchainPricePda = (asset: PublicKey) => pda([s("onchain_price"), asset.toBuffer()]);
+
+/**
+ * The price in a Pyth `PriceUpdateV2` account, as `pyth::read_micro_usd` reads it: owned by the receiver, fully verified
+ * (134 bytes), carrying `asset`'s feed id, a positive price with a confidence interval of at most `PYTH_MAX_CONF_BPS`.
+ * Age is the caller's to judge (`updatedTs` is the publish time). Null for anything else.
+ */
+export function parsePythPrice(info: Pick<AccountInfo<Uint8Array>, "owner" | "data"> | null, asset: PythAsset): PriceFeedView | null {
+  if (!info || !info.owner.equals(PYTH_RECEIVER) || info.data.length !== 134) return null;
+  const d = info.data;
+  if (Buffer.from(d.subarray(0, 8)).toString("hex") !== "22f123639d7ef4cd" || d[40] !== 1) return null;
+  if (Buffer.from(d.subarray(41, 73)).toString("hex") !== PYTH_FEED_IDS[asset]) return null;
+  const price = rdI64(d, 73);
+  const conf = rdU64(d, 81);
+  const expo = view(d).getInt32(89, true);
+  if (price <= 0n || expo > 0 || expo < -12) return null;
+  if (conf * 10_000n > BigInt(PYTH_MAX_CONF_BPS) * price) return null;
+  const shift = expo + 6;
+  const microUsd = shift >= 0 ? price * 10n ** BigInt(shift) : price / 10n ** BigInt(-shift);
+  return microUsd > 0n ? { microUsd, updatedTs: Number(rdI64(d, 93)) } : null;
+}
+
+/** The account holding the issuance price of a Solana-native Position's token: its Pyth SOL/USD feed on mainnet, the keeper's `["price", mint]` account in test mode. */
+export const solPriceKey = (mint?: PublicKey) => (CLUSTER.priceSource === "onchain" ? pythFeedAddress("SOL") : mint ? pda([s("price"), mint.toBuffer()]) : PRICE_FEED);
+
+/** The price view of a `solPriceKey` account, whichever source it is. */
+export function parseSolPrice(info: AccountInfo<Uint8Array> | null): PriceFeedView | null {
+  if (!info) return null;
+  if (info.owner.equals(PYTH_RECEIVER)) return parsePythPrice(info, "SOL");
+  if (info.owner.equals(TESORO_CORE_ID) && info.data.length >= 57) return { microUsd: rdU64(info.data, 41), updatedTs: Number(rdI64(info.data, 49)) };
+  return null;
+}
+
 /** `["token_apy", mint]`: a real staking token's published APY and ceiling. */
 export const tokenApyPda = (mint: PublicKey) => pda([s("token_apy"), mint.toBuffer()]);
 
@@ -189,6 +247,26 @@ export const tokenApyPda = (mint: PublicKey) => pda([s("token_apy"), mint.toBuff
  */
 export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, mint?: PublicKey) {
   const source = sourcePda(position, advances);
+  if (CLUSTER.priceSource === "onchain") {
+    if (!mint) throw new Error("A mainnet Advance needs the Position's token");
+    // Same accounts, but the price comes from the asset's mapped Pyth feed (`onchain_price`) and not from the keeper.
+    return core(
+      [
+        meta(owner, true, true),
+        meta(accountPda(owner), true),
+        meta(position, true),
+        meta(onchainPricePda(mint)),
+        meta(pythFeedAddress("SOL")),
+        meta(treasuryPda()),
+        meta(source, true),
+        meta(holdingPda(accountPda(owner), source), true),
+        meta(SystemProgram.programId),
+        meta(tokenApyPda(mint)),
+      ],
+      "take_native_advance_onchain",
+      Buffer.from([months]),
+    );
+  }
   return core(
     [
       meta(owner, true, true),

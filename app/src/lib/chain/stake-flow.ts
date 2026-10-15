@@ -4,7 +4,7 @@ import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import { getChain } from "./client";
 import { createAccountIx } from "./match-flow";
 import { parseTreasury, type TreasuryRates } from "./fees";
-import { TESORO_CORE_ID, pda, rdI64, rdU64, s, treasuryPda, type PriceFeedView } from "./native";
+import { TESORO_CORE_ID, parseSolPrice, rdU64, solPriceKey, treasuryPda, type PriceFeedView } from "./native";
 import {
   parseSolSource,
   parseStakePool,
@@ -38,7 +38,7 @@ export async function fetchStakeMarket(c: Connection, wallet: PublicKey, nowSecs
   const srcInfo = await c.getAccountInfo(solSourcePda(), "confirmed");
   const source = srcInfo && srcInfo.owner.equals(TESORO_CORE_ID) ? parseSolSource(srcInfo.data) : null;
   if (!source) return null;
-  const feed = pda([s("price"), source.mint.toBuffer()]);
+  const feed = solPriceKey(source.mint);
   const [pool, apy, price, treasury, ata, sol] = await Promise.all([
     c.getAccountInfo(source.pool, "confirmed"),
     c.getAccountInfo(tokenApyPda(source.mint), "confirmed"),
@@ -54,7 +54,7 @@ export async function fetchStakeMarket(c: Connection, wallet: PublicKey, nowSecs
     source,
     pool: view,
     apyBps: effectiveApyBps(apyView, nowSecs) ?? 0,
-    price: price && price.owner.equals(TESORO_CORE_ID) && price.data.length >= 57 ? { microUsd: rdU64(price.data, 41), updatedTs: Number(rdI64(price.data, 49)) } : null,
+    price: parseSolPrice(price),
     treasury: treasury && treasury.owner.equals(TESORO_CORE_ID) ? parseTreasury(treasury.data) : null,
     sol: BigInt(sol),
     tokens: ata ? rdU64(ata.data, 64) : 0n,

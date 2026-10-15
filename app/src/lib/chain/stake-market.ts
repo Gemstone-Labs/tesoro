@@ -7,10 +7,9 @@ import {
   accrueNativeYieldIx,
   custodyPda,
   fetchNativeMarket,
-  pda,
-  rdI64,
+  parseSolPrice,
   rdU64,
-  s,
+  solPriceKey,
   treasuryPda,
   type NativeInfo,
   type NativeMarket,
@@ -53,7 +52,7 @@ export const stakeMarketKeys = () => [solSourcePda(), treasuryPda()];
 /** Round two, once the token is known: its pool, APY, price feed, the wallet's token account and the Treasury's vault candidates. */
 export function stakeMarketKeys2(wallet: PublicKey, source: SolSourceView, treasury: Info): PublicKey[] {
   const key = treasury ? parseTreasuryVaultKey(treasury.data) : null;
-  return [source.pool, tokenApyPda(source.mint), pda([s("price"), source.mint.toBuffer()]), tokenAta(wallet, source.mint), tokenTreasuryVaultPda(source.mint), ...(key ? [new PublicKey(key)] : [])];
+  return [source.pool, tokenApyPda(source.mint), solPriceKey(source.mint), tokenAta(wallet, source.mint), tokenTreasuryVaultPda(source.mint), ...(key ? [new PublicKey(key)] : [])];
 }
 
 /** The setting from round one; null while no token is set. */
@@ -68,13 +67,12 @@ export function stakeMarketFrom(source: SolSourceView, treasuryInfo: Info, [pool
   const rate = view && view.poolMint.equals(source.mint) ? stakePoolRate(view.totalLamports, view.poolTokenSupply) : null;
   if (!view || !rate) throw new Error("The staking pool is not readable right now.");
   const apyView = owned(apy) ? parseTokenApy(apy!.data) : null;
-  const priceInfo = owned(feed);
   const treasury = owned(treasuryInfo) ? parseTreasury(treasuryInfo!.data) : null;
   const vault = treasuryVaultOf(source.mint, owned(treasuryInfo), originalVault);
   const vaultInfo = vault.equals(tokenTreasuryVaultPda(source.mint)) ? canonicalVault : originalVault;
   return {
     pool: { baseRate: rate, baseTs: nowSecs, apyBps: effectiveApyBps(apyView, nowSecs) ?? 0, speedup: 1 },
-    price: priceInfo && priceInfo.data.length >= 57 ? { microUsd: rdU64(priceInfo.data, 41), updatedTs: Number(rdI64(priceInfo.data, 49)) } : null,
+    price: parseSolPrice(feed),
     simSol: ata ? rdU64(ata.data, 64) : 0n,
     treasury,
     treasuryShares: treasury ? (vaultInfo && parseVaultShares(vaultInfo.data)) ?? 0n : null,

@@ -262,6 +262,7 @@ export const DISC = {
   redeem_to_evm: "f8cfc48f001a142e",
   unlock: "659b28159ebd38cb",
   take_advance: "3a6a527644c370bc",
+  take_advance_onchain: "775856577194b45b",
   init_position: "c5140a0161a0b15b",
   apply_locked: "2f27cfcfbbab2be7",
   apply_yield: "6e7ea020cbc9228f",
