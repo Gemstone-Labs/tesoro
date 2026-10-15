@@ -58,6 +58,8 @@ const DISC = {
   instant_redeem: "bb6bd07de0ed285d",
   redeem_treasury: "109798e01b5bb9cd",
   set_extend_limit: "419bcc697b0524a5",
+  open_stake_pool_position: "e58b6d3d23f9cad3",
+  accrue_stake_pool_yield: "f4704f80b8f6a423",
 } as const;
 const disc = (name: keyof typeof DISC) => Buffer.from(DISC[name], "hex");
 
@@ -98,7 +100,7 @@ export const simSolAta = (owner: PublicKey) =>
   PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), SIM_SOL_MINT.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
 
 export const meta = (pubkey: PublicKey, isWritable = false, isSigner = false): AccountMeta => ({ pubkey, isSigner, isWritable });
-const core = (keys: AccountMeta[], name: keyof typeof DISC, ...args: Buffer[]) =>
+export const core = (keys: AccountMeta[], name: keyof typeof DISC, ...args: Buffer[]) =>
   new TransactionInstruction({ programId: TESORO_CORE_ID, keys, data: Buffer.concat([disc(name), ...args]) });
 
 // --- Instructions ------------------------------------------------------------------------------
@@ -161,15 +163,18 @@ export function openNativePositionIx(owner: PublicKey, nonce: bigint | number, l
   );
 }
 
-/** `advances` is the Position's advance count before this one (0 for a new Position). */
-export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number) {
+/**
+ * `advances` is the Position's advance count before this one (0 for a new Position). `mint` is the Position's
+ * token: its price feed sizes the Advance (the simSOL feed by default).
+ */
+export function takeNativeAdvanceIx(owner: PublicKey, position: PublicKey, advances: number, months: number, mint?: PublicKey) {
   const source = sourcePda(position, advances);
   return core(
     [
       meta(owner, true, true),
       meta(accountPda(owner), true),
       meta(position, true),
-      meta(PRICE_FEED),
+      meta(mint ? pda([s("price"), mint.toBuffer()]) : PRICE_FEED),
       meta(treasuryPda()),
       meta(source, true),
       meta(holdingPda(accountPda(owner), source), true),

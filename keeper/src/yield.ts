@@ -1,6 +1,7 @@
-import type { AccountInfo, PublicKey } from "@solana/web3.js";
+import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import { debtGemas, unitsToRepay, type SourceMath } from "../../app/src/lib/chain/ledger.ts";
-import { accrueNativeYieldIx, accruedAt, custodyPda, fetchNativeMarket, parseSource, rdI64, rdU64, sourcePda, SIM_SOL_MINT, type PoolParams } from "../../app/src/lib/chain/native.ts";
+import { RATE_SCALE, accrueNativeYieldIx, accruedAt, custodyPda, fetchNativeMarket, parseSource, rdI64, rdU64, sourcePda, treasuryPda, SIM_SOL_MINT, type PoolParams } from "../../app/src/lib/chain/native.ts";
+import { accrueStakePoolYieldIx, parseStakePool, stakePoolRate, tokenTreasuryVaultPda } from "../../app/src/lib/chain/stake-pool.ts";
 import { DEFAULT_YIELD_FEE_BPS } from "../../app/src/lib/chain/yield.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
@@ -57,12 +58,33 @@ export function crankGain(r: Reading, pool: PoolParams, nowMs: number, yieldFeeB
     nowMs,
     yieldFeeBps,
   });
+  return gainOf(accrued, r, r.source);
+}
+
+/** Gemas of Debt that applying `accrued` cumulative yield would repay, capped at what repays the open Source. */
+function gainOf(accrued: bigint, r: Reading, src: SourceMath): { gain: bigint; clears: boolean } {
   if (accrued <= r.cumulative) return { gain: 0n, clears: false };
-  const need = unitsToRepay(r.source);
+  const need = unitsToRepay(src);
   const take = accrued - r.cumulative < need ? accrued - r.cumulative : need;
-  const before = debtGemas(r.source);
-  const after = debtGemas({ ...r.source, yieldUnits: r.source.yieldUnits + take });
+  const before = debtGemas(src);
+  const after = debtGemas({ ...src, yieldUnits: src.yieldUnits + take });
   return { gain: before - after, clears: before > 0n && after === 0n };
+}
+
+/**
+ * The same for a stake pool custody (a real staking token): yield is the pool rate's growth. The program first takes the
+ * Yield Fee on the growth since `lastRate` out of `trackedShares`, then reads `tracked * rate - principal + redeemed`.
+ */
+export function stakeCrankGain(r: Reading & { lastRate: bigint }, rate: bigint, yieldFeeBps = DEFAULT_YIELD_FEE_BPS): { gain: bigint; clears: boolean } | null {
+  if (r.trackedShares === null || !r.source || rate <= 0n) return null;
+  let tracked = r.trackedShares;
+  if (rate > r.lastRate) {
+    const growth = (tracked * (rate - r.lastRate)) / RATE_SCALE;
+    const feeShares = (((growth * BigInt(yieldFeeBps)) / 10_000n) * RATE_SCALE) / rate;
+    tracked -= feeShares < tracked ? feeShares : tracked;
+  }
+  const value = (tracked * rate) / RATE_SCALE + r.redeemedUnits;
+  return gainOf(value > r.principal ? value - r.principal : 0n, r, r.source);
 }
 
 /** Why a Position is worth a crank now, or null to leave it for a later pass. */
@@ -106,6 +128,10 @@ export function batches<T extends { key: string; gain: bigint }>(due: T[], soloK
  * while `open_advance` is set. ETH Positions are handled by src/eth.ts and src/bridge.ts.
  */
 export async function yieldJob(ctx: Ctx): Promise<number> {
+  return (await simulatedYieldJob(ctx)) + (await stakePoolYieldJob(ctx));
+}
+
+async function simulatedYieldJob(ctx: Ctx): Promise<number> {
   const positions: any[] = await ctx.core.account.positionState.all();
   const native = positions.filter((p) => {
     const i = p.account.inner;
@@ -172,5 +198,107 @@ export async function yieldJob(ctx: Ctx): Promise<number> {
     }
   }
   log("yield", "-", `${native.length} native Position(s), ${owing.length} with Debt, ${due.length} worth a crank, ${actions} cranked`);
+  return actions;
+}
+
+/** NativeCustody: the struct, then the stake pool marker byte and the rate the Yield Fee is settled at (state.rs). */
+const CUSTODY_SPACE = ACCRUAL_AT + 8;
+const STAKE_POOL_MARKER = 2;
+/** Treasury: disc 8, 3 bumps, 2 fee rates, account, vault. */
+const TREASURY_VAULT_AT = 8 + 3 + 4 + 32;
+
+/** Whether custody data belongs to a stake pool custody, and the rate its fee is settled at. */
+export const stakeCustodyRate = (data: Uint8Array): bigint | null =>
+  data.length >= CUSTODY_SPACE + 9 && data[CUSTODY_SPACE] === STAKE_POOL_MARKER ? rdU64(data, CUSTODY_SPACE + 1) : null;
+
+/**
+ * Job 3b: yield of real staking tokens (mainnet). A Solana Position whose custody is valued by a stake pool and that has
+ * Debt gets `accrue_stake_pool_yield` when the pool's rate growth repays enough of it (same thresholds as `crankReason`).
+ * The Position's token can be any the SolSource has named, so the pool and the Treasury's vault of that token come from the
+ * custody and the Treasury, not from a constant.
+ */
+async function stakePoolYieldJob(ctx: Ctx): Promise<number> {
+  const positions: any[] = await ctx.core.account.positionState.all();
+  const owing = positions.filter((p) => {
+    const i = p.account.inner;
+    return status(i.sourceChain) === "solana" && !pk(i.sourceAsset).equals(SIM_SOL_MINT) && status(i.status) === "locked" && i.openAdvance !== null && i.openAdvance !== undefined;
+  });
+  if (!owing.length) return 0;
+
+  const custodyInfos: (AccountInfo<Buffer> | null)[] = [];
+  const keys = owing.map(({ publicKey }) => custodyPda(publicKey));
+  for (let i = 0; i < keys.length; i += 100) custodyInfos.push(...(await ctx.conn.getMultipleAccountsInfo(keys.slice(i, i + 100))));
+  const stake = owing.flatMap((p, i) => {
+    const c = custodyInfos[i];
+    const lastRate = c ? stakeCustodyRate(c.data) : null;
+    return c && lastRate !== null ? [{ p, custody: c.data, lastRate, pool: new PublicKey(c.data.subarray(8 + 2 + 2 * 32, 8 + 2 + 3 * 32)), mint: new PublicKey(c.data.subarray(8 + 2 + 3 * 32, 8 + 2 + 4 * 32)) }] : [];
+  });
+  if (!stake.length) return 0;
+
+  const treasuryInfo = await ctx.conn.getAccountInfo(treasuryPda());
+  if (!treasuryInfo || treasuryInfo.data.length < TREASURY_VAULT_AT + 32) {
+    log("yield", "-", `SKIP ${stake.length} stake pool Position(s) with Debt: the Treasury is not set up`);
+    return 0;
+  }
+  const yieldFeeBps = treasuryInfo.data.readUInt16LE(11);
+  const originalVault = new PublicKey(treasuryInfo.data.subarray(TREASURY_VAULT_AT, TREASURY_VAULT_AT + 32));
+
+  const poolKeys = [...new Set(stake.map((s) => s.pool.toBase58()))].map((k) => new PublicKey(k));
+  const poolInfos = await ctx.conn.getMultipleAccountsInfo([...poolKeys, originalVault, ...stake.map((s) => sourcePda(s.p.publicKey, Number(s.p.account.inner.openAdvance)))]);
+  const rates = new Map<string, bigint>();
+  poolKeys.forEach((k, i) => {
+    const v = poolInfos[i] && parseStakePool(poolInfos[i]!.data);
+    const rate = v ? stakePoolRate(v.totalLamports, v.poolTokenSupply) : null;
+    if (rate) rates.set(k.toBase58(), rate);
+  });
+  const originalMint = poolInfos[poolKeys.length] ? new PublicKey(poolInfos[poolKeys.length]!.data.subarray(0, 32)) : null;
+  const sourceInfos = poolInfos.slice(poolKeys.length + 1);
+
+  const nowMs = Date.now();
+  const due: { key: string; position: PublicKey; pool: PublicKey; vault: PublicKey; open: number; gain: bigint; why: string }[] = [];
+  stake.forEach((s, i) => {
+    const { publicKey, account } = s.p;
+    const key = (publicKey as PublicKey).toBase58();
+    const rate = rates.get(s.pool.toBase58());
+    const src = sourceInfos[i];
+    const g =
+      rate && src
+        ? stakeCrankGain(
+            {
+              principal: BigInt(account.inner.principal.toString()),
+              cumulative: BigInt(account.inner.cumulativeYield.toString()),
+              trackedShares: rdU64(s.custody, TRACKED_AT),
+              redeemedUnits: rdU64(s.custody, REDEEMED_AT),
+              source: parseSource(sourcePda(publicKey, Number(account.inner.openAdvance)), Buffer.from(src.data)).math,
+              rateBps: Number(account.inner.rateBps),
+              lastAccrualTs: null,
+              lastRate: s.lastRate,
+            },
+            rate,
+            yieldFeeBps,
+          )
+        : null;
+    if ((retryAt.get(key) ?? 0) > nowMs) return;
+    const why = crankReason(g, lastCrank.get(key), nowMs);
+    if (why) due.push({ key, position: publicKey, pool: s.pool, vault: originalMint?.equals(s.mint) ? originalVault : tokenTreasuryVaultPda(s.mint), open: Number(account.inner.openAdvance), gain: g?.gain ?? 0n, why });
+  });
+
+  let actions = 0;
+  for (const group of batches(due, solo)) {
+    const subject = group.length === 1 ? `position=${shortKey(group[0].position)}` : `positions=${group.map((d) => shortKey(d.position)).join(",")}`;
+    const what = `accrue_stake_pool_yield (${group.map((d) => d.why).join("; ")})`;
+    const r = await act(ctx, "yield", subject, what, () => ctx.bp.sendBase(ctx.signer, group.map((d) => accrueStakePoolYieldIx(d.position, d.pool, d.vault, d.open))), ctx.yieldShare);
+    if (r.ok) {
+      actions += group.length;
+      for (const d of group) lastCrank.set(d.key, Date.now());
+    } else if (r.detail === "budget") {
+      break;
+    } else if (group.length > 1) {
+      for (const d of group) solo.add(d.key);
+    } else {
+      retryAt.set(group[0].key, Date.now() + MAX_AGE_MS);
+    }
+  }
+  log("yield", "-", `${stake.length} stake pool Position(s), ${due.length} worth a crank, ${actions} cranked`);
   return actions;
 }
