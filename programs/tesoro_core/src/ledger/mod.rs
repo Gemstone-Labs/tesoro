@@ -121,6 +121,9 @@ core_errors! {
     InvalidExtendLimit => "the extend limit is 0 to 11 months",
     BadStakePool => "account data is not an initialised stake pool with pool tokens",
     EntryLimitReached => "this entry would go over your entry limit for the period",
+    PayoutWindowOpen => "the season payout window is still open; ranks are paid 48 hours after it is recorded",
+    PayoutWindowClosed => "the season payout window has closed; a rank can no longer be voided",
+    RankVoided => "this rank was voided and pays nothing",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

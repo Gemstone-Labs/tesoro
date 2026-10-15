@@ -3864,6 +3864,36 @@
           }
         },
         {
+          "name": "season_window",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110,
+                  95,
+                  119,
+                  105,
+                  110,
+                  100,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "season.inner.number",
+                "account": "SeasonState"
+              }
+            ]
+          }
+        },
+        {
           "name": "pool_account",
           "writable": true,
           "pda": {
@@ -3995,6 +4025,36 @@
                   115,
                   111,
                   110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "number"
+              }
+            ]
+          }
+        },
+        {
+          "name": "season_window",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110,
+                  95,
+                  119,
+                  105,
+                  110,
+                  100,
+                  111,
+                  119
                 ]
               },
               {
@@ -6292,6 +6352,110 @@
           "type": "u16"
         }
       ]
+    },
+    {
+      "name": "void_season_rank",
+      "docs": [
+        "Admin only, inside the 48-hour payout window: the rank pays nothing and its share stays in",
+        "the pool for the next season."
+      ],
+      "discriminator": [
+        18,
+        95,
+        132,
+        103,
+        57,
+        25,
+        129,
+        133
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "season",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "season.inner.number",
+                "account": "SeasonState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "season_window",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110,
+                  95,
+                  119,
+                  105,
+                  110,
+                  100,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "season.inner.number",
+                "account": "SeasonState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "rank",
+          "type": "u8"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -6553,6 +6717,19 @@
         7,
         255,
         18
+      ]
+    },
+    {
+      "name": "SeasonWindowState",
+      "discriminator": [
+        4,
+        209,
+        198,
+        40,
+        87,
+        32,
+        39,
+        122
       ]
     }
   ],
@@ -6828,6 +7005,19 @@
         152,
         82,
         23
+      ]
+    },
+    {
+      "name": "SeasonRankVoided",
+      "discriminator": [
+        75,
+        26,
+        186,
+        49,
+        222,
+        194,
+        191,
+        88
       ]
     }
   ],
@@ -9207,6 +9397,81 @@
           {
             "name": "shares",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonWindowState",
+      "docs": [
+        "The payout window of a recorded season (ADR 0011): when it was recorded and which ranks the",
+        "admin voided. A separate account so `SeasonState` keeps its layout. Created by",
+        "`record_season`; seeds `[\"season_window\", number as u32 LE]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "SeasonWindow"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonWindow",
+      "docs": [
+        "The payout window of a recorded Season (ADR 0011), kept beside the `Season` so that Seasons",
+        "recorded before the window existed keep their layout. Created by the same `record_season`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "number",
+            "type": "u32"
+          },
+          {
+            "name": "recorded_at",
+            "docs": [
+              "Unix seconds `record_season` ran."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "voided_mask",
+            "docs": [
+              "Bit `i` set once rank `i` was voided: it pays nothing and its share stays in the pool."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonRankVoided",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "rank",
+            "type": "u8"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
           }
         ]
       }

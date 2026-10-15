@@ -19,6 +19,7 @@ pub const NATIVE_VAULT_SEED: &[u8] = b"native_vault";
 pub const YIELD_SEED: &[u8] = b"yield";
 pub const PRICE_SEED: &[u8] = b"price";
 pub const SEASON_SEED: &[u8] = b"season";
+pub const SEASON_WINDOW_SEED: &[u8] = b"season_window";
 /// Address (never a signer) that owns the Leaderboard Pool Account: `["leaderboard"]`.
 pub const LEADERBOARD_SEED: &[u8] = b"leaderboard";
 pub const PROFILE_SEED: &[u8] = b"profile";
@@ -130,6 +131,19 @@ pub struct SeasonState {
 
 impl SeasonState {
     pub const SPACE: usize = 8 + 1 + 4 + 8 + 1 + ledger::PRIZE_PLACES * (32 + 8 + 8) + 2;
+}
+
+/// The payout window of a recorded season (ADR 0011): when it was recorded and which ranks the
+/// admin voided. A separate account so `SeasonState` keeps its layout. Created by
+/// `record_season`; seeds `["season_window", number as u32 LE]`.
+#[account]
+pub struct SeasonWindowState {
+    pub bump: u8,
+    pub inner: ledger::SeasonWindow,
+}
+
+impl SeasonWindowState {
+    pub const SPACE: usize = 8 + 1 + 4 + 8 + 2;
 }
 
 /// The signer allowed to report `PositionLocked` / `YieldAccrued` for Positions of one source
@@ -593,6 +607,13 @@ pub struct SeasonRecorded {
     pub season: u32,
     pub pool_total: u64,
     pub winners: u8,
+}
+
+#[event]
+pub struct SeasonRankVoided {
+    pub season: u32,
+    pub rank: u8,
+    pub account: Pubkey,
 }
 
 #[event]

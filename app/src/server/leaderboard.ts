@@ -2,7 +2,7 @@ import { Connection } from "@solana/web3.js";
 import { fetchLeaderboardTerms, fetchPoolTotal, fetchSeasonRecord, fetchSeasonWins } from "@/lib/chain/leaderboard";
 import type { LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
 import { baseRpc } from "@/lib/chain/rpc-config";
-import { seasonAt, seasonEnd, seasonStart, standings } from "@/lib/chain/season";
+import { seasonAt, seasonEnd, payoutOpensAt, seasonStart, standings } from "@/lib/chain/season";
 
 const TOP = 50;
 const FRESH_MS = 30_000;
@@ -37,7 +37,8 @@ async function build(c: Connection, nowSecs: number): Promise<Built> {
       ? {
           number: record.number,
           poolGemas: Number(record.poolTotal),
-          winners: record.winners.map((account, i) => ({ rank: i + 1, account, points: record.points[i], gemas: Number(record.amounts[i]), paid: !!(record.paidMask & (1 << i)) })),
+          winners: record.winners.map((account, i) => ({ rank: i + 1, account, points: record.points[i], gemas: Number(record.amounts[i]), paid: !!(record.paidMask & (1 << i)), voided: !!(record.voidedMask & (1 << i)) })),
+          payoutAt: record.recordedAt === null ? null : payoutOpensAt(record.recordedAt),
         }
       : null,
     settling: number > 1 && !record && terms.recipient ? number - 1 : null,

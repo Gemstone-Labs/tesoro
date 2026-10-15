@@ -10,7 +10,7 @@ import { useAccount } from "@/lib/account";
 import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import type { LastSeason, LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
+import { lastRankNote, type LastSeason, type LeaderboardRow, type LeaderboardView } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
@@ -231,7 +231,7 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
         </p>
       )}
 
-      {data.last && <Last last={data.last} me={me} />}
+      {data.last && <Last last={data.last} me={me} now={now ?? data.now} />}
 
       {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
       <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
@@ -457,7 +457,10 @@ function Payout({ pool }: { pool: number }) {
   );
 }
 
-function Last({ last, me }: { last: LastSeason; me: string | null }) {
+const fmtPayoutDate = (secs: number) =>
+  new Date(secs * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" });
+
+function Last({ last, me, now }: { last: LastSeason; me: string | null; now: number }) {
   return (
     <section className="lb-last" aria-labelledby="lb-last-h">
       <header className="lb-sec-head">
@@ -470,7 +473,9 @@ function Last({ last, me }: { last: LastSeason; me: string | null }) {
         <p className="note">Nobody won a Match that season; the pool carried over.</p>
       ) : (
         <ol className="lb-rows">
-          {last.winners.map((w) => (
+          {last.winners.map((w) => {
+            const note = lastRankNote(w, last.payoutAt, now);
+            return (
             <li key={w.account} className={`cut cut-card lb-row paid${me === w.account ? " me" : ""}`}>
               <span className="lb-rank" aria-label={`Rank ${w.rank}`}>{w.rank}</span>
               <span className="lb-who">
@@ -485,10 +490,12 @@ function Last({ last, me }: { last: LastSeason; me: string | null }) {
               <span className="lb-prize">
                 <GemaMark size={16} />
                 <b>{fmtGemas(w.gemas)}</b>
-                {!w.paid && <small>paying</small>}
+                {note.kind === "voided" && <small>not paid</small>}
+                {note.kind === "paying" && <small>{note.payoutAt ? `paying out ${fmtPayoutDate(note.payoutAt)}` : "paying"}</small>}
               </span>
             </li>
-          ))}
+            );
+          })}
         </ol>
       )}
     </section>
