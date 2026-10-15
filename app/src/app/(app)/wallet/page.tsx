@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Button, Card, ChainChip, FacetCrown, GemaMark, GemaUsd, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
@@ -31,6 +32,8 @@ export default function Wallet() {
   const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [now] = useState(() => Date.now());
   const [openSheet, setOpenSheet] = useState(false);
+  // Phones fold the balance to the Total; wider screens always show all of it.
+  const [heroOpen, setHeroOpen] = useState(false);
   const router = useRouter();
   // `/wallet?open=1` (the Lobby's Get Gemas) lands with the Open a Position sheet already up.
   useEffect(() => {
@@ -143,10 +146,16 @@ export default function Wallet() {
         {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>}
       </header>
 
-      <section className="cut cut-frame facet-panel wl-hero" aria-label="Balance">
+      <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
         <FacetCrown />
-        <div className="wl-total">
-          <h2>Total Balance</h2>
+        <div className="wl-total" onClick={() => setHeroOpen((o) => !o)}>
+          <div className="wl-total-head">
+            <h2>Total Balance</h2>
+            <button type="button" className="wl-fold" aria-expanded={heroOpen} aria-controls="wl-second">
+              <ChevronDown size={18} aria-hidden="true" />
+              <span className="sr-only">{heroOpen ? "Hide" : "Show"} Redeemable and Pending</span>
+            </button>
+          </div>
           <div className="wl-total-fig">
             <GemaMark size={72} glint />
             <b aria-busy={!ready}>{ready ? <CountUp value={gemas.total} /> : "—"}</b>
@@ -154,7 +163,7 @@ export default function Wallet() {
             {ready && <GemaUsd className="wl-usd" value={gemas.total} />}
           </div>
         </div>
-        <div className="wl-second">
+        <div className="wl-second" id="wl-second">
           <div className="wl-redeemable" aria-label="Redeemable now">
             <h2>Redeemable now</h2>
             <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>

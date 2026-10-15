@@ -31,6 +31,13 @@
 .wl-pbs-row .chain { justify-self: start; font-size: 13px; padding: 3px 9px 3px 7px; }
 @media (min-width: 960px) { .wl-hero { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); padding: 40px 44px 28px; } }
 @media (max-width: 479px) { .wl-hero { padding: 24px 18px 18px; } .wl-second { grid-template-columns: 1fr; } }
+.wl-total-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* phones: folded to the Total until opened */
+@media (min-width: 768px) { .wl-total-head .wl-fold { display: none; } }
+@media (max-width: 767px) {
+  .wl-total { cursor: pointer; }
+  .wl-hero:not(.open) > :is(.wl-second, .wl-hero-sim, .wl-pbs) { display: none; }
+}
 
 .wl-foot { display: grid; gap: 10px; }
 .wl-foot:empty { display: none; }
@@ -41,7 +48,17 @@
 .wl-col { display: grid; gap: 14px; align-content: start; }
 
 .wl-tile { --edge: var(--edge-2); background: var(--surface); padding: 20px; display: grid; gap: 14px; align-content: start; min-width: 0; container-type: inline-size; }
+.wl-tile-top, .wl-tile-body { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.wl-tile-top { cursor: pointer; }
+.wl-tile-body[hidden] { display: none; }
 .wl-tile-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+/* fold toggle: Position cards and the phone balance */
+.wl-fold { flex: none; display: grid; place-items: center; width: 32px; height: 32px; margin: -6px -6px -6px 0; padding: 0; border: 0; background: transparent; color: var(--fg-2); cursor: pointer; }
+.wl-fold svg { transition: transform 160ms ease; }
+.wl-fold[aria-expanded="true"] svg { transform: rotate(180deg); }
+.wl-fold:hover, .wl-tile-top:hover .wl-fold, .wl-total:hover .wl-fold { color: var(--fg); }
+.wl-fold:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .wl-fold svg { transition: none; } }
 .wl-tile-lock { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); font-weight: 700; }
 /* countdown: when the Principal comes back */
 .wl-back { display: grid; gap: 4px; padding-top: 8px; }

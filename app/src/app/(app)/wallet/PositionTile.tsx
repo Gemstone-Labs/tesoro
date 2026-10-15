@@ -1,7 +1,7 @@
 "use client";
 
-import { type ReactNode, useId } from "react";
-import { Lock, LockOpen } from "lucide-react";
+import { type ReactNode, useId, useState } from "react";
+import { ChevronDown, Lock, LockOpen } from "lucide-react";
 import { ChainGlyph, SimulatedYieldLabel } from "@/components/ui";
 import { fmtInMinutes } from "@/lib/format";
 import type { Chain } from "@/lib/mock/types";
@@ -99,7 +99,8 @@ function BurnDown({ series, debt }: { series: DebtSeries; debt: string }) {
 
 /**
  * One Position as a countdown: when the Principal comes back, the projected Debt burning down to zero, then
- * Principal / Debt / Yield, the actions, and the card's small print behind Details.
+ * Principal / Debt / Yield, the actions, and the card's small print behind Details. Folded by default to the
+ * countdown and a one-line Debt; a tap anywhere on that part opens the rest.
  */
 export function PositionTile({
   chain,
@@ -114,6 +115,7 @@ export function PositionTile({
   now,
   series,
   notes,
+  defaultOpen = false,
   children,
 }: {
   chain: Chain;
@@ -133,58 +135,66 @@ export function PositionTile({
   now: number;
   series: DebtSeries | null;
   notes?: ReactNode;
+  defaultOpen?: boolean;
   children?: ReactNode;
 }) {
   const h = hero(state, unlockAt, now);
-  const open = state === "unlocked";
+  const unlocked = state === "unlocked";
+  const [open, setOpen] = useState(defaultOpen);
+  const bodyId = useId();
+  const flat = state === "repaying" ? (series && debt ? `${debt} of Debt` : "Waiting for the first yield") : "No Debt";
   return (
-    <article className={`cut cut-card wl-tile ${state}`} aria-label={label}>
-      <header className="wl-tile-head">
-        <ChainGlyph asset={GLYPH[chain]} size={20} />
-        <b>{label}</b>
-        <span className="wl-tile-lock">
-          {open ? <LockOpen size={14} aria-hidden="true" /> : <Lock size={14} aria-hidden="true" />}
-          <span className="sr-only">{open ? "Unlocked:" : "Locked:"}</span> {principal}
-        </span>
-      </header>
-      <div className="wl-back">
-        <span className="label">{h.k}</span>
-        <b>{h.big}</b>
-        <span>{h.note}</span>
+    <article className={`cut cut-card wl-tile ${state}${open ? " open" : ""}`} aria-label={label}>
+      <div className="wl-tile-top" onClick={() => setOpen((o) => !o)}>
+        <header className="wl-tile-head">
+          <ChainGlyph asset={GLYPH[chain]} size={20} />
+          <b>{label}</b>
+          <span className="wl-tile-lock">
+            {unlocked ? <LockOpen size={14} aria-hidden="true" /> : <Lock size={14} aria-hidden="true" />}
+            <span className="sr-only">{unlocked ? "Unlocked:" : "Locked:"}</span> {principal}
+          </span>
+          <button type="button" className="wl-fold" aria-expanded={open} aria-controls={bodyId}>
+            <ChevronDown size={18} aria-hidden="true" />
+            <span className="sr-only">{open ? "Hide" : "Show"} {label} details</span>
+          </button>
+        </header>
+        <div className="wl-back">
+          <span className="label">{h.k}</span>
+          <b>{h.big}</b>
+          <span>{h.note}</span>
+        </div>
+        {open && series && debt ? <BurnDown series={series} debt={debt} /> : <p className="wl-burn-flat">{flat}</p>}
       </div>
-      {series && debt ? (
-        <BurnDown series={series} debt={debt} />
-      ) : (
-        <p className="wl-burn-flat">{state === "repaying" ? "Waiting for the first yield" : "No Debt"}</p>
-      )}
-      <dl className="wl-facts">
-        <div>
-          <dt>Principal</dt>
-          <dd>{principal}</dd>
-        </div>
-        <div>
-          <dt>Debt</dt>
-          <dd>
-            {debt ?? "None"}
-            {debtAsset && <small>{debtAsset}</small>}
-          </dd>
-        </div>
-        <div>
-          <dt>Yield</dt>
-          <dd>
-            {apy}
-            {yieldFeeBps !== undefined && <small>after the {yieldFeeBps / 100}% Yield Fee</small>}
-          </dd>
-        </div>
-      </dl>
-      <SimulatedYieldLabel />
-      <div className="wl-actions">{children}</div>
-      {notes && (
-        <details className="wl-more">
-          <summary>Details</summary>
-          {notes}
-        </details>
-      )}
+      <div className="wl-tile-body" id={bodyId} hidden={!open}>
+        <dl className="wl-facts">
+          <div>
+            <dt>Principal</dt>
+            <dd>{principal}</dd>
+          </div>
+          <div>
+            <dt>Debt</dt>
+            <dd>
+              {debt ?? "None"}
+              {debtAsset && <small>{debtAsset}</small>}
+            </dd>
+          </div>
+          <div>
+            <dt>Yield</dt>
+            <dd>
+              {apy}
+              {yieldFeeBps !== undefined && <small>after the {yieldFeeBps / 100}% Yield Fee</small>}
+            </dd>
+          </div>
+        </dl>
+        <SimulatedYieldLabel />
+        <div className="wl-actions">{children}</div>
+        {notes && (
+          <details className="wl-more">
+            <summary>Details</summary>
+            {notes}
+          </details>
+        )}
+      </div>
     </article>
   );
 }

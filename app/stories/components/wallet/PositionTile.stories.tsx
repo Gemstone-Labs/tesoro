@@ -18,6 +18,7 @@ const meta = {
     apy: "7.0%",
     unlockAt: IN_8,
     now: NOW,
+    defaultOpen: true,
     series: linearSeries(1377, NOW, IN_8),
     notes: (
       <>
@@ -46,6 +47,9 @@ type Story = StoryObj<typeof meta>;
 
 /** Debt open: when the Principal comes back, and the Debt burning down to zero. */
 export const Repaying: Story = {};
+
+/** How every card starts on the Wallet: head, countdown and a one-line Debt; a tap opens the rest. */
+export const Folded: Story = { args: { defaultOpen: false } };
 
 /** Cross-chain, longer figures. */
 export const Eth: Story = {
