@@ -11,6 +11,9 @@ import { checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
+import { ageCall } from "@/lib/chain/age-client";
+import { ageGate, readAgeCache, writeAgeCache } from "@/lib/age-gate";
+import { AgeConfirm } from "./AgeConfirm";
 import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
@@ -48,6 +51,10 @@ export function EnterMatch(props: EnterKind) {
   const [launched, setLaunched] = useState(false);
   const [existing, setExisting] = useState<bigint | null>(null);
   const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
+  const [ageServer, setAgeServer] = useState<boolean | null>(null);
+  const [ageChecked, setAgeChecked] = useState(false);
+  const [ageBusy, setAgeBusy] = useState(false);
+  const [ageError, setAgeError] = useState<string | null>(null);
   const seats = useQueue();
   const game: GameId = props.kind === "challenge-join" ? "block-puzzle" : (props.game ?? "block-puzzle");
   const asset = props.kind === "challenge-join" ? 0 : (props.asset ?? 0);
@@ -74,9 +81,43 @@ export function EnterMatch(props: EnterKind) {
     };
   }, [rechecking, refresh]);
 
+  const authorityKey = signer?.publicKey.toBase58() ?? null;
+  // Only read once a signer exists, which is after hydration.
+  const ageCached = authorityKey ? readAgeCache(authorityKey) : false;
+  const gate = signer ? ageGate({ server: ageServer, cached: ageCached, checked: ageChecked }) : "checking";
+
+  useEffect(() => {
+    if (!signer || !authorityKey) return;
+    if (readAgeCache(authorityKey)) return;
+    let stopped = false;
+    void ageCall("status", signer, auth.getAccessToken).then(
+      (ok) => !stopped && (setAgeServer(ok), setAgeChecked(true)),
+      () => !stopped && setAgeChecked(true),
+    );
+    return () => {
+      stopped = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authorityKey]);
+
+  async function confirmAge() {
+    if (!signer || !authorityKey) return;
+    setAgeBusy(true);
+    setAgeError(null);
+    try {
+      await ageCall("confirm", signer, auth.getAccessToken);
+      writeAgeCache(authorityKey);
+      setAgeServer(true);
+    } catch (e) {
+      setAgeError(plainError(e));
+    } finally {
+      setAgeBusy(false);
+    }
+  }
+
   useEffect(() => {
     // A failed attempt is retried by reloading the page, never by this effect re-running.
-    if (!signer || started.current || attempted.current || loading || needsGemas || rechecking) return;
+    if (!signer || started.current || attempted.current || loading || needsGemas || rechecking || gate !== "go") return;
     started.current = true;
     attempted.current = true;
     setLaunched(true);
@@ -117,7 +158,7 @@ export function EnterMatch(props: EnterKind) {
     })();
     // The mode and entry are fixed for this page instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signer, key, loading, needsGemas, rechecking]);
+  }, [signer, key, loading, needsGemas, rechecking, gate]);
 
   const assetName = game === "trading-duel" ? (["SOL", "ETH", "HYPE"][asset] ?? "SOL") : "";
   const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
@@ -128,7 +169,7 @@ export function EnterMatch(props: EnterKind) {
       ? [...new Set(seats[game].filter((w) => w.entry === props.entry && w.player !== me && (game !== "trading-duel" || w.asset === asset)).map((w) => w.player))]
       : [];
   const found = status === "Opponent found.";
-  const busy = !signedOut && existing === null && !needsGemas && !failure;
+  const busy = !signedOut && existing === null && !needsGemas && !failure && gate !== "ask";
   const seat = found ? "Opponent" : props.kind === "challenge-new" ? (props.opponent ? "Rematch" : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
   const waitLine =
     props.kind === "challenge-new"
@@ -179,6 +220,8 @@ export function EnterMatch(props: EnterKind) {
             <p className="meta">Sign in to play a Match.</p>
             <Button block onClick={() => auth.openSignIn("Enter a Match")}>Sign in</Button>
           </>
+        ) : gate === "ask" ? (
+          <AgeConfirm busy={ageBusy} error={ageError} onConfirm={() => void confirmAge()} onDecline={() => router.replace("/lobby")} />
         ) : existing !== null ? (
           <>
             <p className="status" role="status">You still have a {GAME_NAMES[game]} Match to play. Finish it before entering another.</p>
