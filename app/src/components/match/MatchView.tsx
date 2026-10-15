@@ -265,6 +265,7 @@ export function MatchView({ matchId }: { matchId: string }) {
         scores={scores && outcome !== "refunded" ? [String(scores[0]), String(scores[1])] : null}
         momentKey={m.id.toString()}
         playAgainHref={`/play/queue?entry=${m.entry}`}
+        opponent={m.opponent}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {error && <p className="status err" role="alert">{error}</p>}

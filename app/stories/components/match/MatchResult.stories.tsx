@@ -27,6 +27,7 @@ function props(game: GameId, win: boolean, extra: { backing?: "player" | "backer
     backed: !!m.backing,
     scores,
     playAgainHref: "/play/queue",
+    opponent: m.opponent,
     momentKey: `story-${game}-${outcome}-${extra.backing ?? "own"}`,
     split: m.backing ? <BackingSplit m={m} /> : undefined,
   };
@@ -61,3 +62,8 @@ export const BackedRefunded: Story = { args: props("block-puzzle", true, { backi
 export const HoldemWon: Story = { args: props("holdem", true) };
 export const HoldemLost: Story = { args: props("holdem", false) };
 export const TradingDuelWon: Story = { args: { ...props("trading-duel", true), scores: ["800 points", "500 points"] } };
+
+/** Rematch opens a Challenge pre-filled with the same opponent, Game and entry: after a settled Match only. */
+export const WithRematch: Story = { args: props("holdem", true) };
+export const RematchTradingDuel: Story = { args: { ...props("trading-duel", false), asset: 1 } };
+export const NoRematchUnknownOpponent: Story = { args: { ...props("block-puzzle", true), opponent: null } };
