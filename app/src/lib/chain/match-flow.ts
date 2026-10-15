@@ -52,10 +52,12 @@ export const createAccountIx = (authority: PublicKey): Promise<TransactionInstru
     .instruction();
 
 /** SOL for fees and rent (demo faucet if needed) and the TesoroAccount itself. */
-export async function ensureReady(signer: ChainSigner, getToken: GetToken): Promise<AccountSnapshot> {
+export async function ensureReady(signer: ChainSigner, getToken: GetToken, onStep?: (s: string) => void): Promise<AccountSnapshot> {
+  onStep?.("Checking your SOL and Account…");
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
   let snap = await fetchAccountState(signer.publicKey);
   if (!snap.exists) {
+    onStep?.("Creating your Tesoro Account…");
     await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
     snap = await fetchAccountState(signer.publicKey, { fresh: true });
   }
@@ -113,9 +115,10 @@ export async function enterQueue(signer: ChainSigner, entry: number, getToken: G
 }
 
 /** Challenge: open a Match only reachable through its link. */
-export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0): Promise<bigint> {
-  const snap = await ensureReady(signer, getToken);
+export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0, onStep?: (s: string) => void): Promise<bigint> {
+  const snap = await ensureReady(signer, getToken, onStep);
   const id = newMatchId(true, game, asset);
+  onStep?.("Opening your Challenge…");
   await getChain().openMatch(signer, id, entry, entryHoldings(snap, entry), GAME_IDS[game]);
   return id;
 }
