@@ -8,6 +8,7 @@ import { GemaMark } from "@/components/ui";
 import { CATALOGUE } from "@/lib/catalogue";
 import { commitPendingKey } from "@/lib/chain/commit-pending";
 import { matchFee } from "@/lib/chain/ledger";
+import { delayedLine, matchStanding } from "@/lib/chain/match-status";
 import type { ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
@@ -17,7 +18,9 @@ const subscribeNothing = () => () => {};
 const nowSecs = () => Math.floor(Date.now() / 1000);
 
 /** Where a Match stands for its Player, and the action that card leads to. A Match with an opponent comes first. */
-function stage(m: ChainMatch, sending = false) {
+function stage(m: ChainMatch, sending = false, nowMs = Date.now()) {
+  const standing = matchStanding(m, Math.floor(nowMs / 1000));
+  if (standing.kind === "delayed") return { key: "delayed", status: delayedLine(standing, nowMs), action: "View", ready: false };
   if (m.status === "active" && sending) return { key: "sending", status: "Result on its way", action: "View", ready: false };
   if (m.status === "active") return { key: "ready", status: "Opponent found", action: "Resume", ready: true };
   if (m.challenge) return { key: "waiting", status: "Waiting for your friend", action: "Open", ready: false };
@@ -39,7 +42,7 @@ export function ContinueRail({ matches }: { matches: ChainMatch[] }) {
     return () => clearInterval(t);
   }, []);
   const sending = useSyncExternalStore(subscribeNothing, commitPendingKey, () => "");
-  const st = (m: ChainMatch) => stage(m, sending.split(",").includes(m.id.toString()));
+  const st = (m: ChainMatch) => stage(m, sending.split(",").includes(m.id.toString()), now * 1000);
   const sorted = [...matches].sort((a, b) => Number(st(b).ready) - Number(st(a).ready) || a.deadline - b.deadline);
 
   return (

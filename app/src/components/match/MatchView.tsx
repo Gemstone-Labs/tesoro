@@ -14,6 +14,8 @@ import type { RunSubmitter } from "@/lib/chain/run-submitter";
 import { BackingSplit } from "./BackingSplit";
 import { MatchResult } from "./MatchResult";
 import { MatchSpectate } from "./MatchSpectate";
+import { delayedOf } from "@/lib/chain/match-status";
+import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction, type StageKind } from "./MatchStage";
 import { Receipts } from "./Receipts";
 import { plainError } from "@/lib/errors";
@@ -43,6 +45,7 @@ const SETTLE_TRY_MS = 6000;
 export function MatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
+  const nowSecs = useNowSecs();
   const id = (() => {
     try {
       return BigInt(matchId);
@@ -94,7 +97,7 @@ export function MatchView({ matchId }: { matchId: string }) {
       const m = await fetchMatch(id, me);
       setMatch(m);
       const now = Date.now() / 1000;
-      setRefundable(!!m && (m.status === "open" || !m.session?.joined) && now > m.deadline);
+      setRefundable(!!m && (m.status === "open" || !m.session?.joined || delayedOf(m, now)?.refundOpen === true) && now > m.deadline);
       if (!m) return setPhase("notfound");
       if (m.seat === null && m.backerSeat === null) return setPhase("spectator");
       if (m.status === "settled" || m.status === "refunded") {
@@ -307,6 +310,7 @@ export function MatchView({ matchId }: { matchId: string }) {
       challengeLink={m.challenge && kind === "waiting-run" ? link : null}
       backedShareBps={playerBacked && m.backing ? m.backing.shareBps : null}
       commit={commit}
+      delayed={delayedOf(m, nowSecs)}
       error={error}
       start={
         kind === "ready" && (
@@ -342,7 +346,7 @@ export function MatchView({ matchId }: { matchId: string }) {
               Time’s up: refund both entries
             </StageAction>
           )}
-          {refundable && (kind === "awaiting" || kind === "ready" || kind === "setup") && (
+          {refundable && (kind === "awaiting" || kind === "closing" || kind === "ready" || kind === "setup") && (
             <StageAction disabled={busy !== null} onClick={refund}>
               Refund Match
             </StageAction>

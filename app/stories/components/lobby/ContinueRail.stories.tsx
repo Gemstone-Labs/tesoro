@@ -21,3 +21,17 @@ export const Default: Story = {
 
 /** A single Match still waiting for an opponent. */
 export const Waiting: Story = { args: { matches: [chainMatch("block-puzzle", "open")] } };
+
+/** Past its settle time and not settled: the card says Delayed and when the Match refunds at the latest. */
+export const Delayed: Story = {
+  args: {
+    matches: [
+      chainMatch("block-puzzle", "active", { entry: 1000 }),
+      { ...chainMatch("trading-duel", "active", { entry: 500 }), deadline: Math.floor(Date.now() / 1000) + 3600 - 900 },
+    ].map((m, i) =>
+      i === 0 && m.session ? { ...m, deadline: Math.floor(Date.now() / 1000) + 1500, session: { ...m.session, deadline: Math.floor(Date.now() / 1000) - 600, openerDeadline: Math.floor(Date.now() / 1000) - 600 } } : m,
+    ),
+  },
+};
+export const Delayed1440: Story = { ...Delayed, globals: { viewport: { value: "desktop1440", isRotated: false } } };
+export const Delayed390: Story = { ...Delayed, globals: { viewport: { value: "phone390", isRotated: false } } };
