@@ -770,7 +770,7 @@ fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
         remaining,
     );
     let err = env
-        .send(&std::slice::from_ref(&refund), &caller, &[])
+        .send(std::slice::from_ref(&refund), &caller, &[])
         .unwrap_err();
     assert_eq!(
         custom_code(&err),
