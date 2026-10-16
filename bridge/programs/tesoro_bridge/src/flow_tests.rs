@@ -688,6 +688,41 @@ fn peer_ix(env: &Env, admin: &Keypair) -> Instruction {
     )
 }
 
+// Audit 2026-10-16 B-3. The bridge knew only the testnet LayerZero ids, so on mainnet
+// `set_peer_config` refused every vault (Ethereum 30101, HyperEVM 30367) and nothing could open.
+#[test]
+fn vaults_on_the_mainnet_layerzero_ids_register() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    for (eid, vault) in [(30_101u32, [0x11; 20]), (30_367u32, [0x22; 20])] {
+        let vault = msg_codec::pad_address(&vault);
+        let ixn = ix(
+            crate::ID,
+            crate::accounts::SetPeerConfig {
+                admin: a(admin.pubkey()),
+                peer: bridge_pda(&[PEER_SEED, env.store.as_ref(), &eid.to_be_bytes(), &vault]),
+                vault_treasury: bridge_pda(&[TREASURY_SEED, &eid.to_be_bytes(), &vault]),
+                store: env.store,
+                system_program: anchor_lang::system_program::ID,
+            },
+            crate::instruction::SetPeerConfig {
+                params: SetPeerConfigParams {
+                    remote_eid: eid,
+                    peer_address: vault,
+                    decimals: 18,
+                    rate_bps: 500,
+                    enforced_send_options: vec![0, 3],
+                },
+            },
+        );
+        env.send(&[ixn], &admin, &[])
+            .unwrap_or_else(|e| panic!("eid {eid} must register: {:?}", e.meta.logs));
+    }
+    assert!(matches!(core_chain(30_101), Ok(SourceChain::Ethereum)));
+    assert!(matches!(core_chain(30_367), Ok(SourceChain::HyperEvm)));
+    assert!(core_chain(30_168).is_err(), "Solana's own id is not a source chain");
+}
+
 #[test]
 fn only_the_upgrade_authority_may_rotate_the_bridge_admin() {
     let mut env = Env::new();
