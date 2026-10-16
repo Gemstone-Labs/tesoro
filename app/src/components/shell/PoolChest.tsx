@@ -166,7 +166,7 @@ export function PoolChest() {
         <span>Pool{data && ` · Season ${data.season.number}`}</span>
       </div>
       {youPending && <YouSkeleton />}
-      {standing && (
+      {standing && standing.points > 0 && (
         <div className={`pc-you${standing.rank === null ? " none" : ""}`}>
           <div className={`pc-rank${standing.rank !== null && standing.rank >= 10 ? " wide" : ""}`}>
             {standing.rank === null ? "–" : <><small>#</small>{standing.rank}</>}

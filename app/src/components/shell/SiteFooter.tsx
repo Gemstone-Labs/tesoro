@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { TesoroLogo } from "@/components/brand";
 import { ChainGlyph } from "@/components/ui";
-import { LAUNCH_STAGE } from "@/lib/landing/config";
+import { LAUNCH_STAGE, OUTBOUND } from "@/lib/landing/config";
 import { BRAND } from "@/lib/brand";
 
 const CHAINS = [
@@ -13,7 +13,7 @@ const CHAINS = [
 const COLUMNS: { title: string; links: [label: string, href: string | null][] }[] = [
   { title: "Play", links: [["Lobby", "/lobby"], ["Games", "/play"], ["Leaderboard", "/leaderboard"], ["Your Matches", "/matches"]] },
   { title: "Money", links: [["Wallet", "/wallet"], ["Backing", "/backing"]] },
-  { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"]] },
+  { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"], ["X @PlayTesoro", OUTBOUND.x ?? null]] },
 ];
 
 /** Brand block and link columns, then a strip with the fair-play note and the simulated-yield label. */
