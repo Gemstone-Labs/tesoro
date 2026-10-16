@@ -57,6 +57,14 @@ pub enum TesoroError {
     InviteRequired,
     #[msg("an Invite key is needed to turn the Invite gate on")]
     InviteKeyMissing,
+    #[msg("this staking token is not the one new Positions open with")]
+    StakeTokenInactive,
+    #[msg("the Advance APY ceiling is not set")]
+    StakeCeilingNotSet,
+    #[msg("position is not a staking-token Position")]
+    NotStakePosition,
+    #[msg("the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool")]
+    BadStakePoolAccount,
 }
 
 pub fn core_err(e: CoreError) -> Error {

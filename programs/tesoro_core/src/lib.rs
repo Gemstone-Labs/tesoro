@@ -254,6 +254,60 @@ pub mod tesoro_core {
         instructions::native::init_native_custody(ctx)
     }
 
+    // --- Mainnet SOL Positions on a real staking token (ADR 0011) -----------------------------
+
+    /// Admin: the staking token new SOL Positions open with (creates its custody and vault the
+    /// first time). The stake pool account pins the token's Staking Rate source.
+    pub fn set_stake_token(ctx: Context<SetStakeToken>) -> Result<()> {
+        instructions::stake::set_stake_token(ctx)
+    }
+
+    /// Admin: the ceiling on the annualised growth an Advance is sized on, in basis points.
+    pub fn set_stake_apy_ceiling(
+        ctx: Context<SetStakeApyCeiling>,
+        apy_ceiling_bps: u16,
+    ) -> Result<()> {
+        instructions::stake::set_stake_apy_ceiling(ctx, apy_ceiling_bps)
+    }
+
+    /// Deposits `shares` of the active staking token into the shared vault as a new Position.
+    pub fn open_stake_position(
+        ctx: Context<OpenStakePosition>,
+        nonce: u64,
+        shares: u64,
+    ) -> Result<()> {
+        instructions::stake::open_stake_position(ctx, nonce, shares)
+    }
+
+    /// An Advance against a stake Position: Pyth price, sized on the pool's recent growth.
+    pub fn take_stake_advance(ctx: Context<TakeStakeAdvance>, horizon_months: u8) -> Result<()> {
+        instructions::stake::take_stake_advance(ctx, horizon_months)
+    }
+
+    pub fn extend_stake_advance(ctx: Context<ExtendStakeAdvance>, extra_months: u8) -> Result<()> {
+        instructions::stake::extend_stake_advance(ctx, extra_months)
+    }
+
+    /// Instant Redeem of won Gemas of a stake Source, paid in the token from the Treasury balance.
+    pub fn instant_redeem_stake(ctx: Context<InstantRedeemStake>, amount: u64) -> Result<()> {
+        instructions::stake::instant_redeem_stake(ctx, amount)
+    }
+
+    /// Admin: withdraws Treasury balance, in the token, to the company wallet.
+    pub fn withdraw_treasury_stake(ctx: Context<WithdrawTreasuryStake>, amount: u64) -> Result<()> {
+        instructions::stake::withdraw_treasury_stake(ctx, amount)
+    }
+
+    /// Creates the Treasury without a simSOL vault (a deployment without `sim_lst`) or changes
+    /// its fee rates.
+    pub fn init_treasury_stake(
+        ctx: Context<InitTreasuryStake>,
+        yield_fee_bps: u16,
+        instant_fee_bps: u16,
+    ) -> Result<()> {
+        instructions::stake::init_treasury_stake(ctx, yield_fee_bps, instant_fee_bps)
+    }
+
     // --- Treasury: Yield Fee and Instant Redeem (ADR 0007) ----------------------------------
 
     /// Creates the Treasury (config, Treasury Account, simSOL vault) or changes its fee rates.

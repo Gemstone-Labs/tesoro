@@ -6,7 +6,7 @@
 //! `take_advance` serve test mode only: `take_advance` refuses an asset once it has a mapping.
 
 use crate::error::{core_err, TesoroError};
-use crate::instructions::native::is_native;
+use crate::instructions::native::{is_native, is_stake};
 use crate::instructions::position::{chain_byte, issue_advance};
 use crate::ledger::native;
 use crate::pyth::{
@@ -266,7 +266,10 @@ pub(crate) fn take_advance_onchain(
 ) -> Result<()> {
     let a = ctx.accounts;
     // A native Position is advanced by the owner alone through `take_native_advance_onchain`.
-    require!(!is_native(&a.position.inner), TesoroError::NativePosition);
+    require!(
+        !is_native(&a.position.inner) && !is_stake(&a.position.inner),
+        TesoroError::NativePosition
+    );
     require_can_advance(&a.protections.to_account_info())?;
     let price = a
         .onchain_price

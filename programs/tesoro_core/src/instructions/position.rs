@@ -1,6 +1,10 @@
 use crate::error::{core_err, TesoroError};
+use crate::instructions::native::is_stake;
 use crate::instructions::native::{
     is_native, redeem_native, return_own_native_source, unlock_native_position,
+};
+use crate::instructions::stake::{
+    is_computed, redeem_stake, return_own_stake_source, unlock_stake_position,
 };
 use crate::ledger::{self, SourceChain};
 use crate::state::*;
@@ -133,6 +137,10 @@ pub(crate) fn take_advance(
     horizon_months: u8,
     price_micro_usd: u64,
 ) -> Result<()> {
+    require!(
+        !is_computed(&ctx.accounts.position.inner),
+        TesoroError::NativePosition
+    );
     crate::instructions::onchain_price::require_no_onchain_price(
         &Pubkey::new_from_array(ctx.accounts.position.inner.source_asset),
         ctx.remaining_accounts,
@@ -226,7 +234,7 @@ pub struct ApplyYield<'info> {
 
 pub(crate) fn apply_yield(ctx: Context<ApplyYield>, seq: u64, cumulative: u64) -> Result<()> {
     require!(
-        !is_native(&ctx.accounts.position.inner),
+        !is_computed(&ctx.accounts.position.inner),
         TesoroError::NativePosition
     );
     let position_key = ctx.accounts.position.key();
@@ -288,6 +296,16 @@ pub(crate) fn return_own<'info>(
 ) -> Result<()> {
     let remaining = ctx.remaining_accounts;
     let a = &mut ctx.accounts;
+    if is_stake(&a.position.inner) {
+        return return_own_stake_source(
+            &mut a.position,
+            &mut a.source,
+            &mut a.owner_account,
+            &mut a.holding,
+            amount,
+            remaining,
+        );
+    }
     if is_native(&a.position.inner) {
         return return_own_native_source(
             &mut a.position,
@@ -354,7 +372,18 @@ pub(crate) fn redeem<'info>(
     );
     let remaining = ctx.remaining_accounts;
     let a = &mut ctx.accounts;
-    let units = if is_native(&a.position.inner) {
+    let units = if is_stake(&a.position.inner) {
+        redeem_stake(
+            &a.position,
+            &a.position.key(),
+            &mut a.source,
+            &mut a.holder_account,
+            &mut a.holding,
+            &a.holder_authority.key(),
+            amount,
+            remaining,
+        )?
+    } else if is_native(&a.position.inner) {
         redeem_native(
             &a.position,
             &a.position.key(),
@@ -405,7 +434,7 @@ pub struct ClaimFreeYield<'info> {
 pub(crate) fn claim_free_yield(ctx: Context<ClaimFreeYield>, amount: u64) -> Result<()> {
     // A native Position's free yield stays in its vault and returns to the owner with `unlock`.
     require!(
-        !is_native(&ctx.accounts.position.inner),
+        !is_computed(&ctx.accounts.position.inner),
         TesoroError::NativePosition
     );
     ctx.accounts
@@ -443,7 +472,13 @@ pub struct Unlock<'info> {
 /// the open Advance's Source when it has one: Debt is computed from the clock (it must be zero),
 /// Principal returns from the shared vault and the free yield is minted to the owner.
 pub(crate) fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -> Result<()> {
-    if is_native(&ctx.accounts.position.inner) {
+    if is_stake(&ctx.accounts.position.inner) {
+        unlock_stake_position(
+            &mut ctx.accounts.position,
+            &ctx.accounts.owner_authority.key(),
+            ctx.remaining_accounts,
+        )?;
+    } else if is_native(&ctx.accounts.position.inner) {
         unlock_native_position(
             &mut ctx.accounts.position,
             &ctx.accounts.owner_authority.key(),
