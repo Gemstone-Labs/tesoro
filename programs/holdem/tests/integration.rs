@@ -769,7 +769,9 @@ fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
         tesoro_core::instruction::RefundMatch {},
         remaining,
     );
-    let err = env.send(&[refund.clone()], &caller, &[]).unwrap_err();
+    let err = env
+        .send(std::slice::from_ref(&refund), &caller, &[])
+        .unwrap_err();
     assert_eq!(
         custom_code(&err),
         tesoro_core::error::CORE_ERROR_OFFSET + tesoro_core::ledger::CoreError::NotExpired.code()

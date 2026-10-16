@@ -18,7 +18,7 @@ use tesoro_core::{
     ledger::SourceChain,
     state::{
         HoldingState, PositionState, SourceState, TesoroAccount, ACCOUNT_SEED, CONFIG_SEED,
-        HOLDING_SEED, SOURCE_AUTHORITY_SEED, SOURCE_SEED,
+        HOLDING_SEED, ONCHAIN_PRICE_SEED, PROTECTIONS_SEED, SOURCE_AUTHORITY_SEED, SOURCE_SEED,
     },
 };
 
@@ -456,7 +456,7 @@ impl Env {
         let owner = self.owner.insecure_clone();
         let position = self.core_position(id);
         let source = core_pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
-        let advance = ix(
+        let mut advance = ix(
             tesoro_core::ID,
             tesoro_core::accounts::TakeAdvance {
                 oracle: a(oracle.pubkey()),
@@ -467,6 +467,7 @@ impl Env {
                 position,
                 source,
                 holding: core_pda(&[HOLDING_SEED, self.owner_account.as_ref(), source.as_ref()]),
+                protections: core_pda(&[PROTECTIONS_SEED, self.owner_account.as_ref()]),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::TakeAdvance {
@@ -474,6 +475,12 @@ impl Env {
                 price_micro_usd: 3_000_000_000,
             },
         );
+        // The asset's `OnchainPrice` address: `take_advance` fails when that account exists.
+        advance.accounts.push(AccountMeta {
+            pubkey: s(core_pda(&[ONCHAIN_PRICE_SEED, &msg_codec::pad_address(&[0xAB; 20])])),
+            is_signer: false,
+            is_writable: false,
+        });
         self.send(&[advance], &oracle, &[&owner]).expect("advance");
     }
 

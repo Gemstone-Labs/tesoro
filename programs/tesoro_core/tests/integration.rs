@@ -2338,7 +2338,7 @@ fn a_break_or_self_exclusion_cannot_be_shortened_or_given_bad_lengths() {
     // Only the owner sets it: another Person's key cannot sign for the Account.
     let carol_less = d.env.set_break(&d.bob, 1);
     assert!(carol_less.is_ok());
-    assert_eq!(d.env.protections(&d.alice).self_exclusion_until > 0, true);
+    assert!(d.env.protections(&d.alice).self_exclusion_until > 0);
 }
 
 #[test]
@@ -2674,7 +2674,7 @@ fn anyone_withdraws_the_requests_and_offers_of_a_player_who_started_a_break() {
     }
     // Somebody else's protections do not count for the Request's owner.
     let err = clear(&mut b, request, carol_acct).unwrap_err();
-    assert!(err.err.to_string().len() > 0);
+    assert!(!err.err.to_string().is_empty());
     clear(&mut b, request, dave_acct).expect("request withdrawn");
     assert_eq!(
         b.d.env.load::<RequestState>(request).inner.status,
