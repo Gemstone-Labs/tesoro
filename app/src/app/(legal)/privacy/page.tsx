@@ -21,7 +21,7 @@ export default function Privacy() {
     <LegalPage title={TITLE} lede={DESCRIPTION}>
       <Section id="who" title="Who we are">
         <p>
-          {ENTITY.name}, {ENTITY.form}, {ENTITY.address}, runs Tesoro and decides how the data described here is used. This policy explains it. It goes with our{" "}
+          {ENTITY.name}, {ENTITY.form}{ENTITY.address ? `, ${ENTITY.address}` : ""}, runs Tesoro and decides how the data described here is used. This policy explains it. It goes with our{" "}
           <Link href="/terms">Terms of Service</Link>. Questions: {ENTITY.privacyEmail}.
         </p>
       </Section>
@@ -136,8 +136,12 @@ export default function Privacy() {
         <p>
           {ENTITY.name}
           <br />
-          {ENTITY.address}
-          <br />
+          {ENTITY.address && (
+            <>
+              {ENTITY.address}
+              <br />
+            </>
+          )}
           {ENTITY.privacyEmail}
         </p>
       </Section>

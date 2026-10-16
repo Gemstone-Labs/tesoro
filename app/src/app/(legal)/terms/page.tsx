@@ -20,7 +20,7 @@ export default function Terms() {
     <LegalPage title={TITLE} lede={DESCRIPTION}>
       <Section id="who" title="Who we are and what these Terms cover">
         <p>
-          Tesoro is made and run by {ENTITY.name}, {ENTITY.form} (&ldquo;Gemstone Labs&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;), {ENTITY.address}. These Terms are
+          Tesoro is made and run by {ENTITY.name}, {ENTITY.form} (&ldquo;Gemstone Labs&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;){ENTITY.address ? `, ${ENTITY.address}` : ""}. These Terms are
           the agreement between you and Gemstone Labs for the Tesoro website, apps, smart contracts and related services (together, &ldquo;Tesoro&rdquo;). By
           signing in, entering a Match or otherwise using Tesoro you agree to them and to our <Link href="/privacy">Privacy Policy</Link>. If you do not agree,
           do not use Tesoro.
@@ -247,8 +247,12 @@ export default function Terms() {
         <p>
           {ENTITY.name}
           <br />
-          {ENTITY.address}
-          <br />
+          {ENTITY.address && (
+            <>
+              {ENTITY.address}
+              <br />
+            </>
+          )}
           {ENTITY.contactEmail}
         </p>
       </Section>
