@@ -30,7 +30,7 @@ Decided (founder, Oct 15, 2026). A Position's yield only counted once someone se
 
 ## Consequences
 
-- Supersedes, in ADR 0005, minting yield into each vault by a crank (the per-Position linear yield stays on devnet), and, in ADR 0007, minting the fee at accrue, the "no treasury withdrawal" rule and the only-growing `treasuryIn` mirror. The 20% Yield Fee, the 35% Instant Redeem Fee and their sizing rules stand.
+- Supersedes, in ADR 0005, minting yield into each vault by a crank (the per-Position linear yield stays on devnet), and, in ADR 0007, minting the fee at accrue, the "no treasury withdrawal" rule and the only-growing `treasuryIn` mirror. The 20% Yield Fee, the Instant Redeem Fee and their sizing rules stand. Instant Redeem Fee changed to 25% on 2026-10-16, see ADR 0011.
 - The keeper loses its yield jobs (`keeper/src/yield.ts`, `keeper/src/eth.ts`); prices, Seasons and Match hygiene stay.
 - The Wallet loses Refresh yield and Report yield. ETH/HYPE Redeem and Unlock become two-step (request, then complete when the Yield Report lands).
 - Every devnet Player loses test balances once; the Wallet says so.

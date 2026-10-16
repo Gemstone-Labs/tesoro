@@ -9218,7 +9218,7 @@
             "docs": [
               "The Account that played on the losing side (the opponent of `player`); all zeroes if that",
               "seat was empty. Last field, so events from before it was added are the same bytes minus",
-              "these 32 and read as having no known opponent (ADR 0011)."
+              "these 32 and read as having no known opponent (ADR 0012)."
             ],
             "type": "pubkey"
           }
@@ -9539,7 +9539,7 @@
     {
       "name": "OnchainPrice",
       "docs": [
-        "Where an asset's Advances read their USD price on mainnet (ADR 0010): the Pyth sponsored push",
+        "Where an asset's Advances read their USD price on mainnet (ADR 0011): the Pyth sponsored push",
         "feed account and the feed id it must carry. Admin-set, seeds `[\"onchain_price\", source_asset]`.",
         "While it exists the oracle-supplied price path (`take_advance`) is closed for that asset."
       ],
@@ -10369,7 +10369,7 @@
     {
       "name": "SeasonWindow",
       "docs": [
-        "The payout window of a recorded Season (ADR 0011), kept beside the `Season` so that Seasons",
+        "The payout window of a recorded Season (ADR 0012), kept beside the `Season` so that Seasons",
         "recorded before the window existed keep their layout. Created by the same `record_season`."
       ],
       "type": {
@@ -10399,7 +10399,7 @@
     {
       "name": "SeasonWindowState",
       "docs": [
-        "The payout window of a recorded season (ADR 0011): when it was recorded and which ranks the",
+        "The payout window of a recorded season (ADR 0012): when it was recorded and which ranks the",
         "admin voided. A separate account so `SeasonState` keeps its layout. Created by",
         "`record_season`; seeds `[\"season_window\", number as u32 LE]`."
       ],
@@ -10700,7 +10700,7 @@
           {
             "name": "instant_fee_bps",
             "docs": [
-              "Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 at launch)."
+              "Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 on devnet; 2,500 on mainnet, ADR 0011)."
             ],
             "type": "u16"
           },

@@ -1,7 +1,7 @@
 /**
  * Suspicious-play flags for the admin review page (ticket 32). Pure rules over public chain data:
  * a Season's wins (with the loser named) and, for Block Puzzle, each run's batch cadence.
- * Flags only point a human at an Account. Voiding stays a decision for the founders (ADR 0011).
+ * Flags only point a human at an Account. Voiding stays a decision for the founders (ADR 0012).
  */
 import type { Win } from "../chain/season";
 

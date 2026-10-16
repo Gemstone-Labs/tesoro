@@ -133,7 +133,7 @@ impl Season {
     }
 }
 
-/// The payout window of a recorded Season (ADR 0011), kept beside the `Season` so that Seasons
+/// The payout window of a recorded Season (ADR 0012), kept beside the `Season` so that Seasons
 /// recorded before the window existed keep their layout. Created by the same `record_season`.
 #[derive(Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
 pub struct SeasonWindow {

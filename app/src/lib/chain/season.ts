@@ -12,12 +12,12 @@ export const LEADERBOARD_BPS = 100;
 /** Ranks that are paid, and each one's share of the pool in basis points (sums to 10,000). */
 export const PRIZE_BPS = [2500, 1800, 1300, 1000, 800, 700, 600, 500, 400, 400] as const;
 export const PRIZE_PLACES = PRIZE_BPS.length;
-/** How long after a Season is recorded its ranks may not be paid; the admin can void a rank inside it (ADR 0011). */
+/** How long after a Season is recorded its ranks may not be paid; the admin can void a rank inside it (ADR 0012). */
 export const PAYOUT_WINDOW_SECS = 48 * 60 * 60;
 /** A won Match earns `entry / POINTS_DIVISOR` points. */
 export const POINTS_DIVISOR = 100;
 
-/** Only a Player's first this-many wins against the same opponent in a Season earn Points (ADR 0011). */
+/** Only a Player's first this-many wins against the same opponent in a Season earn Points (ADR 0012). */
 export const WINS_PER_OPPONENT = 3;
 
 /** Season number (from 1) containing `ts` (unix seconds); 0 before the first season. */

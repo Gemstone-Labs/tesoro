@@ -125,11 +125,11 @@ The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH
 
 **Loop.** Yield Fee accrues in the vault, `reportYield` tells Solana (`treasuryIn`), a holder Instant Redeems on Solana (capped by `reported_in - instant_recorded`), `PayInstant` pays them from the vault. When the Source's yield lands, `redeem_treasury_to_evm` + `send_pay_yield` refill the vault treasury at full value.
 
-## Ethereum mainnet wstETH vault (ADR 0010, not deployed)
+## Ethereum mainnet wstETH vault (ADR 0011, not deployed)
 
 `contracts/script/DeployMainnetWstETH.s.sol`: `WstETHRateAdapter` plus `PositionVaultOApp` on real Lido wstETH (`0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0`), no yield minter, LayerZero V2 endpoint `0x1a44076050125825900e736c501f859c50fE728c`, eids Ethereum 30101 and Solana 30168 (LayerZero metadata API, checked 2026-10-15). Yield is the growth of `stEthPerToken()` on the Position's shares; `_accrue` moves `yieldFeeBps` (20%) of new growth from the Position to the Treasury at the source (high-water mark per Position, so a rate dip is not charged twice), and `reportYield` sends the same 77-byte `YieldAccrued`. On the mainnet cluster the Player pays gas and the LayerZero fee (`app/src/lib/chain/eth-fee.ts`, shown in the open form); the relayer top-up and faucet steps refuse. Optional fork test: `ETH_MAINNET_RPC=<url> forge test --match-contract WstETHMainnetForkTest`.
 
-## HyperEVM mainnet kHYPE vault (ADR 0010, not deployed)
+## HyperEVM mainnet kHYPE vault (ADR 0011, not deployed)
 
 `contracts/script/DeployMainnetKHype.s.sol`: `KHypeRateAdapter` plus `PositionVaultOApp` on Kinetiq kHYPE (`0xfD739d4e423301CE9385c1fb8850539D657C296D`, 18 decimals), no yield minter, chain id 999, LayerZero V2 endpoint `0x3A73033C0b1407574C76BdBAc67f126f6b4a9AA9`, eids HyperEVM 30367 and Solana 30168 (LayerZero metadata API, checked 2026-10-15; the endpoint's `eid()` reads 30367 on chain). The rate is the StakingAccountant's (`0x9209648Ec9D448EF57116B73A2f081835643dc7A`) `kHYPEToHYPE(1e18)` (1.0265 HYPE per kHYPE on 2026-10-15). Both addresses come from kinetiq.xyz/docs/contracts-and-audits and were read on chain. The rate rises with validator rewards and can fall: the accountant tracks `totalSlashing`, so a slashing lowers it. The vault's high-water mark charges the 20% Yield Fee only on new highs, the same behaviour as wstETH (tested with a mock that drops the rate). Kinetiq takes its own 10% of staking rewards before the rate, so the Player's APY is net of both fees. The Yield Fee and the 77-byte `YieldAccrued` are unchanged.
 
@@ -137,7 +137,7 @@ Deploy (orchestrator only): the vault needs about 3.37M gas, above HyperEVM's sm
 
 App: on the mainnet cluster the HYPE tab uses the same Player-pays path as ETH (quote of gas and LayerZero fee before signing, no relayer top-up, no faucet card); the HyperEVM eid, explorer and LayerZero Scan links follow the cluster. Optional fork test: `HYPEREVM_MAINNET_RPC=https://rpc.hyperliquid.xyz/evm forge test --match-contract KHypeMainnetForkTest`.
 
-## Opening with plain ETH or HYPE (ADR 0010, ticket 16, not deployed)
+## Opening with plain ETH or HYPE (ADR 0011, ticket 16, not deployed)
 
 `contracts/src/StakeZap.sol`: `LidoZap` and `KinetiqZap` stake the Player's coin through the provider and lock the result in the vault for the Player in one transaction (`openWithNative(stakeAmount, minLst, horizonMonths)`, `msg.value = stakeAmount + LayerZero fee`). No DEX swap. The vault gained `openPositionFor(owner, lstAmount, horizon)` (the zap pulls the LST it just received; the Position and the 45-byte `PositionLocked` owner are the Player, not the zap). The endpoint refunds the unused fee to the zap, which forwards it to the Player; the zap keeps no funds or state. A revert anywhere (provider paused or over its limit, stake under the minimum, `minLst` missed, short LayerZero fee) unwinds the stake too, so the coin stays in the wallet.
 

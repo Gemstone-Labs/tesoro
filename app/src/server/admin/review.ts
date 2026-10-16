@@ -2,7 +2,7 @@ import { DemoHttpError, NonceStore, verifySignedRequest, type AuthEnv } from "..
 import { reviewFlags, type ReviewReply, type ReviewSeason, type SeasonInput } from "@/lib/review/flags";
 import { seasonAt, seasonEnd } from "@/lib/chain/season";
 
-/** The window after a Season ends in which the admin may void a Player (ADR 0011). */
+/** The window after a Season ends in which the admin may void a Player (ADR 0012). */
 export const PAYOUT_WINDOW_SECS = 48 * 60 * 60;
 
 export interface ReviewDeps {

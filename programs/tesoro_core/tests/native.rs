@@ -2651,7 +2651,6 @@ fn only_the_admin_maps_a_feed_and_only_a_pyth_account_can_be_mapped() {
 #[test]
 fn an_unmapped_asset_cannot_use_the_onchain_advance() {
     let mut env = Env::new();
-    let mint = env.mint;
     let alice = env.staker();
     let pos = env.open(&alice, 10 * SOL).unwrap();
     let feed = APk::new_unique();

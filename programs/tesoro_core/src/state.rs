@@ -43,7 +43,7 @@ pub const SIM_SOL_MINT: Pubkey = pubkey!("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD
 /// How old the issuance price may be when an Advance is taken.
 pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
 pub const SOURCE_AUTHORITY_SEED: &[u8] = b"source_auth";
-/// The Invite gate setting (ADR 0011): `["invite_gate"]`. Its own account so `Config` keeps its layout.
+/// The Invite gate setting (ADR 0012): `["invite_gate"]`. Its own account so `Config` keeps its layout.
 pub const INVITE_GATE_SEED: &[u8] = b"invite_gate";
 
 /// Address of the Invite gate account (it may not exist yet: no account means the gate is off).
@@ -159,7 +159,7 @@ impl SeasonState {
     pub const SPACE: usize = 8 + 1 + 4 + 8 + 1 + ledger::PRIZE_PLACES * (32 + 8 + 8) + 2;
 }
 
-/// The payout window of a recorded season (ADR 0011): when it was recorded and which ranks the
+/// The payout window of a recorded season (ADR 0012): when it was recorded and which ranks the
 /// admin voided. A separate account so `SeasonState` keeps its layout. Created by
 /// `record_season`; seeds `["season_window", number as u32 LE]`.
 #[account]
@@ -339,7 +339,7 @@ pub struct Treasury {
     pub account_bump: u8,
     /// Yield Fee, basis points of every yield increment (2,000 at launch).
     pub yield_fee_bps: u16,
-    /// Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 at launch).
+    /// Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 on devnet; 2,500 on mainnet, ADR 0011).
     pub instant_fee_bps: u16,
     /// The Treasury Account (`["account", treasury]`).
     pub account: Pubkey,
@@ -376,7 +376,7 @@ impl PriceFeed {
     pub const SPACE: usize = 8 + 1 + 32 + 8 + 8;
 }
 
-/// Where an asset's Advances read their USD price on mainnet (ADR 0010): the Pyth sponsored push
+/// Where an asset's Advances read their USD price on mainnet (ADR 0011): the Pyth sponsored push
 /// feed account and the feed id it must carry. Admin-set, seeds `["onchain_price", source_asset]`.
 /// While it exists the oracle-supplied price path (`take_advance`) is closed for that asset.
 #[account]
@@ -615,7 +615,7 @@ pub struct MatchWon {
     pub ts: i64,
     /// The Account that played on the losing side (the opponent of `player`); all zeroes if that
     /// seat was empty. Last field, so events from before it was added are the same bytes minus
-    /// these 32 and read as having no known opponent (ADR 0011).
+    /// these 32 and read as having no known opponent (ADR 0012).
     pub loser: Pubkey,
 }
 

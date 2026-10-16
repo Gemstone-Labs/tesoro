@@ -1,4 +1,4 @@
-//! The Invite gate (ADR 0011): while on, `create_account` needs the Invite key's co-signature.
+//! The Invite gate (ADR 0012): while on, `create_account` needs the Invite key's co-signature.
 //! LiteSVM tests against the built program (`pnpm build:programs` first).
 #![allow(clippy::result_large_err)]
 

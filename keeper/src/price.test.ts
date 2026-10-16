@@ -48,7 +48,7 @@ describe("fetchSolUsd (OC-01)", () => {
   });
 });
 
-describe("priceJob is a test-mode job (ADR 0010)", () => {
+describe("priceJob is a test-mode job (ADR 0011)", () => {
   it("runs only where the keeper writes the Advance price", () => {
     assert.equal(priceJobEnabled(CLUSTERS.test), true);
     assert.equal(priceJobEnabled(CLUSTERS.mainnet), false);

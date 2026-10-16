@@ -3,7 +3,7 @@ import { parseAbi } from "viem";
 import { OPEN_GAS_UNITS } from "./eth-fee";
 
 /**
- * Opening with the plain coin (ADR 0010): ETH is staked through Lido and HYPE through Kinetiq's StakingManager by a
+ * Opening with the plain coin (ADR 0011): ETH is staked through Lido and HYPE through Kinetiq's StakingManager by a
  * zap contract (contracts/src/StakeZap.sol) in the same transaction that opens the Position, so the Player signs
  * once and any failure reverts the whole call. Never a DEX swap.
  *

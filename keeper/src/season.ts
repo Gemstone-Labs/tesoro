@@ -127,7 +127,7 @@ async function payRank(ctx: Ctx, rec: SeasonRecord, rank: number, signer: Return
 
 /**
  * Job 7: Leaderboard seasons. For a season that ended (plus a grace period), recomputes the table from the pool's
- * `MatchWon` history and records the top ten with `record_season`, then, once the 48-hour payout window has passed (ADR 0011), pays each unpaid,
+ * `MatchWon` history and records the top ten with `record_season`, then, once the 48-hour payout window has passed (ADR 0012), pays each unpaid,
  * unvoided rank with `pay_season_rank` (one per transaction; Gemas keep their Source). Signed by the oracle key, which `Config.oracle_authority` allows.
  * Both steps are idempotent: a recorded season is never recomputed, a paid rank never paid twice.
  */
