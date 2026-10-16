@@ -338,3 +338,10 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .gpill { padding: 0 10px 0 6px; gap: 6px; }
   .pchest { padding-right: 8px; }
 }
+
+/* X follow in the top bar: same height as the pill beside it */
+.top-x.icon-btn { width: 44px; height: 44px; }
+.top-x.btn { height: 44px; min-height: 44px; }
+@media (max-width: 639px) { .top-x.icon-btn, .top-x.btn { width: 38px; height: 38px; min-height: 38px; } }
+@media (min-width: 1024px) { .top-x.icon-btn { width: 52px; height: 52px; } .top-x.btn { height: 52px; min-height: 52px; padding-inline: 18px; font-size: 15px; } }
+.site-foot-cols .xf-link { gap: 8px; }

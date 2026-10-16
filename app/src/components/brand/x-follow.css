@@ -1,0 +1,49 @@
+/* X follow. a: icon chip / neutral button. b: emerald edge and a soft glow. */
+.xf { color: var(--fg); text-decoration: none; }
+.xf .xf-mark { flex: none; }
+.xf-link { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--fg-2); }
+.xf-link:hover { color: var(--fg); }
+.xf-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+
+/* header button (b, c): compact, label drops to icon-only on phones */
+.xf.btn.xf-head { min-height: 38px; padding: 0 12px; gap: 7px; font-size: 14px; white-space: nowrap; }
+.xf.btn.xf-cta { min-height: 46px; padding-inline: 18px; white-space: nowrap; }
+.xf.btn.xf-cta .xf-mark { width: 17px; height: 17px; }
+
+/* a: icon chip uses .icon-btn; neutral buttons elsewhere */
+
+/* b: accent pill. Emerald edge and a soft glow */
+.xf-b.btn { --edge: var(--edge-em); box-shadow: none; position: relative; }
+.xf-b.btn .xf-mark { color: var(--em-hi); }
+.xf-b.btn { filter: drop-shadow(0 0 10px rgba(36, 216, 168, 0.28)); }
+:root[data-theme="light"] .xf-b.btn { filter: drop-shadow(0 0 8px rgba(10, 125, 92, 0.22)); }
+:root[data-theme="light"] .xf-b.btn .xf-mark { color: var(--em-deep); }
+.xf-b.btn:hover { filter: drop-shadow(0 0 14px rgba(36, 216, 168, 0.45)); }
+
+@media (max-width: 639px) {
+  .xf.btn.xf-head { width: 38px; padding: 0; }
+  .xf.btn.xf-head .xf-label { display: none; }
+  .xf.btn.xf-cta { flex: 1 1 auto; }
+}
+
+/* icon chips sit on a fill so they read over art */
+.xf.icon-btn { background: var(--surface); }
+.xf.icon-btn:hover { background: var(--surface-2); }
+.xf.icon-btn .xf-mark { width: 19px; height: 19px; }
+
+/* light theme (landing): the shared surface tokens stay dark there, so the light fills are set here */
+:root[data-theme="light"] .xf:not(.xf-link, .lp-final-x) { background: rgba(251, 249, 245, 0.9); color: #111816; --edge: rgba(17, 24, 22, 0.3); }
+:root[data-theme="light"] .xf-b.btn { --edge: rgba(10, 125, 92, 0.75); }
+:root[data-theme="light"] .xf:not(.xf-link, .lp-final-x):hover { background: #fff; }
+
+/* the closing banner is dark art in both themes */
+.lp-final-x.xf-link { color: #eaefec; text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85); }
+:root[data-theme="light"] .lp-final-x.btn { color: #eaefec; }
+:root[data-theme="light"] .xf-b.lp-final-x .xf-mark { color: var(--em-hi-dark, #6af8d6); }
+
+/* a short label for phones */
+.xf-short { display: none; }
+@media (max-width: 639px) {
+  .xf-has-short .xf-long { display: none; }
+  .xf-has-short .xf-short { display: inline; }
+}

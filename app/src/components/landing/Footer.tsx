@@ -1,11 +1,10 @@
-import { TesoroLogo } from "@/components/brand";
+import { TesoroLogo, XFollow } from "@/components/brand";
 import { LAUNCH_STAGE, OUTBOUND } from "@/lib/landing/config";
 
 const LINKS = [
   ["Docs", OUTBOUND.docs],
   ["Terms", "/terms"],
   ["Privacy", "/privacy"],
-  ["X", OUTBOUND.x],
   ["GitHub", OUTBOUND.github],
 ] as const;
 
@@ -29,6 +28,7 @@ export function Footer() {
               </span>
             ),
           )}
+          <XFollow variant="a" place="foot" />
         </nav>
         {LAUNCH_STAGE === "testnet" && <p className="mono lp-footer-stage">test mode · no real value</p>}
       </div>

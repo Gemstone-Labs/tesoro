@@ -23,6 +23,8 @@ export default function Welcome() {
         Skip to content
       </a>
       <Nav />
+      <div className="lp-strip">
+      </div>
       <main>
         <Hero />
         <HowItWorks />
