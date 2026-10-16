@@ -12,6 +12,10 @@ import {DeployMainnetKHype} from "../script/DeployMainnetKHype.s.sol";
 /// then opens a Position through the zap on the real LayerZero endpoint and checks the Yield Report size.
 ///   ETH_MAINNET_RPC=https://ethereum-rpc.publicnode.com HYPEREVM_MAINNET_RPC=https://rpc.hyperliquid.xyz/evm \
 ///     forge test --match-contract MainnetDeployFork
+interface IERC20Like {
+    function balanceOf(address) external view returns (uint256);
+}
+
 contract MainnetDeployForkTest is Test {
     uint32 constant SOLANA = 30168;
     bytes32 constant STORE = bytes32(uint256(0x60ae58df));
@@ -51,9 +55,32 @@ contract MainnetDeployForkTest is Test {
         uint256 fee = v.quotePositionLocked();
         assertGt(fee, 0, "real LayerZero quote");
         vm.prank(alice);
+        uint256 g = gasleft();
         (uint64 id,) = zap.openWithNative{value: 1 ether + fee * 2}(1 ether, 0, 12);
+        uint256 zapGas = g - gasleft();
         assertEq(v.getPosition(id).owner, alice);
         assertGt(v.quoteYieldAccrued(), 0);
+
+        // The Player's gas allowances (`OPEN_GAS_UNITS`, `NATIVE_OPEN_GAS` in app/src/lib/chain), measured on
+        // mainnet state with cold storage and the real endpoint (audit 2026-10-16, ticket 27).
+        vm.startPrank(alice);
+        (bool sent,) = WSTETH.call{value: 1.2 ether}(""); // wstETH stakes ETH sent to it
+        assertTrue(sent);
+        g = gasleft();
+        (bool ok,) = WSTETH.call(abi.encodeWithSignature("approve(address,uint256)", vaultAddr, type(uint256).max));
+        uint256 approveGas = g - gasleft();
+        assertTrue(ok);
+        uint256 amount = IERC20Like(WSTETH).balanceOf(alice);
+        g = gasleft();
+        v.openPosition{value: fee * 2}(amount, 12);
+        uint256 openGas = g - gasleft();
+        vm.stopPrank();
+        emit log_named_uint("gas: approve wstETH", approveGas);
+        emit log_named_uint("gas: openPosition (token path)", openGas);
+        emit log_named_uint("gas: openWithNative (Lido zap)", zapGas);
+        assertLt(approveGas, 60_000, "OPEN_GAS_UNITS.approve");
+        assertLt(openGas, 450_000 * 85 / 100, "OPEN_GAS_UNITS.open keeps a margin");
+        assertLt(zapGas, 750_000 * 90 / 100, "NATIVE_OPEN_GAS (open + 300k) keeps a margin");
     }
 
     function test_hyperEvmScriptDeploysAVaultThatOpensThroughKinetiqZap() public {
