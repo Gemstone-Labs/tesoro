@@ -82,10 +82,12 @@ pub struct InstantRedeemToEvm<'info> {
         mut,
         seeds = [
             TREASURY_SEED,
-            &eid_of(core_position.inner.source_chain).unwrap_or(0).to_be_bytes(),
+            &vault_treasury.eid.to_be_bytes(),
             &vault_of(&core_position.position_id)
         ],
-        bump = vault_treasury.bump
+        bump = vault_treasury.bump,
+        constraint = core_chain(vault_treasury.eid)? == core_position.inner.source_chain
+            @ BridgeError::UnsupportedChain
     )]
     pub vault_treasury: Box<Account<'info, VaultTreasury>>,
     #[account(
