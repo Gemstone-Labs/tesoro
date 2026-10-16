@@ -939,7 +939,7 @@ fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
 
     // A yield report carries a treasury just short of the payout: still refused.
     env.receive_yield(id, 2, 1_000_000_000_000_000, u128::from(payout) - 1);
-    env.apply_yield(id, true).expect("apply yield");
+    env.sync_treasury(id).expect("sync");
     assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).reported_in, u128::from(payout) - 1);
     let err = env.instant_redeem(id, &bob, bob_account, source, 1_000).expect_err("short");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::TreasuryShort)));
@@ -1045,10 +1045,13 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     let id = 1;
     env.opened_with_advance(id);
     let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    // Only Gemas whose yield has not landed can be redeemed instantly: the Report's Treasury is
+    // mirrored first and the yield is applied afterwards.
     env.receive_yield(id, 2, 10_000_000_000_000_000, ETH);
-    env.apply_yield(id, true).expect("apply yield");
+    env.sync_treasury(id).expect("sync");
     env.instant_redeem(id, &bob, bob_account, source, 400)
         .expect("instant redeem 400");
+    env.apply_yield(id, true).expect("apply yield");
     // Bob redeems his other 600 at full value through the normal path.
     let claim = bridge_pda(&[CLAIM_SEED, bob_account.as_ref(), source.as_ref()]);
     let redeem = ix(
