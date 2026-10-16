@@ -1206,7 +1206,10 @@ fn g01_a_duel_that_has_been_played_cannot_be_delegated_again() {
         vec![],
     );
     let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), dcode(trading_duel::DuelError::AlreadyStarted));
+    assert_eq!(
+        custom_code(&err),
+        dcode(trading_duel::DuelError::AlreadyStarted)
+    );
 }
 
 #[test]

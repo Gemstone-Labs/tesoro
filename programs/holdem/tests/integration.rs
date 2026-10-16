@@ -727,7 +727,10 @@ fn g01_a_table_that_has_been_played_cannot_be_delegated_again() {
         vec![],
     );
     let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
-    assert_eq!(custom_code(&err), hcode(holdem::HoldemError::AlreadyStarted));
+    assert_eq!(
+        custom_code(&err),
+        hcode(holdem::HoldemError::AlreadyStarted)
+    );
 }
 
 /// F-02. `init_permissions` treated "the permission address holds lamports" as "the permission

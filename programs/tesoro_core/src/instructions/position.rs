@@ -58,7 +58,10 @@ pub(crate) fn open_position(
     principal: u64,
     rate_bps: u16,
 ) -> Result<()> {
-    require!(!ctx.accounts.config.oracle_locked, TesoroError::OracleLocked);
+    require!(
+        !ctx.accounts.config.oracle_locked,
+        TesoroError::OracleLocked
+    );
     require!(
         !(source_chain == SourceChain::Solana && source_asset == SIM_SOL_MINT),
         TesoroError::NativePosition
@@ -138,7 +141,10 @@ pub(crate) fn take_advance(
     horizon_months: u8,
     price_micro_usd: u64,
 ) -> Result<()> {
-    require!(!ctx.accounts.config.oracle_locked, TesoroError::OracleLocked);
+    require!(
+        !ctx.accounts.config.oracle_locked,
+        TesoroError::OracleLocked
+    );
     require!(
         !is_computed(&ctx.accounts.position.inner),
         TesoroError::NativePosition
@@ -235,7 +241,10 @@ pub struct ApplyYield<'info> {
 }
 
 pub(crate) fn apply_yield(ctx: Context<ApplyYield>, seq: u64, cumulative: u64) -> Result<()> {
-    require!(!ctx.accounts.config.oracle_locked, TesoroError::OracleLocked);
+    require!(
+        !ctx.accounts.config.oracle_locked,
+        TesoroError::OracleLocked
+    );
     require!(
         !is_computed(&ctx.accounts.position.inner),
         TesoroError::NativePosition
