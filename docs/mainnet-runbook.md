@@ -118,7 +118,7 @@ Order matters. Do these on one working day with both founders available; the Squ
 2. Deploy each program with the Deployer key to the Helius mainnet RPC: `solana program write-buffer target/deploy/<name>.so --url <rpc> --keypair <deployer>` then `solana program deploy --program-id <program keypair> --buffer <buffer> --max-len <len> --upgrade-authority <deployer> --url <rpc> --keypair <deployer>`. Order: `tesoro_core`, `block_puzzle`, `holdem`, `trading_duel`, `tesoro_bridge`. Do not deploy `sim_lst` (test mode only).
    Check: `solana program show <ID> --url <rpc>` for each shows the Deployer as upgrade authority and the expected ProgramData length; `solana program close --buffers` leaves no buffers.
 3. **Initialise `tesoro_core` immediately after its deploy, before anything else.** `initialize_config(oracle_authority, platform_bps)` is signed by whoever calls first and that signer becomes `Config.admin`; it is not restricted to the upgrade authority (`programs/tesoro_core/src/instructions/admin.rs`). Anyone watching the chain could front-run the gap between the deploy and the call. Call it within the same session, then read `Config` and confirm `admin` is the Deployer (if it is anyone else, `set_admin` signed by the upgrade authority takes the admin back, `docs/mainnet-keys.md` "Rotation steps").
-   Needs first: the fee recipient Account (see step 6). There is no mainnet script for `initialize_config` (see gaps).
+   Needs first: the fee recipient Account (step 5a). The call is printed by `keeper/scripts/launch-admin.ts --steps config` (step 5 below); run the whole of step 5a and 5b in this session.
 
 ### 2. Ethereum and HyperEVM vaults and zaps (F+F for the Safe; EVM deployer)
 
@@ -143,23 +143,38 @@ Follow `docs/cross-chain.md` "Mainnet wiring" run order exactly; this section on
 6. **One small real message each way, each pathway, before anything else depends on it** (`docs/cross-chain.md` run order step 4): `init_position`, then `openPosition` of a minimal amount through the vault (or the zap), `apply_locked`, `reportYield`, `apply_yield`, then a Solana-to-EVM message (Unlock or `PayYield`). Needs the Solana core init to be done (step 5 of this section) so `apply_locked` can run.
    Check: LayerZero Scan (`layerzeroscan.com`) shows DELIVERED for every message, in both directions, on both pathways; the Position appears on the Solana side with the right Principal. Budget: the vault-to-Solana leg took about 2 minutes on testnet.
 
-### 4. Pyth feed addresses and ids (F)
+### 4. Pyth feed addresses, ids and asset keys (F)
 
-`set_onchain_price` needs, per asset, the Pyth sponsored push feed account (owned by the Pyth receiver program, shard 0) and its 32-byte feed id; the program refuses a feed whose account does not carry that id, so a wrong id fails the transaction instead of mapping a wrong feed.
+`set_onchain_price(asset, feed_id, max_age_secs, max_conf_bps)` needs, per asset, the **asset key** (the Position's `source_asset`), the Pyth sponsored push feed account (owned by the Pyth receiver program, shard 0) and its full 32-byte feed id; the program refuses a feed whose account does not carry that id, so a wrong id fails the transaction instead of mapping a wrong feed. `launch-admin.ts` prints all three mappings (step 5f).
 
-| Asset | Feed account (from ticket 12) | Feed id |
-|---|---|---|
-| jitoSOL (SOL/USD) | `7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE` | SOL/USD id from Pyth's price feed list (starts `ef0d8b6f...`); copy the full id from the feed account's data bytes 41 to 72 |
-| ETH Source | `42amVS4KgzR9rA28tkVYqVXjq9Qa8dcZQMbH5EYFX6XC` | ETH/USD id from Pyth's list |
-| HYPE Source | `6usXZCEM4kf1KHGDTzgQLAWtDMNdzLjfAUYSwGKJm19Y` | HYPE/USD id from Pyth's list |
+| Asset | Asset key (`source_asset`) | Feed account (shard 0) | Full Pyth feed id |
+|---|---|---|---|
+| SOL: jitoSOL | the jitoSOL mint `J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn` | `7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE` | `ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d` (Crypto.SOL/USD) |
+| ETH: wstETH on Ethereum | Lido wstETH `0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0` as 32 bytes (12 zero bytes, then the address) | `42amVS4KgzR9rA28tkVYqVXjq9Qa8dcZQMbH5EYFX6XC` | `ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace` (Crypto.ETH/USD) |
+| HYPE: kHYPE on HyperEVM | Kinetiq kHYPE `0xfD739d4e423301CE9385c1fb8850539D657C296D` as 32 bytes (same padding) | `6usXZCEM4kf1KHGDTzgQLAWtDMNdzLjfAUYSwGKJm19Y` | `4279e31cc369bbcc2faf022b382b080e32a8e689ff20fbc530d2a603eb6cd98b` (Crypto.HYPE/USD) |
 
-Check each account before the proposal: `solana account <feed> --url <rpc>` shows owner `rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ` (Pyth Solana receiver) and 134 bytes. Parameters: max age 90 s, confidence 100 bps (1%). Suggested; ADR 0011 says "tighter limits, 90 s and 1% at launch". The `asset` key for the ETH and HYPE mappings is the Source's asset key the bridge uses (ticket 12 comment calls it the "ETH source key"); the docs do not state how to derive it (see gaps), so read it from a test Position's `source_asset`.
+Where the keys come from: the vault's `PositionLocked` message carries `bytes32(uint160(lst))` as the asset (`contracts/src/PositionVaultOApp.sol`, `PositionVault._openFor`), the bridge stores it as `BridgePosition.asset` and `apply_locked` passes it to `open_position_from_source` as `source_asset`, which is the seed of `["onchain_price", source_asset]`. So the key is the vault's LST token (the token the vault holds, wstETH or kHYPE), not the vault address and not the underlying coin. For SOL the key is the staking token mint. If a vault is ever redeployed for another token, the mapping must be set for that token's key.
+
+Feed ids: Pyth Hermes `GET https://hermes.pyth.network/v2/price_feeds?query=<SYMBOL>&asset_type=crypto` (checked 2026-10-16: `Crypto.SOL/USD`, `Crypto.ETH/USD`, `Crypto.HYPE/USD` returned the ids above) and Pyth's price feed id list, https://pyth.network/developers/price-feed-ids. The same ids are in `app/src/lib/chain/native.ts` (`PYTH_FEED_IDS`) and a test pins the script to them. The feed account is the PDA `[u16 shard 0, feed id]` under the push oracle `pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT`.
+
+Check each account before the proposal: `solana account <feed> --url <rpc>` shows owner `rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ` (Pyth Solana receiver), 134 bytes, and data bytes 41 to 72 equal the feed id. Parameters: max age 90 s, confidence 100 bps (1%) (`--max-age-secs`, `--max-conf-bps`). ADR 0011 says "tighter limits, 90 s and 1% at launch".
 
 ### 5. `tesoro_core` init calls, in this order (F, then F+F once the vault is admin)
 
-Order comes from ticket 41 (superseding the earlier trailing-APY and keeper-published-APY notes) and `docs/mainnet-keys.md`. There is no print-mode script for any of these yet (see gaps): the instruction builders exist in `app/src/lib/chain/stake.ts` (`initTreasuryStakeIx`, `setStakeTokenIx`, `setStakeApyCeilingIx`) and `keeper/src/mainnet-keys.ts` (`setInviteGateIx`) but need a small admin script or a Squads proposal builder. Write that script and its test before this day; agents write it, founders run it.
+Order comes from ticket 41 (superseding the earlier trailing-APY and keeper-published-APY notes) and `docs/mainnet-keys.md`. One CLI prints every call below in this order: `keeper/scripts/launch-admin.ts` (ticket 44). It sends nothing unless `--execute`, and `--execute` sends only the steps the single `--keypair` signs (never a vault step).
 
-Do the calls with the Deployer (still `Config.admin`) in 5a to 5k where noted, then hand over (step 6). The vault becomes admin at step 6, so any call after that is a Squads proposal.
+```
+pnpm --filter @tesoro/keeper exec tsx scripts/launch-admin.ts --cluster mainnet \
+  --admin <DEPLOYER pubkey|keypair file> --vault <SQUADS VAULT> --rpc <helius> \
+  --oracle <ORACLE pubkey> --platform-bps <final Platform Fee> \
+  --game block_puzzle=<STUDIO WALLET>,<bps> --game holdem=<STUDIO WALLET>,<bps> --game trading_duel=<STUDIO WALLET>,<bps> \
+  --company <COMPANY WALLET> --invite <INVITE pubkey> \
+  [--program tesoro_core=<ID> --program block_puzzle=<ID> ... for new program ids]
+```
+
+Read the printout (signer, every account by name, base64 data, "check after") against the lists below. `--steps config,treasury` runs a subset (`--list-steps` names them); defaults are Yield Fee 2000, Instant Redeem Fee 2500, ceiling 800, entry sizes 100,500,1000, Leaderboard 100, price limits 90 s and 100 bps. Steps signed by the vault (5a, and the Invite gate once the vault is admin) are printed as Squads proposals: copy the instruction (program, accounts with flags, data) into a proposal. `--admin` may be a keypair file; `--keypair` is the same file when sending. Dry run on a fixed cluster: pass `--rpc` and it checks the genesis hash. A real run has not been done; rehearse the same command with `--cluster test` on devnet first (blocker 8).
+
+Do the calls with the Deployer (still `Config.admin`) in 5b to 5l where noted, then hand over (step 6). The vault becomes admin at step 6, so any call after that is a Squads proposal (rerun `launch-admin.ts` with `--admin <VAULT> --steps ...`; every step then prints as a proposal).
 
 a. **Fee recipient Account**: `create_account` with the vault as authority, via a Squads proposal (the vault is a PDA and cannot sign a normal transaction). It does not need `Config`. Needs the vault funded. Do this before `initialize_config`.
    Check: account `["account", vault]` exists on `tesoro_core`.
@@ -175,15 +190,15 @@ f. **`set_onchain_price`** for jitoSOL, ETH and HYPE (section 4).
    Check: `OnchainPrice` `["onchain_price", asset]` exists for each, with the feed and limits you set.
 g. **`set_entry_sizes([100, 500, 1000])`** (1 to 4 distinct non-zero multiples of 100). Unset means the test ladder 500 / 1,000 / 2,500, so this call is required on mainnet; the app mirrors it in `cluster-settings.ts` and a mismatch breaks entry.
    Check: read `Config.entry_sizes`.
-h. **`register_game`** for `block_puzzle`, `holdem`, `trading_duel` with each Studio Fee (300 bps on devnet; confirm) and each Studio recipient Account (a new Account on mainnet; devnet's is the deployer's). Existing script `keeper/scripts/register-game.ts` hard-codes the devnet RPC default, the devnet core ID and the devnet deployer key path: do not run it as is on mainnet.
+h. **`register_game`** for `block_puzzle`, `holdem`, `trading_duel` with each Studio Fee (300 bps on devnet; confirm) and each Studio recipient Account (a new Account on mainnet; devnet's is the deployer's). `launch-admin.ts` takes `--game <name>=<studio wallet>[,<bps>]` per Game; each Studio wallet must have called `create_account` first (the gate is not on yet). `keeper/scripts/register-game.ts` also takes `--rpc`, `--keypair`, `--cluster`, `--program`, `--studio` for a single Game.
    Check: the Game registry lists three Games with the fee and recipient.
-i. **`init_leaderboard(100)`** (Leaderboard Fee 1%). The same hard-coded-devnet caveat applies to `keeper/scripts/init-leaderboard.ts`. Season 1 starts at the program's fixed epoch (Monday 2026-10-05 00:00 UTC), so the first mainnet Season is whichever week the clock is in; the first Season is partial.
+i. **`init_leaderboard(100)`** (Leaderboard Fee 1%). `keeper/scripts/init-leaderboard.ts` takes the same `--rpc`/`--keypair`/`--cluster`/`--program` flags and checks the oracle with `--oracle`. There is no separate Season init call. Season 1 starts at the program's fixed epoch (Monday 2026-10-05 00:00 UTC), so the first mainnet Season is whichever week the clock is in; the first Season is partial.
    Check: `Config` has a pool Account and `leaderboard_bps` 100.
-j. **`set_treasury_company(company)`** before any `withdraw_treasury_stake` (the company wallet is a founder decision).
+j. **`set_treasury_company(company)`** (`--company`) before any `withdraw_treasury_stake` (the company wallet is a founder decision).
 k. **`init_native_custody`**: not needed on mainnet (jitoSOL uses `StakeCustody`); skip unless a test path needs simSOL, which mainnet does not have.
-l. **Source authorities** for ETH and HYPE (`set_source_authority`) and the bridge's `set_peer_config` for each vault, with `rate_bps` as in the wiring step. Without them `apply_locked` cannot run (verify against `docs/cross-chain.md` "`tesoro_core` changes").
+l. **Source authorities** for ETH and HYPE (`set_source_authority`, printed by `launch-admin.ts`: chain bytes 1 and 2, authority = the bridge's `["authority"]` PDA) and the bridge's `set_peer_config` for each vault, with `rate_bps` as in the wiring step. Without them `apply_locked` cannot run (verify against `docs/cross-chain.md` "`tesoro_core` changes").
    Check: reading the `SourceAuthority` PDAs for chain bytes Ethereum and HyperEVM shows the bridge's signer; `PeerConfig` for eids 30101 and 30367 exists.
-m. **Whitelist the TEE validator** for each Game program in MagicBlock's delegation program (`keeper/scripts/whitelist-tee.ts` hard-codes the devnet TEE pubkey, RPC and deployer key; see blockers).
+m. **Whitelist the TEE validator** for each Game program in MagicBlock's delegation program (`keeper/scripts/whitelist-tee.ts <game> --keypair <upgrade authority> --rpc <url> --cluster mainnet --validator <mainnet TEE validator>`; the mainnet validator is not confirmed, see blockers). `launch-admin.ts` prints this as a reminder step; it is not a `tesoro_core` call.
 
 ### 6. Hand-over to the multisig (F, then F+F)
 
@@ -193,7 +208,7 @@ Follow `docs/mainnet-keys.md` "Order of operations" steps 5 to 6 exactly. Use th
 
 (read the script header for the full flag list; `--include-sim-lst` is not used on mainnet). Read every account and the order, then `--execute --rpc <helius> --keypair <deployer file>`. The order is fixed: `update_config` (oracle and fee recipient), `set_admin` on `tesoro_core` and `tesoro_bridge`, the Invite gate step, upgrade authority of each program last, then `setDelegate`/`transferOwnership` on the vaults if they were not deployed with the Safe as owner (printed `cast` commands).
 
-**Careful:** `mainnet-keys.ts` with `--invite` also plans `set_invite_gate` (gate ON). Create the vault's own Account first (step 5a, already done) so the gate cannot lock the vault out; keep the gate step AFTER everything that needs `create_account`. A `create_account` for another Account (Squads test, founder wallets) must therefore also happen before the gate is on, or use the Invite flow.
+**Careful:** `mainnet-keys.ts` with `--invite` also plans `set_invite_gate` (gate ON), and `launch-admin.ts` prints the same instruction as its last step (`--steps invite-gate`); send it once, from whichever you use. Create the vault's own Account first (step 5a, already done) so the gate cannot lock the vault out; keep the gate step AFTER everything that needs `create_account`. A `create_account` for another Account (Squads test, founder wallets) must therefore also happen before the gate is on, or use the Invite flow.
 
 Check, for every program: `solana program show <ID>` shows the vault as upgrade authority; `Config.admin` and `Store.admin` equal the vault; the LayerZero delegate on each endpoint equals the vault / Safe; make one no-op vault proposal (`update_config` with the same values) and watch it execute. Only then retire the Deployer: leave a dust balance and never use it again.
 
@@ -296,11 +311,11 @@ For each: what is blocked, and a recommendation (founders decide).
 These are gaps between the docs and the code; nothing was changed. Each needs a ticket before the date it blocks.
 
 1. **The Games hard-code devnet MagicBlock endpoints.** `app/src/games/block-puzzle/chain.ts` (`TEE_RPC`, `TEE_WS`, `BASE_RPC`), `holdem/chain.ts` (`BASE_RPC`, `TEE_RPC`) and `trading-duel/chain.ts` (`ER_RPC`, `ER_WS`) point at devnet; `keeper/scripts/whitelist-tee.ts` hard-codes the devnet TEE validator pubkey; there is no cluster switch for them in `cluster-settings.ts`. Without a mainnet change the Games cannot run on mainnet. The mainnet MagicBlock endpoints, the mainnet TEE validator and the delegation setup have not been checked. Blocks T-7 step 5m and T-1 smoke step 5.
-2. **No script for several mainnet admin calls.** `initialize_config`, `init_treasury_stake`, `set_stake_token`, `set_stake_apy_ceiling`, `set_onchain_price`, `set_entry_sizes`, `set_treasury_company` for stake, and the Source-authority calls have no keeper script. The builders for four of them are in `app/src/lib/chain/stake.ts` and `keeper/src/mainnet-keys.ts`; the existing scripts (`register-game.ts`, `init-leaderboard.ts`, `fund-treasury.ts`, `withdraw-treasury.ts`, `whitelist-tee.ts`) hard-code the devnet RPC default, the devnet `tesoro_core` ID and the devnet deployer key path, and `fund-treasury.ts` uses simSOL `init_treasury`. `docs/mainnet-keys.md` already notes the need for a print mode.
+2. **Mainnet admin scripts: done (ticket 44).** `keeper/scripts/launch-admin.ts` prints every init call; the older scripts take `--rpc`, `--keypair`, `--cluster`, `--program`. Still missing: a script for the mainnet Treasury withdrawal (`withdraw_treasury_stake`, builder in `app/src/lib/chain/stake.ts`); `fund-treasury.ts` and `withdraw-treasury.ts` are simSOL test-mode only and refuse `--cluster mainnet`; the bridge's own `set_peer_config` stays in `bridge/scripts/lz.ts`.
 3. **`initialize_config` can be front-run.** It takes any signer as the admin (the account list has no upgrade-authority check), so an attacker who sees the deploy could initialise the Config first. Recoverable (`set_admin` by the upgrade authority) but would force a messy recovery. Mitigated only by doing it in the same session; a program fix (require the upgrade authority) is the proper answer and belongs in the audit window.
 4. **Chicken and egg for the fee recipient.** `initialize_config` needs the recipient Account to exist, which for the vault means a Squads proposal before Config exists; handled above, but it is easy to get wrong.
 5. **`mainnet-keys.ts` and the Invite gate.** The script turns the gate on in the same run as the hand-over; any `create_account` still needed (founder test wallets, the Squads proof, the vault's own Account) must be done before it.
-6. **The ETH and HYPE `set_onchain_price` asset keys are not documented** (only "the ETH source key" in the ticket comment), and the full Pyth feed ids are not in the docs (SOL/USD is truncated to `ef0d8b6f...`).
+6. **Asset keys and full Pyth feed ids: done (ticket 44).** Documented in step 4 above with the Hermes source; the keys are the vault LST token addresses padded to 32 bytes. Not yet checked against a real mainnet vault message: after the T-7 small real message, read the Position's `source_asset` and confirm it equals the key in step 4 before the Price mapping is trusted.
 7. **Existing `tesoro` Vercel project holds test-mode secrets** that the mainnet policy forbids; removal is a manual step easy to miss. The keeper-alerts `NOTIFY_URL` for the pre-launch week points at a host that is still test-mode.
 8. **Config and Treasury state on mainnet have never been exercised.** The `Config` layout on a fresh deploy (entry sizes, Leaderboard) is new; the first mainnet `initialize_config` + `init_leaderboard` + `set_entry_sizes` sequence should be rehearsed on devnet or a local validator with the same script before the day.
 9. **No gas or fee measurement on mainnet** (ticket comment: "gas allowance measurement"). The kHYPE vault needs big blocks to deploy (3.37M gas); the LayerZero quote for each pathway and the keeper's caps (`KEEPER_MAX_LZ_FEE_SOL` 0.005, `KEEPER_MAX_ETH_PER_HOUR` 0.005) are testnet values. Measure on the T-7 real messages and set the caps from that.
