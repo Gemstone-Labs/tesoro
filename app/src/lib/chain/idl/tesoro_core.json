@@ -6538,6 +6538,61 @@
       ]
     },
     {
+      "name": "set_oracle_lock",
+      "docs": [
+        "Locks (mainnet) or unlocks the oracle's test-mode powers. Admin only."
+      ],
+      "discriminator": [
+        55,
+        158,
+        167,
+        252,
+        226,
+        56,
+        98,
+        197
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "locked",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "set_price",
       "discriminator": [
         16,
@@ -9849,6 +9904,11 @@
       "code": 6028,
       "name": "BadStakePoolAccount",
       "msg": "the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool"
+    },
+    {
+      "code": 6029,
+      "name": "OracleLocked",
+      "msg": "the oracle key can no longer register Positions, report yield or price Advances"
     }
   ],
   "types": [
@@ -10069,6 +10129,15 @@
                 4
               ]
             }
+          },
+          {
+            "name": "oracle_locked",
+            "docs": [
+              "Set by the admin on mainnet (`set_oracle_lock`): the oracle key can no longer register",
+              "Positions, report their yield or name an Advance's price (test-mode paths), so a stolen",
+              "oracle key cannot mint Gemas. Appended last: an older Config reads it as false."
+            ],
+            "type": "bool"
           }
         ]
       }
