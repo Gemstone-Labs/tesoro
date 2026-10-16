@@ -56,6 +56,7 @@ pub(crate) fn initialize_config(
     config.pool_account = Pubkey::default();
     config.leaderboard_since = 0;
     config.entry_sizes = [0; crate::ledger::MAX_ENTRY_SIZES];
+    config.oracle_locked = false;
     Ok(())
 }
 
@@ -310,5 +311,30 @@ pub(crate) fn set_entry_sizes(ctx: Context<SetEntrySizes>, sizes: Vec<u64>) -> R
     let mut padded = [0u64; crate::ledger::MAX_ENTRY_SIZES];
     padded[..sizes.len()].copy_from_slice(&sizes);
     ctx.accounts.config.entry_sizes = padded;
+    Ok(())
+}
+
+/// Locks or unlocks the oracle's test-mode powers (admin). Extends a Config that predates the
+/// field. While locked, `open_position`, `apply_yield` and the oracle-priced `take_advance`
+/// refuse: ETH and HYPE Positions come only from the bridge and Advances are priced on chain.
+#[derive(Accounts)]
+pub struct SetOracleLock<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized,
+        realloc = Config::SPACE,
+        realloc::payer = admin,
+        realloc::zero = true
+    )]
+    pub config: Box<Account<'info, Config>>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_oracle_lock(ctx: Context<SetOracleLock>, locked: bool) -> Result<()> {
+    ctx.accounts.config.oracle_locked = locked;
     Ok(())
 }

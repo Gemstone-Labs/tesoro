@@ -66,6 +66,11 @@ pub mod tesoro_core {
         instructions::admin::set_entry_sizes(ctx, sizes)
     }
 
+    /// Locks (mainnet) or unlocks the oracle's test-mode powers. Admin only.
+    pub fn set_oracle_lock(ctx: Context<SetOracleLock>, locked: bool) -> Result<()> {
+        instructions::admin::set_oracle_lock(ctx, locked)
+    }
+
     // --- Leaderboard seasons ----------------------------------------------------------------
 
     pub fn record_season<'info>(

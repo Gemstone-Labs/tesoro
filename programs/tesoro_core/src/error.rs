@@ -65,6 +65,8 @@ pub enum TesoroError {
     NotStakePosition,
     #[msg("the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool")]
     BadStakePoolAccount,
+    #[msg("the oracle key can no longer register Positions, report yield or price Advances")]
+    OracleLocked,
 }
 
 pub fn core_err(e: CoreError) -> Error {
