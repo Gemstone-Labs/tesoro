@@ -6,8 +6,8 @@ import { getChain } from "@/lib/chain/client";
 import { fetchAccountState } from "@/lib/chain/read";
 import { fetchVaultTreasuries } from "@/lib/chain/treasury";
 import { netOfVault } from "@/lib/chain/eth";
-import { instantUnavailable, planInstant, ratesOf, solPayoutCapacity, type InstantCandidate, type InstantLine, type VaultTreasuryView } from "@/lib/chain/fees";
-import { LAMPORTS, rateAt, type NativeMarket } from "@/lib/chain/native";
+import { instantUnavailable, planInstant, ratesOf, treasuryBalanceUnits, type InstantCandidate, type InstantLine, type VaultTreasuryView } from "@/lib/chain/fees";
+import { LAMPORTS, rateAt, speedupOf, type NativeMarket } from "@/lib/chain/native";
 import type { ChainHolding } from "@/lib/chain/read";
 import type { PublicKey } from "@solana/web3.js";
 import type { Chain } from "@/lib/mock";
@@ -27,7 +27,10 @@ type InstantPlan = { holding: ChainHolding; line: InstantLine }[];
 function buildPlan(won: ChainHolding[], market: NativeMarket | null, mirrors: Map<string, VaultTreasuryView> | null) {
   const rates = ratesOf(market?.treasury);
   const caps = new Map<string, bigint>();
-  if (market?.treasury && market.treasuryShares !== null) caps.set("SOL", solPayoutCapacity(market.treasuryShares, rateAt(market.pool)));
+  // The Treasury pays from the earned, unminted Yield Fee plus its vault, exactly as the program counts it; short means "unavailable", not an error.
+  if (market?.treasury && market.treasuryShares !== null && market.treasuryClaim) {
+    caps.set("SOL", treasuryBalanceUnits({ ...market.treasuryClaim, vaultShares: market.treasuryShares, rate: rateAt(market.pool), speedup: speedupOf(market.pool), nowSec: Math.floor(Date.now() / 1000) }));
+  }
   for (const [vault, view] of mirrors ?? []) caps.set(vault, view.available);
   const candidates: InstantCandidate[] = won.map((h) => ({ key: h.holding.toBase58(), capKey: h.eth ? h.eth.vault.toLowerCase() : "SOL", free: h.pending, unitNum: h.unitNum, unitDen: h.unitDen }));
   const lines = planInstant(candidates, caps, rates.instantFeeBps);
@@ -58,7 +61,7 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
     };
   }, [vaults]);
 
-  /** The plan again from a fresh Account read and fresh treasury mirrors: a yield crank may have landed since the Player confirmed. */
+  /** The plan again from a fresh Account read and fresh treasury mirrors: yield may have accrued since the Player confirmed. */
   const freshPlan = useCallback(async (authority: PublicKey) => {
     const fresh = await fetchAccountState(authority, { fresh: true });
     const candidates = instantCandidates(fresh.holdings);
@@ -76,7 +79,7 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
       from: holder(h),
       gemas: Number(line.gemas),
       amount: Number(line.payout) / UNITS[h.asset],
-      token: h.asset === "SOL" ? market?.token?.symbol ?? TOKEN.SOL : TOKEN[h.asset],
+      token: TOKEN[h.asset],
       later: !h.native,
     }));
     const assets = [...new Set(won.map((h) => h.asset))];

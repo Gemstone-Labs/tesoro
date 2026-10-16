@@ -92,8 +92,7 @@ export async function act(rt: ActCtx, job: string, subject: string, what: string
 
 /**
  * `lz`: rolling cap on LayerZero fees paid on Solana; `eth` / `hype`: rolling caps on the fees paid on Hoodi / HyperEVM, in gwei;
- * `yieldShare`: the part of `budget` the yield cranks may use, so refunds, settles and bridge steps keep the rest.
  */
-export type Ctx = Runtime & { budget: Budget; lz: Budget; eth: Budget; hype: Budget; yieldShare: Budget };
+export type Ctx = Runtime & { budget: Budget; lz: Budget; eth: Budget; hype: Budget };
 /** What `act` needs: lets tests drive it without a full runtime. */
 export type ActCtx = Pick<Ctx, "settings" | "budget" | "conn" | "payer">;
