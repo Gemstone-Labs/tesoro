@@ -37,6 +37,7 @@ import {
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
+import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { TxFailedError, TxUnconfirmedError, txOutcome, type TxOutcome } from "./tx";
 
 export { TxFailedError, TxUnconfirmedError, type TxOutcome };
@@ -44,10 +45,9 @@ export { batchOffsets, boardTiming, type BoardTiming, type MoveTiming } from "./
 
 export const BLOCK_PUZZLE_PROGRAM_ID = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
-export const TEE_RPC = "https://devnet-tee.magicblock.app";
-export const TEE_WS = "wss://devnet-tee.magicblock.app";
-export const TEE_VALIDATOR = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
-export const BASE_RPC = "https://rpc.magicblock.app/devnet";
+export const TEE_RPC = MAGICBLOCK.teeRpc;
+export const TEE_WS = MAGICBLOCK.teeWs;
+export const TEE_VALIDATOR = new PublicKey(MAGICBLOCK.teeValidator);
 
 const VRF_QUEUE = new PublicKey("5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc");
 const EPHEMERAL_VAULT = new PublicKey("MagicVau1t999999999999999999999999999999999");

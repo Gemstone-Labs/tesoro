@@ -36,6 +36,7 @@ Legend: **R** required, **O** optional, **-** not read. Visibility: **public** s
 | `NEXT_PUBLIC_DOCS_URL`, `NEXT_PUBLIC_GITHUB_URL`, `NEXT_PUBLIC_X_URL` | public | O | O | O | outbound links, default to `/docs`, the GitHub repo, none |
 | `NEXT_PUBLIC_EXTEND_ADVANCE` | public | O | O (`1` once the program has Extend) | O | `1` |
 | `NEXT_PUBLIC_DEV_WALLET` | public | O (`1` for the dev wallet) | O (QA only) | must be unset | `1` |
+| `NEXT_PUBLIC_MAGICBLOCK_ER_RPC`, `_ER_WS`, `_TEE_RPC`, `_TEE_WS` (server and keeper also read the same names without `NEXT_PUBLIC_`) | public | O | O | O | override of the cluster's MagicBlock URLs, e.g. `https://eu.magicblock.app`; unset uses `cluster-settings.ts` (test: `devnet*.magicblock.app`; mainnet: `us.magicblock.app` ER, `mainnet-tee.magicblock.app` TEE). The TEE validator (`MTEWGuqx...`) is pinned there and has no env override. Bad scheme throws. |
 | `VERCEL_PROJECT_PRODUCTION_URL` | set by Vercel | - | automatic | automatic | `tesoro-test.vercel.app` |
 
 ### RPC

@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction, type TransactionInstruction } from "@solana/web3.js";
 import { treasuryBalanceUnits } from "../../app/src/lib/chain/fees.ts";
 import { createSimSolAtaIx, fetchNativeMarket, rateAt, setTreasuryCompanyIx, speedupOf, treasuryPda, withdrawTreasuryIx } from "../../app/src/lib/chain/native.ts";
+import { keeperCluster, scriptRpc } from "../src/cluster.ts";
 
 const argv = process.argv.slice(2);
 const value = (name: string) => {
@@ -26,7 +27,7 @@ const companyArg = value("--company");
 const amountArg = value("--amount");
 
 const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(homedir(), ".config/solana/dev-2026-10.json"), "utf8"))));
-const c = new Connection(process.env.RPC_URL ?? "https://rpc.magicblock.app/devnet", "confirmed");
+const c = new Connection(scriptRpc(), "confirmed");
 
 async function run(label: string, ixs: TransactionInstruction[]) {
   const tx = new Transaction().add(...ixs);

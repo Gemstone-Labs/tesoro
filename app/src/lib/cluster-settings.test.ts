@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLUSTERS, resolveCluster } from "./cluster-settings";
+import { CLUSTERS, magicblockSettings, resolveCluster } from "./cluster-settings";
 
 describe("cluster settings", () => {
   it("test mode keeps today's values", () => {
@@ -25,5 +25,33 @@ describe("cluster settings", () => {
     expect(resolveCluster("").id).toBe("test");
     expect(resolveCluster("mainnet").id).toBe("mainnet");
     expect(() => resolveCluster("devnet")).toThrow(/Unknown cluster/);
+  });
+
+  it("MagicBlock: test mode keeps the devnet endpoints and TEE validator", () => {
+    expect(CLUSTERS.test.magicblock).toMatchObject({
+      erRpc: "https://devnet.magicblock.app",
+      erWs: "wss://devnet.magicblock.app",
+      teeRpc: "https://devnet-tee.magicblock.app",
+      teeWs: "wss://devnet-tee.magicblock.app",
+      teeValidator: "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo",
+    });
+    expect(CLUSTERS.test.solana.defaultRpc).toBe("https://rpc.magicblock.app/devnet");
+  });
+
+  it("MagicBlock: mainnet points at the mainnet TEE and ER, no devnet host anywhere", () => {
+    const m = CLUSTERS.mainnet.magicblock;
+    expect(m).toMatchObject({ teeRpc: "https://mainnet-tee.magicblock.app", teeWs: "wss://mainnet-tee.magicblock.app", erRpc: "https://us.magicblock.app", erWs: "wss://us.magicblock.app" });
+    expect(m.teeValidator).toBe("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
+    expect(JSON.stringify(m)).not.toMatch(/devnet/);
+    expect(CLUSTERS.mainnet.solana.defaultRpc).toBeUndefined();
+  });
+
+  it("MagicBlock: env overrides the URLs, never the validator, and rejects bad schemes", () => {
+    const m = magicblockSettings(CLUSTERS.mainnet, { MAGICBLOCK_ER_RPC: "https://eu.magicblock.app", NEXT_PUBLIC_MAGICBLOCK_TEE_WS: "wss://tee.example" });
+    expect(m.erRpc).toBe("https://eu.magicblock.app");
+    expect(m.teeWs).toBe("wss://tee.example");
+    expect(m.teeRpc).toBe("https://mainnet-tee.magicblock.app");
+    expect(m.teeValidator).toBe(CLUSTERS.mainnet.magicblock.teeValidator);
+    expect(() => magicblockSettings(CLUSTERS.test, { MAGICBLOCK_TEE_RPC: "wss://x" })).toThrow(/TEE_RPC must be a http/);
   });
 });

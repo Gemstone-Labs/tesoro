@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { Connection, Keypair, Transaction, sendAndConfirmTransaction, type TransactionInstruction } from "@solana/web3.js";
 import { createSimSolAtaIx, faucetIx, fetchNativeMarket, fundTreasuryIx, initTreasuryIx } from "../../app/src/lib/chain/native.ts";
 import { DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS } from "../../app/src/lib/chain/yield.ts";
+import { keeperCluster, scriptRpc } from "../src/cluster.ts";
 
 const argv = process.argv.slice(2);
 const arg = (name: string, fallback: number) => {
@@ -27,7 +28,7 @@ const instantBps = arg("--instant-bps", DEFAULT_INSTANT_FEE_BPS);
 for (const bps of [yieldBps, instantBps]) if (!Number.isInteger(bps) || bps < 0 || bps > 5000) throw new Error("fee rates must be integers from 0 to 5000 bps");
 
 const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(homedir(), ".config/solana/dev-2026-10.json"), "utf8"))));
-const c = new Connection(process.env.RPC_URL ?? "https://rpc.magicblock.app/devnet", "confirmed");
+const c = new Connection(scriptRpc(), "confirmed");
 
 async function send(label: string, ixs: TransactionInstruction[]) {
   const tx = new Transaction().add(...ixs);

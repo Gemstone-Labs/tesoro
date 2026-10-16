@@ -1,4 +1,4 @@
-import { CLUSTER } from "../cluster-settings";
+import { CLUSTER, CLUSTERS } from "../cluster-settings";
 
 /**
  * RPC endpoints by role. See app/docs/rpc.md.
@@ -7,9 +7,9 @@ import { CLUSTER } from "../cluster-settings";
  *  - TESORO_GPA_RPC: server only, list queries (getProgramAccounts). Never sent to the browser.
  */
 /** Test-mode defaults. Mainnet has none: use baseRpc()/gpaRpc(), which throw when the env var is unset. */
-export const DEFAULT_BASE_RPC = "https://rpc.magicblock.app/devnet";
+export const DEFAULT_BASE_RPC = CLUSTERS.test.solana.defaultRpc!;
 /** MagicBlock serves getProgramAccounts on base-layer devnet without the public RPC's per-IP limit (QA 2026-09-30: api.devnet.solana.com answered "Rate limited upstream" with three browsers and the keeper). */
-export const DEFAULT_GPA_RPC = "https://rpc.magicblock.app/devnet";
+export const DEFAULT_GPA_RPC = CLUSTERS.test.solana.defaultGpaRpc!;
 
 /** Browser list queries go through this route instead of a per-tab getProgramAccounts. */
 export const GPA_ROUTE = "/api/chain/accounts";

@@ -19,7 +19,7 @@ import {
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import {
-  BASE_RPC,
+  defaultBaseConnection,
   TEE_RPC,
   TEE_VALIDATOR,
   TEE_WS,
@@ -31,6 +31,7 @@ import {
   tesoroMatchPda,
   type PlayerSigner,
 } from "../holdem/chain";
+import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { fetchLeaderboardTerms } from "../../lib/chain/leaderboard";
 import { COLUMNS, type Track } from "./grid";
 
@@ -41,8 +42,8 @@ const EPHEMERAL_VAULT = new PublicKey("MagicVau1t9999999999999999999999999999999
 const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
 
 /** Public rollup RPC / WebSocket for the price feeds (the same accounts live on the TEE). */
-export const ER_RPC = "https://devnet.magicblock.app";
-export const ER_WS = "wss://devnet.magicblock.app";
+export const ER_RPC = MAGICBLOCK.erRpc;
+export const ER_WS = MAGICBLOCK.erWs;
 
 export const STATUS = { created: 0, live: 1, over: 2, cancelled: 3 } as const;
 export const NO_WINNER = 255;
@@ -62,11 +63,11 @@ export interface Asset {
   feed: PublicKey;
 }
 
-/** Feeds verified live on the devnet rollup and TEE, 2026-10-03. */
+/** Feeds verified live on the devnet and mainnet rollups and TEEs (addresses are the same; see MagicBlockSettings.priceFeeds). */
 export const ASSETS: Asset[] = [
-  { id: 0, symbol: "SOL", name: "Solana", feed: new PublicKey("ENYwebBThHzmzwPLAQvCucUTsjyfBSZdD9ViXksS4jPu") },
-  { id: 1, symbol: "ETH", name: "Ethereum", feed: new PublicKey("5vaYr1hpv8yrSpu8w3K95x22byYxUJCCNCSYJtqVWPvG") },
-  { id: 2, symbol: "HYPE", name: "Hyperliquid", feed: new PublicKey("CxEkVoCUwSAprvAhdWRPH63JeioQVNDtyZYEMRXuLu6x") },
+  { id: 0, symbol: "SOL", name: "Solana", feed: new PublicKey(MAGICBLOCK.priceFeeds.SOL) },
+  { id: 1, symbol: "ETH", name: "Ethereum", feed: new PublicKey(MAGICBLOCK.priceFeeds.ETH) },
+  { id: 2, symbol: "HYPE", name: "Hyperliquid", feed: new PublicKey(MAGICBLOCK.priceFeeds.HYPE) },
 ];
 
 /**
@@ -214,7 +215,7 @@ export class TradingDuelChain {
   onTx?: DuelChainOptions["onTx"];
 
   constructor(duelIdl: any, tesoroIdl: any, opts: DuelChainOptions = {}) {
-    this.base = opts.base ?? new Connection(BASE_RPC, "confirmed");
+    this.base = opts.base ?? defaultBaseConnection();
     this.teeRpc = opts.teeRpc ?? TEE_RPC;
     this.teeWs = opts.teeWs ?? TEE_WS;
     this.onTx = opts.onTx;

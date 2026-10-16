@@ -14,8 +14,9 @@ import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
 import { CONFIG, POOL_ACCOUNT, POOL_AUTHORITY, parseLeaderboardTerms } from "../../app/src/lib/chain/leaderboard.ts";
+import { keeperCluster, scriptRpc } from "../src/cluster.ts";
 
-const rpc = process.env.RPC_URL ?? "https://rpc.magicblock.app/devnet";
+const rpc = scriptRpc();
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
 const bpsAt = argv.indexOf("--bps");
