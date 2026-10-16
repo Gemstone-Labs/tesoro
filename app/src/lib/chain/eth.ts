@@ -150,7 +150,15 @@ export const vaultAbi = parseAbi([
   "function rateSource() view returns (address)",
   "function accruedYield(uint64) view returns (uint256)",
   "function payableYield(uint64) view returns (uint256)",
-  "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 heldShares, uint256 paidUnderlying, uint256 frozenAccrued, uint64 openTime, uint64 outSeq, uint64 inSeq, uint8 horizonMonths, bool unlocked))",
+  "function getPosition(uint64) view returns ((address owner, uint256 principalShares, uint256 principalUnderlying, uint256 openRate, uint256 paidUnderlying, uint256 frozenAccrued, uint256 a, uint256 b, uint256 d, uint256 heldShares, uint256 apyBps, uint256 speedup, uint64 openTime, uint64 outSeq, uint64 inSeq, uint16 feeBps, uint8 horizonMonths, bool unlocked))",
+  "function treasuryBalance() view returns (uint256)",
+  "function reportedAccrued(uint64) view returns (uint256)",
+  "function refusedInstant(uint64, uint64) view returns (uint256)",
+  "function quoteInstantRefund() view returns (uint256)",
+  "function refundInstant(uint64 id, uint64 refusedSeq) payable",
+  "error YieldBelowReported(uint256 accrued, uint256 reported)",
+  "error ExceedsAccruedYield(uint256 requested, uint256 available)",
+  "error InsufficientShares(uint256 needed, uint256 spendable)",
   "function openPosition(uint256 lstAmount, uint8 horizonMonths) payable returns (uint64 id)",
   "function reportYield(uint64 id) payable",
   "event PositionLocked(uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq)",
@@ -513,7 +521,7 @@ export interface EthMarket {
   quoteYield: bigint;
   nextPositionId: bigint;
   rate: SimRate;
-  /** The APY an Advance is quoted on: SimLST's configured rate, or null on a real-token vault until the trailing figure is published (ticket 11). */
+  /** The APY an Advance is quoted on: SimLST's configured rate; on a real-token vault its PeerConfig rate, or null while that is unset. */
   apyBps: bigint | null;
   faucetAmount: bigint;
   /** Unix seconds the faucet is next available for this address (0 when available now). */
@@ -523,7 +531,19 @@ export interface EthMarket {
 /** The slice of a viem client the market read uses; tests pass a fake. */
 export type MarketClient = Pick<PublicClient, "readContract" | "getBalance"> & { chain?: PublicClient["chain"]; multicall?: PublicClient["multicall"] };
 
-export async function fetchEthMarket(vault: EthVault, owner: Address, client?: MarketClient): Promise<EthMarket> {
+/**
+ * The APY every Advance on a vault is sized on: the `rate_bps` of the vault's `PeerConfig` in tesoro_bridge (set with
+ * `set_peer_config`, ops derive it from the rate source's recent growth, docs/cross-chain.md). Null while the peer is
+ * missing or the rate is 0: the form then shows "APY —" and offers no Advance.
+ */
+export async function fetchPeerRateBps(base: Pick<Connection, "getAccountInfo">, vault: string): Promise<number | null> {
+  const info = await base.getAccountInfo(bridgePeerPda(vault), "confirmed");
+  if (!info || info.data.length < 43) return null;
+  const rate = info.data.readUInt16LE(41);
+  return rate > 0 ? rate : null;
+}
+
+export async function fetchEthMarket(vault: EthVault, owner: Address, client?: MarketClient, base?: Pick<Connection, "getAccountInfo">): Promise<EthMarket> {
   const c = (client ?? evmClient(NETS[vault.net])) as PublicClient;
   const lst = { address: vault.lst, abi: lstAbi } as const;
   const v = { address: vault.address, abi: vaultAbi } as const;
@@ -538,6 +558,7 @@ export async function fetchEthMarket(vault: EthVault, owner: Address, client?: M
     // A real staking token has no faucet and no SimLST rate fields: the rate comes from the vault's rate source.
     const [r, ethBalance] = await Promise.all([readMany(c, [...common, { ...v, functionName: "rateSource" }]), c.getBalance({ address: owner })]);
     const [underlyingPerShare] = await readMany(c, [{ address: r[5] as Address, abi: rateSourceAbi, functionName: "underlyingPerShare" }]);
+    const peerRate = base ? await fetchPeerRateBps(base, vault.address).catch(() => null) : null;
     return {
       address: owner,
       ethBalance,
@@ -547,7 +568,7 @@ export async function fetchEthMarket(vault: EthVault, owner: Address, client?: M
       quoteYield: r[3] as bigint,
       nextPositionId: r[4] as bigint,
       rate: { baseRate: underlyingPerShare as bigint, baseTime: BigInt(Math.floor(Date.now() / 1000)), apyBps: 0n, speedup: 1n },
-      apyBps: null,
+      apyBps: peerRate === null ? null : BigInt(peerRate),
       faucetAmount: 0n,
       faucetAvailableAt: 0,
     };
@@ -589,11 +610,21 @@ export interface VaultPosition {
   openRate: bigint;
   heldShares: bigint;
   paidUnderlying: bigint;
+  /** Accrued Yield frozen at Unlock (the formula stops there). */
+  frozenAccrued: bigint;
+  /** The Yield Fee this Position opened with (basis points, fixed per Position). */
+  feeBps: number;
+  openTime: bigint;
   horizonMonths: number;
   unlocked: boolean;
-  /** Yield accrued on Hoodi so far (underlying wei), reported to Solana or not. */
+  /**
+   * Accrued Yield right now by the vault's formula (underlying wei, net of the Yield Fee, cumulative: includes what was
+   * paid out). Computed on read, never recorded; Solana only learns it from a Yield Report.
+   */
   accrued: bigint;
 }
+
+type VaultPositionRaw = Omit<VaultPosition, "accrued" | "feeBps" | "horizonMonths"> & { feeBps: number | bigint; horizonMonths: number | bigint };
 
 export async function fetchVaultPosition(vault: string, id: bigint): Promise<VaultPosition | null> {
   const c = evmClient(netOfVault(vault));
@@ -601,9 +632,22 @@ export async function fetchVaultPosition(vault: string, id: bigint): Promise<Vau
   const [p, accrued] = (await readMany(c, [
     { ...v, functionName: "getPosition", args: [id] },
     { ...v, functionName: "accruedYield", args: [id] },
-  ])) as [Omit<VaultPosition, "accrued">, bigint];
+  ])) as [VaultPositionRaw, bigint];
   if (/^0x0+$/.test(p.owner)) return null;
-  return { ...p, accrued };
+  return {
+    owner: p.owner,
+    principalShares: p.principalShares,
+    principalUnderlying: p.principalUnderlying,
+    openRate: p.openRate,
+    heldShares: p.heldShares,
+    paidUnderlying: p.paidUnderlying,
+    frozenAccrued: p.frozenAccrued,
+    feeBps: Number(p.feeBps),
+    openTime: p.openTime,
+    horizonMonths: Number(p.horizonMonths),
+    unlocked: p.unlocked,
+    accrued,
+  };
 }
 
 /** With `LZ_FEE_HEADROOM_PCT` on top; the vault refunds the excess to the caller. */
