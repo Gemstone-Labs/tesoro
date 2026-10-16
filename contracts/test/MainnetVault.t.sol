@@ -236,24 +236,31 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.getPosition(id).paidUnderlying, amt);
     }
 
-    function test_instantRedeemPaysFromTheTreasuryElseIsRefusedAndRefundedOnce() public {
+    /// Audit 2026-10-16 B-1. The vault used to refuse a PayInstant it could not cover and send a
+    /// refund message that Solana cannot read, so the holder lost the Gemas the Treasury had taken. A payout the
+    /// Treasury cannot cover now reverts (nothing is recorded as handled) and the same message pays once it can.
+    function test_instantRedeemPaysFromTheTreasuryElseWaitsForIt() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
         uint128 fee = uint128(vault.treasuryBalance());
         _recv(_pay(5, id, 1, redeemer, fee));
         assertEq(vault.instantPaid(), fee);
         assertApproxEqAbs(tok.balanceOf(redeemer) * 1.32e18 / 1e18, fee, 2);
-        _recv(_pay(5, id, 2, redeemer, 1 ether)); // Treasury empty: refused, not reverted
-        assertEq(vault.refusedInstant(id, 2), 1 ether);
-        vault.refundInstant{value: 0.0001 ether}(id, 2);
-        bytes memory m = lz.lastMessage();
-        assertEq(m.length, 69);
-        assertEq(uint8(m[0]), 6);
-        assertEq(uint64(bytes8(_slice(m, 45, 8))), 2, "refusedSeq");
-        assertEq(uint128(bytes16(_slice(m, 53, 16))), 1 ether);
-        vault.refundInstant{value: 0.0001 ether}(id, 2); // lost message: may be sent again
-        vm.expectRevert(PositionVault.NothingToRefund.selector);
-        vault.refundInstant(id, 3);
+
+        bytes memory short = _pay(5, id, 2, redeemer, 1 ether);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1 ether, 0));
+        _recv(short);
+        assertEq(vault.instantPaid(), fee, "nothing paid, nothing recorded");
+
+        // The Treasury is refilled; the same message, delivered again, pays exactly once.
+        tok.setRate(1.8e18);
+        assertGe(vault.treasuryBalance(), 1 ether);
+        uint256 before = tok.balanceOf(redeemer);
+        _recv(short);
+        assertGt(tok.balanceOf(redeemer), before);
+        assertEq(vault.instantPaid(), fee + 1 ether);
+        _recv(short); // a replay of a paid message is ignored
+        assertEq(vault.instantPaid(), fee + 1 ether);
     }
 
     function test_treasuryFillsWithTheRefillAndWithdrawsToTheOwner() public {
