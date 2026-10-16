@@ -8,6 +8,7 @@ import { fetchVaultTreasuries } from "@/lib/chain/treasury";
 import { netOfVault } from "@/lib/chain/eth";
 import { instantUnavailable, planInstant, ratesOf, treasuryBalanceUnits, type InstantCandidate, type InstantLine, type VaultTreasuryView } from "@/lib/chain/fees";
 import { LAMPORTS, rateAt, speedupOf, type NativeMarket } from "@/lib/chain/native";
+import { unitsForTokens } from "@/lib/chain/stake";
 import type { ChainHolding } from "@/lib/chain/read";
 import type { PublicKey } from "@solana/web3.js";
 import type { Chain } from "@/lib/mock";
@@ -28,7 +29,10 @@ function buildPlan(won: ChainHolding[], market: NativeMarket | null, mirrors: Ma
   const rates = ratesOf(market?.treasury);
   const caps = new Map<string, bigint>();
   // The Treasury pays from the earned, unminted Yield Fee plus its vault, exactly as the program counts it; short means "unavailable", not an error.
-  if (market?.treasury && market.treasuryShares !== null && market.treasuryClaim) {
+  if (market?.treasury && market.stake?.treasuryTokens != null) {
+    // Mainnet: the Treasury's balance is tokens in the stake vault, valued at the pool's rate.
+    caps.set("SOL", unitsForTokens(market.stake.treasuryTokens, market.stake.rate));
+  } else if (market?.treasury && market.treasuryShares !== null && market.treasuryClaim) {
     caps.set("SOL", treasuryBalanceUnits({ ...market.treasuryClaim, vaultShares: market.treasuryShares, rate: rateAt(market.pool), speedup: speedupOf(market.pool), nowSec: Math.floor(Date.now() / 1000) }));
   }
   for (const [vault, view] of mirrors ?? []) caps.set(vault, view.available);
@@ -79,14 +83,14 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
       from: holder(h),
       gemas: Number(line.gemas),
       amount: Number(line.payout) / UNITS[h.asset],
-      token: TOKEN[h.asset],
+      token: h.stakeMint && market?.stake ? market.stake.token.symbol : TOKEN[h.asset],
       later: !h.native,
     }));
     const assets = [...new Set(won.map((h) => h.asset))];
     const available = assets.map((asset) => {
       const keys = asset === "SOL" ? ["SOL"] : won.filter((h) => h.asset === asset && h.eth).map((h) => h.eth!.vault.toLowerCase());
       const known = keys.filter((k) => caps.has(k));
-      return { asset, amount: known.length ? Number(known.reduce((s, k) => s + caps.get(k)!, 0n)) / UNITS[asset] : null, token: TOKEN[asset] };
+      return { asset, amount: known.length ? Number(known.reduce((s, k) => s + caps.get(k)!, 0n)) / UNITS[asset] : null, token: asset === "SOL" && market?.stake ? market.stake.token.symbol : TOKEN[asset] };
     });
     const setUp = Boolean(market?.treasury);
     const unavailable = instantUnavailable({ setUp, payableRows: rows.length });

@@ -78,6 +78,7 @@ export function demoSnapshot(address: string): AccountSnapshot {
     holding: key(200 + n),
     source: key(300 + n),
     position: key(400 + n),
+    stakeMint: null,
     isOwn,
     amount,
     reserved: 0n,

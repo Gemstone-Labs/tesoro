@@ -15,6 +15,7 @@ export const NATIVE_MARKET: NativeMarket = {
   treasury: { yieldFeeBps: 2000, instantFeeBps: 2500 },
   treasuryShares: 8_000_000_000n,
   treasuryClaim: { totals: { feeWeight: 0n, feeWeightTime: 0n, realisedFee: 0n, openPositions: 0n }, feeMinted: 0n },
+  stake: null,
 };
 
 /** A SOL Position of 40 SOL with an Advance that is half repaid (or fully repaid, or unlocked). */
@@ -24,6 +25,9 @@ export function nativePosition(state: "debt" | "repaid" | "unlocked" = "debt"): 
   const now = Math.floor(Date.now() / 1000);
   const native: NativeInfo = {
     position: key(401),
+    mint: PublicKey.default,
+    stakeRateOpen: 0n,
+    custodyShares: 40_000_000_000n,
     status: state === "unlocked" ? "unlocked" : "locked",
     principalLamports: 40_000_000_000n,
     rateBps: 700,

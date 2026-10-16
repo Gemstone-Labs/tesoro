@@ -1,3 +1,4 @@
+import { CLUSTER } from "@/lib/cluster-settings";
 import { fmtGemas, fmtGemasUsd } from "@/lib/format";
 
 /** Shared gradients for every GemaMark. Mount once in the root layout. */
@@ -86,7 +87,9 @@ export function GemaAmount({
   );
 }
 
+/** The simulated-yield note; mainnet yield is real, so nothing is shown there. */
 export function SimulatedYieldLabel({ align = "left", className }: { align?: "left" | "center" | "right"; className?: string }) {
+  if (CLUSTER.yieldModel === "real") return null;
   return (
     <span className={className ? `sim ${className}` : "sim"} style={{ textAlign: align, display: "block" }}>
       Simulated yield · 1 month = 10 min

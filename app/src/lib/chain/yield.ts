@@ -86,11 +86,36 @@ export interface PositionClock {
   rateBps: number;
   yieldFeeBps: number;
   openedAt: number;
+  /** Staking-token Positions (mainnet): the pool's Staking Rate at open, 1e12. Zero or absent for a simulated Position. */
+  stakeRateOpen?: bigint;
 }
 
-/** Net Accrued Yield of a native Position at `nowSec`; only `speedup` is read live from the sim_lst pool. */
-export const positionAccrued = (p: PositionClock, speedup: number | bigint, nowSec: number): AccruedYield =>
-  accruedYieldAt(p.principal, growthSinceOpen(p.rateBps, p.openedAt, nowSec, speedup), p.yieldFeeBps);
+/**
+ * Where a staking-token Position's growth comes from: the pool's Staking Rate `rateNow` read at `atSec`. An instant after
+ * `atSec` is a projection at `apyBps` a year (the Advance sizing APY), used for estimates; at or before `atSec` it is exact.
+ */
+export interface StakeGrowth {
+  rateNow: bigint;
+  atSec: number;
+  apyBps: number;
+}
+
+/** Growth since open of a staking-token Position at `nowSec`: `Staking Rate now / at open` (Rust `stake_growth`). */
+export function stakeGrowthAt(rateOpen: bigint, stake: StakeGrowth | undefined, nowSec: number): Growth {
+  if (!stake) return { num: rateOpen, den: rateOpen };
+  const ahead = BigInt(Math.max(0, Math.floor(nowSec) - Math.floor(stake.atSec)));
+  const rate = stake.rateNow + (stake.rateNow * BigInt(stake.apyBps) * ahead) / (BPS * YEAR_SECS);
+  return { num: rate, den: rateOpen };
+}
+
+/**
+ * Net Accrued Yield of a native Position at `nowSec`. A simulated Position takes only `speedup` from the sim_lst pool; a
+ * staking-token Position (`stakeRateOpen` set) takes the pool's Staking Rate from `stake`, and without it shows no growth.
+ */
+export const positionAccrued = (p: PositionClock, speedup: number | bigint, nowSec: number, stake?: StakeGrowth): AccruedYield =>
+  p.stakeRateOpen
+    ? accruedYieldAt(p.principal, stakeGrowthAt(p.stakeRateOpen, stake, nowSec), p.yieldFeeBps)
+    : accruedYieldAt(p.principal, growthSinceOpen(p.rateBps, p.openedAt, nowSec, speedup), p.yieldFeeBps);
 
 /** The pool-wide totals behind the Treasury's Yield Fee claim (`NativeCustody`, Rust `PoolTotals`). */
 export interface PoolTotals {
@@ -115,7 +140,8 @@ export function earnedFee(t: PoolTotals, nowSec: number, speedup: number | bigin
  * Smallest `nowSec` at which a Position's net Accrued Yield reaches `target` (null when it never will).
  * Starts from the closed form and steps over the floors, so it agrees with `positionAccrued` to the second.
  */
-export function secondsUntilNet(p: PositionClock, speedup: number | bigint, target: bigint): number | null {
+export function secondsUntilNet(p: PositionClock, speedup: number | bigint, target: bigint, stake?: StakeGrowth): number | null {
+  if (p.stakeRateOpen) return secondsUntilStakeNet(p, target, stake);
   if (target <= 0n) return p.openedAt;
   const keep = BPS - BigInt(p.yieldFeeBps);
   const perSec = p.principal * BigInt(p.rateBps) * BigInt(speedup) * keep;
@@ -125,4 +151,20 @@ export function secondsUntilNet(p: PositionClock, speedup: number | bigint, targ
   while (elapsed > 0n && net(elapsed - 1n) >= target) elapsed--;
   while (net(elapsed) < target) elapsed++;
   return p.openedAt + Number(elapsed);
+}
+
+/** Smallest second at which a staking-token Position's net yield reaches `target`, projecting growth at `stake.apyBps` (null without growth to project). */
+function secondsUntilStakeNet(p: PositionClock, target: bigint, stake?: StakeGrowth): number | null {
+  if (!stake) return null;
+  if (positionAccrued(p, 0, stake.atSec, stake).net >= target) return stake.atSec;
+  if (stake.apyBps <= 0) return null;
+  let lo = stake.atSec;
+  let hi = stake.atSec + 100 * 31_536_000;
+  if (positionAccrued(p, 0, hi, stake).net < target) return null;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (positionAccrued(p, 0, mid, stake).net >= target) hi = mid;
+    else lo = mid;
+  }
+  return hi;
 }
