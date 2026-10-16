@@ -75,3 +75,12 @@ export const requireHyperEvm = (url: string, guard: Guard = clusterGuard) => ref
 /** Older names for the same checks; they follow the active cluster. */
 export const requireDevnet = requireSolana;
 export const requireHoodi = requireEthereum;
+
+/**
+ * The SOL, ETH and HYPE top-ups and faucets are test-mode helpers: on the mainnet cluster the Player
+ * pays their own fees, whichever relayer keys the host happens to hold (a copied test env must not
+ * turn the routes into a faucet of real money).
+ */
+export function requireTestMode(cluster: ClusterSettings = activeCluster()) {
+  if (cluster.id === "mainnet") throw new DemoHttpError(403, "player-pays-gas", "On mainnet you pay your own gas and the cross-chain fee.");
+}

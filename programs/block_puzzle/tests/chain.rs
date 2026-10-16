@@ -1423,6 +1423,86 @@ fn f01_delegation_is_pinned_to_the_tee_validator() {
     );
 }
 
+/// Audit 2026-10-16 G-1. The delegate instructions are permissionless and checked only the
+/// validator, so a Board that had been committed back (sealed) could be delegated again by
+/// anyone, after which `settle` cannot read it and the loser waits out the refund window instead
+/// of losing. A Board delegates once, before its run begins.
+#[test]
+fn g01_a_sealed_board_cannot_be_delegated_again() {
+    let (mut env, alice, bob) = Env::new();
+    let id = env.open(&alice);
+    env.open_session(&alice, id).expect("open session");
+    env.join(&bob, id).expect("join");
+    env.join_session(&bob, id).expect("join session");
+    let session = session_pda(match_pda(id));
+    let dlp = sdk_key(ephemeral_rollups_sdk::id());
+    let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
+    let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &block_puzzle::ID);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+    let attacker = Keypair::new();
+    env.svm
+        .airdrop(&attacker.pubkey(), 10 * SOL)
+        .expect("airdrop");
+    let (board_0, board_1, vault) = (
+        board_pda(session, 0),
+        board_pda(session, 1),
+        vault_pda(session),
+    );
+    for k in [board_0, board_1] {
+        env.patch_board(k, |b| {
+            b.started_at = 1;
+            b.sealed = true;
+        });
+    }
+    let opener = bp_ix(
+        block_puzzle::accounts::DelegateOpener {
+            payer: a(attacker.pubkey()),
+            session,
+            buffer_board_0: buffer(board_0),
+            delegation_record_board_0: record(board_0),
+            delegation_metadata_board_0: meta(board_0),
+            board_0,
+            buffer_vault: buffer(vault),
+            delegation_record_vault: record(vault),
+            delegation_metadata_vault: meta(vault),
+            vault,
+            validator: Some(block_puzzle::TEE_VALIDATOR),
+            owner_program: block_puzzle::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        block_puzzle::instruction::DelegateOpener {},
+        vec![],
+    );
+    let err = env.send(&[opener], &attacker, &[]).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::AlreadyBegan)
+    );
+    let joiner = bp_ix(
+        block_puzzle::accounts::DelegateJoiner {
+            payer: a(attacker.pubkey()),
+            session,
+            buffer_board_1: buffer(board_1),
+            delegation_record_board_1: record(board_1),
+            delegation_metadata_board_1: meta(board_1),
+            board_1,
+            validator: Some(block_puzzle::TEE_VALIDATOR),
+            owner_program: block_puzzle::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        block_puzzle::instruction::DelegateJoiner {},
+        vec![],
+    );
+    let err = env.send(&[joiner], &attacker, &[]).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::AlreadyBegan)
+    );
+}
+
 /// F-02. `init_permission` treated "the permission address holds lamports" as "the permission
 /// exists". Anyone can put lamports on that address first, after which the Board (and the
 /// SeedVault) is marked ready without ever being made private.

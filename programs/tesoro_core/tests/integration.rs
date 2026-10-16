@@ -54,6 +54,9 @@ fn offer_pda(account: APk, nonce: u64) -> APk {
 fn protections_pda(account: APk) -> APk {
     pda(&[PROTECTIONS_SEED, account.as_ref()])
 }
+fn anchor_code(e: tesoro_core::error::TesoroError) -> u32 {
+    anchor_lang::error::ERROR_CODE_OFFSET + e as u32
+}
 fn core(e: CoreError) -> u32 {
     tesoro_core::error::CORE_ERROR_OFFSET + e.code()
 }
@@ -2932,4 +2935,98 @@ fn admin_sets_entry_sizes_and_matches_outside_them_are_refused() {
         .expect("back");
     let err = d.env.open_match(&d.alice, 100, &[d.a_holding]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
+}
+
+// --- Oracle lock (audit 2026-10-16, C-1) --------------------------------------------------------
+
+impl Env {
+    fn set_oracle_lock(
+        &mut self,
+        signer: &Keypair,
+        locked: bool,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let set = ix(
+            accounts::SetOracleLock {
+                admin: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetOracleLock { locked },
+            vec![],
+        );
+        self.send(&[set], signer, &[])
+    }
+
+    fn oracle_open(
+        &mut self,
+        p: &Person,
+        chain: SourceChain,
+        id: u8,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let chain_byte = match chain {
+            SourceChain::Solana => 0u8,
+            SourceChain::Ethereum => 1,
+            SourceChain::HyperEvm => 2,
+        };
+        let open = ix(
+            accounts::OpenPosition {
+                oracle: a(self.oracle.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                owner_account: p.account,
+                position: pda(&[POSITION_SEED, &[chain_byte], &[id; 32]]),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::OpenPosition {
+                source_chain: chain,
+                position_id: [id; 32],
+                source_asset: APk::new_unique(),
+                decimals: 9,
+                principal: 100 * SOL,
+                rate_bps: 1_000,
+            },
+            vec![],
+        );
+        let oracle = self.oracle.insecure_clone();
+        self.send(&[open], &oracle, &[])
+    }
+}
+
+/// A stolen oracle key could register a Position that holds nothing, price an Advance against it
+/// and mint Gemas nobody backs. Once the admin locks the oracle (mainnet), it can do none of it.
+#[test]
+fn a_locked_oracle_cannot_register_positions_report_yield_or_price_advances() {
+    let mut env = Env::new();
+    let p = env.person();
+    let admin = env.admin.insecure_clone();
+    let outsider = env.person();
+
+    // Only the admin can lock.
+    let err = env.set_oracle_lock(&outsider.kp, true).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::Unauthorized)
+    );
+
+    // A Position that exists before the lock, with no Advance yet.
+    env.oracle_open(&p, SourceChain::Solana, 1).expect("open");
+    let position = position_pda(1);
+    env.set_oracle_lock(&admin, true).expect("lock");
+
+    let locked = anchor_code(tesoro_core::error::TesoroError::OracleLocked);
+    let err = env.oracle_open(&p, SourceChain::Solana, 2).unwrap_err();
+    assert_eq!(custom_code(&err), locked, "Solana Position");
+    let err = env.oracle_open(&p, SourceChain::Ethereum, 3).unwrap_err();
+    assert_eq!(custom_code(&err), locked, "Ethereum Position");
+    let err = env
+        .take_advance(&p, position, 0, 6, 150_000_000)
+        .unwrap_err();
+    assert_eq!(custom_code(&err), locked, "oracle-priced Advance");
+    let oracle = env.oracle.insecure_clone();
+    let err = env.yield_to(&oracle, position, None, 1, 1).unwrap_err();
+    assert_eq!(custom_code(&err), locked, "reported yield");
+
+    // The admin can unlock: test mode keeps working.
+    env.set_oracle_lock(&admin, false).expect("unlock");
+    env.take_advance(&p, position, 0, 6, 150_000_000)
+        .expect("advance once unlocked");
 }

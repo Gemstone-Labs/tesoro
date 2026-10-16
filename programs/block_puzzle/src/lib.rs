@@ -320,6 +320,7 @@ pub mod block_puzzle {
     /// Base layer, anyone. Delegates the opener's Board and the SeedVault to the TEE validator
     /// (pass its identity).
     pub fn delegate_opener(ctx: Context<DelegateOpener>) -> Result<()> {
+        require_unplayed(&ctx.accounts.session, &ctx.accounts.board_0)?;
         let config = || tee_config(&ctx.accounts.validator);
         let session_key = ctx.accounts.session.key();
         ctx.accounts.delegate_board_0(
@@ -337,6 +338,7 @@ pub mod block_puzzle {
 
     /// Base layer, anyone. Delegates the joiner's Board to the TEE validator.
     pub fn delegate_joiner(ctx: Context<DelegateJoiner>) -> Result<()> {
+        require_unplayed(&ctx.accounts.session, &ctx.accounts.board_1)?;
         let config = tee_config(&ctx.accounts.validator)?;
         let session_key = ctx.accounts.session.key();
         ctx.accounts.delegate_board_1(
@@ -748,6 +750,20 @@ fn finalize<'info>(
         scores,
         forfeited,
     });
+    Ok(())
+}
+
+/// Delegation is permissionless, so only a Board that has not begun and a Session that is not
+/// settled may be delegated: once the Boards are committed back, delegating one again would leave
+/// `settle` unable to read it.
+fn require_unplayed(session: &Session, board: &AccountInfo) -> Result<()> {
+    require!(!session.settled, BlockPuzzleError::AlreadySettled);
+    let data = board.try_borrow_data()?;
+    let board = Board::try_deserialize(&mut &data[..])?;
+    require!(
+        !board.sealed && board.started_at == 0,
+        BlockPuzzleError::AlreadyBegan
+    );
     Ok(())
 }
 

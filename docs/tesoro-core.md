@@ -42,6 +42,8 @@ Ledger errors surface as custom error `6100 + CoreError::code()`; program errors
 
 `Config.oracle_authority` signs `open_position` (the `PositionLocked` fact), `take_advance` (issuance price) and `apply_yield` (`YieldAccrued`). It is a single trusted key for now. The LayerZero receiver replaces it for messages and Pyth for the price; the instruction bodies do not change, only who may call them.
 
+`set_oracle_lock(locked)` (admin; `Config.oracle_locked`, appended last, false on older Configs) switches those three instructions off with `OracleLocked`. Mainnet runs locked, so a stolen oracle key cannot register a Position that holds nothing or price an Advance against it; test mode stays unlocked. The oracle's remaining powers are `record_season` / `pay_season_rank` (bounded by the 48-hour window), `set_price` (test mode) and the co-signature of `take_advance_onchain` (the price comes from Pyth).
+
 ### Source authorities (cross-chain bridge)
 
 `SourceAuthority` (`["source_auth", chain_byte]`) names, per source chain (Ethereum, HyperEVM), the signer allowed to report `PositionLocked` and `YieldAccrued`. Admin instructions `set_source_authority` / `remove_source_authority`; the source-signed twins `open_position_from_source` and `apply_yield_from_source` have the same bodies as `open_position` / `apply_yield`. The `tesoro_bridge` PDA is registered for both chains. `oracle_authority` still signs the same instructions unchanged and still supplies the issuance price. See `docs/cross-chain.md`.

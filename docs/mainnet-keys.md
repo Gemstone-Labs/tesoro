@@ -101,6 +101,7 @@ Found while writing this plan:
 5. **Admin is not independent of the upgrade authority.** `set_admin` is signed by the upgrade authority, so whoever holds the upgrade authority can always reassign the admin. This is why both sit behind the same multisig.
 6. **Devnet fee recipient and Studio recipient are the deployer's Account.** Mainnet needs new Accounts (above); `register_game`'s studio recipient for each Game is a founder decision.
 7. **Chicken and egg with the Invite gate.** The vault's own Account needs `create_account`, which will require the Invite signature once the gate is on. Create it first.
+8. **The oracle can mint Gemas until it is locked.** `open_position`, `apply_yield` and the oracle-priced `take_advance` are test-mode paths that let the oracle key register a Position that holds nothing and issue Gemas against it. The admin turns them off with `set_oracle_lock(true)` (audit 2026-10-16, C-1): do it in the same proposal batch that moves the admin to the multisig, before the Invite gate opens. With the lock on, ETH and HYPE Positions come only from the bridge and Advances are priced from Pyth, and the oracle keeps only Season recording/payment and the `take_advance_onchain` co-signature. The keeper's mainnet start-up check should read `Config.oracle_locked` and refuse to run when it is false.
 
 ## Founders only
 

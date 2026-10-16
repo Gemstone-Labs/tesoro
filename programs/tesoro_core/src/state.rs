@@ -107,10 +107,14 @@ pub struct Config {
     /// 1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard
     /// fields: an account created before reads them as zero from its zeroed tail.
     pub entry_sizes: [u64; ledger::MAX_ENTRY_SIZES],
+    /// Set by the admin on mainnet (`set_oracle_lock`): the oracle key can no longer register
+    /// Positions, report their yield or name an Advance's price (test-mode paths), so a stolen
+    /// oracle key cannot mint Gemas. Appended last: an older Config reads it as false.
+    pub oracle_locked: bool,
 }
 
 impl Config {
-    pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8 + 8 * ledger::MAX_ENTRY_SIZES;
+    pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8 + 8 * ledger::MAX_ENTRY_SIZES + 1;
     /// The layout before the Leaderboard fields.
     pub const LEGACY_SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 4 + MAX_GAMES * (32 + 32 + 2 + 32);
 

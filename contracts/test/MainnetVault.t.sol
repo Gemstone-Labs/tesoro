@@ -214,6 +214,26 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.accruedYield(id), 0);
     }
 
+    /// Audit 2026-10-16 E-1, founder decision pending (who bears a Staking Rate fall after yield was paid out:
+    /// the Treasury, every Player, or the holder of the Gemas). This documents what the vault does today: the
+    /// shares paid out as yield no longer back the Principal, so after a fall the Position unlocks for less than
+    /// its Principal even though the Treasury still holds its Yield Fee shares. Change the assertions with the
+    /// policy.
+    function test_policyPending_aRateFallAfterAPayoutLeavesPrincipalShort() public {
+        uint64 id = _open(10 ether); // Principal 12 underlying at 1.2
+        tok.setRate(1.32e18);
+        _recv(_pay(4, id, 1, redeemer, uint128(vault.payableYield(id)))); // all net yield paid, in shares
+        tok.setRate(1.2e18); // back to the open rate: no yield, Principal must be whole
+        _recv(_unlock(id, 2));
+        uint256 returned = tok.balanceOf(alice) - 90 ether; // shares released to the owner
+        uint256 principalShares = 10 ether; // 12 underlying at 1.2
+        assertLt(returned, principalShares, "Principal is short by the shares paid out as yield");
+        uint256 shortfall = principalShares - returned;
+        // The Treasury's fee shares are not enough to make the Player whole on their own.
+        assertGt(shortfall, 0.5 ether);
+        assertLt(tok.balanceOf(address(vault)), 1 ether, "only the Yield Fee shares are left in the vault");
+    }
+
     function test_unlockReleasesPrincipalAndFreezesTheYield() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
@@ -236,24 +256,31 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.getPosition(id).paidUnderlying, amt);
     }
 
-    function test_instantRedeemPaysFromTheTreasuryElseIsRefusedAndRefundedOnce() public {
+    /// Audit 2026-10-16 B-1. The vault used to refuse a PayInstant it could not cover and send a
+    /// refund message that Solana cannot read, so the holder lost the Gemas the Treasury had taken. A payout the
+    /// Treasury cannot cover now reverts (nothing is recorded as handled) and the same message pays once it can.
+    function test_instantRedeemPaysFromTheTreasuryElseWaitsForIt() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
         uint128 fee = uint128(vault.treasuryBalance());
         _recv(_pay(5, id, 1, redeemer, fee));
         assertEq(vault.instantPaid(), fee);
         assertApproxEqAbs(tok.balanceOf(redeemer) * 1.32e18 / 1e18, fee, 2);
-        _recv(_pay(5, id, 2, redeemer, 1 ether)); // Treasury empty: refused, not reverted
-        assertEq(vault.refusedInstant(id, 2), 1 ether);
-        vault.refundInstant{value: 0.0001 ether}(id, 2);
-        bytes memory m = lz.lastMessage();
-        assertEq(m.length, 69);
-        assertEq(uint8(m[0]), 6);
-        assertEq(uint64(bytes8(_slice(m, 45, 8))), 2, "refusedSeq");
-        assertEq(uint128(bytes16(_slice(m, 53, 16))), 1 ether);
-        vault.refundInstant{value: 0.0001 ether}(id, 2); // lost message: may be sent again
-        vm.expectRevert(PositionVault.NothingToRefund.selector);
-        vault.refundInstant(id, 3);
+
+        bytes memory short = _pay(5, id, 2, redeemer, 0.9 ether);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 0.9 ether, 0));
+        _recv(short);
+        assertEq(vault.instantPaid(), fee, "nothing paid, nothing recorded");
+
+        // The Treasury is refilled; the same message, delivered again, pays exactly once.
+        tok.setRate(1.8e18);
+        assertGe(vault.treasuryBalance(), 0.9 ether);
+        uint256 before = tok.balanceOf(redeemer);
+        _recv(short);
+        assertGt(tok.balanceOf(redeemer), before);
+        assertEq(vault.instantPaid(), fee + 0.9 ether);
+        _recv(short); // a replay of a paid message is ignored
+        assertEq(vault.instantPaid(), fee + 0.9 ether);
     }
 
     function test_treasuryFillsWithTheRefillAndWithdrawsToTheOwner() public {
@@ -305,10 +332,9 @@ contract MainnetReceiveGasTest is MainnetVaultBase {
         tok.setRate(1.32e18);
         bytes memory pay = _pay(4, id, 1, redeemer, uint128(vault.payableYield(id) / 2));
         bytes memory instant = _pay(5, id, 2, redeemer, uint128(vault.treasuryBalance() / 2));
-        bytes memory refused = _pay(5, id, 3, redeemer, 100 ether);
-        bytes memory unlock = _unlock(id, 4);
-        bytes[4] memory msgs = [pay, instant, refused, unlock];
-        for (uint256 i; i < 4; i++) {
+        bytes memory unlock = _unlock(id, 3);
+        bytes[3] memory msgs = [pay, instant, unlock];
+        for (uint256 i; i < 3; i++) {
             vm.prank(address(lz));
             uint256 g = gasleft();
             vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), msgs[i], address(0), "");

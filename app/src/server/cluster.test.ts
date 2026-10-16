@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEVNET_GENESIS, createClusterGuard, requireDevnet, requireHoodi, requireHyperEvm } from "./cluster";
+import { DEVNET_GENESIS, createClusterGuard, requireDevnet, requireHoodi, requireHyperEvm, requireTestMode } from "./cluster";
 import { CLUSTERS } from "@/lib/cluster-settings";
 import { DemoHttpError } from "./request-auth";
 
@@ -68,5 +68,19 @@ describe("mainnet cluster guard", () => {
     const up = rpc(() => main.solana.genesisHash);
     expect(await createClusterGuard(up.fetch, main).solana("x")).toEqual({ ok: true });
     expect(await createClusterGuard(up.fetch, CLUSTERS.test).solana("x")).toMatchObject({ ok: false });
+  });
+});
+
+describe("server-paid fees (audit 2026-10-16, M-1)", () => {
+  it("are refused on the mainnet cluster whatever keys the host holds, and allowed in test mode", () => {
+    expect(() => requireTestMode(CLUSTERS.test)).not.toThrow();
+    try {
+      requireTestMode(CLUSTERS.mainnet);
+      throw new Error("expected a refusal");
+    } catch (e) {
+      expect(e).toBeInstanceOf(DemoHttpError);
+      expect((e as DemoHttpError).code).toBe("player-pays-gas");
+      expect((e as DemoHttpError).status).toBe(403);
+    }
   });
 });

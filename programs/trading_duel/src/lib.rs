@@ -288,6 +288,16 @@ pub mod trading_duel {
 
     /// Base layer. Delegates the Duel and both Books to the TEE validator.
     pub fn delegate_match(ctx: Context<DelegateMatch>, match_id: u64) -> Result<()> {
+        // Permissionless, so only a Duel that has not started may be delegated: once it is
+        // committed back, delegating it again would leave `finalize` unable to read it.
+        {
+            let data = ctx.accounts.duel.try_borrow_data()?;
+            let duel = Duel::try_deserialize(&mut &data[..])?;
+            require!(
+                duel.status == STATUS_CREATED && !duel.finalized,
+                DuelError::AlreadyStarted
+            );
+        }
         let config = || tee_config(&ctx.accounts.validator);
         let duel_key = ctx.accounts.duel.key();
         ctx.accounts.delegate_duel(

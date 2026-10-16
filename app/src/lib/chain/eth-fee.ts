@@ -7,8 +7,12 @@ import { LZ_FEE_HEADROOM_PCT } from "./eth";
  * wallet up (src/lib/chain/eth-flow.ts `ensureGas`).
  */
 
-/** Gas allowances for the two transactions (a wstETH approve and `openPosition` incl. the LayerZero send). */
-export const OPEN_GAS_UNITS = { approve: 60_000n, open: 350_000n } as const;
+/**
+ * Gas allowances for the two transactions (a wstETH approve and `openPosition` incl. the LayerZero send), shown
+ * before the Player signs. Measured on Ethereum mainnet state with cold storage (audit 2026-10-16, contracts/test/
+ * MainnetDeployFork.t.sol): approve 25k, openPosition 334k, the Lido zap 622k. The allowances keep a margin.
+ */
+export const OPEN_GAS_UNITS = { approve: 60_000n, open: 450_000n } as const;
 
 export interface OpenCostQuote {
   /** Gas units for the transactions the Player signs. */

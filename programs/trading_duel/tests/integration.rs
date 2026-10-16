@@ -1166,6 +1166,52 @@ fn delegation_is_pinned_to_the_tee_validator() {
     }
 }
 
+/// Audit 2026-10-16 G-1. `delegate_match` is permissionless and checked only the validator, so
+/// a table that had been committed back could be delegated again by anyone, after which
+/// `finalize` cannot read it and the loser waits out the refund window instead of losing. A
+/// Duel delegates once, while it is freshly created.
+#[test]
+fn g01_a_duel_that_has_been_played_cannot_be_delegated_again() {
+    let mut env = ready();
+    env.patch_duel(|d| d.status = trading_duel::STATUS_OVER);
+    let ad = addrs(env.id);
+    let dlp = sdk_key(ephemeral_rollups_sdk::id());
+    let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
+    let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &trading_duel::ID);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+    let attacker = env.bob.kp.insecure_clone();
+    let delegate = ix(
+        trading_duel::ID,
+        trading_duel::accounts::DelegateMatch {
+            payer: a(attacker.pubkey()),
+            buffer_duel: buffer(ad.duel),
+            delegation_record_duel: record(ad.duel),
+            delegation_metadata_duel: meta(ad.duel),
+            duel: ad.duel,
+            buffer_book_0: buffer(ad.book_0),
+            delegation_record_book_0: record(ad.book_0),
+            delegation_metadata_book_0: meta(ad.book_0),
+            book_0: ad.book_0,
+            buffer_book_1: buffer(ad.book_1),
+            delegation_record_book_1: record(ad.book_1),
+            delegation_metadata_book_1: meta(ad.book_1),
+            book_1: ad.book_1,
+            validator: Some(trading_duel::TEE_VALIDATOR),
+            owner_program: trading_duel::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        trading_duel::instruction::DelegateMatch { match_id: env.id },
+        vec![],
+    );
+    let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        dcode(trading_duel::DuelError::AlreadyStarted)
+    );
+}
+
 #[test]
 fn starting_after_the_start_deadline_names_the_window() {
     let mut env = ready();

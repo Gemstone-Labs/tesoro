@@ -52,8 +52,7 @@ import {
   type EvmNet,
 } from "@/lib/chain/eth";
 import type { SignedFields } from "@/lib/chain/signed-request";
-import { requireDevnet, requireHoodi, requireHyperEvm } from "./cluster";
-import { playerPaysGas } from "@/lib/chain/eth-fee";
+import { requireDevnet, requireHoodi, requireHyperEvm, requireTestMode } from "./cluster";
 import { HYPE_DEFAULT_MAX_PER_HOUR, createHypeTopup } from "./hype-topup";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { relayerSend } from "./relayer-send";
@@ -584,9 +583,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
   const { step, address, fields, sub } = await verifySignedRequest("tesoro-eth", STEPS, raw, authorization, { nonces });
   const wallet = address.toBase58();
 
-  if (playerPaysGas() && (step === "fund-evm" || step === "fund-hype" || step === "faucet-lst")) {
-    throw new DemoHttpError(403, "player-pays-gas", "On mainnet you pay your own gas and the cross-chain fee.");
-  }
+  if (step === "fund-evm" || step === "fund-hype" || step === "faucet-lst") requireTestMode();
   if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "fund-hype") return fundHype(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "faucet-lst") return faucetLst(wallet, fields, sub);
