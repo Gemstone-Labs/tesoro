@@ -10,8 +10,8 @@ export const ENTITY = {
   name: BRAND.legalName,
   product: BRAND.name,
   form: "a Delaware corporation",
-  /** Postal address for legal notices: unknown until the founders confirm it (registered agent or business address). Empty hides it. */
-  address: "",
+  /** Registered office in Delaware (Certificate of Incorporation); registered agent Corporation Service Company. */
+  address: "251 Little Falls Drive, Wilmington, New Castle County, Delaware 19808",
   contactEmail: "contact@playtesoro.com",
   privacyEmail: "contact@playtesoro.com",
   effectiveDate: "October 16, 2026",
