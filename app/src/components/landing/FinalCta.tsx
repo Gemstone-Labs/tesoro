@@ -53,7 +53,7 @@ export function FinalCta() {
                 Launch app
               </a>
             </span>
-            <XFollow place="cta" className="lp-final-x" />
+            <XFollow variant="b" place="cta" short="Follow" className="lp-final-x" />
           </div>
         </div>
       </div>

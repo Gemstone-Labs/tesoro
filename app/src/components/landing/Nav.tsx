@@ -49,7 +49,7 @@ export function Nav() {
           ))}
           <a href="/docs">Docs</a>
         </nav>
-        <XFollow place="head" className="lp-x" />
+        <XFollow variant="a" place="head" className="lp-x" />
         <button
           type="button"
           className="icon-btn cut lp-theme"

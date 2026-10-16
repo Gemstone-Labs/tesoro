@@ -49,7 +49,7 @@ export function SiteFooter() {
                   </span>
                 ),
               )}
-              {col.title === "Learn" && <XFollow place="foot" />}
+              {col.title === "Learn" && <XFollow variant="a" place="foot" />}
             </div>
           ))}
         </nav>

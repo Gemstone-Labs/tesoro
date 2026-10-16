@@ -28,7 +28,7 @@ export function Footer() {
               </span>
             ),
           )}
-          <XFollow place="foot" />
+          <XFollow variant="a" place="foot" />
         </nav>
         {LAUNCH_STAGE === "testnet" && <p className="mono lp-footer-stage">test mode · no real value</p>}
       </div>

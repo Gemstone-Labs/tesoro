@@ -561,6 +561,11 @@ html.lenis, html.lenis body { height: auto; }
 .xf.btn.lp-final-x .xf-mark { width: 20px; height: 20px; }
 .xf-a.btn.lp-final-x { --edge: var(--edge-2); }
 .xf-b.btn.lp-final-x { --edge: var(--edge-em); }
+/* phones: "Follow" beside Launch app, the same size and on the same row */
+@media (max-width: 639px) {
+  .lp-final-actions { flex-wrap: nowrap; }
+  .lp-final-actions .xf.btn.lp-final-x { flex: 0 0 auto; min-height: 60px; padding: 0 24px; font-size: 20px; }
+}
 .lp-final-x.xf-link { min-height: 60px; }
 .lp-final-title { max-width: 13ch; margin-bottom: 36px; }
 :root[data-theme="light"] .lp-final { padding: 0 var(--g) var(--g); }
@@ -592,7 +597,8 @@ html.lenis, html.lenis body { height: auto; }
   background: radial-gradient(60% 100% at 50% 0, color-mix(in srgb, var(--em) 9%, transparent), transparent 70%);
 }
 .lp-footer-in { position: relative; z-index: 1; display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
-.lp-footer-links { display: flex; gap: 22px; font-size: 13px; }
+.lp-footer-links { display: flex; flex-wrap: wrap; gap: 12px 22px; font-size: 13px; }
+.lp-footer-links .xf-link { white-space: nowrap; }
 .lp-footer-links a { color: var(--fg-2); }
 .lp-footer-links a:hover { color: var(--fg); }
 .lp-footer-stage { margin-left: auto; font-size: 12.5px; color: var(--fg-2); }

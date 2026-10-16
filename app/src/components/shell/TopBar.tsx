@@ -55,7 +55,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         )}
       </form>
       <div className="top-right">
-        <XFollow place="head" className="top-x" />
+        <XFollow variant="a" place="head" className="top-x" />
         <PoolChest />
         {auth.status !== "signed-out" &&
           (ready || (error && auth.status !== "loading") ? (

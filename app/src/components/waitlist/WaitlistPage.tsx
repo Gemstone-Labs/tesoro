@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TesoroLogo, XFollow, XStrip } from "@/components/brand";
+import { TesoroLogo, XFollow } from "@/components/brand";
 import { INSET, LINES, clipAbove, clipBelowInset } from "@/components/waitlist/geometry";
 import { Divider } from "@/components/waitlist/Divider";
 import { LivingTexture } from "@/components/waitlist/LivingTexture";
@@ -40,11 +40,10 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
             Docs
           </Link>
           <a href={appHref()}>Try the app</a>
-          <XFollow place="head" />
+          <XFollow variant="b" place="head" />
         </nav>
       </header>
       <div className="wl-strip">
-        <XStrip />
       </div>
       <main className="wl-main">
         <p className="wl-kicker">{invite ? `Invited by #${invite.spot} · ${invite.name}` : WAITLIST_KICKER}</p>
@@ -59,7 +58,7 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           <a className="btn neutral cut cut-btn" href={appHref()}>
             Try it now
           </a>
-          <XFollow place="cta" />
+          <XFollow variant="b" place="cta" />
         </p>
         {waiting && <p className="wl-count mono">{waiting}</p>}
         <p className="wl-more">

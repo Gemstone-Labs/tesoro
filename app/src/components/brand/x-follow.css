@@ -1,4 +1,4 @@
-/* X follow: four styles compared with ?xv=a|b|c|d. Same placements for all. */
+/* X follow. a: icon chip / neutral button. b: emerald edge and a soft glow. */
 .xf { color: var(--fg); text-decoration: none; }
 .xf .xf-mark { flex: none; }
 .xf-link { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--fg-2); }
@@ -20,28 +20,6 @@
 :root[data-theme="light"] .xf-b.btn .xf-mark { color: var(--em-deep); }
 .xf-b.btn:hover { filter: drop-shadow(0 0 14px rgba(36, 216, 168, 0.45)); }
 
-/* c: X brand solid. Off-white with ink in dark, ink with white in light */
-.xf-c.btn { background: var(--fg); color: var(--shell); --edge: rgba(255, 255, 255, 0.55); }
-.xf-c.btn:hover { filter: brightness(0.9); }
-:root[data-theme="light"] .xf-c.btn { --edge: rgba(0, 0, 0, 0.5); }
-
-/* d: strip */
-.xf-strip { display: flex; justify-content: center; padding: 0 var(--pad, 16px); position: relative; z-index: 4; }
-.xf-strip a {
-  --edge: var(--edge-2);
-  display: flex; align-items: center; gap: 10px; max-width: 100%; padding: 8px 8px 8px 14px;
-  background: var(--surface); color: var(--fg-2); font-size: 14px; font-weight: 600;
-}
-.xf-strip a b { color: var(--fg); font-weight: 800; }
-.xf-strip a i { font-style: normal; font-weight: 800; font-size: 13px; background: var(--fg); color: var(--shell); padding: 4px 10px; clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px); }
-.xf-strip a:hover { background: var(--surface-2); }
-.xf-strip a:hover span { color: var(--fg); }
-@media (max-width: 639px) {
-  .xf-strip a { font-size: 13px; gap: 8px; }
-  .xf-strip a i { display: none; }
-  .xf-strip a { padding-right: 14px; }
-}
-
 @media (max-width: 639px) {
   .xf.btn.xf-head { width: 38px; padding: 0; }
   .xf.btn.xf-head .xf-label { display: none; }
@@ -54,17 +32,18 @@
 .xf.icon-btn .xf-mark { width: 19px; height: 19px; }
 
 /* light theme (landing): the shared surface tokens stay dark there, so the light fills are set here */
-:root[data-theme="light"] .xf:not(.xf-c, .xf-link, .lp-final-x),
-:root[data-theme="light"] .xf-strip a { background: rgba(251, 249, 245, 0.9); color: #111816; --edge: rgba(17, 24, 22, 0.3); }
+:root[data-theme="light"] .xf:not(.xf-link, .lp-final-x) { background: rgba(251, 249, 245, 0.9); color: #111816; --edge: rgba(17, 24, 22, 0.3); }
 :root[data-theme="light"] .xf-b.btn { --edge: rgba(10, 125, 92, 0.75); }
-:root[data-theme="light"] .xf:not(.xf-c, .xf-link, .lp-final-x):hover,
-:root[data-theme="light"] .xf-strip a:hover { background: #fff; }
-:root[data-theme="light"] .xf-strip a { color: #4a5451; }
-:root[data-theme="light"] .xf-strip a b { color: #111816; }
-:root[data-theme="light"] .xf-strip a i { background: #111816; color: #f5f3ee; }
+:root[data-theme="light"] .xf:not(.xf-link, .lp-final-x):hover { background: #fff; }
 
 /* the closing banner is dark art in both themes */
 .lp-final-x.xf-link { color: #eaefec; text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85); }
-:root[data-theme="light"] .xf-c.lp-final-x { background: #eaefec; color: #090d0f; --edge: rgba(255, 255, 255, 0.55); }
-:root[data-theme="light"] .lp-final-x.btn:not(.xf-c) { color: #eaefec; }
+:root[data-theme="light"] .lp-final-x.btn { color: #eaefec; }
 :root[data-theme="light"] .xf-b.lp-final-x .xf-mark { color: var(--em-hi-dark, #6af8d6); }
+
+/* a short label for phones */
+.xf-short { display: none; }
+@media (max-width: 639px) {
+  .xf-has-short .xf-long { display: none; }
+  .xf-has-short .xf-short { display: inline; }
+}
