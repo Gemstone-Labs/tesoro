@@ -73,8 +73,11 @@ export const art = {
   avatars: Array.from({ length: 12 }, (_, i) => f(`avatars/avatar-${i + 1}`)),
 } as const;
 /** A stable avatar for a Player key, so the same Player always shows the same avatar. */
-export function avatarFor(key: string): string {
+export function avatarIndexFor(key: string): number {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  return art.avatars[h % art.avatars.length];
+  return h % art.avatars.length;
+}
+export function avatarFor(key: string): string {
+  return art.avatars[avatarIndexFor(key)];
 }

@@ -10,6 +10,8 @@ import { BackingSplit } from "@/components/match/BackingSplit";
 import { MatchResult } from "@/components/match/MatchResult";
 import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { Receipts } from "@/components/match/Receipts";
+import { delayedOf } from "@/lib/chain/match-status";
+import { useNowSecs } from "@/lib/chain/useNowSecs";
 import { MatchStage, MatchStageLoading, StageAction } from "@/components/match/MatchStage";
 import { STATUS } from "./chain";
 import { HoldemTable } from "./HoldemTable";
@@ -27,6 +29,7 @@ function fmtFee(m: ChainMatch): string {
 export function HoldemMatchView({ matchId }: { matchId: string }) {
   const { auth, refresh, snapshot } = useAccount();
   const signer = auth.signer;
+  const nowSecs = useNowSecs();
   const id = (() => {
     try {
       return BigInt(matchId);
@@ -64,7 +67,9 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         backed={!!m.backing}
         scores={outcome === "refunded" ? null : [outcome === "won" ? "Won" : "Lost", outcome === "won" ? "Lost" : "Won"]}
         momentKey={m.id.toString()}
+        matchId={m.id.toString()}
         playAgainHref={`/play/queue?game=holdem&entry=${m.entry}`}
+        opponent={m.opponent}
         split={m.backing ? <BackingSplit m={m} /> : undefined}
       >
         {view.error && <p className="status err" role="alert">{view.error}</p>}
@@ -86,6 +91,7 @@ export function HoldemMatchView({ matchId }: { matchId: string }) {
         opponent={m.opponent}
         step={kind === "setup" ? view.note || "Creating your session" : kind === "closing" && !view.commit ? view.note || "Saving the result" : undefined}
         commit={kind === "closing" ? view.commit : null}
+        delayed={kind === "closing" ? delayedOf(m, nowSecs) : null}
         deadline={m.deadline || undefined}
         challengeLink={m.challenge && kind === "waiting" ? link : null}
         backedShareBps={m.backing && m.seat !== null ? m.backing.shareBps : null}

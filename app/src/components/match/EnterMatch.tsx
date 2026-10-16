@@ -20,7 +20,7 @@ import "./enter.css";
 
 export type EnterKind =
   | { kind: "queue"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string }
-  | { kind: "challenge-new"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string }
+  | { kind: "challenge-new"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string; /** A Rematch: the opponent of the Match being replayed. */ opponent?: string }
   | { kind: "challenge-join"; id: string; backing?: string };
 
 function explain(e: unknown): { text: string; wallet?: boolean } {
@@ -92,6 +92,7 @@ export function EnterMatch(props: EnterKind) {
           setStatus("Using your Backing…");
           entered(await enterQueueBacked(signer, props.backing, game, props.entry, auth.getAccessToken, setStatus, asset), "Entered the Queue.");
         } else if (props.kind === "challenge-new" && props.backing) {
+          setStatus("Using your Backing to open your Challenge…");
           const r = await createChallengeBacked(signer, props.backing, game, props.entry, auth.getAccessToken, asset);
           router.replace(`/play/match/${r.id.toString()}`);
         } else if (props.kind === "challenge-join" && props.backing) {
@@ -102,7 +103,7 @@ export function EnterMatch(props: EnterKind) {
           const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset);
           entered(r, props.game === "holdem" || props.game === "trading-duel" ? "Entered the Queue." : "Match opened. You'll be paired while you play.");
         } else if (props.kind === "challenge-new") {
-          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset);
+          const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus);
           router.replace(`/play/match/${id.toString()}`);
         } else {
           setStatus("Joining the Challenge…");
@@ -128,10 +129,10 @@ export function EnterMatch(props: EnterKind) {
       : [];
   const found = status === "Opponent found.";
   const busy = !signedOut && existing === null && !needsGemas && !failure;
-  const seat = found ? "Opponent" : props.kind === "challenge-new" ? "Your friend" : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
+  const seat = found ? "Opponent" : props.kind === "challenge-new" ? (props.opponent ? "Rematch" : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
   const waitLine =
     props.kind === "challenge-new"
-      ? "Your link is ready once the Match opens."
+      ? props.opponent ? "Same opponent, same Game, same entry. Send them your link once the Match opens: they can accept or ignore it." : "Your link is ready once the Match opens."
       : props.kind === "challenge-join"
         ? "Joining your friend's Match."
         : waiting.length
@@ -167,7 +168,7 @@ export function EnterMatch(props: EnterKind) {
         </div>
         <figure className={`enter-seat${busy && !found ? " seeking" : ""}`}>
           <span className="cut enter-av">
-            <SeekingFace keys={found ? [] : waiting} />
+            {props.kind === "challenge-new" && props.opponent ? <PlayerAvatar account={props.opponent} size={112} /> : <SeekingFace keys={found ? [] : waiting} />}
           </span>
           <figcaption>{seat}</figcaption>
         </figure>

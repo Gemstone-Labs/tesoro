@@ -3,6 +3,8 @@ import { LAUNCH_STAGE, OUTBOUND } from "@/lib/landing/config";
 
 const LINKS = [
   ["Docs", OUTBOUND.docs],
+  ["Terms", "/terms"],
+  ["Privacy", "/privacy"],
   ["X", OUTBOUND.x],
   ["GitHub", OUTBOUND.github],
 ] as const;

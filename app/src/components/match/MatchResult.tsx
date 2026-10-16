@@ -7,8 +7,10 @@ import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, SimulatedYiel
 import { art } from "@/lib/art";
 import { pointsForWin } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
+import { canRematch, rematchHref } from "@/lib/rematch";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
+import { postUrl, winPath, winShareText } from "@/lib/win-card";
 import { MomentOverlay } from "./MomentOverlay";
 import { Odometer, Shards } from "./ResultMotion";
 import "./match.css";
@@ -29,8 +31,13 @@ export interface MatchResultProps {
   scores: [string, string] | null;
   scoreNote?: string;
   playAgainHref: string;
+  /** The opponent of this Match and the Trading Duel asset, when known: enables Rematch (a pre-filled Challenge). */
+  opponent?: string | null;
+  asset?: number | null;
   /** Show the win overlay once per key (the Match id); without one it shows on every mount. */
   momentKey?: string;
+  /** The Match id: a Player's win can be shared as a card at /win/<id>. */
+  matchId?: string;
   /** How a Backing paid out (BackingSplit), for backed Matches. */
   split?: ReactNode;
   /** Extra footer content (transactions, notes). */
@@ -172,6 +179,20 @@ export function MatchResult(p: MatchResultProps) {
             <Button variant="money" size="lg" href="/backing">Back a Player</Button>
           ) : (
             <Button variant="money" size="lg" href={p.playAgainHref}>Play again</Button>
+          )}
+          {canRematch({ role, outcome, opponent: p.opponent }) && (
+            <Button size="lg" href={rematchHref({ game: p.game, asset: p.asset, entry: p.entry, opponent: p.opponent! })}>Rematch</Button>
+          )}
+          {won && role === "player" && p.matchId && (
+            <Button
+              size="lg"
+              onClick={() => {
+                const url = `${window.location.origin}${winPath(p.matchId!)}`;
+                window.open(postUrl(winShareText({ game: p.game, gemas: delta, entry: p.entry }), url), "_blank", "noopener,noreferrer");
+              }}
+            >
+              Share your win
+            </Button>
           )}
           <Button size="lg" href="/lobby">Lobby</Button>
           <Button size="lg" href="/wallet">Wallet</Button>

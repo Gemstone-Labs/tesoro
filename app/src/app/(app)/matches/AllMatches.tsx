@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
+import { DelayedMatches } from "@/components/match/DelayedMatches";
 import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
 import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -52,7 +53,9 @@ export function AllMatches() {
         ) : (
           <MatchBannerSkeleton count={4} label="Loading your Matches…" />
         )
-      ) : rows.length === 0 ? (
+      ) : null}
+      {snapshot?.matchesLoaded && <DelayedMatches matches={[...snapshot.matches, ...snapshot.funded].filter((m) => !game || m.game === game)} now={now} />}
+      {!snapshot?.matchesLoaded ? null : rows.length === 0 ? (
         <div className="mh-state">
           <p>{game ? `No finished ${GAME_NAMES[game]} Matches yet.` : "No finished Matches yet."} They appear here when they finish.</p>
           <Button size="sm" href={game ? `/play/${game}` : "/play"}>Play a Match</Button>

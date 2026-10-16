@@ -12,7 +12,7 @@ const CHAINS = [
 const COLUMNS: { title: string; links: [label: string, href: string | null][] }[] = [
   { title: "Play", links: [["Lobby", "/lobby"], ["Games", "/play"], ["Leaderboard", "/leaderboard"], ["Your Matches", "/matches"]] },
   { title: "Money", links: [["Wallet", "/wallet"], ["Backing", "/backing"]] },
-  { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Legal", null]] },
+  { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"]] },
 ];
 
 /** Brand block and link columns, then a strip with the fair-play note and the simulated-yield label. */

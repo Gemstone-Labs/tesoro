@@ -20,7 +20,7 @@ The HyperEVM vault no longer fits a small block (deploy gas about 3.37M, limit 3
 | Item (Solana) | Tx |
 |---|---|
 | `tesoro_core` extend +140,000 bytes, upgrade (1,292,656-byte .so; program data 1,298,360) | `g1cJa2qd…VR16sUgxoFKx` (slot 510206563) |
-| `init_treasury(2000, 3500)` (Treasury `BuWgG4Q7DYND13twkfu5gHVGpoK78GbWJzAeEgv6aDQr`, vault `7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4`, Treasury Account `71hCesb8eED3yoFjgxDG8fSfqgZV4Ngfnr2sX3jHL5Yg`) | `5sNUnoUs…pTkDRvoqCyzno7` |
+| `init_treasury(2000, 3500)` (at launch; the Instant Redeem Fee is now 2500 bps, 75% paid, set with `init_treasury(2000, 2500)`) (Treasury `BuWgG4Q7DYND13twkfu5gHVGpoK78GbWJzAeEgv6aDQr`, vault `7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4`, Treasury Account `71hCesb8eED3yoFjgxDG8fSfqgZV4Ngfnr2sX3jHL5Yg`) | `5sNUnoUs…pTkDRvoqCyzno7` |
 | `fund_treasury` 10 simSOL | `5s3pjNU3…AC73DTYjLkx8` |
 | `tesoro_bridge` extend +115,000 bytes, upgrade (797,920-byte .so; program data 801,648) | `31dA5GFe…GixU4FGWVekv6m` (slot 510206833) |
 
@@ -30,7 +30,7 @@ Smoke tests (2026-10-12, after the app deploy `tesoro-j8cgfb7g7` from main `8592
 |---|---|
 | SOL Advance at 80% | fresh wallet `8r8ZQX7H…Ty4RRv`, Position `7KJau2ahc1RwVgLJSHtVEyi7azjKbFA1dr1HXKonM2Nc` (5 simSOL, Principal 19.749 SOL, 1 month, $112.28): 1,034 Gemas (100% would be 1,293); open + advance `5QS2KjXb…4s9mndk`; the keeper's crank repaid the Debt about 10 min after open (`3E3Pn6PA…CYJ4zmgG`) |
 | SOL Yield Fee 20% | over the first cranks the Position's vault gained 3,461,109 shares and the treasury vault 865,275: 20.0% |
-| SOL Instant Redeem | QA wallet `qeE` (`3DCcK3Yy…ToK9k3J`) sold 1,000 won Gemas of Source `2PmMbYg9…HR4GcT3`: `4QnzaQ1N…u1ayWwft`, paid 13,507,452 simSOL base units (65%) from the treasury vault in the same tx; the Treasury Account took the 1,000 Gemas |
+| SOL Instant Redeem | QA wallet `qeE` (`3DCcK3Yy…ToK9k3J`) sold 1,000 won Gemas of Source `2PmMbYg9…HR4GcT3`: `4QnzaQ1N…u1ayWwft`, paid 13,507,452 simSOL base units (65% at the then 3500 bps fee; now 75%) from the treasury vault in the same tx; the Treasury Account took the 1,000 Gemas |
 | SOL treasury refill | the keeper's next pass ran `redeem_treasury` 1,000 Gemas (`2aTzP8Zp…49Wo4Zsy`): treasury vault +20,780,696 (the full value) |
 | HYPE Position | vault Position 1 (1 simHYPE): `openPosition` `0x50a0d3f750971cd44f2b7dc0423209ffc95864d7254362fc85f70b56d942ea9d`, `apply_locked` by the keeper, Advance 1 month at $25: 8 Gemas (100%: 10) `4DY94wVJ…KimQrMFkKX` |
 | HYPE YieldAccrued (77 bytes) and mirror | `reportYield` `0xab2271532185fb61f7b4717b8b392211a6f6956129a5dfeb1114a9e557f94f49` (vault treasury +1.444e14 = 20% of gross); keeper `apply_yield` `5sjZQKWj…24AVyzBJd`: Debt 8 to 7, `VaultTreasury.reported_in` = 7,000,144,444,444,444,444 = the vault's `treasuryIn` |

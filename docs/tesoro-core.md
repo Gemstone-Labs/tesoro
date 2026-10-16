@@ -179,7 +179,7 @@ Flow: `create_account` (once) -> sim_lst `faucet` -> one tx of `open_native_posi
 
 Instructions (new):
 
-- `init_treasury(yield_fee_bps, instant_fee_bps)` (admin; calling it again changes the rates). Accounts: admin, config, treasury, treasury_account, mint (`SIM_SOL_MINT`), treasury_vault, token program, system program.
+- `init_treasury(yield_fee_bps, instant_fee_bps)` (admin; calling it again changes the rates). The Instant Redeem Fee is 2,500 bps (Players get 75%); `instant_fee_bps` is the only Instant Redeem rate: EVM vaults hold no rate of their own, the payout of an EVM-Sourced Instant Redeem is computed here and relayed by the bridge. The app reads the rate from the `Treasury` account, with 2,500 as its fallback (`DEFAULT_INSTANT_FEE_BPS`). Accounts: admin, config, treasury, treasury_account, mint (`SIM_SOL_MINT`), treasury_vault, token program, system program.
 - `fund_treasury(shares)` (admin): moves simSOL from the admin into the treasury vault. Event `TreasuryFunded`.
 - `instant_redeem(amount)` (native SOL Sources): holder_authority, holder_account, position, source, holding, treasury, treasury_account, treasury_holding (created for the holder if missing), treasury_vault, holder_token, pool, custody (`["native"]`), mint, yield_config (sim_lst `["yield_config"]`), yield_authority (core `["yield"]`), sim_lst_program, token program, system program. Pays simSOL `floor(payout * 1e9 / rate)` in the same transaction from the Treasury balance (vault first, then minted out of the unminted Yield Fee); `TreasuryShort` beyond it. Event `InstantRedeemed`.
 - `set_treasury_company(company)` (admin): sets the wallet `withdraw_treasury` pays. Accounts: admin, config, treasury.
