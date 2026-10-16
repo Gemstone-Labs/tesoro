@@ -253,7 +253,7 @@ E5. endpoint setConfig on ReceiveUln302: receive ULN
     DVNs layerzero-labs + nethermind; confirmations 32 (Solana -> Ethereum)
 ```
 
-The real output also prints each Solana instruction (program, account count, data) and the full `cast send` line and calldata for every EVM call. The HyperEVM pathway is the same command with `--pathway hyperevm` (eid 30367, send confirmations 1, Solana-to-HyperEVM 32, `--rate-bps 500` for kHYPE as an example; the real rate comes from the APY ceiling work, ticket 11). Read-back against a vault that is not deployed reports `FAIL vault ... has code` and `FAIL Store ... exists`, which is the expected state before step 1.
+The real output also prints each Solana instruction (program, account count, data) and the full `cast send` line and calldata for every EVM call. The HyperEVM pathway is the same command with `--pathway hyperevm` (eid 30367, send confirmations 1, Solana-to-HyperEVM 32, `--rate-bps 500` for kHYPE as an example; the real rate is derived from the adapter's recent growth, see "Mainnet vaults"). Read-back against a vault that is not deployed reports `FAIL vault ... has code` and `FAIL Store ... exists`, which is the expected state before step 1.
 
 ### What the script does not do
 

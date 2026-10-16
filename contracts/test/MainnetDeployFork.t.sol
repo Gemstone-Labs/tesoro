@@ -43,7 +43,7 @@ contract MainnetDeployForkTest is Test {
         DeployMainnetWstETH s = new DeployMainnetWstETH();
         uint64 n = vm.getNonce(vm.addr(0xBEEF));
         s.run();
-        address vaultAddr = vm.computeCreateAddress(vm.addr(0xBEEF), n + 1) /* the adapter is created first */;
+        address vaultAddr = vm.computeCreateAddress(vm.addr(0xBEEF), n + 1); // the adapter is created first
         PositionVaultOApp v = _vault(vaultAddr);
         assertEq(address(v.lst()), WSTETH);
         LidoZap zap = new LidoZap(vaultAddr, WSTETH);
@@ -61,7 +61,7 @@ contract MainnetDeployForkTest is Test {
         DeployMainnetKHype s = new DeployMainnetKHype();
         uint64 n = vm.getNonce(vm.addr(0xBEEF));
         s.run();
-        address vaultAddr = vm.computeCreateAddress(vm.addr(0xBEEF), n + 1) /* the adapter is created first */;
+        address vaultAddr = vm.computeCreateAddress(vm.addr(0xBEEF), n + 1); // the adapter is created first
         PositionVaultOApp v = _vault(vaultAddr);
         assertEq(address(v.lst()), KHYPE);
         KinetiqZap zap = new KinetiqZap(vaultAddr, KHYPE, STAKING_MANAGER);
