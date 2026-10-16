@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TesoroLogo } from "@/components/brand";
+import { TesoroLogo, XFollow } from "@/components/brand";
 import { ChainGlyph } from "@/components/ui";
 import { LAUNCH_STAGE, OUTBOUND } from "@/lib/landing/config";
 import { BRAND } from "@/lib/brand";
@@ -50,6 +50,7 @@ export function SiteFooter() {
                   </span>
                 ),
               )}
+              {col.title === "Learn" && <XFollow variant="a" place="foot" />}
             </div>
           ))}
         </nav>

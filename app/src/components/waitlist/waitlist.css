@@ -71,7 +71,7 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-top::before { content: ""; position: absolute; z-index: -1; inset: 0 0 -36px 0; background: linear-gradient(180deg, rgba(9, 13, 15, 0.82) 0, rgba(9, 13, 15, 0.5) 55%, transparent 100%); pointer-events: none; }
 .wl-top { position: absolute; z-index: 5; inset: 0 0 auto 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px var(--pad); }
 .wl-logo { display: inline-flex; }
-.wl-nav { display: flex; gap: 26px; font-weight: 700; font-size: 14.5px; }
+.wl-nav { display: flex; align-items: center; gap: 22px; font-weight: 700; font-size: 14.5px; }
 .wl-nav a { color: var(--fg-2); padding-block: 6px; }
 .wl-nav a:hover { color: var(--fg); }
 .wl-nav a:focus-visible, .wl-logo:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
@@ -86,7 +86,10 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-join { flex: none; min-height: 48px; padding-inline: 20px; }
 .wl-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .wl-error { min-height: 1.4em; font-size: 14px; color: var(--danger, #f2685a); }
-.wl-try { margin-top: 10px; }
+.wl-try { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.wl-strip { position: absolute; z-index: 5; inset: 66px 0 auto 0; pointer-events: none; }
+.wl-strip > * { pointer-events: auto; }
+@media (max-width: 767px) { .wl-strip { top: 70px; } }
 .wl-try .btn { min-height: 46px; padding-inline: 18px; }
 .wl-count { margin-top: 4px; font-size: 13px; color: var(--fg-2); }
 .wl-more { display: none; gap: 18px; margin-top: 14px; font-size: 13.5px; font-weight: 700; }

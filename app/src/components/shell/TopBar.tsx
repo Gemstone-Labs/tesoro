@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, Search, X } from "lucide-react";
 import { AvatarSkeleton } from "@/components/account/Player";
+import { XFollow } from "@/components/brand";
 import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { AccountMenu } from "./AccountMenu";
@@ -54,6 +55,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         )}
       </form>
       <div className="top-right">
+        <XFollow variant="a" place="head" className="top-x" />
         <PoolChest />
         {auth.status !== "signed-out" &&
           (ready || (error && auth.status !== "loading") ? (
