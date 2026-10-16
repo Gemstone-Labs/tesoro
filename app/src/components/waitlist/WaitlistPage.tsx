@@ -5,7 +5,7 @@ import { Divider } from "@/components/waitlist/Divider";
 import { LivingTexture } from "@/components/waitlist/LivingTexture";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
-import { appHref } from "@/lib/landing/config";
+import { OUTBOUND, appHref } from "@/lib/landing/config";
 import { WAITLIST_KICKER, WAITLIST_LEDE } from "@/lib/waitlist-copy";
 import { waitingLabel } from "@/lib/waitlist-count";
 import type { SpotGem } from "@/lib/waitlist-spot";
@@ -39,6 +39,11 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           <Link href="/docs" className="wl-hide-phone">
             Docs
           </Link>
+          {OUTBOUND.x && (
+            <a href={OUTBOUND.x} target="_blank" rel="noopener" aria-label="Tesoro on X">
+              X
+            </a>
+          )}
           <a href={appHref()}>Try the app</a>
         </nav>
       </header>
@@ -62,6 +67,11 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           <Link href="/docs">Docs</Link>
           <Link href="/terms">Terms</Link>
           <Link href="/privacy">Privacy</Link>
+          {OUTBOUND.x && (
+            <a href={OUTBOUND.x} target="_blank" rel="noopener">
+              @PlayTesoro on X
+            </a>
+          )}
         </p>
       </main>
     </div>
