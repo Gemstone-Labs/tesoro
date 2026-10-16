@@ -76,6 +76,7 @@ export function ethError(e: unknown): string {
   const err = e as { shortMessage?: string; code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001) return "Wallet request was rejected.";
   if (/exceeds defined limit|rate limited|took too long to respond|unknown RPC error/i.test(`${err?.shortMessage ?? ""} ${text}`)) return "The network is busy right now. Wait a few seconds and try again.";
+  if (/YieldBelowReported/.test(`${err?.shortMessage ?? ""} ${text}`)) return "The staking rate dipped below the last report. Try again once it recovers.";
   if (err?.shortMessage) return err.shortMessage.split("\n")[0].slice(0, 200);
   return plainError(e);
 }
@@ -201,7 +202,7 @@ export async function openEthPosition(
   const linkSig = await ensureEvmLinked(ctx);
   onStep("gas");
   await ensureGas(ctx, net);
-  const market: EthMarket = await fetchEthMarket(vault, ctx.evm.address);
+  const market: EthMarket = await fetchEthMarket(vault, ctx.evm.address, undefined, getChain().base);
   if (native) {
     if (market.ethBalance < nativeOpenValue(amountWei, withHeadroom(market.quoteOpen))) throw new Error(`That is more ${net.native} than you have after fees.`);
   } else if (market.simEth < amountWei) throw new Error(`That is more ${vault.symbol} than you have.`);
@@ -265,7 +266,11 @@ export async function openEthPosition(
   return { vault: vault.address, id, hash, linkSig };
 }
 
-/** Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on the vault's chain. */
+/**
+ * Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on the vault's chain.
+ * Seam for yield-by-math 09: the Wallet's "Report yield" button goes away and Redeem/Unlock call this (or the relayer
+ * does) as their first step; it reverts `YieldBelowReported` while a slashing keeps the rate under the last report.
+ */
 export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): Promise<Hex> {
   const net = NETS[vault.net];
   await ensureGas(ctx, net);

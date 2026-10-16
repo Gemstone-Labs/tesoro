@@ -1,3 +1,4 @@
+import type { Connection } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { buildEthVaults, fetchEthMarket, ethUnlockEstimateMs, KHYPE_TOKEN, WSTETH_TOKEN, type EthVault, type MarketClient } from "./eth";
 
@@ -33,6 +34,19 @@ describe("vaults per cluster", () => {
 });
 
 const realVault: EthVault = { key: "wsteth", net: "hoodi", label: "wstETH", address: WSTETH_VAULT, lst: WSTETH_TOKEN, symbol: "wstETH", simulated: false };
+
+/** A Solana connection whose bridge PeerConfig for the vault carries `rate` (null: no such account). Layout: 8 disc, 32 peer, decimals, rate u16 LE. */
+function fakePeerBase(rate: number | null): Connection {
+  return {
+    getAccountInfo: async () => {
+      if (rate === null) return null;
+      const data = Buffer.alloc(8 + 32 + 1 + 2 + 4 + 1);
+      data[40] = 18;
+      data.writeUInt16LE(rate, 41);
+      return { data };
+    },
+  } as unknown as Connection;
+}
 
 /** A client that answers by function name and throws on anything a real-token vault does not have. */
 function fakeClient(answers: Record<string, unknown>, calls: string[] = []): MarketClient {
@@ -71,8 +85,14 @@ describe("market read on a rate-based vault", () => {
     expect(m.faucetAvailableAt).toBe(0);
   });
 
-  it("has no APY until the trailing figure is published", async () => {
+  it("has no APY without a Solana connection or while the vault's peer rate is unset", async () => {
     expect((await fetchEthMarket(realVault, OWNER, fakeClient(answers))).apyBps).toBeNull();
+    expect((await fetchEthMarket(realVault, OWNER, fakeClient(answers), fakePeerBase(0))).apyBps).toBeNull();
+    expect((await fetchEthMarket(realVault, OWNER, fakeClient(answers), fakePeerBase(null))).apyBps).toBeNull();
+  });
+
+  it("takes the APY from the vault's PeerConfig rate: the one every Advance on it is sized on", async () => {
+    expect((await fetchEthMarket(realVault, OWNER, fakeClient(answers), fakePeerBase(350))).apyBps).toBe(350n);
   });
 });
 

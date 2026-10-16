@@ -126,7 +126,7 @@ function useEthMarket(vault: EthVault, evm: string | null) {
   const refresh = useCallback(async () => {
     if (!evm) return;
     try {
-      setMarket(await fetchEthMarket(vault, evm as `0x${string}`));
+      setMarket(await fetchEthMarket(vault, evm as `0x${string}`, undefined, getChain().base));
       setError(null);
     } catch (e) {
       setError(ethError(e));
@@ -608,7 +608,7 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
       const [s, v] = await Promise.all([fetchEthState(getChain().base, ref.vault, ref.id, ctx.signer.publicKey), fetchVaultPosition(ref.vault, ref.id)]);
       setState(s);
       setVp(v);
-      if (!market && ctx.evm && vault) setRateMarket(await fetchEthMarket(vault, ctx.evm.address));
+      if (!market && ctx.evm && vault) setRateMarket(await fetchEthMarket(vault, ctx.evm.address, undefined, getChain().base));
     } catch {
       // keep the last good read
     }

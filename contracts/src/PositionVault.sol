@@ -24,6 +24,10 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRat
 /// (sumFeeA, sumFeeB, sumFeeD), updated on open, payout and Unlock, so the Treasury's share of the fees is a running
 /// claim computed from totals with no loop and no crank.
 ///
+/// A rate fall (kHYPE can be slashed) never makes Accrued Yield negative: growth below the open rate counts as zero.
+/// A Yield Report that would carry less than an earlier one is refused (`YieldBelowReported`), because Solana would
+/// reject the lower cumulative after the Player paid for the message.
+///
 /// Treasury (underlying units) = fees of open Positions + fees of closed Positions (realised at Unlock)
 ///   + funding + refills - withdrawals - Instant Redeem payouts.
 /// `reportYield(id)` is permissionless and sends `(accrued, treasuryBalance)`: what the vault Treasury can still pay
@@ -106,6 +110,8 @@ contract PositionVault {
     /// @notice Underlying of a PayInstant (id, inbound seq) the Treasury could not pay. Never cleared, so the refund
     ///         message can be sent again if it is lost; Solana refunds each (id, seq) once.
     mapping(uint64 => mapping(uint64 => uint256)) public refusedInstant;
+    /// @notice Highest Accrued Yield a Yield Report has carried for a Position.
+    mapping(uint64 => uint256) public reportedAccrued;
 
     event PositionLocked(
         uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq
@@ -142,6 +148,9 @@ contract PositionVault {
     error FeeTooHigh();
     error InsufficientTreasury(uint256 needed, uint256 available);
     error NothingToRefund();
+    /// @dev Solana refuses a cumulative lower than one it applied (CumulativeDecreased); a rate fall can push the
+    ///      Accrued Yield under what an earlier report said, so that report waits for the rate to recover.
+    error YieldBelowReported(uint256 accrued, uint256 reported);
 
     constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_, address yieldMinter_) {
         lst = IERC20Minimal(lst_);
@@ -273,6 +282,8 @@ contract PositionVault {
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
         uint256 accrued = _accrued(p);
+        if (accrued < reportedAccrued[id]) revert YieldBelowReported(accrued, reportedAccrued[id]);
+        reportedAccrued[id] = accrued;
         uint256 treasury = treasuryBalance();
         uint64 seq = ++p.outSeq;
         uint256 rate = rateSource.underlyingPerShare();
