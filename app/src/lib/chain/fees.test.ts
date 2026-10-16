@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_RATES,
+  NATIVE_CUSTODY_LEN,
   TREASURY_LEN,
+  parseFeeMinted,
+  parsePoolTotals,
+  treasuryBalanceUnits,
   VAULT_TREASURY_LEN,
   instantPayoutFor,
   maxInstantGemas,
@@ -154,5 +158,33 @@ describe("instantUnavailable", () => {
     const reason = instantUnavailable({ setUp: true, payableRows: 0 });
     expect(reason).toBe(INSTANT_UNAVAILABLE_BODY);
     expect(reason).toContain("full value");
+  });
+});
+
+describe("Treasury balance by math (ADR 0010)", () => {
+  it("reads fee_minted from the Treasury and the totals from the shared custody", () => {
+    const t = Buffer.alloc(TREASURY_LEN);
+    t.writeBigUInt64LE(777n, 8 + 3 + 2 + 2 + 64);
+    expect(parseFeeMinted(t)).toBe(777n);
+    expect(parseFeeMinted(t.subarray(1))).toBeNull();
+    const c = Buffer.alloc(NATIVE_CUSTODY_LEN);
+    const o = 8 + 2 + 96 + 16;
+    c.writeBigUInt64LE(5n, o); // fee_weight
+    c.writeBigUInt64LE(6n, o + 16); // fee_weight_time
+    c.writeBigUInt64LE(9n, o + 32); // realised_fee
+    c.writeBigUInt64LE(2n, o + 48); // open_positions
+    expect(parsePoolTotals(c)).toEqual({ feeWeight: 5n, feeWeightTime: 6n, realisedFee: 9n, openPositions: 2n });
+    expect(parsePoolTotals(c.subarray(1))).toBeNull();
+  });
+
+  it("is the unminted fee earned plus the vault's simSOL, never negative", () => {
+    // One 10 SOL Position at 4.95%, fee 20%, opened at t0: after one sim month (600 s) the Rust ledger asserts 8,249,998 earned.
+    const t0 = 1_800_000_000;
+    const w = 10_000_000_000n * 495n * 2_000n;
+    const totals = { feeWeight: w, feeWeightTime: w * BigInt(t0), realisedFee: 0n, openPositions: 1n };
+    const base = { totals, vaultShares: 3_000_000n, rate: 1_000_000_000n, speedup: 4380 };
+    expect(treasuryBalanceUnits({ ...base, feeMinted: 0n, nowSec: t0 + 600 })).toBe(8_249_998n + 3_000_000n);
+    expect(treasuryBalanceUnits({ ...base, feeMinted: 3_000_000n, nowSec: t0 + 600 })).toBe(8_249_998n - 3_000_000n + 3_000_000n);
+    expect(treasuryBalanceUnits({ ...base, feeMinted: 99_000_000n, nowSec: t0 + 600 })).toBe(3_000_000n);
   });
 });

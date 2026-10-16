@@ -69,6 +69,38 @@ export function unitsToRepay(s: SourceMath): bigint {
   return sat(total, s.yieldUnits);
 }
 
+/** Source-asset units of accrued yield that repay every live Gema, rounded up (Rust `units_to_repay_total`). */
+export function unitsToRepayTotal(s: SourceMath): bigint {
+  if (s.unitDen === 0n) return 0n;
+  return (live(s) * s.unitNum + s.unitDen - 1n) / s.unitDen;
+}
+
+/**
+ * Debt and redeemable of a Source at the clock (Rust `source_now`): the Position's net Accrued Yield past `appliedBefore`
+ * counts, up to what the Source still owes. Returns the Source with the yield a crank would have stored, and the rest as free yield.
+ */
+export function sourceNow(s: SourceMath, netAccrued: bigint, appliedBefore: bigint): { source: SourceMath; freeUnits: bigint } {
+  const counted = sat(netAccrued, appliedBefore);
+  const units = min(counted, unitsToRepayTotal(s));
+  return { source: { ...s, yieldUnits: units }, freeUnits: counted - units };
+}
+
+/** What the Position fixes about its yield checkpoint: the open Advance and the net yield already settled (Rust `source_view`). */
+export interface NativeCheckpoint {
+  openAdvance: number | null;
+  appliedNet: bigint;
+}
+
+/**
+ * The Source as it stands at net Accrued Yield `net`: the open Advance gets its derived `yieldUnits`
+ * (never below what is stored); a closed Source is as stored.
+ */
+export function sourceView(p: NativeCheckpoint, index: number, s: SourceMath, net: bigint): SourceMath {
+  if (p.openAdvance !== index) return s;
+  const view = sourceNow(s, net, p.appliedNet).source;
+  return { ...view, yieldUnits: view.yieldUnits > s.yieldUnits ? view.yieldUnits : s.yieldUnits };
+}
+
 export interface EntryHolding {
   /** Source address bytes: the canonical order is ascending by these. */
   source: Uint8Array;

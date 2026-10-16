@@ -1,4 +1,4 @@
-//! Reads a USD price from a Pyth `PriceUpdateV2` account (ADR 0010): the sponsored push feeds the
+//! Reads a USD price from a Pyth `PriceUpdateV2` account (ADR 0011): the sponsored push feeds the
 //! Pyth receiver program owns on Solana mainnet (shard 0). Pure over bytes so it is unit tested.
 //!
 //! Layout (Borsh, after the 8-byte Anchor discriminator): `write_authority` 32, `verification_level`

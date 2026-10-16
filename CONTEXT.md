@@ -34,6 +34,14 @@ _Avoid_: term, lock period, maturity
 The projected date a Position's Debt reaches zero. An estimate, never a promise: it moves with the provider's actual yield.
 _Avoid_: unlock date, maturity date
 
+**Accrued Yield**:
+The yield a Position has earned since it opened, net of the Yield Fee: its Principal times its staking growth since then. Always current; nobody has to record it, and it is what repays Debt and lets Gemas be Redeemed.
+_Avoid_: refreshed yield, reported yield, cranked yield
+
+**Staking Rate**:
+How much of its asset one unit of a Position's staking token is worth. It grows as the staking provider earns; its growth since a Position opened is that Position's yield. On devnet it is simulated (a fixed test APY, 1 month = 10 min).
+_Avoid_: exchange rate, redemption rate, price, APY
+
 **Gema** (plural Gemas):
 The single play unit shared by every chain, worth $0.01 at the moment it is issued. Every Gema is a redeemable claim on its Source.
 _Avoid_: credit, ORO, points, tokens, coins, chips, balance
@@ -159,8 +167,12 @@ Turning won Gemas into their Source asset now, before the Source's yield has lan
 _Avoid_: early withdrawal, cash out, sell
 
 **Treasury**:
-Tesoro's own holdings, one per asset (simSOL on Solana, a balance inside each EVM vault). It collects the Yield Fee, pays Instant Redeems, and is refilled when the Gemas it bought are redeemed at full value as the Source's yield lands. Not the Leaderboard Pool, and not a Position.
+Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects the Yield Fee, pays Instant Redeems while it holds enough, is refilled when the Gemas it bought are redeemed at full value, and Tesoro may withdraw from it at any time. Not the Leaderboard Pool, and not a Position.
 _Avoid_: reserve, vault (a Position's custody), pool
+
+**Yield Report**:
+An ETH or HYPE vault's statement of a Position's Accrued Yield (and what the vault's Treasury still holds), carried to Solana when a Player's Redeem or Unlock needs it. Anyone may ask for it; nobody can alter it.
+_Avoid_: sync, refresh, crank
 
 ### Protections
 

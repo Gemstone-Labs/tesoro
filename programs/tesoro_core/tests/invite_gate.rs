@@ -1,4 +1,4 @@
-//! The Invite gate (ADR 0011): while on, `create_account` needs the Invite key's co-signature.
+//! The Invite gate (ADR 0012): while on, `create_account` needs the Invite key's co-signature.
 //! LiteSVM tests against the built program (`pnpm build:programs` first).
 #![allow(clippy::result_large_err)]
 
@@ -15,7 +15,7 @@ use tesoro_core::{accounts, instruction};
 
 const SOL: u64 = 1_000_000_000;
 const UNAUTHORIZED: u32 = 6000;
-const INVITE_REQUIRED: u32 = 6024;
+const INVITE_REQUIRED: u32 = 6023;
 type Failed = litesvm::types::FailedTransactionMetadata;
 
 fn a(p: Pk) -> APk {

@@ -51,7 +51,7 @@ export function planAway(
 }
 
 /**
- * Job: Break and Self-Exclusion clean-up (ADR 0011 Protections). The app's set flow withdraws a Player's own things first,
+ * Job: Break and Self-Exclusion clean-up (ADR 0012 Protections). The app's set flow withdraws a Player's own things first,
  * so this only catches what a direct transaction or a race left behind. Every step is permissionless on chain.
  */
 export async function awayCleanup(ctx: Ctx): Promise<number> {

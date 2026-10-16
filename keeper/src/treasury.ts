@@ -5,7 +5,7 @@ import { eidOf, redeemTreasuryToEvmIx } from "./lz.ts";
 import { pk } from "./runtime.ts";
 import { simulate } from "./tee.ts";
 import { redeemableFor, type SourceMath } from "../../app/src/lib/chain/ledger.ts";
-import { redeemTreasuryIx, treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
+import { POOL, poolSpeedup, redeemTreasuryIx, sourceAtClock, treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
 
 const status = (o: object) => Object.keys(o)[0];
 
@@ -53,6 +53,14 @@ const mathOf = (inner: any): SourceMath => ({
   unitDen: big(inner.unitDen),
 });
 
+const nativeMathNow = (pos: any, inner: any, speedup: number, nowSec: number): SourceMath => {
+  const math = mathOf(inner);
+  if (status(pos.inner.sourceChain) !== "solana") return math;
+  const p = pos.inner;
+  const facts = { principal: big(p.principal), rateBps: p.rateBps, yieldFeeBps: p.yieldFeeBps, openedAt: Number(big(p.openedAt)), openAdvance: p.openAdvance ?? null, appliedNet: big(p.appliedNet) };
+  return sourceAtClock(facts, inner.index, math, speedup, nowSec);
+};
+
 /**
  * Job 8: Treasury. The Treasury Account holds the Gemas Tesoro bought by Instant Redeem; once their Source's yield has
  * repaid them it redeems them at full value, which refills the treasury (SOL: `redeem_treasury` pays simSOL into the
@@ -73,6 +81,10 @@ export async function treasuryJob(ctx: Ctx): Promise<number> {
   const fetched: any[] = unique.length ? await ctx.core.account.positionState.fetchMultiple(unique) : [];
   const positions = new Map(unique.map((k, i) => [k.toBase58(), fetched[i]]));
 
+  // A Solana-native Source's Debt is derived from the clock (ADR 0010): its stored yield is only a floor.
+  const poolInfo = await ctx.conn.getAccountInfo(POOL, "confirmed");
+  const speedup = poolInfo ? poolSpeedup(poolInfo.data) : 4380;
+  const nowSec = Math.floor(Date.now() / 1000);
   const holdings: TreasuryHolding[] = [];
   rows.forEach((row, i) => {
     const src = sources[i];
@@ -85,7 +97,7 @@ export async function treasuryJob(ctx: Ctx): Promise<number> {
       source: pk(inner.source),
       position,
       free: big(inner.amount) - big(inner.reserved),
-      math: mathOf(src.inner),
+      math: nativeMathNow(pos, src.inner, speedup, nowSec),
       chain: status(pos.inner.sourceChain) as TreasuryHolding["chain"],
       positionId: Uint8Array.from(pos.positionId),
     });

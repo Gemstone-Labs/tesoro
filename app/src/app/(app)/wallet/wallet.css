@@ -21,6 +21,8 @@
 .wl-pbs summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--fg-2); }
 .wl-pbs[open] summary { color: var(--fg); }
 .wl-hero-sim { grid-column: 1 / -1; margin-top: -12px; }
+.wl-reset { flex-wrap: wrap; justify-content: space-between; margin-bottom: 16px; }
+.wl-reset span { flex: 1 1 240px; }
 .wl-hero-err { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .wl-pbs-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; padding: 10px 12px; background: rgba(255, 255, 255, 0.03); font-size: 15px; }
 .wl-pbs-row b { text-align: right; font-weight: 700; }

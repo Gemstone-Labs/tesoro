@@ -1,6 +1,6 @@
 # Invite emails
 
-Mainnet is invite-only until the public launch (ADR 0011). The founders email Invites to waitlist members in batches.
+Mainnet is invite-only until the public launch (ADR 0012). The founders email Invites to waitlist members in batches.
 
 ```
 export SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... RESEND_API_KEY=... NOTIFY_FROM="Tesoro <hello@mail.playtesoro.com>"

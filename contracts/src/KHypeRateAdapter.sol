@@ -5,7 +5,7 @@ import {IRateSource, IKinetiqAccountant} from "./IRateSource.sol";
 
 /// @notice Rate source for Kinetiq kHYPE on HyperEVM: underlying is HYPE, the rate is the StakingAccountant's
 /// `kHYPEToHYPE(1e18)`. The rate rises with validator rewards and falls on a validator slashing
-/// (`totalSlashing`); the vault's high-water mark (`feeAssessed`) charges the Yield Fee only on new highs.
+/// (`totalSlashing`); the vault computes yield from the rate it reads, so a fall lowers Accrued Yield with it.
 contract KHypeRateAdapter is IRateSource {
     IKinetiqAccountant public immutable accountant;
 

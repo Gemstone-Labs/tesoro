@@ -22,7 +22,7 @@ export default function Page() {
           [<code key="c">sim_lst</code>, "The liquid staking token behind SOL Positions (simSOL).", <code key="c2">programs/sim_lst</code>],
           [<code key="d">tesoro_bridge</code>, "Solana side of the LayerZero V2 OApp. Records inbound facts, applies them to tesoro_core as the registered source authority, and sends Unlock and PayYield out.", <code key="d2">bridge/</code>],
           [<code key="e">PositionVaultOApp</code>, "EVM vault that locks the staking token and speaks LayerZero. Releases Principal only on Unlock and pays at most the accrued yield.", <code key="e2">contracts/src</code>],
-          ["Keeper", "Off-chain liveness: price feed, yield cranks, bridge relays, expiries, stalled-Match settlement. A fee payer only; every job is permissionless.", <code key="f2">keeper/</code>],
+          ["Keeper", "Off-chain liveness: price feed, bridge relays, expiries, stalled-Match settlement. A fee payer only; every job is permissionless.", <code key="f2">keeper/</code>],
           ["App", "Next.js 16, desktop first. Reads chain state directly and signs with Privy embedded or linked wallets. A few server routes cover small fees and relay Ethereum steps.", <code key="g2">app/</code>],
         ]}
       />

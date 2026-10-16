@@ -22,7 +22,7 @@ export const PROGRAMS = {
   sim_lst: "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F",
 } as const;
 export type ProgramName = keyof typeof PROGRAMS;
-/** sim_lst is test mode only (ADR 0010); it is planned only with `includeSimLst`. */
+/** sim_lst is test mode only (ADR 0011); it is planned only with `includeSimLst`. */
 export const MAINNET_PROGRAMS: ProgramName[] = ["tesoro_core", "block_puzzle", "holdem", "trading_duel", "tesoro_bridge"];
 
 export interface PlanInput {
@@ -34,7 +34,7 @@ export interface PlanInput {
   oracle: PublicKey;
   /** tesoro_core platform fee; `update_config` replaces it, so it is stated, never guessed. */
   platformBps: number;
-  /** New Invite key (ADR 0011): the plan adds the `set_invite_gate` step that turns the gate on with it. */
+  /** New Invite key (ADR 0012): the plan adds the `set_invite_gate` step that turns the gate on with it. */
   invite?: PublicKey;
   programs?: Partial<Record<ProgramName, string>>;
   includeSimLst?: boolean;
@@ -107,7 +107,7 @@ export function updateConfigIx(core: PublicKey, admin: PublicKey, oracle: Public
   });
 }
 
-/** tesoro_core `set_invite_gate` (ADR 0011): admin only; while `required`, `create_account` needs `key` as a co-signer. */
+/** tesoro_core `set_invite_gate` (ADR 0012): admin only; while `required`, `create_account` needs `key` as a co-signer. */
 export function setInviteGateIx(core: PublicKey, admin: PublicKey, required: boolean, key: PublicKey) {
   return new TransactionInstruction({
     programId: core,
@@ -172,7 +172,7 @@ export function buildPlan(input: PlanInput): Step[] {
     title: "Before anything: the vault's Account must exist",
     why:
       `Platform fees go to the TesoroAccount ${feeAccount.toBase58()} (seeds ["account", vault]). It is created by create_account signed by the vault, ` +
-      "so make a Squads proposal for it first, and create it BEFORE the Invite gate (ADR 0011) is switched on, or have the Invite key co-sign. " +
+      "so make a Squads proposal for it first, and create it BEFORE the Invite gate (ADR 0012) is switched on, or have the Invite key co-sign. " +
       "Fund the vault with a little SOL for rent. Then run the steps below in order.",
   });
   steps.push({

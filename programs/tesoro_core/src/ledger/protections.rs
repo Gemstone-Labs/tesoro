@@ -1,4 +1,4 @@
-//! A Player's Protections (ADR 0011 and CONTEXT.md): rules the Player sets on their own play.
+//! A Player's Protections (ADR 0012 and CONTEXT.md): rules the Player sets on their own play.
 //!
 //! One `Protections` value lives in one account per Player Account (`["protections", account]`).
 //! It holds the Entry Limit, the end of a Break and the end of a Self-Exclusion (unix seconds,

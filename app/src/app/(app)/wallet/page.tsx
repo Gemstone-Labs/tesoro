@@ -14,12 +14,12 @@ import { AdvanceSheet } from "./AdvanceSheet";
 import type { ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
-import { StakeOpenForm } from "./StakeOpen";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
+import { ResetNote } from "./ResetNote";
 import "./wallet.css";
 
 const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
@@ -152,6 +152,8 @@ export default function Wallet() {
         {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>}
       </header>
 
+      <ResetNote />
+
       <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
         <FacetCrown />
         <div className="wl-total" onClick={() => setHeroOpen((o) => !o)}>
@@ -239,7 +241,7 @@ export default function Wallet() {
 
       <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
         <OpenPanel tab={tab} onTab={setTab}>
-          {tab === "SOL" && (onChain ? (REAL ? <StakeOpenForm onDone={() => setOpenSheet(false)} /> : <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} />) : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
+          {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
           {tab === "ETH" && (onChain ? <EthVaultForm unit="ETH" vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
           {tab === "HYPE" && (onChain ? <EthVaultForm unit="HYPE" vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>

@@ -43,12 +43,10 @@ pub enum TesoroError {
     LeaderboardOff,
     #[msg("the treasury cannot pay this instant redeem now")]
     TreasuryShort,
-    #[msg("account is not a stake pool of the staking token")]
-    InvalidStakePool,
-    #[msg("the staking token's published APY is too old to size an Advance")]
-    StaleApy,
-    #[msg("the admin has not set an APY ceiling for this staking token")]
-    ApyCeilingNotSet,
+    #[msg("the open Advance's Source must be supplied")]
+    SourceRequired,
+    #[msg("the Treasury has no company wallet set")]
+    CompanyNotSet,
     #[msg("the price feed account is not the mapped Pyth feed, or is not a verified price update")]
     BadPriceFeed,
     #[msg("the price feed's confidence interval is too wide to issue Gemas on")]

@@ -13,6 +13,8 @@ pub mod money;
 pub mod native;
 pub mod protections;
 pub mod season;
+pub mod stake_pool;
+pub mod yield_math;
 
 #[cfg(test)]
 mod tests;
@@ -21,13 +23,11 @@ pub use backing::*;
 pub use extend_limit::*;
 pub use matches::*;
 pub use money::*;
-pub use native::{
-    accrued_yield, check_cover, owed_units, parse_stake_pool, required_shares,
-    shares_for_units_ceil, shares_for_units_floor, shares_value, stake_pool_rate, surplus_shares,
-    yield_fee_shares, StakePoolRead,
-};
+pub use native::*;
 pub use protections::*;
 pub use season::*;
+pub use stake_pool::*;
+pub use yield_math::*;
 
 /// Identity of an Account, Position, Source, Game, ... (a Solana public key in the program).
 pub type Key = [u8; 32];

@@ -88,22 +88,19 @@ contract KHypeRateAdapterTest is Test {
         uint64 id = _open(10 ether);
         kh.setRate(1.05e18);
         assertApproxEqAbs(vault.accruedYield(id), 0.4 ether, 2, "Position keeps 80% of 0.5 HYPE");
-        vault.reportYield(id);
-        assertApproxEqAbs(vault.treasuryIn(), 0.1 ether, 2, "Treasury gets 20%");
-        assertEq(kh.balanceOf(address(vault)), vault.getPosition(id).heldShares + vault.treasuryShares());
+        assertApproxEqAbs(vault.treasuryBalance(), 0.1 ether, 2, "Treasury gets 20%");
+        assertEq(kh.balanceOf(address(vault)), vault.getPosition(id).heldShares);
     }
 
-    function test_slashingLowersTheRateAndChargesNothingUntilNewHighs() public {
+    function test_slashingLowersTheRateAndTheYieldFollowsItDown() public {
         uint64 id = _open(10 ether);
         kh.setRate(1.05e18);
-        vault.accrue(id);
-        uint256 feeBefore = vault.treasuryIn();
-        kh.setRate(1.0e18); // slashing: the rate falls
-        vault.accrue(id);
-        assertEq(vault.treasuryIn(), feeBefore, "no fee on a fall");
+        uint256 feeBefore = vault.treasuryBalance();
+        kh.setRate(1.0e18); // slashing: the rate falls, nothing is owed
+        assertEq(vault.treasuryBalance(), 0, "no fee on a fall");
+        assertEq(vault.accruedYield(id), 0);
         kh.setRate(1.05e18);
-        vault.accrue(id);
-        assertApproxEqAbs(vault.treasuryIn(), feeBefore, 4, "no fee for regained ground");
+        assertApproxEqAbs(vault.treasuryBalance(), feeBefore, 4, "the fee is back with the rate");
     }
 
     function test_reportIs77BytesOverLayerZero() public {

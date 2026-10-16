@@ -1,10 +1,8 @@
 import { BN } from "@coral-xyz/anchor";
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import { debtGemas, debtUnits, instantSplit, redeemableFor, type SourceMath } from "./ledger";
-import { TESORO_CORE_ID, custodyPda, marketFrom, marketKeys, nativeInfoFrom, vaultPda, type NativeInfo } from "./native";
+import { SIM_SOL_MINT, TESORO_CORE_ID, marketFrom, marketKeys, nativeInfoFrom, nativeNow, sourceAtClock, speedupOf, type NativeInfo } from "./native";
 import { parseEthPositionId } from "./eth";
-import { CLUSTER } from "../cluster-settings";
-import { solSourceOf, stakeMarketFrom, stakeMarketKeys, stakeMarketKeys2 } from "./stake-market";
 import type { AccountSnapshot, ChainAdvance, ChainHolding, ChainPosition } from "./read";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
@@ -49,31 +47,35 @@ function sourceMath(inner: any): SourceMath {
   };
 }
 
-/** A Solana Position is native when it has token custody: the sim_lst simSOL or a real staking token (any Solana Position the app reads has one). */
-const isNativePosition = (pos: any) => !!pos && enumKey(pos.inner.sourceChain) === "solana";
-
-/** The staking token's market (round two reads the pool, APY, price feed, token account and Treasury vault). Null while no token is set. */
-async function stakeMarket(src: StateSource, authority: PublicKey, [setting, treasury]: Info[]) {
-  const source = solSourceOf(setting);
-  if (!source) return null;
-  return stakeMarketFrom(source, treasury, await src.infos(stakeMarketKeys2(authority, source, treasury)));
+/**
+ * The Source as it stands now. A native Position's Debt and redeemable amount are derived from the clock (ADR 0010),
+ * never read from the stored `yieldUnits`; every other Source is as stored.
+ */
+function sourceMathNow(pos: any, inner: any, speedup: number, nowSec: number): SourceMath {
+  const math = sourceMath(inner);
+  if (!isNativePosition(pos)) return math;
+  const p = pos.inner;
+  const facts = { principal: big(p.principal), rateBps: p.rateBps, yieldFeeBps: p.yieldFeeBps, openedAt: Number(big(p.openedAt)), openAdvance: p.openAdvance ?? null, appliedNet: big(p.appliedNet) };
+  return sourceAtClock(facts, inner.index, math, speedup, nowSec);
 }
+
+const isNativePosition = (pos: any) => !!pos && pk(pos.inner.sourceAsset).equals(SIM_SOL_MINT) && enumKey(pos.inner.sourceChain) === "solana";
 
 /**
  * The Account without its Matches (`matchesLoaded` false): SOL, Gemas, Positions and the simSOL market.
  * Rounds of reads, each batching everything the previous one made known: (1) the lists, the Account, the
- * market and the balance; (2) every Holding, Source and Position of the Account with its custody and vault;
- * (3) only when held Gemas come from other Accounts' Positions, those Positions with their custody and vault.
+ * market and the balance; (2) every Holding, Source and Position of the Account;
+ * (3) only when held Gemas come from other Accounts' Positions, those Positions.
+ * Native Positions need no other account: their Debt is derived from the clock and the pool's speedup.
  */
 export async function readAccountState(src: StateSource, authority: PublicKey, accountKey: PublicKey): Promise<AccountSnapshot> {
   const lists = src.lists(accountKey);
   lists.catch(() => undefined);
-  const real = CLUSTER.yieldModel === "real";
-  const [accountAndMarket, lamports] = await Promise.all([src.infos([accountKey, ...(real ? stakeMarketKeys() : marketKeys(authority))]), src.balance(authority).catch(() => 0)]);
+  const [accountAndMarket, lamports] = await Promise.all([src.infos([accountKey, ...marketKeys(authority)]), src.balance(authority).catch(() => 0)]);
   const [accountInfo, ...marketInfos] = accountAndMarket;
   let market = null;
   try {
-    market = real ? await stakeMarket(src, authority, marketInfos) : marketFrom(marketInfos);
+    market = marketFrom(marketInfos);
   } catch (e) {
     console.warn("native market", e);
   }
@@ -105,7 +107,6 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     ...heldSources,
     ...listedPositions.map((r) => r.publicKey),
     ...withAdvance.map((r) => sourceOf(r.publicKey, r.account.inner.openAdvance)),
-    ...listedNative.flatMap((r) => [custodyPda(r.publicKey), vaultPda(r.publicKey)]),
     ...listedNative.filter((r) => r.account.inner.advances > 0).map((r) => sourceOf(r.publicKey, r.account.inner.advances - 1)),
   ];
   await read.load(wanted);
@@ -115,31 +116,30 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
   const openSources = withAdvance.map((r) => decodeOr(src, "sourceState", read.get(sourceOf(r.publicKey, r.account.inner.openAdvance))));
   const positionRows: Row[] = listedPositions.map((r) => ({ publicKey: r.publicKey, account: decodeOr(src, "positionState", read.get(r.publicKey)) ?? r.account }));
   const ownNative = positionRows.filter((r) => isNativePosition(r.account));
-  // The first batch already holds every listed Position's custody and vault. Only a Position that moved on since the list (a new Advance)
-  // has a latest Source that batch lacks: that read is the only extra round, and it is empty when nothing moved.
+  // Only a Position that moved on since the list (a new Advance) has a latest Source that the first batch lacks: that read is the only extra round, and it is empty when nothing moved.
   const moved = read.load(ownNative.filter((r) => r.account.inner.advances > 0).map((r) => sourceOf(r.publicKey, r.account.inner.advances - 1)));
 
-  // Positions behind Gemas won or backed from other Accounts: read them with their native custody and vault in one batch.
+  // Positions behind Gemas won or backed from other Accounts: read them in one batch.
   const positionByKey = new Map<string, any>(positionRows.map((r) => [r.publicKey.toBase58(), r.account]));
   const foreign = [...new Map<string, PublicKey>(sources.filter(Boolean).map((s: any) => [pk(s.inner.position).toBase58(), pk(s.inner.position)])).entries()]
     .filter(([k]) => !positionByKey.has(k))
     .map(([, key]) => key);
-  await Promise.all([moved, read.load(foreign.flatMap((p) => [p, custodyPda(p), vaultPda(p)]))]);
+  await Promise.all([moved, read.load(foreign)]);
   const nativeKeys = new Set<string>();
   for (const key of foreign) {
     const decoded = decodeOr(src, "positionState", read.get(key));
     positionByKey.set(key.toBase58(), decoded);
-    if (isNativePosition(decoded) && read.get(custodyPda(key)) && read.get(vaultPda(key))) nativeKeys.add(key.toBase58());
+    if (isNativePosition(decoded)) nativeKeys.add(key.toBase58());
   }
   const ownInfo = new Map<string, NativeInfo | null>();
   for (const r of ownNative) {
     const advances: number = r.account.inner.advances;
-    const [pos, cust, vault] = [read.get(r.publicKey), read.get(custodyPda(r.publicKey)), read.get(vaultPda(r.publicKey))];
+    const pos = read.get(r.publicKey);
     const latest = advances > 0 ? read.get(sourceOf(r.publicKey, advances - 1)) : null;
     let info: NativeInfo | null = null;
-    if (pos && cust && vault) {
+    if (pos) {
       try {
-        info = nativeInfoFrom(r.publicKey, pos, cust, vault, latest);
+        info = nativeInfoFrom(r.publicKey, pos, latest);
       } catch {
         info = null;
       }
@@ -148,6 +148,8 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     if (info) nativeKeys.add(r.publicKey.toBase58());
   }
 
+  const speedup = speedupOf(market?.pool);
+  const nowSec = Math.floor(Date.now() / 1000);
   const holdings: ChainHolding[] = [];
   holdingRows.forEach((row, i) => {
     const source: any = sources[i];
@@ -157,7 +159,7 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     const reserved = big(h.reserved);
     const free = amount - reserved;
     const pos = positionByKey.get(pk(source.inner.position).toBase58());
-    const math = sourceMath(source.inner);
+    const math = sourceMathNow(pos, source.inner, speedup, nowSec);
     const native = nativeKeys.has(pk(source.inner.position).toBase58());
     const redeemable = redeemableFor(math, free);
     holdings.push({
@@ -188,8 +190,9 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
     let advance: ChainAdvance | null = null;
     let debt = 0;
     const open: any = openSourceOf.get(row.publicKey.toBase58());
+    const native = ownInfo.get(row.publicKey.toBase58()) ?? null;
     if (open) {
-      const m = sourceMath(open.inner);
+      const m = sourceMathNow(row.account, open.inner, speedup, nowSec);
       advance = {
         source: sourceOf(row.publicKey, p.openAdvance),
         gemasIssued: Number(m.issued),
@@ -207,8 +210,8 @@ export async function readAccountState(src: StateSource, authority: PublicKey, a
       advances: p.advances,
       advance,
       debt,
-      yieldAccrued: Number(big(p.cumulativeYield)) / decimals,
-      native: ownInfo.get(row.publicKey.toBase58()) ?? null,
+      yieldAccrued: Number(native ? nativeNow(native, speedup, nowSec).accrued : big(p.cumulativeYield)) / decimals,
+      native,
       eth: chainIdx >= 1 ? parseEthPositionId(Uint8Array.from(row.account.positionId)) : null,
     };
   });

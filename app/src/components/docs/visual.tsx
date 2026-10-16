@@ -528,7 +528,7 @@ export function Architecture() {
           </div>
           <div className="dx-arch-box">
             <b>Keeper</b>
-            <span>price feed, yield cranks, relays, expiries</span>
+            <span>price feed, relays, expiries</span>
           </div>
         </div>
         <div className="dx-arch-sol">

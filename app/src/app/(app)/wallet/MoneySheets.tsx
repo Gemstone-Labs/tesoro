@@ -396,7 +396,7 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
     setBusy(true);
     setError(null);
     try {
-      const sig = await returnOwn(auth.signer, position.address, row.holding.source, BigInt(value));
+      const sig = await returnOwn(auth.signer, position.address, row.holding.source, BigInt(value), row.holding.native);
       setDone({ gemas: value, cleared: value >= Number(row.holding.sourceDebt), receipts: [{ label: "Gemas returned", sig }] });
       await Promise.all([refresh(), onReturned?.()]);
     } catch (e) {

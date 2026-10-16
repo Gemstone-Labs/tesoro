@@ -1,35 +1,11 @@
 import "./polyfill";
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  RATE_SCALE,
-  TESORO_CORE_ID,
-  TOKEN_PROGRAM_ID,
-  accountPda,
-  CONFIG,
-  core,
-  custodyPda,
-  meta,
-  pda,
-  rdI64,
-  rdU64,
-  s,
-  treasuryPda,
-  u64,
-  vaultPda,
-  positionPda,
-  sourcePda,
-  takeNativeAdvanceIx,
-  tokenApyPda,
-} from "./native";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, RATE_SCALE, TOKEN_PROGRAM_ID, meta, rdU64, u64 } from "./native";
 
 /**
- * Real staking tokens on Solana (ADR 0010): the `SolSource` setting names the active token and its SPL stake pool,
- * and a Player holding plain SOL opens a Position in one transaction: the pool's own `DepositSol` mints the token
- * to the Player's token account, then `open_stake_pool_position` takes the minted amount. No swap. The token amount
- * the open asks for is computed here from the pool account with a small slippage floor; if the pool mints less,
- * the open's token transfer fails and the whole transaction reverts, SOL included.
- * Shared with the keeper: web3.js only, relative imports only.
+ * Pure helpers for an SPL stake pool (jitoSOL and kin), kept for ticket 41: the account decoder, the exchange rate, a
+ * `DepositSol` quote and its instruction builder. Nothing here talks to tesoro_core; the mainnet SOL Position on the
+ * computed model (ADR 0011) is built on top. Shared with the keeper: web3.js only, relative imports only.
  */
 
 export const STAKE_POOL_PROGRAM_ID = new PublicKey("SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy");
@@ -45,54 +21,12 @@ export const tokenSymbol = (mint: PublicKey) => KNOWN_TOKENS[mint.toBase58()] ??
 
 // ---- Addresses ------------------------------------------------------------------------------------
 
-export const solSourcePda = () => pda([s("sol_source")]);
-export { tokenApyPda };
-/** The Treasury's vault of a token other than the one the Treasury was created with. */
-export const tokenTreasuryVaultPda = (mint: PublicKey) => pda([s("treasury_vault"), mint.toBuffer()]);
 export const tokenAta = (owner: PublicKey, mint: PublicKey) =>
   PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
 export const poolWithdrawAuthority = (pool: PublicKey, program = STAKE_POOL_PROGRAM_ID) =>
   PublicKey.findProgramAddressSync([pool.toBuffer(), Buffer.from("withdraw")], program)[0];
 
 // ---- Decoders -------------------------------------------------------------------------------------
-
-export interface SolSourceView {
-  mint: PublicKey;
-  pool: PublicKey;
-}
-
-/** `SolSource`: disc 8, bump, mint, pool. */
-export function parseSolSource(d: Uint8Array): SolSourceView | null {
-  if (d.length < 8 + 1 + 64) return null;
-  return { mint: new PublicKey(d.subarray(9, 41)), pool: new PublicKey(d.subarray(41, 73)) };
-}
-
-export interface TokenApyView {
-  /** The published trailing 30-day APY, basis points a year. */
-  apyBps: number;
-  updatedTs: number;
-  /** The admin's ceiling; 0 until set, which sizes nothing. */
-  ceilingBps: number;
-}
-
-/** `TokenApy`: disc 8, bump, mint, apy_bps u16, updated_ts i64, ceiling_bps u16. */
-export function parseTokenApy(d: Uint8Array): TokenApyView | null {
-  if (d.length < 8 + 1 + 32 + 2 + 8 + 2) return null;
-  const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
-  return { apyBps: v.getUint16(41, true), updatedTs: Number(rdI64(d, 43)), ceilingBps: v.getUint16(51, true) };
-}
-
-/** The program refuses an Advance or Extend when the published APY is older than this (3 days). */
-export const MAX_APY_AGE_SECS = 3 * 86_400;
-
-/**
- * The APY an Advance is sized on: the lower of the published APY and the ceiling. Null when it cannot size one: no
- * ceiling set yet, or the published APY is stale at `nowSecs`.
- */
-export function effectiveApyBps(apy: TokenApyView | null, nowSecs: number): number | null {
-  if (!apy || apy.ceilingBps <= 0 || nowSecs - apy.updatedTs > MAX_APY_AGE_SECS) return null;
-  return Math.min(apy.apyBps, apy.ceilingBps);
-}
 
 export interface Fee {
   numerator: bigint;
@@ -217,106 +151,4 @@ export function depositSolIx(args: { pool: PublicKey; view: StakePoolView; from:
     ],
     data: Buffer.concat([Buffer.from([DEPOSIT_SOL]), u64(args.lamports)]),
   });
-}
-
-const u16 = (n: number) => {
-  const b = Buffer.alloc(2);
-  b.writeUInt16LE(n);
-  return b;
-};
-
-/** Oracle authority: publishes a token's trailing 30-day APY (basis points a year, at most 10,000). */
-export const setTokenApyIx = (oracle: PublicKey, mint: PublicKey, apyBps: number) =>
-  core([meta(oracle, true, true), meta(CONFIG), meta(mint), meta(tokenApyPda(mint), true), meta(SystemProgram.programId)], "set_token_apy", u16(apyBps));
-
-/** Admin: the ceiling Advances and Extends are sized under (basis points a year, at most 10,000). */
-export const setTokenApyCeilingIx = (admin: PublicKey, mint: PublicKey, ceilingBps: number) =>
-  core([meta(admin, true, true), meta(CONFIG), meta(mint), meta(tokenApyPda(mint), true), meta(SystemProgram.programId)], "set_token_apy_ceiling", u16(ceilingBps));
-
-/** `open_stake_pool_position`: locks `tokenAmount` of the active token from the owner's token account. `position` is `await positionPda(owner, nonce)`. */
-export function openStakePoolPositionIx(owner: PublicKey, nonce: bigint | number, tokenAmount: bigint, position: PublicKey, source: SolSourceView) {
-  return core(
-    [
-      meta(owner, true, true),
-      meta(accountPda(owner)),
-      meta(solSourcePda()),
-      meta(tokenApyPda(source.mint)),
-      meta(source.pool),
-      meta(source.mint),
-      meta(tokenAta(owner, source.mint), true),
-      meta(position, true),
-      meta(custodyPda(position), true),
-      meta(vaultPda(position), true),
-      meta(TOKEN_PROGRAM_ID),
-      meta(SystemProgram.programId),
-    ],
-    "open_stake_pool_position",
-    u64(nonce),
-    u64(tokenAmount),
-  );
-}
-
-/**
- * Permissionless crank of a stake pool custody: takes the Yield Fee on the pool rate's growth into the Treasury's vault
- * of the token, then applies the Position's yield to its Debt. `treasuryVault` is the Treasury's vault of the Position's
- * token; `openAdvance` the Position's open Advance index, if any.
- */
-export const accrueStakePoolYieldIx = (position: PublicKey, pool: PublicKey, treasuryVault: PublicKey, openAdvance: number | null) =>
-  core(
-    [
-      meta(position, true),
-      meta(custodyPda(position), true),
-      meta(vaultPda(position), true),
-      meta(pool),
-      meta(treasuryPda(), true),
-      meta(treasuryVault, true),
-      meta(TOKEN_PROGRAM_ID),
-      // Optional account: the program id stands for `None`.
-      meta(openAdvance === null ? TESORO_CORE_ID : sourcePda(position, openAdvance), openAdvance !== null),
-    ],
-    "accrue_stake_pool_yield",
-  );
-
-// ---- One signed flow ------------------------------------------------------------------------------
-
-export interface OpenPlan {
-  instructions: TransactionInstruction[];
-  position: PublicKey;
-  nonce: bigint;
-}
-
-/**
- * Plain SOL in, Position out: [create the token account if missing, `DepositSol`, `open_stake_pool_position`, and the first
- * Advance when `months` is given]. All in one transaction, so a failing step leaves the Player with their SOL.
- */
-export async function planOpenWithSol(args: {
-  owner: PublicKey;
-  nonce: bigint;
-  lamports: bigint;
-  pool: StakePoolView;
-  source: SolSourceView;
-  months?: number;
-}): Promise<OpenPlan> {
-  const { owner, pool, source } = args;
-  const quote = quoteDepositSol(args.lamports, pool);
-  if (quote.problem || quote.openTokens <= 0n) throw new Error(quote.problem ?? "Nothing to stake.");
-  const position = await positionPda(owner, args.nonce);
-  const dest = tokenAta(owner, source.mint);
-  const instructions = [
-    createAtaIdempotentIx(owner, owner, source.mint),
-    depositSolIx({ pool: source.pool, view: pool, from: owner, dest, lamports: args.lamports }),
-    openStakePoolPositionIx(owner, args.nonce, quote.openTokens, position, source),
-  ];
-  if (args.months) instructions.push(takeNativeAdvanceIx(owner, position, 0, args.months, source.mint));
-  return { instructions, position, nonce: args.nonce };
-}
-
-/** The token the Player already holds goes straight into the Position (and the first Advance when `months` is given). */
-export async function planOpenWithToken(args: { owner: PublicKey; nonce: bigint; tokens: bigint; source: SolSourceView; months?: number }): Promise<OpenPlan> {
-  const { owner, source } = args;
-  if (args.tokens <= 0n) throw new Error("Nothing to lock.");
-  const position = await positionPda(owner, args.nonce);
-  const instructions = [openStakePoolPositionIx(owner, args.nonce, args.tokens, position, source)];
-  if (args.months) instructions.push(takeNativeAdvanceIx(owner, position, 0, args.months, source.mint));
-  return { instructions, position, nonce: args.nonce };
 }

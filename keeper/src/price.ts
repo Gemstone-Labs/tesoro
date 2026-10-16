@@ -72,7 +72,7 @@ export async function fetchSolUsd(lastUsd: number | null): Promise<{ usd: number
   throw new Error(errors.join("; "));
 }
 
-/** The keeper writes the Advance price in test mode only; on mainnet Advances read the Pyth feeds (ADR 0010) and this job does nothing. */
+/** The keeper writes the Advance price in test mode only; on mainnet Advances read the Pyth feeds (ADR 0011) and this job does nothing. */
 export const priceJobEnabled = (cluster: ClusterSettings = keeperCluster()) => cluster.priceSource === "keeper";
 
 let oracle: Keypair | null = null;
