@@ -23,8 +23,8 @@ import {
   type PlanStep,
 } from "./launch-admin.ts";
 
-const idl = coreIdl as unknown as Idl & { instructions: { name: string; accounts: { name: string; signer?: boolean; writable?: boolean; address?: string }[] }[] };
-const coder = new anchor.BorshInstructionCoder(idl);
+const idl = coreIdl as unknown as { instructions: { name: string; accounts: { name: string; signer?: boolean; writable?: boolean; address?: string }[] }[] };
+const coder = new anchor.BorshInstructionCoder(coreIdl as unknown as Idl);
 const k = () => Keypair.generate().publicKey;
 const CORE = new PublicKey(PROGRAMS.tesoro_core);
 

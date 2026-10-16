@@ -8,9 +8,9 @@ import { PublicKey, TransactionInstruction, type AccountMeta } from "@solana/web
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
 import { PROGRAMS, type ProgramName } from "./mainnet-keys.ts";
 
-const idl = coreIdl as unknown as Idl & { instructions: IdlIx[] };
+const idl = coreIdl as unknown as { instructions: IdlIx[] };
 const { BN, BorshInstructionCoder } = anchor;
-const coder = new BorshInstructionCoder(idl);
+const coder = new BorshInstructionCoder(coreIdl as unknown as Idl);
 
 interface IdlAccount {
   name: string;
