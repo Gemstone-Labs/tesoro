@@ -66,6 +66,10 @@ pub struct Position {
     /// Native Positions: the Yield Fee in basis points, fixed at open (like `rate_bps`). A later
     /// change of the Treasury's rate applies only to Positions opened afterwards.
     pub yield_fee_bps: u16,
+    /// Staking-token Positions (mainnet, ADR 0011): the pool's Staking Rate when the Position
+    /// opened, lamports per pool token at 1e12. Non-zero marks a stake Position; growth since open
+    /// is the Staking Rate now over this. Zero for every other Position.
+    pub stake_rate_open: u64,
 }
 
 impl Position {
@@ -101,6 +105,7 @@ impl Position {
             applied_net: 0,
             custody_shares: 0,
             yield_fee_bps: 0,
+            stake_rate_open: 0,
         })
     }
 
