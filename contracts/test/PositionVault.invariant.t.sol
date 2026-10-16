@@ -5,8 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {SimLST} from "../src/SimLST.sol";
 import {PositionVault} from "../src/PositionVault.sol";
 import {MockEndpoint} from "../src/MockEndpoint.sol";
-import {WstETHRateAdapter} from "../src/WstETHRateAdapter.sol";
-import {MockWstETH} from "./PositionVault.t.sol";
 
 contract VaultHandler is Test {
     uint32 constant CHAIN = 7;
@@ -103,14 +101,10 @@ contract PositionVaultInvariantTest is Test {
         targetContract(address(h));
     }
 
-    /// Principal stays covered by held shares until Unlock; yield payouts never dip into it.
+    /// The vault always holds at least the shares of every open Principal: payouts mint, they never dip into it.
     function invariant_principalCoveredWhileLocked() public view {
         PositionVault v = h.vault();
-        uint256 rate = h.lst().underlyingPerShare();
-        for (uint256 i = 0; i < h.idsLength(); i++) {
-            PositionVault.Position memory p = v.getPosition(h.ids(i));
-            if (!p.unlocked) assertGe(p.heldShares * rate / 1e18 + 1, p.principalUnderlying);
-        }
+        assertGe(h.lst().balanceOf(address(v)), v.openPrincipalUnderlying());
     }
 
     /// Paid yield never exceeds cumulative accrued yield.
@@ -122,14 +116,17 @@ contract PositionVaultInvariantTest is Test {
         }
     }
 
-    /// The vault's LST balance is exactly the sum of positions' held shares plus the Treasury (nothing leaves off-book).
-    function invariant_vaultBalanceMatchesBooks() public view {
+    /// The Treasury claim never exceeds the fees of all Positions (open and closed) plus nothing else was credited.
+    function invariant_treasuryNeverAboveFees() public view {
         PositionVault v = h.vault();
         uint256 sum;
         for (uint256 i = 0; i < h.idsLength(); i++) {
-            sum += v.getPosition(h.ids(i)).heldShares;
+            uint64 id = h.ids(i);
+            PositionVault.Position memory p = v.getPosition(id);
+            uint256 acc = v.accruedYield(id);
+            sum += p.unlocked ? (acc * p.feeBps) / (10_000 - p.feeBps) : acc * p.feeBps / (10_000 - p.feeBps);
         }
-        assertEq(h.lst().balanceOf(address(v)), sum + v.treasuryShares());
+        assertLe(v.treasuryBalance() + v.instantPaid(), sum + h.idsLength() * 2 + 2);
     }
 
     /// A Position's locked shares can be released to its owner at most once, and only at Unlock.
@@ -189,114 +186,5 @@ contract PositionVaultFuzzTest is Test {
         assertEq(lst.underlyingPerShare(), r1);
         vm.warp(block.timestamp + dt2);
         assertGe(lst.underlyingPerShare(), r1);
-    }
-}
-
-/// Rate-based vault (real wstETH shape, no minter): the same books invariants hold while the rate moves and the
-/// Yield Fee is taken at the source.
-contract RateVaultHandler is Test {
-    uint32 constant CHAIN = 7;
-    MockWstETH public wst;
-    PositionVault public vault;
-    MockEndpoint public ep;
-    address public user = address(0xA11CE);
-    uint64[] public ids;
-    uint256 public lastTreasuryIn;
-    bool public treasuryInFell;
-
-    constructor() {
-        wst = new MockWstETH();
-        ep = new MockEndpoint();
-        vault = new PositionVault(
-            address(wst), address(new WstETHRateAdapter(address(wst))), address(ep), CHAIN, address(0)
-        );
-        vm.prank(user);
-        wst.approve(address(vault), type(uint256).max);
-    }
-
-    function idsLength() external view returns (uint256) {
-        return ids.length;
-    }
-
-    function open(uint256 amount) external {
-        amount = bound(amount, 1e6, 18 ether);
-        wst.mint(user, amount);
-        vm.prank(user);
-        ids.push(vault.openPosition(amount, 12));
-    }
-
-    /// stEthPerToken only rises in practice (a fall needs a slashing); coverage after a fall is a unit test.
-    function setRate(uint256 r) external {
-        uint256 now_ = wst.stEthPerToken();
-        wst.setRate(bound(r, now_, now_ + 0.05e18));
-    }
-
-    function report(uint256 idx) external {
-        if (ids.length == 0) return;
-        vault.reportYield(ids[idx % ids.length]);
-        _watch();
-    }
-
-    function pay(uint256 idx, uint64 seq, uint256 amount) external {
-        if (ids.length == 0) return;
-        uint64 id = ids[idx % ids.length];
-        amount = bound(amount, 0, vault.payableYield(id));
-        try ep.deliver(
-            address(vault),
-            abi.encode(uint8(4), CHAIN, id, uint64(bound(seq, 1, 6)), bytes32(uint256(0xEDEE)), amount)
-        ) {} catch {}
-        _watch();
-    }
-
-    function unlock(uint256 idx, uint64 seq) external {
-        if (ids.length == 0) return;
-        try ep.deliver(
-            address(vault), abi.encode(uint8(3), CHAIN, ids[idx % ids.length], uint64(bound(seq, 1, 6)))
-        ) {} catch {}
-        _watch();
-    }
-
-    function _watch() internal {
-        uint256 t = vault.treasuryIn();
-        if (t < lastTreasuryIn) treasuryInFell = true;
-        lastTreasuryIn = t;
-    }
-}
-
-contract PositionVaultRateInvariantTest is Test {
-    RateVaultHandler h;
-
-    function setUp() public {
-        h = new RateVaultHandler();
-        targetContract(address(h));
-    }
-
-    function invariant_balanceMatchesBooks() public view {
-        PositionVault v = h.vault();
-        uint256 sum;
-        for (uint256 i = 0; i < h.idsLength(); i++) {
-            sum += v.getPosition(h.ids(i)).heldShares;
-        }
-        assertEq(h.wst().balanceOf(address(v)), sum + v.treasuryShares());
-    }
-
-    function invariant_principalCoveredWhileLocked() public view {
-        PositionVault v = h.vault();
-        uint256 rate = h.wst().stEthPerToken();
-        for (uint256 i = 0; i < h.idsLength(); i++) {
-            PositionVault.Position memory p = v.getPosition(h.ids(i));
-            if (!p.unlocked) assertGe(p.heldShares * rate / 1e18 + 1, p.principalUnderlying);
-        }
-    }
-
-    function invariant_paidNotAboveAccrued() public view {
-        PositionVault v = h.vault();
-        for (uint256 i = 0; i < h.idsLength(); i++) {
-            assertLe(v.getPosition(h.ids(i)).paidUnderlying, v.accruedYield(h.ids(i)));
-        }
-    }
-
-    function invariant_treasuryInNeverFalls() public view {
-        assertFalse(h.treasuryInFell());
     }
 }

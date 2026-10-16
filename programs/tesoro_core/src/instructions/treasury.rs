@@ -1,7 +1,10 @@
 //! The Treasury (CONTEXT.md, ADR 0007): Tesoro's Yield Fee and Instant Redeem.
 //!
-//! * The Yield Fee on Solana-native Positions is minted into the treasury simSOL vault by
-//!   `accrue_native_yield`; EVM vaults keep theirs at the source.
+//! * The Yield Fee on Solana-native Positions is computed from the `NativeCustody` pool totals
+//!   (ADR 0010) and minted only when it is paid out: the Treasury's balance is the unminted fee
+//!   (`earned_fee - fee_minted`) plus the simSOL in its vault (funding, `redeem_treasury`
+//!   refills). `pay_from_treasury` takes the vault first and mints the shortfall out of the
+//!   unminted fee. EVM vaults keep their fee at the source.
 //! * Instant Redeem: a holder sells won Gemas to the Treasury Account for their value less the
 //!   Instant Redeem Fee. On Solana the treasury vault pays in the same transaction
 //!   (`instant_redeem`); for EVM Sources the bridge records the payout and the vault's treasury pays
@@ -10,13 +13,15 @@
 //!   (`redeem_treasury`, `redeem_treasury_from_source`), which refills the treasury on that chain.
 
 use crate::error::{core_err, TesoroError};
-use crate::instructions::native::{active_source, is_native, pay_redeem};
+use crate::instructions::native::{is_native, redeem_treasury_native};
 use crate::instructions::position::chain_byte;
-use crate::instructions::stake_pool::{check_treasury_vault, rate_for_mint};
-use crate::ledger::{self, native, SourceChain, MAX_INSTANT_FEE_BPS, MAX_YIELD_FEE_BPS};
+use crate::ledger::{self, native, Source, SourceChain, MAX_INSTANT_FEE_BPS, MAX_YIELD_FEE_BPS};
 use crate::state::*;
+use crate::util::now;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use sim_lst::program::SimLst;
+use sim_lst::Pool;
 
 // --- Setup -----------------------------------------------------------------------------------
 
@@ -47,6 +52,7 @@ pub struct InitTreasury<'info> {
         bump
     )]
     pub treasury_account: Box<Account<'info, TesoroAccount>>,
+    #[account(address = SIM_SOL_MINT @ TesoroError::InvalidMint)]
     pub mint: Box<Account<'info, Mint>>,
     #[account(
         init_if_needed,
@@ -61,26 +67,13 @@ pub struct InitTreasury<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn init_treasury<'info>(
-    ctx: Context<'_, '_, 'info, 'info, InitTreasury<'info>>,
+pub(crate) fn init_treasury(
+    ctx: Context<InitTreasury>,
     yield_fee_bps: u16,
     instant_fee_bps: u16,
 ) -> Result<()> {
     if yield_fee_bps > MAX_YIELD_FEE_BPS || instant_fee_bps > MAX_INSTANT_FEE_BPS {
         return Err(core_err(ledger::CoreError::InvalidBps));
-    }
-    // A new vault holds the `SolSource` token when it is passed as the first remaining account,
-    // else simSOL. An existing vault keeps its token (re-running this only changes the fee rates).
-    if ctx.accounts.treasury.vault == Pubkey::default() {
-        let expected_mint = match active_source(ctx.remaining_accounts)? {
-            Some(source) => source.mint,
-            None => SIM_SOL_MINT,
-        };
-        require_keys_eq!(
-            ctx.accounts.mint.key(),
-            expected_mint,
-            TesoroError::InvalidMint
-        );
     }
     let treasury_key = ctx.accounts.treasury.key();
     let account = &mut ctx.accounts.treasury_account;
@@ -118,7 +111,7 @@ pub struct FundTreasury<'info> {
     pub treasury: Box<Account<'info, Treasury>>,
     #[account(mut, address = treasury.vault @ TesoroError::InvalidAccount)]
     pub treasury_vault: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = treasury_vault.mint, token::authority = admin)]
+    #[account(mut, token::mint = SIM_SOL_MINT, token::authority = admin)]
     pub admin_token: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
 }
@@ -148,12 +141,219 @@ pub(crate) fn fund_treasury(ctx: Context<FundTreasury>, shares: u64) -> Result<(
     Ok(())
 }
 
+// --- Paying from the Treasury balance --------------------------------------------------------
+
+/// What a Treasury payout needs to mint the not-yet-minted Yield Fee.
+struct FeeMint<'a, 'info> {
+    custody: &'a Account<'info, NativeCustody>,
+    pool: &'a Account<'info, Pool>,
+    mint: AccountInfo<'info>,
+    yield_config: AccountInfo<'info>,
+    yield_authority: AccountInfo<'info>,
+    sim_lst_program: AccountInfo<'info>,
+    token_program: AccountInfo<'info>,
+}
+
+/// Pays `shares` simSOL from the Treasury balance to `destination`: from the vault first, the
+/// shortfall minted out of the earned-but-unminted Yield Fee (`fee_minted` advances by what the
+/// minted shares are worth, rounded up). Fails with `TreasuryShort` when the balance cannot cover
+/// it. Returns the SOL units minted from the fee. O(1).
+fn pay_from_treasury<'info>(
+    treasury: &mut Account<'info, Treasury>,
+    vault: &mut Account<'info, TokenAccount>,
+    destination: &AccountInfo<'info>,
+    fee: &FeeMint<'_, 'info>,
+    shares: u64,
+    ts: i64,
+) -> Result<u64> {
+    let from_vault = shares.min(vault.amount);
+    let to_mint = shares - from_vault;
+    let mut minted_units = 0;
+    if to_mint > 0 {
+        let rate = sim_lst::current_rate(fee.pool, ts)?;
+        minted_units = native::shares_value_ceil(to_mint, rate).map_err(core_err)?;
+        let earned = fee
+            .custody
+            .totals()
+            .earned_fee(ts, fee.pool.speedup)
+            .map_err(core_err)?;
+        let after = treasury
+            .fee_minted
+            .checked_add(minted_units)
+            .ok_or(TesoroError::InvalidAccount)?;
+        require!(after <= earned, TesoroError::TreasuryShort);
+        treasury.fee_minted = after;
+        let (authority, bump) = Pubkey::find_program_address(&[YIELD_SEED], &crate::ID);
+        require_keys_eq!(
+            authority,
+            fee.yield_authority.key(),
+            TesoroError::InvalidAccount
+        );
+        let seeds: &[&[u8]] = &[YIELD_SEED, &[bump]];
+        sim_lst::cpi::mint_yield(
+            CpiContext::new_with_signer(
+                fee.sim_lst_program.clone(),
+                sim_lst::cpi::accounts::MintYield {
+                    authority: fee.yield_authority.clone(),
+                    config: fee.yield_config.clone(),
+                    pool: fee.pool.to_account_info(),
+                    mint: fee.mint.clone(),
+                    destination: destination.clone(),
+                    token_program: fee.token_program.clone(),
+                },
+                &[seeds],
+            ),
+            to_mint,
+        )?;
+    }
+    if from_vault > 0 {
+        let seeds: &[&[u8]] = &[TREASURY_SEED, &[treasury.bump]];
+        token::transfer(
+            CpiContext::new_with_signer(
+                fee.token_program.clone(),
+                Transfer {
+                    from: vault.to_account_info(),
+                    to: destination.clone(),
+                    authority: treasury.to_account_info(),
+                },
+                &[seeds],
+            ),
+            from_vault,
+        )?;
+        vault.reload()?;
+    }
+    Ok(minted_units)
+}
+
+/// Sets the company wallet that `withdraw_treasury` pays.
+#[derive(Accounts)]
+pub struct SetTreasuryCompany<'info> {
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, seeds = [TREASURY_SEED], bump = treasury.bump)]
+    pub treasury: Box<Account<'info, Treasury>>,
+}
+
+pub(crate) fn set_treasury_company(
+    ctx: Context<SetTreasuryCompany>,
+    company: Pubkey,
+) -> Result<()> {
+    ctx.accounts.treasury.company = company;
+    Ok(())
+}
+
+/// The admin withdraws `amount` SOL units of the Treasury balance as simSOL to the company
+/// wallet's simSOL account: from the vault, then minted out of the earned Yield Fee that has not
+/// been minted yet. Refused (`TreasuryShort`) beyond that balance.
+#[derive(Accounts)]
+pub struct WithdrawTreasury<'info> {
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, seeds = [TREASURY_SEED], bump = treasury.bump)]
+    pub treasury: Box<Account<'info, Treasury>>,
+    #[account(mut, seeds = [TREASURY_VAULT_SEED], bump = treasury.vault_bump)]
+    pub treasury_vault: Box<Account<'info, TokenAccount>>,
+    #[account(
+        mut,
+        token::mint = SIM_SOL_MINT
+    )]
+    pub company_token: Box<Account<'info, TokenAccount>>,
+    #[account(
+        seeds = [sim_lst::POOL_SEED],
+        seeds::program = sim_lst::ID,
+        bump = pool.bump,
+        constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
+    )]
+    pub pool: Box<Account<'info, Pool>>,
+    #[account(
+        seeds = [NATIVE_SEED],
+        bump = custody.bump,
+        constraint = custody.pool == pool.key() @ TesoroError::InvalidPool
+    )]
+    pub custody: Box<Account<'info, NativeCustody>>,
+    #[account(mut, address = SIM_SOL_MINT @ TesoroError::InvalidMint)]
+    pub mint: Box<Account<'info, Mint>>,
+    #[account(seeds = [sim_lst::YIELD_SEED], seeds::program = sim_lst::ID, bump = yield_config.bump)]
+    pub yield_config: Box<Account<'info, sim_lst::YieldConfig>>,
+    /// CHECK: the `["yield"]` PDA of this program, which must be the sim_lst yield authority.
+    #[account(
+        seeds = [YIELD_SEED],
+        bump,
+        constraint = yield_config.authority == yield_authority.key() @ TesoroError::InvalidAccount
+    )]
+    pub yield_authority: UncheckedAccount<'info>,
+    pub sim_lst_program: Program<'info, SimLst>,
+    pub token_program: Program<'info, Token>,
+}
+
+pub(crate) fn withdraw_treasury(ctx: Context<WithdrawTreasury>, amount: u64) -> Result<()> {
+    let a = ctx.accounts;
+    if amount == 0 {
+        return Err(core_err(ledger::CoreError::ZeroAmount));
+    }
+    require!(
+        a.treasury.company != Pubkey::default(),
+        TesoroError::CompanyNotSet
+    );
+    require_keys_eq!(
+        a.company_token.owner,
+        a.treasury.company,
+        TesoroError::InvalidAccount
+    );
+    let ts = now()?;
+    let rate = sim_lst::current_rate(&a.pool, ts)?;
+    let shares = native::shares_for_units_floor(amount, rate).map_err(core_err)?;
+    if shares == 0 {
+        return Err(core_err(ledger::CoreError::ZeroShares));
+    }
+    let fee = FeeMint {
+        custody: &a.custody,
+        pool: &a.pool,
+        mint: a.mint.to_account_info(),
+        yield_config: a.yield_config.to_account_info(),
+        yield_authority: a.yield_authority.to_account_info(),
+        sim_lst_program: a.sim_lst_program.to_account_info(),
+        token_program: a.token_program.to_account_info(),
+    };
+    let destination = a.company_token.to_account_info();
+    let minted_units = pay_from_treasury(
+        &mut a.treasury,
+        &mut a.treasury_vault,
+        &destination,
+        &fee,
+        shares,
+        ts,
+    )?;
+    a.treasury.withdrawn_units = a
+        .treasury
+        .withdrawn_units
+        .checked_add(amount)
+        .ok_or(TesoroError::InvalidAccount)?;
+    emit!(TreasuryWithdrawn {
+        company: a.treasury.company,
+        units: amount,
+        shares,
+        minted_units,
+    });
+    Ok(())
+}
+
 // --- Instant Redeem --------------------------------------------------------------------------
 
 /// Moves `amount` won Gemas into the Treasury Account and returns `(units, payout)`.
 fn sell_to_treasury(
     treasury: &Treasury,
-    source: &SourceState,
+    source: &Source,
     holder_account: &mut TesoroAccount,
     holding: &mut HoldingState,
     treasury_account: &mut TesoroAccount,
@@ -161,7 +361,7 @@ fn sell_to_treasury(
     amount: u64,
 ) -> Result<(u64, u64)> {
     ledger::instant_redeem(
-        &source.inner,
+        source,
         &mut holder_account.inner,
         &mut holding.inner,
         &mut treasury_account.inner,
@@ -186,8 +386,8 @@ fn open_treasury_holding(
     }
 }
 
-/// Instant Redeem of won Gemas of a Solana-native Source: the treasury vault pays the holder in
-/// simSOL in the same transaction, or the instruction fails (`TreasuryShort`).
+/// Instant Redeem of won Gemas of a Solana-native Source: the Treasury balance (vault, then the
+/// unminted Yield Fee) pays the holder in simSOL in the same transaction, or the instruction fails (`TreasuryShort`).
 #[derive(Accounts)]
 pub struct InstantRedeem<'info> {
     #[account(mut)]
@@ -201,7 +401,7 @@ pub struct InstantRedeem<'info> {
     #[account(
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
-        constraint = is_native(&position) @ TesoroError::NotNativePosition
+        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
     )]
     pub position: Box<Account<'info, PositionState>>,
     #[account(
@@ -232,15 +432,41 @@ pub struct InstantRedeem<'info> {
         bump
     )]
     pub treasury_holding: Box<Account<'info, HoldingState>>,
-    /// The Treasury's vault of the Position's token: its original vault, or the one at
-    /// `["treasury_vault", mint]`.
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [TREASURY_VAULT_SEED],
+        bump = treasury.vault_bump
+    )]
     pub treasury_vault: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = treasury_vault.mint, token::authority = holder_authority)]
+    #[account(mut, token::mint = SIM_SOL_MINT, token::authority = holder_authority)]
     pub holder_token: Box<Account<'info, TokenAccount>>,
-    /// CHECK: the account that values the Position's token: the canonical `sim_lst` Pool for
-    /// simSOL, or a stake pool whose pool mint is the token. Checked on read.
-    pub pool: UncheckedAccount<'info>,
+    /// The canonical sim_lst Pool, whose rate converts the payout to simSOL.
+    #[account(
+        seeds = [sim_lst::POOL_SEED],
+        seeds::program = sim_lst::ID,
+        bump = pool.bump,
+        constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
+    )]
+    pub pool: Box<Account<'info, Pool>>,
+    /// The shared native custody, whose pool totals give the earned Yield Fee.
+    #[account(
+        seeds = [NATIVE_SEED],
+        bump = custody.bump,
+        constraint = custody.pool == pool.key() @ TesoroError::InvalidPool
+    )]
+    pub custody: Box<Account<'info, NativeCustody>>,
+    #[account(mut, address = SIM_SOL_MINT @ TesoroError::InvalidMint)]
+    pub mint: Box<Account<'info, Mint>>,
+    #[account(seeds = [sim_lst::YIELD_SEED], seeds::program = sim_lst::ID, bump = yield_config.bump)]
+    pub yield_config: Box<Account<'info, sim_lst::YieldConfig>>,
+    /// CHECK: the `["yield"]` PDA of this program, which must be the sim_lst yield authority.
+    #[account(
+        seeds = [YIELD_SEED],
+        bump,
+        constraint = yield_config.authority == yield_authority.key() @ TesoroError::InvalidAccount
+    )]
+    pub yield_authority: UncheckedAccount<'info>,
+    pub sim_lst_program: Program<'info, SimLst>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
@@ -255,40 +481,42 @@ pub(crate) fn instant_redeem(ctx: Context<InstantRedeem>, amount: u64) -> Result
         &treasury_account_key,
         &source_key,
     );
+    let ts = now()?;
+    let net = native::position_accrued(&a.position.inner, a.pool.speedup, ts).map_err(core_err)?;
+    let view =
+        native::source_view(&a.position.inner, &a.source.inner, net.net).map_err(core_err)?;
     let (units, payout) = sell_to_treasury(
         &a.treasury,
-        &a.source,
+        &view,
         &mut a.holder_account,
         &mut a.holding,
         &mut a.treasury_account,
         &mut a.treasury_holding,
         amount,
     )?;
-    let token = Pubkey::new_from_array(a.position.inner.source_asset);
-    check_treasury_vault(&a.treasury, &a.treasury_vault, &token)?;
-    let rate = rate_for_mint(&a.pool.to_account_info(), &token)?;
+    let rate = sim_lst::current_rate(&a.pool, ts)?;
     let shares = native::shares_for_units_floor(payout, rate).map_err(core_err)?;
     if shares == 0 {
         return Err(core_err(ledger::CoreError::ZeroShares));
     }
-    require!(
-        a.treasury_vault.amount >= shares,
-        TesoroError::TreasuryShort
-    );
-    let seeds: &[&[u8]] = &[TREASURY_SEED, &[a.treasury.bump]];
-    token::transfer(
-        CpiContext::new_with_signer(
-            a.token_program.to_account_info(),
-            Transfer {
-                from: a.treasury_vault.to_account_info(),
-                to: a.holder_token.to_account_info(),
-                authority: a.treasury.to_account_info(),
-            },
-            &[seeds],
-        ),
+    let fee = FeeMint {
+        custody: &a.custody,
+        pool: &a.pool,
+        mint: a.mint.to_account_info(),
+        yield_config: a.yield_config.to_account_info(),
+        yield_authority: a.yield_authority.to_account_info(),
+        sim_lst_program: a.sim_lst_program.to_account_info(),
+        token_program: a.token_program.to_account_info(),
+    };
+    let destination = a.holder_token.to_account_info();
+    pay_from_treasury(
+        &mut a.treasury,
+        &mut a.treasury_vault,
+        &destination,
+        &fee,
         shares,
+        ts,
     )?;
-    a.treasury_vault.reload()?;
     a.treasury.instant_units = a
         .treasury
         .instant_units
@@ -378,7 +606,7 @@ pub(crate) fn instant_redeem_from_source(
     );
     let (units, payout) = sell_to_treasury(
         &a.treasury,
-        &a.source,
+        &a.source.inner,
         &mut a.holder_account,
         &mut a.holding,
         &mut a.treasury_account,
@@ -401,7 +629,8 @@ pub(crate) fn instant_redeem_from_source(
 /// The Treasury Account redeems Gemas of a Solana-native Source it bought, by the normal Redeem
 /// rules (only up to its pro rata share of accrued yield); the simSOL goes into the treasury vault.
 /// Permissionless: nobody can sign for the Treasury Account and the destination is fixed.
-/// `remaining_accounts`: `[custody, vault, treasury_vault, pool, token_program]`.
+/// `remaining_accounts`: `[pool, treasury_vault, mint, yield_config, yield_authority,
+/// sim_lst_program, token_program]`; the yield is minted at redeem.
 #[derive(Accounts)]
 pub struct RedeemTreasury<'info> {
     #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
@@ -415,7 +644,7 @@ pub struct RedeemTreasury<'info> {
     #[account(
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
-        constraint = is_native(&position) @ TesoroError::NotNativePosition
+        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
     )]
     pub position: Box<Account<'info, PositionState>>,
     #[account(
@@ -439,32 +668,25 @@ pub(crate) fn redeem_treasury<'info>(
 ) -> Result<()> {
     let remaining = ctx.remaining_accounts;
     let a = ctx.accounts;
-    let units = ledger::redeem(
-        &mut a.source.inner,
-        &mut a.treasury_account.inner,
-        &mut a.treasury_holding.inner,
+    let position_key = a.position.key();
+    let units = redeem_treasury_native(
+        &a.position,
+        &position_key,
+        &mut a.source,
+        &mut a.treasury_account,
+        &mut a.treasury_holding,
+        &a.treasury,
         amount,
-    )
-    .map_err(core_err)?;
+        remaining,
+    )?;
     emit!(Redeemed {
-        position: a.position.key(),
+        position: position_key,
         source: a.source.key(),
         account: a.treasury_account.key(),
         gemas: amount,
         source_units: units,
     });
-    let [_, _, destination, ..] = remaining else {
-        return err!(TesoroError::BadRemainingAccounts);
-    };
-    let destination_vault = Account::<TokenAccount>::try_from(destination)?;
-    check_treasury_vault(&a.treasury, &destination_vault, &destination_vault.mint)?;
-    pay_redeem(
-        &a.position,
-        &a.position.key(),
-        &a.treasury.key(),
-        units,
-        remaining,
-    )
+    Ok(())
 }
 
 /// The Treasury Account redeems Gemas of an EVM-sourced Advance it bought, signed by the chain's

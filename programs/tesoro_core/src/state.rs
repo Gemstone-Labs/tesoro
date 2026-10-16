@@ -37,23 +37,9 @@ pub const BRIDGE_PROGRAM_ID: Pubkey = pubkey!("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQ
 /// Seed of the bridge's `EvmLink` PDA: `["evm", evm_address]`.
 pub const EVM_LINK_SEED: &[u8] = b"evm";
 
-/// Seed of the `SolSource` setting.
-pub const SOL_SOURCE_SEED: &[u8] = b"sol_source";
-/// simSOL mint of `sim_lst` (PDA `["mint"]` of `WgcM5G...`). The token devnet runs on, and the one
-/// native Positions opened before the `SolSource` setting existed carry: a Solana Position with
-/// this `source_asset` is native whether or not it has the native marker. Everything newer is
-/// recognised by the marker (`PositionState::is_native`), whichever token it holds.
+/// simSOL mint of `sim_lst` (PDA `["mint"]` of `WgcM5G...`). A Solana Position whose
+/// `source_asset` is this mint is a native Position and is only ever opened by `open_native_position`.
 pub const SIM_SOL_MINT: Pubkey = pubkey!("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ");
-/// SPL stake pool programs whose `StakePool` account can value a staking token (ADR 0010): the
-/// vanilla SPL program (jitoSOL, bSOL, ...) and Sanctum's two forks. The pool account must be owned
-/// by one of them and name the token as its pool mint.
-pub const STAKE_POOL_PROGRAMS: [Pubkey; 3] = [
-    pubkey!("SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy"),
-    pubkey!("SP12tWFxD9oJsVWNavTTBZvMbA6gkAmxtVgxdqvyvhY"),
-    pubkey!("SPMBzsVUuoHA4Jm6KunbsotaahvVikZs1JyTW6iJvbn"),
-];
-/// Seed of a staking token's published APY: `["token_apy", mint]`.
-pub const TOKEN_APY_SEED: &[u8] = b"token_apy";
 /// How old the issuance price may be when an Advance is taken.
 pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
 pub const SOURCE_AUTHORITY_SEED: &[u8] = b"source_auth";
@@ -221,34 +207,8 @@ pub struct PositionState {
 }
 
 impl PositionState {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8;
-    /// Native Positions are allocated one byte past `SPACE`, set to `NATIVE_MARKER` by
-    /// `open_native_position`. Account deserialisation ignores trailing bytes, so the layout of
-    /// every live Position is untouched, and oracle-registered Positions (allocated at `SPACE`)
-    /// can never carry it.
-    pub const NATIVE_SPACE: usize = Self::SPACE + 1;
-    pub const NATIVE_MARKER: u8 = 1;
-
-    /// Whether the account data of a Position holds the native marker.
-    pub fn has_native_marker(data: &[u8]) -> bool {
-        data.get(Self::SPACE) == Some(&Self::NATIVE_MARKER)
-    }
-}
-
-/// Which token new Solana-native Positions open with: an admin setting (`set_sol_source`), seeds
-/// `["sol_source"]`. A Position never reads it after opening; it keeps the mint it recorded and the
-/// pool its custody recorded, so changing the setting touches no existing Position.
-#[account]
-pub struct SolSource {
-    pub bump: u8,
-    /// Active staking token (mint) for new native Positions.
-    pub mint: Pubkey,
-    /// Account that values that token (the `sim_lst` Pool today).
-    pub pool: Pubkey,
-}
-
-impl SolSource {
-    pub const SPACE: usize = 8 + 1 + 32 + 32;
+    pub const SPACE: usize =
+        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2;
 }
 
 #[account]
@@ -323,102 +283,53 @@ impl OfferState {
         + ledger::MAX_ENTRY_SOURCES * 41;
 }
 
-/// Custody of one native Position: the simSOL vault and what is needed to value it.
+/// The one custody of every native Position (ADR 0010): a single simSOL vault holding their
+/// Principal, and the pool totals behind the Treasury's Yield Fee claim. Seeds `["native"]`; the
+/// vault is `["native_vault"]` with this account as authority. Yield is never held here: it is
+/// minted by `sim_lst` at the moment it is paid out.
 #[account]
 pub struct NativeCustody {
     pub bump: u8,
     pub vault_bump: u8,
-    pub position: Pubkey,
-    pub owner_authority: Pubkey,
-    /// The `sim_lst` Pool (canonical PDA) whose rate values the vault.
+    /// The canonical `sim_lst` Pool (test APY and speedup live there).
     pub pool: Pubkey,
     pub mint: Pubkey,
-    /// Token account (PDA) holding the Position's simSOL, authority = this custody.
+    /// Token account (PDA) holding the Principal of every Locked native Position.
     pub vault: Pubkey,
-    /// sim_lst rate at open (1e9 fixed point, SOL per simSOL).
-    pub rate_at_open: u64,
-    /// simSOL deposited at open, base units. Informational: the vault balance is authoritative.
-    pub deposited_shares: u64,
-    /// SOL base units paid to Gema holders from the vault by `redeem`.
-    pub redeemed_units: u64,
-    /// Shares this custody accounts for: deposited at open minus paid out. Yield and cover are read
-    /// from this, never from the vault's token balance, so simSOL sent straight to the vault is not
-    /// yield (ADR 0001: Principal never pays Debt, not even by top-up). Appended after the original
-    /// layout; custodies opened before it are extended by `migrate_native_custody`.
-    pub tracked_shares: u64,
-    /// Unix time up to which yield has been minted into the vault (per-Position yield model,
-    /// docs/yield-model.md). Appended after `tracked_shares`; older custodies are extended by
-    /// `migrate_native_custody`, which starts it at the migration time.
-    pub last_accrual_ts: i64,
+    /// `PoolTotals` (`ledger::yield_math`), updated only on open and unlock.
+    pub principal: u128,
+    pub fee_weight: u128,
+    pub fee_weight_time: u128,
+    pub realised_fee: u128,
+    pub open_positions: u64,
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = Self::TRACKED_SPACE + 8;
-    /// The layout with `tracked_shares` and before `last_accrual_ts`.
-    pub const TRACKED_SPACE: usize = Self::LEGACY_SPACE + 8;
-    /// The layout before `tracked_shares`.
-    pub const LEGACY_SPACE: usize = 8 + 1 + 1 + 5 * 32 + 3 * 8;
-    /// Offsets inside the account data, after the 8-byte discriminator.
-    pub const VAULT_OFFSET: usize = 8 + 2 + 4 * 32;
-    pub const DEPOSITED_OFFSET: usize = 8 + 2 + 5 * 32 + 8;
-    pub const TRACKED_OFFSET: usize = Self::LEGACY_SPACE;
+    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 4 * 16 + 8;
 
-    /// A custody valued by an SPL stake pool (a real staking token) is allocated past `SPACE` with
-    /// a marker byte and the highest pool rate the Yield Fee has been taken at. Deserialisation
-    /// ignores trailing bytes, so no live custody changes layout; custodies without the marker are
-    /// valued by the `sim_lst` Pool.
-    pub const STAKE_POOL_SPACE: usize = Self::SPACE + 1 + 8;
-    pub const STAKE_POOL_MARKER: u8 = 2;
-
-    /// Whether the account data of a custody is valued by a stake pool.
-    pub fn is_stake_pool(data: &[u8]) -> bool {
-        data.len() >= Self::STAKE_POOL_SPACE
-            && data.get(Self::SPACE) == Some(&Self::STAKE_POOL_MARKER)
-    }
-
-    /// The highest pool rate (1e9 fixed point) the Yield Fee has been settled at.
-    pub fn stake_pool_last_rate(data: &[u8]) -> Option<u64> {
-        if !Self::is_stake_pool(data) {
-            return None;
+    pub fn totals(&self) -> ledger::PoolTotals {
+        ledger::PoolTotals {
+            principal: self.principal,
+            fee_weight: self.fee_weight,
+            fee_weight_time: self.fee_weight_time,
+            realised_fee: self.realised_fee,
+            open_positions: self.open_positions,
         }
-        let bytes = data.get(Self::SPACE + 1..Self::STAKE_POOL_SPACE)?;
-        Some(u64::from_le_bytes(bytes.try_into().ok()?))
     }
 
-    pub fn set_stake_pool_last_rate(data: &mut [u8], rate: u64) -> bool {
-        if !Self::is_stake_pool(data) {
-            return false;
-        }
-        data[Self::SPACE + 1..Self::STAKE_POOL_SPACE].copy_from_slice(&rate.to_le_bytes());
-        true
+    pub fn set_totals(&mut self, t: ledger::PoolTotals) {
+        self.principal = t.principal;
+        self.fee_weight = t.fee_weight;
+        self.fee_weight_time = t.fee_weight_time;
+        self.realised_fee = t.realised_fee;
+        self.open_positions = t.open_positions;
     }
 }
 
-/// The APY (basis points a year) a staking token's Positions are sized on: `["token_apy", mint]`.
-/// A real token has no `apy_bps` of its own, so this is where a Position's `rate_bps` comes from.
-/// The oracle authority (the keeper) publishes the trailing 30-day APY (`apy_bps`, `updated_ts`);
-/// the admin sets `ceiling_bps`. Sizing uses `min(apy_bps, ceiling_bps)`; a ceiling of 0 (never
-/// set) sizes nothing, and an Advance refuses a published APY older than `MAX_APY_AGE_SECS`.
-#[account]
-pub struct TokenApy {
-    pub bump: u8,
-    pub mint: Pubkey,
-    pub apy_bps: u16,
-    pub updated_ts: i64,
-    pub ceiling_bps: u16,
-}
-
-impl TokenApy {
-    pub const SPACE: usize = 8 + 1 + 32 + 2 + 8 + 2;
-
-    /// The APY a sizing may use: the lower of the published APY and the ceiling.
-    pub fn effective_bps(&self) -> u16 {
-        self.apy_bps.min(self.ceiling_bps)
-    }
-}
-
-/// Tesoro's Treasury (CONTEXT.md): collects the Yield Fee on Solana-native Positions (simSOL in
-/// `vault`), pays Solana Instant Redeems from it, and holds the Gemas it bought in `account`, a
+/// Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the
+/// `NativeCustody` pool totals (ADR 0010) and minted lazily: its balance is the unminted fee
+/// (`earned_fee - fee_minted`) plus the simSOL in `vault`. It pays Solana Instant Redeems and
+/// `withdraw_treasury` from `vault` first, then by minting the shortfall out of the unminted fee, and holds the Gemas it bought in `account`, a
 /// `TesoroAccount` whose authority is this PDA. Seeds `["treasury"]`. Its fee rates apply on every
 /// chain: `yield_fee_bps` sizes every Advance, and EVM vaults take the same fee at the source.
 #[account]
@@ -434,16 +345,21 @@ pub struct Treasury {
     pub account: Pubkey,
     /// simSOL token account (`["treasury_vault"]`), authority = this PDA.
     pub vault: Pubkey,
-    /// SOL units minted into the vault as Yield Fee, cumulative.
-    pub fee_units: u64,
+    /// SOL units of earned Yield Fee already minted out as simSOL (to a withdrawal or an Instant
+    /// Redeem payout). Never above `PoolTotals::earned_fee`; the difference is the unminted fee.
+    pub fee_minted: u64,
     /// SOL units paid out by Solana Instant Redeems, cumulative.
     pub instant_units: u64,
     /// simSOL shares the admin funded the vault with, cumulative.
     pub funded_shares: u64,
+    /// SOL units withdrawn to the company wallet, cumulative.
+    pub withdrawn_units: u64,
+    /// The wallet whose simSOL account `withdraw_treasury` pays; unset (default) refuses.
+    pub company: Pubkey,
 }
 
 impl Treasury {
-    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8;
+    pub const SPACE: usize = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32;
 }
 
 /// SOL/USD price used for issuance (micro-USD per whole SOL). Written by the oracle authority
@@ -630,22 +546,16 @@ pub struct NativePositionOpened {
     pub principal_sol: u64,
 }
 
-/// simSOL paid out of a Position's vault.
+/// simSOL paid to `to` for a native Position.
 #[event]
 pub struct NativePayout {
     pub position: Pubkey,
     pub to: Pubkey,
     pub shares: u64,
     pub sol_units: u64,
-    /// 0 = redeem, 1 = unlock, 2 = sweep.
+    /// 0 = redeem (yield minted), 1 = unlock Principal (from the vault), 2 = unlock free yield
+    /// (minted).
     pub kind: u8,
-}
-
-#[event]
-pub struct NativeCustodyMigrated {
-    pub position: Pubkey,
-    pub deposited_shares: u64,
-    pub tracked_shares: u64,
 }
 
 /// Won Gemas sold to the Treasury: `payout_units` is paid now (on Solana in the same transaction,
@@ -660,12 +570,14 @@ pub struct InstantRedeemed {
     pub payout_units: u64,
 }
 
-/// The Yield Fee on one `accrue_native_yield`, minted into the treasury vault.
+/// The admin withdrew `units` SOL (`shares` simSOL, `minted_units` of it freshly minted from the
+/// earned Yield Fee) to the company wallet.
 #[event]
-pub struct YieldFeeTaken {
-    pub position: Pubkey,
+pub struct TreasuryWithdrawn {
+    pub company: Pubkey,
     pub units: u64,
     pub shares: u64,
+    pub minted_units: u64,
 }
 
 #[event]
@@ -825,25 +737,4 @@ mod profile_tests {
         assert!(Profile::avatar_is_valid(AvatarChoice::Animal(11)));
         assert!(!Profile::avatar_is_valid(AvatarChoice::Animal(12)));
     }
-}
-
-/// The oracle authority published a staking token's APY.
-#[event]
-pub struct TokenApySet {
-    pub mint: Pubkey,
-    pub apy_bps: u16,
-}
-
-/// The admin set the ceiling on a staking token's sizing APY.
-#[event]
-pub struct TokenApyCeilingSet {
-    pub mint: Pubkey,
-    pub ceiling_bps: u16,
-}
-
-/// The admin changed the token new Solana-native Positions open with.
-#[event]
-pub struct SolSourceSet {
-    pub mint: Pubkey,
-    pub pool: Pubkey,
 }

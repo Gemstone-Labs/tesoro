@@ -291,6 +291,17 @@ fn the_rate_is_constant_and_yield_is_per_position() {
 }
 
 #[test]
+fn the_pool_holds_the_test_apy_and_speedup() {
+    let env = setup();
+    let pool = pool_state(&env);
+    assert_eq!((pool.apy_bps, pool.speedup), (APY_BPS, 4_380));
+    assert_eq!(
+        pool.yield_units(12 * SOL, 600).unwrap(),
+        sim_lst::yield_units(12 * SOL, APY_BPS, 600, DEFAULT_SPEEDUP).unwrap()
+    );
+}
+
+#[test]
 fn get_rate_returns_current_rate_as_return_data() {
     let mut env = setup();
     advance(&mut env, 600);
@@ -449,6 +460,30 @@ fn only_the_recorded_yield_authority_mints_yield() {
         mint_yield(&mut env, &yielder, dest, 0),
         Err(ERR_ZERO_AMOUNT)
     );
+}
+
+#[test]
+fn a_payout_mint_goes_to_any_account_and_leaves_the_rate_flat() {
+    let mut env = setup();
+    let yielder = user(&mut env);
+    let admin = env.admin.insecure_clone();
+    set_yield_authority(&mut env, &admin, key(&yielder)).unwrap();
+    let player = user(&mut env);
+    let company = user(&mut env);
+    for who in [&player, &company] {
+        faucet(&mut env, who).unwrap();
+    }
+    let paid = sim_lst::yield_units(12 * SOL, APY_BPS, 600, DEFAULT_SPEEDUP).unwrap();
+    let (p0, c0) = (
+        simsol_balance(&env, &player.pubkey()),
+        simsol_balance(&env, &company.pubkey()),
+    );
+    let (player_ata, company_ata) = (ata(&env, &player), ata(&env, &company));
+    mint_yield(&mut env, &yielder, player_ata, paid).unwrap();
+    mint_yield(&mut env, &yielder, company_ata, paid / 4).unwrap();
+    assert_eq!(simsol_balance(&env, &player.pubkey()), p0 + paid);
+    assert_eq!(simsol_balance(&env, &company.pubkey()), c0 + paid / 4);
+    assert_eq!(rate_now(&env), RATE_SCALE);
 }
 
 #[test]

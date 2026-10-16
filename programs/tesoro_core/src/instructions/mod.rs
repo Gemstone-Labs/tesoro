@@ -7,7 +7,6 @@ pub mod onchain_price;
 pub mod position;
 pub mod season;
 pub mod source_auth;
-pub mod stake_pool;
 pub mod treasury;
 
 pub use admin::*;
@@ -19,5 +18,4 @@ pub use onchain_price::*;
 pub use position::*;
 pub use season::*;
 pub use source_auth::*;
-pub use stake_pool::*;
 pub use treasury::*;

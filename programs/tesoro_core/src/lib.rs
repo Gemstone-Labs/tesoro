@@ -121,8 +121,8 @@ pub mod tesoro_core {
 
     // --- Positions, Advances, Debt, Redeem --------------------------------------------------
 
-    pub fn open_position<'info>(
-        ctx: Context<'_, '_, 'info, 'info, OpenPosition<'info>>,
+    pub fn open_position(
+        ctx: Context<OpenPosition>,
         source_chain: ledger::SourceChain,
         position_id: [u8; 32],
         source_asset: Pubkey,
@@ -153,7 +153,10 @@ pub mod tesoro_core {
         instructions::position::apply_yield(ctx, seq, cumulative)
     }
 
-    pub fn return_own(ctx: Context<ReturnOwn>, amount: u64) -> Result<()> {
+    pub fn return_own<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ReturnOwn<'info>>,
+        amount: u64,
+    ) -> Result<()> {
         instructions::position::return_own(ctx, amount)
     }
 
@@ -172,15 +175,10 @@ pub mod tesoro_core {
         instructions::position::unlock(ctx)
     }
 
-    // --- Solana-native Positions (simSOL custody, permissionless yield) ----------------------
+    // --- Solana-native Positions (shared simSOL custody, yield computed) ----------------------
 
     pub fn set_price(ctx: Context<SetPrice>, price_micro_usd: u64) -> Result<()> {
         instructions::native::set_price(ctx, price_micro_usd)
-    }
-
-    /// Admin: the token new Solana-native Positions open with (existing Positions keep theirs).
-    pub fn set_sol_source(ctx: Context<SetSolSource>) -> Result<()> {
-        instructions::native::set_sol_source(ctx)
     }
 
     pub fn open_native_position(
@@ -251,57 +249,16 @@ pub mod tesoro_core {
         instructions::native::set_self_exclusion(ctx, months)
     }
 
-    pub fn accrue_native_yield(ctx: Context<AccrueNativeYield>) -> Result<()> {
-        instructions::native::accrue_native_yield(ctx)
-    }
-
-    pub fn sweep_native_surplus<'info>(
-        ctx: Context<'_, '_, 'info, 'info, SweepNativeSurplus<'info>>,
-    ) -> Result<()> {
-        instructions::native::sweep_native_surplus(ctx)
-    }
-
-    // --- Real staking tokens (stake pool rate, no mint step; ADR 0010) -----------------------
-
-    /// Oracle authority: the APY new Positions of a staking token are sized on.
-    pub fn set_token_apy(ctx: Context<SetTokenApy>, apy_bps: u16) -> Result<()> {
-        instructions::stake_pool::set_token_apy(ctx, apy_bps)
-    }
-
-    /// Admin: the ceiling on the APY a staking token's Advances are sized on.
-    pub fn set_token_apy_ceiling(ctx: Context<SetTokenApyCeiling>, ceiling_bps: u16) -> Result<()> {
-        instructions::stake_pool::set_token_apy_ceiling(ctx, ceiling_bps)
-    }
-
-    /// Admin: the Treasury's vault of one more token.
-    pub fn init_treasury_vault(ctx: Context<InitTreasuryVault>) -> Result<()> {
-        instructions::stake_pool::init_treasury_vault(ctx)
-    }
-
-    /// Opens a Position with the staking token the `SolSource` setting names (required).
-    pub fn open_stake_pool_position(
-        ctx: Context<OpenStakePoolPosition>,
-        nonce: u64,
-        token_amount: u64,
-    ) -> Result<()> {
-        instructions::stake_pool::open_stake_pool_position(ctx, nonce, token_amount)
-    }
-
-    /// Permissionless crank of a stake pool Position: Yield Fee on the rate's growth, then yield.
-    pub fn accrue_stake_pool_yield(ctx: Context<AccrueStakePoolYield>) -> Result<()> {
-        instructions::stake_pool::accrue_stake_pool_yield(ctx)
-    }
-
-    /// Extends a custody opened before `tracked_shares` existed. Permissionless.
-    pub fn migrate_native_custody(ctx: Context<MigrateNativeCustody>) -> Result<()> {
-        instructions::native::migrate_native_custody(ctx)
+    /// Creates the shared native custody (vault + pool totals). Admin only, once.
+    pub fn init_native_custody(ctx: Context<InitNativeCustody>) -> Result<()> {
+        instructions::native::init_native_custody(ctx)
     }
 
     // --- Treasury: Yield Fee and Instant Redeem (ADR 0007) ----------------------------------
 
     /// Creates the Treasury (config, Treasury Account, simSOL vault) or changes its fee rates.
-    pub fn init_treasury<'info>(
-        ctx: Context<'_, '_, 'info, 'info, InitTreasury<'info>>,
+    pub fn init_treasury(
+        ctx: Context<InitTreasury>,
         yield_fee_bps: u16,
         instant_fee_bps: u16,
     ) -> Result<()> {
@@ -310,6 +267,16 @@ pub mod tesoro_core {
 
     pub fn fund_treasury(ctx: Context<FundTreasury>, shares: u64) -> Result<()> {
         instructions::treasury::fund_treasury(ctx, shares)
+    }
+
+    /// Sets the company wallet that `withdraw_treasury` pays (admin).
+    pub fn set_treasury_company(ctx: Context<SetTreasuryCompany>, company: Pubkey) -> Result<()> {
+        instructions::treasury::set_treasury_company(ctx, company)
+    }
+
+    /// Withdraws `amount` SOL units of the Treasury balance to the company wallet (admin).
+    pub fn withdraw_treasury(ctx: Context<WithdrawTreasury>, amount: u64) -> Result<()> {
+        instructions::treasury::withdraw_treasury(ctx, amount)
     }
 
     pub fn instant_redeem(ctx: Context<InstantRedeem>, amount: u64) -> Result<()> {

@@ -1,5 +1,7 @@
 use crate::error::{core_err, TesoroError};
-use crate::instructions::native::{is_native, pay_redeem, release_surplus};
+use crate::instructions::native::{
+    is_native, redeem_native, return_own_native_source, unlock_native_position,
+};
 use crate::ledger::{self, SourceChain};
 use crate::state::*;
 use crate::util::require_can_advance;
@@ -43,8 +45,8 @@ pub struct OpenPosition<'info> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn open_position<'info>(
-    ctx: Context<'_, '_, 'info, 'info, OpenPosition<'info>>,
+pub(crate) fn open_position(
+    ctx: Context<OpenPosition>,
     source_chain: SourceChain,
     position_id: [u8; 32],
     source_asset: Pubkey,
@@ -52,10 +54,8 @@ pub(crate) fn open_position<'info>(
     principal: u64,
     rate_bps: u16,
 ) -> Result<()> {
-    let active = crate::instructions::native::active_source(ctx.remaining_accounts)?;
     require!(
-        !(source_chain == SourceChain::Solana
-            && (source_asset == SIM_SOL_MINT || active.is_some_and(|s| s.mint == source_asset))),
+        !(source_chain == SourceChain::Solana && source_asset == SIM_SOL_MINT),
         TesoroError::NativePosition
     );
     let position = &mut ctx.accounts.position;
@@ -226,7 +226,7 @@ pub struct ApplyYield<'info> {
 
 pub(crate) fn apply_yield(ctx: Context<ApplyYield>, seq: u64, cumulative: u64) -> Result<()> {
     require!(
-        !is_native(&ctx.accounts.position),
+        !is_native(&ctx.accounts.position.inner),
         TesoroError::NativePosition
     );
     let position_key = ctx.accounts.position.key();
@@ -281,8 +281,23 @@ pub struct ReturnOwn<'info> {
     pub holding: Account<'info, HoldingState>,
 }
 
-pub(crate) fn return_own(mut ctx: Context<ReturnOwn>, amount: u64) -> Result<()> {
+/// For a native Position `remaining_accounts` must be `[pool]`: its Debt is computed from the clock.
+pub(crate) fn return_own<'info>(
+    mut ctx: Context<'_, '_, 'info, 'info, ReturnOwn<'info>>,
+    amount: u64,
+) -> Result<()> {
+    let remaining = ctx.remaining_accounts;
     let a = &mut ctx.accounts;
+    if is_native(&a.position.inner) {
+        return return_own_native_source(
+            &mut a.position,
+            &mut a.source,
+            &mut a.owner_account,
+            &mut a.holding,
+            amount,
+            remaining,
+        );
+    }
     ledger::return_own(
         &mut a.position.inner,
         &mut a.source.inner,
@@ -324,8 +339,9 @@ pub struct Redeem<'info> {
     pub holding: Account<'info, HoldingState>,
 }
 
-/// For a native Position the payout is simSOL out of its vault, and `remaining_accounts` must be
-/// `[custody, vault, holder_token_account, pool, token_program]`.
+/// For a native Position `remaining_accounts` must be `[pool, holder_token_account, mint,
+/// yield_config, yield_authority, sim_lst_program, token_program]`: the yield the Gemas are worth is
+/// computed from the clock and minted to the holder in the same transaction.
 pub(crate) fn redeem<'info>(
     mut ctx: Context<'_, '_, 'info, 'info, Redeem<'info>>,
     amount: u64,
@@ -338,13 +354,26 @@ pub(crate) fn redeem<'info>(
     );
     let remaining = ctx.remaining_accounts;
     let a = &mut ctx.accounts;
-    let units = ledger::redeem(
-        &mut a.source.inner,
-        &mut a.holder_account.inner,
-        &mut a.holding.inner,
-        amount,
-    )
-    .map_err(core_err)?;
+    let units = if is_native(&a.position.inner) {
+        redeem_native(
+            &a.position,
+            &a.position.key(),
+            &mut a.source,
+            &mut a.holder_account,
+            &mut a.holding,
+            &a.holder_authority.key(),
+            amount,
+            remaining,
+        )?
+    } else {
+        ledger::redeem(
+            &mut a.source.inner,
+            &mut a.holder_account.inner,
+            &mut a.holding.inner,
+            amount,
+        )
+        .map_err(core_err)?
+    };
     emit!(Redeemed {
         position: a.position.key(),
         source: a.source.key(),
@@ -352,15 +381,6 @@ pub(crate) fn redeem<'info>(
         gemas: amount,
         source_units: units,
     });
-    if is_native(&a.position) {
-        pay_redeem(
-            &a.position,
-            &a.position.key(),
-            &a.holder_authority.key(),
-            units,
-            remaining,
-        )?;
-    }
     Ok(())
 }
 
@@ -385,7 +405,7 @@ pub struct ClaimFreeYield<'info> {
 pub(crate) fn claim_free_yield(ctx: Context<ClaimFreeYield>, amount: u64) -> Result<()> {
     // A native Position's free yield stays in its vault and returns to the owner with `unlock`.
     require!(
-        !is_native(&ctx.accounts.position),
+        !is_native(&ctx.accounts.position.inner),
         TesoroError::NativePosition
     );
     ctx.accounts
@@ -418,19 +438,19 @@ pub struct Unlock<'info> {
     pub position: Account<'info, PositionState>,
 }
 
-/// For a native Position `remaining_accounts` must be
-/// `[custody, vault, owner_token_account, pool, token_program]`: the vault's surplus over the yield
-/// still owed to Gema holders goes to the owner.
+/// For a native Position `remaining_accounts` must be `[custody, vault, pool, owner_token_account,
+/// mint, yield_config, yield_authority, sim_lst_program, token_program]`, then
+/// the open Advance's Source when it has one: Debt is computed from the clock (it must be zero),
+/// Principal returns from the shared vault and the free yield is minted to the owner.
 pub(crate) fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -> Result<()> {
-    ctx.accounts.position.inner.unlock().map_err(core_err)?;
-    if is_native(&ctx.accounts.position) {
-        release_surplus(
-            &ctx.accounts.position,
-            &ctx.accounts.position.key(),
+    if is_native(&ctx.accounts.position.inner) {
+        unlock_native_position(
+            &mut ctx.accounts.position,
             &ctx.accounts.owner_authority.key(),
             ctx.remaining_accounts,
-            1,
         )?;
+    } else {
+        ctx.accounts.position.inner.unlock().map_err(core_err)?;
     }
     emit!(PositionUnlocked {
         position: ctx.accounts.position.key(),

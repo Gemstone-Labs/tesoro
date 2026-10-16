@@ -1,5 +1,7 @@
 # Simulated yield is linear on each Position's own Principal, not on the LST exchange rate
 
+> Superseded in part by ADR 0010: yield is no longer minted into each vault by a crank; the per-Position linear yield stays on devnet as growth since open.
+
 The simulated yield clock ran 4,320x (1 month = 10 minutes) through a growing LST exchange rate with simple interest on the pool's original base rate. An Advance is sized as `principal_now * apy * months / 12`, where `principal_now` includes the rate growth, but yield per second stays 7% of the *original* 1.0. Devnet reached 3.72 SOL per simSOL by Oct 3 (+0.83/day), so a 1-month Advance took about 37 minutes to repay instead of 10, and 12 months about 448 minutes, worse every day. Decided (founder, Oct 3, 2026): each Position earns `principal * apy * simulated_time` from its own open time, and the LST rate stops growing.
 
 ## Considered Options

@@ -1,16 +1,17 @@
-//! Custody arithmetic for Solana-native Positions: the vault holds simSOL shares, the SOL value of
-//! a share is the sim_lst rate (`RATE_SCALE` fixed point), and everything is stated in SOL base
-//! units so it can be compared with `Position.principal` and Source yield units.
+//! Native Positions without a crank (ADR 0010). A native Position's Debt, redeemable amount and
+//! free yield are all derived from `yield_math` at the moment an instruction runs; the only stored
+//! facts are the Position's `opened_at`, `principal`, `rate_bps` and a yield checkpoint
+//! (`applied_net`), plus each Source's own counts.
 //!
-//! Let `V` be the vault's shares, `r` the current rate, `P` the Position's Principal in SOL units,
-//! `paid` the SOL units already paid to redeemers, and `O` the applied-but-unpaid yield owed to
-//! Gema holders (`cumulative_yield - free_yield - paid`). Then:
+//! Checkpoint rule. `applied_net` is the net Accrued Yield already settled: consumed by Sources
+//! that closed, or banked into `free_yield`. The open Advance counts only `net - applied_net`
+//! (capped by what it still owes), so yield that accrued before an Advance opened never repays it.
+//! A Source closes when Debt is zero and an instruction that needs the Position idle observes it
+//! (the next Advance, Unlock, or a `return_own` that clears Debt): the Source keeps its final
+//! `yield_units`, the surplus is banked as free yield and the checkpoint moves to `net`.
 //!
-//! * accrued yield (cumulative, SOL) `= floor(V * r / S) + paid - P`. Shares paid out stop earning
-//!   for the Position, which is why it is derived from the shares still in the vault and not from
-//!   the shares deposited at open; it never decreases while the rate does not.
-//! * the vault must always hold `ceil((P + O) * S / r)` shares while Locked: Principal plus the
-//!   yield owed to holders. After Unlock only `O` is reserved and the rest returns to the owner.
+//! Custody. simSOL value is flat, so the shared vault holds only Principal. Yield is minted at
+//! the moment it is paid out (Redeem, Unlock), never before.
 
 use super::*;
 
@@ -22,7 +23,7 @@ pub fn shares_value(shares: u64, rate: u64) -> CoreResult<u64> {
     to_u64(mul_div_floor(shares as u128, rate as u128, RATE_SCALE)?)
 }
 
-/// Shares worth `units` SOL base units at `rate`, rounded down (what a payout hands out).
+/// Shares worth `units` SOL base units at `rate`, rounded down (what a yield payout mints).
 pub fn shares_for_units_floor(units: u64, rate: u64) -> CoreResult<u64> {
     if rate == 0 {
         return Err(CoreError::Math);
@@ -30,239 +31,147 @@ pub fn shares_for_units_floor(units: u64, rate: u64) -> CoreResult<u64> {
     to_u64(mul_div_floor(units as u128, RATE_SCALE, rate as u128)?)
 }
 
-/// Shares worth `units` SOL base units at `rate`, rounded up (what a reserve must hold).
-pub fn shares_for_units_ceil(units: u64, rate: u64) -> CoreResult<u64> {
-    to_u64(mul_div_ceil(units as u128, RATE_SCALE, rate as u128)?)
+/// SOL base units worth `shares` at `rate`, rounded up (what minting `shares` costs the fee).
+pub fn shares_value_ceil(shares: u64, rate: u64) -> CoreResult<u64> {
+    to_u64(mul_div_ceil(shares as u128, rate as u128, RATE_SCALE)?)
 }
 
-/// Cumulative yield in SOL units from the vault's current shares. Never below zero.
-pub fn accrued_yield(
-    vault_shares: u64,
-    rate: u64,
-    redeemed_units: u64,
-    principal: u64,
-) -> CoreResult<u64> {
-    let value = shares_value(vault_shares, rate)?;
-    let total = value.checked_add(redeemed_units).ok_or(CoreError::Math)?;
-    Ok(total.saturating_sub(principal))
+/// Net Accrued Yield of a native Position at `now`. The Position's own `rate_bps`, `yield_fee_bps`
+/// and `opened_at` (all fixed at open) decide it; only `speedup` is read live from the sim_lst Pool
+/// (a devnet constant by founder decision).
+pub fn position_accrued(position: &Position, speedup: u32, now: i64) -> CoreResult<AccruedYield> {
+    let growth = growth_since_open(position.rate_bps, position.opened_at, now, speedup)?;
+    accrued_yield_at(position.principal, growth, position.yield_fee_bps)
 }
 
-/// Yield applied to Sources and not yet paid out to redeemers, SOL units.
-pub fn owed_units(position: &Position, redeemed_units: u64) -> CoreResult<u64> {
-    position
-        .cumulative_yield
-        .checked_sub(position.free_yield)
-        .and_then(|applied| applied.checked_sub(redeemed_units))
-        .ok_or(CoreError::Math)
-}
-
-/// Shares the vault must hold: Principal (while Locked) plus the yield owed to holders.
-pub fn required_shares(position: &Position, redeemed_units: u64, rate: u64) -> CoreResult<u64> {
-    let owed = owed_units(position, redeemed_units)?;
-    let units = match position.status {
-        PositionStatus::Locked => owed
-            .checked_add(position.principal)
-            .ok_or(CoreError::Math)?,
-        PositionStatus::Unlocked => owed,
-    };
-    shares_for_units_ceil(units, rate)
-}
-
-/// Shares that may leave the vault for the owner: everything beyond what is still required.
-/// Only defined once the Position is Unlocked.
-pub fn surplus_shares(
-    vault_shares: u64,
-    position: &Position,
-    redeemed_units: u64,
-    rate: u64,
-) -> CoreResult<u64> {
-    if position.status != PositionStatus::Unlocked {
-        return Err(CoreError::PositionLocked);
+/// The Source as it stands at net Accrued Yield `net`: the open Advance gets its derived
+/// `yield_units` (never below what is stored); a closed Source is as stored.
+pub fn source_view(position: &Position, source: &Source, net: u64) -> CoreResult<Source> {
+    if position.open_advance != Some(source.index) {
+        return Ok(source.clone());
     }
-    let required = required_shares(position, redeemed_units, rate)?;
-    vault_shares
-        .checked_sub(required)
-        .ok_or(CoreError::VaultShortfall)
+    let mut view = source_now(source, net, position.applied_net)?.source;
+    view.yield_units = view.yield_units.max(source.yield_units);
+    Ok(view)
 }
 
-/// The invariant every custody instruction ends with.
-pub fn check_cover(
-    vault_shares: u64,
-    position: &Position,
-    redeemed_units: u64,
-    rate: u64,
+/// Closes the open Advance whose Debt is zero: writes its final `yield_units` into `source`,
+/// banks the yield beyond it as free yield and moves the checkpoint to `net`.
+pub fn close_open_advance(
+    position: &mut Position,
+    source: &mut Source,
+    net: u64,
 ) -> CoreResult<()> {
-    if vault_shares < required_shares(position, redeemed_units, rate)? {
-        return Err(CoreError::VaultShortfall);
+    if position.open_advance != Some(source.index) {
+        return Err(CoreError::SourceMismatch);
     }
+    let view = source_view(position, source, net)?;
+    if view.debt() != 0 {
+        return Err(CoreError::DebtOutstanding);
+    }
+    let counted = net.saturating_sub(position.applied_net);
+    let free = counted.saturating_sub(view.yield_units);
+    position.free_yield = position
+        .free_yield
+        .checked_add(free)
+        .ok_or(CoreError::Math)?;
+    position.applied_net = position.applied_net.max(net);
+    position.open_advance = None;
+    *source = view;
     Ok(())
 }
 
-// --- Real staking tokens (SPL stake pool) ----------------------------------------------------
-
-/// The `StakePool` account type byte of the SPL stake pool program.
-pub const STAKE_POOL_ACCOUNT_TYPE: u8 = 1;
-/// Byte offsets in a `StakePool` account (borsh layout, no discriminator): the type byte, five
-/// keys and a bump byte come before `pool_mint`; `total_lamports` and `pool_token_supply` follow
-/// the manager fee account and the token program id.
-const POOL_MINT_OFFSET: usize = 1 + 32 * 3 + 1 + 32 * 2;
-const TOTAL_LAMPORTS_OFFSET: usize = POOL_MINT_OFFSET + 32 * 3;
-const POOL_SUPPLY_OFFSET: usize = TOTAL_LAMPORTS_OFFSET + 8;
-const STAKE_POOL_MIN_LEN: usize = POOL_SUPPLY_OFFSET + 8;
-
-/// What a Position needs from a stake pool account.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StakePoolRead {
-    pub pool_mint: Key,
-    pub total_lamports: u64,
-    pub pool_token_supply: u64,
+/// With no Advance open, everything accrued since the checkpoint is free yield: bank it.
+pub fn bank_free_yield(position: &mut Position, net: u64) -> CoreResult<()> {
+    if position.open_advance.is_some() {
+        return Err(CoreError::AdvanceAlreadyOpen);
+    }
+    let delta = net.saturating_sub(position.applied_net);
+    position.free_yield = position
+        .free_yield
+        .checked_add(delta)
+        .ok_or(CoreError::Math)?;
+    position.applied_net = position.applied_net.max(net);
+    Ok(())
 }
 
-/// Reads the pool mint, the lamports under management and the pool token supply out of the data of
-/// an initialised `StakePool` account.
-pub fn parse_stake_pool(data: &[u8]) -> CoreResult<StakePoolRead> {
-    if data.len() < STAKE_POOL_MIN_LEN || data[0] != STAKE_POOL_ACCOUNT_TYPE {
-        return Err(CoreError::BadStakePool);
-    }
-    let key = |at: usize| -> Key { data[at..at + 32].try_into().expect("32 bytes") };
-    let word = |at: usize| u64::from_le_bytes(data[at..at + 8].try_into().expect("8 bytes"));
-    Ok(StakePoolRead {
-        pool_mint: key(POOL_MINT_OFFSET),
-        total_lamports: word(TOTAL_LAMPORTS_OFFSET),
-        pool_token_supply: word(POOL_SUPPLY_OFFSET),
-    })
-}
-
-/// SOL base units per pool token, 1e9 fixed point (`RATE_SCALE`), rounded down: the pool's
-/// exchange rate `total_lamports / pool_token_supply`. A pool with no tokens or no lamports has no
-/// rate.
-pub fn stake_pool_rate(total_lamports: u64, pool_token_supply: u64) -> CoreResult<u64> {
-    if pool_token_supply == 0 || total_lamports == 0 {
-        return Err(CoreError::BadStakePool);
-    }
-    let rate = to_u64(mul_div_floor(
-        total_lamports as u128,
-        RATE_SCALE,
-        pool_token_supply as u128,
-    )?)?;
-    if rate == 0 {
-        return Err(CoreError::BadStakePool);
-    }
-    Ok(rate)
-}
-
-/// Pool tokens the Treasury takes as Yield Fee from the rate's growth since the fee was last
-/// settled: `fee_bps` of what `tracked_shares` gained between `last_rate` and `rate`, in tokens at
-/// `rate`. Nothing is due while the rate sits at or below its previous high.
-pub fn yield_fee_shares(
-    tracked_shares: u64,
-    last_rate: u64,
-    rate: u64,
-    fee_bps: u16,
-) -> CoreResult<u64> {
-    if rate <= last_rate {
-        return Ok(0);
-    }
-    let growth = to_u64(mul_div_floor(
-        tracked_shares as u128,
-        (rate - last_rate) as u128,
-        RATE_SCALE,
-    )?)?;
-    let (_, fee_units) = super::split_yield_fee(growth, fee_bps)?;
-    Ok(shares_for_units_floor(fee_units, rate)?.min(tracked_shares))
-}
-
-#[cfg(test)]
-mod stake_pool_tests {
-    use super::*;
-
-    /// A `StakePool` account's bytes with the fields the program reads set.
-    pub fn pool_bytes(mint: Key, total: u64, supply: u64) -> Vec<u8> {
-        let mut data = vec![0u8; 400];
-        data[0] = STAKE_POOL_ACCOUNT_TYPE;
-        data[POOL_MINT_OFFSET..POOL_MINT_OFFSET + 32].copy_from_slice(&mint);
-        data[TOTAL_LAMPORTS_OFFSET..TOTAL_LAMPORTS_OFFSET + 8]
-            .copy_from_slice(&total.to_le_bytes());
-        data[POOL_SUPPLY_OFFSET..POOL_SUPPLY_OFFSET + 8].copy_from_slice(&supply.to_le_bytes());
-        data
-    }
-
-    #[test]
-    fn the_layout_offsets_match_the_spl_stake_pool_account() {
-        // type(1) manager staker deposit_authority(3x32) bump(1) validator_list reserve(2x32)
-        // pool_mint(32) manager_fee token_program(2x32) total_lamports(8) supply(8).
-        assert_eq!(POOL_MINT_OFFSET, 162);
-        assert_eq!(TOTAL_LAMPORTS_OFFSET, 258);
-        assert_eq!(POOL_SUPPLY_OFFSET, 266);
-    }
-
-    #[test]
-    fn a_stake_pool_account_is_read_for_its_mint_and_balances() {
-        let read = parse_stake_pool(&pool_bytes([7; 32], 1_300, 1_000)).unwrap();
-        assert_eq!(
-            read,
-            StakePoolRead {
-                pool_mint: [7; 32],
-                total_lamports: 1_300,
-                pool_token_supply: 1_000
+/// Readies the Position for a new Advance: closes the previous one (its Debt must be zero) or
+/// banks the idle yield. `previous` is that Source when one is open.
+pub fn prepare_advance(
+    position: &mut Position,
+    previous: Option<&mut Source>,
+    net: u64,
+) -> CoreResult<()> {
+    let mut pos = position.clone();
+    match (pos.open_advance, previous) {
+        (Some(_), Some(src)) => {
+            if source_view(&pos, src, net)?.debt() != 0 {
+                return Err(CoreError::AdvanceAlreadyOpen);
             }
-        );
+            let mut closed = src.clone();
+            close_open_advance(&mut pos, &mut closed, net)?;
+            *src = closed;
+        }
+        (Some(_), None) => return Err(CoreError::SourceMismatch),
+        (None, _) => bank_free_yield(&mut pos, net)?,
     }
+    *position = pos;
+    Ok(())
+}
 
-    #[test]
-    fn data_that_is_not_an_initialised_stake_pool_is_refused() {
-        let mut data = pool_bytes([7; 32], 1, 1);
-        data[0] = 2; // a validator list
-        assert_eq!(parse_stake_pool(&data), Err(CoreError::BadStakePool));
-        data[0] = 0;
-        assert_eq!(parse_stake_pool(&data), Err(CoreError::BadStakePool));
-        assert_eq!(parse_stake_pool(&data[..200]), Err(CoreError::BadStakePool));
+/// Unlocks a native Position: closes its Advance (Debt must be zero) or banks the idle yield,
+/// marks it Unlocked and returns the free yield to pay out now.
+pub fn unlock_native(
+    position: &mut Position,
+    open: Option<&mut Source>,
+    net: u64,
+) -> CoreResult<u64> {
+    if position.status != PositionStatus::Locked {
+        return Err(CoreError::PositionNotLocked);
     }
+    let mut pos = position.clone();
+    match (pos.open_advance, open) {
+        (Some(_), Some(src)) => {
+            let mut closed = src.clone();
+            close_open_advance(&mut pos, &mut closed, net)?;
+            *src = closed;
+        }
+        (Some(_), None) => return Err(CoreError::SourceMismatch),
+        (None, _) => bank_free_yield(&mut pos, net)?,
+    }
+    pos.unlock()?;
+    let payable = pos
+        .free_yield
+        .checked_sub(pos.free_yield_claimed)
+        .ok_or(CoreError::Math)?;
+    pos.free_yield_claimed = pos.free_yield;
+    *position = pos;
+    Ok(payable)
+}
 
-    #[test]
-    fn the_rate_is_lamports_per_pool_token_and_needs_both_sides() {
-        assert_eq!(
-            stake_pool_rate(1_300_000_000, 1_000_000_000),
-            Ok(1_300_000_000)
-        );
-        assert_eq!(stake_pool_rate(5, 3), Ok(1_666_666_666));
-        assert_eq!(stake_pool_rate(5, 0), Err(CoreError::BadStakePool));
-        assert_eq!(stake_pool_rate(0, 5), Err(CoreError::BadStakePool));
+/// `return_own` for a native Position: the Source is first brought to its derived state; when the
+/// return clears Debt the Advance closes as in [`close_open_advance`].
+pub fn return_own_native(
+    position: &mut Position,
+    source: &mut Source,
+    account: &mut Account,
+    holding: &mut Holding,
+    amount: u64,
+    net: u64,
+) -> CoreResult<()> {
+    let mut view = source_view(position, source, net)?;
+    let mut scratch = position.clone();
+    let (mut acct, mut hold) = (account.clone(), holding.clone());
+    return_own(&mut scratch, &mut view, &mut acct, &mut hold, amount)?;
+    let mut pos = position.clone();
+    if view.debt() == 0 && pos.open_advance == Some(view.index) {
+        close_open_advance(&mut pos, &mut view, net)?;
     }
-
-    #[test]
-    fn the_yield_fee_is_a_share_of_the_rate_growth_taken_in_tokens() {
-        // 100 tokens, rate 1.00 -> 1.10: growth 10 SOL, 20% fee = 2 SOL = 2 / 1.1 tokens.
-        let fee =
-            yield_fee_shares(100 * RATE_SCALE as u64, 1_000_000_000, 1_100_000_000, 2_000).unwrap();
-        assert_eq!(fee, 1_818_181_818);
-        // No fee while the rate is flat or below its high-water mark.
-        assert_eq!(
-            yield_fee_shares(100, 1_100_000_000, 1_100_000_000, 2_000),
-            Ok(0)
-        );
-        assert_eq!(
-            yield_fee_shares(100, 1_100_000_000, 1_000_000_000, 2_000),
-            Ok(0)
-        );
-        // Fee zero means nothing is taken.
-        assert_eq!(yield_fee_shares(100, 1, 2_000_000_000, 0), Ok(0));
-        assert_eq!(
-            yield_fee_shares(100, 1, 2, 5_001),
-            Err(CoreError::InvalidBps)
-        );
-    }
-
-    #[test]
-    fn what_the_fee_leaves_is_the_position_share_of_the_growth() {
-        let (tracked, last, now) = (10 * RATE_SCALE as u64, 1_200_000_000u64, 1_260_000_000u64);
-        let fee = yield_fee_shares(tracked, last, now, 2_000).unwrap();
-        let before = shares_value(tracked, last).unwrap();
-        let after = shares_value(tracked - fee, now).unwrap();
-        // 80% of the 0.6 SOL growth, give or take one unit of rounding.
-        let gain = after - before;
-        assert!(gain.abs_diff(480_000_000) <= 2, "gain {gain}");
-    }
+    *position = pos;
+    *source = view;
+    *account = acct;
+    *holding = hold;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -271,225 +180,256 @@ mod tests {
     use proptest::prelude::*;
 
     const OWNER: Key = [1; 32];
+    const SOL: u64 = 1_000_000_000;
+    const T0: i64 = 1_800_000_000;
+    const FEE: u16 = 2_000;
 
-    /// One native Position: vault, Source and holder Gemas, with the custody instructions as ops.
     struct Model {
         position: Position,
-        source: Option<Source>,
-        held: u64,
-        vault: u64,
-        released: u64,
-        principal_shares: u64,
-        redeemed_units: u64,
-        rate: u64,
-        rate_open: u64,
-        paid_out_shares: u64,
+        sources: Vec<Source>,
+        held: Vec<u64>,
+        now: i64,
+        free_paid: u64,
+        redeemed: u64,
     }
 
     impl Model {
-        fn new(shares: u64, rate_open: u64, apy_bps: u16) -> Option<Self> {
-            let principal = shares_value(shares, rate_open).ok()?;
-            let position =
-                Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, apy_bps).ok()?;
+        fn new(principal: u64, apy: u16) -> Option<Self> {
+            let mut position =
+                Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, apy).ok()?;
+            position.opened_at = T0;
+            position.yield_fee_bps = FEE;
             Some(Self {
                 position,
-                source: None,
-                held: 0,
-                vault: shares,
-                released: 0,
-                principal_shares: shares,
-                redeemed_units: 0,
-                rate: rate_open,
-                rate_open,
-                paid_out_shares: 0,
+                sources: vec![],
+                held: vec![],
+                now: T0,
+                free_paid: 0,
+                redeemed: 0,
             })
         }
 
-        fn advance(&mut self, months: u8, price: u64) {
-            if let Ok(src) = self.position.open_advance([9; 32], months, price, 0) {
-                // Gemas of earlier Sources stay owed (reserved) but the model redeems only the latest.
-                self.held = src.issued;
-                self.source = Some(src);
-            }
+        fn net(&self) -> u64 {
+            position_accrued(&self.position, 4_380, self.now)
+                .unwrap()
+                .net
         }
 
-        /// `accrue_native_yield`. Returns whether anything changed.
-        fn crank(&mut self) -> bool {
-            let cum = accrued_yield(
-                self.vault,
-                self.rate,
-                self.redeemed_units,
-                self.position.principal,
-            )
-            .unwrap();
-            if cum <= self.position.cumulative_yield {
-                return false;
-            }
-            let seq = self.position.last_seq + 1;
-            let open = self.position.open_advance.is_some();
-            let src = if open { self.source.as_mut() } else { None };
-            let applied = self.position.apply_yield(src, seq, cum).unwrap();
-            assert!(applied);
-            true
+        fn view(&self, i: usize) -> Source {
+            source_view(&self.position, &self.sources[i], self.net()).unwrap()
         }
 
-        fn redeem(&mut self, pct: u64) {
-            let Some(src) = self.source.as_mut() else {
+        fn advance(&mut self, months: u8) {
+            let net = self.net();
+            let n = self.sources.len();
+            let idx = self.position.open_advance;
+            let mut prev = idx.map(|i| self.sources[i as usize].clone());
+            if prepare_advance(&mut self.position, prev.as_mut(), net).is_err() {
                 return;
-            };
+            }
+            if let (Some(i), Some(p)) = (idx, prev) {
+                self.sources[i as usize] = p;
+            }
+            if let Ok(src) = self
+                .position
+                .open_advance([9; 32], months, 150_000_000, FEE)
+            {
+                self.held.push(src.issued);
+                self.sources.push(src);
+                assert_eq!(self.sources.len(), n + 1);
+            }
+        }
+
+        fn redeem(&mut self, i: usize, pct: u64) {
+            if i >= self.sources.len() {
+                return;
+            }
+            let mut src = self.view(i);
             let mut account = Account::default();
             let mut holding = Holding::new([9; 32], true);
-            holding.credit(&mut account, self.held).unwrap();
-            let want = (src.redeemable_for(self.held) as u128 * pct as u128 / 100) as u64;
+            holding.credit(&mut account, self.held[i]).unwrap();
+            let want = (src.redeemable_for(self.held[i]) as u128 * pct as u128 / 100) as u64;
             if want == 0 {
                 return;
             }
-            let mut trial = src.clone();
-            let Ok(units) = redeem(&mut trial, &mut account, &mut holding, want) else {
+            let Ok(units) = redeem(&mut src, &mut account, &mut holding, want) else {
                 return;
             };
-            let Ok(shares) = shares_for_units_floor(units, self.rate) else {
-                return;
-            };
-            if shares == 0 || shares > self.vault {
-                return;
-            }
-            let redeemed = self.redeemed_units + units;
-            let after = self.vault - shares;
-            assert!(
-                check_cover(after, &self.position, redeemed, self.rate).is_ok(),
-                "payout would break cover"
-            );
-            *src = trial;
-            self.held -= want;
-            self.redeemed_units = redeemed;
-            self.vault = after;
-            self.paid_out_shares += shares;
+            self.sources[i] = src;
+            self.held[i] -= want;
+            self.redeemed += units;
         }
 
         fn unlock(&mut self) {
-            if self.position.unlock().is_ok() {
-                self.release();
+            let net = self.net();
+            let idx = self.position.open_advance;
+            let mut open = idx.map(|i| self.sources[i as usize].clone());
+            if let Ok(free) = unlock_native(&mut self.position, open.as_mut(), net) {
+                if let (Some(i), Some(s)) = (idx, open) {
+                    self.sources[i as usize] = s;
+                }
+                self.free_paid += free;
             }
         }
 
-        fn release(&mut self) {
-            let surplus =
-                surplus_shares(self.vault, &self.position, self.redeemed_units, self.rate).unwrap();
-            self.vault -= surplus;
-            self.released += surplus;
-        }
-
+        /// What was minted can never exceed the net Accrued Yield, and every closed Source is
+        /// fully covered.
         fn check(&self) {
-            // Vault always covers Principal (while Locked) and the unpaid redeemable yield.
-            check_cover(self.vault, &self.position, self.redeemed_units, self.rate).unwrap();
-            // Payouts never exceed accrued yield.
-            assert!(self.redeemed_units <= self.position.cumulative_yield);
-            if self.position.status == PositionStatus::Locked {
-                // Principal shares only leave through Unlock.
-                assert_eq!(self.released, 0, "principal left before unlock");
-                assert!(shares_value(self.vault, self.rate).unwrap() >= self.position.principal);
-            }
-            // Conservation of shares.
-            assert_eq!(
-                self.vault + self.paid_out_shares + self.released,
-                self.principal_shares
+            let net = self.net();
+            let consumed: u64 = (0..self.sources.len())
+                .map(|i| self.view(i).yield_units)
+                .sum();
+            assert!(
+                consumed + self.position.free_yield <= net.max(self.position.applied_net) + 1,
+                "settled yield exceeds accrued: {} + {} > {}",
+                consumed,
+                self.position.free_yield,
+                net
             );
-            assert!(self.rate >= self.rate_open);
+            assert!(self.redeemed + self.free_paid <= net + 1);
+            for (i, s) in self.sources.iter().enumerate() {
+                if self.position.open_advance != Some(s.index) {
+                    assert_eq!(s.debt(), 0, "closed source {i} has debt");
+                }
+            }
         }
     }
 
     #[derive(Clone, Debug)]
     enum Op {
-        Time(u64),
-        Advance(u8, u64),
-        Crank,
-        Redeem(u64),
-        ReturnOwn(u64),
+        Time(i64),
+        Advance(u8),
+        Redeem(usize, u64),
+        Return(u64),
         Unlock,
     }
 
     fn op() -> impl Strategy<Value = Op> {
         prop_oneof![
-            4 => (1u64..40_000_000).prop_map(Op::Time),
-            2 => (1u8..=12, 1_000_000u64..500_000_000).prop_map(|(m, p)| Op::Advance(m, p)),
-            4 => Just(Op::Crank),
-            4 => (1u64..=100).prop_map(Op::Redeem),
-            1 => (1u64..=100).prop_map(Op::ReturnOwn),
+            5 => (1i64..2_000).prop_map(Op::Time),
+            2 => (1u8..=12).prop_map(Op::Advance),
+            4 => (0usize..4, 1u64..=100).prop_map(|(i, p)| Op::Redeem(i, p)),
+            1 => (1u64..=100).prop_map(Op::Return),
             1 => Just(Op::Unlock),
         ]
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig { cases: 400, ..ProptestConfig::default() })]
+        #![proptest_config(ProptestConfig { cases: 300, ..ProptestConfig::default() })]
 
         #[test]
-        fn vault_always_covers_principal_and_owed_yield(
-            shares in 1_000_000u64..1_000_000_000_000,
-            rate_open in 1_000_000_000u64..1_500_000_000,
+        fn nothing_minted_beyond_accrued_yield(
+            principal in 1_000_000u64..1_000_000_000_000,
             apy in 100u16..3_000,
-            ops in proptest::collection::vec(op(), 1..60),
+            ops in proptest::collection::vec(op(), 1..50),
         ) {
-            let Some(mut m) = Model::new(shares, rate_open, apy) else { return Ok(()); };
-            m.advance(6, 150_000_000);
-            m.check();
+            let Some(mut m) = Model::new(principal, apy) else { return Ok(()); };
+            m.advance(6);
             for op in ops {
-                let cum_before = m.position.cumulative_yield;
                 match op {
-                    Op::Time(dr) => m.rate = m.rate.saturating_add(dr),
-                    Op::Advance(months, price) => m.advance(months, price),
-                    Op::Crank => {
-                        m.crank();
-                        // Idempotent: cranking again at the same rate changes nothing.
-                        let snapshot = (m.position.clone(), m.source.clone());
-                        prop_assert!(!m.crank());
-                        prop_assert_eq!(snapshot, (m.position.clone(), m.source.clone()));
-                    }
-                    Op::Redeem(pct) => m.redeem(pct),
-                    Op::ReturnOwn(pct) => {
-                        if let Some(src) = m.source.as_mut() {
+                    Op::Time(dt) => m.now += dt,
+                    Op::Advance(months) => m.advance(months),
+                    Op::Redeem(i, pct) => m.redeem(i, pct),
+                    Op::Return(pct) => {
+                        if let Some(i) = m.position.open_advance {
+                            let i = i as usize;
+                            let net = m.net();
+                            let view = m.view(i);
+                            let amt = (view.debt() as u128 * pct as u128 / 100) as u64;
                             let mut account = Account::default();
                             let mut holding = Holding::new([9; 32], true);
-                            holding.credit(&mut account, m.held).unwrap();
-                            let amt = (src.debt() as u128 * pct as u128 / 100) as u64;
+                            holding.credit(&mut account, m.held[i]).unwrap();
+                            let mut src = m.sources[i].clone();
                             if amt > 0
-                                && amt <= m.held
-                                && return_own(&mut m.position, src, &mut account, &mut holding, amt).is_ok()
+                                && amt <= m.held[i]
+                                && return_own_native(&mut m.position, &mut src, &mut account, &mut holding, amt, net).is_ok()
                             {
-                                m.held -= amt;
+                                m.sources[i] = src;
+                                m.held[i] -= amt;
                             }
                         }
                     }
                     Op::Unlock => m.unlock(),
                 }
-                // Cumulative yield is monotonic.
-                prop_assert!(m.position.cumulative_yield >= cum_before);
                 m.check();
-            }
-            // Sweeping after unlock keeps every owed unit in the vault, before and after a rate rise.
-            if m.position.status == PositionStatus::Unlocked {
-                m.release();
-                m.check();
-                m.rate = m.rate.saturating_add(50_000_000);
-                m.release();
-                m.check();
+                if m.position.status == PositionStatus::Unlocked {
+                    break;
+                }
             }
         }
     }
 
     #[test]
-    fn worked_example() {
-        // 100 shares at rate 1.0 => Principal 100 SOL; 10% APY over 6 months projects 5 SOL.
-        let mut m = Model::new(100_000_000_000, RATE_SCALE as u64, 1_000).unwrap();
-        m.advance(6, 150_000_000);
-        m.rate = 1_050_000_000;
-        assert!(m.crank());
-        assert_eq!(m.position.cumulative_yield, 5_000_000_000);
-        assert_eq!(m.source.as_ref().unwrap().debt(), 0);
-        assert!(m.position.open_advance.is_none());
-        m.redeem(100);
+    fn debt_reaches_zero_at_the_horizon_with_no_crank() {
+        let mut m = Model::new(10 * SOL, 495).unwrap();
+        m.advance(6);
+        // Six sim months = 3,600 s: debt is nonzero before, zero after.
+        m.now = T0 + 3_000;
+        assert!(m.view(0).debt() > 0);
+        m.now = T0 + 3_600;
+        assert_eq!(m.view(0).debt(), 0);
+        // The Source is still "open" until something closes it, but a second Advance closes it.
+        m.advance(3);
+        assert_eq!(m.sources.len(), 2);
+        assert_eq!(m.position.open_advance, Some(1));
+        assert_eq!(m.sources[0].debt(), 0);
+    }
+
+    #[test]
+    fn a_second_advance_does_not_count_yield_from_before_it_opened() {
+        let mut m = Model::new(10 * SOL, 495).unwrap();
+        m.advance(1);
+        // Long after the first Advance is repaid, take the second.
+        m.now = T0 + 6_000;
+        let net_before = m.net();
+        m.advance(6);
+        assert_eq!(m.sources.len(), 2);
+        assert_eq!(m.position.applied_net, net_before);
+        // At the moment it opens the second Advance has no yield counted.
+        assert_eq!(m.view(1).yield_units, 0);
+        assert!(m.view(1).debt() > 0);
+        // Yield accrued before it belongs to the owner as free yield.
+        assert!(m.position.free_yield > m.sources[0].yield_units);
+        m.now += 3_600;
+        assert_eq!(m.view(1).debt(), 0);
+    }
+
+    #[test]
+    fn unlock_pays_the_idle_yield_and_refuses_while_in_debt() {
+        let mut m = Model::new(10 * SOL, 495).unwrap();
+        m.advance(6);
+        m.now = T0 + 1_000;
+        let net = m.net();
+        let mut open = m.sources[0].clone();
+        assert_eq!(
+            unlock_native(&mut m.position, Some(&mut open), net),
+            Err(CoreError::DebtOutstanding)
+        );
+        assert_eq!(m.position.status, PositionStatus::Locked);
+        m.now = T0 + 7_200;
+        let net = m.net();
+        let free = unlock_native(&mut m.position, Some(&mut open), net).unwrap();
+        assert_eq!(open.yield_units + free, net);
+        assert_eq!(m.position.status, PositionStatus::Unlocked);
+        assert_eq!(
+            unlock_native(&mut m.position, None, net),
+            Err(CoreError::PositionNotLocked)
+        );
+    }
+
+    #[test]
+    fn a_closed_source_keeps_its_final_yield_for_late_redeems() {
+        let mut m = Model::new(10 * SOL, 495).unwrap();
+        m.advance(2);
+        m.now = T0 + 5_000;
         m.unlock();
+        assert_eq!(m.position.status, PositionStatus::Unlocked);
+        m.now += 1_000_000;
+        let v = m.view(0);
+        assert_eq!(v.debt(), 0);
+        assert_eq!(v.yield_units, m.sources[0].yield_units);
+        m.redeem(0, 100);
+        assert!(m.redeemed > 0);
         m.check();
-        assert_eq!(m.redeemed_units, 5_000_000_000);
     }
 }

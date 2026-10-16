@@ -16,13 +16,13 @@ The LST exchange rate (`sim_lst` Pool rate, `SimLST.underlyingPerShare()`) is **
 
 ## How yield becomes real tokens
 
-Yield is minted, not read off a growing rate:
+Since ADR 0010 Solana yield is **computed, never cranked**, and minted only when it is paid:
 
-1. `accrue_native_yield` (Solana, permissionless, keeper cranks it) computes `units = principal * apy_bps * dt * speedup / (10_000 * 31_536_000)` SOL base units since the custody's `last_accrual_ts`, converts to shares at the constant rate (`floor(units * 1e9 / rate)`), and CPIs `sim_lst::mint_yield` to mint them into the Position's vault. If the floor gives 0 shares the timestamp does not advance, so time carries over.
-2. `sim_lst::mint_yield` is callable only by the recorded yield authority: the tesoro_core PDA `["yield"]`, registered once by the sim_lst admin (`set_yield_authority`, PDA `["yield_config"]`). tesoro_core validates the sim_lst program id and pool before the CPI.
-   The mint is split: 80% of the shares go to the Position vault, 20% to the Treasury vault (EVM: `treasuryShares` inside the vault).
-3. Custody accounting is unchanged: `accrued = vault_shares * rate - principal + redeemed`. Because the rate is constant, accrued only grows through minting, so every unit of accrued yield is a share in the vault and a Redeem is always covered.
-4. Accrual stops at Unlock (no yield on a closed Position).
+1. Every native instruction that needs Debt or a redeemable amount computes `Accrued Yield = Principal x (growth - 1)` at the clock with `ledger/yield_math.rs` (`growth = 1 + rate_bps x elapsed x speedup / (10,000 x year)`; `growth_since_open` is the one network-specific call), minus the Yield Fee.
+2. The open Advance counts `min(net - applied_net, units owed)`. `applied_net` is a per-Position checkpoint (settled yield: consumed by closed Sources or banked as free yield), so a later Advance never counts yield from before it opened. See `docs/tesoro-core.md`.
+3. At payout (Redeem, the free yield at Unlock) tesoro_core CPIs `sim_lst::mint_yield` for exactly the SOL value paid. `mint_yield` is callable only by the recorded yield authority, the tesoro_core PDA `["yield"]` (`set_yield_authority`, PDA `["yield_config"]`). Principal returns from one shared vault.
+4. The Yield Fee is not minted per increment: the Treasury's claim is computed from pool totals (`P`, `PT`, realised fees) that change only on open and unlock.
+5. Accrual stops at Unlock (the Position leaves the totals).
 
 EVM (`SimLST` + `PositionVault`): same rule. `SimLST` rate frozen, with a `minter` (the vault). The vault's `accrue(id)` (run at the start of `reportYield`, also public) mints `principalUnderlying * apyBps * dt * speedup / (BPS * YEAR)` worth of shares into itself and adds them to `heldShares`; the existing `_accrued` (paid + value of shares above the Principal reserve) is unchanged. The real-wstETH vault has no minter and keeps real wstETH yield.
 
@@ -33,7 +33,7 @@ Minted yield shares are not backed by deposited SOL/ETH: withdrawals are paid fr
 ## Migration
 
 * Solana `Pool`: no layout change. `set_params` is run once on the old program to checkpoint `base_rate` at the then-current rate; the new `current_rate` returns `base_rate`.
-* `NativeCustody`: `last_accrual_ts: i64` appended (LEGACY → V2 (`tracked_shares`) → V3). `migrate_native_custody` takes either older layout and sets `last_accrual_ts = now`; live Positions earn at the new rate from the upgrade time. Debt already repaid by the old fast yield stays repaid.
+* Solana native Positions (ADR 0010): fresh start. `NativeCustody` is now a singleton `["native"]` with a shared vault `["native_vault"]`; `Position` gained `opened_at`, `applied_net`, `custody_shares`. Old per-Position custodies and vaults are not migrated (`migrate_native_custody` is gone) and are closed by an admin script.
 * EVM: contracts are redeployed (constructor/ABI change). Old Hoodi/HyperEVM test Positions on the previous vaults are abandoned; see `docs/deployments.md`.
 
 ## App

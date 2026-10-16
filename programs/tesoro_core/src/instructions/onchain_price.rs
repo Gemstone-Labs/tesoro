@@ -1,20 +1,21 @@
-//! Mainnet Advance pricing (ADR 0010). An Advance converts a Position's yield, in the units of its
+//! Mainnet Advance pricing (ADR 0011). An Advance converts a Position's yield, in the units of its
 //! Principal (SOL base units for a staking-token Position, since Principal is recorded at the
 //! pool's rate; wei or the like for an EVM Position), to Gemas at $0.01 with the USD price of one
 //! whole unit. On mainnet that price is read from a Pyth sponsored push feed account, mapped per
 //! asset by the admin in an `OnchainPrice`. The keeper's price job and the oracle-supplied price of
 //! `take_advance` serve test mode only: `take_advance` refuses an asset once it has a mapping.
 
-use crate::error::TesoroError;
+use crate::error::{core_err, TesoroError};
 use crate::instructions::native::is_native;
 use crate::instructions::position::{chain_byte, issue_advance};
-use crate::instructions::stake_pool::refresh_position_rate;
+use crate::ledger::native;
 use crate::pyth::{
     MAX_ONCHAIN_CONF_BPS, MAX_ONCHAIN_PRICE_AGE_SECS, PRICE_UPDATE_V2, PYTH_RECEIVER,
 };
 use crate::state::*;
 use crate::util::{now, require_can_advance};
 use anchor_lang::prelude::*;
+use sim_lst::Pool;
 
 /// Admin: maps `asset` (the `source_asset` of the Positions to price) to a Pyth feed.
 #[derive(Accounts)]
@@ -119,7 +120,7 @@ pub struct TakeNativeAdvanceOnchain<'info> {
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
         constraint = position.inner.owner == owner_account.key().to_bytes() @ TesoroError::Unauthorized,
-        constraint = is_native(&position) @ TesoroError::NotNativePosition
+        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
     )]
     pub position: Account<'info, PositionState>,
     #[account(
@@ -130,9 +131,22 @@ pub struct TakeNativeAdvanceOnchain<'info> {
     /// CHECK: address, owner, layout and feed id are checked against `onchain_price` on read.
     #[account(address = onchain_price.feed @ TesoroError::BadPriceFeed)]
     pub price_feed: UncheckedAccount<'info>,
-    /// Its Yield Fee sizes the Advance.
-    #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
-    pub treasury: Box<Account<'info, Treasury>>,
+    /// The canonical sim_lst Pool, whose speedup times the yield.
+    #[account(
+        seeds = [sim_lst::POOL_SEED],
+        seeds::program = sim_lst::ID,
+        bump = pool.bump,
+        constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
+    )]
+    pub pool: Box<Account<'info, Pool>>,
+    /// The Position's open Advance, when it has one.
+    #[account(
+        mut,
+        seeds = [SOURCE_SEED, position.key().as_ref(), &prev_source.inner.index.to_le_bytes()],
+        bump = prev_source.bump,
+        constraint = prev_source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
+    )]
+    pub prev_source: Option<Account<'info, SourceState>>,
     #[account(
         init,
         payer = owner_authority,
@@ -158,10 +172,19 @@ pub(crate) fn take_native_advance_onchain(
 ) -> Result<()> {
     let a = &mut ctx.accounts;
     require_can_advance(&a.protections.to_account_info())?;
-    let price = a
-        .onchain_price
-        .read(&a.price_feed.to_account_info(), now()?)?;
-    refresh_position_rate(&mut a.position, ctx.remaining_accounts)?;
+    let ts = now()?;
+    let price = a.onchain_price.read(&a.price_feed.to_account_info(), ts)?;
+    let net = native::position_accrued(&a.position.inner, a.pool.speedup, ts).map_err(core_err)?;
+    let fee = a.position.inner.yield_fee_bps;
+    if a.position.inner.open_advance.is_some() && a.prev_source.is_none() {
+        return err!(TesoroError::SourceRequired);
+    }
+    native::prepare_advance(
+        &mut a.position.inner,
+        a.prev_source.as_mut().map(|s| &mut s.inner),
+        net.net,
+    )
+    .map_err(core_err)?;
     issue_advance(
         &mut a.position,
         &mut a.source,
@@ -171,7 +194,7 @@ pub(crate) fn take_native_advance_onchain(
         ctx.bumps.holding,
         horizon_months,
         price,
-        a.treasury.yield_fee_bps,
+        fee,
     )
 }
 
@@ -243,7 +266,7 @@ pub(crate) fn take_advance_onchain(
 ) -> Result<()> {
     let a = ctx.accounts;
     // A native Position is advanced by the owner alone through `take_native_advance_onchain`.
-    require!(!is_native(&a.position), TesoroError::NativePosition);
+    require!(!is_native(&a.position.inner), TesoroError::NativePosition);
     require_can_advance(&a.protections.to_account_info())?;
     let price = a
         .onchain_price

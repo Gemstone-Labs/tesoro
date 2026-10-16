@@ -46,6 +46,6 @@ contract KHypeMainnetForkTest is Test {
         vm.mockCall(ACCOUNTANT, abi.encodeWithSignature("kHYPEToHYPE(uint256)", 1e18), abi.encode(rate * 10_001 / 10_000));
         vault.reportYield(id);
         assertGt(vault.accruedYield(id), 0, "rate growth is yield");
-        assertGt(vault.treasuryIn(), 0, "the Yield Fee is taken at the source");
+        assertGt(vault.treasuryBalance(), 0, "the Yield Fee is taken at the source");
     }
 }
