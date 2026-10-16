@@ -50,6 +50,10 @@ The last job of each pass (`src/alerts.ts`, `src/alerts-job.ts`) emails both fou
 
 Fixture: `pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts` plays a real devnet Block Puzzle Match up to "both runs closed" (test wallets from `~/.config/tesoro/block-puzzle-testers.json`) and stops, so the keeper does the seal, commit and settle.
 
+## Admin scripts
+
+`keeper/scripts/launch-admin.ts` prints (dry run by default) every `tesoro_core` launch init call in runbook order, with signer, named accounts and base64 data; `--execute` sends only the steps the single `--keypair` signs, never a Squads vault step (`docs/mainnet-runbook.md`, T-7 step 5). `register-game.ts`, `init-leaderboard.ts` and `whitelist-tee.ts` take `--keypair <file>` (no default key file), `--rpc`, `--cluster test|mainnet` (default test; the RPC must serve that cluster) and `--program tesoro_core=<ID>`; `fund-treasury.ts` and `withdraw-treasury.ts` are simSOL test-mode scripts and refuse mainnet. Shared parsing is `src/cli-args.ts`.
+
 ## Sharing
 
 The keeper imports the app's IDL-based clients (`app/src/games/*/chain.ts`) and IDL JSON directly, so it cannot drift from them. It only needs `app/` to be installed (`pnpm install` at the root).

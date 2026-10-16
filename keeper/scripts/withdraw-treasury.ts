@@ -3,31 +3,31 @@
  * `withdraw_treasury` pays (needed once), then `withdraw_treasury(amount)` pays `amount` SOL of the Treasury balance
  * (unminted Yield Fee earned plus the vault's simSOL) into that wallet's simSOL account, minting the shortfall.
  *
- *   pnpm --filter @tesoro/keeper exec tsx scripts/withdraw-treasury.ts [--company <pubkey>] [--amount <SOL>] [--send]
+ * TEST MODE ONLY (simSOL, `withdraw_treasury`): the builders are the app's, bound to the repo's tesoro_core id, so a different
+ * `--program tesoro_core=` and `--cluster mainnet` are refused. The mainnet withdrawal (`withdraw_treasury_stake`, jitoSOL) has
+ * a builder in app/src/lib/chain/stake.ts but no script yet.
+ *
+ *   pnpm --filter @tesoro/keeper exec tsx scripts/withdraw-treasury.ts --keypair <admin file> [--rpc <url>] [--company <pubkey>] [--amount <SOL>] [--send]
  *
  * Dry run by default: it prints the balance and simulates the transactions. Only `--send` signs and sends them.
  * `--company` runs `set_treasury_company` first (the withdrawal then pays that wallet, whose simSOL account is created
  * in the same transaction). Without `--company` the Treasury's current company is used.
  */
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, Transaction, sendAndConfirmTransaction, type TransactionInstruction } from "@solana/web3.js";
 import { treasuryBalanceUnits } from "../../app/src/lib/chain/fees.ts";
-import { createSimSolAtaIx, fetchNativeMarket, rateAt, setTreasuryCompanyIx, speedupOf, treasuryPda, withdrawTreasuryIx } from "../../app/src/lib/chain/native.ts";
-import { keeperCluster, scriptRpc } from "../src/cluster.ts";
+import { adminSigning, parseArgs, programOverrides } from "../src/cli-args.ts";
+import { TESORO_CORE_ID, createSimSolAtaIx, fetchNativeMarket, rateAt, setTreasuryCompanyIx, speedupOf, treasuryPda, withdrawTreasuryIx } from "../../app/src/lib/chain/native.ts";
 
-const argv = process.argv.slice(2);
-const value = (name: string) => {
-  const at = argv.indexOf(name);
-  return at >= 0 ? argv[at + 1] : undefined;
-};
-const send = argv.includes("--send");
+const args = parseArgs(process.argv.slice(2), ["send"]);
+const value = (name: string) => args.value(name.slice(2));
+const send = args.flag("send");
 const companyArg = value("--company");
 const amountArg = value("--amount");
 
-const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(homedir(), ".config/solana/dev-2026-10.json"), "utf8"))));
-const c = new Connection(scriptRpc(), "confirmed");
+const signing = await adminSigning(args, programOverrides(args.values("program")));
+if (signing.cluster.id !== "test") throw new Error("withdraw-treasury is test mode only (simSOL); the mainnet withdrawal has no script yet");
+if (!signing.program.equals(TESORO_CORE_ID)) throw new Error("this test-mode script builds with the app's tesoro_core id; --program tesoro_core=<other> is not supported");
+const { keypair: admin, conn: c } = signing;
 
 async function run(label: string, ixs: TransactionInstruction[]) {
   const tx = new Transaction().add(...ixs);

@@ -4,25 +4,26 @@
  * has a ProgramConfig, the delegation program refuses to delegate its accounts to any validator outside
  * `approved_validators`. Prints the resulting config.
  *
- *   pnpm --filter @tesoro/keeper exec tsx scripts/whitelist-tee.ts <program id> [--remove <validator>]
+ *   pnpm --filter @tesoro/keeper exec tsx scripts/whitelist-tee.ts <program id> --keypair <upgrade authority file> [--rpc <url>] \
+ *     [--cluster test|mainnet] [--validator <TEE validator>] [--remove <validator>]
+ *
+ * `--validator` defaults to the cluster's TEE validator (cluster settings).
  */
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction } from "@solana/web3.js";
-import { keeperCluster, scriptRpc } from "../src/cluster.ts";
+import { PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction } from "@solana/web3.js";
+
+import { adminSigning, parseArgs } from "../src/cli-args.ts";
 
 const DLP = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
 const LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
-const TEE = new PublicKey(keeperCluster().magicblock.teeValidator);
-const rpc = scriptRpc();
 
-const [programArg, flag, other] = process.argv.slice(2);
+const args = parseArgs(process.argv.slice(2));
+const [programArg] = args.positional;
+if (!programArg) throw new Error("usage: whitelist-tee.ts <program id> --keypair <file> [--rpc <url>]");
 const program = new PublicKey(programArg);
-const validator = flag === "--remove" ? new PublicKey(other) : TEE;
-const insert = flag !== "--remove";
-const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(join(homedir(), ".config/solana/dev-2026-10.json"), "utf8"))));
-const c = new Connection(rpc, "confirmed");
+const { cluster, keypair: authority, conn: c } = await adminSigning(args);
+const insert = args.value("remove") === undefined;
+const named = args.value("remove") ?? args.value("validator");
+const validator = new PublicKey(named ?? cluster.magicblock.teeValidator);
 
 const programData = PublicKey.findProgramAddressSync([program.toBuffer()], LOADER)[0];
 const dlpData = PublicKey.findProgramAddressSync([DLP.toBuffer()], LOADER)[0];
