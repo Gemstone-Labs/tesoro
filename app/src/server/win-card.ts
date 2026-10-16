@@ -9,7 +9,7 @@ import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import holdemIdl from "@/lib/chain/idl/holdem.json";
 import tradingDuelIdl from "@/lib/chain/idl/trading_duel.json";
 import { fetchLeaderboardTerms } from "@/lib/chain/leaderboard";
-import { baseRpc } from "@/lib/chain/rpc-config";
+import { DEFAULT_BASE_RPC } from "@/lib/chain/rpc-config";
 import { gameOf, toChainMatch } from "@/lib/chain/read";
 import { profileFromChain } from "@/lib/identity/codec";
 import { winCardData, type WinCardData } from "@/lib/win-card";
@@ -42,7 +42,7 @@ export async function loadWin(id: bigint, deps: WinDeps = chainDeps()): Promise<
 let conn: Connection | null = null;
 
 function chainDeps(): WinDeps {
-  conn ??= new Connection(baseRpc(process.env.TESORO_BASE_RPC), { commitment: "confirmed" });
+  conn ??= new Connection(process.env.TESORO_BASE_RPC || DEFAULT_BASE_RPC, { commitment: "confirmed" });
   const base = conn;
   const bp = new BlockPuzzleChain({ base, blockPuzzleIdl: blockPuzzleIdl as Idl, coreIdl: coreIdl as Idl });
   const holdem = new HoldemChain(holdemIdl, coreIdl, { base });
