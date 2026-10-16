@@ -1,6 +1,7 @@
 import { art } from "@/lib/art";
 import { landingArt } from "@/lib/landing/art";
 import { appHref } from "@/lib/landing/config";
+import { XFollow } from "@/components/brand";
 import { Motes } from "./Fx";
 import { Picture } from "./Picture";
 
@@ -46,11 +47,14 @@ export function FinalCta() {
           <h2 id="final-title" className="lp-h1 lp-final-title" data-reveal>
             Your <em className="lp-hl">yield</em> is ready to play.
           </h2>
-          <span className="lp-cta-glow" data-reveal>
-            <a className="btn money lg cut cut-btn lp-shine" href={appHref()}>
-              Launch app
-            </a>
-          </span>
+          <div className="lp-final-actions" data-reveal>
+            <span className="lp-cta-glow">
+              <a className="btn money lg cut cut-btn lp-shine" href={appHref()}>
+                Launch app
+              </a>
+            </span>
+            <XFollow place="cta" className="lp-final-x" />
+          </div>
         </div>
       </div>
     </section>

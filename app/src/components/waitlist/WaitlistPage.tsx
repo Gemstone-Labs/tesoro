@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { TesoroLogo } from "@/components/brand";
+import { TesoroLogo, XFollow, XStrip } from "@/components/brand";
 import { INSET, LINES, clipAbove, clipBelowInset } from "@/components/waitlist/geometry";
 import { Divider } from "@/components/waitlist/Divider";
 import { LivingTexture } from "@/components/waitlist/LivingTexture";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
-import { OUTBOUND, appHref } from "@/lib/landing/config";
+import { appHref } from "@/lib/landing/config";
 import { WAITLIST_KICKER, WAITLIST_LEDE } from "@/lib/waitlist-copy";
 import { waitingLabel } from "@/lib/waitlist-count";
 import type { SpotGem } from "@/lib/waitlist-spot";
@@ -39,14 +39,13 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           <Link href="/docs" className="wl-hide-phone">
             Docs
           </Link>
-          {OUTBOUND.x && (
-            <a href={OUTBOUND.x} target="_blank" rel="noopener" aria-label="Tesoro on X">
-              X
-            </a>
-          )}
           <a href={appHref()}>Try the app</a>
+          <XFollow place="head" />
         </nav>
       </header>
+      <div className="wl-strip">
+        <XStrip />
+      </div>
       <main className="wl-main">
         <p className="wl-kicker">{invite ? `Invited by #${invite.spot} · ${invite.name}` : WAITLIST_KICKER}</p>
         <h1 className="wl-h1">
@@ -60,6 +59,7 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           <a className="btn neutral cut cut-btn" href={appHref()}>
             Try it now
           </a>
+          <XFollow place="cta" />
         </p>
         {waiting && <p className="wl-count mono">{waiting}</p>}
         <p className="wl-more">
@@ -67,11 +67,6 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           <Link href="/docs">Docs</Link>
           <Link href="/terms">Terms</Link>
           <Link href="/privacy">Privacy</Link>
-          {OUTBOUND.x && (
-            <a href={OUTBOUND.x} target="_blank" rel="noopener">
-              @PlayTesoro on X
-            </a>
-          )}
         </p>
       </main>
     </div>

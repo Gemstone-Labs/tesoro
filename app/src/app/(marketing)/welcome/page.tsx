@@ -4,6 +4,7 @@ import { FinalCta } from "@/components/landing/FinalCta";
 import { Footer } from "@/components/landing/Footer";
 import { Gemas } from "@/components/landing/Gemas";
 import { Games } from "@/components/landing/Games";
+import { XStrip } from "@/components/brand";
 import { Hero } from "@/components/landing/Hero";
 import { HowItWorks } from "@/components/landing/HowItWorks";
 import { LandingMotion } from "@/components/landing/LandingMotion";
@@ -23,6 +24,9 @@ export default function Welcome() {
         Skip to content
       </a>
       <Nav />
+      <div className="lp-strip">
+        <XStrip />
+      </div>
       <main>
         <Hero />
         <HowItWorks />

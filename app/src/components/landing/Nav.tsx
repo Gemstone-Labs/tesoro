@@ -2,7 +2,7 @@
 
 import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
-import { TesoroLogo } from "@/components/brand";
+import { TesoroLogo, XFollow } from "@/components/brand";
 import { appHref } from "@/lib/landing/config";
 import { THEME_KEY, type Theme } from "./theme";
 import { useTheme } from "./useTheme";
@@ -49,6 +49,7 @@ export function Nav() {
           ))}
           <a href="/docs">Docs</a>
         </nav>
+        <XFollow place="head" className="lp-x" />
         <button
           type="button"
           className="icon-btn cut lp-theme"
