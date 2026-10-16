@@ -83,10 +83,22 @@ contract StakeZapTest is Test {
         wst = new MockWstETH();
         kin = new MockKinetiqStack();
         ethVault = new PositionVaultOApp(
-            address(wst), address(new WstETHRateAdapter(address(wst))), address(lz), lz.eid(), SOLANA, address(this), address(0)
+            address(wst),
+            address(new WstETHRateAdapter(address(wst))),
+            address(lz),
+            lz.eid(),
+            SOLANA,
+            address(this),
+            address(0)
         );
         hypeVault = new PositionVaultOApp(
-            address(kin), address(new KHypeRateAdapter(address(kin))), address(lz), lz.eid(), SOLANA, address(this), address(0)
+            address(kin),
+            address(new KHypeRateAdapter(address(kin))),
+            address(lz),
+            lz.eid(),
+            SOLANA,
+            address(this),
+            address(0)
         );
         ethVault.setPeer(SOLANA, STORE);
         hypeVault.setPeer(SOLANA, STORE);

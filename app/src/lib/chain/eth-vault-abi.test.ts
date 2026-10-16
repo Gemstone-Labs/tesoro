@@ -17,7 +17,7 @@ describe("vaultAbi matches the formula vault (contracts/src/PositionVault.sol)",
     const compiled = JSON.parse(readFileSync(artifact, "utf8")).abi as Abi;
     const names = new Set(compiled.filter((f) => f.type === "function").map((f) => (f as { name: string }).name));
     // quote* live on PositionVaultOApp
-    const onOApp = new Set(["quotePositionLocked", "quoteYieldAccrued", "quoteInstantRefund"]);
+    const onOApp = new Set(["quotePositionLocked", "quoteYieldAccrued"]);
     for (const f of vaultAbi) if (f.type === "function" && !onOApp.has(f.name)) expect(names.has(f.name), f.name).toBe(true);
   });
 

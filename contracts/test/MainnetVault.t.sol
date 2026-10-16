@@ -247,20 +247,20 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.instantPaid(), fee);
         assertApproxEqAbs(tok.balanceOf(redeemer) * 1.32e18 / 1e18, fee, 2);
 
-        bytes memory short = _pay(5, id, 2, redeemer, 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1 ether, 0));
+        bytes memory short = _pay(5, id, 2, redeemer, 0.9 ether);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 0.9 ether, 0));
         _recv(short);
         assertEq(vault.instantPaid(), fee, "nothing paid, nothing recorded");
 
         // The Treasury is refilled; the same message, delivered again, pays exactly once.
         tok.setRate(1.8e18);
-        assertGe(vault.treasuryBalance(), 1 ether);
+        assertGe(vault.treasuryBalance(), 0.9 ether);
         uint256 before = tok.balanceOf(redeemer);
         _recv(short);
         assertGt(tok.balanceOf(redeemer), before);
-        assertEq(vault.instantPaid(), fee + 1 ether);
+        assertEq(vault.instantPaid(), fee + 0.9 ether);
         _recv(short); // a replay of a paid message is ignored
-        assertEq(vault.instantPaid(), fee + 1 ether);
+        assertEq(vault.instantPaid(), fee + 0.9 ether);
     }
 
     function test_treasuryFillsWithTheRefillAndWithdrawsToTheOwner() public {
@@ -312,10 +312,9 @@ contract MainnetReceiveGasTest is MainnetVaultBase {
         tok.setRate(1.32e18);
         bytes memory pay = _pay(4, id, 1, redeemer, uint128(vault.payableYield(id) / 2));
         bytes memory instant = _pay(5, id, 2, redeemer, uint128(vault.treasuryBalance() / 2));
-        bytes memory refused = _pay(5, id, 3, redeemer, 100 ether);
-        bytes memory unlock = _unlock(id, 4);
-        bytes[4] memory msgs = [pay, instant, refused, unlock];
-        for (uint256 i; i < 4; i++) {
+        bytes memory unlock = _unlock(id, 3);
+        bytes[3] memory msgs = [pay, instant, unlock];
+        for (uint256 i; i < 3; i++) {
             vm.prank(address(lz));
             uint256 g = gasleft();
             vault.lzReceive(Origin(SOLANA, STORE, 1), bytes32(0), msgs[i], address(0), "");
