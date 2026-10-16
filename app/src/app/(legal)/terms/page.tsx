@@ -21,7 +21,7 @@ export default function Terms() {
     <LegalPage title={TITLE} lede={DESCRIPTION}>
       <Section id="who" title="Who we are and what these Terms cover">
         <p>
-          {BRAND.name} is made and run by {ENTITY.name}, {ENTITY.form} (&ldquo;{BRAND.companyName}&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;), {ENTITY.address}. These Terms are
+          {BRAND.name} is made and run by {ENTITY.name}, {ENTITY.form} (&ldquo;{BRAND.companyName}&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;){ENTITY.address ? `, ${ENTITY.address}` : ""}. These Terms are
           the agreement between you and {BRAND.companyName} for the {BRAND.name} website, apps, smart contracts and related services (together, &ldquo;{BRAND.name}&rdquo;). By
           signing in, entering a Match or otherwise using {BRAND.name} you agree to them and to our <Link href="/privacy">Privacy Policy</Link>. If you do not agree,
           do not use {BRAND.name}.
@@ -248,8 +248,12 @@ export default function Terms() {
         <p>
           {ENTITY.name}
           <br />
-          {ENTITY.address}
-          <br />
+          {ENTITY.address && (
+            <>
+              {ENTITY.address}
+              <br />
+            </>
+          )}
           {ENTITY.contactEmail}
         </p>
       </Section>

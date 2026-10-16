@@ -35,5 +35,6 @@ describe("legal pages", () => {
 
   it("lists the placeholders to fill", () => {
     expect(LEGAL_PLACEHOLDERS.every((p) => p.startsWith("["))).toBe(true);
+    expect(ENTITY.contactEmail).toBe("contact@playtesoro.com");
   });
 });

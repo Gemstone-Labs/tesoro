@@ -10,12 +10,13 @@ export const ENTITY = {
   name: BRAND.legalName,
   product: BRAND.name,
   form: "a Delaware corporation",
-  address: "[REGISTERED ADDRESS]",
-  contactEmail: "[CONTACT EMAIL]",
-  privacyEmail: "[PRIVACY EMAIL]",
-  effectiveDate: "[EFFECTIVE DATE]",
+  /** Postal address for legal notices: unknown until the founders confirm it (registered agent or business address). Empty hides it. */
+  address: "",
+  contactEmail: "contact@playtesoro.com",
+  privacyEmail: "contact@playtesoro.com",
+  effectiveDate: "October 16, 2026",
   minAge: 18,
 } as const;
 
 /** Placeholders still to fill, for tests and for the launch checklist. */
-export const LEGAL_PLACEHOLDERS = [ENTITY.address, ENTITY.contactEmail, ENTITY.privacyEmail, ENTITY.effectiveDate] as const;
+export const LEGAL_PLACEHOLDERS: readonly string[] = [ENTITY.address || "[REGISTERED ADDRESS]"].filter((v) => v.startsWith("["));
