@@ -7,6 +7,8 @@ import {
   DEPOSIT_SLIPPAGE_BPS,
   STAKE_POOL_PROGRAM_ID,
   depositSolIx,
+  isStale,
+  sizingApyBps,
   parseStakePool,
   poolWithdrawAuthority,
   quoteDepositSol,
@@ -33,7 +35,7 @@ describe("stake pool account", () => {
     expect(view.poolTokenSupply).toBe(8_018_218_559_544_148n);
     expect(view.solDepositFee).toEqual({ numerator: 0n, denominator: 0n });
     expect(view.solDepositAuthority).toBeNull();
-    expect(stakePoolRate(view.totalLamports, view.poolTokenSupply)).toBe((view.totalLamports * SOL) / view.poolTokenSupply);
+    expect(stakePoolRate(view.totalLamports, view.poolTokenSupply)).toBe((view.totalLamports * 10n ** 12n) / view.poolTokenSupply);
   });
 
   it("walks the optional fields: a pool with a next epoch fee, preferred validators and a deposit fee", () => {
@@ -58,6 +60,32 @@ describe("stake pool account", () => {
     expect(v.solDepositAuthority).toBeNull();
   });
 
+  it("reads the update epoch and the previous epoch's totals the way the program does", () => {
+    expect(view.lastUpdateEpoch).toBe(1058n);
+    expect(view.lastEpochPoolTokenSupply).toBe(8_013_714_481_593_944n);
+    expect(view.lastEpochTotalLamports).toBe(10_467_917_186_112_723n);
+    // The same numbers the Rust unit test pins (`the_live_jitosol_pool_sizes_below_a_generous_ceiling`).
+    const apy = sizingApyBps(view, 2000);
+    expect(apy).toBeGreaterThan(0);
+    expect(apy).toBeLessThan(600);
+  });
+
+  it("sizes an Advance on one epoch of growth, capped, exactly like StakePoolRead::sizing_apy_bps", () => {
+    const p = { totalLamports: 1_000_400_000n, poolTokenSupply: 1_000_000_000n, lastEpochTotalLamports: 1_000_000_000n, lastEpochPoolTokenSupply: 1_000_000_000n };
+    expect(sizingApyBps(p, 2000)).toBe(648);
+    expect(sizingApyBps(p, 500)).toBe(500);
+    expect(sizingApyBps({ ...p, lastEpochTotalLamports: 0n, lastEpochPoolTokenSupply: 0n }, 2000)).toBe(0);
+    expect(sizingApyBps({ ...p, totalLamports: 999_000_000n }, 2000)).toBe(0);
+    // The round pool of tests/stake.rs: 1.30 now, 1.29948 a epoch ago.
+    expect(sizingApyBps({ totalLamports: 1_300_000_000_000n, poolTokenSupply: 1_000_000_000_000n, lastEpochTotalLamports: 1_299_480_000_000n, lastEpochPoolTokenSupply: 1_000_000_000_000n }, 2000)).toBe(649);
+  });
+
+  it("calls a pool stale when its update is more than one epoch behind", () => {
+    expect(isStale({ lastUpdateEpoch: 100n }, 101)).toBe(false);
+    expect(isStale({ lastUpdateEpoch: 100n }, 102)).toBe(true);
+    expect(isStale({ lastUpdateEpoch: 100n }, 50)).toBe(false);
+  });
+
   it("refuses data that is not an initialised stake pool", () => {
     expect(parseStakePool(Buffer.alloc(611))).toBeNull();
     expect(parseStakePool(livePool.subarray(0, 100))).toBeNull();
@@ -70,7 +98,7 @@ describe("deposit quote", () => {
     const q = quoteDepositSol(12n * SOL, pool);
     expect(q.tokens).toBe(10n * SOL);
     expect(q.openTokens).toBe((10n * SOL * (10_000n - DEPOSIT_SLIPPAGE_BPS)) / 10_000n);
-    expect(q.principalLamports).toBe((q.openTokens * 1_200_000_000n) / SOL);
+    expect(q.principalLamports).toBe((q.openTokens * 1_200_000_000_000n) / 10n ** 12n);
     expect(q.principalLamports).toBeLessThanOrEqual(12n * SOL);
     expect(q.problem).toBeNull();
   });

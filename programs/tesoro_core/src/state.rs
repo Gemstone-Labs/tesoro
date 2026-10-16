@@ -15,6 +15,12 @@ pub const REQUEST_SEED: &[u8] = b"request";
 pub const OFFER_SEED: &[u8] = b"offer";
 pub const NATIVE_SEED: &[u8] = b"native";
 pub const NATIVE_VAULT_SEED: &[u8] = b"native_vault";
+/// The staking-token setting (ADR 0011): `["stake_config"]`.
+pub const STAKE_CONFIG_SEED: &[u8] = b"stake_config";
+/// One shared custody per staking token: `["stake_custody", mint]`, with its vault at
+/// `["stake_vault", mint]`.
+pub const STAKE_CUSTODY_SEED: &[u8] = b"stake_custody";
+pub const STAKE_VAULT_SEED: &[u8] = b"stake_vault";
 /// PDA that signs `sim_lst::mint_yield`; sim_lst records it as the one yield authority.
 pub const YIELD_SEED: &[u8] = b"yield";
 pub const PRICE_SEED: &[u8] = b"price";
@@ -208,7 +214,7 @@ pub struct PositionState {
 
 impl PositionState {
     pub const SPACE: usize =
-        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2;
+        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2 + 8;
 }
 
 #[account]
@@ -323,6 +329,85 @@ impl NativeCustody {
         self.fee_weight_time = t.fee_weight_time;
         self.realised_fee = t.realised_fee;
         self.open_positions = t.open_positions;
+    }
+}
+
+/// The staking-token setting for mainnet SOL Positions (ADR 0011): which token new Positions open
+/// with, and the ceiling on the APY an Advance is sized on. Seeds `["stake_config"]`. Test mode
+/// never creates it.
+#[account]
+pub struct StakeConfig {
+    pub bump: u8,
+    /// Mint of the one active token; default = none yet.
+    pub active_mint: Pubkey,
+    /// Ceiling on the annualised growth an Advance is sized on, basis points; 0 = not set (no
+    /// Advance can be taken).
+    pub apy_ceiling_bps: u16,
+}
+
+impl StakeConfig {
+    pub const SPACE: usize = 8 + 1 + 32 + 2;
+}
+
+/// The shared custody of one staking token. Every stake Position of that token holds its
+/// `custody_shares` in `vault`; the totals behind the Treasury's Yield Fee claim change only on
+/// open and unlock (`ledger::stake`). Seeds `["stake_custody", mint]`; the vault is a token account
+/// at `["stake_vault", mint]` with this account as authority.
+#[account]
+pub struct StakeCustody {
+    pub bump: u8,
+    pub vault_bump: u8,
+    pub mint: Pubkey,
+    /// The SPL stake pool account the token's Staking Rate is read from.
+    pub pool: Pubkey,
+    pub vault: Pubkey,
+    pub principal: u128,
+    pub fee_shares: u128,
+    pub fee_principal: u128,
+    pub realised_fee_shares: u128,
+    pub open_positions: u64,
+    /// Tokens the Treasury bought back by redeeming Gemas (their yield stays in the vault).
+    pub refilled_shares: u64,
+    /// Tokens paid by Instant Redeem, cumulative.
+    pub instant_shares: u64,
+    /// Tokens withdrawn to the company wallet, cumulative.
+    pub withdrawn_shares: u64,
+}
+
+impl StakeCustody {
+    pub const SPACE: usize = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8;
+
+    pub fn totals(&self) -> ledger::StakeTotals {
+        ledger::StakeTotals {
+            principal: self.principal,
+            fee_shares: self.fee_shares,
+            fee_principal: self.fee_principal,
+            realised_fee_shares: self.realised_fee_shares,
+            open_positions: self.open_positions,
+        }
+    }
+
+    pub fn set_totals(&mut self, t: ledger::StakeTotals) {
+        self.principal = t.principal;
+        self.fee_shares = t.fee_shares;
+        self.fee_principal = t.fee_principal;
+        self.realised_fee_shares = t.realised_fee_shares;
+        self.open_positions = t.open_positions;
+    }
+
+    /// The Treasury's balance in tokens at `rate`: the earned Yield Fee plus what it redeemed,
+    /// less what it paid out; never more than the vault holds above the Principal reserve.
+    pub fn treasury_balance(&self, rate: u64, vault_amount: u64) -> Result<u64> {
+        use crate::error::core_err;
+        let totals = self.totals();
+        let earned = totals.earned_fee_shares(rate).map_err(core_err)?;
+        let claim = earned
+            .saturating_add(self.refilled_shares)
+            .saturating_sub(self.instant_shares)
+            .saturating_sub(self.withdrawn_shares);
+        let headroom =
+            vault_amount.saturating_sub(totals.principal_reserve(rate).map_err(core_err)?);
+        Ok(claim.min(headroom))
     }
 }
 
@@ -591,6 +676,40 @@ pub struct OnchainPriceSet {
     pub asset: Pubkey,
     pub feed: Pubkey,
     pub feed_id: [u8; 32],
+}
+
+/// The admin chose the staking token new SOL Positions open with.
+#[event]
+pub struct StakeTokenSet {
+    pub mint: Pubkey,
+    pub pool: Pubkey,
+}
+
+#[event]
+pub struct StakeApyCeilingSet {
+    pub apy_ceiling_bps: u16,
+}
+
+#[event]
+pub struct StakePositionOpened {
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub mint: Pubkey,
+    pub shares: u64,
+    /// Staking Rate at open, lamports per token at 1e12.
+    pub rate: u64,
+    pub principal_sol: u64,
+}
+
+/// Staking tokens paid to `to` for a stake Position or from the Treasury.
+#[event]
+pub struct StakePayout {
+    pub position: Pubkey,
+    pub to: Pubkey,
+    pub shares: u64,
+    pub sol_units: u64,
+    /// 0 = redeem, 1 = unlock Principal, 2 = unlock free yield, 3 = instant redeem, 4 = withdrawal.
+    pub kind: u8,
 }
 
 #[event]

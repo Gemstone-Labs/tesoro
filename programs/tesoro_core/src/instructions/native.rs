@@ -25,6 +25,14 @@ pub fn is_native(position: &ledger::Position) -> bool {
     position.source_chain == SourceChain::Solana && position.source_asset == SIM_SOL_MINT.to_bytes()
 }
 
+/// A Solana Position holding a real staking token in a shared stake custody (ADR 0011). Only
+/// `open_stake_position` sets the Staking Rate at open, so no oracle fact can make one.
+pub fn is_stake(position: &ledger::Position) -> bool {
+    position.source_chain == SourceChain::Solana
+        && position.source_asset != SIM_SOL_MINT.to_bytes()
+        && position.stake_rate_open != 0
+}
+
 /// Position ids of native Positions are derived from their owner and a nonce so nobody else can
 /// occupy an owner's id, and one owner can hold several.
 pub fn native_position_id(owner_authority: &Pubkey, nonce: u64) -> [u8; 32] {
@@ -635,7 +643,7 @@ fn load_custody<'info>(info: &'info AccountInfo<'info>) -> Result<Account<'info,
 }
 
 /// The Source of `position` at `index`, writable.
-fn load_source<'info>(
+pub(crate) fn load_source<'info>(
     info: &'info AccountInfo<'info>,
     position: &Pubkey,
     index: u32,

@@ -13,8 +13,9 @@
 //!   (`redeem_treasury`, `redeem_treasury_from_source`), which refills the treasury on that chain.
 
 use crate::error::{core_err, TesoroError};
-use crate::instructions::native::{is_native, redeem_treasury_native};
+use crate::instructions::native::{is_native, is_stake, redeem_treasury_native};
 use crate::instructions::position::chain_byte;
+use crate::instructions::stake::redeem_treasury_stake;
 use crate::ledger::{self, native, Source, SourceChain, MAX_INSTANT_FEE_BPS, MAX_YIELD_FEE_BPS};
 use crate::state::*;
 use crate::util::now;
@@ -351,7 +352,7 @@ pub(crate) fn withdraw_treasury(ctx: Context<WithdrawTreasury>, amount: u64) -> 
 // --- Instant Redeem --------------------------------------------------------------------------
 
 /// Moves `amount` won Gemas into the Treasury Account and returns `(units, payout)`.
-fn sell_to_treasury(
+pub(crate) fn sell_to_treasury(
     treasury: &Treasury,
     source: &Source,
     holder_account: &mut TesoroAccount,
@@ -373,7 +374,7 @@ fn sell_to_treasury(
 }
 
 /// Fills in the Treasury Account's Holding of `source` the first time it buys Gemas of it.
-fn open_treasury_holding(
+pub(crate) fn open_treasury_holding(
     holding: &mut HoldingState,
     bump: u8,
     treasury_account: &Pubkey,
@@ -644,7 +645,7 @@ pub struct RedeemTreasury<'info> {
     #[account(
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump,
-        constraint = is_native(&position.inner) @ TesoroError::NotNativePosition
+        constraint = (is_native(&position.inner) || is_stake(&position.inner)) @ TesoroError::NotNativePosition
     )]
     pub position: Box<Account<'info, PositionState>>,
     #[account(
@@ -669,16 +670,27 @@ pub(crate) fn redeem_treasury<'info>(
     let remaining = ctx.remaining_accounts;
     let a = ctx.accounts;
     let position_key = a.position.key();
-    let units = redeem_treasury_native(
-        &a.position,
-        &position_key,
-        &mut a.source,
-        &mut a.treasury_account,
-        &mut a.treasury_holding,
-        &a.treasury,
-        amount,
-        remaining,
-    )?;
+    let units = if is_stake(&a.position.inner) {
+        redeem_treasury_stake(
+            &a.position,
+            &mut a.source,
+            &mut a.treasury_account,
+            &mut a.treasury_holding,
+            amount,
+            remaining,
+        )?
+    } else {
+        redeem_treasury_native(
+            &a.position,
+            &position_key,
+            &mut a.source,
+            &mut a.treasury_account,
+            &mut a.treasury_holding,
+            &a.treasury,
+            amount,
+            remaining,
+        )?
+    };
     emit!(Redeemed {
         position: position_key,
         source: a.source.key(),

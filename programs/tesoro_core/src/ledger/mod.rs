@@ -13,6 +13,7 @@ pub mod money;
 pub mod native;
 pub mod protections;
 pub mod season;
+pub mod stake;
 pub mod stake_pool;
 pub mod yield_math;
 
@@ -26,6 +27,7 @@ pub use money::*;
 pub use native::*;
 pub use protections::*;
 pub use season::*;
+pub use stake::*;
 pub use stake_pool::*;
 pub use yield_math::*;
 
@@ -131,6 +133,8 @@ core_errors! {
     InvalidBreak => "a Break is 1 to 42 days",
     InvalidSelfExclusion => "Self-Exclusion is 6 to 60 months",
     ProtectionCannotShorten => "a Break or Self-Exclusion cannot end earlier than it already does",
+    StaleStakePool => "the staking pool has not been updated this epoch or the one before",
+    NoStakingGrowth => "the staking token shows no growth to size an Advance on",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

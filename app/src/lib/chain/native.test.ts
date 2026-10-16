@@ -195,6 +195,9 @@ describe("native math", () => {
   const T0 = 1_800_000_000;
   const info = (over: Partial<NativeInfo> = {}): NativeInfo => ({
     position: owner,
+    mint: SIM_SOL_MINT,
+    stakeRateOpen: 0n,
+    custodyShares: principal,
     status: "locked",
     principalLamports: principal,
     rateBps: 700,

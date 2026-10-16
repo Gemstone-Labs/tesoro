@@ -1649,6 +1649,236 @@
       ]
     },
     {
+      "name": "extend_stake_advance",
+      "discriminator": [
+        153,
+        146,
+        119,
+        71,
+        82,
+        146,
+        203,
+        101
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "stake_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.source_asset",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_pool"
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "extend_limit",
+          "docs": [
+            "The owner's Extend Limit, created at the default on the first Extend."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  120,
+                  116,
+                  101,
+                  110,
+                  100,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "extra_months",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "fund_treasury",
       "discriminator": [
         71,
@@ -2106,6 +2336,110 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "yield_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "instant_fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "init_treasury_stake",
+      "docs": [
+        "Creates the Treasury without a simSOL vault (a deployment without `sim_lst`) or changes",
+        "its fee rates."
+      ],
+      "discriminator": [
+        232,
+        216,
+        27,
+        155,
+        201,
+        7,
+        39,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
         },
         {
           "name": "system_program",
@@ -2775,6 +3109,239 @@
         }
       ],
       "returns": "u64"
+    },
+    {
+      "name": "instant_redeem_stake",
+      "docs": [
+        "Instant Redeem of won Gemas of a stake Source, paid in the token from the Treasury balance."
+      ],
+      "discriminator": [
+        175,
+        8,
+        1,
+        60,
+        163,
+        186,
+        151,
+        113
+      ],
+      "accounts": [
+        {
+          "name": "holder_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "holder_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position"
+        },
+        {
+          "name": "source",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.source_asset",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "holder_token",
+          "writable": true
+        },
+        {
+          "name": "stake_pool"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "join_match",
@@ -3913,6 +4480,165 @@
         {
           "name": "rate_bps",
           "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "open_stake_position",
+      "docs": [
+        "Deposits `shares` of the active staking token into the shared vault as a new Position."
+      ],
+      "discriminator": [
+        100,
+        46,
+        32,
+        248,
+        0,
+        29,
+        122,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "owner_token",
+          "writable": true
+        },
+        {
+          "name": "stake_pool"
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Its Yield Fee is fixed on the Position at open."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "shares",
+          "type": "u64"
         }
       ]
     },
@@ -6144,6 +6870,228 @@
       ]
     },
     {
+      "name": "set_stake_apy_ceiling",
+      "docs": [
+        "Admin: the ceiling on the annualised growth an Advance is sized on, in basis points."
+      ],
+      "discriminator": [
+        98,
+        91,
+        137,
+        49,
+        46,
+        240,
+        120,
+        98
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "apy_ceiling_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "set_stake_token",
+      "docs": [
+        "Admin: the staking token new SOL Positions open with (creates its custody and vault the",
+        "first time). The stake pool account pins the token's Staking Rate source."
+      ],
+      "discriminator": [
+        18,
+        101,
+        93,
+        118,
+        55,
+        84,
+        199,
+        171
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "stake_pool"
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "set_treasury_company",
       "docs": [
         "Sets the company wallet that `withdraw_treasury` pays (admin)."
@@ -7244,6 +8192,272 @@
       ]
     },
     {
+      "name": "take_stake_advance",
+      "docs": [
+        "An Advance against a stake Position: Pyth price, sized on the pool's recent growth."
+      ],
+      "discriminator": [
+        205,
+        21,
+        245,
+        210,
+        92,
+        233,
+        107,
+        171
+      ],
+      "accounts": [
+        {
+          "name": "owner_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protections",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "onchain_price",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  110,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.source_asset",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_feed"
+        },
+        {
+          "name": "stake_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.source_asset",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_pool"
+        },
+        {
+          "name": "prev_source",
+          "docs": [
+            "The Position's open Advance, when it has one."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "prev_source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "position.inner.advances",
+                "account": "PositionState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  108,
+                  100,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "horizon_months",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "unlock",
       "discriminator": [
         101,
@@ -7731,6 +8945,122 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "withdraw_treasury_stake",
+      "docs": [
+        "Admin: withdraws Treasury balance, in the token, to the company wallet."
+      ],
+      "discriminator": [
+        55,
+        243,
+        83,
+        120,
+        186,
+        224,
+        0,
+        69
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "custody.mint",
+                "account": "StakeCustody"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "company_token",
+          "writable": true
+        },
+        {
+          "name": "stake_pool"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -7966,6 +9296,32 @@
         107,
         63,
         90
+      ]
+    },
+    {
+      "name": "StakeConfig",
+      "discriminator": [
+        238,
+        151,
+        43,
+        3,
+        11,
+        151,
+        63,
+        176
+      ]
+    },
+    {
+      "name": "StakeCustody",
+      "discriminator": [
+        103,
+        239,
+        196,
+        122,
+        82,
+        198,
+        107,
+        92
       ]
     },
     {
@@ -8244,6 +9600,58 @@
       ]
     },
     {
+      "name": "StakeApyCeilingSet",
+      "discriminator": [
+        255,
+        36,
+        202,
+        1,
+        112,
+        50,
+        104,
+        212
+      ]
+    },
+    {
+      "name": "StakePayout",
+      "discriminator": [
+        187,
+        35,
+        134,
+        119,
+        88,
+        90,
+        79,
+        237
+      ]
+    },
+    {
+      "name": "StakePositionOpened",
+      "discriminator": [
+        224,
+        204,
+        109,
+        183,
+        71,
+        111,
+        85,
+        140
+      ]
+    },
+    {
+      "name": "StakeTokenSet",
+      "discriminator": [
+        35,
+        252,
+        161,
+        11,
+        113,
+        59,
+        0,
+        71
+      ]
+    },
+    {
       "name": "TreasuryFunded",
       "discriminator": [
         172,
@@ -8421,6 +9829,26 @@
       "code": 6024,
       "name": "InviteKeyMissing",
       "msg": "an Invite key is needed to turn the Invite gate on"
+    },
+    {
+      "code": 6025,
+      "name": "StakeTokenInactive",
+      "msg": "this staking token is not the one new Positions open with"
+    },
+    {
+      "code": 6026,
+      "name": "StakeCeilingNotSet",
+      "msg": "the Advance APY ceiling is not set"
+    },
+    {
+      "code": 6027,
+      "name": "NotStakePosition",
+      "msg": "position is not a staking-token Position"
+    },
+    {
+      "code": 6028,
+      "name": "BadStakePoolAccount",
+      "msg": "the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool"
     }
   ],
   "types": [
@@ -9819,6 +11247,15 @@
               "change of the Treasury's rate applies only to Positions opened afterwards."
             ],
             "type": "u16"
+          },
+          {
+            "name": "stake_rate_open",
+            "docs": [
+              "Staking-token Positions (mainnet, ADR 0011): the pool's Staking Rate when the Position",
+              "opened, lamports per pool token at 1e12. Non-zero marks a stake Position; growth since open",
+              "is the Staking Rate now over this. Zero for every other Position."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -10622,6 +12059,216 @@
                 "name": "Source"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakeApyCeilingSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "apy_ceiling_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakeConfig",
+      "docs": [
+        "The staking-token setting for mainnet SOL Positions (ADR 0011): which token new Positions open",
+        "with, and the ceiling on the APY an Advance is sized on. Seeds `[\"stake_config\"]`. Test mode",
+        "never creates it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "active_mint",
+            "docs": [
+              "Mint of the one active token; default = none yet."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "apy_ceiling_bps",
+            "docs": [
+              "Ceiling on the annualised growth an Advance is sized on, basis points; 0 = not set (no",
+              "Advance can be taken)."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakeCustody",
+      "docs": [
+        "The shared custody of one staking token. Every stake Position of that token holds its",
+        "`custody_shares` in `vault`; the totals behind the Treasury's Yield Fee claim change only on",
+        "open and unlock (`ledger::stake`). Seeds `[\"stake_custody\", mint]`; the vault is a token account",
+        "at `[\"stake_vault\", mint]` with this account as authority."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "docs": [
+              "The SPL stake pool account the token's Staking Rate is read from."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "principal",
+            "type": "u128"
+          },
+          {
+            "name": "fee_shares",
+            "type": "u128"
+          },
+          {
+            "name": "fee_principal",
+            "type": "u128"
+          },
+          {
+            "name": "realised_fee_shares",
+            "type": "u128"
+          },
+          {
+            "name": "open_positions",
+            "type": "u64"
+          },
+          {
+            "name": "refilled_shares",
+            "docs": [
+              "Tokens the Treasury bought back by redeeming Gemas (their yield stays in the vault)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "instant_shares",
+            "docs": [
+              "Tokens paid by Instant Redeem, cumulative."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "withdrawn_shares",
+            "docs": [
+              "Tokens withdrawn to the company wallet, cumulative."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakePayout",
+      "docs": [
+        "Staking tokens paid to `to` for a stake Position or from the Treasury."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "to",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "sol_units",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "0 = redeem, 1 = unlock Principal, 2 = unlock free yield, 3 = instant redeem, 4 = withdrawal."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakePositionOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "rate",
+            "docs": [
+              "Staking Rate at open, lamports per token at 1e12."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "principal_sol",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakeTokenSet",
+      "docs": [
+        "The admin chose the staking token new SOL Positions open with."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
           }
         ]
       }

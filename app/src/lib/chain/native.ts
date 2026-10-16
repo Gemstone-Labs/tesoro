@@ -10,7 +10,8 @@ import {
 import { CLUSTER } from "../cluster-settings";
 import { debtGemas, sourceView, unitsToRepayTotal, type SourceMath } from "./ledger";
 import { parseFeeMinted, parsePoolTotals, parseTreasury, parseVaultShares, type TreasuryRates } from "./fees";
-import { DEFAULT_YIELD_FEE_BPS, SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PoolTotals, type PositionClock } from "./yield";
+import { DEFAULT_YIELD_FEE_BPS, SPEEDUP, advanceUnits, positionAccrued, secondsUntilNet, type PoolTotals, type PositionClock, type StakeGrowth } from "./yield";
+import type { StakeMarket } from "./stake";
 
 /**
  * Solana-native Positions (one shared simSOL custody, tesoro_core) and the SIMULATED sim_lst pool. Instructions
@@ -44,7 +45,7 @@ const view = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset, d.byteLengt
 export const rdU64 = (d: Uint8Array, o: number) => view(d).getBigUint64(o, true);
 export const rdI64 = (d: Uint8Array, o: number) => view(d).getBigInt64(o, true);
 export const rdU32 = (d: Uint8Array, o: number) => view(d).getUint32(o, true);
-const rdU16 = (d: Uint8Array, o: number) => view(d).getUint16(o, true);
+export const rdU16 = (d: Uint8Array, o: number) => view(d).getUint16(o, true);
 export const u64 = (n: bigint | number) => {
   const b = Buffer.alloc(8);
   view(b).setBigUint64(0, BigInt(n), true);
@@ -509,12 +510,17 @@ export function quoteExtendAdvance(principalLamports: bigint, rateBps: number, s
 export const speedupOf = (pool: Pick<PoolParams, "speedup"> | null | undefined): number => pool?.speedup ?? Number(SPEEDUP);
 
 /** A native Position's yield clock: what it fixed at open. */
-export const clockOf = (info: Pick<NativeInfo, "principalLamports" | "rateBps" | "yieldFeeBps" | "openedAt">): PositionClock => ({
+export const clockOf = (info: Pick<NativeInfo, "principalLamports" | "rateBps" | "yieldFeeBps" | "openedAt"> & { stakeRateOpen?: bigint }): PositionClock => ({
   principal: info.principalLamports,
   rateBps: info.rateBps,
   yieldFeeBps: info.yieldFeeBps,
   openedAt: info.openedAt,
+  stakeRateOpen: info.stakeRateOpen,
 });
+
+/** Where a market's staking-token Positions grow from (the pool's rate as read, projected at the sizing APY); undefined on a simulated market. */
+export const stakeGrowthOf = (market: Pick<NativeMarket, "stake"> | null | undefined, readAtSec: number = Math.floor(Date.now() / 1000)): StakeGrowth | undefined =>
+  market?.stake ? { rateNow: market.stake.rate, atSec: readAtSec, apyBps: market.stake.sizingBps } : undefined;
 
 /** What a native Position fixes: enough to derive its Sources' Debt at any moment without the sim_lst custody. */
 export interface NativeFacts extends PositionClock {
@@ -523,8 +529,8 @@ export interface NativeFacts extends PositionClock {
 }
 
 /** A Source of a native Position as it stands at `nowSec` (the open Advance derived from the clock, a closed one as stored). */
-export function sourceAtClock(facts: NativeFacts, index: number, math: SourceMath, speedup: number, nowSec: number): SourceMath {
-  return sourceView(facts, index, math, positionAccrued(facts, speedup, nowSec).net);
+export function sourceAtClock(facts: NativeFacts, index: number, math: SourceMath, speedup: number, nowSec: number, stake?: StakeGrowth): SourceMath {
+  return sourceView(facts, index, math, positionAccrued(facts, speedup, nowSec, stake).net);
 }
 
 /** The pool's `speedup` from the raw sim_lst Pool account data (what `marketFrom` reads). */
@@ -542,12 +548,12 @@ export interface NativeNow {
   freeUnits: bigint;
 }
 
-export function nativeNow(info: NativeInfo, speedup: number, nowSec: number): NativeNow {
+export function nativeNow(info: NativeInfo, speedup: number, nowSec: number, stake?: StakeGrowth): NativeNow {
   if (info.status === "unlocked") {
     const stored = info.source?.math ?? null;
     return { accrued: info.appliedNet, source: stored, debtGemas: stored ? debtGemas(stored) : 0n, freeUnits: sat(info.freeYield, info.freeYieldClaimed) };
   }
-  const net = positionAccrued(clockOf(info), speedup, nowSec).net;
+  const net = positionAccrued(clockOf(info), speedup, nowSec, stake).net;
   const src = info.source;
   const view = src ? sourceView(info, src.index, src.math, net) : null;
   const counted = sat(net, info.appliedNet);
@@ -561,17 +567,17 @@ const sat = (a: bigint, b: bigint) => (a > b ? a - b : 0n);
  * Unlock Estimate (ms since epoch): when the Position's net Accrued Yield past `appliedNet` covers everything `source`
  * still owes. Null when it cannot be projected (nothing earning). An estimate, never a promise: it moves with the pool's speedup.
  */
-export function unlockEstimateMs(args: { clock: PositionClock; speedup: number; appliedNet: bigint; source: SourceMath | null; nowMs: number }): number | null {
-  const { clock, speedup, appliedNet, source, nowMs } = args;
+export function unlockEstimateMs(args: { clock: PositionClock; speedup: number; appliedNet: bigint; source: SourceMath | null; nowMs: number; stake?: StakeGrowth }): number | null {
+  const { clock, speedup, appliedNet, source, nowMs, stake } = args;
   if (!source) return null;
   const target = appliedNet + unitsToRepayTotal(source);
-  if (positionAccrued(clock, speedup, Math.floor(nowMs / 1000)).net >= target) return nowMs;
-  const at = secondsUntilNet(clock, speedup, target);
+  if (positionAccrued(clock, speedup, Math.floor(nowMs / 1000), stake).net >= target) return nowMs;
+  const at = secondsUntilNet(clock, speedup, target, stake);
   return at === null ? null : Math.max(nowMs, at * 1000);
 }
 
 /** Debt in Gemas of `info` at `atMs`, as the program would compute it then. */
-export const debtGemasAt = (info: NativeInfo, speedup: number, atMs: number): bigint => nativeNow(info, speedup, Math.floor(atMs / 1000)).debtGemas;
+export const debtGemasAt = (info: NativeInfo, speedup: number, atMs: number, stake?: StakeGrowth): bigint => nativeNow(info, speedup, Math.floor(atMs / 1000), stake).debtGemas;
 
 /** simSOL base units that redeeming `gemas` of a Source pays now (floor, as the program computes it). */
 export function redeemPayoutShares(source: Pick<SourceMath, "unitNum" | "unitDen">, gemas: bigint, rate: bigint): bigint {
@@ -598,10 +604,18 @@ export interface NativeMarket {
   treasuryShares: bigint | null;
   /** What the earned, unminted Yield Fee is computed from; null while there is no Treasury or shared custody. */
   treasuryClaim: { totals: PoolTotals; feeMinted: bigint } | null;
+  /** Mainnet: the staking token, its pool and the custody read; null on a simulated market, where `pool` is the sim_lst pool. */
+  stake: StakeMarket | null;
 }
 
 export interface NativeInfo {
   position: PublicKey;
+  /** The Position's asset: simSOL, or the staking token's mint for a staking-token Position. */
+  mint: PublicKey;
+  /** The pool's Staking Rate at open (1e12) for a staking-token Position, 0 for a simulated one. */
+  stakeRateOpen: bigint;
+  /** Shares of the shared custody vault this Position holds, token base units. */
+  custodyShares: bigint;
   status: "locked" | "unlocked";
   principalLamports: bigint;
   rateBps: number;
@@ -644,6 +658,7 @@ export function marketFrom([pool, feed, ata, treasuryInfo, treasuryVault, custod
     simSol,
     treasury,
     treasuryClaim: claim,
+    stake: null,
     treasuryShares: treasury ? (treasuryVault && parseVaultShares(treasuryVault.data)) ?? 0n : null,
   };
 }
@@ -682,6 +697,7 @@ const NATIVE_ADVANCES_AT = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1;
 /** `fetchNativeInfo` from accounts already read; `src` is the latest Source (index `advances - 1`), null when there is none. */
 export function nativeInfoFrom(position: PublicKey, pos: AccountInfo<Buffer>, src: AccountInfo<Buffer> | null): NativeInfo {
   const d = Buffer.from(pos.data);
+  const mint = new PublicKey(d.subarray(74, 106)); // after disc, bump, id, owner, chain
   let o = 8 + 1 + 32 + 32 + 1 + 32 + 1; // disc, bump, id, owner, chain, asset, decimals
   const principalLamports = rdU64(d, o);
   const rateBps = rdU16(d, o + 8);
@@ -697,8 +713,9 @@ export function nativeInfoFrom(position: PublicKey, pos: AccountInfo<Buffer>, sr
   const freeYieldClaimed = rdU64(d, o + 8);
   const openedAt = Number(rdI64(d, o + 16));
   const appliedNet = rdU64(d, o + 24);
-  // custody_shares (u64) sits at o + 32
+  const custodyShares = rdU64(d, o + 32);
   const yieldFeeBps = rdU16(d, o + 40);
+  const stakeRateOpen = d.length >= o + 50 ? rdU64(d, o + 42) : 0n;
   const source: NativeInfo["source"] = advances > 0 && src ? parseSource(sourcePda(position, advances - 1), Buffer.from(src.data)) : null;
-  return { position, status, principalLamports, rateBps, yieldFeeBps, openedAt, appliedNet, freeYield, freeYieldClaimed, advances, openAdvance, source };
+  return { position, mint, stakeRateOpen, custodyShares, status, principalLamports, rateBps, yieldFeeBps, openedAt, appliedNet, freeYield, freeYieldClaimed, advances, openAdvance, source };
 }

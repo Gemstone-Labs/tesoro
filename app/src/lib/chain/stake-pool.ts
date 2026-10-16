@@ -1,12 +1,21 @@
 import "./polyfill";
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import { ASSOCIATED_TOKEN_PROGRAM_ID, RATE_SCALE, TOKEN_PROGRAM_ID, meta, rdU64, u64 } from "./native";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, meta, rdU64, u64 } from "./native";
 
 /**
- * Pure helpers for an SPL stake pool (jitoSOL and kin), kept for ticket 41: the account decoder, the exchange rate, a
- * `DepositSol` quote and its instruction builder. Nothing here talks to tesoro_core; the mainnet SOL Position on the
- * computed model (ADR 0011) is built on top. Shared with the keeper: web3.js only, relative imports only.
+ * Pure helpers for an SPL stake pool (jitoSOL and kin): the account decoder, the Staking Rate, the Advance sizing APY from
+ * the pool's last epoch, a `DepositSol` quote and its instruction builder. They mirror `ledger/stake.rs` and
+ * `ledger/stake_pool.rs` of tesoro_core (ADR 0011). Nothing here talks to tesoro_core (see stake.ts).
+ * Shared with the keeper: web3.js only, relative imports only.
  */
+
+/** Staking Rate fixed point: lamports per pool token, 1e12 (`STAKE_RATE_SCALE`). */
+export const STAKE_RATE_SCALE = 1_000_000_000_000n;
+/** The epoch length Advance sizing assumes: 432,000 slots at 450 ms (`EPOCH_SECS`). */
+export const EPOCH_SECS = 194_400n;
+const YEAR_SECS = 31_536_000n;
+/** The program refuses a pool whose last update is more than this many epochs behind the clock. */
+export const MAX_STALE_EPOCHS = 1;
 
 export const STAKE_POOL_PROGRAM_ID = new PublicKey("SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy");
 /** Instruction 14 of the SPL stake pool program. */
@@ -45,6 +54,11 @@ export interface StakePoolView {
   solReferralFee: number;
   /** When set, `DepositSol` needs this key's signature: a plain Player cannot deposit. */
   solDepositAuthority: PublicKey | null;
+  /** Epoch of the pool's last balance update. */
+  lastUpdateEpoch: bigint;
+  /** The totals one update earlier: with the current ones they give an epoch of growth. Zero before the first roll. */
+  lastEpochTotalLamports: bigint;
+  lastEpochPoolTokenSupply: bigint;
 }
 
 /**
@@ -62,6 +76,7 @@ export function parseStakePool(d: Uint8Array): StakePoolView | null {
     const managerFeeAccount = key(194);
     const totalLamports = rdU64(d, 258);
     const poolTokenSupply = rdU64(d, 266);
+    const lastUpdateEpoch = rdU64(d, 274);
     // last_update_epoch (8), lockup (8 + 8 + 32), epoch_fee (16)
     let o = 274 + 8 + 48 + 16;
     o += d[o] ? 17 : 1; // next_epoch_fee
@@ -74,18 +89,52 @@ export function parseStakePool(d: Uint8Array): StakePoolView | null {
     o += d[o] ? 33 : 1;
     const solDepositFee = fee(o);
     const solReferralFee = d[o + 16];
-    if (o + 17 > d.length) return null;
-    return { poolMint, reserveStake, managerFeeAccount, totalLamports, poolTokenSupply, solDepositFee, solReferralFee, solDepositAuthority };
+    o += 17;
+    o += d[o] ? 33 : 1; // sol_withdraw_authority
+    o += 16; // sol_withdrawal_fee
+    o += d[o] ? 17 : 1; // next_sol_withdrawal_fee
+    if (o + 16 > d.length) return null;
+    const lastEpochPoolTokenSupply = rdU64(d, o);
+    const lastEpochTotalLamports = rdU64(d, o + 8);
+    return {
+      poolMint,
+      reserveStake,
+      managerFeeAccount,
+      totalLamports,
+      poolTokenSupply,
+      solDepositFee,
+      solReferralFee,
+      solDepositAuthority,
+      lastUpdateEpoch,
+      lastEpochTotalLamports,
+      lastEpochPoolTokenSupply,
+    };
   } catch {
     return null;
   }
 }
 
-/** SOL base units per pool token, 1e9 fixed point, rounded down (the program's `stake_pool_rate`). Null for an empty pool. */
+/** SOL base units per pool token, 1e12 fixed point, rounded down (the program's `staking_rate`). Null for an empty pool. */
 export function stakePoolRate(totalLamports: bigint, poolTokenSupply: bigint): bigint | null {
   if (poolTokenSupply === 0n || totalLamports === 0n) return null;
-  const rate = (totalLamports * RATE_SCALE) / poolTokenSupply;
+  const rate = (totalLamports * STAKE_RATE_SCALE) / poolTokenSupply;
   return rate > 0n ? rate : null;
+}
+
+/** True when the pool's last update is further behind `epoch` than the program accepts (`StakePoolRead::require_fresh`). */
+export const isStale = (pool: Pick<StakePoolView, "lastUpdateEpoch">, epoch: bigint | number) => BigInt(epoch) > pool.lastUpdateEpoch + BigInt(MAX_STALE_EPOCHS);
+
+/**
+ * The annual growth, in basis points, an Advance is sized on: the pool's last epoch (current rate against the rate one
+ * update earlier) scaled to a year, capped at `ceilingBps`. Zero without a previous epoch or without growth.
+ * Exactly `StakePoolRead::sizing_apy_bps`.
+ */
+export function sizingApyBps(pool: Pick<StakePoolView, "totalLamports" | "poolTokenSupply" | "lastEpochTotalLamports" | "lastEpochPoolTokenSupply">, ceilingBps: number): number {
+  const now = stakePoolRate(pool.totalLamports, pool.poolTokenSupply);
+  const before = stakePoolRate(pool.lastEpochTotalLamports, pool.lastEpochPoolTokenSupply);
+  if (!now || !before || now <= before) return 0;
+  const annual = ((now - before) * BPS * YEAR_SECS) / (before * EPOCH_SECS);
+  return Number(annual < BigInt(ceilingBps) ? annual : BigInt(ceilingBps));
 }
 
 // ---- Quote ----------------------------------------------------------------------------------------
@@ -116,11 +165,11 @@ export function quoteDepositSol(lamports: bigint, pool: StakePoolView, slippageB
   const minted = (lamports * pool.poolTokenSupply) / pool.totalLamports;
   const tokens = minted - feeOf(minted, pool.solDepositFee);
   const openTokens = (tokens * (BPS - slippageBps)) / BPS;
-  return { tokens, openTokens, principalLamports: (openTokens * rate) / RATE_SCALE, problem: openTokens > 0n ? null : "That is too little SOL to stake." };
+  return { tokens, openTokens, principalLamports: (openTokens * rate) / STAKE_RATE_SCALE, problem: openTokens > 0n ? null : "That is too little SOL to stake." };
 }
 
 /** Pool tokens `lamports` of Principal would be, for the token path's quote (an exact, fee-free conversion at the rate). */
-export const tokensToLamports = (tokens: bigint, rate: bigint) => (tokens * rate) / RATE_SCALE;
+export const tokensToLamports = (tokens: bigint, rate: bigint) => (tokens * rate) / STAKE_RATE_SCALE;
 
 // ---- Instructions ---------------------------------------------------------------------------------
 
