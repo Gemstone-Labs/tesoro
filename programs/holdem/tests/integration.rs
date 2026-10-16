@@ -682,6 +682,54 @@ fn f01_delegation_is_pinned_to_the_tee_validator() {
     }
 }
 
+/// Audit 2026-10-16 G-1. `delegate_match` is permissionless and checked only the validator, so
+/// once the table had been committed back to the base layer anyone could delegate it again. The
+/// accounts then belong to the delegation program and `finalize` can no longer read them: the
+/// loser stalls the settlement until the refund window opens. A table delegates once, while it
+/// is freshly created.
+#[test]
+fn g01_a_table_that_has_been_played_cannot_be_delegated_again() {
+    let mut env = ready(0);
+    env.patch_match(|m| m.status = holdem::STATUS_OVER);
+    let ad = addrs(env.id);
+    let dlp = sdk_key(ephemeral_rollups_sdk::id());
+    let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
+    let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &holdem::ID);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+    let attacker = env.bob.kp.insecure_clone();
+    let delegate = ix(
+        holdem::ID,
+        holdem::accounts::DelegateMatch {
+            payer: a(attacker.pubkey()),
+            buffer_game_match: buffer(ad.game_match),
+            delegation_record_game_match: record(ad.game_match),
+            delegation_metadata_game_match: meta(ad.game_match),
+            game_match: ad.game_match,
+            buffer_deck: buffer(ad.deck),
+            delegation_record_deck: record(ad.deck),
+            delegation_metadata_deck: meta(ad.deck),
+            deck: ad.deck,
+            buffer_hole_0: buffer(ad.hole_0),
+            delegation_record_hole_0: record(ad.hole_0),
+            delegation_metadata_hole_0: meta(ad.hole_0),
+            hole_0: ad.hole_0,
+            buffer_hole_1: buffer(ad.hole_1),
+            delegation_record_hole_1: record(ad.hole_1),
+            delegation_metadata_hole_1: meta(ad.hole_1),
+            hole_1: ad.hole_1,
+            validator: Some(holdem::TEE_VALIDATOR),
+            owner_program: holdem::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        holdem::instruction::DelegateMatch { match_id: env.id },
+        vec![],
+    );
+    let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), hcode(holdem::HoldemError::AlreadyStarted));
+}
+
 /// F-02. `init_permissions` treated "the permission address holds lamports" as "the permission
 /// exists". Anyone can put lamports on those addresses first, after which the table starts with
 /// the Deck and the Hole cards never made private.
