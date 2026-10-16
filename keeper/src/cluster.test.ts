@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { CLUSTERS } from "../../app/src/lib/cluster-settings.ts";
-import { DEVNET_GENESIS, assertDevnet, assertEthereum, assertHoodi, assertHyperEvm, assertSolana, keeperCluster } from "./cluster.ts";
+import { DEVNET_GENESIS, assertDevnet, assertEthereum, assertHoodi, assertHyperEvm, assertSolana, keeperCluster, scriptRpc } from "./cluster.ts";
 import { loadPayer, settings } from "./env.ts";
 
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -92,5 +92,11 @@ describe("mainnet cluster", () => {
 
   it("mainnet settings have no default RPC", () => {
     assert.throws(() => settings([], { TESORO_CLUSTER: "mainnet" } as NodeJS.ProcessEnv), /KEEPER_RPC is not set/);
+  });
+
+  it("scripts take RPC_URL, else the test default; mainnet must set it", () => {
+    assert.equal(scriptRpc({} as NodeJS.ProcessEnv), CLUSTERS.test.solana.defaultRpc);
+    assert.equal(scriptRpc({ RPC_URL: "https://x" } as NodeJS.ProcessEnv), "https://x");
+    assert.throws(() => scriptRpc({ TESORO_CLUSTER: "mainnet" } as NodeJS.ProcessEnv), /RPC_URL is not set/);
   });
 });

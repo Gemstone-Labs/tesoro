@@ -10,8 +10,9 @@ import { join } from "node:path";
 import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
+import { keeperCluster, scriptRpc } from "../src/cluster.ts";
 
-const rpc = process.env.RPC_URL ?? "https://rpc.magicblock.app/devnet";
+const rpc = scriptRpc();
 const [programArg, bpsArg] = process.argv.slice(2);
 const game = new PublicKey(programArg);
 const studioBps = Number(bpsArg);

@@ -10,11 +10,12 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { keeperCluster, scriptRpc } from "../src/cluster.ts";
 
 const DLP = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
 const LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
-const TEE = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
-const rpc = process.env.RPC_URL ?? "https://rpc.magicblock.app/devnet";
+const TEE = new PublicKey(keeperCluster().magicblock.teeValidator);
+const rpc = scriptRpc();
 
 const [programArg, flag, other] = process.argv.slice(2);
 const program = new PublicKey(programArg);

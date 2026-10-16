@@ -30,3 +30,10 @@ export const assertHyperEvm = (pub: Evm, cluster: ClusterSettings = keeperCluste
 /** Older names for the same checks; they follow the active cluster. */
 export const assertDevnet = assertSolana;
 export const assertHoodi = assertEthereum;
+
+/** The RPC a one-off script uses: `RPC_URL`, else the cluster's public default (test mode only; mainnet must set it). */
+export function scriptRpc(env: NodeJS.ProcessEnv = process.env): string {
+  const url = env.RPC_URL || keeperCluster(env).solana.defaultRpc;
+  if (!url) throw new Error("RPC_URL is not set; mainnet has no default RPC");
+  return url;
+}

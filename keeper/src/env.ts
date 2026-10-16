@@ -51,15 +51,15 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
   };
   const cluster = keeperCluster(env);
   /** The public test-mode RPC when unset; mainnet has no default, so an unset RPC is an error. */
-  const rpcOr = (v: string | undefined, name: string, testDefault: string) => {
+  const rpcOr = (v: string | undefined, name: string, testDefault: string | undefined) => {
     if (v) return v;
-    if (cluster.id === "test") return testDefault;
+    if (cluster.id === "test" && testDefault) return testDefault;
     throw new Error(`${name} is not set; mainnet has no default RPC`);
   };
   const num = (v: string | undefined, d: number) => (v !== undefined && Number.isFinite(Number(v)) ? Number(v) : d);
   return {
-    rpc: rpcOr(value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC, "KEEPER_RPC", "https://rpc.magicblock.app/devnet"),
-    gpaRpc: rpcOr(value("gpa-rpc") || env.KEEPER_GPA_RPC, "KEEPER_GPA_RPC", "https://rpc.magicblock.app/devnet"),
+    rpc: rpcOr(value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC, "KEEPER_RPC", cluster.solana.defaultRpc),
+    gpaRpc: rpcOr(value("gpa-rpc") || env.KEEPER_GPA_RPC, "KEEPER_GPA_RPC", cluster.solana.defaultGpaRpc),
     keypairPath: env.KEEPER_KEYPAIR ?? join(homedir(), ".config/tesoro/keeper.json"),
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
     once: flag("once"),
