@@ -9,7 +9,7 @@ import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transa
 import type { AnyProgram } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { baseRpc } from "@/lib/chain/rpc-config";
-import { requireDevnet } from "./cluster";
+import { requireDevnet, requireTestMode } from "./cluster";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { solanaKeypair } from "./keys";
 import { DemoHttpError, NonceStore, verifySignedRequest } from "./request-auth";
@@ -114,6 +114,7 @@ async function fund(address: PublicKey, sub: string | null) {
 // ---- entry point --------------------------------------------------------------------------------
 
 export async function handleDemoRequest(raw: unknown, authorization: string | null): Promise<unknown> {
+  requireTestMode();
   await requireDevnet(BASE_RPC);
   const req = await verifySignedRequest("tesoro-demo", ["fund"] as const, raw, authorization, { nonces });
   return fund(req.address, req.sub);
