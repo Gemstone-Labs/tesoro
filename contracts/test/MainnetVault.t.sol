@@ -214,6 +214,26 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.accruedYield(id), 0);
     }
 
+    /// Audit 2026-10-16 E-1, founder decision pending (who bears a Staking Rate fall after yield was paid out:
+    /// the Treasury, every Player, or the holder of the Gemas). This documents what the vault does today: the
+    /// shares paid out as yield no longer back the Principal, so after a fall the Position unlocks for less than
+    /// its Principal even though the Treasury still holds its Yield Fee shares. Change the assertions with the
+    /// policy.
+    function test_policyPending_aRateFallAfterAPayoutLeavesPrincipalShort() public {
+        uint64 id = _open(10 ether); // Principal 12 underlying at 1.2
+        tok.setRate(1.32e18);
+        _recv(_pay(4, id, 1, redeemer, uint128(vault.payableYield(id)))); // all net yield paid, in shares
+        tok.setRate(1.2e18); // back to the open rate: no yield, Principal must be whole
+        _recv(_unlock(id, 2));
+        uint256 returned = tok.balanceOf(alice) - 90 ether; // shares released to the owner
+        uint256 principalShares = 10 ether; // 12 underlying at 1.2
+        assertLt(returned, principalShares, "Principal is short by the shares paid out as yield");
+        uint256 shortfall = principalShares - returned;
+        // The Treasury's fee shares are not enough to make the Player whole on their own.
+        assertGt(shortfall, 0.5 ether);
+        assertLt(tok.balanceOf(address(vault)), 1 ether, "only the Yield Fee shares are left in the vault");
+    }
+
     function test_unlockReleasesPrincipalAndFreezesTheYield() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.32e18);
