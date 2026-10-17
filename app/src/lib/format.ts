@@ -6,6 +6,12 @@ export function fmtGemas(n: number): string {
   return Math.round(n).toLocaleString("en-US");
 }
 
+/** "500, 1,000 or 2,500": entry sizes as prose. */
+export function fmtEntryList(sizes: readonly number[]): string {
+  const f = sizes.map((n) => fmtGemas(n));
+  return f.length < 2 ? f.join("") : `${f.slice(0, -1).join(", ")} or ${f[f.length - 1]}`;
+}
+
 export function fmtUsd(n: number): string {
   const small = n < 100;
   return n.toLocaleString("en-US", {

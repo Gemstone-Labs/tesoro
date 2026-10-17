@@ -20,9 +20,7 @@ import {PositionVault} from "./PositionVault.sol";
 ///                     with Instant Redeems and withdrawals (it used to be the only-growing treasuryIn).
 ///   3 Unlock         (Solana to EVM): header | uint128 0
 ///   4 PayYield       (Solana to EVM): header | bytes32 to | uint128 amountUnderlying
-///   5 PayInstant     (Solana to EVM): header | bytes32 to | uint128 amountUnderlying (paid from the Treasury, or refused)
-///   6 InstantRefund  (EVM to Solana): header | uint64 refusedSeq | uint128 amountUnderlying  (69 bytes). Sent by
-///                     `refundInstant` for a PayInstant the Treasury could not cover; `refusedSeq` is that message's seq.
+///   5 PayInstant     (Solana to EVM): header | bytes32 to | uint128 amountUnderlying (paid from the Treasury; reverts, and is delivered again, while the Treasury holds less)
 /// `sourceChain` is this chain's LayerZero eid. `positionId` = vault address (20 bytes) | vault position id
 /// (uint64) | 4 zero bytes, so several vaults on one chain never collide on Solana and a vault can only
 /// speak for its own Positions.
@@ -69,11 +67,6 @@ contract PositionVaultOApp is PositionVault, OApp {
         return _quote(solanaEid, _packLocked(1, 1, 1, bytes32(0), bytes32(0), 1, 1), _options(), false).nativeFee;
     }
 
-    /// @notice Native fee to send `refundInstant`'s message.
-    function quoteInstantRefund() external view returns (uint256) {
-        return _quote(solanaEid, _packRefund(1, 1, 1, 1, 1), _options(), false).nativeFee;
-    }
-
     /// @notice Native fee to send `reportYield`'s message.
     function quoteYieldAccrued() external view returns (uint256) {
         return _quote(solanaEid, _packYield(1, 1, 1, 1, 1), _options(), false).nativeFee;
@@ -103,10 +96,6 @@ contract PositionVaultOApp is PositionVault, OApp {
         } else if (msgType == MSG_YIELD_ACCRUED) {
             // words: accrued, rate, timestamp, treasuryBalance
             message = _packYield(chain, key, seq, _u128(uint256(_word(payload, 4))), _u128(uint256(_word(payload, 7))));
-        } else if (msgType == MSG_INSTANT_REFUND) {
-            // words: refusedSeq, amount
-            message =
-                _packRefund(chain, key, seq, uint64(uint256(_word(payload, 4))), _u128(uint256(_word(payload, 5))));
         } else {
             revert InvalidMessageType();
         }
@@ -169,14 +158,6 @@ contract PositionVaultOApp is PositionVault, OApp {
         returns (bytes memory)
     {
         return abi.encodePacked(MSG_YIELD_ACCRUED, chain, bytes32(key), seq, cumulative, treasury);
-    }
-
-    function _packRefund(uint32 chain, uint256 key, uint64 seq, uint64 refusedSeq, uint128 amount)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encodePacked(MSG_INSTANT_REFUND, chain, bytes32(key), seq, refusedSeq, amount);
     }
 
     function _options() internal view returns (bytes memory) {

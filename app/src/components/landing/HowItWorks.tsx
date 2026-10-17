@@ -2,6 +2,7 @@ import { LockIcon } from "@/components/ui/icons";
 import { art } from "@/lib/art";
 import { landingArt, type LandingKey } from "@/lib/landing/art";
 import { Picture } from "./Picture";
+import { BRAND } from "@/lib/brand";
 
 /** The diagram's coordinate space (px); nodes and labels are placed in % of it so it scales with the column. */
 const W = 1240;
@@ -159,7 +160,7 @@ export function HowItWorks() {
               How it works
             </h2>
             <p className="lp-lede lp-measure" data-reveal>
-              Your stake earns yield. Tesoro hands you that yield now, as Gemas, and the yield pays it back while you play.
+              Your stake earns yield. {BRAND.name} hands you that yield now, as Gemas, and the yield pays it back while you play.
             </p>
           </div>
         </header>

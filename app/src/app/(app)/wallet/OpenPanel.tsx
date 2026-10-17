@@ -5,12 +5,13 @@ import { Bust, Button, ChainGlyph, Slider } from "@/components/ui";
 import type { Chain } from "@/lib/mock/types";
 import { UnlockTrack, YieldToGemas, monthsLabel } from "./AdvanceQuote";
 import "./wallet.css";
+import { BRAND } from "@/lib/brand";
 
 export const CHAINS: Chain[] = ["SOL", "ETH", "HYPE"];
 
 const HOW_STEPS: [string, string][] = [
   ["Lock a Position", "Your Principal is locked, never played."],
-  ["Take an Advance", "Its projected yield for 1 to 12 months, less Tesoro's Yield Fee, upfront as Gemas."],
+  ["Take an Advance", `Its projected yield for 1 to 12 months, less ${BRAND.name}'s Yield Fee, upfront as Gemas.`],
   ["Yield repays it", "The Position unlocks when its Debt reaches zero."],
 ];
 

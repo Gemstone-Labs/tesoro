@@ -46,3 +46,125 @@ export const netApyPct = (rateBps: number, feeBps: number): number => (rateBps *
 
 /** The Instant Redeem rules of tesoro_core `instant_redeem`: `units` is the Gemas' full value, `payout` what is paid now. */
 export const instantPayout = (units: bigint, instantFeeBps: number): bigint => (units * (BPS - BigInt(instantFeeBps))) / BPS;
+
+// --- Accrued Yield computed on the spot (ADR 0010) -------------------------------------------------
+// Mirrors programs/tesoro_core/src/ledger/yield_math.rs and ledger/native.rs. Nothing records yield:
+// Debt and the amount a Gema redeems for are derived from the clock, so these bigint ports must match
+// the Rust numbers exactly (shared fixtures in yield-math.fixtures.json).
+
+/** Growth since a Position opened as the exact ratio `num / den` (mainnet will return `rate now / rate at open` through the same shape). */
+export interface Growth {
+  num: bigint;
+  den: bigint;
+}
+
+/** Devnet growth since open: `1 + apy * (now - openedAt) * speedup / year`; one when `now` is before the open. */
+export function growthSinceOpen(apyBps: number, openedAtSec: number, nowSec: number, speedup: number | bigint = SPEEDUP): Growth {
+  const elapsed = BigInt(Math.max(0, Math.floor(nowSec) - Math.floor(openedAtSec)));
+  const den = BPS * YEAR_SECS;
+  return { num: den + BigInt(apyBps) * elapsed * BigInt(speedup), den };
+}
+
+export interface AccruedYield {
+  gross: bigint;
+  /** The Yield Fee, floored so rounding favours the Position. */
+  fee: bigint;
+  /** What counts toward Debt and free yield: `gross - fee`. */
+  net: bigint;
+}
+
+/** `Principal * (growth - 1)` floored, then split by the Position's Yield Fee. */
+export function accruedYieldAt(principal: bigint, growth: Growth, feeBps: number): AccruedYield {
+  const gross = growth.num > growth.den ? (principal * (growth.num - growth.den)) / growth.den : 0n;
+  const fee = (gross * BigInt(feeBps)) / BPS;
+  return { gross, fee, net: gross - fee };
+}
+
+/** What a native Position fixes at open: its Principal, rate, Yield Fee and the time it opened (Unix seconds). */
+export interface PositionClock {
+  principal: bigint;
+  rateBps: number;
+  yieldFeeBps: number;
+  openedAt: number;
+  /** Staking-token Positions (mainnet): the pool's Staking Rate at open, 1e12. Zero or absent for a simulated Position. */
+  stakeRateOpen?: bigint;
+}
+
+/**
+ * Where a staking-token Position's growth comes from: the pool's Staking Rate `rateNow` read at `atSec`. An instant after
+ * `atSec` is a projection at `apyBps` a year (the Advance sizing APY), used for estimates; at or before `atSec` it is exact.
+ */
+export interface StakeGrowth {
+  rateNow: bigint;
+  atSec: number;
+  apyBps: number;
+}
+
+/** Growth since open of a staking-token Position at `nowSec`: `Staking Rate now / at open` (Rust `stake_growth`). */
+export function stakeGrowthAt(rateOpen: bigint, stake: StakeGrowth | undefined, nowSec: number): Growth {
+  if (!stake) return { num: rateOpen, den: rateOpen };
+  const ahead = BigInt(Math.max(0, Math.floor(nowSec) - Math.floor(stake.atSec)));
+  const rate = stake.rateNow + (stake.rateNow * BigInt(stake.apyBps) * ahead) / (BPS * YEAR_SECS);
+  return { num: rate, den: rateOpen };
+}
+
+/**
+ * Net Accrued Yield of a native Position at `nowSec`. A simulated Position takes only `speedup` from the sim_lst pool; a
+ * staking-token Position (`stakeRateOpen` set) takes the pool's Staking Rate from `stake`, and without it shows no growth.
+ */
+export const positionAccrued = (p: PositionClock, speedup: number | bigint, nowSec: number, stake?: StakeGrowth): AccruedYield =>
+  p.stakeRateOpen
+    ? accruedYieldAt(p.principal, stakeGrowthAt(p.stakeRateOpen, stake, nowSec), p.yieldFeeBps)
+    : accruedYieldAt(p.principal, growthSinceOpen(p.rateBps, p.openedAt, nowSec, speedup), p.yieldFeeBps);
+
+/** The pool-wide totals behind the Treasury's Yield Fee claim (`NativeCustody`, Rust `PoolTotals`). */
+export interface PoolTotals {
+  feeWeight: bigint;
+  feeWeightTime: bigint;
+  realisedFee: bigint;
+  openPositions: bigint;
+}
+
+/**
+ * Yield Fee earned by the Treasury at `nowSec`, SOL units (Rust `PoolTotals::earned_fee`): conservative, never more than the sum of
+ * the per-Position fees. Unminted until the Treasury pays out.
+ */
+export function earnedFee(t: PoolTotals, nowSec: number, speedup: number | bigint = SPEEDUP): bigint {
+  const weighted = (t.feeWeight * BigInt(nowSec) - t.feeWeightTime) * BigInt(speedup);
+  const live = weighted / (BPS * BPS * YEAR_SECS);
+  const allowance = t.openPositions * 2n;
+  return (live > allowance ? live - allowance : 0n) + t.realisedFee;
+}
+
+/**
+ * Smallest `nowSec` at which a Position's net Accrued Yield reaches `target` (null when it never will).
+ * Starts from the closed form and steps over the floors, so it agrees with `positionAccrued` to the second.
+ */
+export function secondsUntilNet(p: PositionClock, speedup: number | bigint, target: bigint, stake?: StakeGrowth): number | null {
+  if (p.stakeRateOpen) return secondsUntilStakeNet(p, target, stake);
+  if (target <= 0n) return p.openedAt;
+  const keep = BPS - BigInt(p.yieldFeeBps);
+  const perSec = p.principal * BigInt(p.rateBps) * BigInt(speedup) * keep;
+  if (perSec <= 0n) return null;
+  let elapsed = (target * BPS * BPS * YEAR_SECS) / perSec;
+  const net = (e: bigint) => positionAccrued(p, speedup, p.openedAt + Number(e)).net;
+  while (elapsed > 0n && net(elapsed - 1n) >= target) elapsed--;
+  while (net(elapsed) < target) elapsed++;
+  return p.openedAt + Number(elapsed);
+}
+
+/** Smallest second at which a staking-token Position's net yield reaches `target`, projecting growth at `stake.apyBps` (null without growth to project). */
+function secondsUntilStakeNet(p: PositionClock, target: bigint, stake?: StakeGrowth): number | null {
+  if (!stake) return null;
+  if (positionAccrued(p, 0, stake.atSec, stake).net >= target) return stake.atSec;
+  if (stake.apyBps <= 0) return null;
+  let lo = stake.atSec;
+  let hi = stake.atSec + 100 * 31_536_000;
+  if (positionAccrued(p, 0, hi, stake).net < target) return null;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (positionAccrued(p, 0, mid, stake).net >= target) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}

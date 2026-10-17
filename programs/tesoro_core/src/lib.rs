@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 pub mod error;
 pub mod instructions;
 pub mod ledger;
+pub mod pyth;
 pub mod state;
 pub mod util;
 
@@ -54,6 +55,22 @@ pub mod tesoro_core {
         instructions::admin::init_leaderboard(ctx, leaderboard_bps)
     }
 
+    /// Admin only: turns the Invite gate on or off and sets the key that must co-sign
+    /// `create_account` while it is on.
+    pub fn set_invite_gate(ctx: Context<SetInviteGate>, required: bool, key: Pubkey) -> Result<()> {
+        instructions::admin::set_invite_gate(ctx, required, key)
+    }
+
+    /// Sets the entry sizes in Gemas (1 to 4, each a multiple of 100). Admin only.
+    pub fn set_entry_sizes(ctx: Context<SetEntrySizes>, sizes: Vec<u64>) -> Result<()> {
+        instructions::admin::set_entry_sizes(ctx, sizes)
+    }
+
+    /// Locks (mainnet) or unlocks the oracle's test-mode powers. Admin only.
+    pub fn set_oracle_lock(ctx: Context<SetOracleLock>, locked: bool) -> Result<()> {
+        instructions::admin::set_oracle_lock(ctx, locked)
+    }
+
     // --- Leaderboard seasons ----------------------------------------------------------------
 
     pub fn record_season<'info>(
@@ -69,6 +86,12 @@ pub mod tesoro_core {
         rank: u8,
     ) -> Result<()> {
         instructions::season::pay_season_rank(ctx, rank)
+    }
+
+    /// Admin only, inside the 48-hour payout window: the rank pays nothing and its share stays in
+    /// the pool for the next season.
+    pub fn void_season_rank(ctx: Context<VoidSeasonRank>, rank: u8) -> Result<()> {
+        instructions::season::void_season_rank(ctx, rank)
     }
 
     // --- Accounts and Holdings --------------------------------------------------------------
@@ -175,6 +198,39 @@ pub mod tesoro_core {
         instructions::native::take_native_advance(ctx, horizon_months)
     }
 
+    /// Admin: where an asset's Advances read their USD price on mainnet (a Pyth push feed).
+    pub fn set_onchain_price(
+        ctx: Context<SetOnchainPrice>,
+        asset: Pubkey,
+        feed_id: [u8; 32],
+        max_age_secs: u32,
+        max_conf_bps: u16,
+    ) -> Result<()> {
+        instructions::onchain_price::set_onchain_price(
+            ctx,
+            asset,
+            feed_id,
+            max_age_secs,
+            max_conf_bps,
+        )
+    }
+
+    /// `take_native_advance` priced from the asset's Pyth feed instead of the keeper's price.
+    pub fn take_native_advance_onchain(
+        ctx: Context<TakeNativeAdvanceOnchain>,
+        horizon_months: u8,
+    ) -> Result<()> {
+        instructions::onchain_price::take_native_advance_onchain(ctx, horizon_months)
+    }
+
+    /// `take_advance` priced from the asset's Pyth feed instead of a price the oracle names.
+    pub fn take_advance_onchain(
+        ctx: Context<TakeAdvanceOnchain>,
+        horizon_months: u8,
+    ) -> Result<()> {
+        instructions::onchain_price::take_advance_onchain(ctx, horizon_months)
+    }
+
     pub fn extend_native_advance(
         ctx: Context<ExtendNativeAdvance>,
         extra_months: u8,
@@ -186,9 +242,75 @@ pub mod tesoro_core {
         instructions::native::set_extend_limit(ctx, months)
     }
 
+    pub fn set_entry_limit(ctx: Context<SetEntryLimit>, gemas: u64) -> Result<()> {
+        instructions::native::set_entry_limit(ctx, gemas)
+    }
+
+    pub fn set_break(ctx: Context<SetProtection>, days: u16) -> Result<()> {
+        instructions::native::set_break(ctx, days)
+    }
+
+    pub fn set_self_exclusion(ctx: Context<SetProtection>, months: u16) -> Result<()> {
+        instructions::native::set_self_exclusion(ctx, months)
+    }
+
     /// Creates the shared native custody (vault + pool totals). Admin only, once.
     pub fn init_native_custody(ctx: Context<InitNativeCustody>) -> Result<()> {
         instructions::native::init_native_custody(ctx)
+    }
+
+    // --- Mainnet SOL Positions on a real staking token (ADR 0011) -----------------------------
+
+    /// Admin: the staking token new SOL Positions open with (creates its custody and vault the
+    /// first time). The stake pool account pins the token's Staking Rate source.
+    pub fn set_stake_token(ctx: Context<SetStakeToken>) -> Result<()> {
+        instructions::stake::set_stake_token(ctx)
+    }
+
+    /// Admin: the ceiling on the annualised growth an Advance is sized on, in basis points.
+    pub fn set_stake_apy_ceiling(
+        ctx: Context<SetStakeApyCeiling>,
+        apy_ceiling_bps: u16,
+    ) -> Result<()> {
+        instructions::stake::set_stake_apy_ceiling(ctx, apy_ceiling_bps)
+    }
+
+    /// Deposits `shares` of the active staking token into the shared vault as a new Position.
+    pub fn open_stake_position(
+        ctx: Context<OpenStakePosition>,
+        nonce: u64,
+        shares: u64,
+    ) -> Result<()> {
+        instructions::stake::open_stake_position(ctx, nonce, shares)
+    }
+
+    /// An Advance against a stake Position: Pyth price, sized on the pool's recent growth.
+    pub fn take_stake_advance(ctx: Context<TakeStakeAdvance>, horizon_months: u8) -> Result<()> {
+        instructions::stake::take_stake_advance(ctx, horizon_months)
+    }
+
+    pub fn extend_stake_advance(ctx: Context<ExtendStakeAdvance>, extra_months: u8) -> Result<()> {
+        instructions::stake::extend_stake_advance(ctx, extra_months)
+    }
+
+    /// Instant Redeem of won Gemas of a stake Source, paid in the token from the Treasury balance.
+    pub fn instant_redeem_stake(ctx: Context<InstantRedeemStake>, amount: u64) -> Result<()> {
+        instructions::stake::instant_redeem_stake(ctx, amount)
+    }
+
+    /// Admin: withdraws Treasury balance, in the token, to the company wallet.
+    pub fn withdraw_treasury_stake(ctx: Context<WithdrawTreasuryStake>, amount: u64) -> Result<()> {
+        instructions::stake::withdraw_treasury_stake(ctx, amount)
+    }
+
+    /// Creates the Treasury without a simSOL vault (a deployment without `sim_lst`) or changes
+    /// its fee rates.
+    pub fn init_treasury_stake(
+        ctx: Context<InitTreasuryStake>,
+        yield_fee_bps: u16,
+        instant_fee_bps: u16,
+    ) -> Result<()> {
+        instructions::stake::init_treasury_stake(ctx, yield_fee_bps, instant_fee_bps)
     }
 
     // --- Treasury: Yield Fee and Instant Redeem (ADR 0007) ----------------------------------
@@ -371,6 +493,10 @@ pub mod tesoro_core {
             player_share_bps,
             directed_request,
         )
+    }
+
+    pub fn clear_request(ctx: Context<ClearRequest>) -> Result<()> {
+        instructions::backing::clear_request(ctx)
     }
 
     pub fn accept_directed(ctx: Context<AcceptDirected>) -> Result<()> {

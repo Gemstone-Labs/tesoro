@@ -12,6 +12,7 @@ import { returnOwn, returnRows } from "@/lib/chain/return-own";
 import { fmtAsset, fmtGemas, fmtUsd, gemasToUsd } from "@/lib/format";
 import type { Chain, Position } from "@/lib/mock";
 import "./money-sheets.css";
+import { BRAND } from "@/lib/brand";
 
 const GLYPH: Record<Chain, 0 | 1 | 2> = { SOL: 0, ETH: 1, HYPE: 2 };
 const CHAIN_NAME: Record<Chain, string> = { SOL: "Solana", ETH: "Ethereum", HYPE: "HyperEVM" };
@@ -150,7 +151,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       </div>
       {showInstant && (
         <p className="mx-fee">
-          Only won Gemas still waiting on yield are sold: Tesoro keeps {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed at full value.
+          Only won Gemas still waiting on yield are sold: {BRAND.name} keeps {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed at full value.
         </p>
       )}
       <details className="mx-from">
@@ -166,7 +167,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       </details>
       {showInstant && (
         <details className="mx-from">
-          <summary>Most Tesoro can pay right now</summary>
+          <summary>Most {BRAND.name} can pay right now</summary>
           <dl className="kv">
             {instant.available.map((a) => (
               <div key={a.asset} style={{ display: "contents" }}>
@@ -395,7 +396,7 @@ function ReturnOwnForm({ position, onClose, onReturned }: { position: ChainPosit
     setBusy(true);
     setError(null);
     try {
-      const sig = await returnOwn(auth.signer, position.address, row.holding.source, BigInt(value));
+      const sig = await returnOwn(auth.signer, position.address, row.holding.source, BigInt(value), row.holding.native);
       setDone({ gemas: value, cleared: value >= Number(row.holding.sourceDebt), receipts: [{ label: "Gemas returned", sig }] });
       await Promise.all([refresh(), onReturned?.()]);
     } catch (e) {

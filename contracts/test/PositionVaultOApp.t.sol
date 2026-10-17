@@ -151,24 +151,13 @@ contract PositionVaultOAppTest is Test {
         assertEq(lst.balanceOf(redeemer), treasury / 2);
     }
 
-    function test_pay_instant_short_is_refused_and_refunded_over_the_wire() public {
+    function test_pay_instant_short_reverts_over_the_wire_and_sends_nothing() public {
         uint64 id = _open(1e18);
-        _recv(_instant(id, 4, redeemer, 1e17)); // empty Treasury: no revert, nothing paid
-        assertEq(lst.balanceOf(redeemer), 0);
-        assertEq(vault.refusedInstant(id, 4), 1e17);
-
         uint256 sendsBefore = ep.sends();
-        vault.refundInstant{value: 0.0001 ether}(id, 4);
-        assertEq(ep.sends(), sendsBefore + 1);
-        bytes memory m = ep.lastMessage();
-        assertEq(m.length, 69);
-        assertEq(uint8(m[0]), 6);
-        assertEq(bytes4(_slice(m, 1, 4)), bytes4(HOODI));
-        assertEq(bytes32(_slice(m, 5, 32)), _key(id));
-        assertEq(bytes8(_slice(m, 37, 8)), bytes8(uint64(2))); // the position's next outbound seq
-        assertEq(bytes8(_slice(m, 45, 8)), bytes8(uint64(4))); // the refused inbound seq
-        assertEq(bytes16(_slice(m, 53, 16)), bytes16(uint128(1e17)));
-        assertEq(vault.quoteInstantRefund(), ep.fee());
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1e17, 0));
+        _recv(_instant(id, 4, redeemer, 1e17)); // empty Treasury: the message waits
+        assertEq(lst.balanceOf(redeemer), 0);
+        assertEq(ep.sends(), sendsBefore);
     }
 
     function test_withdraw_treasury_is_owner_only() public {

@@ -180,6 +180,7 @@ impl Env {
             tesoro_core::accounts::CreateAccount {
                 authority: key,
                 account,
+                invite_gate: tesoro_core::state::invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::CreateAccount {
@@ -202,6 +203,7 @@ impl Env {
     /// Position + Advance: 75_000 Gemas of the staker's own Source.
     fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
         let position = tpda(&[POSITION_SEED, &[0], &[id; 32]]);
+        let asset = APk::new_unique();
         let open = ix(
             tesoro_core::ID,
             tesoro_core::accounts::OpenPosition {
@@ -214,7 +216,7 @@ impl Env {
             tesoro_core::instruction::OpenPosition {
                 source_chain: SourceChain::Solana,
                 position_id: [id; 32],
-                source_asset: APk::new_unique(),
+                source_asset: asset,
                 decimals: 9,
                 principal: 100 * SOL,
                 rate_bps: 1_000,
@@ -233,6 +235,7 @@ impl Env {
                 config: tpda(&[CONFIG_SEED]),
                 treasury: tesoro_core_treasury(),
                 owner_account: p.account,
+                protections: tpda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position,
                 source,
                 holding,
@@ -242,7 +245,14 @@ impl Env {
                 horizon_months: 6,
                 price_micro_usd: 150_000_000,
             },
-            vec![],
+            vec![AccountMeta::new_readonly(
+                s(APk::find_program_address(
+                    &[tesoro_core::state::ONCHAIN_PRICE_SEED, asset.as_ref()],
+                    &tesoro_core::ID,
+                )
+                .0),
+                false,
+            )],
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
@@ -415,6 +425,7 @@ impl Env {
                 player_authority: alice.key,
                 config: tpda(&[CONFIG_SEED]),
                 player_account: alice.account,
+                protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -431,7 +442,9 @@ impl Env {
             tesoro_core::accounts::JoinMatch {
                 player_authority: bob.key,
                 player_account: bob.account,
+                protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
+                opener_protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
             },
             tesoro_core::instruction::JoinMatch {},
             vec![rem(self.b_holding)],
@@ -669,6 +682,57 @@ fn f01_delegation_is_pinned_to_the_tee_validator() {
     }
 }
 
+/// Audit 2026-10-16 G-1. `delegate_match` is permissionless and checked only the validator, so
+/// once the table had been committed back to the base layer anyone could delegate it again. The
+/// accounts then belong to the delegation program and `finalize` can no longer read them: the
+/// loser stalls the settlement until the refund window opens. A table delegates once, while it
+/// is freshly created.
+#[test]
+fn g01_a_table_that_has_been_played_cannot_be_delegated_again() {
+    let mut env = ready(0);
+    env.patch_match(|m| m.status = holdem::STATUS_OVER);
+    let ad = addrs(env.id);
+    let dlp = sdk_key(ephemeral_rollups_sdk::id());
+    let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
+    let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &holdem::ID);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+    let attacker = env.bob.kp.insecure_clone();
+    let delegate = ix(
+        holdem::ID,
+        holdem::accounts::DelegateMatch {
+            payer: a(attacker.pubkey()),
+            buffer_game_match: buffer(ad.game_match),
+            delegation_record_game_match: record(ad.game_match),
+            delegation_metadata_game_match: meta(ad.game_match),
+            game_match: ad.game_match,
+            buffer_deck: buffer(ad.deck),
+            delegation_record_deck: record(ad.deck),
+            delegation_metadata_deck: meta(ad.deck),
+            deck: ad.deck,
+            buffer_hole_0: buffer(ad.hole_0),
+            delegation_record_hole_0: record(ad.hole_0),
+            delegation_metadata_hole_0: meta(ad.hole_0),
+            hole_0: ad.hole_0,
+            buffer_hole_1: buffer(ad.hole_1),
+            delegation_record_hole_1: record(ad.hole_1),
+            delegation_metadata_hole_1: meta(ad.hole_1),
+            hole_1: ad.hole_1,
+            validator: Some(holdem::TEE_VALIDATOR),
+            owner_program: holdem::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        holdem::instruction::DelegateMatch { match_id: env.id },
+        vec![],
+    );
+    let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        hcode(holdem::HoldemError::AlreadyStarted)
+    );
+}
+
 /// F-02. `init_permissions` treated "the permission address holds lamports" as "the permission
 /// exists". Anyone can put lamports on those addresses first, after which the table starts with
 /// the Deck and the Hole cards never made private.
@@ -721,6 +785,7 @@ fn f03_a_live_table_cannot_be_refunded_from_tesoro_core_after_an_hour() {
             caller: a(caller.pubkey()),
             config: tpda(&[CONFIG_SEED]),
             match_state: tmatch_pda(env.id),
+            opener_protections: None,
         },
         tesoro_core::instruction::RefundMatch {},
         remaining,
@@ -731,6 +796,41 @@ fn f03_a_live_table_cannot_be_refunded_from_tesoro_core_after_an_hour() {
         tesoro_core::error::CORE_ERROR_OFFSET + tesoro_core::ledger::CoreError::NotExpired.code()
     );
     assert_eq!(env.tesoro_status(), MatchStatus::Active);
+}
+
+/// The table plays in the rollup, where tesoro_core cannot be called, so the single push at
+/// `create_match` covers the whole table: the deadline is a full table window from creation, and
+/// only then can a stranger refund.
+#[test]
+fn create_match_pushes_the_refund_deadline_a_full_table_window_out() {
+    let mut env = ready(0);
+    let deadline = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
+    assert_eq!(deadline, T0 + holdem::TABLE_WINDOW_SECS);
+    env.set_time(deadline - 1);
+    let remaining = env.payout_metas(true);
+    let caller = env.bob.kp.insecure_clone();
+    let refund = ix(
+        tesoro_core::ID,
+        tesoro_core::accounts::RefundMatch {
+            caller: a(caller.pubkey()),
+            config: tpda(&[CONFIG_SEED]),
+            match_state: tmatch_pda(env.id),
+            opener_protections: None,
+        },
+        tesoro_core::instruction::RefundMatch {},
+        remaining,
+    );
+    let err = env
+        .send(std::slice::from_ref(&refund), &caller, &[])
+        .unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        tesoro_core::error::CORE_ERROR_OFFSET + tesoro_core::ledger::CoreError::NotExpired.code()
+    );
+    env.set_time(deadline);
+    env.send(&[refund], &caller, &[])
+        .expect("anyone refunds once the table window is over");
+    assert_eq!(env.tesoro_status(), MatchStatus::Refunded);
 }
 
 #[test]
@@ -783,6 +883,7 @@ fn only_active_matches_may_be_bound() {
             player_authority: env.alice.key,
             config: tpda(&[CONFIG_SEED]),
             player_account: env.alice.account,
+            protections: tpda(&[PROTECTIONS_SEED, env.alice.account.as_ref()]),
             match_state: tmatch_pda(1),
             system_program: anchor_lang::system_program::ID,
         },

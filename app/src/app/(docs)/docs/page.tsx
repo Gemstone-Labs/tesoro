@@ -29,6 +29,7 @@ import { StartCards } from "@/components/docs/StartCards";
 import { Cards, Row, Stats } from "@/components/docs/visual";
 import type { Tone } from "@/components/docs/visual";
 import { INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Overview", alternates: { canonical: "/docs" } };
 
@@ -39,7 +40,7 @@ const GROUPS: Group[] = [
   {
     n: "01",
     name: "Start",
-    purpose: "What Tesoro is, the whole loop in five steps, and how you sign in.",
+    purpose: `What ${BRAND.name} is, the whole loop in five steps, and how you sign in.`,
     start: "/docs/how-it-works",
     items: [
       { href: "/docs/how-it-works", icon: Workflow, tone: "sapphire", tag: "the loop" },
@@ -117,7 +118,7 @@ export default function Page() {
       <section className="dx-hero" aria-labelledby="docs-title">
         <div>
           <p className="dx-eyebrow">Documentation</p>
-          <h1 id="docs-title">Tesoro Docs</h1>
+          <h1 id="docs-title">{BRAND.name} Docs</h1>
           <p className="dx-hero-lede">
             Stake a token, then <b>play now with the yield it has not earned yet</b>. Your Principal stays locked and is never played. These pages cover
             it in plain words for players and in full detail for developers.
@@ -136,12 +137,12 @@ export default function Page() {
       </section>
 
       <section className="dx-band" aria-labelledby="what-is">
-        <h2 id="what-is">What is Tesoro?</h2>
-        <p className="dx-band-big">Staking yield sits idle, and play costs your principal. Tesoro lets you play with the yield before it arrives.</p>
+        <h2 id="what-is">What is {BRAND.name}?</h2>
+        <p className="dx-band-big">Staking yield sits idle, and play costs your principal. {BRAND.name} lets you play with the yield before it arrives.</p>
         <Cards
           items={[
             { tag: "The problem", title: "Yield waits, play costs", icon: Hourglass, tone: "amber", body: "Staked tokens earn slowly, and anything you want to play with has to come out of the amount you staked." },
-            { tag: "The fix", title: "Play now, Principal never played", icon: Sprout, tone: "emerald", body: "An Advance pays your Position's projected yield upfront as Gemas, net of Tesoro's 20% Yield Fee. Your Principal stays locked, and the Position's own yield repays the Advance." },
+            { tag: "The fix", title: "Play now, Principal never played", icon: Sprout, tone: "emerald", body: `An Advance pays your Position's projected yield upfront as Gemas, net of ${BRAND.name}'s 20% Yield Fee. Your Principal stays locked, and the Position's own yield repays the Advance.` },
             { tag: "Why it compounds", title: "Winners redeem as yield lands", icon: Repeat, tone: "emerald", body: `Gemas you win turn into the loser's Source asset as that yield arrives, or right away for ${INSTANT_PAYOUT_PCT}% with Redeem now. Backing and the weekly Leaderboard Pool give more Gemas a reason to move.` },
           ]}
         />

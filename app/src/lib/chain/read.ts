@@ -86,6 +86,8 @@ export interface ChainHolding {
   asset: "SOL" | "ETH" | "HYPE";
   /** The Source's Position holds simSOL custody: Redeem pays simSOL on Solana. */
   native: boolean;
+  /** The staking token's mint when the Source's Position holds a real staking token (mainnet); null for simSOL custody. */
+  stakeMint: PublicKey | null;
   /** The Source belongs to an Ethereum or HyperEVM Position (Redeem pays on that chain through the bridge). */
   eth: { vault: string; id: bigint } | null;
 }

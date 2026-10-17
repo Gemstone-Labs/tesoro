@@ -4,13 +4,15 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { joinWaitlist, type WaitlistState } from "@/app/(marketing)/waitlist-action";
 import { art } from "@/lib/art";
 import { appHref } from "@/lib/landing/config";
+import { SITE_URL } from "@/lib/site";
 import { gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
 import { PackReveal } from "./PackReveal";
 import { TurnstileField } from "./TurnstileField";
+import { BRAND } from "@/lib/brand";
 
 const IDLE: WaitlistState = { status: "idle" };
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.playtesoro.com";
-const SHARE_TEXT = "I just joined the Tesoro waitlist: play casual games with yield you haven't earned yet.";
+const SITE = SITE_URL;
+const SHARE_TEXT = `I just joined the ${BRAND.name} waitlist: play casual games with yield you haven't earned yet.`;
 
 const postUrl = (text: string, url: string) =>
   `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;

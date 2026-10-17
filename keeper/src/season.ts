@@ -1,8 +1,8 @@
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
-import { CONFIG, POOL_ACCOUNT, fetchLeaderboardTerms, fetchSeasonRecord, fetchSeasonWins, seasonPda, type SeasonRecord } from "../../app/src/lib/chain/leaderboard.ts";
-import { PRIZE_PLACES, seasonAt, seasonEnd, standings, type Standing, type Win } from "../../app/src/lib/chain/season.ts";
+import { CONFIG, POOL_ACCOUNT, fetchLeaderboardTerms, fetchSeasonRecord, fetchSeasonWins, seasonPda, seasonWindowPda, type SeasonRecord } from "../../app/src/lib/chain/leaderboard.ts";
+import { PRIZE_PLACES, payoutOpensAt, seasonAt, seasonEnd, standings, type Standing, type Win } from "../../app/src/lib/chain/season.ts";
 import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
 import { oracleKey } from "./price.ts";
@@ -26,6 +26,23 @@ export function seasonsToCheck(nowSecs: number, graceSecs = GRACE_SECS, lookback
 
 /** The ranks that are paid: the top `PRIZE_PLACES` of the table. */
 export const topRanks = (wins: Win[]): Standing[] => standings(wins).slice(0, PRIZE_PLACES);
+
+/**
+ * What to do with a recorded season at `nowSecs`: the ranks to pay now (unpaid, not voided), or when the payout window
+ * ends. Read from the chain every pass, so a restart picks up exactly where it was. `recordedAt` null is a season
+ * recorded before the window existed; the program cannot pay those (no window account), so the job leaves them.
+ */
+export function payPlan(
+  rec: { count: number; paidMask: number; voidedMask: number; recordedAt: number | null },
+  nowSecs: number,
+): { kind: "legacy" } | { kind: "wait"; until: number } | { kind: "pay"; ranks: number[] } {
+  if (rec.recordedAt === null) return { kind: "legacy" };
+  const until = payoutOpensAt(rec.recordedAt);
+  if (nowSecs < until) return { kind: "wait", until };
+  const ranks: number[] = [];
+  for (let r = 0; r < rec.count; r++) if (!(rec.paidMask & (1 << r)) && !(rec.voidedMask & (1 << r))) ranks.push(r);
+  return { kind: "pay", ranks };
+}
 
 export interface PoolHolding {
   pubkey: PublicKey;
@@ -63,7 +80,7 @@ async function record(ctx: Ctx, n: number, table: Standing[], signer: ReturnType
   const r = await act(ctx, "season", subject, what, async () => {
     const ix = await ctx.core.methods
       .recordSeason(n, table.map((t) => new anchor.BN(t.points)))
-      .accountsPartial({ authority: signer.publicKey, config: CONFIG, poolAccount: POOL_ACCOUNT, season: seasonPda(n), systemProgram: SystemProgram.programId })
+      .accountsPartial({ authority: signer.publicKey, config: CONFIG, poolAccount: POOL_ACCOUNT, season: seasonPda(n), seasonWindow: seasonWindowPda(n), systemProgram: SystemProgram.programId })
       .remainingAccounts(table.map((t) => ({ pubkey: new PublicKey(t.account), isSigner: false, isWritable: false })))
       .instruction();
     return ctx.bp.sendBase(signer, [ix]);
@@ -99,7 +116,7 @@ async function payRank(ctx: Ctx, rec: SeasonRecord, rank: number, signer: Return
     ixs.push(
       await ctx.core.methods
         .paySeasonRank(rank)
-        .accountsPartial({ authority: signer.publicKey, config: CONFIG, season: seasonPda(rec.number), poolAccount: POOL_ACCOUNT, winnerAccount: winner })
+        .accountsPartial({ authority: signer.publicKey, config: CONFIG, season: seasonPda(rec.number), seasonWindow: seasonWindowPda(rec.number), poolAccount: POOL_ACCOUNT, winnerAccount: winner })
         .remainingAccounts([...holdings.map((h) => ({ pubkey: h.pubkey, isSigner: false, isWritable: true })), ...theirs])
         .instruction(),
     );
@@ -110,8 +127,8 @@ async function payRank(ctx: Ctx, rec: SeasonRecord, rank: number, signer: Return
 
 /**
  * Job 7: Leaderboard seasons. For a season that ended (plus a grace period), recomputes the table from the pool's
- * `MatchWon` history and records the top ten with `record_season`, then pays each unpaid rank with `pay_season_rank`
- * (one per transaction; Gemas keep their Source). Signed by the oracle key, which `Config.oracle_authority` allows.
+ * `MatchWon` history and records the top ten with `record_season`, then, once the 48-hour payout window has passed (ADR 0012), pays each unpaid,
+ * unvoided rank with `pay_season_rank` (one per transaction; Gemas keep their Source). Signed by the oracle key, which `Config.oracle_authority` allows.
  * Both steps are idempotent: a recorded season is never recomputed, a paid rank never paid twice.
  */
 export async function seasonJob(ctx: Ctx): Promise<number> {
@@ -142,14 +159,19 @@ export async function seasonJob(ctx: Ctx): Promise<number> {
       rec = await fetchSeasonRecord(ctx.conn, n);
       if (!rec) continue;
     }
+    const plan = payPlan(rec, ctx.now);
+    if (plan.kind !== "pay") {
+      const why = plan.kind === "wait" ? `payout window open until ${new Date(plan.until * 1000).toISOString()}: the admin can still void a rank` : "recorded before the payout window existed: not paid by the keeper";
+      log("season", `season=${n}`, `${rec.count} ranked, pool ${rec.poolTotal} Gemas, ${why}`);
+      continue;
+    }
     let paid = 0;
-    for (let rank = 0; rank < rec.count; rank++) {
-      if (rec.paidMask & (1 << rank)) continue;
+    for (const rank of plan.ranks) {
       if (!(await payRank(ctx, rec, rank, signer))) break;
       paid++;
     }
     actions += paid;
-    log("season", `season=${n}`, `${rec.count} ranked, pool ${rec.poolTotal} Gemas, ${paid} paid this pass`);
+    log("season", `season=${n}`, `${rec.count} ranked, pool ${rec.poolTotal} Gemas, ${paid} paid this pass, ${rec.voidedMask.toString(2)} voided mask`);
   }
   return actions;
 }

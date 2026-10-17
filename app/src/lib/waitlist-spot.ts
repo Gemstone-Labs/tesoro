@@ -1,3 +1,4 @@
+import { BRAND } from "./brand";
 /**
  * A waitlist spot and the gemstone animal in its pack. Spots deal the twelve player avatars in a fixed
  * order (step 5 visits all twelve before repeating), so friends who join together get different gems.
@@ -38,5 +39,5 @@ export function parseSpot(raw: string): number | null {
 export const spotPath = (spot: number) => `/spot/${spot}`;
 
 export function shareText(gem: SpotGem): string {
-  return `I'm #${gem.spot} on the Tesoro waitlist and pulled the ${gem.name}. Play now, your yield pays later. Open your pack:`;
+  return `I'm #${gem.spot} on the ${BRAND.name} waitlist and pulled the ${gem.name}. ${BRAND.shareTagline} Open your pack:`;
 }

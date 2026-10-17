@@ -236,6 +236,7 @@ impl Env {
             tesoro_core::accounts::CreateAccount {
                 authority: a(kp.pubkey()),
                 account,
+                invite_gate: tesoro_core::state::invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::CreateAccount {
@@ -252,6 +253,7 @@ impl Env {
         let (account, kp) = self.person_account();
         let position = core_pda(&[POSITION_SEED, &[0], &[id; 32]]);
         let config = core_pda(&[CONFIG_SEED]);
+        let asset = APk::new_unique();
         let open = core_ix(
             tesoro_core::accounts::OpenPosition {
                 oracle: a(self.oracle.pubkey()),
@@ -263,7 +265,7 @@ impl Env {
             tesoro_core::instruction::OpenPosition {
                 source_chain: SourceChain::Solana,
                 position_id: [id; 32],
-                source_asset: APk::new_unique(),
+                source_asset: asset,
                 decimals: 9,
                 principal: 100 * SOL,
                 rate_bps: 1_000,
@@ -281,6 +283,7 @@ impl Env {
                 config,
                 treasury: tesoro_core_treasury(),
                 owner_account: account,
+                protections: core_pda(&[PROTECTIONS_SEED, account.as_ref()]),
                 position,
                 source,
                 holding,
@@ -290,7 +293,14 @@ impl Env {
                 horizon_months: 6,
                 price_micro_usd: 150_000_000,
             },
-            vec![],
+            vec![AccountMeta::new_readonly(
+                s(APk::find_program_address(
+                    &[tesoro_core::state::ONCHAIN_PRICE_SEED, asset.as_ref()],
+                    &tesoro_core::ID,
+                )
+                .0),
+                false,
+            )],
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&kp]).expect("advance");
@@ -371,6 +381,7 @@ impl Env {
                 player_authority: alice.key,
                 config: core_pda(&[CONFIG_SEED]),
                 player_account: alice.account,
+                protections: core_pda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
                 match_state: match_pda(id),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -385,12 +396,18 @@ impl Env {
         id
     }
 
+    fn opener_account(&self, id: u64) -> APk {
+        APk::new_from_array(self.load_core::<MatchState>(match_pda(id)).inner.a.player)
+    }
+
     fn join(&mut self, bob: &Person, id: u64) -> Res {
         let join = core_ix(
             tesoro_core::accounts::JoinMatch {
                 player_authority: bob.key,
                 player_account: bob.account,
+                protections: core_pda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
                 match_state: match_pda(id),
+                opener_protections: core_pda(&[PROTECTIONS_SEED, self.opener_account(id).as_ref()]),
             },
             tesoro_core::instruction::JoinMatch {},
             vec![rem(bob.holding)],
@@ -409,6 +426,9 @@ impl Env {
                 session,
                 board_0: board_pda(session, 0),
                 vault: vault_pda(session),
+                authority: authority(),
+                config: core_pda(&[CONFIG_SEED]),
+                tesoro_core_program: tesoro_core::ID,
                 system_program: anchor_lang::system_program::ID,
             },
             block_puzzle::instruction::OpenSession {},
@@ -437,6 +457,28 @@ impl Env {
             vec![],
         );
         let payer = self.stranger.insecure_clone();
+        self.send(&[ix], &payer, &[])
+    }
+
+    /// A stranger asks tesoro_core to refund an unjoined Match of `alice`.
+    fn refund_as_stranger(&mut self, alice: &Person, id: u64) -> Res {
+        let payer = self.stranger.insecure_clone();
+        let mut metas = to_metas(
+            tesoro_core::accounts::RefundMatch {
+                caller: a(payer.pubkey()),
+                config: core_pda(&[CONFIG_SEED]),
+                match_state: match_pda(id),
+                opener_protections: None,
+            }
+            .to_account_metas(None),
+        );
+        metas.push(rem(alice.account));
+        metas.push(rem(alice.holding));
+        let ix = Instruction {
+            program_id: s(tesoro_core::ID),
+            accounts: metas,
+            data: tesoro_core::instruction::RefundMatch {}.data(),
+        };
         self.send(&[ix], &payer, &[])
     }
 
@@ -650,6 +692,8 @@ fn a_session_needs_an_open_match_of_this_game_opened_by_the_account_given() {
     let m = env.load_core::<MatchState>(match_pda(id)).inner;
     assert_eq!(session.players[0], alice.key);
     assert!(!session.joined);
+    // The Queue holds the entry a day, not tesoro_core's hour.
+    assert_eq!(m.deadline, env.now() + block_puzzle::QUEUE_WINDOW_SECS);
     let opener_deadline = m.deadline + block_puzzle::SUBMISSION_SECS;
     assert_eq!(session.opener_deadline, opener_deadline);
     let board: Board = env.load_bp(env.board(id, 0));
@@ -661,11 +705,32 @@ fn a_session_needs_an_open_match_of_this_game_opened_by_the_account_given() {
     // The Queue window cannot be past.
     let id3 = env.open(&alice);
     env.set_time(env.now() + tesoro_core::ledger::MATCH_TIMEOUT_SECS);
+
     let err = env.open_session(&alice, id3).unwrap_err();
     assert_eq!(
         code(&err),
         bp_err(block_puzzle::BlockPuzzleError::DeadlinePassed)
     );
+}
+
+#[test]
+fn an_unjoined_block_puzzle_match_waits_a_day_before_anyone_can_refund_it() {
+    let (mut env, alice, _bob) = Env::new();
+    let (id, _) = env.opened(&alice);
+    let t0 = env.now();
+    // An hour in the Match is still Open and joinable; the refund is not open to a stranger.
+    env.set_time(t0 + tesoro_core::ledger::MATCH_TIMEOUT_SECS + 1);
+    let err = env.refund_as_stranger(&alice, id).unwrap_err();
+    assert_eq!(
+        code(&err),
+        6000 + 100 + tesoro_core::ledger::CoreError::NotExpired.code()
+    );
+    assert_eq!(env.total(&alice), 75_000 - ENTRY);
+    // The window closes a day after the Session opened.
+    env.set_time(t0 + block_puzzle::QUEUE_WINDOW_SECS + 1);
+    env.refund_as_stranger(&alice, id)
+        .expect("refund after a day");
+    assert_eq!(env.total(&alice), 75_000);
 }
 
 #[test]
@@ -885,6 +950,7 @@ fn a_match_nobody_joins_is_refunded_to_the_opener_after_they_played() {
                 caller,
                 config: core_pda(&[CONFIG_SEED]),
                 match_state: match_pda(id),
+                opener_protections: None,
             }
             .to_account_metas(None),
         );
@@ -900,7 +966,7 @@ fn a_match_nobody_joins_is_refunded_to_the_opener_after_they_played() {
     let ix = refund(&env, a(payer.pubkey()));
     assert!(env.send(std::slice::from_ref(&ix), &payer, &[]).is_err());
     // Expired means nobody can join either.
-    env.set_time(env.now() + tesoro_core::ledger::MATCH_TIMEOUT_SECS);
+    env.set_time(env.now() + block_puzzle::QUEUE_WINDOW_SECS);
     let err = env.join(&bob, id).unwrap_err();
     assert_eq!(
         code(&err),
@@ -922,6 +988,7 @@ fn the_opener_can_cancel_an_unjoined_match_at_once() {
             caller: alice.key,
             config: core_pda(&[CONFIG_SEED]),
             match_state: match_pda(id),
+            opener_protections: None,
         }
         .to_account_metas(None),
     );
@@ -1356,6 +1423,86 @@ fn f01_delegation_is_pinned_to_the_tee_validator() {
     );
 }
 
+/// Audit 2026-10-16 G-1. The delegate instructions are permissionless and checked only the
+/// validator, so a Board that had been committed back (sealed) could be delegated again by
+/// anyone, after which `settle` cannot read it and the loser waits out the refund window instead
+/// of losing. A Board delegates once, before its run begins.
+#[test]
+fn g01_a_sealed_board_cannot_be_delegated_again() {
+    let (mut env, alice, bob) = Env::new();
+    let id = env.open(&alice);
+    env.open_session(&alice, id).expect("open session");
+    env.join(&bob, id).expect("join");
+    env.join_session(&bob, id).expect("join session");
+    let session = session_pda(match_pda(id));
+    let dlp = sdk_key(ephemeral_rollups_sdk::id());
+    let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
+    let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &block_puzzle::ID);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+    let attacker = Keypair::new();
+    env.svm
+        .airdrop(&attacker.pubkey(), 10 * SOL)
+        .expect("airdrop");
+    let (board_0, board_1, vault) = (
+        board_pda(session, 0),
+        board_pda(session, 1),
+        vault_pda(session),
+    );
+    for k in [board_0, board_1] {
+        env.patch_board(k, |b| {
+            b.started_at = 1;
+            b.sealed = true;
+        });
+    }
+    let opener = bp_ix(
+        block_puzzle::accounts::DelegateOpener {
+            payer: a(attacker.pubkey()),
+            session,
+            buffer_board_0: buffer(board_0),
+            delegation_record_board_0: record(board_0),
+            delegation_metadata_board_0: meta(board_0),
+            board_0,
+            buffer_vault: buffer(vault),
+            delegation_record_vault: record(vault),
+            delegation_metadata_vault: meta(vault),
+            vault,
+            validator: Some(block_puzzle::TEE_VALIDATOR),
+            owner_program: block_puzzle::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        block_puzzle::instruction::DelegateOpener {},
+        vec![],
+    );
+    let err = env.send(&[opener], &attacker, &[]).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::AlreadyBegan)
+    );
+    let joiner = bp_ix(
+        block_puzzle::accounts::DelegateJoiner {
+            payer: a(attacker.pubkey()),
+            session,
+            buffer_board_1: buffer(board_1),
+            delegation_record_board_1: record(board_1),
+            delegation_metadata_board_1: meta(board_1),
+            board_1,
+            validator: Some(block_puzzle::TEE_VALIDATOR),
+            owner_program: block_puzzle::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        block_puzzle::instruction::DelegateJoiner {},
+        vec![],
+    );
+    let err = env.send(&[joiner], &attacker, &[]).unwrap_err();
+    assert_eq!(
+        code(&err),
+        bp_err(block_puzzle::BlockPuzzleError::AlreadyBegan)
+    );
+}
+
 /// F-02. `init_permission` treated "the permission address holds lamports" as "the permission
 /// exists". Anyone can put lamports on that address first, after which the Board (and the
 /// SeedVault) is marked ready without ever being made private.
@@ -1475,6 +1622,34 @@ fn f09_joining_before_the_session_exists_does_not_strand_the_match() {
     env.finish(&bob, bb).expect("finish b");
     env.seal(id).expect("seal");
     env.settle(id, MatchResult::Opener).expect("settle");
+}
+
+#[test]
+fn each_logged_move_records_its_slot_offset_from_the_run_start() {
+    let (mut env, alice, bob) = Env::new();
+    let (id, seed) = env.ready(&alice, &bob);
+    let board = env.board(id, 0);
+    let moves = greedy(seed, 30);
+    let (t0, slot0) = (env.now(), env.slot);
+    env.set_clock(t0, slot0 + 1000);
+    env.begin(&alice, board).expect("begin");
+    let started = env.load_bp::<Board>(board);
+    assert_eq!(started.start_slot, slot0 + 1000);
+
+    // Batches of 20 then 10, sent 7 and 50 slots after the start: every move in a batch shares
+    // the batch's offset.
+    env.set_clock(t0, slot0 + 1007);
+    env.play(&alice, board, &moves[..20]).expect("batch 1");
+    env.set_clock(t0, slot0 + 1050);
+    env.play(&alice, board, &moves[20..]).expect("batch 2");
+    let b: Board = env.load_bp(board);
+    assert!(b.move_slots[..20].iter().all(|&o| o == 7));
+    assert!(b.move_slots[20..30].iter().all(|&o| o == 50));
+    assert!(b.move_slots[30..].iter().all(|&o| o == 0));
+
+    // Replay and score are unaffected by timing.
+    assert_eq!(b.score, replay_score(seed, &moves));
+    assert_eq!(usize::from(b.moves), moves.len());
 }
 
 /// CU readings (run with `--nocapture`).

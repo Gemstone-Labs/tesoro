@@ -11,7 +11,10 @@ pub mod extend_limit;
 pub mod matches;
 pub mod money;
 pub mod native;
+pub mod protections;
 pub mod season;
+pub mod stake;
+pub mod stake_pool;
 pub mod yield_math;
 
 #[cfg(test)]
@@ -22,7 +25,10 @@ pub use extend_limit::*;
 pub use matches::*;
 pub use money::*;
 pub use native::*;
+pub use protections::*;
 pub use season::*;
+pub use stake::*;
+pub use stake_pool::*;
 pub use yield_math::*;
 
 /// Identity of an Account, Position, Source, Game, ... (a Solana public key in the program).
@@ -32,8 +38,10 @@ pub type Key = [u8; 32];
 pub const BPS: u128 = 10_000;
 pub const MIN_HORIZON_MONTHS: u8 = 1;
 pub const MAX_HORIZON_MONTHS: u8 = 12;
-/// The entry ladder, in Gemas.
+/// The entry sizes in force until the admin sets others, in Gemas.
 pub const LADDER: [u64; 3] = [500, 1_000, 2_500];
+/// Most entry sizes the admin can set.
+pub const MAX_ENTRY_SIZES: usize = 4;
 /// Maximum Holdings (distinct Sources) one entry may be drawn from. Bounds accounts per
 /// instruction, and with it the payout lines at settlement (see docs/tesoro-core.md).
 pub const MAX_ENTRY_SOURCES: usize = 8;
@@ -86,7 +94,7 @@ core_errors! {
     HoldingMismatch => "holding does not match the expected source or account",
     TooManySources => "entry draws on too many sources",
     NonCanonicalDraw => "holdings must be own-sourced first, ascending by source, each drawn from",
-    InvalidEntry => "entry must be 500, 1000 or 2500 gemas",
+    InvalidEntry => "entry is not one of the allowed sizes, or the sizes are invalid",
     InvalidBps => "basis points out of range",
     InvalidStatus => "operation not allowed in the current status",
     Expired => "expired",
@@ -115,6 +123,18 @@ core_errors! {
     ExtendCoolingDown => "an extend needs 24 hours since your last one",
     ExtendLimitReached => "this extend would go over your extend limit for the period",
     InvalidExtendLimit => "the extend limit is 0 to 11 months",
+    BadStakePool => "account data is not an initialised stake pool with pool tokens",
+    EntryLimitReached => "this entry would go over your entry limit for the period",
+    PayoutWindowOpen => "the season payout window is still open; ranks are paid 48 hours after it is recorded",
+    PayoutWindowClosed => "the season payout window has closed; a rank can no longer be voided",
+    RankVoided => "this rank was voided and pays nothing",
+    OnBreak => "you are on a Break, so you cannot do this until it ends",
+    SelfExcluded => "you are Self-Excluded, so you cannot do this until it ends",
+    InvalidBreak => "a Break is 1 to 42 days",
+    InvalidSelfExclusion => "Self-Exclusion is 6 to 60 months",
+    ProtectionCannotShorten => "a Break or Self-Exclusion cannot end earlier than it already does",
+    StaleStakePool => "the staking pool has not been updated this epoch or the one before",
+    NoStakingGrowth => "the staking token shows no growth to size an Advance on",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -152,6 +172,21 @@ pub fn split_yield_fee(units: u64, fee_bps: u16) -> CoreResult<(u64, u64)> {
     Ok((units.checked_sub(fee).ok_or(CoreError::Math)?, fee))
 }
 
-pub fn is_ladder_entry(entry: u64) -> bool {
-    LADDER.contains(&entry)
+/// `entry` must be one of `sizes` (the Config's entry sizes).
+pub fn is_ladder_entry(entry: u64, sizes: &[u64]) -> bool {
+    entry != 0 && sizes.contains(&entry)
+}
+
+/// An admin-set list: 1 to `MAX_ENTRY_SIZES` distinct sizes, each a non-zero multiple of the
+/// Points divisor (100 Gemas) so Points stay whole.
+pub fn validate_entry_sizes(sizes: &[u64]) -> CoreResult<()> {
+    if sizes.is_empty() || sizes.len() > MAX_ENTRY_SIZES {
+        return Err(CoreError::InvalidEntry);
+    }
+    for (i, &s) in sizes.iter().enumerate() {
+        if s == 0 || s % POINTS_DIVISOR != 0 || sizes[..i].contains(&s) {
+            return Err(CoreError::InvalidEntry);
+        }
+    }
+    Ok(())
 }

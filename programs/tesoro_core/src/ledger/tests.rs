@@ -467,7 +467,8 @@ impl World {
                     share_bps: 0,
                     lines,
                 };
-                let m = Match::open(GAME, entry, fees(), side, self.now).map_err(|_| ())?;
+                let m =
+                    Match::open(GAME, entry, &LADDER, fees(), side, self.now).map_err(|_| ())?;
                 self.matches.push(m);
             }
             Op::JoinMatch { a, m } => {
@@ -525,7 +526,8 @@ impl World {
             }
             Op::Time { dt } => self.now += dt,
             Op::Request { a, e } => {
-                let r = Request::new(akey(a), GAME, LADDER[e], self.now).map_err(|_| ())?;
+                let r =
+                    Request::new(akey(a), GAME, LADDER[e], &LADDER, self.now).map_err(|_| ())?;
                 if self.requests.len() >= 12 {
                     return Err(());
                 }
@@ -549,7 +551,7 @@ impl World {
                 let now = self.now;
                 let offer = self
                     .with_holdings(a, &sis, |acct, hs| {
-                        Offer::create(akey(a), GAME, entry, share, kind, now, acct, hs)
+                        Offer::create(akey(a), GAME, entry, &LADDER, share, kind, now, acct, hs)
                     })
                     .map_err(|_| ())?;
                 self.offers.push(offer);
@@ -646,8 +648,8 @@ impl World {
                 match open {
                     Some(i) => self.matches[i].join(side, now).map_err(|_| ())?,
                     None => {
-                        let m =
-                            Match::open(GAME, offer.entry, fees(), side, now).map_err(|_| ())?;
+                        let m = Match::open(GAME, offer.entry, &LADDER, fees(), side, now)
+                            .map_err(|_| ())?;
                         self.matches.push(m);
                     }
                 }
@@ -1081,6 +1083,7 @@ fn match_settles_once_and_pays_fees_in_gemas() {
     let mut m = Match::open(
         GAME,
         1_000,
+        &LADDER,
         fees(),
         side(akey(0), akey(0), 0, &[(1, 1_000)]),
         0,
@@ -1109,6 +1112,7 @@ fn backing_win_returns_entry_then_splits_and_loss_costs_the_entry() {
         let mut m = Match::open(
             GAME,
             500,
+            &LADDER,
             fees(),
             side(akey(0), akey(2), 4_000, &[(8, 500)]),
             0,
@@ -1152,6 +1156,7 @@ fn offers_expire_and_cannot_be_revoked_after_match_start() {
         akey(2),
         GAME,
         500,
+        &LADDER,
         5_000,
         OfferKind::Public,
         0,
@@ -1160,7 +1165,7 @@ fn offers_expire_and_cannot_be_revoked_after_match_start() {
     )
     .unwrap();
     assert_eq!((hs[0].reserved, acct.own_reserved), (500, 500));
-    let mut req = Request::new(akey(0), GAME, 500, 0).unwrap();
+    let mut req = Request::new(akey(0), GAME, 500, &LADDER, 0).unwrap();
     offer.apply(&req, rkey(0), 10).unwrap();
     assert_eq!(
         offer.apply(&req, rkey(0), 11),
@@ -1191,6 +1196,7 @@ fn offers_expire_and_cannot_be_revoked_after_match_start() {
         akey(2),
         GAME,
         500,
+        &LADDER,
         5_000,
         OfferKind::Public,
         0,
@@ -1330,7 +1336,7 @@ proptest! {
 
         let a_side = Side { player: akey(0), funder: akey(0), share_bps: 0, lines: a_lines };
         let b_side = Side { player: akey(1), funder: akey(1), share_bps: 0, lines: b_lines };
-        let mut m = Match::open(GAME, entry, fees(), a_side.clone(), 0).unwrap();
+        let mut m = Match::open(GAME, entry, &LADDER, fees(), a_side.clone(), 0).unwrap();
         m.join(b_side.clone(), 1).unwrap();
         let outcome = if opener_wins { Outcome::Winner(0) } else { Outcome::Winner(1) };
         let payouts = m.settle(outcome).unwrap();
@@ -1382,6 +1388,7 @@ fn a_backed_entry_over_eight_sources_settles_with_bounded_payouts() {
         akey(2),
         GAME,
         500,
+        &LADDER,
         4_000,
         OfferKind::Public,
         0,
@@ -1390,14 +1397,14 @@ fn a_backed_entry_over_eight_sources_settles_with_bounded_payouts() {
     )
     .unwrap();
     assert_eq!(hs.iter().filter(|h| h.reserved > 0).count(), 8);
-    let mut req = Request::new(akey(0), GAME, 500, 0).unwrap();
+    let mut req = Request::new(akey(0), GAME, 500, &LADDER, 0).unwrap();
     offer.apply(&req, rkey(0), 10).unwrap();
     offer.accept_applicant(&mut req, rkey(0), 20).unwrap();
     let a_side = offer
         .consume(akey(0), GAME, 500, 30, &mut acct, &mut hs)
         .unwrap();
     assert_eq!(a_side.lines.len(), 8);
-    let mut m = Match::open(GAME, 500, fees(), a_side, 30).unwrap();
+    let mut m = Match::open(GAME, 500, &LADDER, fees(), a_side, 30).unwrap();
     let b = side(
         akey(1),
         akey(1),
@@ -1435,6 +1442,7 @@ fn leaderboard_fee_comes_from_the_loser_after_platform_and_studio() {
         let mut m = Match::open(
             GAME,
             1_000,
+            &LADDER,
             fees(),
             side(akey(0), funder, 4_000, &[(1, 1_000)]),
             0,
@@ -1483,7 +1491,15 @@ fn leaderboard_fee_comes_from_the_loser_after_platform_and_studio() {
 
 #[test]
 fn all_fees_together_stay_under_the_cap() {
-    let mut m = Match::open(GAME, 500, fees(), side(akey(0), akey(0), 0, &[(1, 500)]), 0).unwrap();
+    let mut m = Match::open(
+        GAME,
+        500,
+        &LADDER,
+        fees(),
+        side(akey(0), akey(0), 0, &[(1, 500)]),
+        0,
+    )
+    .unwrap();
     m.join(side(akey(1), akey(1), 0, &[(2, 500)]), 1).unwrap();
     let hot = LeaderboardTerms {
         bps: MAX_TOTAL_FEE_BPS,
@@ -1920,4 +1936,296 @@ fn the_twelve_month_horizon_still_caps_an_extend_inside_the_limit() {
         p.extend_advance(&mut s, 7, 0),
         Err(CoreError::InvalidHorizon)
     );
+}
+
+// --- Entry Limit -------------------------------------------------------------------------------
+
+const WEEK: i64 = 7 * DAY;
+
+#[test]
+fn no_entry_limit_counts_nothing_and_refuses_nothing() {
+    let mut l = EntryLimit::default();
+    l.record_entry(T, 2_500).unwrap();
+    assert_eq!(l, EntryLimit::default());
+    assert_eq!(l.effective(T), 0);
+}
+
+#[test]
+fn entries_count_in_a_period_until_the_limit_is_reached() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_500).unwrap();
+    assert_eq!(l.effective(T), 1_500);
+    l.record_entry(T, 500).unwrap();
+    l.record_entry(T + DAY, 1_000).unwrap();
+    assert_eq!(l.used(T + DAY), 1_500);
+    assert_eq!(
+        l.record_entry(T + 2 * DAY, 500),
+        Err(CoreError::EntryLimitReached)
+    );
+    assert_eq!(l.used(T + 2 * DAY), 1_500);
+}
+
+#[test]
+fn an_entry_over_the_limit_changes_nothing() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    let before = l;
+    assert_eq!(l.record_entry(T, 2_500), Err(CoreError::EntryLimitReached));
+    assert_eq!(l, before);
+}
+
+#[test]
+fn the_period_resets_exactly_seven_days_after_it_began() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    l.record_entry(T, 1_000).unwrap();
+    assert_eq!(
+        l.record_entry(T + WEEK - 1, 500),
+        Err(CoreError::EntryLimitReached)
+    );
+    assert_eq!(l.used(T + WEEK - 1), 1_000);
+    assert_eq!(l.used(T + WEEK), 0);
+    l.record_entry(T + WEEK, 1_000).unwrap();
+    assert_eq!((l.window_start, l.window_used), (T + WEEK, 1_000));
+}
+
+#[test]
+fn lowering_the_entry_limit_works_at_once_even_below_what_is_used() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 2_500).unwrap();
+    l.record_entry(T, 1_000).unwrap();
+    l.set_limit(T + 1, 500).unwrap();
+    assert_eq!(l.effective(T + 1), 500);
+    assert_eq!(
+        l.record_entry(T + 2, 500),
+        Err(CoreError::EntryLimitReached)
+    );
+}
+
+#[test]
+fn a_raised_entry_limit_waits_a_day() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T + 10, 2_500).unwrap();
+    assert_eq!(l.effective(T + 10), 500);
+    assert_eq!(l.effective(T + 10 + DAY - 1), 500);
+    assert_eq!(l.effective(T + 10 + DAY), 2_500);
+    assert_eq!(
+        l.record_entry(T + 10 + DAY - 1, 1_000),
+        Err(CoreError::EntryLimitReached)
+    );
+    l.record_entry(T + 10 + DAY, 1_000).unwrap();
+}
+
+#[test]
+fn removing_the_entry_limit_is_a_raise_and_waits_a_day() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T, 0).unwrap();
+    assert_eq!(l.effective(T + DAY - 1), 500);
+    assert_eq!(l.effective(T + DAY), 0);
+    l.record_entry(T + DAY, 2_500).unwrap();
+    l.record_entry(T + DAY + 1, 2_500).unwrap();
+}
+
+#[test]
+fn setting_a_first_limit_applies_at_once() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    assert_eq!(l.effective(T), 1_000);
+    assert_eq!(l.pending_at, 0);
+}
+
+#[test]
+fn lowering_or_restating_the_limit_cancels_a_pending_raise() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 1_000).unwrap();
+    l.set_limit(T + 10, 2_500).unwrap();
+    l.set_limit(T + 20, 500).unwrap();
+    assert_eq!((l.pending_at, l.effective(T + 9 * DAY)), (0, 500));
+    let mut m = EntryLimit::default();
+    m.set_limit(T, 1_000).unwrap();
+    m.set_limit(T + 10, 2_500).unwrap();
+    m.set_limit(T + 20, 1_000).unwrap();
+    assert_eq!((m.pending_at, m.effective(T + 9 * DAY)), (0, 1_000));
+}
+
+#[test]
+fn setting_the_pending_entry_raise_again_keeps_its_timer() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T + 5, 1_000).unwrap();
+    let before = l;
+    l.set_limit(T + 100, 1_000).unwrap();
+    assert_eq!(l, before);
+}
+
+#[test]
+fn a_due_entry_raise_is_settled_before_the_next_change() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T, 2_500).unwrap();
+    l.set_limit(T + 2 * DAY, 1_000).unwrap();
+    assert_eq!((l.effective(T + 2 * DAY), l.pending_at), (1_000, 0));
+}
+
+#[test]
+fn lowering_a_removed_limit_is_a_lowering() {
+    let mut l = EntryLimit::default();
+    l.set_limit(T, 500).unwrap();
+    l.set_limit(T, 0).unwrap();
+    l.set_limit(T + 2 * DAY, 1_000).unwrap();
+    assert_eq!((l.effective(T + 2 * DAY), l.pending_at), (1_000, 0));
+}
+
+#[test]
+fn protections_keep_a_fixed_size_with_room_for_break_and_self_exclusion() {
+    use anchor_lang::prelude::AnchorSerialize;
+    let p = Protections::default();
+    assert_eq!(p.try_to_vec().unwrap().len(), Protections::SPACE);
+    assert_eq!((p.break_until, p.self_exclusion_until), (0, 0));
+}
+
+#[test]
+fn a_rank_is_paid_only_after_the_window_and_can_be_voided_inside_it() {
+    let end = season_end(1).unwrap();
+    let season = Season::record(1, end, 10_000, &ranked(&[50, 40, 30])).unwrap();
+    let mut w = SeasonWindow::new(1, end + 60);
+    let opens = end + 60 + PAYOUT_WINDOW_SECS;
+    assert_eq!(PAYOUT_WINDOW_SECS, 172_800);
+    assert_eq!(w.check_pay(0, opens - 1), Err(CoreError::PayoutWindowOpen));
+    assert_eq!(w.check_pay(0, opens), Ok(()));
+
+    assert_eq!(w.void(&season, 3, end + 61), Err(CoreError::SeasonInvalid));
+    assert_eq!(w.void(&season, 1, end + 61), Ok(()));
+    assert_eq!(w.void(&season, 1, end + 62), Err(CoreError::RankVoided));
+    assert!(w.voided(1) && !w.voided(0) && !w.voided(2));
+    // Nobody moves up: rank 2 keeps its own slot and amount.
+    assert_eq!(season.amounts[..3], [2_500, 1_800, 1_300]);
+    assert_eq!(w.check_pay(1, opens), Err(CoreError::RankVoided));
+    assert_eq!(w.check_pay(2, opens), Ok(()));
+
+    // Too late once the window has passed; a paid rank cannot be voided.
+    assert_eq!(
+        w.void(&season, 0, opens),
+        Err(CoreError::PayoutWindowClosed)
+    );
+    let mut paid = season.clone();
+    paid.pay(2).unwrap();
+    assert_eq!(w.void(&paid, 2, end + 70), Err(CoreError::AlreadyPaid));
+}
+
+// --- Break and Self-Exclusion -------------------------------------------------------------------
+
+#[test]
+fn no_protection_blocks_anything() {
+    let p = Protections::default();
+    assert_eq!(p.check_play(T), Ok(()));
+    assert_eq!(p.check_advance(T), Ok(()));
+    assert!(!p.away(T));
+}
+
+#[test]
+fn a_break_blocks_play_until_it_ends_but_not_advances() {
+    let mut p = Protections::default();
+    p.set_break(T, 3).unwrap();
+    assert_eq!(p.break_until, T + 3 * DAY);
+    assert_eq!(p.check_play(T + 3 * DAY - 1), Err(CoreError::OnBreak));
+    assert_eq!(p.check_advance(T + 1), Ok(()));
+    assert!(p.away(T + 1));
+    assert_eq!(p.check_play(T + 3 * DAY), Ok(()));
+    assert!(!p.away(T + 3 * DAY));
+}
+
+#[test]
+fn a_self_exclusion_blocks_play_and_advances() {
+    let mut p = Protections::default();
+    p.set_self_exclusion(T, 6).unwrap();
+    assert_eq!(p.self_exclusion_until, T + 180 * DAY);
+    assert_eq!(p.check_play(T + 1), Err(CoreError::SelfExcluded));
+    assert_eq!(p.check_advance(T + 1), Err(CoreError::SelfExcluded));
+    assert_eq!(p.check_play(T + 180 * DAY), Ok(()));
+    assert_eq!(p.check_advance(T + 180 * DAY), Ok(()));
+}
+
+#[test]
+fn a_break_is_one_to_forty_two_days() {
+    let mut p = Protections::default();
+    assert_eq!(p.set_break(T, 0), Err(CoreError::InvalidBreak));
+    assert_eq!(p.set_break(T, 43), Err(CoreError::InvalidBreak));
+    p.set_break(T, 1).unwrap();
+    p.set_break(T, 42).unwrap();
+    assert_eq!(p.break_until, T + 42 * DAY);
+}
+
+#[test]
+fn a_self_exclusion_is_six_to_sixty_months() {
+    let mut p = Protections::default();
+    assert_eq!(
+        p.set_self_exclusion(T, 5),
+        Err(CoreError::InvalidSelfExclusion)
+    );
+    assert_eq!(
+        p.set_self_exclusion(T, 61),
+        Err(CoreError::InvalidSelfExclusion)
+    );
+    p.set_self_exclusion(T, 60).unwrap();
+    assert_eq!(p.self_exclusion_until, T + 1_800 * DAY);
+}
+
+#[test]
+fn a_break_or_self_exclusion_cannot_end_earlier() {
+    let mut p = Protections::default();
+    p.set_break(T, 10).unwrap();
+    let before = p;
+    assert_eq!(
+        p.set_break(T + DAY, 2),
+        Err(CoreError::ProtectionCannotShorten)
+    );
+    assert_eq!(p, before);
+    p.set_break(T + DAY, 10).unwrap();
+    assert_eq!(p.break_until, T + 11 * DAY);
+    p.set_self_exclusion(T, 12).unwrap();
+    assert_eq!(
+        p.set_self_exclusion(T + DAY, 6),
+        Err(CoreError::ProtectionCannotShorten)
+    );
+}
+
+#[test]
+fn a_new_break_can_follow_an_ended_one_and_is_independent_of_self_exclusion() {
+    let mut p = Protections::default();
+    p.set_break(T, 1).unwrap();
+    p.set_break(T + 5 * DAY, 1).unwrap();
+    assert_eq!(p.break_until, T + 6 * DAY);
+    assert_eq!(p.self_exclusion_until, 0);
+    p.set_self_exclusion(T, 6).unwrap();
+    assert_eq!(p.break_until, T + 6 * DAY);
+}
+
+#[test]
+fn protections_keep_the_entry_limit_when_a_break_is_set() {
+    let mut p = Protections::default();
+    p.entry_limit.set_limit(T, 1_000).unwrap();
+    p.set_break(T, 7).unwrap();
+    assert_eq!(p.entry_limit.effective(T), 1_000);
+}
+
+#[test]
+fn entry_sizes_are_1_to_4_distinct_multiples_of_100_and_points_stay_entry_over_100() {
+    assert!(validate_entry_sizes(&[100, 500, 1_000]).is_ok());
+    assert!(validate_entry_sizes(&LADDER).is_ok());
+    assert!(validate_entry_sizes(&[100, 200, 300, 400]).is_ok());
+    for bad in [
+        &[][..],
+        &[0],
+        &[150],
+        &[100, 100],
+        &[100, 200, 300, 400, 500],
+    ] {
+        assert_eq!(validate_entry_sizes(bad), Err(CoreError::InvalidEntry));
+    }
+    assert_eq!([100u64, 500, 1_000].map(points_for_win), [1, 5, 10]);
+    assert!(is_ladder_entry(100, &[100, 500]) && !is_ladder_entry(1_000, &[100, 500]));
+    assert!(!is_ladder_entry(0, &[0, 100]));
 }

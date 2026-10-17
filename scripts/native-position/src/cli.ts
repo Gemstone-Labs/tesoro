@@ -1,14 +1,15 @@
 // Usage: tsx src/cli.ts <cmd> [args]
 //   faucet | account | price <usd> | open <simSOL> <months> | status | crank | redeem | unlock | sweep
-// env: RPC_URL (default https://rpc.magicblock.app/devnet), KEYPAIR (~/.config/solana/dev-2026-10.json),
+// env: RPC_URL (default: the test cluster RPC in app/src/lib/cluster-settings.ts), KEYPAIR (~/.config/solana/dev-2026-10.json),
 //      NONCE (default 1), ORACLE_KEYPAIR (~/.config/tesoro/oracle.json, for `price`).
 // Everything here is SIMULATED yield on devnet: 1 month = ~10 min.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { Connection, Keypair } from "@solana/web3.js";
 import * as n from "./index";
+import { CLUSTERS } from "../../../app/src/lib/cluster-settings";
 
-const c = new Connection(process.env.RPC_URL ?? "https://rpc.magicblock.app/devnet", "confirmed");
+const c = new Connection(process.env.RPC_URL ?? CLUSTERS.test.solana.defaultRpc!, "confirmed");
 const load = (p: string) =>
   Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(p.replace("~", homedir()), "utf8"))));
 const user = load(process.env.KEYPAIR ?? "~/.config/solana/dev-2026-10.json");

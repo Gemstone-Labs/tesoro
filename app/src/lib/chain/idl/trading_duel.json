@@ -2216,6 +2216,29 @@
               "readers show the fee only for Matches opened at or after it. Zero until then."
             ],
             "type": "i64"
+          },
+          {
+            "name": "entry_sizes",
+            "docs": [
+              "Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /",
+              "1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard",
+              "fields: an account created before reads them as zero from its zeroed tail."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "oracle_locked",
+            "docs": [
+              "Set by the admin on mainnet (`set_oracle_lock`): the oracle key can no longer register",
+              "Positions, report their yield or name an Advance's price (test-mode paths), so a stolen",
+              "oracle key cannot mint Gemas. Appended last: an older Config reads it as false."
+            ],
+            "type": "bool"
           }
         ]
       }

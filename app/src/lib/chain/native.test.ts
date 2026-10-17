@@ -3,15 +3,34 @@ import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import idl from "./idl/tesoro_core.json";
 import {
-  accrueNativeYieldIx,
+  initNativeCustodyIx,
+  setTreasuryCompanyIx,
+  withdrawTreasuryIx,
   extendNativeAdvanceIx,
   faucetIx,
   openNativePositionIx,
   positionPda,
-  projectedDebtGemas,
+  debtGemasAt,
+  nativeNow,
+  nativeInfoFrom,
+  poolSpeedup,
+  sourceAtClock,
+  clockOf,
+  nativeCustodyPda,
+  nativeVaultPda,
+  yieldAuthorityPda,
+  yieldConfigPda,
+  returnOwnRemaining,
+  POOL,
+  type NativeInfo,
   quoteExtendAdvance,
   quoteNativeAdvance,
   rateAt,
+  setBreakIx,
+  setEntryLimitIx,
+  setSelfExclusionIx,
+  protectionsPda,
+  accountPda,
   setExtendLimitIx,
   redeemIx,
   redeemPayoutShares,
@@ -20,16 +39,16 @@ import {
   instantRedeemIx,
   redeemTreasuryIx,
   setPriceIx,
+  simSolAta,
+  SIM_LST_ID,
+  SIM_SOL_MINT,
+  TOKEN_PROGRAM_ID,
   sourcePda,
-  sweepNativeSurplusIx,
   takeNativeAdvanceIx,
   unlockEstimateMs,
   unlockIx,
   type PoolParams,
-  RATE_SCALE,
-  surplusShares,
   treasuryPda,
-  treasuryVaultPda,
 } from "./native";
 
 const owner = new PublicKey("AXwYStYVryJuZjNJjHHLPp6eVRc2TuESnW1pCMiUYrwV");
@@ -46,10 +65,14 @@ describe("native instructions", () => {
       [takeNativeAdvanceIx(owner, pos, 0, 3).data, "take_native_advance"],
       [extendNativeAdvanceIx(owner, pos, 0, 3).data, "extend_native_advance"],
       [setExtendLimitIx(owner, 2).data, "set_extend_limit"],
-      [accrueNativeYieldIx(pos, null).data, "accrue_native_yield"],
+      [setEntryLimitIx(owner, 500).data, "set_entry_limit"],
+      [setBreakIx(owner, 3).data, "set_break"],
+      [setSelfExclusionIx(owner, 6).data, "set_self_exclusion"],
+      [initNativeCustodyIx(owner).data, "init_native_custody"],
+      [setTreasuryCompanyIx(owner, owner).data, "set_treasury_company"],
+      [withdrawTreasuryIx(owner, owner, 1n).data, "withdraw_treasury"],
       [redeemIx(owner, pos, pos, 1n).data, "redeem"],
       [unlockIx(owner, pos).data, "unlock"],
-      [sweepNativeSurplusIx(owner, pos).data, "sweep_native_surplus"],
       [initTreasuryIx(owner, 2000, 3500).data, "init_treasury"],
       [fundTreasuryIx(owner, 1n).data, "fund_treasury"],
       [instantRedeemIx(owner, pos, pos, 1n).data, "instant_redeem"],
@@ -58,17 +81,21 @@ describe("native instructions", () => {
     for (const [data, name] of cases) expect(data.subarray(0, 8).toString("hex"), name).toBe(d(name));
   });
 
-  it("marks accounts writable and signer exactly as the IDL says (a read-only custody made sweep fail with ConstraintMut)", () => {
+  it("marks accounts writable and signer exactly as the IDL says (a read-only account fails with ConstraintMut)", () => {
     const pos = sourcePda(owner, 0);
     const cases: [ReturnType<typeof unlockIx>, string][] = [
-      [sweepNativeSurplusIx(owner, pos), "sweep_native_surplus"],
-      [accrueNativeYieldIx(pos, 0), "accrue_native_yield"],
+      [initNativeCustodyIx(owner), "init_native_custody"],
+      [setTreasuryCompanyIx(owner, owner), "set_treasury_company"],
+      [withdrawTreasuryIx(owner, owner, 1n), "withdraw_treasury"],
       [redeemIx(owner, pos, pos, 1n), "redeem"],
       [unlockIx(owner, pos), "unlock"],
       [openNativePositionIx(owner, 1, 1n, pos), "open_native_position"],
-      [takeNativeAdvanceIx(owner, pos, 0, 3), "take_native_advance"],
+      [takeNativeAdvanceIx(owner, pos, 1, 3, 0), "take_native_advance"],
       [extendNativeAdvanceIx(owner, pos, 0, 3), "extend_native_advance"],
       [setExtendLimitIx(owner, 2), "set_extend_limit"],
+      [setEntryLimitIx(owner, 500), "set_entry_limit"],
+      [setBreakIx(owner, 3), "set_break"],
+      [setSelfExclusionIx(owner, 6), "set_self_exclusion"],
       [initTreasuryIx(owner, 2000, 3500), "init_treasury"],
       [fundTreasuryIx(owner, 1n), "fund_treasury"],
       [instantRedeemIx(owner, pos, pos, 1n), "instant_redeem"],
@@ -88,15 +115,18 @@ describe("native instructions", () => {
   it("lists exactly the accounts the IDL lists for the Treasury instructions, the treasury where the program expects it", () => {
     const pos = sourcePda(owner, 0);
     const count = (name: string) => (idl.instructions as { name: string; accounts: unknown[] }[]).find((i) => i.name === name)!.accounts.length;
-    expect(accrueNativeYieldIx(pos, 0).keys).toHaveLength(count("accrue_native_yield"));
+    expect(initNativeCustodyIx(owner).keys).toHaveLength(count("init_native_custody"));
+    expect(withdrawTreasuryIx(owner, owner, 1n).keys).toHaveLength(count("withdraw_treasury"));
+    expect(setTreasuryCompanyIx(owner, owner).keys).toHaveLength(count("set_treasury_company"));
+    expect(openNativePositionIx(owner, 1, 1n, pos).keys).toHaveLength(count("open_native_position"));
     expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys).toHaveLength(count("take_native_advance"));
     expect(instantRedeemIx(owner, pos, pos, 1n).keys).toHaveLength(count("instant_redeem"));
     expect(initTreasuryIx(owner, 2000, 3500).keys).toHaveLength(count("init_treasury"));
     expect(fundTreasuryIx(owner, 1n).keys).toHaveLength(count("fund_treasury"));
-    expect(redeemTreasuryIx(pos, pos, 1n).keys).toHaveLength(count("redeem_treasury") + 5);
-    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys[4].pubkey.equals(treasuryPda())).toBe(true);
-    expect(accrueNativeYieldIx(pos, null).keys[9].pubkey.equals(treasuryPda())).toBe(true);
-    expect(accrueNativeYieldIx(pos, null).keys[10].pubkey.equals(treasuryVaultPda())).toBe(true);
+    expect(redeemTreasuryIx(pos, pos, 1n).keys).toHaveLength(count("redeem_treasury") + 7);
+    // The Yield Fee is fixed on the Position at open: only open reads the Treasury, Advance and Extend read the pool.
+    expect(openNativePositionIx(owner, 1, 1n, pos).keys[6].pubkey.equals(treasuryPda())).toBe(true);
+    expect(takeNativeAdvanceIx(owner, pos, 0, 3).keys[5].pubkey.equals(POOL)).toBe(true);
     expect(initTreasuryIx(owner, 2000, 3500).data.subarray(8).toString("hex")).toBe("d007ac0d");
   });
 
@@ -106,14 +136,35 @@ describe("native instructions", () => {
     const spec = (idl.instructions as { name: string; accounts: unknown[] }[]).find((i) => i.name === "extend_native_advance")!;
     expect(ix.keys).toHaveLength(spec.accounts.length);
     expect(ix.data.subarray(8).toString("hex")).toBe("04");
-    expect(ix.keys[3].pubkey.equals(treasuryPda())).toBe(true);
-    expect(ix.keys[4].pubkey.equals(sourcePda(pos, 2))).toBe(true);
+    expect(ix.keys[2].pubkey.equals(protectionsPda(accountPda(owner)))).toBe(true);
+    expect(ix.keys[4].pubkey.equals(POOL)).toBe(true);
+    expect(ix.keys[5].pubkey.equals(sourcePda(pos, 2))).toBe(true);
   });
 
-  it("redeem and unlock carry the five payout accounts", () => {
+  it("passes the previous Advance to take_native_advance, or the program id for none", () => {
     const pos = sourcePda(owner, 0);
-    expect(redeemIx(owner, pos, pos, 5n).keys).toHaveLength(5 + 5);
-    expect(unlockIx(owner, pos).keys).toHaveLength(3 + 5);
+    const none = takeNativeAdvanceIx(owner, pos, 1, 3);
+    expect(none.keys[6].pubkey.equals(none.programId)).toBe(true);
+    expect(none.keys[6].isWritable).toBe(false);
+    const prev = takeNativeAdvanceIx(owner, pos, 1, 3, 0);
+    expect(prev.keys[6].pubkey.equals(sourcePda(pos, 0))).toBe(true);
+    expect(prev.keys[7].pubkey.equals(sourcePda(pos, 1))).toBe(true);
+  });
+
+  it("redeem carries the seven yield accounts, unlock the shared custody, vault and seven more (+ the open Source)", () => {
+    const pos = sourcePda(owner, 0);
+    const r = redeemIx(owner, pos, pos, 5n);
+    expect(r.keys).toHaveLength(5 + 7);
+    expect(r.keys.slice(5).map((k) => k.pubkey.toBase58())).toEqual([POOL, simSolAta(owner), SIM_SOL_MINT, yieldConfigPda(), yieldAuthorityPda(), SIM_LST_ID, TOKEN_PROGRAM_ID].map((k) => k.toBase58()));
+    const u = unlockIx(owner, pos);
+    expect(u.keys).toHaveLength(3 + 2 + 7);
+    expect(u.keys[3].pubkey.equals(nativeCustodyPda())).toBe(true);
+    expect(u.keys[4].pubkey.equals(nativeVaultPda())).toBe(true);
+    const open = unlockIx(owner, pos, 2);
+    expect(open.keys).toHaveLength(3 + 2 + 7 + 1);
+    expect(open.keys.at(-1)!.pubkey.equals(sourcePda(pos, 2))).toBe(true);
+    expect(open.keys.at(-1)!.isWritable).toBe(true);
+    expect(returnOwnRemaining().map((k) => k.pubkey.toBase58())).toEqual([POOL.toBase58()]);
   });
 
   it("derives the devnet Position of the deployer (nonce 1)", async () => {
@@ -140,49 +191,95 @@ describe("native math", () => {
   });
 
   const source = { issued: 349n, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 13n, unitDen: 150_000_000n };
-  const vault = 5_000_000_000n;
+  const principal = 5_000_000_000n;
+  const T0 = 1_800_000_000;
+  const info = (over: Partial<NativeInfo> = {}): NativeInfo => ({
+    position: owner,
+    mint: SIM_SOL_MINT,
+    stakeRateOpen: 0n,
+    custodyShares: principal,
+    status: "locked",
+    principalLamports: principal,
+    rateBps: 700,
+    yieldFeeBps: 2000,
+    openedAt: T0,
+    appliedNet: 0n,
+    freeYield: 0n,
+    freeYieldClaimed: 0n,
+    advances: 1,
+    openAdvance: 0,
+    source: { key: owner, index: 0, horizonMonths: 1, math: source },
+    ...over,
+  });
 
-  it("projects Debt down and the Unlock Estimate forward", () => {
-    const clock = { rateBps: 700, lastAccrualTs: 0 };
-    const args = { source, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, clock };
-    const debt0 = projectedDebtGemas(source, vault, 0n, vault, pool, 0, clock);
-    const debt5 = projectedDebtGemas(source, vault, 0n, vault, pool, 300_000, clock);
+  it("derives Debt from the clock with no crank: down with time, zero at the Estimate", () => {
+    const i = info();
+    const debt0 = debtGemasAt(i, 4380, T0 * 1000);
+    const debt5 = debtGemasAt(i, 4380, (T0 + 300) * 1000);
     expect(debt0).toBe(349n);
     expect(debt5 < debt0).toBe(true);
     // A 1-month Advance is repaid in 10 minutes.
-    const at = unlockEstimateMs({ ...args, nowMs: 0 })!;
-    expect(at).toBeGreaterThanOrEqual(599_000);
-    expect(at).toBeLessThanOrEqual(601_000);
-    expect(projectedDebtGemas(source, vault, 0n, vault, pool, at + 5_000, clock)).toBe(0n);
-    // Yield already minted into the vault counts, and yield not yet minted is projected.
-    const minted = unlockEstimateMs({ ...args, vaultShares: vault + 14_583_333n, principalLamports: vault, nowMs: 300_000 })!;
-    expect(minted).toBeLessThan(at + 1);
+    const at = unlockEstimateMs({ clock: clockOf(i), speedup: 4380, appliedNet: 0n, source, nowMs: T0 * 1000 })!;
+    expect(at).toBeGreaterThanOrEqual((T0 + 598) * 1000);
+    expect(at).toBeLessThanOrEqual((T0 + 600) * 1000);
+    expect(debtGemasAt(i, 4380, at)).toBe(0n);
+    expect(debtGemasAt(i, 4380, at - 1000)).toBeGreaterThan(0n);
+  });
+
+  it("counts only yield after the checkpoint toward the open Advance, and the rest as free yield", () => {
+    // Net yield at 1,200 s, 5 SOL, 7%, fee 20%: gross 58,333,333, fee 11,666,666, net 46,666,667.
+    const now = T0 + 1200;
+    const i = info();
+    const cur = nativeNow(i, 4380, now);
+    expect(cur.accrued).toBe(46_666_667n);
+    expect(cur.debtGemas).toBe(0n);
+    expect(cur.freeUnits).toBe(46_666_667n - 23_266_667n);
+    // Yield that accrued before an Advance (applied_net) never repays it.
+    const later = nativeNow(info({ appliedNet: 30_000_000n }), 4380, now);
+    expect(later.debtGemas).toBeGreaterThan(0n);
+    // A closed Source keeps its stored yield for late Redeems.
+    const closed = info({ openAdvance: null, source: { key: owner, index: 0, horizonMonths: 1, math: { ...source, yieldUnits: 23_266_667n } } });
+    expect(sourceAtClock({ ...clockOf(closed), appliedNet: 0n, openAdvance: null }, 0, closed.source!.math, 4380, now).yieldUnits).toBe(23_266_667n);
+    expect(nativeNow(closed, 4380, now).debtGemas).toBe(0n);
+  });
+
+  it("freezes an Unlocked Position at what it settled", () => {
+    const done = info({ status: "unlocked", openAdvance: null, appliedNet: 46_000_000n, freeYield: 20_000_000n, freeYieldClaimed: 20_000_000n });
+    const cur = nativeNow(done, 4380, T0 + 10_000_000);
+    expect(cur.accrued).toBe(46_000_000n);
+    expect(cur.freeUnits).toBe(0n);
   });
 
   it("has no estimate without an Advance and 'now' when already repaid", () => {
-    expect(unlockEstimateMs({ source: null, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, clock: { rateBps: 700, lastAccrualTs: 0 }, nowMs: 0 })).toBeNull();
-    expect(unlockEstimateMs({ source: { ...source, yieldUnits: 10n ** 12n }, vaultShares: vault, redeemedUnits: 0n, principalLamports: vault, pool, clock: { rateBps: 700, lastAccrualTs: 0 }, nowMs: 42 })).toBe(42);
+    const clock = clockOf(info());
+    expect(unlockEstimateMs({ clock, speedup: 4380, appliedNet: 0n, source: null, nowMs: 0 })).toBeNull();
+    expect(unlockEstimateMs({ clock, speedup: 4380, appliedNet: 0n, source, nowMs: (T0 + 5000) * 1000 })).toBe((T0 + 5000) * 1000);
+  });
+
+  it("reads a PositionState with the ADR 0010 fields", () => {
+    const d = Buffer.alloc(8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2);
+    let o = 8 + 1 + 32 + 32 + 1 + 32 + 1;
+    d.writeBigUInt64LE(principal, o);
+    d.writeUInt16LE(700, o + 8);
+    d[o + 10] = 0;
+    d.writeUInt32LE(2, o + 11);
+    d[o + 15] = 1; // open_advance = Some(1)
+    d.writeUInt32LE(1, o + 16);
+    o += 15 + 5 + 8 + 8; // free_yield
+    d.writeBigUInt64LE(7n, o);
+    d.writeBigUInt64LE(3n, o + 8);
+    d.writeBigInt64LE(BigInt(T0), o + 16);
+    d.writeBigUInt64LE(9n, o + 24);
+    d.writeBigUInt64LE(principal, o + 32);
+    d.writeUInt16LE(1500, o + 40);
+    const got = nativeInfoFrom(owner, { data: d, executable: false, lamports: 0, owner } as never, null);
+    expect(got).toMatchObject({ status: "locked", rateBps: 700, advances: 2, openAdvance: 1, freeYield: 7n, freeYieldClaimed: 3n, openedAt: T0, appliedNet: 9n, yieldFeeBps: 1500, principalLamports: principal });
+    expect(poolSpeedup(Buffer.concat([Buffer.alloc(92), Buffer.from([0x0c, 0x11, 0, 0])]))).toBe(4364);
   });
 
   it("pays simSOL worth the redeemed units", () => {
     // 15,000 Gemas = $150 = 1 SOL of units; at rate 1.25 that is 0.8 simSOL
     expect(redeemPayoutShares(source, 15_000n, 1_250_000_000n)).toBe(800_000_000n);
-  });
-});
-
-describe("surplusShares", () => {
-  const base = { vaultShares: 1_000_000n, cumulativeYield: 500_000n, freeYield: 100_000n, redeemedUnits: 150_000n };
-  it("is 0 while Locked", () => {
-    expect(surplusShares({ ...base, status: "locked" }, RATE_SCALE)).toBe(0n);
-  });
-  it("keeps the yield still owed to holders, rounded up", () => {
-    // owed 250,000 units at rate 2.0 → 125,000 shares required.
-    expect(surplusShares({ ...base, status: "unlocked" }, 2n * RATE_SCALE)).toBe(875_000n);
-    // owed 250,000 at rate 3.0 → 83,333.3 rounds up to 83,334.
-    expect(surplusShares({ ...base, status: "unlocked" }, 3n * RATE_SCALE)).toBe(916_666n);
-  });
-  it("is 0 once swept", () => {
-    expect(surplusShares({ ...base, vaultShares: 125_000n, status: "unlocked" }, 2n * RATE_SCALE)).toBe(0n);
   });
 });
 

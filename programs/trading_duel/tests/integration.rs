@@ -178,6 +178,7 @@ impl Env {
             tesoro_core::accounts::CreateAccount {
                 authority: key,
                 account,
+                invite_gate: tesoro_core::state::invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::CreateAccount {
@@ -200,6 +201,7 @@ impl Env {
     /// Position + Advance: 75_000 Gemas of the staker's own Source.
     fn stake(&mut self, p: &Person, id: u8) -> (APk, APk) {
         let position = tpda(&[POSITION_SEED, &[0], &[id; 32]]);
+        let asset = APk::new_unique();
         let open = ix(
             tesoro_core::ID,
             tesoro_core::accounts::OpenPosition {
@@ -212,7 +214,7 @@ impl Env {
             tesoro_core::instruction::OpenPosition {
                 source_chain: SourceChain::Solana,
                 position_id: [id; 32],
-                source_asset: APk::new_unique(),
+                source_asset: asset,
                 decimals: 9,
                 principal: 100 * SOL,
                 rate_bps: 1_000,
@@ -231,6 +233,7 @@ impl Env {
                 config: tpda(&[CONFIG_SEED]),
                 treasury: tesoro_core_treasury(),
                 owner_account: p.account,
+                protections: tpda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position,
                 source,
                 holding,
@@ -240,7 +243,14 @@ impl Env {
                 horizon_months: 6,
                 price_micro_usd: 150_000_000,
             },
-            vec![],
+            vec![AccountMeta::new_readonly(
+                s(APk::find_program_address(
+                    &[tesoro_core::state::ONCHAIN_PRICE_SEED, asset.as_ref()],
+                    &tesoro_core::ID,
+                )
+                .0),
+                false,
+            )],
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
@@ -411,6 +421,7 @@ impl Env {
                 player_authority: alice.key,
                 config: tpda(&[CONFIG_SEED]),
                 player_account: alice.account,
+                protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -427,7 +438,9 @@ impl Env {
             tesoro_core::accounts::JoinMatch {
                 player_authority: bob.key,
                 player_account: bob.account,
+                protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
+                opener_protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
             },
             tesoro_core::instruction::JoinMatch {},
             vec![rem(self.b_holding)],
@@ -1151,6 +1164,52 @@ fn delegation_is_pinned_to_the_tee_validator() {
             err.meta.logs
         );
     }
+}
+
+/// Audit 2026-10-16 G-1. `delegate_match` is permissionless and checked only the validator, so
+/// a table that had been committed back could be delegated again by anyone, after which
+/// `finalize` cannot read it and the loser waits out the refund window instead of losing. A
+/// Duel delegates once, while it is freshly created.
+#[test]
+fn g01_a_duel_that_has_been_played_cannot_be_delegated_again() {
+    let mut env = ready();
+    env.patch_duel(|d| d.status = trading_duel::STATUS_OVER);
+    let ad = addrs(env.id);
+    let dlp = sdk_key(ephemeral_rollups_sdk::id());
+    let derive = |seeds: &[&[u8]], program: &APk| APk::find_program_address(seeds, program).0;
+    let buffer = |k: APk| derive(&[b"buffer", k.as_ref()], &trading_duel::ID);
+    let record = |k: APk| derive(&[b"delegation", k.as_ref()], &dlp);
+    let meta = |k: APk| derive(&[b"delegation-metadata", k.as_ref()], &dlp);
+    let attacker = env.bob.kp.insecure_clone();
+    let delegate = ix(
+        trading_duel::ID,
+        trading_duel::accounts::DelegateMatch {
+            payer: a(attacker.pubkey()),
+            buffer_duel: buffer(ad.duel),
+            delegation_record_duel: record(ad.duel),
+            delegation_metadata_duel: meta(ad.duel),
+            duel: ad.duel,
+            buffer_book_0: buffer(ad.book_0),
+            delegation_record_book_0: record(ad.book_0),
+            delegation_metadata_book_0: meta(ad.book_0),
+            book_0: ad.book_0,
+            buffer_book_1: buffer(ad.book_1),
+            delegation_record_book_1: record(ad.book_1),
+            delegation_metadata_book_1: meta(ad.book_1),
+            book_1: ad.book_1,
+            validator: Some(trading_duel::TEE_VALIDATOR),
+            owner_program: trading_duel::ID,
+            delegation_program: dlp,
+            system_program: anchor_lang::system_program::ID,
+        },
+        trading_duel::instruction::DelegateMatch { match_id: env.id },
+        vec![],
+    );
+    let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        dcode(trading_duel::DuelError::AlreadyStarted)
+    );
 }
 
 #[test]

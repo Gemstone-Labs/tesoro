@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { TesoroLogo } from "@/components/brand";
 import { ENTITY } from "@/lib/legal/entity";
+import { BRAND } from "@/lib/brand";
 
 /** A plain reading page for the Terms and the Privacy Policy, in the docs' type and themes. */
 export function LegalPage({ title, lede, children }: { title: string; lede: string; children: ReactNode }) {
@@ -9,7 +10,7 @@ export function LegalPage({ title, lede, children }: { title: string; lede: stri
     <div className="docs">
       <header className="docs-top">
         <div className="docs-top-in">
-          <Link href="/welcome" aria-label="Tesoro, home">
+          <Link href="/welcome" aria-label={`${BRAND.name}, home`}>
             <TesoroLogo height={26} tone="dark" className="on-dark" />
             <TesoroLogo height={26} tone="light" className="on-light" />
           </Link>

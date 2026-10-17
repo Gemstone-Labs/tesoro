@@ -83,6 +83,7 @@ const heavySnapshot = (a: string): AccountSnapshot => {
     asset,
     native: asset === "SOL",
     eth: asset === "SOL" ? null : { vault: ETH_VAULTS[asset === "ETH" ? 0 : 1].address, id: BigInt(n) },
+    stakeMint: null,
   });
   const won = Array.from({ length: 230 }, (_, i) => {
     const asset = i % 9 < 5 ? "SOL" : i % 9 < 7 ? "ETH" : "HYPE";

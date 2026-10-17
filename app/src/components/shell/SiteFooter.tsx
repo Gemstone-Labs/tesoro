@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { TesoroLogo, XFollow } from "@/components/brand";
 import { ChainGlyph } from "@/components/ui";
-import { LAUNCH_STAGE } from "@/lib/landing/config";
+import { LAUNCH_STAGE, OUTBOUND } from "@/lib/landing/config";
+import { BRAND } from "@/lib/brand";
 
 const CHAINS = [
   { asset: 0, name: "Solana" },
@@ -12,7 +13,7 @@ const CHAINS = [
 const COLUMNS: { title: string; links: [label: string, href: string | null][] }[] = [
   { title: "Play", links: [["Lobby", "/lobby"], ["Games", "/play"], ["Leaderboard", "/leaderboard"], ["Your Matches", "/matches"]] },
   { title: "Money", links: [["Wallet", "/wallet"], ["Backing", "/backing"]] },
-  { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"]] },
+  { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"], ["X @PlayTesoro", OUTBOUND.x ?? null]] },
 ];
 
 /** Brand block and link columns, then a strip with the fair-play note and the simulated-yield label. */
@@ -21,7 +22,7 @@ export function SiteFooter() {
     <footer className="site-foot">
       <div className="site-foot-in">
         <div className="site-foot-brand">
-          <Link href="/lobby" aria-label="Tesoro, home">
+          <Link href="/lobby" aria-label={`${BRAND.name}, home`}>
             <TesoroLogo height={30} />
           </Link>
           <p>Skill games on Solana. Your staking Principal is never played.</p>
@@ -57,7 +58,7 @@ export function SiteFooter() {
       <div className="site-foot-strip">
         <span className="site-foot-fair">Fair play · every result on record</span>
         {LAUNCH_STAGE === "testnet" && <span className="site-foot-test">Test mode · simulated yield · 1 month = 10 min</span>}
-        <span>© 2026 Gemstone Labs</span>
+        <span>© 2026 {BRAND.companyName}</span>
       </div>
     </footer>
   );

@@ -3,7 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { DEVNET_GENESIS, assertDevnet, assertHoodi, assertHyperEvm } from "./cluster.ts";
+import { CLUSTERS } from "../../app/src/lib/cluster-settings.ts";
+import { DEVNET_GENESIS, assertDevnet, assertEthereum, assertHoodi, assertHyperEvm, assertSolana, keeperCluster, scriptRpc } from "./cluster.ts";
 import { loadPayer, settings } from "./env.ts";
 
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -65,5 +66,37 @@ describe("cluster guard (OC-10)", () => {
     await loadPayer(conn, s, (m) => lines.push(m));
     assert.deepEqual(calls, ["getGenesisHash", "getBalance"]);
     assert.ok(lines.some((l) => l.startsWith("WARN payer")));
+  });
+});
+
+describe("mainnet cluster", () => {
+  const main = CLUSTERS.mainnet;
+
+  it("TESORO_CLUSTER picks the cluster; unset is test; unknown throws", () => {
+    assert.equal(keeperCluster({} as NodeJS.ProcessEnv).id, "test");
+    assert.equal(keeperCluster({ TESORO_CLUSTER: "mainnet" } as NodeJS.ProcessEnv).id, "mainnet");
+    assert.throws(() => keeperCluster({ TESORO_CLUSTER: "devnet" } as NodeJS.ProcessEnv), /Unknown cluster/);
+  });
+
+  it("accepts mainnet-beta and refuses devnet", async () => {
+    await assertSolana({ getGenesisHash: async () => main.solana.genesisHash }, "KEEPER_RPC", main);
+    await assert.rejects(assertSolana({ getGenesisHash: async () => DEVNET_GENESIS }, "KEEPER_RPC", main), /not Solana mainnet-beta/);
+  });
+
+  it("accepts Ethereum 1 and HyperEVM 999 and refuses the test chains", async () => {
+    await assertEthereum({ getChainId: async () => 1 }, main);
+    await assertHyperEvm({ getChainId: async () => 999 }, main);
+    await assert.rejects(assertEthereum({ getChainId: async () => 560048 }, main), /not Ethereum mainnet/);
+    await assert.rejects(assertHyperEvm({ getChainId: async () => 998 }, main), /not HyperEVM mainnet/);
+  });
+
+  it("mainnet settings have no default RPC", () => {
+    assert.throws(() => settings([], { TESORO_CLUSTER: "mainnet" } as NodeJS.ProcessEnv), /KEEPER_RPC is not set/);
+  });
+
+  it("scripts take RPC_URL, else the test default; mainnet must set it", () => {
+    assert.equal(scriptRpc({} as NodeJS.ProcessEnv), CLUSTERS.test.solana.defaultRpc);
+    assert.equal(scriptRpc({ RPC_URL: "https://x" } as NodeJS.ProcessEnv), "https://x");
+    assert.throws(() => scriptRpc({ TESORO_CLUSTER: "mainnet" } as NodeJS.ProcessEnv), /RPC_URL is not set/);
   });
 });

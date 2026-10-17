@@ -39,3 +39,20 @@ describe("standings", () => {
     expect(standings([])).toEqual([]);
   });
 });
+
+describe("points cap per opponent", () => {
+  const w = (player: string, loser: string | undefined, n: number) => ({ player, loser, points: 10, ts: 100 + n, matchId: String(n) });
+  it("only the first 3 wins against one opponent earn Points; wins still count", () => {
+    const rows = standings([4, 2, 1, 3, 5].map((n) => w("a", "b", n)));
+    expect(rows).toHaveLength(1);
+    expect([rows[0].points, rows[0].wins]).toEqual([30, 5]);
+  });
+  it("counts opponents separately and leaves wins without a loser uncapped", () => {
+    const rows = standings([...[1, 2, 3, 4].map((n) => w("a", "b", n)), ...[5, 6, 7, 8].map((n) => w("a", "c", n)), ...[9, 10, 11, 12].map((n) => w("a", undefined, n))]);
+    expect(rows[0].points).toBe(30 + 30 + 40);
+  });
+  it("a player with only capped wins is not ranked, ties still go to the first win", () => {
+    const rows = standings([...[1, 2, 3, 4].map((n) => w("a", "b", n)), ...[50, 51, 52].map((n) => w("c", "d", n))]);
+    expect(rows.map((r) => [r.account, r.points])).toEqual([["a", 30], ["c", 30]]);
+  });
+});

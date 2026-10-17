@@ -29,6 +29,8 @@ import {
 import { ensureReady } from "./match-flow";
 import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 import { plainError } from "@/lib/errors";
+import { NATIVE_OPEN_GAS, nativeOpenValue, quoteNativeStake, zapAbi, rateSourceAbi, kinetiqZapAbi } from "./eth-native";
+import { assertCanAffordOpen, playerPaysGas, quoteOpenCost, type OpenCostQuote } from "./eth-fee";
 
 /** What the ETH and HYPE flows need: the Account's Solana signer, its EVM wallet, and the Privy token for server routes. */
 export interface EthCtx {
@@ -74,6 +76,7 @@ export function ethError(e: unknown): string {
   const err = e as { shortMessage?: string; code?: number; name?: string };
   if (err?.name === "UserRejectedRequestError" || err?.code === 4001) return "Wallet request was rejected.";
   if (/exceeds defined limit|rate limited|took too long to respond|unknown RPC error/i.test(`${err?.shortMessage ?? ""} ${text}`)) return "The network is busy right now. Wait a few seconds and try again.";
+  if (/YieldBelowReported/.test(`${err?.shortMessage ?? ""} ${text}`)) return "The staking rate dipped below the last report. Try again once it recovers.";
   if (err?.shortMessage) return err.shortMessage.split("\n")[0].slice(0, 200);
   return plainError(e);
 }
@@ -114,6 +117,21 @@ export const MIN_HOODI_WEI = 4_000_000_000_000_000n;
 /** HyperEVM: gas is cheap (0.1 gwei); the LayerZero message is about 0.0075 HYPE (plus 20% headroom, refunded). */
 export const MIN_HYPE_WEI = 20_000_000_000_000_000n;
 
+/** Gas price and LayerZero fee for opening, as the Player sees them before signing. */
+export async function estimateOpenCost(net: EvmNet, market: Pick<EthMarket, "quoteOpen" | "allowance">, amountWei: bigint, native = false): Promise<OpenCostQuote> {
+  const gasPriceWei = await evmClient(net).getGasPrice();
+  return quoteOpenCost({ lzQuoteWei: market.quoteOpen, gasPriceWei, needsApprove: !native && market.allowance < amountWei, gasUnits: native ? NATIVE_OPEN_GAS : undefined });
+}
+
+/** What staking the plain coin yields right now: the vault's rate and, for Kinetiq, its minimum stake. */
+export async function fetchNativeTerms(vault: EthVault): Promise<{ rate: bigint; minStakeWei: bigint }> {
+  const c = evmClient(NETS[vault.net]);
+  const source = await c.readContract({ address: vault.address, abi: rateSourceAbi, functionName: "rateSource" });
+  const rate = await c.readContract({ address: source, abi: rateSourceAbi, functionName: "underlyingPerShare" });
+  const minStakeWei = vault.zap && vault.net === "hyperevm" ? await c.readContract({ address: vault.zap, abi: kinetiqZapAbi, functionName: "minStake" }).catch(() => 0n) : 0n;
+  return { rate, minStakeWei };
+}
+
 /** Asks the server for the net's native token (capped, from the relayer: the key never reaches the client). Resolves once it is sent. */
 export const sendGasRequest = (ctx: EthCtx, net: EvmNet) => ethCall(net.key === "hoodi" ? "fund-evm" : "fund-hype", ctx, { evm: ctx.evm.address });
 
@@ -121,6 +139,7 @@ const gasInFlight = new Map<string, Promise<void>>();
 
 /** Capped server-side top-up of the net's native token, then waits for the balance to show. A second call while one is running shares it. */
 export function requestGas(ctx: EthCtx, net: EvmNet): Promise<void> {
+  if (playerPaysGas()) return Promise.reject(new Error(`Add ${net.native} to your wallet to pay for gas and the cross-chain fee.`));
   const id = `${net.key}:${ctx.evm.address.toLowerCase()}`;
   const running = gasInFlight.get(id);
   if (running) return running;
@@ -140,6 +159,7 @@ export function requestGas(ctx: EthCtx, net: EvmNet): Promise<void> {
 
 /** Tops the wallet up when it is under the net's minimum. */
 export async function ensureGas(ctx: EthCtx, net: EvmNet, minWei = net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI): Promise<void> {
+  if (playerPaysGas()) return; // mainnet: the Player pays; the quote check in openEthPosition says what is missing
   if ((await evmClient(net).getBalance({ address: ctx.evm.address })) >= minWei) return;
   await requestGas(ctx, net);
 }
@@ -173,21 +193,29 @@ export async function openEthPosition(
   amountWei: bigint,
   months: number,
   onStep: (s: OpenStep) => void = () => {},
+  /** Open with the plain coin: `amountWei` is the coin to stake, staked and locked by the vault's zap in one transaction. */
+  native = false,
 ): Promise<OpenedEth> {
   const net = NETS[vault.net];
+  if (native && !vault.zap) throw new Error(`Opening with ${net.native} is not available yet.`);
   onStep("link");
   const linkSig = await ensureEvmLinked(ctx);
   onStep("gas");
   await ensureGas(ctx, net);
-  const market: EthMarket = await fetchEthMarket(vault, ctx.evm.address);
-  if (market.simEth < amountWei) throw new Error(`That is more ${vault.symbol} than you have.`);
+  const market: EthMarket = await fetchEthMarket(vault, ctx.evm.address, undefined, getChain().base);
+  if (native) {
+    if (market.ethBalance < nativeOpenValue(amountWei, withHeadroom(market.quoteOpen))) throw new Error(`That is more ${net.native} than you have after fees.`);
+  } else if (market.simEth < amountWei) throw new Error(`That is more ${vault.symbol} than you have.`);
+  // Mainnet: the Player pays gas and the LayerZero fee (the form shows them before Open); stop here if the wallet is short.
+  // Opening with the coin: the stake itself also comes out of the balance.
+  if (playerPaysGas()) assertCanAffordOpen(native ? market.ethBalance - amountWei : market.ethBalance, await estimateOpenCost(net, market, amountWei, native), net.native);
   await ctx.evm.prepare(net.chain);
   const wallet = ctx.evm.clientFor(net.chain);
   // The inbox record has to exist before the message arrives: create it for the id this transaction should get.
   const predicted = market.nextPositionId + 1n;
   const inbox = ethCall("init-position", ctx, { vault: vault.address, id: predicted.toString() });
   inbox.catch(() => {});
-  if (market.allowance < amountWei) {
+  if (!native && market.allowance < amountWei) {
     onStep("approve");
     const approveHash = await wallet.writeContract({
       account: ctx.evm.account,
@@ -203,15 +231,31 @@ export async function openEthPosition(
   onStep("inbox");
   await inbox;
   onStep("open");
-  const hash = await wallet.writeContract({
-    account: ctx.evm.account,
-    chain: undefined,
-    address: vault.address,
-    abi: vaultAbi,
-    functionName: "openPosition",
-    args: [amountWei, months],
-    value: withHeadroom(market.quoteOpen),
-  });
+  let hash: Hex;
+  if (native) {
+    // One transaction: stake the coin, lock the token, pay the LayerZero fee. A revert anywhere leaves the coin in the wallet.
+    const terms = await fetchNativeTerms(vault);
+    const q = quoteNativeStake({ stakeWei: amountWei, rate: terms.rate, minStakeWei: terms.minStakeWei });
+    hash = await wallet.writeContract({
+      account: ctx.evm.account,
+      chain: undefined,
+      address: vault.zap!,
+      abi: zapAbi,
+      functionName: "openWithNative",
+      args: [amountWei, q.minLst, months],
+      value: nativeOpenValue(amountWei, withHeadroom(market.quoteOpen)),
+    });
+  } else {
+    hash = await wallet.writeContract({
+      account: ctx.evm.account,
+      chain: undefined,
+      address: vault.address,
+      abi: vaultAbi,
+      functionName: "openPosition",
+      args: [amountWei, months],
+      value: withHeadroom(market.quoteOpen),
+    });
+  }
   onStep("opening");
   const receipt = await waitEvm(hash, net);
   const logs = parseEventLogs({ abi: vaultAbi, eventName: "PositionLocked", logs: receipt.logs });
@@ -222,7 +266,11 @@ export async function openEthPosition(
   return { vault: vault.address, id, hash, linkSig };
 }
 
-/** Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on the vault's chain. */
+/**
+ * Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on the vault's chain.
+ * Seam for yield-by-math 09: the Wallet's "Report yield" button goes away and Redeem/Unlock call this (or the relayer
+ * does) as their first step; it reverts `YieldBelowReported` while a slashing keeps the rate under the last report.
+ */
 export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): Promise<Hex> {
   const net = NETS[vault.net];
   await ensureGas(ctx, net);

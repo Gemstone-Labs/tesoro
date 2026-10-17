@@ -56,7 +56,7 @@ A `Board` holds a Player's whole run. In the TEE it has a private permission who
 ### Clock
 
 - Play window: 90 s from `begin_run` plus 10 s grace for the last transaction.
-- Opener: must `begin_run` before `Session.opener_deadline` = the Match's Queue window end (1 h) plus 24 h, else forfeits. That is never earlier than the joiner's deadline (join + 24 h), so a late join cannot forfeit an opener who has not begun. `open_session` also accepts a Match that was joined before its Session existed.
+- Opener: must `begin_run` before `Session.opener_deadline` = the Match's Queue window end (24 h from `open_session`) plus 24 h, else forfeits. That is never earlier than the joiner's deadline (join + 24 h), so a late join cannot forfeit an opener who has not begun. `open_session` also accepts a Match that was joined before its Session existed.
 - Joiner: 24 h from `join_session` (`Session.deadline`); the `tesoro_core` refund deadline is pushed to that plus 1 h. `join_session` must land within the 1 h `tesoro_core` gives an Active Match: the app sends it in the same transaction as `join_match`, and any client binds a Match joined without it (`ensureJoined`).
 - Enforcement is lazy and permissionless: `seal`, `commit_boards`, `settle` and `claim_timeout` can be sent by anyone. If a Player never delegated their Board, anyone can delegate it (`delegate_opener` / `delegate_joiner`) and create its permission, then seal (that Player forfeits); this path is in the app (`bringForfeitedBoardsIn`) but was not run on devnet (it needs a 1 h or 24 h wait).
 
@@ -66,7 +66,7 @@ Both forfeit: draw (refund). One forfeits: the other wins (even with score 0). O
 
 ### Queue window
 
-`tesoro_core` gives an Open Match `MATCH_TIMEOUT_SECS` = 1 h; a join after that fails (`Expired`) and anyone may refund. So the Queue window is 1 h, not 24 h. A 24 h window is one additive `tesoro_core` change (let `extend_match_deadline` act on an Open Match, and have `open_session` extend it); it was not made because `tesoro_core` is live on devnet and being changed concurrently for native Positions, and a second upgrade from another branch would overwrite it.
+`tesoro_core` gives an Open Match `MATCH_TIMEOUT_SECS` = 1 h. `open_session` pushes that out to `QUEUE_WINDOW_SECS` = 24 h through the Game authority (`extend_match_deadline` now accepts an Open Match), so an opener who plays before pairing is not refundable for a day; the opener can still cancel at once. A join after the window fails (`Expired`) and anyone may refund. A Match opened without `open_session`, or before this change, keeps its 1 h.
 
 ### Settlement CPI
 

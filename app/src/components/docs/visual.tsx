@@ -312,7 +312,7 @@ const SHARES = [25, 18, 13, 10, 8, 7, 6, 5, 4, 4];
 /** The weekly Season: the week as a track, then the top-10 split of the Pool as bars. */
 export function SeasonDiagram() {
   return (
-    <Diagram label="A weekly Season and how the Leaderboard Pool is split" caption="Season 1 began on Monday 5 October 2026. Points: 5, 10 or 25 for a win at the 500, 1,000 or 2,500 entry.">
+    <Diagram label="A weekly Season and how the Leaderboard Pool is split" caption="Season 1 began on Monday 5 October 2026. Points: one for every 100 Gemas of entry, for a win.">
       <ol className="dx-season">
         <li>
           <b>Mon 00:00 UTC</b>
@@ -528,7 +528,7 @@ export function Architecture() {
           </div>
           <div className="dx-arch-box">
             <b>Keeper</b>
-            <span>price feed, yield cranks, relays, expiries</span>
+            <span>price feed, relays, expiries</span>
           </div>
         </div>
         <div className="dx-arch-sol">

@@ -6,6 +6,7 @@ import type { ProfileData } from "@/lib/identity/display";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
 import { GEMS } from "@/lib/waitlist-spot";
+import { BRAND } from "./brand";
 
 /** What the win card shows: one won, settled Match. */
 export interface WinCardData {
@@ -56,7 +57,7 @@ export const winPath = (id: string | bigint) => `/win/${id}`;
 
 export function winShareText(w: Pick<WinCardData, "game" | "gemas" | "entry">): string {
   const won = w.gemas > 0 ? `won ${w.gemas.toLocaleString("en-US")} Gemas` : "won";
-  return `I just ${won} in a ${GAME_NAMES[w.game]} Match on Tesoro. Play now, your yield pays later.`;
+  return `I just ${won} in a ${GAME_NAMES[w.game]} Match on ${BRAND.name}. ${BRAND.shareTagline}`;
 }
 
 export const postUrl = (text: string, url: string) => `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;

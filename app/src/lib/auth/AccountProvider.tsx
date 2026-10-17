@@ -16,7 +16,9 @@ import { AccountSheet } from "@/components/shell/AccountSheet";
 import { SignInSheet } from "@/components/shell/SignInSheet";
 import type { ChainSigner } from "@/games/block-puzzle/chain";
 import { DEV_WALLET } from "@/lib/chain/config";
-import { EVM_CHAINS, SOLANA_DEVNET_RPC, SOLANA_DEVNET_WS, hoodi } from "@/lib/chains";
+import { EVM_CHAINS, hoodi } from "@/lib/chains";
+import { CLUSTER } from "@/lib/cluster-settings";
+import { solanaNetwork } from "@/lib/solana-network";
 import { AuthContext, UNCONFIGURED } from "./context";
 import type { AuthState, EvmSigner, LinkedWallet } from "./types";
 
@@ -24,6 +26,9 @@ import type { AuthState, EvmSigner, LinkedWallet } from "./types";
 const DevAccountProvider = DEV_WALLET ? lazy(() => import("./DevAccountProvider").then((m) => ({ default: m.DevAccountProvider }))) : null;
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
+
+/** Written out in full so Next inlines the variable into the browser bundle. */
+const SOLANA_NET = solanaNetwork(CLUSTER.id, process.env.NEXT_PUBLIC_SOLANA_RPC);
 
 const privyConfig: PrivyClientConfig = {
   // Email, or a Solana / Ethereum wallet. Either way the Account is backed by the embedded wallets below:
@@ -50,9 +55,9 @@ const privyConfig: PrivyClientConfig = {
   defaultChain: hoodi,
   solana: {
     rpcs: {
-      "solana:devnet": {
-        rpc: createSolanaRpc(SOLANA_DEVNET_RPC),
-        rpcSubscriptions: createSolanaRpcSubscriptions(SOLANA_DEVNET_WS),
+      [SOLANA_NET.key]: {
+        rpc: createSolanaRpc(SOLANA_NET.rpc),
+        rpcSubscriptions: createSolanaRpcSubscriptions(SOLANA_NET.ws),
       },
     },
   },

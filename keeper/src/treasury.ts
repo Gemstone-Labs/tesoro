@@ -5,7 +5,10 @@ import { eidOf, redeemTreasuryToEvmIx } from "./lz.ts";
 import { pk } from "./runtime.ts";
 import { simulate } from "./tee.ts";
 import { redeemableFor, type SourceMath } from "../../app/src/lib/chain/ledger.ts";
-import { redeemTreasuryIx, treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
+import { POOL, poolSpeedup, redeemTreasuryIx, sourceAtClock, treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
+import { JITOSOL, redeemTreasuryStakeIx, stakeTokenOf } from "../../app/src/lib/chain/stake.ts";
+import { parseStakePool, stakePoolRate } from "../../app/src/lib/chain/stake-pool.ts";
+import type { StakeGrowth } from "../../app/src/lib/chain/yield.ts";
 
 const status = (o: object) => Object.keys(o)[0];
 
@@ -24,6 +27,8 @@ export interface TreasuryHolding {
   math: SourceMath;
   chain: "solana" | "ethereum" | "hyperEvm";
   positionId: Uint8Array;
+  /** The staking token's mint when the Source's Position holds one (mainnet); null for simSOL custody and EVM Positions. */
+  stakeMint?: PublicKey | null;
 }
 
 export interface TreasuryRedeem {
@@ -53,6 +58,14 @@ const mathOf = (inner: any): SourceMath => ({
   unitDen: big(inner.unitDen),
 });
 
+const nativeMathNow = (pos: any, inner: any, speedup: number, nowSec: number, stake?: StakeGrowth): SourceMath => {
+  const math = mathOf(inner);
+  if (status(pos.inner.sourceChain) !== "solana") return math;
+  const p = pos.inner;
+  const facts = { principal: big(p.principal), rateBps: p.rateBps, yieldFeeBps: p.yieldFeeBps, openedAt: Number(big(p.openedAt)), openAdvance: p.openAdvance ?? null, appliedNet: big(p.appliedNet), stakeRateOpen: big(p.stakeRateOpen ?? 0) };
+  return sourceAtClock(facts, inner.index, math, speedup, nowSec, stake);
+};
+
 /**
  * Job 8: Treasury. The Treasury Account holds the Gemas Tesoro bought by Instant Redeem; once their Source's yield has
  * repaid them it redeems them at full value, which refills the treasury (SOL: `redeem_treasury` pays simSOL into the
@@ -73,6 +86,19 @@ export async function treasuryJob(ctx: Ctx): Promise<number> {
   const fetched: any[] = unique.length ? await ctx.core.account.positionState.fetchMultiple(unique) : [];
   const positions = new Map(unique.map((k, i) => [k.toBase58(), fetched[i]]));
 
+  // A Solana-native Source's Debt is derived from the clock (ADR 0010): its stored yield is only a floor.
+  // A staking-token Source (mainnet) grows with the stake pool's rate instead: read once, only when one is held.
+  const hasStake = [...positions.values()].some((p) => p && big(p.inner.stakeRateOpen ?? 0) !== 0n);
+  const poolInfo = hasStake ? null : await ctx.conn.getAccountInfo(POOL, "confirmed");
+  const speedup = poolInfo ? poolSpeedup(poolInfo.data) : 4380;
+  const nowSec = Math.floor(Date.now() / 1000);
+  let stake: StakeGrowth | undefined;
+  if (hasStake) {
+    const info = await ctx.conn.getAccountInfo(JITOSOL.pool, "confirmed");
+    const view = info && info.owner.equals(JITOSOL.poolProgram) ? parseStakePool(info.data) : null;
+    const rate = view && stakePoolRate(view.totalLamports, view.poolTokenSupply);
+    if (rate) stake = { rateNow: rate, atSec: nowSec, apyBps: 0 };
+  }
   const holdings: TreasuryHolding[] = [];
   rows.forEach((row, i) => {
     const src = sources[i];
@@ -85,9 +111,10 @@ export async function treasuryJob(ctx: Ctx): Promise<number> {
       source: pk(inner.source),
       position,
       free: big(inner.amount) - big(inner.reserved),
-      math: mathOf(src.inner),
+      math: nativeMathNow(pos, src.inner, speedup, nowSec, stake),
       chain: status(pos.inner.sourceChain) as TreasuryHolding["chain"],
       positionId: Uint8Array.from(pos.positionId),
+      stakeMint: big(pos.inner.stakeRateOpen ?? 0) !== 0n ? pk(pos.inner.sourceAsset) : null,
     });
   });
 
@@ -96,7 +123,9 @@ export async function treasuryJob(ctx: Ctx): Promise<number> {
   for (const { holding: h, gemas } of plan) {
     const subject = `source=${shortKey(h.source)} ${h.chain}`;
     const eid = eidOf(h.chain);
-    const ix = h.chain === "solana" ? redeemTreasuryIx(h.position, h.source, gemas) : eid === null ? null : redeemTreasuryToEvmIx(ctx.payer.publicKey, eid, h.positionId, h.source, gemas);
+    const token = h.stakeMint ? stakeTokenOf(h.stakeMint) : null;
+    if (h.stakeMint && !token) continue;
+    const ix = h.chain === "solana" ? (token ? redeemTreasuryStakeIx(h.position, h.source, gemas, token) : redeemTreasuryIx(h.position, h.source, gemas)) : eid === null ? null : redeemTreasuryToEvmIx(ctx.payer.publicKey, eid, h.positionId, h.source, gemas);
     if (!ix) continue;
     const ixs = [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix];
     const err = await simulate(ctx.conn, ctx.payer, ixs);

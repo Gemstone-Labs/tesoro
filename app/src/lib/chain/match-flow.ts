@@ -13,6 +13,7 @@ import { queueEntry, type Entered, type QueueDeps } from "./queue";
 import { fetchAccountState, fetchMatch, listLiveMatchIds, listQueueMatchIds, type AccountSnapshot, type ChainMatch } from "./read";
 import { plainError } from "@/lib/errors";
 import { RunSubmitter } from "./run-submitter";
+import { BRAND } from "../brand";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -57,7 +58,7 @@ export async function ensureReady(signer: ChainSigner, getToken: GetToken, onSte
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
   let snap = await fetchAccountState(signer.publicKey);
   if (!snap.exists) {
-    onStep?.("Creating your Tesoro Account…");
+    onStep?.(`Creating your ${BRAND.name} Account…`);
     await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
     snap = await fetchAccountState(signer.publicKey, { fresh: true });
   }
@@ -220,7 +221,7 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
   };
   const session = () => chain.bp.account.session.fetchNullable(a.session) as Promise<any>;
 
-  if (!(await session())) throw new Error("This Match was opened by an older version of Tesoro and can’t be played here.");
+  if (!(await session())) throw new Error(`This Match was opened by an older version of ${BRAND.name} and can’t be played here.`);
   if (seat === 1 && !(await session()).joined) {
     onStep("Joining the Match");
     await tolerate(

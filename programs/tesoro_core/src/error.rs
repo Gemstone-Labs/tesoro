@@ -47,6 +47,26 @@ pub enum TesoroError {
     SourceRequired,
     #[msg("the Treasury has no company wallet set")]
     CompanyNotSet,
+    #[msg("the price feed account is not the mapped Pyth feed, or is not a verified price update")]
+    BadPriceFeed,
+    #[msg("the price feed's confidence interval is too wide to issue Gemas on")]
+    PriceTooUncertain,
+    #[msg("this asset is priced from its on-chain feed; use the on-chain Advance")]
+    OnchainPriceRequired,
+    #[msg("creating an Account needs an Invite")]
+    InviteRequired,
+    #[msg("an Invite key is needed to turn the Invite gate on")]
+    InviteKeyMissing,
+    #[msg("this staking token is not the one new Positions open with")]
+    StakeTokenInactive,
+    #[msg("the Advance APY ceiling is not set")]
+    StakeCeilingNotSet,
+    #[msg("position is not a staking-token Position")]
+    NotStakePosition,
+    #[msg("the stake pool account is not the custody's pool, is not owned by a stake pool program, or is not its token's pool")]
+    BadStakePoolAccount,
+    #[msg("the oracle key can no longer register Positions, report yield or price Advances")]
+    OracleLocked,
 }
 
 pub fn core_err(e: CoreError) -> Error {

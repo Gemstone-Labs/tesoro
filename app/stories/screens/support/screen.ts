@@ -64,7 +64,8 @@ export function leaderboardView(kind: "live" | "deep" | "empty" | "upgrade" | "s
   const last = {
     number: 3,
     poolGemas: 18_400,
-    winners: standings.slice(0, 10).map((s, i) => ({ rank: i + 1, account: s.account, points: 400 - i * 28, gemas: Math.floor((18_400 * [2500, 1800, 1300, 1000, 800, 700, 600, 500, 400, 400][i]) / 10_000), paid: true })),
+    winners: standings.slice(0, 10).map((s, i) => ({ rank: i + 1, account: s.account, points: 400 - i * 28, gemas: Math.floor((18_400 * [2500, 1800, 1300, 1000, 800, 700, 600, 500, 400, 400][i]) / 10_000), paid: true, voided: false })),
+    payoutAt: null,
   };
   if (kind === "empty") return { ...base, poolGemas: 0, feeBps: 100, standings: [], players: 0, last: null, settling: null };
   if (kind === "upgrade") return { ...base, poolGemas: 0, feeBps: 0, standings: [], players: 0, last: null, settling: null };

@@ -10,6 +10,7 @@ import { PositionTile, linearSeries } from "./PositionTile";
 import { useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { useAuth } from "@/lib/auth/context";
+import { playerPaysGas, type OpenCostQuote } from "@/lib/chain/eth-fee";
 import { useTreasuryRates } from "@/lib/chain/useTreasuryRates";
 import { netApyPct } from "@/lib/chain/yield";
 import { getChain } from "@/lib/chain/client";
@@ -54,12 +55,15 @@ import {
   takeEthAdvance,
   ethCall,
   requestGas,
+  estimateOpenCost,
+  fetchNativeTerms,
   MIN_HOODI_WEI,
   MIN_HYPE_WEI,
   unlockEth,
   type EthCtx,
   type OpenStep,
 } from "@/lib/chain/eth-flow";
+import { nativeStakeProblem, openChoices, quoteNativeStake, type OpenWith } from "@/lib/chain/eth-native";
 import {
   OPS_EVENT,
   addOp,
@@ -77,6 +81,7 @@ import {
 } from "@/lib/chain/eth-track";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
+import { BRAND } from "@/lib/brand";
 
 const solscan = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -121,7 +126,7 @@ function useEthMarket(vault: EthVault, evm: string | null) {
   const refresh = useCallback(async () => {
     if (!evm) return;
     try {
-      setMarket(await fetchEthMarket(vault, evm as `0x${string}`));
+      setMarket(await fetchEthMarket(vault, evm as `0x${string}`, undefined, getChain().base));
       setError(null);
     } catch (e) {
       setError(ethError(e));
@@ -162,16 +167,16 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
   const [done, setDone] = useState<string | null>(null);
   const now = useNow(15_000);
   const cooling = market && market.faucetAvailableAt * 1000 > now;
-  const lowGas = net.key === "hyperevm" && !!market && market.ethBalance < MIN_HYPE_WEI;
+  const lowGas = vault.simulated && net.key === "hyperevm" && !!market && market.ethBalance < MIN_HYPE_WEI;
 
   return (
     <div className="wl-faucet">
       <div className="spread">
         <span className="hstack">
           <ChainChip chain={net.native} />
-          <span className="meta">{net.label} testnet</span>
+          <span className="meta">{vault.simulated ? `${net.label} testnet` : net.label}</span>
         </span>
-        <Chip tone="warn">Simulated</Chip>
+        {vault.simulated && <Chip tone="warn">Simulated</Chip>}
       </div>
       <dl className="kv">
         <dt>Your wallet address</dt>
@@ -181,6 +186,7 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
         <dt>Your {vault.symbol}</dt>
         <dd className="tnum">{market ? fmtEth(market.simEth, 3) : "—"} {vault.symbol}</dd>
       </dl>
+      {vault.simulated && (
       <Button
         size="sm"
         block
@@ -196,6 +202,7 @@ export function EthFaucet({ vault }: { vault: EthVault }) {
       >
         {a.busy === "faucet" ? `Getting ${vault.symbol}…` : cooling ? "Faucet cooling down" : `Get test ${vault.symbol}`}
       </Button>
+      )}
       {lowGas && (
         <>
           <p className="meta">Free test HYPE for network fees, once a day per wallet.</p>
@@ -238,7 +245,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
   // Fees for approve + open arrive while the Player fills in the form, not after they press Open.
   const lowGas = !!market && market.ethBalance < (net.key === "hoodi" ? MIN_HOODI_WEI : MIN_HYPE_WEI);
   useEffect(() => {
-    if (!ctx || !lowGas || toppedUp.current === net.key) return;
+    if (playerPaysGas() || !ctx || !lowGas || toppedUp.current === net.key) return;
     toppedUp.current = net.key;
     requestGas(ctx, net).catch(() => {});
   }, [ctx, lowGas, net]);
@@ -246,36 +253,73 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
     fetchEthPrice(unit).then((p) => setPrice({ microUsd: p.priceMicroUsd, live: p.live })).catch(() => setPrice(null));
   }, [unit]);
 
+  const choices = openChoices(vault, net.native);
+  const [pick, setPick] = useState<OpenWith>(choices[0].with);
+  const native = pick === "native" && !!vault.zap;
+  const [terms, setTerms] = useState<{ rate: bigint; minStakeWei: bigint } | null>(null);
+  useEffect(() => {
+    if (!native) return;
+    fetchNativeTerms(vault).then(setTerms).catch(() => setTerms(null));
+  }, [native, vault]);
   const shares = /^\d*\.?\d{0,18}$/.test(text) && Number(text) > 0 ? BigInt(Math.round(Number(text) * 1e9)) * 10n ** 9n : 0n;
+  const stake = native ? quoteNativeStake({ stakeWei: shares, rate: terms?.rate ?? WEI, minStakeWei: terms?.minStakeWei }) : null;
   const rate = market ? simRateAt(market.rate) : WEI;
-  const principal = underlyingOf(shares, rate);
-  const quote = price && principal > 0n ? quoteEthAdvance(principal, Number(market?.rate.apyBps ?? 500n), months, price.microUsd, yieldFeeBps) : null;
+  const principal = stake ? stake.principalWei : underlyingOf(shares, rate);
+  const apyBps = market ? market.apyBps : 500n;
+  const quote = price && principal > 0n && apyBps !== null ? quoteEthAdvance(principal, Number(apyBps), months, price.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   const estimate =
-    quote && market && gemas > 0
+    quote && market && gemas > 0 && apyBps !== null
       ? ethUnlockEstimateMs({
           source: { issued: quote.gemas, returned: 0n, redeemed: 0n, yieldUnits: 0n, unitNum: 10n ** 22n, unitDen: price!.microUsd },
           position: { heldShares: shares, principalUnderlying: principal, paidUnderlying: 0n, accrued: 0n },
-          rate: market.rate,
+          rate: { ...market.rate, apyBps },
           nowMs: now,
           yieldFeeBps,
         })
       : null;
-  const tooMuch = !!market && shares > market.simEth;
-  const tooBig = principal > MAX_PRINCIPAL_WEI;
-  const valid = !!ctx && !!market && shares > 0n && !tooMuch && !tooBig && gemas > 0;
   const fee = market ? withHeadroom(market.quoteOpen) : 0n;
+  // With the coin the stake comes out of the same balance as the fees; with the token it is the token balance.
+  const balance = market ? (native ? market.ethBalance : market.simEth) : 0n;
+  const tooMuch = !!market && (native ? shares + fee > balance : shares > balance);
+  const tooBig = principal > MAX_PRINCIPAL_WEI;
+  const stakeProblem = stake ? nativeStakeProblem(stake, terms?.minStakeWei, net.native) : null;
+  const valid = !!ctx && !!market && shares > 0n && !tooMuch && !tooBig && (gemas > 0 || apyBps === null) && !stakeProblem && (!native || !!terms);
+  // Mainnet: gas and the LayerZero fee are the Player's, shown here before anything is signed.
+  const payOwn = playerPaysGas();
+  const [cost, setCost] = useState<OpenCostQuote | null>(null);
+  useEffect(() => {
+    if (!payOwn || !market) return;
+    let live = true;
+    estimateOpenCost(net, market, shares, native).then((c) => live && setCost(c)).catch(() => live && setCost(null));
+    return () => {
+      live = false;
+    };
+  }, [payOwn, market, net, shares, native]);
 
   return (
     <OpenFormView
       chain={unit as "ETH" | "HYPE"}
-      apy={market ? `${Number(market.rate.apyBps) / 100}% APY` : undefined}
+      apy={market ? (market.apyBps === null ? "APY —" : `${Number(market.apyBps) / 100}% APY`) : undefined}
       inert={!market}
-      head={<EthFaucet vault={vault} />}
+      head={
+        <>
+          {choices.length > 1 && (
+            <div className="hstack" role="radiogroup" aria-label="Open with">
+              {choices.map((c) => (
+                <button key={c.with} type="button" role="radio" aria-checked={pick === c.with} className={`btn${pick === c.with ? "" : " neutral"}`} onClick={() => { setPick(c.with); setText(""); }}>
+                  {c.symbol}
+                </button>
+              ))}
+            </div>
+          )}
+          <EthFaucet vault={vault} />
+        </>
+      }
       amountText={text}
       onAmount={setText}
       amountInvalid={tooMuch || tooBig}
-      max={market ? Number(market.simEth) / 1e18 : undefined}
+      max={market ? Number(native ? (balance > fee ? balance - fee : 0n) : balance) / 1e18 : undefined}
       months={months}
       onMonths={setMonths}
       gemas={gemas}
@@ -285,14 +329,22 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
+        ...(stake && stake.lstOut > 0n ? ([["You receive (staked)", `${fmtEth(stake.lstOut, 5)} ${vault.symbol}`]] as [string, string][]) : []),
         ["Principal", `${fmtEth(principal)} ${unit}`],
         ["Projected yield (after the Yield Fee)", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ${unit}`],
-        ["Cross-chain fee", `≤ ${fmtEth(fee, 5)} ${unit}`],
+        ...(payOwn
+          ? ([
+              ["Network fee (gas, estimate)", cost ? `≈ ${fmtEth(cost.gasWei, 5)} ${unit}` : "—"],
+              ["Cross-chain fee (LayerZero, you pay)", `≤ ${fmtEth(cost?.lzFeeWei ?? fee, 5)} ${unit}`],
+              ["You pay in fees", cost ? `≈ ${fmtEth(cost.totalWei, 5)} ${unit}` : "—"],
+            ] as [string, string][])
+          : ([["Cross-chain fee", `≤ ${fmtEth(fee, 5)} ${unit}`]] as [string, string][])),
         ["Price feed", price ? `${unit} $${(Number(price.microUsd) / 1e6).toFixed(2)}${price.live ? "" : " (fallback)"}` : "unavailable"],
       ]}
       alerts={
         <>
-          {tooMuch && <p className="status err" role="alert">That is more {vault.symbol} than you have.</p>}
+          {tooMuch && <p className="status err" role="alert">That is more {native ? `${unit} than you have after fees` : `${vault.symbol} than you have`}.</p>}
+          {stakeProblem && <p className="status err" role="alert">{stakeProblem}</p>}
           {tooBig && <p className="status err" role="alert">The Solana ledger holds Principal up to about 18 {unit}. Lock less.</p>}
           {step && a.busy && <p className="status" role="status"><ClockIcon width={14} height={14} /> {openStepText(vault)[step]}</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
@@ -300,7 +352,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       }
       note={
         <>
-          You sign once to link your wallet, then approve and open on {net.label}. Once your Position reaches Tesoro, in about 2 to 5
+          You sign once to link your wallet, then {native ? `stake your ${unit} with ${vault.symbol === "kHYPE" ? "Kinetiq" : "Lido"} and open in one step` : "approve and open"} on {net.label}. Once your Position reaches {BRAND.name}, in about 2 to 5
           minutes, your Advance is taken while this page or your Wallet is open. The Unlock Estimate is an estimate, not a promise.{" "}
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
@@ -310,7 +362,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       onSubmit={() =>
         ctx &&
         void a.run("open", async () => {
-          const opened = await openEthPosition(ctx, vault, shares, months, setStep);
+          const opened = await openEthPosition(ctx, vault, shares, months, setStep, native);
           const op = addOp(ctx.signer.publicKey.toBase58(), { kind: "open", vault: opened.vault, id: opened.id.toString(), months, hash: opened.hash });
           setText("");
           onOpened(op.key);
@@ -556,7 +608,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
       const [s, v] = await Promise.all([fetchEthState(getChain().base, ref.vault, ref.id, ctx.signer.publicKey), fetchVaultPosition(ref.vault, ref.id)]);
       setState(s);
       setVp(v);
-      if (!market && ctx.evm && vault) setRateMarket(await fetchEthMarket(vault, ctx.evm.address));
+      if (!market && ctx.evm && vault) setRateMarket(await fetchEthMarket(vault, ctx.evm.address, undefined, getChain().base));
     } catch {
       // keep the last good read
     }
@@ -570,7 +622,9 @@ export function EthPositionCard({ position, market, label, compact }: { position
     };
   }, [load]);
 
-  const rate = (market ?? rateMarket)?.rate ?? null;
+  const marketRate = (market ?? rateMarket)?.rate ?? null;
+  // A real-token vault has no APY of its own: the Position's recorded rate is the one its Advance was sized on.
+  const rate = marketRate && vault && !vault.simulated && state?.core ? { ...marketRate, apyBps: BigInt(state.core.rateBps) } : marketRate;
   const src = state?.source?.math ?? null;
   const onChainDebt = src ? debtGemas(src) : 0n;
   const debtWei = src ? debtUnits(src) : 0n;
@@ -632,8 +686,8 @@ export function EthPositionCard({ position, market, label, compact }: { position
       series={series}
       notes={
         <>
-          {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol} (simulated) to your wallet on {net.label}.</p>}
-          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native} (simulated). Tesoro keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
+          {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol}{vault?.simulated === false ? "" : " (simulated)"} to your wallet on {net.label}.</p>}
+          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native}{vault?.simulated === false ? "" : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {unreported > 0n && locked && (
             <p className="note">
               <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to apply it (a small cross-chain fee).

@@ -3,10 +3,11 @@ import { BN } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { BlockPuzzleChain, type ChainSigner } from "@/games/block-puzzle/chain";
 import type { GameId } from "@/lib/mock/types";
+import { protectionsPda } from "./native";
 import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import { EntryError, matchDelta } from "./ledger";
-import { ChallengeError, GAME_IDS, ensureReady, entryHoldings, isChallengeId, newMatchId, queueDeps } from "./match-flow";
+import { ChallengeError, GAME_IDS, ensureReady, entryHoldings, isChallengeId, newMatchId, queueDeps, refundMatch } from "./match-flow";
 import { decodeAll, fetchMatch, gameOf } from "./read";
 import { matchOpenedAt } from "./match-id";
 import { queueEntry, type Entered } from "./queue";
@@ -261,6 +262,42 @@ const metas = (keys: PublicKey[]) => keys.map((pubkey) => ({ pubkey, isSigner: f
 export const offerHoldings = (backerAccount: PublicKey, lines: OfferLine[]) =>
   lines.map((l) => BlockPuzzleChain.holding(backerAccount, l.source));
 
+/**
+ * Before a Break or Self-Exclusion: withdraws everything of the signed-in Account that has not started a Match. Their Match
+ * nobody joined is refunded, their open Requests cancelled and their open or accepted Offers released. Matches already paired are left to play out.
+ * Returns how many things were withdrawn. The keeper does the same for anything a direct transaction leaves behind.
+ */
+export async function withdrawOwnOpenItems(signer: ChainSigner): Promise<number> {
+  const chain = getChain();
+  const me = BlockPuzzleChain.coreAccount(signer.publicKey);
+  const [matchRows, reqRows, offerRows]: any[][] = await Promise.all([
+    chain.core.account.matchState.all(),
+    chain.core.account.requestState.all(),
+    chain.core.account.offerState.all(),
+  ]);
+  const mine = (bytes: number[]) => pk(bytes).equals(me);
+  let n = 0;
+  for (const m of matchRows) {
+    if (enumKey(m.account.inner.status) === "open" && mine(m.account.inner.a.player)) {
+      await refundMatch(signer, big(m.account.id));
+      n++;
+    }
+  }
+  for (const r of reqRows) {
+    if (enumKey(r.account.inner.status) === "open" && mine(r.account.inner.player)) {
+      await cancelRequest(signer, r.publicKey);
+      n++;
+    }
+  }
+  for (const o of offerRows) {
+    if (["open", "accepted"].includes(enumKey(o.account.inner.status)) && mine(o.account.inner.backer)) {
+      await cancelOffer(signer, toOffer(o, null));
+      n++;
+    }
+  }
+  return n;
+}
+
 /** A Player posts a Request for a Game and entry. Creates the Account first if needed. */
 export async function postRequest(signer: ChainSigner, game: GameId, entry: number, getToken: GetToken): Promise<{ address: PublicKey; sig: string }> {
   const chain = getChain();
@@ -269,7 +306,7 @@ export async function postRequest(signer: ChainSigner, game: GameId, entry: numb
   const address = PublicKey.findProgramAddressSync([Buffer.from("request"), snap.accountKey.toBuffer(), n.toArrayLike(Buffer, "le", 8)], chain.core.programId)[0];
   const ix = await chain.core.methods
     .createRequest(n, GAME_IDS[game], new BN(entry))
-    .accountsPartial({ playerAuthority: signer.publicKey, config: config(), playerAccount: snap.accountKey, request: address, systemProgram: SystemProgram.programId })
+    .accountsPartial({ playerAuthority: signer.publicKey, config: config(), playerAccount: snap.accountKey, protections: protectionsPda(snap.accountKey), request: address, systemProgram: SystemProgram.programId })
     .instruction();
   return { address, sig: await chain.sendBase(signer, [ix]) };
 }
@@ -310,7 +347,7 @@ export async function acceptDirected(signer: ChainSigner, request: PublicKey, of
   const chain = getChain();
   const ix = await chain.core.methods
     .acceptDirected()
-    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), request, offer })
+    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)), request, offer })
     .instruction();
   return chain.sendBase(signer, [ix]);
 }
@@ -320,9 +357,15 @@ export async function applyToOffer(signer: ChainSigner, request: PublicKey, offe
   const chain = getChain();
   const ix = await chain.core.methods
     .applyOffer()
-    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), request, offer })
+    .accountsPartial({ playerAuthority: signer.publicKey, playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)), request, offer })
     .instruction();
   return chain.sendBase(signer, [ix]);
+}
+
+/** The Protections address of the Account that owns a Request (the applicant being accepted). */
+async function requestOwnerProtections(request: PublicKey): Promise<PublicKey> {
+  const r = await getChain().core.account.requestState.fetch(request);
+  return protectionsPda(new PublicKey(Uint8Array.from(r.inner.player)));
 }
 
 /** The Backer accepts one applicant of their public Offer. */
@@ -330,7 +373,7 @@ export async function acceptApplicant(signer: ChainSigner, request: PublicKey, o
   const chain = getChain();
   const ix = await chain.core.methods
     .acceptApplicant()
-    .accountsPartial({ backerAuthority: signer.publicKey, backerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), request, offer })
+    .accountsPartial({ backerAuthority: signer.publicKey, backerAccount: BlockPuzzleChain.coreAccount(signer.publicKey), request, playerProtections: await requestOwnerProtections(request), offer })
     .instruction();
   return chain.sendBase(signer, [ix]);
 }
@@ -364,6 +407,7 @@ export async function expireOffer(signer: ChainSigner, offer: ChainOffer) {
       backerAccount,
       offer: offer.address,
       request: offer.status === "accepted" && offer.request ? new PublicKey(offer.request) : null,
+      backerProtections: null,
     })
     .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
     .instruction();
@@ -421,8 +465,10 @@ async function openBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
       playerAuthority: signer.publicKey,
       config: a.config,
       playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
+      protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)),
       offer: offer.address,
       backerAccount,
+      backerProtections: protectionsPda(backerAccount),
       matchState: a.match,
       systemProgram: SystemProgram.programId,
     })
@@ -440,9 +486,12 @@ async function joinBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
     .accountsPartial({
       playerAuthority: signer.publicKey,
       playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
+      protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)),
       offer: offer.address,
       backerAccount,
+      backerProtections: protectionsPda(backerAccount),
       matchState: BlockPuzzleChain.addresses(id).match,
+      openerProtections: await chain.openerProtections(id),
     })
     .remainingAccounts(metas(offerHoldings(backerAccount, offer.lines)))
     .instruction();

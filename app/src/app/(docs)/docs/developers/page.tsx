@@ -22,7 +22,7 @@ export default function Page() {
           [<code key="c">sim_lst</code>, "The liquid staking token behind SOL Positions (simSOL).", <code key="c2">programs/sim_lst</code>],
           [<code key="d">tesoro_bridge</code>, "Solana side of the LayerZero V2 OApp. Records inbound facts, applies them to tesoro_core as the registered source authority, and sends Unlock and PayYield out.", <code key="d2">bridge/</code>],
           [<code key="e">PositionVaultOApp</code>, "EVM vault that locks the staking token and speaks LayerZero. Releases Principal only on Unlock and pays at most the accrued yield.", <code key="e2">contracts/src</code>],
-          ["Keeper", "Off-chain liveness: price feed, yield cranks, bridge relays, expiries, stalled-Match settlement. A fee payer only; every job is permissionless.", <code key="f2">keeper/</code>],
+          ["Keeper", "Off-chain liveness: price feed, bridge relays, expiries, stalled-Match settlement. A fee payer only; every job is permissionless.", <code key="f2">keeper/</code>],
           ["App", "Next.js 16, desktop first. Reads chain state directly and signs with Privy embedded or linked wallets. A few server routes cover small fees and relay Ethereum steps.", <code key="g2">app/</code>],
         ]}
       />
@@ -54,7 +54,7 @@ export default function Page() {
         head={["Boundary", "Trusted for", "Where it is checked"]}
         rows={[
           ["Registered Game authority", "Declaring a Match result.", "tesoro_core `settle_match` accepts only the signer registered for that Game. The authority is a PDA of the Game program."],
-          ["Oracle key", "Issuance price (Solana: the on-chain `PriceFeed`, at most 24 h old; Ethereum: signed with the Advance) and oracle-reported Positions.", "Single key today. Pyth is planned as a replacement for the source, not for the instruction."],
+          ["Oracle key", "Oracle-reported Positions and, in test mode, the issuance price (Solana: the on-chain `PriceFeed`, at most 24 h old; Ethereum: signed with the Advance). On mainnet Advances read Pyth's price feeds on chain and the oracle names no price.", "Single key today. Pyth is planned as a replacement for the source, not for the instruction."],
           ["MagicBlock TEE validator", "Keeping hidden state private; running the Game programs' rollup logic.", "Delegation is pinned to one approved validator per Game program."],
           ["LayerZero DVNs", "Truthful delivery of the four messages.", "Default pathway config. Handlers are idempotent per sequence; the vault caps a payout at its accrued yield."],
           ["Admin key", "Registering Games, fees, source authorities, program upgrades.", "One key. No multisig or timelock."],

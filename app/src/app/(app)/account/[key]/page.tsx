@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AccountView } from "@/components/account/AccountView";
+import { BRAND } from "@/lib/brand";
 
 export async function generateMetadata({ params }: PageProps<"/account/[key]">): Promise<Metadata> {
   const { key } = await params;
-  return { title: `Account ${key.slice(0, 4)}…${key.slice(-4)} · Tesoro` };
+  return { title: `Account ${key.slice(0, 4)}…${key.slice(-4)} · ${BRAND.name}` };
 }
 
 /** A Player's Account as anyone may see it: Match history, Gemas won and lost, Backings. Public, read from Solana devnet. */

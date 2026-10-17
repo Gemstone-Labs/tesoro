@@ -16,6 +16,8 @@ pub const PRIZE_PLACES: usize = 10;
 /// Share of the pool per rank, in basis points of the pool. Sums to 10,000.
 pub const PRIZE_BPS: [u16; PRIZE_PLACES] =
     [2_500, 1_800, 1_300, 1_000, 800, 700, 600, 500, 400, 400];
+/// How long after `record_season` ranks may not be paid. Inside it the admin can void a rank.
+pub const PAYOUT_WINDOW_SECS: i64 = 48 * 60 * 60;
 /// A won Match earns `entry / POINTS_DIVISOR` points: 5, 10 and 25 on the ladder.
 pub const POINTS_DIVISOR: u64 = 100;
 
@@ -128,6 +130,68 @@ impl Season {
 
     pub fn paid(&self, rank: u8) -> bool {
         self.paid_mask & (1u16 << rank) != 0
+    }
+}
+
+/// The payout window of a recorded Season (ADR 0012), kept beside the `Season` so that Seasons
+/// recorded before the window existed keep their layout. Created by the same `record_season`.
+#[derive(Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize)]
+pub struct SeasonWindow {
+    pub number: u32,
+    /// Unix seconds `record_season` ran.
+    pub recorded_at: i64,
+    /// Bit `i` set once rank `i` was voided: it pays nothing and its share stays in the pool.
+    pub voided_mask: u16,
+}
+
+impl SeasonWindow {
+    pub fn new(number: u32, recorded_at: i64) -> Self {
+        Self {
+            number,
+            recorded_at,
+            voided_mask: 0,
+        }
+    }
+
+    /// First second a rank may be paid.
+    pub fn opens_at(&self) -> CoreResult<i64> {
+        self.recorded_at
+            .checked_add(PAYOUT_WINDOW_SECS)
+            .ok_or(CoreError::Math)
+    }
+
+    pub fn voided(&self, rank: u8) -> bool {
+        rank < 16 && self.voided_mask & (1u16 << rank) != 0
+    }
+
+    /// Whether rank `rank` of `season` may be paid at `now`: the window has passed and it was
+    /// not voided. Slots stay where they are; a voided slot pays nothing, nobody moves up.
+    pub fn check_pay(&self, rank: u8, now: i64) -> CoreResult<()> {
+        if now < self.opens_at()? {
+            return Err(CoreError::PayoutWindowOpen);
+        }
+        if self.voided(rank) {
+            return Err(CoreError::RankVoided);
+        }
+        Ok(())
+    }
+
+    /// Voids rank `rank` of `season`: only inside the window, only while unpaid, once.
+    pub fn void(&mut self, season: &Season, rank: u8, now: i64) -> CoreResult<()> {
+        if rank >= season.count {
+            return Err(CoreError::SeasonInvalid);
+        }
+        if now >= self.opens_at()? {
+            return Err(CoreError::PayoutWindowClosed);
+        }
+        if season.paid(rank) {
+            return Err(CoreError::AlreadyPaid);
+        }
+        if self.voided(rank) {
+            return Err(CoreError::RankVoided);
+        }
+        self.voided_mask |= 1u16 << rank;
+        Ok(())
     }
 }
 

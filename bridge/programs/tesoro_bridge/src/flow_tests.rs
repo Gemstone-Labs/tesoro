@@ -18,7 +18,7 @@ use tesoro_core::{
     ledger::SourceChain,
     state::{
         HoldingState, PositionState, SourceState, TesoroAccount, ACCOUNT_SEED, CONFIG_SEED,
-        HOLDING_SEED, SOURCE_AUTHORITY_SEED, SOURCE_SEED,
+        HOLDING_SEED, ONCHAIN_PRICE_SEED, PROTECTIONS_SEED, SOURCE_AUTHORITY_SEED, SOURCE_SEED,
     },
 };
 
@@ -338,6 +338,7 @@ impl Env {
                 tesoro_core::accounts::CreateAccount {
                     authority: key,
                     account,
+                    invite_gate: tesoro_core::state::invite_gate_pda(),
                     system_program: anchor_lang::system_program::ID,
                 },
                 tesoro_core::instruction::CreateAccount { evm_address },
@@ -455,7 +456,7 @@ impl Env {
         let owner = self.owner.insecure_clone();
         let position = self.core_position(id);
         let source = core_pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
-        let advance = ix(
+        let mut advance = ix(
             tesoro_core::ID,
             tesoro_core::accounts::TakeAdvance {
                 oracle: a(oracle.pubkey()),
@@ -466,6 +467,7 @@ impl Env {
                 position,
                 source,
                 holding: core_pda(&[HOLDING_SEED, self.owner_account.as_ref(), source.as_ref()]),
+                protections: core_pda(&[PROTECTIONS_SEED, self.owner_account.as_ref()]),
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::TakeAdvance {
@@ -473,6 +475,12 @@ impl Env {
                 price_micro_usd: 3_000_000_000,
             },
         );
+        // The asset's `OnchainPrice` address: `take_advance` fails when that account exists.
+        advance.accounts.push(AccountMeta {
+            pubkey: s(core_pda(&[ONCHAIN_PRICE_SEED, &msg_codec::pad_address(&[0xAB; 20])])),
+            is_signer: false,
+            is_writable: false,
+        });
         self.send(&[advance], &oracle, &[&owner]).expect("advance");
     }
 
@@ -678,6 +686,41 @@ fn peer_ix(env: &Env, admin: &Keypair) -> Instruction {
             },
         },
     )
+}
+
+// Audit 2026-10-16 B-3. The bridge knew only the testnet LayerZero ids, so on mainnet
+// `set_peer_config` refused every vault (Ethereum 30101, HyperEVM 30367) and nothing could open.
+#[test]
+fn vaults_on_the_mainnet_layerzero_ids_register() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    for (eid, vault) in [(30_101u32, [0x11; 20]), (30_367u32, [0x22; 20])] {
+        let vault = msg_codec::pad_address(&vault);
+        let ixn = ix(
+            crate::ID,
+            crate::accounts::SetPeerConfig {
+                admin: a(admin.pubkey()),
+                peer: bridge_pda(&[PEER_SEED, env.store.as_ref(), &eid.to_be_bytes(), &vault]),
+                vault_treasury: bridge_pda(&[TREASURY_SEED, &eid.to_be_bytes(), &vault]),
+                store: env.store,
+                system_program: anchor_lang::system_program::ID,
+            },
+            crate::instruction::SetPeerConfig {
+                params: SetPeerConfigParams {
+                    remote_eid: eid,
+                    peer_address: vault,
+                    decimals: 18,
+                    rate_bps: 500,
+                    enforced_send_options: vec![0, 3],
+                },
+            },
+        );
+        env.send(&[ixn], &admin, &[])
+            .unwrap_or_else(|e| panic!("eid {eid} must register: {:?}", e.meta.logs));
+    }
+    assert!(matches!(core_chain(30_101), Ok(SourceChain::Ethereum)));
+    assert!(matches!(core_chain(30_367), Ok(SourceChain::HyperEvm)));
+    assert!(core_chain(30_168).is_err(), "Solana's own id is not a source chain");
 }
 
 #[test]
@@ -896,7 +939,7 @@ fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
 
     // A yield report carries a treasury just short of the payout: still refused.
     env.receive_yield(id, 2, 1_000_000_000_000_000, u128::from(payout) - 1);
-    env.apply_yield(id, true).expect("apply yield");
+    env.sync_treasury(id).expect("sync");
     assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).reported_in, u128::from(payout) - 1);
     let err = env.instant_redeem(id, &bob, bob_account, source, 1_000).expect_err("short");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::TreasuryShort)));
@@ -1002,10 +1045,13 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     let id = 1;
     env.opened_with_advance(id);
     let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    // Only Gemas whose yield has not landed can be redeemed instantly: the Report's Treasury is
+    // mirrored first and the yield is applied afterwards.
     env.receive_yield(id, 2, 10_000_000_000_000_000, ETH);
-    env.apply_yield(id, true).expect("apply yield");
+    env.sync_treasury(id).expect("sync");
     env.instant_redeem(id, &bob, bob_account, source, 400)
         .expect("instant redeem 400");
+    env.apply_yield(id, true).expect("apply yield");
     // Bob redeems his other 600 at full value through the normal path.
     let claim = bridge_pda(&[CLAIM_SEED, bob_account.as_ref(), source.as_ref()]);
     let redeem = ix(

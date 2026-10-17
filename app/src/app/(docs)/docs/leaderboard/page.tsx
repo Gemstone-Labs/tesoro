@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
+import { fmtGemas } from "@/lib/format";
 import Link from "next/link";
 import { DataTable, DocPage, H2 } from "@/components/docs/prose";
 import { SeasonDiagram, Shot } from "@/components/docs/visual";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Leaderboard", alternates: { canonical: "/docs/leaderboard" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/leaderboard" hero={<Shot name="leaderboard" url="playtesoro.com/leaderboard" alt="The Leaderboard with the current Pool, time left in the season and the top Players" priority caption="The live Leaderboard: the Pool, the time left in the season and the standings." />}>
+    <DocPage href="/docs/leaderboard" hero={<Shot name="leaderboard" url={`${BRAND.domain}/leaderboard`} alt="The Leaderboard with the current Pool, time left in the season and the top Players" priority caption="The live Leaderboard: the Pool, the time left in the season and the standings." />}>
       <p>
         The Leaderboard rewards Players who win Matches. Every Match in every Game adds a little to a shared prize pool, and each week the top ten
         Players split it.
@@ -31,16 +34,13 @@ export default function Page() {
       <p>You earn points when you <b>win</b> a Match, scaled by its entry:</p>
       <DataTable
         head={["Entry", "Points for a win"]}
-        rows={[
-          ["500 Gemas", "5"],
-          ["1,000 Gemas", "10"],
-          ["2,500 Gemas", "25"],
-        ]}
+        rows={ENTRY_SIZES.map((e) => [`${fmtGemas(e)} Gemas`, String(e / 100)])}
       />
       <p>Losses, draws and refunds earn nothing. The game does not matter: a win in Block Puzzle, Hold&apos;em or Trading Duel counts the same at the same entry.</p>
       <p>
         When a <Link href="/docs/backing">Backer</Link> funds the entry, the points go to the Player who played, not to the Backer. If two Players finish
-        on the same points, the one who won first that week ranks higher.
+        on the same points, the one who won first that week ranks higher. Only your first 3 wins against the same opponent in a season earn points;
+        later wins against them still count as wins but add none.
       </p>
 
       <H2 id="prizes">Who gets paid</H2>

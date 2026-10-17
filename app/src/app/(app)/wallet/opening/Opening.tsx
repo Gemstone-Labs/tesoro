@@ -13,11 +13,12 @@ import { OPS_EVENT, loadOps, type EthOp } from "@/lib/chain/eth-track";
 import { fmtGemas, fmtWhen } from "@/lib/format";
 import { useEthCtx, useOpTracker } from "../EthPositions";
 import "./opening.css";
+import { BRAND } from "@/lib/brand";
 
 const stepsFor = (label: string) => [`${label} confirmed`, "Reached Solana", "Position recorded", "Gemas available"];
 /** Steps of the five-step `open` op that must be done for each of the four shown steps. */
 const NEEDS = [1, 2, 3, 5];
-const notesFor = (label: string) => [`Your Position is open on ${label}`, "Tesoro received it on Solana", "Added to your Account", "Your Advance lands as Gemas"];
+const notesFor = (label: string) => [`Your Position is open on ${label}`, `${BRAND.name} received it on Solana`, "Added to your Account", "Your Advance lands as Gemas"];
 const ACTIVE = ["Confirming…", "Delivering…", "Recording…", "Taking your Advance…"];
 
 function useOps(address: string | null): EthOp[] {

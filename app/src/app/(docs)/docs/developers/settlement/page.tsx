@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Callout, Code, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { Sequence } from "@/components/docs/visual";
 import { INSTANT_FEE_PCT } from "@/lib/chain/yield";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "How settlement works", alternates: { canonical: "/docs/developers/settlement" } };
 
@@ -45,7 +46,7 @@ export default function Page() {
       <DataTable
         head={["Instruction", "Who", "Effect"]}
         rows={[
-          [<code key="1">open_match(match_id, game, entry)</code>, "A Player", "Creates the Match, draws the opener's entry from their Holdings, and snapshots the Platform and Studio Fee basis points. Entries: 500, 1,000 or 2,500."],
+          [<code key="1">open_match(match_id, game, entry)</code>, "A Player", "Creates the Match, draws the opener's entry from their Holdings, and snapshots the Platform and Studio Fee basis points. Entries are set by the admin (mainnet 100, 500 or 1,000; test mode 500, 1,000 or 2,500)."],
           [<code key="2">join_match</code>, "A Player", "Draws the joiner's entry, sets status Active, sets the refund deadline to one hour later."],
           [<><code>open_match_backed</code>, <code>join_match_backed</code></>, "A backed Player", "The same, funded by an accepted Offer's reserved Gemas. The Player's own Gemas are never touched."],
           [<code key="4">extend_match_deadline(new_deadline)</code>, "Game authority", "Pushes an Active, unexpired Match's refund deadline later, never earlier and at most 7 days from now, so a slow Game cannot be refunded out from under itself."],
@@ -79,9 +80,9 @@ export default function Page() {
       <ul>
         <li>Fees are <code>platform_bps</code> (on Config, 200) plus the Game&apos;s <code>studio_bps</code> (300 for all three launch Games), both snapshotted when the Match opens, plus the Leaderboard Fee <code>leaderboard_bps</code> (on Config, 100), read from Config when the Match settles. Together they are capped at 5,000 bps of the Pot.</li>
         <li>They are taken in Gemas from the <b>loser&apos;s lines</b>: Platform Fee first, then Studio Fee, then Leaderboard Fee, then (for a backed win) the Player&apos;s share of what remains. Lines are merged by Source and drained in ascending Source-address order.</li>
-        <li>The Leaderboard Fee is paid to the Leaderboard Pool, a Tesoro Account owned by the address <code>[&quot;leaderboard&quot;]</code>, as one more <code>(recipient, source)</code> payout line. Each decisive settlement also emits <code>MatchWon</code> (Player, entry, points, season).</li>
+        <li>The Leaderboard Fee is paid to the Leaderboard Pool, a {BRAND.name} Account owned by the address <code>[&quot;leaderboard&quot;]</code>, as one more <code>(recipient, source)</code> payout line. Each decisive settlement also emits <code>MatchWon</code> (Player, loser, entry, points, season).</li>
         <li>Fees are floored, so the winner gets the dust. A Draw, abandonment or no-show takes none.</li>
-        <li>Match Fees are separate from Tesoro&apos;s other two revenues, which never touch a Pot: the Yield Fee (20% of the yield every Position earns) and the Instant Redeem Fee ({INSTANT_FEE_PCT}% of won Gemas redeemed early). Both are kept by the Treasury.</li>
+        <li>Match Fees are separate from {BRAND.name}&apos;s other two revenues, which never touch a Pot: the Yield Fee (20% of the yield every Position earns) and the Instant Redeem Fee ({INSTANT_FEE_PCT}% of won Gemas redeemed early). Both are kept by the Treasury.</li>
       </ul>
 
       <H3 id="allocation">Entry draw and bounds</H3>

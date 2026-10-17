@@ -5,7 +5,7 @@ import { createPublicClient, createWalletClient, defineChain, getAddress, http, 
 import { privateKeyToAccount } from "viem/accounts";
 import type { PublicKey } from "@solana/web3.js";
 import { log, type Budget, type Ctx } from "./act.ts";
-import { assertHoodi, assertHyperEvm } from "./cluster.ts";
+import { assertEthereum, assertHyperEvm, keeperCluster } from "./cluster.ts";
 import { fetchBridgePositions } from "./bridge.ts";
 import { EID_HOODI, EID_HYPEREVM, bridgePositionPda } from "./lz.ts";
 import type { Settings } from "./env.ts";
@@ -34,9 +34,11 @@ export interface EvmNet {
 const chainDef = (id: number, name: string, symbol: string, currency: string) => (rpc: string) =>
   defineChain({ id, name, nativeCurrency: { name: currency, symbol, decimals: 18 }, rpcUrls: { default: { http: [rpc] } } });
 
+const cluster = keeperCluster();
+
 export const NETS: EvmNet[] = [
-  { chain: "ethereum", eid: EID_HOODI, name: "Hoodi", unit: "ETH", rpc: (s) => s.hoodiRpc, cap: (s) => s.ethHourlyCapEth, budget: (c) => c.eth, chainDef: chainDef(560048, "Hoodi", "ETH", "Ether"), assert: assertHoodi },
-  { chain: "hyperEvm", eid: EID_HYPEREVM, name: "HyperEVM", unit: "HYPE", rpc: (s) => s.hyperEvmRpc, cap: (s) => s.hypeHourlyCapHype, budget: (c) => c.hype, chainDef: chainDef(998, "HyperEVM Testnet", "HYPE", "HYPE"), assert: assertHyperEvm },
+  { chain: "ethereum", eid: EID_HOODI, name: cluster.ethereum.label, unit: "ETH", rpc: (s) => s.hoodiRpc, cap: (s) => s.ethHourlyCapEth, budget: (c) => c.eth, chainDef: chainDef(cluster.ethereum.chainId, cluster.ethereum.label, "ETH", "Ether"), assert: assertEthereum },
+  { chain: "hyperEvm", eid: EID_HYPEREVM, name: cluster.hyperevm.label, unit: "HYPE", rpc: (s) => s.hyperEvmRpc, cap: (s) => s.hypeHourlyCapHype, budget: (c) => c.hype, chainDef: chainDef(cluster.hyperevm.chainId, cluster.hyperevm.label, "HYPE", "HYPE"), assert: assertHyperEvm },
 ];
 
 const vaultAbi = parseAbi([
@@ -247,6 +249,11 @@ export async function ethYieldJob(ctx: Ctx): Promise<number> {
     return 0;
   }
   let key: string | undefined = evmKeyFromEnv("KEEPER_EVM_PRIVATE_KEY");
+  if (!key && keeperCluster().id === "mainnet") {
+    // docs/mainnet-keys.md: the EVM deployer/owner key must never double as the keeper's reportYield key.
+    log("eth", "-", `SKIP ${owing.length} Position(s) with Debt: on mainnet the keeper needs its own KEEPER_EVM_PRIVATE_KEY (the deployer env file is not read)`);
+    return 0;
+  }
   if (!key) {
     if (!existsSync(s.evmEnvPath)) {
       log("eth", "-", `SKIP ${owing.length} Position(s) with Debt: no EVM key (KEEPER_EVM_PRIVATE_KEY or ${s.evmEnvPath})`);

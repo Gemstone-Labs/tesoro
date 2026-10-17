@@ -26,7 +26,7 @@ import { createSignerFromKeypair, publicKey as umiKey, signerIdentity } from '@m
 import { fromWeb3JsKeypair } from '@metaplex-foundation/umi-web3js-adapters'
 import { Options } from '@layerzerolabs/lz-v2-utilities'
 
-import { EndpointProgram, UlnProgram } from '@layerzerolabs/lz-solana-sdk-v2/umi'
+import { EndpointProgram, SetConfigType, UlnProgram } from '@layerzerolabs/lz-solana-sdk-v2/umi'
 
 const PROGRAM_ID = new PublicKey('5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ')
 const RPC = process.env.SOLANA_RPC ?? 'https://api.devnet.solana.com'
@@ -196,13 +196,13 @@ async function setUln(eid: number, dvn: string, sendConf: number, recvConf: numb
             oapp,
             eid,
             msgLibProgram: UlnProgram.ULN_PROGRAM_ID,
-            config: { configType: EndpointProgram.types.SetConfigType.SendUln, value: mk(sendConf) as any },
+            config: { configType: SetConfigType.SEND_ULN, value: mk(sendConf) as any },
         }),
         await endpoint.setOAppConfig(rpc, umiSigner, {
             oapp,
             eid,
             msgLibProgram: UlnProgram.ULN_PROGRAM_ID,
-            config: { configType: EndpointProgram.types.SetConfigType.ReceiveUln, value: mk(recvConf) as any },
+            config: { configType: SetConfigType.RECEIVE_ULN, value: mk(recvConf) as any },
         }),
     ].map(um2web)
     await run('set_uln_config', ixs)

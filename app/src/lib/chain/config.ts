@@ -1,7 +1,7 @@
-import { DEFAULT_BASE_RPC } from "./rpc-config";
+import { baseRpc } from "./rpc-config";
 
 /** Base-layer devnet RPC for single-account reads and sends. Lists go through /api/chain/accounts (app/docs/rpc.md). */
-export const BASE_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC || DEFAULT_BASE_RPC;
+export const BASE_RPC_URL = baseRpc(process.env.NEXT_PUBLIC_SOLANA_RPC);
 
 /**
  * Dev-only fallback signer: a local Keypair per browser instead of Privy. The `NODE_ENV` check is

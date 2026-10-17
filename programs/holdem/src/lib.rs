@@ -203,6 +203,16 @@ pub mod holdem {
 
     /// Base layer. Delegates the table and its hidden accounts to the TEE validator.
     pub fn delegate_match(ctx: Context<DelegateMatch>, match_id: u64) -> Result<()> {
+        // Permissionless, so only a table that has not started may be delegated: once it is
+        // committed back, delegating it again would leave `finalize` unable to read it.
+        {
+            let data = ctx.accounts.game_match.try_borrow_data()?;
+            let table = GameMatch::try_deserialize(&mut &data[..])?;
+            require!(
+                table.status == STATUS_CREATED && !table.finalized,
+                HoldemError::AlreadyStarted
+            );
+        }
         let config = || tee_config(&ctx.accounts.validator);
         let match_key = ctx.accounts.game_match.key();
         ctx.accounts.delegate_game_match(
@@ -543,6 +553,7 @@ pub mod holdem {
                         caller: ctx.accounts.authority.to_account_info(),
                         config: ctx.accounts.config.to_account_info(),
                         match_state: ctx.accounts.tesoro_match.to_account_info(),
+                        opener_protections: None,
                     },
                     signer_seeds,
                 )

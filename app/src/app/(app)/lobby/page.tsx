@@ -9,6 +9,7 @@ import { LiveWins } from "@/components/lobby/LiveWins";
 import { PlayNowRail } from "@/components/lobby/PlayNowRail";
 import { useSearch } from "@/components/shell/SearchContext";
 import { useAccount } from "@/lib/account";
+import { BRAND } from "@/lib/brand";
 
 export default function Lobby() {
   const { openMatches } = useAccount();
@@ -16,7 +17,7 @@ export default function Lobby() {
   useGuideTip({
     id: "lobby-first",
     pose: "himWelcome",
-    title: "Welcome to Tesoro",
+    title: `Welcome to ${BRAND.name}`,
     text: "Pick a game, choose an entry and press Play now. Your Gemas come from a Position in your Wallet.",
     link: { href: "/wallet", label: "Open the Wallet" },
   });

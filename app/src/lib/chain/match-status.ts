@@ -1,6 +1,8 @@
-import type { ChainMatch } from "./read";
 
-/** tesoro_core::MATCH_TIMEOUT_SECS: how long after a join the Match's refund deadline is set. */
+/**
+ * tesoro_core::MATCH_TIMEOUT_SECS: how long after a join the Match's refund deadline is set. The
+ * Block Puzzle Queue window (24 h, before anyone joins) does not change it: a join resets it.
+ */
 const CORE_WINDOW_SECS = 60 * 60;
 /** trading_duel START_WINDOW_SECS + MATCH_SECS (30 s head start + 12 columns of 10 s): the longest a Duel runs after the join. */
 const DUEL_PLAY_SECS = 300 + 150;
@@ -19,7 +21,16 @@ export type MatchStanding =
   | { kind: "settled" }
   | { kind: "refunded" };
 
-type Input = Pick<ChainMatch, "status" | "game" | "deadline" | "session">;
+/**
+ * The fields of a ChainMatch this needs, spelled out so the keeper can import this file without
+ * pulling in the app's chain readers (and their `@/` imports).
+ */
+type Input = {
+  status: "open" | "active" | "settled" | "refunded";
+  game: "block-puzzle" | "holdem" | "trading-duel";
+  deadline: number;
+  session?: { deadline: number; openerDeadline: number } | null;
+};
 
 /**
  * Unix seconds after which an Active Match should have settled, never later than its refund deadline.

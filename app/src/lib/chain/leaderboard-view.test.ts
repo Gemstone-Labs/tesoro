@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { seasonStanding, type LeaderboardRow, type LeaderboardView } from "./leaderboard-view";
+import { PAYOUT_WINDOW_SECS, payoutOpensAt, rankPayout } from "./season";
+import { lastRankNote, seasonStanding, type LeaderboardRow, type LeaderboardView } from "./leaderboard-view";
 
 const rows: LeaderboardRow[] = Array.from({ length: 50 }, (_, i) => ({ rank: i + 1, account: `p${i + 1}`, points: 500 - i * 5, wins: 1 }));
 const view = (me?: LeaderboardRow | null): LeaderboardView => ({
@@ -21,5 +22,27 @@ describe("seasonStanding", () => {
   });
   it("has no rank without points", () => {
     expect(seasonStanding(view(null), "nobody")).toEqual({ rank: null, points: 0, toNext: null, toPrizes: 0 });
+  });
+});
+
+describe("payout window", () => {
+  const opens = payoutOpensAt(1_000);
+  const open = { paid: false, voided: false };
+  it("opens 48 hours after the record", () => {
+    expect(PAYOUT_WINDOW_SECS).toBe(172_800);
+    expect(opens).toBe(1_000 + 172_800);
+  });
+  it("says Paying out <date> during the window, then plain paying", () => {
+    expect(lastRankNote(open, opens, opens - 1)).toEqual({ kind: "paying", payoutAt: opens });
+    expect(lastRankNote(open, opens, opens)).toEqual({ kind: "paying" });
+    expect(rankPayout(open, opens, opens - 1)).toBe("waiting");
+    expect(rankPayout(open, opens, opens)).toBe("due");
+  });
+  it("shows voided ranks as not paid and paid ranks as nothing", () => {
+    expect(lastRankNote({ paid: false, voided: true }, opens, opens + 5)).toEqual({ kind: "voided" });
+    expect(lastRankNote({ paid: true, voided: false }, opens, opens + 5)).toEqual({ kind: "none" });
+  });
+  it("a Season recorded before the window has no date", () => {
+    expect(lastRankNote(open, null, 5)).toEqual({ kind: "paying" });
   });
 });

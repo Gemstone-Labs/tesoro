@@ -9,6 +9,10 @@ optimizer_runs = 200
 [rpc_endpoints]
 hoodi = "${HOODI_RPC_URL}"
 hyperevm_testnet = "https://rpc.hyperliquid-testnet.xyz/evm"
+# Ethereum mainnet (chain id 1). Read-only use here: fork tests. Deploys are the orchestrator's.
+ethereum = "${ETH_MAINNET_RPC}"
+# HyperEVM mainnet (chain id 999). Fork tests; deploys are the orchestrator's and need big blocks.
+hyperevm = "${HYPEREVM_MAINNET_RPC}"
 
 [invariant]
 runs = 64

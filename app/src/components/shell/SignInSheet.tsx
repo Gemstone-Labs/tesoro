@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useLoginWithEmail } from "@privy-io/react-auth";
 import { TesoroMark } from "@/components/brand";
 import { AlertIcon, Button, ChainGlyph, Sheet } from "@/components/ui";
+import { BRAND } from "@/lib/brand";
 
 export function SignInSheet({
   open,
@@ -24,7 +25,7 @@ export function SignInSheet({
     <Sheet
       open={open}
       onClose={onClose}
-      title={reason ? `Sign in to ${reason}` : "Welcome to Tesoro"}
+      title={reason ? `Sign in to ${reason}` : `Welcome to ${BRAND.name}`}
       lead={<TesoroMark size={52} />}
       className="signin"
     >

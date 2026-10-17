@@ -39,3 +39,20 @@ Minted yield shares are not backed by deposited SOL/ETH: withdrawals are paid fr
 ## App
 
 One function (`app/src/lib/chain/yield.ts`) gives accrued yield for a Position at time `t` from `(principal, rateBps, sinceSec, speedup)`. The quote, Unlock Estimate, projected Debt and charts all use it. A fresh Advance of N months reads `N * 10` minutes.
+
+## Real staking tokens (mainnet, ADR 0011)
+
+Test mode above is unchanged. On mainnet the same formula applies (ADR 0010) with *growth since open* = the staking token's Staking Rate now / at open, read on chain inside the instruction:
+
+```
+Staking Rate = stake pool total_lamports * 1e12 / pool_token_supply      (lamports per pool token)
+growth       = Staking Rate now / Staking Rate when the Position opened
+Accrued Yield = Principal x (growth - 1), minus the Yield Fee            (Principal in lamports at the rate of the open)
+```
+
+- The pool account is passed into each instruction and checked: the custody's pool, owned by an allowed stake pool program, the token's mint, last updated within one epoch. No keeper job, no published APY.
+- Debt is in lamports; Redeem, Unlock and Instant Redeem convert to the token at the rate of that moment (rounded down) and pay from the shared per-token vault. Nothing is minted.
+- Advance sizing: the pool's last-epoch growth (current rate vs the rate one update earlier) scaled to a year, capped by the admin's ceiling (`set_stake_apy_ceiling`). The Unlock Estimate is an estimate: the app projects growth at that sizing APY.
+- Price: Pyth sponsored SOL/USD feed through the admin's `onchain_price` mapping keyed by the token's mint. The keeper's price job is test mode only.
+- Open with the token or with plain SOL (the pool's `DepositSol`, then the open for the quoted tokens less 0.5%, one transaction).
+- Details, accounts and the Treasury in tokens: `docs/tesoro-core.md` ("Mainnet SOL Positions on a staking token"). The first draft of this section (per-Position stake-pool custody, `accrue_stake_pool_yield`, keeper-published `TokenApy`) was removed on 2026-10-16.

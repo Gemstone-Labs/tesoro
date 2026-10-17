@@ -1,37 +1,44 @@
 import { Budget, log, runJob, type Ctx } from "./act.ts";
+import { alertsJob } from "./alerts-job.ts";
+import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
 import { NETS, checkEvmAtStart, ethYieldJob } from "./eth.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
 import { Health, startHealthServer, startWatchdog } from "./health.ts";
 import { matchHygiene } from "./matches.ts";
-import { priceJob } from "./price.ts";
+import { notifyJob } from "./notify.ts";
+import { notifyEventsJob } from "./notify-events.ts";
+import { priceJob, priceJobEnabled } from "./price.ts";
 import { Connection } from "@solana/web3.js";
 import { buildRuntime, clusterNow, fetchWithBackoff, newConnection, rateLimit } from "./runtime.ts";
 import { seasonJob } from "./season.ts";
 import { treasuryJob } from "./treasury.ts";
-import { yieldJob } from "./yield.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const MAX_BACKOFF_MS = 5 * 60_000;
 /** A pass is at most ~6 jobs x KEEPER_JOB_LIMIT_SECS plus a backoff sleep; no pass finished in this long means the loop is stuck. */
 const WATCHDOG_MS = Number(process.env.KEEPER_WATCHDOG_SECS ?? 20 * 60) * 1000;
 
-async function pass(ctx: Ctx) {
+async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
   ctx.now = await clusterNow(ctx.conn);
   ctx.budget.observe(await ctx.conn.getBalance(ctx.payer.publicKey));
   // Price first: Advances stop 24 h after the last set_price, so it must not wait behind slower jobs.
   const jobs: [string, (c: Ctx) => Promise<number>][] = [
-    ["price", priceJob],
+    ...(priceJobEnabled() ? ([["price", priceJob]] as [string, (c: Ctx) => Promise<number>][]) : []),
     ["match", matchHygiene],
     ["backing", backingHygiene],
-    ["yield", yieldJob],
+    ["away", awayCleanup],
     ["bridge", bridgeJob],
     ["eth", ethYieldJob],
     ["treasury", treasuryJob],
     ["season", seasonJob],
+    ["notify", notifyJob],
+    ["notify-events", notifyEventsJob],
   ];
   for (const [name, job] of jobs) await runJob(name, job, ctx);
+  // Last, so the alerts see this pass's outcomes.
+  await runJob("alerts", alerts, ctx);
 }
 
 async function main() {
@@ -46,7 +53,6 @@ async function main() {
     lz: new Budget(s.lzHourlyCapLamports),
     eth: new Budget(Math.round(s.ethHourlyCapEth * 1e9)),
     hype: new Budget(Math.round(s.hypeHourlyCapHype * 1e9)),
-    yieldShare: new Budget(Math.round(s.hourlyCapLamports * s.yieldShare)),
   };
   const balance = await conn.getBalance(payer.publicKey);
   log("keeper", "-", `start cluster=devnet rpc=${hostOf(s.rpc)} gpa=${hostOf(s.gpaRpc)} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);
@@ -57,13 +63,14 @@ async function main() {
     if (process.env.KEEPER_HEALTH_PORT) startHealthServer(health, Number(process.env.KEEPER_HEALTH_PORT), (m) => log("keeper", "-", m), process.env.KEEPER_HEALTH_HOST || undefined);
   }
 
+  const alerts = alertsJob(health);
   let delay = s.intervalMs;
   do {
     rateLimit.hits = 0;
     const started = Date.now();
     let ok = true;
     try {
-      await pass(ctx);
+      await pass(ctx, s.once ? async () => 0 : alerts);
     } catch (e) {
       // A dropped connection before any job ran (cluster time, balance) must not end the loop.
       if (s.once) throw e;

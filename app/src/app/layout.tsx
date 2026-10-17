@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Barlow_Condensed, IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
 import "./globals.css";
 import { GemaDefs } from "@/components/ui/gema";
+import { SITE_INDEXABLE, SITE_URL } from "@/lib/site";
+import { BRAND } from "@/lib/brand";
 
 const schibsted = Schibsted_Grotesk({
   subsets: ["latin"],
@@ -25,16 +27,14 @@ const plexMono = IBM_Plex_Mono({
 });
 
 const DESCRIPTION = "Play now with yield you haven't earned yet. Skill games on Solana; your staking Principal is never played.";
-const SITE =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
 
 export const metadata: Metadata = {
-  metadataBase: new URL(SITE),
-  title: "Tesoro",
+  metadataBase: new URL(SITE_URL),
+  robots: SITE_INDEXABLE ? undefined : { index: false, follow: false },
+  title: BRAND.name,
   description: DESCRIPTION,
-  openGraph: { title: "Tesoro", description: DESCRIPTION, siteName: "Tesoro", type: "website" },
-  twitter: { card: "summary_large_image", title: "Tesoro", description: DESCRIPTION },
+  openGraph: { title: BRAND.name, description: DESCRIPTION, siteName: BRAND.name, type: "website" },
+  twitter: { card: "summary_large_image", title: BRAND.name, description: DESCRIPTION },
 };
 
 export const viewport: Viewport = {

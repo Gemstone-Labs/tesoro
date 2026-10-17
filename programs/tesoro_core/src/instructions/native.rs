@@ -14,7 +14,7 @@ use crate::error::{core_err, TesoroError};
 use crate::instructions::position::{chain_byte, issue_advance};
 use crate::ledger::{self, native, CoreError, SourceChain};
 use crate::state::*;
-use crate::util::now;
+use crate::util::{now, require_can_advance};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::hash::hashv;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
@@ -23,6 +23,14 @@ use sim_lst::Pool;
 /// A Solana Position backed by simSOL custody rather than by an oracle fact.
 pub fn is_native(position: &ledger::Position) -> bool {
     position.source_chain == SourceChain::Solana && position.source_asset == SIM_SOL_MINT.to_bytes()
+}
+
+/// A Solana Position holding a real staking token in a shared stake custody (ADR 0011). Only
+/// `open_stake_position` sets the Staking Rate at open, so no oracle fact can make one.
+pub fn is_stake(position: &ledger::Position) -> bool {
+    position.source_chain == SourceChain::Solana
+        && position.source_asset != SIM_SOL_MINT.to_bytes()
+        && position.stake_rate_open != 0
 }
 
 /// Position ids of native Positions are derived from their owner and a nonce so nobody else can
@@ -265,6 +273,12 @@ pub struct TakeNativeAdvance<'info> {
         bump = owner_account.bump
     )]
     pub owner_account: Account<'info, TesoroAccount>,
+    /// CHECK: the owner's Protections address; a Self-Excluded owner takes no Advance.
+    #[account(
+        seeds = [PROTECTIONS_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
@@ -318,6 +332,7 @@ pub(crate) fn take_native_advance(
     mut ctx: Context<TakeNativeAdvance>,
     horizon_months: u8,
 ) -> Result<()> {
+    require_can_advance(&ctx.accounts.protections.to_account_info())?;
     let a = &mut ctx.accounts;
     let ts = now()?;
     let age = ts
@@ -365,6 +380,12 @@ pub struct ExtendNativeAdvance<'info> {
         bump = owner_account.bump
     )]
     pub owner_account: Account<'info, TesoroAccount>,
+    /// CHECK: the owner's Protections address; a Self-Excluded owner takes no Advance.
+    #[account(
+        seeds = [PROTECTIONS_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
@@ -412,6 +433,7 @@ pub(crate) fn extend_native_advance(
     ctx: Context<ExtendNativeAdvance>,
     extra_months: u8,
 ) -> Result<()> {
+    require_can_advance(&ctx.accounts.protections.to_account_info())?;
     let bump = ctx.bumps.extend_limit;
     let a = ctx.accounts;
     touch_extend_limit(&mut a.extend_limit, a.owner_account.key(), bump);
@@ -493,6 +515,108 @@ pub(crate) fn set_extend_limit(ctx: Context<SetExtendLimit>, months: u8) -> Resu
     Ok(())
 }
 
+/// Sets the owner's Entry Limit: a lower limit applies at once, a higher one (or none, zero) 24
+/// hours later. Creates the owner's Protections account on first use.
+#[derive(Accounts)]
+pub struct SetEntryLimit<'info> {
+    #[account(mut)]
+    pub owner_authority: Signer<'info>,
+    #[account(
+        seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
+        bump = owner_account.bump
+    )]
+    pub owner_account: Account<'info, TesoroAccount>,
+    #[account(
+        init_if_needed,
+        payer = owner_authority,
+        space = ProtectionsState::SPACE,
+        seeds = [PROTECTIONS_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub protections: Account<'info, ProtectionsState>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_entry_limit(ctx: Context<SetEntryLimit>, gemas: u64) -> Result<()> {
+    let bump = ctx.bumps.protections;
+    let a = ctx.accounts;
+    touch_protections(&mut a.protections, a.owner_account.key(), bump);
+    let ts = now()?;
+    a.protections
+        .inner
+        .entry_limit
+        .set_limit(ts, gemas)
+        .map_err(core_err)?;
+    let l = a.protections.inner.entry_limit;
+    emit!(EntryLimitSet {
+        account: a.owner_account.key(),
+        gemas: l.effective(ts),
+        pending_gemas: l.pending_gemas,
+        pending_at: l.pending_at,
+    });
+    Ok(())
+}
+
+/// Starts a Break (`days`, 1 to 42) or a Self-Exclusion (`months`, 6 to 60), or extends the one
+/// running. Neither can be ended or shortened. Creates the owner's Protections account on first use.
+#[derive(Accounts)]
+pub struct SetProtection<'info> {
+    #[account(mut)]
+    pub owner_authority: Signer<'info>,
+    #[account(
+        seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
+        bump = owner_account.bump
+    )]
+    pub owner_account: Account<'info, TesoroAccount>,
+    #[account(
+        init_if_needed,
+        payer = owner_authority,
+        space = ProtectionsState::SPACE,
+        seeds = [PROTECTIONS_SEED, owner_account.key().as_ref()],
+        bump
+    )]
+    pub protections: Account<'info, ProtectionsState>,
+    pub system_program: Program<'info, System>,
+}
+
+pub(crate) fn set_break(ctx: Context<SetProtection>, days: u16) -> Result<()> {
+    let bump = ctx.bumps.protections;
+    let a = ctx.accounts;
+    touch_protections(&mut a.protections, a.owner_account.key(), bump);
+    let ts = now()?;
+    a.protections.inner.set_break(ts, days).map_err(core_err)?;
+    emit!(BreakSet {
+        account: a.owner_account.key(),
+        until: a.protections.inner.break_until,
+    });
+    Ok(())
+}
+
+pub(crate) fn set_self_exclusion(ctx: Context<SetProtection>, months: u16) -> Result<()> {
+    let bump = ctx.bumps.protections;
+    let a = ctx.accounts;
+    touch_protections(&mut a.protections, a.owner_account.key(), bump);
+    let ts = now()?;
+    a.protections
+        .inner
+        .set_self_exclusion(ts, months)
+        .map_err(core_err)?;
+    emit!(SelfExclusionSet {
+        account: a.owner_account.key(),
+        until: a.protections.inner.self_exclusion_until,
+    });
+    Ok(())
+}
+
+/// Fills in a freshly created (zeroed) Protections account with its identity and no Protection.
+pub(crate) fn touch_protections(p: &mut ProtectionsState, account: Pubkey, bump: u8) {
+    if p.account == Pubkey::default() {
+        p.bump = bump;
+        p.account = account;
+        p.inner = Default::default();
+    }
+}
+
 // --- Loading accounts from `remaining_accounts` ------------------------------------------------
 //
 // `redeem`, `unlock` and `return_own` also serve Positions of other chains, so their fixed
@@ -519,7 +643,7 @@ fn load_custody<'info>(info: &'info AccountInfo<'info>) -> Result<Account<'info,
 }
 
 /// The Source of `position` at `index`, writable.
-fn load_source<'info>(
+pub(crate) fn load_source<'info>(
     info: &'info AccountInfo<'info>,
     position: &Pubkey,
     index: u32,
