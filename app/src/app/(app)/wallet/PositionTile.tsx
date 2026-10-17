@@ -116,6 +116,7 @@ export function PositionTile({
   series,
   notes,
   defaultOpen = false,
+  compact = false,
   children,
 }: {
   chain: Chain;
@@ -136,6 +137,8 @@ export function PositionTile({
   series: DebtSeries | null;
   notes?: ReactNode;
   defaultOpen?: boolean;
+  /** Folded to one line (label, Principal, when it comes back) instead of the countdown; a tap opens the whole card. */
+  compact?: boolean;
   children?: ReactNode;
 }) {
   const h = hero(state, unlockAt, now);
@@ -143,6 +146,21 @@ export function PositionTile({
   const [open, setOpen] = useState(defaultOpen);
   const bodyId = useId();
   const flat = state === "repaying" ? (series && debt ? `${debt} of Debt` : "Waiting for the first yield") : "No Debt";
+  if (compact && !open) {
+    const [day, rel] = h.note.split(" · ");
+    const when = state === "repaying" ? (unlockAt ? `Back ${/^To/.test(day) ? day.toLowerCase() : day} ${h.big} · ${rel}` : "Back once yield accrues") : state === "paid" ? "Paid off · unlock any time" : h.note;
+    return (
+      <article className={`cut wl-row ${state}`} aria-label={label}>
+        <button type="button" className="wl-row-btn" aria-expanded={false} onClick={() => setOpen(true)}>
+          <ChainGlyph asset={GLYPH[chain]} size={18} />
+          <b>{label}</b>
+          <span className="wl-row-p">{principal}</span>
+          <span className="wl-row-when">{when}</span>
+          <ChevronDown size={18} aria-hidden="true" />
+        </button>
+      </article>
+    );
+  }
   return (
     <article className={`cut cut-card wl-tile ${state}${open ? " open" : ""}`} aria-label={label}>
       <div className="wl-tile-top" onClick={() => setOpen((o) => !o)}>

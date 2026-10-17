@@ -48,10 +48,10 @@ function buildPlan(won: ChainHolding[], market: NativeMarket | null, mirrors: Ma
  * treasury vault holds (SOL) and the bridge's mirror of each EVM vault's treasury (ETH, HYPE). Null when the Account holds no won Gemas.
  * `plan` pairs every line "Redeem now" would send with its holding.
  */
-export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantPlan; freshPlan: (authority: PublicKey) => Promise<InstantPlan> } {
+export function useInstantRedeem(asset?: Chain): { offer: InstantOffer | null; plan: InstantPlan; freshPlan: (authority: PublicKey) => Promise<InstantPlan> } {
   const { snapshot } = useAccount();
   const market = snapshot?.market ?? null;
-  const won = useMemo(() => instantCandidates(snapshot?.holdings ?? []), [snapshot]);
+  const won = useMemo(() => instantCandidates(snapshot?.holdings ?? []).filter((h) => !asset || h.asset === asset), [snapshot, asset]);
   const vaults = useMemo(() => [...new Set(won.flatMap((h) => (h.eth ? [h.eth.vault.toLowerCase()] : [])))].sort(), [won]);
   const [mirrors, setMirrors] = useState<Map<string, VaultTreasuryView> | null>(null);
   useEffect(() => {
@@ -68,11 +68,11 @@ export function useInstantRedeem(): { offer: InstantOffer | null; plan: InstantP
   /** The plan again from a fresh Account read and fresh treasury mirrors: yield may have accrued since the Player confirmed. */
   const freshPlan = useCallback(async (authority: PublicKey) => {
     const fresh = await fetchAccountState(authority, { fresh: true });
-    const candidates = instantCandidates(fresh.holdings);
+    const candidates = instantCandidates(fresh.holdings).filter((h) => !asset || h.asset === asset);
     const freshVaults = [...new Set(candidates.flatMap((h) => (h.eth ? [h.eth.vault.toLowerCase()] : [])))].sort();
     const freshMirrors = freshVaults.length ? await fetchVaultTreasuries(getChain().base, freshVaults.map((vault) => ({ vault, eid: netOfVault(vault).eid }))) : null;
     return buildPlan(candidates, fresh.market, freshMirrors).plan;
-  }, []);
+  }, [asset]);
 
   const view = useMemo((): { offer: InstantOffer | null; plan: InstantPlan } => {
     if (won.length === 0) return { offer: null, plan: [] };

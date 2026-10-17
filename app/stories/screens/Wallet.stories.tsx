@@ -61,6 +61,73 @@ export const WithEthAndHypePositions: Story = { parameters: { data: { snapshot: 
 /** The same Positions with the Advance repaid: Debt is zero and Unlock is ready. */
 export const EthAndHypePositionsPaidOff: Story = { parameters: { data: { snapshot: ethSnapshot(true) }, screen: { eth: { advance: "paid" } } } };
 
+/** A long-time Player: a few own Positions per chain (one ETH unlocked), Gemas won from about 200 Players across SOL, ETH and HYPE. */
+const heavySnapshot = (a: string): AccountSnapshot => {
+  const s = demoSnapshot(a);
+  const PRICE = { SOL: 150, ETH: 2600, HYPE: 40 } as const;
+  const DECIMALS = { SOL: 9n, ETH: 18n, HYPE: 18n } as const;
+  const held = (n: number, asset: "SOL" | "ETH" | "HYPE", isOwn: boolean, owner: string, amount: bigint, redeemable: bigint) => ({
+    holding: new PublicKey(demoKey(3000 + n)),
+    source: new PublicKey(demoKey(4000 + n)),
+    position: new PublicKey(demoKey(5000 + n)),
+    isOwn,
+    amount,
+    reserved: 0n,
+    free: amount,
+    redeemable,
+    pending: isOwn ? 0n : amount - redeemable,
+    sourceDebt: 0n,
+    unitNum: 10n ** (DECIMALS[asset] + 4n),
+    unitDen: BigInt(PRICE[asset] * 1_000_000),
+    sourceOwner: owner,
+    asset,
+    native: asset === "SOL",
+    eth: asset === "SOL" ? null : { vault: ETH_VAULTS[asset === "ETH" ? 0 : 1].address, id: BigInt(n) },
+    stakeMint: null,
+  });
+  const won = Array.from({ length: 230 }, (_, i) => {
+    const asset = i % 9 < 5 ? "SOL" : i % 9 < 7 ? "ETH" : "HYPE";
+    const amount = BigInt(90 + ((i * 7919) % 2400));
+    const share = BigInt((i * 37) % 101);
+    // Every 12th win is a second Source from a Player already beaten: they show as one row.
+    return held(i, asset, false, demoKey(6000 + (i % 12 === 11 ? i - 9 : i)), amount, (amount * share) / 100n);
+  });
+  const own = [held(900, "SOL", true, a, 1800n, 600n), held(901, "HYPE", true, a, 650n, 0n)];
+  const sol = (n: number, principal: number, debt: number): ChainPosition => ({
+    address: new PublicKey(demoKey(700 + n)),
+    asset: "SOL",
+    principal,
+    apy: 0.07,
+    status: "locked",
+    advances: 1,
+    advance: { source: new PublicKey(demoKey(750 + n)), gemasIssued: 9000, horizonMonths: 3, debtGemas: Math.round(debt * 15_000) },
+    debt,
+    yieldAccrued: 0.01,
+    native: null,
+    eth: null,
+  });
+  const holdings = [...won, ...own];
+  const total = (list: typeof holdings) => list.reduce((t, h) => t + h.amount, 0n);
+  return {
+    ...s,
+    holdings,
+    ownTotal: total(own),
+    wonTotal: total(won),
+    positions: [
+      sol(1, 2, 0.061),
+      sol(2, 5, 0),
+      sol(3, 1, 0.052),
+      ethPosition(1, "ETH", 0.5, ETH_VAULTS[0].address),
+      ethPosition(2, "ETH", 1, ETH_VAULTS[0].address),
+      { ...ethPosition(3, "ETH", 0.2, ETH_VAULTS[0].address, true), status: "unlocked" },
+      ethPosition(4, "HYPE", 40, ETH_VAULTS[1].address),
+    ],
+  };
+};
+
+/** Hundreds of Players' Positions behind the won Gemas: each chain card lists the top 5, "Show all" opens the paged list. */
+export const LongTimePlayer: Story = { parameters: { data: { snapshot: heavySnapshot }, screen: { eth: { advance: "open" } } } };
+
 const openTab = (name: string): Story["play"] => async ({ canvasElement }) => {
   const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Open a Position/ })[0], { timeout: 10_000 });
   await userEvent.click(open);
