@@ -10,6 +10,7 @@
     "test:contracts": "cd contracts && forge test",
     "dev": "pnpm --filter @tesoro/app dev",
     "build:app": "pnpm --filter @tesoro/app build",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "prototype:wallet": "pnpm --filter @tesoro/app dev --webpack -p 3317"
   }
 }

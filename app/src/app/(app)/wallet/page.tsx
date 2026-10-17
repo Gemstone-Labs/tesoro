@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button, Card, ChainChip, FacetCrown, GemaMark, GemaUsd, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
 import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
@@ -19,10 +19,21 @@ import { vaultsOn } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
+import { WalletSourcesPrototype } from "./WalletSources.prototype";
 
 const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
 
 export default function Wallet() {
+  return <Suspense fallback={<p>Loading Wallet…</p>}><WalletRoute /></Suspense>;
+}
+
+function WalletRoute() {
+  const params = useSearchParams();
+  if (process.env.NODE_ENV !== "production" && params.get("prototype") === "sources") return <WalletSourcesPrototype />;
+  return <LiveWallet />;
+}
+
+function LiveWallet() {
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
   const [tab, setTab] = useState<Chain>("SOL");
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
