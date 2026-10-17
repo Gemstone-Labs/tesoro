@@ -1,24 +1,12 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { Bust, BustCard, Button, ChainGlyph, Slider } from "@/components/ui";
+import { Bust, Button, ChainGlyph, Slider } from "@/components/ui";
 import type { Chain } from "@/lib/mock/types";
 import { UnlockTrack, YieldToGemas, monthsLabel } from "./AdvanceQuote";
 import "./wallet.css";
 
 export const CHAINS: Chain[] = ["SOL", "ETH", "HYPE"];
-
-/** him-explain with the one-line model. Never says "protected": the Principal is locked and never played. */
-export function HowGemasWork() {
-  return (
-    <BustCard bust="himExplain" size={132} className="wl-how">
-      <b>How Gemas work</b>
-      <p>Lock a Position.</p>
-      <p>Take an Advance in Gemas.</p>
-      <p>Your Principal is never played.</p>
-    </BustCard>
-  );
-}
 
 const HOW_STEPS: [string, string][] = [
   ["Lock a Position", "Your Principal is locked, never played."],
@@ -26,7 +14,7 @@ const HOW_STEPS: [string, string][] = [
   ["Yield repays it", "The Position unlocks when its Debt reaches zero."],
 ];
 
-/** No Positions yet: the invitation, the explainer and the action in one card (it replaces HowGemasWork). */
+/** No Positions yet: the invitation, the explainer and the action in one card. */
 export function NoPositions({ onOpen }: { onOpen: () => void }) {
   return (
     <div className="cut cut-card wl-empty">

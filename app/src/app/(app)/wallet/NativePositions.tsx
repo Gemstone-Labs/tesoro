@@ -29,6 +29,7 @@ import { extendAdvance, friendlyError, setExtendLimit, getTestSimSol, instantRed
 import { runInstant } from "@/lib/chain/instant-run";
 import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, type ExtendLimitData } from "@/lib/chain/extend-limit";
 import { getChain } from "@/lib/chain/client";
+import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
 import { ethRedeemables, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
@@ -204,7 +205,21 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
 
 // ---- Position card ------------------------------------------------------------------------------
 
-export function NativePositionCard({ position, market, onRedeem, extend = EXTEND_ADVANCE_ENABLED }: { position: ChainPosition; market: NativeMarket | null; onRedeem: () => void; extend?: boolean }) {
+export function NativePositionCard({
+  position,
+  market,
+  onRedeem,
+  extend = EXTEND_ADVANCE_ENABLED,
+  label = "SOL Position",
+  compact,
+}: {
+  position: ChainPosition;
+  market: NativeMarket | null;
+  onRedeem: () => void;
+  extend?: boolean;
+  label?: string;
+  compact?: boolean;
+}) {
   const info = position.native as NativeInfo;
   const { auth, snapshot, refresh } = useAccount();
   const a = useAction(refresh);
@@ -243,7 +258,8 @@ export function NativePositionCard({ position, market, onRedeem, extend = EXTEND
   return (
     <PositionTile
       chain="SOL"
-      label="SOL Position"
+      label={label}
+      compact={compact}
       state={!locked ? "unlocked" : !src ? "idle" : onChainDebt === 0n ? "paid" : "repaying"}
       principal={`${fmtSol(info.principalLamports, 3)} SOL`}
       debt={!src ? null : onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas` : "0"}
@@ -470,16 +486,18 @@ export function nativeRedeemables(holdings: ChainHolding[]) {
   return holdings.filter((h) => h.native && h.redeemable > 0n);
 }
 
-export function NativeRedeemSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** Redeem every chain's redeemable Gemas, or only `asset`'s (a chain's own Redeem on the Wallet). */
+export function NativeRedeemSheet({ open, onClose, asset }: { open: boolean; onClose: () => void; asset?: Chain }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Redeem">
-      {open && <RedeemForm onClose={onClose} />}
+    <Sheet open={open} onClose={onClose} title={asset ? `Redeem ${asset}` : "Redeem"}>
+      {open && <RedeemForm onClose={onClose} asset={asset} />}
     </Sheet>
   );
 }
 
-function RedeemForm({ onClose }: { onClose: () => void }) {
-  const { auth, snapshot, refresh } = useAccount();
+function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) {
+  const { auth, snapshot: full, refresh } = useAccount();
+  const snapshot = full && asset ? { ...full, holdings: full.holdings.filter((h) => h.asset === asset) } : full;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<RedeemDone | null>(null);
@@ -510,7 +528,7 @@ function RedeemForm({ onClose }: { onClose: () => void }) {
     })),
   ];
 
-  const { offer: instant, plan, freshPlan } = useInstantRedeem();
+  const { offer: instant, plan, freshPlan } = useInstantRedeem(asset);
 
   const redeemNow = async () => {
     if (!auth.signer) return;
