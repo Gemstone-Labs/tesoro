@@ -19,10 +19,27 @@ import { vaultsOn } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
+import { ProtoWallet } from "./proto-many/ProtoWallet";
 
 const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
 
-export default function Wallet() {
+/** PROTOTYPE: `?variant=` swaps in a variant from proto-many/ (fake heavy Account); without it, the real Wallet. */
+export default function WalletRoute() {
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    // router.replace from the switcher changes the URL without a navigation event this page hears
+    const read = () => setSearch(window.location.search);
+    read();
+    const id = setInterval(read, 250);
+    return () => clearInterval(id);
+  }, []);
+  const q = new URLSearchParams(search);
+  const variant = q.get("variant");
+  if (variant) return <ProtoWallet variant={variant} size={q.get("size") ?? "heavy"} />;
+  return <Wallet />;
+}
+
+function Wallet() {
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
   const [tab, setTab] = useState<Chain>("SOL");
   const [advanceFor, setAdvanceFor] = useState<Position | null>(null);
