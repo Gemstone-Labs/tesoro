@@ -535,7 +535,7 @@ async function perform(next: NonNullable<ReturnType<typeof opProgress>["next"]>,
 
 export const ethRedeemables = (holdings: ChainHolding[]) => holdings.filter((h) => h.eth && h.redeemable > 0n);
 
-export function EthPositionCard({ position, market }: { position: ChainPosition; market: EthMarket | null }) {
+export function EthPositionCard({ position, market, label, compact }: { position: ChainPosition; market: EthMarket | null; label?: string; compact?: boolean }) {
   const ctx = useEthCtx();
   const { snapshot, refresh } = useAccount();
   const a = useBusy();
@@ -619,7 +619,8 @@ export function EthPositionCard({ position, market }: { position: ChainPosition;
   return (
     <PositionTile
       chain={net.native}
-      label={`${net.native} Position`}
+      label={label ?? `${net.native} Position`}
+      compact={compact}
       state={!locked ? "unlocked" : !src ? "idle" : onChainDebt === 0n ? "paid" : "repaying"}
       principal={`${fmtEth(position.principal * 1e18, 4)} ${net.native}`}
       debt={!src ? null : onChainDebt > 0n ? `${fmtGemas(Number(onChainDebt))} Gemas` : "0"}

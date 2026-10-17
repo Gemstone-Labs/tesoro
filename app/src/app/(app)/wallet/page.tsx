@@ -3,24 +3,24 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { Button, Card, ChainChip, FacetCrown, GemaMark, GemaUsd, Meter, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
-import { pendingBySource, redeemableOf, useAccount } from "@/lib/account";
+import { Button, Card, FacetCrown, GemaMark, GemaUsd, Sheet, SimulatedYieldLabel, SkeletonCards, CountUp } from "@/components/ui";
+import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas } from "@/lib/format";
-import type { Chain, Position } from "@/lib/mock";
+import type { Chain, GemaHolding, Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
-import type { ChainPosition } from "@/lib/chain/read";
+import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
+import { gemasInAsset } from "@/lib/chain/ledger";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { vaultsOn } from "@/lib/chain/eth";
-import { OpenPanel, OpenFormView, HowGemasWork, NoPositions } from "./OpenPanel";
+import { OpenPanel, OpenFormView, NoPositions } from "./OpenPanel";
+import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
-
-const shortId = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k);
 
 export default function Wallet() {
   const { gemas, positions, holdings, auth, onChain, loading, ready, error, refresh, snapshot } = useAccount();
@@ -29,6 +29,8 @@ export default function Wallet() {
   const [returnFor, setReturnFor] = useState<Position | null>(null);
   const [chainReturnFor, setChainReturnFor] = useState<ChainPosition | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
+  // A chain's own Redeem pays only that chain; the balance's Redeem pays every chain.
+  const [redeemChain, setRedeemChain] = useState<Chain | undefined>(undefined);
   const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [now] = useState(() => Date.now());
   const [openSheet, setOpenSheet] = useState(false);
@@ -69,10 +71,12 @@ export default function Wallet() {
   const redeemAmount = onChain ? nativeRedeemable : gemas.redeemable;
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
-  const openRedeem = () => auth.gate("Redeem", () => setRedeemOpen(true));
+  const openRedeem = (chain?: Chain) =>
+    auth.gate("Redeem", () => {
+      setRedeemChain(chain);
+      setRedeemOpen(true);
+    });
   const offline = auth.status === "unconfigured";
-
-  const pendingRows = pendingBySource(holdings);
 
   const generic = positions.filter((p) => !nativeIds.has(p.id) && !ethIds.has(p.id));
   const openTab = (c: Chain) => {
@@ -80,7 +84,7 @@ export default function Wallet() {
     setOpenSheet(true);
   };
 
-  const genericTile = (p: Position) => {
+  const genericTile = (p: Position, label: string) => {
     const yearly = p.principal * p.apy;
     const monthsToZero = yearly > 0 ? p.debt / (yearly / 12) : null;
     const zeroAt = p.debt > 0 && monthsToZero !== null ? now + monthsToZero * 10 * 60_000 : null;
@@ -91,7 +95,8 @@ export default function Wallet() {
       <PositionTile
         key={p.id}
         chain={p.chain}
-        label={`${p.asset} Position`}
+        label={label}
+        compact
         state={!p.advance ? "idle" : p.debt > 0 ? "repaying" : "paid"}
         principal={fmtAsset(p.principal, p.asset)}
         debt={p.advance ? fmtAsset(p.debt, p.asset) : null}
@@ -104,7 +109,7 @@ export default function Wallet() {
           <Button variant="money" size="sm" block onClick={() => auth.gate("take an Advance", () => setAdvanceFor(p))}>Take an Advance</Button>
         ) : (
           <div className="wl-actions-row">
-            <Button variant="money" size="sm" disabled={!canRedeem} onClick={openRedeem}>Redeem</Button>
+            <Button variant="money" size="sm" disabled={!canRedeem} onClick={() => openRedeem()}>Redeem</Button>
             {!onChain && p.advance && (
               <Button size="sm" onClick={() => auth.gate("return Gemas", () => setReturnFor(p))}>Return Gemas</Button>
             )}
@@ -115,25 +120,29 @@ export default function Wallet() {
     );
   };
 
+  /** A chain's own Positions, numbered in the order they were read; unlocked ones apart, they only pile up. */
   const chainTiles = (chain: Chain) => {
-    const tiles: React.ReactNode[] = [];
-    if (chain === "SOL") {
-      for (const p of (snapshot?.positions ?? []).filter((x) => x.native)) {
-        tiles.push(<NativePositionCard key={p.address.toBase58()} position={p} market={market} onRedeem={openRedeem} />);
-      }
+    const positions: React.ReactNode[] = [];
+    const closed: React.ReactNode[] = [];
+    let n = 0;
+    for (const p of (snapshot?.positions ?? []).filter((x) => (chain === "SOL" ? x.native : x.eth && x.asset === chain))) {
+      const label = `${chain} Position ${++n}`;
+      const tile = p.native ? (
+        <NativePositionCard key={p.address.toBase58()} position={p} market={market} onRedeem={() => openRedeem("SOL")} label={label} compact />
+      ) : (
+        <EthPositionCard key={p.address.toBase58()} position={p} market={null} label={label} compact />
+      );
+      (p.status === "unlocked" ? closed : positions).push(tile);
     }
-    if (chain === "ETH" || chain === "HYPE") {
-      for (const p of (snapshot?.positions ?? []).filter((x) => x.eth && x.asset === chain)) {
-        tiles.push(<EthPositionCard key={p.address.toBase58()} position={p} market={null} />);
-      }
-    }
-    for (const p of generic.filter((x) => x.chain === chain)) tiles.push(genericTile(p));
-    return tiles;
+    for (const p of generic.filter((x) => x.chain === chain)) positions.push(genericTile(p, `${chain} Position ${++n}`));
+    return { positions, closed };
   };
 
-  const positionTiles = (["SOL", "ETH", "HYPE"] as Chain[]).flatMap((c) => chainTiles(c));
-  const hasPositions = positionTiles.length > 0;
-  const noPositions = !hasPositions && !loading;
+  const pockets: Pocket[] = (["SOL", "ETH", "HYPE"] as Chain[])
+    .map((chain) => ({ chain, ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)) }))
+    .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
+  const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
+  const noPositions = pockets.length === 0 && !loading;
   const openPosition = () => auth.gate("open a Position", () => openTab(tab));
 
   return (
@@ -168,7 +177,7 @@ export default function Wallet() {
             <h2>Redeemable now</h2>
             <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>
             {ready && <GemaUsd className="wl-usd" value={redeemAmount} />}
-            <Button variant="money" disabled={redeemAmount === 0} onClick={openRedeem}>Redeem</Button>
+            <Button variant="money" disabled={redeemAmount === 0} onClick={() => openRedeem()}>Redeem</Button>
           </div>
           <div className="wl-pending" aria-label="Pending">
             <h2>Pending</h2>
@@ -182,48 +191,22 @@ export default function Wallet() {
           </p>
         )}
         <SimulatedYieldLabel className="wl-hero-sim" />
-        <details className="wl-pbs">
-          <summary>Pending by Source</summary>
-          <p className="meta">Each Source becomes redeemable as its Position&apos;s yield lands.</p>
-          {pendingRows.length === 0 && <p className="meta">Nothing pending.</p>}
-          {pendingRows.map((s) => {
-            const accrued = Math.round(s.accruedShare * 100);
-            return (
-              <div className="wl-pbs-row" key={s.key}>
-                <ChainChip chain={s.chain} />
-                <span className="wl-pbs-src">
-                  {s.owner}
-                  <small>{shortId(s.positionId)}</small>
-                </span>
-                <b className="tnum">{fmtGemas(s.pending)}</b>
-                <Meter value={s.accruedShare} label={`${s.asset} Source of ${s.owner}: yield accrued`} />
-                <span className="tnum">{accrued}% of yield accrued</span>
-              </div>
-            );
-          })}
-        </details>
       </section>
 
-      <section className="wl-positions" aria-labelledby="pos-h">
-        <h2 id="pos-h" className="h-section">Your positions</h2>
-        <div className="wl-lower">
-          <div className="wl-list">
-            {onChain && loading && positions.length === 0 && (
-              <div className="wl-grid">
-                <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Positions…" />
-              </div>
-            )}
-            {gemas.reserved > 0 && (
-              <p className="note" role="status">
-                {fmtGemas(gemas.reserved)} of your Gemas are reserved for your Backing Offers; {fmtGemas(gemas.available)} available. <a href="/backing">See Backing</a>
-              </p>
-            )}
-            {hasPositions && <div className="wl-grid">{positionTiles}</div>}
-            {noPositions && <NoPositions onOpen={openPosition} />}
-            {onChain && <EthOps />}
+      <section className="wl-positions" aria-label="Your Gemas and Positions by chain">
+        {onChain && loading && positions.length === 0 && (
+          <div className="wl-pockets">
+            <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Positions…" />
           </div>
-          {!noPositions && <HowGemasWork />}
-        </div>
+        )}
+        {gemas.reserved > 0 && (
+          <p className="note" role="status">
+            {fmtGemas(gemas.reserved)} of your Gemas are reserved for your Backing Offers; {fmtGemas(gemas.available)} available. <a href="/backing">See Backing</a>
+          </p>
+        )}
+        {pockets.length > 0 && <ChainPockets pockets={pockets} onRedeem={openRedeem} />}
+        {noPositions && <NoPositions onOpen={openPosition} />}
+        {onChain && <EthOps />}
       </section>
 
       <footer className="wl-foot">
@@ -238,7 +221,7 @@ export default function Wallet() {
           {tab === "HYPE" && (onChain ? <EthOpenForm vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>
       </Sheet>
-      <NativeRedeemSheet open={redeemOpen && onChain} onClose={() => setRedeemOpen(false)} />
+      <NativeRedeemSheet open={redeemOpen && onChain} asset={redeemChain} onClose={() => setRedeemOpen(false)} />
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
       <ReturnSheet position={returnFor} onClose={() => setReturnFor(null)} />
       {chainReturnFor && <ReturnOwnSheet position={chainReturnFor} open onClose={() => setChainReturnFor(null)} />}
@@ -266,4 +249,47 @@ function IdleForm({ unit, months, onMonths }: { unit: Chain; months: number; onM
       onSubmit={() => undefined}
     />
   );
+}
+
+const short = (k: string) => `${k.slice(0, 4)}…${k.slice(-4)}`;
+
+/** One chain's Gemas from the Account read: what they redeem for, and the Players the won ones came from. */
+function chainGemas(all: AccountSnapshot["holdings"], chain: Chain): Omit<Pocket, "chain" | "positions" | "closed"> {
+  const hs = all.filter((h) => h.asset === chain);
+  const payable = hs.filter((h) => h.native || h.eth);
+  const sources = new Map<string, PocketSource>();
+  for (const h of hs) {
+    if (h.isOwn) continue;
+    const cur = sources.get(h.sourceOwner) ?? { key: h.sourceOwner, account: h.sourceOwner, owner: short(h.sourceOwner), gemas: 0, redeemable: 0 };
+    cur.gemas += Number(h.amount);
+    cur.redeemable += Number(h.redeemable);
+    sources.set(h.sourceOwner, cur);
+  }
+  return {
+    gemas: hs.reduce((t, h) => t + Number(h.amount), 0),
+    gemasAsset: hs.reduce((t, h) => t + gemasInAsset(h.amount, h), 0),
+    redeemable: payable.reduce((t, h) => t + Number(h.redeemable), 0),
+    redeemableAsset: payable.reduce((t, h) => t + gemasInAsset(h.redeemable, h), 0),
+    sources: [...sources.values()],
+  };
+}
+
+/** The same from offline (sample) holdings, which carry no prices or Account keys. */
+function mockGemas(all: GemaHolding[], chain: Chain): Omit<Pocket, "chain" | "positions" | "closed"> {
+  const hs = all.filter((h) => h.source.chain === chain);
+  const sources = new Map<string, PocketSource>();
+  for (const h of hs) {
+    if (h.own) continue;
+    const cur = sources.get(h.source.owner) ?? { key: h.source.owner, account: null, owner: h.source.owner, gemas: 0, redeemable: 0 };
+    cur.gemas += h.gemas;
+    cur.redeemable += redeemableOf(h);
+    sources.set(h.source.owner, cur);
+  }
+  return {
+    gemas: hs.reduce((t, h) => t + h.gemas, 0),
+    gemasAsset: null,
+    redeemable: hs.reduce((t, h) => t + redeemableOf(h), 0),
+    redeemableAsset: null,
+    sources: [...sources.values()],
+  };
 }

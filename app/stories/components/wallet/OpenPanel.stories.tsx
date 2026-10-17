@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { HowGemasWork, NoPositions, OpenFormView, OpenPanel } from "@/app/(app)/wallet/OpenPanel";
+import { NoPositions, OpenFormView, OpenPanel } from "@/app/(app)/wallet/OpenPanel";
 import { GemasLabel } from "@/app/(app)/wallet/AdvanceQuote";
 import type { Chain } from "@/lib/mock/types";
 
@@ -70,5 +70,4 @@ export const FormWithAlert: Story = { render: () => box(<Form alerts={<p classNa
 /** The HYPE tab: the Gemas arrive once the Position reaches Tesoro. */
 export const FormHype: Story = { render: () => box(<Form chain="HYPE" yieldText="0.0350 HYPE" arrival="Position opens, Gemas in 2 to 5 min" buttonLabel={<GemasLabel action="Open a HYPE Position" gemas={750} />} />) };
 
-export const How: Story = { render: () => <div style={{ maxWidth: 520 }}><HowGemasWork /></div> };
 export const Empty: Story = { render: () => <div style={{ maxWidth: 720 }}><NoPositions onOpen={() => {}} /></div> };
