@@ -69,7 +69,7 @@ export function theirMoveInProgress(attack = false): Partial<VanguardView> {
 export function lostTurn(): Partial<VanguardView> {
   const g0 = freshGame(7, T0());
   const r = ok(timeout(g0, g0.deadline + 1));
-  return { ...live(chainState(g0, g0, [])), later: { afterMs: 3500, battle: chainState(r.game, g0, r.events).battle } } as Partial<VanguardView>;
+  return { ...live(chainState(g0, g0, [])), later: { afterMs: 6000, battle: chainState(r.game, g0, r.events).battle } } as Partial<VanguardView>;
 }
 
 /** A Battle for the spectator view: a few moves in, nothing public but the squares. */
