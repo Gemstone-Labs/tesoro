@@ -14,7 +14,8 @@ use serde_json::{json, Map, Value};
 use std::mem::offset_of;
 use std::path::PathBuf;
 use vanguard::engine::{
-    Army as Side, EndReason, Event, Outcome, Record, Shift, Winner, MAX_SHIFTS, NO_PIECE, PIECE_SLOTS,
+    Army as Side, EndReason, Event, Outcome, Record, Shift, Winner, MAX_SHIFTS, NO_PIECE,
+    PIECE_SLOTS,
 };
 use vanguard::{Army, Battle, RingRecord, Secret, NO_SQ, RECORD_DATA, RING, STATUS_LIVE};
 
@@ -94,8 +95,17 @@ fn army_name(a: Side) -> &'static str {
 /// The event as the app's `GameEventBody` shape, written from the engine value (not from the bytes).
 fn expected_event(e: &Event) -> Value {
     match *e {
-        Event::Move { id, from, to } => json!({ "kind": "move", "id": id, "from": square(from), "to": square(to) }),
-        Event::Attack { att, def, from, to, outcome, flash } => {
+        Event::Move { id, from, to } => {
+            json!({ "kind": "move", "id": id, "from": square(from), "to": square(to) })
+        }
+        Event::Attack {
+            att,
+            def,
+            from,
+            to,
+            outcome,
+            flash,
+        } => {
             let name = match outcome {
                 Outcome::Win => "win",
                 Outcome::Lose => "lose",
@@ -109,8 +119,16 @@ fn expected_event(e: &Event) -> Value {
                     "outcome": name, "flash": flash })
         }
         Event::Spotted { id } => json!({ "kind": "spotted", "id": id }),
-        Event::Raid { army, at } => json!({ "kind": "raid", "army": army_name(army), "at": square(at) }),
-        Event::Storm { col, index, dir, n, shifts } => {
+        Event::Raid { army, at } => {
+            json!({ "kind": "raid", "army": army_name(army), "at": square(at) })
+        }
+        Event::Storm {
+            col,
+            index,
+            dir,
+            n,
+            shifts,
+        } => {
             let shifts: Vec<Value> = shifts
                 .iter()
                 .take(n as usize)
@@ -118,7 +136,9 @@ fn expected_event(e: &Event) -> Value {
                 .collect();
             json!({ "kind": "storm", "axis": if col { "col" } else { "row" }, "index": index, "dir": dir, "shifts": shifts })
         }
-        Event::Turn { turn, timed_out } => json!({ "kind": "turn", "turn": army_name(turn), "timedOut": timed_out }),
+        Event::Turn { turn, timed_out } => {
+            json!({ "kind": "turn", "turn": army_name(turn), "timedOut": timed_out })
+        }
         Event::End { winner, reason } => {
             let w = match winner {
                 Winner::Draw => "draw",
@@ -137,20 +157,75 @@ fn expected_event(e: &Event) -> Value {
 
 fn events() -> Vec<Value> {
     let mut shifts = [Shift::default(); MAX_SHIFTS];
-    shifts[0] = Shift { id: 41, from: 54, to: 64 };
-    shifts[1] = Shift { id: 7, from: 24, to: 34 };
-    shifts[2] = Shift { id: 59, from: 94, to: 95 };
+    shifts[0] = Shift {
+        id: 41,
+        from: 54,
+        to: 64,
+    };
+    shifts[1] = Shift {
+        id: 7,
+        from: 24,
+        to: 34,
+    };
+    shifts[2] = Shift {
+        id: 59,
+        from: 94,
+        to: 95,
+    };
     let list = [
-        Event::Move { id: 33, from: 73, to: 63 },
-        Event::Attack { att: 41, def: 12, from: 53, to: 43, outcome: Outcome::Win, flash: [12, NO_PIECE] },
-        Event::Attack { att: 47, def: 5, from: 54, to: 44, outcome: Outcome::Tie, flash: [47, 5] },
-        Event::Attack { att: 36, def: 9, from: 61, to: 51, outcome: Outcome::Mine, flash: [9, 36] },
+        Event::Move {
+            id: 33,
+            from: 73,
+            to: 63,
+        },
+        Event::Attack {
+            att: 41,
+            def: 12,
+            from: 53,
+            to: 43,
+            outcome: Outcome::Win,
+            flash: [12, NO_PIECE],
+        },
+        Event::Attack {
+            att: 47,
+            def: 5,
+            from: 54,
+            to: 44,
+            outcome: Outcome::Tie,
+            flash: [47, 5],
+        },
+        Event::Attack {
+            att: 36,
+            def: 9,
+            from: 61,
+            to: 51,
+            outcome: Outcome::Mine,
+            flash: [9, 36],
+        },
         Event::Spotted { id: 52 },
-        Event::Raid { army: Side::It, at: 85 },
-        Event::Storm { col: true, index: 4, dir: -1, n: 3, shifts },
-        Event::Turn { turn: Side::It, timed_out: true },
-        Event::End { winner: Winner::Army(Side::Us), reason: EndReason::Truck },
-        Event::End { winner: Winner::Draw, reason: EndReason::Cap },
+        Event::Raid {
+            army: Side::It,
+            at: 85,
+        },
+        Event::Storm {
+            col: true,
+            index: 4,
+            dir: -1,
+            n: 3,
+            shifts,
+        },
+        Event::Turn {
+            turn: Side::It,
+            timed_out: true,
+        },
+        Event::End {
+            winner: Winner::Army(Side::Us),
+            reason: EndReason::Truck,
+        },
+        Event::End {
+            winner: Winner::Draw,
+            reason: EndReason::Cap,
+        },
     ];
     list.iter()
         .enumerate()
@@ -175,14 +250,22 @@ fn probe_battle() -> Battle {
     b.turn_no = 17;
     b.moves = 33;
     for seq in 5u32..=20 {
-        let e = Event::Move { id: (seq % 60) as u8, from: (seq % 100) as u8, to: ((seq + 10) % 100) as u8 };
+        let e = Event::Move {
+            id: (seq % 60) as u8,
+            from: (seq % 100) as u8,
+            to: ((seq + 10) % 100) as u8,
+        };
         b.ring[(seq as usize) % RING] = RingRecord::encode(&Record { seq, event: e });
     }
     b.tesoro_match = pk(0xa1);
     b.players = [pk(0xb2), pk(0xc3)];
     b.sq = [NO_SQ; PIECE_SLOTS];
     for i in 0..PIECE_SLOTS {
-        b.sq[i] = if i % 7 == 3 { NO_SQ } else { ((i * 13) % 100) as u8 };
+        b.sq[i] = if i % 7 == 3 {
+            NO_SQ
+        } else {
+            ((i * 13) % 100) as u8
+        };
         b.shown[i] = if i % 5 == 0 { (i % 12 + 1) as u8 } else { 0 };
         b.trail_len[i] = (i % 7) as u8;
         for k in 0..6 {
@@ -293,7 +376,8 @@ fn write_or_check(path: PathBuf, value: &Value) {
     }
     let have = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
-        have, text,
+        have,
+        text,
         "{} is stale: run WRITE_GOLDEN=1 cargo test -p vanguard --test golden",
         path.display()
     );
@@ -301,18 +385,33 @@ fn write_or_check(path: PathBuf, value: &Value) {
 
 #[test]
 fn the_layout_the_app_reads_is_what_the_program_writes() {
-    assert_eq!(secret_size(), 115, "the Secret is private; the app never reads it");
+    assert_eq!(
+        secret_size(),
+        115,
+        "the Secret is private; the app never reads it"
+    );
     let mut l = layout();
     // the probe Army must sit exactly where the offsets table says
     let g = army_golden();
     let bytes = g["bytes"].as_str().expect("hex");
     let off = &l["army"]["offsets"];
     let at = |name: &str| off[name].as_u64().expect("offset") as usize * 2;
-    assert_eq!(&bytes[at("battle")..at("battle") + 64], hex(pk(0x11).as_ref()));
-    assert_eq!(&bytes[at("player")..at("player") + 64], hex(pk(0x22).as_ref()));
+    assert_eq!(
+        &bytes[at("battle")..at("battle") + 64],
+        hex(pk(0x11).as_ref())
+    );
+    assert_eq!(
+        &bytes[at("player")..at("player") + 64],
+        hex(pk(0x22).as_ref())
+    );
     assert_eq!(&bytes[at("moves")..at("moves") + 4], "0102");
-    assert_eq!(l["army"]["size"].as_u64().expect("size") as usize * 2, bytes.len());
-    l["generated"] = json!("by programs/vanguard/tests/golden.rs; WRITE_GOLDEN=1 cargo test -p vanguard --test golden");
+    assert_eq!(
+        l["army"]["size"].as_u64().expect("size") as usize * 2,
+        bytes.len()
+    );
+    l["generated"] = json!(
+        "by programs/vanguard/tests/golden.rs; WRITE_GOLDEN=1 cargo test -p vanguard --test golden"
+    );
     write_or_check(app_dir().join("chain-layout.json"), &l);
 }
 

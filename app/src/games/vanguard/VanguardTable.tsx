@@ -6,9 +6,9 @@ import { Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
 import { STATUS, eventsSince, rankOfCode, type ArmyAccount, type Battle } from "./decode";
-import { NAMES, ROSTER, TURN_MS, enemy, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
+import { NAMES, ROSTER, TURN_MS, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
-import { depotsFor, enemyLeft, fromView, hitSide, indexOf, lookGame, mySide, opposite, piecesLeft, shownPieces, squareOf, toView } from "./view";
+import { depotsFor, enemyLeft, fromView, hitSide, indexOf, lookGame, opposite, piecesLeft, shownPieces, toView } from "./view";
 import "./vanguard.css";
 
 export interface VanguardTableProps {
@@ -51,8 +51,9 @@ export function endLine(b: Battle, seat: number): string {
  * back; an attack waits for the program's result, then the events the Battle recorded are played in order.
  */
 export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoStep, ended = false, children }: VanguardTableProps) {
-  const side = mySide(battle, seat);
-  const foe = enemy(side);
+  const fxKey = useRef(1);
+  const side: Army = battle.usSeat === seat ? "us" : "it";
+  const foe: Army = side === "us" ? "it" : "us";
   const [pieces, setPieces] = useState<ShownPiece[]>(() => shownPieces(battle, army, seat));
   const piecesRef = useRef(pieces);
   const [depots, setDepots] = useState(() => depotsFor(battle, side));
@@ -64,10 +65,8 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   const [sentAt, setSentAt] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [call, setCall] = useState<{ key: number; text: string; tone: CalloutTone } | null>(null);
-  const fxKey = useRef(1);
   const cursor = useRef(battle.eventSeq);
   const latest = useRef({ battle, army });
-  latest.current = { battle, army };
   const running = useRef(false);
 
   const put = useCallback((ps: ShownPiece[]) => {
@@ -75,7 +74,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
     setPieces(ps);
   }, []);
   const patch = useCallback((id: number, p: Partial<ShownPiece>) => put(piecesRef.current.map((x) => (x.id === id ? { ...x, ...p } : x))), [put]);
-  const shout = useCallback((text: string, tone: CalloutTone = "plain") => setCall({ key: fxKey.current++, text, tone }), []);
+  const shout = useCallback((text: string, tone: CalloutTone = "plain") => setCall({ key: fxKey.current++, text, tone }), [setCall]);
   const addFx = useCallback((kind: ShownFx["kind"], r: number, c: number, size: number) => {
     const key = fxKey.current++;
     setFx((f) => [...f, { key, kind, r, c, size }]);
@@ -192,6 +191,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
 
   // New Battle state: play what is new, or snap to the board when too far behind.
   useEffect(() => {
+    latest.current = { battle, army };
     if (running.current) return;
     running.current = true;
     void (async () => {
@@ -217,11 +217,10 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
         setAnimating(false);
       }
     })();
-  }, [battle, play, put, seat, side]);
+  }, [battle, army, play, put, seat, side]);
 
-  // A taken move is no longer pending once the turn moved on.
+  // A sent move is pending until the turn moves on.
   const turnNow = `${battle.turnNo}:${battle.moves}:${battle.stepsLeft}`;
-  useEffect(() => setSentAt(null), [turnNow]);
 
   // the countdown ring
   const live = battle.status === STATUS.live && !ended;
@@ -242,7 +241,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   }, [live, turnSeenAt, battle.turn, side]);
 
   const game = useMemo(() => lookGame(battle, army, seat), [battle, army, seat]);
-  const yourTurn = live && !animating && sentAt === null && battle.turn === (side === "us" ? 0 : 1);
+  const yourTurn = live && !animating && sentAt !== turnNow && battle.turn === (side === "us" ? 0 : 1);
   const sel = selected === null ? null : game.pieces.find((p) => p.id === selected) ?? null;
   const marks = yourTurn && sel ? targets(game, sel).map((t) => ({ ...toView(t, side), attack: t.attack })) : [];
 

@@ -84,7 +84,9 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   const failures = useRef(0);
   const turnSeenRef = useRef(0);
 
-  turnSeenRef.current = view.turnSeenAt;
+  useEffect(() => {
+    turnSeenRef.current = view.turnSeenAt;
+  }, [view.turnSeenAt]);
   const p = useMemo(() => (signer ? (signer as unknown as PlayerSigner) : null), [signer]);
 
   const setStage = useCallback((s: Stage, note = "") => {

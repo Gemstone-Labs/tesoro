@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import type { ArmyAccount, Battle } from "./decode";
-import { depotsFor, enemyLeft, hitSide, lookGame, mySide, shownPieces, toView } from "./view";
+import { depotsFor, enemyLeft, hitSide, lookGame, shownPieces, toView } from "./view";
 import { targets } from "./rules";
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));

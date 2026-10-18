@@ -3,6 +3,8 @@ import { PublicKey } from "@solana/web3.js";
 import type { LeaderboardView } from "@/lib/chain/leaderboard-view";
 import type { DuelView } from "@/games/trading-duel/useDuelMatch";
 import type { HoldemView } from "@/games/holdem/useHoldemMatch";
+import type { Battle } from "@/games/vanguard/decode";
+import type { VanguardView } from "@/games/vanguard/useVanguardMatch";
 import type { RunStage } from "@/lib/chain/match-flow";
 import { DEMO_ME } from "../../support/data";
 import type { GameId } from "@/lib/mock";
@@ -27,6 +29,8 @@ export interface ScreenData {
   vaultTreasury?: "ready" | "short" | "none";
   /** Hold'em Match: what the driver reports (merged over a "waiting" view). */
   holdem?: Partial<HoldemView>;
+  /** Vanguard Match: what the driver reports (merged over a "waiting" view); `later` swaps in a newer Battle after a delay, as the rollup would. */
+  vanguard?: Partial<VanguardView> & { later?: { afterMs: number; battle: Battle }; refuse?: string };
   /** Trading Duel Match: what the driver reports (merged over a "waiting" view). */
   duel?: Partial<DuelView>;
 }
