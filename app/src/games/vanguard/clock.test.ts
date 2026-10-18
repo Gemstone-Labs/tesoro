@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Battle } from "./decode";
-import { claimDue, turnKey } from "./clock";
+import { claimDue, missedLabel, ringLeft, ringStart, turnKey } from "./clock";
 
 const T0 = 1_760_000_000_000;
 const base = { status: 2, deadline: 0, startedAt: 1_760_000_000, startDeadline: 1_760_000_300, entropyDeadline: 0, turn: 0, turnNo: 3, moves: 3, stepsLeft: 1, twoStepActive: 0, eventSeq: 5 } as unknown as Battle;
@@ -40,5 +40,39 @@ describe("turnKey", () => {
     expect(turnKey(base)).toBe(turnKey({ ...base, deadline: 99 } as Battle));
     expect(turnKey(base)).not.toBe(turnKey({ ...base, moves: 4 } as Battle));
     expect(turnKey(base)).not.toBe(turnKey({ ...base, stepsLeft: 2, twoStepActive: 1 } as Battle));
+  });
+});
+
+describe("the opening turn", () => {
+  const opening = { ...base, turnNo: 0, moves: 0 } as Battle;
+
+  it("has the opening grace before its 5 seconds start, in the ring and in the claim", () => {
+    expect(ringStart(base, T0)).toBe(T0);
+    expect(ringStart(opening, T0)).toBe(T0 + 10_000);
+    expect(claimDue(opening, T0, T0 + 7_000)).toBe(false);
+    expect(claimDue(opening, T0, T0 + 16_000)).toBe(false);
+    expect(claimDue(opening, T0, T0 + 17_000)).toBe(true);
+  });
+});
+
+describe("the 5 second ring", () => {
+  it("is full when the turn is seen and empty after 5 seconds", () => {
+    expect(ringLeft(base, T0, T0)).toBe(1);
+    expect(ringLeft(base, T0, T0 + 2_500)).toBe(0.5);
+    expect(ringLeft(base, T0, T0 + 5_000)).toBe(0);
+    expect(ringLeft(base, T0, T0 + 9_000)).toBe(0);
+  });
+
+  it("stays full through the opening grace, then runs the 5 seconds", () => {
+    const opening = { ...base, turnNo: 0, moves: 0 } as Battle;
+    expect(ringLeft(opening, T0, T0 + 9_000)).toBe(1);
+    expect(ringLeft(opening, T0, T0 + 12_500)).toBe(0.5);
+  });
+});
+
+describe("missed turns", () => {
+  it("says nothing until a clock has run out, then counts to three", () => {
+    expect([0, 1, 2].map(missedLabel)).toEqual([null, "Missed 1 of 3", "Missed 2 of 3"]);
+    expect(missedLabel(3)).toBe("Missed 3 of 3");
   });
 });
