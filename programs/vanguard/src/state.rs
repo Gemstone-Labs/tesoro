@@ -11,8 +11,8 @@
 
 use crate::engine::{
     self, Army as Side, Clock, EndReason, Event, Events, Game, LayoutPiece, Outcome, Piece, Record,
-    Winner, CAP_SECS, GRACE_SECS, MOVE_CAP, OPENING_GRACE_SECS, PIECE_SLOTS, RULES_VERSION,
-    SQUARES, STORM_FROM, STORM_TO, TRUCK, TURN_SECS,
+    Winner, CAP_SECS, GRACE_SECS, MOVE_CAP, OPENING_GRACE_SECS, PIECE_SLOTS, RESOLVE_SLACK_SECS,
+    RULES_VERSION, SQUARES, STORM_FROM, STORM_TO, TRUCK, TURN_SECS,
 };
 use crate::VanguardError;
 use anchor_lang::prelude::*;
@@ -295,7 +295,9 @@ pub struct Battle {
     pub pending_time: i64,
     /// The slot `deal` ran in. Nothing is declared in it, so the sides cannot be read out of a bundle with `deal`.
     pub deal_slot: u64,
-    pub reserved: [u8; 32],
+    /// See `engine::RESOLVE_SLACK_SECS`.
+    pub resolve_slack_secs: u8,
+    pub reserved: [u8; 31],
 }
 
 /// What `create_match` knows when it binds a Battle to a tesoro_core Match.
@@ -323,6 +325,7 @@ impl Battle {
         self.turn_secs = TURN_SECS as u8;
         self.grace_secs = GRACE_SECS as u8;
         self.opening_grace_secs = OPENING_GRACE_SECS as u8;
+        self.resolve_slack_secs = RESOLVE_SLACK_SECS as u8;
         self.storm_from = STORM_FROM as u8;
         self.storm_to = STORM_TO as u8;
         self.setup_deadline = new.start_deadline.saturating_add(SETUP_GRACE_SECS);
@@ -402,6 +405,7 @@ impl Battle {
             turn_secs: self.turn_secs as i64,
             grace_secs: self.grace_secs as i64,
             opening_grace_secs: self.opening_grace_secs as i64,
+            resolve_slack_secs: self.resolve_slack_secs as i64,
         }
     }
 
@@ -766,7 +770,12 @@ mod layout {
             ("pending_slot", offset_of!(Battle, pending_slot), 1456),
             ("pending_time", offset_of!(Battle, pending_time), 1464),
             ("deal_slot", offset_of!(Battle, deal_slot), 1472),
-            ("reserved", offset_of!(Battle, reserved), 1480),
+            (
+                "resolve_slack_secs",
+                offset_of!(Battle, resolve_slack_secs),
+                1480,
+            ),
+            ("reserved", offset_of!(Battle, reserved), 1481),
         ] {
             assert_eq!(got, want, "{name}");
         }

@@ -12,15 +12,17 @@ export type Rank = "10" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" | "1" | 
 export const SIZE = 10;
 export const TURN_MS = 5000;
 /** How long a turn lasts and how much extra time the chain gives for network delay. */
-export interface ClockConfig { turnMs: number; graceMs: number; openingGraceMs: number }
+export interface ClockConfig { turnMs: number; graceMs: number; openingGraceMs: number; resolveSlackMs: number }
 /** Bump with the program's RULES_VERSION when a rule changes. */
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 /** Extra time on the chain's opening turn only: the deal starts the first mover's clock before they have loaded their Army (the program has the same number, OPENING_GRACE_SECS). */
 export const OPENING_GRACE_MS = 10_000;
+/** A resolve held back after its declare buys no more than this much time: the next deadline counts from min(resolve, declare + this) (the program has the same number, RESOLVE_SLACK_SECS). */
+export const RESOLVE_SLACK_MS = 2000;
 /** Practice has no network: the turn ends exactly when the 5 seconds do. */
-export const PRACTICE_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 0, openingGraceMs: 0 };
+export const PRACTICE_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 0, openingGraceMs: 0, resolveSlackMs: 0 };
 /** On the chain a move is accepted until 5 s + 1 s of grace after the turn started; the program has the same two numbers (GRACE_SECS). */
-export const CHAIN_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS };
+export const CHAIN_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS, resolveSlackMs: RESOLVE_SLACK_MS };
 export const TRUCK_FUEL = 3;
 export const MOVE_CAP = 200;
 /** The time cap: after this long from the start a Match ends on the tiebreak (15 minutes). */
@@ -199,6 +201,8 @@ export interface StartOptions {
 }
 
 const turnEnd = (g: { clock: ClockConfig }, at: number) => at + g.clock.turnMs + g.clock.graceMs;
+/** The time the next deadline counts from for an action declared at `at` and resolved at `resolvedAt`. */
+const countedAt = (g: { clock: ClockConfig }, at: number, resolvedAt: number) => Math.min(resolvedAt, at + g.clock.resolveSlackMs);
 
 /** A Match from an explicit layout. Piece numbers come from the start squares, never from the order given. */
 export function startGame(layout: LayoutPiece[], o: StartOptions): Game {
@@ -387,7 +391,7 @@ export function move(g0: Game, a: MoveAction): Result {
     events.push({ kind: "raid", army, at: { r, c } });
   }
 
-  g = { ...g, pieces, movedThisTurn: [...g.movedThisTurn, id], stepsLeft: g.stepsLeft - 1, deadline: turnEnd(g, a.resolvedAt ?? at) };
+  g = { ...g, pieces, movedThisTurn: [...g.movedThisTurn, id], stepsLeft: g.stepsLeft - 1, deadline: turnEnd(g, countedAt(g, at, a.resolvedAt ?? at)) };
   // a Two-Step Turn continues while there is a second step to make
   if (g.stepsLeft > 0 && g.pieces.some((p) => p.army === army && targets(g, p).length > 0)) return done(g, events);
   return endTurn(g, events, false);
@@ -396,7 +400,7 @@ export function move(g0: Game, a: MoveAction): Result {
 /**
  * Nobody moved in time (the turn passes; three in a row lose the Match), or the time cap has passed
  * (the Match ends on the tiebreak whatever the turn clock says). On the chain the claim is judged at `at` and applied at
- * `resolvedAt`; the next deadline counts from the latter.
+ * `resolvedAt`; the next deadline counts from the latter, but never from later than `at` plus the clock's slack.
  */
 export function timeout(g: Game, at: number, resolvedAt: number = at): Result {
   if (g.winner) return { ok: false, reason: "match_over" };
@@ -412,7 +416,7 @@ export function timeout(g: Game, at: number, resolvedAt: number = at): Result {
     const winner = enemy(army);
     return done(finish(g1, winner, "timeouts"), [{ kind: "end", winner, reason: "timeouts" }]);
   }
-  return endTurn({ ...g1, deadline: turnEnd(g1, resolvedAt) }, [], true);
+  return endTurn({ ...g1, deadline: turnEnd(g1, countedAt(g1, at, resolvedAt)) }, [], true);
 }
 
 /** The turn passes; `g0.deadline` is already the next side's deadline. */

@@ -55,7 +55,7 @@ fn layout() -> Value {
         layout_version => "layoutVersion", rules_version => "rulesVersion",
         setup_deadline => "setupDeadline", cap_deadline => "capDeadline", payer => "payer",
         oracle_queue => "oracleQueue", move_cap => "moveCap", cap_secs => "capSecs",
-        turn_secs => "turnSecs", grace_secs => "graceSecs", opening_grace_secs => "openingGraceSecs",
+        turn_secs => "turnSecs", grace_secs => "graceSecs", opening_grace_secs => "openingGraceSecs", resolve_slack_secs => "resolveSlackSecs",
         storm_from => "stormFrom", storm_to => "stormTo", pending_kind => "pendingKind",
         pending_piece => "pendingPiece", pending_to => "pendingTo", pending_seat => "pendingSeat",
         action_seq => "actionSeq", pending_slot => "pendingSlot", pending_time => "pendingTime",
@@ -298,7 +298,7 @@ fn probe_battle() -> Battle {
     b.timeouts = [0, 2];
     b.depot_claimed = [1, 0];
     b.layout_version = 2;
-    b.rules_version = 3;
+    b.rules_version = 4;
     b.setup_deadline = 1_760_000_480;
     b.cap_deadline = 1_760_001_100;
     b.payer = pk(0xd4);
@@ -308,6 +308,7 @@ fn probe_battle() -> Battle {
     b.turn_secs = 5;
     b.grace_secs = 1;
     b.opening_grace_secs = 10;
+    b.resolve_slack_secs = 2;
     b.storm_from = 10;
     b.storm_to = 18;
     b.pending_kind = 1;
@@ -374,6 +375,7 @@ fn battle_golden() -> Value {
             "turnSecs": b.turn_secs,
             "graceSecs": b.grace_secs,
             "openingGraceSecs": b.opening_grace_secs,
+            "resolveSlackSecs": b.resolve_slack_secs,
             "stormFrom": b.storm_from,
             "stormTo": b.storm_to,
             "pendingKind": b.pending_kind,

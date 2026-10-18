@@ -77,6 +77,7 @@ export function constants() {
     TURN_SECS: CHAIN_CLOCK.turnMs / 1000,
     GRACE_SECS: CHAIN_CLOCK.graceMs / 1000,
     OPENING_GRACE_SECS: CHAIN_CLOCK.openingGraceMs / 1000,
+    RESOLVE_SLACK_SECS: CHAIN_CLOCK.resolveSlackMs / 1000,
     RULES_VERSION,
     CAP_SECS: CAP_MS / 1000,
     MOVE_CAP,

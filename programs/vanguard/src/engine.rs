@@ -18,7 +18,7 @@ use anchor_lang::solana_program::hash::hashv;
 
 /// Bump when a rule changes; the recordings and the app change with it. Each Battle stores the version it was
 /// created under.
-pub const RULES_VERSION: u8 = 3;
+pub const RULES_VERSION: u8 = 4;
 
 pub const SIZE: usize = 10;
 pub const SQUARES: usize = SIZE * SIZE;
@@ -31,6 +31,10 @@ pub const GRACE_SECS: i64 = 1;
 /// Extra seconds on the opening turn only: `deal` starts the first mover's clock before they have loaded their
 /// Army. One constant here and in the app's `CHAIN_CLOCK`.
 pub const OPENING_GRACE_SECS: i64 = 10;
+/// How long after a declare a resolve still counts as "now" for the next deadline. A client that holds back the
+/// resolve gets no more thinking time than this: the next deadline counts from
+/// `min(resolve time, declare time + RESOLVE_SLACK_SECS)`.
+pub const RESOLVE_SLACK_SECS: i64 = 2;
 /// The time cap: 15 minutes from the start.
 pub const CAP_SECS: i64 = 15 * 60;
 pub const MOVE_CAP: u16 = 200;
@@ -302,6 +306,8 @@ pub struct Clock {
     pub grace_secs: i64,
     /// Added to the first turn's deadline only.
     pub opening_grace_secs: i64,
+    /// Bound on how much a delayed resolve may add to the next deadline.
+    pub resolve_slack_secs: i64,
 }
 
 /// The chain's clock: 5 s plus the grace, and the opening turn's extra.
@@ -309,6 +315,7 @@ pub const CHAIN_CLOCK: Clock = Clock {
     turn_secs: TURN_SECS,
     grace_secs: GRACE_SECS,
     opening_grace_secs: OPENING_GRACE_SECS,
+    resolve_slack_secs: RESOLVE_SLACK_SECS,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -742,6 +749,11 @@ impl Game {
             started_at,
             clock,
         )
+    }
+
+    /// The time the next deadline counts from, for an action declared at `declared` and resolved at `resolved`.
+    pub fn counted(&self, declared: i64, resolved: i64) -> i64 {
+        resolved.min(declared.saturating_add(self.clock.resolve_slack_secs))
     }
 
     fn turn_end(&self, at: i64) -> i64 {
