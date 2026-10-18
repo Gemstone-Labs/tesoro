@@ -143,8 +143,8 @@
 @keyframes stage-scan { from { left: 0; } to { left: calc(100% - 40px); } }
 .stage-rail i { position: absolute; top: 50%; translate: -50% -50%; display: grid; place-items: center; opacity: 0; }
 /* Gemas travel from a seat into the Pot */
-.stage-rail.l.in i { animation: stage-to-r 2.1s ease-in infinite; }
-.stage-rail.r.in i { animation: stage-to-l 2.1s ease-in infinite; }
+.stage-rail.l.in i { animation: stage-to-r 2.1s linear infinite; }
+.stage-rail.r.in i { animation: stage-to-l 2.1s linear infinite; }
 /* hidden pieces are dealt from the Pot out to each seat */
 .stage-rail.l.out i { animation: stage-deal-l 1.8s ease-out infinite; }
 .stage-rail.r.out i { animation: stage-deal-r 1.8s ease-out infinite; }

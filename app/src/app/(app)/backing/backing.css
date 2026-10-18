@@ -115,8 +115,7 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
   .bk-outcomes td b { font-size: 26px; }
 }
 
-dialog.bk-drawer[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
-dialog.bk-drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
+/* open and close motion: shared with sheets in ui.css */
 
 /* How Backing works: one example Offer, the Pot drawn to scale for a win and a loss; Hide folds it to its title bar */
 .bk-ex { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 22px; padding: 26px 28px 28px; }

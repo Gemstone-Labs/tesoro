@@ -1,6 +1,7 @@
 /* Request card: the Player's animal over the Game's art, name, record, P&L, ask (RequestCard.tsx) */
 .rq { --c: 12px; container-type: inline-size; display: grid; grid-template-rows: auto 1fr; overflow: hidden; background: var(--surface); --edge: var(--edge-1); transition: transform 0.2s ease; }
-.rq:hover { --edge: var(--edge-2); transform: translateY(-3px); }
+.rq:hover { --edge: var(--edge-2); }
+@media (hover: hover) and (pointer: fine) { .rq:hover { transform: translateY(-3px); } }
 .rq.selected { --edge: var(--fg); --t: 2px; }
 
 .rq-face { position: relative; display: grid; place-items: end center; height: 236px; padding-bottom: 16px; overflow: hidden; }

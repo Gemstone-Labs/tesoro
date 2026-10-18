@@ -721,19 +721,21 @@ function OfferDrawer({
     const d = ref.current;
     if (d && !d.open) d.showModal();
   }, []);
+  const dismiss = () => ref.current?.close();
 
   return (
     <dialog
       ref={ref}
       className={`cut cut-frame bk-drawer${request ? " has-card" : ""}`}
       aria-label={request ? "Make an Offer" : "New public Offer"}
-      onClose={onClose}
-      onClick={(e) => e.target === ref.current && onClose()}
+      // Close the dialog first so its exit plays, then let the page unmount it.
+      onClose={() => setTimeout(onClose, 180)}
+      onClick={(e) => e.target === ref.current && dismiss()}
     >
       <div className="bk-drawer-in">
         <div className="bk-drawer-head">
           <h2 className="h-section">{request ? "Make an offer" : "New public offer"}</h2>
-          <button type="button" className="cut icon-btn" onClick={onClose} aria-label="Close">
+          <button type="button" className="cut icon-btn" onClick={dismiss} aria-label="Close">
             <XMark aria-hidden="true" />
           </button>
         </div>
@@ -809,7 +811,7 @@ function OfferDrawer({
               <span className="meta">for 24 hours</span>
             </div>
             <div className="bk-drawer-actions">
-              <Button onClick={onClose}>Cancel</Button>
+              <Button onClick={dismiss}>Cancel</Button>
               <Button variant="money" disabled={short || busy} onClick={() => onSend(game, entry, share, request)}>
                 {request ? <GemasLabel action="Make an Offer" gemas={entry} /> : "Post Offer"}
               </Button>

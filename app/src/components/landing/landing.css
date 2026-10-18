@@ -483,7 +483,7 @@ html.lenis, html.lenis body { height: auto; }
 .lp-pot-legend .pool { background: var(--fg); }
 /* catalogue: tiles lift and glow; the empty slot breathes */
 .lp-catalogue li { transition: translate 0.3s, filter 0.3s; }
-.lp-catalogue li:not(.lp-slot):hover { translate: 0 -4px; filter: drop-shadow(0 8px 18px rgba(36, 216, 168, 0.25)); }
+@media (hover: hover) and (pointer: fine) { .lp-catalogue li:not(.lp-slot):hover { translate: 0 -4px; filter: drop-shadow(0 8px 18px rgba(36, 216, 168, 0.25)); } }
 /* players: the Gema in the first pill travels into the slot in "Your game" (hopping over Entry), rests, then starts
    again. ArriveFlow sets --x0/--y0 (home slot), --dx/--dy (to the slot) and --hop; .is-live only when motion is allowed. */
 .lp-arrive { position: relative; width: fit-content; }

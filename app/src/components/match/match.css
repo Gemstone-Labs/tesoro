@@ -43,7 +43,7 @@
 }
 
 /* ——— Moment overlay: bust + Gema burst over the result, ~3 s or a click ——— */
-.mo { position: fixed; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: 4px; background: radial-gradient(closest-side, rgba(3, 32, 26, 0.72), rgba(9, 13, 15, 0.86)); cursor: pointer; animation: mo-in 260ms ease-out both, mo-out 320ms ease-in 2680ms forwards; }
+.mo { position: fixed; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: 4px; background: radial-gradient(closest-side, rgba(3, 32, 26, 0.72), rgba(9, 13, 15, 0.86)); cursor: pointer; animation: mo-in 260ms ease-out both, mo-out 200ms ease-out 2800ms forwards; }
 .mo-stage { position: relative; display: grid; place-items: end center; width: min(560px, 92vw); }
 /* emerald rays turning behind the bust */
 .mo-rays { position: absolute; left: 50%; top: 50%; width: min(1100px, 180vw); aspect-ratio: 1; translate: -50% -50%; pointer-events: none;

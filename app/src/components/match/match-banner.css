@@ -16,7 +16,7 @@
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(90deg, #0b1013 0, rgba(11, 16, 19, 0.96) 32%, rgba(11, 16, 19, 0.7) 58%, rgba(11, 16, 19, 0.38) 100%);
 }
-.mb:hover .mb-art img { transform: scale(1.05); }
+@media (hover: hover) and (pointer: fine) { .mb:hover .mb-art img { transform: scale(1.05); } }
 .mb-hit { position: absolute; inset: 0; z-index: 1; }
 .mb-hit:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
 

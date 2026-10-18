@@ -5,6 +5,7 @@
 .lobby-top { display: grid; gap: 12px; min-width: 0; }
 .hero { --hero-h: 440px; position: relative; overflow: hidden; touch-action: pan-y; }
 .hero-track { display: flex; transform: translateX(calc(var(--i) * -100%)); transition: transform 0.55s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.hero-track.manual { transition-duration: 0.3s; transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
 .hero-track.jump { transition: none; }
 .slide { --c: 18px; flex: 0 0 100%; height: var(--hero-h); position: relative; overflow: hidden; background: #0a1322; --edge: var(--edge-2); }
 .slide-art { position: absolute; inset: 0; }
@@ -82,7 +83,7 @@
 /* Play now: the live games as large tiles */
 .tile { --c: 16px; position: relative; display: block; aspect-ratio: 1.75; overflow: hidden; background: var(--surface); --edge: var(--edge-2); }
 .tile img { object-fit: cover; object-position: top; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.4s ease; }
-a.tile:hover img { transform: scale(1.04); filter: brightness(1.08) saturate(1.08); }
+@media (hover: hover) and (pointer: fine) { a.tile:hover img { transform: scale(1.04); filter: brightness(1.08) saturate(1.08); } }
 a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(234, 239, 236, 0.2) 50%, rgba(234, 239, 236, 0.12)); }
 .tile-shade { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 42%, rgba(6, 9, 12, 0.55) 70%, rgba(6, 9, 12, 0.94) 100%); }
 .tile-cell { position: relative; min-width: 0; }
@@ -198,7 +199,7 @@ a.tile:hover .tile-glare { opacity: 1; }
   animation: lbt-spin 50s linear infinite;
 }
 .lbt-chest { position: relative; display: block; width: 100%; height: auto; transition: translate 0.4s ease, scale 0.4s ease; }
-.lbt:hover .lbt-chest { translate: 0 -6px; scale: 1.03; }
+@media (hover: hover) and (pointer: fine) { .lbt:hover .lbt-chest { translate: 0 -6px; scale: 1.03; } }
 .lbt-copy { display: grid; gap: 8px; justify-items: start; max-width: 62%; }
 .lbt-kicker { font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
 .lbt-kicker b { color: var(--fg); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 13.5px; white-space: nowrap; }
@@ -227,7 +228,7 @@ a.tile:hover .tile-glare { opacity: 1; }
 .lbt-cta { margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: var(--fg-2); }
 .lbt:hover .lbt-cta { color: var(--fg); }
 .lbt-cta svg { width: 15px; height: 15px; transition: translate 0.2s ease; }
-.lbt:hover .lbt-cta svg { translate: 3px 0; }
+@media (hover: hover) and (pointer: fine) { .lbt:hover .lbt-cta svg { translate: 3px 0; } }
 @keyframes lbt-spin { to { rotate: 360deg; } }
 @media (prefers-reduced-motion: reduce) { .lbt-rays { animation: none; } .lbt-chest, .lbt-cta svg { transition: none; } }
 @media (max-width: 720px) {
