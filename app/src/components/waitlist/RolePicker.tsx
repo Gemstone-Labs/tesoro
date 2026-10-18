@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment, type ReactNode } from "react";
 import { ROLES, type Role } from "@/lib/waitlist-role";
 
 /** Toggle chips for the optional "who are you" question. Several can be on; tap again to drop one. */
@@ -8,11 +9,14 @@ export function RolePicker({
   onChange,
   label,
   hint,
+  after = {},
 }: {
   value: Role[];
   onChange: (next: Role[]) => void;
   label: string;
   hint?: string;
+  /** Content shown in the chip row right after a role's chip (the Studio field). */
+  after?: Partial<Record<Role, ReactNode>>;
 }) {
   const toggle = (k: Role) => onChange(value.includes(k) ? value.filter((v) => v !== k) : ROLES.map((r) => r.key).filter((r) => r === k || value.includes(r)));
   return (
@@ -23,15 +27,17 @@ export function RolePicker({
       </p>
       <div className="wl-role-chips">
         {ROLES.map((r) => (
-          <button
-            key={r.key}
-            type="button"
-            className="wl-role-chip cut cut-chip"
-            aria-pressed={value.includes(r.key)}
-            onClick={() => toggle(r.key)}
-          >
-            {r.chip}
-          </button>
+          <Fragment key={r.key}>
+            <button
+              type="button"
+              className="wl-role-chip cut cut-chip"
+              aria-pressed={value.includes(r.key)}
+              onClick={() => toggle(r.key)}
+            >
+              {r.chip}
+            </button>
+            {value.includes(r.key) ? after[r.key] : null}
+          </Fragment>
         ))}
       </div>
     </div>

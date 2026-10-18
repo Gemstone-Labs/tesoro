@@ -81,17 +81,24 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
   const error = state.status === "error" ? state.message : undefined;
   return (
     <form className="wl-form" action={action} noValidate={false}>
-      <RolePicker value={roles} onChange={setRoles} label="I'm here because…" hint="Optional. It goes on your card." />
-      {roles.includes("studio") ? (
-        <div className="wl-studio">
-          <label className="label" htmlFor="wl-studio">
-            Studio or game <span className="wl-role-hint">(optional)</span>
-          </label>
-          <span className="cut cut-chip ctl">
-            <input id="wl-studio" name="studio" className="input" maxLength={120} placeholder="Studio name or a link" autoComplete="organization" />
-          </span>
-        </div>
-      ) : null}
+      <RolePicker
+        value={roles}
+        onChange={setRoles}
+        label="I'm here because…"
+        hint="Optional. It goes on your card."
+        after={{
+          studio: (
+            <div className="wl-studio">
+              <label className="label" htmlFor="wl-studio">
+                Studio or game <span className="wl-role-hint">(optional)</span>
+              </label>
+              <span className="cut cut-chip ctl">
+                <input id="wl-studio" name="studio" className="input" maxLength={120} placeholder="Studio name or a link" autoComplete="organization" />
+              </span>
+            </div>
+          ),
+        }}
+      />
       <label className="label" htmlFor="wl-email">
         Email
       </label>
