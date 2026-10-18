@@ -79,7 +79,6 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-main { position: absolute; z-index: 5; left: var(--pad); bottom: clamp(28px, 6vh, 64px); width: min(480px, calc(100% - 2 * var(--pad))); }
 .wl-kicker { margin-bottom: clamp(8px, 1.6vh, 14px); font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
 .wl-h1 { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.005em; font-size: clamp(38px, 7.4vh, 68px); line-height: 0.95; max-width: 17ch; text-wrap: balance; }
-.wl-lede { margin-top: clamp(10px, 2vh, 18px); font-size: clamp(15px, 2.1vh, 18px); line-height: 1.5; color: var(--fg-2); max-width: 44ch; }
 .wl-form { margin-top: clamp(16px, 3vh, 28px); display: grid; gap: 6px; }
 .wl-row { display: flex; gap: 10px; }
 .wl-row .ctl { flex: 1 1 auto; min-width: 0; }
@@ -125,7 +124,6 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
   .wl-more { display: flex; }
   .wl-main { bottom: 24px; }
   .wl-h1 { font-size: clamp(34px, 9.2vw, 42px); }
-  .wl-lede { font-size: 15px; }
   .wl-nav a { white-space: nowrap; }
   .wl-kicker { display: none; }
   .wl-row { flex-direction: column; }
@@ -157,3 +155,21 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 @media (scripting: enabled) and (prefers-reduced-motion: reduce) {
   .vw, .wl-floor, .wl-light { transition: none; }
 }
+
+/* Optional "who are you" chips (RolePicker). The picks print on the waitlist card. */
+.wl-role { display: grid; gap: 8px; }
+.wl-role-label { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--fg); }
+.wl-role-hint { font-weight: 400; color: var(--fg-2); }
+.wl-role-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-role-chip {
+  all: unset; box-sizing: border-box; --c: var(--cut-chip); --edge: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 38px; padding: 0 14px; font-size: 14px; font-weight: 700; color: var(--fg-2); background: var(--surface);
+  transition: color 0.15s;
+}
+.wl-role-chip::before { content: "+" / ""; font-weight: 800; color: var(--fg-3); }
+.wl-role-chip:hover { color: var(--fg); background: var(--surface-2); }
+.wl-role-chip[aria-pressed="true"] { color: var(--fg); background: linear-gradient(rgba(36, 216, 168, 0.16), rgba(36, 216, 168, 0.16)), #11171b; }
+.wl-role-chip[aria-pressed="true"]::before { content: "✓" / ""; color: var(--em); }
+.wl-form > .wl-role { margin-bottom: 8px; }
+.wl-studio { display: grid; gap: 4px; margin-bottom: 8px; }
+.wl-studio .input { width: 100%; }

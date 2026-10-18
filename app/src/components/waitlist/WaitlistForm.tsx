@@ -4,8 +4,10 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { joinWaitlist, type WaitlistState } from "@/app/(marketing)/waitlist-action";
 import { art } from "@/lib/art";
 import { appHref } from "@/lib/landing/config";
+import { roleTags, type Role } from "@/lib/waitlist-role";
 import { gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
 import { PackReveal } from "./PackReveal";
+import { RolePicker } from "./RolePicker";
 import { TurnstileField } from "./TurnstileField";
 
 const IDLE: WaitlistState = { status: "idle" };
@@ -18,6 +20,7 @@ const postUrl = (text: string, url: string) =>
 /** `source` credits a shared spot link when the visitor arrived without a utm_source. */
 export function WaitlistForm({ source: invitedBy }: { source?: string }) {
   const [state, action, pending] = useActionState(joinWaitlist, IDLE);
+  const [roles, setRoles] = useState<Role[]>([]);
   const source = useRef<HTMLInputElement>(null);
   const referrer = useRef<HTMLInputElement>(null);
   const [pack, setPack] = useState<"sealed" | "open" | "closed">("sealed");
@@ -32,7 +35,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
 
   if (state.status === "ok") {
     const gem = state.spot ? gemFor(state.spot) : null;
-    const share = gem ? postUrl(shareText(gem), SITE + spotPath(gem.spot)) : postUrl(SHARE_TEXT, SITE);
+    const share = gem ? postUrl(shareText(gem), SITE + spotPath(gem.spot, roles)) : postUrl(SHARE_TEXT, SITE);
     return (
       <div className="wl-done" role="status">
         <p className="wl-done-title">You&apos;re on the list.</p>
@@ -41,7 +44,10 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="wl-gem-art" src={art.avatars[gem.avatar - 1]} alt="" width={72} height={72} />
             <div>
-              <p className="wl-gem-spot mono">Spot #{gem.spot}</p>
+              <p className="wl-gem-spot mono">
+                Spot #{gem.spot}
+                {roles.length ? ` · ${roleTags(roles).join(" · ")}` : ""}
+              </p>
               <p className="wl-gem-name">You pulled the {gem.name}.</p>
             </div>
           </div>
@@ -67,6 +73,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
             shareHref={share}
             tryHref={appHref()}
             sealed={pack === "sealed"}
+            roles={roles}
             onOpen={() => setOpened(true)}
             onClose={() => setPack("closed")}
           />
@@ -78,6 +85,17 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
   const error = state.status === "error" ? state.message : undefined;
   return (
     <form className="wl-form" action={action} noValidate={false}>
+      <RolePicker value={roles} onChange={setRoles} label="I'm here because…" hint="Optional. It goes on your card." />
+      {roles.includes("studio") ? (
+        <div className="wl-studio">
+          <label className="label" htmlFor="wl-studio">
+            Studio or game <span className="wl-role-hint">(optional)</span>
+          </label>
+          <span className="cut cut-chip ctl">
+            <input id="wl-studio" name="studio" className="input" maxLength={120} placeholder="Studio name or a link" autoComplete="organization" />
+          </span>
+        </div>
+      ) : null}
       <label className="label" htmlFor="wl-email">
         Email
       </label>
@@ -101,6 +119,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
           {pending ? "Joining…" : "Join the waitlist"}
         </button>
       </div>
+      <input type="hidden" name="role" value={roles.join(",")} />
       <div className="wl-hp" aria-hidden>
         <label>
           Company
