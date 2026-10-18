@@ -30,6 +30,30 @@ function playOut(seed: number): Game {
 }
 
 describe("practice bot", () => {
+  it("never plans a Recon long run it then spends a Two-Step Turn on", () => {
+    let spent = 0;
+    for (let seed = 1; seed <= 120; seed++) {
+      const rng = seeded(seed);
+      let g = newGame(rng, T0);
+      for (let i = 0; i < 400 && !g.winner; i++) {
+        const m = botMove(g, rng);
+        const at = T0 + i * 1000;
+        if (!m) break;
+        if (m.twoStep) {
+          const s = startTwoStep(g, at);
+          if (!s.ok) throw new Error(s.reason);
+          g = s.game;
+          spent++;
+        }
+        const r = move(g, { id: m.id, to: m.to, at });
+        expect(r.ok, `seed ${seed} move ${i}`).toBe(true);
+        if (!r.ok) return;
+        g = r.game;
+      }
+    }
+    expect(spent).toBeGreaterThan(0);
+  }, 30_000);
+
   it("plays whole Matches to an end without a single refused action", () => {
     for (let seed = 1; seed <= 25; seed++) {
       const g = playOut(seed);

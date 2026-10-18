@@ -7,12 +7,15 @@ import { enemy, targets, type Army, type Game, type Rng, type Square } from "../
  */
 export function botMove(g: Game, rng: Rng = Math.random): { id: number; to: Square; twoStep: boolean } | null {
   const army: Army = g.turn;
+  const twoStep = g.twoStep[army] > 0 && !g.twoStepActive && g.movedThisTurn.length === 0;
+  // the Two-Step Turn is decided first: inside it a Recon no longer runs far, so every move is picked from what is legal there
+  const view: Game = twoStep ? { ...g, twoStepActive: true } : g;
   const forward = army === "it" ? 1 : -1;
   const raid = g.depots.find((d) => d.raider === army && !d.claimed);
   let best: { id: number; to: Square; score: number } | null = null;
   for (const p of g.pieces) {
     if (p.army !== army) continue;
-    for (const t of targets(g, p)) {
+    for (const t of targets(view, p)) {
       const v = p.rank === "B" || p.rank === "F" ? 0 : Number(p.rank);
       const dist = Math.abs(t.r - p.r) + Math.abs(t.c - p.c);
       let score = rng() * 2;
@@ -29,5 +32,5 @@ export function botMove(g: Game, rng: Rng = Math.random): { id: number; to: Squa
       if (!best || score > best.score) best = { id: p.id, to: { r: t.r, c: t.c }, score };
     }
   }
-  return best && { id: best.id, to: best.to, twoStep: g.twoStep[army] > 0 && !g.twoStepActive && g.movedThisTurn.length === 0 };
+  return best && { id: best.id, to: best.to, twoStep };
 }
