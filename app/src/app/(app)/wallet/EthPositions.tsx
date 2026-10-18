@@ -282,7 +282,10 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       yieldText={`${quote ? fmtEth(quote.projectedUnits, 5) : "0"} ${unit}`}
       yieldFeeBps={yieldFeeBps}
       arrival="Position opens, Gemas in 2 to 5 min"
-      estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
+      estimate={(() => {
+        const at = estimate ?? now + months * ETH_SIM_MONTH_MIN * 60_000;
+        return `${fmtWhen(at)} (${fmtInMinutes(at, now)})`;
+      })()}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtEth(principal)} ${unit}`],

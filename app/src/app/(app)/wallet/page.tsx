@@ -7,7 +7,7 @@ import { Button, Card, FacetCrown, GemaMark, GemaUsd, Sheet, SimulatedYieldLabel
 import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas } from "@/lib/format";
-import type { Chain, GemaHolding, Position } from "@/lib/mock";
+import { GAME_NAMES, type Chain, type GameId, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
@@ -17,7 +17,7 @@ import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { vaultsOn } from "@/lib/chain/eth";
-import { OpenPanel, OpenFormView, NoPositions } from "./OpenPanel";
+import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
@@ -34,13 +34,22 @@ export default function Wallet() {
   const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [now] = useState(() => Date.now());
   const [openSheet, setOpenSheet] = useState(false);
+  const [intent, setIntent] = useState<OpenIntent | null>(null);
   // Phones fold the balance to the Total; wider screens always show all of it.
   const [heroOpen, setHeroOpen] = useState(false);
   const router = useRouter();
   // `/wallet?open=1` (the Lobby's Get Gemas) lands with the Open a Position sheet already up.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("open") !== "1") return;
-    const t = setTimeout(() => setOpenSheet(true), 0);
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("open") !== "1") return;
+    // A game that sent the Player here (`game`, and the entry as `need`) is remembered for the sheet.
+    const game = q.get("game");
+    const need = Math.floor(Number(q.get("need")));
+    const from: OpenIntent | null = game && game in GAME_NAMES ? { game: game as GameId, need: need > 0 ? need : null } : null;
+    const t = setTimeout(() => {
+      setIntent(from);
+      setOpenSheet(true);
+    }, 0);
     return () => clearTimeout(t);
   }, []);
   useGuideTip({
@@ -215,11 +224,13 @@ export default function Wallet() {
       </footer>
 
       <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
+        <OpenIntentContext.Provider value={intent}>
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
           {tab === "ETH" && (onChain ? <EthOpenForm vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
           {tab === "HYPE" && (onChain ? <EthOpenForm vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>
+        </OpenIntentContext.Provider>
       </Sheet>
       <NativeRedeemSheet open={redeemOpen && onChain} asset={redeemChain} onClose={() => setRedeemOpen(false)} />
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />

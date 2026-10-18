@@ -20,7 +20,7 @@ export function YieldFeeNote({ yieldFeeBps = DEFAULT_YIELD_FEE_BPS }: { yieldFee
 }
 
 /** Shared by Take an Advance and Open a Position: the yield over the Horizon (after the Yield Fee) flowing into "You get now". */
-export function YieldToGemas({ months, yieldText, gemas, yieldFeeBps }: { months: number; yieldText: string; gemas: number; yieldFeeBps?: number }) {
+export function YieldToGemas({ months, yieldText, gemas, yieldFeeBps, showFee = true }: { months: number; yieldText: string; gemas: number; yieldFeeBps?: number; showFee?: boolean }) {
   return (
     <>
       <div className="adv-swap">
@@ -40,7 +40,7 @@ export function YieldToGemas({ months, yieldText, gemas, yieldFeeBps }: { months
           <span className="adv-usd">{gemas > 0 ? fmtUsd(gemasToUsd(gemas)) : "—"}</span>
         </div>
       </div>
-      <YieldFeeNote yieldFeeBps={yieldFeeBps} />
+      {showFee && <YieldFeeNote yieldFeeBps={yieldFeeBps} />}
     </>
   );
 }
