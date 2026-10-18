@@ -61,7 +61,7 @@
 .rail { display: grid; gap: 18px; }
 .rail-head { display: flex; align-items: baseline; gap: 16px; }
 .rail-head .h-section { margin-right: auto; }
-.rail-link { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-14); font-weight: 600; color: var(--fg-2); }
+.rail-link { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-14); font-weight: 600; color: var(--fg-2); white-space: nowrap; }
 .rail-link svg { width: 16px; height: 16px; }
 .rail-link:hover { color: var(--fg); }
 .rail-track { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
@@ -89,6 +89,8 @@ a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(23
 .tile-cell { position: relative; min-width: 0; }
 .tile-practice { position: absolute; right: 18px; bottom: 16px; z-index: 4; display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; font-size: var(--fs-13); font-weight: 700; color: var(--fg); background: rgba(6, 9, 12, 0.7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); --edge: var(--edge-2); }
 .tile-practice:hover { background: rgba(6, 9, 12, 0.88); }
+/* the tile itself is the Play link on wide screens; phones get a visible Play now button beside Practice free */
+.tile-play { display: none; }
 @container (min-width: 720px) {
   .tile-cell.last-odd { grid-column: 1 / -1; }
   .tile-cell.last-odd .tile { aspect-ratio: 3.6; }
@@ -118,7 +120,12 @@ a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(23
   .hero-next { display: none; }
   .tile { aspect-ratio: 1.6; }
   /* the chip leaves the art and sits under the tile, so it never covers the subtitle */
-  .tile-practice { position: static; display: flex; justify-content: center; margin-top: 8px; }
+  .tile-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .tile-play { display: flex; justify-content: center; min-height: 44px; }
+  .tile-practice { position: static; display: flex; justify-content: center; }
+  .soon-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  .soon-strip > b { grid-column: 1 / -1; }
+  .soon-item { min-width: 0; }
   .tile-label { padding-right: 24px; }
 }
 .welcome-strip { --c: 12px; --edge: var(--line-2); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 12px 16px 12px 20px; background: var(--raised); }
@@ -219,18 +226,13 @@ a.tile:hover .tile-glare { opacity: 1; }
 .lbt-skel-fig { width: 300px; max-width: 80%; height: clamp(48px, 6vw, 80px); margin: 4px 0; }
 .lbt-skel-title { width: 320px; max-width: 86%; height: 20px; }
 .lbt-skel-chip { display: block; width: 168px; height: 38px; background: rgba(234, 239, 236, 0.06); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
-.lbt-skel-cta { width: 104px; height: 11px; margin-top: 8px; }
 .lbt-top img { width: 26px; height: 26px; border-radius: 50%; }
 .lbt-rank { font-family: var(--f-display); font-weight: 800; font-size: var(--fs-15); color: var(--fg); min-width: 10px; text-align: center; }
 .lbt-top li:first-child .lbt-rank { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .lbt-you { margin: 0; color: var(--fg-2); font-size: var(--fs-14); }
 .lbt-you b { color: var(--fg); }
-.lbt-cta { margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); font-weight: 700; color: var(--fg-2); }
-.lbt:hover .lbt-cta { color: var(--fg); }
-.lbt-cta svg { width: 15px; height: 15px; transition: translate 0.2s ease; }
-@media (hover: hover) and (pointer: fine) { .lbt:hover .lbt-cta svg { translate: 3px 0; } }
 @keyframes lbt-spin { to { rotate: 360deg; } }
-@media (prefers-reduced-motion: reduce) { .lbt-rays { animation: none; } .lbt-chest, .lbt-cta svg { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .lbt-rays { animation: none; } .lbt-chest { transition: none; } }
 @media (max-width: 720px) {
   .lbt { padding: 20px 18px; min-height: 0; }
   .lbt-art { top: -10px; right: -8%; translate: 0 0; width: 52%; }

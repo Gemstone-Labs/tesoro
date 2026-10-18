@@ -18,10 +18,10 @@
 .wl-pending .meta, .wl-redeemable .meta { color: var(--fg-2); font-size: var(--fs-13); }
 .wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
 .wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: var(--fs-15); padding: 0; }
-.wl-hero-sim { grid-column: 1 / -1; margin-top: -12px; }
+.wl-hero-sim { grid-column: 1 / -1; margin-top: -16px; }
 .wl-hero-err { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 @media (min-width: 960px) { .wl-hero { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); padding: 40px 44px 28px; } }
-@media (max-width: 479px) { .wl-hero { padding: 24px 18px 18px; } .wl-second { grid-template-columns: 1fr; } }
+@media (max-width: 479px) { .wl-hero { padding: 24px 18px 30px; } .wl-second { grid-template-columns: 1fr; } }
 .wl-total-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 /* phones: folded to the Total until opened */
 @media (min-width: 768px) { .wl-total-head .wl-fold, .wl-sum { display: none; } }
@@ -31,7 +31,7 @@
 .wl-sum:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 @media (max-width: 767px) {
   .wl-total { cursor: pointer; }
-  .wl-hero:not(.open) > :is(.wl-second, .wl-hero-sim) { display: none; }
+  .wl-hero:not(.open) > .wl-second { display: none; }
 }
 
 .wl-foot { display: grid; gap: 10px; }
@@ -55,6 +55,12 @@
 .wl-fold:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .wl-fold svg { transition: none; } }
 .wl-tile-lock { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); font-weight: 700; }
+/* phones: the locked amount drops under the Position's name instead of crowding it */
+@media (max-width: 479px) {
+  .wl-tile-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 8px; row-gap: 2px; }
+  .wl-tile-head .wl-fold { grid-column: 3; grid-row: 1; }
+  .wl-tile-lock { grid-column: 2; grid-row: 2; margin-left: 0; font-size: var(--fs-14); }
+}
 /* countdown: when the Principal comes back */
 .wl-back { display: grid; gap: 4px; padding-top: 8px; }
 .wl-back b { font-family: var(--f-display); font-weight: 800; font-size: clamp(56px, 18cqi, 96px); line-height: 0.95; letter-spacing: -0.01em; text-transform: uppercase; }

@@ -191,6 +191,8 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
   font-family: var(--f-mono); font-size: var(--fs-12); color: var(--fg-2);
 }
 .site-foot-strip > span { display: inline-flex; align-items: center; gap: 8px; }
+/* social links sit first, bottom left; the 44px targets hang into the gutter so the marks line up with the text above */
+.site-foot-social { display: flex; align-items: center; margin-left: -13px; }
 .site-foot-fair::before {
   content: ""; width: 8px; height: 8px; background: var(--em);
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
@@ -339,7 +341,6 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .pchest { padding-right: 8px; }
 }
 
-.site-foot-cols .xf-link { gap: 8px; }
 /* bare screens drop the footer, which also carried the room above the bottom nav */
 .content[data-bare] .app-main { padding-bottom: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); }
 @media (min-width: 1024px) { .content[data-bare] .app-main { padding-bottom: 48px; } }

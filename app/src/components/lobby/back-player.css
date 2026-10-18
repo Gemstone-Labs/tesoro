@@ -5,6 +5,8 @@
 .bp-arrows .btn { width: 36px; padding: 0; }
 .bp-arrows svg { width: 16px; height: 16px; }
 .bp-arrows .btn:disabled { opacity: 0.35; cursor: default; }
+/* phones swipe the shelf, so the arrows only crowd the header */
+@media (max-width: 639px) { .bp-arrows { display: none; } }
 
 .bp-shelf { display: grid; grid-auto-flow: column; grid-auto-columns: 272px; gap: 18px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
 .bp-shelf::-webkit-scrollbar { display: none; }
@@ -24,7 +26,7 @@
 .bp-face { position: relative; display: grid; place-items: end center; height: 230px; padding-bottom: 18px; overflow: hidden; }
 .bp-art { object-fit: cover; object-position: 78% 40%; transform: scale(1.15); }
 .bp-face::after { content: ""; position: absolute; inset: 0; background: radial-gradient(80% 60% at 50% 70%, rgba(9, 13, 15, 0.1), rgba(9, 13, 15, 0.75)), linear-gradient(0deg, #0f1418 0%, transparent 40%); }
-.bp-game { position: absolute; z-index: 2; left: 14px; top: 12px; max-width: calc(100% - 110px); overflow: hidden; font-family: var(--f-display); font-weight: 800; font-size: var(--fs-18); text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
+.bp-game { position: absolute; z-index: 2; left: 14px; top: 12px; max-width: calc(100% - 140px); overflow: hidden; font-family: var(--f-display); font-weight: 800; font-size: var(--fs-18); text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
 .bp-time {
   position: absolute; z-index: 2; right: 12px; top: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px;
   font-size: var(--fs-12); white-space: nowrap; background: rgba(6, 9, 12, 0.7);

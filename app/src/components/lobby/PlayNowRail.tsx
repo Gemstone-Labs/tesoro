@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useMemo, type PointerEvent } from "react";
-import { Clock, X } from "lucide-react";
+import { ArrowRight, Clock, X } from "lucide-react";
 import { ENTRY_SIZES, GemaMark } from "@/components/ui";
 import type { GameId } from "@/lib/mock";
 import { CheckIcon, MinusIcon, XIcon } from "@/components/ui/icons";
@@ -84,9 +84,14 @@ export function PlayNowRail() {
             </span>
           </Link>
           {g.game && (
-            <Link href={practiceHref(g.game)} className="cut cut-chip tile-practice">
-              Practice free
-            </Link>
+            <div className="tile-actions">
+              <Link href={`/play/${g.game}`} className="cut cut-btn btn money tile-play">
+                Play now <ArrowRight aria-hidden="true" />
+              </Link>
+              <Link href={practiceHref(g.game)} className="cut cut-chip tile-practice">
+                Practice free
+              </Link>
+            </div>
           )}
         </div>
       ))}

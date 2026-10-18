@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import type { ChainRequest } from "@/lib/chain/backing";
-import { timeLeft, useBackingBoard } from "@/lib/chain/useBackingBoard";
+import { closesIn, useBackingBoard } from "@/lib/chain/useBackingBoard";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
 import { Bust, ClockIcon, GemaMark } from "@/components/ui";
@@ -129,15 +129,15 @@ function PlayerCard({ r, mine }: { r: ChainRequest; mine: boolean }) {
   const name = usePlayerLabel(r.player);
   const key = r.address.toBase58();
   const { matches, wins } = r.record;
-  const left = timeLeft(r.expiresAt);
+  const left = closesIn(r.expiresAt);
   return (
     <article className="cut cut-card bp-card" aria-label={`${name}, ${GAME_NAMES[r.game]}`}>
       <div className="bp-face">
         <Image className="bp-art" src={art.hero[r.game]} alt="" fill sizes="280px" />
         <span className="bp-game">{GAME_NAMES[r.game]}</span>
-        <span className="bp-time mono" aria-label={left}>
-          <ClockIcon width={12} height={12} />
-          {left.replace(" left", "")}
+        <span className="bp-time" title="This Request takes Offers until then">
+          <ClockIcon width={12} height={12} aria-hidden="true" />
+          {left}
         </span>
         <AccountLink account={r.player} decorative className="cut cut-btn avatar bp-avatar">
           <PlayerAvatar account={r.player} size={264} />

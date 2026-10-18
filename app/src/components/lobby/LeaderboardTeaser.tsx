@@ -1,6 +1,5 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -55,7 +54,7 @@ export function LeaderboardTeaser() {
   if (!data && error) return null;
   const top = data?.standings.slice(0, 3) ?? [];
   return (
-    <Rail id="leaderboard" title="Leaderboard" cols={2} className="lb-teaser">
+    <Rail id="leaderboard" title="Leaderboard" viewAll="/leaderboard" viewAllLabel="See the season" cols={2} className="lb-teaser">
       {!data ? (
         <TeaserSkeleton />
       ) : (
@@ -91,9 +90,6 @@ export function LeaderboardTeaser() {
                 <b>You</b> {standingSummary(seasonStanding(data, me), data.players, MIN_ENTRY / POINTS_DIVISOR)}
               </p>
             )}
-            <span className="lbt-cta">
-              See the season <ArrowRight aria-hidden="true" />
-            </span>
           </div>
         </Link>
       )}
@@ -121,7 +117,6 @@ function TeaserSkeleton() {
               <span key={i} className="lbt-skel-chip" />
             ))}
           </span>
-          <span className="skel-line lbt-skel-cta" />
         </div>
       </div>
     </>

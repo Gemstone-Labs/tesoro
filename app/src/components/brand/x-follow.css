@@ -4,8 +4,8 @@
 .xf-link { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--fg-2); }
 .xf-link:hover { color: var(--fg); }
 .xf-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
-/* footers drop the X link on phones (founder 2026-10-19) */
-@media (max-width: 639px) { .xf-foot { display: none; } }
+/* footers show the bare mark, sized as a tap target (founder 2026-10-19) */
+.xf-link.xf-foot { justify-content: center; min-width: 44px; min-height: 44px; }
 
 /* header button (b, c): compact, label drops to icon-only on phones */
 .xf.btn.xf-head { min-height: 38px; padding: 0 12px; gap: 7px; font-size: var(--fs-14); white-space: nowrap; }

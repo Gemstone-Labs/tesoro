@@ -39,6 +39,8 @@
 }
 .mb-av { display: block; width: 52px; height: 52px; border-radius: 50%; object-fit: cover; border: 2px solid var(--line-2); background: var(--raised-2); }
 .mb-seat.lit .mb-av { border-color: var(--em-hi); box-shadow: 0 0 0 4px rgba(36, 216, 168, 0.2); }
+/* a lost Match: the winner's ring reads as your loss, not as a win (founder 2026-10-19) */
+.mb.lost .mb-seat.lit .mb-av { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(242, 104, 90, 0.2); }
 .mb-seat.dim .mb-av { filter: grayscale(0.7) brightness(0.75); }
 .mb-plate {
   display: inline-flex; align-items: baseline; gap: 6px; max-width: 150px; padding: 4px 9px;

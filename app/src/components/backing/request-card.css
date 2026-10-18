@@ -7,7 +7,7 @@
 .rq-face { position: relative; display: grid; place-items: end center; height: 236px; padding-bottom: 16px; overflow: hidden; }
 .rq-art { object-fit: cover; object-position: 78% 40%; transform: scale(1.12); }
 .rq-face::after { content: ""; position: absolute; inset: 0; background: radial-gradient(80% 60% at 50% 70%, rgba(9, 13, 15, 0.1), rgba(9, 13, 15, 0.75)), linear-gradient(0deg, #0f1418 0%, transparent 40%); }
-.rq-game { position: absolute; z-index: 2; left: 16px; top: 14px; max-width: calc(100% - 120px); overflow: hidden; font-family: var(--f-display); font-weight: 800; font-size: var(--fs-20); line-height: 1; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
+.rq-game { position: absolute; z-index: 2; left: 16px; top: 14px; max-width: calc(100% - 150px); overflow: hidden; font-family: var(--f-display); font-weight: 800; font-size: var(--fs-20); line-height: 1; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
 .rq-time {
   position: absolute; z-index: 2; right: 14px; top: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px;
   font-size: var(--fs-12); white-space: nowrap; background: rgba(6, 9, 12, 0.7);
