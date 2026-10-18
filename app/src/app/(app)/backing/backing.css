@@ -56,6 +56,7 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
 .bk-outcomes { width: 100%; border-collapse: collapse; }
 .bk-outcomes th, .bk-outcomes td { padding: 12px 10px; text-align: left; vertical-align: top; }
 .bk-outcomes thead th { padding-top: 0; max-width: 16ch; overflow: hidden; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-2); }
+.bk-keep { margin-top: -10px; }
 .bk-outcomes tbody tr { border-top: 1px solid var(--line); }
 .bk-outcomes tbody th { font-size: 15px; white-space: nowrap; }
 .bk-outcomes td b { display: block; font-family: var(--f-display); font-size: 34px; font-weight: 800; line-height: 1; }
@@ -86,14 +87,29 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
   .bk-drawer-card { position: sticky; top: 0; padding: 24px 0 24px 24px; }
   .has-card :is(.bk-drawer-head, .bk-drawer-terms) { padding-left: 24px; }
 }
-/* stacked, the card is a shorter poster so the terms are close */
+/* stacked, the Player is a compact header row (avatar, name, record, ask) so the terms stay in view */
 @media (max-width: 859px) {
-  .bk-drawer-card .rq-face { height: 176px; }
-  .bk-drawer-card .rq-avatar { width: 104px; height: 104px; --c: 18px; }
+  .bk-drawer-card { padding-bottom: 0; }
+  .bk-drawer-card .rq { grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: auto; align-items: center; gap: 0 12px; padding: 12px; }
+  .bk-drawer-card .rq-face { height: auto; padding: 0; overflow: visible; }
+  .bk-drawer-card .rq-art, .bk-drawer-card .rq-game, .bk-drawer-card .rq-time, .bk-drawer-card .rq-face::after,
+  .bk-drawer-card .rq-body .pnl, .bk-drawer-card .rq-new { display: none; }
+  .bk-drawer-card .rq-avatar { width: 56px; height: 56px; --c: 12px; box-shadow: none; }
+  .bk-drawer-card .rq-body { gap: 6px; padding: 0; min-width: 0; }
+  .bk-drawer-card .rq-body > strong { font-size: 17px; text-align: left; }
+  .bk-drawer-card .rq-stats { grid-template-columns: repeat(3, auto); justify-content: start; gap: 0 14px; text-align: left; }
+  .bk-drawer-card .rq-stats div + div { border: 0; }
+  .bk-drawer-card .rq-stats div { display: flex; align-items: baseline; gap: 5px; }
+  .bk-drawer-card .rq-stats dt { order: 2; }
+  .bk-drawer-card .rq-stats dd, .bk-drawer-card .rq-stats div:first-child dd { font-family: var(--f-body); font-size: 15px; }
+  .bk-drawer-card .rq-foot { padding-top: 0; border: 0; justify-content: flex-start; }
+  .bk-drawer-card .rq-foot > div { display: flex; align-items: center; gap: 8px; }
+  .bk-drawer-card .rq-foot b { font-size: 17px; }
 }
 @media (max-width: 520px) {
-  .bk-drawer-foot { grid-template-columns: 1fr; }
-  .bk-reserve { display: none; }
+  .bk-drawer-foot { grid-template-columns: 1fr; gap: 12px; }
+  .bk-reserve { display: flex; align-items: center; gap: 8px; }
+  .bk-reserve b { font-size: 18px; }
   .bk-outcomes td b { font-size: 26px; }
 }
 

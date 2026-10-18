@@ -45,6 +45,7 @@ import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
+import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
@@ -761,7 +762,7 @@ function OfferDrawer({
           )}
 
           <Slider
-            label="They keep of the surplus"
+            label="Player keeps"
             value={share}
             min={10}
             max={90}
@@ -770,23 +771,24 @@ function OfferDrawer({
             display={`${share}%`}
             format={(v) => `${v}%`}
           />
+          <p className="meta bk-keep">You keep {100 - share}% of the surplus.</p>
           <table className="bk-outcomes">
             <thead>
               <tr>
                 <th />
                 <th scope="col">You</th>
-                <th scope="col">{request ? <PlayerName account={request.player} /> : "Player"}</th>
+                <th scope="col">Player</th>
               </tr>
             </thead>
             <tbody>
               <tr className="won">
                 <th scope="row"><span className="bk-ico won"><CheckIcon /></span> They win</th>
-                <td><b className="tnum">+{fmtGemas(win.backerSurplus)}</b><small>entry back, then {100 - share}%</small></td>
+                <td><b className="tnum">+{fmtGemas(win.backerSurplus)}</b><small>net · your {fmtGemas(entry)} comes back, plus {100 - share}% of the surplus</small></td>
                 <td><b className="tnum">+{fmtGemas(win.playerShare)}</b><small>{share}% of the surplus</small></td>
               </tr>
               <tr className="lost">
                 <th scope="row"><span className="bk-ico lost"><XIcon /></span> They lose</th>
-                <td><b className="tnum">−{fmtGemas(entry)}</b><small>your entry</small></td>
+                <td><b className="tnum">−{fmtGemas(entry)}</b><small>you lose your entry</small></td>
                 <td><b className="tnum">0</b><small>never owe anything</small></td>
               </tr>
             </tbody>
@@ -809,7 +811,7 @@ function OfferDrawer({
             <div className="bk-drawer-actions">
               <Button onClick={onClose}>Cancel</Button>
               <Button variant="money" disabled={short || busy} onClick={() => onSend(game, entry, share, request)}>
-                {request ? "Make an Offer" : "Post Offer"}
+                {request ? <GemasLabel action="Make an Offer" gemas={entry} /> : "Post Offer"}
               </Button>
             </div>
           </footer>
