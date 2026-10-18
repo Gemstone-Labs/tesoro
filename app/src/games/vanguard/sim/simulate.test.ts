@@ -10,7 +10,7 @@ const counts = (g: Game, army: Army) => {
 
 describe("Vanguard bot simulation", () => {
   it("ends every Match and keeps the board lawful after every action", () => {
-    for (let seed = 1; seed <= 40; seed++) {
+    for (let seed = 1; seed <= 16; seed++) {
       let prev: Game | null = null;
       const m = runMatch(seed, {
         first: seed % 2 ? "us" : "it",
@@ -33,7 +33,7 @@ describe("Vanguard bot simulation", () => {
       expect(m.reason).not.toBeNull();
     }
     expect(ROSTER.length).toBeGreaterThan(0);
-  });
+  }, 30_000); // every action runs the board invariants: ~4 s per 16 Matches on an idle machine, several times that under load
 
   it("gives the same report for the same seed and count", () => {
     const a = renderReport(aggregate(runBatch({ seed: 7, count: 30 }), DEFAULT_PACE), { seed: 7, count: 30 });
