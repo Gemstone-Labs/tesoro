@@ -11,6 +11,11 @@ import { NAV, SidebarBody, isHere } from "./Sidebar";
 import { SiteFooter } from "./SiteFooter";
 import { TopBar } from "./TopBar";
 
+/** Screens that exist for one action (play, queue, challenge, a Match, an opening Position): no link directory under them. */
+function bareScreen(path: string | null) {
+  return !!path && (path.startsWith("/play/") || path === "/wallet/opening");
+}
+
 /** Desktop: fixed sidebar + top bar. Below 1024px: the sidebar becomes a drawer and a bottom nav appears. */
 export function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
@@ -49,10 +54,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </dialog>
 
-        <div className="content">
+        <div className="content" data-bare={bareScreen(path) || undefined}>
           <TopBar onMenu={() => setDrawer(true)} />
           <main className="app-main" key={path}>{children}</main>
-          <SiteFooter />
+          {!bareScreen(path) && <SiteFooter />}
         </div>
 
         <nav className="bottom-nav" aria-label="Main">
