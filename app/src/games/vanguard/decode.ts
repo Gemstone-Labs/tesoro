@@ -220,3 +220,8 @@ export function eventsSince(b: Battle, cursor: number): Catchup {
   }
   return { kind: "events", events };
 }
+
+/** Changes whenever anything a Player can see in the Battle changes. */
+export function battleKey(b: Battle): string {
+  return [b.status, b.eventSeq, b.turnNo, b.moves, b.turn, b.stepsLeft, b.twoStepActive, b.deadline, b.winner, b.stormDone, b.twoStep, b.timeouts, b.depotClaimed, b.sq.join(","), b.shown.join(",")].join("|");
+}

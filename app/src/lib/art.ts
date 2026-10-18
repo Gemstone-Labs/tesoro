@@ -13,10 +13,12 @@ export const art = {
   blockPuzzleHero: f("block-puzzle-hero"),
   holdemHero: f("holdem-hero"),
   tradingDuelHero: f("trading-duel-hero"),
+  vanguardHero: f("vanguard-hero"),
   /** Square key art. */
   blockPuzzleTile: f("block-puzzle-tile"),
   holdemTile: f("holdem-tile"),
   tradingDuelTile: f("trading-duel-tile"),
+  vanguardTile: f("vanguard-tile"),
   comingSoon: {
     "word-duel": f("coming-soon-word-duel"),
     "bubble-burst": f("coming-soon-bubble-burst"),
@@ -32,6 +34,7 @@ export const art = {
     "block-puzzle": f("block-puzzle-hero"),
     holdem: f("holdem-hero"),
     "trading-duel": f("trading-duel-hero"),
+    vanguard: f("vanguard-hero"),
   },
   /** Dark backdrops for the play screens (Astra art for the edges of the Arena). */
   arena: { "block-puzzle": f("arena/block-puzzle"), holdem: f("arena/holdem"), "trading-duel": f("arena/trading-duel"), vanguard: f("arena/vanguard") },
@@ -40,6 +43,7 @@ export const art = {
     "block-puzzle": f("block-puzzle-tile"),
     holdem: f("holdem-tile"),
     "trading-duel": f("trading-duel-tile"),
+    vanguard: f("vanguard-tile"),
   },
   /**
    * Guide characters, torso-up crops (made by scripts/make-busts.mjs from the full-body poses, which

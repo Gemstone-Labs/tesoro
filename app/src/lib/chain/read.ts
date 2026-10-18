@@ -2,6 +2,8 @@ import { PublicKey, type AccountInfo } from "@solana/web3.js";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/chain";
 import { TRADING_DUEL_PROGRAM_ID, addresses as duelAddresses } from "@/games/trading-duel/chain";
+import { decodeBattle } from "@/games/vanguard/decode";
+import { VANGUARD_PROGRAM_ID, addresses as vanguardAddresses } from "@/games/vanguard/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain, getHoldem, getTradingDuel } from "./client";
 import { assetIndexOf, matchOpenedAt } from "./match-id";
@@ -147,6 +149,7 @@ export function gameOf(game: PublicKey): GameId | null {
   if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return "block-puzzle";
   if (game.equals(HOLDEM_PROGRAM_ID)) return "holdem";
   if (game.equals(TRADING_DUEL_PROGRAM_ID)) return "trading-duel";
+  if (game.equals(VANGUARD_PROGRAM_ID)) return "vanguard";
   return null;
 }
 
@@ -210,8 +213,23 @@ export async function fetchMatch(id: bigint, me: PublicKey | null): Promise<Chai
     const duel = enumKey(state.inner.status) === "settled" ? await duelAccount(id) : null;
     return toChainMatch(state, me, null, duel);
   }
+  if (gameOf(pk(state.inner.game)) === "vanguard") {
+    const battle = enumKey(state.inner.status) === "settled" ? await battleOnBase(id) : null;
+    return toChainMatch(state, me, null, battle);
+  }
   const session = await chain.bp.account.session.fetchNullable(a.session).catch(() => null);
   return toChainMatch(state, me, session);
+}
+
+/** A finished Vanguard Battle on the base layer (committed back by `close_match`); its `winner` is the winning seat. */
+async function battleOnBase(id: bigint): Promise<{ winner: number } | null> {
+  const info = await getChain().base.getAccountInfo(vanguardAddresses(id).battle).catch(() => null);
+  if (!info || !info.owner.equals(VANGUARD_PROGRAM_ID)) return null;
+  try {
+    return decodeBattle(info.data);
+  } catch {
+    return null;
+  }
 }
 
 /** A finished Hold'em table on the base layer (committed back by `close_match`). */
@@ -283,12 +301,13 @@ export async function fetchAccountMatches(key: PublicKey): Promise<{ played: Cha
   const isGame = (g: GameId) => (m: any) => gameOf(pk(m.account.inner.game)) === g;
   const isHoldem = isGame("holdem");
   const isDuel = isGame("trading-duel");
+  const isVanguard = isGame("vanguard");
   const settled = (m: any) => enumKey(m.account.inner.status) === "settled";
   const holdem = getHoldem().program;
   const duelProgram = getTradingDuel().program;
-  const [sessions, tables, duels] = await Promise.all([
+  const [sessions, tables, duels, battles] = await Promise.all([
     gameAccounts(
-      mine.filter((m: any) => !isHoldem(m) && !isDuel(m)),
+      mine.filter((m: any) => !isHoldem(m) && !isDuel(m) && !isVanguard(m)),
       (id) => BlockPuzzleChain.addresses(id).session,
       (data) => chain.bp.coder.accounts.decode("session", data),
     ),
@@ -302,11 +321,16 @@ export async function fetchAccountMatches(key: PublicKey): Promise<{ played: Cha
       (id) => duelAddresses(id).duel,
       (data) => duelProgram.coder.accounts.decode("duel", data),
     ),
+    gameAccounts(
+      mine.filter((m: any) => isVanguard(m) && settled(m)),
+      (id) => vanguardAddresses(id).battle,
+      (data) => decodeBattle(data),
+    ),
   ]);
   const all_ = mine
     .map((m: any) => {
       const id = big(m.account.id).toString();
-      return toChainMatch(m.account, key, sessions.get(id) ?? null, tables.get(id) ?? duels.get(id) ?? null);
+      return toChainMatch(m.account, key, sessions.get(id) ?? null, tables.get(id) ?? duels.get(id) ?? battles.get(id) ?? null);
     })
     .sort((x: ChainMatch, y: ChainMatch) => (x.id < y.id ? 1 : -1));
   return { played: all_.filter((m: ChainMatch) => m.seat !== null), funded: all_.filter((m: ChainMatch) => m.seat === null && m.backerSeat !== null) };
@@ -375,7 +399,7 @@ export interface QueueSeat {
 export async function queueSeats(): Promise<Record<GameId, QueueSeat[]>> {
   const now = Math.floor(Date.now() / 1000);
   const all = await getChain().core.account.matchState.all();
-  const out: Record<GameId, (QueueSeat & { id: bigint })[]> = { "block-puzzle": [], holdem: [], "trading-duel": [] };
+  const out: Record<GameId, (QueueSeat & { id: bigint })[]> = { "block-puzzle": [], holdem: [], "trading-duel": [], vanguard: [] };
   for (const m of all as any[]) {
     const inner = m.account.inner;
     const id = big(m.account.id);
@@ -384,7 +408,7 @@ export async function queueSeats(): Promise<Record<GameId, QueueSeat[]>> {
     out[game].push({ id, player: pk(inner.a.player).toBase58(), entry: Number(inner.entry.toString()), asset: game === "trading-duel" ? assetIndexOf(id) : 0 });
   }
   const sorted = (seats: (QueueSeat & { id: bigint })[]) => seats.sort((x, y) => (x.id < y.id ? -1 : 1)).map(({ player, entry, asset }) => ({ player, entry, asset }));
-  return { "block-puzzle": sorted(out["block-puzzle"]), holdem: sorted(out.holdem), "trading-duel": sorted(out["trading-duel"]) };
+  return { "block-puzzle": sorted(out["block-puzzle"]), holdem: sorted(out.holdem), "trading-duel": sorted(out["trading-duel"]), vanguard: sorted(out.vanguard) };
 }
 
 /** The full Account: its state, then its Matches. `onAccount` gets the state first, so Gemas show before the Match list is read. */

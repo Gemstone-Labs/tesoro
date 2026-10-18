@@ -7,7 +7,7 @@ const first = (v: Param) => (Array.isArray(v) ? v[0] : v);
 /** The `?game=` of a play link; Block Puzzle when absent or unknown. */
 export function gameFromParam(v: Param): GameId {
   const g = first(v);
-  return g === "holdem" || g === "trading-duel" ? g : "block-puzzle";
+  return g === "holdem" || g === "trading-duel" || g === "vanguard" ? g : "block-puzzle";
 }
 
 /** Trading Duel's asset index from `?asset=sol|eth|hype` (SOL when absent). */

@@ -145,15 +145,17 @@ export interface VanguardBoardProps {
   storm: ShownStorm | null;
   /** Taps are off (not your turn, or an animation is playing). */
   locked: boolean;
+  /** The army whose Player is looking; its depot is the one "yours to raid". Defaults to the US. */
+  viewer?: Army;
   onPiece: (id: number) => void;
-  onMark: (sq: Square) => void;
+  onMark: (mark: Square & { attack: boolean }) => void;
 }
 
 /**
  * The 10×10 board, top-down, from the US side. Pieces are positioned by square and slide with a CSS
  * transition; effects are painted sprites drawn with a screen blend; the Dust Storm is a haze over its line.
  */
-export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, locked, onPiece, onMark }: VanguardBoardProps) {
+export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, locked, viewer = "us", onPiece, onMark }: VanguardBoardProps) {
   return (
     <div className="vg-board" role="group" aria-label="Vanguard board">
       {depots.map((d) => (
@@ -162,7 +164,7 @@ export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, lock
           className={`vg-depot${d.claimed ? " claimed" : ""}`}
           style={{ left: `calc(var(--vg-sq) * ${d.c + 0.5})`, top: `calc(var(--vg-sq) * ${d.r + 0.5})` }}
           role="img"
-          aria-label={`Supply Depot, ${d.raider === "us" ? "yours to raid" : "Italy raids this one"}${d.claimed ? ", raided" : ""}`}
+          aria-label={`Supply Depot, ${d.raider === viewer ? "yours to raid" : "the enemy raids this one"}${d.claimed ? ", raided" : ""}`}
         />
       ))}
       {pieces.map((p) => (

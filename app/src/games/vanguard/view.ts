@@ -38,7 +38,7 @@ export function shownPieces(b: Battle, own: ArmyAccount | null, seat: number): S
   for (let id = 0; id < b.sq.length; id++) {
     if (b.sq[id] === NO_SQUARE) continue;
     const army = armyOfPiece(id);
-    const rank = army === side ? (mine ? rankOfCode(mine.ranks[id % 30]) : null) : rankOfCode(b.shown[id]);
+    const rank = army === side ? ((mine ? rankOfCode(mine.ranks[id % 30]) : null) ?? rankOfCode(b.shown[id])) : rankOfCode(b.shown[id]);
     const at = toView(squareOf(b.sq[id]), side);
     out.push({ id, army, rank, r: at.r, c: at.c, up: rank !== null });
   }
@@ -97,7 +97,7 @@ export function lookGame(b: Battle, own: ArmyAccount | null, seat: number): Game
     if (b.sq[id] === NO_SQUARE) continue;
     const army = armyOfPiece(id);
     const at = squareOf(b.sq[id]);
-    const rank = army === side ? (mine ? rankOfCode(mine.ranks[id % 30]) : null) : rankOfCode(b.shown[id]);
+    const rank = army === side ? ((mine ? rankOfCode(mine.ranks[id % 30]) : null) ?? rankOfCode(b.shown[id])) : rankOfCode(b.shown[id]);
     pieces.push({
       id,
       army,

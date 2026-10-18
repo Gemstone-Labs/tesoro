@@ -6,6 +6,18 @@
 const CORE_WINDOW_SECS = 60 * 60;
 /** trading_duel START_WINDOW_SECS + MATCH_SECS (30 s head start + 12 columns of 10 s): the longest a Duel runs after the join. */
 const DUEL_PLAY_SECS = 300 + 150;
+/**
+ * vanguard START_WINDOW_SECS + ENTROPY_SECS + CAP_SECS: the longest a Battle runs after `create_match`. The
+ * program pushes the Match's refund deadline to a full day after that call (TABLE_WINDOW_SECS), so this is
+ * counted back from the deadline, not from the join.
+ */
+const VANGUARD_PLAY_SECS = 300 + 60 + 900;
+const VANGUARD_WINDOW_SECS = 24 * 60 * 60;
+/**
+ * Before `create_match` the deadline is still the hour after the join. A deadline less than this far ahead has
+ * not been pushed, so a Vanguard Match counts only its refund deadline until it is.
+ */
+const VANGUARD_PUSHED_MIN_SECS = 2 * 60 * 60;
 /** Time the rollup is given to commit a finished Match back to the chain before it counts as late. */
 export const SETTLE_GRACE_SECS = 120;
 
@@ -27,7 +39,7 @@ export type MatchStanding =
  */
 type Input = {
   status: "open" | "active" | "settled" | "refunded";
-  game: "block-puzzle" | "holdem" | "trading-duel";
+  game: "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
   deadline: number;
   session?: { deadline: number; openerDeadline: number } | null;
 };
@@ -36,15 +48,19 @@ type Input = {
  * Unix seconds after which an Active Match should have settled, never later than its refund deadline.
  * - Block Puzzle: both submission deadlines have passed, so `seal` and settle are open to anyone.
  * - Trading Duel: the join, plus the start window, plus the Duel itself.
+ * - Vanguard: the day the Battle was created on, plus the start window, entropy window and 15-minute cap. Until the
+ *   Battle exists the deadline is the hour after the join and only that counts, which needs `nowSecs`.
  * - Hold'em: no fixed end exists in the Match state, so only the refund deadline counts.
  */
-export function settleBy(m: Pick<Input, "game" | "deadline" | "session">): number {
+export function settleBy(m: Pick<Input, "game" | "deadline" | "session">, nowSecs = Number.NEGATIVE_INFINITY): number {
   const core = m.deadline;
   let end: number;
   if (m.game === "block-puzzle" && m.session && m.session.deadline > 0) {
     end = Math.max(m.session.deadline, m.session.openerDeadline) + SETTLE_GRACE_SECS;
   } else if (m.game === "trading-duel") {
     end = core - CORE_WINDOW_SECS + DUEL_PLAY_SECS + SETTLE_GRACE_SECS;
+  } else if (m.game === "vanguard" && core - nowSecs > VANGUARD_PUSHED_MIN_SECS) {
+    end = core - VANGUARD_WINDOW_SECS + VANGUARD_PLAY_SECS + SETTLE_GRACE_SECS;
   } else {
     end = core;
   }
@@ -54,7 +70,7 @@ export function settleBy(m: Pick<Input, "game" | "deadline" | "session">): numbe
 export function matchStanding(m: Input, nowSecs: number): MatchStanding {
   if (m.status === "open") return { kind: "open" };
   if (m.status === "settled" || m.status === "refunded") return { kind: m.status };
-  if (nowSecs < settleBy(m)) return { kind: "live" };
+  if (nowSecs < settleBy(m, nowSecs)) return { kind: "live" };
   return { kind: "delayed", refundBy: m.deadline, refundOpen: nowSecs >= m.deadline };
 }
 

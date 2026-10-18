@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { ChartCandlestick, Check, ChevronDown, Clock, Copy, EyeOff, Hourglass, Link2, Lock, Puzzle, RotateCcw, Spade, type LucideIcon } from "lucide-react";
+import { ChartCandlestick, Check, ChevronDown, Clock, Copy, EyeOff, Hourglass, Link2, Lock, Puzzle, RotateCcw, Spade, Swords, type LucideIcon } from "lucide-react";
 import { Busy, CountUp, GemaMark } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { commitCopy, type CommitState } from "@/lib/chain/commit-pending";
@@ -39,7 +39,7 @@ export interface StageInfo {
   delayed?: { refundBy: number; refundOpen: boolean } | null;
 }
 
-const HIDDEN: Record<GameId, string> = { "block-puzzle": "Pieces hidden", holdem: "Cards hidden", "trading-duel": "Picks hidden" };
+const HIDDEN: Record<GameId, string> = { "block-puzzle": "Pieces hidden", holdem: "Cards hidden", "trading-duel": "Picks hidden", vanguard: "Ranks hidden" };
 
 /** Plain words for a Match that should have settled: the Gemas are safe and the refund has a time. */
 export function delayedCopy(d: { refundBy: number; refundOpen: boolean }): { title: string; line: string } {
@@ -63,13 +63,13 @@ function copy(m: StageInfo): { kicker: string; title: string; line: string } {
       return {
         kicker: m.asset ? `${g} · ${m.asset}/USD` : g,
         title: "Waiting for an opponent",
-        line: m.game === "holdem" ? "The cards are dealt the moment they sit down." : `A 30 second head start on ${m.asset ?? "SOL"}/USD starts the moment they join.`,
+        line: m.game === "holdem" ? "The cards are dealt the moment they sit down." : m.game === "vanguard" ? "Both armies are drawn in secret the moment they join." : `A 30 second head start on ${m.asset ?? "SOL"}/USD starts the moment they join.`,
       };
     case "setup":
       return {
         kicker: `${g} · opponent found`,
         title: "Get ready",
-        line: m.game === "block-puzzle" ? "Your pieces are drawn in secret." : m.game === "holdem" ? "The deck is being shuffled in secret." : "You each get 10,000 Chips to trade.",
+        line: m.game === "block-puzzle" ? "Your pieces are drawn in secret." : m.game === "holdem" ? "The deck is being shuffled in secret." : m.game === "vanguard" ? "Your army is drawn in secret and the board is set." : "You each get 10,000 Chips to trade.",
       };
     case "ready":
       return { kicker: g, title: "Your turn", line: "Same pieces as your opponent. Your clock starts when you press Start." };
@@ -86,7 +86,7 @@ function copy(m: StageInfo): { kicker: string; title: string; line: string } {
 }
 
 /** Long-form detail, out of the way. */
-const GAME_ICON: Record<GameId, LucideIcon> = { "block-puzzle": Puzzle, holdem: Spade, "trading-duel": ChartCandlestick };
+const GAME_ICON: Record<GameId, LucideIcon> = { "block-puzzle": Puzzle, holdem: Spade, "trading-duel": ChartCandlestick, vanguard: Swords };
 
 function details(m: StageInfo): { icon: LucideIcon; title: string; text: string }[] {
   const out = [
@@ -98,6 +98,7 @@ function details(m: StageInfo): { icon: LucideIcon; title: string; text: string 
     "block-puzzle": "You and your opponent get the same pieces, 90 seconds each, one after the other. Nobody sees a move until both runs are closed.",
     holdem: "1,500 Chips each, blinds rise every hand, 30 seconds per action. Your cards stay hidden from your opponent, and from us.",
     "trading-duel": "Pick a box in each of 12 columns; the live line passing through it scores 100 points. More points takes the Pot. Your picks stay hidden until each column locks.",
+    vanguard: "Blitz Stratego: 20 pieces each, 5 seconds a move, capture the enemy Supply Truck to win. Only you can see your pieces' ranks; an enemy piece shows its rank only once it has fought.",
   }[m.game];
   out.push({ icon: GAME_ICON[m.game], title: "The game", text: play });
   if (m.deadline && (m.kind === "waiting" || m.kind === "waiting-run"))
@@ -226,7 +227,7 @@ function arenaMotion(m: StageInfo): { me: SeatState; opp: SeatState; left: RailF
   }
 }
 
-const TOKEN: Record<GameId, string> = { "block-puzzle": "bp", holdem: "deal", "trading-duel": "chip" };
+const TOKEN: Record<GameId, string> = { "block-puzzle": "bp", holdem: "deal", "trading-duel": "chip", vanguard: "chip" };
 
 /** The line between a seat and the Pot: Gemas flow in, hidden pieces are dealt out, or a scan looks for the opponent. */
 function Rail({ flow, side, game }: { flow: RailFlow; side: "l" | "r"; game: GameId }) {

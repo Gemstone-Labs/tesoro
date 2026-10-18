@@ -3,10 +3,12 @@ import type { Idl } from "@coral-xyz/anchor";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { HoldemChain } from "@/games/holdem/chain";
 import { TradingDuelChain } from "@/games/trading-duel/chain";
+import { VanguardChain } from "@/games/vanguard/chain";
 import blockPuzzleIdl from "./idl/block_puzzle.json";
 import holdemIdl from "./idl/holdem.json";
 import coreIdl from "./idl/tesoro_core.json";
 import tradingDuelIdl from "./idl/trading_duel.json";
+import vanguardIdl from "./idl/vanguard.json";
 import { BASE_RPC_URL } from "./config";
 import { SplitConnection, routeGpa } from "./split-connection";
 
@@ -16,6 +18,7 @@ const timedFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal
 let chain: BlockPuzzleChain | null = null;
 let holdem: HoldemChain | null = null;
 let tradingDuel: TradingDuelChain | null = null;
+let vanguard: VanguardChain | null = null;
 
 /** One client per tab: base-layer connection plus the two IDL programs. */
 export function getChain(): BlockPuzzleChain {
@@ -39,4 +42,10 @@ export function getHoldem(): HoldemChain {
 export function getTradingDuel(): TradingDuelChain {
   if (!tradingDuel) tradingDuel = new TradingDuelChain(tradingDuelIdl, coreIdl, { base: getChain().base });
   return tradingDuel;
+}
+
+/** The Vanguard client (Battle and Armies on the private rollup), sharing the base-layer connection. */
+export function getVanguard(): VanguardChain {
+  if (!vanguard) vanguard = new VanguardChain(vanguardIdl, coreIdl, { base: getChain().base });
+  return vanguard;
 }
