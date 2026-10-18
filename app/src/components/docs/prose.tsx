@@ -1,6 +1,7 @@
 import { Link2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { CopyButton } from "./CopyButton";
+import { TocInline } from "./TocRail";
 import { groupOf, neighbours, ALL_PAGES } from "./nav";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -139,6 +140,7 @@ export function DocPage({ href, hero, children }: { href: string; hero?: ReactNo
         <p className="docs-eyebrow">{group?.label}</p>
         <h1 className="docs-h1">{page.title}</h1>
         <p className="docs-lede">{page.summary}</p>
+        <TocInline />
       </header>
       {hero && <div className="docs-hero">{hero}</div>}
       <div className="docs-prose">{children}</div>

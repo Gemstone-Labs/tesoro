@@ -46,7 +46,7 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
       <div className="wl-strip">
       </div>
       <main className="wl-main">
-        <p className="wl-kicker">{invite ? `Invited by #${invite.spot} · ${invite.name}` : WAITLIST_KICKER}</p>
+        <p className={invite ? "wl-kicker wl-kicker-invite" : "wl-kicker"}>{invite ? `Invited by #${invite.spot} · ${invite.name}` : WAITLIST_KICKER}</p>
         <h1 className="wl-h1">
           Save your <em className="lp-hl">spot</em> for launch day.
         </h1>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 
 const SELECTOR = ".docs-prose h2[id], .docs-prose h3[id]";
@@ -19,8 +19,7 @@ const subscribe = (onChange: () => void) => {
   return () => mo.disconnect();
 };
 
-/** "On this page": built from the article's own headings, with the one in view marked. */
-export function TocRail() {
+function useToc() {
   const path = usePathname();
   const snapshot = useSyncExternalStore(subscribe, readHeadings, () => "");
   const [seen, setSeen] = useState<{ path: string; id: string }>({ path: "", id: "" });
@@ -40,8 +39,12 @@ export function TocRail() {
   }, [path, snapshot]);
 
   const items = snapshot ? snapshot.split("\n").map((l) => { const [id, level, ...text] = l.split("|"); return { id, level: Number(level), text: text.join("|") }; }) : [];
-  const active = seen.path === path ? seen.id : "";
+  return { items, active: seen.path === path ? seen.id : "" };
+}
 
+/** "On this page": built from the article's own headings, with the one in view marked. */
+export function TocRail() {
+  const { items, active } = useToc();
   if (items.length < 2) return <aside className="docs-rail" aria-hidden />;
   return (
     <aside className="docs-rail" aria-label="On this page">
@@ -56,5 +59,30 @@ export function TocRail() {
         ))}
       </ul>
     </aside>
+  );
+}
+
+/** The same items as a collapsed row under the lede, for widths where the rail is hidden. */
+export function TocInline() {
+  const { items, active } = useToc();
+  const ref = useRef<HTMLDetailsElement>(null);
+  if (items.length < 2) return null;
+  const current = items.find((i) => i.id === active);
+  return (
+    <details className="docs-toc-inline" ref={ref}>
+      <summary>
+        <span>On this page</span>
+        {current && <span className="docs-toc-now">{current.text}</span>}
+      </summary>
+      <ul>
+        {items.map((i) => (
+          <li key={i.id} className={`l${i.level}`}>
+            <a href={`#${i.id}`} aria-current={active === i.id ? "location" : undefined} onClick={() => ref.current?.removeAttribute("open")}>
+              {i.text}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
