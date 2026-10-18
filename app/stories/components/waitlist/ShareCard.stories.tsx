@@ -39,8 +39,8 @@ function XPost({ spot }: { spot: number }) {
           <div>
             <b>Early Player</b> <span style={{ color: "#71767B" }}>@player · 1m</span>
           </div>
-          <p style={{ margin: "2px 0 12px" }}>
-            {shareText(gem)} <span style={{ color: "#1D9BF0" }}>{link}</span>
+          <p style={{ margin: "2px 0 12px", whiteSpace: "pre-line" }}>
+            {shareText(gem, "").trimEnd()} <span style={{ color: "#1D9BF0" }}>{link}</span>
           </p>
           <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", border: "1px solid #2F3336" }}>
             <Card spot={spot} width={514} />

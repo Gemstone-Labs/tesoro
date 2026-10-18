@@ -14,10 +14,11 @@ import { BRAND } from "@/lib/brand";
 
 const IDLE: WaitlistState = { status: "idle" };
 const SITE = SITE_URL;
-const SHARE_TEXT = `I just joined the ${BRAND.name} waitlist: play casual games with yield you haven't earned yet.`;
+const SHARE_TEXT = `I just joined the ${BRAND.name} waitlist: play casual games with yield you haven't earned yet.
 
-const postUrl = (text: string, url: string) =>
-  `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+${SITE}`;
+
+const postUrl = (text: string) => `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
 
 /** `source` credits a shared spot link when the visitor arrived without a utm_source. */
 export function WaitlistForm({ source: invitedBy }: { source?: string }) {
@@ -37,7 +38,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
 
   if (state.status === "ok") {
     const gem = state.spot ? gemFor(state.spot) : null;
-    const share = gem ? postUrl(shareText(gem), SITE + spotPath(gem.spot, roles)) : postUrl(SHARE_TEXT, SITE);
+    const share = postUrl(gem ? shareText(gem, SITE + spotPath(gem.spot, roles)) : SHARE_TEXT);
     return (
       <div className="wl-done" role="status">
         <p className="wl-done-title">You&apos;re on the list.</p>
