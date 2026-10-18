@@ -186,7 +186,7 @@ export default function Wallet() {
           <h1 className="page-title">Wallet</h1>
           <p className="page-sub">1 Gema = $0.01</p>
         </div>
-        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>}
+        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>}
       </header>
 
       <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
@@ -257,7 +257,7 @@ export default function Wallet() {
         {onChain && <p className="note">Redeem pays simSOL (simulated) from the yield your Source Position has earned so far.</p>}
       </footer>
 
-      <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
+      <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Get Gemas">
         <OpenIntentContext.Provider value={intent}>
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
@@ -289,7 +289,7 @@ function IdleForm({ unit, months, onMonths }: { unit: Chain; months: number; onM
       gemas={null}
       estimate="—"
       note="Sign in to see your balance and a real quote."
-      buttonLabel="Open a Position"
+      buttonLabel="Get Gemas"
       disabled
       onSubmit={() => undefined}
     />
