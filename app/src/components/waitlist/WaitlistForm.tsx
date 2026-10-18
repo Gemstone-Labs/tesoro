@@ -8,6 +8,7 @@ import { roleTags, type Role } from "@/lib/waitlist-role";
 import { gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
 import { PackReveal } from "./PackReveal";
 import { RolePicker } from "./RolePicker";
+import { HEADLINES, headlineStore, useHeadline } from "./WaitlistHeadline";
 import { TurnstileField } from "./TurnstileField";
 
 const IDLE: WaitlistState = { status: "idle" };
@@ -17,26 +18,21 @@ const SHARE_TEXT = "I just joined the Tesoro waitlist: play casual games with yi
 const postUrl = (text: string, url: string) =>
   `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
 
-/** Where the optional role question sits (prototype): A above the email, B under the button, C on the sealed pack. */
+/** Where the optional role question sits (prototype): A above the email, B under the button, C on the sealed pack. Founder picked A. */
 type Take = "a" | "b" | "c";
-const TAKES: { key: Take; name: string }[] = [
-  { key: "a", name: "Above email" },
-  { key: "b", name: "Under button" },
-  { key: "c", name: "In the pack" },
-];
 
-/** Prototype wrapper: switches takes from on-page buttons and resets the form on each switch. */
+/** Prototype wrapper: headline switcher, and Reset to run the signup again. */
 export function WaitlistForm({ source }: { source?: string }) {
-  const [take, setTake] = useState<Take>("a");
   const [run, setRun] = useState(0);
+  const headline = useHeadline();
   return (
     <>
-      <Form key={`${take}-${run}`} source={source} take={take} />
-      <div className="wl-proto" role="group" aria-label="Prototype takes">
-        <span>Take</span>
-        {TAKES.map((t) => (
-          <button key={t.key} type="button" aria-pressed={take === t.key} title={t.name} onClick={() => setTake(t.key)}>
-            {t.key.toUpperCase()} · {t.name}
+      <Form key={run} source={source} take="a" />
+      <div className="wl-proto" role="group" aria-label="Prototype headline">
+        <span>Headline</span>
+        {HEADLINES.map((_, i) => (
+          <button key={i} type="button" aria-pressed={headline === i} onClick={() => headlineStore.set(i)}>
+            {i + 1}
           </button>
         ))}
         <button type="button" onClick={() => setRun((n) => n + 1)}>

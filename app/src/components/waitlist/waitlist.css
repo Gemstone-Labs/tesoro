@@ -164,14 +164,14 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-role-hint { font-weight: 400; color: var(--fg-2); }
 .wl-role-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .wl-role-chip {
-  all: unset; box-sizing: border-box; --c: var(--cut-chip); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
-  min-height: 38px; padding: 0 14px; font-size: 14px; font-weight: 700; color: var(--fg-2); background: rgba(234, 239, 236, 0.04);
-  transition: color 0.15s, background 0.15s;
+  all: unset; box-sizing: border-box; --c: var(--cut-chip); --edge: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 38px; padding: 0 14px; font-size: 14px; font-weight: 700; color: var(--fg-2); background: var(--surface);
+  transition: color 0.15s;
 }
-.wl-role-chip::before { content: "+" / ""; font-weight: 800; opacity: 0.6; }
-.wl-role-chip:hover { color: var(--fg); background: rgba(234, 239, 236, 0.08); }
-.wl-role-chip[aria-pressed="true"] { color: var(--fg); background: rgba(36, 216, 168, 0.14); --edge: var(--edge-em); }
-.wl-role-chip[aria-pressed="true"]::before { content: "✓" / ""; color: var(--em); opacity: 1; }
+.wl-role-chip::before { content: "+" / ""; font-weight: 800; color: var(--fg-3); }
+.wl-role-chip:hover { color: var(--fg); background: var(--surface-2); }
+.wl-role-chip[aria-pressed="true"] { color: var(--fg); background: linear-gradient(rgba(36, 216, 168, 0.16), rgba(36, 216, 168, 0.16)), #11171b; }
+.wl-role-chip[aria-pressed="true"]::before { content: "✓" / ""; color: var(--em); }
 .wl-role-sm .wl-role-label { font-size: 12.5px; font-weight: 400; color: var(--fg-2); }
 .wl-role-sm .wl-role-chip { min-height: 32px; padding: 0 11px; font-size: 13px; }
 .wl-form > .wl-role-above { margin-bottom: 8px; }
