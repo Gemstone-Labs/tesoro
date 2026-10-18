@@ -51,7 +51,7 @@ export const Joined: Story = {
   },
 };
 
-/** Behind the pack once it is closed: the spot, Try it now and See your card. */
+/** Behind the pack once it is closed: the spot and See your card (Try it now sits under the form). */
 export const JoinedClosed: Story = {
   name: "Joined (pack closed unopened)",
   beforeEach: () => setNextJoin(7),
