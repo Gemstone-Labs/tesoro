@@ -14,9 +14,11 @@
 //! not change the cost. Ranks are only compared with arithmetic, never with `if` or `&&`. A fight is the one place
 //! where the work depends on the pieces, and it depends on its published outcome only.
 
+use anchor_lang::solana_program::hash::hashv;
+
 /// Bump when a rule changes; the recordings and the app change with it. Each Battle stores the version it was
 /// created under.
-pub const RULES_VERSION: u8 = 2;
+pub const RULES_VERSION: u8 = 3;
 
 pub const SIZE: usize = 10;
 pub const SQUARES: usize = SIZE * SIZE;
@@ -148,6 +150,15 @@ impl Refusal {
             Refusal::NoTwoStep => "no_two_step",
         }
     }
+}
+
+/// What a claimed timeout will do, decided when it is claimed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TimeoutClass {
+    /// The turn's deadline passed: the turn is lost.
+    Pass,
+    /// The time cap passed: the Match ends on the tiebreak.
+    Cap,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -479,33 +490,43 @@ impl Mulberry {
     }
 }
 
-/// Setup randomness: xoshiro256** seeded from the 32-byte seed the Secret holds.
-struct Draw([u64; 4]);
+/// Setup randomness: independent SHA-256 counter-mode streams from the 32-byte seed, one per purpose (the side
+/// draw, each army's layout, the storm turn, the storm line), domain-separated by a label. A Player who knows their
+/// own layout learns nothing about another stream: there is no generator state to recover.
+struct Draw {
+    seed: [u8; 32],
+    label: &'static [u8],
+    counter: u64,
+    block: [u8; 32],
+    used: usize,
+}
 
 impl Draw {
-    fn new(seed: &[u8; 32]) -> Draw {
-        let mut s = [0u64; 4];
-        for (i, chunk) in seed.chunks_exact(8).enumerate() {
-            let mut b = [0u8; 8];
-            b.copy_from_slice(chunk);
-            s[i] = u64::from_le_bytes(b);
+    fn new(seed: &[u8; 32], label: &'static [u8]) -> Draw {
+        Draw {
+            seed: *seed,
+            label,
+            counter: 0,
+            block: [0; 32],
+            used: 32,
         }
-        if s == [0; 4] {
-            s[0] = 1;
-        }
-        Draw(s)
     }
     fn next(&mut self) -> u64 {
-        let s = &mut self.0;
-        let result = s[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);
-        let t = s[1] << 17;
-        s[2] ^= s[0];
-        s[3] ^= s[1];
-        s[1] ^= s[2];
-        s[0] ^= s[3];
-        s[2] ^= t;
-        s[3] = s[3].rotate_left(45);
-        result
+        if self.used == 32 {
+            self.block = hashv(&[
+                b"vanguard/draw/v1",
+                self.label,
+                &self.seed,
+                &self.counter.to_le_bytes(),
+            ])
+            .to_bytes();
+            self.counter += 1;
+            self.used = 0;
+        }
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&self.block[self.used..self.used + 8]);
+        self.used += 8;
+        u64::from_le_bytes(b)
     }
     /// A number in `0..n`; the bias is below n / 2^32.
     fn below(&mut self, n: u32) -> u32 {
@@ -513,11 +534,14 @@ impl Draw {
     }
 }
 
-/// A random Match: both armies dropped on their start zones, who moves first, the storm turn and seed.
+/// A random Match: both armies dropped on their start zones, which seat plays the US Army, the storm turn and seed.
 #[derive(Clone, Copy, Debug)]
 pub struct Setup {
     pub pieces: [LayoutPiece; 2 * ARMY_PIECES],
+    /// The draw of who would move first. The program does not use it: the US Army moves first.
     pub first: Army,
+    /// Which seat (0 or 1) plays the US Army.
+    pub us_seat: u8,
     pub storm_at: u16,
     pub storm_seed: u32,
 }
@@ -535,25 +559,33 @@ const fn manhattan(a: u8, b: u8) -> u8 {
 /// Landmines and the Truck never spawn on the row facing no-man's-land, the depot square stays empty and no
 /// Landmine spawns next to it.
 pub fn setup(seed: &[u8; 32], storm_from: u16, storm_to: u16) -> Setup {
-    let mut d = Draw::new(seed);
     let mut out = [LayoutPiece {
         army: Army::Us,
         rank: 0,
         sq: 0,
     }; 2 * ARMY_PIECES];
-    for (n, army) in [Army::It, Army::Us].into_iter().enumerate() {
+    let armies: [(Army, &'static [u8]); 2] = [(Army::It, b"layout-it"), (Army::Us, b"layout-us")];
+    for (n, (army, label)) in armies.into_iter().enumerate() {
+        let mut d = Draw::new(seed, label);
         place_army(
             army,
             &mut d,
             &mut out[n * ARMY_PIECES..(n + 1) * ARMY_PIECES],
         );
     }
-    let first = if d.below(2) == 0 { Army::Us } else { Army::It };
-    let storm_at = storm_from + d.below((storm_to - storm_from + 1) as u32) as u16;
-    let storm_seed = (d.next() >> 32) as u32;
+    let first = if Draw::new(seed, b"first").below(2) == 0 {
+        Army::Us
+    } else {
+        Army::It
+    };
+    let us_seat = Draw::new(seed, b"side").below(2) as u8;
+    let storm_at = storm_from
+        + Draw::new(seed, b"storm-turn").below((storm_to - storm_from + 1) as u32) as u16;
+    let storm_seed = (Draw::new(seed, b"storm-line").next() >> 32) as u32;
     Setup {
         pieces: out,
         first,
+        us_seat,
         storm_at,
         storm_seed,
     }
@@ -886,9 +918,10 @@ impl Game {
         p.trail_len += 1;
     }
 
-    /// Move (or attack with) piece `id` to square `to` at time `at`. On a refusal nothing changes.
-    pub fn move_piece(&mut self, id: u8, to: u8, at: i64, out: &mut Events) -> Result<(), Refusal> {
-        out.len = 0;
+    /// What the program checks when a move is declared, from public state alone: the clock (frozen here, never
+    /// checked again), the piece and the geometry that holds whatever the piece is. The rank-dependent rules
+    /// (Landmine, Recon runs, the Truck's fuel) are applied at the resolve, so a declare reads no rank.
+    pub fn check_declared_move(&self, id: u8, to: u8, at: i64) -> Result<(), Refusal> {
         if let Some(r) = self.clock_refusal(at) {
             return Err(r);
         }
@@ -896,12 +929,58 @@ impl Game {
             return Err(Refusal::NoSuchPiece);
         }
         let army = self.turn;
-        if self.pieces[id as usize].army != army {
+        let p = &self.pieces[id as usize];
+        if p.army != army {
             return Err(Refusal::NotYourTurn);
         }
-        if to as usize >= SQUARES || !self.probe(army, self.moved, self.two_step_active, id, to) {
+        let aligned = row(p.sq) == row(to) || col(p.sq) == col(to);
+        let cell = self.cells[(to as usize).min(SQUARES - 1)];
+        let own = cell != 0 && self.pieces[cell as usize - 1].army == army;
+        if to as usize >= SQUARES
+            || is_wadi(to)
+            || !aligned
+            || to == p.sq
+            || own
+            || shuttling(p, to)
+        {
             return Err(Refusal::IllegalMove);
         }
+        Ok(())
+    }
+
+    /// Whether the side to move may move piece `id` to `to` at time `at`: the clock, the piece and all the rules.
+    pub fn check_move(&self, id: u8, to: u8, at: i64) -> Result<(), Refusal> {
+        self.check_declared_move(id, to, at)?;
+        if !self.probe(self.turn, self.moved, self.two_step_active, id, to) {
+            return Err(Refusal::IllegalMove);
+        }
+        Ok(())
+    }
+
+    /// Move (or attack with) piece `id` to square `to` at time `at`. On a refusal nothing changes.
+    pub fn move_piece(&mut self, id: u8, to: u8, at: i64, out: &mut Events) -> Result<(), Refusal> {
+        out.len = 0;
+        self.check_move(id, to, at)?;
+        self.apply_move(id, to, at, out);
+        Ok(())
+    }
+
+    /// Apply a move declared earlier (its clock decision is made and not made again) at time `resolved`. The hidden
+    /// rules are checked here; a move they do not allow costs the turn, like a timeout, so this never fails and a
+    /// failure cannot depend on a rank. The next deadline counts from `resolved`.
+    pub fn resolve_move(&mut self, id: u8, to: u8, resolved: i64, out: &mut Events) {
+        out.len = 0;
+        let legal = (id as usize) < PIECE_SLOTS
+            && self.probe(self.turn, self.moved, self.two_step_active, id, to);
+        if legal {
+            self.apply_move(id, to, resolved, out);
+        } else {
+            self.lose_turn(resolved, out);
+        }
+    }
+
+    fn apply_move(&mut self, id: u8, to: u8, at: i64, out: &mut Events) {
+        let army = self.turn;
         let i = id as usize;
         let from = self.pieces[i].sq;
         let rank = self.pieces[i].rank;
@@ -955,7 +1034,7 @@ impl Game {
             }
             if outcome == Outcome::Truck {
                 self.end(out, Winner::Army(army), EndReason::Truck);
-                return Ok(());
+                return;
             }
         }
         let alive = self.pieces[i].rank != 0;
@@ -975,36 +1054,57 @@ impl Game {
         self.deadline = self.turn_end(at);
         // a Two-Step Turn continues while there is a second step to make
         if self.steps_left > 0 && self.any_move(army, self.moved, self.two_step_active) {
-            return Ok(());
+            return;
         }
         self.end_turn(out, false);
-        Ok(())
     }
 
     /// Nobody moved in time (the turn passes; three in a row lose the Match), or the time cap has passed
     /// (the Match ends on the tiebreak whatever the turn clock says). Anyone may call it.
     pub fn timeout(&mut self, at: i64, out: &mut Events) -> Result<(), Refusal> {
-        out.len = 0;
+        let class = self.timeout_class(at)?;
+        self.resolve_timeout(class, at, out);
+        Ok(())
+    }
+
+    /// What a timeout claimed at `at` would be, from public state: the cap if it has passed, else the turn's
+    /// deadline. Refused while the Match is over or the turn still has time.
+    pub fn timeout_class(&self, at: i64) -> Result<TimeoutClass, Refusal> {
         if self.winner.is_some() {
             return Err(Refusal::MatchOver);
         }
         if self.cap_passed(at) {
-            let w = self.cap_winner();
-            self.end(out, w, EndReason::Cap);
-            return Ok(());
+            return Ok(TimeoutClass::Cap);
         }
         if at <= self.deadline {
             return Err(Refusal::TurnNotExpired);
         }
+        Ok(TimeoutClass::Pass)
+    }
+
+    /// Apply a timeout claim whose class was decided when it was declared. The next deadline counts from `resolved`.
+    pub fn resolve_timeout(&mut self, class: TimeoutClass, resolved: i64, out: &mut Events) {
+        out.len = 0;
+        match class {
+            TimeoutClass::Cap => {
+                let w = self.cap_winner();
+                self.end(out, w, EndReason::Cap);
+            }
+            TimeoutClass::Pass => self.lose_turn(resolved, out),
+        }
+    }
+
+    /// The side to move loses its turn: a timeout, or a declared move the hidden rules refuse. Three in a row lose
+    /// the Match. The turn event is the same either way.
+    fn lose_turn(&mut self, at: i64, out: &mut Events) {
         let army = self.turn;
         self.timeouts[army.idx()] += 1;
         if self.timeouts[army.idx()] >= TIMEOUTS_TO_LOSE {
             self.end(out, Winner::Army(army.enemy()), EndReason::Timeouts);
-            return Ok(());
+            return;
         }
         self.deadline = self.turn_end(at);
         self.end_turn(out, true);
-        Ok(())
     }
 
     /// The turn passes. Order: pass, storm, `Turn` event, move cap, no legal move.
@@ -1465,6 +1565,99 @@ mod tests {
             }
         }
         assert!(checked > 100, "{checked}");
+    }
+
+    /// What a declare checks reads no rank: scramble every rank (keeping the board) and every answer is the same.
+    #[test]
+    fn the_declare_checks_do_not_depend_on_any_rank() {
+        let mut rng = Lcg(7);
+        for n in 0..12u64 {
+            let g = Game::from_setup(
+                &setup(&seed_of(n + 900), STORM_FROM, STORM_TO),
+                0,
+                CHAIN_CLOCK,
+            )
+            .unwrap();
+            let mut blind = g.clone();
+            for p in blind.pieces.iter_mut().filter(|p| p.rank != 0) {
+                p.rank = 1;
+            }
+            for _ in 0..400 {
+                let (id, to) = (
+                    rng.below(PIECE_SLOTS as u64) as u8,
+                    rng.below(SQUARES as u64 + 5) as u8,
+                );
+                for at in [0, 5, 6, 16, 17, CAP_SECS + 1] {
+                    assert_eq!(
+                        g.check_declared_move(id, to, at),
+                        blind.check_declared_move(id, to, at),
+                        "{id}->{to} at {at}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_declared_move_the_rank_rules_refuse_costs_the_turn() {
+        // A Landmine and a far move by a General: both pass the public checks, neither is legal.
+        let layout = [
+            LayoutPiece {
+                army: Army::Us,
+                rank: BOMB,
+                sq: 95,
+            },
+            LayoutPiece {
+                army: Army::Us,
+                rank: GENERAL_OF_THE_ARMY,
+                sq: 96,
+            },
+            LayoutPiece {
+                army: Army::It,
+                rank: RECON,
+                sq: 5,
+            },
+        ];
+        for (id, to) in [(95u8 - 40, 85u8), (96 - 40, 66)] {
+            let mut g = Game::start(&layout, Army::Us, 99, 0, 0, CHAIN_CLOCK).unwrap();
+            assert_eq!(g.check_declared_move(id, to, 1), Ok(()));
+            assert_eq!(g.check_move(id, to, 1), Err(Refusal::IllegalMove));
+            let mut out = Events::new();
+            g.resolve_move(id, to, 40, &mut out);
+            assert_eq!(g.turn, Army::It);
+            assert_eq!(g.timeouts, [1, 0]);
+            assert_eq!(g.moves, 0, "a lost turn is not a move");
+            assert_eq!(
+                g.deadline,
+                40 + TURN_SECS + GRACE_SECS,
+                "the next deadline counts from the resolve"
+            );
+            assert!(matches!(
+                out.as_slice()[0].event,
+                Event::Turn {
+                    turn: Army::It,
+                    timed_out: true
+                }
+            ));
+        }
+    }
+
+    #[test]
+    fn the_setup_streams_are_separate_and_the_sides_random() {
+        let seed = seed_of(5);
+        let a = Draw::new(&seed, b"layout-us").next();
+        assert_eq!(a, Draw::new(&seed, b"layout-us").next());
+        assert_ne!(a, Draw::new(&seed, b"layout-it").next());
+        assert_ne!(a, Draw::new(&seed, b"storm-line").next());
+        assert_ne!(a, Draw::new(&seed_of(6), b"layout-us").next());
+        let mut seats = 0u32;
+        for n in 0..2000u64 {
+            seats += setup(&seed_of(n + 70_000), STORM_FROM, STORM_TO).us_seat as u32;
+        }
+        assert!(
+            (900..1100).contains(&seats),
+            "seat 1 plays the US Army {seats} of 2000"
+        );
     }
 
     #[test]

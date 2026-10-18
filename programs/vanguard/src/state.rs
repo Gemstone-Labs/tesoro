@@ -36,7 +36,15 @@ pub const ENTROPY_SECS: i64 = 60;
 pub const SETUP_GRACE_SECS: i64 = 180;
 /// `Battle.layout_version`. Bump it when the field layout of `Battle` changes, so a client reading a Battle that was
 /// created before an upgrade knows which offsets to use.
-pub const LAYOUT_VERSION: u8 = 1;
+pub const LAYOUT_VERSION: u8 = 2;
+/// `Battle.pending_kind`: nothing is waiting to be resolved.
+pub const PENDING_NONE: u8 = 0;
+/// A declared move (`pending_piece`, `pending_to`) waits for `resolve`.
+pub const PENDING_MOVE: u8 = 1;
+/// A declared timeout claim waits for `resolve`: the turn's deadline had passed at the declare.
+pub const PENDING_TIMEOUT: u8 = 2;
+/// A declared timeout claim waits for `resolve`: the time cap had passed at the declare.
+pub const PENDING_CAP: u8 = 3;
 
 pub const STATUS_CREATED: u8 = 0;
 /// Permissions exist; waiting for both secrets, the randomness and `deal`.
@@ -270,7 +278,24 @@ pub struct Battle {
     pub opening_grace_secs: u8,
     pub storm_from: u8,
     pub storm_to: u8,
-    pub reserved: [u8; 63],
+    /// `PENDING_*`: a declared action that only `resolve` (in a later slot) may apply. While one is pending nothing
+    /// else is accepted. It holds public intent and timing only, never a rank, and cannot be changed or cancelled.
+    pub pending_kind: u8,
+    pub pending_piece: u8,
+    pub pending_to: u8,
+    /// The seat that declared a move (a timeout claim reads 0).
+    pub pending_seat: u8,
+    pub pad_a: [u8; 3],
+    /// Counts declared actions: the n-th pending action is the one `resolve` applies.
+    pub action_seq: u32,
+    pub pad_b: [u8; 4],
+    /// The rollup slot of the declare. `resolve` needs a later one.
+    pub pending_slot: u64,
+    /// The rollup time of the declare: the clock decision was made on it and is not made again.
+    pub pending_time: i64,
+    /// The slot `deal` ran in. Nothing is declared in it, so the sides cannot be read out of a bundle with `deal`.
+    pub deal_slot: u64,
+    pub reserved: [u8; 32],
 }
 
 /// What `create_match` knows when it binds a Battle to a tesoro_core Match.
@@ -313,6 +338,26 @@ impl Battle {
         self.reason = NO_REASON;
         self.steps_left = 1;
         self.sq = [NO_SQ; PIECE_SLOTS];
+    }
+
+    /// Record a declared action. It is bound to the n-th declare of the Match and cannot be changed.
+    pub fn record_pending(&mut self, kind: u8, piece: u8, to: u8, seat: u8, slot: u64, time: i64) {
+        self.pending_kind = kind;
+        self.pending_piece = piece;
+        self.pending_to = to;
+        self.pending_seat = seat;
+        self.pending_slot = slot;
+        self.pending_time = time;
+        self.action_seq = self.action_seq.wrapping_add(1);
+    }
+
+    pub fn clear_pending(&mut self) {
+        self.pending_kind = PENDING_NONE;
+        self.pending_piece = 0;
+        self.pending_to = 0;
+        self.pending_seat = 0;
+        self.pending_slot = 0;
+        self.pending_time = 0;
     }
 
     pub fn seat_of(&self, key: &Pubkey) -> Option<usize> {
@@ -391,6 +436,32 @@ impl Battle {
         if self.status == STATUS_OVER {
             g.winner = self.winner_of();
             g.reason = reason_of(self.reason);
+        }
+        Ok(g)
+    }
+
+    /// The engine's `Game` from the public Battle alone: every piece on the board stands in as rank 1. Enough for the
+    /// checks that need no rank (`check_declared_move`, `timeout_class`), so a declare reads no Army and no Secret.
+    pub fn public_game(&self) -> Result<Box<Game>> {
+        let mut g = self.shell(0, 0)?;
+        for id in 0..PIECE_SLOTS {
+            let sq = self.sq[id];
+            if sq == NO_SQ {
+                continue;
+            }
+            if sq as usize >= SQUARES {
+                return err!(VanguardError::BadState);
+            }
+            g.pieces[id] = Piece {
+                rank: 1,
+                army: side_of_id(id),
+                sq,
+                known: self.shown[id] != 0,
+                fuel: 0,
+                trail: self.trail[id],
+                trail_len: self.trail_len[id],
+            };
+            g.cells[sq as usize] = id as u8 + 1;
         }
         Ok(g)
     }
@@ -640,7 +711,7 @@ mod layout {
 
     #[test]
     fn the_battle_has_no_padding_and_a_fixed_size() {
-        assert_eq!(core::mem::size_of::<Battle>(), 1504);
+        assert_eq!(core::mem::size_of::<Battle>(), 1512);
     }
 
     /// Offsets after the 8-byte discriminator, for clients (ticket 07's decoders). The fields up to `depot_claimed`
@@ -687,7 +758,15 @@ mod layout {
             ),
             ("storm_from", offset_of!(Battle, storm_from), 1439),
             ("storm_to", offset_of!(Battle, storm_to), 1440),
-            ("reserved", offset_of!(Battle, reserved), 1441),
+            ("pending_kind", offset_of!(Battle, pending_kind), 1441),
+            ("pending_piece", offset_of!(Battle, pending_piece), 1442),
+            ("pending_to", offset_of!(Battle, pending_to), 1443),
+            ("pending_seat", offset_of!(Battle, pending_seat), 1444),
+            ("action_seq", offset_of!(Battle, action_seq), 1448),
+            ("pending_slot", offset_of!(Battle, pending_slot), 1456),
+            ("pending_time", offset_of!(Battle, pending_time), 1464),
+            ("deal_slot", offset_of!(Battle, deal_slot), 1472),
+            ("reserved", offset_of!(Battle, reserved), 1480),
         ] {
             assert_eq!(got, want, "{name}");
         }

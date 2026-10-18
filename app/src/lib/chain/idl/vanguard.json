@@ -9,9 +9,10 @@
     {
       "name": "claim_timeout",
       "docs": [
-        "Rollup, permissionless. Past the start window or the entropy window it cancels the Match; once the",
-        "turn's deadline has passed it passes the turn (three in a row lose); once the time cap has passed it ends",
-        "the Match on the tiebreak."
+        "Rollup, permissionless. Past the start window or the entropy window it cancels the Match. In a live Match it",
+        "declares a timeout: once the turn's deadline has passed the turn is lost (three in a row lose the Match), once",
+        "the time cap has passed the Match ends on the tiebreak. Which of the two is decided now, from the clock, and",
+        "`resolve` applies it."
       ],
       "discriminator": [
         130,
@@ -50,14 +51,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "army_0",
-          "writable": true
-        },
-        {
-          "name": "army_1",
-          "writable": true
         },
         {
           "name": "secret",
@@ -2239,7 +2232,11 @@
     {
       "name": "move_piece",
       "docs": [
-        "Rollup. The Player to act moves a piece, or attacks with it. Writes no logs."
+        "Rollup. Declares a move: checks only public state (the Match is live, it is your turn, nothing is pending,",
+        "the piece is yours and on the board, the square is on the board, not a wadi, in line, not yours and not the",
+        "square it just came from) and freezes the clock decision on the declare time. Reads no Army and no Secret,",
+        "so what it answers cannot depend on a hidden rank. The move is applied by `resolve` in a later slot, which",
+        "checks the rank rules; a move they refuse costs the turn."
       ],
       "discriminator": [
         136,
@@ -2270,36 +2267,6 @@
                   116,
                   108,
                   101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "battle"
-              }
-            ]
-          }
-        },
-        {
-          "name": "army_0",
-          "writable": true
-        },
-        {
-          "name": "army_1",
-          "writable": true
-        },
-        {
-          "name": "secret",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  101,
-                  99,
-                  114,
-                  101,
-                  116
                 ]
               },
               {
@@ -2538,6 +2505,85 @@
       ]
     },
     {
+      "name": "resolve",
+      "docs": [
+        "Rollup, permissionless, no arguments. Applies the pending action in a slot after its declare: the rank",
+        "rules, the fight, the Spotted and raid bookkeeping, the turn pass, the storm, the caps, the no-legal-move",
+        "check, the end reveal and the events. It never fails on hidden state: a declared move the rank rules refuse",
+        "costs the turn. The next deadline counts from now, so a slow resolve never eats the next Player's time."
+      ],
+      "discriminator": [
+        246,
+        150,
+        236,
+        206,
+        108,
+        63,
+        58,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "battle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  116,
+                  116,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "battle"
+              }
+            ]
+          }
+        },
+        {
+          "name": "army_0",
+          "writable": true
+        },
+        {
+          "name": "army_1",
+          "writable": true
+        },
+        {
+          "name": "secret",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  99,
+                  114,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "battle"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "set_config",
       "docs": [
         "Base layer, upgrade authority only. Names the TEE validator the Battle may be delegated to and the oracle",
@@ -2605,8 +2651,8 @@
     {
       "name": "start_two_step",
       "docs": [
-        "Rollup. The Player to act spends a banked Two-Step Turn before the first step of the turn. Does not move",
-        "the deadline."
+        "Rollup. The Player to act spends a banked Two-Step Turn before the first step of the turn. Public state only;",
+        "does not move the deadline."
       ],
       "discriminator": [
         64,
@@ -2942,6 +2988,21 @@
       "code": 6022,
       "name": "SetupClosed",
       "msg": "The setup window is over"
+    },
+    {
+      "code": 6023,
+      "name": "ActionPending",
+      "msg": "An action is waiting to be resolved"
+    },
+    {
+      "code": 6024,
+      "name": "NothingPending",
+      "msg": "No action is waiting to be resolved"
+    },
+    {
+      "code": 6025,
+      "name": "TooSoon",
+      "msg": "Wait for a later slot"
     }
   ],
   "types": [
@@ -3364,11 +3425,80 @@
             "type": "u8"
           },
           {
+            "name": "pending_kind",
+            "docs": [
+              "`PENDING_*`: a declared action that only `resolve` (in a later slot) may apply. While one is pending nothing",
+              "else is accepted. It holds public intent and timing only, never a rank, and cannot be changed or cancelled."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pending_piece",
+            "type": "u8"
+          },
+          {
+            "name": "pending_to",
+            "type": "u8"
+          },
+          {
+            "name": "pending_seat",
+            "docs": [
+              "The seat that declared a move (a timeout claim reads 0)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pad_a",
+            "type": {
+              "array": [
+                "u8",
+                3
+              ]
+            }
+          },
+          {
+            "name": "action_seq",
+            "docs": [
+              "Counts declared actions: the n-th pending action is the one `resolve` applies."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "pad_b",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          },
+          {
+            "name": "pending_slot",
+            "docs": [
+              "The rollup slot of the declare. `resolve` needs a later one."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending_time",
+            "docs": [
+              "The rollup time of the declare: the clock decision was made on it and is not made again."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "deal_slot",
+            "docs": [
+              "The slot `deal` ran in. Nothing is declared in it, so the sides cannot be read out of a bundle with `deal`."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                63
+                32
               ]
             }
           }

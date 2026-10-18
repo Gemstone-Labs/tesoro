@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import golden from "./fixtures/golden.json";
 import layout from "./chain-layout.json";
-import { decodeArmy, decodeBattle, decodeRecord, eventsSince, rankOfCode } from "./decode";
+import { PENDING, decodeArmy, decodeBattle, decodeRecord, eventsSince, rankOfCode } from "./decode";
 
 const bytes = (hex: string) => Uint8Array.from(Buffer.from(hex, "hex"));
 const hexOf = (b: Uint8Array | { toBuffer(): Buffer }) => Buffer.from("toBuffer" in b ? b.toBuffer() : b).toString("hex");
@@ -19,6 +19,19 @@ describe("the Battle decoder against account bytes the Rust program wrote", () =
       e.bump, e.authorityBump, e.usSeat, e.status, e.finalized, e.permissioned, e.winner, e.reason, e.turn, e.stepsLeft, e.twoStepActive, e.stormDone,
     ]);
     expect([b.twoStep, b.timeouts, b.depotClaimed]).toEqual([e.twoStep, e.timeouts, e.depotClaimed]);
+  });
+
+  it("reads the stored rules, the setup deadline and the pending action", () => {
+    expect([b.layoutVersion, b.rulesVersion, b.setupDeadline, b.capDeadline]).toEqual([e.layoutVersion, e.rulesVersion, e.setupDeadline, e.capDeadline]);
+    expect([b.moveCap, b.capSecs, b.turnSecs, b.graceSecs, b.openingGraceSecs, b.stormFrom, b.stormTo]).toEqual([
+      e.moveCap, e.capSecs, e.turnSecs, e.graceSecs, e.openingGraceSecs, e.stormFrom, e.stormTo,
+    ]);
+    expect([b.pendingKind, b.pendingPiece, b.pendingTo, b.pendingSeat, b.actionSeq, b.pendingTime]).toEqual([
+      e.pendingKind, e.pendingPiece, e.pendingTo, e.pendingSeat, e.actionSeq, e.pendingTime,
+    ]);
+    expect([b.pendingSlot.toString(), b.dealSlot.toString()]).toEqual([e.pendingSlot, e.dealSlot]);
+    expect([hexOf(b.payer), hexOf(b.oracleQueue)]).toEqual([e.payer, e.oracleQueue]);
+    expect(b.pendingKind).toBe(PENDING.move);
   });
 
   it("reads the keys, the 60 piece slots and the trails", () => {

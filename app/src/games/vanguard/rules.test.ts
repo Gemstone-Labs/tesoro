@@ -256,6 +256,15 @@ describe("turn clock", () => {
     expect(t.game.deadline).toBe(T0 + 23000);
     expect(startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us" }).deadline).toBe(T0 + 5000);
   });
+  it("on the chain the next deadline counts from the resolve, not from the declare", () => {
+    const g = game([P(1, "us", "5", 9, 0), P(2, "it", "4", 0, 9)]);
+    const m = move(g, { id: 1, to: { r: 8, c: 0 }, at: T0 + 2000, resolvedAt: T0 + 9000 });
+    if (!m.ok) throw new Error(m.reason);
+    expect(m.game.deadline).toBe(T0 + 9000 + TURN_MS);
+    const late = timeout(g, g.deadline + 1, g.deadline + 4000);
+    if (!late.ok) throw new Error(late.reason);
+    expect(late.game.deadline).toBe(g.deadline + 4000 + TURN_MS);
+  });
   it("a move at the deadline is accepted, one millisecond later is refused", () => {
     const g = game([P(1, "us", "5", 9, 0), P(2, "it", "4", 0, 9)]);
     expect(move(g, { id: 1, to: { r: 8, c: 0 }, at: g.deadline }).ok).toBe(true);

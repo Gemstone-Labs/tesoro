@@ -15,7 +15,10 @@ function battle(over: Partial<Battle> = {}, shown: Record<number, number> = {}):
     matchId: 1n, moved: 0n, startDeadline: 0, entropyDeadline: 0, deadline: 1000, startedAt: 900, eventSeq: 0, turnNo: 0, moves: 0, ring: [],
     tesoroMatch: key(1), players: [key(2), key(3)], sq, shown: sh, trail: Array.from({ length: 60 }, () => [0, 0, 0, 0, 0, 0]), trailLen: Array(60).fill(0),
     bump: 0, authorityBump: 0, usSeat: 0, status: 2, finalized: 0, permissioned: 1, winner: 255, reason: 255, turn: 0, stepsLeft: 1, twoStepActive: 0, stormDone: 0,
-    twoStep: [0, 0], timeouts: [0, 0], depotClaimed: [0, 0], ...over,
+    twoStep: [0, 0], timeouts: [0, 0], depotClaimed: [0, 0],
+    layoutVersion: 2, rulesVersion: 3, setupDeadline: 0, capDeadline: 0, payer: key(4), oracleQueue: key(5), moveCap: 200, capSecs: 900, turnSecs: 5, graceSecs: 1,
+    openingGraceSecs: 10, stormFrom: 10, stormTo: 18, pendingKind: 0, pendingPiece: 0, pendingTo: 0, pendingSeat: 0, actionSeq: 0, pendingSlot: 0n, pendingTime: 0, dealSlot: 0n,
+    ...over,
   };
 }
 

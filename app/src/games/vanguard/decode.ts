@@ -74,7 +74,40 @@ export interface Battle {
   twoStep: [number, number];
   timeouts: [number, number];
   depotClaimed: [number, number];
+  /** `LAYOUT_VERSION` / `RULES_VERSION` the Battle was created with. */
+  layoutVersion: number;
+  rulesVersion: number;
+  /** The Match must be dealt by now, or it is cancelled. */
+  setupDeadline: number;
+  /** The time cap, set at the deal. */
+  capDeadline: number;
+  /** Whoever pressed create. */
+  payer: PublicKey;
+  oracleQueue: PublicKey;
+  /** The rules stored when the Battle was created. */
+  moveCap: number;
+  capSecs: number;
+  turnSecs: number;
+  graceSecs: number;
+  openingGraceSecs: number;
+  stormFrom: number;
+  stormTo: number;
+  /** A declared action waiting for `resolve` (0 none, 1 move, 2 timeout, 3 cap). Public intent only. */
+  pendingKind: number;
+  pendingPiece: number;
+  pendingTo: number;
+  pendingSeat: number;
+  /** Counts declared actions. */
+  actionSeq: number;
+  /** The rollup slot of the declare; `resolve` needs a later one. */
+  pendingSlot: bigint;
+  pendingTime: number;
+  /** The slot the deal ran in: nothing is declared in it. */
+  dealSlot: bigint;
 }
+
+/** `Battle.pendingKind`. */
+export const PENDING = { none: 0, move: 1, timeout: 2, cap: 3 } as const;
 
 /** One side's private state. */
 export interface ArmyAccount {
@@ -139,6 +172,27 @@ export function decodeBattle(data: Uint8Array): Battle {
     twoStep: pair(O.twoStep),
     timeouts: pair(O.timeouts),
     depotClaimed: pair(O.depotClaimed),
+    layoutVersion: data[O.layoutVersion],
+    rulesVersion: data[O.rulesVersion],
+    setupDeadline: Number(v.getBigInt64(O.setupDeadline, true)),
+    capDeadline: Number(v.getBigInt64(O.capDeadline, true)),
+    payer: key(data, O.payer),
+    oracleQueue: key(data, O.oracleQueue),
+    moveCap: v.getUint16(O.moveCap, true),
+    capSecs: v.getUint16(O.capSecs, true),
+    turnSecs: data[O.turnSecs],
+    graceSecs: data[O.graceSecs],
+    openingGraceSecs: data[O.openingGraceSecs],
+    stormFrom: data[O.stormFrom],
+    stormTo: data[O.stormTo],
+    pendingKind: data[O.pendingKind],
+    pendingPiece: data[O.pendingPiece],
+    pendingTo: data[O.pendingTo],
+    pendingSeat: data[O.pendingSeat],
+    actionSeq: v.getUint32(O.actionSeq, true),
+    pendingSlot: v.getBigUint64(O.pendingSlot, true),
+    pendingTime: Number(v.getBigInt64(O.pendingTime, true)),
+    dealSlot: v.getBigUint64(O.dealSlot, true),
   };
 }
 
@@ -223,5 +277,5 @@ export function eventsSince(b: Battle, cursor: number): Catchup {
 
 /** Changes whenever anything a Player can see in the Battle changes. */
 export function battleKey(b: Battle): string {
-  return [b.status, b.eventSeq, b.turnNo, b.moves, b.turn, b.stepsLeft, b.twoStepActive, b.deadline, b.winner, b.stormDone, b.twoStep, b.timeouts, b.depotClaimed, b.sq.join(","), b.shown.join(",")].join("|");
+  return [b.status, b.eventSeq, b.turnNo, b.moves, b.turn, b.stepsLeft, b.twoStepActive, b.deadline, b.winner, b.stormDone, b.twoStep, b.timeouts, b.depotClaimed, b.pendingKind, b.actionSeq, b.sq.join(","), b.shown.join(",")].join("|");
 }

@@ -45,10 +45,11 @@ const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111
 const ORACLE_QUEUE = new PublicKey("5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc");
 
 /**
- * Compute limits. A move scans the board twice (about 620k CU in LiteSVM, 8k more or less by layout), a timeout
- * claim once (about 320k); the 200k default would fail both. Delegation is Hold'em's 600k; `finalize` pays out.
+ * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4k CU in LiteSVM. The resolve
+ * does the rank rules, the fight and the turn pass: about 57k (a fight up to 57k, a lost turn the same). The 200k
+ * default is enough for both; the limits leave room. Delegation is Hold'em's 600k; `finalize` pays out.
  */
-export const CU = { move: 750_000, claimTimeout: 450_000, delegate: 600_000, finalize: 400_000 } as const;
+export const CU = { declare: 40_000, resolve: 150_000, delegate: 600_000, finalize: 400_000 } as const;
 
 const le64 = (n: bigint | number) => new anchor.BN(n.toString()).toArrayLike(Buffer, "le", 8);
 
@@ -221,7 +222,8 @@ export class VanguardChain {
       .accountsPartial({
         creator: creator.publicKey,
         tesoroMatch: tesoroMatchPda(matchId),
-        config: ad.config,
+        config: tesoroConfigPda(),
+        vanguardConfig: ad.config,
         accountA: tesoroAccountPda(seatA),
         accountB: tesoroAccountPda(seatB),
         authority: ad.authority,
@@ -375,14 +377,18 @@ export class VanguardChain {
     return this.sendTee("deal", [ix], payer);
   }
 
-  /** Rollup. Move (or attack with) `piece` to square `to` (`row * 10 + col`) on your turn. */
+  /**
+   * Rollup. Declare a move (or an attack) of `piece` to square `to` (`row * 10 + col`) on your turn. The program
+   * checks only public state now; the rank rules and the fight are applied by `resolve` in a later slot, and a move
+   * the rank rules refuse costs the turn. A declare cannot be taken back. Send `resolve` as soon as it lands.
+   */
   async movePiece(player: PlayerSigner, matchId: bigint | number, piece: number, to: number): Promise<string> {
     const ad = addresses(matchId);
     const ix = await this.program.methods
       .movePiece(piece, to)
-      .accountsPartial({ player: player.publicKey, battle: ad.battle, army0: ad.army0, army1: ad.army1, secret: ad.secret } as any)
+      .accountsPartial({ player: player.publicKey, battle: ad.battle } as any)
       .instruction();
-    return this.sendTee("move_piece", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.move }), ix], player);
+    return this.sendTee("move_piece", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], player);
   }
 
   /** Rollup. Spend a banked Two-Step Turn before the first step of your turn. */
@@ -393,16 +399,31 @@ export class VanguardChain {
   }
 
   /**
-   * Rollup, permissionless. Once the turn's deadline has passed it passes the turn and counts a timeout; past the
-   * time cap it ends the Match on the tiebreak; past the start window it cancels.
+   * Rollup, permissionless. Once the turn's deadline has passed it declares a timeout (the turn is lost); past the
+   * time cap it declares the tiebreak ending; past the start window it cancels. Declared timeouts are applied by
+   * `resolve`.
    */
   async claimTimeout(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
     const ad = addresses(matchId);
     const ix = await this.program.methods
       .claimTimeout()
+      .accountsPartial({ caller: caller.publicKey, battle: ad.battle, secret: ad.secret } as any)
+      .instruction();
+    return this.sendTee("claim_timeout", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.declare }), ix], caller);
+  }
+
+  /**
+   * Rollup, permissionless, no arguments. Applies the pending action (a declared move or timeout) in a slot after
+   * its declare. Both Players' clients and the keeper send it as soon as the Battle shows a pending action; the
+   * program refuses it in the declare's own slot (`TooSoon`), so a caller retries after a moment.
+   */
+  async resolve(caller: PlayerSigner, matchId: bigint | number): Promise<string> {
+    const ad = addresses(matchId);
+    const ix = await this.program.methods
+      .resolve()
       .accountsPartial({ caller: caller.publicKey, battle: ad.battle, army0: ad.army0, army1: ad.army1, secret: ad.secret } as any)
       .instruction();
-    return this.sendTee("claim_timeout", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.claimTimeout }), ix], caller);
+    return this.sendTee("resolve", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.resolve }), ix], caller);
   }
 
   /**
