@@ -6,11 +6,18 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PlayerAvatar } from "@/components/account/Player";
 import { CountUp } from "@/components/ui";
+import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
+import { accountKeyOf } from "@/lib/chain/account-key";
 import { shortKey } from "@/lib/chain/history";
+import { seasonStanding, standingSummary } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
+import { POINTS_DIVISOR } from "@/lib/chain/season";
 import { usePool } from "@/lib/chain/usePool";
 import { Rail } from "./Rail";
+
+/** The smallest entry, for "a win is +N". */
+const MIN_ENTRY = 500;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 function left(secs: number): string {
@@ -40,7 +47,9 @@ function useRemaining(serverNow: number | undefined, end: number | undefined): n
 
 /** LEADERBOARD: the Leaderboard hero in miniature, the Pool figure left, the chest over turning light right, the top three as chips. The whole card opens the Leaderboard. Hidden if the read fails: the Lobby does not depend on it. */
 export function LeaderboardTeaser() {
-  const { data, error } = useLeaderboard();
+  const { auth, snapshot } = useAccount();
+  const me = auth.status === "signed-in" ? (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null)) : null;
+  const { data, error } = useLeaderboard(me);
   const live = usePool();
   const remaining = useRemaining(data?.now, data?.season.end);
   if (!data && error) return null;
@@ -76,6 +85,11 @@ export function LeaderboardTeaser() {
                   </li>
                 ))}
               </ol>
+            )}
+            {me && (
+              <p className="lbt-you">
+                <b>You</b> {standingSummary(seasonStanding(data, me), data.players, MIN_ENTRY / POINTS_DIVISOR)}
+              </p>
             )}
             <span className="lbt-cta">
               See the season <ArrowRight aria-hidden="true" />
