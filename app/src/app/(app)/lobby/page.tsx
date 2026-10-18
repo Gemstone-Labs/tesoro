@@ -7,6 +7,7 @@ import { HeroCarousel } from "@/components/lobby/HeroCarousel";
 import { LeaderboardTeaser } from "@/components/lobby/LeaderboardTeaser";
 import { LiveWins } from "@/components/lobby/LiveWins";
 import { WelcomeStrip } from "@/components/lobby/WelcomeStrip";
+import { PlayAgainRail } from "@/components/lobby/PlayAgainRail";
 import { PlayNowRail } from "@/components/lobby/PlayNowRail";
 import { useSearch } from "@/components/shell/SearchContext";
 import { useAccount } from "@/lib/account";
@@ -42,6 +43,7 @@ export default function Lobby() {
       </div>
 
       <PlayNowRail />
+      <PlayAgainRail />
       <BackPlayerRail />
       <LeaderboardTeaser />
     </div>
