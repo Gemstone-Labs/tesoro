@@ -4,7 +4,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Button, CheckIcon, CountUp, GemaMark, GemaUsd, MinusIcon, SimulatedYieldLabel, XIcon, type BustName } from "@/components/ui";
+import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
+import { accountKeyOf } from "@/lib/chain/account-key";
+import { nextStep, ordinal, pts, seasonStanding, type SeasonStanding } from "@/lib/chain/leaderboard-view";
+import { playerSummary } from "@/lib/chain/player-account";
+import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { pointsForWin } from "@/lib/chain/season";
 import { fmtGemas } from "@/lib/format";
 import { canRematch, rematchHref } from "@/lib/rematch";
@@ -74,6 +79,45 @@ function Score({ value, run, delay }: { value: string; run: boolean; delay: numb
   return <CountUp value={target} from={0} duration={1100} />;
 }
 
+/** Where the signed-in Player stands in the Season (null until read, or while the Leaderboard Fee is off). */
+function useStanding(): SeasonStanding | null {
+  const { auth, snapshot } = useAccount();
+  const me = auth.status === "signed-in" ? (snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null)) : null;
+  const { data, forMe } = useLeaderboard(me);
+  return me && forMe && data && data.feeBps > 0 ? seasonStanding(data, me) : null;
+}
+
+/** The Season tile after a win: the points won, then the rank and the gap, linking to the Leaderboard. Plain points until the standing is read. */
+function SeasonTile({ points, delay }: { points: number; delay: string }) {
+  const standing = useStanding();
+  const step = standing ? nextStep(standing) : null;
+  const body = (
+    <>
+      <span>Season · +{pts(points)}</span>
+      <b>{standing?.rank ? ordinal(standing.rank) : `+${points}`}</b>
+      {step && <small>{step} <span aria-hidden="true">→</span></small>}
+    </>
+  );
+  const cls = "cut cut-card mr-tile mr-rise";
+  const style = { "--d": delay } as Css;
+  return step ? <Link href="/leaderboard" className={`${cls} link`} style={style}>{body}</Link> : <div className={cls} style={style}>{body}</div>;
+}
+
+/** After a loss: no points, and where the Player still stands. */
+function LossStanding() {
+  const standing = useStanding();
+  const rank = standing?.rank;
+  return <p className="mr-copy">Losses earn no points{rank ? <>; you are still <Link href="/leaderboard">{ordinal(rank)} this Season</Link></> : null}.</p>;
+}
+
+/** "New best" beside a Block Puzzle score that beats every earlier finished Match of this Account. */
+function NewBest({ score, matchId }: { score: number; matchId?: string }) {
+  const { snapshot } = useAccount();
+  if (!snapshot?.matchesLoaded) return null;
+  const before = playerSummary(snapshot.matches.filter((m) => m.id.toString() !== matchId)).bestScore;
+  return before !== null && score > before ? <span className="cut cut-chip mr-tag">New best</span> : null;
+}
+
 /**
  * The Match result, every game: a poster over the game's key art (the outcome in giant letters, the Gema change rolling
  * in), a strip of tiles (scores, entry, fee, Season points) and the actions. A win first gets the short character
@@ -100,15 +144,15 @@ export function MatchResult(p: MatchResultProps) {
 
   const nums = p.scores?.map(Number);
   const numeric = !!nums && nums.every(Number.isFinite);
-  const tiles: { k: string; v: ReactNode; on?: boolean }[] = [];
+  const tiles: { k: string; v: ReactNode; on?: boolean; season?: number }[] = [];
   if (p.scores) {
     const [mine, theirs] = nums ?? [0, 0];
-    tiles.push({ k: role === "backer" ? "Your Player" : "You", v: <Score value={p.scores[0]} run={!held} delay={1200} />, on: numeric ? mine > theirs : won });
+    tiles.push({ k: role === "backer" ? "Your Player" : "You", v: <><Score value={p.scores[0]} run={!held} delay={1200} />{role === "player" && p.game === "block-puzzle" && numeric && <NewBest score={mine} matchId={p.matchId} />}</>, on: numeric ? mine > theirs : won });
     tiles.push({ k: "Opponent", v: <Score value={p.scores[1]} run={!held} delay={1200} />, on: numeric ? theirs > mine : lost });
   }
   tiles.push({ k: "Entry", v: <><GemaMark size={22} /> {fmtGemas(p.entry)}</> });
   tiles.push({ k: "Fee", v: <><GemaMark size={22} /> {fmtGemas(neutral ? 0 : p.fee)}</> });
-  if (points > 0) tiles.push({ k: "Season points", v: `+${points}` });
+  if (points > 0) tiles.push({ k: "Season points", v: `+${points}`, season: points });
 
   return (
     <>
@@ -164,13 +208,16 @@ export function MatchResult(p: MatchResultProps) {
         </section>
 
         <div className="mr-tiles">
-          {tiles.map((t, i) => (
+          {tiles.map((t, i) => t.season ? (
+            <SeasonTile key={t.k} points={t.season} delay={`${1100 + i * 90}ms`} />
+          ) : (
             <div key={t.k} className={`cut cut-card mr-tile mr-rise${t.on ? " on" : ""}`} style={{ "--d": `${1100 + i * 90}ms` } as Css}>
               <span>{t.k}</span>
               <b>{t.v}</b>
             </div>
           ))}
         </div>
+        {lost && role === "player" && !backed && <LossStanding />}
         {p.scoreNote && <p className="note">{p.scoreNote}</p>}
         {p.split && <div className="mr-split mr-rise" style={{ "--d": "1600ms" } as Css}>{p.split}</div>}
 

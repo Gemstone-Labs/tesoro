@@ -123,6 +123,11 @@
 .mr-tile { position: relative; --edge: var(--edge-2); display: grid; gap: 4px; padding: 14px 18px; background: var(--shell); }
 .mr-tile span { font-size: 13px; color: var(--fg-2); font-weight: 600; }
 .mr-tile b { display: inline-flex; align-items: center; gap: 8px; font-size: clamp(24px, 2.4vw, 36px); font-weight: 900; line-height: 1.05; }
+.mr-tile small { font-size: 13px; font-weight: 600; color: var(--fg-2); }
+a.mr-tile.link { text-decoration: none; color: inherit; }
+a.mr-tile.link:hover small { color: var(--fg); }
+.mr-tag { display: inline-flex; align-items: center; padding: 3px 8px; margin-left: 4px; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); background: var(--raised-2); --edge: rgba(255, 255, 255, 0.5); align-self: center; }
+.mr-copy a { color: var(--fg); text-decoration: underline; }
 .mr-tile.on { --edge: rgba(255, 255, 255, 0.7); }
 .mr-tile.on::before { content: ""; position: absolute; left: 18px; right: 18px; top: 0; height: 3px; background: var(--fg); }
 .mr-split { width: 100%; }
