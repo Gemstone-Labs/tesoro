@@ -20,11 +20,6 @@ export async function join(
   email: string,
   meta: { source?: string | null; referrer?: string | null; roles?: string[]; studio?: string | null },
 ): Promise<number | null> {
-  // Prototype only: a local run with no storage fakes the spot so the flow can be tried end to end.
-  if (process.env.WAITLIST_FAKE === "1") {
-    console.info("waitlist (fake)", { email, ...meta });
-    return 1 + Math.floor(Math.random() * 400);
-  }
   const { error } = await db()
     .from("waitlist")
     .upsert(

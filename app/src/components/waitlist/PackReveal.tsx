@@ -6,7 +6,6 @@ import { TesoroMark } from "@/components/brand";
 import { art } from "@/lib/art";
 import { roleTags, type Role } from "@/lib/waitlist-role";
 import type { SpotGem } from "@/lib/waitlist-spot";
-import { RolePicker } from "./RolePicker";
 import { CARD, SpotCard, type CardFonts } from "./SpotCard";
 
 /** Where the pack tears, as a share of its height. */
@@ -126,7 +125,6 @@ export function PackReveal({
   tryHref,
   sealed = true,
   roles = [],
-  onRoles,
   onOpen,
   onClose,
 }: {
@@ -136,8 +134,6 @@ export function PackReveal({
   sealed?: boolean;
   /** The member's picks, printed on the pack face and the card. */
   roles?: Role[];
-  /** Given, the sealed pack asks who they are before the tear (take C). */
-  onRoles?: (next: Role[]) => void;
   /** Runs once the card shows, so the page can name the gem from then on. */
   onOpen?: () => void;
   onClose: () => void;
@@ -343,11 +339,6 @@ export function PackReveal({
             </div>
           </div>
           <span className="pk-shadow" aria-hidden />
-          {onRoles ? (
-            <div className="pk-ask">
-              <RolePicker value={roles} onChange={onRoles} label="Who's this card for?" hint="Optional, it goes on the card." size="sm" />
-            </div>
-          ) : null}
           <p className="pk-hint" id="pk-title">
             You&apos;re on the list. Drag along the top to tear your pack open.
           </p>

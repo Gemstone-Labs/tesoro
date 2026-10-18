@@ -35,7 +35,11 @@ describe("joinWaitlist", () => {
   it("stores a valid email with source and referrer", async () => {
     const r = await joinWaitlist(idle, form({ email: "Ana@Example.com", utm_source: "x", referrer: "https://x.com/" }));
     expect(r).toEqual({ status: "ok" });
-    expect(join).toHaveBeenCalledWith("ana@example.com", { source: "x", referrer: "https://x.com/" });
+    expect(join).toHaveBeenCalledWith("ana@example.com", { source: "x", referrer: "https://x.com/", roles: [], studio: null });
+  });
+  it("stores the roles picked and a studio name", async () => {
+    await joinWaitlist(idle, form({ email: "ana@example.com", role: "studio,player,admin", studio: " Mole Works " }));
+    expect(join).toHaveBeenCalledWith("ana@example.com", { source: null, referrer: null, roles: ["player", "studio"], studio: "Mole Works" });
   });
   it("returns the spot", async () => {
     join.mockResolvedValue(142);

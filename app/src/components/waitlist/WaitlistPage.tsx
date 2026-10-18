@@ -6,7 +6,6 @@ import { LivingTexture } from "@/components/waitlist/LivingTexture";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
 import { appHref } from "@/lib/landing/config";
-import { WaitlistHeadline } from "@/components/waitlist/WaitlistHeadline";
 import { WAITLIST_KICKER } from "@/lib/waitlist-copy";
 import { waitingLabel } from "@/lib/waitlist-count";
 import type { SpotGem } from "@/lib/waitlist-spot";
@@ -48,7 +47,9 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
       </div>
       <main className="wl-main">
         <p className="wl-kicker">{invite ? `Invited by #${invite.spot} · ${invite.name}` : WAITLIST_KICKER}</p>
-        <WaitlistHeadline />
+        <h1 className="wl-h1">
+          Save your <em className="lp-hl">spot</em> for launch day.
+        </h1>
         <WaitlistForm source={invite && `spot-${invite.spot}`} />
         <p className="wl-try">
           <a className="btn neutral cut cut-btn" href={appHref()}>

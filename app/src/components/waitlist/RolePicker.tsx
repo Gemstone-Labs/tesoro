@@ -8,17 +8,15 @@ export function RolePicker({
   onChange,
   label,
   hint,
-  size = "md",
 }: {
   value: Role[];
   onChange: (next: Role[]) => void;
   label: string;
   hint?: string;
-  size?: "sm" | "md";
 }) {
   const toggle = (k: Role) => onChange(value.includes(k) ? value.filter((v) => v !== k) : ROLES.map((r) => r.key).filter((r) => r === k || value.includes(r)));
   return (
-    <div className={`wl-role wl-role-${size}`} role="group" aria-label={label}>
+    <div className="wl-role" role="group" aria-label={label}>
       <p className="wl-role-label">
         {label}
         {hint ? <span className="wl-role-hint"> {hint}</span> : null}
