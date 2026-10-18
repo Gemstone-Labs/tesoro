@@ -5,16 +5,16 @@ import { useSyncExternalStore } from "react";
 /** Prototype: waitlist-first headline options, picked from the on-page switcher. */
 export const HEADLINES: React.ReactNode[] = [
   <>
-    Get <em className="lp-hl">real-money</em> access first.
+    Save your <em className="lp-hl">spot</em> for launch day.
   </>,
   <>
-    Save your <em className="lp-hl">spot</em> for real-money play.
+    Launch day is <em className="lp-hl">waitlist only.</em>
   </>,
   <>
-    Real money is coming. <em className="lp-hl">Get in first.</em>
+    Save your <em className="lp-hl">spot.</em> Play first when we launch.
   </>,
   <>
-    The waitlist plays for <em className="lp-hl">real</em> first.
+    Be <em className="lp-hl">first in</em> when Tesoro launches.
   </>,
 ];
 
