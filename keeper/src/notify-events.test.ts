@@ -27,6 +27,17 @@ describe("Match refunded and Delayed", () => {
     assert.equal((late[0] as any).refundOpen, false);
   });
 
+  it("a Vanguard Match is Delayed after its play window, not at its 24 h refund deadline, and a refund is told", () => {
+    const vg: MatchFacts = { ...base, game: "vanguard", deadline: NOW + 86_400 };
+    const joined = NOW + 86_400 - 86_400;
+    assert.deepEqual(matchFacts(vg, joined + 600), []);
+    const late = matchFacts(vg, joined + 300 + 60 + 900 + 600);
+    assert.equal(late[0].kind, "match-delayed");
+    assert.equal((late[0] as any).game, "vanguard");
+    assert.equal((late[0] as any).refundOpen, false);
+    assert.deepEqual(matchFacts({ ...vg, status: "refunded" }, NOW).map((x) => [x.kind, (x as any).game]), [["match-refunded", "vanguard"], ["match-refunded", "vanguard"]]);
+  });
+
   it("a Block Puzzle Match is Delayed after both Session deadlines plus the grace", () => {
     const bp: MatchFacts = { ...base, game: "block-puzzle", deadline: NOW + 3000, session: { deadline: NOW + 100, openerDeadline: NOW + 50 } };
     assert.deepEqual(matchFacts(bp, NOW + 200), []);
