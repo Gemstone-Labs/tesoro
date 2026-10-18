@@ -28,8 +28,7 @@ export function XFollow({ variant, place, short, className = "" }: { variant: XV
     return (
       <a {...link} className={`${base} xf-link`}>
         <XMark size={14} />
-        <span className="xf-long">Follow {X_HANDLE}</span>
-        <span className="xf-short">Follow us</span>
+        <span>Follow {X_HANDLE}</span>
       </a>
     );
   }

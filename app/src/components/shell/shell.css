@@ -352,7 +352,4 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .site-foot-cols > div { gap: 0; }
   .site-foot-h { margin-bottom: 8px; }
   .site-foot-cols a, .site-foot-cols span { min-height: 44px; display: inline-flex; align-items: center; }
-  .site-foot-cols .xf-link { gap: 6px; white-space: nowrap; }
-  .site-foot-cols .xf-link .xf-long { display: none; }
-  .site-foot-cols .xf-link .xf-short { display: inline; }
 }
