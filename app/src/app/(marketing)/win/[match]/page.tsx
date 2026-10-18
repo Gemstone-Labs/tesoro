@@ -46,7 +46,7 @@ export default async function WinPage({ params }: Props) {
       <h1>{win.gemas > 0 ? `${win.name} won ${fmtGemas(win.gemas)} Gemas playing ${game}` : `${win.name} won a ${game} Match`}</h1>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img className="win-card" src={cardUrl(win.id)} width={CARD.width} height={CARD.height} alt={winShareText(win)} />
-      <p className="win-explain">Gemas are Tesoro's in-game currency, advanced from staking yield. Practice is free, no account needed.</p>
+      <p className="win-explain">Gemas are Tesoro&apos;s in-game currency, advanced from staking yield. Practice is free, no account needed.</p>
       <div className="win-actions">
         <Button variant="money" size="lg" href={appHref(`/play/${win.game}`)}>Play {game}</Button>
         <Button size="lg" href={appHref(practiceHref(win.game))}>Practice free</Button>
