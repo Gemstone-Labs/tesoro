@@ -21,14 +21,14 @@ Capacity of an on-chain program = ProgramData length minus its 45-byte header. B
 
 | Program | Id | New `.so` (bytes) | On-chain ProgramData length | Capacity | Extend needed | Upgrade? |
 |---|---|---|---|---|---|---|
-| `tesoro_core` | `AR9c426k…TAckh` | 1,940,880 (with the retire instructions, ticket 11; 1,862,648 without) | 1,343,360 | 1,343,315 | **+597,565 minimum: run `solana program extend AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh 598000`** (re-check the live ProgramData length and rebuild first: the size above is from the 2026-10-18 build; if one extend of that size is refused, repeat with smaller steps) | yes |
+| `tesoro_core` | `AR9c426k…TAckh` | 1,941,224 (with the retire instructions, ticket 11; 1,862,648 without) | 1,343,360 | 1,343,315 | **+597,909 minimum: run `solana program extend AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh 620000`** (about 22 KB of headroom for a last fix) (re-check the live ProgramData length and rebuild first: the size above is from the 2026-10-18 build; if one extend of that size is refused, repeat with smaller steps) | yes |
 | `block_puzzle` | `5WVV5k7Z…Vdo7dj` | 620,648 | 633,392 | 633,347 | none (12,699 spare) | yes |
 | `holdem` | `CjhY1Wkw…jVusbE` | 654,896 | 658,216 | 658,171 | none (3,275 spare) | yes (one-line CPI change) |
 | `trading_duel` | `CNETsX9G…BfAYyj` | 528,736 | 575,752 | 575,707 | none | yes (one-line CPI change) |
 | `tesoro_bridge` | `5bzDVZKa…vBfdwvTQ` | 797,920 | 801,648 | 801,603 | none | **no** (source unchanged; only its test file changed; its four CPIs into `tesoro_core` keep their account lists) |
 | `sim_lst` | `WgcM5Ges…VqD4F` | 401,160 | 404,864 | 404,819 | none | **yes** (main's `mint_yield` / yield authority; serialize with the core upgrade) |
 
-Rent (6,960 lamports per byte incl. the 128-byte header; buffers are refunded to the deployer when the upgrade lands): extend `tesoro_core` +598,000 B = about 4.2 SOL (kept); buffers: `tesoro_core` about 13.5 SOL (1,940,880 B), `block_puzzle` about 4.32, `holdem` about 4.56, `trading_duel` about 3.68. Upgrade one at a time and the peak need is about 4.2 + 13.5 = 17.7 SOL for `tesoro_core`, so check `solana balance` first and borrow from the relayer if short. The deployer held 18.11 SOL on 2026-10-14; the Dungeons & Moles session shares this key: `pgrep -A -fa "solana program"` before starting, and borrow from the relayer (repay it first) if short. Reclaim leftover buffers afterwards (`solana program close --buffers`).
+Rent (6,960 lamports per byte incl. the 128-byte header; buffers are refunded to the deployer when the upgrade lands): extend `tesoro_core` +620,000 B = about 4.3 SOL (kept); buffers: `tesoro_core` about 13.5 SOL (1,941,224 B), `block_puzzle` about 4.32, `holdem` about 4.56, `trading_duel` about 3.68. Upgrade one at a time and the peak need is about 4.3 + 13.5 = 17.8 SOL for `tesoro_core`, so check `solana balance` first and borrow from the relayer if short. The deployer held 18.11 SOL on 2026-10-14; the Dungeons & Moles session shares this key: `pgrep -A -fa "solana program"` before starting, and borrow from the relayer (repay it first) if short. Reclaim leftover buffers afterwards (`solana program close --buffers`).
 
 The rebuilt `tesoro_bridge.so` differs byte for byte from the deployed one (the build environment differs); that is not a reason to upgrade.
 
