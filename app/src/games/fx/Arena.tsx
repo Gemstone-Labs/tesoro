@@ -5,7 +5,7 @@ import { art } from "@/lib/art";
 import { FxLayer } from "./burst";
 import { isFullScreen, setFullScreen, watchNativeExit } from "./full-screen";
 
-export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel";
+export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
 
 /**
  * The stage a game sits on: a dark backdrop with colour at the edges and a quiet, dark centre, kept
