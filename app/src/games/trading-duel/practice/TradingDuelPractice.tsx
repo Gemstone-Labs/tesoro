@@ -134,7 +134,10 @@ function Picker({ asset, setAsset, feed, onStart }: { asset: Asset; setAsset: (a
       <section className="td" aria-label="Trading Duel practice">
         <div className="cut cut-frame td-card" style={{ maxWidth: 560, margin: "0 auto", width: "100%", gap: 16 }}>
           <div className="td-head-l">
-            <h1 className="td-title">Trading Duel practice</h1>
+            <div className="stack" style={{ gap: 2 }}>
+              <p className="td-kicker">Practice · nothing staked</p>
+              <h1 className="td-title">Trading Duel</h1>
+            </div>
             <MuteToggle />
             <FullScreenToggle />
           </div>
