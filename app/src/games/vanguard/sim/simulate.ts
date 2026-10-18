@@ -1,4 +1,4 @@
-import { CAP_MS, MOVE_CAP, STORM_WINDOW, TURN_MS, move, newGame, seeded, startTwoStep, targets, timeout, type Army, type EndReason, type Game, type GameEvent, type Square } from "../rules";
+import { CAP_MS, MOVE_CAP, STORM_WINDOW, TURN_MS, move, newGame, seeded, startTwoStep, timeout, type Army, type EndReason, type Game, type GameEvent, type Square } from "../rules";
 import { botMove } from "../practice/bot";
 
 /** How long one action takes on a real clock. Thinking and chain time are script parameters; animation comes from the board. */
@@ -53,8 +53,6 @@ export interface MatchRow {
   twoStepsSpent: number;
   /** Actions whose think + chain + the opponent's animation would have passed a 5 s turn clock that is not rebased. */
   lateWithoutRebase: number;
-  /** Times the bot's move became illegal once it spent a Two-Step Turn (a Recon's long run). */
-  twoStepRepicks: number;
 }
 
 const T0 = 1_000_000;
@@ -77,7 +75,6 @@ export function runMatch(seed: number, o: MatchOptions = {}): MatchRow {
   let stormShifted = 0;
   let twoSteps = 0;
   let late = 0;
-  let repicks = 0;
   let animBefore = 0;
   let cappedBy: "moves" | "time" | null = null;
   const fail = (what: string): never => {
@@ -85,7 +82,7 @@ export function runMatch(seed: number, o: MatchOptions = {}): MatchRow {
   };
 
   while (!g.winner) {
-    let m = botMove(g, rng);
+    const m = botMove(g, rng);
     if (!m) {
       const t = timeout(g, g.deadline + 1);
       if (!t.ok) fail(`stuck without a legal move and timeout refused (${t.reason})`);
@@ -114,12 +111,6 @@ export function runMatch(seed: number, o: MatchOptions = {}): MatchRow {
         g = s.game;
         twoSteps++;
         wall += pace.chainMs;
-        // the bot chose its move before the Two-Step Turn began; a Recon's long run is no longer legal in it, so it picks again
-        if (!targets(g, g.pieces.find((p) => p.id === m!.id)!).some((t) => t.r === m!.to.r && t.c === m!.to.c)) {
-          repicks++;
-          m = botMove(g, rng);
-          if (!m) return fail("no move left inside a Two-Step Turn");
-        }
       }
     }
     const r = move(g, { id: m.id, to: m.to, at: T0 + wall });
@@ -152,7 +143,6 @@ export function runMatch(seed: number, o: MatchOptions = {}): MatchRow {
     stormShifted,
     twoStepsSpent: twoSteps,
     lateWithoutRebase: late,
-    twoStepRepicks: repicks,
   };
 }
 
@@ -191,7 +181,6 @@ export interface Summary {
   endedBeforeStormWindowEnd: number;
   twoStepsPerMatch: number;
   lateWithoutRebase: number;
-  twoStepRepicks: number;
   wallOver: Record<number, number>;
   movesOver: Record<number, number>;
   maxMoves: number;
@@ -230,7 +219,6 @@ export function aggregate(rows: MatchRow[], _pace: Pace, probe: MatchRow[] = row
     endedBeforeStormWindowEnd: share(probe, (r) => r.turns < STORM_WINDOW.to),
     twoStepsPerMatch: rows.reduce((s, r) => s + r.twoStepsSpent, 0) / Math.max(1, n),
     lateWithoutRebase: rows.reduce((s, r) => s + r.lateWithoutRebase, 0) / Math.max(1, n),
-    twoStepRepicks: rows.reduce((t, r) => t + r.twoStepRepicks, 0),
     wallOver: Object.fromEntries([10, 15, 20, 30].map((m) => [m, pn ? probe.filter((r) => r.wallMs > m * 60000).length / pn : 0])),
     movesOver: Object.fromEntries([100, 150, 200, 250, 300, 400].map((c) => [c, pn ? probe.filter((r) => r.moves > c).length / pn : 0])),
     maxMoves: Math.max(...probe.map((r) => r.moves)),
@@ -276,7 +264,6 @@ export function renderReport(s: Summary, info: ReportInfo, probe?: Summary): str
     `| US Army wins / Royal Italian Army wins | ${pct(s.armyWins.us)} / ${pct(s.armyWins.it)} |`,
     `| Two-Step Turns spent per Match | ${s.twoStepsPerMatch.toFixed(2)} |`,
     "",
-    ...(s.twoStepRepicks ? [`Bot note: in ${s.twoStepRepicks} Two-Step Turns the practice bot picked a Recon's long run and then spent the Two-Step Turn, which makes that run illegal (the engine refuses it). The sim lets the bot pick again; Practice does not, so Practice can hang on such a turn.`, ""] : []),
     "### Without the caps",
     "",
     `The same ${info.count} Matches replayed with the move and time caps lifted (limit ${p.maxMoves} moves reached). Share still running past a limit:`,
