@@ -2275,7 +2275,7 @@ fn a_battle_records_its_versions_and_rules_when_created() {
         (b.storm_from as u16, b.storm_to as u16),
         (engine::STORM_FROM, engine::STORM_TO)
     );
-    assert_eq!(b.reserved, [0; 32]);
+    assert_eq!(b.reserved, [0; 31]);
     assert_eq!(
         (b.pending_kind, b.action_seq, b.deal_slot),
         (vanguard::PENDING_NONE, 0, 0)
@@ -2824,8 +2824,8 @@ fn the_clock_is_decided_at_the_declare_and_the_next_deadline_counts_from_the_res
     assert_eq!(b.sq[id_of(70) as usize], 60);
     assert_eq!(
         b.deadline,
-        deadline + 500 + 6,
-        "the next deadline counts from the resolve, with no extra grace"
+        deadline + engine::RESOLVE_SLACK_SECS + 6,
+        "a stalled resolve is counted from the declare plus the slack, with no extra grace"
     );
     // One second past the edge is refused at the declare.
     let bob = env.bob.kp.insecure_clone();
@@ -2979,7 +2979,10 @@ fn the_opening_grace_is_consumed_exactly_once() {
         .expect("declared at the edge");
     env.set_time(opening + 300);
     env.resolve(&caller).expect("delayed resolve");
-    assert_eq!(env.battle().deadline, opening + 300 + 6);
+    assert_eq!(
+        env.battle().deadline,
+        opening + engine::RESOLVE_SLACK_SECS + 6
+    );
 }
 
 // --- tesoro_core fixtures ------------------------------------------------------------------------
@@ -3025,4 +3028,59 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
         &tesoro_core::ID,
     )
     .0
+}
+
+// --- Ticket 08: the turn clock ----------------------------------------------------------------------
+
+/// Resolves a pending move `after` seconds past its declare and returns the next deadline.
+fn resolved_after(env: &mut Env, after: i64) -> i64 {
+    let alice = env.alice.kp.insecure_clone();
+    let m = env.move_ix(env.alice.key, id_of(70), 60);
+    env.send(&[budget(), m], &alice, &[]).expect("declare");
+    let declared = env.now;
+    env.set_time(declared + after);
+    env.resolve(&alice).expect("resolve");
+    env.battle().deadline
+}
+
+#[test]
+fn the_next_deadline_counts_from_the_resolve_but_a_stalled_resolve_gains_at_most_the_slack() {
+    let slack = engine::RESOLVE_SLACK_SECS;
+    assert_eq!(slack, 2);
+    let turn = engine::TURN_SECS + engine::GRACE_SECS;
+    for after in [0, 1, slack, slack + 1, 30, 600] {
+        let mut env = declared_env();
+        let declared = env.now;
+        let next = resolved_after(&mut env, after);
+        assert_eq!(
+            next,
+            declared + after.min(slack) + turn,
+            "resolved {after} s after the declare"
+        );
+    }
+}
+
+#[test]
+fn a_stalled_timeout_resolve_gains_at_most_the_slack_too() {
+    let mut env = declared_env();
+    let caller = env.bob.kp.insecure_clone();
+    env.set_time(env.battle().deadline + 1);
+    env.claim_timeout_declare(&caller).expect("claim");
+    let declared = env.now;
+    env.set_time(declared + 600);
+    env.resolve(&caller).expect("resolve");
+    assert_eq!(
+        env.battle().deadline,
+        declared + engine::RESOLVE_SLACK_SECS + engine::TURN_SECS + engine::GRACE_SECS
+    );
+}
+
+#[test]
+fn the_slack_is_stored_per_battle_and_obeyed() {
+    let mut env = declared_env();
+    assert_eq!(env.battle().resolve_slack_secs as i64, engine::RESOLVE_SLACK_SECS);
+    env.patch_battle(|b| b.resolve_slack_secs = 0);
+    let declared = env.now;
+    let next = resolved_after(&mut env, 5);
+    assert_eq!(next, declared + engine::TURN_SECS + engine::GRACE_SECS);
 }

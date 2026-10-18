@@ -586,7 +586,8 @@ pub mod vanguard {
     /// Rollup, permissionless, no arguments. Applies the pending action in a slot after its declare: the rank
     /// rules, the fight, the Spotted and raid bookkeeping, the turn pass, the storm, the caps, the no-legal-move
     /// check, the end reveal and the events. It never fails on hidden state: a declared move the rank rules refuse
-    /// costs the turn. The next deadline counts from now, so a slow resolve never eats the next Player's time.
+    /// costs the turn. The next deadline counts from the resolve time, but never from later than the declare time plus
+    /// `RESOLVE_SLACK_SECS`: a slow resolve never eats the next Player's time, and a held-back one buys none.
     pub fn resolve(mut ctx: Context<Resolve>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let slot = Clock::get()?.slot;
@@ -598,6 +599,7 @@ pub mod vanguard {
             VanguardError::NothingPending
         );
         require!(slot > battle.pending_slot, VanguardError::TooSoon);
+        let declared = battle.pending_time;
         let (kind, piece, to, seat) = (
             battle.pending_kind,
             battle.pending_piece,
@@ -609,10 +611,13 @@ pub mod vanguard {
             &mut accounts.army_0,
             &mut accounts.army_1,
             &accounts.secret,
-            |g, out| match kind {
-                PENDING_MOVE => g.resolve_move(piece, to, now, out),
-                PENDING_CAP => g.resolve_timeout(engine::TimeoutClass::Cap, now, out),
-                _ => g.resolve_timeout(engine::TimeoutClass::Pass, now, out),
+            |g, out| {
+                let at = g.counted(declared, now);
+                match kind {
+                    PENDING_MOVE => g.resolve_move(piece, to, at, out),
+                    PENDING_CAP => g.resolve_timeout(engine::TimeoutClass::Cap, at, out),
+                    _ => g.resolve_timeout(engine::TimeoutClass::Pass, at, out),
+                }
             },
         )?;
         battle.clear_pending();

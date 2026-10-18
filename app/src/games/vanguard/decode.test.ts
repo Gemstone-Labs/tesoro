@@ -23,8 +23,8 @@ describe("the Battle decoder against account bytes the Rust program wrote", () =
 
   it("reads the stored rules, the setup deadline and the pending action", () => {
     expect([b.layoutVersion, b.rulesVersion, b.setupDeadline, b.capDeadline]).toEqual([e.layoutVersion, e.rulesVersion, e.setupDeadline, e.capDeadline]);
-    expect([b.moveCap, b.capSecs, b.turnSecs, b.graceSecs, b.openingGraceSecs, b.stormFrom, b.stormTo]).toEqual([
-      e.moveCap, e.capSecs, e.turnSecs, e.graceSecs, e.openingGraceSecs, e.stormFrom, e.stormTo,
+    expect([b.moveCap, b.capSecs, b.turnSecs, b.graceSecs, b.openingGraceSecs, b.resolveSlackSecs, b.stormFrom, b.stormTo]).toEqual([
+      e.moveCap, e.capSecs, e.turnSecs, e.graceSecs, e.openingGraceSecs, e.resolveSlackSecs, e.stormFrom, e.stormTo,
     ]);
     expect([b.pendingKind, b.pendingPiece, b.pendingTo, b.pendingSeat, b.actionSeq, b.pendingTime]).toEqual([
       e.pendingKind, e.pendingPiece, e.pendingTo, e.pendingSeat, e.actionSeq, e.pendingTime,
