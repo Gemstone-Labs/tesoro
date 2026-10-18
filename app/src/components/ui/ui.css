@@ -312,7 +312,7 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 .assets .pick-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
 .asset span { display: grid; grid-template-columns: auto auto; column-gap: 7px; row-gap: 1px; justify-content: center; align-content: center; align-items: center; min-height: 54px; }
 .asset b { font-size: 16px; font-weight: 800; line-height: 1.1; letter-spacing: 0.02em; }
-.asset small { grid-column: 1 / -1; justify-self: center; font-size: 11px; font-weight: 600; color: var(--fg-3); }
+.asset small { grid-column: 1 / -1; justify-self: center; font-size: 12px; font-weight: 600; color: var(--fg-2); }
 .asset input:checked + span { color: var(--fg); }
 .asset input:checked + span small { color: var(--fg-2); }
 .asset input:not(:checked) + span .chain-glyph { filter: grayscale(1); opacity: 0.6; }

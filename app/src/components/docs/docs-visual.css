@@ -56,7 +56,7 @@
 .dx-grid > li { max-width: none !important; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 4px 12px; padding: 18px 20px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); }
 .dx-grid > li:nth-child(2n) { border-right: 0; }
 .dx-grid > li:last-child, .dx-grid > li:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
-.dx-grid-n { font: 600 13px var(--f-mono); color: var(--fg-3); padding-top: 3px; }
+.dx-grid-n { font: 600 13px var(--f-mono); color: var(--fg-2); padding-top: 3px; }
 .dx-grid-t { display: flex; align-items: center; gap: 10px; }
 .dx-grid-t b { font-size: 16.5px; color: var(--fg); line-height: 1.25; }
 .dx-grid p { margin-top: 6px; font-size: 14.5px; line-height: 1.5; max-width: none; }
@@ -92,7 +92,7 @@
 .dx-flow > li { max-width: none !important; position: relative; display: grid; grid-template-rows: 120px auto auto 1fr; justify-items: center; text-align: center; padding: 0 14px; gap: 4px; }
 .dx-flow-art { display: grid; place-items: end center; height: 120px; width: 100%; }
 .dx-flow-art img { max-height: 120px; width: auto; max-width: 100%; height: auto; object-fit: contain; }
-.dx-flow-n { font: 600 12px var(--f-mono); color: var(--fg-3); margin-top: 8px; }
+.dx-flow-n { font: 600 12px var(--f-mono); color: var(--fg-2); margin-top: 8px; }
 .dx-flow b { font-size: 16px; color: var(--fg); }
 .dx-flow p { font-size: 13px; line-height: 1.45; color: var(--fg-2); max-width: 22ch; }
 .dx-flow-arrow { position: absolute; right: -9px; top: 52px; width: 18px; height: 18px; color: var(--fg-2); z-index: 1; background: var(--raised); }
@@ -105,7 +105,7 @@
 .dx-bar-label { font: 700 11.5px var(--f-mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-2); }
 .dx-bar-title { font-size: 13px; font-weight: 800; color: var(--fg); margin: 6px 0 -2px !important; }
 .dx-bar-title:first-child { margin-top: 0 !important; }
-.dx-bar-arrow { margin-left: 64px; font: 600 11.5px var(--f-mono); color: var(--fg-3); letter-spacing: 0.04em; }
+.dx-bar-arrow { margin-left: 64px; font: 600 12px var(--f-mono); color: var(--fg-2); letter-spacing: 0.04em; }
 .dx-bar-arrow::before { content: "↓ "; }
 .dx-bar { display: flex; gap: 2px; min-height: 46px; max-width: 100%; }
 .dx-bar .seg { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 6px 10px; font: 500 11.5px/1.25 var(--f-body); font-style: normal; color: var(--fg-2); background: var(--raised-2); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
@@ -154,7 +154,7 @@
 .dx-seq { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 0 !important; max-width: none !important; }
 .dx-seq > li { max-width: none !important; display: grid; grid-template-columns: 28px minmax(150px, 230px) minmax(0, 1fr); gap: 10px 14px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .dx-seq > li:last-child { border-bottom: 0; }
-.dx-seq-n { font: 600 12px var(--f-mono); color: var(--fg-3); padding-top: 4px; }
+.dx-seq-n { font: 600 12px var(--f-mono); color: var(--fg-2); padding-top: 4px; }
 .dx-seq-who { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .dx-seq-who i { font: 700 12px var(--f-mono); font-style: normal; color: var(--fg); background: var(--raised-2); box-shadow: inset 0 0 0 1px var(--line-2); padding: 2px 8px; }
 .dx-seq-who svg { width: 14px; height: 14px; color: var(--fg-3); }
@@ -272,7 +272,7 @@
 .dx-group { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.7fr); gap: 40px; padding: 36px 0; border-bottom: 1px solid var(--line); align-items: start; }
 .dx-group-l { position: sticky; top: calc(var(--top) + 24px); }
 .dx-group-l h2 { font-size: 24px; font-weight: 800; line-height: 1.15; display: flex; gap: 12px; align-items: baseline; }
-.dx-group-l h2 span { font: 600 14px var(--f-mono); color: var(--fg-3); }
+.dx-group-l h2 span { font: 600 14px var(--f-mono); color: var(--fg-2); }
 .dx-group-l p { margin-top: 10px; font-size: 14.5px; line-height: 1.5; color: var(--fg-2); max-width: 32ch; }
 .dx-group-l .dx-start-more { margin-top: 14px; font-weight: 600; }
 .dx-group-l .dx-start-more code { font: 600 12.5px var(--f-mono); color: var(--fg); background: none; padding: 0; }
