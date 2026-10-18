@@ -103,7 +103,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
                 <GemaMark size={30} /> +{fmtGemas(payout - m.entry)} Gemas
               </span>
               <span className="mr-sum tnum">
-                Pot {fmtGemas(m.entry * 2)} (2 × {fmtGemas(m.entry)}) − Fee {fmtGemas(fee)} = {fmtGemas(payout)} paid out, less the winner&apos;s own {fmtGemas(m.entry)} entry
+                Pot {fmtGemas(m.entry * 2)} − Fee {fmtGemas(fee)} = {fmtGemas(payout)} to the winner, who put in {fmtGemas(m.entry)}
               </span>
             </div>
           )}
