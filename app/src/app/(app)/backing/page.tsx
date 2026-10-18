@@ -788,7 +788,7 @@ function OfferDrawer({
               </tr>
               <tr className="lost">
                 <th scope="row"><span className="bk-ico lost"><XIcon /></span> They lose</th>
-                <td><b className="tnum">−{fmtGemas(entry)}</b><small>net · your entry</small></td>
+                <td><b className="tnum">−{fmtGemas(entry)}</b><small>you lose your entry</small></td>
                 <td><b className="tnum">0</b><small>never owe anything</small></td>
               </tr>
             </tbody>
