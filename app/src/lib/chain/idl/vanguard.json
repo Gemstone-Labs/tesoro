@@ -746,6 +746,24 @@
           }
         },
         {
+          "name": "vanguard_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "account_a",
           "pda": {
             "seeds": [
@@ -1871,8 +1889,9 @@
     {
       "name": "init_permissions",
       "docs": [
-        "Rollup. Creates the four permissions (the Battle is public, each Army is readable by its Player only, the",
-        "Secret by nobody) and opens the setup phase: both Players have a minute to contribute entropy."
+        "Rollup, either Player only. Creates the four permissions (the Battle is public, each Army is readable by its",
+        "Player only, the Secret by nobody) and opens the setup phase: both Players have a minute to contribute",
+        "entropy. A stranger who could run it would move every new Battle to SETUP before `delegate_match`."
       ],
       "discriminator": [
         247,
@@ -2453,6 +2472,7 @@
         },
         {
           "name": "secret",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2475,8 +2495,7 @@
         },
         {
           "name": "oracle_queue",
-          "writable": true,
-          "address": "5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc"
+          "writable": true
         },
         {
           "name": "program_identity",
@@ -2521,8 +2540,9 @@
     {
       "name": "set_config",
       "docs": [
-        "Base layer, upgrade authority only. Names the TEE validator the Battle may be delegated to, so the",
-        "program has no compiled-in validator and a mainnet deploy needs no code change."
+        "Base layer, upgrade authority only. Names the TEE validator the Battle may be delegated to and the oracle",
+        "queue its VRF requests go to, so the program has no compiled-in cluster address and a mainnet deploy needs no",
+        "code change."
       ],
       "discriminator": [
         108,
@@ -2574,6 +2594,10 @@
       "args": [
         {
           "name": "tee_validator",
+          "type": "pubkey"
+        },
+        {
+          "name": "oracle_queue",
           "type": "pubkey"
         }
       ]
@@ -2913,6 +2937,11 @@
       "code": 6021,
       "name": "BadState",
       "msg": "Inconsistent account state"
+    },
+    {
+      "code": 6022,
+      "name": "SetupClosed",
+      "msg": "The setup window is over"
     }
   ],
   "types": [
@@ -3010,6 +3039,15 @@
               "Moves this side made, written on every move so a Truck move writes the account like any other."
             ],
             "type": "u16"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
@@ -3252,11 +3290,85 @@
             }
           },
           {
-            "name": "pad",
+            "name": "layout_version",
+            "docs": [
+              "`LAYOUT_VERSION` this Battle was created with."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "rules_version",
+            "docs": [
+              "`RULES_VERSION` this Battle was created with. A program upgrade never changes the rules of a Battle in",
+              "flight: the numbers below are stored at create and deal."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "setup_deadline",
+            "docs": [
+              "The Match must be dealt by now; past it `claim_timeout` cancels it."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "cap_deadline",
+            "docs": [
+              "The time cap: set at `deal` to `started_at + cap_secs`."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Whoever pressed create and prepaid the rent."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle_queue",
+            "docs": [
+              "The oracle queue its VRF request goes to, copied from the config at create."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "move_cap",
+            "type": "u16"
+          },
+          {
+            "name": "cap_secs",
+            "type": "u16"
+          },
+          {
+            "name": "turn_secs",
+            "type": "u8"
+          },
+          {
+            "name": "grace_secs",
+            "type": "u8"
+          },
+          {
+            "name": "opening_grace_secs",
+            "docs": [
+              "Extra seconds on the opening turn."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "storm_from",
+            "type": "u8"
+          },
+          {
+            "name": "storm_to",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                2
+                63
               ]
             }
           }
@@ -3649,6 +3761,14 @@
           {
             "name": "storm_seed",
             "type": "u32"
+          },
+          {
+            "name": "vrf_requested",
+            "docs": [
+              "Set by `request_vrf`: a Match where both Players are in but nobody asked for randomness cancels at the first",
+              "entropy deadline instead of waiting."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -3739,7 +3859,8 @@
     {
       "name": "VanguardConfig",
       "docs": [
-        "The program config: which validator the Battle may be delegated to. Set at deploy by the upgrade authority."
+        "The program config: which validator the Battle may be delegated to and which oracle queue answers its VRF",
+        "requests. Set at deploy by the upgrade authority; nothing about the cluster is compiled in."
       ],
       "type": {
         "kind": "struct",
@@ -3750,6 +3871,10 @@
           },
           {
             "name": "tee_validator",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle_queue",
             "type": "pubkey"
           }
         ]

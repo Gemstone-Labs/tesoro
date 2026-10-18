@@ -7,7 +7,7 @@
  */
 import { botMove } from "./practice/bot";
 import {
-  CAP_MS, CHAIN_CLOCK, DEPOTS, MOVE_CAP, ROSTER, SIZE, STORM_WINDOW, TIMEOUTS_TO_LOSE, TRUCK_FUEL, isWadi, move, newGame, seeded, startGame, startIndex, startTwoStep, timeout,
+  CAP_MS, CHAIN_CLOCK, DEPOTS, MOVE_CAP, ROSTER, RULES_VERSION, SIZE, STORM_WINDOW, TIMEOUTS_TO_LOSE, TRUCK_FUEL, isWadi, move, newGame, seeded, startGame, startIndex, startTwoStep, timeout,
   type Army, type Game, type GameEvent, type Rank, type Refusal, type Result,
 } from "./rules";
 
@@ -76,6 +76,8 @@ export function constants() {
     SIZE,
     TURN_SECS: CHAIN_CLOCK.turnMs / 1000,
     GRACE_SECS: CHAIN_CLOCK.graceMs / 1000,
+    OPENING_GRACE_SECS: CHAIN_CLOCK.openingGraceMs / 1000,
+    RULES_VERSION,
     CAP_SECS: CAP_MS / 1000,
     MOVE_CAP,
     TIMEOUTS_TO_LOSE,
@@ -308,15 +310,18 @@ function deadlineEdges(): Recording {
   const rec = new Rec("clock: edges of the deadline and of the grace", ["clock", "deadline", "grace"], newGame(seeded(21), START_SEC * 1000, "us", CHAIN_CLOCK));
   const s = START_SEC;
   const m1 = botMove(rec.g, seeded(1))!;
+  const o = CHAIN_CLOCK.openingGraceMs / 1000; // the opening turn only: the first mover is still loading
   rec.timeout(s + 5); // inside the turn
-  rec.timeout(s + 6); // exactly at the deadline (turn + grace): not yet
-  rec.move(m1.id, [m1.to.r, m1.to.c], s + 7); // one second late
-  rec.move(m1.id, [m1.to.r, m1.to.c], s + 6); // exactly at the edge: accepted
+  rec.timeout(s + 6); // the usual deadline (turn + grace) has passed, the opening grace has not: not yet
+  rec.timeout(s + o + 5); // inside the turn plus the opening grace
+  rec.timeout(s + o + 6); // exactly at the opening deadline: not yet
+  rec.move(m1.id, [m1.to.r, m1.to.c], s + o + 7); // one second late
+  rec.move(m1.id, [m1.to.r, m1.to.c], s + o + 6); // exactly at the edge: accepted
   const m2 = botMove(rec.g, seeded(2))!;
-  rec.move(m2.id, [m2.to.r, m2.to.c], s + 13); // one second after the new deadline
-  rec.timeout(s + 13); // the turn passes
+  rec.move(m2.id, [m2.to.r, m2.to.c], s + o + 13); // one second after the new deadline: no opening grace any more
+  rec.timeout(s + o + 13); // the turn passes
   const m3 = botMove(rec.g, seeded(3))!;
-  rec.move(m3.id, [m3.to.r, m3.to.c], s + 18); // inside the grace window
+  rec.move(m3.id, [m3.to.r, m3.to.c], s + o + 18); // inside the grace window
   return rec.done();
 }
 

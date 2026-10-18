@@ -14,7 +14,7 @@ pub mod engine;
 pub mod state;
 
 use anchor_lang::{prelude::*, solana_program::hash::hashv, system_program};
-use engine::{Army as Side, Events, Refusal, CHAIN_CLOCK, PIECE_SLOTS};
+use engine::{Army as Side, Events, Refusal, PIECE_SLOTS};
 use ephemeral_rollups_sdk::{
     access_control::{
         instructions::{CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi},
@@ -93,6 +93,8 @@ pub enum VanguardError {
     NoTwoStep,
     #[msg("Inconsistent account state")]
     BadState,
+    #[msg("The setup window is over")]
+    SetupClosed,
 }
 
 fn refused(r: Refusal) -> Error {
@@ -112,16 +114,26 @@ fn refused(r: Refusal) -> Error {
 pub mod vanguard {
     use super::*;
 
-    /// Base layer, upgrade authority only. Names the TEE validator the Battle may be delegated to, so the
-    /// program has no compiled-in validator and a mainnet deploy needs no code change.
-    pub fn set_config(ctx: Context<SetConfig>, tee_validator: Pubkey) -> Result<()> {
+    /// Base layer, upgrade authority only. Names the TEE validator the Battle may be delegated to and the oracle
+    /// queue its VRF requests go to, so the program has no compiled-in cluster address and a mainnet deploy needs no
+    /// code change.
+    pub fn set_config(
+        ctx: Context<SetConfig>,
+        tee_validator: Pubkey,
+        oracle_queue: Pubkey,
+    ) -> Result<()> {
         require!(
             tee_validator != Pubkey::default(),
+            VanguardError::InvalidValidator
+        );
+        require!(
+            oracle_queue != Pubkey::default(),
             VanguardError::InvalidValidator
         );
         let config = &mut ctx.accounts.config;
         config.bump = ctx.bumps.config;
         config.tee_validator = tee_validator;
+        config.oracle_queue = oracle_queue;
         Ok(())
     }
 
@@ -192,15 +204,18 @@ pub mod vanguard {
         )?;
 
         let battle_key = ctx.accounts.battle.key();
-        ctx.accounts.battle.load_init()?.init(
-            ctx.bumps.battle,
-            ctx.bumps.authority,
+        ctx.accounts.battle.load_init()?.init(NewBattle {
+            bump: ctx.bumps.battle,
+            authority_bump: ctx.bumps.authority,
             match_id,
-            ctx.accounts.tesoro_match.key(),
+            tesoro_match: ctx.accounts.tesoro_match.key(),
             players,
-            now.checked_add(START_WINDOW_SECS)
+            start_deadline: now
+                .checked_add(START_WINDOW_SECS)
                 .ok_or(VanguardError::Overflow)?,
-        );
+            payer: ctx.accounts.creator.key(),
+            oracle_queue: ctx.accounts.vanguard_config.oracle_queue,
+        });
         **ctx.accounts.secret = Secret::blank(ctx.bumps.secret, battle_key);
         **ctx.accounts.army_0 = Army::blank(ctx.bumps.army_0, battle_key, 0, players[0]);
         **ctx.accounts.army_1 = Army::blank(ctx.bumps.army_1, battle_key, 1, players[1]);
@@ -249,12 +264,17 @@ pub mod vanguard {
         Ok(())
     }
 
-    /// Rollup. Creates the four permissions (the Battle is public, each Army is readable by its Player only, the
-    /// Secret by nobody) and opens the setup phase: both Players have a minute to contribute entropy.
+    /// Rollup, either Player only. Creates the four permissions (the Battle is public, each Army is readable by its
+    /// Player only, the Secret by nobody) and opens the setup phase: both Players have a minute to contribute
+    /// entropy. A stranger who could run it would move every new Battle to SETUP before `delegate_match`.
     pub fn init_permissions(ctx: Context<InitPermissions>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         {
             let mut battle = ctx.accounts.battle.load_mut()?;
+            require!(
+                battle.seat_of(&ctx.accounts.payer.key()).is_some(),
+                VanguardError::NotAPlayer
+            );
             require!(
                 battle.status == STATUS_CREATED && battle.permissioned == 0,
                 VanguardError::AlreadyStarted
@@ -344,6 +364,10 @@ pub mod vanguard {
         let seat = {
             let battle = ctx.accounts.battle.load()?;
             require!(battle.status == STATUS_SETUP, VanguardError::WrongPhase);
+            require!(
+                Clock::get()?.unix_timestamp <= battle.entropy_deadline,
+                VanguardError::SetupClosed
+            );
             seat_of(&battle, &ctx.accounts.player.key())?
         };
         let s = &mut ctx.accounts.secret;
@@ -356,16 +380,21 @@ pub mod vanguard {
     /// Rollup. Requests VRF randomness from the delegated oracle queue; the oracle calls back into
     /// `vrf_callback_store` inside the rollup. May be repeated until the output arrives.
     pub fn request_vrf(ctx: Context<RequestVrf>, client_seed: u8) -> Result<()> {
-        let secret = &ctx.accounts.secret;
-        require!(
-            ctx.accounts.battle.load()?.status == STATUS_SETUP,
-            VanguardError::WrongPhase
-        );
+        {
+            let battle = ctx.accounts.battle.load()?;
+            require!(battle.status == STATUS_SETUP, VanguardError::WrongPhase);
+            require!(
+                Clock::get()?.unix_timestamp <= battle.setup_deadline,
+                VanguardError::SetupClosed
+            );
+        }
+        let secret = &mut ctx.accounts.secret;
         require!(
             secret.contributed.iter().all(|c| *c),
             VanguardError::EntropyIncomplete
         );
         require!(!secret.vrf_seen, VanguardError::AlreadyDealt);
+        secret.vrf_requested = true;
         let ix = create_request_scoped_randomness_ix(RequestRandomnessParams {
             payer: ctx.accounts.payer.key(),
             oracle_queue: ctx.accounts.oracle_queue.key(),
@@ -394,10 +423,14 @@ pub mod vanguard {
     /// Rollup. VRF callback: only stores the output, and only while the Battle is still waiting to start, so a
     /// late output can never restart a cancelled Match. The setup itself is `deal`.
     pub fn vrf_callback_store(ctx: Context<VrfCallbackStore>, randomness: [u8; 32]) -> Result<()> {
-        require!(
-            ctx.accounts.battle.load()?.status == STATUS_SETUP,
-            VanguardError::WrongPhase
-        );
+        {
+            let battle = ctx.accounts.battle.load()?;
+            require!(battle.status == STATUS_SETUP, VanguardError::WrongPhase);
+            require!(
+                Clock::get()?.unix_timestamp <= battle.setup_deadline,
+                VanguardError::SetupClosed
+            );
+        }
         let secret = &mut ctx.accounts.secret;
         require!(
             secret.contributed.iter().all(|c| *c),
@@ -416,6 +449,7 @@ pub mod vanguard {
         let mut battle = ctx.accounts.battle.load_mut()?;
         let secret = &mut ctx.accounts.secret;
         require!(battle.status == STATUS_SETUP, VanguardError::WrongPhase);
+        require!(now <= battle.setup_deadline, VanguardError::SetupClosed);
         require!(
             secret.contributed.iter().all(|c| *c) && secret.vrf_seen,
             VanguardError::EntropyIncomplete
@@ -424,18 +458,22 @@ pub mod vanguard {
 
         let seed = hashv(&[&secret.entropy, &secret.vrf]).to_bytes();
         let us_seat = hashv(&[&seed, b"us"]).to_bytes()[0] & 1;
-        let drawn = engine::setup(&seed);
-        let game = engine::Game::start(
+        let drawn = engine::setup(&seed, battle.storm_from as u16, battle.storm_to as u16);
+        let mut game = engine::Game::start(
             &drawn.pieces,
             Side::Us,
             drawn.storm_at,
             drawn.storm_seed,
             now,
-            CHAIN_CLOCK,
+            battle.clock(),
         )
         .map_err(|_| error!(VanguardError::BadState))?;
+        // The cap and the move cap are the ones stored at create, whatever this build's constants say.
+        game.cap_at = now.saturating_add(battle.cap_secs as i64);
+        game.move_cap = battle.move_cap;
 
         battle.us_seat = us_seat;
+        battle.cap_deadline = game.cap_at;
         battle.absorb(&game, &[0; PIECE_SLOTS]);
         battle.status = STATUS_LIVE;
         battle.started_at = now;
@@ -496,15 +534,23 @@ pub mod vanguard {
             }
             STATUS_SETUP => {
                 let both = ctx.accounts.secret.contributed.iter().all(|c| *c);
+                let requested = ctx.accounts.secret.vrf_requested;
                 let mut battle = ctx.accounts.battle.load_mut()?;
-                require!(now > battle.entropy_deadline, VanguardError::NotTimedOut);
-                if both {
-                    // The randomness is late, which is the oracle's fault: nobody forfeits.
-                    battle.entropy_deadline = now
-                        .checked_add(ENTROPY_SECS)
-                        .ok_or(VanguardError::Overflow)?;
-                } else {
+                if now > battle.setup_deadline {
+                    // The hard deadline: whatever stalled, the Match is cancelled and refunded.
                     battle.status = STATUS_CANCELLED;
+                } else {
+                    require!(now > battle.entropy_deadline, VanguardError::NotTimedOut);
+                    if both && requested {
+                        // The randomness is late, which is the oracle's fault: nobody forfeits, but the wait
+                        // never goes past the setup deadline.
+                        battle.entropy_deadline = now
+                            .checked_add(ENTROPY_SECS)
+                            .ok_or(VanguardError::Overflow)?
+                            .min(battle.setup_deadline);
+                    } else {
+                        battle.status = STATUS_CANCELLED;
+                    }
                 }
             }
             STATUS_LIVE => {
@@ -892,6 +938,8 @@ pub struct CreateMatch<'info> {
     pub tesoro_match: Box<Account<'info, MatchState>>,
     #[account(seeds = [CORE_CONFIG_SEED], bump = config.bump, seeds::program = tesoro_core::ID)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [PROGRAM_CONFIG_SEED], bump = vanguard_config.bump)]
+    pub vanguard_config: Box<Account<'info, VanguardConfig>>,
     #[account(
         seeds = [ACCOUNT_SEED, account_a.authority.as_ref()],
         bump = account_a.bump,
@@ -1006,10 +1054,10 @@ pub struct RequestVrf<'info> {
     pub payer: Signer<'info>,
     #[account(seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
-    #[account(seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
+    #[account(mut, seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
-    /// CHECK: validated by the VRF program
-    #[account(mut, address = ephemeral_rollups_sdk::vrf::consts::DEFAULT_EPHEMERAL_QUEUE)]
+    /// CHECK: the queue stored in the Battle at create (from the config); validated by the VRF program
+    #[account(mut, address = battle.load()?.oracle_queue)]
     pub oracle_queue: AccountInfo<'info>,
 }
 

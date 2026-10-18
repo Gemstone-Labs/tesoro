@@ -171,6 +171,8 @@ fn constants_match_the_recordings() {
     assert_eq!(c["SIZE"], SIZE);
     assert_eq!(c["TURN_SECS"], TURN_SECS);
     assert_eq!(c["GRACE_SECS"], GRACE_SECS);
+    assert_eq!(c["OPENING_GRACE_SECS"], OPENING_GRACE_SECS);
+    assert_eq!(c["RULES_VERSION"], RULES_VERSION);
     assert_eq!(c["CAP_SECS"], CAP_SECS);
     assert_eq!(c["MOVE_CAP"], MOVE_CAP);
     assert_eq!(c["TIMEOUTS_TO_LOSE"], TIMEOUTS_TO_LOSE);

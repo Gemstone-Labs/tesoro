@@ -12,11 +12,15 @@ export type Rank = "10" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" | "1" | 
 export const SIZE = 10;
 export const TURN_MS = 5000;
 /** How long a turn lasts and how much extra time the chain gives for network delay. */
-export interface ClockConfig { turnMs: number; graceMs: number }
+export interface ClockConfig { turnMs: number; graceMs: number; openingGraceMs: number }
+/** Bump with the program's RULES_VERSION when a rule changes. */
+export const RULES_VERSION = 2;
+/** Extra time on the chain's opening turn only: the deal starts the first mover's clock before they have loaded their Army (the program has the same number, OPENING_GRACE_SECS). */
+export const OPENING_GRACE_MS = 10_000;
 /** Practice has no network: the turn ends exactly when the 5 seconds do. */
-export const PRACTICE_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 0 };
+export const PRACTICE_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 0, openingGraceMs: 0 };
 /** On the chain a move is accepted until 5 s + 1 s of grace after the turn started; the program has the same two numbers (GRACE_SECS). */
-export const CHAIN_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 1000 };
+export const CHAIN_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS };
 export const TRUCK_FUEL = 3;
 export const MOVE_CAP = 200;
 /** The time cap: after this long from the start a Match ends on the tiebreak (15 minutes). */
@@ -214,7 +218,7 @@ export function startGame(layout: LayoutPiece[], o: StartOptions): Game {
     movedThisTurn: [],
     startedAt: o.startedAt,
     clock,
-    deadline: turnEnd({ clock }, o.startedAt),
+    deadline: turnEnd({ clock }, o.startedAt) + clock.openingGraceMs,
     stormAt: o.stormAt,
     stormSeed: o.stormSeed,
     stormDone: false,

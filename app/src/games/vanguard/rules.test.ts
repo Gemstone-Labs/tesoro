@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAP_MS, CHAIN_CLOCK, PRACTICE_CLOCK, DEPOTS, ROSTER, START_SQUARES, fight, startGame, startIndex, isWadi, move, newGame, placeArmy, seeded, REFUSALS, startTwoStep, storm, targets, timeout, TURN_MS, type Game, type Piece, type Rank } from "./rules";
+import { CAP_MS, CHAIN_CLOCK, OPENING_GRACE_MS, PRACTICE_CLOCK, DEPOTS, ROSTER, START_SQUARES, fight, startGame, startIndex, isWadi, move, newGame, placeArmy, seeded, REFUSALS, startTwoStep, storm, targets, timeout, TURN_MS, type Game, type Piece, type Rank } from "./rules";
 
 const T0 = 1_000_000;
 
@@ -238,21 +238,22 @@ describe("piece numbers", () => {
 });
 
 describe("turn clock", () => {
-  it("the chain clock adds one second of grace to every deadline, Practice adds none", () => {
-    expect(PRACTICE_CLOCK).toEqual({ turnMs: 5000, graceMs: 0 });
-    expect(CHAIN_CLOCK).toEqual({ turnMs: 5000, graceMs: 1000 });
+  it("the chain clock adds one second of grace to every deadline and ten to the opening turn, Practice adds none", () => {
+    expect(PRACTICE_CLOCK).toEqual({ turnMs: 5000, graceMs: 0, openingGraceMs: 0 });
+    expect(CHAIN_CLOCK).toEqual({ turnMs: 5000, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS });
+    expect(OPENING_GRACE_MS).toBe(10_000);
     const layout = [{ army: "us" as const, rank: "5" as const, r: 9, c: 0 }, { army: "it" as const, rank: "4" as const, r: 0, c: 9 }];
     const g = startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us", clock: CHAIN_CLOCK });
-    expect(g.deadline).toBe(T0 + 6000);
-    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 6000 }).ok).toBe(true);
-    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 6001 })).toEqual({ ok: false, reason: "turn_expired" });
+    expect(g.deadline).toBe(T0 + 16000);
+    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 16000 }).ok).toBe(true);
+    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 16001 })).toEqual({ ok: false, reason: "turn_expired" });
     const m = move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 2000 });
     if (!m.ok) throw new Error(m.reason);
     expect(m.game.deadline).toBe(T0 + 8000);
-    expect(timeout(g, T0 + 6000)).toEqual({ ok: false, reason: "turn_not_expired" });
-    const t = timeout(g, T0 + 7000);
+    expect(timeout(g, T0 + 16000)).toEqual({ ok: false, reason: "turn_not_expired" });
+    const t = timeout(g, T0 + 17000);
     if (!t.ok) throw new Error(t.reason);
-    expect(t.game.deadline).toBe(T0 + 13000);
+    expect(t.game.deadline).toBe(T0 + 23000);
     expect(startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us" }).deadline).toBe(T0 + 5000);
   });
   it("a move at the deadline is accepted, one millisecond later is refused", () => {

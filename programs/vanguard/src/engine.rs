@@ -8,11 +8,15 @@
 //! square (Italy rows 0-2 are 0-29, US rows 7-9 are 30-59), so a number says nothing about its rank.
 //! Times are whole rollup seconds.
 //!
-//! Compute: `move_piece`, `timeout` and the no-legal-move check run one fixed scan (every piece slot, four
-//! directions, nine squares) whatever the layout, so what a Player has on the board does not change the cost.
+//! Compute: nothing on the path of `move_piece`, `start_two_step` and `timeout` branches on a hidden rank. The
+//! legality check probes the one piece asked about and the "any legal move?" check visits the side to move's
+//! thirty slots, each with a fixed number of steps, whatever the layout, so what a Player has on the board does
+//! not change the cost. Ranks are only compared with arithmetic, never with `if` or `&&`. A fight is the one place
+//! where the work depends on the pieces, and it depends on its published outcome only.
 
-/// Bump when a rule changes; the recordings and the app change with it.
-pub const RULES_VERSION: u8 = 1;
+/// Bump when a rule changes; the recordings and the app change with it. Each Battle stores the version it was
+/// created under.
+pub const RULES_VERSION: u8 = 2;
 
 pub const SIZE: usize = 10;
 pub const SQUARES: usize = SIZE * SIZE;
@@ -22,6 +26,9 @@ pub const ARMY_PIECES: usize = 20;
 pub const TURN_SECS: i64 = 5;
 /// Extra seconds on every deadline for network delay. Ticket 01's latency spike may change it.
 pub const GRACE_SECS: i64 = 1;
+/// Extra seconds on the opening turn only: `deal` starts the first mover's clock before they have loaded their
+/// Army. One constant here and in the app's `CHAIN_CLOCK`.
+pub const OPENING_GRACE_SECS: i64 = 10;
 /// The time cap: 15 minutes from the start.
 pub const CAP_SECS: i64 = 15 * 60;
 pub const MOVE_CAP: u16 = 200;
@@ -32,6 +39,9 @@ pub const STORM_FROM: u16 = 10;
 pub const STORM_TO: u16 = 18;
 /// Longest run: nine squares.
 const RUN: i8 = 9;
+/// Squares per direction the "any legal move?" check looks at. The shuttle ban covers one square, so if a run of
+/// three or more is legal its first square is open and either it or the second one is legal.
+const EXISTS_DEPTH: usize = 2;
 /// Most events one action can produce: move or attack, Spotted, raid, storm, turn, end.
 pub const MAX_EVENTS: usize = 8;
 /// A storm line has ten squares.
@@ -279,12 +289,15 @@ const GONE: Piece = Piece {
 pub struct Clock {
     pub turn_secs: i64,
     pub grace_secs: i64,
+    /// Added to the first turn's deadline only.
+    pub opening_grace_secs: i64,
 }
 
-/// The chain's clock: 5 s plus the grace.
+/// The chain's clock: 5 s plus the grace, and the opening turn's extra.
 pub const CHAIN_CLOCK: Clock = Clock {
     turn_secs: TURN_SECS,
     grace_secs: GRACE_SECS,
+    opening_grace_secs: OPENING_GRACE_SECS,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -321,6 +334,9 @@ pub struct Game {
     pub moved: u64,
     pub started_at: i64,
     pub clock: Clock,
+    /// The time cap: a move or claim after this second ends the Match on the tiebreak.
+    pub cap_at: i64,
+    pub move_cap: u16,
     pub deadline: i64,
     pub storm_at: u16,
     pub storm_seed: u32,
@@ -363,52 +379,78 @@ pub const fn start_index(sq: u8) -> Option<u8> {
     }
 }
 
-const fn value(rank: u8) -> u8 {
-    if rank >= BOMB {
-        0
-    } else {
-        rank
+/// Comparisons on hidden values with no branch. The SBF target has no conditional move or set-on-compare, so a
+/// `bool` made from a comparison of a rank is a jump, and a jump that goes one way for a Truck and the other for a
+/// General costs a different number of instructions. These helpers return a `u8` that is 0 or 1 and are built from
+/// arithmetic only; `opaque` keeps the optimiser from folding them back into a comparison.
+pub(crate) mod ct {
+    #[inline(always)]
+    fn opaque(x: u64) -> u64 {
+        core::hint::black_box(x)
+    }
+    /// 1 when `a == b`, else 0 (both below 2^63).
+    #[inline(always)]
+    pub fn eq(a: u64, b: u64) -> u8 {
+        (opaque(a ^ b).wrapping_sub(1) >> 63) as u8
+    }
+    /// 1 when `a < b` (both below 2^62), else 0.
+    #[inline(always)]
+    pub fn lt(a: u64, b: u64) -> u8 {
+        (opaque(a).wrapping_sub(b) >> 63) as u8
+    }
+    /// All ones when `c` is 1, all zeros when it is 0. Opaque, so a select built from it stays a mask and is not
+    /// folded back into a jump.
+    #[inline(always)]
+    pub fn mask(c: u8) -> u8 {
+        core::hint::black_box(0u8.wrapping_sub(c))
+    }
+    /// `x` when `c` is 1, `y` when it is 0.
+    #[inline(always)]
+    pub fn pick(c: u8, x: u8, y: u8) -> u8 {
+        y ^ ((x ^ y) & mask(c))
+    }
+    #[inline(always)]
+    pub fn pick32(c: u8, x: i32, y: i32) -> i32 {
+        y ^ ((x ^ y) & (mask(c) as i8 as i32))
     }
 }
 
-/// Who wins when `a` attacks `d`.
-pub const fn fight(a: u8, d: u8) -> Outcome {
-    if d == TRUCK {
-        return Outcome::Truck;
-    }
-    if d == BOMB {
-        return if a == ENGINEER {
-            Outcome::Defuse
-        } else {
-            Outcome::Mine
-        };
-    }
-    if a == d {
-        return Outcome::Tie;
-    }
-    if a == SPY && d == GENERAL_OF_THE_ARMY {
-        return Outcome::Win;
-    }
-    if value(a) > value(d) {
-        Outcome::Win
-    } else {
-        Outcome::Lose
-    }
+/// Combat value: 0 for the Landmine and the Truck.
+fn value(rank: u8) -> u8 {
+    rank * ct::lt(rank as u64, BOMB as u64)
 }
 
-/// Result of the fixed scan over every legal target of one army.
-#[derive(Clone, Copy, Debug)]
-pub struct Scan {
-    /// Legal targets (moves and attacks) over all pieces of the army.
-    pub count: u16,
-    /// The probed `(piece, square)` is one of them.
-    pub hit: bool,
-    /// Inner steps taken: the same number for every layout.
-    pub work: u32,
+const OUTCOMES: [Outcome; 6] = [
+    Outcome::Win,
+    Outcome::Lose,
+    Outcome::Tie,
+    Outcome::Mine,
+    Outcome::Defuse,
+    Outcome::Truck,
+];
+
+/// Who wins when `a` attacks `d`. Branch-free: every pair of ranks runs the same instructions, so the work of a
+/// fight says nothing about the ranks beyond the outcome, which is published anyway (the winning attacker in
+/// particular stays hidden, so a Spy that wins must cost what any other winner costs).
+pub fn fight(a: u8, d: u8) -> Outcome {
+    let spy_kills = ct::eq(a as u64, SPY as u64) & ct::eq(d as u64, GENERAL_OF_THE_ARMY as u64);
+    let wins = spy_kills | ct::lt(value(d) as u64, value(a) as u64);
+    let mut code = ct::pick(wins, 0, 1);
+    code = ct::pick(ct::eq(a as u64, d as u64), 2, code);
+    let engineer = ct::eq(a as u64, ENGINEER as u64);
+    code = ct::pick(
+        ct::eq(d as u64, BOMB as u64),
+        ct::pick(engineer, 4, 3),
+        code,
+    );
+    code = ct::pick(ct::eq(d as u64, TRUCK as u64), 5, code);
+    OUTCOMES[code as usize]
 }
 
-/// Steps in one scan: every slot, four directions, nine squares.
-pub const SCAN_WORK: u32 = (PIECE_SLOTS * 4 * RUN as usize) as u32;
+/// Inner steps of the legality check: one piece, four directions, nine squares.
+pub const PROBE_WORK: u32 = 4 * RUN as u32;
+/// Inner steps of the "any legal move?" check: the side's thirty slots, four directions, two squares.
+pub const ANY_MOVE_WORK: u32 = (30 * 4 * EXISTS_DEPTH) as u32;
 
 fn shuttling(p: &Piece, to: u8) -> bool {
     let n = p.trail_len as usize;
@@ -492,7 +534,7 @@ const fn manhattan(a: u8, b: u8) -> u8 {
 /// Draw the whole Match from a 32-byte seed. Each draw is a fixed number of calls, so it is deterministic.
 /// Landmines and the Truck never spawn on the row facing no-man's-land, the depot square stays empty and no
 /// Landmine spawns next to it.
-pub fn setup(seed: &[u8; 32]) -> Setup {
+pub fn setup(seed: &[u8; 32], storm_from: u16, storm_to: u16) -> Setup {
     let mut d = Draw::new(seed);
     let mut out = [LayoutPiece {
         army: Army::Us,
@@ -507,7 +549,7 @@ pub fn setup(seed: &[u8; 32]) -> Setup {
         );
     }
     let first = if d.below(2) == 0 { Army::Us } else { Army::It };
-    let storm_at = STORM_FROM + d.below((STORM_TO - STORM_FROM + 1) as u32) as u16;
+    let storm_at = storm_from + d.below((storm_to - storm_from + 1) as u32) as u16;
     let storm_seed = (d.next() >> 32) as u32;
     Setup {
         pieces: out,
@@ -620,7 +662,12 @@ impl Game {
             moved: 0,
             started_at,
             clock,
-            deadline: started_at + clock.turn_secs + clock.grace_secs,
+            cap_at: started_at.saturating_add(CAP_SECS),
+            move_cap: MOVE_CAP,
+            deadline: started_at
+                .saturating_add(clock.turn_secs)
+                .saturating_add(clock.grace_secs)
+                .saturating_add(clock.opening_grace_secs),
             storm_at,
             storm_seed,
             storm_done: false,
@@ -630,6 +677,9 @@ impl Game {
         };
         for l in layout {
             let id = start_index(l.sq).ok_or(SetupError::BadSquare)?;
+            if (id >= 30) != (l.army == Army::Us) {
+                return Err(SetupError::BadSquare);
+            }
             if l.rank == 0 || l.rank > TRUCK {
                 return Err(SetupError::BadRank);
             }
@@ -678,59 +728,82 @@ impl Game {
         self.event_seq = self.event_seq.wrapping_add(1);
     }
 
-    /// Branch-free in the rank: the same instructions run whatever the piece is, so the compute a caller sees
-    /// does not say which rank stands where.
-    fn can_move(&self, id: usize, p: &Piece, moved: u64) -> bool {
-        let truck_ok = (p.fuel < TRUCK_FUEL)
-            & (self.truck_turn[p.army.idx()] != self.turn_no as i32 - 2)
-            & ((moved >> id) & 1 == 0);
-        (p.rank != BOMB) & ((p.rank != TRUCK) | truck_ok)
+    /// 1 when the piece may move this turn, from its rank and fuel alone. No comparison of a hidden value is a branch.
+    fn can_move(&self, id: usize, p: &Piece, moved: u64) -> u8 {
+        let fuel_left = ct::lt(p.fuel as u64, TRUCK_FUEL as u64);
+        let last = self.truck_turn[p.army.idx()] as u32 as u64;
+        let rested = 1 ^ ct::eq(last, (self.turn_no as i32 - 2) as u32 as u64);
+        let not_moved = (((moved >> id) & 1) as u8) ^ 1;
+        let truck_ok = fuel_left & rested & not_moved;
+        let is_truck = ct::eq(p.rank as u64, TRUCK as u64);
+        let is_bomb = ct::eq(p.rank as u64, BOMB as u64);
+        (1 ^ is_bomb) & ((1 ^ is_truck) | truck_ok)
     }
 
-    /// Count the legal targets of `army` and test whether `(probe_id, probe_to)` is one of them. Every slot,
-    /// direction and square is visited whatever is on the board: there is no early exit.
-    pub fn scan(
+    /// Walk the four lines out of piece `id` for `DEPTH` squares: how many targets are legal, and whether `probe_to`
+    /// is one of them. Every direction and square is visited whatever is on the board, with no early exit.
+    #[inline(always)]
+    fn piece_scan<const DEPTH: usize>(
         &self,
+        id: usize,
         army: Army,
         moved: u64,
         two_step_active: bool,
-        probe_id: u8,
         probe_to: u8,
-    ) -> Scan {
+    ) -> (u16, bool, u32) {
+        let p = &self.pieces[id];
+        let live = ((p.rank != 0) as u8) & ((p.army == army) as u8) & self.can_move(id, p, moved);
+        let recon_runs = ct::eq(p.rank as u64, RECON as u64) & (!two_step_active as u8);
+        let reach = 1 + recon_runs * (RUN as u8 - 1);
+        let pr = row(p.sq) as i8;
+        let pc = col(p.sq) as i8;
         let mut count: u16 = 0;
-        let mut hit = false;
+        let mut hit: u8 = 0;
         let mut work: u32 = 0;
-        for id in 0..PIECE_SLOTS {
-            let p = &self.pieces[id];
-            let live = (p.rank != 0) & (p.army == army) & self.can_move(id, p, moved);
-            let reach: i8 = 1 + ((p.rank == RECON) & !two_step_active) as i8 * (RUN - 1);
-            let pr = row(p.sq) as i8;
-            let pc = col(p.sq) as i8;
-            for (dr, dc) in DIRS {
-                let mut open = live;
-                for k in 1..=RUN {
-                    let r = pr + dr * k;
-                    let c = pc + dc * k;
-                    let inb = ((r as u8) < SIZE as u8) & ((c as u8) < SIZE as u8);
-                    let sq = if inb { (r * 10 + c) as u8 } else { 0 };
-                    let occ = self.cells[sq as usize];
-                    let own =
-                        (occ != 0) & (self.pieces[occ.saturating_sub(1) as usize].army == army);
-                    let ok = open & (k <= reach) & inb & !is_wadi(sq) & !own;
-                    let legal = ok & !shuttling(p, sq);
-                    count += legal as u16;
-                    hit |= legal & (id as u8 == probe_id) & (sq == probe_to);
-                    open = ok & (occ == 0);
-                    work += 1;
-                }
+        for (dr, dc) in DIRS {
+            let mut open = live;
+            for k in 1..=DEPTH as i8 {
+                let r = pr + dr * k;
+                let c = pc + dc * k;
+                let inb = (((r as u8) < SIZE as u8) as u8) & (((c as u8) < SIZE as u8) as u8);
+                let sq = if inb != 0 { (r * 10 + c) as u8 } else { 0 };
+                let occ = self.cells[sq as usize];
+                let own = ((occ != 0) as u8)
+                    & ((self.pieces[occ.saturating_sub(1) as usize].army == army) as u8);
+                let within = 1 ^ ct::lt(reach as u64, k as u64);
+                let ok = open & within & inb & (!is_wadi(sq) as u8) & (1 ^ own);
+                let legal = ok & (!shuttling(p, sq) as u8);
+                count += legal as u16;
+                hit |= legal & ((sq == probe_to) as u8);
+                open = ok & ((occ == 0) as u8);
+                work += 1;
             }
         }
-        Scan { count, hit, work }
+        (count, hit != 0, work)
     }
 
-    /// Whether `army` has any legal move at the start of its turn. Same work whatever the layout.
+    /// Whether piece `id` of `army` may go to `to` now. Probes that one piece only.
+    pub fn probe(&self, army: Army, moved: u64, two_step_active: bool, id: u8, to: u8) -> bool {
+        self.piece_scan::<{ RUN as usize }>(id as usize, army, moved, two_step_active, to)
+            .1
+    }
+
+    /// Whether `army` has any legal move. Only the army's own thirty slots can move, and two squares per direction
+    /// decide it. Same work whatever the layout, no early exit.
+    pub fn any_move(&self, army: Army, moved: u64, two_step_active: bool) -> bool {
+        let base = if army == Army::Us { 30 } else { 0 };
+        let mut count: u16 = 0;
+        for id in base..base + 30 {
+            count += self
+                .piece_scan::<EXISTS_DEPTH>(id, army, moved, two_step_active, NO_PIECE)
+                .0;
+        }
+        count > 0
+    }
+
+    /// Whether `army` has any legal move at the start of its turn.
     pub fn has_moves(&self, army: Army) -> bool {
-        self.scan(army, 0, false, NO_PIECE, 0).count > 0
+        self.any_move(army, 0, false)
     }
 
     /// Higher total of surviving ranks wins (Landmines and the Truck count 0), then more pieces, else a draw.
@@ -764,7 +837,7 @@ impl Game {
     }
 
     fn cap_passed(&self, at: i64) -> bool {
-        at > self.started_at.saturating_add(CAP_SECS)
+        at > self.cap_at
     }
 
     fn clock_refusal(&self, at: i64) -> Option<Refusal> {
@@ -826,11 +899,7 @@ impl Game {
         if self.pieces[id as usize].army != army {
             return Err(Refusal::NotYourTurn);
         }
-        if to as usize >= SQUARES
-            || !self
-                .scan(army, self.moved, self.two_step_active, id, to)
-                .hit
-        {
+        if to as usize >= SQUARES || !self.probe(army, self.moved, self.two_step_active, id, to) {
             return Err(Refusal::IllegalMove);
         }
         let i = id as usize;
@@ -839,13 +908,13 @@ impl Game {
         let step = manhattan(from, to) == 1;
         self.moves += 1;
         self.timeouts[army.idx()] = 0;
-        if rank == TRUCK {
-            self.pieces[i].fuel += 1;
-            self.truck_turn[army.idx()] = self.turn_no as i32;
-            if self.pieces[i].fuel >= TRUCK_FUEL {
-                self.pieces[i].known = true;
-            }
-        }
+        // A Truck's move costs what any other move costs: selects, no `if` on the rank.
+        let truck = ct::eq(rank as u64, TRUCK as u64);
+        self.pieces[i].fuel += truck;
+        let last = &mut self.truck_turn[army.idx()];
+        *last = ct::pick32(truck, self.turn_no as i32, *last);
+        let spent = (truck & (1 ^ ct::lt(self.pieces[i].fuel as u64, TRUCK_FUEL as u64))) != 0;
+        self.pieces[i].known |= spent;
         let cell = self.cells[to as usize];
         if cell == 0 {
             self.land(i, to);
@@ -890,7 +959,8 @@ impl Game {
             }
         }
         let alive = self.pieces[i].rank != 0;
-        if rank == TRUCK && self.pieces[i].fuel >= TRUCK_FUEL && alive {
+        // Public: a Truck's last tank shows it to the other side.
+        if spent & alive {
             self.push(out, Event::Spotted { id });
         }
         // a one-square step onto the enemy's depot claims it, once per Match
@@ -904,12 +974,7 @@ impl Game {
         self.steps_left -= 1;
         self.deadline = self.turn_end(at);
         // a Two-Step Turn continues while there is a second step to make
-        if self.steps_left > 0
-            && self
-                .scan(army, self.moved, self.two_step_active, NO_PIECE, 0)
-                .count
-                > 0
-        {
+        if self.steps_left > 0 && self.any_move(army, self.moved, self.two_step_active) {
             return Ok(());
         }
         self.end_turn(out, false);
@@ -959,7 +1024,7 @@ impl Game {
                 timed_out,
             },
         );
-        if self.moves >= MOVE_CAP {
+        if self.moves >= self.move_cap {
             let w = self.cap_winner();
             self.end(out, w, EndReason::Cap);
             return;
@@ -1062,7 +1127,7 @@ mod tests {
     #[test]
     fn every_setup_obeys_the_spawn_rules_and_the_roster() {
         for n in 0..3000u64 {
-            let s = setup(&seed_of(n));
+            let s = setup(&seed_of(n), STORM_FROM, STORM_TO);
             let mut seen = [false; SQUARES];
             for army in [Army::Us, Army::It] {
                 let mine: Vec<&LayoutPiece> = s.pieces.iter().filter(|p| p.army == army).collect();
@@ -1105,7 +1170,7 @@ mod tests {
         let seeds = 4000u64;
         let mut firsts = 0;
         for n in 0..seeds {
-            let s = setup(&seed_of(n + 10_000));
+            let s = setup(&seed_of(n + 10_000), STORM_FROM, STORM_TO);
             firsts += (s.first == Army::Us) as u64;
             let g = Game::from_setup(&s, 0, CHAIN_CLOCK).unwrap();
             for (id, p) in g.pieces.iter().enumerate().filter(|(_, p)| p.rank != 0) {
@@ -1141,7 +1206,12 @@ mod tests {
         let (mut sx, mut sy, mut sxx, mut syy, mut sxy, mut cnt) =
             (0f64, 0f64, 0f64, 0f64, 0f64, 0f64);
         for n in 0..500u64 {
-            let g = Game::from_setup(&setup(&seed_of(n + 99)), 0, CHAIN_CLOCK).unwrap();
+            let g = Game::from_setup(
+                &setup(&seed_of(n + 99), STORM_FROM, STORM_TO),
+                0,
+                CHAIN_CLOCK,
+            )
+            .unwrap();
             for (id, p) in g
                 .pieces
                 .iter()
@@ -1170,9 +1240,237 @@ mod tests {
         );
     }
 
+    /// The rule for which pieces may move, written plainly with branches.
+    fn can_move_ref(g: &Game, id: usize, p: &Piece, moved: u64) -> bool {
+        if p.rank == BOMB {
+            return false;
+        }
+        if p.rank == TRUCK {
+            return p.fuel < TRUCK_FUEL
+                && g.truck_turn[p.army.idx()] != g.turn_no as i32 - 2
+                && (moved >> id) & 1 == 0;
+        }
+        true
+    }
+
+    /// The old constant-work scan over the whole board, kept here only to prove the cheaper checks give its answers:
+    /// every slot, four directions, nine squares. Returns every legal `(piece, square)` of `army`.
+    fn scan_full(g: &Game, army: Army, moved: u64, tsa: bool) -> Vec<(u8, u8)> {
+        let mut out = vec![];
+        for id in 0..PIECE_SLOTS {
+            let p = &g.pieces[id];
+            let live = p.rank != 0 && p.army == army && can_move_ref(g, id, p, moved);
+            let reach: i8 = if p.rank == RECON && !tsa { RUN } else { 1 };
+            let pr = row(p.sq) as i8;
+            let pc = col(p.sq) as i8;
+            for (dr, dc) in DIRS {
+                let mut open = live;
+                for k in 1..=RUN {
+                    let r = pr + dr * k;
+                    let c = pc + dc * k;
+                    let inb = ((r as u8) < SIZE as u8) & ((c as u8) < SIZE as u8);
+                    let sq = if inb { (r * 10 + c) as u8 } else { 0 };
+                    let occ = g.cells[sq as usize];
+                    let own = (occ != 0) & (g.pieces[occ.saturating_sub(1) as usize].army == army);
+                    let ok = open & (k <= reach) & inb & !is_wadi(sq) & !own;
+                    if ok && !shuttling(p, sq) {
+                        out.push((id as u8, sq));
+                    }
+                    open = ok & (occ == 0);
+                }
+            }
+        }
+        out
+    }
+
+    /// A small deterministic generator for the property tests.
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            self.0 >> 33
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+    }
+
+    /// Compare the cheap checks with the old full scan on one position, for both armies and Two-Step states.
+    fn assert_same_answers(g: &Game, rng: &mut Lcg, what: &str) {
+        for army in [Army::Us, Army::It] {
+            for (moved, tsa) in [(0u64, false), (rng.next() & rng.next(), true), (0, true)] {
+                let legal = scan_full(g, army, moved, tsa);
+                assert_eq!(
+                    g.any_move(army, moved, tsa),
+                    !legal.is_empty(),
+                    "{what}: any_move {army:?} moved {moved:b} tsa {tsa}"
+                );
+                let mine: Vec<u8> = (0..PIECE_SLOTS as u8)
+                    .filter(|&i| {
+                        g.pieces[i as usize].rank != 0 && g.pieces[i as usize].army == army
+                    })
+                    .collect();
+                // Every square for a few of the army's pieces, and some random pairs.
+                for _ in 0..3 {
+                    if mine.is_empty() {
+                        break;
+                    }
+                    let id = mine[rng.below(mine.len() as u64) as usize];
+                    for to in 0..SQUARES as u8 {
+                        assert_eq!(
+                            g.probe(army, moved, tsa, id, to),
+                            legal.contains(&(id, to)),
+                            "{what}: probe own {id}->{to} {army:?}"
+                        );
+                    }
+                }
+                for _ in 0..30 {
+                    let (id, to) = (
+                        rng.below(PIECE_SLOTS as u64) as u8,
+                        rng.below(SQUARES as u64) as u8,
+                    );
+                    assert_eq!(
+                        g.probe(army, moved, tsa, id, to),
+                        legal.contains(&(id, to)),
+                        "{what}: probe {id}->{to} {army:?}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
-    fn the_no_legal_move_check_does_the_same_work_whatever_the_layout() {
-        let full = Game::from_setup(&setup(&seed_of(1)), 0, CHAIN_CLOCK).unwrap();
+    fn the_cheap_checks_answer_exactly_like_the_old_full_scan() {
+        let mut rng = Lcg(42);
+        let mut stuck_seen = 0;
+        let mut recon_runs = 0;
+        let mut shuttles = 0;
+        for n in 0..24u64 {
+            let setup = setup(&seed_of(n + 500), STORM_FROM, STORM_TO);
+            let mut g = Game::from_setup(&setup, 0, CHAIN_CLOCK).unwrap();
+            assert_same_answers(&g, &mut rng, "opening");
+            // Play random legal moves; every few plies thin the board and set up a shuttle, so stuck positions,
+            // Recon runs and the shuttle ban all show up.
+            let mut at = 0i64;
+            for ply in 0..110u64 {
+                if g.winner.is_some() {
+                    break;
+                }
+                if ply % 6 == 3 {
+                    let id = rng.below(PIECE_SLOTS as u64) as usize;
+                    if g.pieces[id].rank != 0 && rng.below(3) != 0 {
+                        g.remove(id);
+                    }
+                }
+                if ply == 30 && n % 3 == 0 {
+                    // Leave the side to move with Landmines only: stuck.
+                    for id in 0..PIECE_SLOTS {
+                        if g.pieces[id].rank != 0
+                            && g.pieces[id].army == g.turn
+                            && g.pieces[id].rank != BOMB
+                        {
+                            g.remove(id);
+                        }
+                    }
+                }
+                if ply % 5 == 1 {
+                    let id = rng.below(PIECE_SLOTS as u64) as usize;
+                    let sq = g.pieces[id].sq;
+                    let back = if col(sq) > 0 { sq - 1 } else { sq + 1 };
+                    if g.pieces[id].rank != 0 && !is_wadi(back) && g.cells[back as usize] == 0 {
+                        g.pieces[id].trail = [back, sq, back, sq, 0, 0];
+                        g.pieces[id].trail_len = 4;
+                        shuttles += 1;
+                    }
+                }
+                assert_same_answers(&g, &mut rng, &format!("seed {n} ply {ply}"));
+                let legal = scan_full(&g, g.turn, g.moved, g.two_step_active);
+                if legal.is_empty() {
+                    stuck_seen += 1;
+                    break;
+                }
+                recon_runs += legal
+                    .iter()
+                    .filter(|(id, to)| {
+                        g.pieces[*id as usize].rank == RECON
+                            && manhattan(g.pieces[*id as usize].sq, *to) > 1
+                    })
+                    .count();
+                let (id, to) = legal[rng.below(legal.len() as u64) as usize];
+                at += 1;
+                g.deadline = at + 100;
+                let mut out = Events::new();
+                if g.move_piece(id, to, at, &mut out).is_err() {
+                    break;
+                }
+            }
+        }
+        assert!(stuck_seen > 0, "no stuck position was ever compared");
+        assert!(recon_runs > 0, "no Recon run was ever compared");
+        assert!(shuttles > 0);
+    }
+
+    /// The shuttle ban hides exactly one square, so a Recon that can only run in the banned direction has its move on
+    /// the second square. Every square, every banned direction, the other three directions walled in by Landmines.
+    #[test]
+    fn a_recon_whose_first_square_is_banned_still_has_a_move_on_the_second() {
+        let put = |g: &mut Game, id: usize, rank: u8, sq: u8| {
+            g.pieces[id] = Piece {
+                rank,
+                army: Army::Us,
+                sq,
+                known: false,
+                fuel: 0,
+                trail: [sq, 0, 0, 0, 0, 0],
+                trail_len: 1,
+            };
+            g.cells[sq as usize] = id as u8 + 1;
+        };
+        let mut checked = 0;
+        for sq in (0..SQUARES as u8).filter(|&q| !is_wadi(q)) {
+            for (dr, dc) in DIRS {
+                let (r, c) = (row(sq) as i8 + dr, col(sq) as i8 + dc);
+                if !(0..10).contains(&r) || !(0..10).contains(&c) {
+                    continue;
+                }
+                let back = (r * 10 + c) as u8;
+                if is_wadi(back) {
+                    continue;
+                }
+                let mut g = Game::start(&[], Army::Us, 99, 0, 0, CHAIN_CLOCK).unwrap();
+                put(&mut g, 30, RECON, sq);
+                let mut next = 31;
+                for (er, ec) in DIRS {
+                    let (r2, c2) = (row(sq) as i8 + er, col(sq) as i8 + ec);
+                    if (0..10).contains(&r2) && (0..10).contains(&c2) {
+                        let q = (r2 * 10 + c2) as u8;
+                        if q != back {
+                            put(&mut g, next, BOMB, q);
+                            next += 1;
+                        }
+                    }
+                }
+                g.pieces[30].trail = [back, sq, back, sq, 0, 0];
+                g.pieces[30].trail_len = 4;
+                let expect = !scan_full(&g, Army::Us, 0, false).is_empty();
+                assert_eq!(
+                    g.any_move(Army::Us, 0, false),
+                    expect,
+                    "recon at {sq}, banned {back}"
+                );
+                checked += expect as u32;
+            }
+        }
+        assert!(checked > 100, "{checked}");
+    }
+
+    #[test]
+    fn the_cheap_checks_do_the_same_work_whatever_the_layout() {
+        let full =
+            Game::from_setup(&setup(&seed_of(1), STORM_FROM, STORM_TO), 0, CHAIN_CLOCK).unwrap();
         let empty = Game::start(&[], Army::Us, 99, 0, 0, CHAIN_CLOCK).unwrap();
         let stuck = Game::start(
             &[
@@ -1208,14 +1506,54 @@ mod tests {
         )
         .unwrap();
         for g in [&full, &empty, &stuck, &recon_free] {
-            for army in [Army::Us, Army::It] {
-                assert_eq!(g.scan(army, 0, false, NO_PIECE, 0).work, SCAN_WORK);
+            for id in [0usize, 17, 44, 59] {
+                assert_eq!(
+                    g.piece_scan::<{ RUN as usize }>(id, Army::Us, 0, false, 0)
+                        .2,
+                    PROBE_WORK
+                );
             }
+            let total: u32 = (30..60)
+                .map(|id| {
+                    g.piece_scan::<EXISTS_DEPTH>(id, Army::Us, 0, false, NO_PIECE)
+                        .2
+                })
+                .sum();
+            assert_eq!(total, ANY_MOVE_WORK);
         }
         assert!(!stuck.has_moves(Army::Us));
         assert!(stuck.has_moves(Army::It));
         assert!(!empty.has_moves(Army::Us));
         assert!(recon_free.has_moves(Army::Us));
+    }
+
+    /// The old `fight`, with branches, as the reference for the branch-free one.
+    fn fight_reference(a: u8, d: u8) -> Outcome {
+        let value = |r: u8| if r >= BOMB { 0 } else { r };
+        if d == TRUCK {
+            Outcome::Truck
+        } else if d == BOMB {
+            if a == ENGINEER {
+                Outcome::Defuse
+            } else {
+                Outcome::Mine
+            }
+        } else if a == d {
+            Outcome::Tie
+        } else if (a == SPY && d == GENERAL_OF_THE_ARMY) || value(a) > value(d) {
+            Outcome::Win
+        } else {
+            Outcome::Lose
+        }
+    }
+
+    #[test]
+    fn the_branch_free_fight_gives_the_old_outcomes() {
+        for a in 1..=TRUCK {
+            for d in 1..=TRUCK {
+                assert_eq!(fight(a, d), fight_reference(a, d), "{a} attacks {d}");
+            }
+        }
     }
 
     #[test]
@@ -1253,7 +1591,7 @@ mod tests {
                 sq: 85,
             },
             LayoutPiece {
-                army: Army::It,
+                army: Army::Us,
                 rank: 5,
                 sq: 85,
             },
@@ -1261,6 +1599,11 @@ mod tests {
         assert_eq!(
             Game::start(&two, Army::Us, 1, 1, 0, CHAIN_CLOCK).err(),
             Some(SetupError::SquareTaken)
+        );
+        // A piece must stand in its own army's zone: the numbers say which army a slot belongs to.
+        assert_eq!(
+            Game::start(&one(5, 5), Army::Us, 1, 1, 0, CHAIN_CLOCK).err(),
+            Some(SetupError::BadSquare)
         );
     }
 
