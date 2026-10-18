@@ -13,7 +13,7 @@
 /* the explainer: copy over the Backer, bust flush to the bottom edge */
 .bp-intro { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 14px; min-height: 460px; padding: 22px 20px 0; background: var(--surface-2); --edge: var(--edge-1); }
 .bp-intro h3 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 30px; line-height: 1; text-transform: uppercase; }
-.bp-intro ol { display: grid; gap: 6px; margin: 0; padding-left: 18px; font-size: 14px; color: var(--fg-2); }
+.bp-intro ol { display: grid; gap: 6px; margin: 0; padding-left: 18px; font-size: var(--fs-14); color: var(--fg-2); }
 .bp-intro .btn { align-self: flex-start; }
 .bp-intro-bust { align-self: flex-end; height: auto; margin-top: auto; margin-right: -12px; }
 
@@ -24,25 +24,25 @@
 .bp-face { position: relative; display: grid; place-items: end center; height: 230px; padding-bottom: 18px; overflow: hidden; }
 .bp-art { object-fit: cover; object-position: 78% 40%; transform: scale(1.15); }
 .bp-face::after { content: ""; position: absolute; inset: 0; background: radial-gradient(80% 60% at 50% 70%, rgba(9, 13, 15, 0.1), rgba(9, 13, 15, 0.75)), linear-gradient(0deg, #0f1418 0%, transparent 40%); }
-.bp-game { position: absolute; z-index: 2; left: 14px; top: 12px; max-width: calc(100% - 110px); overflow: hidden; font-family: var(--f-display); font-weight: 800; font-size: 18px; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
+.bp-game { position: absolute; z-index: 2; left: 14px; top: 12px; max-width: calc(100% - 110px); overflow: hidden; font-family: var(--f-display); font-weight: 800; font-size: var(--fs-18); text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
 .bp-time {
   position: absolute; z-index: 2; right: 12px; top: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px;
-  font-size: 12px; white-space: nowrap; background: rgba(6, 9, 12, 0.7);
+  font-size: var(--fs-12); white-space: nowrap; background: rgba(6, 9, 12, 0.7);
   clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
 }
 .bp-avatar { position: relative; z-index: 2; width: 132px; height: 132px; --c: 22px; --edge: var(--edge-2); --t: 2px; background: var(--shell); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5); }
 .bp-avatar img { object-fit: cover; transform: scale(1.18); }
 
 .bp-body { display: flex; flex-direction: column; gap: 14px; padding: 4px 18px 18px; text-align: center; }
-.bp-body > strong { overflow: hidden; font-size: 19px; white-space: nowrap; text-overflow: ellipsis; }
+.bp-body > strong { overflow: hidden; font-size: var(--fs-18); white-space: nowrap; text-overflow: ellipsis; }
 .bp-body > strong a { color: var(--fg); }
 .bp-stats { display: grid; grid-template-columns: 1.3fr 1fr 1fr; margin: 0; }
 .bp-stats div { display: grid; gap: 2px; }
 .bp-stats div + div { border-left: 1px solid var(--line); }
-.bp-stats dt { order: 2; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.bp-stats dt { order: 2; font-size: var(--fs-11); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
 .bp-stats dd { order: 1; margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 30px; line-height: 1; }
 .bp-stats div:first-child dd { font-size: 36px; }
-.bp-new { display: grid; place-items: center; min-height: 52px; margin: 0; font-size: 14px; color: var(--fg-2); }
+.bp-new { display: grid; place-items: center; min-height: 52px; margin: 0; font-size: var(--fs-14); color: var(--fg-2); }
 .bp-body .btn { gap: 6px; min-height: 46px; margin-top: auto; }
 
 /* loading, failed and empty sit in the shelf as cards */

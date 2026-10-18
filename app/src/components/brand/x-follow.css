@@ -8,7 +8,7 @@
 @media (max-width: 639px) { .xf-foot { display: none; } }
 
 /* header button (b, c): compact, label drops to icon-only on phones */
-.xf.btn.xf-head { min-height: 38px; padding: 0 12px; gap: 7px; font-size: 14px; white-space: nowrap; }
+.xf.btn.xf-head { min-height: 38px; padding: 0 12px; gap: 7px; font-size: var(--fs-14); white-space: nowrap; }
 .xf.btn.xf-cta { min-height: 46px; padding-inline: 18px; white-space: nowrap; }
 .xf.btn.xf-cta .xf-mark { width: 17px; height: 17px; }
 

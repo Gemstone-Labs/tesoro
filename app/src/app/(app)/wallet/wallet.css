@@ -5,7 +5,7 @@
 
 /* balance hero: one Total, two secondary figures */
 .wl-hero { padding: 32px 28px 24px; display: grid; gap: 28px 48px; grid-template-columns: minmax(0, 1fr); }
-.wl-hero h2 { font-size: 15px; font-weight: 600; color: var(--fg-2); }
+.wl-hero h2 { font-size: var(--fs-15); font-weight: 600; color: var(--fg-2); }
 .wl-total-fig { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
 .wl-total-fig .gema-mark { width: clamp(48px, 5vw, 72px); height: clamp(48px, 5vw, 72px); }
 .wl-total-fig b { font-size: clamp(48px, 5.4vw, 92px); font-weight: 900; letter-spacing: -0.03em; line-height: 1; word-spacing: 0; }
@@ -15,9 +15,9 @@
 .wl-redeemable b, .wl-pending b { font-size: clamp(30px, 2.6vw, 44px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.1; word-spacing: 0; }
 .wl-redeemable b { color: var(--em-hi); }
 .wl-redeemable .btn { margin-top: 8px; }
-.wl-pending .meta, .wl-redeemable .meta { color: var(--fg-2); font-size: 13px; }
+.wl-pending .meta, .wl-redeemable .meta { color: var(--fg-2); font-size: var(--fs-13); }
 .wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
-.wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: 15px; padding: 0; }
+.wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: var(--fs-15); padding: 0; }
 .wl-hero-sim { grid-column: 1 / -1; margin-top: -12px; }
 .wl-hero-err { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 @media (min-width: 960px) { .wl-hero { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); padding: 40px 44px 28px; } }
@@ -25,7 +25,7 @@
 .wl-total-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 /* phones: folded to the Total until opened */
 @media (min-width: 768px) { .wl-total-head .wl-fold, .wl-sum { display: none; } }
-.wl-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; width: 100%; min-height: 44px; margin-top: 4px; padding: 0; border: 0; background: transparent; font: inherit; font-size: 15px; color: var(--fg-2); text-align: left; cursor: pointer; }
+.wl-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; width: 100%; min-height: 44px; margin-top: 4px; padding: 0; border: 0; background: transparent; font: inherit; font-size: var(--fs-15); color: var(--fg-2); text-align: left; cursor: pointer; }
 .wl-sum b { font-weight: 700; }
 .wl-sum span:first-child b { color: var(--em-hi); }
 .wl-sum:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
@@ -46,7 +46,7 @@
 .wl-tile-top, .wl-tile-body { display: grid; gap: 14px; align-content: start; min-width: 0; }
 .wl-tile-top { cursor: pointer; }
 .wl-tile-body[hidden] { display: none; }
-.wl-tile-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.wl-tile-head { display: flex; align-items: center; gap: 8px; font-size: var(--fs-15); }
 /* fold toggle: Position cards and the phone balance */
 .wl-fold { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin: -12px -12px -12px 0; padding: 0; border: 0; background: transparent; color: var(--fg-2); cursor: pointer; }
 .wl-fold svg { transition: transform 160ms ease; }
@@ -58,38 +58,38 @@
 /* countdown: when the Principal comes back */
 .wl-back { display: grid; gap: 4px; padding-top: 8px; }
 .wl-back b { font-family: var(--f-display); font-weight: 800; font-size: clamp(56px, 18cqi, 96px); line-height: 0.95; letter-spacing: -0.01em; text-transform: uppercase; }
-.wl-back > span:last-child { font-size: 15px; }
+.wl-back > span:last-child { font-size: var(--fs-15); }
 .wl-tile.unlocked .wl-back b, .wl-tile.idle .wl-back b { color: var(--fg-2); }
 /* projected Debt burning down to zero, edge to edge */
 .wl-burn { margin: 0 -20px; display: grid; gap: 6px; }
-.wl-burn figcaption { padding: 0 20px; font-size: 13px; color: var(--fg-2); }
+.wl-burn figcaption { padding: 0 20px; font-size: var(--fs-13); color: var(--fg-2); }
 .wl-burn figcaption b { color: var(--fg); }
 .wl-burn svg { display: block; width: 100%; height: 70px; color: var(--fg); }
-.wl-burn-axis { padding: 0 20px; display: flex; justify-content: space-between; font-family: var(--f-mono); font-size: 12px; color: var(--fg-2); }
-.wl-burn-flat { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg-2); }
+.wl-burn-axis { padding: 0 20px; display: flex; justify-content: space-between; font-family: var(--f-mono); font-size: var(--fs-12); color: var(--fg-2); }
+.wl-burn-flat { margin: 0; display: flex; align-items: center; gap: 10px; font-size: var(--fs-13); color: var(--fg-2); }
 .wl-burn-flat::after { content: ""; flex: 1; border-top: 1px dashed var(--line-2); }
 .wl-facts { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
 .wl-facts div { padding: 10px 12px; display: grid; gap: 2px; align-content: start; }
 .wl-facts div + div { border-left: 1px solid var(--line); }
 .wl-facts div:first-child { padding-left: 0; }
-.wl-facts dt { font-size: 12px; color: var(--fg-2); }
-.wl-facts dd { margin: 0; font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
-.wl-facts dd small { display: block; font-weight: 500; font-size: 12px; color: var(--fg-2); }
+.wl-facts dt { font-size: var(--fs-12); color: var(--fg-2); }
+.wl-facts dd { margin: 0; font-weight: 800; font-size: var(--fs-15); overflow-wrap: anywhere; }
+.wl-facts dd small { display: block; font-weight: 500; font-size: var(--fs-12); color: var(--fg-2); }
 
 .wl-actions { display: grid; gap: 8px; }
 .wl-actions:empty { display: none; }
 .wl-actions-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .wl-actions-row:has(> :only-child) { grid-template-columns: 1fr; }
-.wl-more summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--fg-2); }
+.wl-more summary { cursor: pointer; font-size: var(--fs-14); font-weight: 600; color: var(--fg-2); }
 .wl-more[open] summary { color: var(--fg); margin-bottom: 8px; }
 .wl-more[open] > * + * { margin-top: 8px; }
-.wl-more .note { font-size: 11.5px; }
+.wl-more .note { font-size: var(--fs-12); }
 
 /* open a position */
 .wl-open { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
 .wl-open .h-section { font-size: clamp(32px, 2.6vw, 44px); }
 .wl-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.wl-tabs button { --edge: var(--edge-2); background: var(--surface); border: 0; height: 44px; font-weight: 700; font-size: 16px; color: var(--fg); }
+.wl-tabs button { --edge: var(--edge-2); background: var(--surface); border: 0; height: 44px; font-weight: 700; font-size: var(--fs-16); color: var(--fg); }
 .wl-tabs button.on { background: var(--fg); color: var(--shell); --edge: transparent; }
 .wl-tabs button.on:focus-visible::after { --t: 1px; --r: 2px; background: var(--shell); }
 .wl-open-form { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 16px; }
@@ -100,32 +100,32 @@
 .wl-deposit.bad { --edge: linear-gradient(var(--danger), var(--danger)); }
 .wl-deposit-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
 .wl-deposit-head > div { display: grid; gap: 2px; }
-.wl-deposit-head label { font-size: 15px; font-weight: 700; }
-.wl-new { align-self: start; padding: 4px 8px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg); background: var(--raised-2); clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px); }
+.wl-deposit-head label { font-size: var(--fs-15); font-weight: 700; }
+.wl-new { align-self: start; padding: 4px 8px; font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg); background: var(--raised-2); clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px); }
 .wl-amount { display: flex; align-items: baseline; gap: 8px; padding: 4px 0 8px; border-bottom: 2px solid var(--line-2); }
 .wl-deposit:focus-within .wl-amount { border-color: var(--fg); }
 .wl-deposit.bad .wl-amount { border-color: var(--danger); }
 .wl-amount input { flex: 1; width: 0; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--fg); font-size: 40px; font-weight: 900; letter-spacing: -0.03em; line-height: 1.1; }
 .wl-amount input::placeholder { color: var(--fg-3); }
-.wl-amount span { font-weight: 800; font-size: 16px; color: var(--fg-2); }
+.wl-amount span { font-weight: 800; font-size: var(--fs-16); color: var(--fg-2); }
 .wl-deposit-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
 .wl-balance { display: grid; gap: 6px; }
 .wl-balance b { color: var(--fg); }
 .wl-presets { display: flex; gap: 6px; margin-left: auto; }
-.wl-presets button { --edge: var(--edge-2); border: 0; background: var(--raised); color: var(--fg); font-size: 12px; font-weight: 700; line-height: 1; padding: 7px 10px; cursor: pointer; }
+.wl-presets button { --edge: var(--edge-2); border: 0; background: var(--raised); color: var(--fg); font-size: var(--fs-12); font-weight: 700; line-height: 1; padding: 7px 10px; cursor: pointer; }
 .wl-presets button:hover { background: var(--raised-2); }
 .wl-link { all: unset; cursor: pointer; font-weight: 700; color: var(--fg); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
 .wl-link:hover { text-decoration-color: var(--fg); }
 .wl-link:disabled { cursor: default; color: var(--fg-2); text-decoration: none; }
 .wl-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-.wl-intent { margin: 0; padding: 10px 12px; background: var(--raised); font-size: 14px; color: var(--fg); }
+.wl-intent { margin: 0; padding: 10px 12px; background: var(--raised); font-size: var(--fs-14); color: var(--fg); }
 .wl-intent b { font-weight: 800; }
-.wl-lede { margin: 0; font-size: 14px; color: var(--fg-2); }
+.wl-lede { margin: 0; font-size: var(--fs-14); color: var(--fg-2); }
 .wl-lede b { color: var(--fg); }
 /* the money button stays at the foot of the sheet while the form scrolls (phones; harmless when it all fits) */
 .wl-cta { position: sticky; bottom: 0; z-index: 1; margin-inline: -16px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line); }
 @media (min-width: 640px) { .wl-cta { margin-inline: -24px; padding: 12px 24px; } }
-.wl-details { font-size: 13px; }
+.wl-details { font-size: var(--fs-13); }
 .wl-details summary { cursor: pointer; color: var(--fg-2); padding: 2px 0; }
 .wl-details .kv { margin-top: 6px; }
 .wl-faucet { display: grid; gap: 8px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); }
@@ -140,14 +140,14 @@
 }
 .wl-empty-bust { grid-area: bust; align-self: end; width: 104px; margin-bottom: -1px; }
 .wl-empty-lead { grid-area: lead; padding: 22px 0 18px; }
-.wl-empty-lead b { display: block; font-size: 21px; font-weight: 800; }
-.wl-empty-lead p { color: var(--fg-2); font-size: 15px; margin-top: 4px; }
+.wl-empty-lead b { display: block; font-size: var(--fs-20); font-weight: 800; }
+.wl-empty-lead p { color: var(--fg-2); font-size: var(--fs-15); margin-top: 4px; }
 .wl-empty > .btn { grid-area: cta; margin: 18px 0; }
 .wl-steps { grid-area: steps; list-style: none; margin: 0; padding: 18px 0; border-block: 1px solid var(--line); display: grid; gap: 14px 24px; }
 .wl-steps li { display: flex; align-items: flex-start; gap: 12px; }
 .wl-steps li > span { flex: none; min-width: 16px; font-family: var(--f-display); font-weight: 800; font-size: 34px; line-height: 0.92; color: var(--fg-2); }
-.wl-steps b { display: block; font-size: 15px; }
-.wl-steps p { color: var(--fg-2); font-size: 13.5px; margin-top: 2px; }
+.wl-steps b { display: block; font-size: var(--fs-15); }
+.wl-steps p { color: var(--fg-2); font-size: var(--fs-14); margin-top: 2px; }
 @media (min-width: 640px) {
   .wl-empty { padding: 0 28px; }
   .wl-empty > .btn { justify-self: start; }
@@ -173,50 +173,50 @@
 .wl-pocket.c-ETH { --tone: #7f9cff; }
 .wl-pocket.c-HYPE { --tone: #9ff5e2; }
 .wl-pocket-head { display: grid; gap: 6px; }
-.wl-pocket-chain { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; }
-.wl-pocket-label { color: var(--fg-2); font-size: 13px; }
+.wl-pocket-chain { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: var(--fs-16); }
+.wl-pocket-label { color: var(--fg-2); font-size: var(--fs-13); }
 .wl-pocket-why { max-width: 12em; text-align: right; }
 .wl-pocket-head > b { font-size: clamp(26px, 2.2vw, 32px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.05; overflow-wrap: anywhere; }
-.wl-pocket-head > small { color: var(--fg-2); font-size: 13px; }
+.wl-pocket-head > small { color: var(--fg-2); font-size: var(--fs-13); }
 .wl-pocket-money { display: grid; gap: 8px; }
 .wl-pocket-redeem { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 12px; padding: 14px; background: rgba(36, 216, 168, 0.08); }
 .wl-pocket-redeem > div { display: grid; gap: 2px; min-width: 0; }
-.wl-pocket-redeem small { color: var(--fg-2); font-size: 13px; }
-.wl-pocket-redeem b { font-size: 22px; font-weight: 800; color: var(--em-hi); }
+.wl-pocket-redeem small { color: var(--fg-2); font-size: var(--fs-13); }
+.wl-pocket-redeem b { font-size: var(--fs-22); font-weight: 800; color: var(--em-hi); }
 .wl-pocket-part { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
-.wl-pocket-part h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--fg-2); }
+.wl-pocket-part h3 { margin: 0; font-size: var(--fs-14); font-weight: 700; color: var(--fg-2); }
 .wl-pocket-pos { display: grid; gap: 8px; }
 /* a Position folded to one line inside a chain card; opened, it is the whole card */
 .wl-pocket-pos .wl-tile { padding: 16px; }
 .wl-row { --edge: var(--edge-1); background: rgba(255, 255, 255, 0.03); }
 .wl-row.paid { --edge: var(--money-rim); }
-.wl-row-btn { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto 18px; align-items: center; gap: 4px 10px; padding: 10px 12px; font-size: 14px; }
+.wl-row-btn { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto 18px; align-items: center; gap: 4px 10px; padding: 10px 12px; font-size: var(--fs-14); }
 .wl-row-btn b { font-weight: 700; }
 .wl-row-p { font-weight: 700; text-align: right; }
-.wl-row-when { grid-column: 2 / 4; grid-row: 2; font-size: 13px; color: var(--fg-2); }
+.wl-row-when { grid-column: 2 / 4; grid-row: 2; font-size: var(--fs-13); color: var(--fg-2); }
 .wl-row.paid .wl-row-when { color: var(--em-hi); }
 .wl-row-btn > svg:last-child { grid-column: 4; grid-row: 1 / 3; color: var(--fg-2); }
 .wl-row-btn:hover > svg:last-child { color: var(--fg); }
 .wl-row-btn:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
 .wl-src { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.wl-src li { display: grid; grid-template-columns: minmax(0, 1fr) auto 64px; align-items: center; gap: 10px; font-size: 14px; }
+.wl-src li { display: grid; grid-template-columns: minmax(0, 1fr) auto 64px; align-items: center; gap: 10px; font-size: var(--fs-14); }
 .wl-src li.wide { grid-template-columns: 28px minmax(0, 1fr) auto 80px minmax(110px, auto); padding: 8px 0; border-bottom: 1px solid var(--line); }
 .wl-src-face { border-radius: 50%; }
 .wl-src li.wide > .meta { text-align: right; }
 .wl-src-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wl-link { all: unset; cursor: pointer; justify-self: start; color: var(--em-hi); font-weight: 600; font-size: 14px; }
+.wl-link { all: unset; cursor: pointer; justify-self: start; color: var(--em-hi); font-weight: 600; font-size: var(--fs-14); }
 .wl-link:hover { text-decoration: underline; }
 .wl-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .wl-src-all { display: grid; gap: 14px; }
 .wl-src-sort { display: inline-flex; justify-self: start; border: 1px solid var(--line-2); }
-.wl-src-sort button { all: unset; cursor: pointer; padding: 8px 12px; font-size: 13px; font-weight: 600; color: var(--fg-2); }
+.wl-src-sort button { all: unset; cursor: pointer; padding: 8px 12px; font-size: var(--fs-13); font-weight: 600; color: var(--fg-2); }
 .wl-src-sort button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.1); color: var(--fg); }
 .wl-src-sort button:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
-.wl-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; color: var(--fg-2); }
+.wl-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: var(--fs-14); color: var(--fg-2); }
 .wl-pocket-tabs { display: none; }
 @media (max-width: 767px) {
   .wl-pocket-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
-  .wl-pocket-tabs button { all: unset; cursor: pointer; display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; gap: 2px 6px; padding: 10px 6px; background: rgba(255, 255, 255, 0.04); border-bottom: 2px solid transparent; font-size: 13px; font-weight: 700; }
+  .wl-pocket-tabs button { all: unset; cursor: pointer; display: grid; grid-template-columns: auto auto; justify-content: center; align-items: center; gap: 2px 6px; padding: 10px 6px; background: rgba(255, 255, 255, 0.04); border-bottom: 2px solid transparent; font-size: var(--fs-13); font-weight: 700; }
   .wl-pocket-tabs button .tnum { grid-column: 1 / -1; text-align: center; font-weight: 500; color: var(--fg-2); }
   .wl-pocket-tabs button[aria-selected="true"] { border-color: var(--em); background: rgba(255, 255, 255, 0.08); }
   .wl-pocket.phone-hidden { display: none; }
