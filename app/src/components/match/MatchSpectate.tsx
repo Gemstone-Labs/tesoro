@@ -11,6 +11,7 @@ import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
 import { assetIndexOf } from "@/lib/chain/match-id";
 import { DuelSpectate } from "./DuelSpectate";
+import { VanguardSpectate } from "@/games/vanguard/VanguardSpectate";
 import { RULES } from "./MatchResult";
 import "./match.css";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
@@ -128,6 +129,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
           </div>
 
           {m.game === "trading-duel" && <DuelSpectate m={m} />}
+          {m.game === "vanguard" && <VanguardSpectate m={m} />}
 
           <p className="mr-copy">
             {m.status === "open" || m.status === "active"
