@@ -2,6 +2,7 @@ import { Program, utils, type Idl, type Provider } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
+import { isCurrentPosition } from "@/lib/chain/position-size";
 import { readAccountState, type StateSource } from "@/lib/chain/account-state";
 import { baseRpc } from "@/lib/chain/rpc-config";
 import { encodeState } from "@/lib/chain/snapshot-wire";
@@ -41,7 +42,10 @@ function mergeOwned(cached: GpaRow[], owned: GpaRow[]): GpaRow[] {
 /** The Account's state for the app: the same read the browser makes, with the lists from the server cache and the rest on the server's RPC. */
 export function serverStateSource(deps: SnapshotDeps, opts: { fresh?: boolean } = {}): StateSource {
   const decodeRows = (name: "holdingState" | "positionState") => (rows: GpaRow[]) =>
-    rows.map((r) => ({ publicKey: new PublicKey(r.pubkey), account: coder.decode(name, Buffer.from(r.account.data[0], "base64")) }));
+    rows
+      .map((r) => ({ key: r.pubkey, data: Buffer.from(r.account.data[0], "base64") }))
+      .filter((r) => name !== "positionState" || isCurrentPosition(r.data))
+      .map((r) => ({ publicKey: new PublicKey(r.key), account: coder.decode(name, r.data) }));
   return {
     lists: async (key) => {
       const list = async (name: "HoldingState" | "PositionState", offset: number) => {

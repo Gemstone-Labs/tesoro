@@ -1,4 +1,5 @@
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain } from "../../app/src/games/block-puzzle/chain.ts";
+import { POSITION_SPACE } from "../../app/src/lib/chain/position-size.ts";
 import { HOLDEM_PROGRAM_ID } from "../../app/src/games/holdem/chain.ts";
 import { TRADING_DUEL_PROGRAM_ID } from "../../app/src/games/trading-duel/chain.ts";
 import { fetchSeasonRecord } from "../../app/src/lib/chain/leaderboard.ts";
@@ -224,7 +225,7 @@ async function backingFacts(ctx: Ctx): Promise<Fact[]> {
 }
 
 async function positionFacts(ctx: Ctx): Promise<Fact[]> {
-  const positions: any[] = await ctx.core.account.positionState.all();
+  const positions: any[] = await ctx.core.account.positionState.all([{ dataSize: POSITION_SPACE }]);
   const rows: PositionFacts[] = positions.map(({ publicKey, account }) => {
     const i = account.inner;
     const open = i.openAdvance;
