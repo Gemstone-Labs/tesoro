@@ -5,7 +5,7 @@
 .mb {
   --edge: var(--edge-1); position: relative; isolation: isolate; overflow: hidden; background: #0b1013;
   display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); grid-template-areas: "word face fig";
-  align-items: center; gap: 20px; min-height: 124px; padding: 16px 22px;
+  align-items: center; gap: 20px; min-height: 96px; padding: 16px 22px;
 }
 .mb.won { --edge: var(--edge-em); }
 .mb:hover { --edge: var(--edge-2); }
@@ -22,7 +22,7 @@
 
 .mb-word { grid-area: word; display: grid; gap: 4px; min-width: 0; pointer-events: none; }
 .mb-kick { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-2); }
-.mb-word b { font-family: var(--f-display); text-transform: uppercase; font-size: 46px; font-weight: 800; line-height: 0.95; color: var(--fg-2); }
+.mb-word b { font-family: var(--f-display); text-transform: uppercase; font-size: 34px; font-weight: 800; line-height: 0.95; color: var(--fg-2); }
 .mb.won .mb-word b { background: var(--facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .mb.lost .mb-word b { color: var(--danger); }
 .mb-word small { font-size: 14px; color: var(--fg); opacity: 0.86; line-height: 1.35; }
@@ -96,3 +96,27 @@
 .mb.skel .mb-face > .mb-av + .mb-av { grid-column: 3; }
 
 @media (prefers-reduced-motion: reduce) { .mb-art img { transition: none; } }
+
+/* older Matches in a long list: one compact row */
+.mr { --edge: var(--edge-1); display: grid; grid-template-columns: 28px auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; position: relative; padding: 10px 16px; background: var(--surface); min-height: 52px; }
+.mr.won { --edge: var(--edge-em); }
+.mr:hover { background: var(--surface-2); }
+.mr-hit { position: absolute; inset: 0; z-index: 1; }
+.mr-hit:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
+.mr-game { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
+.mr-res { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f-display); font-size: 18px; font-weight: 800; text-transform: uppercase; color: var(--fg-2); }
+.mr-res svg { width: 16px; height: 16px; }
+.mr.won .mr-res { color: var(--em-hi); }
+.mr.lost .mr-res { color: var(--danger); }
+.mr-opp { position: relative; z-index: 2; justify-self: start; display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; font-size: 14px; font-weight: 600; }
+.mr-opp .mb-av { width: 26px; height: 26px; border-width: 1px; flex: none; }
+.mr-opp .pn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-fig { font-size: 15px; font-weight: 800; white-space: nowrap; color: var(--fg); }
+.mr-fig.won { color: var(--em-hi); }
+.mr-fig.lost { color: var(--danger); }
+.mr-time { font-size: 13px; color: var(--fg-2); white-space: nowrap; min-width: 4.5em; text-align: right; }
+@container (max-width: 520px) {
+  .mr { grid-template-columns: 28px auto minmax(0, 1fr) auto; grid-template-areas: "g r o f" "g t t t"; gap: 2px 10px; }
+  .mr-game { grid-area: g; } .mr-res { grid-area: r; } .mr-opp { grid-area: o; } .mr-fig { grid-area: f; }
+  .mr-time { grid-area: t; text-align: left; font-size: 12px; }
+}
