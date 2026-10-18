@@ -305,7 +305,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .btn.signin-go:hover:not(:disabled) { filter: brightness(0.92); }
 .btn.signin-go:disabled { background: var(--raised-2); color: var(--fg-3); --edge: var(--edge-1); }
 .btn.signin-go:focus-visible::after { --t: 1px; --r: 2px; background: var(--shell); }
-.signin-or { display: flex; align-items: center; gap: 12px; margin: 2px 0; color: var(--fg-3); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.signin-or { display: flex; align-items: center; gap: 12px; margin: 2px 0; color: var(--fg-2); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .signin-or::before, .signin-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .signin-wallets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .signin-wallets .btn { min-height: 46px; gap: 9px; }
@@ -317,7 +317,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .signin-link { all: unset; cursor: pointer; color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .signin-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .signin-resend { margin: 0; text-align: center; font-size: 13px; color: var(--fg-2); }
-.signin-foot { margin: 0; text-align: center; font-size: 12px; line-height: 1.6; color: var(--fg-3); }
+.signin-foot { margin: 0; text-align: center; font-size: 12px; line-height: 1.6; color: var(--fg-2); }
 .signin-foot a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
 /* six code cells over one transparent input; the caret cell takes the focus ring */
 .signin-cells { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; cursor: text; }
