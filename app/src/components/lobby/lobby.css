@@ -219,6 +219,8 @@ a.tile:hover .tile-glare { opacity: 1; }
 .lbt-top img { width: 26px; height: 26px; border-radius: 50%; }
 .lbt-rank { font-family: var(--f-display); font-weight: 800; font-size: 15px; color: var(--fg); min-width: 10px; text-align: center; }
 .lbt-top li:first-child .lbt-rank { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lbt-you { margin: 0; color: var(--fg-2); font-size: 14px; }
+.lbt-you b { color: var(--fg); }
 .lbt-cta { margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: var(--fg-2); }
 .lbt:hover .lbt-cta { color: var(--fg); }
 .lbt-cta svg { width: 15px; height: 15px; transition: translate 0.2s ease; }

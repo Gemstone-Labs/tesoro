@@ -55,3 +55,28 @@ export function seasonStanding(view: LeaderboardView, me: string): SeasonStandin
   if (row.rank > PRIZE_PLACES) return { rank: row.rank, points: row.points, toNext: null, toPrizes: past(view.standings[PRIZE_PLACES - 1]) ?? 0 };
   return { rank: row.rank, points: row.points, toNext: i > 0 ? past(view.standings[i - 1]) : null, toPrizes: 0 };
 }
+
+export const ordinal = (n: number) => {
+  const v = n % 100;
+  return `${n}${["th", "st", "nd", "rd"][(v - 20) % 10] || ["th", "st", "nd", "rd"][v] || "th"}`;
+};
+export const pts = (n: number) => `${n} ${n === 1 ? "pt" : "pts"}`;
+
+/** The next step up, in one short line. */
+export function nextStep(s: SeasonStanding) {
+  if (s.rank === null) return null;
+  if (s.toPrizes > 0) return `${pts(s.toPrizes)} to the prizes`;
+  if (s.toNext === null) return "Top of the board";
+  return `${pts(s.toNext)} to ${ordinal(s.rank - 1)}`;
+}
+
+/**
+ * Where you stand, for the Leaderboard hero and the Lobby teaser: "15 pts · 3rd · 20 pts to 2nd".
+ * Without points: what a win is worth (`winPoints`, the smallest entry's), or, with fewer than ten Players ranked, that any win reaches the prizes.
+ */
+export function standingSummary(s: SeasonStanding, players: number, winPoints: number): string {
+  if (s.rank === null) {
+    return players < PRIZE_PLACES ? "No points yet · any win puts you in the prizes" : `No points yet · a win is +${winPoints}`;
+  }
+  return [pts(s.points), ordinal(s.rank), nextStep(s)].filter(Boolean).join(" · ");
+}
