@@ -3,6 +3,7 @@
  * (Source math, redeemable split, entry draw plan). No Solana imports so they are unit-testable.
  */
 
+import { LEADERBOARD_BPS } from "./season";
 
 export interface SourceMath {
   issued: bigint;
@@ -159,6 +160,11 @@ export function feeGemas(entry: bigint, platformBps: number, studioBps: number, 
 /** Total Fee of a Match, in Gemas: all three Fees from its terms. */
 export function matchFee(m: { entry: number; fees: { platformBps: number; studioBps: number; leaderboardBps?: number } }): number {
   return Number(feeGemas(BigInt(m.entry), m.fees.platformBps, m.fees.studioBps, m.fees.leaderboardBps));
+}
+
+/** What a win pays at the display Fees (2% Platform, 3% Studio, 1% Leaderboard): both entries minus Fees. */
+export function estimatedWin(entry: number): number {
+  return entry * 2 - Number(feeGemas(BigInt(entry), 200, 300, LEADERBOARD_BPS));
 }
 
 export interface BackedSplit {
