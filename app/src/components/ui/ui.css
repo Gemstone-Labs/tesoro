@@ -193,6 +193,7 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
 .icon-btn:hover { background: var(--raised-2); }
 .icon-btn svg { width: 18px; height: 18px; }
 .icon-btn:disabled { opacity: 0.4; cursor: default; }
+@media (max-width: 639px) { .icon-btn { width: 44px; height: 44px; } .btn.sm { min-height: 44px; } }
 
 /* ——— Gema mark & amount ——— */
 .gema-mark { display: inline-block; flex: none; vertical-align: middle; }
