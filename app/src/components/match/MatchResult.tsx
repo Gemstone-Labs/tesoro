@@ -15,6 +15,7 @@ import { fmtGemas } from "@/lib/format";
 import { canRematch, rematchHref } from "@/lib/rematch";
 import type { GameId } from "@/lib/mock";
 import { GAME_NAMES } from "@/lib/mock";
+import { practiceHref } from "@/lib/game-params";
 import { postUrl, winPath, winShareText } from "@/lib/win-card";
 import { MomentOverlay } from "./MomentOverlay";
 import { Odometer, Shards } from "./ResultMotion";
@@ -227,22 +228,27 @@ export function MatchResult(p: MatchResultProps) {
           ) : (
             <Button variant="money" size="lg" href={p.playAgainHref}>Play again</Button>
           )}
-          {canRematch({ role, outcome, opponent: p.opponent }) && (
-            <Button size="lg" href={rematchHref({ game: p.game, asset: p.asset, entry: p.entry, opponent: p.opponent! })}>Rematch</Button>
-          )}
-          {won && role === "player" && p.matchId && (
-            <Button
-              size="lg"
-              onClick={() => {
-                const url = `${window.location.origin}${winPath(p.matchId!)}`;
-                window.open(postUrl(winShareText({ game: p.game, gemas: delta, entry: p.entry }), url), "_blank", "noopener,noreferrer");
-              }}
-            >
-              Share your win
-            </Button>
-          )}
-          <Button size="lg" href="/lobby">Lobby</Button>
-          <Button size="lg" href="/wallet">Wallet</Button>
+          <div className="mr-second">
+            {canRematch({ role, outcome, opponent: p.opponent }) && (
+              <Button size="lg" href={rematchHref({ game: p.game, asset: p.asset, entry: p.entry, opponent: p.opponent! })}>Rematch</Button>
+            )}
+            {won && role === "player" && p.matchId && (
+              <Button
+                size="lg"
+                onClick={() => {
+                  const url = `${window.location.origin}${winPath(p.matchId!)}`;
+                  window.open(postUrl(winShareText({ game: p.game, gemas: delta, entry: p.entry }), url), "_blank", "noopener,noreferrer");
+                }}
+              >
+                Share your win
+              </Button>
+            )}
+            {lost && role === "player" && <Button size="lg" href={practiceHref(p.game, p.asset ?? undefined)}>Practice free</Button>}
+          </div>
+          <nav className="mr-links" aria-label="Leave the result">
+            <Link href="/lobby">Lobby</Link>
+            <Link href="/wallet">Wallet</Link>
+          </nav>
         </div>
         {p.children}
       </div>

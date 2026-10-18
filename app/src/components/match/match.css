@@ -36,10 +36,14 @@
 
 .mr-actions { display: grid; grid-template-columns: 1fr; gap: 12px; width: 100%; max-width: 760px; margin: 0 auto; }
 .mr-actions .btn { min-height: 56px; }
+.mr-second { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 12px; }
+.mr-second:empty { display: none; }
+.mr-links { display: flex; justify-content: center; gap: 28px; }
+.mr-links a { color: var(--fg-2); font-weight: 600; font-size: 15px; padding: 8px 4px; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 4px; }
+.mr-links a:hover { color: var(--fg); text-decoration-color: var(--fg); }
 
 @media (min-width: 1024px) {
   .mr-frame { padding: 56px 48px 48px; }
-  .mr-actions { grid-template-columns: 1.65fr 1fr 1fr; }
 }
 
 /* ——— Moment overlay: bust + Gema burst over the result, ~3 s or a click ——— */
