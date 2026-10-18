@@ -16,10 +16,16 @@ function db(): SupabaseClient {
  * Adds an email and returns its spot: how many joined up to and including it. A duplicate is a
  * success with the original spot, so the form never reveals who is already listed.
  */
-export async function join(email: string, meta: { source?: string | null; referrer?: string | null }): Promise<number | null> {
+export async function join(
+  email: string,
+  meta: { source?: string | null; referrer?: string | null; roles?: string[]; studio?: string | null },
+): Promise<number | null> {
   const { error } = await db()
     .from("waitlist")
-    .upsert({ email, source: meta.source ?? null, referrer: meta.referrer ?? null }, { onConflict: "email", ignoreDuplicates: true });
+    .upsert(
+      { email, source: meta.source ?? null, referrer: meta.referrer ?? null, roles: meta.roles ?? [], studio: meta.studio ?? null },
+      { onConflict: "email", ignoreDuplicates: true },
+    );
   if (error) throw new Error(`Waitlist insert failed: ${error.message}`);
   const { data: row } = await db().from("waitlist").select("id").eq("email", email).maybeSingle();
   if (!row) return null;

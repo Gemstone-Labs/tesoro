@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState }
 import { createPortal } from "react-dom";
 import { TesoroMark } from "@/components/brand";
 import { art } from "@/lib/art";
+import { roleTags, type Role } from "@/lib/waitlist-role";
 import type { SpotGem } from "@/lib/waitlist-spot";
 import { CARD, SpotCard, type CardFonts } from "./SpotCard";
 
@@ -45,7 +46,7 @@ const SHARDS = Array.from({ length: 26 }, (_, i) => {
 const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** The card scaled to its box, tilting toward the pointer with a foil sheen. */
-const Card = forwardRef<HTMLDivElement, { gem: SpotGem }>(function Card({ gem }, ref) {
+const Card = forwardRef<HTMLDivElement, { gem: SpotGem; tags?: readonly string[] }>(function Card({ gem, tags }, ref) {
   const box = useRef<HTMLDivElement | null>(null);
   const [k, setK] = useState(0.5);
   useEffect(() => {
@@ -80,7 +81,7 @@ const Card = forwardRef<HTMLDivElement, { gem: SpotGem }>(function Card({ gem },
     >
       <div className="pk-card-in" style={{ height: CARD.height * k }}>
         <div style={{ position: "absolute", left: 0, top: 0, transform: `scale(${k})`, transformOrigin: "0 0" }}>
-          <SpotCard gem={gem} src={art.avatars[gem.avatar - 1]} fonts={FONTS} />
+          <SpotCard gem={gem} src={art.avatars[gem.avatar - 1]} fonts={FONTS} tags={tags} />
         </div>
         <span className="pk-card-sheen" aria-hidden />
       </div>
@@ -89,7 +90,7 @@ const Card = forwardRef<HTMLDivElement, { gem: SpotGem }>(function Card({ gem },
 });
 
 
-function Face({ gem }: { gem: SpotGem }) {
+function Face({ gem, tags }: { gem: SpotGem; tags: readonly string[] }) {
   return (
     <div className="pk-face">
       <TesoroMark size={44} />
@@ -100,6 +101,11 @@ function Face({ gem }: { gem: SpotGem }) {
       </span>
       <span className="pk-count">1 gemstone animal inside</span>
       <span className="pk-spot mono">Spot #{gem.spot}</span>
+      <span className="pk-tags" aria-hidden>
+        {tags.map((t) => (
+          <b key={t}>{t}</b>
+        ))}
+      </span>
     </div>
   );
 }
@@ -118,6 +124,7 @@ export function PackReveal({
   shareHref,
   tryHref,
   sealed = true,
+  roles = [],
   onOpen,
   onClose,
 }: {
@@ -125,10 +132,13 @@ export function PackReveal({
   shareHref: string;
   tryHref: string;
   sealed?: boolean;
+  /** The member's picks, printed on the pack face and the card. */
+  roles?: Role[];
   /** Runs once the card shows, so the page can name the gem from then on. */
   onOpen?: () => void;
   onClose: () => void;
 }) {
+  const tags = roleTags(roles);
   const [phase, setPhase] = useState<Phase>(() => (sealed && !reducedMotion() ? "sealed" : "open"));
   const pack = useRef<HTMLDivElement>(null);
   const inside = useRef<HTMLDivElement>(null);
@@ -313,12 +323,12 @@ export function PackReveal({
           >
             <div className="pk-tilt">
               <div className="pk-inside" ref={inside} aria-hidden>
-                <Card gem={gem} />
+                <Card gem={gem} tags={tags} />
               </div>
               <span className="pk-beam" aria-hidden />
               <div className="pk-body" style={{ clipPath: BODY }}>
                 <span className="pk-paint" aria-hidden />
-                <Face gem={gem} />
+                <Face gem={gem} tags={tags} />
               </div>
               <span className="pk-leak" aria-hidden />
               <span className="pk-front" aria-hidden />
@@ -343,7 +353,7 @@ export function PackReveal({
           <h2 className="pk-open-title" id="pk-title">
             You pulled the <em>{gem.name}</em>
           </h2>
-          <Card gem={gem} ref={shown} />
+          <Card gem={gem} tags={tags} ref={shown} />
           <p className="pk-open-note">We&apos;ll email you when your spot opens. Share your card and bring your friends in.</p>
           <div className="pk-open-actions">
             <a ref={shareLink} className="btn neutral cut cut-btn pk-share" href={shareHref} target="_blank" rel="noopener noreferrer">

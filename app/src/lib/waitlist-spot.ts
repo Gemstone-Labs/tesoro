@@ -1,4 +1,6 @@
 import { BRAND } from "./brand";
+import { parseRoles, type Role } from "./waitlist-role";
+
 /**
  * A waitlist spot and the gemstone animal in its pack. Spots deal the twelve player avatars in a fixed
  * order (step 5 visits all twelve before repeating), so friends who join together get different gems.
@@ -36,7 +38,17 @@ export function parseSpot(raw: string): number | null {
   return n <= MAX_SPOT ? n : null;
 }
 
-export const spotPath = (spot: number) => `/spot/${spot}`;
+/** A shared spot link; the member's roles ride along so the X card can print them: /spot/142-player-staker. */
+export const spotPath = (spot: number, roles: readonly Role[] = []) => `/spot/${[spot, ...roles].join("-")}`;
+
+/** The spot and roles in a shared link's segment, or null when any part is unknown or repeated. */
+export function parseSpotSlug(raw: string): { spot: number; roles: Role[] } | null {
+  const [head, ...rest] = raw.split("-");
+  const spot = parseSpot(head);
+  if (!spot) return null;
+  const roles = parseRoles(rest.join(","));
+  return roles.length === rest.length ? { spot, roles } : null;
+}
 
 export function shareText(gem: SpotGem): string {
   return `I'm #${gem.spot} on the ${BRAND.name} waitlist and pulled the ${gem.name}. ${BRAND.shareTagline} Open your pack:`;

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import { CARD, SpotCard } from "@/components/waitlist/SpotCard";
 import { WinCard } from "@/components/win/WinCard";
+import { roleTags, type Role } from "@/lib/waitlist-role";
 import { gemFor } from "@/lib/waitlist-spot";
 import type { WinCardData } from "@/lib/win-card";
 
@@ -24,11 +25,11 @@ async function fonts() {
   ];
 }
 
-export async function spotCard(spot: number): Promise<ImageResponse> {
+export async function spotCard(spot: number, roles: readonly Role[] = []): Promise<ImageResponse> {
   const gem = gemFor(spot);
   const [img, f] = await Promise.all([asset(`avatar-${gem.avatar}.jpg`), fonts()]);
   const src = `data:image/jpeg;base64,${img.toString("base64")}`;
-  return new ImageResponse(<SpotCard gem={gem} src={src} />, { ...CARD, fonts: f });
+  return new ImageResponse(<SpotCard gem={gem} src={src} tags={roleTags(roles)} />, { ...CARD, fonts: f });
 }
 
 export async function winCard(win: WinCardData): Promise<ImageResponse> {
