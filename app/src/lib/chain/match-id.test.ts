@@ -13,6 +13,14 @@ describe("Match ids", () => {
     expect(matchOpenedAt(id, "block-puzzle")).toBe(MS);
   });
 
+  it("a Vanguard id is ms * 2 + challenge, with no asset in it", () => {
+    for (const challenge of [false, true]) {
+      const id = newMatchId(challenge, "vanguard");
+      expect(isChallengeId(id)).toBe(challenge);
+      expect(Math.abs(matchOpenedAt(id, "vanguard") - Date.now())).toBeLessThan(5_000);
+    }
+  });
+
   it("a Trading Duel id is ms * 8 + asset * 2 + challenge", () => {
     for (const asset of [0, 1, 2] as const) {
       for (const challenge of [false, true]) {

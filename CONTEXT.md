@@ -74,7 +74,7 @@ A `.sol` (Solana Name Service) or `.eth` (ENS) primary name of a wallet the Play
 ### Play
 
 **Game**:
-A title in Tesoro's catalogue, made by a Studio. The launch catalogue is three Games: heads-up Hold'em (real-time), a block-placement puzzle (async) and Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes).
+A title in Tesoro's catalogue, made by a Studio. The catalogue is four Games: heads-up Hold'em (real-time), a block-placement puzzle (async), Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes) and Vanguard (real-time blitz Stratego: hidden ranks, 5 seconds a move, capture the enemy Supply Truck).
 _Avoid_: app, title, Match (a single contest)
 
 **Seed**:
@@ -91,7 +91,7 @@ The Gemas entered into one Match, held in escrow until settlement. The winner re
 _Avoid_: prize pool, jackpot (the Leaderboard Pool is a different thing)
 
 **Queue**:
-The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Puzzle entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel) waits 1 hour.
+The waiting line for one game at one entry size, where Players are paired with the next entrant. In the async game a Player may play before an opponent is paired, so an unpaired Block Puzzle entry waits 24 hours for an opponent before it can be refunded; a live-game entry (Hold'em, Trading Duel, Vanguard) waits 1 hour.
 _Avoid_: lobby, matchmaking pool
 
 **Challenge**:

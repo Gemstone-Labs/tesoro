@@ -59,7 +59,7 @@ export default function Page() {
       <ol>
         <li>A program id and an <b>authority</b>: a PDA of the Game program is the norm (seeds <code>[&quot;authority&quot;]</code>), signing by <code>invoke_signed</code>. A server key also works but is the weaker trust boundary.</li>
         <li>Registration by the admin: <code>register_game(game, authority, studio_bps)</code>. Up to 8 Games can be registered. Platform plus Studio Fee together are capped at 5,000 bps.</li>
-        <li>A way to compute the winner from state the Game controls. Block Puzzle replays moves against the Seed; Hold&apos;em plays out the chips; Trading Duel scores both Books&apos; picks against the recorded price line, closed by a pinned final price.</li>
+        <li>A way to compute the winner from state the Game controls. Block Puzzle replays moves against the Seed; Hold&apos;em plays out the chips; Trading Duel scores both Books&apos; picks against the recorded price line, closed by a pinned final price; Vanguard applies each move to the Battle and ends it on a captured Supply Truck, or on the surviving ranks at the limit.</li>
         <li>Liveness: timeouts and forfeits enforced by the program, with <code>extend_match_deadline</code> where the Game&apos;s own clock exceeds the one-hour default.</li>
       </ol>
       <Code label="rust, abridged">{CPI}</Code>
@@ -78,7 +78,7 @@ export default function Page() {
 
       <H3 id="fees">Fees</H3>
       <ul>
-        <li>Fees are <code>platform_bps</code> (on Config, 200) plus the Game&apos;s <code>studio_bps</code> (300 for all three launch Games), both snapshotted when the Match opens, plus the Leaderboard Fee <code>leaderboard_bps</code> (on Config, 100), read from Config when the Match settles. Together they are capped at 5,000 bps of the Pot.</li>
+        <li>Fees are <code>platform_bps</code> (on Config, 200) plus the Game&apos;s <code>studio_bps</code> (300 for every Game), both snapshotted when the Match opens, plus the Leaderboard Fee <code>leaderboard_bps</code> (on Config, 100), read from Config when the Match settles. Together they are capped at 5,000 bps of the Pot.</li>
         <li>They are taken in Gemas from the <b>loser&apos;s lines</b>: Platform Fee first, then Studio Fee, then Leaderboard Fee, then (for a backed win) the Player&apos;s share of what remains. Lines are merged by Source and drained in ascending Source-address order.</li>
         <li>The Leaderboard Fee is paid to the Leaderboard Pool, a {BRAND.name} Account owned by the address <code>[&quot;leaderboard&quot;]</code>, as one more <code>(recipient, source)</code> payout line. Each decisive settlement also emits <code>MatchWon</code> (Player, loser, entry, points, season).</li>
         <li>Fees are floored, so the winner gets the dust. A Draw, abandonment or no-show takes none.</li>

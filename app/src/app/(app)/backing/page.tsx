@@ -44,6 +44,7 @@ import { recordFromMatches, recordText, timeLeft, useBackingBoard } from "@/lib/
 import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
+import { GAME_LIST } from "@/lib/games";
 import type { EntrySize, GameId } from "@/lib/mock";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
@@ -577,9 +578,9 @@ function PostRequest({
           <label className="label" htmlFor="req-game">Game</label>
           <span className="cut cut-chip ctl">
             <select id="req-game" className="select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-              <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
-              <option value="holdem">{GAME_NAMES.holdem}</option>
-              <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
+              {GAME_LIST.map((g) => (
+                <option key={g} value={g}>{GAME_NAMES[g]}</option>
+              ))}
             </select>
           </span>
         </div>
@@ -764,9 +765,9 @@ function OfferDrawer({
                 <label className="label" htmlFor="off-game">Game</label>
                 <span className="cut cut-chip ctl">
                   <select id="off-game" className="select" value={game} onChange={(e) => setGame(e.target.value as GameId)}>
-                    <option value="block-puzzle">{GAME_NAMES["block-puzzle"]}</option>
-                    <option value="holdem">{GAME_NAMES.holdem}</option>
-                    <option value="trading-duel">{GAME_NAMES["trading-duel"]}</option>
+                    {GAME_LIST.map((g) => (
+                      <option key={g} value={g}>{GAME_NAMES[g]}</option>
+                    ))}
                   </select>
                 </span>
               </div>

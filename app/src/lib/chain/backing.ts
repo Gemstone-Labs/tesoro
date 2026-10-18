@@ -8,7 +8,7 @@ import { getChain } from "./client";
 import type { GetToken } from "./demo-client";
 import { EntryError, matchDelta } from "./ledger";
 import { ChallengeError, GAME_IDS, ensureReady, entryHoldings, isChallengeId, newMatchId, queueDeps, refundMatch } from "./match-flow";
-import { decodeAll, fetchMatch, gameOf } from "./read";
+import { decodeAll, fetchMatch, gameOf, requireGame } from "./read";
 import { matchOpenedAt } from "./match-id";
 import { queueEntry, type Entered } from "./queue";
 import { leaderboardBpsFor } from "./season";
@@ -131,6 +131,16 @@ async function fetchRecords(players: Set<string>): Promise<Map<string, PlayerFor
       if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
     });
   }
+  const vg = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "vanguard");
+  if (vg.length) {
+    const { addresses } = await import("@/games/vanguard/chain");
+    const { decodeBattle } = await import("@/games/vanguard/decode");
+    const battles = await decodeAll(vg.map((m) => addresses(big(m.account.id)).battle), (data) => decodeBattle(data));
+    vg.forEach((m, i) => {
+      const w = battles[i]?.winner;
+      if (w === 0 || w === 1) winnerSeat.set(big(m.account.id).toString(), w);
+    });
+  }
   const out = new Map<string, PlayerForm>([...players].map((p) => [p, noForm()]));
   const changes = new Map<string, { at: number; delta: number }[]>();
   for (const m of settled) {
@@ -164,7 +174,7 @@ function toRequest(row: any, { record, pnl }: PlayerForm): ChainRequest {
     address: row.publicKey,
     nonce: big(row.account.nonce),
     player: pk(r.player).toBase58(),
-    game: gameOf(pk(r.game)) ?? "block-puzzle",
+    game: requireGame(pk(r.game)),
     entry: Number(r.entry.toString()),
     expiresAt,
     status,
@@ -189,7 +199,7 @@ function toOffer(row: any, matchId: bigint | null): ChainOffer {
     address: row.publicKey,
     nonce: big(row.account.nonce),
     backer: pk(o.backer).toBase58(),
-    game: gameOf(pk(o.game)) ?? "block-puzzle",
+    game: requireGame(pk(o.game)),
     entry: Number(o.entry.toString()),
     shareBps: o.playerShareBps,
     directedTo: directed,
@@ -215,6 +225,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
   const players = new Set<string>(reqRows.map((r) => pk(r.account.inner.player).toBase58()));
   const records = players.size ? await fetchRecords(players) : new Map<string, PlayerForm>();
   const requests = reqRows
+    .filter((r) => gameOf(pk(r.account.inner.game)) !== null)
     .map((r) => toRequest(r, records.get(pk(r.account.inner.player).toBase58()) ?? noForm()))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   // A consumed Offer funded the newest Match with the same Backer, Player, Game and entry.
@@ -232,6 +243,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
     return ids.length ? ids.reduce((x, y) => (x > y ? x : y)) : null;
   };
   const offers = offerRows
+    .filter((o) => gameOf(pk(o.account.inner.game)) !== null)
     .map((o) => toOffer(o, enumKey(o.account.inner.status) === "consumed" ? matchOf(o) : null))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   return { requests, offers, fetchedAt: Date.now() };
@@ -241,7 +253,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
 export async function fetchLiveRequests(player: string, record: PlayerRecord): Promise<ChainRequest[]> {
   const rows: any[] = await getChain().core.account.requestState.all();
   return rows
-    .filter((r) => pk(r.account.inner.player).toBase58() === player)
+    .filter((r) => pk(r.account.inner.player).toBase58() === player && gameOf(pk(r.account.inner.game)) !== null)
     .map((r) => toRequest(r, { record, pnl: [] }))
     .filter((r) => r.live)
     .sort((a, b) => b.expiresAt - a.expiresAt);
@@ -249,7 +261,7 @@ export async function fetchLiveRequests(player: string, record: PlayerRecord): P
 
 export async function fetchOffer(address: PublicKey): Promise<ChainOffer | null> {
   const acc = await getChain().core.account.offerState.fetchNullable(address);
-  return acc ? toOffer({ publicKey: address, account: acc }, null) : null;
+  return acc && gameOf(pk(acc.inner.game)) !== null ? toOffer({ publicKey: address, account: acc }, null) : null;
 }
 
 // ---- writes ---------------------------------------------------------------------------------

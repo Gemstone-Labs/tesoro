@@ -159,7 +159,33 @@ const LOOPS = [
   { name: "block-puzzle", route: "/play/practice?dev=demo", prep: startBlockPuzzle, from: ".fx-arena", to: ".fx-arena", pad: 0, act: playBlockPuzzle, speed: 1.7, width: 900, poster: 0.62 },
   { name: "holdem", route: "/play/practice?game=holdem&dev=demo", prep: (page) => page.waitForTimeout(3000), from: ".hdx-head", to: ".hdx-actions", act: playHoldem, speed: 1.25, width: 800, poster: 0.55 },
   { name: "trading-duel", route: "/play/practice?game=trading-duel&dev=demo", prep: startTradingDuel, from: ".tg-bar", to: ".tg-stage", act: playTradingDuel, speed: 2.2, width: 1000 },
+  { name: "vanguard", route: "/play/practice?game=vanguard&dev=demo", prep: startVanguard, from: ".vg-board", to: ".vg-board", pad: 0, act: playVanguard, speed: 1.6, width: 560, poster: 0.6 },
 ];
+
+/** Practice against the bot: wait out the countdown, then select a US piece with a marked square and take it, turn after turn (an attack when one is marked). */
+async function startVanguard(page) {
+  await page.waitForSelector('.vg-piece.us:not([disabled])', { timeout: 30000 });
+  await page.waitForTimeout(500);
+}
+
+async function playVanguard(page) {
+  for (let turn = 0; turn < 4; turn++) {
+    const pieces = page.locator(".vg-piece.us:not([disabled])");
+    const count = await pieces.count();
+    let moved = false;
+    for (let i = 0; i < count && !moved; i++) {
+      await pieces.nth((i * 7 + turn * 3) % count).click({ force: true, timeout: 1500 }).catch(() => {});
+      await page.waitForTimeout(250);
+      const mark = page.locator(".vg-mark.atk, .vg-mark").first();
+      if (await mark.count()) {
+        await page.waitForTimeout(500);
+        moved = await mark.click({ force: true, timeout: 1500 }).then(() => true, () => false);
+      }
+    }
+    await page.waitForTimeout(2600);
+  }
+  await page.waitForTimeout(1200);
+}
 
 const even = (n) => Math.round(n / 2) * 2;
 

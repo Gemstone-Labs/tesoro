@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { pushSettled, settledPush, type SettledMatch } from "./notify.ts";
+import { PublicKey } from "@solana/web3.js";
+import { VANGUARD_PROGRAM_ID } from "../../app/src/games/vanguard/chain.ts";
+import { gameOfKey, pushSettled, settledPush, type SettledMatch } from "./notify.ts";
 
 const base: SettledMatch = {
   id: 123n,
@@ -54,5 +56,12 @@ describe("push to the app", () => {
     assert.equal(await pushSettled("u", "s", settledPush(base), bad), false);
     const down = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
     assert.equal(await pushSettled("u", "s", settledPush(base), down), false);
+  });
+});
+
+describe("gameOfKey", () => {
+  it("knows the Vanguard program and no stranger", () => {
+    assert.equal(gameOfKey(VANGUARD_PROGRAM_ID), "vanguard");
+    assert.equal(gameOfKey(PublicKey.default), null);
   });
 });

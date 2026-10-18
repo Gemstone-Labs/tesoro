@@ -25,7 +25,7 @@ export default function Page() {
         result={{ title: "What you have at the end", body: <>Your Principal back after Unlock, plus whatever you won and redeemed. Matches only ever risk the Gemas you enter.</> }}
       />
 
-      <Shot name="lobby" url={`${BRAND.domain}/lobby`} alt={`The ${BRAND.name} Lobby with the three Games, entry sizes and a Play now button`} caption="The Lobby: pick a Game and an entry, then Play now." />
+      <Shot name="lobby" url={`${BRAND.domain}/lobby`} alt={`The ${BRAND.name} Lobby with the Games, entry sizes and a Play now button`} caption="The Lobby: pick a Game and an entry, then Play now." />
 
       <H2 id="worked-example">A worked example</H2>
       <p>

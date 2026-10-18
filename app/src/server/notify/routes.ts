@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { GameId } from "@/lib/mock/types";
+import { isGameId } from "@/lib/games";
 import { takeAll, WindowLimiter } from "../rate-limit";
 import { DemoHttpError, NonceStore, verifySignedRequest, type AuthEnv } from "../request-auth";
 import type { MatchSettledEvent } from "./decide";
@@ -44,8 +45,6 @@ export interface SettledPush {
   participants: { authority: string; result: "won" | "lost" | "draw"; gemas: number }[];
 }
 
-const GAME_IDS = ["block-puzzle", "holdem", "trading-duel"];
-
 /** True when `authorization` is `Bearer <secret>`. */
 export function secretOk(authorization: string | null, secret: string | undefined): boolean {
   if (!secret || !authorization) return false;
@@ -58,12 +57,12 @@ export function parseSettled(raw: unknown): SettledPush {
   const b = raw as Partial<SettledPush> | null;
   const bad = () => new DemoHttpError(400, "bad-request", "Malformed event.");
   if (!b || typeof b !== "object" || typeof b.matchId !== "string" || !/^\d{1,20}$/.test(b.matchId)) throw bad();
-  if (typeof b.game !== "string" || !GAME_IDS.includes(b.game) || typeof b.entry !== "number" || !Number.isFinite(b.entry) || !Array.isArray(b.participants)) throw bad();
+  if (!isGameId(b.game) || typeof b.entry !== "number" || !Number.isFinite(b.entry) || !Array.isArray(b.participants)) throw bad();
   const participants = b.participants.map((p) => {
     if (!p || typeof p.authority !== "string" || !["won", "lost", "draw"].includes(p.result) || typeof p.gemas !== "number" || !Number.isFinite(p.gemas) || p.gemas < 0) throw bad();
     return { authority: p.authority, result: p.result, gemas: p.gemas };
   });
-  return { matchId: b.matchId, game: b.game as GameId, entry: b.entry, participants };
+  return { matchId: b.matchId, game: b.game, entry: b.entry, participants };
 }
 
 /** The keeper's push of a settled Match, protected by the shared secret. Each Player is notified at most once per Match. */

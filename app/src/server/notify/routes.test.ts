@@ -129,6 +129,15 @@ describe("settled Match push", () => {
     expect(sender.sent[0].text).toContain("You won your Block Puzzle Match and 980 Gemas");
   });
 
+  it("accepts a settled Vanguard Match and names the Game", async () => {
+    const { deps, sender } = setup();
+    const a = await optedIn(deps);
+    sender.sent = [];
+    const out = await settled(deps, { ...push(a), matchId: "88", game: "vanguard" });
+    expect(out.outcomes).toEqual(["sent"]);
+    expect(sender.sent[0].text).toContain("You won your Vanguard Match");
+  });
+
   it("tells the winner and the loser separately and skips Players with no address", async () => {
     const { deps, sender } = setup();
     const a = await optedIn(deps);

@@ -24,6 +24,7 @@ import { useIdentity } from "@/lib/identity/store";
 import { GemasPanel } from "./GemasPanel";
 import "./account.css";
 import { BRAND } from "@/lib/brand";
+import { GAME_LIST } from "@/lib/games";
 
 /**
  * A Player's Account as anyone may see it: the Matches it played, the Gemas it won and lost, the
@@ -362,8 +363,6 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
   );
 }
 
-const GAMES: GameId[] = ["block-puzzle", "holdem", "trading-duel"];
-
 /** Game and entry for a Challenge, and the plain fact that the link is the only way it reaches the other Player. */
 function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () => void; player: string }) {
   const { auth } = useAccount();
@@ -376,7 +375,7 @@ function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () 
       <div className="stack-lg">
         <fieldset className="entries pa-games">
           <legend className="sr-only">Game</legend>
-          {GAMES.map((g) => (
+          {GAME_LIST.map((g) => (
             <label key={g} className="entry">
               <input type="radio" name="pa-game" value={g} checked={game === g} onChange={() => setGame(g)} />
               <span className="cut cut-chip">{GAME_NAMES[g]}</span>

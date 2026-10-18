@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { GAME_NAMES } from "@/lib/mock";
 import type { GameId } from "@/lib/mock";
+import { isGameId } from "@/lib/games";
 import "./history.css";
 
 const FILTERS: [GameId | null, string][] = [
@@ -14,7 +15,7 @@ const FILTERS: [GameId | null, string][] = [
 ];
 
 /** The game a `?game=` value names, null for all games. */
-export const gameFilter = (v: string | null): GameId | null => (v === "block-puzzle" || v === "holdem" || v === "trading-duel" || v === "vanguard" ? v : null);
+export const gameFilter = (v: string | null): GameId | null => (isGameId(v) ? v : null);
 
 /** A Match history address: the game filter and the page live in the URL. */
 export function historyHref(base: string, game: GameId | null, page: number): string {

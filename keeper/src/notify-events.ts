@@ -1,14 +1,12 @@
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain } from "../../app/src/games/block-puzzle/chain.ts";
 import { POSITION_SPACE } from "../../app/src/lib/chain/position-size.ts";
-import { HOLDEM_PROGRAM_ID } from "../../app/src/games/holdem/chain.ts";
-import { TRADING_DUEL_PROGRAM_ID } from "../../app/src/games/trading-duel/chain.ts";
 import { fetchSeasonRecord } from "../../app/src/lib/chain/leaderboard.ts";
 import { delayedOf } from "../../app/src/lib/chain/match-status.ts";
 import { seasonsToCheck } from "./season.ts";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { PublicKey } from "@solana/web3.js";
 import { log, type Ctx } from "./act.ts";
-import type { GameId } from "./notify.ts";
+import { gameOfKey, type GameId } from "./notify.ts";
 import { pk } from "./runtime.ts";
 
 /** One fact for a Player's Account (`account` is a TesoroAccount key); the job turns it into the app's wire event with the wallet authority. */
@@ -150,8 +148,6 @@ let owed: Map<string, number> | null = null;
 let digestDay: string | null = null;
 
 const status = (o: object) => Object.keys(o)[0];
-const gameOfKey = (k: PublicKey): GameId | null =>
-  k.equals(BLOCK_PUZZLE_PROGRAM_ID) ? "block-puzzle" : k.equals(HOLDEM_PROGRAM_ID) ? "holdem" : k.equals(TRADING_DUEL_PROGRAM_ID) ? "trading-duel" : null;
 const ASSET: Record<string, string> = { solana: "SOL", ethereum: "ETH", hyperEvm: "HYPE", hyperevm: "HYPE" };
 
 async function authorityOf(ctx: Ctx, account: string): Promise<string | null> {

@@ -1,15 +1,14 @@
-import type { GameId } from "@/lib/mock/types";
+import { isGameId } from "@/lib/games";
 import { DemoHttpError } from "../request-auth";
 import type { NotifyEvent } from "./decide";
 
-const GAME_IDS: string[] = ["block-puzzle", "holdem", "trading-duel"];
 const KINDS = ["opponent-played", "match-delayed", "match-refunded", "offer-made", "offer-accepted", "debt-cleared", "season-placed"];
 const MAX_EVENTS = 100;
 
 const bad = () => new DemoHttpError(400, "bad-request", "Malformed event.");
 const str = (v: unknown, re: RegExp) => (typeof v === "string" && re.test(v) ? v : (() => { throw bad(); })());
 const num = (v: unknown, min = 0) => (typeof v === "number" && Number.isFinite(v) && v >= min ? v : (() => { throw bad(); })());
-const game = (v: unknown) => (typeof v === "string" && GAME_IDS.includes(v) ? (v as GameId) : (() => { throw bad(); })());
+const game = (v: unknown) => (isGameId(v) ? v : (() => { throw bad(); })());
 
 /**
  * The keeper's facts, as the server's events. The server builds each id from the fact itself (never taken

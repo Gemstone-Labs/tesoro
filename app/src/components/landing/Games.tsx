@@ -47,6 +47,21 @@ const GAMES: LandingGame[] = [
     loop: [1000, 576],
     href: appHref("/play/trading-duel"),
   },
+  {
+    id: "vanguard",
+    name: "Vanguard",
+    note: "Real-time, 5 s a move",
+    body: "Blitz Stratego on a desert board. Your army's ranks are hidden, you get five seconds a move, and the first Player to capture the enemy Supply Truck wins.",
+    facts: [
+      ["Pace", "Real-time"],
+      ["Moves", "5 s each"],
+      ["Ranks", "Hidden until they fight"],
+      ["Goal", "Capture the Supply Truck"],
+    ],
+    art: art.vanguardHero,
+    loop: [560, 560],
+    href: appHref("/play/vanguard"),
+  },
 ];
 
 export function Games() {

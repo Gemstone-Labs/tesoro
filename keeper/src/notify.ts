@@ -1,6 +1,8 @@
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { BLOCK_PUZZLE_PROGRAM_ID } from "../../app/src/games/block-puzzle/chain.ts";
+import type { GameId } from "../../app/src/lib/mock/types.ts";
+import { VANGUARD_PROGRAM_ID } from "../../app/src/games/vanguard/chain.ts";
 import { HOLDEM_PROGRAM_ID } from "../../app/src/games/holdem/chain.ts";
 import { TRADING_DUEL_PROGRAM_ID } from "../../app/src/games/trading-duel/chain.ts";
 import { backedSplit, feeGemas } from "../../app/src/lib/chain/ledger.ts";
@@ -10,7 +12,7 @@ import { leaderboardBpsFor } from "../../app/src/lib/chain/season.ts";
 import { log, type Ctx } from "./act.ts";
 import { pk } from "./runtime.ts";
 
-export type GameId = "block-puzzle" | "holdem" | "trading-duel";
+export type { GameId };
 
 /** What the app's /api/notify/event route takes (app/src/server/notify/routes.ts `SettledPush`). */
 export interface SettledPush {
@@ -65,8 +67,15 @@ const WINDOW_MS = 3 * 24 * 3_600_000;
 const PER_PASS = 15;
 const pushed = new Set<string>();
 
-const gameOfKey = (k: PublicKey): GameId | null =>
-  k.equals(BLOCK_PUZZLE_PROGRAM_ID) ? "block-puzzle" : k.equals(HOLDEM_PROGRAM_ID) ? "holdem" : k.equals(TRADING_DUEL_PROGRAM_ID) ? "trading-duel" : null;
+const PROGRAMS: Record<GameId, PublicKey> = {
+  "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID,
+  holdem: HOLDEM_PROGRAM_ID,
+  "trading-duel": TRADING_DUEL_PROGRAM_ID,
+  vanguard: VANGUARD_PROGRAM_ID,
+};
+
+/** The Game a tesoro_core Match's program id belongs to; null for a program the app does not play. */
+export const gameOfKey = (k: PublicKey): GameId | null => (Object.keys(PROGRAMS) as GameId[]).find((g) => PROGRAMS[g].equals(k)) ?? null;
 
 /** The `result` of a Match's `MatchSettled` event, found in the transactions that touched the Match account. */
 async function settledResult(ctx: Ctx, match: PublicKey, id: bigint): Promise<number | null> {

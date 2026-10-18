@@ -6,7 +6,7 @@ import { feeGemas } from "./ledger";
 import { matchOpenedAt } from "./match-id";
 import { fetchLeaderboardTerms } from "./leaderboard";
 import { leaderboardBpsFor } from "./season";
-import { decodeAll, gameOf } from "./read";
+import { decodeAll, gameOf, requireGame } from "./read";
 import { pickSettled, topScores, type SettledMatch, type SettledQuery } from "./settled";
 
 export type { SettledMatch } from "./settled";
@@ -70,6 +70,14 @@ export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
       })()
     : [];
 
+  const vg = settled.filter((m) => gameOf(pk(m.account.inner.game)) === "vanguard");
+  const battles = vg.length
+    ? await (async () => {
+        const [{ addresses }, { decodeBattle }] = await Promise.all([import("@/games/vanguard/chain"), import("@/games/vanguard/decode")]);
+        return decodeAll(vg.map((m) => addresses(big(m.account.id)).battle), (data) => decodeBattle(data));
+      })()
+    : [];
+
   const out: SettledMatch[] = [];
   const push = (m: any, winnerSeat: 0 | 1, scores: [number, number] | null) => {
     const inner = m.account.inner;
@@ -79,7 +87,7 @@ export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
     const id = big(m.account.id);
     out.push({
       id,
-      game: gameOf(pk(inner.game)) ?? "block-puzzle",
+      game: requireGame(pk(inner.game)),
       entry,
       winner: pk(side.player).toBase58(),
       payout: entry * 2 - Number(feeGemas(BigInt(entry), inner.fees.platformBps, inner.fees.studioBps, leaderboardBpsFor(matchOpenedAt(id, gameOf(pk(inner.game)))))),
@@ -99,6 +107,10 @@ export async function fetchSettled(q: SettledQuery): Promise<SettledMatch[]> {
   });
   td.forEach((m, i) => {
     const w = duels[i]?.winner;
+    if (w === 0 || w === 1) push(m, w, null);
+  });
+  vg.forEach((m, i) => {
+    const w = battles[i]?.winner;
     if (w === 0 || w === 1) push(m, w, null);
   });
   return out.sort((x, y) => (x.id < y.id ? 1 : -1)).slice(0, q.limit);

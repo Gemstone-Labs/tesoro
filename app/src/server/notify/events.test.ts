@@ -22,6 +22,7 @@ const events: NotifyEvent[] = [
   { kind: "offer-accepted", id: "5", authority: A, offerId: "o1", game: "block-puzzle", entry: 1000 },
   { kind: "debt-cleared", id: "6", authority: A, positionId: "p1", asset: "SOL" },
   { kind: "season-placed", id: "7", authority: A, season: 2, rank: 3, gemas: 1250 },
+  { kind: "opponent-played", id: "8", authority: A, matchId: "9", game: "vanguard" },
 ];
 
 describe("who gets what for each event", () => {
@@ -35,6 +36,7 @@ describe("who gets what for each event", () => {
       "A Player accepted your Offer",
       "Your Debt is paid off",
       "You placed 3rd in Season 2",
+      "Your opponent has played your Vanguard Match",
     ]);
     expect(subjects.every((m) => m.to === "p@example.com")).toBe(true);
     expect(subjects[2].text).toContain("entry of 500 Gemas is back");
@@ -56,6 +58,13 @@ describe("who gets what for each event", () => {
       expect(decide(e, { ...prefs, verified: false }, 0)).toMatchObject({ emails: [], skipped: "unverified" });
       expect(decide(e, null, 0)).toMatchObject({ emails: [], skipped: "no-address" });
     }
+  });
+
+  it("takes every Game the app plays from the keeper and refuses any other", () => {
+    for (const game of ["block-puzzle", "holdem", "trading-duel", "vanguard"]) {
+      expect(parseEvents({ events: [{ kind: "opponent-played", authority: A, matchId: "9", game }] })[0]).toMatchObject({ game });
+    }
+    expect(() => parseEvents({ events: [{ kind: "opponent-played", authority: A, matchId: "9", game: "toString" }] })).toThrow();
   });
 
   it("ranks read as 1st 2nd 3rd 4th 11th 21st", () => {

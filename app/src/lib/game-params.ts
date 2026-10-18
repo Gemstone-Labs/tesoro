@@ -1,4 +1,5 @@
 import type { GameId } from "./mock/types";
+import { isGameId } from "./games";
 import { ASSET_PARAMS, assetIndexFromParam } from "./chain/match-id";
 
 type Param = string | string[] | undefined;
@@ -7,7 +8,7 @@ const first = (v: Param) => (Array.isArray(v) ? v[0] : v);
 /** The `?game=` of a play link; Block Puzzle when absent or unknown. */
 export function gameFromParam(v: Param): GameId {
   const g = first(v);
-  return g === "holdem" || g === "trading-duel" || g === "vanguard" ? g : "block-puzzle";
+  return isGameId(g) ? g : "block-puzzle";
 }
 
 /** Trading Duel's asset index from `?asset=sol|eth|hype` (SOL when absent). */

@@ -153,6 +153,13 @@ export function gameOf(game: PublicKey): GameId | null {
   return null;
 }
 
+/** The Game of a program id this app plays; throws for any other, so a Match of an unknown program is never shown as another Game. */
+export function requireGame(game: PublicKey): GameId {
+  const g = gameOf(game);
+  if (!g) throw new Error(`Unknown game program ${game.toBase58()}`);
+  return g;
+}
+
 export function toChainMatch(state: any, me: PublicKey | null, session: any | null, table: any | null = null): ChainMatch {
   const m = state.inner;
   const a = pk(m.a.player).toBase58();
@@ -168,7 +175,7 @@ export function toChainMatch(state: any, me: PublicKey | null, session: any | nu
   const backedSide = backedSeat === null ? null : sides[backedSeat];
   return {
     id,
-    game: gameOf(pk(m.game)) ?? "block-puzzle",
+    game: requireGame(pk(m.game)),
     address: BlockPuzzleChain.addresses(id).match,
     status,
     entry: Number(m.entry.toString()),
@@ -205,15 +212,17 @@ export async function fetchMatch(id: bigint, me: PublicKey | null): Promise<Chai
   const a = BlockPuzzleChain.addresses(id);
   const state = await chain.core.account.matchState.fetchNullable(a.match);
   if (!state) return null;
-  if (gameOf(pk(state.inner.game)) === "holdem") {
+  const game = gameOf(pk(state.inner.game));
+  if (game === null) return null;
+  if (game === "holdem") {
     const table = enumKey(state.inner.status) === "settled" ? await holdemTable(id) : null;
     return toChainMatch(state, me, null, table);
   }
-  if (gameOf(pk(state.inner.game)) === "trading-duel") {
+  if (game === "trading-duel") {
     const duel = enumKey(state.inner.status) === "settled" ? await duelAccount(id) : null;
     return toChainMatch(state, me, null, duel);
   }
-  if (gameOf(pk(state.inner.game)) === "vanguard") {
+  if (game === "vanguard") {
     const battle = enumKey(state.inner.status) === "settled" ? await battleOnBase(id) : null;
     return toChainMatch(state, me, null, battle);
   }
