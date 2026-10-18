@@ -80,6 +80,8 @@ export default function Wallet() {
     nativeRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0) +
     ethRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0);
   const redeemAmount = onChain ? nativeRedeemable : gemas.redeemable;
+  // Pending is what is left of the Total after Redeemable now, so the hero adds up and matches the chain cards (which use the same figures).
+  const pendingAmount = Math.max(0, gemas.total - redeemAmount);
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
   const openRedeem = (chain?: Chain) =>
@@ -214,9 +216,9 @@ export default function Wallet() {
           </div>
           <div className="wl-pending" aria-label="Pending">
             <h2>Pending</h2>
-            <b>{ready ? fmtGemas(gemas.pending) : "—"}</b>
-            {ready && <GemaUsd className="wl-usd" value={gemas.pending} />}
-            {ready && gemas.pending > 0 && <NextRedeem at={heroNext} />}
+            <b>{ready ? fmtGemas(pendingAmount) : "—"}</b>
+            {ready && <GemaUsd className="wl-usd" value={pendingAmount} />}
+            {ready && pendingAmount > 0 && <NextRedeem at={heroNext} />}
           </div>
         </div>
         {error && (
