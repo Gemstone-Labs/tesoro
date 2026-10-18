@@ -251,7 +251,7 @@ a.tile:hover .tile-glare { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .ticker-line { animation: none; } }
 
 /* Play again: the last settled Matches, one tap from a repeat */
-.again { --c: 12px; --edge: var(--edge-1); display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 10px; background: var(--surface); min-width: 0; }
+.again { --c: 12px; --edge: var(--edge-1); display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 10px 12px 10px 10px; background: var(--surface); min-width: 0; }
 .again-art { --c: 8px; position: relative; flex: none; width: 64px; height: 64px; overflow: hidden; }
 .again-art img { object-fit: cover; }
 .again-text { display: grid; gap: 3px; flex: 1; min-width: 0; }
@@ -259,7 +259,8 @@ a.tile:hover .tile-glare { opacity: 1; }
 .again-result { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); font-weight: 600; }
 .again-result svg { width: 14px; height: 14px; stroke-width: 2.6; flex: none; }
 .again-text small { font-size: var(--fs-13); color: var(--fg-2); }
-.again .btn { flex: none; min-height: 44px; }
+/* the button takes its own row, so the game name gets the card's width */
+.again .btn { flex: 1 1 100%; justify-content: center; min-height: 44px; }
 @container (max-width: 520px) {
   .again { flex-wrap: wrap; }
   .again .btn { flex: 1 1 100%; justify-content: center; }
