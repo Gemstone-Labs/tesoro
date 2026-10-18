@@ -8,6 +8,8 @@ import { Arena, Callout, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx
 import { STATUS, rankOfCode, type ArmyAccount, type Battle } from "./decode";
 import { catchUp, pendingOf, turnLine } from "./catchup";
 import { NAMES, ROSTER, TURN_MS, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
+import { endLine } from "./end";
+import { missedLabel, ringLeft, ringStart } from "./clock";
 import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
 import { depotsFor, enemyLeft, fromView, hitSide, indexOf, lookGame, opposite, piecesLeft, shownPieces, toView } from "./view";
 import "./vanguard.css";
@@ -31,22 +33,6 @@ export interface VanguardTableProps {
 
 const wait = (ms: number) => new Promise<void>((ok) => setTimeout(ok, prefersReducedMotion() ? 0 : ms));
 const slideMs = (a: Square, b: Square) => Math.min(380, 140 + (Math.abs(a.r - b.r) + Math.abs(a.c - b.c)) * 40);
-
-const END_LINE = {
-  truck: { won: "You captured their Supply Truck.", lost: "They captured your Supply Truck." },
-  stuck: { won: "They have no piece left that can move.", lost: "You have no piece left that can move." },
-  timeouts: { won: "They let the clock run out three turns in a row.", lost: "Your clock ran out three turns in a row." },
-  cap: { won: "Time limit reached: your surviving ranks add up higher.", lost: "Time limit reached: their surviving ranks add up higher." },
-} as const;
-const REASONS = ["truck", "stuck", "timeouts", "cap"] as const;
-
-/** The line under the board once the Battle is decided, from this Player's seat. */
-export function endLine(b: Battle, seat: number): string {
-  if (b.status === STATUS.cancelled) return "The Match was cancelled. Both entries are refunded.";
-  const reason = REASONS[b.reason] ?? "cap";
-  if (b.winner === 2) return "Time limit reached with equal armies: both entries are refunded.";
-  return END_LINE[reason][b.winner === seat ? "won" : "lost"];
-}
 
 /**
  * The war-room table for a chain Match. It draws what the Battle and your own Army say, from your side (the
@@ -241,14 +227,14 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
     const loop = () => {
       const t = Date.now();
       setNow(t);
-      const left = Math.ceil((turnSeenAt + TURN_MS - t) / 1000);
+      const left = Math.ceil((ringStart(battle, turnSeenAt) + TURN_MS - t) / 1000);
       if (battle.turn === (side === "us" ? 0 : 1) && left <= 2 && left > 0 && left !== lastSec) sfx("tick");
       lastSec = left;
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [live, turnSeenAt, battle.turn, side]);
+  }, [live, battle, turnSeenAt, side]);
 
   const game = useMemo(() => lookGame(battle, army, seat), [battle, army, seat]);
   const pending = live ? pendingOf(battle, seat) : null;
@@ -303,12 +289,13 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
       .catch((e: Error) => snapBack(e.message || "That did not go through."));
   };
 
-  const left = live ? Math.max(0, Math.min(1, (turnSeenAt + TURN_MS - now) / TURN_MS)) : 0;
+  const left = live ? ringLeft(battle, turnSeenAt, now) : 0;
   const plate = (a: Army) => {
     const mineP = a === side;
     const active = live && battle.turn === (a === "us" ? 0 : 1);
     const low = active && left < 0.4;
     const banked = battle.twoStep[a === "us" ? 0 : 1];
+    const missed = missedLabel(battle.timeouts[a === "us" ? 0 : 1]);
     return (
       <div className={`vg-plate ${a}${active ? " active" : ""}`}>
         <span className={`vg-ava${low ? " low" : ""}`}>
@@ -322,6 +309,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           <b>{mineP ? "You" : "Opponent"}</b>
           <small>{a === "us" ? "US Army" : "Royal Italian Army"} · {piecesLeft(battle, a)} of 20</small>
         </span>
+        {missed && <span className={`vg-missed${battle.timeouts[a === "us" ? 0 : 1] >= 2 ? " last" : ""}`}>{missed}</span>}
         {active && <span className="vg-turn">{mineP ? (battle.twoStepActive ? `Two-Step · ${battle.stepsLeft} left` : "Your turn") : "Their turn"}</span>}
         {mineP && twoStepLeft > 0 && !battle.twoStepActive && (
           <button type="button" className="vg-two" onClick={useTwoStep} disabled={!yourTurn || battle.moved !== 0n}>

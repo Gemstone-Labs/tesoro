@@ -8,6 +8,8 @@ import { act, log, type Ctx } from "./act.ts";
 import { shortKey } from "./env.ts";
 import { blockPuzzle, refund } from "./blockpuzzle.ts";
 import { tradingDuel } from "./duel.ts";
+import { vanguard } from "./vanguard.ts";
+import { VANGUARD_PROGRAM_ID } from "../../app/src/games/vanguard/chain.ts";
 import { pk } from "./runtime.ts";
 import { simulate, when } from "./tee.ts";
 
@@ -31,6 +33,7 @@ export async function matchHygiene(ctx: Ctx): Promise<number> {
       if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) actions += await blockPuzzle(ctx, id, account.inner, st, subject);
       else if (game.equals(HOLDEM_PROGRAM_ID)) actions += await holdem(ctx, id, account.inner, st, subject);
       else if (game.equals(TRADING_DUEL_PROGRAM_ID)) actions += await tradingDuel(ctx, id, account.inner, st, subject);
+      else if (game.equals(VANGUARD_PROGRAM_ID)) actions += await vanguard(ctx, id, account.inner, st, subject);
       else log("match", subject, `SKIP unknown game ${shortKey(game)}`);
     } catch (e) {
       log("match", subject, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);

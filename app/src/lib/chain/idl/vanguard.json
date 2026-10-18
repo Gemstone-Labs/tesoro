@@ -2510,7 +2510,8 @@
         "Rollup, permissionless, no arguments. Applies the pending action in a slot after its declare: the rank",
         "rules, the fight, the Spotted and raid bookkeeping, the turn pass, the storm, the caps, the no-legal-move",
         "check, the end reveal and the events. It never fails on hidden state: a declared move the rank rules refuse",
-        "costs the turn. The next deadline counts from now, so a slow resolve never eats the next Player's time."
+        "costs the turn. The next deadline counts from the resolve time, but never from later than the declare time plus",
+        "`RESOLVE_SLACK_SECS`: a slow resolve never eats the next Player's time, and a held-back one buys none."
       ],
       "discriminator": [
         246,
@@ -3494,11 +3495,18 @@
             "type": "u64"
           },
           {
+            "name": "resolve_slack_secs",
+            "docs": [
+              "See `engine::RESOLVE_SLACK_SECS`."
+            ],
+            "type": "u8"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                32
+                31
               ]
             }
           }

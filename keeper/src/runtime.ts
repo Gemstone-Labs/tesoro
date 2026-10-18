@@ -5,6 +5,7 @@ import { Connection, Keypair, PublicKey, TransactionExpiredBlockheightExceededEr
 import { BlockPuzzleChain, keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
 import { HoldemChain, keypairSigner as holdemSigner } from "../../app/src/games/holdem/chain.ts";
 import { TradingDuelChain } from "../../app/src/games/trading-duel/chain.ts";
+import { VanguardChain } from "../../app/src/games/vanguard/chain.ts";
 import { SplitConnection, type GpaFn } from "../../app/src/lib/chain/split-connection.ts";
 import type { Settings } from "./env.ts";
 
@@ -52,6 +53,7 @@ export interface Runtime {
   bp: BlockPuzzleChain;
   holdem: HoldemChain;
   duel: TradingDuelChain;
+  vanguard: VanguardChain;
   signer: ReturnType<typeof keypairSigner>;
   hsigner: ReturnType<typeof holdemSigner>;
   core: BlockPuzzleChain["core"];
@@ -107,7 +109,8 @@ export function buildRuntime(settings: Settings, conn: Connection, payer: Keypai
   const bp = new BlockPuzzleChain({ base: conn, blockPuzzleIdl: loadIdl("block_puzzle"), coreIdl });
   const holdem = new HoldemChain(loadIdl("holdem"), coreIdl, { base: conn });
   const duel = new TradingDuelChain(loadIdl("trading_duel"), coreIdl, { base: conn });
-  return { settings, conn, payer, bp, holdem, duel, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
+  const vanguard = new VanguardChain(loadIdl("vanguard"), coreIdl, { base: conn });
+  return { settings, conn, payer, bp, holdem, duel, vanguard, signer: keypairSigner(payer), hsigner: holdemSigner(payer), core: bp.core, coreIdl, now: 0 };
 }
 
 /** Cluster time, so deadline checks agree with the on-chain Clock. */

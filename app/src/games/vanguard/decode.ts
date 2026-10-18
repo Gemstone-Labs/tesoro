@@ -90,6 +90,8 @@ export interface Battle {
   turnSecs: number;
   graceSecs: number;
   openingGraceSecs: number;
+  /** A held-back resolve buys no more than this many seconds of the next turn's clock. */
+  resolveSlackSecs: number;
   stormFrom: number;
   stormTo: number;
   /** A declared action waiting for `resolve` (0 none, 1 move, 2 timeout, 3 cap). Public intent only. */
@@ -183,6 +185,7 @@ export function decodeBattle(data: Uint8Array): Battle {
     turnSecs: data[O.turnSecs],
     graceSecs: data[O.graceSecs],
     openingGraceSecs: data[O.openingGraceSecs],
+    resolveSlackSecs: data[O.resolveSlackSecs],
     stormFrom: data[O.stormFrom],
     stormTo: data[O.stormTo],
     pendingKind: data[O.pendingKind],
