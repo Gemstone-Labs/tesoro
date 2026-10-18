@@ -11,6 +11,12 @@ export type Rank = "10" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" | "1" | 
 
 export const SIZE = 10;
 export const TURN_MS = 5000;
+/** How long a turn lasts and how much extra time the chain gives for network delay. */
+export interface ClockConfig { turnMs: number; graceMs: number }
+/** Practice has no network: the turn ends exactly when the 5 seconds do. */
+export const PRACTICE_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 0 };
+/** On the chain a move is accepted until 5 s + 1 s of grace after the turn started; the program has the same two numbers (GRACE_SECS). */
+export const CHAIN_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 1000 };
 export const TRUCK_FUEL = 3;
 export const MOVE_CAP = 200;
 /** The time cap: after this long from the start a Match ends on the tiebreak (15 minutes). */
@@ -82,6 +88,7 @@ export interface Game {
   movedThisTurn: number[];
   /** Rollup time the Match started at (ms), for the time cap. */
   startedAt: number;
+  clock: ClockConfig;
   /** The current turn's deadline (ms): a move at or before it is accepted, a timeout only after it. */
   deadline: number;
   /** Turn on which the Dust Storm blows (once per Match). */
@@ -183,11 +190,16 @@ export interface StartOptions {
   stormAt: number;
   stormSeed: number;
   first: Army;
+  /** Defaults to the Practice clock. */
+  clock?: ClockConfig;
 }
+
+const turnEnd = (g: { clock: ClockConfig }, at: number) => at + g.clock.turnMs + g.clock.graceMs;
 
 /** A Match from an explicit layout. Piece numbers come from the start squares, never from the order given. */
 export function startGame(layout: LayoutPiece[], o: StartOptions): Game {
   const pieces: Piece[] = layout.map((l) => ({ id: startIndex(l.r, l.c), army: l.army, rank: l.rank, r: l.r, c: l.c, known: false, fuel: 0, trail: [key(l)] })).sort(byId);
+  const clock = o.clock ?? PRACTICE_CLOCK;
   return {
     pieces,
     depots: DEPOTS.map((d) => ({ ...d })),
@@ -201,7 +213,8 @@ export function startGame(layout: LayoutPiece[], o: StartOptions): Game {
     truckTurn: { us: -9, it: -9 },
     movedThisTurn: [],
     startedAt: o.startedAt,
-    deadline: o.startedAt + TURN_MS,
+    clock,
+    deadline: turnEnd({ clock }, o.startedAt),
     stormAt: o.stormAt,
     stormSeed: o.stormSeed,
     stormDone: false,
@@ -212,10 +225,10 @@ export function startGame(layout: LayoutPiece[], o: StartOptions): Game {
 }
 
 /** A random Match: both armies dropped at random, the storm turn and seed drawn up front. */
-export function newGame(rng: Rng = Math.random, startedAt = Date.now(), first: Army = "us"): Game {
+export function newGame(rng: Rng = Math.random, startedAt = Date.now(), first: Army = "us", clock: ClockConfig = PRACTICE_CLOCK): Game {
   const layout = [...placeArmy("it", rng), ...placeArmy("us", rng)];
   const stormAt = STORM_WINDOW.from + Math.floor(rng() * (STORM_WINDOW.to - STORM_WINDOW.from + 1));
-  return startGame(layout, { startedAt, stormAt, stormSeed: Math.floor(rng() * 0x100000000), first });
+  return startGame(layout, { startedAt, stormAt, stormSeed: Math.floor(rng() * 0x100000000), first, clock });
 }
 
 export const pieceAt = (g: Game, r: number, c: number) => g.pieces.find((p) => p.r === r && p.c === c);
@@ -369,7 +382,7 @@ export function move(g0: Game, a: MoveAction): Result {
     events.push({ kind: "raid", army, at: { r, c } });
   }
 
-  g = { ...g, pieces, movedThisTurn: [...g.movedThisTurn, id], stepsLeft: g.stepsLeft - 1, deadline: at + TURN_MS };
+  g = { ...g, pieces, movedThisTurn: [...g.movedThisTurn, id], stepsLeft: g.stepsLeft - 1, deadline: turnEnd(g, at) };
   // a Two-Step Turn continues while there is a second step to make
   if (g.stepsLeft > 0 && g.pieces.some((p) => p.army === army && targets(g, p).length > 0)) return done(g, events);
   return endTurn(g, events, false);
@@ -393,7 +406,7 @@ export function timeout(g: Game, at: number): Result {
     const winner = enemy(army);
     return done(finish(g1, winner, "timeouts"), [{ kind: "end", winner, reason: "timeouts" }]);
   }
-  return endTurn({ ...g1, deadline: at + TURN_MS }, [], true);
+  return endTurn({ ...g1, deadline: turnEnd(g1, at) }, [], true);
 }
 
 /** The turn passes; `g0.deadline` is already the next side's deadline. */
