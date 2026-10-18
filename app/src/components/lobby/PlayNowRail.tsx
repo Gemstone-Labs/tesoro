@@ -14,6 +14,7 @@ const GAME_LINE: Record<string, string> = {
   "block-puzzle": "Play anytime · same pieces · higher score wins",
   holdem: "Real-time · 2 players",
   "trading-duel": "Real-time · 2.5 minutes · live prices",
+  vanguard: "Strategy · 5-second turns · play the bot",
 };
 
 /** Tilt a tile toward the pointer and move its glare with it (mouse only; still under reduced motion). */
@@ -39,7 +40,9 @@ export function PlayNowRail() {
   const depth = useQueueDepth();
   const matches = CATALOGUE.filter((g) => !query.trim() || matchesQuery(g.name, query));
   const live = matches.filter((g) => g.live);
-  const soon = matches.filter((g) => !g.live);
+  const practiceOnly = matches.filter((g) => g.practice);
+  const tiles = live.length + practiceOnly.length;
+  const soon = matches.filter((g) => !g.live && !g.practice);
   const filtering = Boolean(query.trim());
 
   return (
@@ -60,7 +63,7 @@ export function PlayNowRail() {
     >
       {matches.length === 0 && <p className="rail-empty">No games match. Clear the search to see every game.</p>}
       {live.map((g, i) => (
-        <div key={g.key} className={`tile-cell${i === live.length - 1 && live.length % 2 === 1 ? " last-odd" : ""}`}>
+        <div key={g.key} className={`tile-cell${i === tiles - 1 && tiles % 2 === 1 ? " last-odd" : ""}`}>
           <Link href={`/play/${g.game}`} className="cut cut-frame tile" onPointerMove={tilt} onPointerLeave={untilt}>
             <Image src={g.wide ?? g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" style={g.wide ? { objectPosition: "right center" } : undefined} />
             <span className="tile-shade" aria-hidden="true" />
@@ -79,6 +82,20 @@ export function PlayNowRail() {
               Practice free
             </Link>
           )}
+        </div>
+      ))}
+      {practiceOnly.map((g, j) => (
+        <div key={g.key} className={`tile-cell${live.length + j === tiles - 1 && tiles % 2 === 1 ? " last-odd" : ""}`}>
+          <Link href={g.practice!} className="cut cut-frame tile" onPointerMove={tilt} onPointerLeave={untilt}>
+            <Image src={g.wide ?? g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" style={{ objectPosition: "right center" }} />
+            <span className="tile-shade" aria-hidden="true" />
+            <span className="tile-glare" aria-hidden="true" />
+            <span className="cut cut-chip tile-live">Practice only</span>
+            <span className="tile-label">
+              <strong>{g.name}</strong>
+              <span>{GAME_LINE[g.key]}</span>
+            </span>
+          </Link>
         </div>
       ))}
       {soon.length > 0 && (
