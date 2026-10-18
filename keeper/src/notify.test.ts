@@ -59,6 +59,14 @@ describe("push to the app", () => {
   });
 });
 
+describe("Vanguard settled push", () => {
+  it("carries the Game and a draw's result", () => {
+    const p = settledPush({ ...base, game: "vanguard", result: 2 });
+    assert.equal(p.game, "vanguard");
+    assert.ok(p.participants.every((x) => x.result === "draw"));
+  });
+});
+
 describe("gameOfKey", () => {
   it("knows the Vanguard program and no stranger", () => {
     assert.equal(gameOfKey(VANGUARD_PROGRAM_ID), "vanguard");
