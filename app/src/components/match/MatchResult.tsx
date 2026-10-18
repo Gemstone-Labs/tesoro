@@ -93,7 +93,7 @@ function SeasonTile({ points, delay }: { points: number; delay: string }) {
   const step = standing ? nextStep(standing) : null;
   const body = (
     <>
-      <span>Season · +{pts(points)}</span>
+      <span>{standing?.rank ? `Season · +${pts(points)}` : "Season points"}</span>
       <b>{standing?.rank ? ordinal(standing.rank) : `+${points}`}</b>
       {step && <small>{step} <span aria-hidden="true">→</span></small>}
     </>
