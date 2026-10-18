@@ -7,6 +7,7 @@ import { feeGemas } from "@/lib/chain/ledger";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
+import type { GameId } from "@/lib/mock";
 import { gameQuery } from "@/lib/game-params";
 import { assetIndexOf } from "@/lib/chain/match-id";
 import { DuelSpectate } from "./DuelSpectate";
@@ -14,6 +15,8 @@ import { RULES } from "./MatchResult";
 import "./match.css";
 import { PlayerAvatar, PlayerName, usePlayerLabel } from "@/components/account/Player";
 
+/** What a spectator cannot see while a Match is live, by Game. */
+const SPECTATE_HIDDEN: Record<GameId, string> = { "block-puzzle": "Runs", holdem: "Cards", "trading-duel": "Positions", vanguard: "Ranks" };
 
 /**
  * Someone else's Match, read-only: both Players (each leading to their Account), the result and the Pot. Open and live Matches are
@@ -128,7 +131,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
           <p className="mr-copy">
             {m.status === "open" || m.status === "active"
-              ? `You are watching a Match you are not part of. ${m.game === "trading-duel" ? "Positions" : "Runs and cards"} stay hidden until it settles.`
+              ? `You are watching a Match you are not part of. ${SPECTATE_HIDDEN[m.game]} stay hidden until it settles.`
               : "You are viewing a Match you were not part of. The result is final."}
           </p>
         </div>

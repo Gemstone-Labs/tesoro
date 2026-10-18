@@ -122,6 +122,7 @@ export function demoSnapshot(address: string): AccountSnapshot {
       match("holdem", 2500, true, 12, [2, 0]),
       match("block-puzzle", 1000, false, 240, [102, 133]),
       match("holdem", 1000, false, 1440, [1, 2]),
+      match("vanguard", 500, true, 3000, [0, 0]),
       // Older history, enough for a second page of All Matches.
       ...Array.from({ length: 18 }, (_, i) =>
         match(i % 3 === 0 ? "holdem" : "block-puzzle", [500, 1000, 2500][i % 3], i % 4 !== 1, 1500 + i * 97, [120 + ((i * 7) % 40), 80 + ((i * 11) % 50)]),
@@ -168,6 +169,7 @@ export function demoBoard(): BackingBoard {
       req(5, "trading-duel", 500, 31, 21, 845),
       req(6, "block-puzzle", 500, 0, 0, 1380),
       req(7, "holdem", 2500, 64, 37, 96),
+      req(8, "vanguard", 500, 12, 7, 410),
     ],
     offers: [],
     fetchedAt: Date.now(),
@@ -179,6 +181,7 @@ export function demoSettled(): SettledMatch[] {
     { id: idAt(ago(2)), game: "block-puzzle", entry: 1000, winner: key(701).toBase58(), payout: 1900, scores: [171, 55], at: ago(2) },
     { id: idAt(ago(9)), game: "holdem", entry: 2500, winner: key(702).toBase58(), payout: 4750, scores: null, at: ago(9) },
     { id: idAt(ago(21)), game: "block-puzzle", entry: 500, winner: key(703).toBase58(), payout: 950, scores: [133, 102], at: ago(21) },
+    { id: idAt(ago(33)), game: "vanguard", entry: 500, winner: key(704).toBase58(), payout: 950, scores: null, at: ago(33) },
   ];
 }
 
@@ -191,7 +194,7 @@ export function demoPlayerAccount(address: string): PlayerAccount {
   if (address === DEMO_NO_ACCOUNT) return { exists: false, played: [], requests: [] };
   if (address === DEMO_NEW_ACCOUNT) return { exists: true, played: [], requests: [] };
   if (address === key(1).toBase58()) return { exists: true, played: demoSnapshot(address).matches, requests: [] };
-  const m = (game: "block-puzzle" | "holdem", entry: number, win: boolean, mins: number, scores: [number, number] = [0, 0]) =>
+  const m = (game: GameId, entry: number, win: boolean, mins: number, scores: [number, number] = [0, 0]) =>
     match(game, entry, win, mins, scores, address);
   const [backerA, backerB] = [key(801).toBase58(), key(802).toBase58()];
   const draw = m("block-puzzle", 1000, true, 600, [118, 118]);

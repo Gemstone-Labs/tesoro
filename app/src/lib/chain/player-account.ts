@@ -2,6 +2,7 @@ import { fmtGemas } from "../format";
 import type { GameId } from "../mock/types";
 import type { ChainRequest, PlayerRecord } from "./backing";
 import { historyRow, shortKey, type HistoryRow } from "./history";
+import { GAME_LIST } from "../games";
 import { backerDelta } from "./ledger";
 import type { ChainMatch } from "./read";
 
@@ -66,8 +67,6 @@ export interface PlayerSummary {
   };
 }
 
-const GAMES: GameId[] = ["block-puzzle", "holdem", "trading-duel", "vanguard"];
-
 export function playerSummary(played: ChainMatch[]): PlayerSummary {
   const rows = playedRows(played);
   const decided = rows.filter((r) => r.result === "won" || r.result === "lost");
@@ -91,7 +90,7 @@ export function playerSummary(played: ChainMatch[]): PlayerSummary {
     won: gains(deltas),
     lost: losses(deltas),
     net: sum(deltas),
-    byGame: GAMES.map((game) => {
+    byGame: GAME_LIST.map((game) => {
       const of = decided.filter((r) => r.game === game);
       return { game, matches: of.length, wins: of.filter((r) => r.result === "won").length };
     }).filter((g) => g.matches > 0),
@@ -147,7 +146,7 @@ export function gemasRecord(rows: PlayedRow[], game: GameId | null): GemasRecord
     net: series.length ? series[series.length - 1].total : 0,
     wins,
     losses: series.length - wins,
-    games: GAMES.filter((g) => all.some((p) => p.row.game === g)),
+    games: GAME_LIST.filter((g) => all.some((p) => p.row.game === g)),
   };
 }
 

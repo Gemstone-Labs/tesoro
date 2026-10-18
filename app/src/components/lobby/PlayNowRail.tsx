@@ -5,16 +5,17 @@ import Link from "next/link";
 import type { PointerEvent } from "react";
 import { Clock, X } from "lucide-react";
 import { practiceHref } from "@/lib/game-params";
+import type { GameId } from "@/lib/mock/types";
 import { CATALOGUE } from "@/lib/catalogue";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
 import { useQueueDepth } from "./useQueue";
 
-const GAME_LINE: Record<string, string> = {
+const GAME_LINE: Record<GameId, string> = {
   "block-puzzle": "Play anytime · same pieces · higher score wins",
   holdem: "Real-time · 2 players",
   "trading-duel": "Real-time · 2.5 minutes · live prices",
-  vanguard: "Strategy · 5-second turns · play the bot",
+  vanguard: "Strategy · 5-second turns · hidden ranks",
 };
 
 /** Tilt a tile toward the pointer and move its glare with it (mouse only; still under reduced motion). */
@@ -40,9 +41,8 @@ export function PlayNowRail() {
   const depth = useQueueDepth();
   const matches = CATALOGUE.filter((g) => !query.trim() || matchesQuery(g.name, query));
   const live = matches.filter((g) => g.live);
-  const practiceOnly = matches.filter((g) => g.practice);
-  const tiles = live.length + practiceOnly.length;
-  const soon = matches.filter((g) => !g.live && !g.practice);
+  const tiles = live.length;
+  const soon = matches.filter((g) => !g.live);
   const filtering = Boolean(query.trim());
 
   return (
@@ -74,7 +74,7 @@ export function PlayNowRail() {
             </span>
             <span className="tile-label">
               <strong>{g.name}</strong>
-              <span>{GAME_LINE[g.key]}</span>
+              <span>{g.game ? GAME_LINE[g.game] : ""}</span>
             </span>
           </Link>
           {g.game && (
@@ -82,20 +82,6 @@ export function PlayNowRail() {
               Practice free
             </Link>
           )}
-        </div>
-      ))}
-      {practiceOnly.map((g, j) => (
-        <div key={g.key} className={`tile-cell${live.length + j === tiles - 1 && tiles % 2 === 1 ? " last-odd" : ""}`}>
-          <Link href={g.practice!} className="cut cut-frame tile" onPointerMove={tilt} onPointerLeave={untilt}>
-            <Image src={g.wide ?? g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" style={{ objectPosition: "right center" }} />
-            <span className="tile-shade" aria-hidden="true" />
-            <span className="tile-glare" aria-hidden="true" />
-            <span className="cut cut-chip tile-live">Practice only</span>
-            <span className="tile-label">
-              <strong>{g.name}</strong>
-              <span>{GAME_LINE[g.key]}</span>
-            </span>
-          </Link>
         </div>
       ))}
       {soon.length > 0 && (

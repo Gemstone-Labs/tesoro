@@ -42,7 +42,7 @@ export default function Page() {
         head={["Fee", "Share of the Pot", "Goes to"]}
         rows={[
           ["Platform Fee", "2%", `${BRAND.name}.`],
-          ["Studio Fee", "3% in all three launch Games", `The Game's Studio. ${BRAND.name} is the Studio of its own Games.`],
+          ["Studio Fee", "3% in every Game", `The Game's Studio. ${BRAND.name} is the Studio of its own Games.`],
           [<>Leaderboard Fee</>, "1%", <>The Leaderboard Pool, paid to the top Players each week (see <Link href="/docs/leaderboard">Leaderboard</Link>).</>],
           [<b key="t">Total</b>, <b key="p">6%</b>, ""],
         ]}

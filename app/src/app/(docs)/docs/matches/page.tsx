@@ -85,6 +85,18 @@ export default function Page() {
         <li>At the end, more points wins. Equal points, including neither Player picking, are a draw and both entries are refunded.</li>
       </ul>
 
+      <H2 id="vanguard">Vanguard</H2>
+      <p>
+        Blitz Stratego for two: 20 pieces each on a 10 by 10 desert board, the US Army against the Royal Italian Army, with your side drawn at random.
+        Capture the enemy <b>Supply Truck</b> to win.
+      </p>
+      <ul>
+        <li>Your pieces&apos; ranks are visible only to you. An enemy piece shows its rank only once it has fought, and a piece that loses an attack is never shown.</li>
+        <li>You have 5 seconds for each move. Three missed turns in a row lose the Match.</li>
+        <li>A Dust Storm blows once per Match and shifts one row or column of the board a square. Raiding the enemy depot earns a Two-Step Turn.</li>
+        <li>Every Match ends: after the time or move limit, the higher total of surviving ranks wins, then the higher piece count. An exact tie is a draw, and a draw refunds both entries.</li>
+      </ul>
+
       <H3 id="chips">Chips are not Gemas</H3>
       <p>
         In Hold&apos;em, Chips are the in-match score units (Trading Duel scores points the same way). They never become Gemas or leave the Match. Gemas enter a Match once and

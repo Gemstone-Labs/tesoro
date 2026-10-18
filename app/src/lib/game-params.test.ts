@@ -18,6 +18,8 @@ describe("backingQuery", () => {
   it("defaults to SOL, and other Games carry no asset", () => {
     expect(backingQuery("trading-duel", undefined, 500, "O")).toBe("game=trading-duel&asset=sol&entry=500&backing=O");
     expect(backingQuery("holdem", 2, 500, "O")).toBe("game=holdem&entry=500&backing=O");
+    expect(backingQuery("vanguard", 2, 500, "O")).toBe("game=vanguard&entry=500&backing=O");
+    expect(parse(backingQuery("vanguard", 0, 500, "O"))).toMatchObject({ game: "vanguard" });
     expect(backingQuery("block-puzzle", 1, 500, "O")).toBe("entry=500&backing=O");
     expect(assetFromParam("nonsense")).toBe(0);
   });
@@ -27,6 +29,7 @@ describe("challengeHref", () => {
   it("leads to the Challenge route of the Game at the default entry", () => {
     expect(challengeHref("block-puzzle")).toBe("/play/challenge");
     expect(challengeHref("holdem")).toBe("/play/challenge?game=holdem");
+    expect(challengeHref("vanguard")).toBe("/play/challenge?game=vanguard");
     expect(challengeHref("trading-duel", 1)).toBe("/play/challenge?game=trading-duel&asset=eth");
   });
 });

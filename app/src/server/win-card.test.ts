@@ -3,6 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { BLOCK_PUZZLE_PROGRAM_ID } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID } from "@/games/holdem/chain";
+import { VANGUARD_PROGRAM_ID } from "@/games/vanguard/chain";
 import { loadWin, type WinDeps } from "./win-card";
 
 const key = (n: number) => new PublicKey(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? n : 9)));
@@ -38,6 +39,11 @@ describe("loadWin", () => {
   it("loads a settled Hold'em table by its winner seat", async () => {
     const w = await loadWin(7n, deps({ matchState: async () => state("settled", HOLDEM_PROGRAM_ID), gameAccount: async () => ({ winner: 0 }) }));
     expect(w?.game).toBe("holdem");
+  });
+  it("loads a settled Vanguard Battle by its winning seat, and not a Battle with no winner", async () => {
+    const vanguard = (winner: number) => deps({ matchState: async () => state("settled", VANGUARD_PROGRAM_ID), gameAccount: async () => ({ winner }) });
+    expect(await loadWin(7n, vanguard(1))).toMatchObject({ game: "vanguard", entry: 1000 });
+    expect(await loadWin(7n, vanguard(255))).toBeNull();
   });
   it("is null for a Match that does not exist", async () => {
     expect(await loadWin(7n, deps({ matchState: async () => null }))).toBeNull();

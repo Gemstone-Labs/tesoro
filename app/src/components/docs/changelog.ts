@@ -2,6 +2,7 @@ export type Change = { date: string; iso: string; title: string; body: string; h
 
 /** What changed recently, in Player words. Dated from the merges on main; newest first. */
 export const CHANGES: Change[] = [
+  { date: "19 Oct", iso: "2026-10-19", title: "Vanguard", body: "The fourth Game: blitz Stratego on a 10x10 desert board. Hidden ranks, 5 seconds a move, capture the enemy Supply Truck to win. Play now, Practice free or Challenge a friend.", href: "/docs/matches#vanguard" },
   { date: "12 Oct", iso: "2026-10-12", title: "Trading Duel is a price grid", body: "Pick a box in each of 12 columns and score 100 points when the live price line passes through it. Two and a half minutes, SOL, ETH or HYPE, more points wins.", href: "/docs/matches#trading-duel" },
   { date: "10 Oct", iso: "2026-10-10", title: "Waitlist", body: "The home page is now a waitlist: leave an email to get your spot. How it works moved to /welcome.", href: "/welcome" },
   { date: "10 Oct", iso: "2026-10-10", title: "Leaderboard Pool and weekly Seasons", body: "Every Match adds 1% of its Pot to a pool. Each week the top 10 Players by points split it.", href: "/docs/leaderboard" },

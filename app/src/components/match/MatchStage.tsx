@@ -39,6 +39,21 @@ export interface StageInfo {
   delayed?: { refundBy: number; refundOpen: boolean } | null;
 }
 
+/** The line under "Waiting for an opponent", by Game. */
+const WAITING_LINE: Record<GameId, (asset?: string | null) => string> = {
+  "block-puzzle": () => "Your run starts the moment they join.",
+  holdem: () => "The cards are dealt the moment they sit down.",
+  "trading-duel": (asset) => `A 30 second head start on ${asset ?? "SOL"}/USD starts the moment they join.`,
+  vanguard: () => "Both armies are drawn in secret the moment they join.",
+};
+/** The line under "Get ready", by Game. */
+const SETUP_LINE: Record<GameId, string> = {
+  "block-puzzle": "Your pieces are drawn in secret.",
+  holdem: "The deck is being shuffled in secret.",
+  "trading-duel": "You each get 10,000 Chips to trade.",
+  vanguard: "Your army is drawn in secret and the board is set.",
+};
+
 const HIDDEN: Record<GameId, string> = { "block-puzzle": "Pieces hidden", holdem: "Cards hidden", "trading-duel": "Picks hidden", vanguard: "Ranks hidden" };
 
 /** Plain words for a Match that should have settled: the Gemas are safe and the refund has a time. */
@@ -63,13 +78,13 @@ function copy(m: StageInfo): { kicker: string; title: string; line: string } {
       return {
         kicker: m.asset ? `${g} · ${m.asset}/USD` : g,
         title: "Waiting for an opponent",
-        line: m.game === "holdem" ? "The cards are dealt the moment they sit down." : m.game === "vanguard" ? "Both armies are drawn in secret the moment they join." : `A 30 second head start on ${m.asset ?? "SOL"}/USD starts the moment they join.`,
+        line: WAITING_LINE[m.game](m.asset),
       };
     case "setup":
       return {
         kicker: `${g} · opponent found`,
         title: "Get ready",
-        line: m.game === "block-puzzle" ? "Your pieces are drawn in secret." : m.game === "holdem" ? "The deck is being shuffled in secret." : m.game === "vanguard" ? "Your army is drawn in secret and the board is set." : "You each get 10,000 Chips to trade.",
+        line: SETUP_LINE[m.game],
       };
     case "ready":
       return { kicker: g, title: "Your turn", line: "Same pieces as your opponent. Your clock starts when you press Start." };

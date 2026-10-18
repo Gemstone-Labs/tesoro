@@ -27,6 +27,14 @@ export type EnterKind =
   | { kind: "challenge-new"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string; /** A Rematch: the opponent of the Match being replayed. */ opponent?: string }
   | { kind: "challenge-join"; id: string; backing?: string };
 
+/** What the Queue says once a seat is open: Block Puzzle is played while it waits, the others start when someone joins. */
+const OPENED_LINE: Record<GameId, string> = {
+  "block-puzzle": "Match opened. You'll be paired while you play.",
+  holdem: "Entered the Queue.",
+  "trading-duel": "Entered the Queue.",
+  vanguard: "Entered the Queue.",
+};
+
 function explain(e: unknown): { text: string; wallet?: boolean } {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
@@ -143,7 +151,7 @@ export function EnterMatch(props: EnterKind) {
           router.replace(`/play/match/${props.id}`);
         } else if (props.kind === "queue") {
           const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset);
-          entered(r, props.game === "holdem" || props.game === "trading-duel" || props.game === "vanguard" ? "Entered the Queue." : "Match opened. You'll be paired while you play.");
+          entered(r, OPENED_LINE[game]);
         } else if (props.kind === "challenge-new") {
           const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus);
           router.replace(`/play/match/${id.toString()}`);

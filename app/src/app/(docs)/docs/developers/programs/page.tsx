@@ -14,6 +14,7 @@ export default function Page() {
     ["block_puzzle", "Game: Block Puzzle", Puzzle, "sapphire", "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"],
     ["holdem", "Game: Hold'em", Spade, "rose", "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"],
     ["trading_duel", "Game: Trading Duel", Swords, "amber", "CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj"],
+    ["vanguard", "Game: Vanguard", Swords, "emerald", "TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH"],
     ["sim_lst", "Staking token behind SOL Positions (simSOL)", Timer, "steel", "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"],
     ["tesoro_bridge", "LayerZero V2 OApp on Solana", Network, "violet", "5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ"],
   ].map(([n, r, I, t, id]) => (
@@ -33,6 +34,7 @@ export default function Page() {
           [<code key="2">block_puzzle</code>, <a key="2a" className="docs-ext" href={explorer("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj")}><code>5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj</code></a>],
           [<code key="3">holdem</code>, <a key="3a" className="docs-ext" href={explorer("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE")}><code>CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE</code></a>],
           [<code key="4">trading_duel</code>, <a key="4a" className="docs-ext" href={explorer("CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj")}><code>CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj</code></a>],
+          [<code key="4v">vanguard</code>, <a key="4va" className="docs-ext" href={explorer("TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH")}><code>TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH</code></a>],
           [<code key="5">sim_lst</code>, <a key="5a" className="docs-ext" href={explorer("WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F")}><code>WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F</code></a>],
           [<code key="6">tesoro_bridge</code>, <a key="6a" className="docs-ext" href={explorer("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ")}><code>5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ</code></a>],
         ]}

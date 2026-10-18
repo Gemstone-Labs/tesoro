@@ -67,10 +67,18 @@ function chainDeps(): WinDeps {
       return bp.core.account.matchState.fetchNullable(BlockPuzzleChain.addresses(id).match);
     },
     gameAccount(id, game) {
-      if (game === "holdem") return (holdem.program.account as any).gameMatch.fetchNullable(holdemAddresses(id).gameMatch).catch(() => null);
-      if (game === "trading-duel") return (duel.program.account as any).duel.fetchNullable(duelAddresses(id).duel).catch(() => null);
-      if (game === "vanguard") return vanguardBattle(base, id);
-      return bp.bp.account.session.fetchNullable(BlockPuzzleChain.addresses(id).session).catch(() => null);
+      switch (game) {
+        case "holdem":
+          return (holdem.program.account as any).gameMatch.fetchNullable(holdemAddresses(id).gameMatch).catch(() => null);
+        case "trading-duel":
+          return (duel.program.account as any).duel.fetchNullable(duelAddresses(id).duel).catch(() => null);
+        case "vanguard":
+          return vanguardBattle(base, id);
+        case "block-puzzle":
+          return bp.bp.account.session.fetchNullable(BlockPuzzleChain.addresses(id).session).catch(() => null);
+        default:
+          return game satisfies never;
+      }
     },
     profile: (account) =>
       bp.core.account.profile.fetchNullable(PublicKey.findProgramAddressSync([Buffer.from("profile"), account.toBuffer()], TESORO_CORE_PROGRAM_ID)[0]),

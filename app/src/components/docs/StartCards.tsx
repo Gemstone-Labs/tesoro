@@ -8,6 +8,7 @@ const PROGRAMS = [
   ["block_puzzle", "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"],
   ["holdem", "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"],
   ["trading_duel", "CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj"],
+  ["vanguard", "TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH"],
   ["sim_lst", "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"],
 ] as const;
 
