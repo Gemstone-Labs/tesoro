@@ -5,6 +5,8 @@ import { Button, CheckIcon, ClockIcon, GemaAmount, Sheet } from "@/components/ui
 import { useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS, EXTEND_ADVANCE_ENABLED } from "@/lib/advance";
 import { fmtGemas, fmtInMinutes, fmtUsd, fmtWhen, gemasToUsd } from "@/lib/format";
+import { gameQuery } from "@/lib/game-params";
+import { GAME_NAMES } from "@/lib/mock";
 import { ratesOf } from "@/lib/chain/fees";
 import { covered, gemasInAsset, live } from "@/lib/chain/ledger";
 import {
@@ -36,7 +38,7 @@ import { useInstantRedeem } from "./instant";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
 import { AdvanceFormView, AdvanceTakenNote } from "./AdvanceSheet";
-import { OpenFormView } from "./OpenPanel";
+import { OpenFormView, useOpenIntent } from "./OpenPanel";
 import { ExtendLimitPanel } from "./ExtendLimit";
 import { PositionTile, sampledSeries } from "./PositionTile";
 
@@ -95,19 +97,36 @@ function useAction(refresh: () => Promise<unknown>) {
 // ---- Get simSOL + Open a Position ---------------------------------------------------------------
 
 /** The SOL deposit card's balance line: your simSOL and a Get test simSOL link, the receipt or error under it. */
-export function NativeFaucet({ market, loading }: { market: NativeMarket | null; loading: boolean }) {
+export function NativeFaucet({ market, loading, asButton = false }: { market: NativeMarket | null; loading: boolean; asButton?: boolean }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const [step, setStep] = useState("Getting simSOL");
   const signer = auth.signer;
+  const get = () => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken, setStep));
+  if (asButton) {
+    return (
+      <div className="wl-faucet">
+        <Button block disabled={!signer || a.busy !== null} onClick={get}>
+          {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
+        </Button>
+        {a.done && <Sig label="faucet" sig={a.done.sig} />}
+        {a.error && <p className="status err" role="alert">{a.error}</p>}
+      </div>
+    );
+  }
+  const empty = !!market && market.simSol === 0n;
   return (
     <>
       <span>
         {loading ? "Loading your Account…" : <>You have <b className="tnum">{market ? fmtSol(market.simSol, 3) : "—"}</b> simSOL</>}
-        {" · "}
-        <button type="button" className="wl-link" disabled={!signer || a.busy !== null} onClick={() => signer && a.run("faucet", () => getTestSimSol(signer, auth.getAccessToken, setStep))}>
-          {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
-        </button>
+        {!empty && (
+          <>
+            {" · "}
+            <button type="button" className="wl-link" disabled={!signer || a.busy !== null} onClick={get}>
+              {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
+            </button>
+          </>
+        )}
       </span>
       {a.done && <Sig label="faucet" sig={a.done.sig} />}
       {a.error && <p className="status err" role="alert">{a.error}</p>}
@@ -120,18 +139,35 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
   const balance = market ? Number(market.simSol) / LAMPORTS : 0;
-  const [text, setText] = useState("");
+  const [typed, setText] = useState<string | null>(null);
   const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [step, setStep] = useState("Preparing");
   const now = useNow(5000);
+  const intent = useOpenIntent();
+  const { gemas: held } = useAccount();
 
-  const amount = Number(text);
-  const shares = market && Number.isFinite(amount) && amount > 0 ? BigInt(Math.round(amount * LAMPORTS)) : 0n;
   const rate = market ? rateAt(market.pool) : 0n;
-  const principal = market ? sharesValue(shares, rate) : 0n;
   const priceAge = market?.price ? now / 1000 - market.price.updatedTs : Infinity;
   const priceOk = !!market?.price && priceAge <= MAX_PRICE_AGE_SECS - 60;
   const { yieldFeeBps } = ratesOf(market?.treasury);
+
+  // Until the Player types: the deposit that covers the game they came for, else half of what they hold.
+  let seed = "";
+  if (market && balance > 0) {
+    const floor3 = (n: number) => Math.floor(n * 1000) / 1000;
+    const short = intent?.need ? intent.need - held.available : 0;
+    if (short > 0 && priceOk) {
+      const perSol = quoteNativeAdvance(sharesValue(BigInt(LAMPORTS), rate), market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps).gemas;
+      const sol = perSol > 0n ? Math.ceil((short / Number(perSol)) * 1.02 * 1000) / 1000 : balance;
+      seed = String(sol <= balance ? sol : floor3(balance));
+    } else if (!intent) {
+      seed = String(floor3(balance * 0.5));
+    }
+  }
+  const text = typed ?? seed;
+  const amount = Number(text);
+  const shares = market && Number.isFinite(amount) && amount > 0 ? BigInt(Math.round(amount * LAMPORTS)) : 0n;
+  const principal = market ? sharesValue(shares, rate) : 0n;
   const quote = market && priceOk ? quoteNativeAdvance(principal, market.pool.apyBps, months, market.price!.microUsd, yieldFeeBps) : null;
   const gemas = quote ? Number(quote.gemas) : 0;
   // A fresh Position's Debt is the whole Advance: the Estimate is when the vault's yield covers it.
@@ -149,15 +185,24 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
     : null;
   const tooMuch = !!market && shares > market.simSol;
   const valid = !!market && shares > 0n && !tooMuch && gemas > 0;
+  const horizonAt = estimate ?? now + months * SIM_MONTH_MIN * 60_000;
 
   if (a.done) {
+    const back = intent
+      ? { href: intent.need ? `/play/queue?${gameQuery(intent.game)}entry=${intent.need}` : `/play/${intent.game}`, label: `Play ${GAME_NAMES[intent.game]}` }
+      : null;
     return (
       <div className="stack">
         <div className="status ok" role="status">
           <CheckIcon /> Position opened · <GemaAmount value={gemas} size="md" /> issued
         </div>
         <Sig label="open" sig={a.done.sig} />
-        <Button block onClick={() => { a.clear(); setText(""); onDone?.(); }}>Done</Button>
+        {back && (
+          <Button variant="money" size="lg" block href={back.href}>
+            <GemasLabel action={back.label} gemas={intent?.need ?? 0} />
+          </Button>
+        )}
+        <Button block onClick={() => { a.clear(); setText(null); onDone?.(); }}>{back ? "Not now" : "Done"}</Button>
       </div>
     );
   }
@@ -170,6 +215,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
       amountText={text}
       onAmount={setText}
       amountInvalid={tooMuch}
+      head={market && !loading && balance === 0 ? <NativeFaucet market={market} loading={loading} asButton /> : undefined}
       balance={<NativeFaucet market={market} loading={loading} />}
       max={market ? balance : undefined}
       months={months}
@@ -177,7 +223,7 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
       gemas={gemas}
       yieldText={`${quote ? fmtSol(quote.projectedUnits) : "0"} SOL`}
       yieldFeeBps={yieldFeeBps}
-      estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
+      estimate={`${fmtWhen(horizonAt)} (${fmtInMinutes(horizonAt, now)})`}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ["Principal", `${fmtSol(principal)} SOL`],
@@ -195,7 +241,9 @@ export function NativeOpenForm({ market, loading, onDone }: { market: NativeMark
         </>
       }
       note={<span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span>}
-      buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Open a Position" gemas={gemas} />}
+      buttonLabel={
+        a.busy ? `${step}…` : tooMuch ? "Not enough simSOL" : shares === 0n ? "Enter an amount" : market && !priceOk ? "Waiting for the SOL price" : <GemasLabel action="Open a Position" gemas={gemas} />
+      }
       disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
       onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, setStep)).signature)}
     />

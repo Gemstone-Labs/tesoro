@@ -113,6 +113,13 @@
 .wl-link:hover { text-decoration-color: var(--fg); }
 .wl-link:disabled { cursor: default; color: var(--fg-2); text-decoration: none; }
 .wl-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.wl-intent { margin: 0; padding: 10px 12px; background: var(--raised); font-size: 14px; color: var(--fg); }
+.wl-intent b { font-weight: 800; }
+.wl-lede { margin: 0; font-size: 14px; color: var(--fg-2); }
+.wl-lede b { color: var(--fg); }
+/* the money button stays at the foot of the sheet while the form scrolls (phones; harmless when it all fits) */
+.wl-cta { position: sticky; bottom: 0; z-index: 1; margin: 0 -16px calc(-18px - env(safe-area-inset-bottom)); padding: 10px 16px calc(18px + env(safe-area-inset-bottom)); background: var(--surface); box-shadow: 0 -1px 0 var(--line); }
+@media (min-width: 640px) { .wl-cta { margin: 0 -24px -26px; padding: 12px 24px 26px; } }
 .wl-details { font-size: 13px; }
 .wl-details summary { cursor: pointer; color: var(--fg-2); padding: 2px 0; }
 .wl-details .kv { margin-top: 6px; }
