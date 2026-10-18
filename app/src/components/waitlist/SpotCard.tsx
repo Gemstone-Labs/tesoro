@@ -26,7 +26,7 @@ export function fitSize(text: string, max: number, width: number, em = 0.56): nu
   return Math.min(max, Math.floor(width / (text.length * em)));
 }
 
-type Props = { gem: SpotGem; src: string; F: CardFonts };
+type Props = { gem: SpotGem; src: string; F: CardFonts; tags?: readonly string[] };
 
 export function Lockup({ height }: { height: number }) {
   const p = PALETTE.dark;
@@ -180,8 +180,35 @@ export function Tagline({ F, size }: { F: CardFonts; size: number }) {
   );
 }
 
+/** What the member said they are (Player, Staker, Studio), as small tags in the gem's colour. */
+function Tags({ tags, hex, F }: { tags: readonly string[]; hex: string; F: CardFonts }) {
+  return (
+    <div style={{ display: "flex", gap: 12, marginTop: 22 }}>
+      {tags.map((t) => (
+        <div
+          key={t}
+          style={{
+            display: "flex",
+            padding: "8px 16px",
+            border: `2px solid ${rgba(hex, 0.7)}`,
+            backgroundColor: rgba(hex, 0.12),
+            fontFamily: F.sans,
+            fontWeight: 700,
+            fontSize: 24,
+            letterSpacing: 4,
+            textTransform: "uppercase",
+            color: FG,
+          }}
+        >
+          {t}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Spot number and name, each sized to fit the column. */
-function Title({ gem, F, width, max = 200 }: { gem: SpotGem; F: CardFonts; width: number; max?: number }) {
+function Title({ gem, F, width, max = 200, tags = [] }: { gem: SpotGem; F: CardFonts; width: number; max?: number; tags?: readonly string[] }) {
   const num = `#${gem.spot}`;
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
@@ -221,12 +248,13 @@ function Title({ gem, F, width, max = 200 }: { gem: SpotGem; F: CardFonts; width
       >
         {gem.name}
       </div>
+      {tags.length ? <Tags tags={tags} hex={gem.hex} F={F} /> : null}
     </div>
   );
 }
 
 /** The gem in its window over its own light rays and the waitlist texture; spot, name and tagline beside it. */
-function Lit({ gem, src, F }: Props) {
+function Lit({ gem, src, F, tags }: Props) {
   return (
     <div
       style={{
@@ -266,7 +294,7 @@ function Lit({ gem, src, F }: Props) {
           }}
         >
           <Lockup height={52} />
-          <Title gem={gem} F={F} width={568} />
+          <Title gem={gem} F={F} width={568} max={tags?.length ? 170 : 200} tags={tags} />
           <Tagline F={F} size={44} />
         </div>
       </div>
@@ -274,10 +302,10 @@ function Lit({ gem, src, F }: Props) {
   );
 }
 
-export function SpotCard({ gem, src, fonts = OG_FONTS }: { gem: SpotGem; src: string; fonts?: CardFonts }) {
+export function SpotCard({ gem, src, fonts = OG_FONTS, tags }: { gem: SpotGem; src: string; fonts?: CardFonts; tags?: readonly string[] }) {
   return (
     <div style={{ display: "flex", width: CARD.width, height: CARD.height, fontFamily: fonts.sans, textAlign: "left", lineHeight: 1.2 }}>
-      <Lit gem={gem} src={src} F={fonts} />
+      <Lit gem={gem} src={src} F={fonts} tags={tags} />
     </div>
   );
 }

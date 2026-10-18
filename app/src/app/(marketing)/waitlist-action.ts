@@ -2,6 +2,7 @@
 
 import { headers } from "next/headers";
 import { parseEmail } from "@/lib/email";
+import { parseRoles } from "@/lib/waitlist-role";
 import { WindowLimiter } from "@/server/rate-limit";
 import { passesChallenge } from "@/server/turnstile";
 import { join } from "@/server/waitlist";
@@ -24,7 +25,12 @@ export async function joinWaitlist(_prev: WaitlistState, form: FormData): Promis
     return { status: "error", message: "We couldn't check that you're human. Reload the page and try again." };
   }
   try {
-    const spot = await join(email, { source: clean(form.get("utm_source"), 80), referrer: clean(form.get("referrer"), 300) });
+    const spot = await join(email, {
+      source: clean(form.get("utm_source"), 80),
+      referrer: clean(form.get("referrer"), 300),
+      roles: parseRoles(form.get("role")),
+      studio: clean(form.get("studio"), 120),
+    });
     return spot ? { status: "ok", spot } : { status: "ok" };
   } catch (e) {
     console.error("waitlist", e);

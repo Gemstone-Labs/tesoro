@@ -4,8 +4,10 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { joinWaitlist, type WaitlistState } from "@/app/(marketing)/waitlist-action";
 import { art } from "@/lib/art";
 import { appHref } from "@/lib/landing/config";
+import { roleTags, type Role } from "@/lib/waitlist-role";
 import { gemFor, shareText, spotPath } from "@/lib/waitlist-spot";
 import { PackReveal } from "./PackReveal";
+import { RolePicker } from "./RolePicker";
 import { TurnstileField } from "./TurnstileField";
 
 const IDLE: WaitlistState = { status: "idle" };
@@ -15,9 +17,40 @@ const SHARE_TEXT = "I just joined the Tesoro waitlist: play casual games with yi
 const postUrl = (text: string, url: string) =>
   `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
 
+/** Where the optional role question sits (prototype): A above the email, B under the button, C on the sealed pack. */
+type Take = "a" | "b" | "c";
+const TAKES: { key: Take; name: string }[] = [
+  { key: "a", name: "Above email" },
+  { key: "b", name: "Under button" },
+  { key: "c", name: "In the pack" },
+];
+
+/** Prototype wrapper: switches takes from on-page buttons and resets the form on each switch. */
+export function WaitlistForm({ source }: { source?: string }) {
+  const [take, setTake] = useState<Take>("a");
+  const [run, setRun] = useState(0);
+  return (
+    <>
+      <Form key={`${take}-${run}`} source={source} take={take} />
+      <div className="wl-proto" role="group" aria-label="Prototype takes">
+        <span>Take</span>
+        {TAKES.map((t) => (
+          <button key={t.key} type="button" aria-pressed={take === t.key} title={t.name} onClick={() => setTake(t.key)}>
+            {t.key.toUpperCase()} · {t.name}
+          </button>
+        ))}
+        <button type="button" onClick={() => setRun((n) => n + 1)}>
+          Reset
+        </button>
+      </div>
+    </>
+  );
+}
+
 /** `source` credits a shared spot link when the visitor arrived without a utm_source. */
-export function WaitlistForm({ source: invitedBy }: { source?: string }) {
+function Form({ source: invitedBy, take }: { source?: string; take: Take }) {
   const [state, action, pending] = useActionState(joinWaitlist, IDLE);
+  const [roles, setRoles] = useState<Role[]>([]);
   const source = useRef<HTMLInputElement>(null);
   const referrer = useRef<HTMLInputElement>(null);
   const [pack, setPack] = useState<"sealed" | "open" | "closed">("sealed");
@@ -41,7 +74,10 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="wl-gem-art" src={art.avatars[gem.avatar - 1]} alt="" width={72} height={72} />
             <div>
-              <p className="wl-gem-spot mono">Spot #{gem.spot}</p>
+              <p className="wl-gem-spot mono">
+                Spot #{gem.spot}
+                {roles.length ? ` · ${roleTags(roles).join(" · ")}` : ""}
+              </p>
               <p className="wl-gem-name">You pulled the {gem.name}.</p>
             </div>
           </div>
@@ -67,6 +103,8 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
             shareHref={share}
             tryHref={appHref()}
             sealed={pack === "sealed"}
+            roles={roles}
+            onRoles={take === "c" ? setRoles : undefined}
             onOpen={() => setOpened(true)}
             onClose={() => setPack("closed")}
           />
@@ -78,6 +116,11 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
   const error = state.status === "error" ? state.message : undefined;
   return (
     <form className="wl-form" action={action} noValidate={false}>
+      {take === "a" ? (
+        <div className="wl-role-above">
+          <RolePicker value={roles} onChange={setRoles} label="I'm here because…" hint="Optional. It goes on your card." />
+        </div>
+      ) : null}
       <label className="label" htmlFor="wl-email">
         Email
       </label>
@@ -101,6 +144,22 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
           {pending ? "Joining…" : "Join the waitlist"}
         </button>
       </div>
+      {take === "b" ? (
+        <div className="wl-role-under">
+          <RolePicker value={roles} onChange={setRoles} label="Optional: tap what fits, it goes on your card." size="sm" />
+        </div>
+      ) : null}
+      {take !== "c" && roles.includes("studio") ? (
+        <div className="wl-studio">
+          <label className="label" htmlFor="wl-studio">
+            Studio or game <span className="wl-role-hint">(optional)</span>
+          </label>
+          <span className="cut cut-chip ctl">
+            <input id="wl-studio" name="studio" className="input" maxLength={120} placeholder="Studio name or a link" autoComplete="organization" />
+          </span>
+        </div>
+      ) : null}
+      <input type="hidden" name="role" value={roles.join(",")} />
       <div className="wl-hp" aria-hidden>
         <label>
           Company

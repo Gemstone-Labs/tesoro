@@ -224,3 +224,14 @@
 @keyframes pk-up { from { opacity: 0; transform: translateY(14px); } }
 @keyframes pk-card-in { from { opacity: 0; transform: translateY(40px) rotateX(24deg) scale(0.55); } }
 @keyframes pk-sheen { from { --shine: -30%; } to { --shine: 130%; } }
+
+/* Take C: the role question on the sealed pack screen; the picks print on the pack face, then the card. */
+.pk-ask { margin-top: 18px; display: grid; justify-items: center; gap: 8px; text-align: center; }
+.pk-ask .wl-role { justify-items: center; }
+.pk-ask .wl-role-chips { justify-content: center; }
+.pk-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; min-height: 20px; margin-top: 4px; }
+.pk-tags b {
+  padding: 3px 7px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg);
+  border: 1px solid rgba(234, 239, 236, 0.35); background: rgba(234, 239, 236, 0.06);
+}
+.pk.is-torn .pk-ask { animation: pk-out 300ms ease-in forwards; }

@@ -157,3 +157,33 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 @media (scripting: enabled) and (prefers-reduced-motion: reduce) {
   .vw, .wl-floor, .wl-light { transition: none; }
 }
+
+/* Optional "who are you" chips (RolePicker). The picks print on the waitlist card. */
+.wl-role { display: grid; gap: 8px; }
+.wl-role-label { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--fg); }
+.wl-role-hint { font-weight: 400; color: var(--fg-2); }
+.wl-role-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-role-chip {
+  all: unset; box-sizing: border-box; --c: var(--cut-chip); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 38px; padding: 0 14px; font-size: 14px; font-weight: 700; color: var(--fg-2); background: rgba(234, 239, 236, 0.04);
+  transition: color 0.15s, background 0.15s;
+}
+.wl-role-chip::before { content: "+" / ""; font-weight: 800; opacity: 0.6; }
+.wl-role-chip:hover { color: var(--fg); background: rgba(234, 239, 236, 0.08); }
+.wl-role-chip[aria-pressed="true"] { color: var(--fg); background: rgba(36, 216, 168, 0.14); --edge: var(--edge-em); }
+.wl-role-chip[aria-pressed="true"]::before { content: "✓" / ""; color: var(--em); opacity: 1; }
+.wl-role-sm .wl-role-label { font-size: 12.5px; font-weight: 400; color: var(--fg-2); }
+.wl-role-sm .wl-role-chip { min-height: 32px; padding: 0 11px; font-size: 13px; }
+.wl-form > .wl-role-above { margin-bottom: 8px; }
+.wl-form > .wl-role-under { margin-top: 2px; margin-bottom: 6px; }
+.wl-studio { display: grid; gap: 4px; }
+.wl-studio .input { width: 100%; }
+
+/* prototype switcher (proto branch only) */
+.wl-proto {
+  position: fixed; z-index: 80; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 4px; padding: 6px;
+  background: rgba(5, 7, 8, 0.86); border: 1px solid var(--line-2); font: 700 12px/1 var(--f-body); color: var(--fg-2);
+}
+.wl-proto button { all: unset; cursor: pointer; padding: 7px 10px; color: var(--fg-2); }
+.wl-proto button[aria-pressed="true"] { background: var(--fg); color: #0a0d0f; }
+.wl-proto span { padding: 0 6px; }
