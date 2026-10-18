@@ -5673,6 +5673,385 @@
       ]
     },
     {
+      "name": "retire_holding",
+      "discriminator": [
+        14,
+        57,
+        21,
+        90,
+        34,
+        215,
+        62,
+        194
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "holding",
+          "writable": true
+        },
+        {
+          "name": "source"
+        },
+        {
+          "name": "account",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "retire_native_custody",
+      "docs": [
+        "Returns an old per-Position vault's simSOL to the Position owner and closes vault and custody."
+      ],
+      "discriminator": [
+        217,
+        13,
+        225,
+        37,
+        57,
+        95,
+        177,
+        244
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "owner"
+        },
+        {
+          "name": "owner_token",
+          "writable": true
+        },
+        {
+          "name": "mint",
+          "address": "3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "retire_offer",
+      "discriminator": [
+        184,
+        236,
+        219,
+        48,
+        223,
+        232,
+        209,
+        81
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "offer",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "retire_position",
+      "discriminator": [
+        118,
+        235,
+        247,
+        225,
+        196,
+        78,
+        41,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "retire_request",
+      "discriminator": [
+        236,
+        171,
+        19,
+        40,
+        127,
+        71,
+        62,
+        152
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "request",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "retire_source",
+      "discriminator": [
+        79,
+        24,
+        14,
+        29,
+        199,
+        68,
+        88,
+        141
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "position"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "retire_treasury",
+      "discriminator": [
+        232,
+        166,
+        44,
+        72,
+        48,
+        231,
+        216,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "return_own",
       "discriminator": [
         220,
@@ -9551,6 +9930,19 @@
       ]
     },
     {
+      "name": "OldAccountRetired",
+      "discriminator": [
+        75,
+        107,
+        159,
+        17,
+        10,
+        221,
+        12,
+        93
+      ]
+    },
+    {
       "name": "OnchainPriceSet",
       "discriminator": [
         124,
@@ -9909,6 +10301,11 @@
       "code": 6029,
       "name": "OracleLocked",
       "msg": "the oracle key can no longer register Positions, report yield or price Advances"
+    },
+    {
+      "code": 6030,
+      "name": "NotOldWorld",
+      "msg": "this account is not of the retired world, so it cannot be retired"
     }
   ],
   "types": [
@@ -11029,6 +11426,31 @@
           },
           {
             "name": "Expired"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OldAccountRetired",
+      "docs": [
+        "An account of the world before the yield-by-math reset was closed by the admin. `kind`:",
+        "0 custody (`amount` = simSOL returned to its owner), 1 Position, 2 Source, 3 Holding",
+        "(`amount` = Gemas taken out of the Account), 4 Request, 5 Offer, 6 Treasury."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }

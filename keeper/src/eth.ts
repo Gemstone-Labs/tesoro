@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { POSITION_SPACE } from "../../app/src/lib/chain/position-size.ts";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createPublicClient, createWalletClient, defineChain, getAddress, http, parseAbi, type Address, type Hex } from "viem";
@@ -239,7 +240,7 @@ export async function checkEvmAtStart(net: EvmNet, rpc: string, warn: (m: string
  */
 export async function ethYieldJob(ctx: Ctx): Promise<number> {
   const s = ctx.settings;
-  const all: any[] = await ctx.core.account.positionState.all();
+  const all: any[] = await ctx.core.account.positionState.all([{ dataSize: POSITION_SPACE }]);
   const owing = all.filter((p) => {
     const i = p.account.inner;
     return NETS.some((n) => n.chain === status(i.sourceChain)) && status(i.status) === "locked" && i.openAdvance !== null && i.openAdvance !== undefined;

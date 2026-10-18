@@ -33,7 +33,7 @@ Minted yield shares are not backed by deposited SOL/ETH: withdrawals are paid fr
 ## Migration
 
 * Solana `Pool`: no layout change. `set_params` is run once on the old program to checkpoint `base_rate` at the then-current rate; the new `current_rate` returns `base_rate`.
-* Solana native Positions (ADR 0010): fresh start. `NativeCustody` is now a singleton `["native"]` with a shared vault `["native_vault"]`; `Position` gained `opened_at`, `applied_net`, `custody_shares`. Old per-Position custodies and vaults are not migrated (`migrate_native_custody` is gone) and are closed by an admin script.
+* Solana native Positions (ADR 0010): fresh start. `NativeCustody` is now a singleton `["native"]` with a shared vault `["native_vault"]`; `Position` gained `opened_at`, `applied_net`, `custody_shares`. Old per-Position custodies and vaults are not migrated (`migrate_native_custody` is gone): after the upgrade the admin runs `keeper/scripts/retire-old-accounts.ts`, which uses the admin-only `retire_*` instructions to return each vault's simSOL to its Position owner and close the old Positions, custodies, Sources, Holdings, Offers, expired Requests and the old-sized Treasury (`docs/deployments.md`, "Retire the old accounts"). Gemas leave the Account totals with their Holdings.
 * EVM: contracts are redeployed (constructor/ABI change). Old Hoodi/HyperEVM test Positions on the previous vaults are abandoned; see `docs/deployments.md`.
 
 ## App
