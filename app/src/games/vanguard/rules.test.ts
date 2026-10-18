@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAP_MS, DEPOTS, ROSTER, START_SQUARES, fight, startGame, startIndex, isWadi, move, newGame, placeArmy, seeded, REFUSALS, startTwoStep, storm, targets, timeout, TURN_MS, type Game, type Piece, type Rank } from "./rules";
+import { CAP_MS, CHAIN_CLOCK, PRACTICE_CLOCK, DEPOTS, ROSTER, START_SQUARES, fight, startGame, startIndex, isWadi, move, newGame, placeArmy, seeded, REFUSALS, startTwoStep, storm, targets, timeout, TURN_MS, type Game, type Piece, type Rank } from "./rules";
 
 const T0 = 1_000_000;
 
@@ -20,6 +20,7 @@ function game(pieces: Piece[], over: Partial<Game> = {}): Game {
     truckTurn: { us: -9, it: -9 },
     movedThisTurn: [],
     startedAt: T0,
+    clock: PRACTICE_CLOCK,
     deadline: T0 + TURN_MS,
     stormAt: 999,
     stormSeed: 7,
@@ -237,6 +238,23 @@ describe("piece numbers", () => {
 });
 
 describe("turn clock", () => {
+  it("the chain clock adds one second of grace to every deadline, Practice adds none", () => {
+    expect(PRACTICE_CLOCK).toEqual({ turnMs: 5000, graceMs: 0 });
+    expect(CHAIN_CLOCK).toEqual({ turnMs: 5000, graceMs: 1000 });
+    const layout = [{ army: "us" as const, rank: "5" as const, r: 9, c: 0 }, { army: "it" as const, rank: "4" as const, r: 0, c: 9 }];
+    const g = startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us", clock: CHAIN_CLOCK });
+    expect(g.deadline).toBe(T0 + 6000);
+    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 6000 }).ok).toBe(true);
+    expect(move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 6001 })).toEqual({ ok: false, reason: "turn_expired" });
+    const m = move(g, { id: startIndex(9, 0), to: { r: 8, c: 0 }, at: T0 + 2000 });
+    if (!m.ok) throw new Error(m.reason);
+    expect(m.game.deadline).toBe(T0 + 8000);
+    expect(timeout(g, T0 + 6000)).toEqual({ ok: false, reason: "turn_not_expired" });
+    const t = timeout(g, T0 + 7000);
+    if (!t.ok) throw new Error(t.reason);
+    expect(t.game.deadline).toBe(T0 + 13000);
+    expect(startGame(layout, { startedAt: T0, stormAt: 99, stormSeed: 1, first: "us" }).deadline).toBe(T0 + 5000);
+  });
   it("a move at the deadline is accepted, one millisecond later is refused", () => {
     const g = game([P(1, "us", "5", 9, 0), P(2, "it", "4", 0, 9)]);
     expect(move(g, { id: 1, to: { r: 8, c: 0 }, at: g.deadline }).ok).toBe(true);

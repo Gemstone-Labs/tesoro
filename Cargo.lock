@@ -6233,6 +6233,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vanguard"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "serde_json",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
