@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseRoles, roleTags } from "./waitlist-role";
-import { parseSpotSlug, spotPath } from "./waitlist-spot";
+import { gemFor, parseSpotSlug, shareText, spotPath } from "./waitlist-spot";
 
 describe("waitlist roles", () => {
   it("parses a comma list in a fixed order and drops unknown words", () => {
@@ -21,5 +21,11 @@ describe("shared spot links", () => {
   });
   it("refuses unknown or repeated roles and bad spots", () => {
     for (const bad of ["142-admin", "142-player-player", "142-", "abc-player", "0", "142-player-"]) expect(parseSpotSlug(bad)).toBeNull();
+  });
+  it("puts the share link on its own line", () => {
+    const gem = gemFor(6);
+    expect(shareText(gem, "https://x.y/spot/6")).toBe(
+      `I'm #6 on the Tesoro waitlist and pulled the ${gem.name}! What's yours?\n\nOpen your pack: https://x.y/spot/6`,
+    );
   });
 });

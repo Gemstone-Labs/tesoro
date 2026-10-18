@@ -13,7 +13,7 @@ function Demo({ spot, sealed }: Args) {
   const [run, setRun] = useState(0);
   const [open, setOpen] = useState(true);
   const gem = gemFor(spot);
-  const share = `https://x.com/intent/post?text=${encodeURIComponent(shareText(gem))}&url=${encodeURIComponent(`https://www.playtesoro.com${spotPath(spot)}`)}`;
+  const share = `https://x.com/intent/post?text=${encodeURIComponent(shareText(gem, `https://www.playtesoro.com${spotPath(spot)}`))}`;
   return (
     <div className="wl" style={{ height: "100vh", minHeight: 0, display: "grid", placeItems: "center" }}>
       {open ? (

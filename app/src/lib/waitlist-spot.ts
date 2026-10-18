@@ -49,6 +49,7 @@ export function parseSpotSlug(raw: string): { spot: number; roles: Role[] } | nu
   return roles.length === rest.length ? { spot, roles } : null;
 }
 
-export function shareText(gem: SpotGem): string {
-  return `I'm #${gem.spot} on the Tesoro waitlist and pulled the ${gem.name}. Play now, your yield pays later. Open your pack:`;
+/** The X post: the link sits in the text, on its own line, because X's url field glues it to the last word. */
+export function shareText(gem: SpotGem, url: string): string {
+  return `I'm #${gem.spot} on the Tesoro waitlist and pulled the ${gem.name}! What's yours?\n\nOpen your pack: ${url}`;
 }
