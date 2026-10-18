@@ -58,7 +58,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
         <p className="wl-done-note">We&apos;ll email you when your spot opens.</p>
         <div className="wl-done-links">
           {gem ? (
-            <button type="button" className="btn neutral cut cut-btn" onClick={() => setPack(opened ? "open" : "sealed")}>
+            <button type="button" className="btn money cut cut-btn" onClick={() => setPack(opened ? "open" : "sealed")}>
               {opened ? "See your card" : "Open your pack"}
             </button>
           ) : (
