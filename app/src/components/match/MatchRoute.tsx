@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { HoldemMatchView } from "@/games/holdem/HoldemMatchView";
 import { TradingDuelMatchView } from "@/games/trading-duel/TradingDuelMatchView";
+import { VanguardMatchView } from "@/games/vanguard/VanguardMatchView";
 import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
 import { getChain } from "@/lib/chain/client";
 import { gameOf } from "@/lib/chain/read";
@@ -35,6 +36,7 @@ export function MatchRoute({ matchId }: { matchId: string }) {
 
   if (game === "holdem") return <HoldemMatchView matchId={matchId} />;
   if (game === "trading-duel") return <TradingDuelMatchView matchId={matchId} />;
+  if (game === "vanguard") return <VanguardMatchView matchId={matchId} />;
   if (game === "block-puzzle") return <MatchView matchId={matchId} />;
   return <MatchStageLoading me={snapshot?.accountKey.toBase58() ?? null} />;
 }

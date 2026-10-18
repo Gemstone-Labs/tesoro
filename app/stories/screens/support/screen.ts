@@ -3,8 +3,11 @@ import { PublicKey } from "@solana/web3.js";
 import type { LeaderboardView } from "@/lib/chain/leaderboard-view";
 import type { DuelView } from "@/games/trading-duel/useDuelMatch";
 import type { HoldemView } from "@/games/holdem/useHoldemMatch";
+import type { Battle } from "@/games/vanguard/decode";
+import type { VanguardView } from "@/games/vanguard/useVanguardMatch";
 import type { RunStage } from "@/lib/chain/match-flow";
 import { DEMO_ME } from "../../support/data";
+import type { GameId } from "@/lib/mock";
 
 /** What the screen-level mocks (leaderboard, queue depth, Backing board, EVM market) return for the current story. */
 export interface ScreenData {
@@ -15,7 +18,7 @@ export interface ScreenData {
   /** Leaderboard Pool in the top bar: its Gemas (null hides it), and a Match fee landing every `growMs`. */
   pool?: { gemas: number | null; growMs?: number };
   /** Open Queue Matches per Game. */
-  queueDepth?: { "block-puzzle": number; holdem: number; "trading-duel": number };
+  queueDepth?: Record<GameId, number>;
   /** The Backing Request to open in the Offer drawer (the URL hash). */
   hash?: string;
   /** Block Puzzle Match: where the signed-in Player's run is, whether the joiner timed out, and the setup step shown while preparing. */
@@ -26,6 +29,8 @@ export interface ScreenData {
   vaultTreasury?: "ready" | "short" | "none";
   /** Hold'em Match: what the driver reports (merged over a "waiting" view). */
   holdem?: Partial<HoldemView>;
+  /** Vanguard Match: what the driver reports (merged over a "waiting" view); `later` swaps in a newer Battle after a delay, as the rollup would. */
+  vanguard?: Partial<VanguardView> & { later?: { afterMs: number; battle: Battle }; refuse?: string };
   /** Trading Duel Match: what the driver reports (merged over a "waiting" view). */
   duel?: Partial<DuelView>;
 }

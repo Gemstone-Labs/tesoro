@@ -143,7 +143,7 @@ export function EnterMatch(props: EnterKind) {
           router.replace(`/play/match/${props.id}`);
         } else if (props.kind === "queue") {
           const r = await enterQueue(signer, props.entry, auth.getAccessToken, props.game, setStatus, asset);
-          entered(r, props.game === "holdem" || props.game === "trading-duel" ? "Entered the Queue." : "Match opened. You'll be paired while you play.");
+          entered(r, props.game === "holdem" || props.game === "trading-duel" || props.game === "vanguard" ? "Entered the Queue." : "Match opened. You'll be paired while you play.");
         } else if (props.kind === "challenge-new") {
           const id = await createChallenge(signer, props.entry, auth.getAccessToken, props.game, asset, setStatus);
           router.replace(`/play/match/${id.toString()}`);

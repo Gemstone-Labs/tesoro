@@ -8,6 +8,7 @@ import { DEV_WALLET } from "./config";
 import type { BackingBoard, ChainRequest } from "./backing";
 import type { PlayerAccount } from "./player-account";
 import type { AccountSnapshot, ChainHolding, ChainMatch, ChainPosition } from "./read";
+import type { GameId } from "../mock/types";
 import type { SettledMatch } from "./recent";
 
 export function demoMode(): boolean {
@@ -24,7 +25,7 @@ const ago = (mins: number) => Date.now() - mins * 60_000;
 const idAt = (ms: number) => BigInt(ms) << 1n;
 
 export function match(
-  game: "block-puzzle" | "holdem" | "trading-duel",
+  game: GameId,
   entry: number,
   win: boolean,
   mins: number,
@@ -146,7 +147,7 @@ function demoPnl(seed: number, matches: number, wins: number, behind = false): n
 }
 
 export function demoBoard(): BackingBoard {
-  const req = (n: number, game: "block-puzzle" | "holdem" | "trading-duel", entry: number, matches: number, wins: number, mins = 60, behind = false): ChainRequest => ({
+  const req = (n: number, game: GameId, entry: number, matches: number, wins: number, mins = 60, behind = false): ChainRequest => ({
     address: key(600 + n),
     nonce: BigInt(n),
     player: key(700 + n).toBase58(),

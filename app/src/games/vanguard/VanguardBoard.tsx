@@ -8,7 +8,8 @@ import { ARMY_NAME, NAMES, SIZE, type Army, type Depot, type Rank, type Square }
 export interface ShownPiece {
   id: number;
   army: Army;
-  rank: Rank;
+  /** Null while the viewer cannot know it: an enemy piece that is still face down. */
+  rank: Rank | null;
   r: number;
   c: number;
   /** Face up to the viewer (own pieces always; enemy pieces while flashed or once Spotted). */
@@ -76,8 +77,8 @@ function flip(pb: HTMLElement, coin: HTMLElement, sh: HTMLElement, from: HitSide
 
 /** One marker in the B1 look: face over a dark wooden side, lit from above, shadow straight under. */
 export const Marker = memo(function Marker({ p, selected, onTap, disabled }: { p: ShownPiece; selected: boolean; onTap: (id: number) => void; disabled: boolean }) {
-  const shownUp = p.up;
-  const wasUp = useRef(p.up);
+  const shownUp = p.up && p.rank !== null;
+  const wasUp = useRef(p.up && p.rank !== null);
   const pb = useRef<HTMLSpanElement>(null);
   const coin = useRef<HTMLSpanElement>(null);
   const sh = useRef<HTMLSpanElement>(null);
@@ -85,17 +86,17 @@ export const Marker = memo(function Marker({ p, selected, onTap, disabled }: { p
   // hidden -> face: start the flip before the browser paints, so the new face never shows early
   useLayoutEffect(() => {
     const was = wasUp.current;
-    wasUp.current = p.up;
-    if (was || !p.up || prefersReducedMotion() || !pb.current || !coin.current || !sh.current) return;
+    wasUp.current = shownUp;
+    if (was || !shownUp || prefersReducedMotion() || !pb.current || !coin.current || !sh.current) return;
     flip(pb.current, coin.current, sh.current, p.hitFrom ?? "left");
-  }, [p.up, p.hitFrom]);
+  }, [shownUp, p.hitFrom]);
 
   const style = {
     left: `calc(var(--vg-sq) * ${p.c})`,
     top: `calc(var(--vg-sq) * ${p.r})`,
     transitionDuration: `${p.ms ?? 0}ms`,
   } as CSSProperties;
-  const label = shownUp ? `${p.army === "us" ? "US" : "Italian"} ${p.rank} ${NAMES[p.rank]}` : `${ARMY_NAME[p.army]} hidden piece`;
+  const label = shownUp && p.rank ? `${p.army === "us" ? "US" : "Italian"} ${p.rank} ${NAMES[p.rank]}` : `${ARMY_NAME[p.army]} hidden piece`;
   return (
     <button
       type="button"
@@ -123,7 +124,7 @@ export const Marker = memo(function Marker({ p, selected, onTap, disabled }: { p
             </span>
             <span className="vg-c front">
               <span className={`vg-face${shownUp ? "" : " back"}`}>
-                <span className="vg-art" style={{ backgroundImage: face(p.army, shownUp ? p.rank : "back") }} />
+                <span className="vg-art" style={{ backgroundImage: face(p.army, shownUp && p.rank ? p.rank : "back") }} />
                 {shownUp && <span className="vg-rk">{p.rank}</span>}
               </span>
               <span className="vg-gloss" />
@@ -144,15 +145,17 @@ export interface VanguardBoardProps {
   storm: ShownStorm | null;
   /** Taps are off (not your turn, or an animation is playing). */
   locked: boolean;
+  /** The army whose Player is looking; its depot is the one "yours to raid". Defaults to the US. */
+  viewer?: Army;
   onPiece: (id: number) => void;
-  onMark: (sq: Square) => void;
+  onMark: (mark: Square & { attack: boolean }) => void;
 }
 
 /**
  * The 10×10 board, top-down, from the US side. Pieces are positioned by square and slide with a CSS
  * transition; effects are painted sprites drawn with a screen blend; the Dust Storm is a haze over its line.
  */
-export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, locked, onPiece, onMark }: VanguardBoardProps) {
+export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, locked, viewer = "us", onPiece, onMark }: VanguardBoardProps) {
   return (
     <div className="vg-board" role="group" aria-label="Vanguard board">
       {depots.map((d) => (
@@ -161,7 +164,7 @@ export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, lock
           className={`vg-depot${d.claimed ? " claimed" : ""}`}
           style={{ left: `calc(var(--vg-sq) * ${d.c + 0.5})`, top: `calc(var(--vg-sq) * ${d.r + 0.5})` }}
           role="img"
-          aria-label={`Supply Depot, ${d.raider === "us" ? "yours to raid" : "Italy raids this one"}${d.claimed ? ", raided" : ""}`}
+          aria-label={`Supply Depot, ${d.raider === viewer ? "yours to raid" : "the enemy raids this one"}${d.claimed ? ", raided" : ""}`}
         />
       ))}
       {pieces.map((p) => (
