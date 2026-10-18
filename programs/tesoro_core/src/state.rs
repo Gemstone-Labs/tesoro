@@ -861,3 +861,13 @@ mod profile_tests {
         assert!(!Profile::avatar_is_valid(AvatarChoice::Animal(12)));
     }
 }
+
+/// An account of the world before the yield-by-math reset was closed by the admin. `kind`:
+/// 0 custody (`amount` = simSOL returned to its owner), 1 Position, 2 Source, 3 Holding
+/// (`amount` = Gemas taken out of the Account), 4 Request, 5 Offer, 6 Treasury.
+#[event]
+pub struct OldAccountRetired {
+    pub kind: u8,
+    pub account: Pubkey,
+    pub amount: u64,
+}

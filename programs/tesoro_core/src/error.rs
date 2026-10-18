@@ -67,6 +67,8 @@ pub enum TesoroError {
     BadStakePoolAccount,
     #[msg("the oracle key can no longer register Positions, report yield or price Advances")]
     OracleLocked,
+    #[msg("this account is not of the retired world, so it cannot be retired")]
+    NotOldWorld,
 }
 
 pub fn core_err(e: CoreError) -> Error {

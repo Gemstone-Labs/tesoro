@@ -522,4 +522,37 @@ pub mod tesoro_core {
     ) -> Result<()> {
         instructions::backing::expire_offer(ctx)
     }
+
+    // --- Reset: retiring the old world (admin only, ticket 11) -------------------------------
+
+    /// Returns an old per-Position vault's simSOL to the Position owner and closes vault and custody.
+    pub fn retire_native_custody(ctx: Context<RetireNativeCustody>) -> Result<()> {
+        instructions::retire::retire_native_custody(ctx)
+    }
+
+    pub fn retire_position(ctx: Context<RetirePosition>) -> Result<()> {
+        instructions::retire::retire_position(ctx)
+    }
+
+    pub fn retire_source(ctx: Context<RetireSource>) -> Result<()> {
+        instructions::retire::retire_source(ctx)
+    }
+
+    pub fn retire_holding(ctx: Context<RetireHolding>) -> Result<()> {
+        instructions::retire::retire_holding(ctx)
+    }
+
+    pub fn retire_request(ctx: Context<RetireRequest>) -> Result<()> {
+        instructions::retire::retire_request(ctx)
+    }
+
+    pub fn retire_offer<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RetireOffer<'info>>,
+    ) -> Result<()> {
+        instructions::retire::retire_offer(ctx)
+    }
+
+    pub fn retire_treasury(ctx: Context<RetireTreasury>) -> Result<()> {
+        instructions::retire::retire_treasury(ctx)
+    }
 }
