@@ -21,8 +21,8 @@ use solana_sdk::transaction::Transaction;
 use tesoro_core::ledger::{MatchStatus, Outcome as CoreOutcome, SourceChain};
 use tesoro_core::state::*;
 use vanguard::engine::{
-    self, Army as Side, EndReason, Events, Game, LayoutPiece, BOMB, CHAIN_CLOCK, ENGINEER,
-    GENERAL_OF_THE_ARMY, PIECE_SLOTS, RECON, SPY, TRUCK,
+    self, Army as Side, EndReason, Game, LayoutPiece, BOMB, CHAIN_CLOCK, ENGINEER,
+    GENERAL_OF_THE_ARMY, OPENING_GRACE_SECS, PIECE_SLOTS, RECON, SPY, TRUCK,
 };
 use vanguard::{Army, Battle, Secret, VanguardConfig, VanguardError};
 
@@ -160,6 +160,9 @@ struct Env {
     now: i64,
     last_cu: u64,
     last_logs: Vec<String>,
+    /// The compute of the last declare and the last resolve of `mv` and `claim_timeout`.
+    declare_cu: u64,
+    resolve_cu: u64,
 }
 
 impl Env {
@@ -222,10 +225,20 @@ impl Env {
 
     fn set_time(&mut self, t: i64) {
         self.now = t;
-        self.svm.set_sysvar(&Clock {
-            unix_timestamp: t,
-            ..Clock::default()
-        });
+        let mut clock = self.svm.get_sysvar::<Clock>();
+        clock.unix_timestamp = t;
+        self.svm.set_sysvar(&clock);
+    }
+
+    fn slot(&self) -> u64 {
+        self.svm.get_sysvar::<Clock>().slot
+    }
+
+    /// The next rollup slot: a declare can be resolved from here on.
+    fn next_slot(&mut self) {
+        let mut clock = self.svm.get_sysvar::<Clock>();
+        clock.slot += 1;
+        self.svm.set_sysvar(&clock);
     }
 
     /// Position + Advance: 75_000 Gemas of the staker's own Source.
@@ -423,10 +436,15 @@ impl Env {
             now: T0,
             last_cu: 0,
             last_logs: vec![],
+            declare_cu: 0,
+            resolve_cu: 0,
         };
         for k in [&env.admin, &env.oracle] {
             env.svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
         }
+        let mut clock = env.svm.get_sysvar::<Clock>();
+        clock.slot = 100;
+        env.svm.set_sysvar(&clock);
         env.set_time(T0);
         env.platform = env.person();
         env.studio = env.person();
@@ -514,6 +532,7 @@ impl Env {
                 creator,
                 tesoro_match: tmatch_pda(self.id),
                 config: tpda(&[CONFIG_SEED]),
+                vanguard_config: config_pda(),
                 account_a: self.alice.account,
                 account_b: self.bob.account,
                 authority: authority_pda(),
@@ -529,7 +548,19 @@ impl Env {
         )
     }
 
+    /// The deploy step before any Match: the upgrade authority names the TEE validator and the oracle queue.
+    fn ensure_config(&mut self) {
+        if self.svm.get_account(&s(config_pda())).is_some() {
+            return;
+        }
+        let admin = self.admin.insecure_clone();
+        set_upgrade_authority(self, a(admin.pubkey()));
+        self.send(&[set_config_ix(a(admin.pubkey()), TEE)], &admin, &[])
+            .expect("set config");
+    }
+
     fn create(&mut self) -> Result<(), Failed> {
+        self.ensure_config();
         let alice = self.alice.kp.insecure_clone();
         let ix = self.create_ix(self.alice.key);
         self.send(&[ix], &alice, &[])
@@ -546,6 +577,7 @@ impl Env {
         self.patch_secret(|v| {
             v.entropy = [seed.wrapping_add(7); 32];
             v.contributed = [true, true];
+            v.vrf_requested = true;
             v.vrf_seen = true;
             v.vrf = [seed.wrapping_add(99); 32];
         });
@@ -570,7 +602,10 @@ impl Env {
     fn deal(&mut self) -> Result<(), Failed> {
         let payer = self.alice.kp.insecure_clone();
         let deal = self.deal_ix(self.alice.key);
-        self.send(&[deal], &payer, &[])
+        self.send(&[deal], &payer, &[])?;
+        // Nothing is declared in the slot of the deal.
+        self.next_slot();
+        Ok(())
     }
 
     /// Lay out an explicit Match as `deal` would leave it, with Alice (seat 0) or Bob playing the US Army.
@@ -583,6 +618,7 @@ impl Env {
             b.status = vanguard::STATUS_LIVE;
             b.permissioned = 1;
             b.started_at = now;
+            b.cap_deadline = g.cap_at;
         });
         for seat in 0..2 {
             let side = if seat == us_seat as usize {
@@ -609,22 +645,50 @@ impl Env {
         let ad = addrs(self.id);
         ix(
             vanguard::ID,
-            vanguard::accounts::Play {
+            vanguard::accounts::Declare {
                 player: signer,
                 battle: ad.battle,
-                army_0: ad.army_0,
-                army_1: ad.army_1,
-                secret: ad.secret,
             },
             vanguard::instruction::MovePiece { piece, to },
             vec![],
         )
     }
 
+    fn resolve_ix(&self, caller: APk) -> Instruction {
+        let ad = addrs(self.id);
+        ix(
+            vanguard::ID,
+            vanguard::accounts::Resolve {
+                caller,
+                battle: ad.battle,
+                army_0: ad.army_0,
+                army_1: ad.army_1,
+                secret: ad.secret,
+            },
+            vanguard::instruction::Resolve {},
+            vec![],
+        )
+    }
+
+    /// Resolve the pending action in a later slot, as anyone may.
+    fn resolve(&mut self, caller: &Keypair) -> Result<(), Failed> {
+        self.next_slot();
+        let r = self.resolve_ix(a(caller.pubkey()));
+        self.send(&[budget(), r], caller, &[])
+    }
+
+    /// Declare a move, then resolve it in the next slot. The compute and the logs of both are kept.
     fn mv(&mut self, seat: usize, piece: u8, to: u8) -> Result<(), Failed> {
         let p = self.player(seat);
         let m = self.move_ix(p.key, piece, to);
-        self.send(&[budget(), m], &p.kp, &[])
+        self.send(&[budget(), m], &p.kp, &[])?;
+        self.declare_cu = self.last_cu;
+        let logs = std::mem::take(&mut self.last_logs);
+        let r = self.resolve(&p.kp);
+        self.resolve_cu = self.last_cu;
+        self.last_cu = self.declare_cu + self.resolve_cu;
+        self.last_logs.extend(logs);
+        r
     }
 
     fn two_step(&mut self, seat: usize) -> Result<(), Failed> {
@@ -642,15 +706,26 @@ impl Env {
         self.send(&[i], &p.kp, &[])
     }
 
+    /// Declare the timeout; in a live Match it is then resolved in the next slot.
     fn claim_timeout(&mut self, caller: &Keypair) -> Result<(), Failed> {
+        self.claim_timeout_declare(caller)?;
+        if self.battle().pending_kind == vanguard::PENDING_NONE {
+            return Ok(());
+        }
+        self.declare_cu = self.last_cu;
+        let r = self.resolve(caller);
+        self.resolve_cu = self.last_cu;
+        self.last_cu = self.declare_cu + self.resolve_cu;
+        r
+    }
+
+    fn claim_timeout_declare(&mut self, caller: &Keypair) -> Result<(), Failed> {
         let ad = addrs(self.id);
         let claim = ix(
             vanguard::ID,
             vanguard::accounts::ClaimTimeout {
                 caller: a(caller.pubkey()),
                 battle: ad.battle,
-                army_0: ad.army_0,
-                army_1: ad.army_1,
                 secret: ad.secret,
             },
             vanguard::instruction::ClaimTimeout {},
@@ -749,6 +824,7 @@ fn permission_pda(target: APk) -> APk {
 }
 
 const TEE: APk = APk::new_from_array([7; 32]);
+const QUEUE: APk = APk::new_from_array([8; 32]);
 
 /// Writes the upgrade authority into the vanguard ProgramData account, as a deploy would leave it.
 fn set_upgrade_authority(env: &mut Env, authority: APk) {
@@ -779,6 +855,7 @@ fn set_config_ix(authority: APk, validator: APk) -> Instruction {
         },
         vanguard::instruction::SetConfig {
             tee_validator: validator,
+            oracle_queue: QUEUE,
         },
         vec![],
     )
@@ -891,7 +968,7 @@ fn close_unstarted_ix(env: &Env, payer: APk) -> Instruction {
 
 #[test]
 fn only_the_upgrade_authority_sets_the_tee_validator() {
-    let mut env = ready();
+    let mut env = Env::new();
     let admin = env.admin.insecure_clone();
     let stranger = env.bob.kp.insecure_clone();
     set_upgrade_authority(&mut env, a(admin.pubkey()));
@@ -911,10 +988,21 @@ fn only_the_upgrade_authority_sets_the_tee_validator() {
         .unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::InvalidValidator));
 
+    // The oracle queue is a setting too, and must be named.
+    let mut no_queue = set_config_ix(a(admin.pubkey()), TEE);
+    no_queue.data = vanguard::instruction::SetConfig {
+        tee_validator: TEE,
+        oracle_queue: APk::default(),
+    }
+    .data();
+    let err = env.send(&[no_queue], &admin, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::InvalidValidator));
+
     env.send(&[set_config_ix(a(admin.pubkey()), TEE)], &admin, &[])
         .expect("authority sets the validator");
     let config: VanguardConfig = env.load(config_pda());
     assert_eq!(config.tee_validator, TEE);
+    assert_eq!(config.oracle_queue, QUEUE);
     // It can be changed later, for example on the way to mainnet.
     let other = APk::new_unique();
     env.send(&[set_config_ix(a(admin.pubkey()), other)], &admin, &[])
@@ -932,15 +1020,6 @@ fn only_the_upgrade_authority_sets_the_tee_validator() {
 fn delegation_is_pinned_to_the_configured_validator() {
     let mut env = ready();
     let attacker = env.bob.kp.insecure_clone();
-
-    // No config yet: nothing can be delegated.
-    let early = delegate_ix(&env, a(attacker.pubkey()), Some(TEE));
-    assert!(env.send(&[early], &attacker, &[]).is_err());
-
-    let admin = env.admin.insecure_clone();
-    set_upgrade_authority(&mut env, a(admin.pubkey()));
-    env.send(&[set_config_ix(a(admin.pubkey()), TEE)], &admin, &[])
-        .expect("config");
     for validator in [Some(a(attacker.pubkey())), None] {
         let delegate = delegate_ix(&env, a(attacker.pubkey()), validator);
         let err = env.send(&[delegate], &attacker, &[]).unwrap_err();
@@ -957,10 +1036,6 @@ fn delegation_is_pinned_to_the_configured_validator() {
 #[test]
 fn a_battle_that_has_been_played_cannot_be_delegated_again() {
     let mut env = ready();
-    let admin = env.admin.insecure_clone();
-    set_upgrade_authority(&mut env, a(admin.pubkey()));
-    env.send(&[set_config_ix(a(admin.pubkey()), TEE)], &admin, &[])
-        .expect("config");
     for status in [vanguard::STATUS_OVER, vanguard::STATUS_CANCELLED] {
         env.patch_battle(|b| b.status = status);
         let attacker = env.bob.kp.insecure_clone();
@@ -1032,6 +1107,11 @@ fn create_match_binds_the_tesoro_match_and_rejects_impostors() {
     assert!(env.send(&[too_early], &alice, &[]).is_err());
 
     env.open_and_join(1_000);
+    // Before the deploy step (set_config) there is nothing to create a Battle from.
+    let early = env.create_ix(env.alice.key);
+    assert!(env.send(&[early], &alice, &[]).is_err());
+    assert!(env.svm.get_account(&s(addrs(1).battle)).is_none());
+    env.ensure_config();
     let stranger = Keypair::new();
     env.svm
         .airdrop(&stranger.pubkey(), 10 * SOL)
@@ -1139,7 +1219,11 @@ fn deal_draws_the_armies_into_the_private_accounts_and_nothing_hidden_into_the_b
         assert!(b.us_seat < 2);
         assert_eq!(b.turn, 0, "the US Army moves first");
         assert_eq!(b.started_at, T0 + 30);
-        assert_eq!(b.deadline, T0 + 30 + 6);
+        assert_eq!(
+            b.deadline,
+            T0 + 30 + 6 + OPENING_GRACE_SECS,
+            "the opening turn has extra seconds: the first mover has not loaded their Army yet"
+        );
         assert_eq!(b.shown, [0; PIECE_SLOTS], "no rank is public at the start");
         assert_eq!(b.sq.iter().filter(|q| **q != vanguard::NO_SQ).count(), 40);
         let secret = env.secret();
@@ -1226,6 +1310,17 @@ fn a_late_vrf_after_a_cancel_cannot_start_the_match() {
     assert_eq!(env.secret().vrf, [9; 32]);
     let err = send_callback(&mut env, [8; 32]).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::AlreadyDealt));
+
+    // Past the setup deadline an output is refused too.
+    env.patch_secret(|v| {
+        v.vrf_seen = false;
+        v.vrf = [0; 32];
+    });
+    let setup_deadline = env.battle().setup_deadline;
+    env.set_time(setup_deadline + 1);
+    let err = send_callback(&mut env, [6; 32]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::SetupClosed));
+    assert!(!env.secret().vrf_seen);
 
     // Cancelled while the output was late: a delivery afterwards stores nothing and starts nothing.
     env.patch_secret(|v| {
@@ -1435,13 +1530,12 @@ fn refusals_are_generic_and_change_nothing() {
     // An empty slot.
     let err = env.mv(0, id_of(80), 70).unwrap_err();
     assert_eq!(custom_code(&err), vcode(VanguardError::IllegalMove));
-    // Onto my own piece, into a wadi, off the board, diagonally, a Landmine, far with a non-Recon.
+    // Onto my own piece, into a wadi, off the board, diagonally: public geometry, refused when declared.
     for (piece, to) in [
         (id_of(95), 96),
         (id_of(70), 42),
         (id_of(70), 100),
         (id_of(95), 84),
-        (id_of(95), 55),
     ] {
         let err = env.mv(0, piece, to).unwrap_err();
         assert_eq!(
@@ -1457,6 +1551,8 @@ fn refusals_are_generic_and_change_nothing() {
     );
 }
 
+/// The rank rules are applied when the move is resolved, so the declare of a Landmine's move or of a Truck's with no
+/// fuel left is accepted (it answers the same for every rank) and the move costs the turn.
 #[test]
 fn a_truck_out_of_fuel_cannot_move_and_a_landmine_never_does() {
     let mut env = ready();
@@ -1471,17 +1567,36 @@ fn a_truck_out_of_fuel_cannot_move_and_a_landmine_never_does() {
     env.stage(&layout, 0);
     env.set_time(T0 + 2);
     env.patch_army(0, |v| v.fuel = engine::TRUCK_FUEL);
-    let err = env.mv(0, id_of(96), 86).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::IllegalMove));
-    let err = env.mv(0, id_of(97), 87).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::IllegalMove));
+    env.mv(0, id_of(96), 86).expect("declared and resolved");
+    let b = env.battle();
+    assert_eq!(
+        (b.turn, b.timeouts, b.moves),
+        (1, [1, 0], 0),
+        "no fuel: the turn is lost, nothing moved"
+    );
+    assert_eq!(b.sq[id_of(96) as usize], 96);
+    assert_eq!(b.ring[0].kind, vanguard::EVENT_TURN);
+    assert_eq!(
+        b.ring[0].data[1], 1,
+        "the turn event says timed out, like any lost turn"
+    );
+    // Italy moves; the Landmine "moves" and the turn is lost again.
+    env.mv(1, id_of(5), 15).expect("Italy moves");
+    env.mv(0, id_of(97), 87).expect("declared and resolved");
+    let b = env.battle();
+    assert_eq!(
+        (b.turn, b.timeouts, b.sq[id_of(97) as usize]),
+        (1, [2, 0], 97)
+    );
     // With fuel left, the Truck moves, and the Army account records the fuel and the turn.
+    env.mv(1, id_of(5), 25).expect("Italy moves");
     env.patch_army(0, |v| v.fuel = 1);
     env.mv(0, id_of(96), 86).expect("Truck moves");
+    let b = env.battle();
+    assert_eq!((b.sq[id_of(96) as usize], b.timeouts), (86, [0, 0]));
     let army = env.army(0);
     assert_eq!(army.fuel, 2);
-    assert_eq!(army.truck_turn, 0);
-    assert_eq!(army.moves, 1);
+    assert_eq!(army.truck_turn, 4);
 }
 
 #[test]
@@ -1512,20 +1627,36 @@ fn moves_write_no_logs_and_two_step_turns_work() {
     env.mv(0, id_of(96), 86).expect("first step with the Truck");
     assert!(
         env.last_logs.iter().all(|l| !l.starts_with("Program log:")),
-        "a move writes no logs: {:?}",
+        "a declare and a resolve write no logs: {:?}",
         env.last_logs
     );
     let b = env.battle();
     assert_eq!(b.turn, 0, "the second step is still Alice's");
     assert_eq!(b.steps_left, 1);
     assert_eq!(b.deadline, T0 + 3 + 6, "each step gets a full turn");
-    // The Truck cannot take both steps of a Two-Step Turn.
-    let err = env.mv(0, id_of(96), 76).unwrap_err();
-    assert_eq!(custom_code(&err), vcode(VanguardError::IllegalMove));
     env.mv(0, id_of(95), 85)
         .expect("second step with another piece");
     assert_eq!(env.battle().turn, 1);
     assert_eq!(env.battle().two_step_active, 0);
+}
+
+/// The Truck cannot take both steps of a Two-Step Turn: the second declare passes, the resolve loses the turn.
+#[test]
+fn the_truck_cannot_take_both_steps_of_a_two_step_turn() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env.patch_battle(|b| b.two_step[0] = 1);
+    env.two_step(0).expect("spend it");
+    env.mv(0, id_of(96), 86).expect("first step");
+    env.mv(0, id_of(96), 76)
+        .expect("declared, then refused by the rank rules");
+    let b = env.battle();
+    assert_eq!(
+        (b.turn, b.timeouts, b.sq[id_of(96) as usize]),
+        (1, [1, 0], 86)
+    );
 }
 
 #[test]
@@ -1795,7 +1926,7 @@ fn legal_moves(env: &Env) -> Vec<(u8, u8)> {
                     break;
                 }
                 let to = (nr * 10 + nc) as u8;
-                if g.scan(army, g.moved, g.two_step_active, id as u8, to).hit {
+                if g.probe(army, g.moved, g.two_step_active, id as u8, to) {
                     out.push((id as u8, to));
                 }
             }
@@ -1923,6 +2054,27 @@ fn cu_profile() {
             timeouts[timeouts.len() - 1]
         );
     }
+    let mut second_steps = vec![];
+    for seed in [1u8, 2, 3, 4] {
+        let mut env = ready();
+        env.start_in_rollup(seed);
+        env.deal().expect("deal");
+        let seat = if env.battle().side_of_seat(0) == Some(Side::Us) {
+            0
+        } else {
+            1
+        };
+        env.patch_battle(|b| b.two_step[0] = 1);
+        let t = env.now + 1;
+        env.set_time(t);
+        env.two_step(seat).expect("two-step");
+        let first = legal_moves(&env)[0];
+        env.mv(seat, first.0, first.1).expect("first step");
+        let second = legal_moves(&env)[0];
+        env.mv(seat, second.0, second.1).expect("second step");
+        second_steps.push(env.last_cu);
+        println!("CU seed {seed}: two-step second step {}", env.last_cu);
+    }
     let spread = |v: &[u64]| v.iter().max().unwrap() - v.iter().min().unwrap();
     println!(
         "CU spread across layouts: move {}; claim_timeout {}",
@@ -1960,6 +2112,874 @@ fn compute_does_not_depend_on_which_rank_stands_where() {
         readings.iter().all(|c| *c == readings[0]),
         "compute depends on the ranks: {readings:?}"
     );
+}
+
+// --- Review fixes: setup deadline, init_permissions, stored rules, compute ---------------------------
+
+fn is_vcode(err: &Failed, e: VanguardError) -> bool {
+    use solana_sdk::instruction::InstructionError;
+    use solana_sdk::transaction::TransactionError;
+    matches!(&err.err, TransactionError::InstructionError(_, InstructionError::Custom(c)) if *c == vcode(e))
+}
+
+fn stranger(env: &mut Env) -> Keypair {
+    let k = Keypair::new();
+    env.svm.airdrop(&k.pubkey(), 10 * SOL).expect("airdrop");
+    k
+}
+
+/// A stranger who could run `init_permissions` would move every new Battle to SETUP before it is delegated, and the
+/// Match would die by no-show. Only a Player may.
+#[test]
+fn only_a_player_can_open_the_setup_phase() {
+    let mut env = ready();
+    let outsider = stranger(&mut env);
+    let init = init_permissions_ix(&env, a(outsider.pubkey()));
+    let err = env.send(&[init], &outsider, &[]).unwrap_err();
+    assert!(is_vcode(&err, VanguardError::NotAPlayer), "{:?}", err.err);
+    assert_eq!(env.battle().status, vanguard::STATUS_CREATED);
+    assert_eq!(env.battle().permissioned, 0);
+    // Either Player passes the guard. LiteSVM has no permission program, so the call stops further on and
+    // reverts: the Battle is untouched.
+    for seat in 0..2 {
+        let p = env.player(seat);
+        let init = init_permissions_ix(&env, p.key);
+        let err = env.send(&[init], &p.kp, &[]).unwrap_err();
+        assert!(!is_vcode(&err, VanguardError::NotAPlayer), "seat {seat}");
+        assert_eq!(env.battle().status, vanguard::STATUS_CREATED);
+    }
+}
+
+#[test]
+fn setup_has_a_hard_deadline_well_inside_the_refund_window() {
+    let env = ready();
+    let b = env.battle();
+    assert_eq!(
+        b.setup_deadline,
+        b.start_deadline + vanguard::SETUP_GRACE_SECS
+    );
+    let refund = env.load::<MatchState>(tmatch_pda(env.id)).inner.deadline;
+    // Dealt on the last second, the Match still ends (cap) and settles with hours to spare.
+    assert!(b.setup_deadline + engine::CAP_SECS + 3_600 < refund);
+}
+
+#[test]
+fn nothing_goes_live_past_the_setup_deadline_and_claim_timeout_cancels() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    let deadline = env.battle().setup_deadline;
+    // Both secrets and the randomness are in, but it is too late to start.
+    env.set_time(deadline + 1);
+    let err = env.deal().unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::SetupClosed));
+    assert_eq!(env.battle().status, vanguard::STATUS_SETUP);
+    let caller = env.bob.kp.insecure_clone();
+    env.claim_timeout(&caller).expect("cancel");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("refund");
+    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
+    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+}
+
+/// A late oracle pushes the entropy deadline a minute at a time, never past the setup deadline.
+#[test]
+fn the_wait_for_a_late_oracle_is_bounded_by_the_setup_deadline() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.patch_secret(|v| v.vrf_seen = false);
+    let setup_deadline = env.battle().setup_deadline;
+    let caller = env.bob.kp.insecure_clone();
+    let mut claims = 0;
+    while env.battle().status == vanguard::STATUS_SETUP {
+        claims += 1;
+        assert!(claims < 20, "the wait never ends");
+        let t = env.battle().entropy_deadline + 1;
+        env.set_time(t);
+        env.claim_timeout(&caller).expect("claim");
+        assert!(env.battle().entropy_deadline <= setup_deadline);
+    }
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    assert!(env.now > setup_deadline);
+    assert!(claims > 1, "the oracle got more than one extra minute");
+}
+
+/// Both Players are in and nobody asked for randomness: that is not the oracle being late, it cancels at the first
+/// deadline instead of looping.
+#[test]
+fn randomness_nobody_asked_for_cancels_at_the_first_deadline() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.patch_secret(|v| {
+        v.vrf_seen = false;
+        v.vrf_requested = false;
+    });
+    env.set_time(T0 + vanguard::ENTROPY_SECS + 1);
+    let caller = env.bob.kp.insecure_clone();
+    env.claim_timeout(&caller).expect("claim");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+}
+
+#[test]
+fn entropy_after_the_window_is_refused() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.patch_secret(|v| {
+        v.contributed = [false; 2];
+        v.vrf_seen = false;
+        v.vrf_requested = false;
+    });
+    env.set_time(env.battle().entropy_deadline + 1);
+    let ad = addrs(env.id);
+    let alice = env.alice.kp.insecure_clone();
+    let i = ix(
+        vanguard::ID,
+        vanguard::accounts::ContributeEntropy {
+            player: a(alice.pubkey()),
+            battle: ad.battle,
+            secret: ad.secret,
+        },
+        vanguard::instruction::ContributeEntropy { secret: [1; 32] },
+        vec![],
+    );
+    let err = env.send(&[i], &alice, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::SetupClosed));
+    assert_eq!(env.secret().contributed, [false, false]);
+}
+
+#[test]
+fn a_battle_records_its_versions_and_rules_when_created() {
+    let mut env = Env::new();
+    env.open_and_join(1_000);
+    let bob = env.bob.kp.insecure_clone();
+    env.ensure_config();
+    let create = env.create_ix(env.bob.key);
+    env.send(&[create], &bob, &[]).expect("bob creates");
+    let b = env.battle();
+    assert_eq!(b.layout_version, vanguard::LAYOUT_VERSION);
+    assert_eq!(b.rules_version, engine::RULES_VERSION);
+    assert_eq!(
+        b.payer, env.bob.key,
+        "whoever pressed create prepaid the rent"
+    );
+    assert_eq!(
+        b.oracle_queue, QUEUE,
+        "the queue comes from the config, not the code"
+    );
+    assert_eq!(b.move_cap, engine::MOVE_CAP);
+    assert_eq!(b.cap_secs as i64, engine::CAP_SECS);
+    assert_eq!(b.turn_secs as i64, engine::TURN_SECS);
+    assert_eq!(b.grace_secs as i64, engine::GRACE_SECS);
+    assert_eq!(b.opening_grace_secs as i64, OPENING_GRACE_SECS);
+    assert_eq!(
+        (b.storm_from as u16, b.storm_to as u16),
+        (engine::STORM_FROM, engine::STORM_TO)
+    );
+    assert_eq!(b.reserved, [0; 32]);
+    assert_eq!(
+        (b.pending_kind, b.action_seq, b.deal_slot),
+        (vanguard::PENDING_NONE, 0, 0)
+    );
+    assert_eq!(env.army(0).reserved, [0; 32]);
+    assert_eq!(env.army(1).reserved, [0; 32]);
+}
+
+/// A program upgrade never changes the rules of a Match in flight: the clock, the caps and the storm window are
+/// read from the Battle, set when it was created.
+#[test]
+fn a_battle_plays_by_the_rules_stored_when_it_was_created() {
+    let mut env = ready();
+    env.start_in_rollup(2);
+    env.patch_battle(|b| {
+        b.turn_secs = 9;
+        b.grace_secs = 2;
+        b.opening_grace_secs = 4;
+        b.move_cap = 2;
+        b.cap_secs = 100;
+        b.storm_from = 3;
+        b.storm_to = 4;
+    });
+    env.set_time(T0 + 30);
+    env.deal().expect("deal");
+    let b = env.battle();
+    assert_eq!(b.deadline, T0 + 30 + 9 + 2 + 4);
+    assert_eq!(b.cap_deadline, T0 + 30 + 100);
+    assert!((3..=4).contains(&env.secret().storm_at));
+    // Two moves reach the stored move cap, not the compiled one.
+    for _ in 0..2 {
+        let (piece, to) = legal_moves(&env)[0];
+        let t = env.now + 1;
+        env.set_time(t);
+        let seat = {
+            let b = env.battle();
+            let side = if b.turn == 0 { Side::Us } else { Side::It };
+            (0..2)
+                .find(|s| b.side_of_seat(*s) == Some(side))
+                .expect("seat")
+        };
+        env.mv(seat, piece, to).expect("move");
+    }
+    let b = env.battle();
+    assert_eq!(b.status, vanguard::STATUS_OVER);
+    assert_eq!(b.reason, vanguard::reason_code(EndReason::Cap));
+}
+
+#[test]
+fn the_opening_turn_has_ten_extra_seconds() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.set_time(T0 + 30);
+    env.deal().expect("deal");
+    let deadline = env.battle().deadline;
+    assert_eq!(
+        deadline,
+        T0 + 30 + engine::TURN_SECS + engine::GRACE_SECS + OPENING_GRACE_SECS
+    );
+    let caller = env.oracle.insecure_clone();
+    env.set_time(deadline);
+    let err = env.claim_timeout(&caller).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    // A first move after the usual six seconds is still in time.
+    env.set_time(T0 + 30 + 14);
+    let (piece, to) = legal_moves(&env)[0];
+    let seat = if env.battle().side_of_seat(0) == Some(Side::Us) {
+        0
+    } else {
+        1
+    };
+    env.mv(seat, piece, to)
+        .expect("a slow first move is accepted");
+    // The next turn has only the usual clock.
+    assert_eq!(
+        env.battle().deadline,
+        T0 + 30 + 14 + engine::TURN_SECS + engine::GRACE_SECS
+    );
+}
+
+// --- No hidden rank decides what runs ----------------------------------------------------------------
+
+/// Italy's side of the boards below: it always has a piece that can move, so no move here ends the Match.
+fn italy() -> Vec<LayoutPiece> {
+    vec![
+        lp(Side::It, GENERAL_OF_THE_ARMY, 5),
+        lp(Side::It, 8, 6),
+        lp(Side::It, BOMB, 7),
+    ]
+}
+
+/// A US piece of `rank` at 70 steps onto the empty square 60; a General at 95 is for a second step.
+fn step_layout(rank: u8, others: u8) -> Vec<LayoutPiece> {
+    let mut l = vec![
+        lp(Side::Us, rank, 70),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::Us, others, 97),
+    ];
+    l.extend(italy());
+    l
+}
+
+/// The compute of declaring and of resolving the first step of a turn by the piece at 70.
+fn first_step_cu(rank: u8, others: u8, fuel: u8) -> (u64, u64) {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&step_layout(rank, others), 0);
+    env.set_time(T0 + 2);
+    env.patch_army(0, |v| v.fuel = fuel);
+    env.mv(0, id_of(70), 60).expect("the step is legal");
+    (env.declare_cu, env.resolve_cu)
+}
+
+/// The same move, by pieces of every hidden rank: the declare and the resolve each cost the same compute, so the
+/// opponent who sees a transaction's compute learns nothing about the piece that moved. A Truck's first two moves
+/// cost what any other piece's move costs (its third shows it and is announced anyway).
+#[test]
+fn a_move_costs_the_same_compute_whatever_rank_moves() {
+    let mut readings = vec![];
+    for rank in [SPY, RECON, ENGINEER, 4, 5, 6, 7, 8, 9, GENERAL_OF_THE_ARMY] {
+        for others in [BOMB, ENGINEER, 5] {
+            readings.push((
+                format!("rank {rank} others {others}"),
+                first_step_cu(rank, others, 0),
+            ));
+        }
+    }
+    for fuel in [0, 1] {
+        readings.push((
+            format!("Truck fuel {fuel}"),
+            first_step_cu(TRUCK, BOMB, fuel),
+        ));
+    }
+    let first = readings[0].1;
+    for (what, cu) in &readings {
+        assert_eq!(
+            *cu, first,
+            "{what} used {cu:?}, a rank-1 move {first:?}: {readings:?}"
+        );
+    }
+    println!(
+        "CU of a first step (declare, resolve), {} variants: {first:?}",
+        readings.len()
+    );
+}
+
+/// A declare reads no Army and no Secret: it costs the same whatever the board holds, and with a compute limit set
+/// to exactly what it needs it succeeds for every rank, one unit less it fails for every rank.
+#[test]
+fn a_declare_cannot_tell_ranks_apart_even_under_a_tight_compute_limit() {
+    let declare = |rank: u8, others: u8, limit: Option<u32>| -> Result<u64, ()> {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(rank, others), 0);
+        env.set_time(T0 + 2);
+        let p = env.player(0);
+        let m = env.move_ix(p.key, id_of(70), 60);
+        let mut ixs = vec![m];
+        if let Some(l) = limit {
+            let mut data = vec![2u8];
+            data.extend_from_slice(&l.to_le_bytes());
+            ixs.insert(0, Instruction { data, ..budget() });
+        }
+        env.send(&ixs, &p.kp, &[])
+            .map(|_| env.last_cu)
+            .map_err(|_| ())
+    };
+    let needed = declare(5, BOMB, None).expect("declare");
+    for (rank, others) in [
+        (SPY, 5),
+        (RECON, BOMB),
+        (GENERAL_OF_THE_ARMY, ENGINEER),
+        (TRUCK, BOMB),
+        (BOMB, 5),
+    ] {
+        assert_eq!(declare(rank, others, None), Ok(needed), "rank {rank}");
+        // the limit instruction itself costs a few units: leave room for it
+        assert!(
+            declare(rank, others, Some(needed as u32 + 1_000)).is_ok(),
+            "rank {rank} with room"
+        );
+        assert!(
+            declare(rank, others, Some(needed as u32 - 3_000)).is_err(),
+            "rank {rank} without room"
+        );
+    }
+}
+
+/// An impersonated signer (a transaction that names the opponent's key but carries no signature from it, as a
+/// `simulateTransaction` with `sigVerify: false` allows) gets the same answer and the same compute whatever the
+/// hidden rank of the opponent's piece: a Landmine, a Recon, a Truck out of fuel, a General.
+#[test]
+fn an_impersonated_declare_answers_the_same_for_every_hidden_rank() {
+    let mut results = vec![];
+    for (rank, fuel) in [
+        (BOMB, 0),
+        (RECON, 0),
+        (TRUCK, engine::TRUCK_FUEL),
+        (TRUCK, 0),
+        (GENERAL_OF_THE_ARMY, 0),
+        (SPY, 0),
+    ] {
+        let mut env = Env::build(false);
+        env.open_and_join(1_000);
+        env.create().expect("create");
+        env.start_in_rollup(1);
+        // Italy to move, with the piece under test at 5.
+        let layout = vec![
+            lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+            lp(Side::It, rank, 5),
+            lp(Side::It, GENERAL_OF_THE_ARMY, 6),
+        ];
+        env.stage(&layout, 0);
+        env.patch_battle(|b| b.turn = 1);
+        env.patch_army(1, |v| v.fuel = fuel);
+        env.set_time(T0 + 2);
+        // Alice attacks: she names Bob's key as the signer and signs only as the fee payer.
+        let alice = env.alice.kp.insecure_clone();
+        let bob = env.bob.key;
+        let declare = env.move_ix(bob, id_of(5), 15);
+        env.svm.expire_blockhash();
+        let mut tx =
+            Transaction::new_unsigned(Message::new(&[budget(), declare], Some(&alice.pubkey())));
+        tx.partial_sign(&[&alice], env.svm.latest_blockhash());
+        let r = env.run(tx);
+        results.push((rank, fuel, r.is_ok(), env.last_cu));
+    }
+    for r in &results {
+        assert_eq!((r.2, r.3), (results[0].2, results[0].3), "{results:?}");
+    }
+    assert!(
+        results[0].2,
+        "the declare is accepted: it checks public state only"
+    );
+}
+
+/// A Two-Step Turn, too: spending it and each step.
+#[test]
+fn a_two_step_turn_costs_the_same_compute_whatever_rank_moves() {
+    let measure = |rank: u8, fuel: u8| {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(rank, BOMB), 0);
+        env.set_time(T0 + 2);
+        env.patch_army(0, |v| v.fuel = fuel);
+        env.patch_battle(|b| b.two_step[0] = 1);
+        env.two_step(0).expect("spend it");
+        let spend = env.last_cu;
+        env.mv(0, id_of(70), 60).expect("first step");
+        let first = (env.declare_cu, env.resolve_cu);
+        env.mv(0, id_of(95), 85).expect("second step");
+        (spend, first, (env.declare_cu, env.resolve_cu))
+    };
+    let base = measure(5, 0);
+    for (rank, fuel) in [
+        (SPY, 0),
+        (RECON, 0),
+        (GENERAL_OF_THE_ARMY, 0),
+        (TRUCK, 0),
+        (TRUCK, 1),
+    ] {
+        assert_eq!(measure(rank, fuel), base, "rank {rank} fuel {fuel}");
+    }
+    println!("CU of a Two-Step Turn (spend, first step, second step): {base:?}");
+}
+
+/// A fight is the one place where the work may depend on the pieces, and then on the published outcome only: the
+/// winning attacker stays hidden, so a Spy that beats the General must cost what any other winner costs. The declare
+/// of an attack costs what any declare costs.
+#[test]
+fn a_fight_costs_what_its_published_outcome_costs_and_no_more() {
+    let attack = |att: u8, def: u8| -> (u8, u64, u64) {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        let layout = vec![
+            lp(Side::Us, att, 70),
+            lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+            lp(Side::It, def, 20),
+            lp(Side::It, GENERAL_OF_THE_ARMY, 5),
+            lp(Side::It, 8, 6),
+        ];
+        env.stage(&layout, 0);
+        // The defender stands next to the attacker: it left its start square earlier.
+        let d = id_of(20) as usize;
+        env.patch_battle(|b| {
+            b.sq[d] = 60;
+            b.trail[d] = [60, 0, 0, 0, 0, 0];
+            b.trail_len[d] = 1;
+        });
+        env.set_time(T0 + 2);
+        env.mv(0, id_of(70), 60).expect("the attack is legal");
+        (env.battle().ring[0].data[4], env.declare_cu, env.resolve_cu)
+    };
+    type Class = (&'static str, engine::Outcome, Vec<(u8, u8)>);
+    let classes: [Class; 6] = [
+        (
+            "win",
+            engine::Outcome::Win,
+            vec![
+                (10, 9),
+                (9, 8),
+                (5, 3),
+                (4, 2),
+                (SPY, GENERAL_OF_THE_ARMY),
+                (3, 1),
+                (8, 5),
+            ],
+        ),
+        (
+            "lose",
+            engine::Outcome::Lose,
+            vec![(3, 7), (1, 9), (2, 10), (4, 8), (SPY, 5), (5, 6)],
+        ),
+        (
+            "tie",
+            engine::Outcome::Tie,
+            vec![(7, 7), (3, 3), (10, 10), (SPY, SPY)],
+        ),
+        (
+            "mine",
+            engine::Outcome::Mine,
+            vec![
+                (10, BOMB),
+                (5, BOMB),
+                (SPY, BOMB),
+                (RECON, BOMB),
+                (TRUCK, BOMB),
+            ],
+        ),
+        ("defuse", engine::Outcome::Defuse, vec![(ENGINEER, BOMB)]),
+        (
+            "truck",
+            engine::Outcome::Truck,
+            vec![(10, TRUCK), (SPY, TRUCK), (RECON, TRUCK), (4, TRUCK)],
+        ),
+    ];
+    let mut declares = vec![];
+    for (name, outcome, pairs) in classes {
+        let readings: Vec<(u8, u8, u8, u64)> = pairs
+            .iter()
+            .map(|&(att, def)| {
+                let (code, declare, resolve) = attack(att, def);
+                declares.push(declare);
+                (att, def, code, resolve)
+            })
+            .collect();
+        for &(att, def, code, cu) in &readings {
+            assert_eq!(
+                code,
+                vanguard::outcome_code(outcome),
+                "{name}: {att} attacks {def}"
+            );
+            assert_eq!(
+                cu, readings[0].3,
+                "{name}: {att} attacks {def} resolved with {cu}: {readings:?}"
+            );
+        }
+        println!("CU of resolving a fight, {name}: {}", readings[0].3);
+    }
+    assert!(declares.iter().all(|d| *d == declares[0]), "{declares:?}");
+}
+
+/// `claim_timeout` is permissionless, so anyone reads its compute: it must not say anything about the Truck's fuel.
+#[test]
+fn claim_timeout_costs_the_same_compute_whatever_the_truck_fuel() {
+    let measure = |fuel: u8| {
+        let mut env = ready();
+        env.start_in_rollup(1);
+        env.stage(&step_layout(TRUCK, BOMB), 0);
+        env.patch_army(0, |v| v.fuel = fuel);
+        env.set_time(env.battle().deadline + 1);
+        let caller = env.oracle.insecure_clone();
+        env.claim_timeout(&caller).expect("timeout");
+        (env.declare_cu, env.resolve_cu)
+    };
+    let base = measure(0);
+    for fuel in [1, 2, 3] {
+        assert_eq!(measure(fuel), base, "fuel {fuel}");
+    }
+}
+
+// --- Declare, then resolve in a later slot -------------------------------------------------------------
+
+fn declared_env() -> Env {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.stage(&truck_raid_layout(), 0);
+    env.set_time(T0 + 2);
+    env
+}
+
+/// A declare is recorded and nothing else: the board does not move until `resolve`.
+#[test]
+fn a_declare_records_public_intent_and_moves_nothing() {
+    let mut env = declared_env();
+    let p = env.player(0);
+    let before = env.battle();
+    let m = env.move_ix(p.key, id_of(70), 20);
+    env.send(&[budget(), m], &p.kp, &[]).expect("declare");
+    let b = env.battle();
+    assert_eq!(
+        (
+            b.pending_kind,
+            b.pending_piece,
+            b.pending_to,
+            b.pending_seat,
+            b.action_seq
+        ),
+        (vanguard::PENDING_MOVE, id_of(70), 20, 0, 1)
+    );
+    assert_eq!(b.pending_slot, env.slot());
+    assert_eq!(b.pending_time, env.now);
+    assert_eq!(
+        (b.sq, b.turn, b.moves, b.event_seq),
+        (before.sq, before.turn, before.moves, before.event_seq)
+    );
+}
+
+#[test]
+fn resolve_needs_a_later_slot_and_a_pending_action() {
+    let mut env = declared_env();
+    let alice = env.alice.kp.insecure_clone();
+    // Nothing pending.
+    env.next_slot();
+    let r = env.resolve_ix(a(alice.pubkey()));
+    let err = env.send(&[budget(), r], &alice, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NothingPending));
+    // In the declare's slot.
+    let m = env.move_ix(env.alice.key, id_of(70), 20);
+    env.send(&[budget(), m], &alice, &[]).expect("declare");
+    let r = env.resolve_ix(a(alice.pubkey()));
+    let err = env.send(&[budget(), r], &alice, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon));
+    assert_eq!(env.battle().pending_kind, vanguard::PENDING_MOVE);
+    // Anyone resolves in the next slot, and no gameplay choice is theirs.
+    let outsider = stranger(&mut env);
+    env.resolve(&outsider).expect("anyone resolves");
+    assert_eq!(env.battle().status, vanguard::STATUS_OVER);
+    assert_eq!(env.battle().pending_kind, vanguard::PENDING_NONE);
+}
+
+/// One transaction cannot declare and resolve: a bundle sees one slot.
+#[test]
+fn a_declare_and_a_resolve_in_one_transaction_are_refused() {
+    let mut env = declared_env();
+    let alice = env.alice.kp.insecure_clone();
+    let before = env.battle();
+    let m = env.move_ix(env.alice.key, id_of(70), 20);
+    let r = env.resolve_ix(env.alice.key);
+    let err = env.send(&[budget(), m, r], &alice, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon));
+    assert_eq!(
+        anchor_lang::__private::bytemuck::bytes_of(&env.battle()),
+        anchor_lang::__private::bytemuck::bytes_of(&before)
+    );
+}
+
+/// While an action is pending only `resolve` is accepted.
+#[test]
+fn nothing_but_resolve_is_accepted_while_an_action_is_pending() {
+    let mut env = declared_env();
+    let alice = env.alice.kp.insecure_clone();
+    let m = env.move_ix(env.alice.key, id_of(70), 60);
+    env.send(&[budget(), m], &alice, &[]).expect("declare");
+    env.next_slot();
+    let again = env.move_ix(env.alice.key, id_of(95), 85);
+    let err = env.send(&[budget(), again], &alice, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::ActionPending));
+    env.patch_battle(|b| b.two_step[0] = 1);
+    let err = env.two_step(0).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::ActionPending));
+    env.set_time(env.battle().deadline + 1);
+    let bob = env.bob.kp.insecure_clone();
+    let err = env.claim_timeout_declare(&bob).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::ActionPending));
+    // The pending move is still the one declared.
+    let b = env.battle();
+    assert_eq!(
+        (b.pending_piece, b.pending_to, b.action_seq),
+        (id_of(70), 60, 1)
+    );
+}
+
+/// `deal` and a declare in one transaction (or in one slot) are refused: the sides cannot be read out of a bundle.
+#[test]
+fn nothing_is_declared_in_the_slot_of_the_deal() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    let alice = env.alice.kp.insecure_clone();
+    let bob = env.bob.kp.insecure_clone();
+    // Either Player might be the one to move first: try both seats, in one transaction with the deal.
+    for p in [&alice, &bob] {
+        let deal = env.deal_ix(a(p.pubkey()));
+        let decl = env.move_ix(a(p.pubkey()), 55, 45);
+        let err = env.send(&[budget(), deal, decl], p, &[]).unwrap_err();
+        assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon));
+        assert_eq!(
+            env.battle().status,
+            vanguard::STATUS_SETUP,
+            "the whole transaction reverted"
+        );
+    }
+    // The same slot, in two transactions.
+    let deal = env.deal_ix(a(alice.pubkey()));
+    env.send(&[deal], &alice, &[]).expect("deal");
+    for p in [&alice, &bob] {
+        let decl = env.move_ix(a(p.pubkey()), 55, 45);
+        let err = env.send(&[budget(), decl], p, &[]).unwrap_err();
+        assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon), "declare");
+    }
+    let two = env.alice.kp.insecure_clone();
+    let ts = ix(
+        vanguard::ID,
+        vanguard::accounts::StartTwoStep {
+            player: a(two.pubkey()),
+            battle: addrs(env.id).battle,
+        },
+        vanguard::instruction::StartTwoStep {},
+        vec![],
+    );
+    let err = env.send(&[ts], &two, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon), "two-step");
+    let caller = env.oracle.insecure_clone();
+    env.set_time(env.battle().deadline + 1);
+    let err = env.claim_timeout_declare(&caller).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::TooSoon), "timeout");
+}
+
+/// The clock decision is made at the declare and never again: a late resolve does not turn an accepted move into a
+/// refusal, and the next deadline counts from the resolve.
+#[test]
+fn the_clock_is_decided_at_the_declare_and_the_next_deadline_counts_from_the_resolve() {
+    let mut env = declared_env();
+    let alice = env.alice.kp.insecure_clone();
+    let deadline = env.battle().deadline;
+    // Declared at the very edge of the deadline...
+    env.set_time(deadline);
+    let m = env.move_ix(env.alice.key, id_of(70), 60);
+    env.send(&[budget(), m], &alice, &[])
+        .expect("declared in time");
+    // ...resolved long after it.
+    env.set_time(deadline + 500);
+    env.resolve(&alice)
+        .expect("a late resolve still applies the move");
+    let b = env.battle();
+    assert_eq!(b.sq[id_of(70) as usize], 60);
+    assert_eq!(
+        b.deadline,
+        deadline + 500 + 6,
+        "the next deadline counts from the resolve, with no extra grace"
+    );
+    // One second past the edge is refused at the declare.
+    let bob = env.bob.kp.insecure_clone();
+    env.set_time(b.deadline + 1);
+    let late = env.move_ix(env.bob.key, id_of(5), 15);
+    let err = env.send(&[budget(), late], &bob, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::TurnExpired));
+}
+
+/// A timeout claim is judged when it is claimed: the turn's deadline against the cap, decided at the declare.
+#[test]
+fn a_timeout_is_classified_when_claimed_and_applied_when_resolved() {
+    let mut env = declared_env();
+    let caller = env.bob.kp.insecure_clone();
+    let deadline = env.battle().deadline;
+    env.set_time(deadline + 1);
+    env.claim_timeout_declare(&caller).expect("claim");
+    assert_eq!(env.battle().pending_kind, vanguard::PENDING_TIMEOUT);
+    // Resolved after the cap has passed: it is still the lost turn it was claimed as, not a cap ending.
+    env.set_time(env.battle().started_at + engine::CAP_SECS + 50);
+    env.resolve(&caller).expect("resolve");
+    let b = env.battle();
+    assert_eq!(
+        (b.status, b.turn, b.timeouts),
+        (vanguard::STATUS_LIVE, 1, [1, 0])
+    );
+    // Claimed after the cap: the tiebreak, whatever the turn clock says.
+    env.claim_timeout(&caller).expect("claim and resolve");
+    assert_eq!(env.battle().status, vanguard::STATUS_OVER);
+    assert_eq!(env.battle().reason, vanguard::reason_code(EndReason::Cap));
+}
+
+/// A declared move the rank rules refuse costs the turn: three in a row lose the Match.
+#[test]
+fn a_declared_illegal_move_costs_the_turn_and_three_lose_the_match() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    let layout = vec![
+        lp(Side::Us, BOMB, 97),
+        lp(Side::Us, GENERAL_OF_THE_ARMY, 95),
+        lp(Side::It, GENERAL_OF_THE_ARMY, 5),
+        lp(Side::It, 8, 6),
+    ];
+    env.stage(&layout, 0);
+    env.set_time(T0 + 2);
+    for (n, expected) in [[1u8, 0], [2, 0]].into_iter().enumerate() {
+        env.mv(0, id_of(97), 87)
+            .expect("a Landmine cannot move: the turn is lost");
+        assert_eq!(env.battle().timeouts, expected);
+        assert_eq!(env.battle().sq[id_of(97) as usize], 97);
+        // Italy moves, which does not reset Alice's count.
+        let to = if n == 0 { 15 } else { 25 };
+        env.mv(1, id_of(5), to).expect("Italy moves");
+    }
+    env.mv(0, id_of(97), 87).expect("the third lost turn");
+    let b = env.battle();
+    assert_eq!(
+        (b.status, b.winner, b.reason),
+        (
+            vanguard::STATUS_OVER,
+            1,
+            vanguard::reason_code(EndReason::Timeouts)
+        )
+    );
+}
+
+/// After the Match is over, `resolve` followed by `finalize` in one transaction is only possible where both are
+/// callable (LiteSVM); either way the outcome shown is the committed one and nothing is half done.
+#[test]
+fn resolve_then_finalize_in_one_transaction_is_all_or_nothing() {
+    let mut env = declared_env();
+    let alice = env.alice.kp.insecure_clone();
+    let m = env.move_ix(env.alice.key, id_of(70), 20);
+    env.send(&[budget(), m], &alice, &[])
+        .expect("declare the Truck capture");
+    env.next_slot();
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    let remaining = {
+        // The payout accounts of a win by seat 0.
+        let mut mt = env.load::<MatchState>(tmatch_pda(env.id)).inner;
+        let payouts = mt.settle(CoreOutcome::Winner(0)).expect("settle");
+        let mut metas = vec![];
+        for p in payouts {
+            let (recipient, source) = (
+                APk::new_from_array(p.recipient),
+                APk::new_from_array(p.source),
+            );
+            env.open_holding(recipient, source);
+            metas.push(rem(recipient));
+            metas.push(rem(holding_pda(recipient, source)));
+        }
+        metas
+    };
+    let ad = addrs(env.id);
+    let finalize = ix(
+        vanguard::ID,
+        vanguard::accounts::Finalize {
+            caller: a(alice.pubkey()),
+            battle: ad.battle,
+            tesoro_match: tmatch_pda(env.id),
+            config: tpda(&[CONFIG_SEED]),
+            authority: authority_pda(),
+            tesoro_program: tesoro_core::ID,
+        },
+        vanguard::instruction::Finalize {},
+        remaining,
+    );
+    let resolve = env.resolve_ix(env.alice.key);
+    env.send(&[budget(), resolve, finalize], &alice, &[])
+        .expect("the Match ends and settles");
+    assert_eq!(env.tesoro_status(), MatchStatus::Settled);
+    assert_eq!(env.gemas(&env.alice), before.0 + 1_900);
+    assert_eq!(env.battle().finalized, 1);
+}
+
+/// The opening turn's extra time is stored once, in the first deadline. Nothing re-grants it.
+#[test]
+fn the_opening_grace_is_consumed_exactly_once() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.set_time(T0 + 30);
+    env.deal().expect("deal");
+    let opening = env.battle().deadline;
+    assert_eq!(opening, T0 + 30 + 6 + OPENING_GRACE_SECS);
+    let us = if env.battle().side_of_seat(0) == Some(Side::Us) {
+        0
+    } else {
+        1
+    };
+    let player = env.player(us);
+    // Spending a banked Two-Step Turn on the opening turn does not refresh it.
+    env.patch_battle(|b| b.two_step[0] = 1);
+    env.set_time(T0 + 31);
+    env.two_step(us).expect("spend");
+    assert_eq!(env.battle().deadline, opening);
+    // The first timeout cannot be claimed before the opening deadline, and can right after it.
+    let caller = env.oracle.insecure_clone();
+    env.set_time(opening);
+    let err = env.claim_timeout_declare(&caller).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    // A first move one second past it is refused at the declare.
+    let (piece, to) = legal_moves(&env)[0];
+    env.set_time(opening + 1);
+    let late = env.move_ix(player.key, piece, to);
+    let err = env.send(&[budget(), late], &player.kp, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::TurnExpired));
+    // A first move at the edge, resolved much later: the next turn has the plain 6 seconds, counted from the resolve.
+    env.set_time(opening);
+    let m = env.move_ix(player.key, piece, to);
+    env.send(&[budget(), m], &player.kp, &[])
+        .expect("declared at the edge");
+    env.set_time(opening + 300);
+    env.resolve(&caller).expect("delayed resolve");
+    assert_eq!(env.battle().deadline, opening + 300 + 6);
 }
 
 // --- tesoro_core fixtures ------------------------------------------------------------------------

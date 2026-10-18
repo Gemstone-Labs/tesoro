@@ -78,6 +78,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   const contributedAt = useRef(0);
   const lastVrf = useRef(0);
   const lastClaim = useRef(0);
+  const lastResolve = useRef(0);
   const settledSeen = useRef(false);
   const finalRead = useRef(false);
   const delegated = useRef(false);
@@ -325,6 +326,11 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
           const army = await vg.readOwnArmy(p, id, seat);
           if (army && army.ranks.some((r) => r !== 0) && !stop) setView((v) => (v.army && v.army.moves === army.moves && v.army.fuel === army.fuel && v.army.side === army.side ? v : { ...v, army }));
         }
+        // A declared move or timeout waits for a later slot; either Player (or the keeper) applies it.
+        if (b.status === STATUS.live && b.pendingKind !== 0 && now() - lastResolve.current > 600) {
+          lastResolve.current = now();
+          await vg.resolve(p, id).catch(() => undefined);
+        }
         // Past a deadline the program passes the turn, ends the Match on the cap or cancels it; anyone may ask.
         const seenAt = turnSeenRef.current || now();
         if ((b.status === STATUS.live || b.status === STATUS.setup) && claimDue(b, seenAt, now()) && now() - lastClaim.current > 2_500) {
@@ -352,7 +358,13 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     async (piece: number, to: number) => {
       if (!p || id === null) throw new Error("Not ready");
       try {
-        await getVanguard().movePiece(p, id, piece, to);
+        const vg = getVanguard();
+        await vg.movePiece(p, id, piece, to);
+        // Applying it needs a later slot: try right away, the poll keeps trying if this misses.
+        for (let i = 0; i < 4; i++) {
+          if (await vg.resolve(p, id).then(() => true, () => false)) break;
+          await new Promise((r) => setTimeout(r, 250));
+        }
       } catch (e) {
         throw new Error(plainError(e));
       }

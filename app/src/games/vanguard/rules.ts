@@ -12,11 +12,15 @@ export type Rank = "10" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" | "1" | 
 export const SIZE = 10;
 export const TURN_MS = 5000;
 /** How long a turn lasts and how much extra time the chain gives for network delay. */
-export interface ClockConfig { turnMs: number; graceMs: number }
+export interface ClockConfig { turnMs: number; graceMs: number; openingGraceMs: number }
+/** Bump with the program's RULES_VERSION when a rule changes. */
+export const RULES_VERSION = 3;
+/** Extra time on the chain's opening turn only: the deal starts the first mover's clock before they have loaded their Army (the program has the same number, OPENING_GRACE_SECS). */
+export const OPENING_GRACE_MS = 10_000;
 /** Practice has no network: the turn ends exactly when the 5 seconds do. */
-export const PRACTICE_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 0 };
+export const PRACTICE_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 0, openingGraceMs: 0 };
 /** On the chain a move is accepted until 5 s + 1 s of grace after the turn started; the program has the same two numbers (GRACE_SECS). */
-export const CHAIN_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 1000 };
+export const CHAIN_CLOCK: ClockConfig = { turnMs: TURN_MS, graceMs: 1000, openingGraceMs: OPENING_GRACE_MS };
 export const TRUCK_FUEL = 3;
 export const MOVE_CAP = 200;
 /** The time cap: after this long from the start a Match ends on the tiebreak (15 minutes). */
@@ -214,7 +218,7 @@ export function startGame(layout: LayoutPiece[], o: StartOptions): Game {
     movedThisTurn: [],
     startedAt: o.startedAt,
     clock,
-    deadline: turnEnd({ clock }, o.startedAt),
+    deadline: turnEnd({ clock }, o.startedAt) + clock.openingGraceMs,
     stormAt: o.stormAt,
     stormSeed: o.stormSeed,
     stormDone: false,
@@ -318,7 +322,8 @@ export function startTwoStep(g: Game, at: number): Result {
   return done({ ...g, twoStep: { ...g.twoStep, [g.turn]: g.twoStep[g.turn] - 1 }, twoStepActive: true, stepsLeft: 2 }, []);
 }
 
-export interface MoveAction { id: number; to: Square; at: number }
+/** `at` is when the move was made (the clock checks use it); `resolvedAt` is when the chain applied it, which is later (default: `at`). */
+export interface MoveAction { id: number; to: Square; at: number; resolvedAt?: number }
 
 /** Move (or attack with) piece `id` to `to` at time `at`. Returns the new game and what happened, in order. */
 export function move(g0: Game, a: MoveAction): Result {
@@ -382,7 +387,7 @@ export function move(g0: Game, a: MoveAction): Result {
     events.push({ kind: "raid", army, at: { r, c } });
   }
 
-  g = { ...g, pieces, movedThisTurn: [...g.movedThisTurn, id], stepsLeft: g.stepsLeft - 1, deadline: turnEnd(g, at) };
+  g = { ...g, pieces, movedThisTurn: [...g.movedThisTurn, id], stepsLeft: g.stepsLeft - 1, deadline: turnEnd(g, a.resolvedAt ?? at) };
   // a Two-Step Turn continues while there is a second step to make
   if (g.stepsLeft > 0 && g.pieces.some((p) => p.army === army && targets(g, p).length > 0)) return done(g, events);
   return endTurn(g, events, false);
@@ -390,9 +395,10 @@ export function move(g0: Game, a: MoveAction): Result {
 
 /**
  * Nobody moved in time (the turn passes; three in a row lose the Match), or the time cap has passed
- * (the Match ends on the tiebreak whatever the turn clock says).
+ * (the Match ends on the tiebreak whatever the turn clock says). On the chain the claim is judged at `at` and applied at
+ * `resolvedAt`; the next deadline counts from the latter.
  */
-export function timeout(g: Game, at: number): Result {
+export function timeout(g: Game, at: number, resolvedAt: number = at): Result {
   if (g.winner) return { ok: false, reason: "match_over" };
   if (capPassed(g, at)) {
     const winner = capWinner(g);
@@ -406,7 +412,7 @@ export function timeout(g: Game, at: number): Result {
     const winner = enemy(army);
     return done(finish(g1, winner, "timeouts"), [{ kind: "end", winner, reason: "timeouts" }]);
   }
-  return endTurn({ ...g1, deadline: turnEnd(g1, at) }, [], true);
+  return endTurn({ ...g1, deadline: turnEnd(g1, resolvedAt) }, [], true);
 }
 
 /** The turn passes; `g0.deadline` is already the next side's deadline. */

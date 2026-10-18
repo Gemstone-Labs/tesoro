@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import coreIdl from "../../lib/chain/idl/tesoro_core.json";
 import vanguardIdl from "../../lib/chain/idl/vanguard.json";
 import { CU, VANGUARD_PROGRAM_ID, VanguardChain, addresses, keypairSigner } from "./chain";
+import { tesoroConfigPda } from "../holdem/chain";
 
 type Sent = { step: string; ixs: TransactionInstruction[] };
 
@@ -32,28 +33,40 @@ describe("addresses", () => {
 });
 
 describe("rollup instructions", () => {
-  it("a move takes the Player, the Battle, both Armies and the Secret, with a compute limit first", async () => {
+  it("a declared move takes only the Player and the Battle (no Army, no Secret), with a compute limit first", async () => {
     const { chain, sent, player } = capture();
     const ad = addresses(ID);
     await chain.movePiece(player, ID, 41, 53);
     const [limit, ix] = sent[0].ixs;
     expect(limit.programId.equals(ComputeBudgetProgram.programId)).toBe(true);
-    expect(units(limit)).toBe(CU.move);
-    expect(CU.move).toBeGreaterThan(640_000);
+    expect(units(limit)).toBe(CU.declare);
     expect(ix.programId.equals(VANGUARD_PROGRAM_ID)).toBe(true);
-    expect(keys(ix)).toEqual([player.publicKey, ad.battle, ad.army0, ad.army1, ad.secret].map((k) => k.toBase58()));
+    expect(keys(ix)).toEqual([player.publicKey, ad.battle].map((k) => k.toBase58()));
     expect([...ix.data.subarray(8)]).toEqual([41, 53]);
     expect(ix.keys[0].isSigner).toBe(true);
     expect(ix.keys[1].isWritable).toBe(true);
     expect(sent[0].step).toBe("move_piece");
   });
 
-  it("a timeout claim carries its own compute limit, above the 320k it needs", async () => {
+  it("resolve takes no arguments: the caller, the Battle, both Armies and the Secret", async () => {
     const { chain, sent, player } = capture();
+    const ad = addresses(ID);
+    await chain.resolve(player, ID);
+    const [limit, ix] = sent[0].ixs;
+    expect(units(limit)).toBe(CU.resolve);
+    expect(CU.resolve).toBeGreaterThan(60_000);
+    expect(keys(ix)).toEqual([player.publicKey, ad.battle, ad.army0, ad.army1, ad.secret].map((k) => k.toBase58()));
+    expect(ix.data.length).toBe(8);
+    expect(ix.keys[1].isWritable && ix.keys[2].isWritable && ix.keys[3].isWritable).toBe(true);
+    expect(sent[0].step).toBe("resolve");
+  });
+
+  it("a timeout claim names the caller, the Battle and the Secret, and no Army", async () => {
+    const { chain, sent, player } = capture();
+    const ad = addresses(ID);
     await chain.claimTimeout(player, ID);
-    expect(units(sent[0].ixs[0])).toBe(CU.claimTimeout);
-    expect(CU.claimTimeout).toBeGreaterThan(330_000);
-    expect(keys(sent[0].ixs[1])).toHaveLength(5);
+    expect(units(sent[0].ixs[0])).toBe(CU.declare);
+    expect(keys(sent[0].ixs[1])).toEqual([player.publicKey, ad.battle, ad.secret].map((k) => k.toBase58()));
   });
 
   it("the Two-Step Turn takes only the Player and the Battle", async () => {
@@ -110,6 +123,9 @@ describe("base-layer instructions", () => {
     const ix = sent[0].ixs[0];
     expect(ix.programId.equals(VANGUARD_PROGRAM_ID)).toBe(true);
     expect(keys(ix)).toContain(addresses(ID).battle.toBase58());
+    // The program's own config is passed next to tesoro_core's, and they are different accounts.
+    expect(keys(ix)).toContain(addresses(ID).config.toBase58());
+    expect(keys(ix)).toContain(tesoroConfigPda().toBase58());
     expect(ix.data.readBigUInt64LE(8)).toBe(ID);
   });
 });

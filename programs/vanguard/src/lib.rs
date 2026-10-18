@@ -14,7 +14,7 @@ pub mod engine;
 pub mod state;
 
 use anchor_lang::{prelude::*, solana_program::hash::hashv, system_program};
-use engine::{Army as Side, Events, Refusal, CHAIN_CLOCK, PIECE_SLOTS};
+use engine::{Army as Side, Events, Refusal, PIECE_SLOTS};
 use ephemeral_rollups_sdk::{
     access_control::{
         instructions::{CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi},
@@ -93,6 +93,14 @@ pub enum VanguardError {
     NoTwoStep,
     #[msg("Inconsistent account state")]
     BadState,
+    #[msg("The setup window is over")]
+    SetupClosed,
+    #[msg("An action is waiting to be resolved")]
+    ActionPending,
+    #[msg("No action is waiting to be resolved")]
+    NothingPending,
+    #[msg("Wait for a later slot")]
+    TooSoon,
 }
 
 fn refused(r: Refusal) -> Error {
@@ -112,16 +120,26 @@ fn refused(r: Refusal) -> Error {
 pub mod vanguard {
     use super::*;
 
-    /// Base layer, upgrade authority only. Names the TEE validator the Battle may be delegated to, so the
-    /// program has no compiled-in validator and a mainnet deploy needs no code change.
-    pub fn set_config(ctx: Context<SetConfig>, tee_validator: Pubkey) -> Result<()> {
+    /// Base layer, upgrade authority only. Names the TEE validator the Battle may be delegated to and the oracle
+    /// queue its VRF requests go to, so the program has no compiled-in cluster address and a mainnet deploy needs no
+    /// code change.
+    pub fn set_config(
+        ctx: Context<SetConfig>,
+        tee_validator: Pubkey,
+        oracle_queue: Pubkey,
+    ) -> Result<()> {
         require!(
             tee_validator != Pubkey::default(),
+            VanguardError::InvalidValidator
+        );
+        require!(
+            oracle_queue != Pubkey::default(),
             VanguardError::InvalidValidator
         );
         let config = &mut ctx.accounts.config;
         config.bump = ctx.bumps.config;
         config.tee_validator = tee_validator;
+        config.oracle_queue = oracle_queue;
         Ok(())
     }
 
@@ -192,15 +210,18 @@ pub mod vanguard {
         )?;
 
         let battle_key = ctx.accounts.battle.key();
-        ctx.accounts.battle.load_init()?.init(
-            ctx.bumps.battle,
-            ctx.bumps.authority,
+        ctx.accounts.battle.load_init()?.init(NewBattle {
+            bump: ctx.bumps.battle,
+            authority_bump: ctx.bumps.authority,
             match_id,
-            ctx.accounts.tesoro_match.key(),
+            tesoro_match: ctx.accounts.tesoro_match.key(),
             players,
-            now.checked_add(START_WINDOW_SECS)
+            start_deadline: now
+                .checked_add(START_WINDOW_SECS)
                 .ok_or(VanguardError::Overflow)?,
-        );
+            payer: ctx.accounts.creator.key(),
+            oracle_queue: ctx.accounts.vanguard_config.oracle_queue,
+        });
         **ctx.accounts.secret = Secret::blank(ctx.bumps.secret, battle_key);
         **ctx.accounts.army_0 = Army::blank(ctx.bumps.army_0, battle_key, 0, players[0]);
         **ctx.accounts.army_1 = Army::blank(ctx.bumps.army_1, battle_key, 1, players[1]);
@@ -249,12 +270,17 @@ pub mod vanguard {
         Ok(())
     }
 
-    /// Rollup. Creates the four permissions (the Battle is public, each Army is readable by its Player only, the
-    /// Secret by nobody) and opens the setup phase: both Players have a minute to contribute entropy.
+    /// Rollup, either Player only. Creates the four permissions (the Battle is public, each Army is readable by its
+    /// Player only, the Secret by nobody) and opens the setup phase: both Players have a minute to contribute
+    /// entropy. A stranger who could run it would move every new Battle to SETUP before `delegate_match`.
     pub fn init_permissions(ctx: Context<InitPermissions>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         {
             let mut battle = ctx.accounts.battle.load_mut()?;
+            require!(
+                battle.seat_of(&ctx.accounts.payer.key()).is_some(),
+                VanguardError::NotAPlayer
+            );
             require!(
                 battle.status == STATUS_CREATED && battle.permissioned == 0,
                 VanguardError::AlreadyStarted
@@ -344,6 +370,10 @@ pub mod vanguard {
         let seat = {
             let battle = ctx.accounts.battle.load()?;
             require!(battle.status == STATUS_SETUP, VanguardError::WrongPhase);
+            require!(
+                Clock::get()?.unix_timestamp <= battle.entropy_deadline,
+                VanguardError::SetupClosed
+            );
             seat_of(&battle, &ctx.accounts.player.key())?
         };
         let s = &mut ctx.accounts.secret;
@@ -356,16 +386,21 @@ pub mod vanguard {
     /// Rollup. Requests VRF randomness from the delegated oracle queue; the oracle calls back into
     /// `vrf_callback_store` inside the rollup. May be repeated until the output arrives.
     pub fn request_vrf(ctx: Context<RequestVrf>, client_seed: u8) -> Result<()> {
-        let secret = &ctx.accounts.secret;
-        require!(
-            ctx.accounts.battle.load()?.status == STATUS_SETUP,
-            VanguardError::WrongPhase
-        );
+        {
+            let battle = ctx.accounts.battle.load()?;
+            require!(battle.status == STATUS_SETUP, VanguardError::WrongPhase);
+            require!(
+                Clock::get()?.unix_timestamp <= battle.setup_deadline,
+                VanguardError::SetupClosed
+            );
+        }
+        let secret = &mut ctx.accounts.secret;
         require!(
             secret.contributed.iter().all(|c| *c),
             VanguardError::EntropyIncomplete
         );
         require!(!secret.vrf_seen, VanguardError::AlreadyDealt);
+        secret.vrf_requested = true;
         let ix = create_request_scoped_randomness_ix(RequestRandomnessParams {
             payer: ctx.accounts.payer.key(),
             oracle_queue: ctx.accounts.oracle_queue.key(),
@@ -394,10 +429,14 @@ pub mod vanguard {
     /// Rollup. VRF callback: only stores the output, and only while the Battle is still waiting to start, so a
     /// late output can never restart a cancelled Match. The setup itself is `deal`.
     pub fn vrf_callback_store(ctx: Context<VrfCallbackStore>, randomness: [u8; 32]) -> Result<()> {
-        require!(
-            ctx.accounts.battle.load()?.status == STATUS_SETUP,
-            VanguardError::WrongPhase
-        );
+        {
+            let battle = ctx.accounts.battle.load()?;
+            require!(battle.status == STATUS_SETUP, VanguardError::WrongPhase);
+            require!(
+                Clock::get()?.unix_timestamp <= battle.setup_deadline,
+                VanguardError::SetupClosed
+            );
+        }
         let secret = &mut ctx.accounts.secret;
         require!(
             secret.contributed.iter().all(|c| *c),
@@ -416,6 +455,7 @@ pub mod vanguard {
         let mut battle = ctx.accounts.battle.load_mut()?;
         let secret = &mut ctx.accounts.secret;
         require!(battle.status == STATUS_SETUP, VanguardError::WrongPhase);
+        require!(now <= battle.setup_deadline, VanguardError::SetupClosed);
         require!(
             secret.contributed.iter().all(|c| *c) && secret.vrf_seen,
             VanguardError::EntropyIncomplete
@@ -423,19 +463,23 @@ pub mod vanguard {
         require!(!secret.dealt, VanguardError::AlreadyDealt);
 
         let seed = hashv(&[&secret.entropy, &secret.vrf]).to_bytes();
-        let us_seat = hashv(&[&seed, b"us"]).to_bytes()[0] & 1;
-        let drawn = engine::setup(&seed);
-        let game = engine::Game::start(
+        let drawn = engine::setup(&seed, battle.storm_from as u16, battle.storm_to as u16);
+        let mut game = engine::Game::start(
             &drawn.pieces,
             Side::Us,
             drawn.storm_at,
             drawn.storm_seed,
             now,
-            CHAIN_CLOCK,
+            battle.clock(),
         )
         .map_err(|_| error!(VanguardError::BadState))?;
+        // The cap and the move cap are the ones stored at create, whatever this build's constants say.
+        game.cap_at = now.saturating_add(battle.cap_secs as i64);
+        game.move_cap = battle.move_cap;
 
-        battle.us_seat = us_seat;
+        battle.us_seat = drawn.us_seat;
+        battle.deal_slot = Clock::get()?.slot;
+        battle.cap_deadline = game.cap_at;
         battle.absorb(&game, &[0; PIECE_SLOTS]);
         battle.status = STATUS_LIVE;
         battle.started_at = now;
@@ -454,26 +498,29 @@ pub mod vanguard {
         Ok(())
     }
 
-    /// Rollup. The Player to act moves a piece, or attacks with it. Writes no logs.
-    pub fn move_piece(ctx: Context<Play>, piece: u8, to: u8) -> Result<()> {
+    /// Rollup. Declares a move: checks only public state (the Match is live, it is your turn, nothing is pending,
+    /// the piece is yours and on the board, the square is on the board, not a wadi, in line, not yours and not the
+    /// square it just came from) and freezes the clock decision on the declare time. Reads no Army and no Secret,
+    /// so what it answers cannot depend on a hidden rank. The move is applied by `resolve` in a later slot, which
+    /// checks the rank rules; a move they refuse costs the turn.
+    pub fn move_piece(ctx: Context<Declare>, piece: u8, to: u8) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
-        let seat = acting_seat(&*ctx.accounts.battle.load()?, &ctx.accounts.player.key())?;
-        play(ctx.accounts, |g, out| g.move_piece(piece, to, now, out))?;
-        let mover = if seat == 0 {
-            &mut ctx.accounts.army_0
-        } else {
-            &mut ctx.accounts.army_1
-        };
-        mover.moves = mover.moves.wrapping_add(1);
+        let slot = Clock::get()?.slot;
+        let mut battle = ctx.accounts.battle.load_mut()?;
+        let seat = declaring_seat(&battle, &ctx.accounts.player.key(), slot)?;
+        let g = battle.public_game()?;
+        g.check_declared_move(piece, to, now).map_err(refused)?;
+        battle.record_pending(PENDING_MOVE, piece, to, seat as u8, slot, now);
         Ok(())
     }
 
-    /// Rollup. The Player to act spends a banked Two-Step Turn before the first step of the turn. Does not move
-    /// the deadline.
+    /// Rollup. The Player to act spends a banked Two-Step Turn before the first step of the turn. Public state only;
+    /// does not move the deadline.
     pub fn start_two_step(ctx: Context<StartTwoStep>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
+        let slot = Clock::get()?.slot;
         let mut battle = ctx.accounts.battle.load_mut()?;
-        acting_seat(&battle, &ctx.accounts.player.key())?;
+        declaring_seat(&battle, &ctx.accounts.player.key(), slot)?;
         let mut g = battle.shell(0, 0)?;
         g.start_two_step(now).map_err(refused)?;
         battle.two_step = g.two_step;
@@ -482,11 +529,13 @@ pub mod vanguard {
         Ok(())
     }
 
-    /// Rollup, permissionless. Past the start window or the entropy window it cancels the Match; once the
-    /// turn's deadline has passed it passes the turn (three in a row lose); once the time cap has passed it ends
-    /// the Match on the tiebreak.
-    pub fn claim_timeout(mut ctx: Context<ClaimTimeout>) -> Result<()> {
+    /// Rollup, permissionless. Past the start window or the entropy window it cancels the Match. In a live Match it
+    /// declares a timeout: once the turn's deadline has passed the turn is lost (three in a row lose the Match), once
+    /// the time cap has passed the Match ends on the tiebreak. Which of the two is decided now, from the clock, and
+    /// `resolve` applies it.
+    pub fn claim_timeout(ctx: Context<ClaimTimeout>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
+        let slot = Clock::get()?.slot;
         let status = ctx.accounts.battle.load()?.status;
         match status {
             STATUS_CREATED => {
@@ -496,29 +545,84 @@ pub mod vanguard {
             }
             STATUS_SETUP => {
                 let both = ctx.accounts.secret.contributed.iter().all(|c| *c);
+                let requested = ctx.accounts.secret.vrf_requested;
                 let mut battle = ctx.accounts.battle.load_mut()?;
-                require!(now > battle.entropy_deadline, VanguardError::NotTimedOut);
-                if both {
-                    // The randomness is late, which is the oracle's fault: nobody forfeits.
-                    battle.entropy_deadline = now
-                        .checked_add(ENTROPY_SECS)
-                        .ok_or(VanguardError::Overflow)?;
-                } else {
+                if now > battle.setup_deadline {
+                    // The hard deadline: whatever stalled, the Match is cancelled and refunded.
                     battle.status = STATUS_CANCELLED;
+                } else {
+                    require!(now > battle.entropy_deadline, VanguardError::NotTimedOut);
+                    if both && requested {
+                        // The randomness is late, which is the oracle's fault: nobody forfeits, but the wait
+                        // never goes past the setup deadline.
+                        battle.entropy_deadline = now
+                            .checked_add(ENTROPY_SECS)
+                            .ok_or(VanguardError::Overflow)?
+                            .min(battle.setup_deadline);
+                    } else {
+                        battle.status = STATUS_CANCELLED;
+                    }
                 }
             }
             STATUS_LIVE => {
-                let accounts = &mut ctx.accounts;
-                let mut battle = accounts.battle.load_mut()?;
-                run(
-                    &mut battle,
-                    &mut accounts.army_0,
-                    &mut accounts.army_1,
-                    &accounts.secret,
-                    |g, out| g.timeout(now, out),
-                )?;
+                let mut battle = ctx.accounts.battle.load_mut()?;
+                require!(
+                    battle.pending_kind == PENDING_NONE,
+                    VanguardError::ActionPending
+                );
+                require!(slot > battle.deal_slot, VanguardError::TooSoon);
+                let g = battle.shell(0, 0)?;
+                let kind = match g.timeout_class(now).map_err(refused)? {
+                    engine::TimeoutClass::Pass => PENDING_TIMEOUT,
+                    engine::TimeoutClass::Cap => PENDING_CAP,
+                };
+                battle.record_pending(kind, 0, 0, 0, slot, now);
             }
             _ => return err!(VanguardError::MatchOver),
+        }
+        Ok(())
+    }
+
+    /// Rollup, permissionless, no arguments. Applies the pending action in a slot after its declare: the rank
+    /// rules, the fight, the Spotted and raid bookkeeping, the turn pass, the storm, the caps, the no-legal-move
+    /// check, the end reveal and the events. It never fails on hidden state: a declared move the rank rules refuse
+    /// costs the turn. The next deadline counts from now, so a slow resolve never eats the next Player's time.
+    pub fn resolve(mut ctx: Context<Resolve>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let slot = Clock::get()?.slot;
+        let accounts = &mut ctx.accounts;
+        let mut battle = accounts.battle.load_mut()?;
+        require!(battle.status == STATUS_LIVE, VanguardError::NotLive);
+        require!(
+            battle.pending_kind != PENDING_NONE,
+            VanguardError::NothingPending
+        );
+        require!(slot > battle.pending_slot, VanguardError::TooSoon);
+        let (kind, piece, to, seat) = (
+            battle.pending_kind,
+            battle.pending_piece,
+            battle.pending_to,
+            battle.pending_seat,
+        );
+        run(
+            &mut battle,
+            &mut accounts.army_0,
+            &mut accounts.army_1,
+            &accounts.secret,
+            |g, out| match kind {
+                PENDING_MOVE => g.resolve_move(piece, to, now, out),
+                PENDING_CAP => g.resolve_timeout(engine::TimeoutClass::Cap, now, out),
+                _ => g.resolve_timeout(engine::TimeoutClass::Pass, now, out),
+            },
+        )?;
+        battle.clear_pending();
+        if kind == PENDING_MOVE {
+            let mover = if seat == 0 {
+                &mut accounts.army_0
+            } else {
+                &mut accounts.army_1
+            };
+            mover.moves = mover.moves.wrapping_add(1);
         }
         Ok(())
     }
@@ -714,10 +818,16 @@ fn seat_of(battle: &Battle, key: &Pubkey) -> Result<usize> {
         .ok_or_else(|| error!(VanguardError::NotAPlayer))
 }
 
-/// The seat of `key`, if it is the Player whose army is to act.
-fn acting_seat(battle: &Battle, key: &Pubkey) -> Result<usize> {
+/// The seat of `key` for an action declared in a live Match: it is that Player's turn, nothing is pending and the
+/// deal is in an earlier slot. All public state.
+fn declaring_seat(battle: &Battle, key: &Pubkey, slot: u64) -> Result<usize> {
     require!(battle.status == STATUS_LIVE, VanguardError::NotLive);
     let seat = seat_of(battle, key)?;
+    require!(
+        battle.pending_kind == PENDING_NONE,
+        VanguardError::ActionPending
+    );
+    require!(slot > battle.deal_slot, VanguardError::TooSoon);
     let side = battle
         .side_of_seat(seat)
         .ok_or_else(|| error!(VanguardError::BadState))?;
@@ -725,28 +835,14 @@ fn acting_seat(battle: &Battle, key: &Pubkey) -> Result<usize> {
     Ok(seat)
 }
 
-fn play(
-    accounts: &mut Play<'_>,
-    f: impl FnOnce(&mut engine::Game, &mut Events) -> core::result::Result<(), Refusal>,
-) -> Result<()> {
-    let mut battle = accounts.battle.load_mut()?;
-    run(
-        &mut battle,
-        &mut accounts.army_0,
-        &mut accounts.army_1,
-        &accounts.secret,
-        f,
-    )
-}
-
-/// Assemble the engine's Game from the public Battle and both private Armies, run one action and write the
-/// result back.
+/// Assemble the engine's Game from the public Battle and both private Armies, run one infallible resolution and
+/// write the result back. Both Armies are written whatever happened.
 fn run(
     battle: &mut Battle,
     army_0: &mut Army,
     army_1: &mut Army,
     secret: &Secret,
-    f: impl FnOnce(&mut engine::Game, &mut Events) -> core::result::Result<(), Refusal>,
+    f: impl FnOnce(&mut engine::Game, &mut Events),
 ) -> Result<()> {
     let mut g = battle.game([&*army_0, &*army_1], secret)?;
     let mut before = [0u8; PIECE_SLOTS];
@@ -754,7 +850,7 @@ fn run(
         *slot = p.rank;
     }
     let mut out = Events::new();
-    f(&mut g, &mut out).map_err(refused)?;
+    f(&mut g, &mut out);
     battle.absorb(&g, &before);
     battle.push_events(&out);
     army_0.absorb(&g);
@@ -892,6 +988,8 @@ pub struct CreateMatch<'info> {
     pub tesoro_match: Box<Account<'info, MatchState>>,
     #[account(seeds = [CORE_CONFIG_SEED], bump = config.bump, seeds::program = tesoro_core::ID)]
     pub config: Box<Account<'info, Config>>,
+    #[account(seeds = [PROGRAM_CONFIG_SEED], bump = vanguard_config.bump)]
+    pub vanguard_config: Box<Account<'info, VanguardConfig>>,
     #[account(
         seeds = [ACCOUNT_SEED, account_a.authority.as_ref()],
         bump = account_a.bump,
@@ -1006,10 +1104,10 @@ pub struct RequestVrf<'info> {
     pub payer: Signer<'info>,
     #[account(seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
-    #[account(seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
+    #[account(mut, seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
     pub secret: Box<Account<'info, Secret>>,
-    /// CHECK: validated by the VRF program
-    #[account(mut, address = ephemeral_rollups_sdk::vrf::consts::DEFAULT_EPHEMERAL_QUEUE)]
+    /// CHECK: the queue stored in the Battle at create (from the config); validated by the VRF program
+    #[account(mut, address = battle.load()?.oracle_queue)]
     pub oracle_queue: AccountInfo<'info>,
 }
 
@@ -1036,16 +1134,10 @@ pub struct Deal<'info> {
 }
 
 #[derive(Accounts)]
-pub struct Play<'info> {
+pub struct Declare<'info> {
     pub player: Signer<'info>,
     #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,
-    #[account(mut, seeds = [ARMY_SEED, battle.key().as_ref(), &[0]], bump = army_0.bump)]
-    pub army_0: Box<Account<'info, Army>>,
-    #[account(mut, seeds = [ARMY_SEED, battle.key().as_ref(), &[1]], bump = army_1.bump)]
-    pub army_1: Box<Account<'info, Army>>,
-    #[account(seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
-    pub secret: Box<Account<'info, Secret>>,
 }
 
 #[derive(Accounts)]
@@ -1057,6 +1149,15 @@ pub struct StartTwoStep<'info> {
 
 #[derive(Accounts)]
 pub struct ClaimTimeout<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
+    pub battle: AccountLoader<'info, Battle>,
+    #[account(seeds = [SECRET_SEED, battle.key().as_ref()], bump = secret.bump)]
+    pub secret: Box<Account<'info, Secret>>,
+}
+
+#[derive(Accounts)]
+pub struct Resolve<'info> {
     pub caller: Signer<'info>,
     #[account(mut, seeds = [BATTLE_SEED, &battle.load()?.match_id.to_le_bytes()], bump = battle.load()?.bump)]
     pub battle: AccountLoader<'info, Battle>,

@@ -8,6 +8,8 @@
 //! `WRITE_GOLDEN=1 cargo test -p vanguard --test golden` rewrites both. Without it the test fails when a file is
 //! stale, so a layout change cannot reach the app unnoticed.
 
+#![recursion_limit = "512"]
+
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AccountSerialize, Discriminator};
 use serde_json::{json, Map, Value};
@@ -50,6 +52,14 @@ fn layout() -> Value {
         winner => "winner", reason => "reason", turn => "turn", steps_left => "stepsLeft",
         two_step_active => "twoStepActive", storm_done => "stormDone", two_step => "twoStep",
         timeouts => "timeouts", depot_claimed => "depotClaimed",
+        layout_version => "layoutVersion", rules_version => "rulesVersion",
+        setup_deadline => "setupDeadline", cap_deadline => "capDeadline", payer => "payer",
+        oracle_queue => "oracleQueue", move_cap => "moveCap", cap_secs => "capSecs",
+        turn_secs => "turnSecs", grace_secs => "graceSecs", opening_grace_secs => "openingGraceSecs",
+        storm_from => "stormFrom", storm_to => "stormTo", pending_kind => "pendingKind",
+        pending_piece => "pendingPiece", pending_to => "pendingTo", pending_seat => "pendingSeat",
+        action_seq => "actionSeq", pending_slot => "pendingSlot", pending_time => "pendingTime",
+        deal_slot => "dealSlot",
     );
     // The Army is Borsh, so its fields follow each other with no padding: offset = 8 + the sizes before it.
     let fields: [(&str, usize); 8] = [
@@ -287,6 +297,27 @@ fn probe_battle() -> Battle {
     b.two_step = [1, 2];
     b.timeouts = [0, 2];
     b.depot_claimed = [1, 0];
+    b.layout_version = 2;
+    b.rules_version = 3;
+    b.setup_deadline = 1_760_000_480;
+    b.cap_deadline = 1_760_001_100;
+    b.payer = pk(0xd4);
+    b.oracle_queue = pk(0xe5);
+    b.move_cap = 200;
+    b.cap_secs = 900;
+    b.turn_secs = 5;
+    b.grace_secs = 1;
+    b.opening_grace_secs = 10;
+    b.storm_from = 10;
+    b.storm_to = 18;
+    b.pending_kind = 1;
+    b.pending_piece = 41;
+    b.pending_to = 53;
+    b.pending_seat = 1;
+    b.action_seq = 77;
+    b.pending_slot = 0x0102_0304_0506;
+    b.pending_time = 1_760_000_222;
+    b.deal_slot = 0x0A0B_0C0D;
     b
 }
 
@@ -332,6 +363,27 @@ fn battle_golden() -> Value {
             "twoStep": b.two_step,
             "timeouts": b.timeouts,
             "depotClaimed": b.depot_claimed,
+            "layoutVersion": b.layout_version,
+            "rulesVersion": b.rules_version,
+            "setupDeadline": b.setup_deadline,
+            "capDeadline": b.cap_deadline,
+            "payer": hex(b.payer.as_ref()),
+            "oracleQueue": hex(b.oracle_queue.as_ref()),
+            "moveCap": b.move_cap,
+            "capSecs": b.cap_secs,
+            "turnSecs": b.turn_secs,
+            "graceSecs": b.grace_secs,
+            "openingGraceSecs": b.opening_grace_secs,
+            "stormFrom": b.storm_from,
+            "stormTo": b.storm_to,
+            "pendingKind": b.pending_kind,
+            "pendingPiece": b.pending_piece,
+            "pendingTo": b.pending_to,
+            "pendingSeat": b.pending_seat,
+            "actionSeq": b.action_seq,
+            "pendingSlot": b.pending_slot.to_string(),
+            "pendingTime": b.pending_time,
+            "dealSlot": b.deal_slot.to_string(),
         }
     })
 }
@@ -351,6 +403,7 @@ fn army_golden() -> Value {
         fuel: 2,
         truck_turn: -9,
         moves: 513,
+        reserved: [0; 32],
     };
     let mut bytes = Vec::new();
     a.try_serialize(&mut bytes).expect("serialize army");
@@ -387,7 +440,7 @@ fn write_or_check(path: PathBuf, value: &Value) {
 fn the_layout_the_app_reads_is_what_the_program_writes() {
     assert_eq!(
         secret_size(),
-        115,
+        116,
         "the Secret is private; the app never reads it"
     );
     let mut l = layout();

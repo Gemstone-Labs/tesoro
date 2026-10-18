@@ -10,8 +10,9 @@
 //! army and the number says nothing about the rank.
 
 use crate::engine::{
-    self, Army as Side, EndReason, Event, Events, Game, LayoutPiece, Outcome, Piece, Record,
-    Winner, CHAIN_CLOCK, PIECE_SLOTS, SQUARES, TRUCK,
+    self, Army as Side, Clock, EndReason, Event, Events, Game, LayoutPiece, Outcome, Piece, Record,
+    Winner, CAP_SECS, GRACE_SECS, MOVE_CAP, OPENING_GRACE_SECS, PIECE_SLOTS, RULES_VERSION,
+    SQUARES, STORM_FROM, STORM_TO, TRUCK, TURN_SECS,
 };
 use crate::VanguardError;
 use anchor_lang::prelude::*;
@@ -30,6 +31,20 @@ pub const START_WINDOW_SECS: i64 = 300;
 pub const TABLE_WINDOW_SECS: i64 = 24 * 60 * 60;
 /// Seconds each Player has to contribute entropy once the permissions exist.
 pub const ENTROPY_SECS: i64 = 60;
+/// Seconds after the start deadline by which the Match must be dealt. Past `setup_deadline` nothing can go Live and
+/// `claim_timeout` cancels, so a Match whose Players or oracle stall is refunded long before tesoro_core's deadline.
+pub const SETUP_GRACE_SECS: i64 = 180;
+/// `Battle.layout_version`. Bump it when the field layout of `Battle` changes, so a client reading a Battle that was
+/// created before an upgrade knows which offsets to use.
+pub const LAYOUT_VERSION: u8 = 2;
+/// `Battle.pending_kind`: nothing is waiting to be resolved.
+pub const PENDING_NONE: u8 = 0;
+/// A declared move (`pending_piece`, `pending_to`) waits for `resolve`.
+pub const PENDING_MOVE: u8 = 1;
+/// A declared timeout claim waits for `resolve`: the turn's deadline had passed at the declare.
+pub const PENDING_TIMEOUT: u8 = 2;
+/// A declared timeout claim waits for `resolve`: the time cap had passed at the declare.
+pub const PENDING_CAP: u8 = 3;
 
 pub const STATUS_CREATED: u8 = 0;
 /// Permissions exist; waiting for both secrets, the randomness and `deal`.
@@ -181,12 +196,14 @@ const fn reason_of(code: u8) -> Option<EndReason> {
     }
 }
 
-/// The program config: which validator the Battle may be delegated to. Set at deploy by the upgrade authority.
+/// The program config: which validator the Battle may be delegated to and which oracle queue answers its VRF
+/// requests. Set at deploy by the upgrade authority; nothing about the cluster is compiled in.
 #[account]
 #[derive(InitSpace, Debug)]
 pub struct VanguardConfig {
     pub bump: u8,
     pub tee_validator: Pubkey,
+    pub oracle_queue: Pubkey,
 }
 
 /// The public Battle. Readable by both Players and by spectators; holds no hidden rank. Zero-copy: at 1.3 KB it
@@ -240,33 +257,107 @@ pub struct Battle {
     pub timeouts: [u8; 2],
     /// 1 when the depot each army raids is claimed.
     pub depot_claimed: [u8; 2],
-    pub pad: [u8; 2],
+    /// `LAYOUT_VERSION` this Battle was created with.
+    pub layout_version: u8,
+    /// `RULES_VERSION` this Battle was created with. A program upgrade never changes the rules of a Battle in
+    /// flight: the numbers below are stored at create and deal.
+    pub rules_version: u8,
+    /// The Match must be dealt by now; past it `claim_timeout` cancels it.
+    pub setup_deadline: i64,
+    /// The time cap: set at `deal` to `started_at + cap_secs`.
+    pub cap_deadline: i64,
+    /// Whoever pressed create and prepaid the rent.
+    pub payer: Pubkey,
+    /// The oracle queue its VRF request goes to, copied from the config at create.
+    pub oracle_queue: Pubkey,
+    pub move_cap: u16,
+    pub cap_secs: u16,
+    pub turn_secs: u8,
+    pub grace_secs: u8,
+    /// Extra seconds on the opening turn.
+    pub opening_grace_secs: u8,
+    pub storm_from: u8,
+    pub storm_to: u8,
+    /// `PENDING_*`: a declared action that only `resolve` (in a later slot) may apply. While one is pending nothing
+    /// else is accepted. It holds public intent and timing only, never a rank, and cannot be changed or cancelled.
+    pub pending_kind: u8,
+    pub pending_piece: u8,
+    pub pending_to: u8,
+    /// The seat that declared a move (a timeout claim reads 0).
+    pub pending_seat: u8,
+    pub pad_a: [u8; 3],
+    /// Counts declared actions: the n-th pending action is the one `resolve` applies.
+    pub action_seq: u32,
+    pub pad_b: [u8; 4],
+    /// The rollup slot of the declare. `resolve` needs a later one.
+    pub pending_slot: u64,
+    /// The rollup time of the declare: the clock decision was made on it and is not made again.
+    pub pending_time: i64,
+    /// The slot `deal` ran in. Nothing is declared in it, so the sides cannot be read out of a bundle with `deal`.
+    pub deal_slot: u64,
+    pub reserved: [u8; 32],
+}
+
+/// What `create_match` knows when it binds a Battle to a tesoro_core Match.
+pub struct NewBattle {
+    pub bump: u8,
+    pub authority_bump: u8,
+    pub match_id: u64,
+    pub tesoro_match: Pubkey,
+    pub players: [Pubkey; 2],
+    pub start_deadline: i64,
+    pub payer: Pubkey,
+    pub oracle_queue: Pubkey,
 }
 
 impl Battle {
     /// Bind a freshly created (zeroed) Battle to a tesoro_core Match. In place: a Battle is too big to build on
     /// the stack.
-    pub fn init(
-        &mut self,
-        bump: u8,
-        authority_bump: u8,
-        match_id: u64,
-        tesoro_match: Pubkey,
-        players: [Pubkey; 2],
-        start_deadline: i64,
-    ) {
-        self.bump = bump;
-        self.authority_bump = authority_bump;
-        self.match_id = match_id;
-        self.tesoro_match = tesoro_match;
-        self.players = players;
-        self.start_deadline = start_deadline;
+    pub fn init(&mut self, new: NewBattle) {
+        self.layout_version = LAYOUT_VERSION;
+        self.rules_version = RULES_VERSION;
+        self.payer = new.payer;
+        self.oracle_queue = new.oracle_queue;
+        self.move_cap = MOVE_CAP;
+        self.cap_secs = CAP_SECS as u16;
+        self.turn_secs = TURN_SECS as u8;
+        self.grace_secs = GRACE_SECS as u8;
+        self.opening_grace_secs = OPENING_GRACE_SECS as u8;
+        self.storm_from = STORM_FROM as u8;
+        self.storm_to = STORM_TO as u8;
+        self.setup_deadline = new.start_deadline.saturating_add(SETUP_GRACE_SECS);
+        self.bump = new.bump;
+        self.authority_bump = new.authority_bump;
+        self.match_id = new.match_id;
+        self.tesoro_match = new.tesoro_match;
+        self.players = new.players;
+        self.start_deadline = new.start_deadline;
         self.us_seat = UNSET;
         self.status = STATUS_CREATED;
         self.winner = NO_WINNER;
         self.reason = NO_REASON;
         self.steps_left = 1;
         self.sq = [NO_SQ; PIECE_SLOTS];
+    }
+
+    /// Record a declared action. It is bound to the n-th declare of the Match and cannot be changed.
+    pub fn record_pending(&mut self, kind: u8, piece: u8, to: u8, seat: u8, slot: u64, time: i64) {
+        self.pending_kind = kind;
+        self.pending_piece = piece;
+        self.pending_to = to;
+        self.pending_seat = seat;
+        self.pending_slot = slot;
+        self.pending_time = time;
+        self.action_seq = self.action_seq.wrapping_add(1);
+    }
+
+    pub fn clear_pending(&mut self) {
+        self.pending_kind = PENDING_NONE;
+        self.pending_piece = 0;
+        self.pending_to = 0;
+        self.pending_seat = 0;
+        self.pending_slot = 0;
+        self.pending_time = 0;
     }
 
     pub fn seat_of(&self, key: &Pubkey) -> Option<usize> {
@@ -305,6 +396,15 @@ impl Battle {
         }
     }
 
+    /// The clock this Battle plays under, as stored when it was created.
+    pub fn clock(&self) -> Clock {
+        Clock {
+            turn_secs: self.turn_secs as i64,
+            grace_secs: self.grace_secs as i64,
+            opening_grace_secs: self.opening_grace_secs as i64,
+        }
+    }
+
     /// The engine's `Game` with the public fields only: no piece is on the board. Enough for the checks that need
     /// no piece (the Two-Step Turn).
     pub fn shell(&self, storm_at: u16, storm_seed: u32) -> Result<Box<Game>> {
@@ -316,10 +416,12 @@ impl Battle {
                 storm_at,
                 storm_seed,
                 self.started_at,
-                CHAIN_CLOCK,
+                self.clock(),
             )
             .map_err(|_| error!(VanguardError::BadState))?,
         );
+        g.cap_at = self.cap_deadline;
+        g.move_cap = self.move_cap;
         g.depot_claimed = [self.depot_claimed[0] != 0, self.depot_claimed[1] != 0];
         g.turn_no = self.turn_no;
         g.moves = self.moves;
@@ -334,6 +436,32 @@ impl Battle {
         if self.status == STATUS_OVER {
             g.winner = self.winner_of();
             g.reason = reason_of(self.reason);
+        }
+        Ok(g)
+    }
+
+    /// The engine's `Game` from the public Battle alone: every piece on the board stands in as rank 1. Enough for the
+    /// checks that need no rank (`check_declared_move`, `timeout_class`), so a declare reads no Army and no Secret.
+    pub fn public_game(&self) -> Result<Box<Game>> {
+        let mut g = self.shell(0, 0)?;
+        for id in 0..PIECE_SLOTS {
+            let sq = self.sq[id];
+            if sq == NO_SQ {
+                continue;
+            }
+            if sq as usize >= SQUARES {
+                return err!(VanguardError::BadState);
+            }
+            g.pieces[id] = Piece {
+                rank: 1,
+                army: side_of_id(id),
+                sq,
+                known: self.shown[id] != 0,
+                fuel: 0,
+                trail: self.trail[id],
+                trail_len: self.trail_len[id],
+            };
+            g.cells[sq as usize] = id as u8 + 1;
         }
         Ok(g)
     }
@@ -360,7 +488,8 @@ impl Battle {
                 army: side,
                 sq,
                 known: self.shown[id] != 0,
-                fuel: if rank == TRUCK { army.fuel } else { 0 },
+                // Only the Truck has fuel; a mask, not an `if`, so no rank decides what runs.
+                fuel: army.fuel & engine::ct::mask(engine::ct::eq(rank as u64, TRUCK as u64)),
                 trail: self.trail[id],
                 trail_len: self.trail_len[id],
             };
@@ -455,6 +584,7 @@ pub struct Army {
     pub truck_turn: i32,
     /// Moves this side made, written on every move so a Truck move writes the account like any other.
     pub moves: u16,
+    pub reserved: [u8; 32],
 }
 
 impl Army {
@@ -469,6 +599,7 @@ impl Army {
             fuel: 0,
             truck_turn: -9,
             moves: 0,
+            reserved: [0; 32],
         }
     }
 
@@ -494,9 +625,9 @@ impl Army {
         let base = if side == Side::Us { 30 } else { 0 };
         for i in 0..30 {
             let p = &g.pieces[base + i];
-            if p.rank == TRUCK {
-                self.fuel = p.fuel;
-            }
+            // Select the Truck's fuel without branching on a rank.
+            let m = engine::ct::mask(engine::ct::eq(p.rank as u64, TRUCK as u64));
+            self.fuel = (p.fuel & m) | (self.fuel & !m);
         }
     }
 
@@ -522,6 +653,9 @@ pub struct Secret {
     /// The turn number on which the Dust Storm may blow.
     pub storm_at: u16,
     pub storm_seed: u32,
+    /// Set by `request_vrf`: a Match where both Players are in but nobody asked for randomness cancels at the first
+    /// entropy deadline instead of waiting.
+    pub vrf_requested: bool,
 }
 
 impl Secret {
@@ -536,6 +670,7 @@ impl Secret {
             dealt: false,
             storm_at: 0,
             storm_seed: 0,
+            vrf_requested: false,
         }
     }
 
@@ -576,6 +711,64 @@ mod layout {
 
     #[test]
     fn the_battle_has_no_padding_and_a_fixed_size() {
-        assert_eq!(core::mem::size_of::<Battle>(), 1352);
+        assert_eq!(core::mem::size_of::<Battle>(), 1512);
+    }
+
+    /// Offsets after the 8-byte discriminator, for clients (ticket 07's decoders). The fields up to `depot_claimed`
+    /// have not moved since layout version 1 began; the new ones were appended where the padding was.
+    #[test]
+    fn the_battle_offsets_are_the_ones_clients_read() {
+        use core::mem::offset_of;
+        for (name, got, want) in [
+            ("match_id", offset_of!(Battle, match_id), 0),
+            ("moved", offset_of!(Battle, moved), 8),
+            ("start_deadline", offset_of!(Battle, start_deadline), 16),
+            ("entropy_deadline", offset_of!(Battle, entropy_deadline), 24),
+            ("deadline", offset_of!(Battle, deadline), 32),
+            ("started_at", offset_of!(Battle, started_at), 40),
+            ("event_seq", offset_of!(Battle, event_seq), 48),
+            ("turn_no", offset_of!(Battle, turn_no), 52),
+            ("moves", offset_of!(Battle, moves), 54),
+            ("ring", offset_of!(Battle, ring), 56),
+            ("tesoro_match", offset_of!(Battle, tesoro_match), 696),
+            ("players", offset_of!(Battle, players), 728),
+            ("sq", offset_of!(Battle, sq), 792),
+            ("shown", offset_of!(Battle, shown), 852),
+            ("trail", offset_of!(Battle, trail), 912),
+            ("trail_len", offset_of!(Battle, trail_len), 1272),
+            ("bump", offset_of!(Battle, bump), 1332),
+            ("turn", offset_of!(Battle, turn), 1340),
+            ("two_step", offset_of!(Battle, two_step), 1344),
+            ("timeouts", offset_of!(Battle, timeouts), 1346),
+            ("depot_claimed", offset_of!(Battle, depot_claimed), 1348),
+            ("layout_version", offset_of!(Battle, layout_version), 1350),
+            ("rules_version", offset_of!(Battle, rules_version), 1351),
+            ("setup_deadline", offset_of!(Battle, setup_deadline), 1352),
+            ("cap_deadline", offset_of!(Battle, cap_deadline), 1360),
+            ("payer", offset_of!(Battle, payer), 1368),
+            ("oracle_queue", offset_of!(Battle, oracle_queue), 1400),
+            ("move_cap", offset_of!(Battle, move_cap), 1432),
+            ("cap_secs", offset_of!(Battle, cap_secs), 1434),
+            ("turn_secs", offset_of!(Battle, turn_secs), 1436),
+            ("grace_secs", offset_of!(Battle, grace_secs), 1437),
+            (
+                "opening_grace_secs",
+                offset_of!(Battle, opening_grace_secs),
+                1438,
+            ),
+            ("storm_from", offset_of!(Battle, storm_from), 1439),
+            ("storm_to", offset_of!(Battle, storm_to), 1440),
+            ("pending_kind", offset_of!(Battle, pending_kind), 1441),
+            ("pending_piece", offset_of!(Battle, pending_piece), 1442),
+            ("pending_to", offset_of!(Battle, pending_to), 1443),
+            ("pending_seat", offset_of!(Battle, pending_seat), 1444),
+            ("action_seq", offset_of!(Battle, action_seq), 1448),
+            ("pending_slot", offset_of!(Battle, pending_slot), 1456),
+            ("pending_time", offset_of!(Battle, pending_time), 1464),
+            ("deal_slot", offset_of!(Battle, deal_slot), 1472),
+            ("reserved", offset_of!(Battle, reserved), 1480),
+        ] {
+            assert_eq!(got, want, "{name}");
+        }
     }
 }
