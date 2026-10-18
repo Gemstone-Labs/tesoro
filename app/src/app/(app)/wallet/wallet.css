@@ -15,6 +15,7 @@
 .wl-redeemable b, .wl-pending b { font-size: clamp(30px, 2.6vw, 44px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.1; word-spacing: 0; }
 .wl-redeemable b { color: var(--em-hi); }
 .wl-redeemable .btn { margin-top: 8px; }
+.wl-pending .meta, .wl-redeemable .meta { color: var(--fg-2); font-size: 13px; }
 .wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
 .wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: 15px; padding: 0; }
 .wl-hero-sim { grid-column: 1 / -1; margin-top: -12px; }
@@ -169,6 +170,8 @@
 .wl-pocket.c-HYPE { --tone: #9ff5e2; }
 .wl-pocket-head { display: grid; gap: 6px; }
 .wl-pocket-chain { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; }
+.wl-pocket-label { color: var(--fg-2); font-size: 13px; }
+.wl-pocket-why { max-width: 12em; text-align: right; }
 .wl-pocket-head > b { font-size: clamp(26px, 2.2vw, 32px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.05; overflow-wrap: anywhere; }
 .wl-pocket-head > small { color: var(--fg-2); font-size: 13px; }
 .wl-pocket-money { display: grid; gap: 8px; }

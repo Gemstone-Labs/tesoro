@@ -12,13 +12,15 @@ import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
-import { gemasInAsset } from "@/lib/chain/ledger";
+import { gemasInAsset, covered, live } from "@/lib/chain/ledger";
+import { unlockEstimateMs, yieldClockOf } from "@/lib/chain/native";
+import { ratesOf } from "@/lib/chain/fees";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { vaultsOn } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
-import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
+import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
 import { PositionTile, linearSeries } from "./PositionTile";
 import "./wallet.css";
 
@@ -147,11 +149,32 @@ export default function Wallet() {
     return { positions, closed };
   };
 
+  /** When the soonest of your own repaying Positions on a chain covers its Debt: those Gemas turn redeemable then. Null when unknown. */
+  const nextRedeemAt = (chain: Chain): number | null => {
+    const times: number[] = [];
+    const pool = market?.pool;
+    const { yieldFeeBps } = ratesOf(market?.treasury);
+    for (const p of snapshot?.positions ?? []) {
+      const info = p.native;
+      const src = info?.source?.math;
+      if (chain !== "SOL" || !info || !src || !pool || p.status !== "locked" || live(src) <= covered(src)) continue;
+      const at = unlockEstimateMs({ source: src, vaultShares: info.vaultShares, redeemedUnits: info.redeemedUnits, principalLamports: info.principalLamports, pool, clock: yieldClockOf(info) ?? { rateBps: info.rateBps, lastAccrualTs: Math.floor(now / 1000) }, nowMs: now, yieldFeeBps });
+      if (at !== null) times.push(at);
+    }
+    for (const p of generic.filter((x) => x.chain === chain && x.debt > 0)) {
+      const yearly = p.principal * p.apy;
+      const at = p.advance?.unlockEstimate ? Date.parse(p.advance.unlockEstimate) : yearly > 0 ? now + (p.debt / (yearly / 12)) * 10 * 60_000 : NaN;
+      if (Number.isFinite(at)) times.push(at);
+    }
+    return times.length ? Math.min(...times) : null;
+  };
+
   const pockets: Pocket[] = (["SOL", "ETH", "HYPE"] as Chain[])
-    .map((chain) => ({ chain, ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)) }))
+    .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)) }))
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
   const noPositions = pockets.length === 0 && !loading;
+  const heroNext = pockets.filter((p) => p.gemas > p.redeemable && p.nextRedeemAt).reduce<number | null>((m, p) => (m === null || p.nextRedeemAt! < m ? p.nextRedeemAt! : m), null);
   const openPosition = () => auth.gate("open a Position", () => openTab(tab));
 
   return (
@@ -187,11 +210,13 @@ export default function Wallet() {
             <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>
             {ready && <GemaUsd className="wl-usd" value={redeemAmount} />}
             <Button variant="money" disabled={redeemAmount === 0} onClick={() => openRedeem()}>Redeem</Button>
+            {ready && redeemAmount === 0 && <span className="meta">Nothing redeemable yet</span>}
           </div>
           <div className="wl-pending" aria-label="Pending">
             <h2>Pending</h2>
             <b>{ready ? fmtGemas(gemas.pending) : "—"}</b>
             {ready && <GemaUsd className="wl-usd" value={gemas.pending} />}
+            {ready && gemas.pending > 0 && <NextRedeem at={heroNext} />}
           </div>
         </div>
         {error && (
