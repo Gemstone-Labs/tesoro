@@ -12,7 +12,8 @@
 //! * Source: its Position account is gone or is itself old-sized.
 //! * Holding: its Source account is gone. The Holding's Gemas leave the owner's Account totals.
 //! * Offer of the current layout: every Source it reserves from is gone.
-//! * Request: past its lifetime and the window to use an accepted Backing.
+//! * Request: from before the reset (expiring before `RETIRE_REQUESTS_BEFORE`), past its lifetime
+//!   and the window to use an accepted Backing. Requests of the new world are never closable.
 //!
 //! Order: custodies and Positions, then Sources, then Holdings, then Offers and Requests; the
 //! Treasury at any time (its vault and Account stay, `init_treasury` recreates the Treasury).
@@ -35,6 +36,9 @@ const CUSTODY_POSITION: usize = 10;
 const CUSTODY_OWNER: usize = 42;
 const CUSTODY_MINT: usize = 106;
 const CUSTODY_VAULT: usize = 138;
+
+/// Requests expiring before 2026-10-20 00:00 UTC were all opened before the reset upgrade.
+pub const RETIRE_REQUESTS_BEFORE: i64 = 1_792_454_400;
 
 pub const RETIRED_CUSTODY: u8 = 0;
 pub const RETIRED_POSITION: u8 = 1;
@@ -345,8 +349,8 @@ pub(crate) fn retire_holding(mut ctx: Context<RetireHolding>) -> Result<()> {
 
 // --- Request and Offer ----------------------------------------------------------------------
 
-/// Closes a Request that is dead in every status: past its lifetime plus the window an accepted
-/// Backing has to be used.
+/// Closes a Request from before the reset that is dead in every status: past its lifetime plus
+/// the window an accepted Backing has to be used.
 #[derive(Accounts)]
 pub struct RetireRequest<'info> {
     #[account(mut)]
@@ -362,11 +366,12 @@ pub struct RetireRequest<'info> {
 }
 
 pub(crate) fn retire_request(ctx: Context<RetireRequest>) -> Result<()> {
-    let dead_after = ctx
-        .accounts
-        .request
-        .inner
-        .expires_at
+    let expires_at = ctx.accounts.request.inner.expires_at;
+    require!(
+        expires_at < RETIRE_REQUESTS_BEFORE,
+        TesoroError::NotOldWorld
+    );
+    let dead_after = expires_at
         .checked_add(BACKING_TTL_SECS)
         .ok_or_else(|| core_err(CoreError::Math))?;
     require!(now()? > dead_after, TesoroError::NotOldWorld);

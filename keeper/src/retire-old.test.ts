@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ComputeBudgetProgram, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import coreIdl from "../../app/src/lib/chain/idl/tesoro_core.json" with { type: "json" };
-import { BATCH, KINDS, SPACE, ataOf, batches, buildIx, coreProgram, planAll, type Row, type Snapshot } from "./retire-old.ts";
+import { BATCH, KINDS, RETIRE_REQUESTS_BEFORE, SPACE, ataOf, batches, buildIx, coreProgram, planAll, type Row, type Snapshot } from "./retire-old.ts";
 
 const disc = (name: string) => Buffer.from((coreIdl as { accounts: { name: string; discriminator: number[] }[] }).accounts.find((a) => a.name === name)!.discriminator);
 const key = () => Keypair.generate().publicKey;
-const NOW = 1_800_000_000;
+const NOW = 1_792_400_000; // 2026-10-19, before RETIRE_REQUESTS_BEFORE
 
 function row(name: string, len: number, fill: (d: Buffer) => void = () => {}): Row {
   const data = Buffer.alloc(len);
@@ -117,9 +117,11 @@ describe("retire plan", () => {
     w.vaults.clear();
     w.add(row("RequestState", 98, (d) => d.writeBigInt64LE(BigInt(NOW), 8 + 1 + 8 + 32 + 32 + 8)));
     w.add(row("RequestState", 98, (d) => d.writeBigInt64LE(BigInt(NOW - 2 * 86_400), 8 + 1 + 8 + 32 + 32 + 8)));
-    const plan = planAll(w.snapshot());
-    assert.deepEqual(plan.phases.flat().map((i) => i.kind), ["request"]);
+    w.add(row("RequestState", 98, (d) => d.writeBigInt64LE(BigInt(RETIRE_REQUESTS_BEFORE), 8 + 1 + 8 + 32 + 32 + 8)));
+    const plan = planAll({ ...w.snapshot(), now: RETIRE_REQUESTS_BEFORE + 10 * 86_400 });
+    assert.deepEqual(plan.phases.flat().map((i) => i.kind), ["request", "request"]);
     assert.equal(plan.skipped.length, 2);
+    assert.ok(plan.skipped.some((s) => s.reason.includes("after the reset")));
     assert.ok(plan.skipped.some((s) => s.key === c.custody.pubkey.toBase58()));
   });
 

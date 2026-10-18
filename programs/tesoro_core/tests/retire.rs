@@ -732,6 +732,38 @@ fn requests_retire_only_after_their_whole_life() {
 }
 
 #[test]
+fn requests_of_the_new_world_never_retire() {
+    let mut env = Env::new();
+    let request = APk::new_unique();
+    let expires_at = tesoro_core::instructions::retire::RETIRE_REQUESTS_BEFORE;
+    let state = RequestState {
+        bump: 255,
+        nonce: 1,
+        inner: Request {
+            player: [1; 32],
+            game: [2; 32],
+            entry: 500,
+            expires_at,
+            status: RequestStatus::Open,
+        },
+    };
+    put(
+        &mut env.svm,
+        request,
+        tesoro_core::ID,
+        serialized(&state, RequestState::SPACE),
+    );
+    env.svm.set_sysvar(&Clock {
+        unix_timestamp: expires_at + 10 * ledger::BACKING_TTL_SECS,
+        ..Clock::default()
+    });
+    let err = env
+        .retire_request(request)
+        .expect_err("opened after the reset");
+    assert_eq!(custom_code(&err), NOT_OLD_WORLD);
+}
+
+#[test]
 fn only_an_old_treasury_closes_and_init_treasury_recreates_it() {
     let mut env = Env::new();
     let admin = env.admin.insecure_clone();

@@ -24,6 +24,8 @@ export const SPACE = { position: POSITION_SPACE, custody: 178, treasury: 143, of
 const BACKING_TTL_SECS = 24 * 60 * 60;
 
 export type Kind = "custody" | "position" | "source" | "holding" | "offer" | "request" | "treasury";
+/** Matches `RETIRE_REQUESTS_BEFORE` in tesoro_core (2026-10-20 00:00 UTC). */
+export const RETIRE_REQUESTS_BEFORE = 1_792_454_400;
 export const KINDS: Kind[] = ["custody", "position", "source", "holding", "offer", "request", "treasury"];
 
 export interface Row {
@@ -130,7 +132,8 @@ export function planPhase(s: Snapshot, phase: 1 | 2 | 3 | 4): { items: Item[]; s
         items.push({ kind: "offer", key: r.pubkey, refs: { offer: r.pubkey }, remaining: [] });
       } else if (t === "RequestState") {
         const expires = Number(r.data.readBigInt64LE(8 + 1 + 8 + 32 + 32 + 8));
-        if (s.now > expires + BACKING_TTL_SECS) items.push({ kind: "request", key: r.pubkey, refs: { request: r.pubkey } });
+        if (expires >= RETIRE_REQUESTS_BEFORE) skip("request", r.pubkey, "opened after the reset: never retired");
+        else if (s.now > expires + BACKING_TTL_SECS) items.push({ kind: "request", key: r.pubkey, refs: { request: r.pubkey } });
         else skip("request", r.pubkey, "still inside its lifetime (retire again after it ends)");
       }
     } else if (phase === 2 && t === "SourceState") {
