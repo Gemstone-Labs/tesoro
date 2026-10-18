@@ -339,7 +339,6 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .pchest { padding-right: 8px; }
 }
 
-/* X follow in the top bar: same height as the pill beside it */
 .site-foot-cols .xf-link { gap: 8px; }
 /* bare screens drop the footer, which also carried the room above the bottom nav */
 .content[data-bare] .app-main { padding-bottom: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); }
