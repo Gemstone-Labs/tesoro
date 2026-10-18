@@ -17,6 +17,8 @@ export interface ShownPiece {
   gone?: boolean;
   /** Slide time for the next position change, in ms. */
   ms?: number;
+  /** Set with `up` for a reveal: the side the piece was hit from (its flip starts there). */
+  hitFrom?: HitSide;
 }
 
 export interface ShownFx {
@@ -40,16 +42,36 @@ const face = (army: Army, key: string) => `url(/art/vanguard/faces/${army}-${key
 /** The marker's tilt toward the viewer at rest (the B1 look: face at cos 30° = 86% height, edge below). */
 const TILT = 30;
 const coinAt = (deg: number) => `rotateX(${TILT}deg) rotateY(${deg}deg)`;
-/** Depths (in thicknesses from the middle) of the wooden discs that make the edge; the outer two show at rest. */
-const WOOD = [-0.49, -0.42, -0.35, -0.28, -0.21, -0.14, -0.07, 0, 0.07, 0.14, 0.21, 0.28, 0.35, 0.42, 0.49];
+/**
+ * The wooden edge. At rest two dark discs just inside the faces draw it (the edge you see below the face);
+ * while flipping, a ring of narrow wooden panels around the rim makes a solid edge at every angle.
+ */
+const REST = [-0.49, 0.49];
+const PANELS = Array.from({ length: 24 }, (_, i) => i);
 
-/** The reveal: the whole coin lifts, spins half a turn on its upright axis (face, edge and back together), and lands. */
-function flip(pb: HTMLElement, coin: HTMLElement, sh: HTMLElement) {
+/** The side a piece was hit from; its reveal flips from that side. */
+export type HitSide = "left" | "right" | "top" | "bottom";
+
+/**
+ * The reveal: the whole coin lifts, turns over half a turn (face, edge and back together) and lands.
+ * The side it was hit from rises first and it tumbles away from the hit: hit from the left, it turns over
+ * to the right on its upright axis; hit from the top, it turns over downward on its level axis.
+ * A level-axis turn starts from the back turned the same way (`vflip`), so the brass never jumps.
+ */
+function flip(pb: HTMLElement, coin: HTMLElement, sh: HTMLElement, from: HitSide) {
+  const level = from === "top" || from === "bottom";
+  const axis = level ? "rotateX" : "rotateY";
+  const end = from === "left" || from === "bottom" ? 360 : 0;
+  const at = (deg: number) => `rotateX(${TILT}deg) ${axis}(${deg}deg)`;
   coin.classList.add("flipping");
-  const spin = coin.animate([{ transform: coinAt(180) }, { transform: coinAt(180), offset: 0.12 }, { transform: coinAt(360), offset: 0.82 }, { transform: coinAt(360) }], { duration: 620, easing: "cubic-bezier(.45,.05,.35,1)" });
-  spin.onfinish = spin.oncancel = () => coin.classList.remove("flipping");
-  pb.animate([{ transform: "translateY(0) scale(1)" }, { transform: "translateY(-34%) scale(1.14)", offset: 0.45 }, { transform: "translateY(0) scale(1)", offset: 0.88 }, { transform: "translateY(2%) scale(.98)", offset: 0.94 }, { transform: "translateY(0) scale(1)" }], { duration: 620, easing: "ease-in-out" });
-  sh.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0.35, transform: "translateY(12%) scale(.8)", offset: 0.45 }, { opacity: 1, transform: "scale(1)", offset: 0.88 }, { opacity: 1, transform: "scale(1)" }], { duration: 620, easing: "ease-in-out" });
+  coin.classList.toggle("vflip", level);
+  const spin = coin.animate([{ transform: at(180) }, { transform: at(180), offset: 0.12 }, { transform: at(end), offset: 0.82 }, { transform: at(end) }], { duration: 620, easing: "cubic-bezier(.45,.05,.35,1)" });
+  spin.onfinish = spin.oncancel = () => coin.classList.remove("flipping", "vflip");
+  // pushed a little away from the hit while in the air
+  const [dx, dy] = { left: [10, 0], right: [-10, 0], top: [0, 8], bottom: [0, -8] }[from];
+  const air = (k: number) => `translate(${dx * k}%, ${dy * k - 34 * k}%) scale(${1 + 0.14 * k})`;
+  pb.animate([{ transform: air(0) }, { transform: air(1), offset: 0.45 }, { transform: air(0), offset: 0.88 }, { transform: "translateY(2%) scale(.98)", offset: 0.94 }, { transform: air(0) }], { duration: 620, easing: "ease-in-out" });
+  sh.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0.35, transform: `translate(${dx}%, ${12 + dy}%) scale(.8)`, offset: 0.45 }, { opacity: 1, transform: "scale(1)", offset: 0.88 }, { opacity: 1, transform: "scale(1)" }], { duration: 620, easing: "ease-in-out" });
 }
 
 /** One marker in the B1 look: face over a dark wooden side, lit from above, shadow straight under. */
@@ -65,8 +87,8 @@ export const Marker = memo(function Marker({ p, selected, onTap, disabled }: { p
     const was = wasUp.current;
     wasUp.current = p.up;
     if (was || !p.up || prefersReducedMotion() || !pb.current || !coin.current || !sh.current) return;
-    flip(pb.current, coin.current, sh.current);
-  }, [p.up]);
+    flip(pb.current, coin.current, sh.current, p.hitFrom ?? "left");
+  }, [p.up, p.hitFrom]);
 
   const style = {
     left: `calc(var(--vg-sq) * ${p.c})`,
@@ -88,8 +110,11 @@ export const Marker = memo(function Marker({ p, selected, onTap, disabled }: { p
         <span className="vg-sh" ref={sh} />
         <span className="vg-coin3d">
           <span className="vg-coin" ref={coin} style={{ transform: coinAt(shownUp ? 0 : 180) }}>
-            {WOOD.map((z) => (
-              <span key={z} className={`vg-c wood${Math.abs(z) > 0.45 ? " rest" : ""}`} style={{ "--z": z } as CSSProperties} />
+            {REST.map((z) => (
+              <span key={z} className="vg-c wood" style={{ "--z": z } as CSSProperties} />
+            ))}
+            {PANELS.map((i) => (
+              <span key={i} className="vg-panel" style={{ "--i": i } as CSSProperties} />
             ))}
             <span className="vg-c back">
               <span className="vg-face back">

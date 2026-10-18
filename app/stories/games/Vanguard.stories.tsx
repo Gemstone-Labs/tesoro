@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useEffect, useState, type CSSProperties } from "react";
 import { Button } from "@/components/ui";
-import { Marker } from "@/games/vanguard/VanguardBoard";
+import { Marker, type HitSide } from "@/games/vanguard/VanguardBoard";
 import { VanguardPractice } from "@/games/vanguard/practice/VanguardPractice";
 import type { Game, Rank } from "@/games/vanguard/rules";
 import "@/games/vanguard/vanguard.css";
@@ -64,8 +64,15 @@ export const Contact: Story = {
   },
 };
 
-/** Hidden pieces turning over, at three sizes, replaying every few seconds (or on the button). */
-function RevealDemo() {
+const SIDES: { from: HitSide; arrow: string; label: string }[] = [
+  { from: "left", arrow: "→", label: "hit from the left" },
+  { from: "right", arrow: "←", label: "hit from the right" },
+  { from: "top", arrow: "↓", label: "hit from the top" },
+  { from: "bottom", arrow: "↑", label: "hit from the bottom" },
+];
+
+/** Hidden pieces turning over from the side they were hit, replaying every few seconds (or on the button). */
+function RevealDemo({ size }: { size: number }) {
   const [up, setUp] = useState(false);
   const [round, setRound] = useState(0);
   useEffect(() => {
@@ -74,14 +81,15 @@ function RevealDemo() {
     const c = setTimeout(() => setRound((r) => r + 1), 3200);
     return () => [a, b, c].forEach(clearTimeout);
   }, [round]);
-  const ranks: Rank[] = ["9", "3", "B"];
+  const ranks: Rank[] = ["9", "3", "7", "B"];
   return (
     <div className="vg-reveal-demo">
-      {[140, 64, 36].map((size, i) => (
-        <div key={size} className="vg-reveal-cell" style={{ "--vg-sq": `${size}px` } as CSSProperties}>
-          <div className="vg-slot">
-            <Marker p={{ id: i, army: "it", rank: ranks[i], r: 0, c: 0, up }} selected={false} onTap={() => {}} disabled />
+      {SIDES.map((sd, i) => (
+        <div key={sd.from} className="vg-reveal-cell" style={{ "--vg-sq": `${size}px` } as CSSProperties}>
+          <div className={`vg-slot from-${sd.from}`} data-arrow={sd.arrow}>
+            <Marker p={{ id: i, army: "it", rank: ranks[i], r: 0, c: 0, up, hitFrom: sd.from }} selected={false} onTap={() => {}} disabled />
           </div>
+          <small>{sd.label}</small>
         </div>
       ))}
       <Button onClick={() => setRound((r) => r + 1)}>Reveal again</Button>
@@ -89,8 +97,15 @@ function RevealDemo() {
   );
 }
 
-/** The reveal on its own: the whole marker lifts and turns over like a coin, edge and all. */
-export const Reveal: StoryObj = { render: () => <RevealDemo /> };
+/** The reveal: the whole marker turns over like a coin, from the side it was hit. Big and at phone size. */
+export const Reveal: StoryObj = {
+  render: () => (
+    <>
+      <RevealDemo size={130} />
+      <RevealDemo size={36} />
+    </>
+  ),
+};
 
 export const PhonePractice = phone({ args: { instant: true, clock: true } });
 export const PhoneNoClock = phone({ args: { instant: true, clock: false } });

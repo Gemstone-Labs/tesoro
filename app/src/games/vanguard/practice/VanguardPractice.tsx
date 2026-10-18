@@ -6,7 +6,7 @@ import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx } from "../../fx";
 import { NAMES, TURN_MS, move, newGame, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Rng, type Square } from "../rules";
-import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
+import { VanguardBoard, type HitSide, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { botMove } from "./bot";
 import "../vanguard.css";
 
@@ -103,7 +103,10 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
         // the beaten piece's face is flashed to the winner; from the US side that means Italian pieces only
         const flashIt = e.flash.filter((id) => name(id)?.army === "it");
         if (flashIt.length) {
-          flashIt.forEach((id) => patch(id, { up: true }));
+          // the defender was hit on the side facing the attacker; the attacker on its leading side
+          const toward: HitSide = dc > 0 ? "left" : dc < 0 ? "right" : dr > 0 ? "top" : "bottom";
+          const away: HitSide = ({ left: "right", right: "left", top: "bottom", bottom: "top" } as const)[toward];
+          flashIt.forEach((id) => patch(id, { up: true, hitFrom: id === e.def ? toward : away }));
           sfx("flip");
           await wait(820); // long enough to read the face before it falls
         }

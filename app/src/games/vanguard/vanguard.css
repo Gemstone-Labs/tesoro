@@ -57,11 +57,16 @@
 .vg-c { position: absolute; inset: 0; border-radius: 50%; backface-visibility: hidden; }
 .vg-c.front { transform: translateZ(calc(var(--T) / 2)); }
 .vg-c.back { transform: translateZ(calc(var(--T) / -2)) rotateY(180deg); }
-/* the wooden edge: a stack of dark turned-wood discs between the faces; only the two outer ones at rest */
-.vg-c.wood { backface-visibility: visible; transform: translateZ(calc(var(--T) * var(--z))); display: none;
+.vg-coin.vflip .vg-c.back { transform: translateZ(calc(var(--T) / -2)) rotateX(180deg); }
+/* the wooden edge at rest: two dark turned-wood discs just inside the faces */
+.vg-c.wood { backface-visibility: visible; transform: translateZ(calc(var(--T) * var(--z)));
   background: linear-gradient(90deg, #0e0502 0%, #2a1206 14%, #47200c 36%, #57290f 52%, #3a1a08 76%, #0e0502 100%); }
-.vg-c.wood.rest, .vg-coin.flipping .vg-c.wood { display: block; }
-.vg-c.wood.rest::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(ellipse 60% 30% at 50% 88%, rgba(160, 80, 35, 0.22), transparent 70%); }
+.vg-c.wood::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(ellipse 60% 30% at 50% 88%, rgba(160, 80, 35, 0.22), transparent 70%); }
+/* while flipping: 24 wooden panels standing round the rim (each 1/24 of the circle wide, the coin's thickness tall) */
+.vg-panel { position: absolute; left: 50%; top: 50%; display: none; width: calc(var(--w) * 0.14); height: var(--T); margin: calc(var(--T) / -2) 0 0 calc(var(--w) * -0.07);
+  transform: rotateZ(calc(var(--i) * 15deg)) translateY(calc(var(--w) * -0.495)) rotateX(90deg); backface-visibility: visible;
+  background: linear-gradient(180deg, #1a0b04, #4a220d 30%, #5a2b10 55%, #2e1407); }
+.vg-coin.flipping .vg-panel { display: block; }
 .vg-face { position: absolute; inset: 0; border-radius: 50%; padding: 6.5%; background: linear-gradient(180deg, #f6d98e 0%, #d8a24a 30%, #b07428 62%, #e8b45e 88%, #fbe2a0 100%); box-shadow: 0 0 0 max(1px, calc(var(--w) * 0.008)) #2a1206; }
 .vg-art { display: block; width: 100%; height: 100%; border-radius: 50%; background: center / cover no-repeat; box-shadow: 0 0 0 1px rgba(60, 35, 10, 0.6); }
 .vg-face.back::after { content: ""; position: absolute; inset: 6.5%; border-radius: 50%; box-shadow: inset 0 0 0 max(2px, calc(var(--w) * 0.045)) var(--army); }
@@ -125,3 +130,10 @@
 .vg-reveal-demo { display: flex; flex-wrap: wrap; gap: 16px; align-items: end; padding: 24px 16px; }
 .vg-reveal-cell { display: grid; justify-items: center; gap: 10px; padding: 14px 18px; border-radius: 6px; background: #c8935a url(/art/vanguard/board.webp) 38% 62% / 700% 700%; }
 .vg-reveal-cell .vg-slot { position: relative; width: var(--vg-sq); height: var(--vg-sq); }
+.vg-reveal-cell { margin: 18px; }
+.vg-reveal-cell small { color: #2a1a0c; font-size: 12px; font-weight: 600; }
+.vg-reveal-cell .vg-slot::before { content: attr(data-arrow); position: absolute; font: 800 22px/1 var(--f-display); color: #f4e8c8; text-shadow: 0 1px 3px #000; }
+.vg-slot.from-left::before { left: -22px; top: 40%; }
+.vg-slot.from-right::before { right: -22px; top: 40%; }
+.vg-slot.from-top::before { top: -20px; left: 46%; }
+.vg-slot.from-bottom::before { bottom: -22px; left: 46%; }
