@@ -205,6 +205,10 @@ Errors appended: `TreasuryShort` (6017); ledger `NotWonGemas`, `ExceedsPending` 
 
 `extend_native_advance` also changed its account list (ADR 0009): `extend_limit` and `system_program` are appended, and `owner_authority` is writable.
 
+## Retiring the old world (ticket 11, admin only)
+
+`retire_native_custody`, `retire_position`, `retire_source`, `retire_holding`, `retire_offer`, `retire_request`, `retire_treasury` close the pre-reset money accounts once, after the in-place upgrade (rent to the admin). Each checks raw bytes and refuses anything of the current layout: a Position, custody, Treasury or Offer shorter than its `SPACE`; a Source whose Position is gone or old-sized; a Holding whose Source is gone (its Gemas leave the Account totals); a current-size Offer whose reserved Sources are all gone; a Request past `expires_at` plus the 24 h use window. An old custody's vault simSOL goes to the owner's associated token account (created, admin pays, if missing). Event `OldAccountRetired { kind, account, amount }`, error `NotOldWorld`. Run book: `docs/deployments.md` ("Retire the old accounts"); script `keeper/scripts/retire-old-accounts.ts`.
+
 ## Invite gate (ADR 0012)
 
 `InviteGate { bump, required, key }` is its own PDA (`["invite_gate"]`, created by the admin's first `set_invite_gate`, rent paid by the admin) so `Config` keeps its layout and nothing needs a realloc. `create_account` always carries the PDA: a missing or never-set gate means off. Turning it on needs a non-default key (`InviteKeyMissing`). Only `Config.admin` can set it; `required = false` switches the gate off for public launch.

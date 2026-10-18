@@ -21,14 +21,14 @@ Capacity of an on-chain program = ProgramData length minus its 45-byte header. B
 
 | Program | Id | New `.so` (bytes) | On-chain ProgramData length | Capacity | Extend needed | Upgrade? |
 |---|---|---|---|---|---|---|
-| `tesoro_core` | `AR9c426k…TAckh` | 1,598,960 | 1,343,360 | 1,343,315 | **+255,645 minimum: run `solana program extend AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh 256000`** (re-check against the live ProgramData length first; if one extend of that size is refused, repeat with smaller steps) | yes |
+| `tesoro_core` | `AR9c426k…TAckh` | 1,940,880 (with the retire instructions, ticket 11; 1,862,648 without) | 1,343,360 | 1,343,315 | **+597,565 minimum: run `solana program extend AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh 598000`** (re-check the live ProgramData length and rebuild first: the size above is from the 2026-10-18 build; if one extend of that size is refused, repeat with smaller steps) | yes |
 | `block_puzzle` | `5WVV5k7Z…Vdo7dj` | 620,648 | 633,392 | 633,347 | none (12,699 spare) | yes |
 | `holdem` | `CjhY1Wkw…jVusbE` | 654,896 | 658,216 | 658,171 | none (3,275 spare) | yes (one-line CPI change) |
 | `trading_duel` | `CNETsX9G…BfAYyj` | 528,736 | 575,752 | 575,707 | none | yes (one-line CPI change) |
 | `tesoro_bridge` | `5bzDVZKa…vBfdwvTQ` | 797,920 | 801,648 | 801,603 | none | **no** (source unchanged; only its test file changed; its four CPIs into `tesoro_core` keep their account lists) |
 | `sim_lst` | `WgcM5Ges…VqD4F` | 401,160 | 404,864 | 404,819 | none | **yes** (main's `mint_yield` / yield authority; serialize with the core upgrade) |
 
-Rent (6,960 lamports per byte incl. the 128-byte header; buffers are refunded to the deployer when the upgrade lands): extend `tesoro_core` +256,000 B = about 1.8 SOL (kept); buffers: `tesoro_core` about 11.97 SOL, `block_puzzle` about 4.32, `holdem` about 4.56, `trading_duel` about 3.68. Upgrade one at a time and the peak need is about 2.6 + 12.0 = 14.6 SOL. The deployer held 18.11 SOL on 2026-10-14; the Dungeons & Moles session shares this key: `pgrep -A -fa "solana program"` before starting, and borrow from the relayer (repay it first) if short. Reclaim leftover buffers afterwards (`solana program close --buffers`).
+Rent (6,960 lamports per byte incl. the 128-byte header; buffers are refunded to the deployer when the upgrade lands): extend `tesoro_core` +598,000 B = about 4.2 SOL (kept); buffers: `tesoro_core` about 13.5 SOL (1,940,880 B), `block_puzzle` about 4.32, `holdem` about 4.56, `trading_duel` about 3.68. Upgrade one at a time and the peak need is about 4.2 + 13.5 = 17.7 SOL for `tesoro_core`, so check `solana balance` first and borrow from the relayer if short. The deployer held 18.11 SOL on 2026-10-14; the Dungeons & Moles session shares this key: `pgrep -A -fa "solana program"` before starting, and borrow from the relayer (repay it first) if short. Reclaim leftover buffers afterwards (`solana program close --buffers`).
 
 The rebuilt `tesoro_bridge.so` differs byte for byte from the deployed one (the build environment differs); that is not a reason to upgrade.
 
@@ -39,7 +39,8 @@ The rebuilt `tesoro_bridge.so` differs byte for byte from the deployed one (the 
 2. **Stop the keeper** (`ssh vps`, `systemctl --user stop tesoro-keeper`). It must not crank while the account lists change underneath it.
 3. **`tesoro_core` first.** `solana program extend` (+256,000), then `solana program write-buffer` + `solana program deploy --program-id <deploy-keys>/tesoro_core-keypair.json` (or `upgrade`) as in earlier upgrades. Why first: `block_puzzle`'s `open_session` now CPIs `extend_match_deadline` (24 h Queue window) and the games' settle / refund CPIs build the new `refund_match` list (`opener_protections`); the new games against the old core would fail, whereas the old games against the new core keep working for a moment (optional trailing accounts), so this order never leaves a gap in the other direction.
 4. **`block_puzzle`** (only after the drain in step 1; its Board layout is incompatible with live Boards), then **`holdem`**, then **`trading_duel`**, each its own write-buffer + upgrade. No extends.
-5. **Admin calls** (next section), then the **app** deploy and the **keeper** restart on the new commit, together. Smoke checks last.
+5. **Retire the old accounts** (section below), right after the `tesoro_core` upgrade and before the app deploy. It needs the new program, and the new app must not run against the old Positions.
+6. **Admin calls** (next section), then the **app** deploy and the **keeper** restart on the new commit, together. Smoke checks last.
 
 ### Changed account lists (clients must send these; hand-built instructions too)
 
@@ -57,6 +58,28 @@ The rebuilt `tesoro_bridge.so` differs byte for byte from the deployed one (the 
 `block_puzzle`: `open_session` gains `authority`, `config`, `tesoro_core_program`; `Board` gains `start_slot` and `move_slots` (597 to 845 bytes). `holdem` and `trading_duel`: no list change visible to clients (their `refund_match` CPI passes `opener_protections: None`).
 
 Idls: `idl/` copies in `app/src/lib/chain/idl/` (`tesoro_core`, `block_puzzle`, `holdem`, `trading_duel`) were refreshed from the build and equal `target/idl`. `sim_lst` has no app copy.
+
+### Retire the old accounts (ticket 11; after the `tesoro_core` upgrade, before `init_native_custody` and the app deploy)
+
+Why: the new `PositionState` (193 B, was 159) and `Treasury` (143 B, was 103) cannot read the accounts already on chain, and the old per-Position `NativeCustody` (210 B, `["native", position]`) is not the new singleton (178 B, `["native"]`). Only `tesoro_core` can close its accounts, so the upgrade adds seven admin-only instructions (`programs/tesoro_core/src/instructions/retire.rs`): `retire_native_custody`, `retire_position`, `retire_source`, `retire_holding`, `retire_offer`, `retire_request`, `retire_treasury`. Signer = `Config.admin` (the deployer key); rent goes to the admin. Each refuses anything not provably of the old world, by raw bytes (old layouts are never deserialized as new types):
+
+- Position, old custody, Treasury, Offer: shorter than the current layout. A current-size account is never closable.
+- Old custody: the simSOL in its vault `["native_vault", position]` goes to the owner's simSOL associated token account (`owner_authority` recorded in the custody), then vault and custody close. The custody PDA and canonical bump are re-derived from its Position key. **No simSOL account yet:** the instruction creates it, admin pays the rent (about 0.002 SOL each); skipping would strand the owner's simSOL.
+- Source: its Position address is gone or old-sized. Holding: its Source is gone; its Gemas leave the Account's `own`/`won` totals (and reserved), so Accounts keep mirroring their Holdings and end at zero.
+- Offer of the current size: it reserves from at least one Source and every one is gone (one remaining account per line). Request: past `expires_at` + 24 h (dead in every status; Requests hold no money).
+- Treasury: only the old 103-byte account closes. Its simSOL vault and its Account keep address and balance (the vault authority is the Treasury PDA, which `init_treasury` recreates at the same address), so `fund-treasury.ts --instant-bps 2500 --no-fund` right after is the new Treasury.
+- Kept: Profiles, Matches (settled history), game accounts, ExtendLimit, Protections, Config, the Leaderboard Pool Account (its Holdings retire like any other).
+
+Devnet inventory (2026-10-18, 881 `tesoro_core` accounts): 133 Positions (159 B: 94 SOL, 26 ETH, 13 HYPE), 58 old custodies and vaults (501.36 simSOL over 47 owners, all with a simSOL account), 139 Sources, 256 Holdings (1,093,608 Gemas, equal to the Account totals), 23 Offers (7 old-sized, 16 current), 28 expired Requests, the 103-byte Treasury (vault 19.35 simSOL). 124 Matches (settled/refunded history kept) and 2 Active Matches (`2n1W2PgT…` is old-sized and cannot be refunded after the upgrade).
+
+Run (admin key, the script refuses any other; never while a Match is Open or Active):
+
+1. Before the upgrade: settle or refund the two Active Matches (`refund_match` is open to anyone after 1 h; the old-sized one only works on the old program). The script lists them.
+2. After the upgrade: `pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts --dry-run` (default; reads `https://api.devnet.solana.com`, sends nothing; prints inventory, phases, first transactions, simSOL returned).
+3. `pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts --send --keypair ~/.config/solana/dev-2026-10.json` (sends through `https://rpc.magicblock.app/devnet`). Four phases, each re-reads the chain: (1) custodies, Positions, Treasury, old-sized Offers, expired Requests; (2) Sources; (3) Holdings; (4) current-size Offers. About 125 transactions. Idempotent: re-run until it prints nothing to retire. Fees about 0.6 SOL, rent back to the admin about 0.9 SOL.
+4. Check the summary: `Gemas: 0 in 0 Holdings, 0 in Account totals`, no custody left. Then `init_native_custody`, `fund-treasury.ts`, `set_treasury_company`, the rest of the admin calls.
+
+The app and keeper also skip an old-sized Position while any is left (`app/src/lib/chain/position-size.ts`; the keeper lists use `dataSize`), so a stray account never breaks a whole read.
 
 ### Admin and init calls after the upgrade (devnet, test mode)
 
