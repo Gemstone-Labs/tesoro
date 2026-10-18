@@ -110,6 +110,8 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
   .bk-drawer-foot { grid-template-columns: 1fr; gap: 12px; }
   .bk-reserve { display: flex; align-items: center; gap: 8px; }
   .bk-reserve b { font-size: 18px; }
+  .bk-drawer-actions { grid-template-columns: auto 1fr; }
+  .bk-drawer-actions .btn { white-space: nowrap; padding-inline: 16px; }
   .bk-outcomes td b { font-size: 26px; }
 }
 

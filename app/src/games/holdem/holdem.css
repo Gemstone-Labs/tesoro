@@ -269,6 +269,8 @@
   .hd-say { right: auto; left: 50%; top: 0; transform: translate(-50%, -50%); width: 200px; }
   .hd-handlabel { position: relative; left: auto; top: auto; order: 3; margin-top: 6px; }
   .hd-turn:not(.won) { display: none; }
+  /* the turn line and Hand log share one row, so the pinned action bar clears the hand name */
+  .hdx-head-r { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin-left: 0; }
   .hdx-win { padding: 6px 14px 6px 10px; gap: 8px; max-width: 98%; }
   .hdx-win-icon { width: 30px; height: 30px; }
   .hdx-win-icon svg { width: 17px; height: 17px; }
