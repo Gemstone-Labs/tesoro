@@ -3078,9 +3078,195 @@ fn a_stalled_timeout_resolve_gains_at_most_the_slack_too() {
 #[test]
 fn the_slack_is_stored_per_battle_and_obeyed() {
     let mut env = declared_env();
-    assert_eq!(env.battle().resolve_slack_secs as i64, engine::RESOLVE_SLACK_SECS);
+    assert_eq!(
+        env.battle().resolve_slack_secs as i64,
+        engine::RESOLVE_SLACK_SECS
+    );
     env.patch_battle(|b| b.resolve_slack_secs = 0);
     let declared = env.now;
     let next = resolved_after(&mut env, 5);
     assert_eq!(next, declared + engine::TURN_SECS + engine::GRACE_SECS);
+}
+
+/// A declare at the deadline is accepted; one second later it is refused and a timeout claim is possible.
+#[test]
+fn a_declare_at_the_deadline_is_accepted_and_one_second_later_is_refused() {
+    let mut env = declared_env();
+    let alice = env.alice.kp.insecure_clone();
+    let deadline = env.battle().deadline;
+    assert_eq!(
+        deadline,
+        T0 + engine::TURN_SECS + engine::GRACE_SECS + OPENING_GRACE_SECS
+    );
+    env.set_time(deadline + 1);
+    let late = env.move_ix(env.alice.key, id_of(70), 60);
+    let err = env.send(&[budget(), late], &alice, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::TurnExpired));
+    assert_eq!(env.battle().pending_kind, vanguard::PENDING_NONE);
+    env.set_time(deadline);
+    let m = env.move_ix(env.alice.key, id_of(70), 60);
+    env.send(&[budget(), m], &alice, &[])
+        .expect("accepted at the deadline");
+    assert_eq!(env.battle().pending_kind, vanguard::PENDING_MOVE);
+}
+
+#[test]
+fn claim_timeout_works_only_after_the_deadline() {
+    let mut env = declared_env();
+    let caller = env.bob.kp.insecure_clone();
+    let deadline = env.battle().deadline;
+    for t in [T0, deadline - 1, deadline] {
+        env.set_time(t);
+        let err = env.claim_timeout_declare(&caller).unwrap_err();
+        assert_eq!(
+            custom_code(&err),
+            vcode(VanguardError::NotTimedOut),
+            "at {t}"
+        );
+        assert_eq!(env.battle().pending_kind, vanguard::PENDING_NONE);
+    }
+    env.set_time(deadline + 1);
+    env.claim_timeout(&caller).expect("one second past");
+    let b = env.battle();
+    assert_eq!((b.turn, b.timeouts), (1, [1, 0]));
+}
+
+/// Each step of a Two-Step Turn gives a fresh deadline; spending the banked turn gives nothing.
+#[test]
+fn each_two_step_step_resets_the_deadline_and_start_two_step_never_moves_it() {
+    let mut env = declared_env();
+    let turn = engine::TURN_SECS + engine::GRACE_SECS;
+    env.patch_battle(|b| b.two_step[0] = 1);
+    let opening = env.battle().deadline;
+    env.set_time(T0 + 3);
+    env.two_step(0).expect("spend");
+    assert_eq!(env.battle().deadline, opening);
+    env.set_time(T0 + 4);
+    env.mv(0, id_of(70), 60).expect("first step");
+    let b = env.battle();
+    assert_eq!((b.turn, b.steps_left, b.deadline), (0, 1, T0 + 4 + turn));
+    env.set_time(T0 + 7);
+    env.mv(0, id_of(95), 85).expect("second step");
+    let b = env.battle();
+    assert_eq!((b.turn, b.deadline), (1, T0 + 7 + turn));
+}
+
+#[test]
+fn a_move_clears_the_count_of_timeouts_in_a_row() {
+    let mut env = declared_env();
+    let caller = env.oracle.insecure_clone();
+    env.set_time(env.battle().deadline + 1);
+    env.claim_timeout(&caller).expect("alice idles");
+    env.set_time(env.battle().deadline + 1);
+    env.claim_timeout(&caller).expect("bob idles");
+    assert_eq!(env.battle().timeouts, [1, 1]);
+    env.set_time(env.now + 1);
+    env.mv(0, id_of(70), 60).expect("alice moves");
+    assert_eq!(env.battle().timeouts, [0, 1]);
+}
+
+#[test]
+fn a_move_at_the_cap_is_accepted_and_the_move_cap_ends_the_match_on_the_tiebreak() {
+    let mut env = declared_env();
+    let cap = env.battle().cap_deadline;
+    env.set_time(cap);
+    env.patch_battle(|b| b.deadline = cap + 100);
+    env.mv(0, id_of(70), 60).expect("a move at the cap");
+    assert_eq!(env.battle().status, vanguard::STATUS_LIVE);
+    // 200 moves played: the 200th ends the Match on the tiebreak, and nothing more is accepted.
+    env.patch_battle(|b| b.moves = engine::MOVE_CAP - 1);
+    env.set_time(cap - 5);
+    env.patch_battle(|b| b.deadline = cap + 100);
+    env.mv(1, id_of(5), 15).expect("the last move");
+    let b = env.battle();
+    assert_eq!(
+        (b.status, b.reason),
+        (vanguard::STATUS_OVER, vanguard::reason_code(EndReason::Cap))
+    );
+    assert!(env.mv(0, id_of(70), 50).is_err());
+}
+
+/// The start window: the first second after it, anyone cancels; at it, nobody can.
+#[test]
+fn a_match_nobody_started_is_cancelled_one_second_after_the_start_window_and_refunded() {
+    let mut env = ready();
+    let caller = env.bob.kp.insecure_clone();
+    let end = T0 + vanguard::START_WINDOW_SECS;
+    env.set_time(end);
+    let err = env.claim_timeout(&caller).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    let err = env.finalize_with(vec![]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    env.set_time(end + 1);
+    env.claim_timeout(&caller).expect("cancel");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+    let before = (env.gemas(&env.alice), env.gemas(&env.bob));
+    env.finalize(true).expect("refund");
+    assert_eq!(env.gemas(&env.alice), before.0 + 1_000);
+    assert_eq!(env.gemas(&env.bob), before.1 + 1_000);
+}
+
+#[test]
+fn the_entropy_window_ends_exactly_at_its_deadline() {
+    let mut env = ready();
+    env.start_in_rollup(1);
+    env.patch_secret(|v| {
+        v.contributed = [true, false];
+        v.vrf_seen = false;
+    });
+    let caller = env.bob.kp.insecure_clone();
+    env.set_time(env.battle().entropy_deadline);
+    let err = env.claim_timeout(&caller).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotTimedOut));
+    env.set_time(env.battle().entropy_deadline + 1);
+    env.claim_timeout(&caller).expect("cancel");
+    assert_eq!(env.battle().status, vanguard::STATUS_CANCELLED);
+}
+
+/// A board with a row of two pieces for the storm to move; the storm blows on the first turn change.
+fn stormy_env() -> Env {
+    let mut env = declared_env();
+    env.patch_secret(|v| {
+        v.storm_at = 1;
+        v.storm_seed = 3;
+    });
+    env
+}
+
+fn storm_events(env: &Env) -> usize {
+    env.battle()
+        .ring
+        .iter()
+        .filter(|r| r.kind == vanguard::EVENT_STORM)
+        .count()
+}
+
+#[test]
+fn the_storm_fires_inside_the_resolve_of_the_move_that_ends_the_turn() {
+    let mut env = stormy_env();
+    assert_eq!((env.battle().storm_done, storm_events(&env)), (0, 0));
+    env.mv(0, id_of(70), 60).expect("move");
+    assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
+}
+
+#[test]
+fn the_storm_fires_inside_the_resolve_of_the_timeout_that_ends_the_turn() {
+    let mut env = stormy_env();
+    let caller = env.bob.kp.insecure_clone();
+    env.set_time(env.battle().deadline + 1);
+    env.claim_timeout_declare(&caller).expect("declare");
+    assert_eq!((env.battle().storm_done, storm_events(&env)), (0, 0));
+    env.resolve(&caller).expect("resolve");
+    assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
+}
+
+#[test]
+fn the_storm_waits_for_the_turn_that_ends_it_not_for_the_first_step_of_a_two_step_turn() {
+    let mut env = stormy_env();
+    env.patch_battle(|b| b.two_step[0] = 1);
+    env.two_step(0).expect("spend");
+    env.mv(0, id_of(70), 60).expect("first step");
+    assert_eq!((env.battle().storm_done, storm_events(&env)), (0, 0));
+    env.mv(0, id_of(95), 85).expect("second step");
+    assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
 }
