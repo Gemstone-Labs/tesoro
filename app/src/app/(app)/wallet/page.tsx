@@ -205,7 +205,7 @@ export default function Wallet() {
             <span>Gemas</span>
             {ready && <GemaUsd className="wl-usd" value={gemas.total} />}
           </div>
-          {ready && (
+          {ready && !heroOpen && (
             <button type="button" className="wl-sum" aria-expanded={heroOpen} aria-controls="wl-second">
               <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
               <span aria-hidden="true">·</span>
