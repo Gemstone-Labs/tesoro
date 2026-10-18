@@ -678,16 +678,13 @@ impl Game {
         self.event_seq = self.event_seq.wrapping_add(1);
     }
 
+    /// Branch-free in the rank: the same instructions run whatever the piece is, so the compute a caller sees
+    /// does not say which rank stands where.
     fn can_move(&self, id: usize, p: &Piece, moved: u64) -> bool {
-        match p.rank {
-            BOMB => false,
-            TRUCK => {
-                p.fuel < TRUCK_FUEL
-                    && self.truck_turn[p.army.idx()] != self.turn_no as i32 - 2
-                    && (moved >> id) & 1 == 0
-            }
-            _ => true,
-        }
+        let truck_ok = (p.fuel < TRUCK_FUEL)
+            & (self.truck_turn[p.army.idx()] != self.turn_no as i32 - 2)
+            & ((moved >> id) & 1 == 0);
+        (p.rank != BOMB) & ((p.rank != TRUCK) | truck_ok)
     }
 
     /// Count the legal targets of `army` and test whether `(probe_id, probe_to)` is one of them. Every slot,
@@ -705,12 +702,8 @@ impl Game {
         let mut work: u32 = 0;
         for id in 0..PIECE_SLOTS {
             let p = &self.pieces[id];
-            let live = p.rank != 0 && p.army == army && self.can_move(id, p, moved);
-            let reach: i8 = if p.rank == RECON && !two_step_active {
-                RUN
-            } else {
-                1
-            };
+            let live = (p.rank != 0) & (p.army == army) & self.can_move(id, p, moved);
+            let reach: i8 = 1 + ((p.rank == RECON) & !two_step_active) as i8 * (RUN - 1);
             let pr = row(p.sq) as i8;
             let pc = col(p.sq) as i8;
             for (dr, dc) in DIRS {
@@ -718,15 +711,16 @@ impl Game {
                 for k in 1..=RUN {
                     let r = pr + dr * k;
                     let c = pc + dc * k;
-                    let inb = (0..SIZE as i8).contains(&r) && (0..SIZE as i8).contains(&c);
+                    let inb = ((r as u8) < SIZE as u8) & ((c as u8) < SIZE as u8);
                     let sq = if inb { (r * 10 + c) as u8 } else { 0 };
                     let occ = self.cells[sq as usize];
-                    let own = occ != 0 && self.pieces[occ.saturating_sub(1) as usize].army == army;
-                    let ok = open && k <= reach && inb && !is_wadi(sq) && !own;
-                    let legal = ok && !shuttling(p, sq);
+                    let own =
+                        (occ != 0) & (self.pieces[occ.saturating_sub(1) as usize].army == army);
+                    let ok = open & (k <= reach) & inb & !is_wadi(sq) & !own;
+                    let legal = ok & !shuttling(p, sq);
                     count += legal as u16;
-                    hit |= legal && id as u8 == probe_id && sq == probe_to;
-                    open = ok && occ == 0;
+                    hit |= legal & (id as u8 == probe_id) & (sq == probe_to);
+                    open = ok & (occ == 0);
                     work += 1;
                 }
             }

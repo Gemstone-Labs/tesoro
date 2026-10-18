@@ -6237,7 +6237,12 @@ name = "vanguard"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "bytemuck",
+ "ephemeral-rollups-sdk",
+ "litesvm",
  "serde_json",
+ "solana-sdk",
+ "tesoro_core",
 ]
 
 [[package]]
