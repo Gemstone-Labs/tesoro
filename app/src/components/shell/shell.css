@@ -340,9 +340,6 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 }
 
 /* X follow in the top bar: same height as the pill beside it */
-.top-x.icon-btn { width: 44px; height: 44px; }
-.top-x.btn { height: 44px; min-height: 44px; }
-@media (min-width: 1024px) { .top-x.icon-btn { width: 52px; height: 52px; } .top-x.btn { height: 52px; min-height: 52px; padding-inline: 18px; font-size: 15px; } }
 .site-foot-cols .xf-link { gap: 8px; }
 /* bare screens drop the footer, which also carried the room above the bottom nav */
 .content[data-bare] .app-main { padding-bottom: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); }
