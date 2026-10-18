@@ -1,11 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import Link from "next/link";
 import { ArrowRight, Pause, Play } from "lucide-react";
 import { PlayerAvatar } from "@/components/account/Player";
 import { Button } from "@/components/ui";
+import { GemasLabel } from "@/app/(app)/wallet/AdvanceQuote";
 import { challengeHref, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
@@ -21,13 +22,15 @@ interface Slide {
   image: string;
   /** Two-line title, smaller type. */
   long?: boolean;
+  /** The Game page's opening entry, so Play now shows what it will cost. */
+  entry: number;
 }
 
 /** The featured Games. Entry, Queue and Challenge live on each Game's page; the hero only leads there. */
 const SLIDES: Slide[] = [
-  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero },
-  { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true },
-  { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero },
+  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero, entry: 1000 },
+  { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true, entry: 500 },
+  { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero, entry: 500 },
 ];
 
 const ADVANCE_MS = 7000;
@@ -58,6 +61,25 @@ export function HeroCarousel() {
     return () => mq.removeEventListener("change", update);
   }, []);
 
+  // Swipe: a horizontal drag of a finger moves one slide, and any touch ends auto-advance so the slide never changes under a thumb.
+  const drag = useRef<{ x: number; y: number } | null>(null);
+  const swiped = useRef(false);
+  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+    if (e.pointerType === "mouse") return;
+    drag.current = { x: e.clientX, y: e.clientY };
+    swiped.current = false;
+    setPaused(true);
+  };
+  const onPointerUp = (e: PointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(e.clientY - d.y)) return;
+    swiped.current = true;
+    setIndex((i) => (dx < 0 ? Math.min(i + 1, SLIDES.length) : (i === 0 ? SLIDES.length - 1 : i - 1)));
+  };
+
   const running = !paused && !hover && !reduced;
   const next = () => setIndex((i) => Math.min(i + 1, SLIDES.length));
   useEffect(() => {
@@ -84,6 +106,16 @@ export function HeroCarousel() {
       onMouseLeave={() => setHover(false)}
       onFocusCapture={() => setHover(true)}
       onBlurCapture={() => setHover(false)}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => (drag.current = null)}
+      onClickCapture={(e) => {
+        if (swiped.current) {
+          swiped.current = false;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
       style={{ ["--i" as string]: index, ["--advance" as string]: `${ADVANCE_MS}ms` }}
       data-running={running || undefined}
     >
@@ -175,7 +207,7 @@ function HeroSlide({
         <p className="slide-sub">{slide.sub}</p>
         <div className="slide-cta">
           <Button variant="money" size="lg" href={`/play/${slide.game}`}>
-            Play now
+            <GemasLabel action="Play now" gemas={slide.entry} />
           </Button>
           <Button size="lg" href={practiceHref(slide.game)}>
             Practice free
