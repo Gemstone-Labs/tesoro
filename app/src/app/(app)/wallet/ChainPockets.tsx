@@ -3,7 +3,8 @@
 import { type ReactNode, useState } from "react";
 import { Button, ChainGlyph, Meter, Sheet } from "@/components/ui";
 import { PlayerAvatar, PlayerName } from "@/components/account/Player";
-import { fmtAsset, fmtGemas, fmtGemasUsd } from "@/lib/format";
+import { useNowSecs } from "@/lib/chain/useNowSecs";
+import { fmtAsset, fmtGemas, fmtGemasUsd, fmtInMinutes } from "@/lib/format";
 import type { Chain } from "@/lib/mock";
 
 const GLYPH = { SOL: 0, ETH: 1, HYPE: 2 } as const;
@@ -33,6 +34,18 @@ export interface Pocket {
   /** Unlocked Positions: kept out of the way until asked for. */
   closed: ReactNode[];
   sources: PocketSource[];
+  /** When the soonest of your own repaying Positions covers its Debt (ms), so its Gemas turn redeemable; null when unknown. */
+  nextRedeemAt?: number | null;
+}
+
+/** "Next Gemas redeemable in ~24 min", counting down; the plain fallback when no time can be projected. */
+export function NextRedeem({ at, className }: { at: number | null | undefined; className?: string }) {
+  const secs = useNowSecs(15_000);
+  return (
+    <span className={className ?? "meta"}>
+      {at ? `Next Gemas redeemable ${fmtInMinutes(at, Math.max(secs * 1000, 0))}` : "Redeemable as their Sources earn yield"}
+    </span>
+  );
 }
 
 export function ChainPockets({ pockets, onRedeem }: { pockets: Pocket[]; onRedeem: (chain: Chain) => void }) {
@@ -73,10 +86,9 @@ function PocketCard({ p, hidden, onRedeem, onAll }: { p: Pocket; hidden: boolean
           <ChainGlyph asset={GLYPH[p.chain]} size={20} />
           {p.chain}
         </span>
-        <b>{p.gemasAsset !== null ? fmtAsset(p.gemasAsset, p.chain) : `${fmtGemas(p.gemas)} Gemas`}</b>
-        <small>
-          {fmtGemas(p.gemas)} Gemas · {fmtGemasUsd(p.gemas)}
-        </small>
+        <span className="wl-pocket-label">Your Gemas on {p.chain}</span>
+        <b>{fmtGemas(p.gemas)} Gemas</b>
+        <small>{p.gemasAsset !== null ? `≈ ${fmtAsset(p.gemasAsset, p.chain)} · ${fmtGemasUsd(p.gemas)}` : fmtGemasUsd(p.gemas)}</small>
       </header>
 
       {p.gemas > 0 && (
@@ -85,16 +97,25 @@ function PocketCard({ p, hidden, onRedeem, onAll }: { p: Pocket; hidden: boolean
             <div>
               <small>Redeemable now</small>
               <b>{p.redeemableAsset !== null ? fmtAsset(p.redeemableAsset, p.chain) : fmtGemas(p.redeemable)}</b>
-              <span className="meta">
-                {fmtGemas(p.redeemable)} Gemas · {fmtGemasUsd(p.redeemable)}
-              </span>
+              <span className="meta">{fmtGemas(p.redeemable)} Gemas</span>
             </div>
-            <Button variant="money" size="sm" disabled={p.redeemable === 0} onClick={onRedeem}>
-              Redeem {p.chain}
-            </Button>
+            {p.redeemable > 0 ? (
+              <Button variant="money" size="sm" onClick={onRedeem}>
+                Redeem {p.chain}
+              </Button>
+            ) : (
+              <span className="meta wl-pocket-why">Nothing to redeem yet</span>
+            )}
           </div>
           <Meter value={p.gemas ? p.redeemable / p.gemas : 0} label={`${p.chain}: share of your Gemas redeemable now`} />
-          <span className="meta">{pending > 0 ? `${fmtGemas(pending)} Pending: redeemable as their Sources earn yield` : "Nothing pending"}</span>
+          {pending > 0 ? (
+            <>
+              <span className="meta">{fmtGemas(pending)} Pending</span>
+              <NextRedeem at={p.nextRedeemAt} />
+            </>
+          ) : (
+            <span className="meta">Nothing pending</span>
+          )}
         </div>
       )}
 
