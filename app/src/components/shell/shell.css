@@ -285,7 +285,7 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-6px) scale(0.98); } }
 /* signed out, Sign in holds the balance pill's place at the same height */
-.top-right > .btn { min-height: 38px; padding: 0 16px; font-size: 14px; }
+.top-right > .btn { min-height: 44px; padding: 0 16px; font-size: 14px; }
 @media (min-width: 640px) { .top-right > .btn { min-height: 46px; padding: 0 22px; font-size: 15px; } }
 @media (min-width: 1024px) { .top-right > .btn { min-height: 52px; padding: 0 28px; font-size: 16px; } }
 

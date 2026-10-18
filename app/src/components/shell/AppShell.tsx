@@ -13,7 +13,7 @@ import { TopBar } from "./TopBar";
 
 /** Screens that exist for one action (play, queue, challenge, a Match, an opening Position): no link directory under them. */
 function bareScreen(path: string | null) {
-  return !!path && (path.startsWith("/play/") || path === "/wallet/opening");
+  return !!path && (/^\/play\/(practice|queue|challenge|match)(\/|$)/.test(path) || path === "/wallet/opening");
 }
 
 /** Desktop: fixed sidebar + top bar. Below 1024px: the sidebar becomes a drawer and a bottom nav appears. */
