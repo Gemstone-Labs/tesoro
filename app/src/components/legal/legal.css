@@ -1,6 +1,6 @@
 .legal-main { max-width: 820px; margin-inline: auto; padding: 48px var(--gap) 96px; }
-.legal-date { margin-top: 14px; font-size: 13px; color: var(--fg-2); }
-.legal-links { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 14px; }
+.legal-date { margin-top: 14px; font-size: var(--fs-13); color: var(--fg-2); }
+.legal-links { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); font-size: var(--fs-14); }
 .legal-links a { color: var(--fg-2); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
 .legal-links a:hover { color: var(--fg); }
 .legal-main .docs-h2 { margin-top: 44px !important; }

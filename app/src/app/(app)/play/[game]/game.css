@@ -4,20 +4,20 @@
 .gp-hero-art { object-fit: cover; object-position: 70% 50%; }
 .gp-hero::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, rgba(6, 10, 16, 0.94) 0 32%, rgba(6, 10, 16, 0.55) 55%, transparent 80%); }
 .gp-hero-body { position: relative; z-index: 2; display: grid; gap: 22px; justify-items: start; padding: 40px 18px; max-width: 760px; }
-.gp-tag { --edge: var(--edge-2); background: rgba(9, 13, 15, 0.8); display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: 15px; color: var(--fg-2); }
+.gp-tag { --edge: var(--edge-2); background: rgba(9, 13, 15, 0.8); display: inline-flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: var(--fs-15); color: var(--fg-2); }
 .gp-tag svg { width: 20px; height: 20px; color: var(--fg); }
 .gp-title { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(52px, 6.4vw, 120px); font-weight: 800; line-height: 0.9; color: #fff; }
 .gp-sub { font-size: clamp(16px, 1.5vw, 24px); color: var(--fg); line-height: 1.35; }
 .gp-hero .entries { width: min(100%, 470px); }
-.gp-hero .entry span { min-height: 58px; font-size: 21px; }
+.gp-hero .entry span { min-height: 58px; font-size: var(--fs-20); }
 /* one two-line money action (entry, who is waiting), the two free ways to play paired under it */
 .gp-cta { display: grid; gap: 12px; width: min(100%, 470px); }
 .gp-cta > .btn.money { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 80px; padding: 10px 20px 13px; line-height: 1.1; }
-.gp-play-label { font-size: 24px; font-weight: 900; }
-.gp-play-sub { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; word-spacing: normal; opacity: 0.82; }
+.gp-play-label { font-size: var(--fs-24); font-weight: 900; }
+.gp-play-sub { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); font-weight: 700; word-spacing: normal; opacity: 0.82; }
 .gp-play-sub svg { width: 15px; height: 15px; }
 .gp-more { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-.gp-more .btn.neutral { min-width: 0; min-height: 52px; gap: 9px; padding: 0 12px; font-size: 16px; white-space: nowrap; background: rgba(14, 19, 24, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.gp-more .btn.neutral { min-width: 0; min-height: 52px; gap: 9px; padding: 0 12px; font-size: var(--fs-16); white-space: nowrap; background: rgba(14, 19, 24, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .gp-more .btn.neutral:hover { background: var(--surface-2); }
 .gp-more .btn svg { width: 18px; height: 18px; color: var(--fg-2); }
 
@@ -26,7 +26,7 @@
 .gp-panel { --edge: transparent; clip-path: none; background: transparent; padding: 0; display: grid; gap: 16px; align-content: start; min-width: 0; }
 .gp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .gp-head .h-section { font-size: clamp(28px, 2.4vw, 42px); color: #fff; }
-.gp-all { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; color: var(--fg); }
+.gp-all { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-13); font-weight: 700; letter-spacing: 0.04em; color: var(--fg); }
 .gp-all svg { width: 18px; height: 18px; }
 .gp-empty { padding: 8px 2px 12px; }
 
@@ -34,15 +34,15 @@
 
 .gp-top { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: 40px 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 16px; min-height: 60px; }
 .gp-rank { font-family: var(--f-display); font-size: 30px; font-weight: 800; }
-.gp-topname { font-size: 17px; font-weight: 700; }
-.gp-score { font-size: 22px; font-weight: 800; }
+.gp-topname { font-size: var(--fs-17); font-weight: 700; }
+.gp-score { font-size: var(--fs-22); font-weight: 800; }
 
 .gp-how { min-height: 200px; }
 .gp-how .h-section { font-size: clamp(28px, 2.4vw, 42px); color: #fff; margin-bottom: 2px; }
-.gp-how .bust-card-body b { font-size: 17px; }
+.gp-how .bust-card-body b { font-size: var(--fs-17); }
 .gp-how ol { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: s; }
-.gp-how li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 10px; font-size: 15px; color: var(--fg); }
-.gp-how li::before { content: counter(s); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--fg-2); font-size: 13px; font-weight: 700; }
+.gp-how li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 10px; font-size: var(--fs-15); color: var(--fg); }
+.gp-how li::before { content: counter(s); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--fg-2); font-size: var(--fs-13); font-weight: 700; }
 
 @media (max-width: 639px) {
   .gp-hero { min-height: 0; }
@@ -59,7 +59,7 @@
 
 .gp-panel::after { display: none; }
 .gp-top-wrap { display: grid; gap: 10px; margin-top: 24px; }
-.gp-sub-h { font-size: 18px; font-weight: 700; }
+.gp-sub-h { font-size: var(--fs-18); font-weight: 700; }
 
 /* phones: the hero controls take the full width */
 @media (max-width: 639px) {
@@ -76,9 +76,9 @@
 .gp-hero-body > :nth-child(4) { animation-delay: 210ms; }
 .gp-hero .assets { width: min(100%, 470px); }
 .gp-hero .asset span { min-height: 60px; }
-.gp-hero .asset b { font-size: 19px; }
+.gp-hero .asset b { font-size: var(--fs-18); }
 
 @media (max-width: 420px) {
   .gp-friend { display: none; }
-  .gp-hero .entry span { font-size: 18px; }
+  .gp-hero .entry span { font-size: var(--fs-18); }
 }

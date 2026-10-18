@@ -3,24 +3,24 @@
   --edge: var(--edge-2); background: var(--shell); width: 100%; max-width: 760px; margin: 0 auto;
   display: grid; padding: 40px 24px 36px; justify-items: center; overflow: hidden;
 }
-.mr-game { font-size: 15px; color: var(--fg-2); text-align: center; }
+.mr-game { font-size: var(--fs-15); color: var(--fg-2); text-align: center; }
 .mr-mid { display: grid; gap: 24px; width: 100%; max-width: 640px; justify-items: center; align-content: start; }
 .mr-status { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 12px; font-family: var(--f-display); text-transform: uppercase; line-height: 0.95; font-size: clamp(40px, 5vw, 72px); font-weight: 800; letter-spacing: 0.005em; }
-.mr-status-icon { display: grid; place-items: center; width: 1.15em; height: 1.15em; background: #eaefec; color: #090d0f; clip-path: polygon(22% 0, 78% 0, 100% 22%, 100% 78%, 78% 100%, 22% 100%, 0 78%, 0 22%); }
+.mr-status-icon { display: grid; place-items: center; width: 1.15em; height: 1.15em; background: var(--fg); color: var(--shell); clip-path: polygon(22% 0, 78% 0, 100% 22%, 100% 78%, 78% 100%, 22% 100%, 0 78%, 0 22%); }
 .mr-status-icon svg { width: 68%; height: 68%; }
 .mr-status.lost .mr-status-icon { background: var(--danger); }
 .mr-status.draw .mr-status-icon, .mr-status.refunded .mr-status-icon { background: rgba(234, 239, 236, 0.5); }
 
-.mr-amount-label { position: relative; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--em-hi); }
+.mr-amount-label { position: relative; font-size: var(--fs-13); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--em-hi); }
 .mr-neutral { position: relative; display: grid; gap: 6px; justify-items: center; text-align: center; }
 .mr-neutral b { font-size: clamp(30px, 3vw, 48px); font-weight: 900; }
-.mr-neutral-label { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
-.mr-sum { font-size: 14px; color: var(--fg-2); max-width: 46ch; }
-.mr-neutral-amt { display: inline-flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; }
+.mr-neutral-label { font-size: var(--fs-13); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.mr-sum { font-size: var(--fs-14); color: var(--fg-2); max-width: 46ch; }
+.mr-neutral-amt { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-24); font-weight: 800; }
 
-.mr-pending { position: relative; display: inline-block; color: var(--em-hi); font-weight: 700; font-size: 15px; padding: 6px 12px; border-bottom: 1px solid rgba(106, 248, 214, 0.35); }
+.mr-pending { position: relative; display: inline-block; color: var(--em-hi); font-weight: 700; font-size: var(--fs-15); padding: 6px 12px; border-bottom: 1px solid rgba(106, 248, 214, 0.35); }
 .mr-pending:hover { border-bottom-color: var(--em-hi); }
-.mr-copy { text-align: center; color: var(--fg-2); font-size: 15px; max-width: 46ch; }
+.mr-copy { text-align: center; color: var(--fg-2); font-size: var(--fs-15); max-width: 46ch; }
 .mr-copy.strong { color: var(--fg); font-weight: 600; }
 
 .mr-scores, .mr-fees { --edge: var(--edge-2); width: 100%; display: grid; grid-template-columns: 1fr 1fr; background: var(--shell); }
@@ -39,7 +39,7 @@
 .mr-second { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 12px; }
 .mr-second:empty { display: none; }
 .mr-links { display: flex; justify-content: center; gap: 28px; }
-.mr-links a { color: var(--fg-2); font-weight: 600; font-size: 15px; padding: 8px 4px; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 4px; }
+.mr-links a { color: var(--fg-2); font-weight: 600; font-size: var(--fs-15); padding: 8px 4px; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 4px; }
 .mr-links a:hover { color: var(--fg); text-decoration-color: var(--fg); }
 
 @media (min-width: 1024px) {
@@ -58,10 +58,10 @@
 .mo-text { display: grid; justify-items: center; gap: 6px; text-align: center; }
 .mo-text b { font-size: clamp(30px, 4vw, 52px); font-weight: 900; letter-spacing: -0.02em; }
 .mo-text span { display: inline-flex; align-items: center; gap: 10px; font-size: clamp(22px, 2.6vw, 34px); font-weight: 800; color: var(--em-hi); }
-.mo-close { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: 0; color: var(--fg-2); font-size: 15px; font-weight: 600; }
+.mo-close { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: 0; color: var(--fg-2); font-size: var(--fs-15); font-weight: 600; }
 .mo-close:hover, .mo-close:focus-visible { color: var(--fg); }
 .mo-close:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-.mo-close kbd { font-family: var(--f-mono); font-size: 12px; padding: 1px 6px; border: 1px solid var(--line-2); }
+.mo-close kbd { font-family: var(--f-mono); font-size: var(--fs-12); padding: 1px 6px; border: 1px solid var(--line-2); }
 @keyframes mo-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mo-out { to { opacity: 0; visibility: hidden; } }
 @keyframes mo-pop { from { transform: translateY(24px) scale(0.92); } to { transform: none; } }
@@ -78,18 +78,18 @@
 @media (max-width: 639px) {
   .mr-frame { padding: 32px 14px 28px; }
   .mr-fees > div { padding: 10px 12px 12px; }
-  .mr-fees b { font-size: 20px; gap: 6px; }
+  .mr-fees b { font-size: var(--fs-20); gap: 6px; }
   .mr-fees b .gema-mark { width: 20px; height: 20px; }
-  .mr-pending { font-size: 14px; padding: 6px 4px; }
+  .mr-pending { font-size: var(--fs-14); padding: 6px 4px; }
 }
 
 /* ——— Someone else's Match (MatchSpectate) ——— */
 .mr-sp-players > div { align-content: start; gap: 6px; padding: 16px 8px 18px; }
-.mr-sp-players .mono { font-size: 16px; font-weight: 700; }
+.mr-sp-players .mono { font-size: var(--fs-16); font-weight: 700; }
 .mr-sp-av { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
 /* Won/Lost words in the landing's outcome colours: emerald win, red loss (never "success" green) */
 .mr-sp-players b.won { color: var(--em); }
-.mr-sp-players b.lost { color: #f2685a; }
+.mr-sp-players b.lost { color: var(--danger); }
 
 /* ——— Match result: a poster over the game's art, then a strip of tiles ———
    Every element's resting style is its final frame; the motion lives under
@@ -104,8 +104,8 @@
 /* a Player's loss: the guide stands calm in colour over the drained art, cut by the poster's bottom edge */
 .mr-char { position: absolute; z-index: 1; right: clamp(24px, 7%, 96px); bottom: 0; width: auto; height: 94%; pointer-events: none; filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.55)); -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 98%); mask-image: linear-gradient(180deg, #000 70%, transparent 98%); }
 .mr-copyblock { position: relative; z-index: 1; display: grid; gap: 14px; justify-items: start; padding: clamp(28px, 5vw, 64px); max-width: 640px; }
-.mr-kicker { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
-.mr-kicker .mr-status-icon { font-size: 22px; }
+.mr-kicker { display: inline-flex; align-items: center; gap: 10px; font-size: var(--fs-13); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.mr-kicker .mr-status-icon { font-size: var(--fs-22); }
 .mr-status-icon.lost { background: var(--danger); }
 .mr-status-icon.draw, .mr-status-icon.refunded { background: rgba(234, 239, 236, 0.5); }
 .mr-word { margin: 0; font-family: var(--f-display); text-transform: uppercase; font-weight: 800; font-size: clamp(64px, 10vw, 150px); line-height: 0.86; color: #fff; white-space: nowrap; text-shadow: 0 6px 40px rgba(0, 0, 0, 0.6); }
@@ -113,7 +113,7 @@
 .mr.lost .mr-word span:nth-child(odd) { rotate: 2deg; }
 .mr.lost .mr-word span:nth-child(3n) { rotate: -3deg; translate: 0 4px; }
 .mr-amount { display: grid; gap: 4px; }
-.mr-amount-label { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--em-hi); }
+.mr-amount-label { font-size: var(--fs-13); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--em-hi); }
 .mr.lost .mr-amount-label { color: var(--fg-2); }
 .mr-fig { display: inline-flex; align-items: center; gap: 12px; font-size: clamp(40px, 5vw, 72px); font-weight: 900; letter-spacing: -0.03em; }
 .mr-fig small { font-size: 0.42em; font-weight: 800; letter-spacing: 0; align-self: flex-end; margin-bottom: 0.2em; }
@@ -125,12 +125,12 @@
 .mr-notes .mr-copy { text-align: left; }
 .mr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
 .mr-tile { position: relative; --edge: var(--edge-2); display: grid; gap: 4px; padding: 14px 18px; background: var(--shell); }
-.mr-tile span { font-size: 13px; color: var(--fg-2); font-weight: 600; }
+.mr-tile span { font-size: var(--fs-13); color: var(--fg-2); font-weight: 600; }
 .mr-tile b { display: inline-flex; align-items: center; gap: 8px; font-size: clamp(24px, 2.4vw, 36px); font-weight: 900; line-height: 1.05; }
-.mr-tile small { font-size: 13px; font-weight: 600; color: var(--fg-2); }
+.mr-tile small { font-size: var(--fs-13); font-weight: 600; color: var(--fg-2); }
 a.mr-tile.link { text-decoration: none; color: inherit; }
 a.mr-tile.link:hover small { color: var(--fg); }
-.mr-tag { display: inline-flex; align-items: center; padding: 3px 8px; margin-left: 4px; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); background: var(--raised-2); --edge: rgba(255, 255, 255, 0.5); align-self: center; }
+.mr-tag { display: inline-flex; align-items: center; padding: 3px 8px; margin-left: 4px; font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); background: var(--raised-2); --edge: rgba(255, 255, 255, 0.5); align-self: center; }
 .mr-copy a { color: var(--fg); text-decoration: underline; }
 .mr-tile.on { --edge: rgba(255, 255, 255, 0.7); }
 .mr-tile.on::before { content: ""; position: absolute; left: 18px; right: 18px; top: 0; height: 3px; background: var(--fg); }
@@ -139,10 +139,10 @@ a.mr-tile.link:hover small { color: var(--fg); }
 /* Backing split (BackingSplit.tsx): the Pot to scale; bar and legend share --cols so labels sit under their segment */
 .bks { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 16px; padding: 22px 26px 24px; }
 .bks-h { display: flex; justify-content: space-between; align-items: center; gap: 8px 20px; flex-wrap: wrap; }
-.bks-h .meta { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; }
-.bks-who { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.bks-h .meta { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); }
+.bks-who { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: var(--fs-13); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
 .bks-who a { color: var(--fg); }
-.bks-pill { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: none; color: var(--fg); background: var(--raised); clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+.bks-pill { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.02em; text-transform: none; color: var(--fg); background: var(--raised); clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
 .bks .back { --sw: linear-gradient(180deg, #5c6a70, #3c474c); }
 .bks .backer, .bks .player { --sw: linear-gradient(180deg, #1f9e7c, var(--em-deep)); }
 .bks .backer.you, .bks .player.you { --sw: var(--facet); }
@@ -155,9 +155,9 @@ a.mr-tile.link:hover small { color: var(--fg); }
 .bks-bar i.you { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85); }
 .bks-bar .none { box-shadow: inset 0 0 0 1px var(--line-2); }
 .bks-legend { list-style: none; margin: 0; padding: 0; }
-.bks-legend li { min-width: 0; display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; row-gap: 4px; align-content: start; font-size: 13px; color: var(--fg-2); }
+.bks-legend li { min-width: 0; display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; row-gap: 4px; align-content: start; font-size: var(--fs-13); color: var(--fg-2); }
 .bks-legend li > b { grid-column: 2; color: var(--fg); }
-.bks-legend .gema-amount { font-size: 17px; }
+.bks-legend .gema-amount { font-size: var(--fs-17); }
 .bks-legend li.you { color: var(--fg); }
 .bks-legend li.you.backer > b, .bks-legend li.you.player > b { color: var(--em-hi); }
 .bks-legend li.lost > b { color: var(--danger); }
