@@ -5,7 +5,7 @@
 }
 .mr-game { font-size: 15px; color: var(--fg-2); text-align: center; }
 .mr-mid { display: grid; gap: 24px; width: 100%; max-width: 640px; justify-items: center; align-content: start; }
-.mr-status { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 12px; font-size: clamp(30px, 3vw, 48px); font-weight: 800; letter-spacing: -0.01em; }
+.mr-status { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 12px; font-family: var(--f-display); text-transform: uppercase; line-height: 0.95; font-size: clamp(40px, 5vw, 72px); font-weight: 800; letter-spacing: 0.005em; }
 .mr-status-icon { display: grid; place-items: center; width: 1.15em; height: 1.15em; background: #eaefec; color: #090d0f; clip-path: polygon(22% 0, 78% 0, 100% 22%, 100% 78%, 78% 100%, 22% 100%, 0 78%, 0 22%); }
 .mr-status-icon svg { width: 68%; height: 68%; }
 .mr-status.lost .mr-status-icon { background: var(--danger); }

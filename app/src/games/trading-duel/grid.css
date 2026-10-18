@@ -7,7 +7,7 @@
 }
 .tg-bar { --edge: var(--edge-1); background: rgba(14, 19, 23, 0.86); padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .tg-bar-l, .tg-bar-r { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.tg-title { font-size: 20px; font-weight: 800; margin: 0; }
+.tg-title { font-family: var(--f-display); text-transform: uppercase; font-weight: 800; line-height: 1; font-size: 26px; letter-spacing: 0.005em; margin: 0; }
 .tg-asset { --edge: var(--edge-2); white-space: nowrap; padding: 4px 10px; font-size: 13px; font-weight: 800; background: var(--raised); color: var(--fg); }
 .tg-feed { font-size: 11.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
 .tg-feed::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; background: var(--up); vertical-align: 1px; transform: rotate(45deg); }
@@ -240,7 +240,7 @@
 @media (max-width: 520px) {
   .tg { gap: 8px; }
   .tg-bar { padding: 8px 12px; flex-wrap: nowrap; }
-  .tg-title { font-size: 16px; }
+  .tg-title { font-size: 22px; }
   .tg-feed, .tg-bar-r .meta, .tg-strip-clock, .tg-lockbar, .tg-head-chip { display: none; }
   .tg-bar-l { flex-wrap: nowrap; gap: 8px; }
   .tg-bar-r { flex-wrap: nowrap; gap: 6px; }

@@ -50,7 +50,7 @@
   .bp-overlay .bp-final { font-size: 48px; }
 }
 .bp-final { font-size: 64px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
-.bp-title { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
+.bp-title { font-family: var(--f-display); text-transform: uppercase; font-weight: 800; line-height: 1; font-size: clamp(28px, 2.4vw, 42px); letter-spacing: 0.005em; }
 .bp-stage { position: relative; }
 .bp-actions { display: flex; gap: 8px; margin-top: 4px; }
 
