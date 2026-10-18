@@ -44,6 +44,13 @@ const COPY: Record<GameId, { tag: string; sub: string[]; how: string; steps: str
     steps: ["12 columns of ten seconds on a live price, with a 30 second head start", "Pick one box per column; the line passing through it scores 100 points", "More points takes the Pot minus Fees; a tie refunds both"],
     hero: art.tradingDuelHero,
   },
+  vanguard: {
+    tag: "Head-to-head · Real-time",
+    sub: ["Real-time · 5 seconds a move · capture the enemy Supply Truck", "Your pieces' ranks stay hidden from your opponent until they fight"],
+    how: "Blitz Stratego on a desert board.",
+    steps: ["20 pieces each on a 10×10 board, ranks hidden", "5 seconds a move; capture the Supply Truck to win", "The winner takes the Pot minus Fees; a draw refunds both"],
+    hero: art.vanguardHero,
+  },
 };
 
 export function GamePage({ game }: { game: GameId }) {

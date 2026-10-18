@@ -27,5 +27,5 @@ export function useQueue(): QueueSeats | null {
 /** Players waiting in each Game's Queue; 0 until the read lands. */
 export function useQueueDepth(): Record<GameId, number> {
   const seats = useQueue();
-  return { "block-puzzle": seats?.["block-puzzle"].length ?? 0, holdem: seats?.holdem.length ?? 0, "trading-duel": seats?.["trading-duel"].length ?? 0 };
+  return { "block-puzzle": seats?.["block-puzzle"].length ?? 0, holdem: seats?.holdem.length ?? 0, "trading-duel": seats?.["trading-duel"].length ?? 0, vanguard: seats?.vanguard.length ?? 0 };
 }

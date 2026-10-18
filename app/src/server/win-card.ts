@@ -3,6 +3,9 @@ import type { Idl } from "@coral-xyz/anchor";
 import { BlockPuzzleChain, TESORO_CORE_PROGRAM_ID } from "@/games/block-puzzle/chain";
 import { HoldemChain, addresses as holdemAddresses } from "@/games/holdem/chain";
 import { TradingDuelChain, addresses as duelAddresses } from "@/games/trading-duel/chain";
+import { VANGUARD_PROGRAM_ID, addresses as vanguardAddresses } from "@/games/vanguard/chain";
+import { decodeBattle } from "@/games/vanguard/decode";
+import type { GameId } from "@/lib/mock";
 import "@/lib/chain/polyfill";
 import blockPuzzleIdl from "@/lib/chain/idl/block_puzzle.json";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
@@ -18,7 +21,7 @@ import { winCardData, type WinCardData } from "@/lib/win-card";
 export interface WinDeps {
   matchState(id: bigint): Promise<any | null>;
   /** The Session of a Block Puzzle Match, or the finished table of a Hold'em or Trading Duel one. */
-  gameAccount(id: bigint, game: "block-puzzle" | "holdem" | "trading-duel"): Promise<any | null>;
+  gameAccount(id: bigint, game: GameId): Promise<any | null>;
   profile(account: PublicKey): Promise<any | null>;
 }
 
@@ -39,6 +42,17 @@ export async function loadWin(id: bigint, deps: WinDeps = chainDeps()): Promise<
   return winCardData(m, profileFromChain(profile));
 }
 
+/** The finished Battle on the base layer; only its winning seat is read. */
+async function vanguardBattle(base: Connection, id: bigint): Promise<{ winner: number } | null> {
+  const info = await base.getAccountInfo(vanguardAddresses(id).battle).catch(() => null);
+  if (!info || !info.owner.equals(VANGUARD_PROGRAM_ID)) return null;
+  try {
+    return decodeBattle(info.data);
+  } catch {
+    return null;
+  }
+}
+
 let conn: Connection | null = null;
 
 function chainDeps(): WinDeps {
@@ -55,6 +69,7 @@ function chainDeps(): WinDeps {
     gameAccount(id, game) {
       if (game === "holdem") return (holdem.program.account as any).gameMatch.fetchNullable(holdemAddresses(id).gameMatch).catch(() => null);
       if (game === "trading-duel") return (duel.program.account as any).duel.fetchNullable(duelAddresses(id).duel).catch(() => null);
+      if (game === "vanguard") return vanguardBattle(base, id);
       return bp.bp.account.session.fetchNullable(BlockPuzzleChain.addresses(id).session).catch(() => null);
     },
     profile: (account) =>

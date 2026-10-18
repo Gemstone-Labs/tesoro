@@ -4,6 +4,7 @@ import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain, type ChainSigner, type Seat } from "@/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID } from "@/games/holdem/chain";
 import { TRADING_DUEL_PROGRAM_ID, duelMatchId } from "@/games/trading-duel/chain";
+import { VANGUARD_PROGRAM_ID } from "@/games/vanguard/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain } from "./client";
 import { MIN_SOL_LAMPORTS } from "./config";
@@ -18,7 +19,7 @@ import { BRAND } from "../brand";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** The program id a Match of each Game is opened with. */
-export const GAME_IDS: Record<GameId, PublicKey> = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID, "trading-duel": TRADING_DUEL_PROGRAM_ID };
+export const GAME_IDS: Record<GameId, PublicKey> = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID, "trading-duel": TRADING_DUEL_PROGRAM_ID, vanguard: VANGUARD_PROGRAM_ID };
 
 /**
  * Match ids are chosen by the opener (ms clock, doubled). tesoro_core has no Queue/Challenge

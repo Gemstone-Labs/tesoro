@@ -9,14 +9,14 @@ describe("firstSlideGame", () => {
     expect(firstSlideGame(null, GAMES)).toBeNull();
   });
   it("leads with the first Game that has someone waiting", () => {
-    expect(firstSlideGame({ "block-puzzle": [], holdem: [], "trading-duel": [seat("a")] }, GAMES)).toBe("trading-duel");
-    expect(firstSlideGame({ "block-puzzle": [seat("a")], holdem: [seat("b")], "trading-duel": [] }, GAMES)).toBe("block-puzzle");
+    expect(firstSlideGame({ "block-puzzle": [], holdem: [], "trading-duel": [seat("a")], vanguard: [] }, GAMES)).toBe("trading-duel");
+    expect(firstSlideGame({ "block-puzzle": [seat("a")], holdem: [seat("b")], "trading-duel": [], vanguard: [] }, GAMES)).toBe("block-puzzle");
   });
   it("falls back to Block Puzzle when no Queue has anyone", () => {
-    expect(firstSlideGame({ "block-puzzle": [], holdem: [], "trading-duel": [] }, GAMES)).toBe("block-puzzle");
+    expect(firstSlideGame({ "block-puzzle": [], holdem: [], "trading-duel": [], vanguard: [] }, GAMES)).toBe("block-puzzle");
   });
   it("ignores your own seat", () => {
-    const q = { "block-puzzle": [seat("me")], holdem: [seat("me"), seat("b")], "trading-duel": [] };
+    const q = { "block-puzzle": [seat("me")], holdem: [seat("me"), seat("b")], "trading-duel": [], vanguard: [] };
     expect(firstSlideGame(q, GAMES, "me")).toBe("holdem");
   });
 });

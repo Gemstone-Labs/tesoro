@@ -48,9 +48,10 @@ export const RULES: Record<GameId, { chip: string; line: string }> = {
   "block-puzzle": { chip: "Same pieces", line: "90 seconds · higher score wins" },
   holdem: { chip: "Heads-up", line: "Turbo blinds · last stack standing" },
   "trading-duel": { chip: "Live prices", line: "2.5 minutes · more points wins" },
+  vanguard: { chip: "Hidden ranks", line: "5 seconds a move · capture the Supply Truck" },
 };
 
-const HERO: Record<GameId, string> = { "block-puzzle": art.blockPuzzleHero, holdem: art.holdemHero, "trading-duel": art.tradingDuelHero };
+const HERO: Record<GameId, string> = { "block-puzzle": art.blockPuzzleHero, holdem: art.holdemHero, "trading-duel": art.tradingDuelHero, vanguard: art.vanguardHero };
 
 type Css = CSSProperties & Record<`--${string}`, string | number>;
 

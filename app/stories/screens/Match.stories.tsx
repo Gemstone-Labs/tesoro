@@ -2,12 +2,14 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, waitFor, within } from "storybook/test";
 import { HoldemMatchView } from "@/games/holdem/HoldemMatchView";
 import { TradingDuelMatchView } from "@/games/trading-duel/TradingDuelMatchView";
+import { VanguardMatchView } from "@/games/vanguard/VanguardMatchView";
 import { MatchView } from "@/components/match/MatchView";
 import type { ChainMatch } from "@/lib/chain/read";
 import { withSpectated } from "../components/support/spectated";
 import { chainMatch, duelLive, duelSettled, holdemLive, holdemOver, type MatchState } from "./support/matches";
 import { withScreen, type ScreenData } from "./support/screen";
 import { withSigner } from "./support/signer";
+import * as vg from "./support/vanguard";
 
 const meta = {
   title: "Screens/Match",
@@ -36,6 +38,13 @@ function duel(state: MatchState, view: ScreenData["duel"], o: Parameters<typeof 
   const m = chainMatch("trading-duel", state, o);
   return { render: () => <TradingDuelMatchView matchId={m.id.toString()} />, parameters: { ...route(m), spectated: m, screen: { duel: { match: m, seat: m.seat, ...view } } } };
 }
+
+function vanguard(state: MatchState, view: ScreenData["vanguard"], o: Parameters<typeof chainMatch>[2] = {}): Story {
+  const m = chainMatch("vanguard", state, o);
+  return { render: () => <VanguardMatchView matchId={m.id.toString()} />, parameters: { ...route(m), spectated: m, screen: { vanguard: { match: m, seat: m.seat, ...view } } } };
+}
+
+const phone = (s: Story): Story => ({ ...s, globals: { viewport: { value: "phone390", isRotated: false } } });
 
 /* Block Puzzle */
 
@@ -97,3 +106,37 @@ export const TradingDuelSpectator = duel("spectator", { ...duelSettled(true), st
 
 export const HoldemSignedOut = signedOut(holdem("spectator", { stage: "spectator", seat: null }));
 export const TradingDuelSignedOut = signedOut(duel("spectator", { ...duelSettled(true), stage: "spectator", seat: null }));
+
+/* Vanguard */
+
+export const VanguardWaitingForOpponent = vanguard("open", { stage: "waiting" }, { challenge: true });
+export const VanguardSettingUp = vanguard("active", { stage: "setup", note: "Drawing the armies in secret" });
+/** Your turn: the opening position, your army face up at the bottom. Tap a piece, then a marked square. */
+export const VanguardYourTurn = vanguard("active", vg.yourTurn());
+export const VanguardYourTurnPhone = phone(vanguard("active", vg.yourTurn()));
+/** You moved; their turn. A moment later they move and the piece slides in. */
+export const VanguardTheirTurn = vanguard("active", vg.theirMove());
+export const VanguardTheirTurnPhone = phone(vanguard("active", vg.theirMove()));
+/** Contact: your General (9) next to a hidden 7. Attack it; nothing is sent in a story. */
+export const VanguardAttack = vanguard("active", vg.yourAttack());
+/** Their 8 hits your 4 a moment after you open this: the 8 is flashed face up as your 4 falls. */
+export const VanguardFight = vanguard("active", vg.fight());
+export const VanguardFightPhone = phone(vanguard("active", vg.fight()));
+/** Every move is refused by the rollup a moment after you make it: the piece slides, then goes back with the reason. */
+export const VanguardMoveRefused = vanguard("active", { ...vg.yourTurn(), refuse: "That piece can't go there." });
+/** You play the Italian Army: the board is turned so your army is at the bottom. */
+export const VanguardItalianSide = vanguard("active", vg.asItaly());
+export const VanguardItalianSidePhone = phone(vanguard("active", vg.asItaly()));
+/** Italian side: their General hits your 7 from the other direction, so the flip comes from the opposite side. */
+export const VanguardItalianFight = vanguard("active", vg.italyFight());
+/** The Dust Storm blows at the end of their turn and drifts a line of pieces one square. */
+export const VanguardStorm = vanguard("active", vg.storm());
+export const VanguardStormPhone = phone(vanguard("active", vg.storm()));
+/** Your Truck is captured: every piece turns face up, the result is being saved. */
+export const VanguardEnd = vanguard("active", vg.end());
+export const VanguardEndPhone = phone(vanguard("active", vg.end()));
+export const VanguardEndTimeouts = vanguard("active", vg.endTimeouts());
+export const VanguardWon = vanguard("won", { stage: "settled" });
+export const VanguardLost = vanguard("lost", { stage: "settled" });
+export const VanguardRefunded = vanguard("refunded", { stage: "settled" });
+export const VanguardSpectator = vanguard("spectator", { stage: "spectator", seat: null });

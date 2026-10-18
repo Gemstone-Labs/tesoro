@@ -3,11 +3,12 @@ import * as real from "../../../../../src/lib/chain/client";
 import { BLOCK_PUZZLE_PROGRAM_ID } from "../../../../../src/games/block-puzzle/chain";
 import { HOLDEM_PROGRAM_ID } from "../../../../../src/games/holdem/chain";
 import { TRADING_DUEL_PROGRAM_ID } from "../../../../../src/games/trading-duel/chain";
+import { VANGUARD_PROGRAM_ID } from "../../../../../src/games/vanguard/chain";
 import { spectated } from "../../../../../stories/components/support/spectated";
 import { flowFrame, untilFrame } from "../../../../../stories/screens/support/flow-store";
 import { screenData } from "../../../../../stories/screens/support/screen";
 
-const PROGRAMS = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID, "trading-duel": TRADING_DUEL_PROGRAM_ID };
+const PROGRAMS = { "block-puzzle": BLOCK_PUZZLE_PROGRAM_ID, holdem: HOLDEM_PROGRAM_ID, "trading-duel": TRADING_DUEL_PROGRAM_ID, vanguard: VANGUARD_PROGRAM_ID };
 
 /** The MatchState read MatchRoute makes: only the Game's program id matters. In a flow story it answers at the step that says so. */
 async function matchState() {

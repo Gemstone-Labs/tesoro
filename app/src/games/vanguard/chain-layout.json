@@ -1,0 +1,64 @@
+{
+  "army": {
+    "offsets": {
+      "battle": 9,
+      "bump": 8,
+      "fuel": 105,
+      "moves": 110,
+      "player": 42,
+      "ranks": 75,
+      "seat": 41,
+      "side": 74,
+      "truckTurn": 106
+    },
+    "size": 112
+  },
+  "battle": {
+    "noSquare": 255,
+    "offsets": {
+      "authorityBump": 1341,
+      "bump": 1340,
+      "deadline": 40,
+      "depotClaimed": 1356,
+      "entropyDeadline": 32,
+      "eventSeq": 56,
+      "finalized": 1344,
+      "matchId": 8,
+      "moved": 16,
+      "moves": 62,
+      "permissioned": 1345,
+      "players": 736,
+      "reason": 1347,
+      "ring": 64,
+      "shown": 860,
+      "sq": 800,
+      "startDeadline": 24,
+      "startedAt": 48,
+      "status": 1343,
+      "stepsLeft": 1349,
+      "stormDone": 1351,
+      "tesoroMatch": 704,
+      "timeouts": 1354,
+      "trail": 920,
+      "trailLen": 1280,
+      "turn": 1348,
+      "turnNo": 60,
+      "twoStep": 1352,
+      "twoStepActive": 1350,
+      "usSeat": 1342,
+      "winner": 1346
+    },
+    "pieceSlots": 60,
+    "ring": {
+      "data": 5,
+      "dataLen": 35,
+      "kind": 4,
+      "seq": 0,
+      "slots": 16,
+      "stride": 40
+    },
+    "size": 1360,
+    "trailWidth": 6
+  },
+  "generated": "by programs/vanguard/tests/golden.rs; WRITE_GOLDEN=1 cargo test -p vanguard --test golden"
+}
