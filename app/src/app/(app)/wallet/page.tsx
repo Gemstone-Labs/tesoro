@@ -205,6 +205,13 @@ export default function Wallet() {
             <span>Gemas</span>
             {ready && <GemaUsd className="wl-usd" value={gemas.total} />}
           </div>
+          {ready && (
+            <button type="button" className="wl-sum" aria-expanded={heroOpen} aria-controls="wl-second">
+              <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
+              <span aria-hidden="true">·</span>
+              <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
+            </button>
+          )}
         </div>
         <div className="wl-second" id="wl-second">
           <div className="wl-redeemable" aria-label="Redeemable now">
