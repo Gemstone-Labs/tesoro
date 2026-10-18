@@ -75,11 +75,12 @@ describe("combat", () => {
     expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "win", flash: [2] });
     expect(g2.pieces.find((p) => p.id === 1)).toMatchObject({ r: 5, c: 0 });
   });
-  it("a landmine survives and is not flashed", () => {
+  it("a landmine that goes off survives and is revealed for good", () => {
     const g = game([P(1, "us", "9", 6, 0), P(2, "it", "B", 5, 0), P(4, "us", "5", 9, 9), P(3, "it", "5", 0, 9)]);
     const { game: g2, events } = move(g, 1, 5, 0);
-    expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "mine", flash: [] });
+    expect(events.find((e) => e.kind === "attack")).toMatchObject({ outcome: "mine", flash: [2] });
     expect(g2.pieces.map((p) => p.id).sort()).toEqual([2, 3, 4]);
+    expect(g2.pieces.find((p) => p.id === 2)!.known).toBe(true);
   });
   it("capturing the Truck ends the Match", () => {
     const g = game([P(1, "us", "2", 9, 0), P(2, "it", "F", 3, 0)]);

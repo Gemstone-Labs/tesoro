@@ -4,8 +4,8 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
-import { Arena, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx } from "../../fx";
-import { NAMES, TURN_MS, move, newGame, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Rng, type Square } from "../rules";
+import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
+import { NAMES, ROSTER, TURN_MS, move, newGame, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Rng, type Square } from "../rules";
 import { VanguardBoard, type HitSide, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { botMove } from "./bot";
 import "../vanguard.css";
@@ -65,6 +65,8 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
   const [turnAt, setTurnAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
   const fxKey = useRef(1);
+  const [call, setCall] = useState<{ key: number; text: string; tone: CalloutTone } | null>(null);
+  const shout = useCallback((text: string, tone: CalloutTone = "plain") => setCall({ key: fxKey.current++, text, tone }), []);
 
   const commit = useCallback((g: Game) => {
     gameRef.current = g;
@@ -81,7 +83,6 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
   const animate = useCallback(async (events: GameEvent[], g: Game) => {
     setBusy(true);
     setSelected(null);
-    const startedAt = Date.now();
     const before = gameRef.current;
     const name = (id: number) => before.pieces.find((p) => p.id === id);
     let line = "";
@@ -89,7 +90,7 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
       if (e.kind === "move") {
         const ms = slideMs(e.from, e.to);
         patch(e.id, { r: e.to.r, c: e.to.c, ms });
-        sfx("chip");
+        sfx("knock");
         await wait(ms);
         if (name(e.id)?.army === "it") line = "Italy moved.";
       } else if (e.kind === "attack") {
@@ -113,7 +114,7 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
         const mid = { r: (edge.r + e.to.r) / 2 + 0.5, c: (edge.c + e.to.c) / 2 + 0.5 };
         if (e.outcome === "mine") addFx("mine", e.to.r + 0.5, e.to.c + 0.5, 2.6);
         else addFx("clash", mid.r, mid.c, 1.9);
-        sfx(e.outcome === "mine" ? "fold" : "clear");
+        sfx(e.outcome === "mine" ? "blast" : "clash");
         await wait(200);
         const attWins = e.outcome === "win" || e.outcome === "defuse" || e.outcome === "truck";
         const gone = e.outcome === "tie" ? [e.att, e.def] : attWins ? [e.def] : [e.att];
@@ -126,25 +127,30 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
         const mine = a.army === "us";
         line =
           e.outcome === "truck" ? (mine ? "Supply Truck captured!" : "Italy reached your Supply Truck.")
-          : e.outcome === "mine" ? (mine ? `Landmine! Your ${NAMES[a.rank]} is lost. Only an Engineer (3) clears mines.` : "Italy hit one of your Landmines.")
+          : e.outcome === "mine" ? (mine ? `Landmine! Your ${NAMES[a.rank]} is lost, and the mine is now in plain sight. Only an Engineer (3) clears mines.` : "Italy hit one of your Landmines. It is in plain sight now.")
           : e.outcome === "defuse" ? (mine ? "Your Engineer cleared a Landmine." : "An Italian Engineer cleared your Landmine.")
           : e.outcome === "tie" ? `Both ${NAMES[a.rank]}s fall.`
           : mine ? (attWins ? `Your ${a.rank} beat their ${d.rank}.` : `Your ${a.rank} lost. The piece that beat it stays hidden.`)
           : attWins ? `Italy took your ${d.rank} with a hidden piece.` : `Your ${d.rank} held: it beat their ${a.rank}.`;
       } else if (e.kind === "spotted") {
         const p = name(e.id) ?? g.pieces.find((x) => x.id === e.id)!;
-        patch(e.id, { up: true });
-        addFx("spotted", p.r + 0.5, p.c + 0.5, 1.8);
+        patch(e.id, { up: true, hitFrom: "bottom" });
+        addFx("spotted", p.r + 0.5, p.c + 0.5, 2.8);
+        sfx("fold");
+        shout(p.army === "us" ? "Your Truck is Spotted!" : "Spotted!", "warn");
         line = p.army === "us" ? "Your Supply Truck is out of fuel: Spotted, face up and stuck." : "Italy's Supply Truck is Spotted: face up and out of fuel.";
         await wait(500);
       } else if (e.kind === "raid") {
         setDepots((ds) => ds.map((d) => (d.r === e.at.r && d.c === e.at.c ? { ...d, claimed: true } : d)));
         addFx("spotted", e.at.r + 0.5, e.at.c + 0.5, 1.7);
-        sfx("gem");
+        sfx("check");
+        shout(e.army === "us" ? "Two-Step Turn earned" : "Italy raided your depot");
         line = e.army === "us" ? "Depot raided: you earned a Two-Step Turn. Spend it on any turn." : "Italy raided your depot and earned a Two-Step Turn.";
         await wait(500);
       } else if (e.kind === "storm") {
         setStorm({ key: Date.now(), axis: e.axis, index: e.index, dir: e.dir });
+        sfx("wind");
+        shout("Dust storm!", "warn");
         setSay(`Dust storm over ${e.axis === "row" ? `row ${10 - e.index}` : `column ${e.index + 1}`}!`);
         await wait(1500);
         e.shifts.forEach((s) => patch(s.id, { r: s.to.r, c: s.to.c, ms: 420 }));
@@ -161,11 +167,10 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
     if (g.winner) {
       sfx(g.winner === "us" ? "win" : "lose");
     } else if (line) setSay(line);
-    // a new turn gets a fresh clock; the second step of a Two-Step Turn keeps the same one (animations don't count)
-    if (g.turn !== before.turn || g.turnNo !== before.turnNo) setTurnAt(Date.now());
-    else setTurnAt((t) => t + (Date.now() - startedAt));
+    // every move gets a fresh 5 seconds, each step of a Two-Step Turn included (founder 2026-10-19)
+    setTurnAt(Date.now());
     setBusy(false);
-  }, [addFx, commit, patch]);
+  }, [addFx, commit, patch, shout]);
 
   const apply = useCallback((r: { game: Game; events: GameEvent[] }) => {
     if (r.events.length) void animate(r.events, r.game);
@@ -272,6 +277,18 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
   };
 
   const won = game.winner === "us";
+  // casualty tracking: every Italian piece that leaves the board was shown to you, so what is left per rank is known
+  const alive = (rank: string) => game.pieces.filter((p) => p.army === "it" && p.rank === rank).length;
+  const roster = (
+    <div className="vg-roster" role="list" aria-label="Italian pieces still on the board, by rank">
+      {ROSTER.map(([rank, n]) => (
+        <span key={rank} role="listitem" className={alive(rank) === 0 ? "out" : ""} aria-label={`${NAMES[rank]}: ${alive(rank)} of ${n} left`}>
+          <b>{rank}</b>
+          {alive(rank)}/{n}
+        </span>
+      ))}
+    </div>
+  );
   return (
     <Arena game="vanguard">
       <div className="vg-screen">
@@ -283,6 +300,7 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
           </span>
         </div>
         {plate("it")}
+        {roster}
         <div className="vg-stage">
           <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
           {!started && (
@@ -293,10 +311,16 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
               }}
             />
           )}
+          {call && <Callout key={call.key} text={call.text} tone={call.tone} duration={1300} onDone={() => setCall(null)} className="vg-call" />}
           {game.winner && (
             <div className="cut cut-frame vg-end" role="dialog" aria-label="Match over">
               <p className="vg-end-word">{game.winner === "draw" ? "Draw" : won ? "You won" : "You lost"}</p>
               <p className="note">{game.reason && game.winner !== "draw" ? END_LINE[game.reason][game.winner] : "Move limit reached with equal armies."}</p>
+              <dl className="vg-end-stats">
+                <div><dt>Turns</dt><dd>{game.turnNo}</dd></div>
+                <div><dt>Your pieces left</dt><dd>{count("us")}</dd></div>
+                <div><dt>Italian pieces beaten</dt><dd>{20 - count("it")}</dd></div>
+              </dl>
               <p className="note">Practice: nothing was staked and no Gemas moved.</p>
               <div className="vg-end-actions">
                 <Button onClick={again}>Play again</Button>

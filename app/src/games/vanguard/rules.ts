@@ -95,7 +95,7 @@ export type GameEvent =
       from: Square;
       to: Square;
       outcome: Outcome;
-      /** Pieces whose face is flashed to the other side: the beaten piece, both in a tie. The winner stays hidden. */
+      /** Pieces whose face is flashed to the other side: the beaten piece, both in a tie, a Landmine that went off. Other winners stay hidden. */
       flash: number[];
     }
   | { kind: "spotted"; id: number }
@@ -263,7 +263,9 @@ export function move(g0: Game, id: number, r: number, c: number, rng: Rng = Math
     events.push({ kind: "move", id, from, to: { r, c } });
   } else {
     const outcome = fight(me.rank, def.rank);
-    const flash = outcome === "tie" ? [me.id, def.id] : outcome === "lose" ? [me.id] : outcome === "mine" ? [] : [def.id];
+    // a blown Landmine is revealed for good (founder 2026-10-19); otherwise only the beaten piece is flashed
+    const flash = outcome === "tie" ? [me.id, def.id] : outcome === "lose" ? [me.id] : [def.id];
+    if (outcome === "mine") def.known = true;
     events.push({ kind: "attack", att: me.id, def: def.id, from, to: { r, c }, outcome, flash });
     if (outcome === "win" || outcome === "defuse" || outcome === "truck") {
       pieces = pieces.filter((p) => p.id !== def.id);

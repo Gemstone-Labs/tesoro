@@ -35,8 +35,8 @@ export const DustStorm: Story = { args: { instant: true, clock: false, stormAt: 
 export const TwoStepTurn: Story = { args: { instant: true, clock: false, twoStep: 1 } };
 
 /** Move one piece of each army (by rank) onto a square, for a ready-made fight. */
-const place = (g: Game, army: "us" | "it", rank: Rank, r: number, c: number): Game => {
-  const p = g.pieces.find((x) => x.army === army && x.rank === rank);
+const place = (g: Game, army: "us" | "it", rank: Rank, r: number, c: number, nth = 0): Game => {
+  const p = g.pieces.filter((x) => x.army === army && x.rank === rank)[nth];
   if (!p) return g;
   const clear = g.pieces.filter((x) => !(x.r === r && x.c === c) || x.id === p.id);
   return { ...g, pieces: clear.map((x) => (x.id === p.id ? { ...x, r, c, trail: [`${r},${c}`] } : x)) };
@@ -45,7 +45,8 @@ const place = (g: Game, army: "us" | "it", rank: Rank, r: number, c: number): Ga
 /**
  * Pieces already in contact mid-board: your General (9) faces a hidden Italian 7 (attack it: you win,
  * the 7 is flashed as it falls), your Sergeant (4) faces a hidden Italian 8 (attack it: you lose, the 8 stays
- * hidden), your Engineer (3) faces a hidden Landmine (it clears it).
+ * hidden), your Engineer (3) faces a hidden Landmine (it clears it), and your Captain (6) faces the other
+ * Landmine (it goes off and stays in plain sight).
  */
 export const Contact: Story = {
   args: {
@@ -59,6 +60,8 @@ export const Contact: Story = {
       x = place(x, "it", "8", 5, 4);
       x = place(x, "us", "3", 6, 9);
       x = place(x, "it", "B", 5, 9);
+      x = place(x, "us", "6", 6, 5);
+      x = place(x, "it", "B", 5, 5, 1);
       return x;
     },
   },

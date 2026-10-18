@@ -26,6 +26,17 @@
 .vg-plate:not(.active) .vg-two { margin-left: auto; }
 .vg-say { margin: 0; width: min(100%, 640px); min-height: 1.5em; font-size: 14px; color: var(--fg, #e9eef2); text-align: center; }
 
+/* what is left of the Italian army, by rank (casualty tracking) */
+.vg-roster { width: min(100%, 640px); display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; }
+.vg-roster span { display: grid; justify-items: center; gap: 1px; padding: 3px 0; border-radius: 3px; background: rgba(154, 117, 54, 0.16); color: var(--fg-2, #9aa4ad); font: 500 11px/1 var(--f-mono); }
+.vg-roster b { font: 800 15px/1 var(--f-display); color: #f2dca6; }
+.vg-roster span.out { opacity: 0.35; text-decoration: line-through; }
+.vg-call { z-index: 70; }
+.vg-end-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 0; width: 100%; }
+.vg-end-stats div { display: grid; gap: 2px; }
+.vg-end-stats dt { font-size: 11px; color: var(--fg-2, #9aa4ad); }
+.vg-end-stats dd { margin: 0; font: 800 26px/1 var(--f-display); }
+
 /* the board: an exact 10×10 painting, a square is a tenth of it */
 .vg-stage { position: relative; width: min(100%, 640px); container-type: inline-size; display: grid; justify-items: center; }
 .vg-board {
