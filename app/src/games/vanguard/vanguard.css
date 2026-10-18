@@ -148,3 +148,7 @@
 .vg-slot.from-right::before { right: -22px; top: 40%; }
 .vg-slot.from-top::before { top: -20px; left: 46%; }
 .vg-slot.from-bottom::before { bottom: -22px; left: 46%; }
+
+.vg-note { margin: 0; width: min(100%, 640px); font-size: 13px; text-align: center; color: var(--fg-dim, #aab6bf); }
+.vg-note.warn { color: var(--warn, #f1c35b); }
+.vg-spectate { display: grid; gap: 10px; justify-items: center; width: 100%; }

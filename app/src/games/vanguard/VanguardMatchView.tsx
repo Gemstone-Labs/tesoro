@@ -11,7 +11,7 @@ import { MatchSpectate } from "@/components/match/MatchSpectate";
 import { Receipts } from "@/components/match/Receipts";
 import { delayedOf } from "@/lib/chain/match-status";
 import { useNowSecs } from "@/lib/chain/useNowSecs";
-import { MatchStage, MatchStageLoading, StageAction } from "@/components/match/MatchStage";
+import { MatchStage, MatchStageLoading, StageAction, delayedCopy } from "@/components/match/MatchStage";
 import { STATUS } from "./decode";
 import { VanguardTable } from "./VanguardTable";
 import { useVanguardMatch } from "./useVanguardMatch";
@@ -71,6 +71,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
     );
   }
 
+  const late = m && (stage === "live" || stage === "setup") ? delayedOf(m, nowSecs) : null;
   const kind = !showTable && (stage === "waiting" || stage === "setup" || stage === "closing" || stage === "live") ? (stage === "live" ? "setup" : stage) : null;
   if (kind && m) {
     return (
@@ -96,6 +97,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
           )
         }
       >
+        {late && <Notice title={delayedCopy(late).title} body={delayedCopy(late).line} />}
         <Receipts items={view.sigs} className="vg-sigs" />
         <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
       </MatchStage>
@@ -105,8 +107,9 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
   const over = !!battle && battle.status > STATUS.live;
   return (
     <div className="stack-lg">
+      {late && <Notice title={delayedCopy(late).title} body={delayedCopy(late).line} />}
       {showTable && battle && army && seat !== null && (
-        <VanguardTable battle={battle} army={army} seat={seat} turnSeenAt={view.turnSeenAt} onMove={move} onTwoStep={twoStep} ended={over || stage === "closing"}>
+        <VanguardTable battle={battle} army={army} seat={seat} turnSeenAt={view.turnSeenAt} onMove={move} onTwoStep={twoStep} ended={over || stage === "closing"} reconnecting={view.reconnecting}>
           {stage === "closing" && (
             <Card large>
               <div className="stack">

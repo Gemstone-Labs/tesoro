@@ -17,7 +17,7 @@ async function matchState() {
   return m ? { inner: { game: Array.from(PROGRAMS[m.game].toBytes()) } } : null;
 }
 
-export const { getHoldem } = real;
+export const { getHoldem, getVanguard } = real;
 
 let duel: ReturnType<typeof real.getTradingDuel> | null = null;
 

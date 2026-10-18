@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
-import { STATUS, eventsSince, rankOfCode, type ArmyAccount, type Battle } from "./decode";
+import { STATUS, rankOfCode, type ArmyAccount, type Battle } from "./decode";
+import { catchUp, pendingOf, turnLine } from "./catchup";
 import { NAMES, ROSTER, TURN_MS, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
 import { depotsFor, enemyLeft, fromView, hitSide, indexOf, lookGame, opposite, piecesLeft, shownPieces, toView } from "./view";
@@ -23,6 +24,8 @@ export interface VanguardTableProps {
   onTwoStep: () => Promise<void>;
   /** The Match is over and being settled: no more taps. */
   ended?: boolean;
+  /** Reads of the Battle are failing: the board may be behind. */
+  reconnecting?: boolean;
   children?: ReactNode;
 }
 
@@ -50,7 +53,7 @@ export function endLine(b: Battle, seat: number): string {
  * Italian Player sees the board turned half way round). A plain move slides at once and is confirmed or snapped
  * back; an attack waits for the program's result, then the events the Battle recorded are played in order.
  */
-export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoStep, ended = false, children }: VanguardTableProps) {
+export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoStep, ended = false, reconnecting = false, children }: VanguardTableProps) {
   const fxKey = useRef(1);
   const side: Army = battle.usSeat === seat ? "us" : "it";
   const foe: Army = side === "us" ? "it" : "us";
@@ -62,6 +65,8 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   const [selected, setSelected] = useState<number | null>(null);
   const [say, setSay] = useState("Your pieces are face up at the bottom. Tap one, then a marked square.");
   const [animating, setAnimating] = useState(false);
+  const [catching, setCatching] = useState(false);
+  const declared = useRef(false);
   const [sentAt, setSentAt] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [call, setCall] = useState<{ key: number; text: string; tone: CalloutTone } | null>(null);
@@ -95,6 +100,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           const from = toView(e.from, side);
           const to = toView(e.to, side);
           const cur = find(e.id);
+          if (mineId(e.id)) declared.current = false;
           if (cur && cur.r === to.r && cur.c === to.c) continue; // your own move, already on the board
           const ms = slideMs(from, to);
           patch(e.id, { r: to.r, c: to.c, ms });
@@ -102,6 +108,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           await wait(ms);
           if (!mineId(e.id)) line = "Your opponent moved.";
         } else if (e.kind === "attack") {
+          if (mineId(e.att)) declared.current = false;
           const from = toView(e.from, side);
           const to = toView(e.to, side);
           const dr = Math.sign(to.r - from.r);
@@ -173,8 +180,9 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           await wait(2000);
           setStorm(null);
           line = `The storm drifted ${e.shifts.length} ${e.shifts.length === 1 ? "piece" : "pieces"} one square. Check where yours went.`;
-        } else if (e.kind === "turn" && e.timedOut) {
-          line = e.turn === side ? "Time! Your turn passed." : "Your opponent ran out of time.";
+        } else if (e.kind === "turn") {
+          line = turnLine(e, side, declared.current) ?? line;
+          declared.current = false;
         }
       }
       const { army: mineNow } = latest.current;
@@ -200,12 +208,13 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
         for (;;) {
           const b = latest.current.battle;
           if (b.eventSeq === cursor.current && b.status < STATUS.over) break;
-          const c = eventsSince(b, cursor.current);
-          if (c.kind === "snap") {
+          const c = catchUp(b, cursor.current);
+          setCatching(c.mode === "play" && c.events.length > 2);
+          if (c.mode === "snap") {
             put(shownPieces(b, latest.current.army, seat));
             setDepots(depotsFor(b, side));
             cursor.current = b.eventSeq;
-          } else if (c.events.length) await play(c.events, b);
+          } else if (c.mode === "play" && c.events.length) await play(c.events, b);
           else {
             cursor.current = b.eventSeq;
             if (b.status >= STATUS.over) setSay(endLine(b, seat));
@@ -215,6 +224,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
       } finally {
         running.current = false;
         setAnimating(false);
+        setCatching(false);
       }
     })();
   }, [battle, army, play, put, seat, side]);
@@ -241,7 +251,8 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   }, [live, turnSeenAt, battle.turn, side]);
 
   const game = useMemo(() => lookGame(battle, army, seat), [battle, army, seat]);
-  const yourTurn = live && !animating && sentAt !== turnNow && battle.turn === (side === "us" ? 0 : 1);
+  const pending = live ? pendingOf(battle, seat) : null;
+  const yourTurn = live && !animating && !pending && sentAt !== turnNow && battle.turn === (side === "us" ? 0 : 1);
   const sel = selected === null ? null : game.pieces.find((p) => p.id === selected) ?? null;
   const marks = yourTurn && sel ? targets(game, sel).map((t) => ({ ...toView(t, side), attack: t.attack })) : [];
 
@@ -271,12 +282,16 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
     const piece = selected;
     setSentAt(turnNow);
     setSelected(null);
+    declared.current = true;
     if (!mark.attack) {
       // a plain move slides at once; the program confirms it, or the piece goes back
       patch(piece, { r: mark.r, c: mark.c, ms: slideMs(piecesRef.current.find((p) => p.id === piece) ?? mark, mark) });
       sfx("knock");
     } else setSay("Attacking…");
-    onMove(piece, indexOf(to)).catch((e: Error) => snapBack(e.message || "That move did not go through."));
+    onMove(piece, indexOf(to)).catch((e: Error) => {
+      declared.current = false;
+      snapBack(e.message || "That move did not go through.");
+    });
   };
 
   const twoStepLeft = battle.twoStep[side === "us" ? 0 : 1];
@@ -347,6 +362,9 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           {call && <Callout key={call.key} text={call.text} tone={call.tone} duration={1300} onDone={() => setCall(null)} className="vg-call" />}
         </div>
         {plate(side)}
+        {reconnecting && <p className="vg-note warn" role="status">Reconnecting… the board may be a few moves behind.</p>}
+        {catching && <p className="vg-note" role="status">Catching up with the moves you missed…</p>}
+        {pending && <p className="vg-note" role="status">{pending.line}</p>}
         <p className="vg-say" aria-live="polite">{say}</p>
         {children}
       </div>

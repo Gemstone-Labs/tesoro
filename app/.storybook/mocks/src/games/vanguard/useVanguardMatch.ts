@@ -5,7 +5,7 @@ import { screenData } from "../../../../../stories/screens/support/screen";
 
 export type { VanguardView, Stage } from "../../../../../src/games/vanguard/useVanguardMatch";
 
-const IDLE: VanguardView = { stage: "waiting", match: null, seat: 0, battle: null, army: null, turnSeenAt: 0, note: "", error: null, sigs: [], busy: null, refundable: false, commit: null };
+const IDLE: VanguardView = { stage: "waiting", match: null, seat: 0, battle: null, army: null, turnSeenAt: 0, note: "", error: null, sigs: [], busy: null, refundable: false, commit: null, reconnecting: false };
 const done = async () => {};
 
 export function useVanguardMatch() {

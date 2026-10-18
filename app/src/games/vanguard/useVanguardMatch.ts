@@ -7,6 +7,7 @@ import { getChain, getVanguard } from "@/lib/chain/client";
 import { fetchMatch, type ChainMatch } from "@/lib/chain/read";
 import { commitPhase, isCommitPending, setCommitPending, type CommitState } from "@/lib/chain/commit-pending";
 import { plainError } from "@/lib/errors";
+import { refusalLine } from "./refusal";
 import { PublicKey } from "@solana/web3.js";
 import { VANGUARD_PROGRAM_ID, addresses, type PlayerSigner } from "./chain";
 import { claimDue, turnKey } from "./clock";
@@ -32,6 +33,8 @@ export interface VanguardView {
   /** The tesoro_core refund deadline passed on an unfinished Match. */
   refundable: boolean;
   commit: CommitState | null;
+  /** Reads of the Battle keep failing: the board shown may be behind. */
+  reconnecting: boolean;
 }
 
 /** How long the Player who does not settle at once waits before settling a still-open Match. */
@@ -61,6 +64,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     busy: null,
     refundable: false,
     commit: null,
+    reconnecting: false,
   });
   const patch = useCallback((p: Partial<VanguardView>) => setView((v) => ({ ...v, ...p })), []);
 
@@ -321,6 +325,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
         const vg = getVanguard();
         const b = await vg.readBattle(p, id);
         if (!b || stop) return;
+        setView((v) => (v.reconnecting ? { ...v, reconnecting: false } : v));
         applyBattle(b);
         if (b.status >= STATUS.setup) {
           const army = await vg.readOwnArmy(p, id, seat);
@@ -338,7 +343,8 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
           await vg.claimTimeout(p, id).catch(() => undefined);
         }
       } catch {
-        // The driver reports persistent failures; a missed poll is retried.
+        // The driver reports persistent failures; a missed poll is retried, and the board says it is behind.
+        if (!stop) setView((v) => (v.reconnecting ? v : { ...v, reconnecting: true }));
       } finally {
         busy = false;
       }
@@ -366,7 +372,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
           await new Promise((r) => setTimeout(r, 250));
         }
       } catch (e) {
-        throw new Error(plainError(e));
+        throw new Error(refusalLine(e));
       }
     },
     [p, id],
