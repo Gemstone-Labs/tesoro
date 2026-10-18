@@ -72,9 +72,9 @@
 
 /* this season: tools, the Payout scale band, the table and its pages */
 .lb-season { display: grid; gap: 14px; }
-.lb-season .lb-sec-head { margin-bottom: 0; flex-wrap: wrap; align-items: center; scroll-margin-top: 84px; }
-.lb-pay-sum { align-self: center; color: var(--fg-2); font-size: var(--fs-14); font-variant-numeric: tabular-nums; }
-.lb-season-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.lb-season .lb-sec-head { margin-bottom: 0; flex-wrap: wrap; align-items: center; row-gap: 4px; scroll-margin-top: 84px; }
+.lb-pay-sum { flex-basis: 100%; color: var(--fg-2); font-size: var(--fs-14); font-variant-numeric: tabular-nums; }
+.lb-season-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
 .lb-chev { transition: transform 0.2s; }
 [aria-expanded="false"] > .lb-chev { transform: rotate(-90deg); }
 
@@ -162,7 +162,6 @@
   .lb-paying-sub { display: none; }
   .lb-payout { padding: 16px; gap: 20px; }
   .lb-rules { order: -1; }
-  .lb-pay-sum { flex-basis: 100%; order: 3; }
   .lb-chart ol { height: 130px; gap: 3px; }
   .lb-col small { font-size: var(--fs-10); }
   .lb-col-amt { font-size: var(--fs-11); }

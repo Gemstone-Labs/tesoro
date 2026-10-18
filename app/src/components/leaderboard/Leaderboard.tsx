@@ -304,11 +304,11 @@ function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: s
               You’re {ord(mine.rank)}
             </Button>
           )}
-          {!payout && <span className="lb-pay-sum">{payoutSummary(pool)}</span>}
           <Button size="sm" aria-expanded={payout} aria-controls="lb-payout" onClick={toggle} icon={<ChevronDown className="lb-chev" size={16} aria-hidden="true" />}>
             Payout scale
           </Button>
         </div>
+        {!payout && <p className="lb-pay-sum">{payoutSummary(pool)}</p>}
       </header>
 
       {payout && <Payout pool={pool} />}
