@@ -37,52 +37,36 @@ export interface ShownStorm {
 
 const face = (army: Army, key: string) => `url(/art/vanguard/faces/${army}-${key}.webp)`;
 
-/** How a hidden piece shows its face (founder is picking one; the coin flip was rejected). */
-export type RevealStyle = "fade" | "lid" | "wipe" | "dust" | "stamp";
-export const REVEAL_STYLES: RevealStyle[] = ["fade", "lid", "wipe", "dust", "stamp"];
+/** The marker's tilt toward the viewer at rest (the B1 look: face at cos 30° = 86% height, edge below). */
+const TILT = 30;
+const coinAt = (deg: number) => `rotateX(${TILT}deg) rotateY(${deg}deg)`;
+/** Depths (in thicknesses from the middle) of the wooden discs that make the edge; the outer two show at rest. */
+const WOOD = [-0.49, -0.42, -0.35, -0.28, -0.21, -0.14, -0.07, 0, 0.07, 0.14, 0.21, 0.28, 0.35, 0.42, 0.49];
 
-/**
- * The reveal. The face is already in place underneath; a copy of the brass back sits on top (`cover`)
- * and goes away in the chosen style. The piece itself never turns over.
- */
-function playReveal(style: RevealStyle, el: { pb: HTMLElement; cover: HTMLElement; streak: HTMLElement; ring: HTMLElement; puff: HTMLElement; top: HTMLElement }) {
-  const o = { fill: "none" as const };
-  if (style === "fade") {
-    el.cover.animate([{ opacity: 1 }, { opacity: 1, offset: 0.15 }, { opacity: 0 }], { ...o, duration: 520, easing: "ease-out" });
-    el.top.animate([{ filter: "brightness(1)" }, { filter: "brightness(1.3)", offset: 0.4 }, { filter: "brightness(1)" }], { duration: 700, easing: "ease-out" });
-  } else if (style === "lid") {
-    el.cover.animate([{ opacity: 1, transform: "translateY(0) scale(1)" }, { opacity: 1, transform: "translateY(-14%) scale(1.04)", offset: 0.35 }, { opacity: 0, transform: "translateY(-60%) scale(1.1)" }], { ...o, duration: 520, easing: "ease-in" });
-  } else if (style === "wipe") {
-    el.cover.animate([{ opacity: 1, clipPath: "inset(0 0 0 0)" }, { opacity: 1, clipPath: "inset(0 0 0 100%)" }], { ...o, duration: 460, easing: "ease-in-out" });
-    el.streak.animate([{ opacity: 0, transform: "translateX(-60%) skewX(-18deg)" }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.8 }, { opacity: 0, transform: "translateX(160%) skewX(-18deg)" }], { duration: 460, easing: "ease-in-out" });
-  } else if (style === "dust") {
-    el.puff.animate([{ opacity: 0, transform: "translate(-50%, -50%) scale(.5)" }, { opacity: 1, transform: "translate(-50%, -50%) scale(1)", offset: 0.3 }, { opacity: 0, transform: "translate(-50%, -50%) scale(1.25)" }], { duration: 760, easing: "ease-out" });
-    el.cover.animate([{ opacity: 1 }, { opacity: 1, offset: 0.3 }, { opacity: 0, offset: 0.42 }, { opacity: 0 }], { ...o, duration: 760 });
-  } else {
-    el.pb.animate([{ transform: "scale(1)" }, { transform: "scale(.9)", offset: 0.3 }, { transform: "scale(1.08)", offset: 0.55 }, { transform: "scale(1)" }], { duration: 480, easing: "ease-out" });
-    el.cover.animate([{ opacity: 1 }, { opacity: 1, offset: 0.3 }, { opacity: 0, offset: 0.31 }, { opacity: 0 }], { ...o, duration: 480 });
-    el.ring.animate([{ opacity: 0, transform: "scale(.9)" }, { opacity: 0, transform: "scale(.9)", offset: 0.3 }, { opacity: 1, transform: "scale(1)", offset: 0.4 }, { opacity: 0, transform: "scale(1.45)" }], { duration: 640, easing: "ease-out" });
-  }
+/** The reveal: the whole coin lifts, spins half a turn on its upright axis (face, edge and back together), and lands. */
+function flip(pb: HTMLElement, coin: HTMLElement, sh: HTMLElement) {
+  coin.classList.add("flipping");
+  const spin = coin.animate([{ transform: coinAt(180) }, { transform: coinAt(180), offset: 0.12 }, { transform: coinAt(360), offset: 0.82 }, { transform: coinAt(360) }], { duration: 620, easing: "cubic-bezier(.45,.05,.35,1)" });
+  spin.onfinish = spin.oncancel = () => coin.classList.remove("flipping");
+  pb.animate([{ transform: "translateY(0) scale(1)" }, { transform: "translateY(-34%) scale(1.14)", offset: 0.45 }, { transform: "translateY(0) scale(1)", offset: 0.88 }, { transform: "translateY(2%) scale(.98)", offset: 0.94 }, { transform: "translateY(0) scale(1)" }], { duration: 620, easing: "ease-in-out" });
+  sh.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0.35, transform: "translateY(12%) scale(.8)", offset: 0.45 }, { opacity: 1, transform: "scale(1)", offset: 0.88 }, { opacity: 1, transform: "scale(1)" }], { duration: 620, easing: "ease-in-out" });
 }
 
 /** One marker in the B1 look: face over a dark wooden side, lit from above, shadow straight under. */
-export const Marker = memo(function Marker({ p, selected, onTap, disabled, reveal = "fade" }: { p: ShownPiece; selected: boolean; onTap: (id: number) => void; disabled: boolean; reveal?: RevealStyle }) {
+export const Marker = memo(function Marker({ p, selected, onTap, disabled }: { p: ShownPiece; selected: boolean; onTap: (id: number) => void; disabled: boolean }) {
   const shownUp = p.up;
   const wasUp = useRef(p.up);
   const pb = useRef<HTMLSpanElement>(null);
-  const top = useRef<HTMLSpanElement>(null);
-  const cover = useRef<HTMLSpanElement>(null);
-  const streak = useRef<HTMLSpanElement>(null);
-  const ring = useRef<HTMLSpanElement>(null);
-  const puff = useRef<HTMLSpanElement>(null);
+  const coin = useRef<HTMLSpanElement>(null);
+  const sh = useRef<HTMLSpanElement>(null);
 
-  // before the browser paints the new face, put the cover over it and play it away
+  // hidden -> face: start the flip before the browser paints, so the new face never shows early
   useLayoutEffect(() => {
     const was = wasUp.current;
     wasUp.current = p.up;
-    if (was || !p.up || prefersReducedMotion() || !pb.current || !top.current || !cover.current || !streak.current || !ring.current || !puff.current) return;
-    playReveal(reveal, { pb: pb.current, top: top.current, cover: cover.current, streak: streak.current, ring: ring.current, puff: puff.current });
-  }, [p.up, reveal]);
+    if (was || !p.up || prefersReducedMotion() || !pb.current || !coin.current || !sh.current) return;
+    flip(pb.current, coin.current, sh.current);
+  }, [p.up]);
 
   const style = {
     left: `calc(var(--vg-sq) * ${p.c})`,
@@ -101,25 +85,26 @@ export const Marker = memo(function Marker({ p, selected, onTap, disabled, revea
       onClick={() => onTap(p.id)}
     >
       <span className="vg-pb" ref={pb}>
-        <span className="vg-sh" />
-        <span className="vg-side" />
-        <span className="vg-top" ref={top}>
-          <span className={`vg-face${shownUp ? "" : " back"}`}>
-            <span className="vg-art" style={{ backgroundImage: face(p.army, shownUp ? p.rank : "back") }} />
-            {shownUp && <span className="vg-rk">{p.rank}</span>}
-          </span>
-          <span className="vg-cover" ref={cover} aria-hidden="true">
-            <span className="vg-face back">
-              <span className="vg-art" style={{ backgroundImage: face(p.army, "back") }} />
+        <span className="vg-sh" ref={sh} />
+        <span className="vg-coin3d">
+          <span className="vg-coin" ref={coin} style={{ transform: coinAt(shownUp ? 0 : 180) }}>
+            {WOOD.map((z) => (
+              <span key={z} className={`vg-c wood${Math.abs(z) > 0.45 ? " rest" : ""}`} style={{ "--z": z } as CSSProperties} />
+            ))}
+            <span className="vg-c back">
+              <span className="vg-face back">
+                <span className="vg-art" style={{ backgroundImage: face(p.army, "back") }} />
+              </span>
+            </span>
+            <span className="vg-c front">
+              <span className={`vg-face${shownUp ? "" : " back"}`}>
+                <span className="vg-art" style={{ backgroundImage: face(p.army, shownUp ? p.rank : "back") }} />
+                {shownUp && <span className="vg-rk">{p.rank}</span>}
+              </span>
+              <span className="vg-gloss" />
             </span>
           </span>
-          <span className="vg-clip" aria-hidden="true">
-            <span className="vg-streak" ref={streak} />
-          </span>
-          <span className="vg-ring-flash" ref={ring} aria-hidden="true" />
-          <span className="vg-gloss" />
         </span>
-        <span className="vg-puff" ref={puff} aria-hidden="true" />
       </span>
     </button>
   );
@@ -136,14 +121,13 @@ export interface VanguardBoardProps {
   locked: boolean;
   onPiece: (id: number) => void;
   onMark: (sq: Square) => void;
-  reveal?: RevealStyle;
 }
 
 /**
  * The 10×10 board, top-down, from the US side. Pieces are positioned by square and slide with a CSS
  * transition; effects are painted sprites drawn with a screen blend; the Dust Storm is a haze over its line.
  */
-export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, locked, onPiece, onMark, reveal }: VanguardBoardProps) {
+export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, locked, onPiece, onMark }: VanguardBoardProps) {
   return (
     <div className="vg-board" role="group" aria-label="Vanguard board">
       {depots.map((d) => (
@@ -156,7 +140,7 @@ export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, lock
         />
       ))}
       {pieces.map((p) => (
-        <Marker key={p.id} p={p} selected={selected === p.id} onTap={onPiece} disabled={locked && selected !== p.id} reveal={reveal} />
+        <Marker key={p.id} p={p} selected={selected === p.id} onTap={onPiece} disabled={locked && selected !== p.id} />
       ))}
       {marks.map((m) => (
         <button

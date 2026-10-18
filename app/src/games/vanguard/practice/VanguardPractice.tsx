@@ -6,7 +6,7 @@ import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx } from "../../fx";
 import { NAMES, TURN_MS, move, newGame, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Rng, type Square } from "../rules";
-import { VanguardBoard, type RevealStyle, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
+import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { botMove } from "./bot";
 import "../vanguard.css";
 
@@ -23,8 +23,6 @@ export interface VanguardPracticeProps {
   twoStep?: number;
   /** Change the opening position (stories: put pieces in contact). */
   prepare?: (g: Game) => Game;
-  /** How hidden pieces show their face. */
-  reveal?: RevealStyle;
 }
 
 const wait = (ms: number) => new Promise<void>((ok) => setTimeout(ok, prefersReducedMotion() ? 0 : ms));
@@ -46,7 +44,7 @@ const END_LINE = {
  * Vanguard practice: you play the US against a local bot, on the real rules (rules.ts) with the 5-second
  * turn clock. Nothing is staked, there is no wallet and no chain.
  */
-export function VanguardPractice({ seed, instant = false, clock = true, stormAt, twoStep = 0, prepare, reveal = "fade" }: VanguardPracticeProps) {
+export function VanguardPractice({ seed, instant = false, clock = true, stormAt, twoStep = 0, prepare }: VanguardPracticeProps) {
   // one random source per mount: seeded in stories, so the setup and the bot repeat
   const [rng] = useState<Rng>(() => (seed === undefined ? Math.random : seeded(seed)));
   const fresh = useCallback(() => {
@@ -283,7 +281,7 @@ export function VanguardPractice({ seed, instant = false, clock = true, stormAt,
         </div>
         {plate("it")}
         <div className="vg-stage">
-          <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} reveal={reveal} />
+          <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
           {!started && (
             <Countdown
               onDone={() => {
