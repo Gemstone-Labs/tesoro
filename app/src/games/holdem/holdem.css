@@ -241,6 +241,18 @@
 .hd-sigs { gap: 6px; }
 .hd-sigs, .hd-note { width: 100%; max-width: 1100px; margin-inline: auto; }
 
+/* Below 1024px the bottom nav is on screen: the action bar stays pinned above it and the amount controls fold
+   behind "Set raise amount". Full screen covers the nav, so the bar sits on the window edge there. */
+.hdx-more { display: none; }
+@media (max-width: 1023px) {
+  .hdx-actions { position: sticky; z-index: 20; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); padding: 10px 12px; gap: 8px; max-height: 60dvh; overflow-y: auto; }
+  .hdx-btn { min-height: 54px; }
+  .hdx-more { display: block; padding: 8px 4px; font-size: 13px; }
+  .hdx-raise { display: none; }
+  .hdx-actions.raise-open .hdx-raise { display: grid; }
+  html.game-full .hdx-actions { bottom: 0; }
+}
+
 /* phones: the table shrinks, the info panel becomes a one-line strip */
 @media (max-width: 719px) {
   .hdx-felt { min-height: 360px; padding: 22px 12px 18px; }
