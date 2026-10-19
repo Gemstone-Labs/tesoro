@@ -66,6 +66,6 @@ describe("winCardData", () => {
 
 describe("winShareText", () => {
   it("names the Game and the Gemas", () => {
-    expect(winShareText({ game: "holdem", gemas: 1890, entry: 1000 })).toBe("I just won 1,890 Gemas in a Heads-up Hold'em Match on Tesoro. Play now, your yield pays later.");
+    expect(winShareText({ game: "holdem", gemas: 1890, entry: 1000 })).toBe("I just won 1,890 Gemas in a Buckshot Hold'em Match on Tesoro. Play now, your yield pays later.");
   });
 });

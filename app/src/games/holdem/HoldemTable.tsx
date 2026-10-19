@@ -272,7 +272,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
     <section className="hdx" aria-label="Hold'em table" style={{ ["--pace" as string]: PACE }}>
       <header className="hdx-head" aria-label="Table">
         <div className="hdx-head-l">
-          <h1 className="hdx-title">Heads-up Hold&apos;em</h1>
+          <h1 className="hdx-title">Buckshot Hold&apos;em</h1>
           <p className="mono hdx-level" aria-label={`Blinds ${level}`}>
             Blinds {level.replace(" / ", "/")} · Hand #{t.handNo}
           </p>

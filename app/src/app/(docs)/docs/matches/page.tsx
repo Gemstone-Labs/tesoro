@@ -58,9 +58,9 @@ export default function Page() {
 
       <Shot name="block-puzzle" url={`${BRAND.domain}/play/…`} alt="A Block Puzzle run: the board, the three pieces and the score" caption="A Block Puzzle run. Both Players get the same pieces." />
 
-      <H2 id="holdem">Hold&apos;em</H2>
+      <H2 id="holdem">Buckshot Hold&apos;em</H2>
       <p>
-        Heads-up no-limit Texas Hold&apos;em, played in real time, as one sit-and-go per Match. Both Players start with <b>1,500 Chips</b>. Hands repeat
+        Heads-up no-limit poker, played in real time, as one sit-and-go per Match. Both Players start with <b>1,500 Chips</b>. Hands repeat
         with rising blinds until one Player holds every Chip.
       </p>
       <ul>
@@ -69,7 +69,7 @@ export default function Page() {
         <li>The deck is shuffled with randomness from both Players and a random-number service; nobody can see the deck, and your hole cards are visible only to you. Cards are revealed only at a showdown.</li>
       </ul>
 
-      <Shot name="holdem" url={`${BRAND.domain}/play/…`} alt="A Hold'em table, heads-up, with the pot and action buttons" caption="Heads-up Hold'em. Only you see your hole cards." />
+      <Shot name="holdem" url={`${BRAND.domain}/play/…`} alt="A Hold'em table, heads-up, with the pot and action buttons" caption="Buckshot Hold'em. Only you see your hole cards." />
 
       <H2 id="trading-duel">Trading Duel</H2>
       <p>

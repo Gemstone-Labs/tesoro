@@ -107,7 +107,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         ),
       },
       {
-        q: "How does Heads-up Hold'em work?",
+        q: "How does Buckshot Hold'em work?",
         a: (
           <>
             <p>

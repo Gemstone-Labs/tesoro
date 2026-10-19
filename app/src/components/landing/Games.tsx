@@ -20,7 +20,7 @@ const GAMES: LandingGame[] = [
   },
   {
     id: "holdem",
-    name: "Heads-up Hold’em",
+    name: "Buckshot Hold’em",
     note: "Real-time",
     body: "Heads-up against one opponent, live. Nobody sees the deck.",
     facts: [

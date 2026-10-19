@@ -179,7 +179,7 @@ export default function Design() {
       <Section title="Card and Row">
         <div style={grid}>
           <Card>Card content. One corner size per class.</Card>
-          <Row game="holdem" title="Heads-up Hold'em" meta="Live · 2 in Queue" cta="Play" href="/play/holdem" />
+          <Row game="holdem" title="Buckshot Hold'em" meta="Live · 2 in Queue" cta="Play" href="/play/holdem" />
           <Row game="block-puzzle" title="Block Puzzle" meta="vs Otter · 171 – 140" when="2 min ago" delta={900} cta="Open" href="/matches" />
           <Row thumb={<Thumb>D</Thumb>} title="Dana asks for 1,000" meta="Block Puzzle · 38 Matches · 61% won" cta="Offer" ctaTone="money" onClick={() => {}} />
           <Row title="Static row" meta="No action" />
