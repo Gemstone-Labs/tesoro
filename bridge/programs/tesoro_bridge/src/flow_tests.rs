@@ -198,7 +198,8 @@ impl Env {
             &VaultTreasury {
                 eid: EID_HOODI,
                 peer_address: msg_codec::pad_address(&VAULT),
-                reported_in: 0,
+                balance: 0,
+                paid_at_report: 0,
                 instant_recorded: 0,
                 bump: Pubkey::find_program_address(
                     &[TREASURY_SEED, &EID_HOODI.to_be_bytes(), &msg_codec::pad_address(&VAULT)],
@@ -394,18 +395,28 @@ impl Env {
                 applied_yield_seq: 0,
                 out_seq: 0,
                 unlock_sent: false,
-                treasury_in: 0,
+                treasury_balance: 0,
+                instant_paid: 0,
             },
         );
     }
 
-    /// The inbox after a YieldAccrued with `seq`, `cumulative` and the vault's `treasury_in`.
-    fn receive_yield(&mut self, id: u64, seq: u64, cumulative: u128, treasury_in: u128) {
+    /// The inbox after a YieldAccrued with `seq`, `cumulative`, the vault's Treasury balance and its
+    /// cumulative Instant payouts.
+    fn receive_yield(
+        &mut self,
+        id: u64,
+        seq: u64,
+        cumulative: u128,
+        treasury_balance: u128,
+        instant_paid: u128,
+    ) {
         let key = self.bridge_position(id);
         let mut p: BridgePosition = self.load(key);
         p.last_yield_seq = seq;
         p.yield_cumulative = cumulative;
-        p.treasury_in = treasury_in;
+        p.treasury_balance = treasury_balance;
+        p.instant_paid = instant_paid;
         p.last_in_seq = p.last_in_seq.max(seq);
         self.put(key, crate::ID, &p);
     }
@@ -557,7 +568,7 @@ fn positions_open_yield_repays_debt_and_redemption_is_recorded_once_per_unit() {
 
     // Half of the projected net yield arrives (the vault reports yield after its Yield Fee): Debt
     // halves.
-    env.receive_yield(id, 2, 5_000_000_000_000_000, 0);
+    env.receive_yield(id, 2, 5_000_000_000_000_000, 0, 0);
     env.apply_yield(id, false).expect_err("the open Advance's Source is required");
     env.apply_yield(id, true).expect("apply yield");
     let source: SourceState = env.load(source_key);
@@ -938,14 +949,14 @@ fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
     assert!(env.svm.get_account(&s(env.treasury_holding(source))).is_none());
 
     // A yield report carries a treasury just short of the payout: still refused.
-    env.receive_yield(id, 2, 1_000_000_000_000_000, u128::from(payout) - 1);
+    env.receive_yield(id, 2, 1_000_000_000_000_000, u128::from(payout) - 1, 0);
     env.sync_treasury(id).expect("sync");
-    assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).reported_in, u128::from(payout) - 1);
+    assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).balance, u128::from(payout) - 1);
     let err = env.instant_redeem(id, &bob, bob_account, source, 1_000).expect_err("short");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::TreasuryShort)));
 
     // A later report (synced without applying) covers it: accepted and recorded.
-    env.receive_yield(id, 3, 1_000_000_000_000_000, u128::from(payout) + 100);
+    env.receive_yield(id, 3, 1_000_000_000_000_000, u128::from(payout) + 100, 0);
     env.sync_treasury(id).expect("sync");
     env.instant_redeem(id, &bob, bob_account, source, 1_000)
         .expect("instant redeem");
@@ -961,16 +972,15 @@ fn instant_redeem_is_capped_by_the_mirror_of_the_vault_treasury() {
     let source_state: SourceState = env.load(source);
     assert_eq!(source_state.inner.redeemed, 0, "the Source's counts are untouched");
 
-    // The rest of the treasury cannot pay another 1,000; an older, smaller report cannot raise it.
+    // The rest of the treasury cannot pay another 1,000.
     let (carol, carol_account, _) = env.winner_with(id, 1_000);
     let err = env.instant_redeem(id, &carol, carol_account, source, 1_000).expect_err("spent");
     assert_eq!(custom_code(&err), Some(bridge_err(BridgeError::TreasuryShort)));
-    env.receive_yield(id, 4, 1_000_000_000_000_000, 5);
+
+    // Once the vault has paid and reports its new balance (100 left, payout paid), nothing is outstanding.
+    env.receive_yield(id, 4, 1_000_000_000_000_000, 100, u128::from(payout));
     env.sync_treasury(id).expect("sync");
-    assert_eq!(
-        env.load::<VaultTreasury>(env.vault_treasury()).reported_in,
-        u128::from(payout) + 100
-    );
+    assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).available(), 100);
 
     // The owner's own Gemas never redeem instantly.
     let owner = env.owner.insecure_clone();
@@ -993,7 +1003,7 @@ fn the_treasury_redeems_what_it_bought_into_a_claim_paid_to_the_vault() {
     let id = 1;
     env.opened_with_advance(id);
     let (bob, bob_account, source) = env.winner_with(id, 1_000);
-    env.receive_yield(id, 2, 0, ETH);
+    env.receive_yield(id, 2, 0, ETH, 0);
     env.sync_treasury(id).expect("sync");
     env.instant_redeem(id, &bob, bob_account, source, 1_000)
         .expect("instant redeem");
@@ -1026,7 +1036,7 @@ fn the_treasury_redeems_what_it_bought_into_a_claim_paid_to_the_vault() {
     redeem(&mut env, 1).expect_err("not redeemable yet");
 
     // All the net yield lands: the Treasury redeems its 1,000 Gemas at full value.
-    env.receive_yield(id, 3, 10_000_000_000_000_000, ETH);
+    env.receive_yield(id, 3, 10_000_000_000_000_000, ETH, 0);
     env.apply_yield(id, true).expect("apply yield");
     redeem(&mut env, 1_000).expect("treasury redeems");
     let claim: Claim = env.load(claim_key);
@@ -1047,7 +1057,7 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
     let (bob, bob_account, source) = env.winner_with(id, 1_000);
     // Only Gemas whose yield has not landed can be redeemed instantly: the Report's Treasury is
     // mirrored first and the yield is applied afterwards.
-    env.receive_yield(id, 2, 10_000_000_000_000_000, ETH);
+    env.receive_yield(id, 2, 10_000_000_000_000_000, ETH, 0);
     env.sync_treasury(id).expect("sync");
     env.instant_redeem(id, &bob, bob_account, source, 400)
         .expect("instant redeem 400");

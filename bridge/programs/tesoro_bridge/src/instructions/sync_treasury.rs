@@ -1,7 +1,7 @@
 use crate::*;
 
-// Raises the mirror of a vault's treasury to the total carried by a Position's latest yield
-// report, without applying the yield. Permissionless: the value only ever comes from the vault.
+// Takes the Treasury balance and Instant payouts carried by a Position's latest yield
+// report into the mirror of the vault's Treasury, without applying the yield. Permissionless: the value only ever comes from the vault.
 #[derive(Accounts)]
 #[instruction(params: PositionRef)]
 pub struct SyncTreasury<'info> {
@@ -20,8 +20,9 @@ pub struct SyncTreasury<'info> {
 
 impl SyncTreasury<'_> {
     pub fn apply(ctx: &mut Context<SyncTreasury>, _params: &PositionRef) -> Result<()> {
-        let reported = ctx.accounts.bridge_position.treasury_in;
-        ctx.accounts.vault_treasury.raise(reported);
+        let position = &ctx.accounts.bridge_position;
+        let (balance, paid) = (position.treasury_balance, position.instant_paid);
+        ctx.accounts.vault_treasury.apply_report(balance, paid);
         Ok(())
     }
 }

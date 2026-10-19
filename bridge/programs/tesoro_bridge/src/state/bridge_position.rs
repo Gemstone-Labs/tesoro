@@ -30,6 +30,9 @@ pub struct BridgePosition {
     /// Last outbound seq (Unlock and PayYield share one counter).
     pub out_seq: u64,
     pub unlock_sent: bool,
-    /// The vault treasury's cumulative credits, reported with the latest YieldAccrued.
-    pub treasury_in: u128,
+    /// The vault Treasury balance reported with the latest YieldAccrued.
+    pub treasury_balance: u128,
+    /// The vault's cumulative Instant payouts, reported with that same YieldAccrued. Last field: the
+    /// account grew by 16 bytes at the end.
+    pub instant_paid: u128,
 }
