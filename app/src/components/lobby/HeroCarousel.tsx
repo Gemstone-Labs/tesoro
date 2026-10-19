@@ -29,10 +29,10 @@ interface Slide {
 }
 
 /** The featured Games. Entry, Queue and Challenge live on each Game's page; the hero only leads there. */
-const SLIDES: Slide[] = [
-  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero, entry: 1000 },
+export const SLIDES: Slide[] = [
   { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true, entry: 500 },
   { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero, entry: 500 },
+  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero, entry: 1000 },
 ];
 
 const ADVANCE_MS = 7000;
