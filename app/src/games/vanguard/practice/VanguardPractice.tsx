@@ -327,6 +327,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
   return (
     <Arena game="vanguard">
       <VanguardScreen
+        switchable
         bar={
           <div className="vg-bar">
             <Label>Practice · Vanguard</Label>
