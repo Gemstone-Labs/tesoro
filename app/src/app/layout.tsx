@@ -26,7 +26,7 @@ const plexMono = IBM_Plex_Mono({
   display: "swap",
 });
 
-const DESCRIPTION = "Play now with yield you haven't earned yet. Skill games on Solana; your staking Principal is never played.";
+const DESCRIPTION = "Play now with yield you haven't earned yet. Skill games on Solana; what you lock is never played.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

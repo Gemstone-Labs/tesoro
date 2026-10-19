@@ -13,12 +13,12 @@ export default function Page() {
   return (
     <DocPage href="/docs/fees" hero={<PayoutBar />}>
       <H2 id="revenue">How {BRAND.name} earns</H2>
-      <p>{BRAND.name} has three sources of revenue, and nothing else. Your Principal is never touched by any of them.</p>
+      <p>{BRAND.name} has three sources of revenue, and nothing else. What you lock is never touched by any of them.</p>
       <DataTable
         head={["Fee", "Rate", "Taken from"]}
         rows={[
           ["Platform Fee", "2% of each Pot", "The loser's Gemas, when a Match settles."],
-          ["Yield Fee", "20% of the yield", "Yield your Positions earn, as it arrives. Never the Principal."],
+          ["Yield Fee", "20% of the yield", "Yield your Locks earn, as it arrives. Never what you lock."],
           ["Instant Redeem Fee", `${INSTANT_FEE_PCT}% of the value`, "Won Gemas you choose to redeem before their yield has landed."],
         ]}
         caption={`${BRAND.name}'s revenue`}
@@ -26,13 +26,13 @@ export default function Page() {
 
       <H2 id="yield-fee">Yield Fee</H2>
       <p>
-        {BRAND.name} keeps <b>20% of the yield</b> every Position earns, on every chain. Your Position keeps the other 80%. The Advance is sized on that 80%
+        {BRAND.name} keeps <b>20% of the yield</b> every Lock earns, on every chain. Your Lock keeps the other 80%. The Advance is sized on that 80%
         too, so it is still repaid in the same time and your Unlock Estimate does not move.
       </p>
 
       <H2 id="instant-redeem">Instant Redeem Fee</H2>
       <p>
-        Gemas you won normally become redeemable as their Source&apos;s yield lands. <b>Redeem now</b> skips the wait: you get <b>{INSTANT_PAYOUT_PCT}%</b> of their
+        Gemas you won normally become redeemable as the yield behind them lands. <b>Redeem now</b> skips the wait: you get <b>{INSTANT_PAYOUT_PCT}%</b> of their
         value today and {BRAND.name} keeps <b>{INSTANT_FEE_PCT}%</b>, then waits for the yield itself. It is optional, and only for Gemas you won. See{" "}
         <Link href="/docs/gemas#instant-redeem">Gemas</Link>.
       </p>
@@ -49,7 +49,7 @@ export default function Page() {
         caption="Fees on every Match, taken in Gemas at settlement"
       />
       <p>
-        On Matches, a draw, a refund or a no-show takes no Fees. Nothing is ever charged on your Principal. Taking an Advance and a normal Redeem cost nothing extra.
+        On Matches, a draw, a refund or a no-show takes no Fees. Nothing is ever charged on what you lock. Taking an Advance and a normal Redeem cost nothing extra.
       </p>
 
       <H2 id="who-pays">Who pays</H2>
@@ -77,7 +77,7 @@ export default function Page() {
       <H2 id="network-costs">Network costs</H2>
       <p>
         Separate from {BRAND.name}&apos;s fees, every action on a blockchain has a small network cost paid in that chain&apos;s own coin, such as SOL on Solana. Messages
-        between chains, such as opening an Ethereum Position or redeeming to Ethereum, also pay a small cross-chain delivery cost, paid by whoever sends
+        between chains, such as locking ETH or redeeming to Ethereum, also pay a small cross-chain delivery cost, paid by whoever sends
         them. On the test networks the app tops up small amounts for you, and none of it has value.
       </p>
 

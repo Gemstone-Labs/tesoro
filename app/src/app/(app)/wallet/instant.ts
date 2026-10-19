@@ -15,7 +15,7 @@ import type { Chain } from "@/lib/mock";
 import type { InstantOffer, InstantRow } from "./MoneySheets";
 
 const UNITS: Record<Chain, number> = { SOL: LAMPORTS, ETH: 1e18, HYPE: 1e18 };
-const TOKEN: Record<Chain, string> = { SOL: "simSOL", ETH: "ETH", HYPE: "HYPE" };
+const TOKEN: Record<Chain, string> = { SOL: "test SOL", ETH: "ETH", HYPE: "HYPE" };
 
 /** Won Gemas the Account holds that Instant Redeem could buy: free, still waiting on yield, from a Source the app can pay out. */
 export const instantCandidates = (holdings: ChainHolding[]) => holdings.filter((h) => !h.isOwn && h.pending > 0n && (h.native || h.eth));

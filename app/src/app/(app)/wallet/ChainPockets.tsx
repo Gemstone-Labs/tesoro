@@ -43,7 +43,7 @@ export function NextRedeem({ at, className }: { at: number | null | undefined; c
   const secs = useNowSecs(15_000);
   return (
     <span className={className ?? "meta"}>
-      {at ? `Next Gemas redeemable ${fmtInMinutes(at, Math.max(secs * 1000, 0))}` : "Redeemable as their Sources earn yield"}
+      {at ? `Next Gemas redeemable ${fmtInMinutes(at, Math.max(secs * 1000, 0))}` : "Redeemable as the Locks they came from earn yield"}
     </span>
   );
 }
@@ -121,7 +121,7 @@ function PocketCard({ p, hidden, onRedeem, onAll }: { p: Pocket; hidden: boolean
 
       {(p.positions.length > 0 || p.closed.length > 0) && (
         <div className="wl-pocket-part">
-          <h3>Your {p.chain} Positions</h3>
+          <h3>Your {p.chain} Locks</h3>
           {p.positions.length > 0 && <div className="wl-pocket-pos">{p.positions}</div>}
           {p.closed.length > 0 && (
             <button type="button" className="wl-link" aria-expanded={closedOpen} onClick={() => setClosedOpen((o) => !o)}>
@@ -188,7 +188,7 @@ function SourcesSheet({ pocket, onClose }: { pocket: Pocket | null; onClose: () 
       {pocket && (
         <div className="wl-src-all">
           <p className="meta">
-            From {list.length} Players. Won Gemas stay tied to the Position they came from and become redeemable as it earns yield; Redeem {pocket.chain} pays out all
+            From {list.length} Players. Won Gemas stay tied to the Lock they came from and become redeemable as it earns yield; Redeem {pocket.chain} pays out all
             of them at once.
           </p>
           <div className="wl-src-sort" role="group" aria-label="Sort">

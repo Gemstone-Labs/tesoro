@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: BRAND.name,
     short_name: BRAND.name,
-    description: "Play now with yield you haven't earned yet. Skill games on Solana; your staking Principal is never played.",
+    description: "Play now with yield you haven't earned yet. Skill games on Solana; what you lock is never played.",
     start_url: "/lobby",
     display: "standalone",
     background_color: "#0C0E10",

@@ -5,7 +5,7 @@ import { Slider } from "@/components/ui";
 const meta = {
   title: "Components/ui/Slider",
   component: Slider,
-  args: { label: "Horizon", value: 4, min: 1, max: 12, step: 1, display: "4 months", minLabel: "1 month", maxLabel: "12 months", onChange: () => {} },
+  args: { label: "Length", value: 4, min: 1, max: 12, step: 1, display: "4 months", minLabel: "1 month", maxLabel: "12 months", onChange: () => {} },
   argTypes: { onChange: { control: false }, format: { control: false }, display: { control: "text" } },
   decorators: [(Story) => <div style={{ maxWidth: 420 }}><Story /></div>],
   render: function Render(args) {
@@ -16,7 +16,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Horizon, 1 to 12 months. */
+/** Length, 1 to 12 months. */
 export const Horizon: Story = {};
 
 /** The Player's share of the surplus, in 5% steps: past 12 steps the ruler shows five marks. */

@@ -18,7 +18,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The demo Account: one SOL Position with an Advance, Gemas from two Sources. */
+/** The demo Account: one SOL Lock with an Advance, Gemas from two Players. */
 export const WithPositions: Story = {};
 
 export const NoPositions: Story = {
@@ -129,13 +129,13 @@ const heavySnapshot = (a: string): AccountSnapshot => {
 export const LongTimePlayer: Story = { parameters: { data: { snapshot: heavySnapshot }, screen: { eth: { advance: "open" } } } };
 
 const openTab = (name: string): Story["play"] => async ({ canvasElement }) => {
-  const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Open a Position/ })[0], { timeout: 10_000 });
+  const open = await waitFor(() => within(canvasElement).getAllByRole("button", { name: /Get Gemas/ })[0], { timeout: 10_000 });
   await userEvent.click(open);
   const tab = await waitFor(() => within(document.body).getAllByRole("tab", { name: new RegExp(`^${name}`) })[0], { timeout: 10_000 });
   await userEvent.click(tab);
 };
 
-/** The Open a Position sheet on the ETH tab. */
+/** The Get Gemas sheet on the ETH tab. */
 export const OpenEthPosition: Story = { parameters: { data: { snapshot: withEth }, screen: { eth: { advance: "open" } } }, play: openTab("ETH") };
 export const OpenHypePosition: Story = { parameters: { data: { snapshot: withEth }, screen: { eth: { advance: "open" } } }, play: openTab("HYPE") };
 
@@ -153,7 +153,7 @@ const opening = (step: NonNullable<NonNullable<ScreenData["eth"]>["opening"]>): 
   parameters: { nextjs: { navigation: { pathname: "/wallet/opening", query: { op: "open-eth-9" } } }, screen: { eth: { opening: step } } },
 });
 
-/** `/wallet/opening`: an ETH Position crossing to Solana, one story per step. */
+/** `/wallet/opening`: an ETH Lock crossing to Solana, one story per step. */
 export const OpeningSentOnHoodi = opening("sent");
 export const OpeningDeliveredToSolana = opening("delivered");
 export const OpeningPositionRecorded = opening("recorded");

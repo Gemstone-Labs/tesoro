@@ -8,23 +8,23 @@ import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
 import { BRAND } from "@/lib/brand";
 
 export const STEPS: { title: string; text: string; href: string; cta: string }[] = [
-  { title: "Open a Position", text: "Lock a staking token in your Wallet. Its Principal is never played.", href: "/wallet", cta: "Wallet" },
+  { title: "Get Gemas", text: "Lock a staking token in your Wallet. What you lock is never played.", href: "/wallet", cta: "Wallet" },
   { title: "Take an Advance", text: "Get 80% of its projected yield for 1–12 months upfront, as Gemas.", href: "/wallet", cta: "Wallet" },
   { title: "Play a Match", text: "Pick a game and an entry. Win the Pot minus Fees.", href: "/play", cta: "Play" },
-  { title: "Redeem", text: `Turn Gemas into their Source asset as its yield lands, or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/wallet", cta: "Wallet" },
+  { title: "Redeem", text: `Turn Gemas into the coin they came from as its yield lands, or now for ${INSTANT_PAYOUT_PCT}%.`, href: "/wallet", cta: "Wallet" },
 ];
 
 export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode }[] }[] = [
   {
     id: "gemas",
-    title: "Gemas and Positions",
+    title: "Gemas and Locks",
     qs: [
       {
         q: "What is a Gema?",
         a: (
           <p>
-            The one play unit on {BRAND.name}, on every chain. A Gema is worth $0.01 when it is issued and is a claim on its Source: the Advance it
-            came from. Gemas are equal at the table but not at redemption: a Gema redeems in its Source asset (SOL, ETH or HYPE). The{" "}
+            The one play unit on {BRAND.name}, on every chain. A Gema is worth $0.01 when it is issued and is a claim on the Lock it came from, through the Advance it
+            was issued from. Gemas are equal at the table but not at redemption: a Gema redeems in the coin of its Lock (SOL, ETH or HYPE). The{" "}
             <Link href="/docs/gemas">Docs</Link> go deeper.
           </p>
         ),
@@ -33,30 +33,30 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Where do my Gemas come from?",
         a: (
           <p>
-            Open a Position in your <Link href="/wallet">Wallet</Link> by locking a staking token, then take an Advance: 80% of the Position&apos;s
-            projected yield over a Horizon of 1 to 12 months (the yield after {BRAND.name}&apos;s 20% Yield Fee), paid upfront as Gemas.
+            Get Gemas in your <Link href="/wallet">Wallet</Link> by locking a staking token, then take an Advance: 80% of the Lock&apos;s
+            projected yield over a Length of 1 to 12 months (the yield after {BRAND.name}&apos;s 20% Yield Fee), paid upfront as Gemas.
           </p>
         ),
       },
       {
-        q: "Can I lose my Principal in a Match?",
+        q: "Can I lose what I lock in a Match?",
         a: (
           <p>
-            No. Principal is never entered into a Match and never pays Debt. What you can lose is the Gemas you enter. Your Principal stays
-            locked until your own yield has repaid your Debt, then it comes back to you.
+            No. What you lock is never entered into a Match and never pays back an Advance. What you can lose is the Gemas you enter. Your coins stay
+            locked until your own yield has paid back your Advance, then they come back to you.
           </p>
         ),
       },
       {
-        q: "How is my Debt repaid?",
+        q: "How is my Advance paid back?",
         a: (
           <>
             <p>
-              Automatically. All yield your Position earns goes to its Debt until the Debt reaches zero. There is no repay button and no way to
-              skip it. A SOL Position&apos;s Debt falls with the clock: nothing needs refreshing, and Redeem and Unlock always use the latest figure.
+              Automatically. All yield your Lock earns goes to paying back the Advance until nothing is left. There is no repay button and no way to
+              skip it. What is left to pay back on a SOL Lock falls with the clock: nothing needs refreshing, and Redeem and Unlock always use the latest figure.
             </p>
             <p>
-              The only other way to lower Debt is to Return your own unspent Gemas from the Wallet. Adding more to the Position does not pay Debt.
+              The only other way to lower it is to Return your own unspent Gemas from the Wallet. Adding more to the Lock does not pay it back.
             </p>
           </>
         ),
@@ -65,7 +65,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "What is the Unlock Estimate?",
         a: (
           <p>
-            The projected date your Debt reaches zero. It is an estimate, not a promise: it moves with the actual yield. If yield slows, the lock
+            The projected date nothing is left to pay back. It is an estimate, not a promise: it moves with the actual yield. If yield slows, the lock
             lasts longer.
           </p>
         ),
@@ -73,7 +73,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
       {
         q: "Can I take another Advance?",
         a: (
-          <p>A Position holds one open Advance at a time. You can take a new one once its Debt is back to zero.</p>
+          <p>A Lock holds one open Advance at a time. You can take a new one once nothing is left to pay back.</p>
         ),
       },
     ],
@@ -144,8 +144,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
           <p>
             On every Match, three, taken in Gemas from the loser&apos;s entry when it settles: a Platform Fee for {BRAND.name}, a Studio Fee for the game&apos;s
             maker, and a Leaderboard Fee that fills the weekly prize pool. In test mode they are 2%, 3% and 1% of the Pot, 6% together. A draw
-            or a refund pays none of them. {BRAND.name} also keeps a Yield Fee on your Positions and a fee on Redeem now (below). Nothing is ever charged on your
-            Principal.
+            or a refund pays none of them. {BRAND.name} also keeps a Yield Fee on your Locks and a fee on Redeem now (below). Nothing is ever charged on
+            what you lock.
           </p>
         ),
       },
@@ -153,16 +153,16 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "What is the Yield Fee?",
         a: (
           <p>
-            {BRAND.name} keeps 20% of the yield your Position earns, on SOL, ETH and HYPE alike. Your Position keeps the other 80%, and your Advance is
+            {BRAND.name} keeps 20% of the yield your Lock earns, on SOL, ETH and HYPE alike. Your Lock keeps the other 80%, and your Advance is
             sized on that 80%, so it is still repaid in the same time and your Unlock Estimate does not change. See <Link href="/docs/fees">Fees</Link>.
           </p>
         ),
       },
       {
-        q: "Is my Principal ever charged?",
+        q: "Is what I lock ever charged?",
         a: (
           <p>
-            No. The Yield Fee is taken from yield only, and no fee of any kind touches your Principal. It stays locked until your Debt is repaid, then
+            No. The Yield Fee is taken from yield only, and no fee of any kind touches what you lock. It stays locked until your Advance is paid back, then
             it is yours to Unlock.
           </p>
         ),
@@ -171,7 +171,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Can I redeem won Gemas now?",
         a: (
           <p>
-            Yes. Redeem now pays you {INSTANT_PAYOUT_PCT}% of the Gemas&apos; value in their Source asset today, instead of waiting for that Source&apos;s yield to
+            Yes. Redeem now pays you {INSTANT_PAYOUT_PCT}% of the Gemas&apos; value in the coin they came from today, instead of waiting for that Lock&apos;s yield to
             land. It works for Gemas you won in SOL, ETH or HYPE. Your own Gemas cannot be redeemed this way.
           </p>
         ),
@@ -221,11 +221,11 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <>
             <p>
-              When you win, you receive the loser&apos;s actual Gemas, and each one keeps its Source: the loser&apos;s Position. They become
-              redeemable as that Position&apos;s yield lands, shared pro rata among everyone holding Gemas from it.
+              When you win, you receive the loser&apos;s actual Gemas, and each one keeps the Lock it came from: the loser&apos;s. They become
+              redeemable as that Lock&apos;s yield lands, shared pro rata among everyone holding Gemas from it.
             </p>
             <p>
-              Your Wallet always shows Redeemable now and Pending side by side, with Pending broken down by Source. Pending is not lost.
+              Your Wallet always shows Redeemable now and Pending side by side, with Pending broken down by coin. Pending is not lost.
             </p>
           </>
         ),
@@ -234,16 +234,16 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "How do I Redeem?",
         a: (
           <p>
-            From your <Link href="/wallet">Wallet</Link>. Redeem turns Gemas into their Source asset, as far as that Source&apos;s yield has
-            accrued. Gemas from an ETH or HYPE Position are paid out on that chain, which takes a few minutes.
+            From your <Link href="/wallet">Wallet</Link>. Redeem turns Gemas into the coin they came from, as far as that Lock&apos;s yield has
+            been earned. Gemas from an ETH or HYPE Lock are paid out on that chain, which takes a few minutes.
           </p>
         ),
       },
       {
-        q: "Does winning unlock my Position sooner?",
+        q: "Does winning unlock my Lock sooner?",
         a: (
           <p>
-            No. Only your own Position&apos;s yield, or returning your own unspent Gemas, lowers your Debt. Gemas you win are a separate claim on
+            No. Only your own Lock&apos;s yield, or returning your own unspent Gemas, lowers what is left to pay back. Gemas you win are a separate claim on
             someone else&apos;s yield.
           </p>
         ),
@@ -255,11 +255,11 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         ),
       },
       {
-        q: "How do I get my Principal back?",
+        q: "How do I get my coins back?",
         a: (
           <p>
-            When a Position&apos;s Debt reaches zero, press Unlock on it in your Wallet. The Principal comes back to you, minus a small reserve for
-            yield still owed to unredeemed Gemas from that Position.
+            When a Lock&apos;s nothing is left to pay back, press Unlock on it in your Wallet. Your coins come back to you, minus a small reserve for
+            yield still owed to unredeemed Gemas from that Lock.
           </p>
         ),
       },
@@ -274,7 +274,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             A Backer pays a Player&apos;s whole entry into one Match. On a win the Backer&apos;s entry is returned first and the rest is split by
-            the share in the Offer. On a loss only the Backer loses: the Player never takes on Debt.
+            the share in the Offer. On a loss only the Backer loses: the Player never has anything to pay back.
           </p>
         ),
       },
@@ -317,7 +317,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
           <p>
             With your email and a one-time code, or with a wallet you already have: a Solana wallet such as Phantom, Solflare or Backpack, or an
             Ethereum wallet such as MetaMask or Rabby. You don&apos;t need a wallet to start. Either way you get one {BRAND.name} Account, and
-            Positions, Gemas, Matches and Backings belong to it.
+            Locks, Gemas, Matches and Backings belong to it.
           </p>
         ),
       },
@@ -325,8 +325,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: `Which chains does ${BRAND.name} use?`,
         a: (
           <p>
-            Solana for SOL Positions, Matches and your Account; Ethereum (the Hoodi test network) for ETH Positions; HyperEVM for HYPE
-            Positions. ETH and HYPE Positions stay on their own chain, and {BRAND.name} keeps them in sync with your Account.
+            Solana for SOL Locks, Matches and your Account; Ethereum (the Hoodi test network) for ETH Locks; HyperEVM for HYPE
+            Locks. ETH and HYPE Locks stay on their own chain, and {BRAND.name} keeps them in sync with your Account.
           </p>
         ),
       },
@@ -347,7 +347,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
     title: "Troubleshooting",
     qs: [
       {
-        q: "My ETH or HYPE Position is still crossing chains",
+        q: "My ETH or HYPE Lock is still crossing chains",
         a: (
           <p>
             Crossing chains usually takes 2 to 5 minutes from Ethereum, and about a minute from HyperEVM. You can leave the page. Taking the
@@ -360,15 +360,15 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             Gemas reserved for your open Offers can&apos;t be entered again until you cancel the Offer. An entry can also draw on at most{" "}
-            {MAX_ENTRY_SOURCES} Sources: if your Gemas are spread across many small Sources, Redeem a few of them first.
+            {MAX_ENTRY_SOURCES} Locks: if your Gemas are spread across many small batches, Redeem a few of them first.
           </p>
         ),
       },
       {
-        q: "My ETH or HYPE Position shows yield that is not reported",
+        q: "My ETH or HYPE Lock shows yield that is not reported",
         a: (
           <p>
-            Yield earned on Ethereum or HyperEVM is applied to your Debt once it is reported to {BRAND.name}. Press Report yield on the Position to send it
+            Yield earned on Ethereum or HyperEVM is applied to what is left to pay back once it is reported to {BRAND.name}. Press Report yield on the Lock to send it
             now; it costs a small cross-chain fee.
           </p>
         ),
@@ -376,14 +376,14 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
       {
         q: "It says the price is updating",
         a: (
-          <p>Opening a Position needs a fresh price, and it is refreshed every hour. Try again in a few minutes.</p>
+          <p>Locking needs a fresh price, and it is refreshed every hour. Try again in a few minutes.</p>
         ),
       },
       {
         q: "A page won’t load",
         a: (
           <p>
-            The test network is sometimes slow or busy. Press Try again or refresh the page. Nothing is lost: your Positions, Gemas and
+            The test network is sometimes slow or busy. Press Try again or refresh the page. Nothing is lost: your Locks, Gemas and
             Matches are saved on Solana, not in your browser.
           </p>
         ),

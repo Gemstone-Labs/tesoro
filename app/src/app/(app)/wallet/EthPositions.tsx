@@ -222,9 +222,9 @@ const openStepText = (vault: EthVault): Record<OpenStep, string> => ({
   gas: `Checking ${NETS[vault.net].label} fees…`,
   approve: `Approve ${vault.symbol} in your wallet`,
   confirm: "Waiting for the approval to confirm…",
-  inbox: "Preparing your Position…",
-  open: "Open your Position in your wallet",
-  opening: "Opening your Position…",
+  inbox: "Preparing your Lock…",
+  open: "Lock in your wallet",
+  opening: "Locking your coins…",
 });
 
 /** The ETH and HYPE tabs of OPEN A POSITION: link, approve and open on the vault's chain; the Advance follows once LayerZero delivers. */
@@ -325,7 +325,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       gemas={gemas}
       yieldText={`${quote ? fmtEth(quote.projectedUnits, 5) : "0"} ${unit}`}
       yieldFeeBps={yieldFeeBps}
-      arrival="Position opens, Gemas in 2 to 5 min"
+      arrival="Lock starts, Gemas in 2 to 5 min"
       estimate={(() => {
         const at = estimate ?? now + months * ETH_SIM_MONTH_MIN * 60_000;
         return `${fmtWhen(at)} (${fmtInMinutes(at, now)})`;
@@ -333,7 +333,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
         ...(stake && stake.lstOut > 0n ? ([["You receive (staked)", `${fmtEth(stake.lstOut, 5)} ${vault.symbol}`]] as [string, string][]) : []),
-        ["Principal", `${fmtEth(principal)} ${unit}`],
+        ["Locked amount", `${fmtEth(principal)} ${unit}`],
         ["Projected yield (after the Yield Fee)", `${quote ? fmtEth(quote.projectedUnits, 5) : "—"} ${unit}`],
         ...(payOwn
           ? ([
@@ -348,19 +348,19 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
         <>
           {tooMuch && <p className="status err" role="alert">That is more {native ? `${unit} than you have after fees` : `${vault.symbol} than you have`}.</p>}
           {stakeProblem && <p className="status err" role="alert">{stakeProblem}</p>}
-          {tooBig && <p className="status err" role="alert">The Solana ledger holds Principal up to about 18 {unit}. Lock less.</p>}
+          {tooBig && <p className="status err" role="alert">The Solana ledger holds up to about 18 {unit}. Lock less.</p>}
           {step && a.busy && <p className="status" role="status"><ClockIcon width={14} height={14} /> {openStepText(vault)[step]}</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
       note={
         <>
-          You sign once to link your wallet, then {native ? `stake your ${unit} with ${vault.symbol === "kHYPE" ? "Kinetiq" : "Lido"} and open in one step` : "approve and open"} on {net.label}. Once your Position reaches {BRAND.name}, in about 2 to 5
+          You sign once to link your wallet, then {native ? `stake your ${unit} with ${vault.symbol === "kHYPE" ? "Kinetiq" : "Lido"} and open in one step` : "approve and open"} on {net.label}. Once your Lock reaches {BRAND.name}, in about 2 to 5
           minutes, your Advance is taken while this page or your Wallet is open. The Unlock Estimate is an estimate, not a promise.{" "}
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
       }
-      buttonLabel={a.busy ? "Working…" : <GemasLabel action={`Open ${unit === "ETH" ? "an" : "a"} ${unit} Position`} gemas={gemas} />}
+      buttonLabel={a.busy ? "Working…" : <GemasLabel action="Get Gemas" gemas={gemas} />}
       disabled={!valid || a.busy !== null}
       onSubmit={() =>
         ctx &&
@@ -559,9 +559,9 @@ function EthOpCard({ op, ctx, address, onProgress }: { op: EthOp; ctx: EthCtx; a
 
 const NEXT_NOTE = (label: string) =>
   ({
-    "apply-locked": "Recording your Position…",
+    "apply-locked": "Recording your Lock…",
     advance: "Taking your Advance at today’s price…",
-    "apply-yield": "Applying the yield to your Debt…",
+    "apply-yield": "Applying the yield to what you owe…",
     "send-pay-yield": `Sending the payout to ${label}…`,
     "send-pay-instant": `Sending the payout to ${label}…`,
     "send-unlock": `Sending the unlock to ${label}…`,
@@ -569,8 +569,7 @@ const NEXT_NOTE = (label: string) =>
 
 function titleOf(op: EthOp) {
   const { native } = opWords(op.vault);
-  const a = native === "ETH" ? "an" : "a";
-  return { open: `Opening ${a} ${native} Position`, yield: "Reporting yield", redeem: `Redeeming ${native}-Sourced Gemas`, instant: `Redeeming ${native}-Sourced Gemas now`, unlock: "Unlocking the Principal" }[op.kind];
+  return { open: `Locking ${native}`, yield: "Reporting yield", redeem: `Redeeming ${native} Gemas`, instant: `Redeeming ${native} Gemas now`, unlock: "Unlocking your coins" }[op.kind];
 }
 
 /** One relayed step. The server skips a step that is already done (a keeper may have run it). */
@@ -676,7 +675,7 @@ export function EthPositionCard({ position, market, label, compact }: { position
   return (
     <PositionTile
       chain={net.native}
-      label={label ?? `${net.native} Position`}
+      label={label ?? `${net.native} Lock`}
       compact={compact}
       state={!locked ? "unlocked" : !src ? "idle" : onChainDebt === 0n ? "paid" : "repaying"}
       principal={`${fmtEth(position.principal * 1e18, 4)} ${net.native}`}
@@ -689,14 +688,14 @@ export function EthPositionCard({ position, market, label, compact }: { position
       series={series}
       notes={
         <>
-          {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native}-Sourced Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol}{vault?.simulated === false ? "" : " (simulated)"} to your wallet on {net.label}.</p>}
-          <p className="note">Accrued on {net.label} {fmtEth(accrued, 5)} {net.native}{vault?.simulated === false ? "" : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
+          {redeemable > 0n && <p className="note">Redeem pays {fmtGemas(Number(redeemable))} {net.native} Gemas → {payoutShares > 0n ? `${fmtEth(payoutShares, 5)} ${symbol}` : payout > 0n ? `${symbol} worth ${fmtEth(payout, 5)} ${net.native}` : symbol}{vault?.simulated === false ? "" : " (simulated)"} to your wallet on {net.label}.</p>}
+          <p className="note">Earned on {net.label} {fmtEth(accrued, 5)} {net.native}{vault?.simulated === false ? "" : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
           {unreported > 0n && locked && (
             <p className="note">
-              <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas of Debt are already repaid by yield accrued on {net.label}. Report yield to apply it (a small cross-chain fee).
+              <ClockIcon width={12} height={12} /> ~{fmtGemas(Number(unreported))} Gemas are already paid back by yield earned on {net.label}. Report yield to apply it (a small cross-chain fee).
             </p>
           )}
-          {locked && !canUnlock && <p className="note">Unlock returns the Principal on {net.label} once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
+          {locked && !canUnlock && <p className="note">Unlock returns your {net.native} on {net.label} once it is paid back. Only this Lock&apos;s own yield pays it back.</p>}
         </>
       }
     >
@@ -732,7 +731,7 @@ async function redeemEthSource(ctx: EthCtx, address: string, ref: { vault: strin
   const holder = ctx.signer.publicKey;
   const head = await fetchEthState(base, ref.vault, ref.id, holder);
   const sourceIndex = head.core ? ethSourceIndex(head.core.position, source, head.core.advances) : null;
-  if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Position.");
+  if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Lock.");
   const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), evmClient(netOfVault(ref.vault)).getBlockNumber()]);
   const sig = await redeemToEvm(ctx.signer, head.core!.position, source, gemas, ref.vault);
   const after = await fetchEthState(base, ref.vault, ref.id, holder, sourceIndex);
@@ -749,7 +748,7 @@ export async function instantRedeemEthSource(ctx: EthCtx, ref: { vault: string; 
   const holder = ctx.signer.publicKey;
   const head = await fetchEthState(base, ref.vault, ref.id, holder);
   const sourceIndex = head.core ? ethSourceIndex(head.core.position, source, head.core.advances) : null;
-  if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Position.");
+  if (sourceIndex === null) throw new Error("This Gemas holding is not from an Advance of this Lock.");
   const [before, fromBlock] = await Promise.all([fetchEthState(base, ref.vault, ref.id, holder, sourceIndex), evmClient(netOfVault(ref.vault)).getBlockNumber()]);
   await ensureEvmLinked(ctx);
   const sig = await instantRedeemToEvm(ctx.signer, head.core!.position, source, gemas, ref.vault);

@@ -11,7 +11,7 @@ export default function Page() {
     <DocPage href="/docs/accounts" hero={<Shot name="account" url={`${BRAND.domain}/account/…`} alt="A Player's public Account page with their record, Gemas won and lost, and Match history" priority caption="A Player's public Account page: what they played, nothing more. Figures here are sample data." />}>
       <H2 id="account">One Account</H2>
       <p>
-        Your <b>Account</b> is your single identity on {BRAND.name}. Your Positions, Gemas, Match history and Backings all belong to the Account, not to a
+        Your <b>Account</b> is your single identity on {BRAND.name}. Your Locks, Gemas, Match history and Backings all belong to the Account, not to a
         particular wallet. It holds one address for each chain family: one for Solana and one for Ethereum-style chains (Ethereum and HyperEVM).
       </p>
 
@@ -45,13 +45,13 @@ export default function Page() {
       <p>
         Every Account has a page at <code>/account/&lt;key&gt;</code> that anyone can open, signed in or not. It shows only what the Player played:
         how many Matches they won out of how many, the Gemas they won and lost, their Backings, and their Match history. It shows no balances, no
-        Positions and nothing they did as a Backer. A Player can also use it to send a Challenge link.
+        Locks and nothing they did as a Backer. A Player can also use it to send a Challenge link.
       </p>
 
       <H2 id="linking">Linking an Ethereum address</H2>
       <p>
-        To open a Position on Ethereum or HyperEVM, your Account needs to know which Ethereum address is yours. You sign a short message with that
-        address, and the signature is checked on chain, so nobody can claim an address that is not theirs and receive its Position or payouts. The
+        To lock ETH or HYPE, your Account needs to know which Ethereum address is yours. You sign a short message with that
+        address, and the signature is checked on chain, so nobody can claim an address that is not theirs and receive its Lock or payouts. The
         app walks you through this the first time. See <Link href="/docs/chains">Chains</Link>.
       </p>
 

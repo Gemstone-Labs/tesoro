@@ -70,7 +70,7 @@ export const NumberedSteps: Story = {
   render: () => (
     <Steps
       items={[
-        { title: "Open a Position", body: "Lock simulated stake in your Wallet." },
+        { title: "Get Gemas", body: "Lock simulated tokens in your Wallet." },
         { title: "Take an Advance", body: "Get Gemas against the yield." },
         { title: "Play", body: "Enter a Match with your Gemas." },
       ]}

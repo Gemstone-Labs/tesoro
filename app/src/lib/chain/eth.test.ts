@@ -273,7 +273,7 @@ describe("HyperEVM vault (smoke Position 1, devnet)", () => {
     expect(opSteps("redeem", HYPE_VAULT)[2].title).toBe("simHYPE on HyperEVM");
     expect(opSteps("open", VAULT)[0].title).toBe("Hoodi confirmed");
     expect(opCopy("open", HYPE_VAULT).label).toBe("HYPE → Gemas");
-    expect(opCopy("unlock", HYPE_VAULT).done).toBe("Principal is back on HyperEVM.");
+    expect(opCopy("unlock", HYPE_VAULT).done).toBe("Your coins are back on HyperEVM.");
   });
 });
 

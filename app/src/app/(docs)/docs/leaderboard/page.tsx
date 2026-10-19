@@ -53,7 +53,7 @@ export default function Page() {
         If fewer than ten Players earned points, the shares nobody earned <b>roll into the next season&apos;s Pool</b>.
       </p>
       <p>
-        Prizes are paid in Gemas, each keeping the Source it came from, shortly after the season ends. The ranking is recorded on chain before anything is
+        Prizes are paid in Gemas, each keeping the coin it came from, shortly after the season ends. The ranking is recorded on chain before anything is
         paid.
       </p>
 

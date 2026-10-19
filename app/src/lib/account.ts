@@ -58,7 +58,7 @@ export interface PendingSource {
   chain: GemaHolding["source"]["chain"];
   asset: GemaHolding["source"]["asset"];
   positionId: string;
-  /** Whose Position, e.g. "Your Position". */
+  /** Whose Position, e.g. "Your Lock". */
   owner: string;
   pending: number;
   /** Share of the Source's yield accrued so far (0..1). */
@@ -97,7 +97,7 @@ function fromSnapshot(s: AccountSnapshot) {
         positionId: h.position.toBase58(),
         chain: h.asset,
         asset: h.asset,
-        owner: h.isOwn ? "Your Position" : `${short(h.sourceOwner)}'s Position`,
+        owner: h.isOwn ? "Your Lock" : `${short(h.sourceOwner)}'s Lock`,
         advanceId: h.source.toBase58(),
       },
       gemas: Number(h.amount),

@@ -145,7 +145,7 @@ export function describe(e: NotifyEvent): Message {
     case "offer-accepted":
       return { subject: "A Player accepted your Offer", body: `A Player accepted your ${game} Offer for an entry of ${gemas(e.entry)}. Your Gemas stay reserved until their Match starts.` };
     case "debt-cleared":
-      return { subject: "Your Debt is paid off", body: `The Debt on your ${e.asset} Position reached 0. You can Unlock your Position or take another Advance.` };
+      return { subject: "Your Advance is paid back", body: `Nothing is left to pay back on your ${e.asset} Lock. You can Unlock it or take another Advance.` };
     case "season-placed":
       return { subject: `You placed ${ordinal(e.rank)} in Season ${e.season}`, body: `You placed ${ordinal(e.rank)} in Season ${e.season} and won ${gemas(e.gemas)} from the Pool. They are in your Account.` };
   }

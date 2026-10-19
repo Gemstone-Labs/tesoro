@@ -118,7 +118,7 @@ export class EntryError extends Error {
     super(
       code === "insufficient"
         ? "Not enough Gemas for this entry"
-        : `This entry would draw on more than ${MAX_ENTRY_SOURCES} Sources`,
+        : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances`,
     );
   }
 }

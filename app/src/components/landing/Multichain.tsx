@@ -10,7 +10,7 @@ export function Multichain() {
             One ledger, every chain
           </h2>
           <p className="lp-lede" data-reveal>
-            Positions stay on their home chains; {BRAND.name} connects them to the Solana ledger.
+            Locks stay on their home chains; {BRAND.name} connects them to the Solana ledger.
           </p>
         </header>
         <div data-reveal>

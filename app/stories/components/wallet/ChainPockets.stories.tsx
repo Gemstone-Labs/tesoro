@@ -17,7 +17,7 @@ const tile = (chain: Chain, n: number, principal: string, state: "repaying" | "p
   <PositionTile
     key={`${chain}${n}`}
     chain={chain}
-    label={`${chain} Position ${n}`}
+    label={`${chain} Lock ${n}`}
     state={state}
     principal={principal}
     debt={state === "repaying" ? "1,240 Gemas" : "0"}

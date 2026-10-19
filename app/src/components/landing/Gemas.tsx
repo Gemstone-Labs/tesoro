@@ -12,11 +12,11 @@ const BEATS = [
   },
   {
     line: "Every Gema is a claim on real staking yield.",
-    support: "Each Gema keeps its Source: the Advance it was issued from, and the asset it redeems for.",
+    support: "Each Gema keeps its origin: the Advance it was issued from, and the coin it redeems for.",
   },
   {
     line: "The Advance is repaid from yield.",
-    support: "Your Position’s yield pays down its Debt. When Debt reaches zero, the Position unlocks.",
+    support: "Your Lock’s yield pays back what it gave you. When nothing is left to pay back, the Lock unlocks.",
   },
 ];
 

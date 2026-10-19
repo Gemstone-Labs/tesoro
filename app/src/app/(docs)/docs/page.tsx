@@ -49,11 +49,11 @@ const GROUPS: Group[] = [
   },
   {
     n: "02",
-    name: "Your Position",
+    name: "Your Lock",
     purpose: "Lock a staking token, take an Advance, hold Gemas, and know what it costs.",
     start: "/docs/positions",
     items: [
-      { href: "/docs/positions", icon: Lock, tone: "emerald", tag: "position · advance · debt" },
+      { href: "/docs/positions", icon: Lock, tone: "emerald", tag: "lock · advance · pay back" },
       { href: "/docs/gemas", icon: Gem, tone: "emerald", tag: "source · redeem" },
       { href: "/docs/fees", icon: Percent, tone: "emerald", tag: "match · yield · redeem now" },
     ],
@@ -79,7 +79,7 @@ const GROUPS: Group[] = [
   {
     n: "05",
     name: "Chains and limits",
-    purpose: "Where Positions live, and what can go wrong.",
+    purpose: "Where Locks live, and what can go wrong.",
     start: "/docs/chains",
     items: [
       { href: "/docs/chains", icon: Network, tone: "steel", tag: "solana · ethereum · hyperevm" },
@@ -120,7 +120,7 @@ export default function Page() {
           <p className="dx-eyebrow">Documentation</p>
           <h1 id="docs-title">{BRAND.name} Docs</h1>
           <p className="dx-hero-lede">
-            Stake a token, then <b>play now with the yield it has not earned yet</b>. Your Principal stays locked and is never played. These pages cover
+            Lock a token, then <b>play now with the yield it has not earned yet</b>. What you lock stays locked and is never played. These pages cover
             it in plain words for players and in full detail for developers.
           </p>
           <Stats
@@ -138,12 +138,12 @@ export default function Page() {
 
       <section className="dx-band" aria-labelledby="what-is">
         <h2 id="what-is">What is {BRAND.name}?</h2>
-        <p className="dx-band-big">Staking yield sits idle, and play costs your principal. {BRAND.name} lets you play with the yield before it arrives.</p>
+        <p className="dx-band-big">Staking yield sits idle, and play costs the coins you locked. {BRAND.name} lets you play with the yield before it arrives.</p>
         <Cards
           items={[
-            { tag: "The problem", title: "Yield waits, play costs", icon: Hourglass, tone: "amber", body: "Staked tokens earn slowly, and anything you want to play with has to come out of the amount you staked." },
-            { tag: "The fix", title: "Play now, Principal never played", icon: Sprout, tone: "emerald", body: `An Advance pays your Position's projected yield upfront as Gemas, net of ${BRAND.name}'s 20% Yield Fee. Your Principal stays locked, and the Position's own yield repays the Advance.` },
-            { tag: "Why it compounds", title: "Winners redeem as yield lands", icon: Repeat, tone: "emerald", body: `Gemas you win turn into the loser's Source asset as that yield arrives, or right away for ${INSTANT_PAYOUT_PCT}% with Redeem now. Backing and the weekly Leaderboard Pool give more Gemas a reason to move.` },
+            { tag: "The problem", title: "Yield waits, play costs", icon: Hourglass, tone: "amber", body: "Locked tokens earn slowly, and anything you want to play with has to come out of the amount you locked." },
+            { tag: "The fix", title: "Play now, what you lock is never played", icon: Sprout, tone: "emerald", body: `An Advance pays your Lock's projected yield upfront as Gemas, net of ${BRAND.name}'s 20% Yield Fee. What you lock stays locked, and the Lock's own yield repays the Advance.` },
+            { tag: "Why it compounds", title: "Winners redeem as yield lands", icon: Repeat, tone: "emerald", body: `Gemas you win turn into the loser's coin as that yield arrives, or right away for ${INSTANT_PAYOUT_PCT}% with Redeem now. Backing and the weekly Leaderboard Pool give more Gemas a reason to move.` },
           ]}
         />
         <div className="dx-works" aria-label="Built on">

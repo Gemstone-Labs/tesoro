@@ -44,7 +44,7 @@ describe("ends and options", () => {
     const t = confirmText("self-exclusion", NOW + 180 * DAY_SECS);
     expect(t).toMatch(/cannot be undone/);
     expect(t).toMatch(/Advance/);
-    expect(t).toMatch(/Redeem, Unlock and repay Debt/);
+    expect(t).toMatch(/Redeem, Unlock and pay back what you owe/);
     expect(confirmText("break", NOW + DAY_SECS)).not.toMatch(/Advance/);
   });
 });
