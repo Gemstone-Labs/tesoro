@@ -2,6 +2,17 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Vanguard on devnet (2026-10-19)
+
+Played only on the staging app (branch `staging`) until launch; the app on `main` leaves Vanguard Matches, Requests and Offers out.
+
+- **Program:** `vanguard` `TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH`, 774,712 B, sha256 `6a504a27…`, slot 512819688, sig `cRGf4q1Z…`. Upgrade authority: the deployer.
+- **Config:** `keeper/scripts/vanguard-config.ts`: TEE `MTEWGuqx…`, VRF queue `5hBR571x…` (sig `4BgTpKYc…`).
+- **TEE whitelist:** `whitelist-tee.ts` (sig `m4HE1feP…`).
+- **Registered in tesoro_core:** `register-game.ts <id> 300`, authority `ApLcUhNF…`, Studio recipient = Platform recipient (sig `3Z91BCcK…`).
+- **Keeper:** the VPS keeper runs the `staging` branch until launch (its Vanguard job settles, claims, deals and refunds Battles). It drops email events the live app refuses as malformed (Vanguard ones), so the other Games' emails still go out.
+- **Launch:** merge `staging` into `main` (Vanguard joins the Lobby first), then put the VPS keeper back on `main`.
+
 ## ETH/HYPE on the computed model: new vaults + bridge (2026-10-19)
 
 Yield-by-math tickets 08, 09 and the ETH half of 06 (ADR 0010). The keeper no longer sends `reportYield`; Redeem, Instant Redeem and Unlock ask for a Yield Report (the relayer sends it in test mode) and wait until it is applied. The Yield Report is 101 bytes (`cumulative | treasuryBalance | instantPaid | reportTime`); `BridgePosition` is 212 bytes and `VaultTreasury` 101 (audit B-2 fixed, see `docs/cross-chain.md`). The 2026-10-12 vaults (`0x191700BA…` Hoodi, `0x61B46f64…` HyperEVM) are abandoned with their Positions (their Solana records were retired with the SOL reset).

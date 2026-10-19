@@ -22,6 +22,10 @@ Base-layer RPC: `https://rpc.magicblock.app/devnet` (the public `api.devnet.sola
 | `trading_duel` | [`CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj`](https://explorer.solana.com/address/CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj?cluster=devnet) |
 | `trading_duel` Game authority PDA (registered in `tesoro_core`, Studio Fee 300 bps) | `mPXSGjpEeSeJnmrBw3CKCoLbbftAsjsbiP1eE3wHcoe` |
 | `trading_duel` delegation ProgramConfig (TEE validator whitelist) | `43amrCapYPLYz9tGPcdxw84A3Hby9j4kSTmDTCmu7xZb` |
+| `vanguard` | [`TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH`](https://explorer.solana.com/address/TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH?cluster=devnet) |
+| `vanguard` Game authority PDA (registered in `tesoro_core`, Studio Fee 300 bps) | `ApLcUhNFL75BZ1USZY8mZVaUvuzq29XbvyLLM9hvCWzS` |
+| `vanguard` config PDA (TEE validator + VRF queue) | `7S1gDZnm96gFTtFBaEhG84p5eoya2uLmACFKaxMBrMvA` |
+| `vanguard` delegation ProgramConfig (TEE validator whitelist) | `CLz5xUmeQYjQsr5PJnhYHuMWFYeS64fwQeMzKNQwDv7Q` |
 | MagicBlock TEE validator (the only validator allowed to receive delegations) | `MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo` |
 | `sim_lst` (**Simulated** LST) | [`WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F`](https://explorer.solana.com/address/WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F?cluster=devnet) |
 | `sim_lst` Pool PDA (7% APY, 4,380× speedup) | `Fc9UUnGEDapkBDM3mPayjqVDLYHokKCPwSLdbvKBUvPL` |
