@@ -22,12 +22,12 @@ const { conn: c, keypair: admin, program: core } = await adminSigning(a, program
 const authority = gameAuthorityPda(game);
 const info = await c.getAccountInfo(configPda(core));
 if (!info) throw new Error("Config does not exist: tesoro_core is not initialised on this cluster");
-const cfg: any = new anchor.BorshAccountsCoder(coreIdl as any).decode("config", info.data);
+const cfg: any = new anchor.BorshAccountsCoder(coreIdl as any).decode("Config", info.data);
 const entry = cfg.games.find((g: any) => g.game.equals(game));
 if (entry && entry.authority.equals(authority)) {
   console.log("already registered", authority.toBase58());
 } else {
-  const studio = a.value("studio") ? coreAccountPda(core, new PublicKey(a.value("studio")!)) : cfg.platformRecipient;
+  const studio = a.value("studio") ? coreAccountPda(core, new PublicKey(a.value("studio")!)) : cfg.platform_recipient;
   const ix = coreIx(core, "register_game", { admin: admin.publicKey, studio_recipient: studio }, { game, authority, studio_bps: studioBps });
   const tx = new Transaction().add(ix);
   if (a.flag("dry-run")) {
