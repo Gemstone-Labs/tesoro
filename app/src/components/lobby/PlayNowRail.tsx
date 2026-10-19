@@ -72,7 +72,7 @@ export function PlayNowRail() {
       {live.map((g, i) => (
         <div key={g.key} className={`tile-cell${i === tiles - 1 && tiles % 2 === 1 ? " last-odd" : ""}`}>
           <Link href={`/play/${g.game}`} className="cut cut-frame tile" onPointerMove={tilt} onPointerLeave={untilt}>
-            <Image src={g.wide ?? g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" style={g.wide ? { objectPosition: "right center" } : undefined} />
+            <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" />
             <span className="tile-shade" aria-hidden="true" />
             <span className="tile-glare" aria-hidden="true" />
             <span className="cut cut-chip tile-live">

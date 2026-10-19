@@ -5,8 +5,6 @@ export interface CatalogueEntry {
   key: string;
   name: string;
   tile: string;
-  /** Wide art for the big /play card when the square tile crops badly there, shown right-aligned. */
-  wide?: string;
   /** Playable today. Coming-soon entries are dimmed and not clickable. */
   live: boolean;
   game?: GameId;
@@ -16,7 +14,7 @@ export interface CatalogueEntry {
 export const CATALOGUE: CatalogueEntry[] = [
   { key: "block-puzzle", name: "Block Puzzle", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
   { key: "holdem", name: "Heads-up Hold'em", tile: art.holdemTile, live: true, game: "holdem" },
-  { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, wide: art.tradingDuelHero, live: true, game: "trading-duel" },
+  { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, live: true, game: "trading-duel" },
   { key: "vanguard", name: "Vanguard", tile: art.vanguardTile, live: true, game: "vanguard" },
   { key: "word-duel", name: "Word Duel", tile: art.comingSoon["word-duel"], live: false },
   { key: "bubble-burst", name: "Bubble Burst", tile: art.comingSoon["bubble-burst"], live: false },

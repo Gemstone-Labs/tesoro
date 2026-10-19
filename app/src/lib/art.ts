@@ -17,7 +17,7 @@ export const art = {
   /** Square key art. */
   blockPuzzleTile: f("block-puzzle-tile"),
   holdemTile: f("holdem-tile"),
-  tradingDuelTile: f("trading-duel-tile"),
+  tradingDuelTile: f("trading-duel-tile-2"),
   vanguardTile: f("vanguard-tile-2"),
   comingSoon: {
     "word-duel": f("coming-soon-word-duel"),
@@ -42,7 +42,7 @@ export const art = {
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),
     holdem: f("holdem-tile"),
-    "trading-duel": f("trading-duel-tile"),
+    "trading-duel": f("trading-duel-tile-2"),
     vanguard: f("vanguard-tile-2"),
   },
   /**
