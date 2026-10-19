@@ -100,7 +100,7 @@ export const matches: Match[] = [
 
 export const GAME_NAMES: Record<GameId, string> = {
   "block-puzzle": "Block Puzzle",
-  holdem: "Heads-up Hold'em",
+  holdem: "Buckshot Hold'em",
   "trading-duel": "Trading Duel",
 };
 

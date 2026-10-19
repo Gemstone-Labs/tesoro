@@ -36,7 +36,7 @@ export const ThumbRowChip: Story = {
   args: {},
   render: () => (
     <div className="stack">
-      <Row game="holdem" title="Heads-up Hold'em" meta="Live · 2 in Queue" cta="Play" href="/play?game=holdem" />
+      <Row game="holdem" title="Buckshot Hold'em" meta="Live · 2 in Queue" cta="Play" href="/play?game=holdem" />
       <Row game="block-puzzle" title="Block Puzzle" meta="vs Otter · 171 – 140" when="2 min ago" delta={900} cta="Open" href="#match" />
       <Row thumb={<Thumb>D</Thumb>} title="Dana asks for 1,000" meta="Block Puzzle · 38 Matches" cta="Offer" ctaTone="money" onClick={() => {}} />
       <Row title="Static row" meta="No action" />

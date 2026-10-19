@@ -10,7 +10,7 @@ const { PlayNowRail } = await import("./PlayNowRail");
 describe("PlayNowRail", () => {
   it("shows every live Game's tile without a 'Live now' tag (they are all live)", () => {
     const html = renderToStaticMarkup(<PlayNowRail />);
-    expect(html).toContain("Heads-up Hold");
+    expect(html).toContain("Buckshot Hold");
     expect(html).toContain("Block Puzzle");
     expect(html).not.toMatch(/live now/i);
   });

@@ -19,11 +19,11 @@ type Story = StoryObj<typeof meta>;
 export const Won: Story = { args: { game: "block-puzzle", title: "Block Puzzle", meta: "vs Otter · 171 – 140", when: "2 min ago", delta: 900, cta: "Open", ctaTone: "neutral", href: "#won" } };
 export const Lost: Story = { args: { game: "holdem", title: "Hold'em", meta: "vs Lynx · Entry 500", when: "1 h ago", delta: -500, cta: "Open", ctaTone: "neutral", href: "#lost" } };
 export const Draw: Story = { args: { game: "trading-duel", title: "Trading Duel", meta: "vs Heron · SOL", when: "3 h ago", delta: 0, cta: "Open", ctaTone: "neutral", href: "#draw" } };
-export const Game: Story = { args: { game: "holdem", title: "Heads-up Hold'em", meta: "Live · 2 in Queue", cta: "Play", ctaTone: "neutral", href: "#game" } };
+export const Game: Story = { args: { game: "holdem", title: "Buckshot Hold'em", meta: "Live · 2 in Queue", cta: "Play", ctaTone: "neutral", href: "#game" } };
 
 /** A button row. Emerald call to action only where Gemas move. */
 export const Button: Story = { args: { thumb: <Thumb>D</Thumb>, onClick: () => {} } };
 
-export const Link: Story = { args: { thumb: <Thumb variant="poker">A♠K</Thumb>, title: "Heads-up Hold'em", meta: "Live · 2 in Queue", cta: "Play", ctaTone: "neutral", href: "/play?game=holdem" } };
+export const Link: Story = { args: { thumb: <Thumb variant="poker">A♠K</Thumb>, title: "Buckshot Hold'em", meta: "Live · 2 in Queue", cta: "Play", ctaTone: "neutral", href: "/play?game=holdem" } };
 
 export const Static: Story = { args: { title: "Static row", meta: "No action", cta: undefined } };

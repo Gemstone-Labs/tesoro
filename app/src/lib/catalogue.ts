@@ -15,7 +15,7 @@ export const LOBBY_ORDER: GameId[] = ["holdem", "trading-duel", "block-puzzle"];
 
 /** The Lobby's Play Now rail: the live Games first, then the announced ones. */
 export const CATALOGUE: CatalogueEntry[] = [
-  { key: "holdem", name: "Heads-up Hold'em", tile: art.holdemTile, live: true, game: "holdem" },
+  { key: "holdem", name: "Buckshot Hold'em", tile: art.holdemTile, live: true, game: "holdem" },
   { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, live: true, game: "trading-duel" },
   { key: "block-puzzle", name: "Block Puzzle", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
   { key: "word-duel", name: "Word Duel", tile: art.comingSoon["word-duel"], live: false },

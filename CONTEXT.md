@@ -76,7 +76,7 @@ A `.sol` (Solana Name Service) or `.eth` (ENS) primary name of a wallet the Play
 ### Play
 
 **Game**:
-A title in Tesoro's catalogue, made by a Studio. The launch catalogue is three Games: heads-up Hold'em (real-time), a block-placement puzzle (async) and Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes).
+A title in Tesoro's catalogue, made by a Studio. The launch catalogue is three Games: Buckshot Hold'em (heads-up poker, real-time), a block-placement puzzle (async) and Trading Duel (real-time, two Players pick boxes on a price grid and score when the live price line passes through them, over two and a half minutes).
 _Avoid_: app, title, Match (a single contest)
 
 **Seed**:
