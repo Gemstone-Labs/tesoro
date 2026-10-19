@@ -18,7 +18,7 @@ export const art = {
   blockPuzzleTile: f("block-puzzle-tile"),
   holdemTile: f("holdem-tile"),
   tradingDuelTile: f("trading-duel-tile"),
-  vanguardTile: f("vanguard-tile"),
+  vanguardTile: f("vanguard-tile-2"),
   comingSoon: {
     "word-duel": f("coming-soon-word-duel"),
     "bubble-burst": f("coming-soon-bubble-burst"),
@@ -43,7 +43,7 @@ export const art = {
     "block-puzzle": f("block-puzzle-tile"),
     holdem: f("holdem-tile"),
     "trading-duel": f("trading-duel-tile"),
-    vanguard: f("vanguard-tile"),
+    vanguard: f("vanguard-tile-2"),
   },
   /**
    * Guide characters, torso-up crops (made by scripts/make-busts.mjs from the full-body poses, which

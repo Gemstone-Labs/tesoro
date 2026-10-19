@@ -17,7 +17,7 @@ export const CATALOGUE: CatalogueEntry[] = [
   { key: "block-puzzle", name: "Block Puzzle", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
   { key: "holdem", name: "Heads-up Hold'em", tile: art.holdemTile, live: true, game: "holdem" },
   { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, wide: art.tradingDuelHero, live: true, game: "trading-duel" },
-  { key: "vanguard", name: "Vanguard", tile: art.vanguardTile, wide: art.vanguardHero, live: true, game: "vanguard" },
+  { key: "vanguard", name: "Vanguard", tile: art.vanguardTile, live: true, game: "vanguard" },
   { key: "word-duel", name: "Word Duel", tile: art.comingSoon["word-duel"], live: false },
   { key: "bubble-burst", name: "Bubble Burst", tile: art.comingSoon["bubble-burst"], live: false },
   { key: "pocket-pool", name: "Pocket Pool", tile: art.comingSoon["pocket-pool"], live: false },

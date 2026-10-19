@@ -69,7 +69,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 
 .vg-depot { position: absolute; z-index: 2; width: calc(var(--vg-sq) * 1.45); height: calc(var(--vg-sq) * 1.45); transform: translate(-50%, -54%); pointer-events: none;
   background: url(/art/vanguard/depot-full.webp) center / contain no-repeat; filter: drop-shadow(0 calc(var(--vg-sq) * 0.05) calc(var(--vg-sq) * 0.05) rgba(0, 0, 0, 0.55)); }
-.vg-depot.claimed { background-image: url(/art/vanguard/depot-claimed.webp); }
+.vg-depot.claimed { background-image: url(/art/vanguard/depot-burnt.webp); }
 
 /* a marker: squashed top (seen at a slight angle) over a dark turned-wood side */
 .vg-piece { --w: calc(var(--vg-sq) * 0.84); --t: calc(var(--w) * 0.15); position: absolute; z-index: 4; width: var(--vg-sq); height: var(--vg-sq); padding: 0; border: 0; background: none; display: grid; place-items: center; cursor: pointer;

@@ -1,5 +1,8 @@
 import { PublicKey } from "@solana/web3.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fetchBackingBoard } from "./backing";
+import { fetchAccountMatches } from "./read";
+import { fetchSettled } from "./recent";
 
 const stranger = Array.from(new PublicKey("11111111111111111111111111111112").toBytes());
 const player = Array.from(new PublicKey("SysvarC1ock11111111111111111111111111111111").toBytes());
@@ -44,18 +47,15 @@ beforeEach(() => {
 
 describe("a Match of a program this app does not play", () => {
   it("is left out of an Account's Matches instead of breaking the read", async () => {
-    const { fetchAccountMatches } = await import("./read");
     const out = await fetchAccountMatches(new PublicKey(Uint8Array.from(player)));
     expect(out).toEqual({ played: [], funded: [] });
   });
 
   it("is left out of the settled list", async () => {
-    const { fetchSettled } = await import("./recent");
     expect(await fetchSettled({ limit: 5 })).toEqual([]);
   });
 
   it("is left out of the Backing board", async () => {
-    const { fetchBackingBoard } = await import("./backing");
     const board = await fetchBackingBoard();
     expect(board.requests).toEqual([]);
   });
