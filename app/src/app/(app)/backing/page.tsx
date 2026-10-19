@@ -63,7 +63,7 @@ function explain(e: unknown): string {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
       ? "Not enough available Gemas. Gemas reserved for your other Offers cannot be reserved again."
-      : `This entry would draw on more than ${MAX_ENTRY_SOURCES} Sources. Redeem a few small balances in your Wallet first.`;
+      : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances. Redeem a few small balances in your Wallet first.`;
   }
   return plainError(e);
 }

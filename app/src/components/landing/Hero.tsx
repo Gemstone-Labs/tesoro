@@ -45,7 +45,7 @@ export function Hero() {
             Play now with <em className="lp-hl">yield</em> you haven&rsquo;t earned yet.
           </span>
         </h1>
-        <p className="lp-lede">Skill games on Solana; your staking Principal is never played.</p>
+        <p className="lp-lede">Skill games on Solana; what you lock is never played.</p>
         <div className="lp-ctas">
           <span className="lp-cta-glow">
             <a className="btn money lg cut cut-btn lp-shine" href={appHref()}>

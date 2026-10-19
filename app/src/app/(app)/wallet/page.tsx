@@ -62,8 +62,8 @@ export default function Wallet() {
     pose: "himExplain",
     title: "Pending is not lost",
     text: REAL
-      ? "Gemas you win stay Pending until the yield of their Source lands, then they become redeemable."
-      : "Gemas you win stay Pending until the yield of their Source lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
+      ? "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable."
+      : "Gemas you win stay Pending until the yield of their Lock lands, then they become redeemable. Yield here is simulated: 1 month = 10 min.",
   });
 
   if (auth.status === "signed-out") {
@@ -71,7 +71,7 @@ export default function Wallet() {
       <Card large as="section" aria-label="Sign in to see your Wallet">
         <div className="stack">
           <h1 className="page-title">Wallet</h1>
-          <p className="meta">Your Positions, Gemas and Advances belong to your Account. Sign in to see them.</p>
+          <p className="meta">Your Locks, Gemas and Advances belong to your Account. Sign in to see them.</p>
           <Button block onClick={() => auth.openSignIn()}>Sign in</Button>
         </div>
       </Card>
@@ -144,7 +144,7 @@ export default function Wallet() {
     const closed: React.ReactNode[] = [];
     let n = 0;
     for (const p of (snapshot?.positions ?? []).filter((x) => (chain === "SOL" ? x.native : x.eth && x.asset === chain))) {
-      const label = `${chain} Position ${++n}`;
+      const label = `${chain} Lock ${++n}`;
       const tile = p.native ? (
         <NativePositionCard key={p.address.toBase58()} position={p} market={market} onRedeem={() => openRedeem("SOL")} label={label} compact />
       ) : (
@@ -152,7 +152,7 @@ export default function Wallet() {
       );
       (p.status === "unlocked" ? closed : positions).push(tile);
     }
-    for (const p of generic.filter((x) => x.chain === chain)) positions.push(genericTile(p, `${chain} Position ${++n}`));
+    for (const p of generic.filter((x) => x.chain === chain)) positions.push(genericTile(p, `${chain} Lock ${++n}`));
     return { positions, closed };
   };
 
@@ -183,7 +183,7 @@ export default function Wallet() {
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
   const noPositions = pockets.length === 0 && !loading;
   const heroNext = pockets.filter((p) => p.gemas > p.redeemable && p.nextRedeemAt).reduce<number | null>((m, p) => (m === null || p.nextRedeemAt! < m ? p.nextRedeemAt! : m), null);
-  const openPosition = () => auth.gate("open a Position", () => openTab(tab));
+  const openPosition = () => auth.gate("get Gemas", () => openTab(tab));
 
   return (
     <div className="wl">
@@ -244,10 +244,10 @@ export default function Wallet() {
         {!REAL && <SimulatedYieldLabel className="wl-hero-sim" />}
       </section>
 
-      <section className="wl-positions" aria-label="Your Gemas and Positions by chain">
+      <section className="wl-positions" aria-label="Your Gemas and Locks by chain">
         {onChain && loading && positions.length === 0 && (
           <div className="wl-pockets">
-            <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Positions…" />
+            <SkeletonCards count={2} avatar={false} className="wl-tile" label="Loading your Locks…" />
           </div>
         )}
         {gemas.reserved > 0 && (
@@ -262,7 +262,7 @@ export default function Wallet() {
 
       <footer className="wl-foot">
         {hasPositions && <p className="note">Unlock Estimate is an estimate, not a promise: it moves with the provider&apos;s actual yield. Charts are projections from the live yield rate.</p>}
-        {onChain && <p className="note">{REAL ? "Redeem pays the staking token of the Source (jitoSOL for SOL Positions) from the yield your Source Position has earned so far." : "Redeem pays simSOL (simulated) from the yield your Source Position has earned so far."}</p>}
+        {onChain && <p className="note">{REAL ? "Redeem pays the staking token (jitoSOL for SOL Locks) from the yield your Lock has earned so far." : "Redeem pays test SOL (simulated) from the yield your Lock has earned so far."}</p>}
       </footer>
 
       <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Get Gemas">
@@ -285,7 +285,7 @@ export default function Wallet() {
 
 /** The ETH and HYPE tabs: on the mainnet cluster a chain whose vault address is not set has nothing to open yet. */
 function EthVaultForm({ unit, vault, onOpened }: { unit: "ETH" | "HYPE"; vault: EthVault | undefined; onOpened: (opKey: string) => void }) {
-  if (!vault) return <p className="note">Opening a {unit} Position is not available yet. It will appear here as soon as it is.</p>;
+  if (!vault) return <p className="note">Locking {unit} is not available yet. It will appear here as soon as it is.</p>;
   return <EthOpenForm vault={vault} onOpened={onOpened} />;
 }
 

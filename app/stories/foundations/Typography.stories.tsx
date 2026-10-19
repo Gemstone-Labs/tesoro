@@ -35,7 +35,7 @@ const SCALE: { cls: string; title: string; note: string; node: React.ReactNode }
   { cls: "h-section", title: ".h-section", note: "Section headers. 30 to 48 px, fluid.", node: <h2 className="h-section">Play now</h2> },
   { cls: "display", title: ".display", note: "The same face for anything else that needs it; set the size yourself.", node: <span className="display" style={{ fontSize: 56 }}>Block Puzzle</span> },
   { cls: "row-title", title: ".row-title", note: "Plain list rows keep Schibsted; a Row with a Game sets its title in the display face.", node: <span className="row-title">Block Puzzle · 1,000 entry</span> },
-  { cls: "body", title: "Body (14 px)", note: "The page default.", node: <p>Gemas you win are pending until the Position they came from pays out.</p> },
+  { cls: "body", title: "Body (14 px)", note: "The page default.", node: <p>Gemas you win are pending until the Lock they came from pays out.</p> },
   { cls: "label", title: ".label", note: "Small uppercase captions.", node: <span className="label">Redeemable now</span> },
   { cls: "meta", title: ".meta", note: "Secondary text. 12.5 px, --fg-2.", node: <span className="meta">12 Matches · 58% won</span> },
   { cls: "mono", title: ".mono", note: "Plex Mono for hashes, chain chips, timers.", node: <span className="mono">7zr1…qh7M · 04:59</span> },

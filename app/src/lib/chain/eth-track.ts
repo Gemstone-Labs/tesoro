@@ -47,16 +47,16 @@ export const opSteps = (kind: EthOpKind, vault: string): CrossChainStep[] => {
   const w = opWords(vault);
   return {
     open: [
-      { title: `${w.net} confirmed`, note: `Your Position is open on ${w.net}` },
-      { title: "Reached Solana", note: `${BRAND.name} received your Position` },
-      { title: "Position recorded", note: "Added to your Account" },
-      { title: "Advance taken", note: "At today’s price, for your Horizon" },
+      { title: `${w.net} confirmed`, note: `Your Lock is open on ${w.net}` },
+      { title: "Reached Solana", note: `${BRAND.name} received your Lock` },
+      { title: "Lock recorded", note: "Added to your Account" },
+      { title: "Advance taken", note: "At today’s price, for your Length" },
       { title: "Gemas available", note: "Gemas credited to your Account" },
     ],
     yield: [
       { title: `${w.net} confirmed`, note: `Yield report sent from ${w.net}` },
       { title: "Reached Solana", note: `${BRAND.name} received the yield report` },
-      { title: "Debt updated", note: "The yield paid down your Debt" },
+      { title: "Paid back more", note: "The yield paid down what you owe" },
     ],
     redeem: [
       { title: "Redeemed", note: "Your Gemas are exchanged and the payout is recorded" },
@@ -69,9 +69,9 @@ export const opSteps = (kind: EthOpKind, vault: string): CrossChainStep[] => {
       { title: `${w.symbol} on ${w.net}`, note: "Paid to your wallet" },
     ],
     unlock: [
-      { title: "Unlocked", note: "Debt is zero; the Position is unlocked" },
+      { title: "Unlocked", note: "Paid back; the Lock is unlocked" },
       { title: `On its way to ${w.net}`, note: "The unlock is crossing chains" },
-      { title: `Principal on ${w.net}`, note: "Your Principal is back in your wallet" },
+      { title: `Your ${w.net} is back`, note: "What you locked is back in your wallet" },
     ],
   }[kind];
 };
@@ -90,9 +90,9 @@ export const opCopy = (kind: EthOpKind, vault: string): { label: string; finalSt
     yield: {
       label: "Report yield",
       finalState: "Updated",
-      done: `Debt updated from the yield accrued on ${w.net}.`,
-      pending: "Pending. Debt only falls once the report arrives.",
-      failed: "This step failed. Debt is unchanged.",
+      done: `Paid back more from the yield earned on ${w.net}.`,
+      pending: "Pending. What you owe only falls once the report arrives.",
+      failed: "This step failed. What you owe is unchanged.",
     },
     redeem: {
       label: `Redeem → ${w.net}`,
@@ -111,9 +111,9 @@ export const opCopy = (kind: EthOpKind, vault: string): { label: string; finalSt
     unlock: {
       label: `Unlock → ${w.net}`,
       finalState: "Returned",
-      done: `Principal is back on ${w.net}.`,
-      pending: "Pending. The Principal is not back until the last step completes.",
-      failed: "This step failed. The Position is unlocked and the transfer can be retried.",
+      done: `Your coins are back on ${w.net}.`,
+      pending: "Pending. Your coins are not back until the last step completes.",
+      failed: "This step failed. The Lock is unlocked and the transfer can be retried.",
     },
   }[kind];
 };

@@ -50,7 +50,7 @@ export function AccountSheet({
             chains={[1, 2]}
             title="ETH & HYPE"
             address={evm?.address ?? addresses.evm}
-            note={link === "linked" ? "Linked: ETH and HYPE payouts go here" : link === "unlinked" ? "Links with one signature on your first ETH or HYPE Position" : undefined}
+            note={link === "linked" ? "Linked: ETH and HYPE payouts go here" : link === "unlinked" ? "Links with one signature on your first ETH or HYPE Lock" : undefined}
           />
         </div>
       </section>

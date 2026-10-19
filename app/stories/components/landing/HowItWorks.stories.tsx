@@ -11,7 +11,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The five steps from a Position to a Match, as a map. */
+/** The five steps from a Lock to a Match, as a map. */
 export const Dark: Story = {};
 export const Light: Story = { parameters: { theme: "light" } };
 export const Phone: Story = { globals: { viewport: { value: "phone390", isRotated: false } } };

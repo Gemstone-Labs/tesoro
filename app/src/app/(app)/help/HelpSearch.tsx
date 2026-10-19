@@ -47,7 +47,7 @@ export function HelpSearch({ children }: { children: ReactNode }) {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Escape" && setValue("")}
-          placeholder="Search: Debt, Fees, Hold'em…"
+          placeholder="Search: Locks, Fees, Hold'em…"
           aria-label="Search Help"
         />
         {value && (

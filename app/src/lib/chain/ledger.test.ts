@@ -74,7 +74,7 @@ describe("planEntry", () => {
   it("caps an entry at MAX_ENTRY_SOURCES Holdings", () => {
     expect(MAX_ENTRY_SOURCES).toBe(8);
     const nine = Array.from({ length: 9 }, (_, i) => h(i + 1, true, 60n));
-    expect(() => planEntry(500n, nine)).toThrow(/more than 8 Sources/);
+    expect(() => planEntry(500n, nine)).toThrow(/more than 8 Advances/);
     expect(entryProblem(500n, nine)).toBe("too-many-sources");
     // 3 Sources are no longer a dead end (was capped at 2).
     expect(planEntry(500n, [h(1, true, 200n), h(2, true, 200n), h(3, true, 200n)])).toEqual([0, 1, 2]);

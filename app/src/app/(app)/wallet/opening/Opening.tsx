@@ -15,10 +15,10 @@ import { useEthCtx, useOpTracker } from "../EthPositions";
 import "./opening.css";
 import { BRAND } from "@/lib/brand";
 
-const stepsFor = (label: string) => [`${label} confirmed`, "Reached Solana", "Position recorded", "Gemas available"];
+const stepsFor = (label: string) => [`${label} confirmed`, "Reached Solana", "Lock recorded", "Gemas available"];
 /** Steps of the five-step `open` op that must be done for each of the four shown steps. */
 const NEEDS = [1, 2, 3, 5];
-const notesFor = (label: string) => [`Your Position is open on ${label}`, `${BRAND.name} received it on Solana`, "Added to your Account", "Your Advance lands as Gemas"];
+const notesFor = (label: string) => [`Your Lock is open on ${label}`, `${BRAND.name} received it on Solana`, "Added to your Account", "Your Advance lands as Gemas"];
 const ACTIVE = ["Confirming…", "Delivering…", "Recording…", "Taking your Advance…"];
 
 function useOps(address: string | null): EthOp[] {
@@ -49,8 +49,8 @@ function Empty({ signedIn }: { signedIn: boolean }) {
   return (
     <div className="op">
       <div className="cut cut-frame op-ticket">
-        <h1 className="op-empty-title">Opening your Position</h1>
-        <p className="op-sub">{signedIn ? "No ETH or HYPE Position is opening in this browser." : "Sign in to see a Position that is opening."}</p>
+        <h1 className="op-empty-title">Locking your coins</h1>
+        <p className="op-sub">{signedIn ? "No ETH or HYPE Lock is starting in this browser." : "Sign in to see a Lock that is starting."}</p>
         <div className="op-actions">
           <Button href="/wallet">Back to Wallet</Button>
         </div>
@@ -91,12 +91,12 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
 
   return (
     <div className="op">
-      <h1 className="sr-only">{finished ? `Your ${net.native} Position is open` : `Opening your ${net.native} Position`}</h1>
+      <h1 className="sr-only">{finished ? `Your ${net.native} Lock is open` : `Locking your ${net.native}`}</h1>
       <article className={`cut cut-frame op-ticket${finished ? " is-done" : ""}`}>
         <header className="op-top">
           <span className={`op-status${finished ? " ok" : error ? " bad" : ""}`} role="status">
             {finished ? <Check aria-hidden="true" /> : error ? <TriangleAlert aria-hidden="true" /> : <LoaderCircle className="op-spin" aria-hidden="true" />}
-            {finished ? "Position open" : error ? "Retrying" : `Opening · ${elapsed}`}
+            {finished ? "Lock open" : error ? "Retrying" : `Opening · ${elapsed}`}
           </span>
           <div className="op-swap">
             <div>
@@ -111,7 +111,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
               </b>
             </div>
           </div>
-          <p className="op-sub">{finished ? "In your balance now. Your Principal stays locked and is never played." : "Gemas arrive once your Position has crossed to Solana."}</p>
+          <p className="op-sub">{finished ? "In your balance now. What you lock stays locked and is never played." : "Gemas arrive once your Lock has crossed to Solana."}</p>
         </header>
 
         <div className="op-perf" aria-hidden="true" />
@@ -137,7 +137,7 @@ function Tracker({ op, address }: { op: EthOp; address: string }) {
 
         <dl className="op-rows">
           <div><dt>Route</dt><dd>{net.label} → Solana</dd></div>
-          <div><dt>Horizon</dt><dd>{months ? `${months} month${months === 1 ? "" : "s"}` : "—"}</dd></div>
+          <div><dt>Length</dt><dd>{months ? `${months} month${months === 1 ? "" : "s"}` : "—"}</dd></div>
           <div><dt>Started</dt><dd>{fmtWhen(op.createdAt)}</dd></div>
           {op.hash && (
             <div>

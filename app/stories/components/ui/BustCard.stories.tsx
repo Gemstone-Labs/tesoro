@@ -11,7 +11,7 @@ const meta = {
     children: (
       <div className="stack" style={{ gap: 4 }}>
         <b>How Gemas work</b>
-        <p className="meta">Lock a Position, take an Advance, play with the Gemas. Your Principal stays yours.</p>
+        <p className="meta">Lock crypto, take an Advance, play with the Gemas. What you lock stays yours.</p>
       </div>
     ),
   },

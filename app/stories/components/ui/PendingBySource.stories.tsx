@@ -6,9 +6,9 @@ const meta = {
   component: PendingBySource,
   args: {
     items: [
-      { key: "a", chain: "HYPE", owner: "Bob's Position", pending: 2200, accruedShare: 0.12 },
-      { key: "b", chain: "ETH", owner: "Carol's Position", pending: 1197, accruedShare: 0.71 },
-      { key: "c", chain: "SOL", owner: "Your Position", pending: 4316, accruedShare: 0 },
+      { key: "a", chain: "HYPE", owner: "Bob's Lock", pending: 2200, accruedShare: 0.12 },
+      { key: "b", chain: "ETH", owner: "Carol's Lock", pending: 1197, accruedShare: 0.71 },
+      { key: "c", chain: "SOL", owner: "Your Lock", pending: 4316, accruedShare: 0 },
     ],
   },
   decorators: [(Story) => <div style={{ maxWidth: 460 }}><Card large><Story /></Card></div>],

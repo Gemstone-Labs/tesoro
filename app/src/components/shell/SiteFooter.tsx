@@ -25,8 +25,8 @@ export function SiteFooter() {
           <Link href="/lobby" aria-label={`${BRAND.name}, home`}>
             <TesoroLogo height={30} />
           </Link>
-          <p>Skill games on Solana. Your staking Principal is never played.</p>
-          <ul className="site-foot-chains" aria-label="Positions on">
+          <p>Skill games on Solana. What you lock is never played.</p>
+          <ul className="site-foot-chains" aria-label="Locks on">
             {CHAINS.map((c) => (
               <li key={c.asset} className="cut cut-chip">
                 <ChainGlyph asset={c.asset} size={16} />

@@ -27,7 +27,7 @@ export const RedeemNothing: Story = {
   parameters: { data: { snapshot: (a: string) => ({ ...demoSnapshot(a), holdings: [] }) } },
 };
 
-/** Redeem on chain from your SOL Position alone. */
+/** Redeem on chain from your SOL Lock alone. */
 export const RedeemOnChain: Story = {
   decorators: [withSigner],
   parameters: { data: { snapshot: nativeSnapshot("debt") } },
@@ -40,7 +40,7 @@ export const ReturnUnspent: Story = {
 
 const pk = (n: number) => new PublicKey(demoKey(n));
 
-/** Four Sources: your SOL Position, SOL won from another Player, your ETH Position (ETH at $3,000), HYPE won. */
+/** Four Locks: your SOL Lock, SOL won from another Player, your ETH Lock (ETH at $3,000), HYPE won. */
 const redeemSnapshot = (a: string): AccountSnapshot => {
   const s = nativeSnapshot("debt")(a);
   const own = s.holdings[0];
@@ -58,7 +58,7 @@ const returnSnapshot = (two: boolean) => (a: string): AccountSnapshot => {
   return { ...s, holdings: two ? [first, second, s.holdings[1]] : [first, s.holdings[1]] };
 };
 
-/** Redeem on chain from four Sources: simSOL now, ETH and HYPE on their own chains a few minutes later. */
+/** Redeem on chain from four Sources: test SOL now, ETH and HYPE on their own chains a few minutes later. */
 export const RedeemFourSources: Story = {
   decorators: [withSigner],
   parameters: { data: { snapshot: redeemSnapshot } },

@@ -260,7 +260,7 @@ export async function openEthPosition(
   const receipt = await waitEvm(hash, net);
   const logs = parseEventLogs({ abi: vaultAbi, eventName: "PositionLocked", logs: receipt.logs });
   const id = logs.find((l) => l.address.toLowerCase() === vault.address.toLowerCase())?.args.positionId;
-  if (id === undefined) throw new Error("Position opened, but its id was not in the receipt.");
+  if (id === undefined) throw new Error("Lock started, but its id was not in the receipt.");
   // Someone else opened one in between: the message for the real id still needs its inbox record (delivery retries).
   if (id !== predicted) await ethCall("init-position", ctx, { vault: vault.address, id: id.toString() });
   return { vault: vault.address, id, hash, linkSig };

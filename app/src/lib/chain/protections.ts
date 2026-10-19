@@ -85,5 +85,5 @@ export function confirmText(kind: "break" | "self-exclusion", until: number): st
     kind === "break"
       ? "You will not be able to enter Matches, post Requests or Offers, or be backed"
       : "You will not be able to enter Matches, post Requests or Offers, be backed, take an Advance or Extend one";
-  return `${what} until ${at(until)}. This cannot be undone or shortened, not even by support. Matches already paired play out. Your waiting Matches, Requests and Offers are withdrawn. You can still Redeem, Unlock and repay Debt.`;
+  return `${what} until ${at(until)}. This cannot be undone or shortened, not even by support. Matches already paired play out. Your waiting Matches, Requests and Offers are withdrawn. You can still Redeem, Unlock and pay back what you owe.`;
 }

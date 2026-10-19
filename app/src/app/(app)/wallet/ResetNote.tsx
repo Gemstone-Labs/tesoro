@@ -41,7 +41,7 @@ export function ResetNote({ date = RESET_DATE }: { date?: string }) {
   };
   return (
     <div className="status wl-reset" role="status">
-      <span>Test balances were reset on {longDate(date)} for a new yield model. Open a Position to start again.</span>
+      <span>Test balances were reset on {longDate(date)} for a new yield model. Get Gemas to start again.</span>
       <Button size="sm" onClick={dismiss}>Got it</Button>
     </div>
   );

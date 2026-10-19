@@ -32,9 +32,9 @@ function IntentNote({ intent }: { intent: OpenIntent }) {
 }
 
 const HOW_STEPS: [string, string][] = [
-  ["Lock a Position", "Your Principal is locked, never played."],
+  ["Lock your coins", "What you lock is never played."],
   ["Take an Advance", `Its projected yield for 1 to 12 months, less ${BRAND.name}'s Yield Fee, upfront as Gemas.`],
-  ["Yield repays it", "The Position unlocks when its Debt reaches zero."],
+  ["Yield repays it", "The Lock opens when it is paid back."],
 ];
 
 /** No Positions yet: the invitation, the explainer and the action in one card. */
@@ -43,7 +43,7 @@ export function NoPositions({ onOpen }: { onOpen: () => void }) {
     <div className="cut cut-card wl-empty">
       <Bust name="himExplain" width={200} className="wl-empty-bust" />
       <div className="wl-empty-lead">
-        <b>No Positions yet</b>
+        <b>Nothing locked yet</b>
         <p>Lock SOL, ETH or HYPE to get Gemas to play with. What you lock is never played.</p>
       </div>
       <Button variant="money" onClick={onOpen}>Get Gemas</Button>
@@ -83,7 +83,7 @@ export function OpenFormView({
   gemas,
   yieldText,
   estimate,
-  arrival = "Position opens, Gemas in your balance",
+  arrival = "Lock starts, Gemas in your balance",
   yieldFeeBps,
   details,
   alerts,
@@ -136,7 +136,7 @@ export function OpenFormView({
             <label htmlFor={id}>Lock {chain}</label>
             <span className="meta">{apy ? `${apy} · ` : ""}locked, never played</span>
           </div>
-          <span className="wl-new">New Position</span>
+          <span className="wl-new">New Lock</span>
         </div>
         <div className="wl-amount">
           <input id={id} inputMode="decimal" placeholder="0" value={amountText} disabled={inert} onChange={(e) => onAmount(e.target.value)} aria-invalid={amountInvalid} />
@@ -158,10 +158,10 @@ export function OpenFormView({
         )}
       </div>
       <YieldToGemas months={months} yieldText={yieldText} gemas={gemas ?? 0} yieldFeeBps={yieldFeeBps} showFee={false} />
-      <Slider label="Horizon" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
+      <Slider label="Length" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
       <UnlockTrack now={arrival} unlock={estimate} end={`Unlock Estimate, your ${chain} back`} />
       <p className="wl-lede">
-        You get Gemas now from your future yield. {estimate !== "—" ? <>Your {chain} comes back on <b>{estimate}</b>.</> : <>Your {chain} comes back when your Horizon ends.</>}
+        You get Gemas now from your future yield. {estimate !== "—" ? <>Your {chain} comes back on <b>{estimate}</b>.</> : <>Your {chain} comes back when your Length ends.</>}
       </p>
       {alerts}
       {note && <p className="note">{note}</p>}
@@ -192,7 +192,7 @@ export function OpenFormView({
 export function OpenPanel({ tab, onTab, children }: { tab: Chain; onTab: (c: Chain) => void; children: ReactNode }) {
   const intent = useOpenIntent();
   return (
-    <section className="wl-open" id="open-position" aria-label="Open a Position">
+    <section className="wl-open" id="open-position" aria-label="Get Gemas">
       {intent && <IntentNote intent={intent} />}
       <div className="wl-tabs" role="tablist" aria-label="Chain">
         {CHAINS.map((c) => (

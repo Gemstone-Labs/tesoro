@@ -45,7 +45,7 @@ const ensureSol: typeof ensureDevnetSol = (...args) => (CLUSTER.yieldModel === "
 function tokenFor(mint: PublicKey | null | undefined): StakeToken | null {
   if (!mint) return null;
   const token = stakeTokenOf(mint);
-  if (!token) throw new Error("This Position holds a staking token this version of the app does not support yet.");
+  if (!token) throw new Error("This Lock holds a staking token this version of the app does not support yet.");
   return token;
 }
 
@@ -63,7 +63,7 @@ export async function getTestSimSol(signer: ChainSigner, getToken: GetToken, onS
     getChain().base.getAccountInfo(BlockPuzzleChain.coreAccount(signer.publicKey)),
     ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees")),
   ]);
-  onStep("Getting simSOL");
+  onStep("Getting test SOL");
   const faucet = faucetIx(signer.publicKey);
   return send(signer, account ? [faucet] : [await createAccountIx(signer.publicKey), faucet]);
 }
@@ -87,7 +87,7 @@ export async function openPositionWithAdvance(
   const nonce = BigInt(Date.now());
   const position = await positionPda(signer.publicKey, nonce);
   const ixs = [openNativePositionIx(signer.publicKey, nonce, simSolBaseUnits, position), takeNativeAdvanceIx(signer.publicKey, position, 0, months)];
-  onStep("Opening the Position");
+  onStep("Locking your SOL");
   const signature = await send(signer, account ? ixs : [await createAccountIx(signer.publicKey), ...ixs]);
   return { signature, position: position.toBase58() };
 }
@@ -122,7 +122,7 @@ export async function extendAdvance(
   extraMonths: number,
   onStep: (s: string) => void = () => undefined,
 ): Promise<string> {
-  if (!info.source) throw new Error("This Position has no open Advance.");
+  if (!info.source) throw new Error("This Lock has no open Advance.");
   onStep("Preparing");
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS, () => onStep("Adding SOL for network fees"));
   onStep("Extending the Advance");
@@ -235,7 +235,7 @@ export async function openStakePositionWithAdvance(
   const advance = takeStakeAdvanceIx(me, position, 0, months, null, token);
   const prefix = account ? [] : [await createAccountIx(me)];
   if (deposit.from === "token") {
-    onStep("Opening the Position");
+    onStep("Locking your SOL");
     const signature = await send(signer, [...prefix, openStakePositionIx(me, nonce, deposit.shares, position, token), advance]);
     return { signature, position: position.toBase58() };
   }
@@ -243,7 +243,7 @@ export async function openStakePositionWithAdvance(
   if (!view) throw new Error("The staking pool could not be read. Try again in a moment.");
   const quote = quoteDepositSol(deposit.lamports, view, DEPOSIT_SLIPPAGE_BPS);
   if (quote.problem) throw new Error(quote.problem);
-  onStep("Staking and opening the Position");
+  onStep("Staking and locking your SOL");
   const signature = await send(signer, [
     ...prefix,
     createAtaIdempotentIx(me, me, token.mint),
@@ -254,7 +254,7 @@ export async function openStakePositionWithAdvance(
   try {
     await send(signer, [advance]);
   } catch (e) {
-    throw new Error(`Your Position is open, but the Advance did not go through: ${friendlyError(e)} Take it from the Position card.`);
+    throw new Error(`Your Lock is open, but the Advance did not go through: ${friendlyError(e)} Take it from the Lock card.`);
   }
   return { signature, position: position.toBase58() };
 }

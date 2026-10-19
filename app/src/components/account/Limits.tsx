@@ -85,7 +85,7 @@ export function LimitsView({ entry, extend, away, now, busy, error, onSetEntry, 
       </section>
       <section className="stack" aria-labelledby="lim-se-h">
         <h3 id="lim-se-h" className="label">Self-Exclusion</h3>
-        <p className="note">Stop for 6 months or more. A Break&apos;s limits plus no new Advances or Extends. It cannot be ended early. Redeem, Unlock and Debt repayment keep working.</p>
+        <p className="note">Stop for 6 months or more. A Break&apos;s limits plus no new Advances or Extends. It cannot be ended early. Redeem, Unlock and paying back keep working.</p>
         {away === null ? (
           <p className="meta" role="status">Loading…</p>
         ) : (

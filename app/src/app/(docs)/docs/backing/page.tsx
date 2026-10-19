@@ -19,8 +19,8 @@ export default function Page() {
       <DataTable
         head={["Role", "What they do", "What they risk"]}
         rows={[
-          ["Backer", "Holds the Gemas that fund the entry, and chooses whom to back and on what terms.", "The entry, and nothing more. Their own Position keeps repaying its Debt as usual."],
-          ["Player", "Plays the Match. Needs no Gemas of their own.", "Nothing. A backed Player never gains Debt and can never redeem or redirect the Backer's Gemas."],
+          ["Backer", "Holds the Gemas that fund the entry, and chooses whom to back and on what terms.", "The entry, and nothing more. Their own Lock keeps paying back as usual."],
+          ["Player", "Plays the Match. Needs no Gemas of their own.", "Nothing. A backed Player never owes anything and can never redeem or redirect the Backer's Gemas."],
         ]}
       />
 
@@ -57,7 +57,7 @@ export default function Page() {
         head={["Outcome", "Backer", "Player"]}
         rows={[
           ["Player wins", "Entry back, plus their share of the surplus", "Their share of the surplus"],
-          ["Player loses", "Loses the entry", "Owes nothing, gains no Debt"],
+          ["Player loses", "Loses the entry", "Owes nothing, has nothing to pay back"],
           ["Draw or refund", "Entry returns unchanged", "Nothing"],
         ]}
       />

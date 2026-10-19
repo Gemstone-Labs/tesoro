@@ -64,7 +64,7 @@ export default function HelpPage() {
         <BustCard bust="himExplain" size={110}>
           <b>Still stuck?</b>
           <p>
-            Refresh the page or sign in on another device: your Positions, Gemas and Matches are read from the chain, so nothing is lost. Your
+            Refresh the page or sign in on another device: your Locks, Gemas and Matches are read from the chain, so nothing is lost. Your
             Match history shows every settled and refunded Match.
           </p>
           <div className="help-still">

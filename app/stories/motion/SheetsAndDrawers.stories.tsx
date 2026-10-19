@@ -19,7 +19,7 @@ function SheetDemo() {
       <div className="sbm-row">
         <Button variant="money" onClick={() => setOpen(true)}>Open Sheet</Button>
       </div>
-      <Sheet open={open} onClose={() => setOpen(false)} title="Open a Position">
+      <Sheet open={open} onClose={() => setOpen(false)} title="Get Gemas">
         <p className="meta">Close with Esc, the X or a click outside, then open it again.</p>
       </Sheet>
     </section>

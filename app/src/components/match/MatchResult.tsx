@@ -198,7 +198,7 @@ export function MatchResult(p: MatchResultProps) {
               {backed && role === "player" ? (
                 <p className="mr-copy strong">You never owe anything, win or lose: your Backer&apos;s Gemas funded this entry.</p>
               ) : lost && role === "player" ? (
-                <p className="mr-copy">Your entry went to the winner. Your Principal was never in play.</p>
+                <p className="mr-copy">Your entry went to the winner. What you locked was never in play.</p>
               ) : outcome === "draw" ? (
                 <p className="mr-copy">Equal scores: both entries were returned.</p>
               ) : outcome === "refunded" ? (

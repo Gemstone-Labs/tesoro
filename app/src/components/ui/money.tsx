@@ -56,13 +56,13 @@ export function BalanceSplit({
         <b><GemaMark size={18} />{fmtGemas(redeemable)}</b>
         <span className="tnum">
           ≈ {fmtUsd(gemasToUsd(redeemable))}
-          {redeemableSources ? ` · ${redeemableSources} Source${redeemableSources === 1 ? "" : "s"}` : ""}
+          {redeemableSources ? ` · from ${redeemableSources} Advance${redeemableSources === 1 ? "" : "s"}` : ""}
         </span>
       </div>
       <div className="bsplit-pend">
         <span className="label"><i />Pending</span>
         <b>{fmtGemas(pending)}</b>
-        <span>As each Source&apos;s yield accrues</span>
+        <span>As each Lock&apos;s yield is earned</span>
       </div>
     </div>
   );
@@ -80,7 +80,7 @@ export interface PendingSourceItem {
 export function PendingBySource({ items }: { items: PendingSourceItem[] }) {
   return (
     <div className="src">
-      <Label>Pending by Source</Label>
+      <Label>Pending by Lock</Label>
       {items.length === 0 && <p className="meta">Nothing pending.</p>}
       {items.map((it) => (
         <div className="src-item" key={it.key}>
@@ -106,7 +106,7 @@ export interface CrossChainStep {
 }
 
 const STEPS: CrossChainStep[] = [
-  { title: "Source confirmed", note: "Advance confirmed on the source chain" },
+  { title: "Lock confirmed", note: "Advance confirmed on the origin chain" },
   { title: "Message verified", note: "Cross-chain message verified on Solana" },
   { title: "Gemas available", note: "Gemas credited to your Account" },
 ];

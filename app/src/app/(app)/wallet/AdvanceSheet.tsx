@@ -31,7 +31,7 @@ export function AdvanceFormView({
   unlock,
   yieldFeeBps,
   maxMonths = 12,
-  sliderLabel = "Horizon",
+  sliderLabel = "Length",
   alerts,
   buttonLabel,
   disabled = false,
@@ -76,7 +76,7 @@ export function AdvanceFormView({
 
         <Slider label={sliderLabel} value={months} min={1} max={maxMonths} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
 
-        <UnlockTrack now="Gemas in your balance" unlock={unlock} end="Unlock Estimate, Debt 0" />
+        <UnlockTrack now="Gemas in your balance" unlock={unlock} end="Unlock Estimate, paid back" />
       </div>
 
       {alerts}
@@ -115,7 +115,7 @@ function AdvanceForm({ position, onClose }: { position: Position; onClose: () =>
   return (
     <AdvanceFormView
       chain={position.chain}
-      title={`${fmtAsset(position.principal, position.asset)} Position`}
+      title={`${fmtAsset(position.principal, position.asset)} Lock`}
       apy={`${(position.apy * 100).toFixed(1)}% APY`}
       months={months}
       onMonths={setMonths}
@@ -140,7 +140,7 @@ function Taken({ position, gemas, unlock, onClose }: { position: Position; gemas
 
   return (
     <div className="adv">
-      <AdvanceTakenNote gemas={gemas} from={`${fmtAsset(position.principal, position.asset)} Position`} unlock={fmtWhen(unlock)} landed={landed} />
+      <AdvanceTakenNote gemas={gemas} from={`${fmtAsset(position.principal, position.asset)} Lock`} unlock={fmtWhen(unlock)} landed={landed} />
       {crossChain && <CrossChainProgress stage={stage} chain={position.chain} txHash="0x7be1…a09c" />}
       <Button block onClick={onClose}>{landed ? "Done" : "Close, it keeps going"}</Button>
     </div>

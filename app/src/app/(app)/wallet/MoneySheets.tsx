@@ -82,7 +82,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       <div className="mx-empty">
         <span className="mx-empty-mark"><GemaMark size={34} /></span>
         <b>Nothing to redeem yet</b>
-        <p className="meta">Gemas become redeemable as their Source Position earns yield. Check back in a few minutes.</p>
+        <p className="meta">Gemas become redeemable as their Lock earns yield. Check back in a few minutes.</p>
         <Button block onClick={onClose}>Close</Button>
       </div>
     );
@@ -120,7 +120,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
         <div className="mx-empty">
           <span className="mx-empty-mark"><GemaMark size={34} /></span>
           <b>Nothing to redeem yet</b>
-          <p className="meta">Gemas become redeemable as their Source Position earns yield. Check back in a few minutes.</p>
+          <p className="meta">Gemas become redeemable as their Lock earns yield. Check back in a few minutes.</p>
           <Button block onClick={onClose}>Close</Button>
         </div>
       ) : (
@@ -155,7 +155,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
         </p>
       )}
       <details className="mx-from">
-        <summary>From {plural(shown.length, "Source")}</summary>
+        <summary>From {plural(shown.length, "Lock")}</summary>
         <dl className="kv">
           {shown.map((p) => (
             <div key={p.key} style={{ display: "contents" }}>
@@ -221,7 +221,7 @@ export function ReturnExchange({
     return (
       <div className="mx">
         <div className="status ok" role="status">
-          <CheckIcon /> Returned {fmtGemas(done.gemas)} Gemas · {done.cleared ? "Debt cleared, your Position unlocks" : "Debt lowered"}
+          <CheckIcon /> Returned {fmtGemas(done.gemas)} Gemas · {done.cleared ? "Paid back, your Lock unlocks" : "Left to pay back is lower"}
         </div>
         <Button block onClick={onClose}>Done</Button>
         <Receipts items={done.receipts} />
@@ -234,7 +234,7 @@ export function ReturnExchange({
       <div className="mx-empty">
         <span className="mx-empty-mark"><GemaMark size={34} /></span>
         <b>No Gemas to return</b>
-        <p className="meta">Only your own unspent Gemas from this Position can go back. Won Gemas and Gemas held for Offers stay with you.</p>
+        <p className="meta">Only your own unspent Gemas from this Lock can go back. Won Gemas and Gemas held for Offers stay with you.</p>
         <Button block onClick={onClose}>Close</Button>
       </div>
     );
@@ -247,7 +247,7 @@ export function ReturnExchange({
         <div className="mx-seg" role="radiogroup" aria-label="Advance to return to">
           {choices.map((ch, i) => (
             <button key={ch.key} type="button" role="radio" aria-checked={i === pick} className="cut" onClick={() => onPick(i)}>
-              {ch.label} <small>{fmtDebt(ch.debt)} Debt</small>
+              {ch.label} <small>{fmtDebt(ch.debt)} left to pay back</small>
             </button>
           ))}
         </div>
@@ -278,9 +278,9 @@ export function ReturnExchange({
         </div>
         <span className="mx-arrow cut" aria-hidden="true"><ArrowDown /></span>
         <div className="mx-panel get cut">
-          <div className="mx-head"><span className="label">Debt goes to</span><span className="meta">now {fmtDebt(c.debt)}</span></div>
+          <div className="mx-head"><span className="label">Left to pay back</span><span className="meta">now {fmtDebt(c.debt)}</span></div>
           <div className="mx-fig"><b className={after === 0 ? "clear" : undefined}>{fmtDebt(after)}</b></div>
-          <span className="mx-when">{after === 0 ? <><CheckIcon /> Debt cleared: your Position unlocks</> : "Your Position stays locked until Debt is 0"}</span>
+          <span className="mx-when">{after === 0 ? <><CheckIcon /> Paid back: your Lock unlocks</> : "Your Lock stays locked until it is paid back"}</span>
         </div>
       </div>
       <SimulatedYieldLabel />
@@ -306,10 +306,10 @@ export function RedeemSheet({ open, onClose }: { open: boolean; onClose: () => v
     .map((h) => ({
       key: h.source.positionId,
       asset: h.source.chain,
-      from: h.own ? `Your ${h.source.asset} Position` : `Won · ${h.source.owner}`,
+      from: h.own ? `Your ${h.source.asset} Lock` : `Won · ${h.source.owner}`,
       gemas: redeemableOf(h),
       amount: gemasToAsset(redeemableOf(h), h.source.asset),
-      token: h.source.chain === "SOL" ? "simSOL" : h.source.asset,
+      token: h.source.chain === "SOL" ? "test SOL" : h.source.asset,
       later: h.source.chain !== "SOL",
     }));
   const total = payouts.reduce((s, p) => s + p.gemas, 0);

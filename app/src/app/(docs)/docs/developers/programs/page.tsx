@@ -38,7 +38,7 @@ export default function Page() {
       <Addr label="Oracle (price and Ethereum issuance signer)" value="6bpAyMvaHF5QdghrxnPRmdvHqCiLbigdXVroe4zDRApA" href={explorer("6bpAyMvaHF5QdghrxnPRmdvHqCiLbigdXVroe4zDRApA")} />
       <Addr label={`Platform and Studio Fee recipient (a ${BRAND.name} Account)`} value="GXQse6RG4hqY57fhRJX3W7yzhkwmaqZUHxaJArJWrMGK" href={explorer("GXQse6RG4hqY57fhRJX3W7yzhkwmaqZUHxaJArJWrMGK")} />
       <Addr label="Treasury PDA (seeds: treasury): Yield Fee and Instant Redeem Fee rates" value="BuWgG4Q7DYND13twkfu5gHVGpoK78GbWJzAeEgv6aDQr" href={explorer("BuWgG4Q7DYND13twkfu5gHVGpoK78GbWJzAeEgv6aDQr")} />
-      <Addr label="Treasury simSOL vault (seeds: treasury_vault): collects the Yield Fee, pays Instant Redeems" value="7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4" href={explorer("7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4")} />
+      <Addr label="Treasury test SOL vault (seeds: treasury_vault): collects the Yield Fee, pays Instant Redeems" value="7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4" href={explorer("7XLRyApCUdeTRyh7c7mLHh2zKE6X1ej1SFJ7F6hgrsU4")} />
       <Addr label="Treasury Account (holds the Gemas bought by Instant Redeem)" value="71hCesb8eED3yoFjgxDG8fSfqgZV4Ngfnr2sX3jHL5Yg" href={explorer("71hCesb8eED3yoFjgxDG8fSfqgZV4Ngfnr2sX3jHL5Yg")} />
       <Addr label="block_puzzle Game authority PDA (seeds: authority)" value="7HTncQ9Gc2gamBqce5C7sz95SU6RnR9CoDt1D3o2U4nx" href={explorer("7HTncQ9Gc2gamBqce5C7sz95SU6RnR9CoDt1D3o2U4nx")} />
       <Addr label="holdem Game authority PDA" value="Eu2RtadRsFCV9Xe2A7v7GivS9W5Trbrz6tCagNRUCwtn" href={explorer("Eu2RtadRsFCV9Xe2A7v7GivS9W5Trbrz6tCagNRUCwtn")} />
@@ -49,7 +49,7 @@ export default function Page() {
 
       <H3 id="sim-lst">sim_lst</H3>
       <Addr label="Pool PDA (seeds: pool)" value="Fc9UUnGEDapkBDM3mPayjqVDLYHokKCPwSLdbvKBUvPL" href={explorer("Fc9UUnGEDapkBDM3mPayjqVDLYHokKCPwSLdbvKBUvPL")} note="7% APY, 4,380x speedup." />
-      <Addr label="simSOL mint PDA (seeds: mint, 9 decimals)" value="3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ" href={explorer("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ")} />
+      <Addr label="test SOL (simSOL) mint PDA (seeds: mint, 9 decimals)" value="3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ" href={explorer("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ")} />
       <Addr label="Vault / reserve PDA (seeds: vault)" value="2fQyEVMJNzGmaccxpbzhqMRFSpx9mf1kjsZRAMMRNKDm" href={explorer("2fQyEVMJNzGmaccxpbzhqMRFSpx9mf1kjsZRAMMRNKDm")} />
       <Addr label="Yield authority: tesoro_core PDA (seeds: yield)" value="C9zdFERGijamSQVQ1D4hE3iabc99g1XcurKCnS6CuSAf" href={explorer("C9zdFERGijamSQVQ1D4hE3iabc99g1XcurKCnS6CuSAf")} note="The only signer allowed to call sim_lst::mint_yield." />
 

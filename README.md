@@ -12,18 +12,18 @@
   <img src="https://img.shields.io/badge/MagicBlock-Ephemeral%20Rollups-6E56CF?style=flat-square" alt="MagicBlock Ephemeral Rollups">
 </p>
 
-**Tesoro lets stakers play head-to-head skill games with their future staking yield.** Lock SOL, ETH or HYPE, take an Advance on the yield it will earn, and play with it today. Your Principal is never played.
+**Tesoro lets stakers play head-to-head skill games with their future staking yield.** Lock SOL, ETH or HYPE, take an Advance on the yield it will earn, and play with it today. What you lock is never played.
 
 > **Testnets only.** Solana devnet, Ethereum Hoodi and HyperEVM testnet. Yield is **simulated** (1 month ≈ 10 minutes) and nothing has value.
 
 ## How it works
 
-1. **Lock a Position.** A SOL, ETH or HYPE liquid staking token, for a 1–12 month Horizon.
-2. **Take an Advance.** 80% of the Position's projected yield, paid now as **Gemas** ($0.01 each at issuance).
+1. **Lock.** A SOL, ETH or HYPE liquid staking token, for a 1–12 month Length.
+2. **Take an Advance.** 80% of the Lock's projected yield, paid now as **Gemas** ($0.01 each at issuance).
 3. **Play Matches.** Win your opponent's Gemas in Block Puzzle, heads-up Hold'em or Trading Duel.
-4. **Yield settles everything.** Accrued yield repays your Advance automatically. Winners Redeem Gemas as the loser's yield lands, or Instant Redeem them now for 75%.
+4. **Yield settles everything.** Earned yield repays your Advance automatically. Winners Redeem Gemas as the loser's yield lands, or Instant Redeem them now for 75%.
 
-Tesoro earns a Platform Fee on Matches, a 20% Yield Fee and the Instant Redeem Fee. Nothing is ever charged on Principal. The full rules are in the app's [Docs](https://www.playtesoro.com/docs).
+Tesoro earns a Platform Fee on Matches, a 20% Yield Fee and the Instant Redeem Fee. Nothing is ever charged on what you lock. The full rules are in the app's [Docs](https://www.playtesoro.com/docs).
 
 <table>
   <tr>
@@ -39,9 +39,9 @@ Tesoro earns a Platform Fee on Matches, a 20% Yield Fee and the Instant Redeem F
 
 | Piece | What it does |
 |---|---|
-| `tesoro_core` (Solana) | The ledger: Positions, Advances, Gemas, Matches, fees, Leaderboard |
+| `tesoro_core` (Solana) | The ledger: Locks (`Position` accounts), Advances, Gemas, Matches, fees, Leaderboard |
 | `block_puzzle`, `holdem`, `trading_duel` | Game programs. Matches run in a **MagicBlock Private Ephemeral Rollup** (TEE), so cards, seeds and moves stay private until settlement |
-| `tesoro_bridge` + EVM vaults | ETH (Hoodi) and HYPE (HyperEVM) Positions carried to the Solana ledger over **LayerZero V2** |
+| `tesoro_bridge` + EVM vaults | ETH (Hoodi) and HYPE (HyperEVM) Locks carried to the Solana ledger over **LayerZero V2** |
 | `sim_lst`, `SimLST` | Simulated liquid staking tokens for the testnets |
 | `app/` | Next.js 16 web app with Privy sign-in |
 | `keeper/` | Writes prices, cranks yield, relays bridge messages, settles stalled Matches, pays Seasons |

@@ -17,6 +17,6 @@ export async function POST(request: Request) {
   } catch (e) {
     if (e instanceof DemoHttpError) return Response.json({ error: e.message, code: e.code }, { status: e.status });
     console.error("eth-bridge", e);
-    return Response.json({ error: "Position step failed.", code: "error" }, { status: 500 });
+    return Response.json({ error: "Lock step failed.", code: "error" }, { status: 500 });
   }
 }
