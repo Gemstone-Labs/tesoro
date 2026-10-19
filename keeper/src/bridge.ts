@@ -25,7 +25,7 @@ import { treasuryAccountPda } from "../../app/src/lib/chain/native.ts";
 const status = (o: object) => Object.keys(o)[0];
 
 // Account sizes: 8-byte discriminator + `InitSpace` of the Anchor account (bridge/programs/tesoro_bridge/src/state).
-const BRIDGE_POSITION_SIZE = 8 + 164 + 16; // `treasury_in: u128` was appended at the end
+const BRIDGE_POSITION_SIZE = 8 + 164 + 16 + 16 + 8; // `treasury_balance`, `instant_paid` (u128 each) and `report_time` (u64) sit at the end
 const CLAIM_SIZE = 8 + 121;
 
 export interface BridgePosition {

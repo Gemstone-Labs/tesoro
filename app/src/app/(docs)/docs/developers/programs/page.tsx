@@ -71,7 +71,7 @@ export default function Page() {
         Vaults are not upgradeable. They are owned by the EVM deployer <code>0x96137cB99Fe2878299b672Ac967e88279f479d1C</code> and peered to the Solana
         OApp Store above. Solana&apos;s LayerZero eid is 40168.
       </p>
-      <Addr label="PositionVaultOApp for SimLST (simETH). The vault the app uses." value="0x191700BA53C9437F3a31E082bcfd8bB85C865d26" href={hoodi("0x191700BA53C9437F3a31E082bcfd8bB85C865d26")} />
+      <Addr label="PositionVaultOApp for SimLST (simETH). The vault the app uses." value="0xd545886F5CC70A6F9fa69D104e8f438e3a0F48Dc" href={hoodi("0xd545886F5CC70A6F9fa69D104e8f438e3a0F48Dc")} />
       <Addr label="SimLST (simETH, 5% APY)" value="0xD82840623A7a00C37b0883d221Fa84e39ddA2a28" href={hoodi("0xD82840623A7a00C37b0883d221Fa84e39ddA2a28")} />
       <Addr label="PositionVaultOApp for real Lido wstETH" value="0x61B46f64CDB75930a87955487aAb8A7711F757b5" href={hoodi("0x61B46f64CDB75930a87955487aAb8A7711F757b5")} />
       <Addr label="WstETHRateAdapter" value="0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37" href={hoodi("0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37")} />
@@ -79,7 +79,7 @@ export default function Page() {
 
       <H2 id="hyperevm">HyperEVM (chain 998, LayerZero eid 40362)</H2>
       <p>Same owner and the same Solana peer. Explorer: <code>testnet.purrsec.com</code>.</p>
-      <Addr label="PositionVaultOApp for SimLST (simHYPE). The vault the app uses." value="0x61B46f64CDB75930a87955487aAb8A7711F757b5" href={purrsec("0x61B46f64CDB75930a87955487aAb8A7711F757b5")} />
+      <Addr label="PositionVaultOApp for SimLST (simHYPE). The vault the app uses." value="0xfBc91D795d12Df73Cadc1fE217F587cC0484eD23" href={purrsec("0xfBc91D795d12Df73Cadc1fE217F587cC0484eD23")} />
       <Addr label="SimLST (simHYPE, 5% APY)" value="0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3" href={purrsec("0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3")} />
       <Addr label="LayerZero EndpointV2 (external)" value="0xf9e1815f151024bde4b7c10bac10e8ba9f6b53e1" href={purrsec("0xf9e1815f151024bde4b7c10bac10e8ba9f6b53e1")} />
 

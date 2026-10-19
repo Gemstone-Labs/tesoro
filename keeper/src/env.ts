@@ -31,13 +31,6 @@ export interface Settings {
   lzHourlyCapLamports: number;
   hoodiRpc: string;
   hyperEvmRpc: string;
-  evmEnvPath: string;
-  /** Minutes between `reportYield` calls for one Position (one simulated month). */
-  ethYieldMins: number;
-  /** Max ETH the EVM deployer key may spend on `reportYield` fees in any rolling hour. */
-  ethHourlyCapEth: number;
-  /** Max HYPE the EVM deployer key may spend on HyperEVM `reportYield` fees in any rolling hour. */
-  hypeHourlyCapHype: number;
   /** Simulated: report what would be done, send nothing. */
   dryRun: boolean;
 }
@@ -68,10 +61,6 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     lzHourlyCapLamports: Math.round(num(value("max-lz-sol-per-hour") ?? env.KEEPER_MAX_LZ_SOL_PER_HOUR, 0.05) * LAMPORTS_PER_SOL),
     hoodiRpc: rpcOr(value("hoodi-rpc") ?? env.KEEPER_HOODI_RPC, "KEEPER_HOODI_RPC", "https://ethereum-hoodi-rpc.publicnode.com"),
     hyperEvmRpc: rpcOr(value("hyperevm-rpc") ?? env.KEEPER_HYPEREVM_RPC, "KEEPER_HYPEREVM_RPC", "https://rpc.hyperliquid-testnet.xyz/evm"),
-    evmEnvPath: env.KEEPER_EVM_ENV ?? join(homedir(), ".config/tesoro/evm-deployer.env"),
-    ethYieldMins: num(value("eth-yield-mins") ?? env.KEEPER_ETH_YIELD_MINS, 10),
-    ethHourlyCapEth: num(value("max-eth-per-hour") ?? env.KEEPER_MAX_ETH_PER_HOUR, 0.005),
-    hypeHourlyCapHype: num(value("max-hype-per-hour") ?? env.KEEPER_MAX_HYPE_PER_HOUR, 0.03),
     dryRun: flag("dry-run"),
   };
 }

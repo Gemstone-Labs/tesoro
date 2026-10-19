@@ -30,6 +30,8 @@ export interface Pocket {
   gemasAsset: number | null;
   redeemable: number;
   redeemableAsset: number | null;
+  /** Won Gemas here are all pending: Redeem fetches the latest yield first. */
+  fetchYield?: boolean;
   positions: ReactNode[];
   /** Unlocked Positions: kept out of the way until asked for. */
   closed: ReactNode[];
@@ -99,9 +101,9 @@ function PocketCard({ p, hidden, onRedeem, onAll }: { p: Pocket; hidden: boolean
               <b>{p.redeemableAsset !== null ? fmtAsset(p.redeemableAsset, p.chain) : fmtGemas(p.redeemable)}</b>
               <span className="meta">{fmtGemas(p.redeemable)} Gemas</span>
             </div>
-            {p.redeemable > 0 ? (
+            {p.redeemable > 0 || p.fetchYield ? (
               <Button variant="money" size="sm" onClick={onRedeem}>
-                Redeem {p.chain}
+                {p.redeemable > 0 ? `Redeem ${p.chain}` : `Get ${p.chain} yield`}
               </Button>
             ) : (
               <span className="meta wl-pocket-why">Nothing to redeem yet</span>

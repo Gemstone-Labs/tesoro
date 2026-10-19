@@ -17,7 +17,7 @@ import { gemasInAsset } from "@/lib/chain/ledger";
 import { clockOf, nativeNow, speedupOf, stakeGrowthOf, unlockEstimateMs } from "@/lib/chain/native";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
-import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
+import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables, ethYieldWaiting } from "./EthPositions";
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
 import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
 import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
@@ -85,6 +85,8 @@ export default function Wallet() {
     nativeRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0) +
     ethRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0);
   const redeemAmount = onChain ? nativeRedeemable : gemas.redeemable;
+  // Won ETH or HYPE Gemas that are all pending: Redeem fetches the latest yield first, so it stays pressable.
+  const canFetchYield = onChain && ethYieldWaiting(snapshot?.holdings ?? []).length > 0;
   // Pending is what is left of the Total after Redeemable now, so the hero adds up and matches the chain cards (which use the same figures).
   const pendingAmount = Math.max(0, gemas.total - redeemAmount);
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
@@ -178,7 +180,7 @@ export default function Wallet() {
   };
 
   const pockets: Pocket[] = (["SOL", "ETH", "HYPE"] as Chain[])
-    .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)) }))
+    .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)), fetchYield: onChain && ethYieldWaiting(snapshot?.holdings ?? [], chain).length > 0 }))
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
   const noPositions = pockets.length === 0 && !loading;
@@ -226,8 +228,8 @@ export default function Wallet() {
             <h2>Redeemable now</h2>
             <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>
             {ready && <GemaUsd className="wl-usd" value={redeemAmount} />}
-            <Button variant="money" disabled={redeemAmount === 0} onClick={() => openRedeem()}>Redeem</Button>
-            {ready && redeemAmount === 0 && <span className="meta">Nothing redeemable yet</span>}
+            <Button variant="money" disabled={redeemAmount === 0 && !canFetchYield} onClick={() => openRedeem()}>Redeem</Button>
+            {ready && redeemAmount === 0 && <span className="meta">{canFetchYield ? "Redeem fetches the latest yield first" : "Nothing redeemable yet"}</span>}
           </div>
           <div className="wl-pending" aria-label="Pending">
             <h2>Pending</h2>

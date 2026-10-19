@@ -39,7 +39,7 @@ import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, ty
 import { getChain } from "@/lib/chain/client";
 import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { ethRedeemables, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, freshenHoldings, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
@@ -665,9 +665,11 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<RedeemDone | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const sigs = useRef<string[]>([]);
   const rows = nativeRedeemables(snapshot?.holdings ?? []);
   const ethRows = ethRedeemables(snapshot?.holdings ?? []);
+  const ethWaiting = ethYieldWaiting(snapshot?.holdings ?? []);
   const ethCtx = useEthCtx();
   const pool = snapshot?.market?.pool ?? null;
   const from = (h: ChainHolding) => (h.isOwn ? `Your ${h.asset} Lock` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
@@ -696,7 +698,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     })),
   ];
 
-  const { offer: instant, plan, freshPlan } = useInstantRedeem(asset);
+  const { offer: instant, plan, behind, freshPlan } = useInstantRedeem(asset);
 
   const redeemNow = async () => {
     if (!auth.signer) return;
@@ -704,6 +706,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     setError(null);
     try {
       const signer = auth.signer;
+      if (ethCtx && plan.some((p) => p.holding.eth)) await freshenHoldings(ethCtx, plan.map((p) => p.holding), "instant", setNote, behind);
       let latest = plan;
       const run = await runInstant(
         plan.map((p) => p.line),
@@ -748,11 +751,19 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     setError(null);
     try {
       for (const h of rows) sigs.current.push(await redeemNative(auth.signer, h.position, h.source, h.redeemable, h.stakeMint));
-      if (ethRows.length > 0) {
+      let ethGemas = 0;
+      let ethCount = 0;
+      if (ethRows.length > 0 || ethWaiting.length > 0) {
         if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-        await redeemEthHoldings(ethCtx, snapshot?.holdings ?? []);
+        const r = await redeemEthHoldings(ethCtx, snapshot?.holdings ?? [], setNote);
+        ethGemas = Number(r.gemas);
+        ethCount = r.count;
       }
-      setDone({ gemas, later: ethRows.length > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
+      if (rows.length === 0 && ethCount === 0) {
+        await refresh();
+        throw new Error(NOTHING_REDEEMABLE_YET);
+      }
+      setDone({ gemas: rows.reduce((s, h) => s + Number(h.redeemable), 0) + ethGemas || gemas, later: ethCount > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
       await refresh();
     } catch (e) {
       setError(friendlyError(e));
@@ -762,5 +773,5 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     }
   };
 
-  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
+  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} yieldCheck={ethWaiting.length > 0 ? [...new Set(ethWaiting.map((h) => h.asset))].join(" and ") : null} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
 }

@@ -37,7 +37,7 @@ Both vaults are owned by the EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f4
 
 | Contract | Address | Notes |
 |---|---|---|
-| `PositionVaultOApp`, SimLST (simETH, **Simulated**) | [`0x191700BA53C9437F3a31E082bcfd8bB85C865d26`](https://hoodi.etherscan.io/address/0x191700BA53C9437F3a31E082bcfd8bB85C865d26) | The vault the app uses. Redeployed 2026-10-12 for the Yield Fee and Instant Redeem (ADR 0007). |
+| `PositionVaultOApp`, SimLST (simETH, **Simulated**) | [`0xd545886F5CC70A6F9fa69D104e8f438e3a0F48Dc`](https://hoodi.etherscan.io/address/0xd545886F5CC70A6F9fa69D104e8f438e3a0F48Dc) | The vault the app uses. Redeployed 2026-10-19 for the on-demand Yield Report (ADR 0010). The 2026-10-12 vault `0x191700BA53C9437F3a31E082bcfd8bB85C865d26` is abandoned. |
 | `PositionVaultOApp`, real Lido wstETH | [`0x61B46f64CDB75930a87955487aAb8A7711F757b5`](https://hoodi.etherscan.io/address/0x61B46f64CDB75930a87955487aAb8A7711F757b5) | Deployed and wired, not run end to end. Redeployed 2026-10-01. |
 | SimLST (simETH, **Simulated**, 5% APY) | [`0xD82840623A7a00C37b0883d221Fa84e39ddA2a28`](https://hoodi.etherscan.io/address/0xD82840623A7a00C37b0883d221Fa84e39ddA2a28) | |
 | `WstETHRateAdapter` | [`0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37`](https://hoodi.etherscan.io/address/0x9C5fc1098a33Ec14a9c5a73c2cBa1CbcDD65AB37) | The wstETH vault's rate source. Reads wstETH `stEthPerToken()`. |
@@ -50,7 +50,7 @@ Owned by the same EVM deployer and peered to the same Solana OApp Store. Deploye
 
 | Contract | Address | Notes |
 |---|---|---|
-| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0x61B46f64CDB75930a87955487aAb8A7711F757b5` | The vault the app uses for HYPE Positions (redeployed 2026-10-12, ADR 0007). |
+| `PositionVaultOApp`, SimLST (simHYPE, **Simulated**) | `0xfBc91D795d12Df73Cadc1fE217F587cC0484eD23` | The vault the app uses for HYPE Positions. Redeployed 2026-10-19 (ADR 0010); the 2026-10-12 vault `0x61B46f64CDB75930a87955487aAb8A7711F757b5` is abandoned. |
 | SimLST (simHYPE, **Simulated**, 5% APY) | `0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3` | Unbacked faucet, 1 month = 10 min. |
 | LayerZero EndpointV2 (external) | `0xf9e1815f151024bde4b7c10bac10e8ba9f6b53e1` | Explorer: `https://testnet.purrsec.com`. |
 

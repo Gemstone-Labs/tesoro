@@ -2,6 +2,33 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## ETH/HYPE on the computed model: new vaults + bridge (2026-10-19)
+
+Yield-by-math tickets 08, 09 and the ETH half of 06 (ADR 0010). The keeper no longer sends `reportYield`; Redeem, Instant Redeem and Unlock ask for a Yield Report (the relayer sends it in test mode) and wait until it is applied. The Yield Report is 101 bytes (`cumulative | treasuryBalance | instantPaid | reportTime`); `BridgePosition` is 212 bytes and `VaultTreasury` 101 (audit B-2 fixed, see `docs/cross-chain.md`). The 2026-10-12 vaults (`0x191700BA…` Hoodi, `0x61B46f64…` HyperEVM) are abandoned with their Positions (their Solana records were retired with the SOL reset).
+
+| Item | Tx |
+|---|---|
+| `tesoro_bridge` upgrade (799,624-byte .so, sha256 `7ad914aa…a37a`, no extend; previous program dumped to `~/.cache/tesoro-tmp/rollback-2026-10-19/tesoro_bridge-prev.so`, sha256 `954deafa…`) | `3apt9zuB…StUcmLrdk` (slot 512720632), bytes verified with `solana program dump` + `cmp` |
+
+| Item | Hoodi (560048) | HyperEVM (998) |
+|---|---|---|
+| `PositionVaultOApp` (SimLST, SIMULATED) | `0xd545886F5CC70A6F9fa69D104e8f438e3a0F48Dc`, deploy `0x8fe150177bf59bfb3ea0cb2906db877a708a232c5dab380be49b16de6dd79cb2` | `0xfBc91D795d12Df73Cadc1fE217F587cC0484eD23`, deploy `0xdf94fbe7448fa60e25f78955b0151bed747b14a504e4833179f87d9875a938a2` (big blocks on, then off) |
+| `SimLST.setMinter(vault)` | `0x878a99e97486c5b611aa8d900e9fcab35eea7fbbcbac7b9e4ae6e706eb774ea7` | `0x9a8475b9ee8565f9dab8a800a305490f9280272d7f3c3406dffaa5bf4e6d1cd1` |
+| `setPeer(40168, Store)` | `0x77c77f46af00ddc6ea0b49ea8f5a2b5e6bc394e91c6d6ad1d902e80f4b8a8bfc` | `0xfe2cd44f33a269b4b8deb130a2a142836926411212179185dd2f84334df66169` |
+| Solana `set_peer_config` (VaultTreasury) | `67TL7K7d…X8A34v` (`DBmVdLhsJmZRy2o3VgvUA6kexbi5RPfq71zfzgFy7vk1`) | `2AqfiGZx…kHiQHqAv` (`8ijS8CAYn1vfT2Me9nMyRhaTiPGnXbxb9My9AjapogD4`) |
+| Solana `endpoint_init_oapp_pathway` | `KQ9ux9K3…1cWVvLx` | `54txRVEz…9hrtRvS` |
+| `fundTreasury` | 2 simETH `0x98347d579a493b2332cec5167429ffa7b78edc1acf9b3b7edf19fe620a2dc686` | 11 simHYPE `0x31436446b9ad3b865ed0bb7fc3ddbf2dc7f735b91257d37637f128258ed91a59` |
+
+Smoke (QA wallet `qeF`, Account `Ano1nkrs…tRR`, EVM `0xBC1075C5…3e60`; the app's own flow code against a local `next dev` for the relay steps):
+
+| Check | Result |
+|---|---|
+| HyperEVM open | Position 1, 1 simHYPE, 1 month: `openPosition` `0x8edff827d785d7cc2f888be8b54222eb8a4e423d46fca7c9cc1665f581039020`, PositionLocked delivered in under a minute, `apply_locked`, Advance 26 Gemas `3npigMHm…kzDdEMHQ` |
+| HyperEVM Unlock, two-step | 12 min after open: Unlock asked the relayer for a Yield Report; applied on Solana 53 s later (Debt 0, `yield_cumulative` 3.933e15, mirror balance 11.00098 simHYPE, `report_time` set); a repeat request inside 60 s was refused and waited; `unlock` `2RVexpiP…bumAM5d`, `send_unlock` `29vfLwVg…S44dCm`; vault Position unlocked 1 min 43 s later |
+| Hoodi open | Position 1, 1 simETH: `openPosition` `0x9cdacc378e84b069527358ef99bff1e68bb61e8f34068c4a0c13e3c5b5af7651` (PacketSent, DVN `0xa78A78a1…feC2` paid). **Not delivered**: after 35 min LayerZero Scan has not indexed it and the Solana endpoint has no payload hash (inbound nonce 0) for the pathway, while HyperEVM delivered both its messages in the same window. Same DVN and executor as the 2026-10-14 messages that delivered. The keeper applies the Lock when it lands; the Advance and Unlock on Hoodi are still to run. |
+
+Not exercised live: Redeem and Instant Redeem of ETH/HYPE-Sourced Gemas (they need won Gemas from a Match); covered by the bridge LiteSVM tests, the vault forge tests and the app unit tests.
+
 ## Devnet upgrade: mainnet-launch + yield by math (2026-10-19)
 
 Ran the hand-off below, from main `f37314d` (PR #3, tree equal to `cf42cc7`). Deployer `7zr1j185…qh7M` via `https://rpc.magicblock.app/devnet`. Before it: Season 2 recorded and all 4 ranks paid on the old program (the keeper fix `e17b783` was needed first: `import * as anchor` has no `BN` in the keeper's ES modules). No Open or Active Match; keeper stopped 03:36 UTC.

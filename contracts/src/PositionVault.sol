@@ -30,8 +30,8 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRat
 ///
 /// Treasury (underlying units) = fees of open Positions + fees of closed Positions (realised at Unlock)
 ///   + funding + refills - withdrawals - Instant Redeem payouts.
-/// `reportYield(id)` is permissionless and sends `(accrued, treasuryBalance)`: what the vault Treasury can still pay
-/// now. An Instant Redeem payout the Treasury cannot cover reverts and waits: the same message pays once the Treasury holds enough.
+/// `reportYield(id)` is permissionless and sends `(accrued, treasuryBalance, instantPaid)`: what the vault Treasury can still pay
+/// now, the Instant Redeem payouts the vault has made so far (Solana subtracts the payouts it recorded that this count does not include yet) and the block time, so Solana can tell a newer snapshot from an older one. An Instant Redeem payout the Treasury cannot cover reverts and waits: the same message pays once the Treasury holds enough.
 ///
 /// Messaging seam: outbound goes through `_send(bytes)`; inbound enters through `receiveMessage(bytes)`, which is
 /// authorised to the endpoint and forwards to `_receive(bytes)`. A LayerZero OApp subclass overrides `_send` and
@@ -112,7 +112,12 @@ contract PositionVault {
         uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq
     );
     event YieldAccrued(
-        uint64 indexed positionId, uint256 cumulativeAccrued, uint256 rate, uint64 seq, uint256 treasuryBalance
+        uint64 indexed positionId,
+        uint256 cumulativeAccrued,
+        uint256 rate,
+        uint64 seq,
+        uint256 treasuryBalance,
+        uint256 instantPaid
     );
     event PositionUnlocked(uint64 indexed positionId, address indexed owner, uint256 sharesReleased, uint64 seq);
     event YieldPaid(
@@ -268,8 +273,8 @@ contract PositionVault {
         );
     }
 
-    /// @notice Permissionless: reports the Position's cumulative Accrued Yield and the Treasury balance, both
-    ///         computed at this block. Payable: a LayerZero subclass charges the caller the message fee.
+    /// @notice Permissionless: reports the Position's cumulative Accrued Yield, the Treasury balance and the cumulative
+    ///         Instant payouts, all computed at this block. Payable: a LayerZero subclass charges the caller the message fee.
     function reportYield(uint64 id) external payable {
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
@@ -279,8 +284,10 @@ contract PositionVault {
         uint256 treasury = treasuryBalance();
         uint64 seq = ++p.outSeq;
         uint256 rate = rateSource.underlyingPerShare();
-        emit YieldAccrued(id, accrued, rate, seq, treasury);
-        _send(abi.encode(MSG_YIELD_ACCRUED, sourceChain, id, seq, accrued, rate, block.timestamp, treasury));
+        emit YieldAccrued(id, accrued, rate, seq, treasury, instantPaid);
+        _send(
+            abi.encode(MSG_YIELD_ACCRUED, sourceChain, id, seq, accrued, rate, block.timestamp, treasury, instantPaid)
+        );
     }
 
     // ---------------------------------------------------------------- inbound

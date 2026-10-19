@@ -14,7 +14,7 @@ export async function fetchVaultTreasuries(_c: unknown, vaults: { vault: string;
   for (const { vault } of vaults) {
     const reportedIn = (netOfVault(vault).native === "ETH" ? 3n : 40n) * E;
     const available = kind === "short" ? E / 1000n : reportedIn;
-    out.set(vault.toLowerCase(), { reportedIn, instantRecorded: reportedIn - available, available });
+    out.set(vault.toLowerCase(), { balance: reportedIn, paidAtReport: 0n, reportTime: 0n, instantRecorded: reportedIn - available, available });
   }
   return out;
 }

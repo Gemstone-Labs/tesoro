@@ -58,8 +58,8 @@ export const NETS: Record<NetKey, EvmNet> = {
  * for the new vault. The keeper reads vaults off the Position ids on chain and needs no address.
  */
 const SIM_VAULT_ADDRESSES = {
-  hoodi: { vault: "0x191700BA53C9437F3a31E082bcfd8bB85C865d26", lst: "0xD82840623A7a00C37b0883d221Fa84e39ddA2a28" },
-  hyperevm: { vault: "0x61B46f64CDB75930a87955487aAb8A7711F757b5", lst: "0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3" },
+  hoodi: { vault: "0xd545886F5CC70A6F9fa69D104e8f438e3a0F48Dc", lst: "0xD82840623A7a00C37b0883d221Fa84e39ddA2a28" },
+  hyperevm: { vault: "0xfBc91D795d12Df73Cadc1fE217F587cC0484eD23", lst: "0xC8A9AccD25ABDCF3FCBDE7123Cef8239B5bE7eF3" },
 } as const satisfies Record<NetKey, { vault: Address; lst: Address }>;
 
 export interface EthVault {
@@ -373,12 +373,16 @@ export interface BridgePositionView {
   appliedYieldSeq: bigint;
   outSeq: bigint;
   unlockSent: boolean;
-  /** The vault treasury's cumulative credits from the latest yield report. */
-  treasuryIn: bigint;
+  /** What the vault Treasury held at the latest Yield Report (source-asset units). */
+  treasuryBalance: bigint;
+  /** What Instant Redeems on this Position's vault had been paid when that report was made. */
+  instantPaid: bigint;
+  /** Vault block time (unix seconds) of the latest Yield Report applied to this record. */
+  reportTime: bigint;
 }
 
-/** `BridgePosition`: 172 bytes before the Yield Fee, plus `treasury_in` u128 at the end. */
-export const BRIDGE_POSITION_LEN = 172 + 16;
+/** `BridgePosition`: 172 bytes, `treasury_balance` u128 at 172, `instant_paid` u128 at 188, `report_time` u64 at 204. */
+export const BRIDGE_POSITION_LEN = 172 + 16 + 16 + 8;
 
 /** Null for a record in the old layout: its vault is abandoned, and it reads as absent. */
 export function parseBridgePosition(d: Uint8Array): BridgePositionView | null {
@@ -396,7 +400,9 @@ export function parseBridgePosition(d: Uint8Array): BridgePositionView | null {
     appliedYieldSeq: rdU64(d, 155),
     outSeq: rdU64(d, 163),
     unlockSent: d[171] === 1,
-    treasuryIn: rdU128(d, 172),
+    treasuryBalance: rdU128(d, 172),
+    instantPaid: rdU128(d, 188),
+    reportTime: rdU64(d, 204),
   };
 }
 
@@ -648,6 +654,10 @@ export async function fetchVaultPosition(vault: string, id: bigint): Promise<Vau
 }
 
 /** With `LZ_FEE_HEADROOM_PCT` on top; the vault refunds the excess to the caller. */
+/** The vault's own Treasury balance right now (source-asset units), read from the vault. */
+export const fetchLiveTreasury = (vault: string): Promise<bigint> =>
+  evmClient(netOfVault(vault)).readContract({ address: vault as Address, abi: vaultAbi, functionName: "treasuryBalance" });
+
 export const withHeadroom = (fee: bigint) => (fee * (100n + LZ_FEE_HEADROOM_PCT)) / 100n;
 
 // ---- Math ---------------------------------------------------------------------------------------
@@ -664,7 +674,7 @@ export const underlyingOf = (shares: bigint, rate: bigint) => (shares * rate) / 
 
 /**
  * Debt in Gemas if the yield accrued on Hoodi were reported and applied now. Debt only falls on
- * Solana when a `YieldAccrued` message is applied, so this is what "Report yield" would leave.
+ * Solana when a `YieldAccrued` message is applied, so this is what the next Yield Report would leave.
  */
 export function projectedEthDebt(source: SourceMath | null, accruedUnits: bigint): bigint {
   if (!source) return 0n;

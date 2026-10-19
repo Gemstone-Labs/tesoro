@@ -30,7 +30,7 @@ const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 export async function fetchEthState(_c: unknown, vault: string, id: bigint): Promise<EthState> {
   const { advance = "open", opening } = screenData().eth ?? {};
   const price = PRICE[netOfVault(vault).native];
-  const bridge = { lastInSeq: 1n, lockedSeq: 1n, ownerEvm: "0x4ce2a8b91f0d3e57c1a6d9f2b08e7a3d51c6f9a2", principal: 2n * E, horizonMonths: 3, opened: true, lastYieldSeq: 0n, yieldCumulative: 0n, appliedYieldSeq: 0n, outSeq: 0n, unlockSent: false, treasuryIn: 0n };
+  const bridge = { lastInSeq: 1n, lockedSeq: 1n, ownerEvm: "0x4ce2a8b91f0d3e57c1a6d9f2b08e7a3d51c6f9a2", principal: 2n * E, horizonMonths: 3, opened: true, lastYieldSeq: 0n, yieldCumulative: 0n, appliedYieldSeq: 0n, outSeq: 0n, unlockSent: false, treasuryBalance: 0n, instantPaid: 0n, reportTime: 0n };
   const core = { position: key(Number(id)), principalWei: 2n * E, rateBps: 700, status: "locked" as const, advances: 1, openAdvance: advance === "open" ? 0 : null, cumulativeYield: 0n };
   const issued = 6200n;
   const unitNum = 10n ** 22n;

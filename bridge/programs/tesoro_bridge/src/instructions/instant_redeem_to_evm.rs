@@ -134,11 +134,11 @@ impl InstantRedeemToEvm<'_> {
 
         // Never accept a payout the vault's treasury may not be able to make.
         let treasury = &mut ctx.accounts.vault_treasury;
+        require!(u128::from(payout) <= treasury.available(), BridgeError::TreasuryShort);
         let recorded = treasury
             .instant_recorded
             .checked_add(u128::from(payout))
             .ok_or(BridgeError::AmountOverflow)?;
-        require!(recorded <= treasury.reported_in, BridgeError::TreasuryShort);
         treasury.instant_recorded = recorded;
 
         let claim = &mut ctx.accounts.instant_claim;

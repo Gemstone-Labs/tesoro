@@ -51,14 +51,20 @@ export type InstantOffer = {
   available: { asset: Chain; amount: number | null; token: string }[];
   /** Plain reason Redeem now cannot be used, shown instead of the rows. */
   unavailable: string | null;
+  /** Some rows are ETH or HYPE Gemas: Redeem now fetches the latest yield first. */
+  fetchesYield?: boolean;
 };
 
 /** Redeem as an exchange: every redeemable Gema in, each Source asset out, the Sources folded away. */
-export function RedeemExchange({ payouts, instant = null, busy, error, done, canSign, onRedeem, onInstant, onClose }: {
+export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldCheck, error, done, canSign, onRedeem, onInstant, onClose }: {
   payouts: RedeemPayout[];
   /** Won Gemas can be sold now for less; omitted where that does not apply (offline). */
   instant?: InstantOffer | null;
   busy: boolean;
+  /** What the wait is for, when it is more than the payout itself (e.g. fetching the latest yield). */
+  busyNote?: string | null;
+  /** Won ETH or HYPE Gemas are all still pending, so nothing is redeemable until the latest yield is fetched: names the chains. */
+  yieldCheck?: string | null;
   error: string | null;
   done: RedeemDone | null;
   canSign: boolean;
@@ -77,7 +83,17 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       </div>
     );
   }
+  const yieldPanel = yieldCheck ? (
+    <div className="mx-empty">
+      <span className="mx-empty-mark"><GemaMark size={34} /></span>
+      <b>Waiting on yield</b>
+      <p className="meta">Your won {yieldCheck} Gemas become redeemable as their Lock earns yield, and that yield only reaches {BRAND.name} when you ask. Get the latest yield first (usually a minute or two); whatever it covers is redeemed straight after, and if it covers nothing yet you are told.</p>
+      {error && <p className="status err" role="alert">{error}</p>}
+      {busy ? <Busy>{busyNote ?? "Getting the latest yield…"}</Busy> : <Button variant="money" size="lg" block disabled={!canSign} onClick={onRedeem}>Get the latest yield and redeem</Button>}
+    </div>
+  ) : null;
   if (payouts.length === 0 && !instant) {
+    if (yieldPanel) return <div className="mx">{yieldPanel}</div>;
     return (
       <div className="mx-empty">
         <span className="mx-empty-mark"><GemaMark size={34} /></span>
@@ -116,6 +132,8 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
           <p className="meta">{instant.unavailable ?? "None of your won Gemas are waiting on yield. Redeem them at full value."}</p>
           <Button block onClick={onClose}>Close</Button>
         </div>
+      ) : shown.length === 0 && yieldPanel && !showInstant ? (
+        yieldPanel
       ) : shown.length === 0 ? (
         <div className="mx-empty">
           <span className="mx-empty-mark"><GemaMark size={34} /></span>
@@ -152,6 +170,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       {showInstant && (
         <p className="mx-fee">
           Only won Gemas still waiting on yield are sold: {BRAND.name} keeps {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed at full value.
+          {instant.fetchesYield && " For ETH and HYPE Gemas it first fetches the latest yield (usually a minute or two) so the amount it can pay is up to date; if that changes the amounts, you are asked to confirm them."}
         </p>
       )}
       <details className="mx-from">
@@ -181,7 +200,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       <SimulatedYieldLabel />
       {error && <p className="status err" role="alert">{error}</p>}
       {busy ? (
-        <Busy>Paying out your Gemas…</Busy>
+        <Busy>{busyNote ?? "Paying out your Gemas…"}</Busy>
       ) : (
         <Button variant="money" size="lg" block disabled={!canSign} onClick={showInstant ? onInstant : onRedeem}>
           {showInstant ? "Redeem now" : "Redeem"} <GemaAmount value={total} size="md" />
