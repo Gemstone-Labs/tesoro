@@ -11,12 +11,12 @@ const g = (name: string, h: number, faces: "left" | "right") => ({ src: `/art/fi
 export const art = {
   /** Wide hero art (2400x1000), left 40% dark and empty for the title. */
   blockPuzzleHero: f("block-puzzle-hero"),
-  holdemHero: f("holdem-hero"),
-  tradingDuelHero: f("trading-duel-hero"),
+  holdemHero: f("holdem-hero-2"),
+  tradingDuelHero: f("trading-duel-hero-2"),
   /** Square key art. */
   blockPuzzleTile: f("block-puzzle-tile"),
-  holdemTile: f("holdem-tile"),
-  tradingDuelTile: f("trading-duel-tile"),
+  holdemTile: f("holdem-tile-2"),
+  tradingDuelTile: f("trading-duel-tile-2"),
   comingSoon: {
     "word-duel": f("coming-soon-word-duel"),
     "bubble-burst": f("coming-soon-bubble-burst"),
@@ -30,16 +30,16 @@ export const art = {
   /** The wide hero art by Game (list rows, result poster, Request cards). */
   hero: {
     "block-puzzle": f("block-puzzle-hero"),
-    holdem: f("holdem-hero"),
-    "trading-duel": f("trading-duel-hero"),
+    holdem: f("holdem-hero-2"),
+    "trading-duel": f("trading-duel-hero-2"),
   },
   /** Dark backdrops for the play screens (Astra art for the edges of the Arena). */
-  arena: { "block-puzzle": f("arena/block-puzzle"), holdem: f("arena/holdem"), "trading-duel": f("arena/trading-duel") },
+  arena: { "block-puzzle": f("arena/block-puzzle"), holdem: f("arena/holdem"), "trading-duel": f("arena/trading-duel-2") },
   /** Play Again thumbs reuse the square tiles (cropped by CSS). */
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),
-    holdem: f("holdem-tile"),
-    "trading-duel": f("trading-duel-tile"),
+    holdem: f("holdem-tile-2"),
+    "trading-duel": f("trading-duel-tile-2"),
   },
   /**
    * Guide characters, torso-up crops (made by scripts/make-busts.mjs from the full-body poses, which

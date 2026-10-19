@@ -5,18 +5,19 @@ export interface CatalogueEntry {
   key: string;
   name: string;
   tile: string;
-  /** Wide art for the big /play card when the square tile crops badly there, shown right-aligned. */
-  wide?: string;
   /** Playable today. Coming-soon entries are dimmed and not clickable. */
   live: boolean;
   game?: GameId;
 }
 
-/** The Lobby's Play Now rail: the three live Games first, then the announced ones. */
+/** The order the Lobby shows the live Games in, in the hero carousel and the Play Now grid (founder pick). */
+export const LOBBY_ORDER: GameId[] = ["holdem", "trading-duel", "block-puzzle"];
+
+/** The Lobby's Play Now rail: the live Games first, then the announced ones. */
 export const CATALOGUE: CatalogueEntry[] = [
-  { key: "block-puzzle", name: "Block Puzzle", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
   { key: "holdem", name: "Heads-up Hold'em", tile: art.holdemTile, live: true, game: "holdem" },
-  { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, wide: art.tradingDuelHero, live: true, game: "trading-duel" },
+  { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, live: true, game: "trading-duel" },
+  { key: "block-puzzle", name: "Block Puzzle", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
   { key: "word-duel", name: "Word Duel", tile: art.comingSoon["word-duel"], live: false },
   { key: "bubble-burst", name: "Bubble Burst", tile: art.comingSoon["bubble-burst"], live: false },
   { key: "pocket-pool", name: "Pocket Pool", tile: art.comingSoon["pocket-pool"], live: false },
