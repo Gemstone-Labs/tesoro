@@ -61,7 +61,7 @@ export default function Page() {
         </li>
         <li><b>Advance.</b> The oracle path in tesoro_core: the owner and the oracle co-sign, the oracle supplies the issuance price.</li>
         <li>
-          <b>reportYield, then apply_yield.</b> The vault accrues first, so the cumulative figure includes everything earned up to that block. What is left to pay back falls automatically.
+          <b>reportYield, then apply_yield, only when an action needs it.</b> Nothing reports in the background. Redeem, Redeem now and Unlock first ask the vault for a report (the app does it for the Player; anyone may), wait until <code>apply_yield</code> has applied it on Solana, then continue. The vault computes its Accrued Yield on the spot, so the figure includes everything earned up to that block.
         </li>
         <li>
           <b>Redeem.</b> The holder calls <code>tesoro_bridge::redeem_to_evm</code>, which CPIs <code>redeem_from_source</code> and records the units in a <code>Claim</code>.
@@ -71,7 +71,7 @@ export default function Page() {
         <li>
           <b>Redeem now.</b> The holder calls <code>tesoro_bridge::instant_redeem_to_evm</code>, which moves their won Gemas to {BRAND.name}&apos;s Treasury Account and
           pays {INSTANT_PAYOUT_PCT}% of their value. The bridge keeps a mirror of each vault&apos;s Treasury (<code>VaultTreasury</code>) and refuses a payout the vault has not reported
-          funds for. Anyone then calls <code>send_pay_instant</code> (message type 5), and the vault pays from its Treasury. To refill, the Treasury Account redeems the
+          funds for (the vault&apos;s balance at its latest report, less payouts recorded since). Anyone then calls <code>send_pay_instant</code> (message type 5), and the vault pays from its Treasury. To refill, the Treasury Account redeems the
           Gemas it bought as the yield lands (<code>redeem_treasury_to_evm</code>) and a <code>PayYield</code> to the vault&apos;s own address books the proceeds into its Treasury.
         </li>
         <li>

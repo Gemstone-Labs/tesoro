@@ -373,12 +373,14 @@ export interface BridgePositionView {
   appliedYieldSeq: bigint;
   outSeq: bigint;
   unlockSent: boolean;
-  /** The vault treasury's cumulative credits from the latest yield report. */
-  treasuryIn: bigint;
+  /** What the vault Treasury held at the latest Yield Report (source-asset units). */
+  treasuryBalance: bigint;
+  /** What Instant Redeems on this Position's vault had been paid when that report was made. */
+  instantPaid: bigint;
 }
 
-/** `BridgePosition`: 172 bytes before the Yield Fee, plus `treasury_in` u128 at the end. */
-export const BRIDGE_POSITION_LEN = 172 + 16;
+/** `BridgePosition`: 172 bytes, `treasury_balance` u128 at 172, `instant_paid` u128 at 188. */
+export const BRIDGE_POSITION_LEN = 172 + 16 + 16;
 
 /** Null for a record in the old layout: its vault is abandoned, and it reads as absent. */
 export function parseBridgePosition(d: Uint8Array): BridgePositionView | null {
@@ -396,7 +398,8 @@ export function parseBridgePosition(d: Uint8Array): BridgePositionView | null {
     appliedYieldSeq: rdU64(d, 155),
     outSeq: rdU64(d, 163),
     unlockSent: d[171] === 1,
-    treasuryIn: rdU128(d, 172),
+    treasuryBalance: rdU128(d, 172),
+    instantPaid: rdU128(d, 188),
   };
 }
 
@@ -664,7 +667,7 @@ export const underlyingOf = (shares: bigint, rate: bigint) => (shares * rate) / 
 
 /**
  * Debt in Gemas if the yield accrued on Hoodi were reported and applied now. Debt only falls on
- * Solana when a `YieldAccrued` message is applied, so this is what "Report yield" would leave.
+ * Solana when a `YieldAccrued` message is applied, so this is what the next Yield Report would leave.
  */
 export function projectedEthDebt(source: SourceMath | null, accruedUnits: bigint): bigint {
   if (!source) return 0n;

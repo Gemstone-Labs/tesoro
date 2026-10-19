@@ -3,7 +3,7 @@ import { LZ_SCAN_API, netOfVault, vaultByAddress, type EthState, type VaultPosit
 import { BRAND } from "../brand";
 
 /**
- * Cross-chain operations on an ETH or HYPE Position that take minutes: open (EVM chain to Solana), report yield
+ * Cross-chain operations on an ETH or HYPE Position that take minutes: open (EVM chain to Solana), the latest yield
  * (EVM chain to Solana), redeem and unlock (Solana to the EVM chain). Each is tracked from chain state, never from
  * a timer, so pending never shows success early and a reload picks up where it was. An Instant Redeem ("instant") is
  * tracked like a redeem, against the holder's Instant Claim.
@@ -54,8 +54,8 @@ export const opSteps = (kind: EthOpKind, vault: string): CrossChainStep[] => {
       { title: "Gemas available", note: "Gemas credited to your Account" },
     ],
     yield: [
-      { title: `${w.net} confirmed`, note: `Yield report sent from ${w.net}` },
-      { title: "Reached Solana", note: `${BRAND.name} received the yield report` },
+      { title: `${w.net} confirmed`, note: `Latest yield sent from ${w.net}` },
+      { title: "Reached Solana", note: `${BRAND.name} received the latest yield` },
       { title: "Paid back more", note: "The yield paid down what you owe" },
     ],
     redeem: [
@@ -88,10 +88,10 @@ export const opCopy = (kind: EthOpKind, vault: string): { label: string; finalSt
       failed: "This step failed. Your Gemas are not available; nothing was spent.",
     },
     yield: {
-      label: "Report yield",
+      label: "Latest yield",
       finalState: "Updated",
       done: `Paid back more from the yield earned on ${w.net}.`,
-      pending: "Pending. What you owe only falls once the report arrives.",
+      pending: "Pending. What you owe only falls once the update arrives.",
       failed: "This step failed. What you owe is unchanged.",
     },
     redeem: {
