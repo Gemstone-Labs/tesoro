@@ -2,9 +2,28 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Devnet upgrade: mainnet-launch + yield by math (2026-10-19)
+
+Ran the hand-off below, from main `f37314d` (PR #3, tree equal to `cf42cc7`). Deployer `7zr1j185…qh7M` via `https://rpc.magicblock.app/devnet`. Before it: Season 2 recorded and all 4 ranks paid on the old program (the keeper fix `e17b783` was needed first: `import * as anchor` has no `BN` in the keeper's ES modules). No Open or Active Match; keeper stopped 03:36 UTC.
+
+| Step | Result |
+|---|---|
+| `tesoro_core` extend +620,000 B (1,963,360 B ProgramData) | done |
+| `tesoro_core` upgrade (1,941,224 B, sha256 `285727b4…`) | slot 512664538, `5zYZGMzS…zHfgrpneKh3u` |
+| `sim_lst`, `block_puzzle`, `holdem`, `trading_duel` upgrades (no extends) | slots 512665257, 512665317, 512665376, 512665428; on-chain bytes equal the build; no buffers left |
+| `retire-old-accounts.ts --send` | 126 tx, 0 failed; 501.36 simSOL back to 47 owners; Gemas 0 in 0 Holdings |
+| `init_native_custody` (custody `8yFRpPb9…Lzo4`, vault `GvBQr6MC…G5KA`) | `2gVpCdh5…Uew6SPVj3gU` |
+| `init_treasury` Yield Fee 2,000, Instant Redeem Fee 2,500 bps (vault kept 19.35 simSOL) | `4beXZb7V…uamF6XKxvb2BY` |
+| `set_treasury_company` `Dqwxcyh7euNM7YVsEMZwoZaVmuKntxLVdAjAvg72FX97` (devnet only; mainnet sets its own) | `62dYFM6Y…L5EZSn9rfYT` |
+| `sim_lst` yield authority | unchanged, tesoro_core `["yield"]` `C9zdFERG…CuSAf` (set 2026-10-03) |
+| App: main `f37314d` (Vercel prod) | 16 routes 200 |
+| Keeper: VPS on `f37314d` | 141 tests, passes OK |
+
+Smoke (QA wallet `EnCcBrdM…ChArg`): `openPositionWithAdvance` 2 simSOL, 1 month: Position `DjM63REb…wRDS`, 387 Gemas (`2HFmiVAU…VDds89`); Debt fell by the clock with no crank and reached 0 at 04:03 UTC (10 min); `unlock` `2DUgbdq8…zYZ9j` returned 2 simSOL + 0.00099 simSOL free yield. Not run here: a real Match, Instant Redeem, Treasury withdrawal, Limits (Vanguard's session runs Match checks next). Deployer 22.58 SOL after.
+
 ## Mainnet-launch branch: devnet upgrade (hand-off, 2026-10-15)
 
-**Nothing in this section has been run. Agents do not run any of it: no upgrade, no extend, no admin call, no migration, no env change, no deploy. The orchestrator / founders run it, once, in the order below.** Source: branch `ml/40-reconcile-with-yield-by-math` (the mainnet-launch branch merged with main's computed-yield model, ADR 0010, and with `feat/ybm-05-app-keeper-no-crank-15-10-2026`; ticket 40), all suites green on it (see Checks). Updated 2026-10-16: the sizes, account lists and admin calls below are for the reconciled branch. Deployer / upgrade authority and `tesoro_core` admin: `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`.
+**Ran on 2026-10-19 (record above). Agents do not run any of it: no upgrade, no extend, no admin call, no migration, no env change, no deploy.** Source: branch `ml/40-reconcile-with-yield-by-math` (the mainnet-launch branch merged with main's computed-yield model, ADR 0010, and with `feat/ybm-05-app-keeper-no-crank-15-10-2026`; ticket 40), all suites green on it (see Checks). Updated 2026-10-16: the sizes, account lists and admin calls below are for the reconciled branch. Deployer / upgrade authority and `tesoro_core` admin: `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`.
 
 ### Read this first (risks)
 
