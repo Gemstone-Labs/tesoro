@@ -2,7 +2,10 @@
 
 import { useState, type ReactNode } from "react";
 import { pushFeed } from "./feed";
+import { usePanelStyle } from "./panels";
+import { PanelSwitcher } from "./PanelSwitcher";
 import "./vanguard.css";
+import "./panels.css";
 
 export interface TurnInfo {
   /** Whose turn it is, in words ("Your turn", "Italy's turn", "Two-Step · 1 left"); empty before the Match starts and after it ends. */
@@ -31,9 +34,11 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
   const showButton = turn.label !== "" && banked > 0 && !active;
   const ready = showButton && yourTurn && !moved;
   const hint = !showButton ? "" : !yourTurn ? "Banked. Press it on your turn to move twice." : moved ? "Press it before your first step." : "Press it to move twice this turn.";
+  // nothing to say before the Match starts or after it ends: no empty box
+  if (!turn.label) return null;
   return (
     <div className="vg-turnbox">
-      {turn.label && <span className="vg-turn">{turn.label}</span>}
+      <span className="vg-turn">{turn.label}</span>
       {showButton && (
         <button key={earned} type="button" className={`vg-two${ready ? " ready" : ""}${earned ? " earned" : ""}`} onClick={turn.onUse} disabled={!ready}>
           Use Two-Step Turn{banked > 1 ? ` ×${banked}` : ""}
@@ -48,15 +53,21 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
 function Feed({ say }: { say: string }) {
   const [feed, setFeed] = useState(() => pushFeed([], say));
   const [last, setLast] = useState(say);
+  // how many messages have come in: numbers the lines and remounts the newest so it animates in
+  const [count, setCount] = useState(say ? 1 : 0);
   if (say !== last) {
     setLast(say);
-    setFeed((f) => pushFeed(f, say));
+    const next = pushFeed(feed, say);
+    setFeed(next);
+    if (next[0] !== feed[0]) setCount((n) => n + 1);
   }
+  const no = (i: number) => String(Math.max(1, count - i)).padStart(3, "0");
   return (
     <div className="vg-feed">
-      <p className="vg-say" aria-live="polite">{feed[0] ?? ""}</p>
+      <h3 className="vg-feed-h">Field log</h3>
+      <p key={count} className="vg-say" aria-live="polite" data-n={no(0)}>{feed[0] ?? ""}</p>
       {feed.slice(1).map((m, i) => (
-        <p key={`${i}-${m}`} className="vg-old" aria-hidden="true" style={{ opacity: 0.6 - i * 0.18 }}>{m}</p>
+        <p key={`${i}-${m}`} className="vg-old" aria-hidden="true" data-age={i + 1} data-n={no(i + 1)}>{m}</p>
       ))}
     </div>
   );
@@ -67,9 +78,11 @@ function Feed({ say }: { say: string }) {
  * roster, board, your seat, turn, message). Wide (about 900px or more): the board centred at the height that fits,
  * Italy's seat and the roster on the left, the message feed, turn state, Two-Step Turn button and your seat on the right.
  */
-export function VanguardScreen({ bar, foe, roster, stage, me, turn, say, children }: { bar: ReactNode; foe: ReactNode; roster: ReactNode; stage: ReactNode; me: ReactNode; turn: TurnInfo; say: string; children?: ReactNode }) {
+export function VanguardScreen({ bar, foe, roster, stage, me, turn, say, switchable, children }: { bar: ReactNode; foe: ReactNode; roster: ReactNode; stage: ReactNode; me: ReactNode; turn: TurnInfo; say: string; /** Practice only: show the temporary side-panel style switcher. */ switchable?: boolean; children?: ReactNode }) {
+  const [panels, pick] = usePanelStyle(!!switchable);
   return (
-    <div className="vg-screen">
+    <div className="vg-screen" data-panels={panels}>
+      {switchable && <PanelSwitcher value={panels} onChange={pick} />}
       <div className="vg-layout">
         <div className="vg-left">
           {bar}
