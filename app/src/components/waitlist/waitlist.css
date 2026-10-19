@@ -171,5 +171,13 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
 .wl-role-chip[aria-pressed="true"] { color: var(--fg); background: linear-gradient(rgba(36, 216, 168, 0.16), rgba(36, 216, 168, 0.16)), #11171b; }
 .wl-role-chip[aria-pressed="true"]::before { content: "✓" / ""; color: var(--em); }
 .wl-form > .wl-role { margin-bottom: 8px; }
-.wl-studio { display: grid; gap: 4px; margin-bottom: 8px; }
+.wl-studio { display: grid; gap: 4px; flex-basis: 100%; }
 .wl-studio .input { width: 100%; }
+/* Phones: the chips are one swipeable row and the Studio field opens beside its chip, so the email comes sooner. */
+@media (max-width: 639px) {
+  .wl-role-chips { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; margin-inline: -4px; padding: 2px 4px; }
+  .wl-role-chips::-webkit-scrollbar { display: none; }
+  .wl-role-chip { flex: none; white-space: nowrap; min-height: 44px; }
+  .wl-studio { flex: 0 0 220px; align-self: end; gap: 0; }
+  .wl-studio .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

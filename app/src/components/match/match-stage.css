@@ -1,17 +1,17 @@
 /* Match stage: the screens around play (MatchStage.tsx). Motion carries the state, so the copy stays short. */
 
 .stage { position: relative; isolation: isolate; overflow-x: clip; width: min(100%, 760px); margin: clamp(16px, 5vh, 64px) auto 0; display: grid; gap: clamp(20px, 3.5vh, 36px); justify-items: center; text-align: center; }
-.stage-kicker { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.stage-kicker { font-size: var(--fs-13); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
 .stage-title { font-family: var(--f-display); text-transform: uppercase; font-weight: 800; font-size: clamp(44px, 6.4vw, 80px); line-height: 0.92; color: #fff; text-wrap: balance; }
 .stage-line { font-size: clamp(16px, 1.4vw, 19px); color: var(--fg); line-height: 1.4; text-wrap: pretty; }
-.stage-label { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
+.stage-label { font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-2); }
 .stage-foot { width: min(100%, 520px); justify-self: center; display: grid; gap: 14px; justify-items: center; }
-.stage-foot .status.busy { width: 100%; justify-content: center; font-size: 16px; padding: 14px 16px; }
-.stage-go .btn { min-height: 64px; font-size: 22px; }
+.stage-foot .status.busy { width: 100%; justify-content: center; font-size: var(--fs-16); padding: 14px 16px; }
+.stage-go .btn { min-height: 64px; font-size: var(--fs-22); }
 
 .stage-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .stage-facts li {
-  display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; font-size: 13.5px; color: var(--fg-2); background: rgba(14, 19, 24, 0.78);
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; font-size: var(--fs-14); color: var(--fg-2); background: rgba(14, 19, 24, 0.78);
   clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
   box-shadow: inset 0 0 0 1px var(--line);
 }
@@ -20,19 +20,19 @@
 
 .stage-quiet:empty { display: none; }
 .stage-quiet { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 22px; }
-.stage-quiet button { all: unset; cursor: pointer; font-size: 15px; font-weight: 700; color: var(--fg-2); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 5px; }
+.stage-quiet button { all: unset; cursor: pointer; font-size: var(--fs-15); font-weight: 700; color: var(--fg-2); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 5px; }
 .stage-quiet button:hover:not(:disabled) { color: var(--fg); text-decoration-color: var(--fg); }
 .stage-quiet button:disabled { cursor: default; opacity: 0.6; }
 .stage-quiet button:focus-visible { outline: 2px solid var(--fg); outline-offset: 4px; }
 
 .stage-link { width: 100%; display: grid; gap: 8px; }
-.stage-link-label { display: inline-flex; align-items: center; gap: 8px; justify-self: center; font-size: 14px; font-weight: 700; color: var(--fg); }
+.stage-link-label { display: inline-flex; align-items: center; gap: 8px; justify-self: center; font-size: var(--fs-14); font-weight: 700; color: var(--fg); }
 .stage-link-label svg { width: 16px; height: 16px; }
 .stage-link-row { --c: 9px; --edge: var(--edge-2); display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; background: var(--surface); }
-.stage-link-row code { font-family: var(--f-mono); font-size: 13px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-link-row code { font-family: var(--f-mono); font-size: var(--fs-13); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stage-link-row .btn { min-height: 40px; gap: 7px; }
 
-.stage-how { width: 100%; font-size: 14px; color: var(--fg-2); }
+.stage-how { width: 100%; font-size: var(--fs-14); color: var(--fg-2); }
 .stage-how summary { cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; width: max-content; margin: 0 auto; padding: 4px 8px; font-weight: 700; color: var(--fg-2); list-style: none; transition: color 0.2s; }
 .stage-how summary::-webkit-details-marker { display: none; }
 .stage-how summary:hover, .stage-how[open] summary { color: var(--fg); }
@@ -43,7 +43,7 @@
 .stage-how-list li { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 14px; row-gap: 3px; padding: 14px 0; }
 .stage-how-list li + li { border-top: 1px solid var(--line); }
 .stage-how-list svg { grid-row: span 2; width: 18px; height: 18px; margin-top: 1px; color: var(--fg-2); }
-.stage-how-list b { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); }
+.stage-how-list b { font-size: var(--fs-13); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); }
 .stage-how-list p { margin: 0; line-height: 1.5; color: var(--fg-2); text-wrap: pretty; }
 .stage-how[open] .stage-how-list { animation: stage-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
@@ -70,7 +70,7 @@
 .stage-seat.r { animation: stage-in-r 0.7s 0.1s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 @keyframes stage-in-l { from { opacity: 0; translate: -40px 0; } }
 @keyframes stage-in-r { from { opacity: 0; translate: 40px 0; } }
-.stage-seat figcaption { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: var(--fg); }
+.stage-seat figcaption { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-15); font-weight: 700; color: var(--fg); }
 .stage-seat.seeking figcaption { color: var(--fg-2); }
 .stage-av-wrap { position: relative; display: grid; place-items: center; }
 .stage-av-wrap::after { /* light on the floor under the seat */
@@ -122,7 +122,7 @@
 @keyframes stage-dot { 30% { translate: 0 -4px; background: #fff; } 60% { translate: 0 0; } }
 
 .stage-score { font-family: var(--f-display); font-size: 40px; font-weight: 800; line-height: 1; color: #fff; }
-.stage-score-q { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--fg-2); }
+.stage-score-q { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-13); font-weight: 700; color: var(--fg-2); }
 .stage-score-q svg { width: 14px; height: 14px; }
 .stage-spin-glass { animation: stage-glass 2.4s ease-in-out infinite; }
 @keyframes stage-glass { 0%, 40% { rotate: 0deg; } 60%, 100% { rotate: 180deg; } }
@@ -170,7 +170,7 @@
 .stage-pot { position: relative; animation: stage-drop 0.7s 0.3s cubic-bezier(0.3, 1.4, 0.5, 1) backwards; }
 @keyframes stage-drop { from { opacity: 0; scale: 0.7; } }
 .stage-plaque { --edge: var(--edge-em); position: relative; overflow: clip; display: grid; gap: 4px; justify-items: center; padding: 14px 22px; background: var(--surface); }
-.stage-plaque small { font-size: 12px; color: var(--fg-2); }
+.stage-plaque small { font-size: var(--fs-12); color: var(--fg-2); }
 .stage-plaque .gema-amount.lg { font-size: 26px; }
 .stage-wait { display: inline-block; width: 3.4em; height: 0.8em; background: var(--line-2); animation: stage-wait 1.4s ease-in-out infinite; }
 @keyframes stage-wait { 50% { opacity: 0.45; } }
@@ -192,7 +192,7 @@
   .stage-av { width: 84px; }
   .stage-plaque { padding: 10px 12px; }
   .stage-plaque small { display: none; }
-  .stage-plaque .gema-amount.lg { font-size: 20px; }
+  .stage-plaque .gema-amount.lg { font-size: var(--fs-20); }
   .stage-rail { margin-bottom: 26px; }
   .stage-q { font-size: 40px; }
   .stage-score { font-size: 32px; }

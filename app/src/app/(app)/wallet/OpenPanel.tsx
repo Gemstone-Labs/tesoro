@@ -43,9 +43,9 @@ export function NoPositions({ onOpen }: { onOpen: () => void }) {
       <Bust name="himExplain" width={200} className="wl-empty-bust" />
       <div className="wl-empty-lead">
         <b>No Positions yet</b>
-        <p>Open a Position to get Gemas to play with.</p>
+        <p>Lock SOL, ETH or HYPE to get Gemas to play with. What you lock is never played.</p>
       </div>
-      <Button variant="money" onClick={onOpen}>Open a Position</Button>
+      <Button variant="money" onClick={onOpen}>Get Gemas</Button>
       <ol className="wl-steps" aria-label="How Gemas work">
         {HOW_STEPS.map(([title, text], i) => (
           <li key={title}>

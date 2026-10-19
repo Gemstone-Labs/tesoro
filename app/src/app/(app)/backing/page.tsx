@@ -12,7 +12,6 @@ import {
   BustCard,
   Chip,
   EntryPicker,
-  GemaAmount,
   GemaMark,
   Label,
   Sheet,
@@ -194,17 +193,12 @@ export default function Backing() {
       <header className="page-head">
         <div>
           <h1 className="page-title">Back a player</h1>
-          <p className="page-sub">
-            Support skilled players and share their success.
-            {onChain && me && (
-              <>
-                {" "}
-                <span className="bk-avail">Available to back <GemaAmount value={gemas.available} size="sm" />{gemas.reserved > 0 ? ` · ${fmtGemas(gemas.reserved)} reserved` : ""}</span>
-              </>
-            )}
-          </p>
+          <p className="page-sub">Support skilled players and share their success.</p>
         </div>
-        <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
+        <div className="bk-head-actions">
+          <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
+          <Button onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>Post an Offer</Button>
+        </div>
       </header>
 
       {error && <p className="status err" role="alert">{error}</p>}
@@ -299,9 +293,9 @@ export default function Backing() {
               <label className="cut cut-card bk-sort">
                 <span>Sort by</span>
                 <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by">
-                  <option value="recent">Recent</option>
-                  <option value="entry">Entry</option>
-                  <option value="record">Win rate</option>
+                  <option value="recent">Newest</option>
+                  <option value="entry">Biggest entry</option>
+                  <option value="record">Best win rate</option>
                 </select>
               </label>
             </div>
@@ -811,7 +805,7 @@ function OfferDrawer({
               <span className="meta">for 24 hours</span>
             </div>
             <div className="bk-drawer-actions">
-              <Button onClick={dismiss}>Cancel</Button>
+              <span className="bk-cancel"><Button onClick={dismiss}>Cancel</Button></span>
               <Button variant="money" disabled={short || busy} onClick={() => onSend(game, entry, share, request)}>
                 {request ? <GemasLabel action="Make an Offer" gemas={entry} /> : "Post Offer"}
               </Button>

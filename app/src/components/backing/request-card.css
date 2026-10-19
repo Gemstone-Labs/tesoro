@@ -7,31 +7,31 @@
 .rq-face { position: relative; display: grid; place-items: end center; height: 236px; padding-bottom: 16px; overflow: hidden; }
 .rq-art { object-fit: cover; object-position: 78% 40%; transform: scale(1.12); }
 .rq-face::after { content: ""; position: absolute; inset: 0; background: radial-gradient(80% 60% at 50% 70%, rgba(9, 13, 15, 0.1), rgba(9, 13, 15, 0.75)), linear-gradient(0deg, #0f1418 0%, transparent 40%); }
-.rq-game { position: absolute; z-index: 2; left: 16px; top: 14px; max-width: calc(100% - 120px); overflow: hidden; font-family: var(--f-display); font-weight: 800; font-size: 20px; line-height: 1; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
+.rq-game { position: absolute; z-index: 2; left: 16px; top: 14px; max-width: calc(100% - 150px); overflow: hidden; font-family: var(--f-display); font-weight: 800; font-size: var(--fs-20); line-height: 1; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; }
 .rq-time {
   position: absolute; z-index: 2; right: 14px; top: 12px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px;
-  font-size: 12px; white-space: nowrap; background: rgba(6, 9, 12, 0.7);
+  font-size: var(--fs-12); white-space: nowrap; background: rgba(6, 9, 12, 0.7);
   clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
 }
 .rq-avatar { position: relative; z-index: 2; width: 136px; height: 136px; --c: 22px; --edge: var(--edge-2); --t: 2px; background: var(--shell); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5); }
 .rq-avatar img { object-fit: cover; transform: scale(1.18); }
 
 .rq-body { display: flex; flex-direction: column; gap: 14px; padding: 2px 20px 20px; }
-.rq-body > strong { overflow: hidden; font-size: 20px; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
+.rq-body > strong { overflow: hidden; font-size: var(--fs-20); text-align: center; white-space: nowrap; text-overflow: ellipsis; }
 .rq-body > strong a { color: var(--fg); }
 .rq-stats { display: grid; grid-template-columns: 1.3fr 1fr 1fr; margin: 0; text-align: center; }
 .rq-stats div { display: grid; gap: 2px; }
 .rq-stats div + div { border-left: 1px solid var(--line); }
-.rq-stats dt, .rq-foot span { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.rq-stats dt, .rq-foot span { font-size: var(--fs-11); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
 .rq-stats dt { order: 2; }
 .rq-stats dd { order: 1; margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 30px; line-height: 1; }
 .rq-stats div:first-child dd { font-size: 38px; }
-.rq-new { display: grid; place-items: center; min-height: 120px; margin: 0; font-size: 14px; text-align: center; color: var(--fg-2); }
+.rq-new { display: grid; place-items: center; min-height: 120px; margin: 0; font-size: var(--fs-14); text-align: center; color: var(--fg-2); }
 
 .rq-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--line); }
 .rq-foot > div { display: grid; gap: 2px; }
-.rq-foot b { display: inline-flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
-.rq-foot .btn { min-width: 120px; min-height: 46px; padding: 0 18px; font-size: 16px; white-space: nowrap; }
+.rq-foot b { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-24); font-weight: 800; letter-spacing: -0.01em; }
+.rq-foot .btn { min-width: 120px; min-height: 46px; padding: 0 18px; font-size: var(--fs-16); white-space: nowrap; }
 
 /* loading: the same face-over-body shape */
 .skel.rq { display: flex; flex-direction: column; align-items: center; gap: 24px; min-height: 470px; padding: 84px 20px 20px; background: linear-gradient(rgba(234, 239, 236, 0.04) 0 236px, transparent 236px), var(--surface); }
@@ -41,6 +41,6 @@
 @container (max-width: 330px) {
   .rq-stats dd { font-size: 26px; }
   .rq-stats div:first-child dd { font-size: 32px; }
-  .rq-foot .btn { min-width: 0; padding: 0 14px; font-size: 15px; }
+  .rq-foot .btn { min-width: 0; padding: 0 14px; font-size: var(--fs-15); }
 }
 @media (prefers-reduced-motion: reduce) { .rq, .rq:hover { transition: none; transform: none; } }

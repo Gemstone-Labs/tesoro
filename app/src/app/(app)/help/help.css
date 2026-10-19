@@ -5,9 +5,9 @@
 .help-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .help-step { background: var(--raised); padding: 16px; display: flex; flex-direction: column; gap: 6px; }
 .help-step-n { font-family: var(--f-display); font-weight: 800; font-size: 34px; line-height: 1; color: var(--fg-2); }
-.help-step b { font-size: 16px; }
-.help-step p { font-size: 13.5px; color: var(--fg-2); flex: 1; }
-.help-step-link { font-size: 13px; font-weight: 700; color: var(--fg); margin-top: 4px; }
+.help-step b { font-size: var(--fs-16); }
+.help-step p { font-size: var(--fs-14); color: var(--fg-2); flex: 1; }
+.help-step-link { font-size: var(--fs-13); font-weight: 700; color: var(--fg); margin-top: 4px; }
 .help-step-link:hover { text-decoration: underline; }
 @media (max-width: 1199px) { .help-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 479px) { .help-steps { grid-template-columns: 1fr; } }
@@ -22,7 +22,7 @@
 .help-q { background: var(--raised); padding: 0; }
 .help-q summary {
   list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 14px 16px; font-weight: 700; font-size: 15px;
+  padding: 14px 16px; font-weight: 700; font-size: var(--fs-15);
 }
 .help-q summary::-webkit-details-marker { display: none; }
 .help-q summary:focus-visible { outline: 0; }
@@ -30,7 +30,7 @@
 .help-q[open] { background: var(--raised-2); --edge: var(--line-2); }
 .help-q[open] summary svg { transform: rotate(180deg); }
 .help-q summary:hover svg { color: var(--fg); }
-.help-a { display: grid; gap: 10px; padding: 0 16px 16px; color: var(--fg-2); font-size: 14.5px; line-height: 1.55; max-width: 68ch; }
+.help-a { display: grid; gap: 10px; padding: 0 16px 16px; color: var(--fg-2); font-size: var(--fs-15); line-height: 1.55; max-width: 68ch; }
 .help-a a { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .help-q summary svg { transition: none; } }
 
@@ -38,7 +38,7 @@
 
 /* ——— Search: matches replace the page below while it has text ——— */
 .help-search { display: flex; grid-row: auto; grid-column: auto; height: 56px; margin-top: -16px; background: var(--surface); }
-.help-search input { font-size: 17px; }
+.help-search input { font-size: var(--fs-17); }
 .help-hit { display: flex; flex-direction: column; gap: 4px; }
-.help-hit .label { font-size: 10px; }
+.help-hit .label { font-size: var(--fs-10); }
 .help-q mark { background: color-mix(in srgb, var(--fg) 22%, transparent); color: var(--fg); padding: 0 1px; }

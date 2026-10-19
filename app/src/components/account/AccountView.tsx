@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
+import { MatchRow, BANNER_ROWS } from "@/components/match/MatchRow";
 import { MatchBanner } from "@/components/match/MatchBanner";
 import { AssetPicker, Bust, Button, EntryPicker, Label, Sheet, Notice } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -139,9 +140,13 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
           ) : (
             <>
               <div className="mb-list" role="list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`}>
-                {view.rows.map((r) => (
+                {view.rows.map((r, i) => (
                   <div key={r.id} role="listitem">
-                    <MatchBanner r={r} account={address} now={now} backing={backingLine(r)} me={me} />
+                    {view.page === 1 && i < BANNER_ROWS ? (
+                      <MatchBanner r={r} account={address} now={now} backing={backingLine(r)} me={me} />
+                    ) : (
+                      <MatchRow r={r} now={now} />
+                    )}
                   </div>
                 ))}
               </div>
@@ -335,7 +340,7 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
             ? `${name} has not finished a Match. When they do, their Account shows:`
             : hasGemas !== false
               ? "Play a Match and your Account fills in as it settles. This is what other Players will see:"
-              : "Open a Position to get Gemas, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
+              : "Get Gemas in your Wallet, then play a Match: your Account fills in as it settles. This is what other Players will see:"}
         </p>
       </div>
       {own &&
@@ -345,8 +350,8 @@ function NoMatches({ own, name, hasGemas }: { own: boolean; name: string; hasGem
             Play now
           </Button>
         ) : (
-          <Button variant="money" href="/wallet">
-            Open a Position
+          <Button variant="money" href="/wallet?open=1">
+            Get Gemas
           </Button>
         ))}
       <ul className="pa-empty-list">

@@ -202,7 +202,6 @@ function Hero({ data, pool, remaining, standing }: { data: LeaderboardView; pool
             </span>
           )}
         </div>
-        <Button variant="money" href="/play">Play now</Button>
       </div>
     </section>
   );

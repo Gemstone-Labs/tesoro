@@ -5,7 +5,7 @@
 .mb {
   --edge: var(--edge-1); position: relative; isolation: isolate; overflow: hidden; background: #0b1013;
   display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); grid-template-areas: "word face fig";
-  align-items: center; gap: 20px; min-height: 124px; padding: 16px 22px;
+  align-items: center; gap: 20px; min-height: 96px; padding: 16px 22px;
 }
 .mb.won { --edge: var(--edge-em); }
 .mb:hover { --edge: var(--edge-2); }
@@ -21,11 +21,11 @@
 .mb-hit:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
 
 .mb-word { grid-area: word; display: grid; gap: 4px; min-width: 0; pointer-events: none; }
-.mb-kick { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-2); }
-.mb-word b { font-family: var(--f-display); text-transform: uppercase; font-size: 46px; font-weight: 800; line-height: 0.95; color: var(--fg-2); }
+.mb-kick { font-size: var(--fs-12); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-2); }
+.mb-word b { font-family: var(--f-display); text-transform: uppercase; font-size: 34px; font-weight: 800; line-height: 0.95; color: var(--fg-2); }
 .mb.won .mb-word b { background: var(--facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .mb.lost .mb-word b { color: var(--danger); }
-.mb-word small { font-size: 14px; color: var(--fg); opacity: 0.86; line-height: 1.35; }
+.mb-word small { font-size: var(--fs-14); color: var(--fg); opacity: 0.86; line-height: 1.35; }
 
 /* fixed seat columns, so the avatars sit at the same place on every banner whatever the names and scores */
 .mb-face { grid-area: face; display: grid; grid-template-columns: 150px auto 150px; align-items: start; gap: 14px; }
@@ -35,50 +35,52 @@
 .mb-av-wrap { position: relative; display: block; line-height: 0; }
 .mb-you {
   position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); padding: 2px 6px; border-radius: 3px;
-  background: #eef3f1; color: #0b1013; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.2;
+  background: #eef3f1; color: #0b1013; font-size: var(--fs-10); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.2;
 }
 .mb-av { display: block; width: 52px; height: 52px; border-radius: 50%; object-fit: cover; border: 2px solid var(--line-2); background: var(--raised-2); }
 .mb-seat.lit .mb-av { border-color: var(--em-hi); box-shadow: 0 0 0 4px rgba(36, 216, 168, 0.2); }
+/* a lost Match: the winner's ring reads as your loss, not as a win (founder 2026-10-19) */
+.mb.lost .mb-seat.lit .mb-av { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(242, 104, 90, 0.2); }
 .mb-seat.dim .mb-av { filter: grayscale(0.7) brightness(0.75); }
 .mb-plate {
   display: inline-flex; align-items: baseline; gap: 6px; max-width: 150px; padding: 4px 9px;
   background: rgba(6, 9, 11, 0.86); box-shadow: inset 0 0 0 1px var(--line); border-radius: 4px;
-  font-size: 13px; font-weight: 600; color: var(--fg); white-space: nowrap;
+  font-size: var(--fs-13); font-weight: 600; color: var(--fg); white-space: nowrap;
 }
 .mb-plate .pn { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.mb-plate b { font-size: 14px; font-weight: 800; }
+.mb-plate b { font-size: var(--fs-14); font-weight: 800; }
 .mb-seat.lit .mb-plate b { color: var(--em-hi); }
 .mb-seat-link:hover .mb-plate { box-shadow: inset 0 0 0 1px var(--line-2); }
-.mb-vs { align-self: center; margin-top: -24px; font-family: var(--f-display); font-size: 18px; font-weight: 700; text-transform: uppercase; color: var(--fg-2); }
+.mb-vs { align-self: center; margin-top: -24px; font-family: var(--f-display); font-size: var(--fs-18); font-weight: 700; text-transform: uppercase; color: var(--fg-2); }
 
 .mb-fig {
   grid-area: fig; justify-self: end; display: inline-flex; align-items: center; gap: 8px; padding: 9px 15px; pointer-events: none;
-  background: rgba(6, 9, 11, 0.8); backdrop-filter: blur(8px); font-size: 17px; color: var(--fg);
+  background: rgba(6, 9, 11, 0.8); backdrop-filter: blur(8px); font-size: var(--fs-17); color: var(--fg);
 }
 .mb-fig svg { width: 18px; height: 18px; flex: none; }
 .mb-fig b { font-weight: 800; white-space: nowrap; }
 .mb-fig.won { color: var(--em-hi); }
 .mb-fig.lost { color: var(--danger); }
-.mb-fig.even { font-size: 15px; }
+.mb-fig.even { font-size: var(--fs-15); }
 
 /* narrow (phones): the game line on its own, then the word with the chip beside it, the entry line, the face-off across the full width; the scrim covers the whole banner */
 @container (max-width: 640px) {
   .mb { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kick kick" "word fig" "line line" "face face"; gap: 4px 12px; padding: 14px 16px; min-height: 0; }
   .mb-art::after { background: linear-gradient(90deg, rgba(11, 16, 19, 0.95) 0, rgba(11, 16, 19, 0.84) 55%, rgba(11, 16, 19, 0.64) 100%); }
   .mb-word { display: contents; }
-  .mb-kick { grid-area: kick; font-size: 11px; }
+  .mb-kick { grid-area: kick; font-size: var(--fs-11); }
   .mb-word b { grid-area: word; align-self: center; font-size: 34px; }
-  .mb-word small { grid-area: line; font-size: 13px; }
-  .mb-fig { align-self: center; padding: 7px 11px; font-size: 15px; }
-  .mb-fig.even { font-size: 13px; }
+  .mb-word small { grid-area: line; font-size: var(--fs-13); }
+  .mb-fig { align-self: center; padding: 7px 11px; font-size: var(--fs-15); }
+  .mb-fig.even { font-size: var(--fs-13); }
   .mb-face { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; margin-top: 10px; }
   .mb-seat-link, .mb-face > .mb-seat { justify-self: start; min-width: 0; }
   .mb-seat { grid-template-columns: auto minmax(0, max-content); align-items: center; justify-items: start; gap: 6px; min-width: 0; }
   .mb-av { width: 30px; height: 30px; }
-  .mb-you { bottom: -5px; padding: 1px 4px; font-size: 8.5px; letter-spacing: 0.05em; }
-  .mb-plate { max-width: 100%; min-width: 0; gap: 5px; padding: 3px 6px; font-size: 12px; }
-  .mb-plate b { font-size: 12.5px; }
-  .mb-vs { margin-top: 0; padding: 0 2px; font-size: 13px; }
+  .mb-you { bottom: -5px; padding: 1px 4px; font-size: var(--fs-9); letter-spacing: 0.05em; }
+  .mb-plate { max-width: 100%; min-width: 0; gap: 5px; padding: 3px 6px; font-size: var(--fs-12); }
+  .mb-plate b { font-size: var(--fs-13); }
+  .mb-vs { margin-top: 0; padding: 0 2px; font-size: var(--fs-13); }
 }
 /* very narrow (small phones): smaller avatars, the seats side by side without the "vs", so both names fit */
 @container (max-width: 390px) {
@@ -96,3 +98,27 @@
 .mb.skel .mb-face > .mb-av + .mb-av { grid-column: 3; }
 
 @media (prefers-reduced-motion: reduce) { .mb-art img { transition: none; } }
+
+/* older Matches in a long list: one compact row */
+.mr { --edge: var(--edge-1); display: grid; grid-template-columns: 28px auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; position: relative; padding: 10px 16px; background: var(--surface); min-height: 52px; }
+.mr.won { --edge: var(--edge-em); }
+.mr:hover { background: var(--surface-2); }
+.mr-hit { position: absolute; inset: 0; z-index: 1; }
+.mr-hit:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
+.mr-game { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
+.mr-res { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f-display); font-size: var(--fs-18); font-weight: 800; text-transform: uppercase; color: var(--fg-2); }
+.mr-res svg { width: 16px; height: 16px; }
+.mr.won .mr-res { color: var(--em-hi); }
+.mr.lost .mr-res { color: var(--danger); }
+.mr-opp { position: relative; z-index: 2; justify-self: start; display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; font-size: var(--fs-14); font-weight: 600; }
+.mr-opp .mb-av { width: 26px; height: 26px; border-width: 1px; flex: none; }
+.mr-opp .pn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-fig { font-size: var(--fs-15); font-weight: 800; white-space: nowrap; color: var(--fg); }
+.mr-fig.won { color: var(--em-hi); }
+.mr-fig.lost { color: var(--danger); }
+.mr-time { font-size: var(--fs-13); color: var(--fg-2); white-space: nowrap; min-width: 4.5em; text-align: right; }
+@container (max-width: 520px) {
+  .mr { grid-template-columns: 28px auto minmax(0, 1fr) auto; grid-template-areas: "g r o f" "g t t t"; gap: 2px 10px; }
+  .mr-game { grid-area: g; } .mr-res { grid-area: r; } .mr-opp { grid-area: o; } .mr-fig { grid-area: f; }
+  .mr-time { grid-area: t; text-align: left; font-size: var(--fs-12); }
+}

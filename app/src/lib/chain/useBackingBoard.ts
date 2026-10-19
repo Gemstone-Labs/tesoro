@@ -85,6 +85,14 @@ export function recordShort(r: PlayerRecord): string {
 
 export { shortKey } from "./history";
 
+/** The Request card's clock chip: "Closes in 23h" / "Closes in 12m" / "Closed". */
+export function closesIn(unixSecs: number, nowMs = Date.now()): string {
+  const s = Math.floor(unixSecs - nowMs / 1000);
+  if (s <= 0) return "Closed";
+  const h = Math.floor(s / 3600);
+  return h > 0 ? `Closes in ${h}h` : `Closes in ${Math.max(1, Math.floor(s / 60))}m`;
+}
+
 /** "23h 41m left" / "12m left" / "Expired". */
 export function timeLeft(unixSecs: number, nowMs = Date.now()): string {
   const s = Math.floor(unixSecs - nowMs / 1000);

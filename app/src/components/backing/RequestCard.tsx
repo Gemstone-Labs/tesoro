@@ -3,7 +3,7 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
 import type { ChainRequest } from "@/lib/chain/backing";
-import { timeLeft } from "@/lib/chain/useBackingBoard";
+import { closesIn } from "@/lib/chain/useBackingBoard";
 import { art } from "@/lib/art";
 import { fmtGemas } from "@/lib/format";
 import { GAME_NAMES } from "@/lib/mock";
@@ -33,15 +33,15 @@ export function RequestCard({
 }) {
   const name = usePlayerLabel(r.player);
   const { matches, wins } = r.record;
-  const left = timeLeft(r.expiresAt, nowMs);
+  const left = closesIn(r.expiresAt, nowMs);
   return (
     <article id={id} className={`cut cut-card rq${selected ? " selected" : ""}`} aria-label={`${name}, ${GAME_NAMES[r.game]}`}>
       <div className="rq-face">
         <Image className="rq-art" src={art.hero[r.game]} alt="" fill sizes="(min-width: 1100px) 440px, 100vw" />
         <span className="rq-game">{GAME_NAMES[r.game]}</span>
-        <span className="rq-time mono" aria-label={left}>
-          <ClockIcon width={12} height={12} />
-          {left.replace(" left", "")}
+        <span className="rq-time" title="This Request takes Offers until then">
+          <ClockIcon width={12} height={12} aria-hidden="true" />
+          {left}
         </span>
         <AccountLink account={r.player} decorative className="cut cut-btn avatar rq-avatar">
           <PlayerAvatar account={r.player} size={264} />

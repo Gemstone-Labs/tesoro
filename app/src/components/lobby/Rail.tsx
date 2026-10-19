@@ -7,6 +7,7 @@ export function Rail({
   id,
   title,
   viewAll,
+  viewAllLabel = "See all",
   cols,
   children,
   aside,
@@ -15,6 +16,8 @@ export function Rail({
   id: string;
   title: string;
   viewAll?: string;
+  /** The header link's words; "See all" by default. */
+  viewAllLabel?: string;
   /** Columns on wide screens (fewer on narrower containers, see lobby.css). */
   cols: 2 | 3;
   children: ReactNode;
@@ -29,7 +32,7 @@ export function Rail({
         {aside}
         {viewAll && (
           <Link href={viewAll} className="rail-link">
-            See all <ArrowRight aria-hidden="true" />
+            {viewAllLabel} <ArrowRight aria-hidden="true" />
           </Link>
         )}
       </header>

@@ -80,6 +80,8 @@ export default function Wallet() {
     nativeRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0) +
     ethRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0);
   const redeemAmount = onChain ? nativeRedeemable : gemas.redeemable;
+  // Pending is what is left of the Total after Redeemable now, so the hero adds up and matches the chain cards (which use the same figures).
+  const pendingAmount = Math.max(0, gemas.total - redeemAmount);
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
   const openRedeem = (chain?: Chain) =>
@@ -184,7 +186,7 @@ export default function Wallet() {
           <h1 className="page-title">Wallet</h1>
           <p className="page-sub">1 Gema = $0.01</p>
         </div>
-        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>}
+        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>}
       </header>
 
       <section className={`cut cut-frame facet-panel wl-hero${heroOpen ? " open" : ""}`} aria-label="Balance">
@@ -203,6 +205,13 @@ export default function Wallet() {
             <span>Gemas</span>
             {ready && <GemaUsd className="wl-usd" value={gemas.total} />}
           </div>
+          {ready && !heroOpen && (
+            <button type="button" className="wl-sum" aria-expanded={heroOpen} aria-controls="wl-second">
+              <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
+              <span aria-hidden="true">·</span>
+              <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
+            </button>
+          )}
         </div>
         <div className="wl-second" id="wl-second">
           <div className="wl-redeemable" aria-label="Redeemable now">
@@ -214,9 +223,9 @@ export default function Wallet() {
           </div>
           <div className="wl-pending" aria-label="Pending">
             <h2>Pending</h2>
-            <b>{ready ? fmtGemas(gemas.pending) : "—"}</b>
-            {ready && <GemaUsd className="wl-usd" value={gemas.pending} />}
-            {ready && gemas.pending > 0 && <NextRedeem at={heroNext} />}
+            <b>{ready ? fmtGemas(pendingAmount) : "—"}</b>
+            {ready && <GemaUsd className="wl-usd" value={pendingAmount} />}
+            {ready && pendingAmount > 0 && <NextRedeem at={heroNext} />}
           </div>
         </div>
         {error && (
@@ -248,7 +257,7 @@ export default function Wallet() {
         {onChain && <p className="note">Redeem pays simSOL (simulated) from the yield your Source Position has earned so far.</p>}
       </footer>
 
-      <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
+      <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Get Gemas">
         <OpenIntentContext.Provider value={intent}>
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
@@ -280,7 +289,7 @@ function IdleForm({ unit, months, onMonths }: { unit: Chain; months: number; onM
       gemas={null}
       estimate="—"
       note="Sign in to see your balance and a real quote."
-      buttonLabel="Open a Position"
+      buttonLabel="Get Gemas"
       disabled
       onSubmit={() => undefined}
     />
