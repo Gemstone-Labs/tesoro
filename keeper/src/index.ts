@@ -3,7 +3,6 @@ import { alertsJob } from "./alerts-job.ts";
 import { awayCleanup } from "./away.ts";
 import { backingHygiene } from "./backing.ts";
 import { bridgeJob } from "./bridge.ts";
-import { NETS, checkEvmAtStart, ethYieldJob } from "./eth.ts";
 import { loadPayer, settings, shortKey } from "./env.ts";
 import { Health, startHealthServer, startWatchdog } from "./health.ts";
 import { matchHygiene } from "./matches.ts";
@@ -30,7 +29,6 @@ async function pass(ctx: Ctx, alerts: (c: Ctx) => Promise<number>) {
     ["backing", backingHygiene],
     ["away", awayCleanup],
     ["bridge", bridgeJob],
-    ["eth", ethYieldJob],
     ["treasury", treasuryJob],
     ["season", seasonJob],
     ["notify", notifyJob],
@@ -46,13 +44,10 @@ async function main() {
   const hostOf = (u: string) => new URL(u).host;
   const conn = newConnection(s.rpc, s.gpaRpc);
   const payer = await loadPayer(conn, s, (m) => log("wallet", "-", m), new Connection(s.gpaRpc, { fetch: fetchWithBackoff as typeof fetch }));
-  for (const net of NETS) await checkEvmAtStart(net, net.rpc(s), (m) => log("keeper", "-", m));
   const ctx: Ctx = {
     ...buildRuntime(s, conn, payer),
     budget: new Budget(s.hourlyCapLamports),
     lz: new Budget(s.lzHourlyCapLamports),
-    eth: new Budget(Math.round(s.ethHourlyCapEth * 1e9)),
-    hype: new Budget(Math.round(s.hypeHourlyCapHype * 1e9)),
   };
   const balance = await conn.getBalance(payer.publicKey);
   log("keeper", "-", `start cluster=devnet rpc=${hostOf(s.rpc)} gpa=${hostOf(s.gpaRpc)} payer=${shortKey(payer.publicKey)} balance=${(balance / 1e9).toFixed(3)} SOL cap=${(s.hourlyCapLamports / 1e9).toFixed(2)} SOL/h ${s.once ? "once" : `every ${s.intervalMs / 1000}s`}${s.dryRun ? " DRY-RUN" : ""}`);

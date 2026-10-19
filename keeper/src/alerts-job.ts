@@ -4,7 +4,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { log, type Ctx } from "./act.ts";
 import { AlertManager, alertConfig, conditionsOf, postAlert, readBalances, type AlertConfig, type Watch } from "./alerts.ts";
 import { keeperCluster } from "./cluster.ts";
-import { NETS } from "./eth.ts";
+import { NETS } from "./evm-nets.ts";
 import type { Health } from "./health.ts";
 import { jobs } from "./job-stats.ts";
 import { evmKeyFromEnv } from "./keys.ts";
