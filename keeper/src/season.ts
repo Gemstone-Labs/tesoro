@@ -1,4 +1,4 @@
-import * as anchor from "@coral-xyz/anchor";
+import anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
 import { keypairSigner } from "../../app/src/games/block-puzzle/chain.ts";
 import { CONFIG, POOL_ACCOUNT, fetchLeaderboardTerms, fetchSeasonRecord, fetchSeasonWins, seasonPda, type SeasonRecord } from "../../app/src/lib/chain/leaderboard.ts";
@@ -25,6 +25,9 @@ export function seasonsToCheck(nowSecs: number, graceSecs = GRACE_SECS, lookback
 }
 
 /** The ranks that are paid: the top `PRIZE_PLACES` of the table. */
+/** record_season's points argument: one u64 per ranked Player, in rank order. */
+export const seasonPoints = (table: Standing[]) => table.map((t) => new anchor.BN(t.points));
+
 export const topRanks = (wins: Win[]): Standing[] => standings(wins).slice(0, PRIZE_PLACES);
 
 export interface PoolHolding {
@@ -62,7 +65,7 @@ async function record(ctx: Ctx, n: number, table: Standing[], signer: ReturnType
   const what = `record_season (${table.length} ranked: ${table.map((t) => `${shortKey(new PublicKey(t.account))} ${t.points}`).join(", ")})`;
   const r = await act(ctx, "season", subject, what, async () => {
     const ix = await ctx.core.methods
-      .recordSeason(n, table.map((t) => new anchor.BN(t.points)))
+      .recordSeason(n, seasonPoints(table))
       .accountsPartial({ authority: signer.publicKey, config: CONFIG, poolAccount: POOL_ACCOUNT, season: seasonPda(n), systemProgram: SystemProgram.programId })
       .remainingAccounts(table.map((t) => ({ pubkey: new PublicKey(t.account), isSigner: false, isWritable: false })))
       .instruction();
