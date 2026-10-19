@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, Eye, LogOut, Pencil, ShieldCheck, User, Wallet } from "lucide-react";
 import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
+import { XMark } from "@/components/brand";
+import { X_HANDLE } from "@/components/brand/XFollow";
+import { OUTBOUND } from "@/lib/landing/config";
 import { useAuth } from "@/lib/auth/context";
 import { setEditProfileOpen } from "@/lib/identity/edit-profile";
 import { setLimitsOpen } from "@/lib/identity/limits-sheet";
@@ -79,6 +82,11 @@ export function AccountMenu() {
           <Link href="/wallet" role="menuitem" onClick={() => setOpen(false)}>
             <Wallet aria-hidden="true" /> Wallet
           </Link>
+          {OUTBOUND.x && (
+            <a href={OUTBOUND.x} target="_blank" rel="noopener" role="menuitem" onClick={() => setOpen(false)}>
+              <XMark size={18} /> Follow {X_HANDLE} on X
+            </a>
+          )}
           <button type="button" role="menuitem" onClick={() => { setOpen(false); void auth.signOut(); }}>
             <LogOut aria-hidden="true" /> Sign out
           </button>

@@ -1,42 +1,35 @@
 import type { Metadata } from "next";
 import { Addr, DataTable, DocPage, H2, H3, explorer, hoodi, purrsec } from "@/components/docs/prose";
-import { IconTile } from "@/components/docs/visual";
-import { Coins, Network, Spade, Swords, Timer, Puzzle } from "lucide-react";
+import { CopyButton } from "@/components/docs/CopyButton";
 import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Programs and addresses", alternates: { canonical: "/docs/developers/programs" } };
 
+function ProgramId({ id }: { id: string }) {
+  return (
+    <span className="docs-pid">
+      <code>{id}</code>
+      <CopyButton value={id} label={`Copy ${id}`} />
+      <a className="docs-ext" href={explorer(id)} rel="noopener noreferrer" target="_blank">Explorer</a>
+    </span>
+  );
+}
+
 export default function Page() {
   return (
-    <DocPage href="/docs/developers/programs" hero={<ul className="dx-programs">
-  {[
-    ["tesoro_core", "The money rules and the ledger", Coins, "emerald", "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"],
-    ["block_puzzle", "Game: Block Puzzle", Puzzle, "sapphire", "5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj"],
-    ["holdem", "Game: Hold'em", Spade, "rose", "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE"],
-    ["trading_duel", "Game: Trading Duel", Swords, "amber", "CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj"],
-    ["sim_lst", "Staking token behind SOL Positions (simSOL)", Timer, "steel", "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"],
-    ["tesoro_bridge", "LayerZero V2 OApp on Solana", Network, "violet", "5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ"],
-  ].map(([n, r, I, t, id]) => (
-    <li key={n as string} className="cut cut-card">
-      <IconTile icon={I as typeof Coins} tone={t as "emerald"} />
-      <b>{n as string}</b>
-      <p>{r as string}</p>
-      <a className="docs-ext" href={explorer(id as string)}><code>{(id as string).slice(0, 6)}…{(id as string).slice(-4)}</code> Explorer</a>
-    </li>
-  ))}
-</ul>}>
+    <DocPage href="/docs/developers/programs">
       <H2 id="solana">Solana</H2>
       <DataTable
         head={["Program", "ID"]}
         rows={[
-          [<code key="1">tesoro_core</code>, <a key="1a" className="docs-ext" href={explorer("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh")}><code>AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh</code></a>],
-          [<code key="2">block_puzzle</code>, <a key="2a" className="docs-ext" href={explorer("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj")}><code>5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj</code></a>],
-          [<code key="3">holdem</code>, <a key="3a" className="docs-ext" href={explorer("CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE")}><code>CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE</code></a>],
-          [<code key="4">trading_duel</code>, <a key="4a" className="docs-ext" href={explorer("CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj")}><code>CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj</code></a>],
-          [<code key="5">sim_lst</code>, <a key="5a" className="docs-ext" href={explorer("WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F")}><code>WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F</code></a>],
-          [<code key="6">tesoro_bridge</code>, <a key="6a" className="docs-ext" href={explorer("5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ")}><code>5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ</code></a>],
+          [<code key="1">tesoro_core</code>, <ProgramId key="1a" id="AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh" />],
+          [<code key="2">block_puzzle</code>, <ProgramId key="2a" id="5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj" />],
+          [<code key="3">holdem</code>, <ProgramId key="3a" id="CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE" />],
+          [<code key="4">trading_duel</code>, <ProgramId key="4a" id="CNETsX9Gc78iApRNiGyAtiERKiHeD1yhHS8MwrfBAYyj" />],
+          [<code key="5">sim_lst</code>, <ProgramId key="5a" id="WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F" />],
+          [<code key="6">tesoro_bridge</code>, <ProgramId key="6a" id="5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ" />],
         ]}
-        caption="Click an ID to open it in Solana Explorer"
+        caption="Copy an ID or open it in Solana Explorer"
       />
 
       <H3 id="solana-accounts">Accounts and authorities</H3>

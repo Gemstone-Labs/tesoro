@@ -4,17 +4,17 @@
 .bust-card.flip { flex-direction: row-reverse; padding: 12px 10px 0 16px; }
 .bust-card-img { flex: none; width: var(--bust-w, 120px); height: auto; margin-bottom: -1px; }
 .bust-card-body { flex: 1; min-width: 0; align-self: center; padding-bottom: 12px; }
-.bust-card-body b { display: block; font-size: 16px; }
-.bust-card-body p { font-size: 13.5px; color: var(--fg-2); margin-top: 2px; }
+.bust-card-body b { display: block; font-size: var(--fs-16); }
+.bust-card-body p { font-size: var(--fs-14); color: var(--fg-2); margin-top: 2px; }
 @media (max-width: 639px) { .bust-card-img { width: min(var(--bust-w, 120px), 96px); } }
 
 /* ——— Page header ——— */
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 24px; flex-wrap: wrap; }
 .page-head h1 { font-size: clamp(40px, 4.2vw, 76px); line-height: 0.95; }
 .page-sub { color: var(--fg); font-size: clamp(14px, 1.2vw, 18px); margin-top: 6px; }
-.page-head-side { text-align: right; color: var(--fg-2); font-size: 15px; display: grid; gap: 2px; }
-.page-head-side b { color: var(--fg); font-size: 20px; font-weight: 700; }
-.page-head-side .sim { font-size: 12px; }
+.page-head-side { text-align: right; color: var(--fg-2); font-size: var(--fs-15); display: grid; gap: 2px; }
+.page-head-side b { color: var(--fg); font-size: var(--fs-20); font-weight: 700; }
+.page-head-side .sim { font-size: var(--fs-12); }
 @media (max-width: 639px) { .page-head-side { text-align: left; } }
 
 /* ——— Facet panel: dark emerald ground cut as a step cut by <FacetCrown> (money surfaces only) ——— */
@@ -32,7 +32,7 @@
 .empty-state { --edge: var(--edge-1); background: var(--surface); display: flex; align-items: flex-end; gap: 28px; width: min(100%, 620px); margin: clamp(24px, 8vh, 96px) auto 0; padding: 0 36px 0 24px; overflow: hidden; }
 .empty-state-bust { flex: none; width: 170px; height: auto; margin-bottom: -1px; }
 .empty-state-body { flex: 1; min-width: 0; align-self: center; display: grid; gap: 10px; justify-items: start; padding: 32px 0; }
-.empty-state-body .meta { max-width: 44ch; font-size: 16px; }
+.empty-state-body .meta { max-width: 44ch; font-size: var(--fs-16); }
 .empty-state-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 @media (max-width: 639px) {
   .empty-state { flex-direction: column; align-items: stretch; gap: 0; padding: 0 20px; text-align: left; }

@@ -16,7 +16,7 @@ const COLUMNS: { title: string; links: [label: string, href: string | null][] }[
   { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"], ["X @PlayTesoro", OUTBOUND.x ?? null]] },
 ];
 
-/** Brand block and link columns, then a strip with the fair-play note and the simulated-yield label. */
+/** Brand block and link columns, then a strip with the social links, the fair-play note and the simulated-yield label. */
 export function SiteFooter() {
   return (
     <footer className="site-foot">
@@ -50,12 +50,14 @@ export function SiteFooter() {
                   </span>
                 ),
               )}
-              {col.title === "Learn" && <XFollow variant="a" place="foot" />}
             </div>
           ))}
         </nav>
       </div>
       <div className="site-foot-strip">
+        <div className="site-foot-social" aria-label="Tesoro elsewhere" role="group">
+          <XFollow variant="a" place="foot" />
+        </div>
         <span className="site-foot-fair">Fair play · every result on record</span>
         {LAUNCH_STAGE === "testnet" && <span className="site-foot-test">Test mode · simulated yield · 1 month = 10 min</span>}
         <span>© 2026 {BRAND.companyName}</span>

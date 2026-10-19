@@ -25,3 +25,14 @@
   justify-content: center;
   gap: 12px;
 }
+.win-explain {
+  max-width: 52ch;
+  margin: 0;
+  font-size: var(--fs-17);
+  color: var(--fg-2, #c9c6bf);
+}
+.win-note {
+  margin: 0;
+  font-size: var(--fs-13);
+  color: var(--fg-2, #c9c6bf);
+}

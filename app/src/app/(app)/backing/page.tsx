@@ -12,7 +12,6 @@ import {
   BustCard,
   Chip,
   EntryPicker,
-  GemaAmount,
   GemaMark,
   Label,
   Sheet,
@@ -45,6 +44,7 @@ import { fmtGemas } from "@/lib/format";
 import { backingQuery } from "@/lib/game-params";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
+import { GemasLabel } from "../wallet/AdvanceQuote";
 import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
@@ -197,20 +197,15 @@ export default function Backing() {
       <header className="page-head">
         <div>
           <h1 className="page-title">Back a player</h1>
-          <p className="page-sub">
-            Support skilled players and share their success.
-            {onChain && me && (
-              <>
-                {" "}
-                <span className="bk-avail">Available to back <GemaAmount value={gemas.available} size="sm" />{gemas.reserved > 0 ? ` · ${fmtGemas(gemas.reserved)} reserved` : ""}</span>
-              </>
-            )}
-          </p>
+          <p className="page-sub">Support skilled players and share their success.</p>
         </div>
         {awayText ? (
           <p className="status" role="status">{awayText}</p>
         ) : (
-          <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
+          <div className="bk-head-actions">
+            <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
+            <Button onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>Post an Offer</Button>
+          </div>
         )}
       </header>
 
@@ -306,9 +301,9 @@ export default function Backing() {
               <label className="cut cut-card bk-sort">
                 <span>Sort by</span>
                 <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by">
-                  <option value="recent">Recent</option>
-                  <option value="entry">Entry</option>
-                  <option value="record">Win rate</option>
+                  <option value="recent">Newest</option>
+                  <option value="entry">Biggest entry</option>
+                  <option value="record">Best win rate</option>
                 </select>
               </label>
             </div>
@@ -734,19 +729,21 @@ function OfferDrawer({
     const d = ref.current;
     if (d && !d.open) d.showModal();
   }, []);
+  const dismiss = () => ref.current?.close();
 
   return (
     <dialog
       ref={ref}
       className={`cut cut-frame bk-drawer${request ? " has-card" : ""}`}
       aria-label={request ? "Make an Offer" : "New public Offer"}
-      onClose={onClose}
-      onClick={(e) => e.target === ref.current && onClose()}
+      // Close the dialog first so its exit plays, then let the page unmount it.
+      onClose={() => setTimeout(onClose, 180)}
+      onClick={(e) => e.target === ref.current && dismiss()}
     >
       <div className="bk-drawer-in">
         <div className="bk-drawer-head">
           <h2 className="h-section">{request ? "Make an offer" : "New public offer"}</h2>
-          <button type="button" className="cut icon-btn" onClick={onClose} aria-label="Close">
+          <button type="button" className="cut icon-btn" onClick={dismiss} aria-label="Close">
             <XMark aria-hidden="true" />
           </button>
         </div>
@@ -775,7 +772,7 @@ function OfferDrawer({
           )}
 
           <Slider
-            label="They keep of the surplus"
+            label="Player keeps"
             value={share}
             min={10}
             max={90}
@@ -784,23 +781,24 @@ function OfferDrawer({
             display={`${share}%`}
             format={(v) => `${v}%`}
           />
+          <p className="meta bk-keep">You keep {100 - share}% of the surplus.</p>
           <table className="bk-outcomes">
             <thead>
               <tr>
                 <th />
                 <th scope="col">You</th>
-                <th scope="col">{request ? <PlayerName account={request.player} /> : "Player"}</th>
+                <th scope="col">Player</th>
               </tr>
             </thead>
             <tbody>
               <tr className="won">
                 <th scope="row"><span className="bk-ico won"><CheckIcon /></span> They win</th>
-                <td><b className="tnum">+{fmtGemas(win.backerSurplus)}</b><small>entry back, then {100 - share}%</small></td>
+                <td><b className="tnum">+{fmtGemas(win.backerSurplus)}</b><small>net · your {fmtGemas(entry)} comes back, plus {100 - share}% of the surplus</small></td>
                 <td><b className="tnum">+{fmtGemas(win.playerShare)}</b><small>{share}% of the surplus</small></td>
               </tr>
               <tr className="lost">
                 <th scope="row"><span className="bk-ico lost"><XIcon /></span> They lose</th>
-                <td><b className="tnum">−{fmtGemas(entry)}</b><small>your entry</small></td>
+                <td><b className="tnum">−{fmtGemas(entry)}</b><small>you lose your entry</small></td>
                 <td><b className="tnum">0</b><small>never owe anything</small></td>
               </tr>
             </tbody>
@@ -821,9 +819,9 @@ function OfferDrawer({
               <span className="meta">for 24 hours</span>
             </div>
             <div className="bk-drawer-actions">
-              <Button onClick={onClose}>Cancel</Button>
+              <span className="bk-cancel"><Button onClick={dismiss}>Cancel</Button></span>
               <Button variant="money" disabled={short || busy} onClick={() => onSend(game, entry, share, request)}>
-                {request ? "Make an Offer" : "Post Offer"}
+                {request ? <GemasLabel action="Make an Offer" gemas={entry} /> : "Post Offer"}
               </Button>
             </div>
           </footer>

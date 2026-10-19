@@ -13,6 +13,7 @@ import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountHistory } from "@/lib/chain/history";
 import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
+import { estimatedWin } from "@/lib/chain/ledger";
 import { fmtGemas } from "@/lib/format";
 import { awayNotice } from "@/lib/chain/protections";
 import { useAway } from "@/lib/chain/useAway";
@@ -92,7 +93,7 @@ export function GamePage({ game }: { game: GameId }) {
               <Button variant="money" size="lg" block onClick={() => auth.gate("Enter a Match", () => router.push(query("queue")))}>
                 <span className="gp-play-label">Play now</span>
                 <span className="gp-play-sub">
-                  {fmtGemas(entry)} Gemas
+                  {fmtGemas(entry)} entry · win {fmtGemas(estimatedWin(entry))}
                   {waiting ? (
                     <>
                       {" · "}

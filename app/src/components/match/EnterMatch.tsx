@@ -6,7 +6,7 @@ import { Busy, Button, GemaAmount } from "@/components/ui";
 import { PlayerAvatar } from "@/components/account/Player";
 import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
-import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { MAX_ENTRY_SOURCES, estimatedWin } from "@/lib/chain/ledger";
 import { checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
@@ -27,10 +27,10 @@ export type EnterKind =
   | { kind: "challenge-new"; entry: number; game?: GameId; asset?: 0 | 1 | 2; backing?: string; /** A Rematch: the opponent of the Match being replayed. */ opponent?: string }
   | { kind: "challenge-join"; id: string; backing?: string };
 
-function explain(e: unknown): { text: string; wallet?: boolean } {
+function explain(e: unknown): { text: string; short?: boolean } {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
-      ? { text: "You do not have enough Gemas for this entry. Open a Position in your Wallet to get some (free test simSOL works).", wallet: true }
+      ? { text: "You need more Gemas to join this Challenge. Open a Position in your Wallet to get some (free test simSOL works).", short: true }
       : { text: `Your Gemas are spread over more than ${MAX_ENTRY_SOURCES} Sources, and this entry cannot draw on that many. Redeem a few small balances in your Wallet to consolidate, then try again.` };
   }
   if (e instanceof ChallengeError || e instanceof BackingError || e instanceof QueueUnconfirmedError) return { text: e.message };
@@ -48,7 +48,7 @@ export function EnterMatch(props: EnterKind) {
   const started = useRef(false);
   const attempted = useRef(false);
   const [status, setStatus] = useState("Getting your wallet ready…");
-  const [failure, setFailure] = useState<{ text: string; wallet?: boolean } | null>(null);
+  const [failure, setFailure] = useState<{ text: string; short?: boolean } | null>(null);
   const [launched, setLaunched] = useState(false);
   const [existing, setExisting] = useState<bigint | null>(null);
   const [freshRead, setFreshRead] = useState<"ok" | "failed" | null>(null);
@@ -67,7 +67,8 @@ export function EnterMatch(props: EnterKind) {
   const gemasCheck = !launched && props.kind !== "challenge-join" && !props.backing && onChain && !loading ? checkGemas(gemas.available, props.entry, freshRead === "ok") : "enough";
   // A shortfall is only believed after a fresh read: Gemas from a Position that just opened may not be in the cached list yet.
   // When that read fails nothing is confirmed, so the entry goes ahead and the chain has the last word.
-  const needsGemas = props.kind !== "challenge-join" && gemasCheck === "short";
+  const needsGemas = props.kind !== "challenge-join" && (gemasCheck === "short" || failure?.short === true);
+  const entryGemas = props.kind === "challenge-join" ? 0 : props.entry;
   const rechecking = gemasCheck === "recheck" && freshRead !== "failed";
 
   useEffect(() => {
@@ -182,6 +183,7 @@ export function EnterMatch(props: EnterKind) {
           : game === "block-puzzle"
             ? "No one waiting yet: you play now and are paired when someone joins."
             : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
+  const heldLine = `${props.backing ? "The entry is" : `Your ${fmtGemas(entryGemas)} Gemas are`} held for this Match. If nobody joins within an hour, ${props.backing ? "it comes" : "they come"} back.`;
   return (
     <section className="enter" aria-label={title}>
       <header className="enter-head">
@@ -200,9 +202,9 @@ export function EnterMatch(props: EnterKind) {
         <div className="enter-pot">
           {props.kind !== "challenge-join" ? (
             <div className="cut cut-card enter-plaque">
-              <span className="enter-label">Pot</span>
-              <GemaAmount value={props.entry * 2} size="lg" usd />
-              <small>{fmtGemas(props.entry)} each · minus Fees</small>
+              <span className="enter-label">Your entry</span>
+              <GemaAmount value={props.entry} size="lg" usd />
+              <small>Winner takes {fmtGemas(estimatedWin(props.entry))} · after Fees</small>
             </div>
           ) : (
             <span className="enter-vs">VS</span>
@@ -233,9 +235,9 @@ export function EnterMatch(props: EnterKind) {
           </>
         ) : needsGemas ? (
           <>
-            <p className="status err" role="status">You need {fmtGemas(props.entry)} Gemas to enter. You have {fmtGemas(gemas.available)}.</p>
+            <p className="status err" role="status">You need {fmtGemas(entryGemas)} Gemas to enter. You have {fmtGemas(gemas.available)}.</p>
             <div className="hstack wrap">
-              <Button variant="money" href="/wallet?open=1">Get Gemas</Button>
+              <Button variant="money" href={`/wallet?open=1&need=${entryGemas}&game=${game}`}>Get Gemas</Button>
               <Button href={practiceHref(game, props.asset)}>Practice free</Button>
               <Button href="/lobby">Lobby</Button>
             </div>
@@ -244,8 +246,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <p className="status err" role="alert">{failure.text}</p>
             <div className="hstack wrap">
-              {failure.wallet && <Button variant="money" href="/wallet">Open Wallet</Button>}
-              <Button onClick={() => window.location.reload()}>Try again</Button>
+              {failure.short ? <Button variant="money" href={`/wallet?open=1&game=${game}`}>Get Gemas</Button> : <Button onClick={() => window.location.reload()}>Retry</Button>}
               <Button href="/lobby">Lobby</Button>
             </div>
           </>
@@ -253,6 +254,7 @@ export function EnterMatch(props: EnterKind) {
           <>
             <Busy>{status}</Busy>
             {!found && <p className="meta">{waitLine}</p>}
+            {!found && props.kind !== "challenge-join" && <p className="meta">{heldLine}</p>}
           </>
         )}
         {onChain && snapshot && !snapshot.exists && <p className="note">First time: we create your {BRAND.name} Account as part of this step.</p>}

@@ -1,11 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import Link from "next/link";
 import { ArrowRight, Pause, Play } from "lucide-react";
 import { PlayerAvatar } from "@/components/account/Player";
 import { Button } from "@/components/ui";
+import { GemasLabel } from "@/app/(app)/wallet/AdvanceQuote";
 import { challengeHref, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
@@ -23,13 +24,15 @@ interface Slide {
   image: string;
   /** Two-line title, smaller type. */
   long?: boolean;
+  /** The Game page's opening entry, so Play now shows what it will cost. */
+  entry: number;
 }
 
 /** The featured Games. Entry, Queue and Challenge live on each Game's page; the hero only leads there. */
 const SLIDES: Slide[] = [
-  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero },
-  { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true },
-  { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero },
+  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero, entry: 1000 },
+  { game: "holdem", title: "Heads-up Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true, entry: 500 },
+  { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero, entry: 500 },
 ];
 
 const ADVANCE_MS = 7000;
@@ -60,11 +63,64 @@ export function HeroCarousel() {
     return () => mq.removeEventListener("change", update);
   }, []);
 
+  // Swipe: the track follows a finger; letting go past 40px, or a quick flick, moves one slide. Any touch ends auto-advance,
+  // so the slide never changes under a thumb. A move the visitor makes runs faster than the auto-advance glide.
+  const [manual, setManual] = useState(false);
+  const track = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: number; x: number; y: number; t: number; axis: "x" | "y" | null } | null>(null);
+  const swiped = useRef(false);
+  const n = SLIDES.length;
+  // Under reduced motion there is no slide animation, so it wraps straight to the first slide instead of through the clone.
+  const step = (dir: 1 | -1) => {
+    setManual(true);
+    setIndex((i) => (reduced ? (((i % n) + dir + n) % n) : dir > 0 ? Math.min(i + 1, n) : i === 0 ? n - 1 : i - 1));
+  };
+  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+    if (e.pointerType === "mouse" || drag.current) return;
+    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, axis: null };
+    swiped.current = false;
+    setPaused(true);
+  };
+  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.id) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      d.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      if (d.axis === "x") e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    if (d.axis !== "x" || reduced || !track.current) return;
+    // Nothing sits left of the first slide: resist the drag there instead of stopping dead.
+    const off = index === 0 && dx > 0 ? dx * 0.35 : dx;
+    track.current.style.transition = "none";
+    track.current.style.transform = `translateX(calc(${-index * 100}% + ${off}px))`;
+  };
+  const endDrag = (e: PointerEvent<HTMLElement>, cancel = false) => {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.id) return;
+    drag.current = null;
+    if (track.current) {
+      track.current.style.transition = "";
+      track.current.style.transform = "";
+    }
+    if (cancel || d.axis !== "x") return;
+    setManual(true);
+    const dx = e.clientX - d.x;
+    const flick = Math.abs(dx) > 10 && Math.abs(dx) / Math.max(1, e.timeStamp - d.t) > 0.11;
+    if (Math.abs(dx) < 40 && !flick) return;
+    swiped.current = true;
+    step(dx < 0 ? 1 : -1);
+  };
+
   const running = !paused && !hover && !reduced;
-  const next = () => setIndex((i) => Math.min(i + 1, SLIDES.length));
   useEffect(() => {
     if (!running) return;
-    const t = setInterval(() => setIndex((i) => Math.min(i + 1, SLIDES.length)), ADVANCE_MS);
+    const t = setInterval(() => {
+      setManual(false);
+      setIndex((i) => Math.min(i + 1, SLIDES.length));
+    }, ADVANCE_MS);
     return () => clearInterval(t);
   }, [running, index, setIndex]);
 
@@ -86,11 +142,23 @@ export function HeroCarousel() {
       onMouseLeave={() => setHover(false)}
       onFocusCapture={() => setHover(true)}
       onBlurCapture={() => setHover(false)}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={(e) => endDrag(e)}
+      onPointerCancel={(e) => endDrag(e, true)}
+      onClickCapture={(e) => {
+        if (swiped.current) {
+          swiped.current = false;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
       style={{ ["--i" as string]: index, ["--advance" as string]: `${ADVANCE_MS}ms` }}
       data-running={running || undefined}
     >
       <div
-        className={`hero-track${jump ? " jump" : ""}`}
+        ref={track}
+        className={`hero-track${jump ? " jump" : ""}${manual ? " manual" : ""}`}
         aria-live={running ? "off" : "polite"}
         onTransitionEnd={(e) => {
           if (e.target === e.currentTarget && index === SLIDES.length) {
@@ -114,13 +182,16 @@ export function HeroCarousel() {
           );
         })}
       </div>
-      <button type="button" className="cut icon-btn hero-next" aria-label="Next game" onClick={next}>
+      <button type="button" className="cut icon-btn hero-next" aria-label="Next game" onClick={() => step(1)}>
         <ArrowRight aria-hidden="true" />
       </button>
       <div className="hero-dots">
         <div role="group" aria-label="Choose a slide" className="dots">
           {SLIDES.map((s, i) => (
-            <button key={s.game} type="button" className={i === active ? "on" : undefined} aria-label={`${s.title}, slide ${i + 1} of ${SLIDES.length}`} aria-current={i === active} onClick={() => setIndex(i)}>
+            <button key={s.game} type="button" className={i === active ? "on" : undefined} aria-label={`${s.title}, slide ${i + 1} of ${SLIDES.length}`} aria-current={i === active} onClick={() => {
+                setManual(true);
+                setIndex(i);
+              }}>
               {i === active && <i key={index} aria-hidden="true" />}
             </button>
           ))}
@@ -182,7 +253,7 @@ function HeroSlide({
             <p className="status" role="status">{awayText}</p>
           ) : (
             <Button variant="money" size="lg" href={`/play/${slide.game}`}>
-              Play now
+              <GemasLabel action="Play now" gemas={slide.entry} />
             </Button>
           )}
           <Button size="lg" href={practiceHref(slide.game)}>

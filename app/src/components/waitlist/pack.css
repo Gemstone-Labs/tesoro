@@ -162,7 +162,7 @@
 .pk.is-torn .pk-glow { animation: pk-glow 1250ms ease-out both; }
 .pk.is-torn .pk-rays { animation: pk-rays-in 700ms ease-out 100ms both, spin 14s linear infinite; }
 .pk.is-torn .pk-shards i { animation: pk-shard 1300ms cubic-bezier(0.1, 0.7, 0.3, 1) calc(var(--d) + 120ms) both; }
-.pk.is-torn .pk-shadow, .pk.is-torn .pk-hint, .pk.is-torn .pk-rip { animation: pk-out 300ms ease-in forwards; }
+.pk.is-torn .pk-shadow, .pk.is-torn .pk-hint, .pk.is-torn .pk-rip { animation: pk-out 200ms ease-out forwards; }
 
 /* the card, scaled to its box; it tilts toward the pointer under a foil sheen */
 .pk-card { width: 100%; min-width: 0; perspective: 900px; }

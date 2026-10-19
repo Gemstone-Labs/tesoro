@@ -11,7 +11,7 @@
   clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
 }
 .as-name { display: grid; gap: 2px; min-width: 0; padding-bottom: 4px; }
-.as-name strong { font-size: 19px; font-weight: 900; letter-spacing: -0.01em; }
+.as-name strong { font-size: var(--fs-18); font-weight: 900; letter-spacing: -0.01em; }
 
 .as-sec { display: grid; gap: 8px; }
 .as-list { --edge: var(--edge-1); background: var(--shell); display: grid; padding: 4px; }
@@ -26,10 +26,10 @@
 .as-chains { display: inline-flex; align-items: center; }
 .as-chains .chain-glyph + .chain-glyph { margin-left: -5px; }
 .as-text { display: grid; gap: 3px; min-width: 0; }
-.as-text strong { font-size: 14px; }
-.as-text small { font-size: 12px; color: var(--fg-2); }
-.as-row > code { font-family: var(--f-mono); font-size: 12.5px; color: var(--fg); }
-.as-copy { display: inline-flex; align-items: center; justify-content: end; gap: 5px; min-width: 64px; font-size: 12px; font-weight: 700; color: var(--fg-2); }
+.as-text strong { font-size: var(--fs-14); }
+.as-text small { font-size: var(--fs-12); color: var(--fg-2); }
+.as-row > code { font-family: var(--f-mono); font-size: var(--fs-13); color: var(--fg); }
+.as-copy { display: inline-flex; align-items: center; justify-content: end; gap: 5px; min-width: 64px; font-size: var(--fs-12); font-weight: 700; color: var(--fg-2); }
 .as-copy svg { width: 15px; height: 15px; }
 .as-row:hover .as-copy, .as-copy.done { color: var(--fg); }
 
@@ -37,13 +37,13 @@
 .as-add button {
   all: unset; cursor: pointer; --c: var(--cut-btn); --edge: var(--edge-1);
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 10px; font-size: 13px; font-weight: 700; color: var(--fg-2); background: var(--raised);
+  padding: 10px; font-size: var(--fs-13); font-weight: 700; color: var(--fg-2); background: var(--raised);
 }
 .as-add button:hover { color: var(--fg); background: var(--raised-2); }
 .as-add svg { width: 15px; height: 15px; }
 
 .as-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid var(--line); }
-.as-out { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 6px 2px; font-size: 13px; font-weight: 700; color: var(--fg-2); }
+.as-out { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 6px 2px; font-size: var(--fs-13); font-weight: 700; color: var(--fg-2); }
 .as-out svg { width: 16px; height: 16px; }
 .as-out:hover { color: var(--fg); }
 .as-out:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }

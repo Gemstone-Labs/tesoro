@@ -40,6 +40,20 @@
   --f-body: var(--font-schibsted), "Hanken Grotesk", system-ui, sans-serif;
   --f-display: var(--font-display), "Oswald", "Arial Narrow", Impact, sans-serif;
   --f-mono: var(--font-plex-mono), ui-monospace, monospace;
+  /* type scale (px); display sizes stay clamp() at the use site */
+  --fs-9: 9px;
+  --fs-10: 10px;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-16: 16px;
+  --fs-17: 17px;
+  --fs-18: 18px;
+  --fs-20: 20px;
+  --fs-22: 22px;
+  --fs-24: 24px;
   /* cut sizes */
   --cut-frame: 22px;
   --cut-card: 12px;
@@ -59,7 +73,7 @@ body {
   background: var(--shell);
   color: var(--fg);
   font-family: var(--f-body);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
   text-size-adjust: 100%;

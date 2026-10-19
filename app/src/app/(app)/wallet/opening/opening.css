@@ -4,7 +4,7 @@
 .op-ticket.is-done { --edge: var(--edge-em); }
 .op-empty-title { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(28px, 3vw, 36px); line-height: 1; margin: 0; }
 .op-top { display: grid; gap: 18px; }
-.op-status { display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 6px 12px; border: 1px solid rgba(242, 185, 75, 0.5); color: var(--warn); font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.06em; font-size: 14px; font-variant-numeric: tabular-nums; }
+.op-status { display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 6px 12px; border: 1px solid rgba(242, 185, 75, 0.5); color: var(--warn); font-family: var(--f-display); text-transform: uppercase; letter-spacing: 0.06em; font-size: var(--fs-14); font-variant-numeric: tabular-nums; }
 .op-status svg { width: 16px; height: 16px; }
 .op-status.ok { border-color: rgba(36, 216, 168, 0.6); color: var(--em-hi); }
 .op-status.bad { border-color: rgba(242, 104, 90, 0.6); color: var(--danger); }
@@ -17,7 +17,7 @@
 .op-swap b.pending .gema-mark { filter: grayscale(1) brightness(0.8); }
 .op-swap b.em { color: var(--em-hi); }
 .op-arrow { width: 28px; height: 28px; color: var(--fg-3); margin-bottom: 8px; }
-.op-sub { color: var(--fg-2); font-size: 15px; }
+.op-sub { color: var(--fg-2); font-size: var(--fs-15); }
 
 /* the tear line: dashed rule with a notch cut into each side */
 .op-perf { position: relative; height: 0; border-top: 2px dashed var(--line-2); margin: 0 -28px; }
@@ -30,31 +30,31 @@
 .op-line li:last-child { padding-bottom: 0; }
 .op-line li:not(:last-child)::before { content: ""; position: absolute; left: 17px; top: 36px; bottom: 0; width: 2px; background: var(--line); }
 .op-line li.done:not(:last-child)::before { background: var(--fg-2); }
-.op-dot { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--line-2); font-weight: 800; font-size: 15px; color: var(--fg-2); }
+.op-dot { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--line-2); font-weight: 800; font-size: var(--fs-15); color: var(--fg-2); }
 .op-dot svg { width: 20px; height: 20px; }
 .op-line li.done .op-dot { background: var(--fg); border-color: transparent; color: var(--shell); }
 .op-line li.active .op-dot { border-color: var(--warn); color: var(--warn); box-shadow: 0 0 0 5px rgba(242, 185, 75, 0.14); }
 .op-line li.failed .op-dot { border-color: var(--danger); color: var(--danger); }
 .op-line li > div { display: grid; gap: 2px; padding-top: 6px; }
-.op-line b { font-size: 17px; }
+.op-line b { font-size: var(--fs-17); }
 .op-line li.waiting b { color: var(--fg-2); }
-.op-line li > div span { font-size: 14px; color: var(--fg-2); }
+.op-line li > div span { font-size: var(--fs-14); color: var(--fg-2); }
 .op-line li.active > div span { color: var(--warn); }
 .op-line li.failed > div span { color: var(--danger); }
-.op-line time { padding-top: 8px; font-size: 13px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.op-line time { padding-top: 8px; font-size: var(--fs-13); color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .op-line li.active time { color: var(--warn); font-weight: 700; }
 .op-spin { animation: op-spin 1.4s linear infinite; }
 @keyframes op-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .op-spin { animation-duration: 4s; } }
 
 .op-rows { margin: 0; display: grid; gap: 10px; }
-.op-rows > div { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
+.op-rows > div { display: flex; justify-content: space-between; gap: 12px; font-size: var(--fs-15); }
 .op-rows dt { color: var(--fg-2); }
 .op-rows dd { margin: 0; font-weight: 700; }
 .op-rows a { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
 .op-rows a svg { width: 14px; height: 14px; }
 .op-actions { display: grid; gap: 12px; }
-.op-actions .btn { min-height: 56px; font-size: 18px; }
+.op-actions .btn { min-height: 56px; font-size: var(--fs-18); }
 .op-actions .btn svg { width: 20px; height: 20px; }
 
 @media (max-width: 540px) {
