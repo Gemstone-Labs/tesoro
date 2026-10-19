@@ -290,8 +290,8 @@ dialog.drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 @media (min-width: 1024px) { .top-right > .btn { min-height: 52px; padding: 0 28px; font-size: 16px; } }
 
 /* each page arrives with a short rise; the Lobby hero then plays its own entrance */
-.app-main { animation: page-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
-@keyframes page-in { from { opacity: 0; translate: 0 10px; } }
+.app-main { animation: page-in 0.15s ease-out backwards; }
+@keyframes page-in { from { opacity: 0; } }
 
 /* ——— Sign in: centred mark and welcome, email first, wallets as a pair under it ——— */
 .signin .sheet-in { padding-top: 30px; }

@@ -63,6 +63,8 @@ export function ActionBar({
     raise: once(() => onAct(raise(value), `${verb.toLowerCase()} to ${value}`)),
   };
   const allIn = () => setTo(max);
+  // Phones pin the bar above the bottom nav, so the amount controls fold behind one button there.
+  const [open, setOpen] = useState(false);
   const latest = useRef({ act, enabled, raiseOk, canSendRaise, allIn });
   useEffect(() => {
     latest.current = { act, enabled, raiseOk, canSendRaise, allIn };
@@ -90,7 +92,7 @@ export function ActionBar({
   const raiseText = !inRange && raiseOk ? `${verb} to ${text === "" ? "…" : chips(typed)}` : allInRaise && raiseOk ? `All-in ${chips(value)}` : `${verb} to ${chips(value)}`;
 
   return (
-    <div className="cut cut-frame hdx-actions" role="group" aria-label="Actions">
+    <div className={`cut cut-frame hdx-actions${open ? " raise-open" : ""}`} role="group" aria-label="Actions">
       <div className="hdx-btns">
         <button type="button" className="cut cut-btn hdx-btn" disabled={!enabled} onClick={act.fold}>
           <span>Fold</span>
@@ -105,7 +107,10 @@ export function ActionBar({
           <kbd aria-hidden="true">R</kbd>
         </button>
       </div>
-      <div className="hdx-raise">
+      <button type="button" className="cut cut-chip hd-preset hdx-more" aria-expanded={open} aria-controls="hd-raise-ctl" disabled={!raiseOk} onClick={() => setOpen((o) => !o)}>
+        {open ? "Hide amount" : `Set ${verb.toLowerCase()} amount`}
+      </button>
+      <div className="hdx-raise" id="hd-raise-ctl">
         <div className="hdx-raise-in">
           <label className="label" htmlFor="hd-to">
             {verb} to

@@ -1,12 +1,34 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { createContext, useContext, useId, type ReactNode } from "react";
 import { Bust, Button, ChainGlyph, Slider } from "@/components/ui";
-import type { Chain } from "@/lib/mock/types";
-import { UnlockTrack, YieldToGemas, monthsLabel } from "./AdvanceQuote";
+import { useAccount } from "@/lib/account";
+import { fmtGemas } from "@/lib/format";
+import { GAME_NAMES } from "@/lib/mock";
+import type { Chain, GameId } from "@/lib/mock/types";
+import { UnlockTrack, YieldFeeNote, YieldToGemas, monthsLabel } from "./AdvanceQuote";
 import "./wallet.css";
 
 export const CHAINS: Chain[] = ["SOL", "ETH", "HYPE"];
+
+/** The game a Player was sent from (`/wallet?open=1&need=<entry>&game=<slug>`), so the sheet can size the deposit and lead back. */
+export type OpenIntent = { game: GameId; need: number | null };
+export const OpenIntentContext = createContext<OpenIntent | null>(null);
+export const useOpenIntent = () => useContext(OpenIntentContext);
+
+/** The sheet's lead line when a game sent the Player here. */
+function IntentNote({ intent }: { intent: OpenIntent }) {
+  const { gemas } = useAccount();
+  const name = GAME_NAMES[intent.game];
+  if (!intent.need) return <p className="wl-intent">Get Gemas to play {name}.</p>;
+  const short = Math.max(0, intent.need - gemas.available);
+  return (
+    <p className="wl-intent">
+      You need <b>{fmtGemas(intent.need)} Gemas</b> for {name}.
+      {gemas.available > 0 && short > 0 && <span className="meta"> You have {fmtGemas(gemas.available)}, {fmtGemas(short)} to go.</span>}
+    </p>
+  );
+}
 
 const HOW_STEPS: [string, string][] = [
   ["Lock a Position", "Your Principal is locked, never played."],
@@ -102,7 +124,7 @@ export function OpenFormView({
   inert?: boolean;
 }) {
   const id = useId();
-  const presets = !inert && max !== undefined && max > 0;
+  const presets = !inert && max !== undefined;
   return (
     <div className="wl-open-form">
       {head}
@@ -125,7 +147,7 @@ export function OpenFormView({
             {presets && (
               <div className="wl-presets">
                 {PRESETS.map(([label, f]) => (
-                  <button key={label} type="button" className="cut cut-chip" onClick={() => onAmount(String(Math.floor(max * f * 1000) / 1000))}>
+                  <button key={label} type="button" className="cut cut-chip" disabled={!max} onClick={() => onAmount(String(Math.floor((max ?? 0) * f * 1000) / 1000))}>
                     {label}
                   </button>
                 ))}
@@ -134,17 +156,22 @@ export function OpenFormView({
           </div>
         )}
       </div>
-      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas ?? 0} yieldFeeBps={yieldFeeBps} />
+      <YieldToGemas months={months} yieldText={yieldText} gemas={gemas ?? 0} yieldFeeBps={yieldFeeBps} showFee={false} />
       <Slider label="Horizon" value={months} min={1} max={12} onChange={onMonths} display={monthsLabel(months)} format={(m) => `${m}`} />
       <UnlockTrack now={arrival} unlock={estimate} end={`Unlock Estimate, your ${chain} back`} />
+      <p className="wl-lede">
+        You get Gemas now from your future yield. {estimate !== "—" ? <>Your {chain} comes back on <b>{estimate}</b>.</> : <>Your {chain} comes back when your Horizon ends.</>}
+      </p>
       {alerts}
       {note && <p className="note">{note}</p>}
-      <Button variant="money" size="lg" block disabled={disabled} onClick={onSubmit}>
-        {buttonLabel}
-      </Button>
-      {details && (
-        <details className="wl-details">
-          <summary>Quote details</summary>
+      <div className="wl-cta">
+        <Button variant="money" size="lg" block disabled={disabled} onClick={onSubmit}>
+          {buttonLabel}
+        </Button>
+      </div>
+      <details className="wl-details">
+        <summary>Quote details</summary>
+        {details && (
           <dl className="kv">
             {details.map(([k, v]) => (
               <div key={k} style={{ display: "contents" }}>
@@ -153,16 +180,19 @@ export function OpenFormView({
               </div>
             ))}
           </dl>
-        </details>
-      )}
+        )}
+        <YieldFeeNote yieldFeeBps={yieldFeeBps} />
+      </details>
     </div>
   );
 }
 
 /** Chain tabs + the active chain's form. */
 export function OpenPanel({ tab, onTab, children }: { tab: Chain; onTab: (c: Chain) => void; children: ReactNode }) {
+  const intent = useOpenIntent();
   return (
     <section className="wl-open" id="open-position" aria-label="Open a Position">
+      {intent && <IntentNote intent={intent} />}
       <div className="wl-tabs" role="tablist" aria-label="Chain">
         {CHAINS.map((c) => (
           <button key={c} type="button" role="tab" aria-selected={tab === c} className={`cut cut-card${tab === c ? " on" : ""}`} onClick={() => onTab(c)}>

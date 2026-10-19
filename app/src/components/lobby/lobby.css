@@ -3,8 +3,9 @@
 
 /* ——— Hero carousel: one big slide at a time ——— */
 .lobby-top { display: grid; gap: 12px; min-width: 0; }
-.hero { --hero-h: 440px; position: relative; overflow: hidden; }
+.hero { --hero-h: 440px; position: relative; overflow: hidden; touch-action: pan-y; }
 .hero-track { display: flex; transform: translateX(calc(var(--i) * -100%)); transition: transform 0.55s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.hero-track.manual { transition-duration: 0.3s; transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
 .hero-track.jump { transition: none; }
 .slide { --c: 18px; flex: 0 0 100%; height: var(--hero-h); position: relative; overflow: hidden; background: #0a1322; --edge: var(--edge-2); }
 .slide-art { position: absolute; inset: 0; }
@@ -13,9 +14,10 @@
 .slide-body { position: relative; z-index: 1; display: grid; align-content: center; justify-items: start; gap: 18px; width: min(100%, 560px); height: 100%; padding: 0 40px; }
 .slide-title { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(48px, 5.2vw, 92px); font-weight: 800; letter-spacing: 0; line-height: 0.9; word-spacing: 0; text-wrap: balance; color: #fff; }
 .slide-sub { margin-top: -8px; font-size: clamp(15px, 1.2vw, 20px); font-weight: 500; color: var(--fg-2); }
+.slide-cta .btn:first-child { flex-grow: 3; }
 .slide-body .btn.lg { width: 100%; max-width: 420px; min-height: 62px; --c: 14px; }
 .slide-cta { display: flex; gap: 12px; width: 100%; max-width: 420px; }
-.slide-cta .btn { flex: 1 1 0; min-width: 0; padding-inline: 12px; white-space: nowrap; }
+.slide-cta .btn { flex: 2 1 0; min-width: 0; padding-inline: 12px; white-space: nowrap; }
 .slide-queue { --c: 10px; --edge: var(--line-2); display: flex; align-items: center; gap: 12px; width: 100%; max-width: 420px; margin-top: -6px; padding: 8px 14px; background: rgba(10, 19, 34, 0.72); backdrop-filter: blur(6px); }
 .slide-queue-live { position: relative; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg); }
 .slide-queue-live::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit; animation: queue-ping 1.6s ease-out infinite; }
@@ -39,19 +41,19 @@
 }
 .hero-next:hover { background: rgba(8, 12, 18, 0.92); }
 /* markers sit inside the hero, along its bottom edge */
-.hero-dots { position: absolute; z-index: 3; left: 0; right: 0; bottom: 14px; display: flex; justify-content: center; align-items: center; height: 22px; pointer-events: none; }
+.hero-dots { position: absolute; z-index: 3; left: 0; right: 0; bottom: 4px; display: flex; justify-content: center; align-items: center; height: 44px; pointer-events: none; }
 .hero-dots > * { pointer-events: auto; }
 /* slide markers: thin cut bars; the current one fills while auto-advance runs */
 .dots { display: flex; gap: 6px; }
-.dots button { position: relative; width: 44px; height: 22px; display: grid; align-items: center; background: none; border: 0; padding: 0; }
+.dots button { position: relative; width: 44px; height: 44px; display: grid; align-items: center; background: none; border: 0; padding: 0; }
 .dots button::before, .dots button i { content: ""; grid-area: 1 / 1; display: block; height: 3px; background: rgba(234, 239, 236, 0.22); clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%); }
 .dots button:hover::before { background: rgba(234, 239, 236, 0.4); }
 .dots button.on::before { background: rgba(234, 239, 236, 0.3); }
 .dots button i { background: var(--fg); transform-origin: left; }
 .hero[data-running] .dots button i { animation: hero-fill var(--advance) linear both; }
 @keyframes hero-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-.hero-pause { width: 22px; height: 22px; display: grid; place-items: center; background: none; border: 0; padding: 0; color: var(--fg-2); }
-.hero-pause { position: absolute; right: 18px; }
+.hero-pause { width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; padding: 0; color: var(--fg-2); }
+.hero-pause { position: absolute; right: 8px; }
 .hero-pause svg { width: 15px; height: 15px; }
 .hero-pause:hover { color: var(--fg); }
 
@@ -81,17 +83,17 @@
 /* Play now: the live games as large tiles */
 .tile { --c: 16px; position: relative; display: block; aspect-ratio: 1.75; overflow: hidden; background: var(--surface); --edge: var(--edge-2); }
 .tile img { object-fit: cover; object-position: top; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.4s ease; }
-a.tile:hover img { transform: scale(1.04); filter: brightness(1.08) saturate(1.08); }
+@media (hover: hover) and (pointer: fine) { a.tile:hover img { transform: scale(1.04); filter: brightness(1.08) saturate(1.08); } }
 a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(234, 239, 236, 0.2) 50%, rgba(234, 239, 236, 0.12)); }
 .tile-shade { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 42%, rgba(6, 9, 12, 0.55) 70%, rgba(6, 9, 12, 0.94) 100%); }
 .tile-cell { position: relative; min-width: 0; }
-.tile-practice { position: absolute; right: 18px; bottom: 20px; z-index: 4; padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--fg); background: rgba(6, 9, 12, 0.7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); --edge: var(--edge-2); }
+.tile-practice { position: absolute; right: 18px; bottom: 16px; z-index: 4; display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; font-size: 13px; font-weight: 700; color: var(--fg); background: rgba(6, 9, 12, 0.7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); --edge: var(--edge-2); }
 .tile-practice:hover { background: rgba(6, 9, 12, 0.88); }
 @container (min-width: 720px) {
   .tile-cell.last-odd { grid-column: 1 / -1; }
   .tile-cell.last-odd .tile { aspect-ratio: 3.6; }
 }
-.tile-label { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: grid; gap: 4px; justify-items: start; padding: 0 24px 20px; }
+.tile-label { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: grid; gap: 4px; justify-items: start; padding: 0 168px 20px 24px; }
 .tile-label strong { font-family: var(--f-display); text-transform: uppercase; font-size: clamp(30px, 2.8vw, 46px); font-weight: 800; letter-spacing: 0.005em; line-height: 0.95; color: #fff; }
 .tile-label span { font-size: 14.5px; color: var(--fg-2); }
 
@@ -110,9 +112,19 @@ a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(23
   .slide-art::after { background: linear-gradient(0deg, rgba(10, 19, 34, 0.96) 0%, rgba(10, 19, 34, 0.7) 52%, transparent 85%); }
   .slide-art img { object-position: 65% top; }
   .slide-body .btn.lg { min-height: 54px; font-size: 18px; }
+  /* Play now carries its entry, so on narrow slides Practice free takes its own row rather than running off the edge */
+  .slide-cta { flex-wrap: wrap; gap: 10px; }
+  .slide-cta .btn, .slide-cta .btn:first-child { flex: 1 1 auto; }
   .hero-next { display: none; }
   .tile { aspect-ratio: 1.6; }
+  /* the chip leaves the art and sits under the tile, so it never covers the subtitle */
+  .tile-practice { position: static; display: flex; justify-content: center; margin-top: 8px; }
+  .tile-label { padding-right: 24px; }
 }
+.welcome-strip { --c: 12px; --edge: var(--line-2); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 12px 16px 12px 20px; background: var(--raised); }
+.welcome-strip p { flex: 1 1 320px; min-width: 0; font-size: 15px; line-height: 1.4; color: var(--fg-2); }
+.welcome-strip p b { color: var(--fg); font-weight: 700; }
+.welcome-strip .btn { flex: none; }
 
 .slide.long .slide-title { font-size: clamp(44px, 4.4vw, 78px); }
 
@@ -187,7 +199,7 @@ a.tile:hover .tile-glare { opacity: 1; }
   animation: lbt-spin 50s linear infinite;
 }
 .lbt-chest { position: relative; display: block; width: 100%; height: auto; transition: translate 0.4s ease, scale 0.4s ease; }
-.lbt:hover .lbt-chest { translate: 0 -6px; scale: 1.03; }
+@media (hover: hover) and (pointer: fine) { .lbt:hover .lbt-chest { translate: 0 -6px; scale: 1.03; } }
 .lbt-copy { display: grid; gap: 8px; justify-items: start; max-width: 62%; }
 .lbt-kicker { font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
 .lbt-kicker b { color: var(--fg); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 13.5px; white-space: nowrap; }
@@ -211,10 +223,12 @@ a.tile:hover .tile-glare { opacity: 1; }
 .lbt-top img { width: 26px; height: 26px; border-radius: 50%; }
 .lbt-rank { font-family: var(--f-display); font-weight: 800; font-size: 15px; color: var(--fg); min-width: 10px; text-align: center; }
 .lbt-top li:first-child .lbt-rank { background: var(--gold-facet); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lbt-you { margin: 0; color: var(--fg-2); font-size: 14px; }
+.lbt-you b { color: var(--fg); }
 .lbt-cta { margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: var(--fg-2); }
 .lbt:hover .lbt-cta { color: var(--fg); }
 .lbt-cta svg { width: 15px; height: 15px; transition: translate 0.2s ease; }
-.lbt:hover .lbt-cta svg { translate: 3px 0; }
+@media (hover: hover) and (pointer: fine) { .lbt:hover .lbt-cta svg { translate: 3px 0; } }
 @keyframes lbt-spin { to { rotate: 360deg; } }
 @media (prefers-reduced-motion: reduce) { .lbt-rays { animation: none; } .lbt-chest, .lbt-cta svg { transition: none; } }
 @media (max-width: 720px) {

@@ -45,7 +45,9 @@
   background: rgba(255, 255, 255, 0.06); backdrop-filter: blur(8px);
   clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
 }
+.lb-hero-copy > .btn { align-self: flex-start; margin-top: 6px; }
 .lb-hero-chip b { color: var(--fg); }
+.lb-hero-you { display: inline-block; line-height: 1.45; }
 .lb-hero-faces { display: inline-flex; }
 .lb-hero-faces img { width: 26px; height: 26px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface); margin-left: -7px; }
 .lb-hero-faces img:first-child { margin-left: 0; }
@@ -70,8 +72,9 @@
 
 /* this season: tools, the Payout scale band, the table and its pages */
 .lb-season { display: grid; gap: 14px; }
-.lb-season .lb-sec-head { margin-bottom: 0; flex-wrap: wrap; align-items: center; scroll-margin-top: 84px; }
-.lb-season-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.lb-season .lb-sec-head { margin-bottom: 0; flex-wrap: wrap; align-items: center; row-gap: 4px; scroll-margin-top: 84px; }
+.lb-pay-sum { flex-basis: 100%; color: var(--fg-2); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.lb-season-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
 .lb-chev { transition: transform 0.2s; }
 [aria-expanded="false"] > .lb-chev { transform: rotate(-90deg); }
 
@@ -158,13 +161,14 @@
   .lb-paying { justify-self: stretch; justify-content: center; margin-inline: var(--cut-frame); font-size: 13px; }
   .lb-paying-sub { display: none; }
   .lb-payout { padding: 16px; gap: 20px; }
+  .lb-rules { order: -1; }
   .lb-chart ol { height: 130px; gap: 3px; }
   .lb-col small { font-size: 9.5px; }
   .lb-col-amt { font-size: 10.5px; }
   .lb-col-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .lb-col-short { display: inline; }
   .lb-table td, .lb-table th { padding: 8px 6px; }
-  .lb-table .lb-c-opt, .lb-table .lb-you { display: none; }
+  .lb-table .lb-c-opt { display: none; }
   .lb-table .lb-c-rank { width: 30px; }
   .lb-table .lb-avatar { width: 26px; height: 26px; --c: 6px; }
   .lb-table .lb-name { max-width: 140px; }

@@ -125,7 +125,7 @@ html:has(.wl), body:has(.wl) { background: #090d0f; }
   .wl-main { bottom: 24px; }
   .wl-h1 { font-size: clamp(34px, 9.2vw, 42px); }
   .wl-nav a { white-space: nowrap; }
-  .wl-kicker { display: none; }
+  .wl-kicker:not(.wl-kicker-invite) { display: none; }
   .wl-row { flex-direction: column; }
   .wl-join { width: 100%; min-height: 52px; }
 }

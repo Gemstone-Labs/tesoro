@@ -2,14 +2,14 @@
 
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
 import { Button, CountUp, GemaMark, GemaUsd } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import type { LastSeason, LeaderboardRow, LeaderboardView } from "@/lib/chain/leaderboard-view";
+import { seasonStanding, standingSummary, type LastSeason, type LeaderboardRow, type LeaderboardView, type SeasonStanding } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
@@ -58,9 +58,9 @@ function useServerNow(serverNow: number | undefined): number | null {
 
 /** The weekly Leaderboard: the pool, the table, the payout scale and last week's winners. */
 export function Leaderboard() {
-  const { data, error, retry } = useLeaderboard();
   const { auth, snapshot } = useAccount();
   const me = snapshot?.accountKey.toBase58() ?? (auth.addresses.solana ? accountKeyOf(auth.addresses.solana) : null);
+  const { data, error, retry } = useLeaderboard(me);
   const now = useServerNow(data?.now);
 
   return (
@@ -157,7 +157,7 @@ function LoadingSkeleton() {
 }
 
 /** The pool as a banner: the figure huge on the left, the cut-out chest over turning light on the right. */
-function Hero({ data, pool, remaining }: { data: LeaderboardView; pool: number; remaining: number | null }) {
+function Hero({ data, pool, remaining, standing }: { data: LeaderboardView; pool: number; remaining: number | null; standing: SeasonStanding | null }) {
   const faces = data.standings.slice(0, 5);
   return (
     <section className="cut cut-frame lb-hero" aria-label="This season">
@@ -196,16 +196,22 @@ function Hero({ data, pool, remaining }: { data: LeaderboardView; pool: number; 
               1st takes <GemaMark size={14} /> <b>{fmtGemas(prize(pool, 0))}</b> <GemaUsd value={prize(pool, 0)} />
             </span>
           )}
+          {standing && (
+            <span className="lb-hero-chip lb-hero-you">
+              <b>You</b> {standingSummary(standing, data.players, ENTRIES[0] / POINTS_DIVISOR)}
+            </span>
+          )}
         </div>
+        <Button variant="money" href="/play">Play now</Button>
       </div>
     </section>
   );
 }
 
 function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | null; now: number | null; stale: boolean }) {
-  const mine = useMemo(() => data.standings.find((r) => r.account === me) ?? null, [data.standings, me]);
   const remaining = now === null ? null : data.season.end - now;
   const pool = usePool() ?? data.poolGemas;
+  const standing = me ? seasonStanding(data, me) : null;
 
   return (
     <>
@@ -220,15 +226,9 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
           </span>
         </div>
       )}
-      <Hero data={data} pool={pool} remaining={remaining} />
+      <Hero data={data} pool={pool} remaining={remaining} standing={standing} />
 
       <Season data={data} pool={pool} me={me} />
-
-      {me && !mine && data.standings.length > 0 && (
-        <p className="note">
-          {data.players > data.standings.length ? "You’re not in the top of the table yet." : "You have no points this season yet."} Win a Match to climb.
-        </p>
-      )}
 
       {data.last && <Last last={data.last} me={me} />}
 
@@ -251,11 +251,18 @@ function Person({ account }: { account: string }) {
   );
 }
 
+/** One line for the closed Payout scale: the top three prizes and what a win is worth. */
+function payoutSummary(pool: number): string {
+  const wins = `${ENTRIES.map((e) => `+${e / POINTS_DIVISOR}`).join(" / ")} per win`;
+  if (pool <= 0) return wins;
+  return `1st ${SHORT.format(prize(pool, 0))} · 2nd ${SHORT.format(prize(pool, 1))} · 3rd ${SHORT.format(prize(pool, 2))} · ${wins}`;
+}
+
 function readPayout(): boolean {
   try {
-    return localStorage.getItem(PAYOUT_KEY) !== "off";
+    return localStorage.getItem(PAYOUT_KEY) === "on";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -301,6 +308,7 @@ function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: s
             Payout scale
           </Button>
         </div>
+        {!payout && <p className="lb-pay-sum">{payoutSummary(pool)}</p>}
       </header>
 
       {payout && <Payout pool={pool} />}
@@ -309,7 +317,6 @@ function Season({ data, pool, me }: { data: LeaderboardView; pool: number; me: s
         <div className="cut cut-card lb-empty">
           <b>No points yet this season.</b>
           <p>The first win puts you at the top. A won Match earns one point for every {POINTS_DIVISOR} Gemas of entry.</p>
-          <Button variant="money" href="/play">Play now</Button>
         </div>
       ) : (
         <>

@@ -15,6 +15,7 @@
 .wl-redeemable b, .wl-pending b { font-size: clamp(30px, 2.6vw, 44px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.1; word-spacing: 0; }
 .wl-redeemable b { color: var(--em-hi); }
 .wl-redeemable .btn { margin-top: 8px; }
+.wl-pending .meta, .wl-redeemable .meta { color: var(--fg-2); font-size: 13px; }
 .wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
 .wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: 15px; padding: 0; }
 .wl-hero-sim { grid-column: 1 / -1; margin-top: -12px; }
@@ -113,6 +114,13 @@
 .wl-link:hover { text-decoration-color: var(--fg); }
 .wl-link:disabled { cursor: default; color: var(--fg-2); text-decoration: none; }
 .wl-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.wl-intent { margin: 0; padding: 10px 12px; background: var(--raised); font-size: 14px; color: var(--fg); }
+.wl-intent b { font-weight: 800; }
+.wl-lede { margin: 0; font-size: 14px; color: var(--fg-2); }
+.wl-lede b { color: var(--fg); }
+/* the money button stays at the foot of the sheet while the form scrolls (phones; harmless when it all fits) */
+.wl-cta { position: sticky; bottom: 0; z-index: 1; margin-inline: -16px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line); }
+@media (min-width: 640px) { .wl-cta { margin-inline: -24px; padding: 12px 24px; } }
 .wl-details { font-size: 13px; }
 .wl-details summary { cursor: pointer; color: var(--fg-2); padding: 2px 0; }
 .wl-details .kv { margin-top: 6px; }
@@ -162,6 +170,8 @@
 .wl-pocket.c-HYPE { --tone: #9ff5e2; }
 .wl-pocket-head { display: grid; gap: 6px; }
 .wl-pocket-chain { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; }
+.wl-pocket-label { color: var(--fg-2); font-size: 13px; }
+.wl-pocket-why { max-width: 12em; text-align: right; }
 .wl-pocket-head > b { font-size: clamp(26px, 2.2vw, 32px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.05; overflow-wrap: anywhere; }
 .wl-pocket-head > small { color: var(--fg-2); font-size: 13px; }
 .wl-pocket-money { display: grid; gap: 8px; }

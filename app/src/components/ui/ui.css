@@ -94,13 +94,15 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(90deg, #12181c 0%, #12181c 26%, rgba(17, 23, 27, 0.55) 58%, rgba(17, 23, 27, 0.2) 100%);
 }
-a.row:hover .row-art img, button.row:hover .row-art img { transform: scale(1.1) translateX(-2%); filter: none; }
+/* lifts and zooms only for a mouse: on touch a tap leaves them stuck */
+@media (hover: hover) and (pointer: fine) { a.row:hover .row-art img, button.row:hover .row-art img { transform: scale(1.1) translateX(-2%); filter: none; } }
 .row.has-art::before {
   content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
   background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.09) 48%, transparent 60%);
   transform: translateX(-100%);
 }
-a.row.has-art:hover::before, button.row.has-art:hover::before { transform: translateX(100%); transition: transform 0.8s ease; }
+/* lifts and zooms only for a mouse: on touch a tap leaves them stuck */
+@media (hover: hover) and (pointer: fine) { a.row.has-art:hover::before, button.row.has-art:hover::before { transform: translateX(100%); transition: transform 0.8s ease; } }
 .row .thumb { width: 48px; height: 48px; }
 .row-body { min-width: 0; display: grid; flex: 1; }
 .row-title { font-size: 14px; font-weight: 700; }
@@ -120,7 +122,8 @@ a.row.has-art:hover::before, button.row.has-art:hover::before { transform: trans
 .row-fig.lost { color: var(--danger); }
 .row-cta { font-size: 13px; font-weight: 800; white-space: nowrap; color: var(--fg); display: inline-flex; align-items: center; gap: 6px; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); }
 .row-cta svg { transition: transform 0.2s; }
-a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(4px); }
+/* lifts and zooms only for a mouse: on touch a tap leaves them stuck */
+@media (hover: hover) and (pointer: fine) { a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(4px); } }
 .row-cta.money { color: var(--em); }
 @container (max-width: 520px) {
   .row .row-body { gap: 1px; }
@@ -168,7 +171,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .btn.block { display: flex; width: 100%; }
 .btn.sm { padding: 7px 12px; min-height: 34px; font-size: 13px; }
 .btn.lg { min-height: 60px; font-size: 20px; padding: 0 24px; }
-.btn { transition: filter 0.15s ease, background-color 0.15s ease, transform 0.08s ease; }
+.btn { transition: filter 0.15s ease, background-color 0.15s ease, transform 0.16s cubic-bezier(0.23, 1, 0.32, 1); }
 .btn.lg { --c: 9px; }
 .btn.money {
   color: var(--em-ink); --edge: var(--money-rim);
@@ -177,7 +180,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .btn.money.lg { padding-bottom: 3px; }
 .btn.money:hover:not(:disabled) { filter: brightness(1.07) saturate(1.05); }
 .btn.money:active:not(:disabled) { filter: brightness(0.95); }
-.btn:active:not(:disabled, [aria-disabled="true"]) { transform: translateY(1px); }
+.btn:active:not(:disabled, [aria-disabled="true"]) { transform: scale(0.97); }
 .btn.neutral { background: var(--surface); color: var(--fg); --edge: var(--edge-2); }
 .btn.neutral:hover { background: var(--surface-2); }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; }
@@ -410,9 +413,18 @@ dialog.sheet {
 dialog.cut[open] { display: flex; flex-direction: column; overflow: hidden; }
 dialog.cut[open] > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 dialog.sheet::backdrop { background: rgba(4, 7, 9, 0.62); backdrop-filter: blur(6px); }
-/* sheets rise into place when opened */
-dialog.sheet[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
-dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
+/* sheets rise in when opened and drop away, faster, when closed (browsers without @starting-style just snap) */
+dialog.sheet, dialog.bk-drawer {
+  opacity: 0; transform: translateY(16px);
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out, overlay 0.18s allow-discrete, display 0.18s allow-discrete;
+}
+dialog.sheet[open], dialog.bk-drawer[open] { opacity: 1; transform: none; transition-duration: 0.26s; transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
+dialog.sheet::backdrop, dialog.bk-drawer::backdrop { opacity: 0; transition: opacity 0.18s ease-out, overlay 0.18s allow-discrete, display 0.18s allow-discrete; }
+dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 1; }
+@starting-style {
+  dialog.sheet[open], dialog.bk-drawer[open] { opacity: 0; transform: translateY(24px); }
+  dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 0; }
+}
 @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
 @keyframes fade-in { from { opacity: 0; } }
 .sheet-in { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }

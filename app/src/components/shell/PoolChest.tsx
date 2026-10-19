@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { CountUp } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import { seasonStanding, type SeasonStanding } from "@/lib/chain/leaderboard-view";
+import { nextStep, ordinal, pts, seasonStanding } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { fmtGemas } from "@/lib/format";
@@ -97,20 +97,6 @@ export function Chest({ size = 34, pop = 0 }: { size?: number; pop?: number }) {
       </g>
     </svg>
   );
-}
-
-const ordinal = (n: number) => {
-  const v = n % 100;
-  return `${n}${["th", "st", "nd", "rd"][(v - 20) % 10] || ["th", "st", "nd", "rd"][v] || "th"}`;
-};
-const pts = (n: number) => `${n} ${n === 1 ? "pt" : "pts"}`;
-
-/** The next step up, in one short line. */
-function nextStep(s: SeasonStanding) {
-  if (s.rank === null) return null;
-  if (s.toPrizes > 0) return `${pts(s.toPrizes)} to the prizes`;
-  if (s.toNext === null) return "Top of the board";
-  return `${pts(s.toNext)} to ${ordinal(s.rank - 1)}`;
 }
 
 /**
