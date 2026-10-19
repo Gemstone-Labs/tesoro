@@ -1,7 +1,11 @@
 /* Vanguard (prototype): board, B1 markers, depots, effects, Dust Storm haze, plates. Prefix vg-.
    Look picked by the founder on 2026-10-18 in the art gallery: 2.5D markers lit from above (B1), Haze storm. */
 
-.vg-screen { display: grid; gap: 10px; justify-items: center; padding: 12px 8px 18px; }
+.vg-screen { --vg-avail: calc(100dvh - 190px); container-type: inline-size; padding: 12px 8px 18px; }
+html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
+.vg-layout { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+/* narrow: the side columns dissolve into one stack (header, Italy, roster, board, you, turn, message) */
+.vg-left, .vg-right { display: contents; }
 .vg-bar { width: min(100%, 640px); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .vg-bar-tools { display: flex; gap: 6px; }
 
@@ -19,8 +23,16 @@
 .vg-who b { font: 800 18px/1 var(--f-display); text-transform: uppercase; letter-spacing: 0.02em; }
 .vg-who small { color: var(--fg-2, #9aa4ad); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vg-turn { margin-left: auto; font: 600 12px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: #e8be6e; white-space: nowrap; }
-.vg-two { margin-left: 8px; font: 600 13px/1 inherit; padding: 8px 10px; border-radius: 3px; border: 1px solid rgba(232, 190, 110, 0.6); background: rgba(232, 190, 110, 0.12); color: #f2dca6; cursor: pointer; white-space: nowrap; }
-.vg-two:disabled { opacity: 0.45; cursor: default; }
+/* whose turn it is, and the Two-Step Turn button right beside it */
+.vg-turnbox { width: min(100%, 640px); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.vg-turnbox .vg-turn { margin-left: 0; font-size: 13px; }
+.vg-hint { flex-basis: 100%; color: var(--fg-2, #9aa4ad); font-size: 12px; }
+.vg-two { font: 700 14px/1 var(--f-ui, inherit); padding: 11px 14px; border-radius: 3px; border: 1px solid rgba(232, 190, 110, 0.6); background: rgba(232, 190, 110, 0.12); color: #f2dca6; cursor: pointer; white-space: nowrap; }
+.vg-two:disabled { opacity: 0.55; cursor: default; }
+.vg-two.ready { background: #e8be6e; border-color: #f6d98e; color: #2a1706; box-shadow: 0 0 0 0 rgba(232, 190, 110, 0.6); animation: vg-two-pulse 1.6s ease-in-out infinite; }
+.vg-two.earned { animation: vg-two-earned 0.9s ease-out 3; }
+@keyframes vg-two-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232, 190, 110, 0.5); } 50% { box-shadow: 0 0 0 7px rgba(232, 190, 110, 0); } }
+@keyframes vg-two-earned { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 236, 170, 0.9); } 40% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(255, 236, 170, 0); } 100% { transform: scale(1); } }
 .vg-two:focus-visible { outline: 2px solid var(--fg, #fff); outline-offset: 2px; }
 .vg-missed { margin-left: auto; font: 600 12px/1 var(--f-mono); letter-spacing: 0.04em; color: var(--fg-2, #9aa4ad); white-space: nowrap; }
 .vg-missed.last { color: var(--warn, #f2a63b); }
@@ -28,8 +40,9 @@
 .vg-why { display: grid; gap: 2px; margin: 0; font-size: 14px; }
 .vg-why b { font: 800 18px/1.1 var(--f-display); text-transform: uppercase; letter-spacing: 0.02em; }
 .vg-tok { margin-left: 8px; font-size: 12px; color: #f2dca6; white-space: nowrap; }
-.vg-plate:not(.active) .vg-two { margin-left: auto; }
-.vg-say { margin: 0; width: min(100%, 640px); min-height: 1.5em; font-size: 14px; color: var(--fg, #e9eef2); text-align: center; }
+.vg-feed { width: min(100%, 640px); }
+.vg-say { margin: 0; min-height: 1.5em; font-size: 14px; color: var(--fg, #e9eef2); text-align: center; }
+.vg-old { display: none; }
 
 /* what is left of the Italian army, by rank (casualty tracking) */
 .vg-roster { width: min(100%, 640px); display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; }
@@ -128,6 +141,31 @@
 .vg-end { position: absolute; z-index: 60; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(92%, 360px); padding: 22px 20px; display: grid; gap: 8px; justify-items: center; text-align: center; background: rgba(12, 9, 6, 0.94); }
 .vg-end-word { margin: 0; font: 800 44px/1 var(--f-display); text-transform: uppercase; }
 .vg-end-actions { display: flex; gap: 8px; margin-top: 6px; }
+
+/* full screen on a wide window: no padding, the board fills the height (a container query can't style its own container) */
+@media (min-width: 1030px) {
+  html.game-full .vg-screen { padding: 0; }
+}
+
+/* wide: board centred at the height that fits, Italy and the roster on the left,
+   messages, turn, Two-Step Turn and your seat on the right */
+@container (min-width: 1000px) {
+  .vg-layout { display: grid; grid-template-columns: minmax(200px, 1fr) auto minmax(220px, 1fr); gap: 16px 28px; align-items: stretch; justify-items: stretch; }
+  html.game-full .vg-layout { min-height: calc(100dvh - 28px); }
+  .vg-left, .vg-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .vg-right { justify-content: flex-end; }
+  .vg-left .vg-bar, .vg-plate, .vg-roster, .vg-turnbox, .vg-feed { width: 100%; }
+  .vg-left .vg-bar { margin-bottom: 6px; }
+  .vg-roster { grid-template-columns: repeat(6, 1fr); gap: 4px; }
+  .vg-stage { container-type: normal; width: auto; align-self: center; }
+  .vg-board { --vg-sq: min(96px, calc(var(--vg-avail) / 10), calc((100cqw - 500px) / 10)); }
+  .vg-right > :not(.vg-plate, .vg-turnbox, .vg-feed) { order: -2; }
+  .vg-feed { order: -1; margin-bottom: auto; }
+  .vg-say { text-align: left; font-size: 18px; line-height: 1.35; }
+  .vg-old { display: block; margin: 6px 0 0; font-size: 13px; line-height: 1.35; color: var(--fg-2, #9aa4ad); }
+  .vg-turnbox { padding: 10px 12px; border: 1px solid rgba(201, 145, 58, 0.18); border-radius: 4px; background: rgba(12, 9, 6, 0.55); }
+  .vg-two { flex: 1 1 auto; }
+}
 
 @media (max-width: 520px) {
   .vg-screen { gap: 8px; padding-top: 6px; }
