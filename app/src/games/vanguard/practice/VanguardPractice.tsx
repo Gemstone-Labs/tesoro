@@ -27,14 +27,14 @@ export interface VanguardPracticeProps {
 }
 
 const REFUSAL_LINE: Record<Refusal, string> = {
-  match_over: "The Match is over.",
-  cap_passed: "Time is up: the Match is over.",
-  turn_expired: "Too late: your time ran out.",
+  match_over: "Match is over.",
+  cap_passed: "Time is up.",
+  turn_expired: "Too late: time ran out.",
   turn_not_expired: "",
-  not_your_turn: "It is not your turn.",
-  no_such_piece: "That piece is gone.",
-  illegal_move: "That piece can't go there.",
-  no_two_step: "You have no Two-Step Turn to spend.",
+  not_your_turn: "Not your turn.",
+  no_such_piece: "Piece is gone.",
+  illegal_move: "Can't go there.",
+  no_two_step: "No Two-Step Turn left.",
 };
 
 const wait = (ms: number) => new Promise<void>((ok) => setTimeout(ok, prefersReducedMotion() ? 0 : ms));
@@ -46,10 +46,10 @@ function shownFrom(g: Game): ShownPiece[] {
 }
 
 const END_LINE = {
-  truck: { us: "You captured Italy's Supply Truck.", it: "Italy captured your Supply Truck." },
-  stuck: { us: "Italy has no piece left that can move.", it: "You have no piece left that can move." },
-  timeouts: { us: "Italy let the clock run out three turns in a row.", it: "Your clock ran out three turns in a row." },
-  cap: { us: "Move limit reached: your surviving ranks add up higher.", it: "Move limit reached: Italy's surviving ranks add up higher." },
+  truck: { us: "You captured Italy's Truck.", it: "Italy captured your Truck." },
+  stuck: { us: "Italy can't move.", it: "You can't move." },
+  timeouts: { us: "Italy ran out of time.", it: "You ran out of time." },
+  cap: { us: "Limit reached: you were ahead.", it: "Limit reached: Italy was ahead." },
 } as const;
 
 /**
@@ -81,7 +81,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
   const [fx, setFx] = useState<ShownFx[]>([]);
   const [storm, setStorm] = useState<ShownStorm | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [say, setSay] = useState("Your pieces are face up at the bottom. Tap one, then a marked square.");
+  const [say, setSay] = useState("Your move. Tap a piece.");
   const [started, setStarted] = useState(instant);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -151,39 +151,39 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         }
         const mine = a.army === "us";
         line =
-          e.outcome === "truck" ? (mine ? "Supply Truck captured!" : "Italy reached your Supply Truck.")
-          : e.outcome === "mine" ? (mine ? `Landmine! Your ${NAMES[a.rank]} is lost, and the mine is now in plain sight. Only an Engineer (3) clears mines.` : "Italy hit one of your Landmines. It is in plain sight now.")
-          : e.outcome === "defuse" ? (mine ? "Your Engineer cleared a Landmine." : "An Italian Engineer cleared your Landmine.")
+          e.outcome === "truck" ? (mine ? "Supply Truck captured!" : "Italy took your Truck.")
+          : e.outcome === "mine" ? (mine ? `Landmine! Your ${NAMES[a.rank]} is lost.` : "Italy hit your Landmine.")
+          : e.outcome === "defuse" ? (mine ? "Your Engineer cleared a Landmine." : "Italy cleared your Landmine.")
           : e.outcome === "tie" ? `Both ${NAMES[a.rank]}s fall.`
-          : mine ? (attWins ? `Your ${a.rank} beat their ${d.rank}.` : `Your ${a.rank} lost. The piece that beat it stays hidden.`)
-          : attWins ? `Italy took your ${d.rank} with a hidden piece.` : `Your ${d.rank} held: it beat their ${a.rank}.`;
+          : mine ? (attWins ? `Your ${a.rank} beat their ${d.rank}.` : `Your ${a.rank} lost.`)
+          : attWins ? `Italy took your ${d.rank}.` : `Your ${d.rank} held.`;
       } else if (e.kind === "spotted") {
         const p = name(e.id) ?? g.pieces.find((x) => x.id === e.id)!;
         patch(e.id, { up: true, hitFrom: "bottom" });
         addFx("spotted", p.r + 0.5, p.c + 0.5, 2.8);
         sfx("fold");
         shout(p.army === "us" ? "Your Truck is Spotted!" : "Spotted!", "warn");
-        line = p.army === "us" ? "Your Supply Truck is out of fuel: Spotted, face up and stuck." : "Italy's Supply Truck is Spotted: face up and out of fuel.";
+        line = p.army === "us" ? "Your Truck is Spotted." : "Italy's Truck is Spotted.";
         await wait(500);
       } else if (e.kind === "raid") {
         setDepots((ds) => ds.map((d) => (d.r === e.at.r && d.c === e.at.c ? { ...d, claimed: true } : d)));
         addFx("spotted", e.at.r + 0.5, e.at.c + 0.5, 1.7);
         sfx("check");
         shout(e.army === "us" ? "Two-Step Turn earned" : "Italy raided your depot");
-        line = e.army === "us" ? "Depot raided: you earned a Two-Step Turn. On your turn press “Use Two-Step Turn” to move twice." : "Italy raided your depot and earned a Two-Step Turn.";
+        line = e.army === "us" ? "Depot raided: Two-Step Turn." : "Italy raided your depot.";
         await wait(500);
       } else if (e.kind === "storm") {
         setStorm({ key: Date.now(), axis: e.axis, index: e.index, dir: e.dir });
         sfx("wind");
         shout("Dust storm!", "warn");
-        setSay(`Dust storm over ${e.axis === "row" ? `row ${10 - e.index}` : `column ${e.index + 1}`}!`);
+        setSay(`Dust storm: ${e.axis === "row" ? `row ${10 - e.index}` : `column ${e.index + 1}`}.`);
         await wait(1500);
         e.shifts.forEach((s) => patch(s.id, { r: s.to.r, c: s.to.c, ms: 420 }));
         await wait(2000);
         setStorm(null);
-        line = `The storm drifted ${e.shifts.length} ${e.shifts.length === 1 ? "piece" : "pieces"} one square. Check where yours went.`;
+        line = `Storm drifted ${e.shifts.length} ${e.shifts.length === 1 ? "piece" : "pieces"}.`;
       } else if (e.kind === "turn" && e.timedOut) {
-        line = e.turn === "us" ? "Italy ran out of time." : "Time! Your turn passed.";
+        line = e.turn === "us" ? "Italy's time ran out." : "Time! Turn passed.";
       }
     }
     setPieces(shownFrom(g));
@@ -257,7 +257,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     if (selected === id) return setSelected(null);
     setSelected(id);
     const t = targets(game, p);
-    if (!t.length) setSay(p.rank === "B" ? "Landmines never move." : p.rank === "F" && p.fuel >= 3 ? "Your Truck is out of fuel." : p.rank === "F" ? "The Truck can't move two of your turns in a row." : "That piece has nowhere to go.");
+    if (!t.length) setSay(p.rank === "B" ? "Landmines never move." : p.rank === "F" && p.fuel >= 3 ? "Truck out of fuel." : p.rank === "F" ? "Truck can't move twice running." : "Nowhere to go.");
   };
   const onMark = (sq: Square) => {
     if (!yourTurn || selected === null) return;
@@ -268,7 +268,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     const r = startTwoStep(game, stamp(game));
     if (!r.ok) return apply(r);
     commit(r.game);
-    setSay("Two-Step Turn: two single steps, one piece twice or two pieces once.");
+    setSay("Two steps this turn.");
   };
   const again = () => {
     const g = fresh();
@@ -277,7 +277,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
     setDepots(g.depots);
     setSelected(null);
     setStarted(instant);
-    setSay("New setup. Your pieces are face up at the bottom.");
+    setSay("New setup.");
   };
 
   const left = clock ? Math.max(0, Math.min(1, (game.deadline - now) / TURN_MS)) : 1;
@@ -327,7 +327,6 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
   return (
     <Arena game="vanguard">
       <VanguardScreen
-        switchable
         bar={
           <div className="vg-bar">
             <Label>Practice · Vanguard</Label>

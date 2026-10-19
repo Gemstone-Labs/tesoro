@@ -11,10 +11,10 @@ const TITLE: Record<EndReason, string> = {
 };
 
 const LINE = {
-  truck: { won: "You captured their Supply Truck.", lost: "They captured your Supply Truck." },
-  stuck: { won: "They have no piece left that can move.", lost: "You have no piece left that can move." },
-  timeouts: { won: "They let the clock run out three turns in a row.", lost: "Your clock ran out three turns in a row." },
-  cap: { won: "Time or move limit reached: you had the stronger army left.", lost: "Time or move limit reached: they had the stronger army left." },
+  truck: { won: "You captured their Truck.", lost: "They captured your Truck." },
+  stuck: { won: "They can't move.", lost: "You can't move." },
+  timeouts: { won: "They ran out of time.", lost: "You ran out of time." },
+  cap: { won: "Limit reached: you were ahead.", lost: "Limit reached: they were ahead." },
 } as const;
 
 export interface EndWhy {
@@ -24,10 +24,10 @@ export interface EndWhy {
 
 /** Why the Match ended, from this Player's seat: a short title and one plain sentence. Null while it is still on. */
 export function endWhy(b: Battle, seat: number): EndWhy | null {
-  if (b.status === STATUS.cancelled) return { title: "Match cancelled", line: "The Match was cancelled. Both entries are refunded." };
+  if (b.status === STATUS.cancelled) return { title: "Match cancelled", line: "Match cancelled: refunded." };
   if (b.status !== STATUS.over) return null;
   const reason = REASONS[b.reason] ?? "cap";
-  if (b.winner === 2) return { title: "Draw", line: "Time or move limit reached with equal armies: both entries are refunded." };
+  if (b.winner === 2) return { title: "Draw", line: "Draw: entries refunded." };
   return { title: TITLE[reason], line: LINE[reason][b.winner === seat ? "won" : "lost"] };
 }
 

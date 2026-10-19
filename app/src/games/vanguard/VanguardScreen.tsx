@@ -2,10 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { pushFeed } from "./feed";
-import { usePanelStyle } from "./panels";
-import { PanelSwitcher } from "./PanelSwitcher";
 import "./vanguard.css";
-import "./panels.css";
 
 export interface TurnInfo {
   /** Whose turn it is, in words ("Your turn", "Italy's turn", "Two-Step · 1 left"); empty before the Match starts and after it ends. */
@@ -78,11 +75,9 @@ function Feed({ say }: { say: string }) {
  * roster, board, your seat, turn, message). Wide (about 900px or more): the board centred at the height that fits,
  * Italy's seat and the roster on the left, the message feed, turn state, Two-Step Turn button and your seat on the right.
  */
-export function VanguardScreen({ bar, foe, roster, stage, me, turn, say, switchable, children }: { bar: ReactNode; foe: ReactNode; roster: ReactNode; stage: ReactNode; me: ReactNode; turn: TurnInfo; say: string; /** Practice only: show the temporary side-panel style switcher. */ switchable?: boolean; children?: ReactNode }) {
-  const [panels, pick] = usePanelStyle(!!switchable);
+export function VanguardScreen({ bar, foe, roster, stage, me, turn, say, children }: { bar: ReactNode; foe: ReactNode; roster: ReactNode; stage: ReactNode; me: ReactNode; turn: TurnInfo; say: string; children?: ReactNode }) {
   return (
-    <div className="vg-screen" data-panels={panels}>
-      {switchable && <PanelSwitcher value={panels} onChange={pick} />}
+    <div className="vg-screen">
       <div className="vg-layout">
         <div className="vg-left">
           {bar}

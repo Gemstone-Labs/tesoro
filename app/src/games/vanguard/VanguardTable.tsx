@@ -50,7 +50,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   const [fx, setFx] = useState<ShownFx[]>([]);
   const [storm, setStorm] = useState<ShownStorm | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [say, setSay] = useState("Your pieces are face up at the bottom. Tap one, then a marked square.");
+  const [say, setSay] = useState("Your move. Tap a piece.");
   const [animating, setAnimating] = useState(false);
   const [catching, setCatching] = useState(false);
   const declared = useRef(false);
@@ -129,12 +129,12 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           const mine = mineId(e.att);
           const a = aRank ? NAMES[aRank] : "piece";
           line =
-            e.outcome === "truck" ? (mine ? "Supply Truck captured!" : "Your opponent reached your Supply Truck.")
-            : e.outcome === "mine" ? (mine ? `Landmine! Your ${a} is lost, and the mine is now in plain sight. Only an Engineer (3) clears mines.` : "Your opponent hit one of your Landmines. It is in plain sight now.")
-            : e.outcome === "defuse" ? (mine ? "Your Engineer cleared a Landmine." : "An enemy Engineer cleared your Landmine.")
+            e.outcome === "truck" ? (mine ? "Supply Truck captured!" : "Opponent took your Truck.")
+            : e.outcome === "mine" ? (mine ? `Landmine! Your ${a} is lost.` : "Opponent hit your Landmine.")
+            : e.outcome === "defuse" ? (mine ? "Your Engineer cleared a Landmine." : "Opponent cleared your Landmine.")
             : e.outcome === "tie" ? `Both ${a}s fall.`
-            : mine ? (attWins ? `Your ${aRank} beat their ${dRank}.` : `Your ${aRank} lost. The piece that beat it stays hidden.`)
-            : attWins ? `Your opponent took your ${dRank} with a hidden piece.` : `Your ${dRank} held: it beat their ${aRank}.`;
+            : mine ? (attWins ? `Your ${aRank} beat their ${dRank}.` : `Your ${aRank} lost.`)
+            : attWins ? `Opponent took your ${dRank}.` : `Your ${dRank} held.`;
         } else if (e.kind === "spotted") {
           const p = find(e.id);
           patch(e.id, { up: true, rank: "F", hitFrom: "bottom" });
@@ -142,7 +142,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           sfx("fold");
           const own = mineId(e.id);
           shout(own ? "Your Truck is Spotted!" : "Spotted!", "warn");
-          line = own ? "Your Supply Truck is out of fuel: Spotted, face up and stuck." : "Their Supply Truck is Spotted: face up and out of fuel.";
+          line = own ? "Your Truck is Spotted." : "Opponent's Truck is Spotted.";
           await wait(500);
         } else if (e.kind === "raid") {
           const at = toView(e.at, side);
@@ -150,7 +150,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           addFx("spotted", at.r + 0.5, at.c + 0.5, 1.7);
           sfx("check");
           shout(e.army === side ? "Two-Step Turn earned" : "They raided your depot");
-          line = e.army === side ? "Depot raided: you earned a Two-Step Turn. On your turn press “Use Two-Step Turn” to move twice." : "They raided your depot and earned a Two-Step Turn.";
+          line = e.army === side ? "Depot raided: Two-Step Turn." : "Opponent raided your depot.";
           await wait(500);
         } else if (e.kind === "storm") {
           const index = side === "us" ? e.index : 9 - e.index;
@@ -158,7 +158,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           setStorm({ key: Date.now(), axis: e.axis, index, dir });
           sfx("wind");
           shout("Dust storm!", "warn");
-          setSay(`Dust storm over ${e.axis === "row" ? `row ${10 - index}` : `column ${index + 1}`}!`);
+          setSay(`Dust storm: ${e.axis === "row" ? `row ${10 - index}` : `column ${index + 1}`}.`);
           await wait(1500);
           e.shifts.forEach((s) => {
             const to = toView(s.to, side);
@@ -166,7 +166,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           });
           await wait(2000);
           setStorm(null);
-          line = `The storm drifted ${e.shifts.length} ${e.shifts.length === 1 ? "piece" : "pieces"} one square. Check where yours went.`;
+          line = `Storm drifted ${e.shifts.length} ${e.shifts.length === 1 ? "piece" : "pieces"}.`;
         } else if (e.kind === "turn") {
           line = turnLine(e, side, declared.current) ?? line;
           declared.current = false;
@@ -250,7 +250,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
     if (selected === id) return setSelected(null);
     setSelected(id);
     const t = targets(game, p);
-    if (!t.length) setSay(p.rank === "B" ? "Landmines never move." : p.rank === "F" && p.fuel >= 3 ? "Your Truck is out of fuel." : p.rank === "F" ? "The Truck can't move two of your turns in a row." : "That piece has nowhere to go.");
+    if (!t.length) setSay(p.rank === "B" ? "Landmines never move." : p.rank === "F" && p.fuel >= 3 ? "Truck out of fuel." : p.rank === "F" ? "Truck can't move twice running." : "Nowhere to go.");
   };
 
   const snapBack = useCallback(
@@ -286,7 +286,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
     if (!yourTurn) return;
     setSentAt(turnNow);
     onTwoStep()
-      .then(() => setSay("Two-Step Turn: two single steps, one piece twice or two pieces once."))
+      .then(() => setSay("Two steps this turn."))
       .catch((e: Error) => snapBack(e.message || "That did not go through."));
   };
 
