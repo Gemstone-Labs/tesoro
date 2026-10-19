@@ -2,6 +2,141 @@
 
 Testnets only. SimLST is SIMULATED (accelerated yield clock, default 1 month per 10 minutes at 5% APY). `MockEndpoint` stands in for LayerZero until the OApp lands.
 
+## Mainnet-launch branch: devnet upgrade (hand-off, 2026-10-15)
+
+**Nothing in this section has been run. Agents do not run any of it: no upgrade, no extend, no admin call, no migration, no env change, no deploy. The orchestrator / founders run it, once, in the order below.** Source: branch `ml/40-reconcile-with-yield-by-math` (the mainnet-launch branch merged with main's computed-yield model, ADR 0010, and with `feat/ybm-05-app-keeper-no-crank-15-10-2026`; ticket 40), all suites green on it (see Checks). Updated 2026-10-16: the sizes, account lists and admin calls below are for the reconciled branch. Deployer / upgrade authority and `tesoro_core` admin: `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`.
+
+### Read this first (risks)
+
+1. **Main's yield-by-math upgrade ships in the same upgrade.** This branch contains ADR 0010 (native Positions by math, Treasury withdraw) and the app/keeper of `feat/ybm-05`. It is a **fresh start** for Solana Positions: the shared native custody (`init_native_custody`), `sim_lst` with `set_yield_authority`, the Treasury `company` wallet and the reset of Positions, Gemas, the Pool, Backings and Offers all apply as described in `docs/yield-model.md` (Migration) and `docs/tesoro-core.md`. Not before the Season 2 payout (2026-10-19 00:00 UTC). The ETH/HYPE vaults are redeployed at new addresses (main's formula vault; ybm-06/09 app and keeper side is not on this branch yet). The real-token SOL path is NOT in this upgrade (ticket 41); `set_sol_source`, `set_token_apy` and the stake-pool instructions no longer exist.
+2. **The app and the programs must change together.** After the `tesoro_core` upgrade the OLD app fails on `create_account`, every Match entry, every Request/Offer, `take_advance`, `take_native_advance`, `extend_native_advance`, `record_season` and `pay_season_rank` (new required accounts). The NEW app fails before it. A push to `origin/main` deploys production by itself, so prepare the app (merge ready, or a clean-worktree `vercel deploy --prod`) and ship it within minutes of the core upgrade. Stop the keeper before the upgrade and restart it on the new commit right after.
+3. **Block Puzzle Boards grew** (`Board` 597 to 845 bytes: `start_slot`, `move_slots`). A Board created before the `block_puzzle` upgrade no longer deserializes. Upgrade `block_puzzle` only when no Block Puzzle Match is in flight (drain first, below). Boards of long-settled Matches also become undecodable; nothing in the keeper reads them, but check the Continue / history cards in the smoke run.
+4. **`pay_season_rank` cannot pay a Season recorded before the upgrade** (it needs the new `season_window` account, created by `record_season`). As of 2026-10-15 no `Season` account exists on devnet (Seasons 1 to 3 PDAs all absent) and Season 2 ends 2026-10-19 00:00 UTC, so upgrade before then. If a Season has been recorded by then, finish paying every rank first. After the upgrade a Season pays 48 h after its record (so Season 2 pays about 2026-10-21 00:00 UTC, not 10-19). The window also lets the admin `void_season_rank`.
+5. **The bridge is NOT upgraded**, but its tests were stale: see Checks (2 pre-existing failures).
+6. The on-chain Config is 937 bytes (before `entry_sizes`). The new struct reads it fine (checked in LiteSVM at 937 bytes: default 500 / 1,000 / 2,500 apply), and nothing needs a realloc until someone calls `set_entry_sizes`.
+
+### Program sizes and extends (read-only query, 2026-10-15)
+
+Capacity of an on-chain program = ProgramData length minus its 45-byte header. Built with `pnpm build:programs` (platform tools v1.54).
+
+| Program | Id | New `.so` (bytes) | On-chain ProgramData length | Capacity | Extend needed | Upgrade? |
+|---|---|---|---|---|---|---|
+| `tesoro_core` | `AR9c426k…TAckh` | 1,941,224 (with the retire instructions, ticket 11; 1,862,648 without) | 1,343,360 | 1,343,315 | **+597,909 minimum: run `solana program extend AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh 620000`** (about 22 KB of headroom for a last fix) (re-check the live ProgramData length and rebuild first: the size above is from the 2026-10-18 build; if one extend of that size is refused, repeat with smaller steps) | yes |
+| `block_puzzle` | `5WVV5k7Z…Vdo7dj` | 620,648 | 633,392 | 633,347 | none (12,699 spare) | yes |
+| `holdem` | `CjhY1Wkw…jVusbE` | 654,896 | 658,216 | 658,171 | none (3,275 spare) | yes (one-line CPI change) |
+| `trading_duel` | `CNETsX9G…BfAYyj` | 528,736 | 575,752 | 575,707 | none | yes (one-line CPI change) |
+| `tesoro_bridge` | `5bzDVZKa…vBfdwvTQ` | 797,920 | 801,648 | 801,603 | none | **no** (source unchanged; only its test file changed; its four CPIs into `tesoro_core` keep their account lists) |
+| `sim_lst` | `WgcM5Ges…VqD4F` | 401,160 | 404,864 | 404,819 | none | **yes** (main's `mint_yield` / yield authority; serialize with the core upgrade) |
+
+Rent (6,960 lamports per byte incl. the 128-byte header; buffers are refunded to the deployer when the upgrade lands): extend `tesoro_core` +620,000 B = about 4.3 SOL (kept); buffers: `tesoro_core` about 13.5 SOL (1,941,224 B), `block_puzzle` about 4.32, `holdem` about 4.56, `trading_duel` about 3.68. Upgrade one at a time and the peak need is about 4.3 + 13.5 = 17.8 SOL for `tesoro_core`, so check `solana balance` first and borrow from the relayer if short. The deployer held 18.11 SOL on 2026-10-14; the Dungeons & Moles session shares this key: `pgrep -A -fa "solana program"` before starting, and borrow from the relayer (repay it first) if short. Reclaim leftover buffers afterwards (`solana program close --buffers`).
+
+The rebuilt `tesoro_bridge.so` differs byte for byte from the deployed one (the build environment differs); that is not a reason to upgrade.
+
+### Upgrade order, and why
+
+0. **Before anything.** Merge main and re-verify (risk 1). `export TMPDIR=$HOME/.cache/tesoro-tmp`; build from the merged commit with `pnpm build:programs`; refresh `app/src/lib/chain/idl/*.json` from `target/idl` (they equal the build today: `cmp` clean for `tesoro_core`, `block_puzzle`, `holdem`, `trading_duel`). Check `solana balance`. Check no Season is recorded and unpaid (risk 4). Prepare the keeper commit and the app deploy so steps 3 to 5 follow within minutes.
+1. **Drain Block Puzzle.** Stop new entries (tell testers; the Lobby cannot be paused), then wait until no `block_puzzle` Match is Open or Active: an Open Block Puzzle Match waits in the Queue until it is joined or refunded, and Active Matches settle through the keeper. Confirm in the keeper log that the `blockpuzzle` job has nothing pending and `curl -s 127.0.0.1:8787/healthz` on the VPS shows `commitsPending` 0. (`getProgramAccounts` hangs on this RPC; use the keeper log or the Matches list in the app.) Also settle or refund any in-flight Hold'em and Trading Duel Match so nothing is mid-flight through the core change.
+2. **Stop the keeper** (`ssh vps`, `systemctl --user stop tesoro-keeper`). It must not crank while the account lists change underneath it.
+3. **`tesoro_core` first.** `solana program extend` (+256,000), then `solana program write-buffer` + `solana program deploy --program-id <deploy-keys>/tesoro_core-keypair.json` (or `upgrade`) as in earlier upgrades. Why first: `block_puzzle`'s `open_session` now CPIs `extend_match_deadline` (24 h Queue window) and the games' settle / refund CPIs build the new `refund_match` list (`opener_protections`); the new games against the old core would fail, whereas the old games against the new core keep working for a moment (optional trailing accounts), so this order never leaves a gap in the other direction.
+4. **`block_puzzle`** (only after the drain in step 1; its Board layout is incompatible with live Boards), then **`holdem`**, then **`trading_duel`**, each its own write-buffer + upgrade. No extends.
+5. **Retire the old accounts** (section below), right after the `tesoro_core` upgrade and before the app deploy. It needs the new program, and the new app must not run against the old Positions.
+6. **Admin calls** (next section), then the **app** deploy and the **keeper** restart on the new commit, together. Smoke checks last.
+
+### Changed account lists (clients must send these; hand-built instructions too)
+
+`tesoro_core`, new required accounts (names as in the IDL; all PDA `["protections", account]` unless noted; an unset Protections address may be empty, nothing is created by the Match flows):
+- `create_account`: `+ invite_gate` (PDA `["invite_gate"]`, before `system_program`; a missing account means the gate is off).
+- `open_match`: `+ protections`. `open_match_backed`: `+ protections`, `+ backer_protections`. `join_match`: `+ protections`, `+ opener_protections`. `join_match_backed`: `+ protections`, `+ backer_protections`, `+ opener_protections`. `refund_match`: `+ opener_protections` (optional: pass nothing for none).
+- `create_request`, `create_offer`, `accept_directed`, `apply_offer`: `+ protections`. `accept_applicant`: `+ player_protections`. `expire_offer`: `+ backer_protections` (optional).
+- `take_advance`: `+ protections`. `take_native_advance`: `+ protections` (after `owner_account`); its list is otherwise main's (`price_feed, pool, prev_source (optional), source, holding`). `extend_native_advance`: `+ protections` (after `owner_account`; otherwise main's `pool` instead of `treasury`). `take_advance` also needs its **first remaining account** to be the asset's `OnchainPrice` address (`["onchain_price", source_asset]`), which must not exist (an existing one means the Advance must use the Pyth path, `OnchainPriceRequired`); on devnet no `OnchainPrice` exists, so the address is passed empty.
+- `record_season` and `pay_season_rank`: `+ season_window` (`["season_window", number u32 LE]`; created by `record_season`).
+- `redeem`, `unlock`, `instant_redeem`, `redeem_treasury`, `open_native_position`, `return_own`: main's lists (ADR 0010: shared custody and vault, yield authority accounts in the remaining accounts); see `docs/tesoro-core.md`. `sweep_native_surplus`, `accrue_native_yield` and `migrate_native_custody` no longer exist.
+- New instructions: `set_entry_sizes`, `set_entry_limit`, `set_break`, `set_self_exclusion`, `clear_request`, `set_invite_gate`, `void_season_rank`, `set_onchain_price`, `take_advance_onchain`, `take_native_advance_onchain` (accounts: `owner_authority, owner_account, protections, position, onchain_price, price_feed, pool, prev_source (optional), source, holding, system_program`), plus main's `init_native_custody`, `set_treasury_company`, `withdraw_treasury`. New events: `BreakSet`, `EntryLimitSet`, `SelfExclusionSet`, `SeasonRankVoided`, `OnchainPriceSet`, `TreasuryWithdrawn`.
+- **`MatchWon` grew by 32 bytes** (`loser`, appended). Decoders that read an exact length fail; the new app and keeper read it. Restart the keeper with the upgrade.
+- `Config` gained `entry_sizes` (`[u64; 4]`, 32 bytes, appended; see risk 6).
+
+`block_puzzle`: `open_session` gains `authority`, `config`, `tesoro_core_program`; `Board` gains `start_slot` and `move_slots` (597 to 845 bytes). `holdem` and `trading_duel`: no list change visible to clients (their `refund_match` CPI passes `opener_protections: None`).
+
+Idls: `idl/` copies in `app/src/lib/chain/idl/` (`tesoro_core`, `block_puzzle`, `holdem`, `trading_duel`) were refreshed from the build and equal `target/idl`. `sim_lst` has no app copy.
+
+### Retire the old accounts (ticket 11; after the `tesoro_core` upgrade, before `init_native_custody` and the app deploy)
+
+Why: the new `PositionState` (193 B, was 159) and `Treasury` (143 B, was 103) cannot read the accounts already on chain, and the old per-Position `NativeCustody` (210 B, `["native", position]`) is not the new singleton (178 B, `["native"]`). Only `tesoro_core` can close its accounts, so the upgrade adds seven admin-only instructions (`programs/tesoro_core/src/instructions/retire.rs`): `retire_native_custody`, `retire_position`, `retire_source`, `retire_holding`, `retire_offer`, `retire_request`, `retire_treasury`. Signer = `Config.admin` (the deployer key); rent goes to the admin. Each refuses anything not provably of the old world, by raw bytes (old layouts are never deserialized as new types):
+
+- Position, old custody, Treasury, Offer: shorter than the current layout. A current-size account is never closable.
+- Old custody: the simSOL in its vault `["native_vault", position]` goes to the owner's simSOL associated token account (`owner_authority` recorded in the custody), then vault and custody close. The custody PDA and canonical bump are re-derived from its Position key. **No simSOL account yet:** the instruction creates it, admin pays the rent (about 0.002 SOL each); skipping would strand the owner's simSOL.
+- Source: its Position address is gone or old-sized. Holding: its Source is gone; its Gemas leave the Account's `own`/`won` totals (and reserved), so Accounts keep mirroring their Holdings and end at zero.
+- Offer of the current size: it reserves from at least one Source and every one is gone (one remaining account per line). Request: opened before the reset (`expires_at` before 2026-10-20 00:00 UTC, `RETIRE_REQUESTS_BEFORE`) and past `expires_at` + 24 h (dead in every status; Requests hold no money). A Request of the new world is never closable, so the admin cannot collect players' rent on mainnet.
+- Treasury: only the old 103-byte account closes. Its simSOL vault and its Account keep address and balance (the vault authority is the Treasury PDA, which `init_treasury` recreates at the same address), so `fund-treasury.ts --instant-bps 2500 --no-fund` right after is the new Treasury.
+- Kept: Profiles, Matches (settled history), game accounts, ExtendLimit, Protections, Config, the Leaderboard Pool Account (its Holdings retire like any other).
+
+Devnet inventory (2026-10-18, 881 `tesoro_core` accounts): 133 Positions (159 B: 94 SOL, 26 ETH, 13 HYPE), 58 old custodies and vaults (501.36 simSOL over 47 owners, all with a simSOL account), 139 Sources, 256 Holdings (1,093,608 Gemas, equal to the Account totals), 23 Offers (7 old-sized, 16 current), 28 expired Requests, the 103-byte Treasury (vault 19.35 simSOL). 124 Matches (settled/refunded history kept) and 2 Active Matches (`2n1W2PgT…` is old-sized and cannot be refunded after the upgrade).
+
+Run (admin key, the script refuses any other; never while a Match is Open or Active):
+
+1. Before the upgrade: settle or refund the two Active Matches (`refund_match` is open to anyone after 1 h; the old-sized one only works on the old program). The script lists them.
+2. After the upgrade: `pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts --dry-run` (default; reads `https://api.devnet.solana.com`, sends nothing; prints inventory, phases, first transactions, simSOL returned).
+3. `pnpm --filter @tesoro/keeper exec tsx scripts/retire-old-accounts.ts --send --keypair ~/.config/solana/dev-2026-10.json` (sends through `https://rpc.magicblock.app/devnet`). Four phases, each re-reads the chain: (1) custodies, Positions, Treasury, old-sized Offers, expired Requests; (2) Sources; (3) Holdings; (4) current-size Offers. About 125 transactions. Idempotent: re-run until it prints nothing to retire. Fees about 0.6 SOL, rent back to the admin about 0.9 SOL.
+4. Check the summary: `Gemas: 0 in 0 Holdings, 0 in Account totals`, no custody left. Then `init_native_custody`, `fund-treasury.ts`, `set_treasury_company`, the rest of the admin calls.
+
+The app and keeper also skip an old-sized Position while any is left (`app/src/lib/chain/position-size.ts`; the keeper lists use `dataSize`), so a stray account never breaks a whole read.
+
+### Admin and init calls after the upgrade (devnet, test mode)
+
+Test mode needs almost nothing, by design:
+
+- **Entry sizes:** none. Unset means 500 / 1,000 / 2,500 (the test cluster setting). Do NOT call `set_entry_sizes` with the mainnet ladder on devnet.
+- **Invite gate:** none. No `InviteGate` account means off; test mode has no Invites. Do not call `set_invite_gate`.
+- **On-chain price mapping:** none. Do not call `set_onchain_price` on devnet: it would force Advances of that asset onto the Pyth path. The keeper keeps publishing `set_price`.
+- **Treasury Instant Redeem Fee to 2,500 bps (75% paid): REQUIRED.** The devnet `Treasury` still reads Yield Fee 2,000 and Instant Redeem Fee **3,500** bps (read 2026-10-15), while the app, the deck and `DEFAULT_INSTANT_FEE_BPS` say 2,500. Run, from the repo root after the `tesoro_core` upgrade (admin key `~/.config/solana/dev-2026-10.json`):
+  `pnpm --filter @tesoro/keeper exec tsx scripts/fund-treasury.ts --instant-bps 2500 --no-fund --dry-run`, read the output, then the same without `--dry-run`. (`--no-fund` skips the 10 simSOL top-up; drop it only if the Treasury vault needs funding.)
+- Main's own steps for the fresh start (`init_native_custody`, `set_yield_authority`, `set_treasury_company`, closing the old Positions) are in `docs/yield-model.md` and `docs/tesoro-core.md`. Nothing to run for the Leaderboard (`init-leaderboard` already ran) or `register_game` (the three Games keep their registration; Studio Fee 300 bps).
+
+### Supabase migrations (test host project `tesoro-waitlist`; run in order, each once)
+
+`app/supabase/migrations/`: `0001_waitlist.sql` is already applied. Apply, in the SQL editor or `supabase db push`:
+1. `0002_notify.sql`: `notify_settings`, `notify_events` (email notifications; RLS on, server only).
+2. `0003_invites.sql`: `invites` (hashed Invite codes).
+3. `0004_invite_sent_at.sql`: `invites.sent_at` (needed before the first Invite send).
+4. `0005_age_confirmations.sql`: `age_confirmations` (the 18+ question at a first Match entry; the app route needs it).
+
+Apply these BEFORE the app deploy (the age route and notify routes read them at once).
+
+### Env vars
+
+App (Vercel project `tesoro`, Production; names and shapes in `docs/environments.md`). Test mode is the default, so none is required to boot; set what the smoke checks need:
+- `NEXT_PUBLIC_SITE_URL=https://www.playtesoro.com` (explicit; already set).
+- Emails: `RESEND_API_KEY`, `NOTIFY_FROM`, `NOTIFY_SECRET` (32+ random bytes; the same value on the keeper), `ALERT_EMAILS` (founder addresses for keeper alerts).
+- `ADMIN_WALLETS` (base58, comma separated; the `/admin/review` suspicious-play page refuses everyone while empty).
+- Waitlist CAPTCHA: `NEXT_PUBLIC_TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY` (enforced only when both are set).
+- Do NOT set `TESORO_CLUSTER`, `INVITE_SECRET_KEY`, `NEXT_PUBLIC_WSTETH_VAULT` and the other mainnet vars on the test project. Leave `NEXT_PUBLIC_DEV_WALLET` unset on production.
+
+Keeper (VPS, `~/.config/tesoro-keeper.env`, mode 600; all optional for test mode):
+- `NOTIFY_URL=https://www.playtesoro.com/api/notify/` (trailing slash) and `NOTIFY_SECRET` equal to the app's, for player emails and the daily digest (`KEEPER_DIGEST_HOUR_UTC`, default 8).
+- Alerts: `ALERT_EMAILS` lives on the app; the keeper only needs `NOTIFY_URL` / `NOTIFY_SECRET`. Optional thresholds: `ALERT_MIN_SOL_KEEPER|ORACLE|RELAYER`, `ALERT_MIN_ETH_*`, `ALERT_MIN_HYPE_*`, `ALERT_COMMIT_PENDING_SECS`, `ALERT_JOB_FAILS`, `ALERT_JOB_STALE_SECS`, `ALERT_REMINDER_SECS`, and the addresses `ALERT_ORACLE_SOL_ADDRESS`, `ALERT_RELAYER_SOL_ADDRESS` to watch those balances.
+- Unchanged and still required: `KEEPER_SECRET_KEY` / `KEEPER_ORACLE_SECRET_KEY` (or the key files), `KEEPER_EVM_*`, `KEEPER_HEALTH_HOST`.
+
+### Keeper restart on the VPS
+
+After the program and admin steps: `ssh vps`; in `~/tesoro/repo`: `git fetch && git checkout -B main origin/main` (or the merged integration commit), `pnpm install --frozen-lockfile`, `pnpm --filter @tesoro/keeper test` and `typecheck`, edit `~/.config/tesoro-keeper.env` for the new variables, then `systemctl --user restart tesoro-keeper`, `journalctl --user -u tesoro-keeper -f -o cat` and `curl -s 127.0.0.1:8787/healthz`. New jobs to see in the log: `away` (cleans up Matches, Requests, Offers of Players on a Break), `alerts` (if `NOTIFY_*` is set), the notify events pass. The `season` job now records at Season end and pays only unpaid, unvoided ranks 48 h after the on-chain record. Exactly one keeper must run (the laptop loop stays stopped).
+
+### Smoke checks after (devnet, a fresh and an existing QA wallet)
+
+1. Existing Account: Lobby loads, Wallet shows Positions and Gemas (existing simSOL Positions keep working).
+2. Open a Match (Block Puzzle, then Hold'em, then Trading Duel): the entry offers 500 / 1,000 / 2,500; open, a second wallet joins, play, settle. A first Match entry asks the 18+ question once (needs migration 0005). The Pool gains the Leaderboard Fee; `MatchWon` decodes (keeper log, no decode error). Block Puzzle: an unjoined Match stays in the Queue for 24 h (Open Matches show the longer wait); a move log records slot offsets.
+3. Delayed status: a Match whose Game result has not landed shows the Delayed status instead of a spinner.
+4. Limits sheet: set an Entry Limit; a Match above it is refused; start a Break (1 day) and check entries, Requests, Offers are blocked, Redeem and Unlock still work, and the keeper `away` job withdraws the Player's open items.
+5. Advance: take an Advance (SOL: `take_native_advance`; and an EVM-Sourced `take_advance` if a Hoodi Position exists) with the new lists; Extend on an open Advance.
+6. Instant Redeem pays 75% (Treasury now at 2,500 bps).
+7. Season: on 2026-10-19 00:00 UTC the keeper records Season 2 and creates `season_window`; the Leaderboard shows "paying out <date>" 48 h later; `pay_season_rank` before then fails with `PayoutWindowOpen`. Optionally `void_season_rank` a test rank inside the window.
+8. Emails, if configured: verify an address in the Wallet, win a Match with the other wallet's email set, see the email (or the digest) arrive once; the keeper alert test (stop a job or set `ALERT_JOB_FAILS=1`) mails `ALERT_EMAILS`.
+9. `/admin/review` opens for a wallet in `ADMIN_WALLETS` and refuses another.
+10. Rollback if a step fails: programs cannot be downgraded in place; keep the previous `.so` files (dump with `solana program dump <id> prev-<name>.so` BEFORE the first upgrade) and redeploy them. The data written by new instructions (Protections, Invite gate) is additive and ignored by the old code.
+
+### Checks on the reconciled branch (2026-10-16, ticket 40)
+
+`pnpm build:programs` clean; the IDLs in `app/src/lib/chain/idl/` are copies of `target/idl`. `cargo test --workspace` 356 passed, 0 failed; `cargo clippy --workspace --tests -- -W clippy::all`: only the known macro warnings in the program crates (`cfg solana`, deprecated `realloc`). `forge test` 98 passed, 7 fork tests skipped (no RPC). App: `tsc`, `eslint src`, `vitest` 888 passed, `pnpm build:app`. Keeper: `tsc`, 115 tests. The bridge tests are part of `cargo test --workspace`.
+
 ## Yield Fee and Instant Redeem (2026-10-12)
 
 ADR 0007. Deployer / upgrade authority `7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M` via `https://rpc.magicblock.app/devnet`; EVM deployer `0x96137cB99Fe2878299b672Ac967e88279f479d1C`. The previous SimLST vaults (Hoodi `0x8B099AbfC204E1a07D6CA686D302CE6cbC07a3A3`, HyperEVM `0xf70dafE2788881F6ae54Bea7342dcb3D9b92A316`) are abandoned with their Positions: they speak the 61-byte `YieldAccrued`, which the new bridge refuses, and their SimLSTs now mint only for the new vaults.

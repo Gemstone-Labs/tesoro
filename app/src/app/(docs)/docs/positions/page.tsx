@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DataTable, DocPage, H2, H3 } from "@/components/docs/prose";
 import { DebtDiagram, Shot } from "@/components/docs/visual";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Positions and Advances", alternates: { canonical: "/docs/positions" } };
 
@@ -10,13 +11,13 @@ export default function Page() {
     <DocPage href="/docs/positions" hero={<DebtDiagram />}>
       <H2 id="position">A Position</H2>
       <p>
-        A <b>Position</b> is your locked, yield-bearing stake in Tesoro. The staked amount inside it is the <b>Principal</b>. The Principal is only
+        A <b>Position</b> is your locked, yield-bearing stake in {BRAND.name}. The staked amount inside it is the <b>Principal</b>. The Principal is only
         ever locked: it is never entered into a Match, never spent, and never pays Debt. Only the yield it earns is put to work.
       </p>
       <DataTable
         head={["Chain", "Token", "Yearly rate", "Where the Principal sits"]}
         rows={[
-          ["Solana", "simSOL", "7%", "In a vault controlled by Tesoro's ledger program"],
+          ["Solana", "simSOL", "7%", `In a vault controlled by ${BRAND.name}'s ledger program`],
           ["Ethereum", "simETH", "5%", "In a vault on Ethereum; the ledger stays on Solana"],
           ["HyperEVM", "simHYPE", "5%", "In a vault on HyperEVM; the ledger stays on Solana"],
         ]}
@@ -26,12 +27,12 @@ export default function Page() {
         You can get each token from your Wallet. Yield runs on a fast clock: a month of yield arrives in about 10 minutes.
       </p>
 
-      <Shot name="wallet" url="playtesoro.com/wallet" alt="The Wallet showing a Position with its Debt, Horizon and Unlock Estimate" caption="The Wallet shows each Position, its Debt and its Unlock Estimate. Figures here are sample data." />
+      <Shot name="wallet" url={`${BRAND.domain}/wallet`} alt="The Wallet showing a Position with its Debt, Horizon and Unlock Estimate" caption="The Wallet shows each Position, its Debt and its Unlock Estimate. Figures here are sample data." />
 
       <H2 id="advance">An Advance</H2>
       <p>
         An <b>Advance</b> is Gemas issued upfront against the projected yield of your Position over a <b>Horizon</b> of 1 to 12 months. It is 80% of
-        that projected yield, the yield left after Tesoro&apos;s 20% Yield Fee:
+        that projected yield, the yield left after {BRAND.name}&apos;s 20% Yield Fee:
       </p>
       <p>
         <b>Advance = Principal × yearly rate × months ÷ 12 × 80%</b>, converted to dollars once at the issuance price and rounded down to whole Gemas at
@@ -79,7 +80,7 @@ export default function Page() {
 
       <Callout kind="warn" title="What to keep in mind">
         <p>
-          The Principal is locked until the Debt is repaid, and the staking token behind it carries its own price and protocol risk. Tesoro does not
+          The Principal is locked until the Debt is repaid, and the staking token behind it carries its own price and protocol risk. {BRAND.name} does not
           make a Position risk-free. <Link href="/docs/risks">Risks and limits</Link> lists what can go wrong.
         </p>
       </Callout>

@@ -4,9 +4,11 @@
  *
  * Every bracketed value below is a placeholder the founder must fill before mainnet launch.
  */
+import { BRAND } from "../brand";
+
 export const ENTITY = {
-  name: "Gemstone Labs, Inc.",
-  product: "Tesoro",
+  name: BRAND.legalName,
+  product: BRAND.name,
   form: "a Delaware corporation",
   /** Registered office in Delaware (Certificate of Incorporation); registered agent Corporation Service Company. */
   address: "251 Little Falls Drive, Wilmington, New Castle County, Delaware 19808",

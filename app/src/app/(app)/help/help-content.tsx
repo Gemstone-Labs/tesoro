@@ -1,7 +1,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { fmtGemas } from "@/lib/format";
 import { MAX_ENTRY_SOURCES } from "@/lib/chain/ledger";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
+import { fmtEntryList } from "@/lib/format";
 import { INSTANT_FEE_PCT, INSTANT_PAYOUT_PCT } from "@/lib/chain/yield";
+import { BRAND } from "@/lib/brand";
 
 export const STEPS: { title: string; text: string; href: string; cta: string }[] = [
   { title: "Open a Position", text: "Lock a staking token in your Wallet. Its Principal is never played.", href: "/wallet", cta: "Wallet" },
@@ -19,7 +23,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "What is a Gema?",
         a: (
           <p>
-            The one play unit on Tesoro, on every chain. A Gema is worth $0.01 when it is issued and is a claim on its Source: the Advance it
+            The one play unit on {BRAND.name}, on every chain. A Gema is worth $0.01 when it is issued and is a claim on its Source: the Advance it
             came from. Gemas are equal at the table but not at redemption: a Gema redeems in its Source asset (SOL, ETH or HYPE). The{" "}
             <Link href="/docs/gemas">Docs</Link> go deeper.
           </p>
@@ -30,7 +34,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             Open a Position in your <Link href="/wallet">Wallet</Link> by locking a staking token, then take an Advance: 80% of the Position&apos;s
-            projected yield over a Horizon of 1 to 12 months (the yield after Tesoro&apos;s 20% Yield Fee), paid upfront as Gemas.
+            projected yield over a Horizon of 1 to 12 months (the yield after {BRAND.name}&apos;s 20% Yield Fee), paid upfront as Gemas.
           </p>
         ),
       },
@@ -49,7 +53,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
           <>
             <p>
               Automatically. All yield your Position earns goes to its Debt until the Debt reaches zero. There is no repay button and no way to
-              skip it.
+              skip it. A SOL Position&apos;s Debt falls with the clock: nothing needs refreshing, and Redeem and Unlock always use the latest figure.
             </p>
             <p>
               The only other way to lower Debt is to Return your own unspent Gemas from the Wallet. Adding more to the Position does not pay Debt.
@@ -82,7 +86,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "How does a Match work?",
         a: (
           <p>
-            Two Players enter the same amount: 500, 1,000 or 2,500 Gemas. The winner takes the Pot minus Fees. A draw, an abandoned Match or
+            Two Players enter the same amount: {fmtEntryList(ENTRY_SIZES)} Gemas. The winner takes the Pot minus Fees. A draw, an abandoned Match or
             a no-show refunds both entries. Every Match is settled once and recorded on Solana, where anyone can check it.
           </p>
         ),
@@ -138,9 +142,9 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "What are the Fees?",
         a: (
           <p>
-            On every Match, three, taken in Gemas from the loser&apos;s entry when it settles: a Platform Fee for Tesoro, a Studio Fee for the game&apos;s
+            On every Match, three, taken in Gemas from the loser&apos;s entry when it settles: a Platform Fee for {BRAND.name}, a Studio Fee for the game&apos;s
             maker, and a Leaderboard Fee that fills the weekly prize pool. In test mode they are 2%, 3% and 1% of the Pot, 6% together. A draw
-            or a refund pays none of them. Tesoro also keeps a Yield Fee on your Positions and a fee on Redeem now (below). Nothing is ever charged on your
+            or a refund pays none of them. {BRAND.name} also keeps a Yield Fee on your Positions and a fee on Redeem now (below). Nothing is ever charged on your
             Principal.
           </p>
         ),
@@ -149,7 +153,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "What is the Yield Fee?",
         a: (
           <p>
-            Tesoro keeps 20% of the yield your Position earns, on SOL, ETH and HYPE alike. Your Position keeps the other 80%, and your Advance is
+            {BRAND.name} keeps 20% of the yield your Position earns, on SOL, ETH and HYPE alike. Your Position keeps the other 80%, and your Advance is
             sized on that 80%, so it is still repaid in the same time and your Unlock Estimate does not change. See <Link href="/docs/fees">Fees</Link>.
           </p>
         ),
@@ -176,8 +180,8 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: `Why only ${INSTANT_PAYOUT_PCT}% when I redeem now?`,
         a: (
           <p>
-            Because Tesoro pays you today and waits for the yield itself. It takes your Gemas, keeps {INSTANT_FEE_PCT}% for the wait and the risk, and redeems the
-            Gemas at full value later. If you can wait, a normal Redeem pays 100%. If Tesoro&apos;s balance for that asset is short, Instant Redeem is
+            Because {BRAND.name} pays you today and waits for the yield itself. It takes your Gemas, keeps {INSTANT_FEE_PCT}% for the wait and the risk, and redeems the
+            Gemas at full value later. If you can wait, a normal Redeem pays 100%. If {BRAND.name}&apos;s balance for that asset is short, Instant Redeem is
             refused and nothing moves.
           </p>
         ),
@@ -187,7 +191,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <>
             <p>
-              Every Match you win earns points, the same in every game: 5 for a 500 Gema entry, 10 for 1,000 and 25 for 2,500. Losses, draws and
+              Every Match you win earns points, the same in every game: one for every 100 Gemas of entry ({ENTRY_SIZES.map((e) => `${e / 100} for ${fmtGemas(e)}`).join(", ")}). Losses, draws and
               refunds earn none. When a Backer funds your entry, you get the points, because you played.
             </p>
             <p>
@@ -312,17 +316,17 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         a: (
           <p>
             With your email and a one-time code, or with a wallet you already have: a Solana wallet such as Phantom, Solflare or Backpack, or an
-            Ethereum wallet such as MetaMask or Rabby. You don&apos;t need a wallet to start. Either way you get one Tesoro Account, and
+            Ethereum wallet such as MetaMask or Rabby. You don&apos;t need a wallet to start. Either way you get one {BRAND.name} Account, and
             Positions, Gemas, Matches and Backings belong to it.
           </p>
         ),
       },
       {
-        q: "Which chains does Tesoro use?",
+        q: `Which chains does ${BRAND.name} use?`,
         a: (
           <p>
             Solana for SOL Positions, Matches and your Account; Ethereum (the Hoodi test network) for ETH Positions; HyperEVM for HYPE
-            Positions. ETH and HYPE Positions stay on their own chain, and Tesoro keeps them in sync with your Account.
+            Positions. ETH and HYPE Positions stay on their own chain, and {BRAND.name} keeps them in sync with your Account.
           </p>
         ),
       },
@@ -330,7 +334,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "Is this real money?",
         a: (
           <p>
-            No. Tesoro runs on testnets with simulated staking tokens whose yield runs on a fast clock: 1 month is about 10 minutes. Get test
+            No. {BRAND.name} runs on testnets with simulated staking tokens whose yield runs on a fast clock: 1 month is about 10 minutes. Get test
             tokens from the Get test buttons in your <Link href="/wallet">Wallet</Link>. What is and is not simulated is on the{" "}
             <Link href="/docs/risks">Risks and limits</Link> page of the Docs.
           </p>
@@ -364,7 +368,7 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         q: "My ETH or HYPE Position shows yield that is not reported",
         a: (
           <p>
-            Yield earned on Ethereum or HyperEVM is applied to your Debt once it is reported to Tesoro. Press Report yield on the Position to send it
+            Yield earned on Ethereum or HyperEVM is applied to your Debt once it is reported to {BRAND.name}. Press Report yield on the Position to send it
             now; it costs a small cross-chain fee.
           </p>
         ),

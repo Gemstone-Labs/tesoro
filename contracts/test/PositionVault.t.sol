@@ -334,34 +334,24 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(lst.balanceOf(address(vault)), 10 ether);
     }
 
-    function test_payInstantShortIsRefusedNotRetriedAndRefundedOnce() public {
+    function test_payInstantShortRevertsAndTheSameMessagePaysOnceFunded() public {
         uint64 id = _open(10 ether);
         _fundTreasury(0.3 ether);
         uint256 outbox = ep.outboxLength();
-        _deliver(_instantMsg(id, 7, redeemer, 0.5 ether)); // does not revert
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 0.5 ether, 0.3 ether));
+        _deliver(_instantMsg(id, 7, redeemer, 0.5 ether));
         assertEq(lst.balanceOf(redeemer), 0);
         assertEq(vault.instantPaid(), 0);
         assertEq(vault.treasuryBalance(), 0.3 ether);
-        assertEq(vault.refusedInstant(id, 7), 0.5 ether);
+        assertEq(ep.outboxLength(), outbox, "no refund message exists");
 
-        // replay of the same message is a no-op: still one refusal, no payment even if funded since
+        // Funded since: the same message, delivered again, pays once.
         _fundTreasury(0.4 ether);
         _deliver(_instantMsg(id, 7, redeemer, 0.5 ether));
-        assertEq(lst.balanceOf(redeemer), 0);
-
-        vault.refundInstant(id, 7);
-        assertEq(ep.outboxLength(), outbox + 1);
-        (uint8 t, uint32 chain, uint64 pid, uint64 seq, uint64 refusedSeq, uint256 amount) =
-            abi.decode(ep.outboxPayload(outbox), (uint8, uint32, uint64, uint64, uint64, uint256));
-        assertEq(t, 6);
-        assertEq(chain, CHAIN);
-        assertEq(pid, id);
-        assertEq(seq, 2);
-        assertEq(refusedSeq, 7);
-        assertEq(amount, 0.5 ether);
-
-        vm.expectRevert(PositionVault.NothingToRefund.selector);
-        vault.refundInstant(id, 8);
+        assertEq(lst.balanceOf(redeemer), 0.5 ether);
+        assertEq(vault.instantPaid(), 0.5 ether);
+        _deliver(_instantMsg(id, 7, redeemer, 0.5 ether)); // replay
+        assertEq(lst.balanceOf(redeemer), 0.5 ether);
     }
 
     function test_payYieldToTheVaultRefillsTheTreasury() public {
@@ -670,10 +660,9 @@ contract PositionVaultWstETHTest is VaultBase {
         _deliver(abi.encode(uint8(5), CHAIN, id, uint64(1), bytes32(uint256(uint160(redeemer))), fee));
         assertEq(vault.instantPaid(), fee);
         assertApproxEqAbs(wst.balanceOf(redeemer) * 1.0403e18 / 1e18, fee, 2);
-        assertEq(vault.refusedInstant(id, 1), 0);
-        // the next one finds an empty Treasury: refused, never touching Principal
+        // the next one finds an empty Treasury: it waits, never touching Principal
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1 ether, 0));
         _deliver(abi.encode(uint8(5), CHAIN, id, uint64(2), bytes32(uint256(uint160(redeemer))), 1 ether));
-        assertEq(vault.refusedInstant(id, 2), 1 ether);
     }
 
     function test_withdrawTreasuryPaysFromHeldSharesAndNeverMintsOrEatsPrincipal() public {

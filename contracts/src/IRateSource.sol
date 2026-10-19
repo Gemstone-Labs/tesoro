@@ -23,7 +23,24 @@ interface IWstETH {
     function stEthPerToken() external view returns (uint256);
 }
 
+/// @notice Kinetiq StakingAccountant: `kHYPEToHYPE(x)` is the HYPE worth of x kHYPE (both 18 decimals).
+interface IKinetiqAccountant {
+    function kHYPEToHYPE(uint256 kHYPEAmount) external view returns (uint256);
+}
+
 /// @notice Outbound side of the messaging seam. LayerZero's endpoint (via an OApp) replaces this.
 interface IMessageEndpoint {
     function send(bytes calldata payload) external;
+}
+
+/// @notice Lido's wstETH: sending ETH to it stakes through `stETH.submit` and mints wstETH to the sender.
+interface IWstETHBalance {
+    function balanceOf(address) external view returns (uint256);
+}
+
+/// @notice Kinetiq StakingManager (kinetiq.xyz/docs/contracts-and-audits): `stake()` takes HYPE and mints kHYPE
+///         to the caller at the StakingAccountant rate; stakes under `minStakeAmount()` revert.
+interface IKinetiqStakingManager {
+    function stake() external payable;
+    function minStakeAmount() external view returns (uint256);
 }

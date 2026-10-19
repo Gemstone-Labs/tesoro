@@ -16,6 +16,11 @@ export const POOL_AUTHORITY = pda([Buffer.from("leaderboard")]);
 /** The Leaderboard Pool: a TesoroAccount, so its Gemas move like any other Account's. */
 export const POOL_ACCOUNT = pda([Buffer.from("account"), POOL_AUTHORITY.toBuffer()]);
 export const CONFIG = pda([Buffer.from("config")]);
+export const seasonWindowPda = (n: number) => {
+  const b = Buffer.alloc(4);
+  b.writeUInt32LE(n);
+  return pda([Buffer.from("season_window"), b]);
+};
 export const seasonPda = (n: number) => {
   const b = Buffer.alloc(4);
   b.writeUInt32LE(n);
@@ -45,6 +50,24 @@ export function parseLeaderboardTerms(data: Uint8Array): LeaderboardTerms {
   const pool = new PublicKey(data.subarray(at + 2, at + 34));
   if (pool.equals(PublicKey.default)) return NO_LEADERBOARD;
   return { bps: d.getUint16(at, true), recipient: pool, since: Number(d.getBigInt64(at + 34, true)) };
+}
+
+/**
+ * The entry sizes set on-chain (`Config.entry_sizes`: four u64 after the Leaderboard fields, zero-padded),
+ * or null while none is set (the program then allows 500 / 1,000 / 2,500) or the account predates the field.
+ * The pickers read `cluster-settings`, which mirrors what the admin sets; this is the check against the chain.
+ */
+export function parseEntrySizes(data: Uint8Array): number[] | null {
+  const d = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (data.length < GAMES_AT + 4) return null;
+  const at = GAMES_AT + 4 + d.getUint32(GAMES_AT, true) * GAME_BYTES + 2 + 32 + 8;
+  if (data.length < at + 4 * 8) return null;
+  const sizes: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const n = Number(d.getBigUint64(at + i * 8, true));
+    if (n > 0) sizes.push(n);
+  }
+  return sizes.length ? sizes : null;
 }
 
 const TERMS_TTL_MS = 60_000;
@@ -84,14 +107,20 @@ export interface SeasonRecord {
   points: number[];
   amounts: bigint[];
   paidMask: number;
+  /** Unix seconds it was recorded, and the ranks voided inside the payout window. Null/0 for a Season recorded before the window existed. */
+  recordedAt: number | null;
+  voidedMask: number;
 }
 
 /** A recorded season, or null while nobody has recorded it. */
 export async function fetchSeasonRecord(conn: Connection, n: number): Promise<SeasonRecord | null> {
   const info = await conn.getAccountInfo(seasonPda(n), "confirmed");
   if (!info) return null;
-  const s: any = new anchor.BorshAccountsCoder(coreIdl as any).decode("SeasonState", Buffer.from(info.data)).inner;
+  const coder = new anchor.BorshAccountsCoder(coreIdl as any);
+  const s: any = coder.decode("SeasonState", Buffer.from(info.data)).inner;
   const count = Number(s.count);
+  const windowInfo = await conn.getAccountInfo(seasonWindowPda(n), "confirmed");
+  const w: any = windowInfo ? coder.decode("SeasonWindowState", Buffer.from(windowInfo.data)).inner : null;
   return {
     number: Number(s.number),
     poolTotal: BigInt(s.pool_total?.toString() ?? s.poolTotal.toString()),
@@ -100,23 +129,38 @@ export async function fetchSeasonRecord(conn: Connection, n: number): Promise<Se
     points: (s.points as any[]).slice(0, count).map((p) => Number(p.toString())),
     amounts: (s.amounts as any[]).slice(0, count).map((a) => BigInt(a.toString())),
     paidMask: Number(s.paidMask ?? s.paid_mask),
+    recordedAt: w ? Number((w.recordedAt ?? w.recorded_at).toString()) : null,
+    voidedMask: w ? Number(w.voidedMask ?? w.voided_mask) : 0,
   };
 }
 
 const winCache = new Map<string, Win | null>();
 
-/** Parses the `MatchWon` events of one transaction's logs. */
+const WON_DISC = Buffer.from((coreIdl as any).events.find((e: any) => e.name === "MatchWon").discriminator);
+/** Body of `MatchWon` before it named the loser: match_id, game, entry, player, funder, points, pool_fee, season, ts. */
+const WON_BODY_V1 = 8 + 32 + 8 + 32 + 32 + 8 + 8 + 4 + 8;
+const ZERO_KEY = PublicKey.default.toBase58();
+
+/**
+ * Parses the `MatchWon` events of one transaction's logs. By hand, because events written before the loser
+ * was added are 32 bytes shorter and the current IDL would refuse them (they read as uncapped).
+ */
 export function winsFromLogs(logs: string[], signature: string): Win[] {
-  const parser = new anchor.EventParser(CORE, new anchor.BorshCoder(coreIdl as any));
   const out: Win[] = [];
-  for (const ev of parser.parseLogs(logs)) {
-    if (ev.name !== "MatchWon" && ev.name !== "matchWon") continue;
-    const d: any = ev.data;
+  for (const line of logs) {
+    const at = line.indexOf("Program data: ");
+    if (at < 0) continue;
+    const buf = Buffer.from(line.slice(at + 14), "base64");
+    if (buf.length < 8 + WON_BODY_V1 || !buf.subarray(0, 8).equals(WON_DISC)) continue;
+    const v = new DataView(buf.buffer, buf.byteOffset + 8, buf.length - 8);
+    const key = (o: number) => new PublicKey(buf.subarray(8 + o, 8 + o + 32)).toBase58();
+    const loser = buf.length >= 8 + WON_BODY_V1 + 32 ? key(WON_BODY_V1) : undefined;
     out.push({
-      player: new PublicKey(d.player).toBase58(),
-      points: Number(d.points.toString()),
-      ts: Number(d.ts.toString()),
-      matchId: d.matchId?.toString() ?? d.match_id.toString(),
+      player: key(48),
+      points: Number(v.getBigUint64(112, true)),
+      ts: Number(v.getBigInt64(132, true)),
+      matchId: v.getBigUint64(0, true).toString(),
+      ...(loser && loser !== ZERO_KEY ? { loser } : {}),
     });
   }
   void signature;

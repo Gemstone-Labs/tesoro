@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { assertDevnet } from "./cluster.ts";
+import { assertSolana, keeperCluster } from "./cluster.ts";
 import { keypairFromEnv } from "./keys.ts";
 
 /** Fill unset env vars from app/.env.local so RPC keys live in one place (never overrides the real env). */
@@ -26,8 +26,6 @@ export interface Settings {
   once: boolean;
   /** Max lamports the keeper payer may spend (fees + rent) in any rolling hour. */
   hourlyCapLamports: number;
-  /** Share of that cap the yield cranks may use. */
-  yieldShare: number;
   /** Max LayerZero fee of one Solana-side send, and the max the keeper pays for them in any rolling hour. */
   maxLzFeeLamports: number;
   lzHourlyCapLamports: number;
@@ -51,19 +49,25 @@ export function settings(argv = process.argv.slice(2), env = process.env): Setti
     const i = argv.indexOf(`--${name}`);
     return i >= 0 ? argv[i + 1] : undefined;
   };
+  const cluster = keeperCluster(env);
+  /** The public test-mode RPC when unset; mainnet has no default, so an unset RPC is an error. */
+  const rpcOr = (v: string | undefined, name: string, testDefault: string | undefined) => {
+    if (v) return v;
+    if (cluster.id === "test" && testDefault) return testDefault;
+    throw new Error(`${name} is not set; mainnet has no default RPC`);
+  };
   const num = (v: string | undefined, d: number) => (v !== undefined && Number.isFinite(Number(v)) ? Number(v) : d);
   return {
-    rpc: value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC || "https://rpc.magicblock.app/devnet",
-    gpaRpc: value("gpa-rpc") || env.KEEPER_GPA_RPC || "https://rpc.magicblock.app/devnet",
+    rpc: rpcOr(value("rpc") || env.KEEPER_RPC || env.TESORO_BASE_RPC, "KEEPER_RPC", cluster.solana.defaultRpc),
+    gpaRpc: rpcOr(value("gpa-rpc") || env.KEEPER_GPA_RPC, "KEEPER_GPA_RPC", cluster.solana.defaultGpaRpc),
     keypairPath: env.KEEPER_KEYPAIR ?? join(homedir(), ".config/tesoro/keeper.json"),
     intervalMs: num(value("interval") ?? env.KEEPER_INTERVAL_SECS, 20) * 1000,
     once: flag("once"),
     hourlyCapLamports: Math.round(num(value("max-sol-per-hour") ?? env.KEEPER_MAX_SOL_PER_HOUR, 0.5) * LAMPORTS_PER_SOL),
-    yieldShare: Math.min(1, Math.max(0, num(env.KEEPER_YIELD_BUDGET_SHARE, 0.2))),
     maxLzFeeLamports: Math.round(num(value("max-lz-fee-sol") ?? env.KEEPER_MAX_LZ_FEE_SOL, 0.005) * LAMPORTS_PER_SOL),
     lzHourlyCapLamports: Math.round(num(value("max-lz-sol-per-hour") ?? env.KEEPER_MAX_LZ_SOL_PER_HOUR, 0.05) * LAMPORTS_PER_SOL),
-    hoodiRpc: value("hoodi-rpc") ?? env.KEEPER_HOODI_RPC ?? "https://ethereum-hoodi-rpc.publicnode.com",
-    hyperEvmRpc: value("hyperevm-rpc") ?? env.KEEPER_HYPEREVM_RPC ?? "https://rpc.hyperliquid-testnet.xyz/evm",
+    hoodiRpc: rpcOr(value("hoodi-rpc") ?? env.KEEPER_HOODI_RPC, "KEEPER_HOODI_RPC", "https://ethereum-hoodi-rpc.publicnode.com"),
+    hyperEvmRpc: rpcOr(value("hyperevm-rpc") ?? env.KEEPER_HYPEREVM_RPC, "KEEPER_HYPEREVM_RPC", "https://rpc.hyperliquid-testnet.xyz/evm"),
     evmEnvPath: env.KEEPER_EVM_ENV ?? join(homedir(), ".config/tesoro/evm-deployer.env"),
     ethYieldMins: num(value("eth-yield-mins") ?? env.KEEPER_ETH_YIELD_MINS, 10),
     ethHourlyCapEth: num(value("max-eth-per-hour") ?? env.KEEPER_MAX_ETH_PER_HOUR, 0.005),
@@ -82,13 +86,13 @@ export function readKeypair(path: string): Keypair {
 }
 
 /**
- * Refuses to start unless both RPCs serve Solana devnet, then loads the keeper's payer: `KEEPER_SECRET_KEY` when set,
+ * Refuses to start unless both RPCs serve the cluster's Solana network, then loads the keeper's payer: `KEEPER_SECRET_KEY` when set,
  * else the key file (created on first run). With `KEEPER_KEYS_FROM_ENV=1` (hosted) a missing secret is fatal instead.
  * The keeper never funds itself: an empty payer is reported and topped up by hand.
  */
 export async function loadPayer(conn: Connection, s: Settings, log: (m: string) => void, gpa: Connection = conn): Promise<Keypair> {
-  await assertDevnet(conn, "KEEPER_RPC");
-  if (s.gpaRpc !== s.rpc) await assertDevnet(gpa, "KEEPER_GPA_RPC");
+  await assertSolana(conn, "KEEPER_RPC");
+  if (s.gpaRpc !== s.rpc) await assertSolana(gpa, "KEEPER_GPA_RPC");
   let payer: Keypair;
   const secret = keypairFromEnv("KEEPER_SECRET_KEY");
   if (secret) {

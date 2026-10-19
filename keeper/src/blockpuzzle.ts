@@ -31,11 +31,19 @@ const decodeBoard = (ctx: Ctx, info: AccountInfo<Buffer> | null): any | null => 
 };
 
 /**
+ * An Open Match is refunded only once its on-chain deadline has passed. The deadline is read from
+ * the Match, so it follows the Queue window `open_session` set (24 h) and an older Match's 1 h.
+ */
+export function openQueueStep(now: number, deadline: number): "wait" | "refund" {
+  return now < deadline ? "wait" : "refund";
+}
+
+/**
  * Block Puzzle hygiene for one unsettled tesoro_core Match (open_session / join_session flow).
  *
  * Open Match: nobody joined. The opener's Board and SeedVault live in the TEE; nothing to do there
  * (the rollup cannot see the base Match, so they stay delegated, a few thousand lamports). After the
- * Queue window anyone refunds the entry.
+ * Queue window (24 h, set at open_session) anyone refunds the entry.
  *
  * Active Match: joined on tesoro_core. A joiner who skipped `join_session` is bound (anyone can).
  * Then, per Board:
@@ -53,7 +61,7 @@ export async function blockPuzzle(ctx: Ctx, id: bigint, m: any, st: string, subj
   const tag = `[block-puzzle ${st}${(id & 1n) === 1n ? " challenge" : ""}]`;
 
   if (st === "open") {
-    if (now < deadline) {
+    if (openQueueStep(now, deadline) === "wait") {
       log("match", subject, `${tag} wait: nobody joined, Queue window ends ${when(deadline, now)} (then refund_match)`);
       return 0;
     }

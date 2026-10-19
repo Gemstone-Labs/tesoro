@@ -48,6 +48,14 @@ pub struct RecordSeason<'info> {
         bump
     )]
     pub season: Account<'info, SeasonState>,
+    #[account(
+        init,
+        payer = authority,
+        space = SeasonWindowState::SPACE,
+        seeds = [SEASON_WINDOW_SEED, &number.to_le_bytes()],
+        bump
+    )]
+    pub season_window: Account<'info, SeasonWindowState>,
     pub system_program: Program<'info, System>,
 }
 
@@ -81,7 +89,9 @@ pub(crate) fn record_season<'info>(
         .own_total
         .checked_add(pool.won_total)
         .ok_or_else(|| error!(TesoroError::InvalidAccount))?;
-    let inner = ledger::Season::record(number, now()?, pool_total, &ranking).map_err(core_err)?;
+    let recorded_at = now()?;
+    let inner =
+        ledger::Season::record(number, recorded_at, pool_total, &ranking).map_err(core_err)?;
     emit!(SeasonRecorded {
         season: number,
         pool_total,
@@ -90,10 +100,14 @@ pub(crate) fn record_season<'info>(
     let season = &mut ctx.accounts.season;
     season.bump = ctx.bumps.season;
     season.inner = inner;
+    let window = &mut ctx.accounts.season_window;
+    window.bump = ctx.bumps.season_window;
+    window.inner = ledger::SeasonWindow::new(number, recorded_at);
     Ok(())
 }
 
-/// Pays one rank of a recorded season out of the pool, once. Gemas keep their Source: the pool's
+/// Pays one rank of a recorded season out of the pool, once, from 48 hours after it was recorded
+/// (`ledger::PAYOUT_WINDOW_SECS`) and never for a voided rank. Gemas keep their Source: the pool's
 /// Holdings are drained in ascending Source order (`ledger::plan_prize`) into the winner's
 /// Holdings of the same Sources. `remaining_accounts`: n pool Holdings, then n winner Holdings,
 /// the same Sources in the same order.
@@ -108,6 +122,11 @@ pub struct PaySeasonRank<'info> {
         bump = season.bump
     )]
     pub season: Account<'info, SeasonState>,
+    #[account(
+        seeds = [SEASON_WINDOW_SEED, &season.inner.number.to_le_bytes()],
+        bump = season_window.bump
+    )]
+    pub season_window: Account<'info, SeasonWindowState>,
     #[account(
         mut,
         seeds = [ACCOUNT_SEED, pool_account.authority.as_ref()],
@@ -129,6 +148,11 @@ pub(crate) fn pay_season_rank<'info>(
     require_season_authority(&ctx.accounts.config, &ctx.accounts.authority.key())?;
     require_pool(&ctx.accounts.config, &ctx.accounts.pool_account.key())?;
     let winner = ctx.accounts.winner_account.key();
+    ctx.accounts
+        .season_window
+        .inner
+        .check_pay(rank, now()?)
+        .map_err(core_err)?;
     let amount = ctx
         .accounts
         .season
@@ -180,6 +204,42 @@ pub(crate) fn pay_season_rank<'info>(
         rank,
         account: winner,
         amount,
+    });
+    Ok(())
+}
+
+/// Voids one rank of a recorded season (admin only, inside the payout window, before it is paid).
+/// The slot pays nothing and the other ranks keep their places and amounts; the voided share
+/// stays in the pool and rolls into the next season like an unfilled rank.
+#[derive(Accounts)]
+pub struct VoidSeasonRank<'info> {
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = admin @ TesoroError::Unauthorized)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(
+        seeds = [SEASON_SEED, &season.inner.number.to_le_bytes()],
+        bump = season.bump
+    )]
+    pub season: Account<'info, SeasonState>,
+    #[account(
+        mut,
+        seeds = [SEASON_WINDOW_SEED, &season.inner.number.to_le_bytes()],
+        bump = season_window.bump
+    )]
+    pub season_window: Account<'info, SeasonWindowState>,
+}
+
+pub(crate) fn void_season_rank(ctx: Context<VoidSeasonRank>, rank: u8) -> Result<()> {
+    let season = &ctx.accounts.season.inner;
+    ctx.accounts
+        .season_window
+        .inner
+        .void(season, rank, now()?)
+        .map_err(core_err)?;
+    emit!(SeasonRankVoided {
+        season: season.number,
+        rank,
+        account: Pubkey::new_from_array(season.winners[rank as usize]),
     });
     Ok(())
 }

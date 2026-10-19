@@ -8,6 +8,7 @@ import { GAME_NAMES } from "@/lib/mock";
 import type { Chain, GameId } from "@/lib/mock/types";
 import { UnlockTrack, YieldFeeNote, YieldToGemas, monthsLabel } from "./AdvanceQuote";
 import "./wallet.css";
+import { BRAND } from "@/lib/brand";
 
 export const CHAINS: Chain[] = ["SOL", "ETH", "HYPE"];
 
@@ -32,7 +33,7 @@ function IntentNote({ intent }: { intent: OpenIntent }) {
 
 const HOW_STEPS: [string, string][] = [
   ["Lock a Position", "Your Principal is locked, never played."],
-  ["Take an Advance", "Its projected yield for 1 to 12 months, less Tesoro's Yield Fee, upfront as Gemas."],
+  ["Take an Advance", `Its projected yield for 1 to 12 months, less ${BRAND.name}'s Yield Fee, upfront as Gemas.`],
   ["Yield repays it", "The Position unlocks when its Debt reaches zero."],
 ];
 

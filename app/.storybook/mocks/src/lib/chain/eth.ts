@@ -17,6 +17,7 @@ export async function fetchEthMarket(vault: EthVault, owner: `0x${string}`): Pro
     quoteYield: E / 2000n,
     nextPositionId: 9n,
     rate: { baseRate: E, baseTime: 1_790_000_000n, apyBps: 700n, speedup: 4380n },
+    apyBps: 700n,
     faucetAmount: 10n * E,
     faucetAvailableAt: 0,
   };
@@ -56,6 +57,9 @@ export async function fetchVaultPosition(vault: string): Promise<VaultPosition> 
     openRate: E,
     heldShares: 2n * E,
     paidUnderlying: 0n,
+    frozenAccrued: 0n,
+    feeBps: 2000,
+    openTime: 0n,
     horizonMonths: 3,
     unlocked: false,
     accrued: paid ? 20_000_000_000_000_000n : 6_000_000_000_000_000n,

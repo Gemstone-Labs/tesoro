@@ -8,15 +8,15 @@ import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import type { AnyProgram } from "@/games/block-puzzle/chain";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
-import { DEFAULT_BASE_RPC } from "@/lib/chain/rpc-config";
-import { requireDevnet } from "./cluster";
+import { baseRpc } from "@/lib/chain/rpc-config";
+import { requireDevnet, requireTestMode } from "./cluster";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { solanaKeypair } from "./keys";
 import { DemoHttpError, NonceStore, verifySignedRequest } from "./request-auth";
 
 export { DemoHttpError };
 
-export const BASE_RPC = process.env.TESORO_BASE_RPC || DEFAULT_BASE_RPC;
+export const BASE_RPC = baseRpc(process.env.TESORO_BASE_RPC);
 const DAY = 24 * 60 * 60 * 1000;
 
 const FUND_BELOW = 0.05 * LAMPORTS_PER_SOL;
@@ -114,6 +114,7 @@ async function fund(address: PublicKey, sub: string | null) {
 // ---- entry point --------------------------------------------------------------------------------
 
 export async function handleDemoRequest(raw: unknown, authorization: string | null): Promise<unknown> {
+  requireTestMode();
   await requireDevnet(BASE_RPC);
   const req = await verifySignedRequest("tesoro-demo", ["fund"] as const, raw, authorization, { nonces });
   return fund(req.address, req.sub);

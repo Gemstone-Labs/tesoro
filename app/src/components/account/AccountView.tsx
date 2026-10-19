@@ -24,6 +24,7 @@ import { shownIdentity } from "@/lib/identity/display";
 import { useIdentity } from "@/lib/identity/store";
 import { GemasPanel } from "./GemasPanel";
 import "./account.css";
+import { BRAND } from "@/lib/brand";
 
 /**
  * A Player's Account as anyone may see it: the Matches it played, the Gemas it won and lost, the
@@ -82,7 +83,7 @@ function Loaded({ address, data, stale }: { address: string; data: PlayerAccount
 
   // Your own Account page exists before the Account does on chain (it is created with your first Position or Match).
   if (!data.exists && !own) {
-    return auth.status === "loading" ? null : <Notice title="Account not found" body="There is no Tesoro Account at this address." />;
+    return auth.status === "loading" ? null : <Notice title="Account not found" body={`There is no ${BRAND.name} Account at this address.`} />;
   }
 
 
@@ -390,7 +391,7 @@ function ChallengeSheet({ open, onClose, player }: { open: boolean; onClose: () 
         {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="pa-asset" />}
         <EntryPicker value={entry} onChange={setEntry} name="pa-entry" />
         <p className="pa-p">
-          Tesoro cannot tell this Player about your Challenge. You get a link to send them yourself, and whoever opens it first joins.{" "}
+          {BRAND.name} cannot tell this Player about your Challenge. You get a link to send them yourself, and whoever opens it first joins.{" "}
           {game === "block-puzzle" && "You play your run first, then get the link. "}
           Your entry goes in the Pot when you open it; if nobody joins, it is refunded.
         </p>

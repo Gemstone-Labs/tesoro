@@ -30,9 +30,13 @@ const CLAIM_SEED: &[u8] = b"claim";
 const INSTANT_SEED: &[u8] = b"instant";
 const TREASURY_SEED: &[u8] = b"treasury";
 
-/// LayerZero V2 testnet endpoint ids of the source chains, and the tesoro_core chain each maps to.
+/// LayerZero V2 endpoint ids of the source chains. The testnet ids serve test mode (Hoodi,
+/// HyperEVM testnet), the mainnet ids the mainnet vaults; one bridge deployment only ever has the
+/// vaults of its own cluster registered (`set_peer_config` is admin-only).
 pub const EID_HOODI: u32 = 40449;
 pub const EID_HYPEREVM_TESTNET: u32 = 40362;
+pub const EID_ETHEREUM: u32 = 30101;
+pub const EID_HYPEREVM: u32 = 30367;
 
 /// Position ids carry the vault address in their first 20 bytes and 4 trailing zero bytes.
 pub fn valid_position_id(id: &[u8; 32]) -> bool {
@@ -48,18 +52,9 @@ pub fn vault_of(id: &[u8; 32]) -> [u8; 32] {
 
 pub fn core_chain(eid: u32) -> Result<tesoro_core::ledger::SourceChain> {
     match eid {
-        EID_HOODI => Ok(tesoro_core::ledger::SourceChain::Ethereum),
-        EID_HYPEREVM_TESTNET => Ok(tesoro_core::ledger::SourceChain::HyperEvm),
+        EID_HOODI | EID_ETHEREUM => Ok(tesoro_core::ledger::SourceChain::Ethereum),
+        EID_HYPEREVM_TESTNET | EID_HYPEREVM => Ok(tesoro_core::ledger::SourceChain::HyperEvm),
         _ => err!(BridgeError::UnsupportedChain),
-    }
-}
-
-/// The LayerZero eid of a tesoro_core source chain.
-pub fn eid_of(chain: tesoro_core::ledger::SourceChain) -> Result<u32> {
-    match chain {
-        tesoro_core::ledger::SourceChain::Ethereum => Ok(EID_HOODI),
-        tesoro_core::ledger::SourceChain::HyperEvm => Ok(EID_HYPEREVM_TESTNET),
-        tesoro_core::ledger::SourceChain::Solana => err!(BridgeError::UnsupportedChain),
     }
 }
 

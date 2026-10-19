@@ -7,9 +7,10 @@ import { AccountLink } from "@/components/account/AccountLink";
 import { PlayerAvatar } from "@/components/account/Player";
 import { Button, CountUp, GemaMark, GemaUsd } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
 import { art } from "@/lib/art";
 import { accountKeyOf } from "@/lib/chain/account-key";
-import { seasonStanding, standingSummary, type LastSeason, type LeaderboardRow, type LeaderboardView, type SeasonStanding } from "@/lib/chain/leaderboard-view";
+import { lastRankNote, seasonStanding, standingSummary, type LastSeason, type LeaderboardRow, type LeaderboardView, type SeasonStanding } from "@/lib/chain/leaderboard-view";
 import { useLeaderboard } from "@/lib/chain/useLeaderboard";
 import { usePool } from "@/lib/chain/usePool";
 import { POINTS_DIVISOR, PRIZE_BPS, PRIZE_PLACES } from "@/lib/chain/season";
@@ -23,7 +24,7 @@ const prize = (pool: number, i: number) => Math.floor((pool * PRIZE_BPS[i]) / 10
 const PAGE = 15;
 /** Whether the Payout scale band is shown: remembered per browser. */
 const PAYOUT_KEY = "tesoro.leaderboard.payout";
-const ENTRIES = [500, 1000, 2500] as const;
+const ENTRIES = ENTRY_SIZES;
 const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const ord = (n: number) => {
   const t = n % 100;
@@ -229,7 +230,7 @@ function Loaded({ data, me, now, stale }: { data: LeaderboardView; me: string | 
 
       <Season data={data} pool={pool} me={me} />
 
-      {data.last && <Last last={data.last} me={me} />}
+      {data.last && <Last last={data.last} me={me} now={now ?? data.now} />}
 
       {stale && <p className="note">Couldn’t refresh; showing what was last loaded.</p>}
       <p className="note">Test mode · Gemas come from simulated yield and have no real value.</p>
@@ -462,7 +463,10 @@ function Payout({ pool }: { pool: number }) {
   );
 }
 
-function Last({ last, me }: { last: LastSeason; me: string | null }) {
+const fmtPayoutDate = (secs: number) =>
+  new Date(secs * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" });
+
+function Last({ last, me, now }: { last: LastSeason; me: string | null; now: number }) {
   return (
     <section className="lb-last" aria-labelledby="lb-last-h">
       <header className="lb-sec-head">
@@ -475,7 +479,9 @@ function Last({ last, me }: { last: LastSeason; me: string | null }) {
         <p className="note">Nobody won a Match that season; the pool carried over.</p>
       ) : (
         <ol className="lb-rows">
-          {last.winners.map((w) => (
+          {last.winners.map((w) => {
+            const note = lastRankNote(w, last.payoutAt, now);
+            return (
             <li key={w.account} className={`cut cut-card lb-row paid${me === w.account ? " me" : ""}`}>
               <span className="lb-rank" aria-label={`Rank ${w.rank}`}>{w.rank}</span>
               <span className="lb-who">
@@ -490,10 +496,12 @@ function Last({ last, me }: { last: LastSeason; me: string | null }) {
               <span className="lb-prize">
                 <GemaMark size={16} />
                 <b>{fmtGemas(w.gemas)}</b>
-                {!w.paid && <small>paying</small>}
+                {note.kind === "voided" && <small>not paid</small>}
+                {note.kind === "paying" && <small>{note.payoutAt ? `paying out ${fmtPayoutDate(note.payoutAt)}` : "paying"}</small>}
               </span>
             </li>
-          ))}
+            );
+          })}
         </ol>
       )}
     </section>

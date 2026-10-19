@@ -5,6 +5,7 @@ import { CountUp, GemaMark } from "@/components/ui";
 import { fmtGemas, fmtUsd, gemasToUsd } from "@/lib/format";
 import { DEFAULT_YIELD_FEE_BPS } from "@/lib/chain/yield";
 import "./advance-sheet.css";
+import { BRAND } from "@/lib/brand";
 
 export const monthsLabel = (m: number) => `${m} ${m === 1 ? "month" : "months"}`;
 
@@ -14,7 +15,7 @@ const pct = (bps: number) => `${bps / 100}%`;
 export function YieldFeeNote({ yieldFeeBps = DEFAULT_YIELD_FEE_BPS }: { yieldFeeBps?: number }) {
   return (
     <p className="adv-fee">
-      Tesoro keeps {pct(yieldFeeBps)} of your Position&apos;s yield (the Yield Fee), so your Advance is {pct(10_000 - yieldFeeBps)} of it. Your Principal is never touched.
+      {BRAND.name} keeps {pct(yieldFeeBps)} of your Position&apos;s yield (the Yield Fee), so your Advance is {pct(10_000 - yieldFeeBps)} of it. Your Principal is never touched.
     </p>
   );
 }

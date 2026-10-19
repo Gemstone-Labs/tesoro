@@ -16,6 +16,7 @@
  * A Player's `play` calls go to the private rollup (TEE); everything else to the base layer.
  * Scores are never sent: the program replays the moves with the same engine as `./engine.ts`.
  */
+import { protectionsPda } from "../../lib/chain/native";
 import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import {
@@ -36,16 +37,17 @@ import {
   permissionPdaFromAccount,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import nacl from "tweetnacl";
+import { MAGICBLOCK } from "../../lib/cluster-settings";
 import { TxFailedError, TxUnconfirmedError, txOutcome, type TxOutcome } from "./tx";
 
 export { TxFailedError, TxUnconfirmedError, type TxOutcome };
+export { batchOffsets, boardTiming, type BoardTiming, type MoveTiming } from "./move-timing";
 
 export const BLOCK_PUZZLE_PROGRAM_ID = new PublicKey("5WVV5k7ZrLP4LQ6mTpToLppF41cq2kasmW2bTnXVo7dj");
 export const TESORO_CORE_PROGRAM_ID = new PublicKey("AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh");
-export const TEE_RPC = "https://devnet-tee.magicblock.app";
-export const TEE_WS = "wss://devnet-tee.magicblock.app";
-export const TEE_VALIDATOR = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
-export const BASE_RPC = "https://rpc.magicblock.app/devnet";
+export const TEE_RPC = MAGICBLOCK.teeRpc;
+export const TEE_WS = MAGICBLOCK.teeWs;
+export const TEE_VALIDATOR = new PublicKey(MAGICBLOCK.teeValidator);
 
 const VRF_QUEUE = new PublicKey("5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc");
 const EPHEMERAL_VAULT = new PublicKey("MagicVau1t999999999999999999999999999999999");
@@ -268,6 +270,12 @@ export class BlockPuzzleChain {
     return this.sendBase(signer, [ix, session]);
   }
 
+  /** The Protections address of the Account that opened the Match (a Player on a Break or Self-Excluded cannot be joined or kept waiting). */
+  async openerProtections(matchId: bigint): Promise<PublicKey> {
+    const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
+    return protectionsPda(new PublicKey(Uint8Array.from(m.inner.a.player)));
+  }
+
   /** Seat 1 joins with an equal entry; for Block Puzzle also binds to the Session (one transaction). */
   async joinMatch(signer: ChainSigner, matchId: bigint, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
     const a = BlockPuzzleChain.addresses(matchId);
@@ -277,6 +285,7 @@ export class BlockPuzzleChain {
         playerAuthority: signer.publicKey,
         playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
         matchState: a.match,
+        openerProtections: await this.openerProtections(matchId),
       })
       .remainingAccounts(holdings.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })))
       .instruction();
@@ -299,6 +308,9 @@ export class BlockPuzzleChain {
         session: a.session,
         board0: a.boards[0],
         vault: a.vault,
+        authority: a.authority,
+        config: a.config,
+        tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -513,7 +525,7 @@ export class BlockPuzzleChain {
     const remaining = await this.payoutAccounts(caller, matchId, "draw");
     const ix = await this.core.methods
       .refundMatch()
-      .accountsPartial({ caller: caller.publicKey, config: a.config, matchState: a.match })
+      .accountsPartial({ caller: caller.publicKey, config: a.config, matchState: a.match, openerProtections: await this.openerProtections(matchId) })
       .remainingAccounts(remaining)
       .instruction();
     return this.sendBase(caller, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);

@@ -12,8 +12,13 @@ export const LEADERBOARD_BPS = 100;
 /** Ranks that are paid, and each one's share of the pool in basis points (sums to 10,000). */
 export const PRIZE_BPS = [2500, 1800, 1300, 1000, 800, 700, 600, 500, 400, 400] as const;
 export const PRIZE_PLACES = PRIZE_BPS.length;
+/** How long after a Season is recorded its ranks may not be paid; the admin can void a rank inside it (ADR 0012). */
+export const PAYOUT_WINDOW_SECS = 48 * 60 * 60;
 /** A won Match earns `entry / POINTS_DIVISOR` points. */
 export const POINTS_DIVISOR = 100;
+
+/** Only a Player's first this-many wins against the same opponent in a Season earn Points (ADR 0012). */
+export const WINS_PER_OPPONENT = 3;
 
 /** Season number (from 1) containing `ts` (unix seconds); 0 before the first season. */
 export function seasonAt(ts: number): number {
@@ -30,6 +35,21 @@ export function prizeAmounts(poolTotal: bigint, ranked: number): bigint[] {
   return PRIZE_BPS.map((bps, i) => (i < ranked ? (poolTotal * BigInt(bps)) / 10_000n : 0n));
 }
 
+/** First second a recorded Season's ranks may be paid. */
+export const payoutOpensAt = (recordedAt: number) => recordedAt + PAYOUT_WINDOW_SECS;
+
+export type RankPayout = "paid" | "voided" | "waiting" | "due";
+
+/**
+ * Where a recorded rank stands: paid, voided (never paid; its share stays in the pool), waiting for the
+ * payout window to pass, or due (the keeper pays it next). `opensAt` null: recorded before the window existed.
+ */
+export function rankPayout(rank: { paid: boolean; voided: boolean }, opensAt: number | null, nowSecs: number): RankPayout {
+  if (rank.paid) return "paid";
+  if (rank.voided) return "voided";
+  return opensAt !== null && nowSecs < opensAt ? "waiting" : "due";
+}
+
 /** One won Match, as emitted by `MatchWon`. */
 export interface Win {
   /** TesoroAccount of the Player who played. */
@@ -38,6 +58,8 @@ export interface Win {
   /** Unix seconds the Match settled. */
   ts: number;
   matchId: string;
+  /** TesoroAccount that lost. Absent on events from before `MatchWon` named the loser: those are never capped. */
+  loser?: string;
 }
 
 export interface Standing {
@@ -49,13 +71,31 @@ export interface Standing {
   firstWinTs: number;
 }
 
+const byTime = (a: Win, b: Win) => a.ts - b.ts || (a.matchId.length - b.matchId.length || (a.matchId < b.matchId ? -1 : a.matchId > b.matchId ? 1 : 0));
+
 /**
- * The season table from its wins. Order: points (most first), then the earlier first win of the
- * season, then the Account key (so the order is total and every reader agrees).
+ * The Points each win earns: its own, except a Player's 4th and later wins against the same opponent
+ * (counted in event time order) earn 0. Wins with no known loser are never capped.
+ */
+export function cappedWins(wins: Win[]): Win[] {
+  const seen = new Map<string, number>();
+  return [...wins].sort(byTime).map((w) => {
+    if (!w.loser) return w;
+    const key = `${w.player}>${w.loser}`;
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    return n > WINS_PER_OPPONENT ? { ...w, points: 0 } : w;
+  });
+}
+
+/**
+ * The season table from its wins. Points are capped per opponent (`cappedWins`); `wins` still counts every
+ * win, since it is the result and not what pays. Order: points (most first), then the earlier first win of the
+ * season (always a Points-earning one), then the Account key (so the order is total and every reader agrees).
  */
 export function standings(wins: Win[]): Standing[] {
   const by = new Map<string, Standing>();
-  for (const w of wins) {
+  for (const w of cappedWins(wins)) {
     const s = by.get(w.player);
     if (s) {
       s.points += w.points;

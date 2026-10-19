@@ -1,3 +1,4 @@
+import { BRAND } from "@/lib/brand";
 export type DocPage = {
   href: string;
   title: string;
@@ -13,17 +14,17 @@ export type DocGroup = { id: "players" | "developers"; label: string; pages: Doc
 export const DOC_GROUPS: DocGroup[] = [
   {
     id: "players",
-    label: "Playing on Tesoro",
+    label: `Playing on ${BRAND.name}`,
     pages: [
-      { href: "/docs", title: "Overview", summary: "What Tesoro is, in one page, and where to go next.", keywords: "start intro welcome" },
-      { href: "/docs/how-it-works", title: "How Tesoro works", summary: "From a Position to an Advance, a Match and Redeem.", keywords: "flow steps yield advance" },
+      { href: "/docs", title: "Overview", summary: `What ${BRAND.name} is, in one page, and where to go next.`, keywords: "start intro welcome" },
+      { href: "/docs/how-it-works", title: `How ${BRAND.name} works`, summary: "From a Position to an Advance, a Match and Redeem.", keywords: "flow steps yield advance" },
       { href: "/docs/accounts", title: "Accounts and sign-in", summary: "Sign in with email or a wallet, and set up your profile.", keywords: "login privy phantom metamask profile avatar name sol eth" },
       { href: "/docs/positions", title: "Positions and Advances", summary: "Lock a staking token, take an Advance, get your Position back.", keywords: "principal horizon debt unlock estimate stake lock" },
       { href: "/docs/gemas", title: "Gemas", summary: "The play unit, what backs it, and how Redeem works.", keywords: "source redeem pending value $0.01" },
       { href: "/docs/matches", title: "Games and Matches", summary: "Block Puzzle, Hold'em and Trading Duel, entries, Queue, Challenge.", keywords: "queue challenge pot entry draw refund chips" },
       { href: "/docs/backing", title: "Backing", summary: "Fund a Player's entry and share what they win.", keywords: "backer request offer split surplus" },
       { href: "/docs/leaderboard", title: "Leaderboard", summary: "Weekly seasons, points for wins, and the Leaderboard Pool.", keywords: "season points pool top 10 prize ranking" },
-      { href: "/docs/fees", title: "Fees", summary: "Every fee Tesoro takes, in one table, with a worked Match.", keywords: "platform studio leaderboard fee percent cost" },
+      { href: "/docs/fees", title: "Fees", summary: `Every fee ${BRAND.name} takes, in one table, with a worked Match.`, keywords: "platform studio leaderboard fee percent cost" },
       { href: "/docs/chains", title: "Chains", summary: "Solana, Ethereum and HyperEVM: where Positions live.", keywords: "solana ethereum hoodi hyperevm hype eth sol cross-chain" },
       { href: "/docs/fairness", title: "Fairness and privacy", summary: "How hidden information stays hidden and results stay honest.", keywords: "random hidden private verify cheat" },
       { href: "/docs/risks", title: "Risks and limits", summary: "What can go wrong, and who you trust.", keywords: "risk trust oracle legal warning" },

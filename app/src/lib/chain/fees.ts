@@ -1,5 +1,6 @@
-import { DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS, instantPayout } from "./yield";
+import { DEFAULT_INSTANT_FEE_BPS, DEFAULT_YIELD_FEE_BPS, earnedFee, instantPayout, type PoolTotals } from "./yield";
 import type { SourceMath } from "./ledger";
+import { BRAND } from "../brand";
 
 /**
  * Tesoro's Treasury as the app reads it, as pure decoders and math: the Yield Fee and Instant Redeem Fee rates
@@ -23,12 +24,37 @@ export const DEFAULT_RATES: TreasuryRates = { yieldFeeBps: DEFAULT_YIELD_FEE_BPS
 /** The rates in force: the Treasury's, or the launch rates while it cannot be read. */
 export const ratesOf = (t: TreasuryRates | null | undefined): TreasuryRates => t ?? DEFAULT_RATES;
 
-/** `Treasury`: disc 8, bump, vault_bump, account_bump, yield_fee_bps u16, instant_fee_bps u16, account, vault, fee_units, instant_units, funded_shares. */
-export const TREASURY_LEN = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8;
+/** `Treasury`: disc 8, bump, vault_bump, account_bump, yield_fee_bps u16, instant_fee_bps u16, account, vault, fee_minted, instant_units, funded_shares, withdrawn_units, company. */
+export const TREASURY_LEN = 8 + 3 + 2 + 2 + 32 + 32 + 3 * 8 + 8 + 32;
+const FEE_MINTED_AT = 8 + 3 + 2 + 2 + 32 + 32;
+
+/** SOL units of earned Yield Fee already minted out as simSOL; null on a wrong size. */
+export const parseFeeMinted = (d: Uint8Array): bigint | null => (d.length === TREASURY_LEN ? rdU64(d, FEE_MINTED_AT) : null);
+
+/** `NativeCustody`: disc 8, bump, vault_bump, pool, mint, vault, then principal, fee_weight, fee_weight_time, realised_fee (u128) and open_positions (u64). */
+export const NATIVE_CUSTODY_LEN = 8 + 2 + 3 * 32 + 4 * 16 + 8;
+
+export function parsePoolTotals(d: Uint8Array): PoolTotals | null {
+  if (d.length !== NATIVE_CUSTODY_LEN) return null;
+  const o = 8 + 2 + 3 * 32 + 16;
+  return { feeWeight: rdU128(d, o), feeWeightTime: rdU128(d, o + 16), realisedFee: rdU128(d, o + 32), openPositions: rdU64(d, o + 48) };
+}
+
+/** What the Treasury has to pay SOL Instant Redeems with, in SOL units (exactly the program's balance): the unminted Yield Fee earned plus the vault's simSOL at the rate. */
+export function treasuryBalanceUnits(a: { totals: PoolTotals; feeMinted: bigint; vaultShares: bigint; rate: bigint; speedup: number; nowSec: number }): bigint {
+  const earned = earnedFee(a.totals, a.nowSec, a.speedup);
+  const unminted = earned > a.feeMinted ? earned - a.feeMinted : 0n;
+  return unminted + (a.vaultShares * a.rate) / RATE_SCALE;
+}
 
 export function parseTreasury(d: Uint8Array): TreasuryRates | null {
   if (d.length !== TREASURY_LEN) return null;
   return { yieldFeeBps: view(d).getUint16(11, true), instantFeeBps: view(d).getUint16(13, true) };
+}
+
+/** The Treasury's original vault (the token it was created with), as recorded in `Treasury.vault`. Null on a wrong size. */
+export function parseTreasuryVaultKey(d: Uint8Array): Uint8Array | null {
+  return d.length === TREASURY_LEN ? d.subarray(8 + 3 + 2 + 2 + 32, 8 + 3 + 2 + 2 + 64) : null;
 }
 
 /** The treasury simSOL vault is an SPL token account: its balance sits at byte 64. */
@@ -137,10 +163,10 @@ export function replanInstant(confirmed: InstantLine[], fresh: InstantLine[]): I
   return { kind: "smaller", lines, gemas: lines.reduce((s, l) => s + l.gemas, 0n) };
 }
 
-export const INSTANT_NOT_OPEN = "Tesoro has not opened Instant Redeem yet.";
+export const INSTANT_NOT_OPEN = `${BRAND.name} has not opened Instant Redeem yet.`;
 export const INSTANT_UNAVAILABLE_TITLE = "Instant Redeem unavailable right now";
 export const INSTANT_UNAVAILABLE_BODY =
-  "Tesoro's Treasury cannot pay for these Gemas right now. Redeem at full value as their yield lands, or try again later.";
+  `${BRAND.name}'s Treasury cannot pay for these Gemas right now. Redeem at full value as their yield lands, or try again later.`;
 
 /** Why Instant Redeem cannot be used, or null: no Treasury yet, or a Treasury too short to pay for any won Gemas. */
 export function instantUnavailable({ setUp, payableRows }: { setUp: boolean; payableRows: number }): string | null {

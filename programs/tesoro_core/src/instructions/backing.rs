@@ -16,6 +16,12 @@ pub struct CreateRequest<'info> {
         bump = player_account.bump
     )]
     pub player_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Player's Protections address; a Player who is away cannot ask to be backed.
+    #[account(
+        seeds = [PROTECTIONS_SEED, player_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         init,
         payer = player_authority,
@@ -37,6 +43,7 @@ pub(crate) fn create_request(
         ctx.accounts.config.game(&game).is_some(),
         TesoroError::GameNotRegistered
     );
+    require_can_play(&ctx.accounts.protections.to_account_info())?;
     let request = &mut ctx.accounts.request;
     request.bump = ctx.bumps.request;
     request.nonce = nonce;
@@ -44,6 +51,7 @@ pub(crate) fn create_request(
         ctx.accounts.player_account.key().to_bytes(),
         game.to_bytes(),
         entry,
+        &ctx.accounts.config.entries(),
         now()?,
     )
     .map_err(core_err)?;
@@ -71,6 +79,32 @@ pub(crate) fn cancel_request(ctx: Context<CancelRequest>) -> Result<()> {
     ctx.accounts.request.inner.cancel().map_err(core_err)
 }
 
+/// Anyone withdraws an open Request of a Player who is on a Break or Self-Excluded.
+#[derive(Accounts)]
+pub struct ClearRequest<'info> {
+    pub caller: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
+        bump = request.bump
+    )]
+    pub request: Account<'info, RequestState>,
+    /// CHECK: the Request owner's Protections address.
+    #[account(
+        seeds = [PROTECTIONS_SEED, request.inner.player.as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
+}
+
+pub(crate) fn clear_request(ctx: Context<ClearRequest>) -> Result<()> {
+    require!(
+        is_away(&ctx.accounts.protections.to_account_info())?,
+        TesoroError::Unauthorized
+    );
+    ctx.accounts.request.inner.cancel().map_err(core_err)
+}
+
 /// Creates an Offer and reserves the Backer's entry. `remaining_accounts` are the Backer's
 /// Holdings, own-sourced first, then won, each ascending by Source address.
 /// `directed_request` makes it a directed Offer; `None` makes it public.
@@ -87,6 +121,13 @@ pub struct CreateOffer<'info> {
         bump = backer_account.bump
     )]
     pub backer_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Backer's Protections address; empty when none is set (see `count_entry`).
+    #[account(
+        mut,
+        seeds = [PROTECTIONS_SEED, backer_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         init,
         payer = backer_authority,
@@ -111,18 +152,21 @@ pub(crate) fn create_offer<'info>(
         TesoroError::GameNotRegistered
     );
     let backer = ctx.accounts.backer_account.key();
+    count_entry(&ctx.accounts.protections.to_account_info(), entry)?;
     let mut holdings = load_holdings(&backer, ctx.remaining_accounts)?;
     let kind = match directed_request {
         Some(r) => OfferKind::Directed(r.to_bytes()),
         None => OfferKind::Public,
     };
     let now = now()?;
+    let sizes = ctx.accounts.config.entries();
     let acct = &mut ctx.accounts.backer_account.inner;
     let created = with_holdings(&mut holdings, |hs| {
         ledger::Offer::create(
             backer.to_bytes(),
             game.to_bytes(),
             entry,
+            &sizes,
             player_share_bps,
             kind,
             now,
@@ -146,6 +190,12 @@ pub struct AcceptDirected<'info> {
         bump = player_account.bump
     )]
     pub player_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Player's Protections address; a Player who is away cannot be backed.
+    #[account(
+        seeds = [PROTECTIONS_SEED, player_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
@@ -162,6 +212,7 @@ pub struct AcceptDirected<'info> {
 }
 
 pub(crate) fn accept_directed(ctx: Context<AcceptDirected>) -> Result<()> {
+    require_can_play(&ctx.accounts.protections.to_account_info())?;
     let request_key = ctx.accounts.request.key();
     ctx.accounts
         .offer
@@ -183,6 +234,12 @@ pub struct ApplyOffer<'info> {
         bump = player_account.bump
     )]
     pub player_account: Account<'info, TesoroAccount>,
+    /// CHECK: the Player's Protections address; a Player who is away cannot be backed.
+    #[account(
+        seeds = [PROTECTIONS_SEED, player_account.key().as_ref()],
+        bump
+    )]
+    pub protections: UncheckedAccount<'info>,
     #[account(
         seeds = [REQUEST_SEED, request.inner.player.as_ref(), &request.nonce.to_le_bytes()],
         bump = request.bump,
@@ -198,6 +255,7 @@ pub struct ApplyOffer<'info> {
 }
 
 pub(crate) fn apply_offer(ctx: Context<ApplyOffer>) -> Result<()> {
+    require_can_play(&ctx.accounts.protections.to_account_info())?;
     let request_key = ctx.accounts.request.key();
     ctx.accounts
         .offer
@@ -221,6 +279,12 @@ pub struct AcceptApplicant<'info> {
         bump = request.bump
     )]
     pub request: Account<'info, RequestState>,
+    /// CHECK: the applicant Player's Protections address; a Player who is away cannot be backed.
+    #[account(
+        seeds = [PROTECTIONS_SEED, request.inner.player.as_ref()],
+        bump
+    )]
+    pub player_protections: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [OFFER_SEED, offer.inner.backer.as_ref(), &offer.nonce.to_le_bytes()],
@@ -231,6 +295,7 @@ pub struct AcceptApplicant<'info> {
 }
 
 pub(crate) fn accept_applicant(ctx: Context<AcceptApplicant>) -> Result<()> {
+    require_can_play(&ctx.accounts.player_protections.to_account_info())?;
     let request_key = ctx.accounts.request.key();
     ctx.accounts
         .offer
@@ -327,6 +392,13 @@ pub struct ExpireOffer<'info> {
         bump = request.bump
     )]
     pub request: Option<Account<'info, RequestState>>,
+    /// CHECK: the Backer's Protections address. Optional: when the Backer is on a Break or
+    /// Self-Excluded, anyone may withdraw their unused Offer at once.
+    #[account(
+        seeds = [PROTECTIONS_SEED, offer.inner.backer.as_ref()],
+        bump
+    )]
+    pub backer_protections: Option<UncheckedAccount<'info>>,
 }
 
 pub(crate) fn expire_offer<'info>(
@@ -339,6 +411,16 @@ pub(crate) fn expire_offer<'info>(
     let accepted = (offer.status == OfferStatus::Accepted)
         .then_some(offer.request)
         .flatten();
-    with_holdings(&mut holdings, |hs| offer.expire(now, acct, hs))?;
+    let backer_away = match &ctx.accounts.backer_protections {
+        Some(p) => is_away(&p.to_account_info())?,
+        None => false,
+    };
+    with_holdings(&mut holdings, |hs| {
+        if backer_away {
+            offer.cancel(acct, hs)
+        } else {
+            offer.expire(now, acct, hs)
+        }
+    })?;
     reopen_accepted_request(accepted, &mut ctx.accounts.request)
 }

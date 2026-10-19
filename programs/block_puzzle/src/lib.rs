@@ -68,6 +68,9 @@ pub const SUBMISSION_SECS: i64 = 24 * 60 * 60;
 /// How long past the submission deadline `tesoro_core` keeps refunds closed, so a Game
 /// settlement always wins the race against a plain refund.
 pub const SETTLE_GRACE_SECS: i64 = 60 * 60;
+/// How long an Open Match waits for an opponent before anybody may refund it. The opener can play
+/// before pairing, so the Queue holds a Block Puzzle entry a day rather than tesoro_core's hour.
+pub const QUEUE_WINDOW_SECS: i64 = 24 * 60 * 60;
 /// Moves per `play` transaction (compute bound).
 pub const MAX_PLAY_BATCH: usize = 40;
 
@@ -159,13 +162,14 @@ pub mod block_puzzle {
     /// somebody joined before its Session existed (`tesoro_core::join_match` cannot require one)
     /// is still bound while its refund window is open, and `join_session` follows.
     ///
-    /// The opener's Board deadline is the Queue window's end plus `SUBMISSION_SECS`, which is never
-    /// earlier than the joiner's (`join + SUBMISSION_SECS`, joins happen inside the window). Joining
-    /// in the last second of the window therefore cannot forfeit an opener who has not begun: the
-    /// opener keeps the same time to play as the joiner.
+    /// The Queue window is `QUEUE_WINDOW_SECS`: while the Match is Open this pushes tesoro_core's
+    /// refund deadline out to a day from now. The opener's Board deadline is the window's end plus
+    /// `SUBMISSION_SECS`, which is never earlier than the joiner's (`join + SUBMISSION_SECS`, joins
+    /// happen inside the window). Joining in the last second of the window therefore cannot forfeit
+    /// an opener who has not begun: the opener keeps the same time to play as the joiner.
     pub fn open_session(ctx: Context<OpenSession>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
-        let opener_deadline = {
+        let (window_end, is_open) = {
             let m = &ctx.accounts.match_state.inner;
             require!(
                 m.game == crate::ID.to_bytes()
@@ -177,11 +181,37 @@ pub mod block_puzzle {
                 BlockPuzzleError::InvalidAccount
             );
             require!(now < m.deadline, BlockPuzzleError::DeadlinePassed);
-            m.deadline
-                .max(now)
-                .checked_add(SUBMISSION_SECS)
-                .ok_or(BlockPuzzleError::Overflow)?
+            let is_open = m.status == MatchStatus::Open;
+            let window_end = if is_open {
+                m.deadline.max(
+                    now.checked_add(QUEUE_WINDOW_SECS)
+                        .ok_or(BlockPuzzleError::Overflow)?,
+                )
+            } else {
+                m.deadline
+            };
+            (window_end, is_open)
         };
+        let opener_deadline = window_end
+            .checked_add(SUBMISSION_SECS)
+            .ok_or(BlockPuzzleError::Overflow)?;
+
+        if is_open {
+            let authority_bump = [ctx.bumps.authority];
+            let signer: &[&[&[u8]]] = &[&[AUTHORITY_SEED, &authority_bump]];
+            tesoro_core::cpi::extend_match_deadline(
+                CpiContext::new_with_signer(
+                    ctx.accounts.tesoro_core_program.to_account_info(),
+                    tesoro_core::cpi::accounts::ExtendMatchDeadline {
+                        game_authority: ctx.accounts.authority.to_account_info(),
+                        config: ctx.accounts.config.to_account_info(),
+                        match_state: ctx.accounts.match_state.to_account_info(),
+                    },
+                    signer,
+                ),
+                window_end,
+            )?;
+        }
 
         // Each delegated account pays the rent of its ephemeral permission from its own balance.
         prefund_permission(
@@ -290,6 +320,7 @@ pub mod block_puzzle {
     /// Base layer, anyone. Delegates the opener's Board and the SeedVault to the TEE validator
     /// (pass its identity).
     pub fn delegate_opener(ctx: Context<DelegateOpener>) -> Result<()> {
+        require_unplayed(&ctx.accounts.session, &ctx.accounts.board_0)?;
         let config = || tee_config(&ctx.accounts.validator);
         let session_key = ctx.accounts.session.key();
         ctx.accounts.delegate_board_0(
@@ -307,6 +338,7 @@ pub mod block_puzzle {
 
     /// Base layer, anyone. Delegates the joiner's Board to the TEE validator.
     pub fn delegate_joiner(ctx: Context<DelegateJoiner>) -> Result<()> {
+        require_unplayed(&ctx.accounts.session, &ctx.accounts.board_1)?;
         let config = tee_config(&ctx.accounts.validator)?;
         let session_key = ctx.accounts.session.key();
         ctx.accounts.delegate_board_1(
@@ -428,7 +460,8 @@ pub mod block_puzzle {
     /// Board and starts the Player's clock: this is the first moment the Player can learn the
     /// piece sequence.
     pub fn begin_run(ctx: Context<BeginRun>) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
+        let clock = Clock::get()?;
+        let now = clock.unix_timestamp;
         let board = &mut ctx.accounts.board;
         require!(board.permission_ready, BlockPuzzleError::PermissionNotReady);
         require!(ctx.accounts.vault.ready, BlockPuzzleError::SeedNotReady);
@@ -436,6 +469,7 @@ pub mod block_puzzle {
         require!(now < board.deadline, BlockPuzzleError::DeadlinePassed);
         board.seed = ctx.accounts.vault.seed;
         board.started_at = now;
+        board.start_slot = clock.slot;
         Ok(())
     }
 
@@ -446,8 +480,10 @@ pub mod block_puzzle {
             !moves.is_empty() && moves.len() <= MAX_PLAY_BATCH,
             BlockPuzzleError::BadBatch
         );
-        let now = Clock::get()?.unix_timestamp;
+        let clock = Clock::get()?;
+        let now = clock.unix_timestamp;
         let board = &mut ctx.accounts.board;
+        let offset = move_offset(board.start_slot, clock.slot);
         require!(board.started_at > 0, BlockPuzzleError::NotBegan);
         require!(!board.finished, BlockPuzzleError::RunClosed);
         require!(now < board.deadline, BlockPuzzleError::DeadlinePassed);
@@ -473,6 +509,10 @@ pub mod block_puzzle {
                 .get_mut(index)
                 .ok_or(BlockPuzzleError::IllegalMove)?;
             *slot = pack(m);
+            *board
+                .move_slots
+                .get_mut(index)
+                .ok_or(BlockPuzzleError::IllegalMove)? = offset;
             index = index.checked_add(1).ok_or(BlockPuzzleError::Overflow)?;
         }
         board.store_engine_state(&state);
@@ -713,6 +753,26 @@ fn finalize<'info>(
     Ok(())
 }
 
+/// Delegation is permissionless, so only a Board that has not begun and a Session that is not
+/// settled may be delegated: once the Boards are committed back, delegating one again would leave
+/// `settle` unable to read it.
+fn require_unplayed(session: &Session, board: &AccountInfo) -> Result<()> {
+    require!(!session.settled, BlockPuzzleError::AlreadySettled);
+    let data = board.try_borrow_data()?;
+    let board = Board::try_deserialize(&mut &data[..])?;
+    require!(
+        !board.sealed && board.started_at == 0,
+        BlockPuzzleError::AlreadyBegan
+    );
+    Ok(())
+}
+
+/// Slots between `begin_run` and this `play`, saturating at `u16::MAX` (a 100 s run is
+/// ~250 slots at 400 ms, ~2,000 at the rollup's 50 ms).
+fn move_offset(start_slot: u64, slot: u64) -> u16 {
+    u16::try_from(slot.saturating_sub(start_slot)).unwrap_or(u16::MAX)
+}
+
 fn pack(m: MoveArg) -> u32 {
     u32::from(m.piece) | (u32::from(m.x) << 16) | (u32::from(m.y) << 24)
 }
@@ -721,7 +781,7 @@ fn pack(m: MoveArg) -> u32 {
 pub struct OpenSession<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(owner = tesoro_core::ID)]
+    #[account(mut, owner = tesoro_core::ID)]
     pub match_state: Account<'info, MatchState>,
     #[account(owner = tesoro_core::ID)]
     pub account_a: Account<'info, TesoroAccount>,
@@ -734,12 +794,19 @@ pub struct OpenSession<'info> {
         init, payer = payer, space = 8 + Board::INIT_SPACE,
         seeds = [BOARD_SEED, session.key().as_ref(), &[0]], bump
     )]
-    pub board_0: Account<'info, Board>,
+    pub board_0: Box<Account<'info, Board>>,
     #[account(
         init, payer = payer, space = 8 + SeedVault::INIT_SPACE,
         seeds = [VAULT_SEED, session.key().as_ref()], bump
     )]
     pub vault: Account<'info, SeedVault>,
+    /// CHECK: the Game's authority PDA; signs the `tesoro_core` CPI
+    #[account(seeds = [AUTHORITY_SEED], bump)]
+    pub authority: UncheckedAccount<'info>,
+    /// CHECK: `tesoro_core` config, validated by `tesoro_core`
+    #[account(owner = tesoro_core::ID)]
+    pub config: UncheckedAccount<'info>,
+    pub tesoro_core_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
 }
 
@@ -760,7 +827,7 @@ pub struct JoinSession<'info> {
         init, payer = payer, space = 8 + Board::INIT_SPACE,
         seeds = [BOARD_SEED, session.key().as_ref(), &[1]], bump
     )]
-    pub board_1: Account<'info, Board>,
+    pub board_1: Box<Account<'info, Board>>,
     /// CHECK: the Game's authority PDA; signs the `tesoro_core` CPI
     #[account(seeds = [AUTHORITY_SEED], bump = session.authority_bump)]
     pub authority: UncheckedAccount<'info>,
@@ -814,7 +881,7 @@ pub struct InitPermission<'info> {
         mut,
         seeds = [BOARD_SEED, board.session.as_ref(), &[board.seat]], bump = board.bump
     )]
-    pub board: Account<'info, Board>,
+    pub board: Box<Account<'info, Board>>,
     /// CHECK: permission PDA of the Board, verified by the permission program
     #[account(mut, seeds = [PERMISSION_SEED, board.key().as_ref()], bump, seeds::program = PERMISSION_PROGRAM_ID)]
     pub permission: UncheckedAccount<'info>,
@@ -885,7 +952,7 @@ pub struct BeginRun<'info> {
         seeds = [BOARD_SEED, board.session.as_ref(), &[board.seat]], bump = board.bump,
         has_one = player @ BlockPuzzleError::NotThePlayer
     )]
-    pub board: Account<'info, Board>,
+    pub board: Box<Account<'info, Board>>,
     #[account(seeds = [VAULT_SEED, board.session.as_ref()], bump = vault.bump)]
     pub vault: Account<'info, SeedVault>,
 }
@@ -898,7 +965,7 @@ pub struct PlayerAction<'info> {
         seeds = [BOARD_SEED, board.session.as_ref(), &[board.seat]], bump = board.bump,
         has_one = player @ BlockPuzzleError::NotThePlayer
     )]
-    pub board: Account<'info, Board>,
+    pub board: Box<Account<'info, Board>>,
 }
 
 #[derive(Accounts)]
@@ -908,12 +975,12 @@ pub struct Seal<'info> {
         mut,
         seeds = [BOARD_SEED, board_0.session.as_ref(), &[0]], bump = board_0.bump
     )]
-    pub board_0: Account<'info, Board>,
+    pub board_0: Box<Account<'info, Board>>,
     #[account(
         mut,
         seeds = [BOARD_SEED, board_0.session.as_ref(), &[1]], bump = board_1.bump
     )]
-    pub board_1: Account<'info, Board>,
+    pub board_1: Box<Account<'info, Board>>,
 }
 
 #[commit]
@@ -925,12 +992,12 @@ pub struct CommitBoards<'info> {
         mut,
         seeds = [BOARD_SEED, board_0.session.as_ref(), &[0]], bump = board_0.bump
     )]
-    pub board_0: Account<'info, Board>,
+    pub board_0: Box<Account<'info, Board>>,
     #[account(
         mut,
         seeds = [BOARD_SEED, board_0.session.as_ref(), &[1]], bump = board_1.bump
     )]
-    pub board_1: Account<'info, Board>,
+    pub board_1: Box<Account<'info, Board>>,
     #[account(
         mut,
         seeds = [VAULT_SEED, board_0.session.as_ref()], bump = vault.bump
@@ -966,11 +1033,11 @@ pub struct Settle<'info> {
     #[account(
         seeds = [BOARD_SEED, session.key().as_ref(), &[0]], bump = board_0.bump
     )]
-    pub board_0: Account<'info, Board>,
+    pub board_0: Box<Account<'info, Board>>,
     #[account(
         seeds = [BOARD_SEED, session.key().as_ref(), &[1]], bump = board_1.bump
     )]
-    pub board_1: Account<'info, Board>,
+    pub board_1: Box<Account<'info, Board>>,
     /// CHECK: the Game's authority PDA; signs the `tesoro_core` CPI
     #[account(seeds = [AUTHORITY_SEED], bump = session.authority_bump)]
     pub authority: UncheckedAccount<'info>,
@@ -1042,6 +1109,11 @@ pub struct Board {
     pub over: bool,
     /// Packed moves: `piece | x << 16 | y << 24`. Lets anyone re-verify the score.
     pub log: [u32; MOVE_LOG],
+    /// Clock slot of `begin_run`. Appended after `log` so earlier fields keep their offsets.
+    pub start_slot: u64,
+    /// Per logged move: slots from `start_slot` to the transaction that carried it. A batch
+    /// (up to 40 moves) shares one offset, so reviewers read the cadence of batches, not of moves.
+    pub move_slots: [u16; MOVE_LOG],
 }
 
 impl Board {

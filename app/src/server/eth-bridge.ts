@@ -19,7 +19,8 @@ import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { createSignerFromKeypair, publicKey as umiKey, signerIdentity } from "@metaplex-foundation/umi";
 import { fromWeb3JsKeypair, toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
 import { EndpointProgram, UlnProgram } from "@layerzerolabs/lz-solana-sdk-v2/umi";
-import { TESORO_CORE_ID, sourcePda, treasuryPda } from "@/lib/chain/native";
+import { CLUSTER } from "@/lib/cluster-settings";
+import { MAX_PRICE_AGE_SECS, PRICE_QUOTE_MARGIN_SECS, TESORO_CORE_ID, onchainPricePda, parsePythPrice, protectionsPda, pythFeedAddress, sourcePda, treasuryPda } from "@/lib/chain/native";
 import {
   BRIDGE_AUTHORITY,
   BRIDGE_ID,
@@ -51,7 +52,7 @@ import {
   type EvmNet,
 } from "@/lib/chain/eth";
 import type { SignedFields } from "@/lib/chain/signed-request";
-import { requireDevnet, requireHoodi, requireHyperEvm } from "./cluster";
+import { requireDevnet, requireHoodi, requireHyperEvm, requireTestMode } from "./cluster";
 import { HYPE_DEFAULT_MAX_PER_HOUR, createHypeTopup } from "./hype-topup";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { relayerSend } from "./relayer-send";
@@ -60,6 +61,7 @@ import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
 import { verifySignedRequest } from "./request-auth";
 import { isTransient, retryRead, retryingReads } from "./retry";
+import { BRAND } from "../lib/brand";
 
 const DAY = 24 * 60 * 60 * 1000;
 const FUND_BELOW = parseEther("0.004");
@@ -255,7 +257,7 @@ async function applyLocked(vault: string, pid: Buffer) {
   if (!view || view.lastInSeq === 0n) throw new DemoHttpError(409, "not-delivered", "Still crossing chains. This continues automatically.");
   const link = evmLinkPda(view.ownerEvm);
   const linkInfo = await conn.getAccountInfo(link);
-  if (!linkInfo) throw new DemoHttpError(409, "not-linked", "This wallet is not linked to a Tesoro Account yet.");
+  if (!linkInfo) throw new DemoHttpError(409, "not-linked", `This wallet is not linked to a ${BRAND.name} Account yet.`);
   const account = new PublicKey(linkInfo.data.subarray(8 + 20, 8 + 52));
   const relayer = relayerKey();
   const ix = new TransactionInstruction({
@@ -444,7 +446,26 @@ type Asset = EvmNet["native"];
 const FALLBACK_MICRO_USD: Record<Asset, bigint> = { ETH: 3_000_000_000n, HYPE: 40_000_000n };
 const PRICE_BOUNDS: Record<Asset, [number, number]> = { ETH: [100, 100_000], HYPE: [1, 10_000] };
 const priceCache = new Map<Asset, { microUsd: bigint; at: number; live: boolean }>();
+/**
+ * Mainnet: the asset's Pyth push feed on Solana, the account `take_advance_onchain` reads. The quote is live while the feed is
+ * young enough that the program will still accept it when the Player signs.
+ */
+async function pythPrice(asset: Asset): Promise<{ microUsd: bigint; live: boolean }> {
+  const hit = priceCache.get(asset);
+  if (hit && Date.now() - hit.at < 10_000) return hit;
+  let fresh = { microUsd: FALLBACK_MICRO_USD[asset], at: Date.now(), live: false };
+  try {
+    const view = parsePythPrice(await relayConn().getAccountInfo(pythFeedAddress(asset)), asset);
+    if (view && Date.now() / 1000 - view.updatedTs <= MAX_PRICE_AGE_SECS - PRICE_QUOTE_MARGIN_SECS) fresh = { microUsd: view.microUsd, at: Date.now(), live: true };
+  } catch {
+    // an unreadable feed is not live
+  }
+  priceCache.set(asset, fresh);
+  return fresh;
+}
+
 export async function assetPrice(asset: Asset): Promise<{ microUsd: bigint; live: boolean }> {
+  if (CLUSTER.priceSource === "onchain") return pythPrice(asset);
   const hit = priceCache.get(asset);
   if (hit && Date.now() - hit.at < 60_000) return hit;
   let microUsd = FALLBACK_MICRO_USD[asset];
@@ -497,7 +518,8 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
   }
   const oracle = oracleKey();
   const source = sourcePda(cp, advances);
-  const ix = new TransactionInstruction({
+  // Mainnet: the program reads the Pyth feed itself (`take_advance_onchain`); the oracle names no price.
+  const ix = CLUSTER.priceSource === "onchain" ? new TransactionInstruction({
     programId: TESORO_CORE_ID,
     keys: [
       key(oracle.publicKey, true, true),
@@ -505,10 +527,29 @@ async function advance(address: PublicKey, vault: string, pid: Buffer, months: n
       key(configPda()),
       key(treasuryPda()),
       key(ownerAccount, false, true),
+      key(protectionsPda(ownerAccount)),
+      key(cp, false, true),
+      key(onchainPricePda(new PublicKey(info.data.subarray(74, 106)))),
+      key(pythFeedAddress(asset)),
+      key(source, false, true),
+      key(holdingPda(ownerAccount, source), false, true),
+      key(SystemProgram.programId),
+    ],
+    data: Buffer.concat([disc("take_advance_onchain"), Buffer.from([months])]),
+  }) : new TransactionInstruction({
+    programId: TESORO_CORE_ID,
+    keys: [
+      key(oracle.publicKey, true, true),
+      key(address, true),
+      key(configPda()),
+      key(treasuryPda()),
+      key(ownerAccount, false, true),
+      key(protectionsPda(ownerAccount)),
       key(cp, false, true),
       key(source, false, true),
       key(holdingPda(ownerAccount, source), false, true),
       key(SystemProgram.programId),
+      key(onchainPricePda(new PublicKey(info.data.subarray(74, 106)))),
     ],
     data: Buffer.concat([disc("take_advance"), Buffer.from([months]), u64le(price.microUsd)]),
   });
@@ -542,6 +583,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
   const { step, address, fields, sub } = await verifySignedRequest("tesoro-eth", STEPS, raw, authorization, { nonces });
   const wallet = address.toBase58();
 
+  if (step === "fund-evm" || step === "fund-hype" || step === "faucet-lst") requireTestMode();
   if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "fund-hype") return fundHype(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "faucet-lst") return faucetLst(wallet, fields, sub);

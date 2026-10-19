@@ -24,10 +24,14 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRat
 /// (sumFeeA, sumFeeB, sumFeeD), updated on open, payout and Unlock, so the Treasury's share of the fees is a running
 /// claim computed from totals with no loop and no crank.
 ///
+/// A rate fall (kHYPE can be slashed) never makes Accrued Yield negative: growth below the open rate counts as zero.
+/// A Yield Report that would carry less than an earlier one is refused (`YieldBelowReported`), because Solana would
+/// reject the lower cumulative after the Player paid for the message.
+///
 /// Treasury (underlying units) = fees of open Positions + fees of closed Positions (realised at Unlock)
 ///   + funding + refills - withdrawals - Instant Redeem payouts.
 /// `reportYield(id)` is permissionless and sends `(accrued, treasuryBalance)`: what the vault Treasury can still pay
-/// now. Instant Redeem payouts the Treasury cannot cover are refused and refunded on Solana (`refundInstant`).
+/// now. An Instant Redeem payout the Treasury cannot cover reverts and waits: the same message pays once the Treasury holds enough.
 ///
 /// Messaging seam: outbound goes through `_send(bytes)`; inbound enters through `receiveMessage(bytes)`, which is
 /// authorised to the endpoint and forwards to `_receive(bytes)`. A LayerZero OApp subclass overrides `_send` and
@@ -39,8 +43,6 @@ contract PositionVault {
     uint8 public constant MSG_UNLOCK = 3;
     uint8 public constant MSG_PAY_YIELD = 4;
     uint8 public constant MSG_PAY_INSTANT = 5;
-    /// @dev EVM to Solana: a PayInstant the Treasury could not cover; Solana refunds the Gemas.
-    uint8 public constant MSG_INSTANT_REFUND = 6;
     uint16 public constant MAX_YIELD_FEE_BPS = 5000;
 
     struct Position {
@@ -103,9 +105,8 @@ contract PositionVault {
     ///      (LayerZero executes verified messages in any order and retries reverted ones), so idempotency is
     ///      per seq, not "strictly increasing".
     mapping(uint64 => mapping(uint64 => bool)) internal _handled;
-    /// @notice Underlying of a PayInstant (id, inbound seq) the Treasury could not pay. Never cleared, so the refund
-    ///         message can be sent again if it is lost; Solana refunds each (id, seq) once.
-    mapping(uint64 => mapping(uint64 => uint256)) public refusedInstant;
+    /// @notice Highest Accrued Yield a Yield Report has carried for a Position.
+    mapping(uint64 => uint256) public reportedAccrued;
 
     event PositionLocked(
         uint64 indexed positionId, address indexed owner, uint256 shares, uint8 horizonMonths, uint64 seq
@@ -123,8 +124,6 @@ contract PositionVault {
     event InstantPaid(
         uint64 indexed positionId, address indexed to, uint256 amountUnderlying, uint256 shares, uint64 seq
     );
-    event InstantRefused(uint64 indexed positionId, uint64 seq, uint256 amountUnderlying, uint256 available);
-    event InstantRefundSent(uint64 indexed positionId, uint64 refusedSeq, uint256 amountUnderlying, uint64 seq);
     event YieldFeeSet(uint16 bps);
     event YieldMinted(uint256 shares);
     event MessageIgnored(uint64 indexed positionId, uint8 msgType, uint64 seq, string reason);
@@ -141,7 +140,9 @@ contract PositionVault {
     error NotAdmin();
     error FeeTooHigh();
     error InsufficientTreasury(uint256 needed, uint256 available);
-    error NothingToRefund();
+    /// @dev Solana refuses a cumulative lower than one it applied (CumulativeDecreased); a rate fall can push the
+    ///      Accrued Yield under what an earlier report said, so that report waits for the rate to recover.
+    error YieldBelowReported(uint256 accrued, uint256 reported);
 
     constructor(address lst_, address rateSource_, address endpoint_, uint32 sourceChain_, address yieldMinter_) {
         lst = IERC20Minimal(lst_);
@@ -214,13 +215,29 @@ contract PositionVault {
     // ---------------------------------------------------------------- outbound
 
     function openPosition(uint256 lstAmount, uint8 horizonMonths) external payable returns (uint64 id) {
+        return _openFor(msg.sender, lstAmount, horizonMonths);
+    }
+
+    /// @notice Opens a Position owned by `owner` with LST pulled from the caller. Used by the stake-and-open zaps
+    ///         (`StakeZap`): the Player's coin is staked and locked in one transaction. The caller pays the
+    ///         LayerZero fee and, as `msg.sender` of the send, receives the refund of the excess.
+    function openPositionFor(address owner, uint256 lstAmount, uint8 horizonMonths)
+        external
+        payable
+        returns (uint64 id)
+    {
+        if (owner == address(0)) revert ZeroAmount();
+        return _openFor(owner, lstAmount, horizonMonths);
+    }
+
+    function _openFor(address owner, uint256 lstAmount, uint8 horizonMonths) internal returns (uint64 id) {
         if (lstAmount == 0) revert ZeroAmount();
         if (horizonMonths < 1 || horizonMonths > 12) revert BadHorizon();
 
         uint256 rate = rateSource.underlyingPerShare();
         id = ++nextPositionId;
         Position storage p = _positions[id];
-        p.owner = msg.sender;
+        p.owner = owner;
         p.principalShares = lstAmount;
         p.principalUnderlying = (lstAmount * rate) / RATE_SCALE;
         // tesoro_core keeps Principal as u64; a larger Position could never open on Solana and never unlock.
@@ -234,14 +251,14 @@ contract PositionVault {
 
         if (!lst.transferFrom(msg.sender, address(this), lstAmount)) revert TransferFailed();
 
-        emit PositionLocked(id, msg.sender, lstAmount, horizonMonths, seq);
+        emit PositionLocked(id, owner, lstAmount, horizonMonths, seq);
         _send(
             abi.encode(
                 MSG_POSITION_LOCKED,
                 sourceChain,
                 id,
                 seq,
-                bytes32(uint256(uint160(msg.sender))),
+                bytes32(uint256(uint160(owner))),
                 bytes32(uint256(uint160(address(lst)))),
                 lstAmount,
                 p.principalUnderlying,
@@ -257,22 +274,13 @@ contract PositionVault {
         Position storage p = _positions[id];
         if (p.owner == address(0)) revert UnknownPosition();
         uint256 accrued = _accrued(p);
+        if (accrued < reportedAccrued[id]) revert YieldBelowReported(accrued, reportedAccrued[id]);
+        reportedAccrued[id] = accrued;
         uint256 treasury = treasuryBalance();
         uint64 seq = ++p.outSeq;
         uint256 rate = rateSource.underlyingPerShare();
         emit YieldAccrued(id, accrued, rate, seq, treasury);
         _send(abi.encode(MSG_YIELD_ACCRUED, sourceChain, id, seq, accrued, rate, block.timestamp, treasury));
-    }
-
-    /// @notice Permissionless: tells Solana a PayInstant (id, inbound seq) was refused so it can refund the Gemas.
-    ///         Can be called again if the message is lost; Solana refunds each (id, refusedSeq) once.
-    function refundInstant(uint64 id, uint64 refusedSeq) external payable {
-        Position storage p = _positions[id];
-        uint256 amount = refusedInstant[id][refusedSeq];
-        if (amount == 0) revert NothingToRefund();
-        uint64 seq = ++p.outSeq;
-        emit InstantRefundSent(id, refusedSeq, amount, seq);
-        _send(abi.encode(MSG_INSTANT_REFUND, sourceChain, id, seq, refusedSeq, amount));
     }
 
     // ---------------------------------------------------------------- inbound
@@ -349,16 +357,14 @@ contract PositionVault {
     }
 
     /// @dev Pays `amount` underlying out of the Treasury, independent of the Position's own shares and lock state.
-    ///      A payout the Treasury cannot cover is refused for good (not reverted, which LayerZero would retry
-    ///      forever): it is recorded and `refundInstant` tells Solana to refund the Gemas.
+    ///      Solana has already taken the holder's Gemas, so a payout the Treasury cannot cover now must not be
+    ///      dropped: it reverts, which also leaves the seq unhandled, and the same message is delivered again (the
+    ///      Yield Fee keeps growing the Treasury; the owner can fund it) and pays once.
     function _onPayInstant(uint64 id, uint64 seq, address to, uint256 amount) internal {
         uint256 available = treasuryBalance();
         uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
-        if (amount > available || shares > _spendable()) {
-            refusedInstant[id][seq] = amount;
-            emit InstantRefused(id, seq, amount, available);
-            return;
-        }
+        if (amount > available) revert InsufficientTreasury(amount, available);
+        if (shares > _spendable()) revert InsufficientShares(shares, _spendable());
         instantPaid += amount;
         _payShares(to, shares);
         emit InstantPaid(id, to, amount, shares, seq);

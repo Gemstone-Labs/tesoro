@@ -15,6 +15,8 @@ import { accountHistory } from "@/lib/chain/history";
 import { useTopScoresToday } from "@/lib/chain/useRecentSettled";
 import { estimatedWin } from "@/lib/chain/ledger";
 import { fmtGemas } from "@/lib/format";
+import { awayNotice } from "@/lib/chain/protections";
+import { useAway } from "@/lib/chain/useAway";
 import { useQueue } from "@/components/lobby/useQueue";
 import { GAME_NAMES } from "@/lib/mock";
 import type { EntrySize, GameId } from "@/lib/mock";
@@ -61,6 +63,8 @@ export function GamePage({ game }: { game: GameId }) {
   const scores = top.data ?? [];
 
   const me = snapshot?.accountKey.toBase58();
+  const away = useAway();
+  const awayText = away ? awayNotice(away) : null;
   /** Other Players in the Queue at this entry (and asset): who Play now would meet. */
   const waiting = queue?.[game].filter((w) => w.player !== me && w.entry === entry && (game !== "trading-duel" || w.asset === asset)).length ?? 0;
 
@@ -83,25 +87,31 @@ export function GamePage({ game }: { game: GameId }) {
           {game === "trading-duel" && <AssetPicker value={asset} onChange={setAsset} name="gp-asset" />}
           <EntryPicker value={entry} onChange={setEntry} name={`gp-entry-${game}`} />
           <div className="gp-cta">
-            <Button variant="money" size="lg" block onClick={() => auth.gate("Enter a Match", () => router.push(query("queue")))}>
-              <span className="gp-play-label">Play now</span>
-              <span className="gp-play-sub">
-                {fmtGemas(entry)} entry · win {fmtGemas(estimatedWin(entry))}
-                {waiting ? (
-                  <>
-                    {" · "}
-                    <Users aria-hidden="true" /> {waiting} waiting
-                  </>
-                ) : null}
-              </span>
-            </Button>
-            <div className="gp-more">
-              <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
-                <UserPlus aria-hidden="true" />
-                <span>
-                  Challenge<span className="gp-friend"> a friend</span>
+            {awayText ? (
+              <p className="status" role="status">{awayText}</p>
+            ) : (
+              <Button variant="money" size="lg" block onClick={() => auth.gate("Enter a Match", () => router.push(query("queue")))}>
+                <span className="gp-play-label">Play now</span>
+                <span className="gp-play-sub">
+                  {fmtGemas(entry)} entry · win {fmtGemas(estimatedWin(entry))}
+                  {waiting ? (
+                    <>
+                      {" · "}
+                      <Users aria-hidden="true" /> {waiting} waiting
+                    </>
+                  ) : null}
                 </span>
               </Button>
+            )}
+            <div className="gp-more">
+              {!awayText && (
+                <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
+                  <UserPlus aria-hidden="true" />
+                  <span>
+                    Challenge<span className="gp-friend"> a friend</span>
+                  </span>
+                </Button>
+              )}
               <Button size="lg" href={practiceHref(game, asset)}>
                 <Dumbbell aria-hidden="true" />
                 Practice free

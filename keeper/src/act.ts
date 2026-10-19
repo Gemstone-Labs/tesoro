@@ -1,3 +1,4 @@
+import { jobs } from "./job-stats.ts";
 import type { Runtime } from "./runtime.ts";
 
 export const log = (job: string, subject: string, msg: string) =>
@@ -10,9 +11,14 @@ const running = new Map<string, Promise<void>>();
 /** Runs a job unless its previous run is still going; waits at most `limitMs` for it. */
 export async function runJob<C>(name: string, job: (c: C) => Promise<number>, ctx: C, limitMs = JOB_LIMIT_MS) {
   if (running.has(name)) return log(name, "-", "SKIP: previous run still going");
+  jobs.started(name);
   const run = job(ctx)
-    .then(() => undefined)
-    .catch((e) => log(name, "-", `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 300)}`))
+    .then(() => jobs.ok(name))
+    .catch((e) => {
+      const msg = String((e as Error).message ?? e).split("\n")[0].slice(0, 300);
+      jobs.fail(name, msg);
+      log(name, "-", `ERROR ${msg}`);
+    })
     .finally(() => running.delete(name));
   running.set(name, run);
   let timer: NodeJS.Timeout | undefined;
@@ -86,8 +92,7 @@ export async function act(rt: ActCtx, job: string, subject: string, what: string
 
 /**
  * `lz`: rolling cap on LayerZero fees paid on Solana; `eth` / `hype`: rolling caps on the fees paid on Hoodi / HyperEVM, in gwei;
- * `yieldShare`: the part of `budget` the yield cranks may use, so refunds, settles and bridge steps keep the rest.
  */
-export type Ctx = Runtime & { budget: Budget; lz: Budget; eth: Budget; hype: Budget; yieldShare: Budget };
+export type Ctx = Runtime & { budget: Budget; lz: Budget; eth: Budget; hype: Budget };
 /** What `act` needs: lets tests drive it without a full runtime. */
 export type ActCtx = Pick<Ctx, "settings" | "budget" | "conn" | "payer">;

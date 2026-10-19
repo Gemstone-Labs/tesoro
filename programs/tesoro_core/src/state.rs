@@ -15,14 +15,25 @@ pub const REQUEST_SEED: &[u8] = b"request";
 pub const OFFER_SEED: &[u8] = b"offer";
 pub const NATIVE_SEED: &[u8] = b"native";
 pub const NATIVE_VAULT_SEED: &[u8] = b"native_vault";
+/// The staking-token setting (ADR 0011): `["stake_config"]`.
+pub const STAKE_CONFIG_SEED: &[u8] = b"stake_config";
+/// One shared custody per staking token: `["stake_custody", mint]`, with its vault at
+/// `["stake_vault", mint]`.
+pub const STAKE_CUSTODY_SEED: &[u8] = b"stake_custody";
+pub const STAKE_VAULT_SEED: &[u8] = b"stake_vault";
 /// PDA that signs `sim_lst::mint_yield`; sim_lst records it as the one yield authority.
 pub const YIELD_SEED: &[u8] = b"yield";
 pub const PRICE_SEED: &[u8] = b"price";
+/// Seed of an asset's on-chain price mapping: `["onchain_price", source_asset]`.
+pub const ONCHAIN_PRICE_SEED: &[u8] = b"onchain_price";
 pub const SEASON_SEED: &[u8] = b"season";
+pub const SEASON_WINDOW_SEED: &[u8] = b"season_window";
 /// Address (never a signer) that owns the Leaderboard Pool Account: `["leaderboard"]`.
 pub const LEADERBOARD_SEED: &[u8] = b"leaderboard";
 pub const PROFILE_SEED: &[u8] = b"profile";
 pub const EXTEND_LIMIT_SEED: &[u8] = b"extend_limit";
+/// A Player's Protections (Entry Limit now; Break and Self-Exclusion later): `["protections", account]`.
+pub const PROTECTIONS_SEED: &[u8] = b"protections";
 /// The Treasury: its config account, and the address that owns the Treasury Account and the
 /// treasury simSOL vault (`["treasury"]`). Nobody can sign for it outside this program.
 pub const TREASURY_SEED: &[u8] = b"treasury";
@@ -38,6 +49,25 @@ pub const SIM_SOL_MINT: Pubkey = pubkey!("3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD
 /// How old the issuance price may be when an Advance is taken.
 pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
 pub const SOURCE_AUTHORITY_SEED: &[u8] = b"source_auth";
+/// The Invite gate setting (ADR 0012): `["invite_gate"]`. Its own account so `Config` keeps its layout.
+pub const INVITE_GATE_SEED: &[u8] = b"invite_gate";
+
+/// Address of the Invite gate account (it may not exist yet: no account means the gate is off).
+pub fn invite_gate_pda() -> Pubkey {
+    Pubkey::find_program_address(&[INVITE_GATE_SEED], &crate::ID).0
+}
+
+/// While `required`, `create_account` needs `key` as an extra signer.
+#[account]
+pub struct InviteGate {
+    pub bump: u8,
+    pub required: bool,
+    pub key: Pubkey,
+}
+
+impl InviteGate {
+    pub const SPACE: usize = 8 + 1 + 1 + 32;
+}
 
 pub const MAX_GAMES: usize = 8;
 
@@ -73,15 +103,38 @@ pub struct Config {
     /// Unix time `init_leaderboard` first ran: Matches opened before it were not charged the fee, so
     /// readers show the fee only for Matches opened at or after it. Zero until then.
     pub leaderboard_since: i64,
+    /// Entry sizes in Gemas, zero-padded. All zero until `set_entry_sizes`: the default 500 /
+    /// 1,000 / 2,500 apply, so an older Config needs no call. Appended after the Leaderboard
+    /// fields: an account created before reads them as zero from its zeroed tail.
+    pub entry_sizes: [u64; ledger::MAX_ENTRY_SIZES],
+    /// Set by the admin on mainnet (`set_oracle_lock`): the oracle key can no longer register
+    /// Positions, report their yield or name an Advance's price (test-mode paths), so a stolen
+    /// oracle key cannot mint Gemas. Appended last: an older Config reads it as false.
+    pub oracle_locked: bool,
 }
 
 impl Config {
-    pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8;
+    pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8 + 8 * ledger::MAX_ENTRY_SIZES + 1;
     /// The layout before the Leaderboard fields.
     pub const LEGACY_SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 4 + MAX_GAMES * (32 + 32 + 2 + 32);
 
     pub fn game(&self, game: &Pubkey) -> Option<&GameEntry> {
         self.games.iter().find(|g| g.game == *game)
+    }
+
+    /// The entry sizes in force: the admin's list, or the default ladder while none is set.
+    pub fn entries(&self) -> Vec<u64> {
+        let set: Vec<u64> = self
+            .entry_sizes
+            .iter()
+            .copied()
+            .filter(|&e| e != 0)
+            .collect();
+        if set.is_empty() {
+            ledger::LADDER.to_vec()
+        } else {
+            set
+        }
     }
 
     pub fn leaderboard_terms(&self) -> ledger::LeaderboardTerms {
@@ -114,6 +167,19 @@ pub struct SeasonState {
 
 impl SeasonState {
     pub const SPACE: usize = 8 + 1 + 4 + 8 + 1 + ledger::PRIZE_PLACES * (32 + 8 + 8) + 2;
+}
+
+/// The payout window of a recorded season (ADR 0012): when it was recorded and which ranks the
+/// admin voided. A separate account so `SeasonState` keeps its layout. Created by
+/// `record_season`; seeds `["season_window", number as u32 LE]`.
+#[account]
+pub struct SeasonWindowState {
+    pub bump: u8,
+    pub inner: ledger::SeasonWindow,
+}
+
+impl SeasonWindowState {
+    pub const SPACE: usize = 8 + 1 + 4 + 8 + 2;
 }
 
 /// The signer allowed to report `PositionLocked` / `YieldAccrued` for Positions of one source
@@ -152,7 +218,7 @@ pub struct PositionState {
 
 impl PositionState {
     pub const SPACE: usize =
-        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2;
+        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2 + 8;
 }
 
 #[account]
@@ -270,6 +336,85 @@ impl NativeCustody {
     }
 }
 
+/// The staking-token setting for mainnet SOL Positions (ADR 0011): which token new Positions open
+/// with, and the ceiling on the APY an Advance is sized on. Seeds `["stake_config"]`. Test mode
+/// never creates it.
+#[account]
+pub struct StakeConfig {
+    pub bump: u8,
+    /// Mint of the one active token; default = none yet.
+    pub active_mint: Pubkey,
+    /// Ceiling on the annualised growth an Advance is sized on, basis points; 0 = not set (no
+    /// Advance can be taken).
+    pub apy_ceiling_bps: u16,
+}
+
+impl StakeConfig {
+    pub const SPACE: usize = 8 + 1 + 32 + 2;
+}
+
+/// The shared custody of one staking token. Every stake Position of that token holds its
+/// `custody_shares` in `vault`; the totals behind the Treasury's Yield Fee claim change only on
+/// open and unlock (`ledger::stake`). Seeds `["stake_custody", mint]`; the vault is a token account
+/// at `["stake_vault", mint]` with this account as authority.
+#[account]
+pub struct StakeCustody {
+    pub bump: u8,
+    pub vault_bump: u8,
+    pub mint: Pubkey,
+    /// The SPL stake pool account the token's Staking Rate is read from.
+    pub pool: Pubkey,
+    pub vault: Pubkey,
+    pub principal: u128,
+    pub fee_shares: u128,
+    pub fee_principal: u128,
+    pub realised_fee_shares: u128,
+    pub open_positions: u64,
+    /// Tokens the Treasury bought back by redeeming Gemas (their yield stays in the vault).
+    pub refilled_shares: u64,
+    /// Tokens paid by Instant Redeem, cumulative.
+    pub instant_shares: u64,
+    /// Tokens withdrawn to the company wallet, cumulative.
+    pub withdrawn_shares: u64,
+}
+
+impl StakeCustody {
+    pub const SPACE: usize = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8;
+
+    pub fn totals(&self) -> ledger::StakeTotals {
+        ledger::StakeTotals {
+            principal: self.principal,
+            fee_shares: self.fee_shares,
+            fee_principal: self.fee_principal,
+            realised_fee_shares: self.realised_fee_shares,
+            open_positions: self.open_positions,
+        }
+    }
+
+    pub fn set_totals(&mut self, t: ledger::StakeTotals) {
+        self.principal = t.principal;
+        self.fee_shares = t.fee_shares;
+        self.fee_principal = t.fee_principal;
+        self.realised_fee_shares = t.realised_fee_shares;
+        self.open_positions = t.open_positions;
+    }
+
+    /// The Treasury's balance in tokens at `rate`: the earned Yield Fee plus what it redeemed,
+    /// less what it paid out; never more than the vault holds above the Principal reserve.
+    pub fn treasury_balance(&self, rate: u64, vault_amount: u64) -> Result<u64> {
+        use crate::error::core_err;
+        let totals = self.totals();
+        let earned = totals.earned_fee_shares(rate).map_err(core_err)?;
+        let claim = earned
+            .saturating_add(self.refilled_shares)
+            .saturating_sub(self.instant_shares)
+            .saturating_sub(self.withdrawn_shares);
+        let headroom =
+            vault_amount.saturating_sub(totals.principal_reserve(rate).map_err(core_err)?);
+        Ok(claim.min(headroom))
+    }
+}
+
 /// Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the
 /// `NativeCustody` pool totals (ADR 0010) and minted lazily: its balance is the unminted fee
 /// (`earned_fee - fee_minted`) plus the simSOL in `vault`. It pays Solana Instant Redeems and
@@ -283,7 +428,7 @@ pub struct Treasury {
     pub account_bump: u8,
     /// Yield Fee, basis points of every yield increment (2,000 at launch).
     pub yield_fee_bps: u16,
-    /// Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 at launch).
+    /// Instant Redeem Fee, basis points of the redeemed Gemas' value (3,500 on devnet; 2,500 on mainnet, ADR 0011).
     pub instant_fee_bps: u16,
     /// The Treasury Account (`["account", treasury]`).
     pub account: Pubkey,
@@ -320,6 +465,49 @@ impl PriceFeed {
     pub const SPACE: usize = 8 + 1 + 32 + 8 + 8;
 }
 
+/// Where an asset's Advances read their USD price on mainnet (ADR 0011): the Pyth sponsored push
+/// feed account and the feed id it must carry. Admin-set, seeds `["onchain_price", source_asset]`.
+/// While it exists the oracle-supplied price path (`take_advance`) is closed for that asset.
+#[account]
+pub struct OnchainPrice {
+    pub bump: u8,
+    /// The `source_asset` of the Positions it prices (the staking token's mint or EVM key).
+    pub asset: Pubkey,
+    /// The `PriceUpdateV2` account the price is read from (owned by the Pyth receiver).
+    pub feed: Pubkey,
+    /// The Pyth feed id of the asset's underlying coin (SOL/USD, ETH/USD, HYPE/USD).
+    pub feed_id: [u8; 32],
+    /// The oldest price an Advance accepts; the program caps it at `pyth::MAX_ONCHAIN_PRICE_AGE_SECS`.
+    pub max_age_secs: u32,
+    /// The widest confidence interval an Advance accepts, share of the price in basis points.
+    pub max_conf_bps: u16,
+}
+
+impl OnchainPrice {
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 32 + 4 + 2;
+
+    /// The micro-USD price of one whole unit of the asset, read from the feed account `info`.
+    pub fn read(&self, info: &AccountInfo, now: i64) -> Result<u64> {
+        use crate::error::TesoroError;
+        use crate::pyth::{read_micro_usd, PythError, PYTH_RECEIVER};
+        require_keys_eq!(*info.key, self.feed, TesoroError::BadPriceFeed);
+        require_keys_eq!(*info.owner, PYTH_RECEIVER, TesoroError::BadPriceFeed);
+        let data = info.try_borrow_data()?;
+        read_micro_usd(
+            &data,
+            &self.feed_id,
+            now,
+            self.max_age_secs,
+            self.max_conf_bps,
+        )
+        .map_err(|e| match e {
+            PythError::BadFeed => error!(TesoroError::BadPriceFeed),
+            PythError::Stale => error!(TesoroError::StalePrice),
+            PythError::LowConfidence => error!(TesoroError::PriceTooUncertain),
+        })
+    }
+}
+
 pub fn key(p: &Pubkey) -> Key {
     p.to_bytes()
 }
@@ -345,6 +533,46 @@ pub struct ExtendLimitState {
 
 impl ExtendLimitState {
     pub const SPACE: usize = 8 + 1 + 32 + ledger::ExtendLimit::SPACE;
+}
+
+/// A Player's Protections. Seeds `["protections", account]`; created by the first
+/// `set_entry_limit` (or any later Protection), paid by the owner. A Player who never set one has no
+/// account, which means no Protection is in force: every Match entry and Backing still passes the
+/// (empty) PDA address, so a direct transaction cannot leave it out.
+#[account]
+pub struct ProtectionsState {
+    pub bump: u8,
+    /// The `TesoroAccount` these belong to; the default key until first used.
+    pub account: Pubkey,
+    pub inner: ledger::Protections,
+}
+
+impl ProtectionsState {
+    pub const SPACE: usize = 8 + 1 + 32 + ledger::Protections::SPACE;
+}
+
+#[event]
+pub struct BreakSet {
+    pub account: Pubkey,
+    /// When the Break ends (unix seconds).
+    pub until: i64,
+}
+
+#[event]
+pub struct SelfExclusionSet {
+    pub account: Pubkey,
+    /// When the Self-Exclusion ends (unix seconds).
+    pub until: i64,
+}
+
+#[event]
+pub struct EntryLimitSet {
+    pub account: Pubkey,
+    /// The limit in force after the change, in Gemas (zero = off).
+    pub gemas: u64,
+    /// A raise waiting for `pending_at` (zero = none); a pending zero means the limit is removed.
+    pub pending_gemas: u64,
+    pub pending_at: i64,
 }
 
 #[event]
@@ -446,6 +674,48 @@ pub struct TreasuryFunded {
     pub shares: u64,
 }
 
+/// The admin mapped an asset to the Pyth feed its Advances are priced from.
+#[event]
+pub struct OnchainPriceSet {
+    pub asset: Pubkey,
+    pub feed: Pubkey,
+    pub feed_id: [u8; 32],
+}
+
+/// The admin chose the staking token new SOL Positions open with.
+#[event]
+pub struct StakeTokenSet {
+    pub mint: Pubkey,
+    pub pool: Pubkey,
+}
+
+#[event]
+pub struct StakeApyCeilingSet {
+    pub apy_ceiling_bps: u16,
+}
+
+#[event]
+pub struct StakePositionOpened {
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub mint: Pubkey,
+    pub shares: u64,
+    /// Staking Rate at open, lamports per token at 1e12.
+    pub rate: u64,
+    pub principal_sol: u64,
+}
+
+/// Staking tokens paid to `to` for a stake Position or from the Treasury.
+#[event]
+pub struct StakePayout {
+    pub position: Pubkey,
+    pub to: Pubkey,
+    pub shares: u64,
+    pub sol_units: u64,
+    /// 0 = redeem, 1 = unlock Principal, 2 = unlock free yield, 3 = instant redeem, 4 = withdrawal.
+    pub kind: u8,
+}
+
 #[event]
 pub struct PriceSet {
     pub asset: Pubkey,
@@ -466,6 +736,10 @@ pub struct MatchWon {
     pub pool_fee: u64,
     pub season: u32,
     pub ts: i64,
+    /// The Account that played on the losing side (the opponent of `player`); all zeroes if that
+    /// seat was empty. Last field, so events from before it was added are the same bytes minus
+    /// these 32 and read as having no known opponent (ADR 0012).
+    pub loser: Pubkey,
 }
 
 #[event]
@@ -473,6 +747,13 @@ pub struct SeasonRecorded {
     pub season: u32,
     pub pool_total: u64,
     pub winners: u8,
+}
+
+#[event]
+pub struct SeasonRankVoided {
+    pub season: u32,
+    pub rank: u8,
+    pub account: Pubkey,
 }
 
 #[event]
@@ -579,4 +860,14 @@ mod profile_tests {
         assert!(Profile::avatar_is_valid(AvatarChoice::Animal(11)));
         assert!(!Profile::avatar_is_valid(AvatarChoice::Animal(12)));
     }
+}
+
+/// An account of the world before the yield-by-math reset was closed by the admin. `kind`:
+/// 0 custody (`amount` = simSOL returned to its owner), 1 Position, 2 Source, 3 Holding
+/// (`amount` = Gemas taken out of the Account), 4 Request, 5 Offer, 6 Treasury.
+#[event]
+pub struct OldAccountRetired {
+    pub kind: u8,
+    pub account: Pubkey,
+    pub amount: u64,
 }

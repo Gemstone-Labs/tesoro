@@ -1,6 +1,6 @@
 # Cross-chain: Ethereum Positions on the Solana ledger (LayerZero V2)
 
-Testnets only (Solana devnet, Ethereum Hoodi; HyperEVM prepared). SimLST yield is SIMULATED ("Simulated yield · 1 month = 10 min", per Position, linear on its Principal). Decision: ADR 0002. Spike background: `docs/spikes/S2-S3.md`.
+Test mode runs on Solana devnet, Ethereum Hoodi and HyperEVM testnet; the mainnet cluster adds the real-token vaults described under "Mainnet vaults". SimLST yield is SIMULATED ("Simulated yield · 1 month = 10 min", per Position, linear on its Principal). Decision: ADR 0002. Spike background: `docs/spikes/S2-S3.md`.
 
 ## Pieces
 
@@ -10,7 +10,7 @@ Testnets only (Solana devnet, Ethereum Hoodi; HyperEVM prepared). SimLST yield i
 | `tesoro_bridge` | `bridge/` (own Anchor workspace, program `5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ`) | Solana OApp. Inbox for inbound facts, permissionless CPIs into `tesoro_core`, permissionless outbound sends |
 | `SourceAuthority` | `tesoro_core` (additive) | Per source chain, the signer allowed to report `PositionLocked` / `YieldAccrued`. The bridge PDA `["authority"]` is registered for Ethereum and HyperEVM |
 
-Wire format (identical in Solidity and Rust, `abi.encodePacked`, big-endian): header `msgType u8 | sourceChain u32 (eid) | positionId bytes32 | seq u64` (45 bytes), then `1 PositionLocked`: `owner bytes32 | lst bytes32 | principalUnderlying u128 | horizon u8` (126 bytes); `2 YieldAccrued`: `cumulative u128 | treasuryBalance u128` (77; the second field is what the vault Treasury can pay now, it falls with Instant Redeems and withdrawals, ADR 0010); `6 InstantRefund` (EVM to Solana): `refusedSeq u64 | amount u128` (69); `3 Unlock`: `0 u128` (61); `4 PayYield`: `to bytes32 | amount u128` (93); `5 PayInstant`: `to bytes32 | amount u128` (93, Instant Redeem payout from the vault treasury). `positionId` = vault address (20 bytes) | vault position id (u64) | 4 zero bytes, so two vaults on one chain never collide and a vault can only speak for its own Positions (the bridge checks the id against the LayerZero sender).
+Wire format (identical in Solidity and Rust, `abi.encodePacked`, big-endian): header `msgType u8 | sourceChain u32 (eid) | positionId bytes32 | seq u64` (45 bytes), then `1 PositionLocked`: `owner bytes32 | lst bytes32 | principalUnderlying u128 | horizon u8` (126 bytes); `2 YieldAccrued`: `cumulative u128 | treasuryBalance u128` (77; the second field is what the vault Treasury can pay now, it falls with Instant Redeems and withdrawals, ADR 0010); `3 Unlock`: `0 u128` (61); `4 PayYield`: `to bytes32 | amount u128` (93); `5 PayInstant`: `to bytes32 | amount u128` (93, Instant Redeem payout from the vault treasury). `positionId` = vault address (20 bytes) | vault position id (u64) | 4 zero bytes, so two vaults on one chain never collide and a vault can only speak for its own Positions (the bridge checks the id against the LayerZero sender).
 
 ## Flow and who pays
 
@@ -108,7 +108,7 @@ The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH
 
 ## Yield Fee, Instant Redeem and the vault Treasury (2026-10-12, ADR 0007)
 
-**EVM vault** (ADR 0010, computed never cranked): a Position's Accrued Yield is `Principal x (growth since open - 1)` minus the Yield Fee (`feeBps` fixed per Position at open, default 2000, cap 5000, admin setter for new Positions). SimLST: growth = `1 + apyBps x elapsed x speedup / year` with `apyBps`/`speedup` read at open; the SimLST rate stays flat and shares are minted only when a payout needs them (PayYield, PayInstant, `withdrawTreasury`). Real LST: gross = held shares x rate + paid out - Principal, so shares already paid out stop earning; the Treasury claim uses the same share totals (O(1)). The Treasury is a running claim computed from vault totals (`treasuryBalance()` = open Positions' fees + realised fees at Unlock + funding and refills - withdrawals - Instant payouts); `withdrawTreasury(amount, to)` is owner-only. `reportYield(id)` is permissionless and sends `YieldAccrued(cumulative, treasuryBalance)` at that block. `MSG_PAY_INSTANT` pays the holder from the Treasury; one the Treasury cannot cover is recorded (`refusedInstant[id][seq]`, event `InstantRefused`, no revert) and anyone calls `refundInstant(id, seq)` to send `InstantRefund(refusedSeq, amount)`, which Solana must answer by refunding the Gemas once per (id, refusedSeq). A `PayYield` whose `to == address(this)` books into the Treasury (the refill). New vaults come from `script/deploy-oapp.sh`, then `SimLST.setMinter(newVault)`; the constructor is unchanged. Older vaults are abandoned.
+**EVM vault** (ADR 0010, computed never cranked): a Position's Accrued Yield is `Principal x (growth since open - 1)` minus the Yield Fee (`feeBps` fixed per Position at open, default 2000, cap 5000, admin setter for new Positions). SimLST: growth = `1 + apyBps x elapsed x speedup / year` with `apyBps`/`speedup` read at open; the SimLST rate stays flat and shares are minted only when a payout needs them (PayYield, PayInstant, `withdrawTreasury`). Real LST: gross = held shares x rate + paid out - Principal, so shares already paid out stop earning; the Treasury claim uses the same share totals (O(1)). The Treasury is a running claim computed from vault totals (`treasuryBalance()` = open Positions' fees + realised fees at Unlock + funding and refills - withdrawals - Instant payouts); `withdrawTreasury(amount, to)` is owner-only. `reportYield(id)` is permissionless and sends `YieldAccrued(cumulative, treasuryBalance)` at that block. `MSG_PAY_INSTANT` pays the holder from the Treasury; one the Treasury cannot cover reverts (`InsufficientTreasury`) and is not marked handled, so the same message pays once the Treasury holds enough (audit 2026-10-16, B-1: the earlier refuse-and-refund design had no receiver on Solana, so the holder lost the Gemas). Redeliver it from LayerZero Scan or with `lzReceive` once the Yield Fee or `fundTreasury` has refilled the Treasury; the owner must not `withdrawTreasury` below what Solana has recorded as Instant Redeem payouts. A `PayYield` whose `to == address(this)` books into the Treasury (the refill). New vaults come from `script/deploy-oapp.sh`, then `SimLST.setMinter(newVault)`; the constructor is unchanged. Older vaults are abandoned.
 
 **`tesoro_bridge` state**
 - `BridgePosition` gains `treasury_in: u128` at the end (after `unlock_sent`), taken from the latest yield message. Old accounts no longer decode.
@@ -117,10 +117,146 @@ The app opens HYPE Positions from the Wallet's HYPE tab and tracks them like ETH
 **`tesoro_bridge` instructions**
 - `apply_yield` now takes `vault_treasury (mut)` after `bridge_position` and raises `reported_in` to the Position's `treasury_in` (max, monotonic).
 - `sync_treasury(PositionRef)` (permissionless): accounts `bridge_position`, `vault_treasury`; raises `reported_in` without applying yield.
-- `instant_redeem_to_evm(gemas)` (payout = value less tesoro_core's `instant_fee_bps`, currently 2,500 bps, so 75%; vaults have no Instant Redeem rate of their own): the holder signs. CPIs `tesoro_core::instant_redeem_from_source` (bridge PDA co-signs as source authority), refuses `TreasuryShort` unless `instant_recorded + payout <= reported_in`, adds the payout to `instant_recorded` and records it in an `InstantClaim` PDA `["instant", holder_account, core_source]` (`init_if_needed`). The cap is safe because `treasuryIn` is monotonic and only Instant Redeem spends the vault treasury.
+- `instant_redeem_to_evm(gemas)` (payout = value less tesoro_core's `instant_fee_bps`, currently 2,500 bps, so 75%; vaults have no Instant Redeem rate of their own): the holder signs. CPIs `tesoro_core::instant_redeem_from_source` (bridge PDA co-signs as source authority), refuses `TreasuryShort` unless `instant_recorded + payout <= reported_in`, adds the payout to `instant_recorded` and records it in an `InstantClaim` PDA `["instant", holder_account, core_source]` (`init_if_needed`). `reported_in` keeps the highest Treasury balance any Yield Report carried, which is an upper bound on what the vault can pay only while nothing but Instant Redeem spends the Treasury: after `withdrawTreasury` or a rate fall the vault can hold less than `reported_in - instant_recorded`, and a payout it cannot cover waits (see the vault note above) instead of being lost (audit 2026-10-16, B-2).
 - `send_pay_instant(SendParams)`: like `send_pay_yield` but reads the `InstantClaim`, sends `PayInstant(to = holder's EVM address, amount = units not yet sent)` and advances the claim in the same transaction.
 - `redeem_treasury_to_evm(gemas)` (permissionless): the Treasury Account redeems its Gemas of an EVM Source (`redeem_treasury_from_source`) and records a normal `Claim`.
 - `send_pay_yield`: `evm_link` is now optional. When the claim's holder is the Treasury Account the `PayYield` goes to the vault's own address, which books it into its treasury.
 - `quote_send` accepts message type 5.
 
 **Loop.** Yield Fee accrues in the vault, `reportYield` tells Solana (`treasuryIn`), a holder Instant Redeems on Solana (capped by `reported_in - instant_recorded`), `PayInstant` pays them from the vault. When the Source's yield lands, `redeem_treasury_to_evm` + `send_pay_yield` refill the vault treasury at full value.
+
+## Mainnet vaults on the formula vault (ADR 0010, ADR 0011, ticket 42, not deployed)
+
+Ethereum (wstETH) and HyperEVM (kHYPE) run the same `PositionVaultOApp` as the test networks, with `yieldMinter = address(0)` and a rate adapter as the rate source. There is no mainnet-only vault code; the Yield Fee, Treasury claim, on-demand Yield Report and refund path are the ones in "Yield Fee, Instant Redeem and the vault Treasury" above.
+
+**Accrued Yield on a real token.** `gross = heldShares x rate + paidUnderlying - principalUnderlying`, `accrued = gross - gross x feeBps / 10,000` (fee 20% at open, fixed per Position). Shares paid out stop earning (they move from `heldShares` to `paidUnderlying` at the same value), so a payout never changes the figure. The Treasury claim comes from fee-weighted share totals (`sumFeeA/B/D`), O(1), no crank. The rate is the adapter's `underlyingPerShare()` read at the block of the call.
+
+**Rate dip (decision, ticket 42).** Growth below the open rate counts as zero: `_gross` clamps at 0, so Accrued Yield, the Position's fee and a Report are never negative and nothing reverts. kHYPE can be slashed (`totalSlashing` lowers the accountant rate), wstETH only falls on a Lido slashing report. Consequences, all tested (`contracts/test/MainnetVault.t.sol`, both adapters):
+- The Treasury claim is a pool total, so a dipped Position can net against another one's fee: during a dip the claim is at most the sum of the per-Position fees, never above it.
+- Solana refuses a cumulative lower than one it applied (`CumulativeDecreased`). The vault therefore keeps `reportedAccrued[id]` and `reportYield` reverts `YieldBelowReported(accrued, reported)` while the rate is under what an earlier Report said, instead of sending a message that would fail after the Player paid the LayerZero fee. The next Report works once the rate recovers.
+- `PayYield` of an amount above the formula's payable yield reverts `ExceedsAccruedYield` (retryable by LayerZero), so it completes by itself after the rate recovers. Unlock after a dip returns every share (their value fell with the rate); the yield is frozen at the Unlock block.
+- Open follow-up for Solana (not in this ticket): yield already applied to Debt when the rate falls is not taken back. A sustained slashing leaves that Debt repaid by yield the vault can no longer pay; the vault Treasury and the Player's own Principal are never touched (`_spendable` reserves open Principal).
+
+**Ethereum.** `contracts/script/DeployMainnetWstETH.s.sol`: `WstETHRateAdapter` (`stEthPerToken()`, underlying is stETH) plus `PositionVaultOApp` on Lido wstETH `0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0`, LayerZero V2 endpoint `0x1a44076050125825900e736c501f859c50fE728c`, eids Ethereum 30101 and Solana 30168 (LayerZero metadata API, checked 2026-10-15). `VAULT_OWNER` (the Safe) becomes owner and LayerZero delegate.
+
+**HyperEVM.** `contracts/script/DeployMainnetKHype.s.sol`: `KHypeRateAdapter` plus `PositionVaultOApp` on Kinetiq kHYPE (`0xfD739d4e423301CE9385c1fb8850539D657C296D`, 18 decimals), chain id 999, endpoint `0x3A73033C0b1407574C76BdBAc67f126f6b4a9AA9`, eids HyperEVM 30367 and Solana 30168. Rate = StakingAccountant `0x9209648Ec9D448EF57116B73A2f081835643dc7A` `kHYPEToHYPE(1e18)` (1.0265 HYPE per kHYPE on 2026-10-15). Kinetiq takes its own 10% of staking rewards before the rate, so the Player's APY is net of both fees. The vault needs about 3.37M gas, above HyperEVM's small-block limit: switch the deployer to big blocks first (`evmUserModify usingBigBlocks`, as in `docs/deployments.md`), run `forge script script/DeployMainnetKHype.s.sol --rpc-url hyperevm --broadcast --slow` (`HYPEREVM_MAINNET_RPC`, `VAULT_OWNER`, `EVM_DEPLOYER_PRIVATE_KEY`), then switch big blocks off. `contracts/script/deploy-oapp.sh hyperevm-mainnet khype <adapter>` is the manual equivalent.
+
+**After each deploy** (orchestrator): `setPeer(30168, <Store PDA>)` from the owner, wire the pathway (`pnpm lz-mainnet`, below), register the vault with `set_peer_config` (eid 30101 / 30367, decimals 18, `rate_bps` = the APY Advances on this vault are sized on), deploy the zap, set the app env.
+
+**Wire sizes, all unchanged by the formula vault:** `PositionLocked` 126, `YieldAccrued` 77 (`cumulative u128 | treasuryBalance u128`), `Unlock` 61, `PayYield`/`PayInstant` 93 inbound. The pathway's executor accepts messages up to 200 B and the enforced Solana-to-EVM gas is 250,000; the heaviest `lzReceive` (PayYield) uses well under 150,000 (`MainnetReceiveGasTest`). Vault-to-Solana options are `lzReceive` with 200,000 compute units (`setSolanaReceiveCu`).
+
+**APY on the form.** A real-token vault has no APY of its own. The open form shows the `rate_bps` of the vault's `PeerConfig` in `tesoro_bridge` (read by `fetchPeerRateBps`), because that is what `apply_locked` hands to tesoro_core to size every Advance on it; "APY —" and no Advance while the peer is missing or the rate is 0. Ops pick `rate_bps` from the adapter's recent growth: `growth = rate(now) / rate(7 days ago) - 1`, annualised (`cast call <adapter> "underlyingPerShare()(uint256)" --block <n>` on an archive RPC, then `growth x 365 / 7 x 10,000`), and update it with `set_peer_config` when it drifts; the Position keeps the rate it opened with.
+
+**Tests.** `contracts/test/MainnetVault.t.sol` (both adapters on `PositionVaultOApp` over a mock endpoint: formula and 20% fee, 77-byte Report, dip clamp, recovery, Report refused below the last, retryable `PayYield`, Treasury never above per-Position fees, Unlock after a dip, Instant Redeem paid, or waiting while the Treasury is short and paid once by the same message, refill and withdraw, gas). Fork tests (skipped without RPC; run on 2026-10-16 on the public endpoints): `WstETHMainnetForkTest`, `KHypeMainnetForkTest`, `LidoZapForkTest`, `KinetiqZapForkTest`, and `MainnetDeployForkTest`, which runs the two deploy scripts against mainnet state without broadcasting, wires the peer as the owner, opens through the zap on the real LayerZero endpoint and checks the quotes. `ETH_MAINNET_RPC=https://ethereum-rpc.publicnode.com HYPEREVM_MAINNET_RPC=https://rpc.hyperliquid.xyz/evm forge test --match-contract Fork`.
+
+**App.** Mainnet cluster: the nets list the vaults whose env address is set (`NEXT_PUBLIC_WSTETH_VAULT`, `NEXT_PUBLIC_KHYPE_VAULT`; zaps `NEXT_PUBLIC_LIDO_ZAP`, `NEXT_PUBLIC_KINETIQ_ZAP`), each hidden with a plain note while unset; nothing simulated shows. The Player pays gas and the LayerZero fee (quote before signing, no relayer top-up or faucet); the HyperEVM eid, explorer and LayerZero Scan links follow the cluster. The market read uses the formula vault's ABI (`getPosition` with `a/b/d`, `feeBps`, `frozenAccrued`; `accruedYield`, `treasuryBalance`, `reportedAccrued`), no SimLST fields. Test mode is unchanged.
+
+**Seams for yield-by-math 09 (two-step Redeem/Unlock).** `reportEthYield` (`app/src/lib/chain/eth-flow.ts`) is the request step: 09 calls it (or lets the relayer call it) before `redeemToEvm` / `unlockEth` and removes the "Report yield" button in `EthPositions.tsx`; `VaultPosition.accrued` is the live vault figure to show while the Report travels; `fetchVaultPosition` already reads the new struct. `ethError` maps `YieldBelowReported` to a plain message, so 09 needs a "waiting for the rate to recover" state on a Report that reverts with it. The keeper's `src/eth.ts` still reads the pre-formula struct: ticket 06 deletes it.
+
+## Opening with plain ETH or HYPE (ADR 0011, ticket 16, not deployed)
+
+`contracts/src/StakeZap.sol`: `LidoZap` and `KinetiqZap` stake the Player's coin through the provider and lock the result in the vault for the Player in one transaction (`openWithNative(stakeAmount, minLst, horizonMonths)`, `msg.value = stakeAmount + LayerZero fee`). No DEX swap. The vault gained `openPositionFor(owner, lstAmount, horizon)` (the zap pulls the LST it just received; the Position and the 45-byte `PositionLocked` owner are the Player, not the zap). The endpoint refunds the unused fee to the zap, which forwards it to the Player; the zap keeps no funds or state. A revert anywhere (provider paused or over its limit, stake under the minimum, `minLst` missed, short LayerZero fee) unwinds the stake too, so the coin stays in the wallet.
+
+- **ETH -> wstETH:** the zap sends ETH to wstETH `0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0`, whose `receive()` runs `stETH.submit` and mints wstETH (docs.lido.fi/contracts/wsteth). Lido's own stake limit and pause apply.
+- **HYPE -> kHYPE:** the zap calls `stake()` (payable) on Kinetiq's kHYPE StakingManager `0x393D0B87Ed38fc779FD9611144aE649BA6082109` (kinetiq.xyz/docs/contracts-and-audits). kHYPE is minted at once, no queue. `minStakeAmount()` reads 5 HYPE on 2026-10-15 (below it `stake()` reverts `0x860b82a9`); the app reads `KinetiqZap.minStake()` and says so before signing. Verified by a fork test on the public HyperEVM RPC.
+- **Limit:** the vault caps Principal at u64 wei (about 18.4 ETH or HYPE per Position), so the form refuses more.
+- **Deploy (orchestrator):** after each vault, deploy `new LidoZap(vault, wstETH)` / `new KinetiqZap(vault, kHYPE, stakingManager)`; set `NEXT_PUBLIC_KINETIQ_ZAP` / `NEXT_PUBLIC_LIDO_ZAP`. On the mainnet cluster the app lists only these real-token vaults (`NEXT_PUBLIC_WSTETH_VAULT` on Ethereum, `NEXT_PUBLIC_KHYPE_VAULT` on HyperEVM), each hidden with a plain note while its address is unset; no SimLST vault shows. The open form shows the vault's PeerConfig rate as the APY ("—" while it is unset), see "Mainnet vaults". The zap needs no LayerZero wiring: it is a plain caller of the vault.
+- **App:** `lib/chain/eth-native.ts` (choices ETH/wstETH and HYPE/kHYPE, quote of the token received with 0.5% slippage floor), `openEthPosition(..., native)` and the Wallet open form's "Open with" choice; the form shows the token received, the stake minimum, gas and the LayerZero fee before signing.
+- **Tests:** `contracts/test/StakeZap.t.sol` (mocks, incl. reverts that leave the coin), `StakeZapFork.t.sol` (`ETH_MAINNET_RPC`, `HYPEREVM_MAINNET_RPC`), `app/src/lib/chain/eth-native.test.ts`, `eth-flow-mainnet.test.ts`.
+
+## Mainnet wiring (Ethereum and HyperEVM to Solana mainnet, ticket 17, not run)
+
+Nothing here has been sent on any chain. `bridge/scripts/lz-mainnet.ts` plans one pathway at a time and is a dry run unless `--execute` is given (Solana steps only, signed by the delegate keypair; the EVM steps are printed as calldata for the vault owner and never sent by the script). `--verify` reads the pathway back (Solana through the LayerZero SDK, EVM through `cast call`) and exits non-zero on any mismatch. It needs `cast` (Foundry) on the path.
+
+```
+cd bridge && pnpm install --frozen-lockfile --ignore-workspace
+pnpm lz-mainnet --pathway ethereum|hyperevm --vault 0x<vault> --safe 0x<vault owner Safe> \
+  --delegate <Solana delegate pubkey> --decimals 18 --rate-bps <bps> \
+  [--program-id <tesoro_bridge mainnet id>] [--dvns layerzero-labs,nethermind] [--safe-json batch.json] \
+  [--rpc <solana mainnet url>] [--evm-rpc <url>] [--verify] [--execute --keypair <delegate keypair>]
+```
+
+### Run order
+
+1. **Deploy the vault** (`script/DeployMainnetWstETH.s.sol` or `DeployMainnetKHype.s.sol`) with `VAULT_OWNER` = the chain's Safe. The vault owner is also its LayerZero delegate, so every EVM step below is a Safe transaction. Record the vault address.
+2. **Deploy or upgrade `tesoro_bridge`** on Solana mainnet (orchestrator; ticket 26). The Store PDA is `["Store"]` under the program id, so the peer address on EVM (`0x60ae58df...c792` for `5bzDVZ...vTQ`) is known before the deploy; pass `--program-id` if the mainnet id differs.
+3. **Wire.** Per pathway: run the script as a dry run and read every address against the table below; run `--execute` for Solana (first pathway also runs `init_store`; the delegate key is the deployer until step 5); send the printed EVM calls from the Safe (`--safe-json` writes a Safe Transaction Builder batch). The Solana `set_peer_config` also creates the `VaultTreasury`.
+4. **Verify.** Run again with `--verify --rpc ... ` and require "All checks passed". Then `SOLANA_RPC=<mainnet url> SOLANA_KEYPAIR=<any funded key> pnpm lz quote <eid> <vault> 3` (bridge outbound fee) and the EVM `quotePositionLocked()` / `quoteYieldAccrued()`, and send one small real message each way before opening to players: `init_position`, then `openPosition` of a minimal amount, `apply_locked`, `reportYield`, `apply_yield`; check LayerZero Scan (`layerzeroscan.com`) shows DELIVERED.
+5. **Hand over** per `docs/mainnet-keys.md`: `tesoro_bridge.set_admin(<Squads vault>)` (moves `Store.admin` and the endpoint delegate in one call), program upgrade authority, and on EVM nothing further if the vault was deployed with the Safe as owner (otherwise `setDelegate` then `transferOwnership`). After this, any pathway change (including a new vault's `set_peer_config`) is a Squads proposal or Safe transaction. Finally set `NEXT_PUBLIC_WSTETH_VAULT` / `NEXT_PUBLIC_KHYPE_VAULT` so the app lists the vault.
+
+### Endpoint ids and addresses
+
+Source: LayerZero metadata API (`https://metadata.layerzero-api.com/v1/metadata` and `/v1/metadata/dvns`), read 2026-10-15, and cross-checked on chain (`endpoint.eid()`, `defaultSendLibrary`, `getUlnConfig`, `getExecutorConfig`; Solana through `getDefault*ConfigState`).
+
+| | Ethereum | HyperEVM | Solana |
+|---|---|---|---|
+| eid | 30101 | 30367 | 30168 |
+| EndpointV2 | `0x1a44076050125825900e736c501f859c50fE728c` | `0x3A73033C0b1407574C76BdBAc67f126f6b4a9AA9` | `76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6` |
+| SendUln302 | `0xbB2Ea70C9E858123480642Cf96acbcCE1372dCe1` | `0xfd76d9CB0Bac839725aB79127E7411fe71b1e3CA` | `7a4WjyR8VZ7yZz5XJAKm39BUGn5iT9CKcv2pmG9tdXVH` (send and receive) |
+| ReceiveUln302 | `0xc02Ab410f0734EFa3F14628780e6e695156024C2` | `0x7cacBe439EaD55fa1c22790330b12835c6884a91` | same program |
+| Default executor | `0x173272739Bd7Aa6e4e214714048a9fE699453059` | `0x41Bdb4aa4A63a5b2Efc531858d3118392B1A1C3d` | PDA `AwrbHeCyniXaQhiJZkLhgWdUCteeWSGaSN1sTfLiY7xK` |
+| DVN: LayerZero Labs | `0x589dEDbD617e0CBcB916A9223F4d1300c294236b` | `0xc097ab8CD7b053326DFe9fB3E3a31a0CCe3B526f` | `4VDjp6XQaxoZf5RGwiPU9NR1EXSZn2TP4ATMmiSzLfhb` |
+| DVN: Nethermind | `0xa59BA433ac34D2927232918Ef5B2eaAfcF130BA5` | `0x8E49eF1DfAe17e547CA0E7526FfDA81FbaCA810A` | `GPjyWr8vCotGuFubDpTxDxy9Vj1ZeEN4F2dwRmFiaGab` |
+| DVN: Canary (optional add) | `0xa4fE5A5B9A846458a70Cd0748228aED3bF65c2cd` | `0x83342EC538dF0460e730a8F543Fe63063e2D44C4` | `7jMeX5mzXnSSKYd8DxBDP4xMnkNFZZZm5W28FWUTbwU3` |
+| DVN: Horizen (optional add) | `0x380275805876Ff19055EA900CDb2B46a94ecF20D` | `0xBB83Ecf372CbB6daa629ea9A9A53BEC6d601F229` | `HR9NQKK1ynW9NzgdM37dU5CBtqRHTukmbMKS7qkwSkHX` |
+
+The list of production DVNs that exist on all three chains has 20 entries (the metadata `dvns` of `ethereum`, `hyperliquid` and `solana` intersected), among them LayerZero Labs, Nethermind, Canary, Horizen Labs, P2P, Luganodes, Nansen, Fidelity, Deutsche Telekom and USDT0.
+
+### Configuration chosen
+
+| Setting | Value | Why |
+|---|---|---|
+| Libraries | Pinned to SendUln302 / ReceiveUln302 (Solana: ULN program) on both sides, grace period 0 | Equal to today's defaults, but an explicit choice so a later change of the endpoint default cannot move the pathway. |
+| Required DVNs | **LayerZero Labs + Nethermind**, 2 required, 0 optional, on both directions and all three chains | The ticket asks for LayerZero Labs plus one other production DVN available on all three chains. Nethermind is a long-running DVN and is in the default set on every one of the three chains. Testnet used the single LayerZero Labs default. |
+| Confirmations Ethereum -> Solana | 15 (set on the Ethereum send config, mirrored on the Solana receive config) | LayerZero's default for 30101 -> 30168, read on both sides. |
+| Confirmations Solana -> Ethereum | 32 (Solana send config, mirrored on the Ethereum receive config) | LayerZero's default, read on both sides. |
+| Confirmations HyperEVM -> Solana | 1 (HyperEVM send, Solana receive) | LayerZero's default for 30367 (HyperEVM's consensus finalises per block; not independently checked). Raise with `--send-confirmations` if the founders want a margin. |
+| Confirmations Solana -> HyperEVM | 32 | LayerZero's default. |
+| Executor | The default executor of each chain, max message size 200 B (EVM send) and 10,000 B (Solana send) | Same as the defaults. Our largest message is 126 B (`PositionLocked`). |
+| EVM -> Solana receive gas | Set by the vault per message: `solanaReceiveCu` = 200,000 compute units, native drop 0 (`PositionVaultOApp._options`) | Same as testnet. Observed use was about 57,000. The executor caps the native drop to Solana at 0, so rent is paid by `init_position` beforehand (see "Flow and who pays"). |
+| Solana -> EVM receive gas | Enforced options in `PeerConfig`: type-3 `lzReceive` gas 250,000, value 0 (`--evm-receive-gas`) | Same as the testnet default in `bridge/scripts/lz.ts` (`0x0003010011010000000000000000000000000003d090` on the live devnet peers). |
+
+**Trade-off to decide:** LayerZero's own defaults on all three mainnet pathways are 4 required DVNs (LayerZero Labs, Nethermind, Canary, Horizen), read on chain on 2026-10-15. Two required is faster and has fewer liveness dependencies, but a forged message needs only two DVNs to collude or be compromised instead of four. A message mints Gemas against a Position, so the founders should decide whether 2, 3 (`--dvns layerzero-labs,nethermind,canary`) or the default 4 fits. The script takes any subset of the four listed; the verify step checks exactly the set given.
+
+### Dry run (placeholders: vault `0x1111...1111`, Safe `0x2222...2222`, delegate = the devnet deployer pubkey, mainnet program id assumed equal to the devnet id)
+
+```
+pnpm lz-mainnet --pathway ethereum --vault 0x1111111111111111111111111111111111111111 \
+  --safe 0x2222222222222222222222222222222222222222 --delegate 7zr1j185zT8r6jcysC4LyrdSEJ13Up3xq4TFu6KQqh7M \
+  --decimals 18 --rate-bps 300
+```
+
+```
+MODE: DRY RUN (nothing is sent; --execute would send the Solana steps)
+pathway   Ethereum (eid 30101) <-> Solana mainnet (eid 30168)
+bridge    program 5bzDVZKazyknCCcLRAyNz3TNxDfiPdPcQEavvBfdwvTQ  Store PDA 7WQLHW8EuyV1V8tWNh8DQGu7mVRgaHGgLU7fi8G91rVw  (0x60ae58df1215bf45cc054e633b49c92a3b1309f76075bac72b26e0c6e1c0c792)
+DVNs      layerzero-labs + nethermind (all required, none optional)   confirmations: Ethereum->Solana 15, Solana->Ethereum 32
+
+== SOLANA (signed by the delegate key until set_admin moves it to the multisig)
+S1. tesoro_bridge init_store (once for the whole bridge, skip on the second pathway)
+S2. tesoro_bridge set_peer_config eid 30101
+    vault 0x1111...1111, decimals 18, rate 300 bps, enforced send options type-3 lzReceive gas 250000 (0x0003010011010000000000000000000000000003d090); also creates VaultTreasury 6gJxmie4naZykwGETsHkjtNNcVHW7PHHTMAw8qKRYMYV
+S3. endpoint pathway init (nonce, send library, receive library) for eid 30101
+S4. ULN config init for eid 30101
+S5. pin send and receive library to ULN 302 for eid 30101
+S6. executor, send ULN and receive ULN config for eid 30101
+    executor AwrbHeCy... max message 10000 B; required DVNs layerzero-labs + nethermind (4VDjp6XQ..., GPjyWr8v...); send confirmations 32 (Solana -> Ethereum); receive confirmations 15 (Ethereum -> Solana)
+
+== EVM (calls from the vault owner / delegate Safe; not sent by this script)
+E1. vault setPeer(30168, Store PDA)
+    cast send 0x1111...1111 "setPeer(uint32,bytes32)" "30168" "0x60ae58df...c792"
+E2. endpoint setSendLibrary(vault, 30168, SendUln302)      0x1a44...E728c <- 0xbB2Ea70C...dCe1
+E3. endpoint setReceiveLibrary(vault, 30168, ReceiveUln302, grace 0)   <- 0xc02Ab410...24C2
+E4. endpoint setConfig on SendUln302: executor + send ULN
+    executor 0x1732...3059 max 200 B; DVNs layerzero-labs + nethermind; confirmations 15 (Ethereum -> Solana)
+E5. endpoint setConfig on ReceiveUln302: receive ULN
+    DVNs layerzero-labs + nethermind; confirmations 32 (Solana -> Ethereum)
+```
+
+The real output also prints each Solana instruction (program, account count, data) and the full `cast send` line and calldata for every EVM call. The HyperEVM pathway is the same command with `--pathway hyperevm` (eid 30367, send confirmations 1, Solana-to-HyperEVM 32, `--rate-bps 500` for kHYPE as an example; the real rate is derived from the adapter's recent growth, see "Mainnet vaults"). Read-back against a vault that is not deployed reports `FAIL vault ... has code` and `FAIL Store ... exists`, which is the expected state before step 1.
+
+### What the script does not do
+
+- Create the Safes, deploy the vault or the bridge, hold any key, or send an EVM transaction.
+- Set `rate_bps` or `decimals` for you: both are required arguments (18 decimals for wstETH and kHYPE).
+- Check that a Safe exists on HyperEVM mainnet (open item in `docs/mainnet-keys.md`).

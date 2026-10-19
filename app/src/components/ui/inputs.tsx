@@ -7,7 +7,8 @@ import { fmtGemas } from "@/lib/format";
 import { GemaMark, GemaUsd } from "./gema";
 import { XIcon } from "./icons";
 
-export const ENTRY_SIZES: readonly EntrySize[] = [500, 1000, 2500];
+export { ENTRY_SIZES } from "@/lib/cluster-settings";
+import { ENTRY_SIZES } from "@/lib/cluster-settings";
 
 /** The assets Trading Duel can trade, by `?asset=` index (see lib/chain/match-id.ts). */
 export const DUEL_ASSETS = [

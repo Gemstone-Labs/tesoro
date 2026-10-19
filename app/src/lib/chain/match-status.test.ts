@@ -14,6 +14,18 @@ describe("matchStanding", () => {
     expect(matchStanding({ ...bp(), status: "refunded" }, T * 2).kind).toBe("refunded");
   });
 
+  it("an unjoined Match is never Delayed, even a day into its 24 h Queue window", () => {
+    const queued = { ...bp(), status: "open" as const, deadline: T + 24 * 3600, session: null };
+    expect(matchStanding(queued, T + 3601).kind).toBe("open");
+    expect(matchStanding(queued, T + 24 * 3600 + 1).kind).toBe("open");
+  });
+
+  it("a Hold'em table is live for the 24 h its table window pushed the deadline to, not for the first hour", () => {
+    const table = { ...holdem, deadline: T + 24 * 3600 };
+    expect(matchStanding(table, T + 3601).kind).toBe("live");
+    expect(matchStanding(table, T + 24 * 3600).kind).toBe("delayed");
+  });
+
   it("Block Puzzle is live until the later submission deadline plus the grace, then delayed", () => {
     const by = T + SETTLE_GRACE_SECS;
     expect(matchStanding(bp(), by - 1).kind).toBe("live");

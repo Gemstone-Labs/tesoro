@@ -1,4 +1,4 @@
-import { PRIZE_PLACES } from "./season";
+import { PRIZE_PLACES, rankPayout } from "./season";
 
 /** What `/api/leaderboard` returns and the page draws. Plain JSON: Gemas are numbers, times are unix seconds. */
 export interface LeaderboardRow {
@@ -12,7 +12,17 @@ export interface LeaderboardRow {
 export interface LastSeason {
   number: number;
   poolGemas: number;
-  winners: { rank: number; account: string; points: number; gemas: number; paid: boolean }[];
+  winners: { rank: number; account: string; points: number; gemas: number; paid: boolean; voided: boolean }[];
+  /** Unix seconds the payout window ends and ranks are paid; null for a Season recorded before the window. */
+  payoutAt: number | null;
+}
+
+/** What the winners list says beside a rank's prize: nothing once paid. */
+export function lastRankNote(w: { paid: boolean; voided: boolean }, payoutAt: number | null, nowSecs: number): { kind: "none" | "voided" | "paying"; payoutAt?: number } {
+  const state = rankPayout(w, payoutAt, nowSecs);
+  if (state === "paid") return { kind: "none" };
+  if (state === "voided") return { kind: "voided" };
+  return state === "waiting" ? { kind: "paying", payoutAt: payoutAt! } : { kind: "paying" };
 }
 
 export interface LeaderboardView {

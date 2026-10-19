@@ -10,6 +10,8 @@ import { GemasLabel } from "@/app/(app)/wallet/AdvanceQuote";
 import { challengeHref, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
+import { awayNotice } from "@/lib/chain/protections";
+import { useAway } from "@/lib/chain/useAway";
 import type { QueueSeat } from "@/lib/chain/read";
 import type { GameId } from "@/lib/mock";
 import { firstSlideGame } from "./first-slide";
@@ -222,6 +224,8 @@ function HeroSlide({
 }) {
   const { snapshot } = useAccount();
   const me = snapshot?.accountKey.toBase58();
+  const away = useAway();
+  const awayText = away ? awayNotice(away) : null;
   const others = waiting?.filter((w) => w.player !== me) ?? null;
 
   return (
@@ -245,9 +249,13 @@ function HeroSlide({
         <h2 className="slide-title">{slide.title}</h2>
         <p className="slide-sub">{slide.sub}</p>
         <div className="slide-cta">
-          <Button variant="money" size="lg" href={`/play/${slide.game}`}>
-            <GemasLabel action="Play now" gemas={slide.entry} />
-          </Button>
+          {awayText ? (
+            <p className="status" role="status">{awayText}</p>
+          ) : (
+            <Button variant="money" size="lg" href={`/play/${slide.game}`}>
+              <GemasLabel action="Play now" gemas={slide.entry} />
+            </Button>
+          )}
           <Button size="lg" href={practiceHref(slide.game)}>
             Practice free
           </Button>

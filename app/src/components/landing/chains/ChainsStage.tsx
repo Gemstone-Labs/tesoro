@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { Stage3D } from "../Stage3D";
 import { ASPECT, CHAINS, LEDGER, toStage, type ChainsLayout } from "./layout";
+import { BRAND } from "@/lib/brand";
 
 const ChainsCanvas = dynamic(() => import("./ChainsCanvas"), { ssr: false });
 
@@ -20,7 +21,7 @@ function Labels({ layout }: { layout: ChainsLayout }) {
         );
       })}
       <li className="ledger" style={toStage([lx, ly - (layout === "wide" ? 1.15 : 0.95), lz], layout)}>
-        <b>Tesoro ledger</b>
+        <b>{BRAND.name} ledger</b>
         <span>on Solana · Gemas, Matches, Backings</span>
       </li>
     </ul>

@@ -5,11 +5,12 @@ import { Divider } from "@/components/waitlist/Divider";
 import { LivingTexture } from "@/components/waitlist/LivingTexture";
 import { VideoWall } from "@/components/waitlist/VideoWall";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
-import { appHref } from "@/lib/landing/config";
+import { OUTBOUND, appHref } from "@/lib/landing/config";
 import { WAITLIST_KICKER } from "@/lib/waitlist-copy";
 import { waitingLabel } from "@/lib/waitlist-count";
 import type { SpotGem } from "@/lib/waitlist-spot";
 import { count } from "@/server/waitlist";
+import { BRAND } from "@/lib/brand";
 
 /** The waitlist page. `invite` is the spot whose shared link brought the visitor here. */
 export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
@@ -29,7 +30,7 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
       <Divider />
       <LivingTexture />
       <header className="wl-top">
-        <Link href="/" className="wl-logo" aria-label="Tesoro">
+        <Link href="/" className="wl-logo" aria-label={BRAND.name}>
           <TesoroLogo height={30} tone="dark" />
         </Link>
         <nav className="wl-nav" aria-label="Elsewhere">
@@ -39,6 +40,11 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           <Link href="/docs" className="wl-hide-phone">
             Docs
           </Link>
+          {OUTBOUND.x && (
+            <a href={OUTBOUND.x} target="_blank" rel="noopener" aria-label="Tesoro on X">
+              X
+            </a>
+          )}
           <a href={appHref()}>Try the app</a>
           <XFollow variant="b" place="head" />
         </nav>
@@ -63,6 +69,11 @@ export async function WaitlistPage({ invite }: { invite?: SpotGem }) {
           <Link href="/docs">Docs</Link>
           <Link href="/terms">Terms</Link>
           <Link href="/privacy">Privacy</Link>
+          {OUTBOUND.x && (
+            <a href={OUTBOUND.x} target="_blank" rel="noopener">
+              @PlayTesoro on X
+            </a>
+          )}
         </p>
       </main>
     </div>

@@ -265,3 +265,4 @@
 .ep-wallet span { display: grid; gap: 2px; min-width: 0; }
 .ep-wallet small { overflow-wrap: anywhere; }
 .ep-wallet input { width: 18px; height: 18px; accent-color: var(--fg); flex: none; }
+.ns { padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); }

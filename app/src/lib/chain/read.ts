@@ -8,6 +8,7 @@ import { assetIndexOf, matchOpenedAt } from "./match-id";
 import { fetchLeaderboardTerms } from "./leaderboard";
 import { leaderboardBpsFor } from "./season";
 import { readAccountState } from "./account-state";
+import { isCurrentPosition } from "./position-size";
 import { fetchRoutedState } from "./snapshot-wire";
 import type { NativeInfo, NativeMarket } from "./native";
 
@@ -86,6 +87,8 @@ export interface ChainHolding {
   asset: "SOL" | "ETH" | "HYPE";
   /** The Source's Position holds simSOL custody: Redeem pays simSOL on Solana. */
   native: boolean;
+  /** The staking token's mint when the Source's Position holds a real staking token (mainnet); null for simSOL custody. */
+  stakeMint: PublicKey | null;
   /** The Source belongs to an Ethereum or HyperEVM Position (Redeem pays on that chain through the bridge). */
   eth: { vault: string; id: bigint } | null;
 }
@@ -395,6 +398,16 @@ export async function fetchSnapshot(authority: PublicKey, onAccount?: (s: Accoun
   return { ...snap, matches: played, funded, matchesLoaded: true };
 }
 
+/** The Positions of one owner, current layout only: an old, shorter account is skipped instead of failing the read. */
+async function ownedPositions(chain: ReturnType<typeof getChain>, owner: PublicKey) {
+  const rows = await chain.base.getProgramAccounts(chain.core.programId, {
+    filters: [{ memcmp: chain.core.coder.accounts.memcmp("positionState") }, { memcmp: { offset: 41, bytes: owner.toBase58() } }],
+  });
+  return rows
+    .filter((r) => isCurrentPosition(r.account.data))
+    .map((r) => ({ publicKey: r.pubkey, account: chain.core.coder.accounts.decode("positionState", r.account.data) }));
+}
+
 /**
  * The Account without its Matches (`matchesLoaded` false): SOL, Gemas, Positions and the simSOL market.
  * Asks the server route first (one request; see server/snapshot.ts) and reads the chain itself when it
@@ -410,7 +423,7 @@ export async function fetchAccountState(authority: PublicKey, opts: { fresh?: bo
         Promise.all([
           chain.core.account.holdingState.all([{ memcmp: { offset: 9, bytes: key.toBase58() } }]),
           // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
-          chain.core.account.positionState.all([{ memcmp: { offset: 41, bytes: key.toBase58() } }]),
+          ownedPositions(chain, key),
         ]),
       infos: (keys) => chain.base.getMultipleAccountsInfo(keys),
       balance: (a) => chain.base.getBalance(a),

@@ -44,6 +44,7 @@ export async function backingHygiene(ctx: Ctx): Promise<number> {
           offer: publicKey,
           // An accepted Offer hands its Request back to Open, so the Request comes with the call.
           request: st === "accepted" && o.request ? pk(o.request) : null,
+          backerProtections: null,
         })
         .remainingAccounts(holdings)
         .instruction();

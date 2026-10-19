@@ -2,15 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Callout, DocPage, H2 } from "@/components/docs/prose";
 import { AvatarStrip, Shot } from "@/components/docs/visual";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Accounts and sign-in", alternates: { canonical: "/docs/accounts" } };
 
 export default function Page() {
   return (
-    <DocPage href="/docs/accounts" hero={<Shot name="account" url="playtesoro.com/account/…" alt="A Player's public Account page with their record, Gemas won and lost, and Match history" priority caption="A Player's public Account page: what they played, nothing more. Figures here are sample data." />}>
+    <DocPage href="/docs/accounts" hero={<Shot name="account" url={`${BRAND.domain}/account/…`} alt="A Player's public Account page with their record, Gemas won and lost, and Match history" priority caption="A Player's public Account page: what they played, nothing more. Figures here are sample data." />}>
       <H2 id="account">One Account</H2>
       <p>
-        Your <b>Account</b> is your single identity on Tesoro. Your Positions, Gemas, Match history and Backings all belong to the Account, not to a
+        Your <b>Account</b> is your single identity on {BRAND.name}. Your Positions, Gemas, Match history and Backings all belong to the Account, not to a
         particular wallet. It holds one address for each chain family: one for Solana and one for Ethereum-style chains (Ethereum and HyperEVM).
       </p>
 
@@ -18,7 +19,7 @@ export default function Page() {
       <p>You can sign in with:</p>
       <ul>
         <li>
-          <b>Email.</b> Tesoro creates a wallet for you, so you can play without installing anything.
+          <b>Email.</b> {BRAND.name} creates a wallet for you, so you can play without installing anything.
         </li>
         <li>
           <b>A wallet you already have.</b> A Solana wallet such as Phantom, or an Ethereum-style wallet such as MetaMask.
@@ -35,7 +36,7 @@ export default function Page() {
         <li>show the <b>.sol, .eth or .hl name</b> of a wallet you attach, with a check mark, and use the name&apos;s avatar as your picture.</li>
       </ul>
       <p>
-        Tesoro&apos;s pictures are animals cut like gemstones. There are no photos of people, so you are never asked to upload one.
+        {BRAND.name}&apos;s pictures are animals cut like gemstones. There are no photos of people, so you are never asked to upload one.
       </p>
 
       <AvatarStrip />
@@ -56,7 +57,7 @@ export default function Page() {
 
       <Callout kind="note" title="Keep your wallet safe">
         <p>
-          Whoever controls your sign-in controls your Account. Tesoro cannot recover a lost wallet or reverse a transaction.
+          Whoever controls your sign-in controls your Account. {BRAND.name} cannot recover a lost wallet or reverse a transaction.
         </p>
       </Callout>
     </DocPage>

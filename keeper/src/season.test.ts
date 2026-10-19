@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
-import { SEASON_EPOCH, SEASON_SECS } from "../../app/src/lib/chain/season.ts";
-import { prizeHoldings, seasonPoints, seasonsToCheck, topRanks, type PoolHolding } from "./season.ts";
-import type { Standing } from "../../app/src/lib/chain/season.ts";
+import { PAYOUT_WINDOW_SECS, SEASON_EPOCH, SEASON_SECS, type Standing } from "../../app/src/lib/chain/season.ts";
+import { payPlan, prizeHoldings, seasonPoints, seasonsToCheck, topRanks, type PoolHolding } from "./season.ts";
 
 const src = (b: number) => new PublicKey(new Uint8Array(32).fill(b));
 const holding = (b: number, amount: bigint): PoolHolding => ({ pubkey: src(100 + b), source: src(b), amount });
@@ -32,6 +31,23 @@ describe("ranking", () => {
   });
 });
 
+describe("points cap per opponent", () => {
+  const w = (player: string, loser: string | undefined, n: number) => ({ player, loser, points: 10, ts: 100 + n, matchId: String(n) });
+  it("the 4th win against the same opponent earns 0 Points", () => {
+    const wins = [1, 2, 3, 4, 5].map((n) => w("a", "b", n));
+    const top = topRanks(wins);
+    assert.deepEqual([top[0].points, top[0].wins], [30, 5]);
+  });
+  it("counts each opponent on its own and by event time, and never caps unnamed losers", () => {
+    const wins = [w("a", "c", 9), w("a", "b", 4), w("a", "b", 3), w("a", "b", 2), w("a", "b", 1), w("a", undefined, 5), w("a", undefined, 6), w("a", undefined, 7), w("a", undefined, 8)];
+    assert.equal(topRanks(wins)[0].points, 30 + 10 + 40);
+  });
+  it("a capped win does not move the tie-break", () => {
+    const wins = [...[1, 2, 3, 4].map((n) => w("a", "b", n)), w("c", "d", 50), w("c", "d", 51), w("c", "d", 52)];
+    assert.deepEqual(topRanks(wins).map((r) => r.account), ["a", "c"]);
+  });
+});
+
 describe("prize holdings", () => {
   it("drains the pool in Source order, the last one partly", () => {
     const pool = [holding(3, 100n), holding(1, 4n), holding(2, 0n), holding(5, 50n)];
@@ -41,6 +57,27 @@ describe("prize holdings", () => {
     assert.equal(prizeHoldings(pool, 154n)?.length, 3);
     assert.equal(prizeHoldings(pool, 155n), null, "more than the pool holds");
     assert.deepEqual(prizeHoldings(pool, 0n), []);
+  });
+});
+
+describe("payout window", () => {
+  const rec = (over = {}) => ({ count: 4, paidMask: 0, voidedMask: 0, recordedAt: 10_000, ...over });
+  const opens = 10_000 + PAYOUT_WINDOW_SECS;
+  it("waits 48 hours after the record, then pays every rank", () => {
+    assert.deepEqual(payPlan(rec(), 10_001), { kind: "wait", until: opens });
+    assert.deepEqual(payPlan(rec(), opens - 1), { kind: "wait", until: opens });
+    assert.deepEqual(payPlan(rec(), opens), { kind: "pay", ranks: [0, 1, 2, 3] });
+  });
+  it("skips voided and paid ranks", () => {
+    assert.deepEqual(payPlan(rec({ paidMask: 0b0001, voidedMask: 0b0100 }), opens), { kind: "pay", ranks: [1, 3] });
+  });
+  it("survives a restart: the plan depends only on the chain record and the clock", () => {
+    const onChain = rec({ paidMask: 0b0011 });
+    assert.deepEqual(payPlan(onChain, opens + 3600), payPlan({ ...onChain }, opens + 3600));
+    assert.deepEqual(payPlan(onChain, opens + 3600), { kind: "pay", ranks: [2, 3] });
+  });
+  it("leaves a season recorded before the window existed", () => {
+    assert.deepEqual(payPlan(rec({ recordedAt: null }), opens * 2), { kind: "legacy" });
   });
 });
 

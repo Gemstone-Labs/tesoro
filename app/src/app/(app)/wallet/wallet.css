@@ -19,6 +19,8 @@
 .wl-total-fig .wl-usd, .wl-usd { align-self: flex-end; padding-bottom: 0.4em; font-size: clamp(16px, 1.4vw, 22px); color: var(--fg-2); }
 .wl-redeemable .wl-usd, .wl-pending .wl-usd { display: block; font-size: var(--fs-15); padding: 0; }
 .wl-hero-sim { grid-column: 1 / -1; margin-top: -16px; }
+.wl-reset { flex-wrap: wrap; justify-content: space-between; margin-bottom: 16px; }
+.wl-reset span { flex: 1 1 240px; }
 .wl-hero-err { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 @media (min-width: 960px) { .wl-hero { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); padding: 40px 44px 28px; } }
 @media (max-width: 479px) { .wl-hero { padding: 24px 18px 30px; } .wl-second { grid-template-columns: 1fr; } }

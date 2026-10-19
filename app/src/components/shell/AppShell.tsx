@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { EditProfileSheet } from "@/components/account/EditProfileSheet";
+import { LimitsSheet } from "@/components/account/LimitsSheet";
 import { GuideOverlay, GuideProvider } from "@/components/guide/Guide";
 import { SearchProvider } from "./SearchContext";
 import { NAV, SidebarBody, isHere } from "./Sidebar";
@@ -73,6 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
         <GuideOverlay />
         <EditProfileSheet />
+        <LimitsSheet />
       </div>
       </GuideProvider>
     </SearchProvider>

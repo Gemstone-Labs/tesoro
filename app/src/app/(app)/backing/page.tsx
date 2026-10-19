@@ -49,6 +49,8 @@ import { RequestCard } from "@/components/backing/RequestCard";
 import { BackingExample, FEES } from "./BackingExample";
 import "./backing.css";
 import { plainError } from "@/lib/errors";
+import { awayNotice } from "@/lib/chain/protections";
+import { useAway } from "@/lib/chain/useAway";
 
 const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
@@ -90,6 +92,8 @@ export default function Backing() {
     title: "What Backing means",
     text: "A Backer funds a Player's whole entry. On a win the entry returns first and the surplus is split by the Offer. Only the Backer bears a loss.",
   });
+  const away = useAway();
+  const awayText = away ? awayNotice(away) : null;
   const nowMs = useNow();
   const nowSecs = Math.floor(nowMs / 1000);
   const me = snapshot?.accountKey.toBase58() ?? null;
@@ -195,10 +199,14 @@ export default function Backing() {
           <h1 className="page-title">Back a player</h1>
           <p className="page-sub">Support skilled players and share their success.</p>
         </div>
-        <div className="bk-head-actions">
-          <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
-          <Button onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>Post an Offer</Button>
-        </div>
+        {awayText ? (
+          <p className="status" role="status">{awayText}</p>
+        ) : (
+          <div className="bk-head-actions">
+            <Button variant="money" onClick={() => auth.gate("post a Request", () => setPostOpen(true))}>Post a Request</Button>
+            <Button onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>Post an Offer</Button>
+          </div>
+        )}
       </header>
 
       {error && <p className="status err" role="alert">{error}</p>}
@@ -320,6 +328,8 @@ export default function Backing() {
                     action={
                       offeredTo.has(key) ? (
                         <Button onClick={() => setTab("mine")}>Offer sent</Button>
+                      ) : awayText ? (
+                        <span className="meta">{awayText}</span>
                       ) : (
                         <Button variant="money" onClick={() => auth.gate("make an Offer", () => setOfferFor(r))}>
                           Make an Offer
@@ -377,9 +387,13 @@ export default function Backing() {
             <section aria-label="My Backings" className="stack">
               <div className="section-head">
                 <Label>Offers you funded</Label>
-                <Button size="sm" variant="money" onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>
-                  New public Offer
-                </Button>
+                {awayText ? (
+                  <span className="meta">{awayText}</span>
+                ) : (
+                  <Button size="sm" variant="money" onClick={() => auth.gate("post an Offer", () => setOfferFor("public"))}>
+                    New public Offer
+                  </Button>
+                )}
               </div>
               {board && mine.length === 0 && (
                 <Empty title="No Backings yet" body="Answer a Request with an Offer, or post a public Offer and choose whom to back." />
