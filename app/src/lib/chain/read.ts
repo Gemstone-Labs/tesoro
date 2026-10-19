@@ -1,11 +1,12 @@
 import { PublicKey, type AccountInfo } from "@solana/web3.js";
-import { BLOCK_PUZZLE_PROGRAM_ID, BlockPuzzleChain } from "@/games/block-puzzle/chain";
-import { HOLDEM_PROGRAM_ID, addresses as holdemAddresses } from "@/games/holdem/chain";
-import { TRADING_DUEL_PROGRAM_ID, addresses as duelAddresses } from "@/games/trading-duel/chain";
+import { BlockPuzzleChain } from "@/games/block-puzzle/chain";
+import { addresses as holdemAddresses } from "@/games/holdem/chain";
+import { addresses as duelAddresses } from "@/games/trading-duel/chain";
 import { decodeBattle } from "@/games/vanguard/decode";
 import { VANGUARD_PROGRAM_ID, addresses as vanguardAddresses } from "@/games/vanguard/chain";
 import type { GameId } from "@/lib/mock/types";
 import { getChain, getHoldem, getTradingDuel } from "./client";
+import { gameOfProgram } from "./games";
 import { assetIndexOf, matchOpenedAt } from "./match-id";
 import { fetchLeaderboardTerms } from "./leaderboard";
 import { leaderboardBpsFor } from "./season";
@@ -145,13 +146,7 @@ const enumKey = (o: object) => Object.keys(o)[0];
 const isChallengeId = (id: bigint) => (id & 1n) === 1n;
 
 /** The Game a tesoro_core Match belongs to, or null for a program this app does not play. */
-export function gameOf(game: PublicKey): GameId | null {
-  if (game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return "block-puzzle";
-  if (game.equals(HOLDEM_PROGRAM_ID)) return "holdem";
-  if (game.equals(TRADING_DUEL_PROGRAM_ID)) return "trading-duel";
-  if (game.equals(VANGUARD_PROGRAM_ID)) return "vanguard";
-  return null;
-}
+export const gameOf = gameOfProgram;
 
 /** The Game of a program id this app plays; throws for any other, so a Match of an unknown program is never shown as another Game. */
 export function requireGame(game: PublicKey): GameId {

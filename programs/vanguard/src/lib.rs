@@ -244,6 +244,11 @@ pub mod vanguard {
                 battle.status == STATUS_CREATED && battle.finalized == 0,
                 VanguardError::AlreadyStarted
             );
+            // Past its start window a Battle is a no-show that `finalize` refunds; delegating it would only strand it.
+            require!(
+                Clock::get()?.unix_timestamp <= battle.start_deadline,
+                VanguardError::NotLive
+            );
         }
         let config = || tee_config(&ctx.accounts.validator, &ctx.accounts.config);
         let battle_key = ctx.accounts.battle.key();

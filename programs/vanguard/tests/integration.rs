@@ -1045,6 +1045,30 @@ fn a_battle_that_has_been_played_cannot_be_delegated_again() {
     }
 }
 
+/// A Battle nobody delegated before its start window closed is a no-show: `finalize` refunds it on the base layer,
+/// so delegating it then would only strand it in the rollup.
+#[test]
+fn a_battle_cannot_be_delegated_after_its_start_window() {
+    let mut env = ready();
+    let start_deadline = env.battle().start_deadline;
+    env.set_time(start_deadline + 1);
+    let payer = env.bob.kp.insecure_clone();
+    let delegate = delegate_ix(&env, a(payer.pubkey()), Some(TEE));
+    let err = env.send(&[delegate], &payer, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), vcode(VanguardError::NotLive));
+    env.set_time(start_deadline);
+    let delegate = delegate_ix(&env, a(payer.pubkey()), Some(TEE));
+    // The delegation program is not loaded here: whatever happens next, the window is not what refuses it.
+    if let Err(err) = env.send(&[delegate], &payer, &[]) {
+        use solana_sdk::instruction::InstructionError;
+        use solana_sdk::transaction::TransactionError;
+        assert!(
+            !matches!(&err.err, TransactionError::InstructionError(_, InstructionError::Custom(c)) if *c == vcode(VanguardError::NotLive)),
+            "the last second of the window must pass the window check"
+        );
+    }
+}
+
 /// A permission address that already holds lamports is not a permission: anyone can send some to the predictable
 /// address, which would mark a hidden account ready without ever making it private.
 #[test]

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
@@ -55,7 +55,17 @@ const END_LINE = {
  * Vanguard practice: you play the US against a local bot, on the real rules (rules.ts) with the 5-second
  * turn clock. Nothing is staked, there is no wallet and no chain.
  */
-export function VanguardPractice({ seed, instant = false, clock = true, stormAt, twoStep = 0, prepare }: VanguardPracticeProps) {
+export function VanguardPractice(props: VanguardPracticeProps) {
+  // The setup and the bot are drawn at random: the server renders no board, so what the browser draws cannot mismatch it.
+  const inBrowser = useSyncExternalStore(
+    () => () => undefined,
+    () => true,
+    () => false,
+  );
+  return inBrowser ? <PracticeMatch {...props} /> : null;
+}
+
+function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep = 0, prepare }: VanguardPracticeProps) {
   // one random source per mount: seeded in stories, so the setup and the bot repeat
   const [rng] = useState<Rng>(() => (seed === undefined ? Math.random : seeded(seed)));
   const fresh = useCallback(() => {

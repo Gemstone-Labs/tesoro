@@ -23,7 +23,6 @@ import nacl from "tweetnacl";
 import { fetchLeaderboardTerms } from "../../lib/chain/leaderboard";
 import {
   TEE_RPC,
-  TEE_VALIDATOR,
   TEE_WS,
   TESORO_CORE_PROGRAM_ID,
   computePayouts,
@@ -42,7 +41,6 @@ export { keypairSigner, tesoroAccountPda, tesoroMatchPda, type PlayerSigner };
 export const VANGUARD_PROGRAM_ID = new PublicKey("TS3iowavNFV2pMUrHcbmGNC9SW2Vv54i52DqjKebYKH");
 const EPHEMERAL_VAULT = new PublicKey("MagicVau1t999999999999999999999999999999999");
 const MAGIC_CONTEXT = new PublicKey("MagicContext1111111111111111111111111111111");
-const ORACLE_QUEUE = new PublicKey("5hBR571xnXppuCPveTrctfTU7tJLSN94nq7kv7FRK5Tc");
 
 /**
  * Compute limits. A declare (a move, a timeout claim) checks public state only: about 4k CU in LiteSVM. The resolve
@@ -128,6 +126,23 @@ export class VanguardChain {
     );
     this.program = new anchor.Program(vanguardIdl, provider);
     this.tesoro = new anchor.Program(tesoroIdl, provider);
+  }
+
+  private configRead: Promise<{ teeValidator: PublicKey; oracleQueue: PublicKey }> | null = null;
+
+  /** The deployment values the program enforces (the TEE validator and the oracle queue), read once from its VanguardConfig. */
+  readConfig(): Promise<{ teeValidator: PublicKey; oracleQueue: PublicKey }> {
+    if (!this.configRead) {
+      const read: Promise<{ teeValidator: PublicKey; oracleQueue: PublicKey }> = (this.program.account as any).vanguardConfig
+        .fetch(addresses(0).config)
+        .then((c: any) => ({ teeValidator: c.teeValidator as PublicKey, oracleQueue: c.oracleQueue as PublicKey }));
+      read.catch(() => {
+        this.configRead = null;
+      });
+      this.configRead = read;
+      return read;
+    }
+    return this.configRead;
   }
 
   /** A TEE connection authenticated as `signer` (one per Player; tokens are per key). */
@@ -239,6 +254,7 @@ export class VanguardChain {
   /** Base layer. Delegates a created Battle (and its private accounts) to the TEE. */
   async delegateMatch(payer: PlayerSigner, matchId: bigint | number): Promise<Addresses> {
     const ad = addresses(matchId);
+    const { teeValidator } = await this.readConfig();
     const ix = await this.program.methods
       .delegateMatch(new anchor.BN(matchId.toString()))
       .accountsPartial({
@@ -248,7 +264,7 @@ export class VanguardChain {
         army0: ad.army0,
         army1: ad.army1,
         config: ad.config,
-        validator: TEE_VALIDATOR,
+        validator: teeValidator,
       } as any)
       .instruction();
     await this.sendBase("delegate_match", [ComputeBudgetProgram.setComputeUnitLimit({ units: CU.delegate }), ix], [payer]);
@@ -343,38 +359,46 @@ export class VanguardChain {
 
   /**
    * Rollup. A Player's fresh secret, generated here and sent only inside the TEE. `withVrf` also requests the
-   * randomness in the same transaction: pass it from the Player who contributes second.
+   * randomness in the same transaction: pass it from the Player who contributes second. `oracleQueue` is the
+   * Battle's own (default: the program config's).
    */
-  async contributeEntropy(player: PlayerSigner, matchId: bigint | number, withVrf = false): Promise<string> {
+  async contributeEntropy(player: PlayerSigner, matchId: bigint | number, withVrf = false, oracleQueue?: PublicKey): Promise<string> {
     const ad = addresses(matchId);
     const secret = Array.from(nacl.randomBytes(32));
     const ixs: TransactionInstruction[] = [
       await this.program.methods.contributeEntropy(secret).accountsPartial({ player: player.publicKey, battle: ad.battle, secret: ad.secret } as any).instruction(),
     ];
-    if (withVrf) ixs.push(await this.requestVrfIx(player.publicKey, ad));
+    if (withVrf) ixs.push(await this.requestVrfIx(player.publicKey, matchId, oracleQueue));
     return this.sendTee(withVrf ? "contribute_entropy+request_vrf" : "contribute_entropy", ixs, player);
   }
 
-  private requestVrfIx(payer: PublicKey, ad: Addresses) {
+  /** The `request_vrf` instruction, for a caller that sends or simulates it itself. */
+  async requestVrfIx(payer: PublicKey, matchId: bigint | number, oracleQueue?: PublicKey): Promise<TransactionInstruction> {
+    const ad = addresses(matchId);
+    const queue = oracleQueue ?? (await this.readConfig()).oracleQueue;
     return this.program.methods
       .requestVrf(7)
-      .accountsPartial({ payer, battle: ad.battle, secret: ad.secret, oracleQueue: ORACLE_QUEUE } as any)
+      .accountsPartial({ payer, battle: ad.battle, secret: ad.secret, oracleQueue: queue } as any)
       .instruction();
   }
 
   /** Rollup. Re-requests the randomness if it has not arrived. */
-  async requestVrf(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, addresses(matchId))], payer);
+  async requestVrf(payer: PlayerSigner, matchId: bigint | number, oracleQueue?: PublicKey): Promise<string> {
+    return this.sendTee("request_vrf", [await this.requestVrfIx(payer.publicKey, matchId, oracleQueue)], payer);
+  }
+
+  /** The `deal` instruction, for a caller that sends or simulates it itself. */
+  dealIx(payer: PublicKey, matchId: bigint | number): Promise<TransactionInstruction> {
+    const ad = addresses(matchId);
+    return this.program.methods
+      .deal()
+      .accountsPartial({ payer, battle: ad.battle, secret: ad.secret, army0: ad.army0, army1: ad.army1 } as any)
+      .instruction();
   }
 
   /** Rollup, permissionless. Sets the board up once both secrets and the randomness are in. */
   async deal(payer: PlayerSigner, matchId: bigint | number): Promise<string> {
-    const ad = addresses(matchId);
-    const ix = await this.program.methods
-      .deal()
-      .accountsPartial({ payer: payer.publicKey, battle: ad.battle, secret: ad.secret, army0: ad.army0, army1: ad.army1 } as any)
-      .instruction();
-    return this.sendTee("deal", [ix], payer);
+    return this.sendTee("deal", [await this.dealIx(payer.publicKey, matchId)], payer);
   }
 
   /**

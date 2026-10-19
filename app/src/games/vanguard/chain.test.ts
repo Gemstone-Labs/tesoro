@@ -85,6 +85,7 @@ describe("rollup instructions", () => {
 
   it("entropy is a fresh 32-byte secret each time, and the second contributor also asks for randomness", async () => {
     const { chain, sent, player } = capture();
+    Object.assign(chain as unknown as Record<string, unknown>, { readConfig: async () => ({ teeValidator: Keypair.generate().publicKey, oracleQueue: Keypair.generate().publicKey }) });
     await chain.contributeEntropy(player, ID, false);
     await chain.contributeEntropy(player, ID, true);
     expect(sent[0].ixs).toHaveLength(1);
@@ -104,11 +105,48 @@ describe("rollup instructions", () => {
   });
 });
 
+describe("deployment values come from the program's own config", () => {
+  const validator = Keypair.generate().publicKey;
+  const queue = Keypair.generate().publicKey;
+  const withConfig = () => {
+    const c = capture();
+    Object.assign(c.chain as unknown as Record<string, unknown>, {
+      readConfig: async () => ({ teeValidator: validator, oracleQueue: queue }),
+      waitOwner: async () => true,
+      pause: async () => undefined,
+    });
+    return c;
+  };
+
+  it("delegation names the validator in VanguardConfig", async () => {
+    const { chain, sent, player } = withConfig();
+    await chain.delegateMatch(player, ID);
+    expect(keys(sent[0].ixs[1])).toContain(validator.toBase58());
+  });
+
+  it("the randomness request names the oracle queue in VanguardConfig", async () => {
+    const { chain, sent, player } = withConfig();
+    await chain.requestVrf(player, ID);
+    expect(keys(sent[0].ixs[0])).toContain(queue.toBase58());
+  });
+
+  it("the second contributor's bundled request does too, and the Battle's own queue wins when given", async () => {
+    const { chain, sent, player } = withConfig();
+    await chain.contributeEntropy(player, ID, true);
+    expect(keys(sent[0].ixs[1])).toContain(queue.toBase58());
+    const own = Keypair.generate().publicKey;
+    await chain.requestVrf(player, ID, own);
+    expect(keys(sent[1].ixs[0])).toContain(own.toBase58());
+    expect(keys(sent[1].ixs[0])).not.toContain(queue.toBase58());
+  });
+});
+
 describe("base-layer instructions", () => {
   it("delegating the Match gets the 600k compute limit and names the TEE validator", async () => {
     const { chain, sent, player } = capture();
     (chain as unknown as { waitOwner: () => Promise<boolean> }).waitOwner = async () => true;
     (chain as unknown as { pause: () => Promise<void> }).pause = async () => undefined;
+    (chain as unknown as { readConfig: () => Promise<unknown> }).readConfig = async () => ({ teeValidator: Keypair.generate().publicKey, oracleQueue: Keypair.generate().publicKey });
     await chain.delegateMatch(player, ID);
     expect(units(sent[0].ixs[0])).toBe(CU.delegate);
     expect(CU.delegate).toBe(600_000);
