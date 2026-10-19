@@ -103,7 +103,7 @@ contract KHypeRateAdapterTest is Test {
         assertApproxEqAbs(vault.treasuryBalance(), feeBefore, 4, "the fee is back with the rate");
     }
 
-    function test_reportIs77BytesOverLayerZero() public {
+    function test_reportIs93BytesOverLayerZero() public {
         MockLzEndpoint lz = new MockLzEndpoint();
         PositionVaultOApp v = new PositionVaultOApp(
             address(kh), address(adapter), address(lz), lz.eid(), SOLANA, address(this), address(0)
@@ -117,10 +117,11 @@ contract KHypeRateAdapterTest is Test {
         vm.prank(alice);
         v.reportYield{value: 0.0001 ether}(id);
         bytes memory m = lz.lastMessage();
-        assertEq(m.length, 77);
+        assertEq(m.length, 93);
         assertEq(uint8(m[0]), 2);
         assertApproxEqAbs(uint128(bytes16(_slice(m, 45, 16))), 0.4 ether, 2);
         assertApproxEqAbs(uint128(bytes16(_slice(m, 61, 16))), 0.1 ether, 2);
+        assertEq(uint128(bytes16(_slice(m, 77, 16))), 0, "no Instant payout yet");
     }
 
     function _slice(bytes memory b, uint256 start, uint256 len) internal pure returns (bytes memory out) {

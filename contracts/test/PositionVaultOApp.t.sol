@@ -126,12 +126,25 @@ contract PositionVaultOAppTest is Test {
         assertGt(accrued, 0);
         vault.reportYield{value: 0.0001 ether}(id);
         bytes memory m = ep.lastMessage();
-        assertEq(m.length, 77);
+        assertEq(m.length, 93);
         assertEq(uint8(m[0]), 2);
         assertEq(bytes8(_slice(m, 37, 8)), bytes8(uint64(2)));
         assertEq(bytes16(_slice(m, 45, 16)), bytes16(uint128(accrued)));
         assertGt(vault.treasuryBalance(), 0);
         assertEq(bytes16(_slice(m, 61, 16)), bytes16(uint128(vault.treasuryBalance())));
+    }
+
+    function test_report_carries_the_cumulative_instant_paid() public {
+        uint64 id = _open(1e18);
+        vm.warp(block.timestamp + 600);
+        uint256 half = vault.treasuryBalance() / 2;
+        _recv(_instant(id, 1, redeemer, uint128(half)));
+        vault.reportYield{value: 0.0001 ether}(id);
+        bytes memory m = ep.lastMessage();
+        assertEq(m.length, 93);
+        assertEq(bytes16(_slice(m, 61, 16)), bytes16(uint128(vault.treasuryBalance())));
+        assertEq(bytes16(_slice(m, 77, 16)), bytes16(uint128(half)));
+        assertEq(vault.instantPaid(), half);
     }
 
     function _instant(uint64 id, uint64 seq, address to, uint128 amt) internal view returns (bytes memory) {
