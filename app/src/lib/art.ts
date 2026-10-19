@@ -11,12 +11,12 @@ const g = (name: string, h: number, faces: "left" | "right") => ({ src: `/art/fi
 export const art = {
   /** Wide hero art (2400x1000), left 40% dark and empty for the title. */
   blockPuzzleHero: f("block-puzzle-hero"),
-  holdemHero: f("holdem-hero"),
+  holdemHero: f("holdem-hero-2"),
   tradingDuelHero: f("trading-duel-hero-2"),
   vanguardHero: f("vanguard-hero"),
   /** Square key art. */
   blockPuzzleTile: f("block-puzzle-tile"),
-  holdemTile: f("holdem-tile"),
+  holdemTile: f("holdem-tile-2"),
   tradingDuelTile: f("trading-duel-tile-2"),
   vanguardTile: f("vanguard-tile-2"),
   comingSoon: {
@@ -32,7 +32,7 @@ export const art = {
   /** The wide hero art by Game (list rows, result poster, Request cards). */
   hero: {
     "block-puzzle": f("block-puzzle-hero"),
-    holdem: f("holdem-hero"),
+    holdem: f("holdem-hero-2"),
     "trading-duel": f("trading-duel-hero-2"),
     vanguard: f("vanguard-hero"),
   },
@@ -41,7 +41,7 @@ export const art = {
   /** Play Again thumbs reuse the square tiles (cropped by CSS). */
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),
-    holdem: f("holdem-tile"),
+    holdem: f("holdem-tile-2"),
     "trading-duel": f("trading-duel-tile-2"),
     vanguard: f("vanguard-tile-2"),
   },

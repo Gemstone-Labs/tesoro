@@ -113,9 +113,15 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-piece.gone { pointer-events: none; animation: vg-gone 0.28s ease-in forwards; }
 @keyframes vg-gone { to { opacity: 0; transform: scale(0.7); } }
 
-/* where the picked-up piece can go: a dot to move, a brass ring to attack */
+/* where the picked-up piece can go: a dot to move; to attack, the enemy piece's own rim lights up
+   (drawn on the coin's face, so it follows the tilt instead of floating flat over the square) */
 .vg-mark { position: absolute; z-index: 9; width: var(--vg-sq); height: var(--vg-sq); padding: 0; border: 0; cursor: pointer; background: radial-gradient(circle, rgba(255, 236, 170, 0.85) 0 11%, rgba(255, 236, 170, 0) 13%); }
-.vg-mark.atk { background: radial-gradient(circle, transparent 0 34%, rgba(255, 224, 140, 0.95) 36% 41%, transparent 43%); }
+.vg-mark.atk { background: none; }
+.vg-piece.tgt .vg-face::before { content: ""; position: absolute; z-index: 2; inset: -8%; border-radius: 50%; pointer-events: none;
+  border: max(2.5px, calc(var(--w) * 0.05)) solid #ff6a3d;
+  box-shadow: 0 0 0 1px rgba(40, 8, 0, 0.85), inset 0 0 0 1px rgba(40, 8, 0, 0.85), 0 0 calc(var(--w) * 0.14) rgba(255, 90, 40, 0.7);
+  animation: vg-tgt 0.9s ease-in-out infinite alternate; }
+@keyframes vg-tgt { from { opacity: 0.6; } to { opacity: 1; } }
 .vg-mark:hover, .vg-mark:focus-visible { outline: none; background-color: rgba(255, 236, 170, 0.14); }
 
 /* painted effects, on black: drawn with a screen blend so black is invisible */
@@ -176,7 +182,7 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 
 @media (prefers-reduced-motion: reduce) {
   .vg-piece, .vg-pb, .vg-sh { transition: none; }
-  .vg-fx, .vg-storm, .vg-storm i, .vg-piece.gone { animation: none; }
+  .vg-fx, .vg-storm, .vg-storm i, .vg-piece.gone, .vg-piece.tgt .vg-face::before { animation: none; }
   .vg-storm { opacity: 0.85; }
 }
 

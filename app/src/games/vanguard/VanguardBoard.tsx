@@ -76,7 +76,7 @@ function flip(pb: HTMLElement, coin: HTMLElement, sh: HTMLElement, from: HitSide
 }
 
 /** One marker in the B1 look: face over a dark wooden side, lit from above, shadow straight under. */
-export const Marker = memo(function Marker({ p, selected, onTap, disabled }: { p: ShownPiece; selected: boolean; onTap: (id: number) => void; disabled: boolean }) {
+export const Marker = memo(function Marker({ p, selected, target = false, onTap, disabled }: { p: ShownPiece; selected: boolean; target?: boolean; onTap: (id: number) => void; disabled: boolean }) {
   const shownUp = p.up && p.rank !== null;
   const wasUp = useRef(p.up && p.rank !== null);
   const pb = useRef<HTMLSpanElement>(null);
@@ -100,7 +100,7 @@ export const Marker = memo(function Marker({ p, selected, onTap, disabled }: { p
   return (
     <button
       type="button"
-      className={`vg-piece ${p.army}${selected ? " sel" : ""}${p.gone ? " gone" : ""}`}
+      className={`vg-piece ${p.army}${selected ? " sel" : ""}${target ? " tgt" : ""}${p.gone ? " gone" : ""}`}
       style={style}
       aria-label={label}
       aria-pressed={selected || undefined}
@@ -156,6 +156,7 @@ export interface VanguardBoardProps {
  * transition; effects are painted sprites drawn with a screen blend; the Dust Storm is a haze over its line.
  */
 export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, locked, viewer = "us", onPiece, onMark }: VanguardBoardProps) {
+  const targets = new Set(marks.filter((m) => m.attack).map((m) => m.r * SIZE + m.c));
   return (
     <div className="vg-board" role="group" aria-label="Vanguard board">
       {depots.map((d) => (
@@ -168,7 +169,7 @@ export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, lock
         />
       ))}
       {pieces.map((p) => (
-        <Marker key={p.id} p={p} selected={selected === p.id} onTap={onPiece} disabled={locked && selected !== p.id} />
+        <Marker key={p.id} p={p} selected={selected === p.id} target={!p.gone && targets.has(p.r * SIZE + p.c)} onTap={onPiece} disabled={locked && selected !== p.id} />
       ))}
       {marks.map((m) => (
         <button
