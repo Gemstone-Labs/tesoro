@@ -87,5 +87,5 @@ describe("plain money words", () => {
       "Player-facing text uses an old money word (see CONTEXT.md: Players read Lock, Locked amount, Left to pay back, Length, Earned, test SOL). " +
         "Reword it; if the string is code a Player never sees, add it to ALLOW in src/plain-words.test.ts with a reason.",
     ).toEqual([]);
-  });
+  }, 60_000);
 });

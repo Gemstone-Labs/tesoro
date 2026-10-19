@@ -377,10 +377,12 @@ export interface BridgePositionView {
   treasuryBalance: bigint;
   /** What Instant Redeems on this Position's vault had been paid when that report was made. */
   instantPaid: bigint;
+  /** Vault block time (unix seconds) of the latest Yield Report applied to this record. */
+  reportTime: bigint;
 }
 
-/** `BridgePosition`: 172 bytes, `treasury_balance` u128 at 172, `instant_paid` u128 at 188. */
-export const BRIDGE_POSITION_LEN = 172 + 16 + 16;
+/** `BridgePosition`: 172 bytes, `treasury_balance` u128 at 172, `instant_paid` u128 at 188, `report_time` u64 at 204. */
+export const BRIDGE_POSITION_LEN = 172 + 16 + 16 + 8;
 
 /** Null for a record in the old layout: its vault is abandoned, and it reads as absent. */
 export function parseBridgePosition(d: Uint8Array): BridgePositionView | null {
@@ -400,6 +402,7 @@ export function parseBridgePosition(d: Uint8Array): BridgePositionView | null {
     unlockSent: d[171] === 1,
     treasuryBalance: rdU128(d, 172),
     instantPaid: rdU128(d, 188),
+    reportTime: rdU64(d, 204),
   };
 }
 
@@ -651,6 +654,10 @@ export async function fetchVaultPosition(vault: string, id: bigint): Promise<Vau
 }
 
 /** With `LZ_FEE_HEADROOM_PCT` on top; the vault refunds the excess to the caller. */
+/** The vault's own Treasury balance right now (source-asset units), read from the vault. */
+export const fetchLiveTreasury = (vault: string): Promise<bigint> =>
+  evmClient(netOfVault(vault)).readContract({ address: vault as Address, abi: vaultAbi, functionName: "treasuryBalance" });
+
 export const withHeadroom = (fee: bigint) => (fee * (100n + LZ_FEE_HEADROOM_PCT)) / 100n;
 
 // ---- Math ---------------------------------------------------------------------------------------

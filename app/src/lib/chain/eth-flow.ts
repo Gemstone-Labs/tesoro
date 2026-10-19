@@ -305,7 +305,7 @@ export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): 
  */
 export async function freshenYield(
   ctx: EthCtx,
-  args: { vault: string; id: bigint; action: ReportAction; waitingGemas?: bigint; onStatus?: (note: string | null) => void },
+  args: { vault: string; id: bigint; action: ReportAction; waitingGemas?: bigint; treasuryBehind?: boolean; onStatus?: (note: string | null) => void },
 ): Promise<boolean> {
   const { vault, id, action, onStatus } = args;
   const base = getChain().base;
@@ -324,6 +324,7 @@ export async function freshenYield(
     onChainDebt: math ? debtGemas(math) : 0n,
     projectedDebt: projectedEthDebt(math, vp.accrued),
     waitingGemas: args.waitingGemas ?? 0n,
+    treasuryBehind: args.treasuryBehind,
     recent: recentOp ? { baseline: BigInt(recentOp.baseline!), at: recentOp.createdAt } : null,
     now: Date.now(),
   });
