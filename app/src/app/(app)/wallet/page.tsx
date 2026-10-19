@@ -8,18 +8,19 @@ import { Button, Card, FacetCrown, GemaMark, GemaUsd, Sheet, SimulatedYieldLabel
 import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas } from "@/lib/format";
-import type { Chain, GemaHolding, Position } from "@/lib/mock";
+import { GAME_NAMES, type Chain, type GameId, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
 import { returnRows } from "@/lib/chain/return-own";
 import { gemasInAsset } from "@/lib/chain/ledger";
+import { clockOf, nativeNow, speedupOf, stakeGrowthOf, unlockEstimateMs } from "@/lib/chain/native";
 import { RedeemSheet, ReturnOwnSheet, ReturnSheet } from "./MoneySheets";
 import { NativeOpenForm, NativePositionCard, NativeRedeemSheet, nativeRedeemables } from "./NativePositions";
 import { EthOpenForm, EthOps, EthPositionCard, ethRedeemables } from "./EthPositions";
 import { vaultsOn, type EthVault } from "@/lib/chain/eth";
-import { OpenPanel, OpenFormView, NoPositions } from "./OpenPanel";
-import { ChainPockets, type Pocket, type PocketSource } from "./ChainPockets";
+import { OpenPanel, OpenFormView, NoPositions, OpenIntentContext, type OpenIntent } from "./OpenPanel";
+import { ChainPockets, NextRedeem, type Pocket, type PocketSource } from "./ChainPockets";
 import { PositionTile, linearSeries } from "./PositionTile";
 import { ResetNote } from "./ResetNote";
 import "./wallet.css";
@@ -38,13 +39,22 @@ export default function Wallet() {
   const [months, setMonths] = useState(DEFAULT_HORIZON_MONTHS);
   const [now] = useState(() => Date.now());
   const [openSheet, setOpenSheet] = useState(false);
+  const [intent, setIntent] = useState<OpenIntent | null>(null);
   // Phones fold the balance to the Total; wider screens always show all of it.
   const [heroOpen, setHeroOpen] = useState(false);
   const router = useRouter();
   // `/wallet?open=1` (the Lobby's Get Gemas) lands with the Open a Position sheet already up.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("open") !== "1") return;
-    const t = setTimeout(() => setOpenSheet(true), 0);
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("open") !== "1") return;
+    // A game that sent the Player here (`game`, and the entry as `need`) is remembered for the sheet.
+    const game = q.get("game");
+    const need = Math.floor(Number(q.get("need")));
+    const from: OpenIntent | null = game && game in GAME_NAMES ? { game: game as GameId, need: need > 0 ? need : null } : null;
+    const t = setTimeout(() => {
+      setIntent(from);
+      setOpenSheet(true);
+    }, 0);
     return () => clearTimeout(t);
   }, []);
   useGuideTip({
@@ -75,6 +85,8 @@ export default function Wallet() {
     nativeRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0) +
     ethRedeemables(snapshot?.holdings ?? []).reduce((s, h) => s + Number(h.redeemable), 0);
   const redeemAmount = onChain ? nativeRedeemable : gemas.redeemable;
+  // Pending is what is left of the Total after Redeemable now, so the hero adds up and matches the chain cards (which use the same figures).
+  const pendingAmount = Math.max(0, gemas.total - redeemAmount);
   // Which sheet opens is decided when it renders, not when the tap happened: a tap while the session
   // is still loading must not open the offline sheet once the Account turns out to be on chain.
   const openRedeem = (chain?: Chain) =>
@@ -144,11 +156,33 @@ export default function Wallet() {
     return { positions, closed };
   };
 
+  /** When the soonest of your own repaying Positions on a chain covers its Debt: those Gemas turn redeemable then. Null when unknown. */
+  const nextRedeemAt = (chain: Chain): number | null => {
+    const times: number[] = [];
+    const speedup = speedupOf(market?.pool);
+    const stake = stakeGrowthOf(market);
+    for (const p of snapshot?.positions ?? []) {
+      const info = p.native;
+      if (chain !== "SOL" || !info || p.status !== "locked") continue;
+      const cur = nativeNow(info, speedup, Math.floor(now / 1000), stake);
+      if (!cur.source || cur.debtGemas === 0n) continue;
+      const at = unlockEstimateMs({ clock: clockOf(info), speedup, appliedNet: info.appliedNet, source: cur.source, nowMs: now, stake });
+      if (at !== null) times.push(at);
+    }
+    for (const p of generic.filter((x) => x.chain === chain && x.debt > 0)) {
+      const yearly = p.principal * p.apy;
+      const at = p.advance?.unlockEstimate ? Date.parse(p.advance.unlockEstimate) : yearly > 0 ? now + (p.debt / (yearly / 12)) * 10 * 60_000 : NaN;
+      if (Number.isFinite(at)) times.push(at);
+    }
+    return times.length ? Math.min(...times) : null;
+  };
+
   const pockets: Pocket[] = (["SOL", "ETH", "HYPE"] as Chain[])
-    .map((chain) => ({ chain, ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)) }))
+    .map((chain) => ({ chain, nextRedeemAt: nextRedeemAt(chain), ...chainTiles(chain), ...(onChain && snapshot ? chainGemas(snapshot.holdings, chain) : mockGemas(holdings, chain)) }))
     .filter((p) => p.positions.length > 0 || p.closed.length > 0 || p.gemas > 0);
   const hasPositions = pockets.some((p) => p.positions.length > 0 || p.closed.length > 0);
   const noPositions = pockets.length === 0 && !loading;
+  const heroNext = pockets.filter((p) => p.gemas > p.redeemable && p.nextRedeemAt).reduce<number | null>((m, p) => (m === null || p.nextRedeemAt! < m ? p.nextRedeemAt! : m), null);
   const openPosition = () => auth.gate("open a Position", () => openTab(tab));
 
   return (
@@ -158,7 +192,7 @@ export default function Wallet() {
           <h1 className="page-title">Wallet</h1>
           <p className="page-sub">1 Gema = $0.01</p>
         </div>
-        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Open a Position</Button>}
+        {!noPositions && <Button variant="money" size="lg" onClick={openPosition}>Get Gemas</Button>}
       </header>
 
       <ResetNote />
@@ -179,6 +213,13 @@ export default function Wallet() {
             <span>Gemas</span>
             {ready && <GemaUsd className="wl-usd" value={gemas.total} />}
           </div>
+          {ready && !heroOpen && (
+            <button type="button" className="wl-sum" aria-expanded={heroOpen} aria-controls="wl-second">
+              <span>Redeemable <b className="tnum">{fmtGemas(redeemAmount)}</b></span>
+              <span aria-hidden="true">·</span>
+              <span>Pending <b className="tnum">{fmtGemas(pendingAmount)}</b></span>
+            </button>
+          )}
         </div>
         <div className="wl-second" id="wl-second">
           <div className="wl-redeemable" aria-label="Redeemable now">
@@ -186,11 +227,13 @@ export default function Wallet() {
             <b>{ready ? fmtGemas(redeemAmount) : "—"}</b>
             {ready && <GemaUsd className="wl-usd" value={redeemAmount} />}
             <Button variant="money" disabled={redeemAmount === 0} onClick={() => openRedeem()}>Redeem</Button>
+            {ready && redeemAmount === 0 && <span className="meta">Nothing redeemable yet</span>}
           </div>
           <div className="wl-pending" aria-label="Pending">
             <h2>Pending</h2>
-            <b>{ready ? fmtGemas(gemas.pending) : "—"}</b>
-            {ready && <GemaUsd className="wl-usd" value={gemas.pending} />}
+            <b>{ready ? fmtGemas(pendingAmount) : "—"}</b>
+            {ready && <GemaUsd className="wl-usd" value={pendingAmount} />}
+            {ready && pendingAmount > 0 && <NextRedeem at={heroNext} />}
           </div>
         </div>
         {error && (
@@ -222,12 +265,14 @@ export default function Wallet() {
         {onChain && <p className="note">{REAL ? "Redeem pays the staking token of the Source (jitoSOL for SOL Positions) from the yield your Source Position has earned so far." : "Redeem pays simSOL (simulated) from the yield your Source Position has earned so far."}</p>}
       </footer>
 
-      <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Open a Position">
+      <Sheet open={openSheet} onClose={() => setOpenSheet(false)} title="Get Gemas">
+        <OpenIntentContext.Provider value={intent}>
         <OpenPanel tab={tab} onTab={setTab}>
           {tab === "SOL" && (onChain ? <NativeOpenForm market={market} loading={loading} onDone={() => setOpenSheet(false)} /> : <IdleForm unit="SOL" months={months} onMonths={setMonths} />)}
           {tab === "ETH" && (onChain ? <EthVaultForm unit="ETH" vault={vaultsOn("hoodi")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="ETH" months={months} onMonths={setMonths} />)}
           {tab === "HYPE" && (onChain ? <EthVaultForm unit="HYPE" vault={vaultsOn("hyperevm")[0]} onOpened={(key) => router.push(`/wallet/opening?op=${encodeURIComponent(key)}`)} /> : <IdleForm unit="HYPE" months={months} onMonths={setMonths} />)}
         </OpenPanel>
+        </OpenIntentContext.Provider>
       </Sheet>
       <NativeRedeemSheet open={redeemOpen && onChain} asset={redeemChain} onClose={() => setRedeemOpen(false)} />
       <AdvanceSheet position={advanceFor} onClose={() => setAdvanceFor(null)} />
@@ -258,7 +303,7 @@ function IdleForm({ unit, months, onMonths }: { unit: Chain; months: number; onM
       gemas={null}
       estimate="—"
       note="Sign in to see your balance and a real quote."
-      buttonLabel="Open a Position"
+      buttonLabel="Get Gemas"
       disabled
       onSubmit={() => undefined}
     />

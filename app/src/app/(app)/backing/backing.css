@@ -2,17 +2,18 @@
 .bk { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--section-gap); align-content: start; min-width: 0; }
 .bk-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
 .bk-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; min-width: 0; align-content: start; }
-.bk-avail { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--fg-2); font-size: 14px; }
+.bk-head-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 639px) { .bk-head-actions { width: 100%; } .bk-head-actions .btn { flex: 1 1 0; justify-content: center; } }
 
 .bk-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; border-bottom: 1px solid var(--line); }
 .bk-tabs { display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; max-width: 100%; margin-bottom: -1px; scrollbar-width: none; }
 .bk-tabs::-webkit-scrollbar { display: none; }
-.bk-tabs button { background: transparent; border: 0; padding: 12px 18px 13px; font-size: 17px; font-weight: 500; color: var(--fg-2); border-bottom: 2px solid transparent; white-space: nowrap; }
+.bk-tabs button { background: transparent; border: 0; padding: 12px 18px 13px; font-size: var(--fs-17); font-weight: 500; color: var(--fg-2); border-bottom: 2px solid transparent; white-space: nowrap; }
 .bk-tabs button.on { color: var(--fg); font-weight: 700; border-bottom-color: var(--fg); }
 .bk-tabs button:hover { color: var(--fg); }
 .bk-tools { display: flex; gap: 10px; align-items: center; padding-bottom: 8px; }
-.bk-sort { --c: 10px; --edge: var(--edge-1); display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; background: transparent; font-size: 14px; color: var(--fg-2); }
-.bk-sort select { background: transparent; border: 0; outline: 0; font-weight: 600; font-size: 14px; color: var(--fg); }
+.bk-sort { --c: 10px; --edge: var(--edge-1); display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; background: transparent; font-size: var(--fs-14); color: var(--fg-2); }
+.bk-sort select { background: transparent; border: 0; outline: 0; font-weight: 600; font-size: var(--fs-14); color: var(--fg); }
 .bk-sort select option { background: var(--surface); }
 
 /* cards: a calm grid, avatar, name, game and record, entry and Offer */
@@ -25,20 +26,20 @@
 .bk-card.selected { --edge: var(--fg); --t: 2px; }
 .bk-avatar { width: 60px; height: 60px; --c: 14px; }
 .bk-who { display: grid; gap: 2px; min-width: 0; }
-.bk-who strong { font-size: 19px; font-weight: 700; }
-.bk-who span { font-size: 14.5px; color: var(--fg-2); }
+.bk-who strong { font-size: var(--fs-18); font-weight: 700; }
+.bk-who span { font-size: var(--fs-15); color: var(--fg-2); }
 .bk-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
 .bk-foot > div { display: grid; gap: 2px; }
-.bk-foot span { font-size: 13.5px; color: var(--fg-2); }
-.bk-foot b { display: inline-flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: normal; }
-.bk-foot small { font-size: 14px; font-weight: 500; color: var(--fg-2); }
-.bk-foot .btn { min-height: 46px; padding: 0 16px; font-size: 15px; white-space: nowrap; }
+.bk-foot span { font-size: var(--fs-14); color: var(--fg-2); }
+.bk-foot b { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-24); font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: normal; }
+.bk-foot small { font-size: var(--fs-14); font-weight: 500; color: var(--fg-2); }
+.bk-foot .btn { min-height: 46px; padding: 0 16px; font-size: var(--fs-15); white-space: nowrap; }
 
 .bk-mine { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); }
 
 .bk-empty { min-height: 130px; }
-.bk-empty .bust-card-body b { font-size: 20px; }
-.bk-empty .bust-card-body p { font-size: 15px; margin-top: 4px; max-width: 46ch; }
+.bk-empty .bust-card-body b { font-size: var(--fs-20); }
+.bk-empty .bust-card-body p { font-size: var(--fs-15); margin-top: 4px; max-width: 46ch; }
 
 /* Offer modal: a native dialog in the top layer, centred over everything. For a Request, the Player's
    card on the left and the terms on the right (one column on phones); a public Offer is terms only. */
@@ -46,20 +47,21 @@ dialog.bk-drawer { --c: var(--cut-frame); --edge: var(--edge-2); position: fixed
   width: calc(100% - 24px); max-width: 560px; max-height: calc(100dvh - 24px); margin: auto; }
 dialog.bk-drawer.has-card { max-width: 940px; }
 dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: blur(6px); }
-.bk-drawer-in { display: grid; grid-template-areas: "head" "card" "terms"; align-items: start; }
+.bk-drawer-in { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "card" "terms"; align-items: start; }
 .bk-drawer-card { grid-area: card; padding: 16px 16px 0; }
 .bk-drawer-card .rq, .bk-drawer-card .rq:hover { transform: none; --edge: var(--edge-1); }
-.bk-drawer-terms { grid-area: terms; display: grid; gap: 18px; align-content: start; min-width: 0; padding: 20px 16px 0; }
+.bk-drawer-terms { grid-area: terms; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-content: start; min-width: 0; padding: 20px 16px 0; }
 .bk-drawer-head { grid-area: head; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 18px 16px 0; }
 .bk-drawer-head .h-section { font-size: clamp(30px, 2.6vw, 46px); }
 
 .bk-outcomes { width: 100%; border-collapse: collapse; }
 .bk-outcomes th, .bk-outcomes td { padding: 12px 10px; text-align: left; vertical-align: top; }
-.bk-outcomes thead th { padding-top: 0; max-width: 16ch; overflow: hidden; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-2); }
+.bk-outcomes thead th { padding-top: 0; max-width: 16ch; overflow: hidden; font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; text-overflow: ellipsis; color: var(--fg-2); }
+.bk-keep { margin-top: -10px; }
 .bk-outcomes tbody tr { border-top: 1px solid var(--line); }
-.bk-outcomes tbody th { font-size: 15px; white-space: nowrap; }
+.bk-outcomes tbody th { font-size: var(--fs-15); white-space: nowrap; }
 .bk-outcomes td b { display: block; font-family: var(--f-display); font-size: 34px; font-weight: 800; line-height: 1; }
-.bk-outcomes td small { font-size: 12.5px; color: var(--fg-2); }
+.bk-outcomes td small { font-size: var(--fs-13); color: var(--fg-2); }
 .bk-outcomes .won td:nth-child(2) b { color: var(--em-hi); }
 .bk-outcomes .lost td:nth-child(2) b { color: var(--danger); }
 .bk-ico { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 8px; vertical-align: middle; border-radius: 50%; }
@@ -71,10 +73,11 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
 .bk-drawer-foot { position: sticky; bottom: 0; z-index: 1; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 16px;
   margin: 0 -16px; padding: 14px 16px 18px; background: var(--side); border-top: 1px solid var(--line); }
 .bk-reserve { display: grid; gap: 2px; }
-.bk-reserve b { display: inline-flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 800; }
-.bk-reserve .meta { font-size: 12px; }
+.bk-reserve b { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-24); font-weight: 800; }
+.bk-reserve .meta { font-size: var(--fs-12); }
 .bk-drawer-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
-.bk-drawer-actions .btn { min-height: 54px; font-size: 17px; }
+.bk-drawer-actions .btn { min-height: 54px; font-size: var(--fs-17); }
+.bk-cancel { display: contents; }
 
 @media (min-width: 640px) {
   .bk-drawer-head { padding: 28px 28px 0; }
@@ -86,19 +89,37 @@ dialog.bk-drawer::backdrop { background: rgba(4, 7, 9, 0.66); backdrop-filter: b
   .bk-drawer-card { position: sticky; top: 0; padding: 24px 0 24px 24px; }
   .has-card :is(.bk-drawer-head, .bk-drawer-terms) { padding-left: 24px; }
 }
-/* stacked, the card is a shorter poster so the terms are close */
+/* stacked, the Player is a compact header row (avatar, name, record, ask) so the terms stay in view */
 @media (max-width: 859px) {
-  .bk-drawer-card .rq-face { height: 176px; }
-  .bk-drawer-card .rq-avatar { width: 104px; height: 104px; --c: 18px; }
+  .bk-drawer-card { padding-bottom: 0; }
+  .bk-drawer-card .rq { grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: auto; align-items: center; gap: 0 12px; padding: 12px; }
+  .bk-drawer-card .rq-face { height: auto; padding: 0; overflow: visible; }
+  .bk-drawer-card .rq-art, .bk-drawer-card .rq-game, .bk-drawer-card .rq-time, .bk-drawer-card .rq-face::after,
+  .bk-drawer-card .rq-body .pnl, .bk-drawer-card .rq-new { display: none; }
+  .bk-drawer-card .rq-avatar { width: 56px; height: 56px; --c: 12px; box-shadow: none; }
+  .bk-drawer-card .rq-body { gap: 6px; padding: 0; min-width: 0; }
+  .bk-drawer-card .rq-body > strong { font-size: var(--fs-17); text-align: left; }
+  .bk-drawer-card .rq-stats { grid-template-columns: repeat(3, auto); justify-content: start; gap: 0 14px; text-align: left; }
+  .bk-drawer-card .rq-stats div + div { border: 0; }
+  .bk-drawer-card .rq-stats div { display: flex; align-items: baseline; gap: 5px; }
+  .bk-drawer-card .rq-stats dt { order: 2; }
+  .bk-drawer-card .rq-stats dd, .bk-drawer-card .rq-stats div:first-child dd { font-family: var(--f-body); font-size: var(--fs-15); }
+  .bk-drawer-card .rq-foot { padding-top: 0; border: 0; justify-content: flex-start; }
+  .bk-drawer-card .rq-foot > div { display: flex; align-items: center; gap: 8px; }
+  .bk-drawer-card .rq-foot b { font-size: var(--fs-17); }
 }
 @media (max-width: 520px) {
-  .bk-drawer-foot { grid-template-columns: 1fr; }
-  .bk-reserve { display: none; }
+  .bk-drawer-foot { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .bk-reserve { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+  .bk-reserve b { font-size: var(--fs-18); }
+  /* one full-width button keeps the footer short so the outcomes above stay in view; the ✕ in the header closes */
+  .bk-drawer-actions { grid-template-columns: minmax(0, 1fr); }
+  .bk-cancel { display: none; }
+  .bk-drawer-actions .btn { justify-content: center; white-space: nowrap; padding-inline: 12px; }
   .bk-outcomes td b { font-size: 26px; }
 }
 
-dialog.bk-drawer[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
-dialog.bk-drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
+/* open and close motion: shared with sheets in ui.css */
 
 /* How Backing works: one example Offer, the Pot drawn to scale for a win and a loss; Hide folds it to its title bar */
 .bk-ex { --edge: var(--edge-1); background: var(--surface); display: grid; gap: 22px; padding: 26px 28px 28px; }
@@ -106,19 +127,19 @@ dialog.bk-drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .bk-ex.closed .h-section { font-size: clamp(20px, 1.6vw, 26px); }
 .bk-ex-head { display: flex; justify-content: space-between; align-items: center; gap: 12px 24px; flex-wrap: wrap; }
 .bk-ex-actions { display: flex; align-items: center; gap: 8px; }
-.bk-ex-fold { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px; border: 0; background: transparent; color: var(--fg-2); font-weight: 700; font-size: 14px; }
+.bk-ex-fold { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px; border: 0; background: transparent; color: var(--fg-2); font-weight: 700; font-size: var(--fs-14); }
 .bk-ex-fold:hover { color: var(--fg); }
 .bk-ex-fold:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .bk-ex-fold svg { width: 18px; height: 18px; transform: rotate(180deg); transition: transform 0.25s ease; }
 .bk-ex.closed .bk-ex-fold svg { transform: none; }
 .bk-ex-body { display: grid; gap: 24px; animation: bk-ex-in 0.3s ease both; }
 .bk-ex-body[hidden] { display: none; }
-.bk-ex-lede { color: var(--fg-2); font-size: 15.5px; line-height: 1.55; max-width: 62ch; margin-top: -10px; }
+.bk-ex-lede { color: var(--fg-2); font-size: var(--fs-16); line-height: 1.55; max-width: 62ch; margin-top: -10px; }
 .bk-ex-n { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); white-space: nowrap; }
 .bk-ex-case { display: grid; gap: 10px; }
-.bk-ex-case-h { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.bk-ex-case-h { display: flex; align-items: center; gap: 10px; font-size: var(--fs-15); }
 .bk-ex-case-h b { white-space: nowrap; }
-.bk-ex-case-h .meta { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; text-align: right; }
+.bk-ex-case-h .meta { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); text-align: right; }
 .bk-ex-ico { display: grid; place-items: center; width: 24px; height: 24px; clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
 .bk-ex-ico svg { width: 14px; height: 14px; }
 .bk-ex-ico.won { background: var(--em); color: var(--em-ink); }
@@ -136,9 +157,9 @@ dialog.bk-drawer[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .bk-ex-bar i { flex-basis: 0; min-width: 6px; background: var(--sw); }
 .bk-ex-bar .opp { box-shadow: inset 0 0 0 1px var(--line-2); }
 .bk-ex-legend { display: flex; gap: 3px; list-style: none; margin: 0; padding: 0; }
-.bk-ex-legend li { flex-basis: 0; min-width: 120px; display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; align-items: center; font-size: 13px; color: var(--fg-2); }
+.bk-ex-legend li { flex-basis: 0; min-width: 120px; display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; align-items: center; font-size: var(--fs-13); color: var(--fg-2); }
 .bk-ex-sw { width: 10px; height: 10px; background: var(--sw); grid-row: span 2; align-self: start; margin-top: 4px; }
-.bk-ex-legend .bk-ex-n { font-size: 15px; }
+.bk-ex-legend .bk-ex-n { font-size: var(--fs-15); }
 .bk-ex-legend .lost .bk-ex-n { color: var(--danger); }
 @keyframes bk-ex-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (prefers-reduced-motion: reduce) { .bk-ex-body { animation: none; } .bk-ex-fold svg { transition: none; } }

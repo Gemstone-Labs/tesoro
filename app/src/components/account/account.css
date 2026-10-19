@@ -4,8 +4,8 @@
 
 /* ——— A Player's Account (/account/<key>) ——— */
 .pa { display: grid; gap: 20px; max-width: 1080px; width: 100%; margin: 0 auto; }
-.pa-p, .pa-none { color: var(--fg-2); font-size: 15px; line-height: 1.5; }
-.pa-h { font-size: 20px; font-weight: 800; }
+.pa-p, .pa-none { color: var(--fg-2); font-size: var(--fs-15); line-height: 1.5; }
+.pa-h { font-size: var(--fs-20); font-weight: 800; }
 
 /* hero: the profile banner, the Player over its edge, then the facts with their labels */
 .pa-hero { --edge: var(--edge-1); background: var(--surface); display: grid; overflow: hidden; }
@@ -14,7 +14,7 @@
 .pa-banner::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(9, 13, 15, 0.6) 0%, transparent 50%), linear-gradient(0deg, #12181c 0%, transparent 70%); }
 .pa-seen {
   position: absolute; z-index: 1; right: 18px; top: 16px; display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px;
-  font-family: var(--f-mono); font-size: 12.5px; color: var(--fg-2); white-space: nowrap; background: rgba(6, 9, 12, 0.72);
+  font-family: var(--f-mono); font-size: var(--fs-13); color: var(--fg-2); white-space: nowrap; background: rgba(6, 9, 12, 0.72);
   clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
 }
 .pa-seen i { width: 7px; height: 7px; background: var(--fg-3); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
@@ -24,11 +24,11 @@
 .pa-avatar { width: 140px; height: 140px; --c: 24px; --edge: var(--edge-2); --t: 2px; background: var(--shell); }
 .pa-who { display: grid; gap: 10px; min-width: 0; padding-bottom: 4px; }
 .pa-who .page-title { font-size: clamp(38px, 4vw, 56px); line-height: 0.95; white-space: nowrap; text-transform: none; overflow: hidden; text-overflow: ellipsis; }
-.pa-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 15px; color: var(--fg-2); }
-.pa-key { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border: 0; background: var(--raised); --edge: var(--edge-1); color: var(--fg-2); font-size: 12.5px; cursor: pointer; }
+.pa-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: var(--fs-15); color: var(--fg-2); }
+.pa-key { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border: 0; background: var(--raised); --edge: var(--edge-1); color: var(--fg-2); font-size: var(--fs-13); cursor: pointer; }
 .pa-key:hover { color: var(--fg); background: var(--raised-2); }
 .pa-key svg { width: 14px; height: 14px; }
-.pa-own { font-size: 13.5px; }
+.pa-own { font-size: var(--fs-14); }
 .pa-hero-actions { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }
 .pa-hero-actions .btn svg { width: 18px; height: 18px; }
 /* Challenge: the one action a visitor came for, a light fill but neutral (emerald stays with Gemas) */
@@ -38,9 +38,9 @@
 .pa-icon:hover { background: var(--surface-2); }
 .pa-facts { margin: 22px 0 0; padding: 18px 32px 22px; display: flex; flex-wrap: wrap; gap: 16px 40px; box-shadow: inset 0 1px var(--line); }
 .pa-facts div { display: grid; gap: 6px; }
-.pa-facts dt { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.pa-facts dt { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-11); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
 .pa-facts dt svg { width: 13px; height: 13px; }
-.pa-facts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 16px; font-weight: 700; }
+.pa-facts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: var(--fs-16); font-weight: 700; }
 .pa-facts dd a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
 .pa-quiet { color: var(--fg-2); font-weight: 400; }
 .pa-game { display: inline-flex; align-items: center; gap: 8px; }
@@ -49,13 +49,13 @@
 
 /* live Requests: the one emerald action on the page */
 .pa-asks { --edge: var(--edge-1); background: var(--surface); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 14px 32px; padding: 20px 28px; }
-.pa-asks-lead p { color: var(--fg-2); font-size: 14.5px; margin-top: 4px; }
+.pa-asks-lead p { color: var(--fg-2); font-size: var(--fs-15); margin-top: 4px; }
 .pa-asks ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .pa-asks li { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .pa-asks li + li { padding-top: 12px; box-shadow: inset 0 1px var(--line); }
 .pa-asks li > span { display: grid; min-width: 0; }
-.pa-asks li b { font-size: 17px; }
-.pa-asks li small { color: var(--fg-2); font-size: 14px; }
+.pa-asks li b { font-size: var(--fs-17); }
+.pa-asks li small { color: var(--fg-2); font-size: var(--fs-14); }
 .pa-asks .btn { flex: none; white-space: nowrap; min-height: 44px; }
 
 /* scoreboard: Gemas won and lost lead (with the running total), Matches and Backings beside them */
@@ -70,7 +70,7 @@
 .pa-gm-btn {
   --c: var(--cut-chip); --edge: var(--edge-2);
   appearance: none; border: 0; margin: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px 0 12px;
-  background: var(--surface-2); font: inherit; font-size: 14px; font-weight: 700; color: var(--fg);
+  background: var(--surface-2); font: inherit; font-size: var(--fs-14); font-weight: 700; color: var(--fg);
 }
 .pa-gm-btn svg { color: var(--fg-2); transition: transform 0.2s ease; }
 .pa-gm-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
@@ -83,19 +83,19 @@
 }
 .pa-gm-list button {
   all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 28px 1fr auto 16px; align-items: center; gap: 10px;
-  padding: 8px 10px; font-size: 14.5px; color: var(--fg-2);
+  padding: 8px 10px; font-size: var(--fs-15); color: var(--fg-2);
 }
 .pa-gm-list button:is(:hover, :focus-visible) { background: rgba(234, 239, 236, 0.06); color: var(--fg); }
 .pa-gm-list button > span { white-space: nowrap; }
 .pa-gm-list img, .pa-gm-all { width: 28px; height: 28px; }
 .pa-gm-all { background: conic-gradient(from 45deg, #2a3640 0 25%, #1c252c 0 50%, #2a3640 0 75%, #1c252c 0); }
-.pa-gm-list b { font-size: 13.5px; font-weight: 700; }
+.pa-gm-list b { font-size: var(--fs-14); font-weight: 700; }
 .pa-gm-check { visibility: hidden; color: var(--fg); }
 .pa-gm-list [aria-checked="true"] { color: var(--fg); font-weight: 700; }
 .pa-gm-list [aria-checked="true"] .pa-gm-check { visibility: visible; }
 @media (prefers-reduced-motion: reduce) { .pa-gm-btn svg { transition: none; } }
 .pa-net { display: grid; gap: 6px; }
-.pa-net p { color: var(--fg-2); font-size: 14.5px; }
+.pa-net p { color: var(--fg-2); font-size: var(--fs-15); }
 .pa-won { color: var(--em); }
 .pa-lost { color: var(--danger); }
 /* won against lost as one bar: emerald for Gemas won, red for Gemas lost */
@@ -103,8 +103,8 @@
 .pa-split-figs { display: flex; justify-content: space-between; gap: 16px; }
 .pa-split-figs span { display: grid; gap: 2px; }
 .pa-split-figs span:last-child { text-align: right; }
-.pa-split-figs small { font-size: 13px; color: var(--fg-2); }
-.pa-split-figs b { font-size: 20px; font-weight: 800; }
+.pa-split-figs small { font-size: var(--fs-13); color: var(--fg-2); }
+.pa-split-figs b { font-size: var(--fs-20); font-weight: 800; }
 .pa-split-bar { display: block; height: 8px; background: color-mix(in srgb, var(--danger) 72%, transparent); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 .pa-split-bar.none { background: rgba(255, 255, 255, 0.09); }
 .pa-split-bar i { display: block; height: 100%; background: var(--em); box-shadow: 2px 0 0 var(--raised); }
@@ -118,24 +118,24 @@
 .pa-ring .fill { stroke: var(--fg); filter: drop-shadow(0 0 6px rgba(234, 239, 236, 0.25)); }
 .pa-ring > span { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1; }
 .pa-ring b { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
-.pa-ring small { font-size: 12px; color: var(--fg-2); margin-top: 3px; }
+.pa-ring small { font-size: var(--fs-12); color: var(--fg-2); margin-top: 3px; }
 .pa-wl { margin: 0; display: grid; grid-template-columns: auto auto; gap: 4px 26px; }
 .pa-wl div { display: grid; gap: 2px; }
-.pa-wl dt { font-size: 12px; font-weight: 700; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.08em; }
+.pa-wl dt { font-size: var(--fs-12); font-weight: 700; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.08em; }
 .pa-wl dd { margin: 0; font-size: 34px; font-weight: 800; line-height: 1; }
 .pa-wl div + div dd { color: var(--fg-2); }
-.pa-wl p { grid-column: 1 / -1; margin-top: 6px; font-size: 13.5px; color: var(--fg-2); }
+.pa-wl p { grid-column: 1 / -1; margin-top: 6px; font-size: var(--fs-14); color: var(--fg-2); }
 .pa-bygame { list-style: none; margin: 0; padding: 14px 0 0; display: grid; gap: 10px; box-shadow: inset 0 1px var(--line); }
 .pa-bygame li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .pa-bygame img { width: 40px; height: 40px; object-fit: cover; --c: 7px; }
 .pa-bygame li > span:first-of-type { display: grid; gap: 7px; min-width: 0; }
-.pa-bygame b { font-size: 14.5px; font-weight: 700; }
+.pa-bygame b { font-size: var(--fs-15); font-weight: 700; }
 .pa-meter { display: block; height: 4px; background: rgba(255, 255, 255, 0.08); }
 .pa-meter i { display: block; height: 100%; background: var(--fg); }
-.pa-gfig { font-size: 20px; font-weight: 800; }
-.pa-gfig small { font-size: 14px; font-weight: 700; color: var(--fg-2); }
+.pa-gfig { font-size: var(--fs-20); font-weight: 800; }
+.pa-gfig small { font-size: var(--fs-14); font-weight: 700; color: var(--fg-2); }
 .pa-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.pa-chip { --edge: var(--edge-2); --c: 6px; background: var(--raised-2); padding: 7px 12px; font-size: 13px; color: var(--fg-2); }
+.pa-chip { --edge: var(--edge-2); --c: 6px; background: var(--raised-2); padding: 7px 12px; font-size: var(--fs-13); color: var(--fg-2); }
 .pa-chip b { color: var(--fg); margin-left: 6px; }
 .pa-chip.quiet { --edge: var(--edge-1); background: transparent; }
 
@@ -143,7 +143,7 @@
 .pa-backings .won { color: var(--em-hi); }
 .pa-backings .lost { color: var(--danger); }
 .pa-bhead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 12px; }
-.pa-ahead { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; color: var(--fg-2); }
+.pa-ahead { display: inline-flex; align-items: center; gap: 9px; font-size: var(--fs-13); color: var(--fg-2); }
 .pa-ahead > span { display: inline-flex; gap: 5px; }
 .pa-ahead i { width: 12px; height: 12px; background: rgba(234, 239, 236, 0.14); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
 .pa-ahead i.on { background: var(--fg); }
@@ -157,13 +157,13 @@
 .pa-balance-figs div { display: grid; gap: 2px; }
 .pa-balance-figs div:last-child { text-align: right; }
 .pa-balance-figs .net { text-align: center; }
-.pa-balance-figs dt { font-size: 12.5px; color: var(--fg-2); }
-.pa-balance-figs dd { margin: 0; font-size: 17px; font-weight: 800; }
-.pa-balance-figs .net dd { font-size: 24px; }
+.pa-balance-figs dt { font-size: var(--fs-13); color: var(--fg-2); }
+.pa-balance-figs dd { margin: 0; font-size: var(--fs-17); font-weight: 800; }
+.pa-balance-figs .net dd { font-size: var(--fs-24); }
 
 /* running total: a step per Match, emerald above zero and red below; peak, low and the latest total marked */
 .pa-chart { margin: 4px 0 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; width: 100%; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
-.pa-chart figcaption { display: flex; justify-content: space-between; gap: 4px 12px; font-size: 13.5px; color: var(--fg-2); }
+.pa-chart figcaption { display: flex; justify-content: space-between; gap: 4px 12px; font-size: var(--fs-14); color: var(--fg-2); }
 .pa-chart figcaption > span:first-child { color: var(--fg); font-weight: 700; }
 .pa-read { text-align: right; }
 .pa-plot { position: relative; min-height: 200px; margin: 24px 76px 22px 18px; cursor: crosshair; touch-action: pan-y; }
@@ -171,9 +171,9 @@
 .pa-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .pa-plot .zero { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
 .pa-plot .line { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.pa-zero, .pa-end, .pa-mark, .pa-val { position: absolute; font-size: 12px; white-space: nowrap; pointer-events: none; }
+.pa-zero, .pa-end, .pa-mark, .pa-val { position: absolute; font-size: var(--fs-12); white-space: nowrap; pointer-events: none; }
 .pa-zero { right: calc(100% + 6px); transform: translateY(-50%); color: var(--fg-2); }
-.pa-end { left: calc(100% + 12px); transform: translateY(-50%); font-size: 13px; font-weight: 800; }
+.pa-end { left: calc(100% + 12px); transform: translateY(-50%); font-size: var(--fs-13); font-weight: 800; }
 .pa-end::before { content: ""; position: absolute; left: -16px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--fg); }
 .pa-mark { --tx: -50%; font-weight: 700; color: var(--fg-2); }
 .pa-mark.peak { transform: translate(var(--tx), calc(-100% - 8px)); }
@@ -187,8 +187,8 @@
 :is(.pa-mark, .pa-val)[data-edge="end"] { --tx: calc(-100% + 8px); }
 .pa-cross { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-2); pointer-events: none; }
 .pa-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 3px var(--raised); pointer-events: none; }
-.pa-x { display: flex; justify-content: space-between; margin: 0 76px 0 18px; font-size: 12px; color: var(--fg-2); }
-.pa-chart-none { color: var(--fg-2); font-size: 14px; padding-top: 16px; box-shadow: inset 0 1px var(--line); }
+.pa-x { display: flex; justify-content: space-between; margin: 0 76px 0 18px; font-size: var(--fs-12); color: var(--fg-2); }
+.pa-chart-none { color: var(--fg-2); font-size: var(--fs-14); padding-top: 16px; box-shadow: inset 0 1px var(--line); }
 
 /* no finished Match yet: what the Account will show, with the guide's bust flush to the card's edge */
 .pa-empty {
@@ -198,13 +198,13 @@
 }
 .pa-empty-bust { grid-area: bust; align-self: end; width: 190px; margin-bottom: -1px; }
 .pa-empty-lead { grid-area: lead; padding: 28px 0 20px; }
-.pa-empty-lead b { display: block; font-size: 24px; font-weight: 800; }
-.pa-empty-lead p { color: var(--fg-2); font-size: 15.5px; margin-top: 4px; max-width: 56ch; }
+.pa-empty-lead b { display: block; font-size: var(--fs-24); font-weight: 800; }
+.pa-empty-lead p { color: var(--fg-2); font-size: var(--fs-16); margin-top: 4px; max-width: 56ch; }
 .pa-empty > .btn { grid-area: cta; min-height: 48px; padding-inline: 26px; }
 .pa-empty-list { grid-area: list; list-style: none; margin: 0; padding: 18px 0 26px; box-shadow: inset 0 1px var(--line); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 24px; }
 .pa-empty-list li + li { box-shadow: inset 1px 0 var(--line); padding-left: 24px; }
-.pa-empty-list b { font-size: 16px; font-weight: 700; }
-.pa-empty-list p { color: var(--fg-2); font-size: 14px; line-height: 1.45; margin-top: 2px; }
+.pa-empty-list b { font-size: var(--fs-16); font-weight: 700; }
+.pa-empty-list p { color: var(--fg-2); font-size: var(--fs-14); line-height: 1.45; margin-top: 2px; }
 
 .pa-games { grid-template-columns: repeat(2, 1fr); }
 .pa-history { display: grid; gap: 16px; margin-top: 12px; }
@@ -236,7 +236,7 @@
   .pa-x { margin-right: 66px; margin-left: 14px; }
   .pa-chart figcaption { flex-direction: column; }
   .pa-read { text-align: left; }
-  .pa-end { font-size: 12px; }
+  .pa-end { font-size: var(--fs-12); }
 }
 
 /* ——— A Player's name with its verified mark ——— */
@@ -247,7 +247,7 @@
 /* ——— Edit profile ——— */
 .ep-preview { --edge: var(--edge-1); background: var(--surface); display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
 .ep-preview-av { width: 64px; height: 64px; flex: none; }
-.ep-preview b { display: block; font-size: 20px; overflow-wrap: anywhere; }
+.ep-preview b { display: block; font-size: var(--fs-20); overflow-wrap: anywhere; }
 .ep-err { color: var(--fg); font-weight: 700; }
 .ep-pics { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
 .ep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px; }
@@ -259,7 +259,7 @@
 .ep-pic input:checked + .avatar { --edge: var(--fg); filter: none; }
 .ep-pic input:focus-visible + .avatar::after { --t: 2px; background: var(--fg); }
 .ep-pic input:disabled { cursor: not-allowed; }
-.ep-pic small { font-size: 11px; color: var(--fg-2); max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-pic small { font-size: var(--fs-11); color: var(--fg-2); max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ep-wallets { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
 .ep-wallet { display: flex; align-items: center; gap: 12px; padding: 10px 12px; cursor: pointer; background: var(--shell); box-shadow: inset 0 0 0 1px var(--line); }
 .ep-wallet span { display: grid; gap: 2px; min-width: 0; }

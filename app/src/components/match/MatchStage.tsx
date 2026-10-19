@@ -345,7 +345,7 @@ export function MatchStage({
         <div className="stage-pot">
           <div className="cut cut-card stage-plaque">
             <span className="stage-sheen" aria-hidden="true" />
-            <span className="stage-label">Pot</span>
+            <span className="stage-label">Winner takes</span>
             <span className="gema-amount lg">
               <GemaMark size={20} glint />
               <span>
@@ -403,7 +403,7 @@ export function MatchStageLoading({ game, me, step = "Loading the Match" }: { ga
         <Rail flow="off" side="l" game={game ?? "block-puzzle"} />
         <div className="stage-pot">
           <div className="cut cut-card stage-plaque">
-            <span className="stage-label">Pot</span>
+            <span className="stage-label">Winner takes</span>
             <span className="gema-amount lg">
               <GemaMark size={20} />
               <span className="stage-wait" />

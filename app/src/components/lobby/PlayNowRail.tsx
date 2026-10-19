@@ -2,21 +2,22 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import type { PointerEvent } from "react";
-import { Clock, X } from "lucide-react";
+import { useMemo, type PointerEvent } from "react";
+import { ArrowRight, Clock, X } from "lucide-react";
+import { ENTRY_SIZES, GemaMark } from "@/components/ui";
+import { CheckIcon, MinusIcon, XIcon } from "@/components/ui/icons";
+import { useAccount } from "@/lib/account";
+import { accountHistory } from "@/lib/chain/history";
+import { gameFacts, waitingByEntry } from "@/lib/chain/lobby-plays";
+import { fmtGemas } from "@/lib/format";
 import { practiceHref } from "@/lib/game-params";
 import type { GameId } from "@/lib/mock/types";
 import { CATALOGUE } from "@/lib/catalogue";
 import { matchesQuery, useSearch } from "@/components/shell/SearchContext";
 import { Rail } from "./Rail";
-import { useQueueDepth } from "./useQueue";
+import { useQueue } from "./useQueue";
 
-const GAME_LINE: Record<GameId, string> = {
-  "block-puzzle": "Play anytime · same pieces · higher score wins",
-  holdem: "Real-time · 2 players",
-  "trading-duel": "Real-time · 2.5 minutes · live prices",
-  vanguard: "Strategy · 5-second turns · hidden ranks",
-};
+const RESULT_WORD = { won: ["Won", CheckIcon], lost: ["Lost", XIcon], draw: ["Draw", MinusIcon], refunded: ["Refunded", MinusIcon] } as const;
 
 /** Tilt a tile toward the pointer and move its glare with it (mouse only; still under reduced motion). */
 function tilt(e: PointerEvent<HTMLElement>) {
@@ -38,7 +39,13 @@ function untilt(e: PointerEvent<HTMLElement>) {
 /** PLAY NOW: the live Games as large tiles, the announced ones as one quiet strip. Search filters it. */
 export function PlayNowRail() {
   const { query, setQuery } = useSearch();
-  const depth = useQueueDepth();
+  const queue = useQueue();
+  const { auth, snapshot } = useAccount();
+  const me = snapshot?.accountKey.toBase58();
+  const facts = useMemo(
+    () => (auth.status === "signed-in" && snapshot?.matchesLoaded ? gameFacts(accountHistory(snapshot.matches, snapshot.funded)) : {}),
+    [auth.status, snapshot],
+  );
   const matches = CATALOGUE.filter((g) => !query.trim() || matchesQuery(g.name, query));
   const live = matches.filter((g) => g.live);
   const tiles = live.length;
@@ -70,17 +77,22 @@ export function PlayNowRail() {
             <span className="tile-glare" aria-hidden="true" />
             <span className="cut cut-chip tile-live">
               <i className="live-dot" aria-hidden="true" />
-              {g.game && depth[g.game] > 0 ? `${depth[g.game]} waiting in Queue` : "Live now"}
+              Live now
             </span>
             <span className="tile-label">
               <strong>{g.name}</strong>
-              <span>{g.game ? GAME_LINE[g.game] : ""}</span>
+              {g.game && <TileInfo waiting={waitingByEntry(queue?.[g.game], ENTRY_SIZES, me)} loaded={queue !== null} fact={facts[g.game]} />}
             </span>
           </Link>
           {g.game && (
-            <Link href={practiceHref(g.game)} className="cut cut-chip tile-practice">
-              Practice free
-            </Link>
+            <div className="tile-actions">
+              <Link href={`/play/${g.game}`} className="cut cut-btn btn money tile-play">
+                Play now <ArrowRight aria-hidden="true" />
+              </Link>
+              <Link href={practiceHref(g.game)} className="cut cut-chip tile-practice">
+                Practice free
+              </Link>
+            </div>
           )}
         </div>
       ))}
@@ -100,5 +112,31 @@ export function PlayNowRail() {
         </div>
       )}
     </Rail>
+  );
+}
+
+/** What the hero does not say: each entry with the Players waiting at it, and the Player's own last result or best score. */
+function TileInfo({ waiting, loaded, fact }: { waiting: Record<number, number>; loaded: boolean; fact?: ReturnType<typeof gameFacts>[GameId] }) {
+  const [word, Icon] = fact ? RESULT_WORD[fact.last] : [null, null];
+  return (
+    <span className="tile-info">
+      {ENTRY_SIZES.map((e) => {
+        const n = waiting[e] ?? 0;
+        return (
+          <span key={e} className={`cut cut-chip tile-entry${n > 0 ? " has" : ""}`} aria-label={`Entry ${fmtGemas(e)}${loaded ? `, ${n} waiting` : ""}`}>
+            <GemaMark size={12} />
+            {fmtGemas(e)}
+            {loaded && n > 0 && <em>· {n} waiting</em>}
+          </span>
+        );
+      })}
+      {fact && Icon && (
+        <span className="tile-last">
+          <Icon aria-hidden="true" />
+          Last: {word}
+          {fact.best !== null && ` · Best ${fmtGemas(fact.best)}`}
+        </span>
+      )}
+    </span>
   );
 }

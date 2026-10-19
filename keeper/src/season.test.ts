@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
-import { PAYOUT_WINDOW_SECS, SEASON_EPOCH, SEASON_SECS } from "../../app/src/lib/chain/season.ts";
-import { payPlan, prizeHoldings, seasonsToCheck, topRanks, type PoolHolding } from "./season.ts";
+import { PAYOUT_WINDOW_SECS, SEASON_EPOCH, SEASON_SECS, type Standing } from "../../app/src/lib/chain/season.ts";
+import { payPlan, prizeHoldings, seasonPoints, seasonsToCheck, topRanks, type PoolHolding } from "./season.ts";
 
 const src = (b: number) => new PublicKey(new Uint8Array(32).fill(b));
 const holding = (b: number, amount: bigint): PoolHolding => ({ pubkey: src(100 + b), source: src(b), amount });
@@ -78,5 +78,15 @@ describe("payout window", () => {
   });
   it("leaves a season recorded before the window existed", () => {
     assert.deepEqual(payPlan(rec({ recordedAt: null }), opens * 2), { kind: "legacy" });
+  });
+});
+
+describe("seasonPoints", () => {
+  it("encodes each ranked Player's points as a u64 argument", () => {
+    const pts = seasonPoints([
+      { account: "a", points: 50 },
+      { account: "b", points: 35 },
+    ] as Standing[]);
+    assert.deepEqual(pts.map((p) => p.toString()), ["50", "35"]);
   });
 });

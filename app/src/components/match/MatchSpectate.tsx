@@ -102,8 +102,12 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
           {winSeat !== null && (
             <div className="mr-neutral">
+              <span className="mr-neutral-label">Winner gains</span>
               <span className="mr-neutral-amt">
-                <GemaMark size={30} /> {fmtGemas(payout)} Gemas
+                <GemaMark size={30} /> +{fmtGemas(payout - m.entry)} Gemas
+              </span>
+              <span className="mr-sum">
+                Pot {fmtGemas(m.entry * 2)} − Fee {fmtGemas(fee)} = {fmtGemas(payout)} to the winner, who put in {fmtGemas(m.entry)}
               </span>
             </div>
           )}
@@ -115,7 +119,7 @@ export function MatchSpectate({ matchId, onSignIn }: { matchId: string; onSignIn
 
           <div className="cut cut-card mr-fees">
             <div>
-              <span>Entry</span>
+              <span>Each entry</span>
               <b>
                 <GemaMark size={26} /> {fmtGemas(m.entry)} <small>Gemas</small>
               </b>

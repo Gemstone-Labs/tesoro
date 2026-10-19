@@ -1,4 +1,4 @@
-import * as anchor from "@coral-xyz/anchor";
+import anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import type { GameId } from "../../app/src/lib/mock/types.ts";
 import { gameOfProgram } from "../../app/src/lib/chain/games.ts";

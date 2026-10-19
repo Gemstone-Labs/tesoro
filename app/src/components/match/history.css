@@ -3,7 +3,7 @@
 .mh-head { display: grid; gap: 16px; }
 .mh-tabs { display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; max-width: 100%; box-shadow: inset 0 -1px var(--line); scrollbar-width: none; }
 .mh-tabs::-webkit-scrollbar { display: none; }
-.mh-tabs a { padding: 12px 18px 13px; font-size: 17px; font-weight: 500; color: var(--fg-2); border-bottom: 2px solid transparent; white-space: nowrap; }
+.mh-tabs a { padding: 12px 18px 13px; font-size: var(--fs-17); font-weight: 500; color: var(--fg-2); border-bottom: 2px solid transparent; white-space: nowrap; }
 .mh-tabs a.on { color: var(--fg); font-weight: 700; border-bottom-color: var(--fg); }
 .mh-tabs a:hover { color: var(--fg); }
 .mh-state { display: grid; gap: 12px; justify-items: start; padding: 8px 2px; color: var(--fg-2); }
@@ -16,7 +16,7 @@
 .mh-delayed-list { display: grid; gap: 8px; }
 .mh-delayed-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 12px 16px; background: var(--surface); --edge: var(--warn); }
 .mh-delayed-row:hover { background: var(--surface-2); }
-.mh-delayed-row b { font-family: var(--f-display); font-size: 18px; font-weight: 800; text-transform: uppercase; }
-.mh-delayed-entry { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; }
-.mh-delayed-status { flex: 1; min-width: 180px; color: var(--warn); font-size: 13px; font-weight: 600; }
+.mh-delayed-row b { font-family: var(--f-display); font-size: var(--fs-18); font-weight: 800; text-transform: uppercase; }
+.mh-delayed-entry { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-13); font-weight: 700; }
+.mh-delayed-status { flex: 1; min-width: 180px; color: var(--warn); font-size: var(--fs-13); font-weight: 600; }
 .mh-delayed-row svg { width: 16px; height: 16px; flex: none; margin-left: auto; }

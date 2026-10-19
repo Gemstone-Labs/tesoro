@@ -1,6 +1,6 @@
 /* ——— Top bar Season plate: the Leaderboard Pool (gold, shell.css `.pchest`) and, signed in, your rank and points in steel ——— */
 .pchest .pc-pool { display: grid; gap: 4px; line-height: 1; }
-.pchest .pc-pool > span { font-size: 12px; font-weight: 600; }
+.pchest .pc-pool > span { font-size: var(--fs-12); font-weight: 600; }
 
 .pchest:has(.pc-you) { padding-right: 0; }
 .pc-you {
@@ -22,18 +22,18 @@
 /* the rank: a steel octagon, the number in ink */
 .pc-rank {
   --s: 34px; display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--s); height: var(--s);
-  font-family: var(--f-display); font-weight: 800; font-size: 15px; line-height: 1; letter-spacing: -0.02em; color: #11171b;
+  font-family: var(--f-display); font-weight: 800; font-size: var(--fs-15); line-height: 1; letter-spacing: -0.02em; color: #11171b;
   background: linear-gradient(180deg, #f3f6f7 0%, #c9d2d7 46%, #9aa6ad 47%, #75828a 100%);
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
 }
 .pc-rank small { font-size: 0.62em; opacity: 0.6; margin-right: 1px; }
-.pc-rank.wide { font-size: 13px; }
+.pc-rank.wide { font-size: var(--fs-13); }
 .pc-rank.wide small { display: none; }
 
 .pc-you-txt { display: grid; gap: 4px; line-height: 1; }
-.pc-you-txt strong { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: var(--fg); }
-.pc-you-txt strong small { font-size: 13px; font-weight: 700; color: var(--fg-2); }
-.pc-you-txt > small { font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.pc-you-txt strong { font-size: var(--fs-22); font-weight: 800; letter-spacing: -0.01em; color: var(--fg); }
+.pc-you-txt strong small { font-size: var(--fs-13); font-weight: 700; color: var(--fg-2); }
+.pc-you-txt > small { font-size: var(--fs-12); font-weight: 600; color: var(--fg-2); }
 
 .pchest.pop .pc-you { animation: none; }
 
@@ -43,7 +43,7 @@
 }
 @media (max-width: 1023px) {
   .pc-you-txt > small, .pc-you-txt strong small, .pc-you.none .pc-you-txt { display: none; }
-  .pc-you-txt strong { font-size: 20px; }
+  .pc-you-txt strong { font-size: var(--fs-20); }
 }
 /* phones: the chest and the Pool figure only; your rank waits on the Leaderboard */
 @media (max-width: 639px) {
@@ -67,4 +67,12 @@
   .pc-chest-skel { width: 28px; height: 28px; }
   .pchest.skel .pc-skel-label { display: none; }
   .pchest.skel .pc-pool .skel-line.lg { width: 28px !important; }
+}
+
+/* First-visit caption under the plate on touch screens (PrizeNote), centred under it so it stays on screen. Steel, not gold: gold belongs to the Pool. */
+.pc-wrap { position: relative; display: inline-flex; }
+.pc-note {
+  position: absolute; top: calc(100% + 8px); left: 50%; translate: -50% 0; z-index: 30; width: max-content; max-width: min(240px, 70vw); padding: 10px 12px;
+  background: var(--raised-2); --edge: var(--edge-2); --c: 10px; color: var(--fg); font-size: var(--fs-13); font-weight: 600; line-height: 1.35; text-align: left;
+  animation: menu-in 0.18s ease-out;
 }

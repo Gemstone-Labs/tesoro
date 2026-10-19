@@ -51,10 +51,10 @@
 .asset input:checked:focus-visible + span::after { --t: 1px; --r: 2px; background: var(--fg); }
 
 .label {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  font-size: var(--fs-11); font-weight: 700; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--fg-2);
 }
-.meta { color: var(--fg-2); font-size: 12.5px; }
+.meta { color: var(--fg-2); font-size: var(--fs-13); }
 .stack { display: grid; gap: 12px; }
 .stack-lg { display: grid; gap: 20px; }
 .hstack { display: flex; align-items: center; gap: 8px; }
@@ -94,39 +94,42 @@ a.row:hover, button.row:hover { --edge: var(--edge-2); }
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(90deg, #12181c 0%, #12181c 26%, rgba(17, 23, 27, 0.55) 58%, rgba(17, 23, 27, 0.2) 100%);
 }
-a.row:hover .row-art img, button.row:hover .row-art img { transform: scale(1.1) translateX(-2%); filter: none; }
+/* lifts and zooms only for a mouse: on touch a tap leaves them stuck */
+@media (hover: hover) and (pointer: fine) { a.row:hover .row-art img, button.row:hover .row-art img { transform: scale(1.1) translateX(-2%); filter: none; } }
 .row.has-art::before {
   content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
   background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.09) 48%, transparent 60%);
   transform: translateX(-100%);
 }
-a.row.has-art:hover::before, button.row.has-art:hover::before { transform: translateX(100%); transition: transform 0.8s ease; }
+/* lifts and zooms only for a mouse: on touch a tap leaves them stuck */
+@media (hover: hover) and (pointer: fine) { a.row.has-art:hover::before, button.row.has-art:hover::before { transform: translateX(100%); transition: transform 0.8s ease; } }
 .row .thumb { width: 48px; height: 48px; }
 .row-body { min-width: 0; display: grid; flex: 1; }
-.row-title { font-size: 14px; font-weight: 700; }
-.row-meta { font-size: 12px; color: var(--fg-2); }
+.row-title { font-size: var(--fs-14); font-weight: 700; }
+.row-meta { font-size: var(--fs-12); color: var(--fg-2); }
 .row .row-body { gap: 2px; position: relative; z-index: 2; }
-.row .row-title { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row .row-meta { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row-kick { font-size: 11px; font-weight: 700; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.1em; }
+.row .row-title { font-size: var(--fs-16); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .row-meta { font-size: var(--fs-14); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-kick { font-size: var(--fs-11); font-weight: 700; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.1em; }
 .row.has-art .row-title { font-family: var(--f-display); font-size: 26px; font-weight: 800; text-transform: uppercase; line-height: 1; letter-spacing: 0.01em; word-spacing: 0; }
 .row-side { margin-left: auto; display: flex; align-items: center; gap: 14px; position: relative; z-index: 2; }
 .row-fig {
-  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 17px; font-weight: 800; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: var(--fs-17); font-weight: 800; white-space: nowrap;
   background: rgba(9, 13, 15, 0.62); backdrop-filter: blur(8px); --edge: var(--edge-2);
 }
 .row-fig svg { width: 16px; height: 16px; stroke-width: 2.6; flex: none; }
 .row-fig.won { color: var(--em-hi); }
 .row-fig.lost { color: var(--danger); }
-.row-cta { font-size: 13px; font-weight: 800; white-space: nowrap; color: var(--fg); display: inline-flex; align-items: center; gap: 6px; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); }
+.row-cta { font-size: var(--fs-13); font-weight: 800; white-space: nowrap; color: var(--fg); display: inline-flex; align-items: center; gap: 6px; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); }
 .row-cta svg { transition: transform 0.2s; }
-a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(4px); }
+/* lifts and zooms only for a mouse: on touch a tap leaves them stuck */
+@media (hover: hover) and (pointer: fine) { a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(4px); } }
 .row-cta.money { color: var(--em); }
 @container (max-width: 520px) {
   .row .row-body { gap: 1px; }
-  .row.has-art .row-title { font-size: 22px; }
+  .row.has-art .row-title { font-size: var(--fs-22); }
   .row-side { flex-direction: column; align-items: flex-end; gap: 6px; }
-  .row-cta { font-size: 12px; }
+  .row-cta { font-size: var(--fs-12); }
 }
 @media (prefers-reduced-motion: reduce) {
   .row-art img, .row.has-art::before, .row-cta svg { transition: none !important; }
@@ -136,13 +139,13 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
   width: 40px; height: 40px; flex: none; display: grid; place-items: center;
   font-weight: 800; color: #edeff2; background: #2a2238;
 }
-.thumb.poker { background: #1d2a22; font-size: 13px; }
+.thumb.poker { background: #1d2a22; font-size: var(--fs-13); }
 
 /* ——— Chip / ChainChip: a small steel plaque; the tone is a gem pip (or the icon), the text stays light ——— */
 .chip {
   --c: 4px; --edge: var(--edge-2); --tone: var(--fg-2);
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 7px;
-  font-size: 11.5px; font-weight: 700; line-height: 16px; color: var(--fg); white-space: nowrap;
+  font-size: var(--fs-12); font-weight: 700; line-height: 16px; color: var(--fg); white-space: nowrap;
   background: linear-gradient(180deg, #2a333a 0, #1c2328 50%, #171d22 100%);
 }
 .chip svg { width: 12px; height: 12px; flex: none; color: var(--tone); }
@@ -155,20 +158,20 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .chip.money { --tone: var(--em); }
 .chip.warn { --tone: var(--warn); }
 .chip.danger { --tone: var(--danger); }
-.chain { font-family: var(--f-mono); font-size: 10.5px; font-weight: 500; gap: 5px; padding: 2px 7px 2px 5px; color: var(--fg-2); }
+.chain { font-family: var(--f-mono); font-size: var(--fs-11); font-weight: 500; gap: 5px; padding: 2px 7px 2px 5px; color: var(--fg-2); }
 .chain svg { width: 1.25em; height: 1.25em; }
 
 /* ——— Button ——— */
 .btn {
   --c: var(--cut-btn);
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 12px 18px; font-weight: 800; font-size: 14px; border: 0;
+  padding: 12px 18px; font-weight: 800; font-size: var(--fs-14); border: 0;
   min-height: 44px; text-align: center; cursor: pointer;
 }
 .btn.block { display: flex; width: 100%; }
-.btn.sm { padding: 7px 12px; min-height: 34px; font-size: 13px; }
-.btn.lg { min-height: 60px; font-size: 20px; padding: 0 24px; }
-.btn { transition: filter 0.15s ease, background-color 0.15s ease, transform 0.08s ease; }
+.btn.sm { padding: 7px 12px; min-height: 34px; font-size: var(--fs-13); }
+.btn.lg { min-height: 60px; font-size: var(--fs-20); padding: 0 24px; }
+.btn { transition: filter 0.15s ease, background-color 0.15s ease, transform 0.16s cubic-bezier(0.23, 1, 0.32, 1); }
 .btn.lg { --c: 9px; }
 .btn.money {
   color: var(--em-ink); --edge: var(--money-rim);
@@ -177,7 +180,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .btn.money.lg { padding-bottom: 3px; }
 .btn.money:hover:not(:disabled) { filter: brightness(1.07) saturate(1.05); }
 .btn.money:active:not(:disabled) { filter: brightness(0.95); }
-.btn:active:not(:disabled, [aria-disabled="true"]) { transform: translateY(1px); }
+.btn:active:not(:disabled, [aria-disabled="true"]) { transform: scale(0.97); }
 .btn.neutral { background: var(--surface); color: var(--fg); --edge: var(--edge-2); }
 .btn.neutral:hover { background: var(--surface-2); }
 .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; }
@@ -190,6 +193,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .icon-btn:hover { background: var(--raised-2); }
 .icon-btn svg { width: 18px; height: 18px; }
 .icon-btn:disabled { opacity: 0.4; cursor: default; }
+@media (max-width: 639px) { .icon-btn { width: 44px; height: 44px; } .btn.sm { min-height: 44px; } }
 
 /* ——— Gema mark & amount ——— */
 .gema-mark { display: inline-block; flex: none; vertical-align: middle; }
@@ -204,14 +208,14 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 @keyframes glint { 0%, 70%, 100% { opacity: 0; } 80% { opacity: 0.9; } }
 .gema-amount { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .gema-usd { color: var(--fg-2); font-weight: 600; font-size: 0.72em; letter-spacing: 0; white-space: nowrap; }
-.gema-amount.md { font-size: 16px; }
-.gema-amount.lg { font-size: 22px; font-weight: 900; }
+.gema-amount.md { font-size: var(--fs-16); }
+.gema-amount.lg { font-size: var(--fs-22); font-weight: 900; }
 .gema-amount.xl { font-size: 40px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; gap: 8px; }
-.gema-amount.sm { font-size: 13px; gap: 5px; }
+.gema-amount.sm { font-size: var(--fs-13); gap: 5px; }
 
 .gchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 7px; background: var(--surface); }
 
-.sim { font-family: var(--f-mono); font-size: 10.5px; color: var(--fg-2); letter-spacing: 0.02em; }
+.sim { font-family: var(--f-mono); font-size: var(--fs-11); color: var(--fg-2); letter-spacing: 0.02em; }
 
 /* ——— Balance: a banknote, the card is the money fill (crown rim, facet light bands, pavilion base) ——— */
 .balance {
@@ -226,8 +230,8 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
     linear-gradient(170deg, #63f7d3 0%, #33e3b4 48%, #1fd3a2 48.5%, #0cbc8c 100%);
 }
 .balance-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.balance-label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-.balance-usd { font-size: 15px; font-weight: 800; }
+.balance-label { font-size: var(--fs-11); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.balance-usd { font-size: var(--fs-15); font-weight: 800; }
 /* big display figure: proportional, tabular figures widen the thousands comma */
 .balance-fig {
   display: inline-flex; align-items: center; gap: 12px;
@@ -237,7 +241,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .balance-foot {
   display: flex; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap;
   padding-top: 10px; border-top: 1px solid rgba(3, 32, 26, 0.22);
-  font-size: 12px; font-weight: 700; color: rgba(3, 32, 26, 0.72);
+  font-size: var(--fs-12); font-weight: 700; color: rgba(3, 32, 26, 0.72);
 }
 .balance-foot .sim { color: inherit; font-weight: 500; }
 /* BalanceSplit: one bar to scale (emerald redeemable, hatched pending), each figure under its own end */
@@ -258,17 +262,17 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .bsplit b { display: inline-flex; align-items: center; gap: 7px; font-family: var(--f-display); font-size: 30px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
 .bsplit b .gema-mark { flex: none; }
 .bsplit-now b { color: var(--em-hi); }
-.bsplit-now > span:last-child, .bsplit-pend > span:last-child { font-size: 12px; color: var(--fg-2); }
+.bsplit-now > span:last-child, .bsplit-pend > span:last-child { font-size: var(--fs-12); color: var(--fg-2); }
 
 /* ——— Pending by Source ——— */
 .src { display: grid; gap: 12px; }
 .src-item { display: grid; gap: 6px; }
-.src-line { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 12.5px; }
+.src-line { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: var(--fs-13); }
 .src-who { color: var(--fg-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .src-amt { font-variant-numeric: tabular-nums; font-weight: 800; }
 .meter { height: 6px; background: rgba(255, 255, 255, 0.07); overflow: hidden; clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
 .meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--em-deep), var(--em), var(--em-hi)); }
-.src-foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.src-foot { display: flex; justify-content: space-between; font-size: var(--fs-12); color: var(--fg-2); font-variant-numeric: tabular-nums; }
 
 /* ——— Rail: one recessed track, a lit piece slides to the chosen option (entry and asset pickers) ——— */
 .pick-rail {
@@ -295,7 +299,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .entries .pick-thumb, .pick-rail.money .pick-thumb {
   background: linear-gradient(180deg, rgba(225, 255, 246, 0.75), transparent 2px), linear-gradient(0deg, var(--money-base) 0 3px, transparent 3px), var(--money-fill);
 }
-.entry span { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 48px; font-weight: 800; font-size: 16px; }
+.entry span { display: flex; justify-content: center; align-items: center; gap: 7px; min-height: 48px; font-weight: 800; font-size: var(--fs-16); }
 .entry input:checked + span { color: var(--em-ink); }
 .entry .entry-fig { display: grid; justify-content: start; min-height: 0; gap: 0; line-height: 1.1; }
 .entry .entry-fig .gema-usd { display: block; min-height: 0; color: inherit; opacity: 0.75; font-size: 0.72em; }
@@ -307,8 +311,8 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 /* asset (Trading Duel): neutral, the piece is steel */
 .assets .pick-thumb { background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 1px), linear-gradient(180deg, #34404a, #222b32); }
 .asset span { display: grid; grid-template-columns: auto auto; column-gap: 7px; row-gap: 1px; justify-content: center; align-content: center; align-items: center; min-height: 54px; }
-.asset b { font-size: 16px; font-weight: 800; line-height: 1.1; letter-spacing: 0.02em; }
-.asset small { grid-column: 1 / -1; justify-self: center; font-size: 11px; font-weight: 600; color: var(--fg-3); }
+.asset b { font-size: var(--fs-16); font-weight: 800; line-height: 1.1; letter-spacing: 0.02em; }
+.asset small { grid-column: 1 / -1; justify-self: center; font-size: var(--fs-12); font-weight: 600; color: var(--fg-2); }
 .asset input:checked + span { color: var(--fg); }
 .asset input:checked + span small { color: var(--fg-2); }
 .asset input:not(:checked) + span .chain-glyph { filter: grayscale(1); opacity: 0.6; }
@@ -322,7 +326,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
   display: grid; gap: 8px;
 }
 .slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.slider-value { font-weight: 900; font-size: 18px; font-variant-numeric: tabular-nums; }
+.slider-value { font-weight: 900; font-size: var(--fs-18); font-variant-numeric: tabular-nums; }
 .slider-track { position: relative; height: 34px; }
 .slider-track input[type="range"] {
   position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: grab;
@@ -344,7 +348,7 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 .slider-marks button {
   position: absolute; top: 0; left: calc(100% * var(--m)); transform: translateX(-50%);
   border: 0; background: none; padding: 2px 4px; cursor: pointer; color: var(--fg-3);
-  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+  font-size: var(--fs-12); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .slider-marks button::before { content: ""; position: absolute; left: 50%; top: -8px; width: 1px; height: 6px; background: currentColor; opacity: 0.6; }
 .slider-marks button.past { color: var(--fg-2); }
@@ -385,11 +389,11 @@ a.row:hover .row-cta svg, button.row:hover .row-cta svg { transform: translateX(
 }
 .xc-packet.failed { background: var(--danger); box-shadow: 0 0 0 4px rgba(242, 104, 90, 0.2); animation: none; }
 @keyframes xc-beat { 50% { box-shadow: 0 0 0 7px rgba(242, 185, 75, 0.06), 0 0 26px rgba(242, 185, 75, 0.9); } }
-.xc-names { display: flex; justify-content: space-between; gap: 12px; margin-top: -4px; font-size: 12px; color: var(--fg-2); }
+.xc-names { display: flex; justify-content: space-between; gap: 12px; margin-top: -4px; font-size: var(--fs-12); color: var(--fg-2); }
 .xc-now { display: grid; gap: 2px; padding: 12px 14px; background: var(--shell); border-left: 2px solid var(--live); }
-.xc-now strong { font-size: 17px; font-weight: 800; }
-.xc-note { font-size: 13px; color: var(--fg-2); }
-.xc-state { font-family: var(--f-display); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--live); }
+.xc-now strong { font-size: var(--fs-17); font-weight: 800; }
+.xc-note { font-size: var(--fs-13); color: var(--fg-2); }
+.xc-state { font-family: var(--f-display); font-size: var(--fs-12); letter-spacing: 0.08em; text-transform: uppercase; color: var(--live); }
 .xc.is-done .xc-now { border-left-color: var(--em); }
 .xc.is-done .xc-state { color: var(--em); }
 .xc.is-failed .xc-now { border-left-color: var(--danger); }
@@ -410,14 +414,23 @@ dialog.sheet {
 dialog.cut[open] { display: flex; flex-direction: column; overflow: hidden; }
 dialog.cut[open] > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 dialog.sheet::backdrop { background: rgba(4, 7, 9, 0.62); backdrop-filter: blur(6px); }
-/* sheets rise into place when opened */
-dialog.sheet[open] { animation: sheet-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
-dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
+/* sheets rise in when opened and drop away, faster, when closed (browsers without @starting-style just snap) */
+dialog.sheet, dialog.bk-drawer {
+  opacity: 0; transform: translateY(16px);
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out, overlay 0.18s allow-discrete, display 0.18s allow-discrete;
+}
+dialog.sheet[open], dialog.bk-drawer[open] { opacity: 1; transform: none; transition-duration: 0.26s; transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
+dialog.sheet::backdrop, dialog.bk-drawer::backdrop { opacity: 0; transition: opacity 0.18s ease-out, overlay 0.18s allow-discrete, display 0.18s allow-discrete; }
+dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 1; }
+@starting-style {
+  dialog.sheet[open], dialog.bk-drawer[open] { opacity: 0; transform: translateY(24px); }
+  dialog.sheet[open]::backdrop, dialog.bk-drawer[open]::backdrop { opacity: 0; }
+}
 @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
 @keyframes fade-in { from { opacity: 0; } }
 .sheet-in { padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
 .sheet-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
-.sheet-head h2 { font-size: 20px; font-weight: 900; letter-spacing: -0.01em; }
+.sheet-head h2 { font-size: var(--fs-20); font-weight: 900; letter-spacing: -0.01em; }
 @media (min-width: 640px) { dialog.sheet { margin: auto; } .sheet-in { padding: 24px 24px 26px; gap: 16px; } }
 
 /* ——— Form controls ——— */
@@ -443,10 +456,10 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
   -webkit-text-fill-color: var(--fg); caret-color: var(--fg);
   transition: background-color 0s 99999s, color 0s 99999s;
 }
-.kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: var(--fs-13); }
 .kv dt { color: var(--fg-2); }
 .kv dd { margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
-.note { font-size: 12px; color: var(--fg-2); }
+.note { font-size: var(--fs-12); color: var(--fg-2); }
 .status { display: flex; gap: 8px; align-items: center; font-weight: 700; padding: 10px 12px; border: 1px solid var(--line); background: var(--shell); }
 .status svg { width: 18px; height: 18px; flex: none; }
 .status.err { border-color: rgba(242, 104, 90, 0.5); color: var(--danger); }
@@ -462,7 +475,7 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
   .cols-eq { grid-template-columns: 1fr 1fr; }
 }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.section-head a { font-size: 12px; font-weight: 800; }
+.section-head a { font-size: var(--fs-12); font-weight: 800; }
 
 /* ——— Game art (the colourful part) ——— */
 .art { aspect-ratio: 16 / 10; display: grid; place-items: center; background: radial-gradient(120% 90% at 20% 10%, #2a3350 0%, #141824 70%); }
@@ -471,7 +484,7 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 .board i.f1 { background: #f2b94b; } .board i.f2 { background: #7fd4f0; } .board i.f3 { background: #e97aa8; } .board i.f4 { background: #9c8cff; }
 .board i.g { background: var(--facet); }
 .feature-body { padding: 12px 14px 14px; display: grid; gap: 12px; }
-.feature-body h2 { font-size: 20px; font-weight: 900; letter-spacing: -0.01em; }
+.feature-body h2 { font-size: var(--fs-20); font-weight: 900; letter-spacing: -0.01em; }
 
 /* Schibsted's heavy weights set a very tight space glyph */
 .btn, .row-title, .gema-amount, .kv dd, .xc-title, h2 { word-spacing: 0.14em; }
@@ -481,7 +494,7 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 /* ——— Accounts ——— */
 .addr { display: grid; gap: 6px; padding: 10px 12px; background: var(--shell); border: 1px solid var(--line); --c: var(--cut-chip); }
 .addr-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.addr code { font-family: var(--f-mono); font-size: 12px; overflow-wrap: anywhere; color: var(--fg); }
+.addr code { font-family: var(--f-mono); font-size: var(--fs-12); overflow-wrap: anywhere; color: var(--fg); }
 .hstack.wrap { flex-wrap: wrap; }
 
 /* ——— Skeleton: loading is shaped like what is coming, not narrated ——— */
@@ -521,7 +534,7 @@ dialog.sheet[open]::backdrop { animation: fade-in 0.24s ease-out; }
 /* narrow phones: the three entry chips share the row, mark and figure both fit */
 @media (max-width: 420px) {
   .entries { gap: 6px; }
-  .entry span { gap: 4px; font-size: 16px; }
+  .entry span { gap: 4px; font-size: var(--fs-16); }
 }
 
 /* ——— Leaderboard Pool: gold is its colour and nothing else's ——— */

@@ -15,7 +15,7 @@ export function XMark({ size = 18 }: { size?: number }) {
   );
 }
 
-/** head = in a header (compact, always visible), cta = beside a call to action, foot = in a footer. */
+/** head = in a header (compact, always visible), cta = beside a call to action, foot = the bare X mark among a footer's social links. */
 export type XPlace = "head" | "cta" | "foot";
 
 /** A link to Tesoro on X. `short` replaces the label on phones (e.g. "Follow" beside a big button). */
@@ -27,8 +27,7 @@ export function XFollow({ variant, place, short, className = "" }: { variant: XV
   if (place === "foot") {
     return (
       <a {...link} className={`${base} xf-link`}>
-        <XMark size={14} />
-        <span>Follow {X_HANDLE}</span>
+        <XMark size={18} />
       </a>
     );
   }
