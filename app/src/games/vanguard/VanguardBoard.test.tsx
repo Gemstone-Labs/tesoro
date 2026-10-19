@@ -34,3 +34,12 @@ describe("VanguardBoard attack target", () => {
     expect(board(false)).not.toMatch(/\btgt\b/);
   });
 });
+
+describe("VanguardBoard Dust Storm", () => {
+  it("draws the storm inside a box the size of the board, so an edge line never spills over the frame", () => {
+    const h = renderToStaticMarkup(
+      <VanguardBoard pieces={[]} depots={[]} selected={null} marks={[]} fx={[]} storm={{ key: 1, axis: "row", index: 0, dir: 1 }} locked onPiece={() => undefined} onMark={() => undefined} />,
+    );
+    expect(h).toMatch(/<span class="vg-storm-clip"[^>]*><span class="vg-storm row"/);
+  });
+});

@@ -191,10 +191,12 @@ export function VanguardBoard({ pieces, depots, selected, marks, fx, storm, lock
         />
       ))}
       {storm && (
-        <span key={storm.key} className={`vg-storm ${storm.axis}`} style={{ "--vg-line": storm.index, "--vg-dir": storm.dir } as CSSProperties} aria-hidden="true">
-          <i />
-          <i />
-          <i />
+        <span className="vg-storm-clip" aria-hidden="true">
+          <span key={storm.key} className={`vg-storm ${storm.axis}`} style={{ "--vg-line": storm.index, "--vg-dir": storm.dir } as CSSProperties}>
+            <i />
+            <i />
+            <i />
+          </span>
         </span>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Battle } from "./decode";
-import { START_COUNTDOWN, claimDue, getReadyLeft, missedLabel, ringLeft, ringStart, turnKey } from "./clock";
+import { PRACTICE_COUNTDOWN, START_COUNTDOWN, claimDue, getReadyLeft, missedLabel, ringLeft, ringStart, turnKey } from "./clock";
 import { OPENING_GRACE_MS } from "./rules";
 
 const T0 = 1_760_000_000_000;
@@ -82,6 +82,10 @@ describe("the get-ready countdown before the first move", () => {
   it("counts 10 real seconds, ticking only on the last 3, as long as the chain's opening grace", () => {
     expect(START_COUNTDOWN).toEqual({ from: 10, stepMs: 1000, tickAt: 3 });
     expect(START_COUNTDOWN.from * START_COUNTDOWN.stepMs).toBe(OPENING_GRACE_MS);
+  });
+
+  it("is 6 seconds in Practice, where no chain is loading", () => {
+    expect(PRACTICE_COUNTDOWN).toEqual({ from: 6, stepMs: 1000, tickAt: 3 });
   });
 
   it("shows on a real Match's opening turn with the seconds left, so a reload picks up where it was", () => {

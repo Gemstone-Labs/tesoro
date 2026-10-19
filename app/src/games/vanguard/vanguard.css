@@ -137,6 +137,8 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 
 /* Dust Storm (Haze, founder pick): a wide slow veil over three lines that hangs, then thins out.
    Layers: i1 sandy body, i2 dust streaks, i3 bigger streaks. A column storm is the same band turned 90°. */
+/* the band is 3.8 squares tall, so on an edge line it would hang over the frame: clip it to the board */
+.vg-storm-clip { position: absolute; inset: 0; z-index: 30; overflow: hidden; pointer-events: none; }
 .vg-storm { --bh: calc(var(--vg-sq) * 3.8); position: absolute; z-index: 30; pointer-events: none; overflow: hidden; width: calc(var(--vg-sq) * 10); height: var(--bh);
   left: 0; top: calc(var(--vg-sq) * (var(--vg-line) + 0.5)); transform: translateY(-50%); animation: vg-st-fade 3.6s ease-in-out both; }
 .vg-storm.col { left: calc(var(--vg-sq) * (var(--vg-line) + 0.5)); top: 50%; transform: translate(-50%, -50%) rotate(90deg); }

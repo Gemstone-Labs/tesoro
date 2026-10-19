@@ -18,6 +18,8 @@ export const ringStart = (b: Battle, seenAt: number): number => seenAt + (isOpen
 
 /** The get-ready countdown before the first move: 10 real seconds (the chain's opening grace), ticking on the last 3. */
 export const START_COUNTDOWN = { from: OPENING_GRACE_MS / 1000, stepMs: 1000, tickAt: 3 } as const;
+/** Practice has no chain to load, so its get-ready countdown is shorter (founder pick: 6 seconds). */
+export const PRACTICE_COUNTDOWN = { from: 6, stepMs: 1000, tickAt: 3 } as const;
 
 /** Whole seconds of get-ready left on a live Match's opening turn, or null when there is none (picks up after a reload). */
 export function getReadyLeft(b: Battle, seenAt: number, nowMs: number): number | null {
