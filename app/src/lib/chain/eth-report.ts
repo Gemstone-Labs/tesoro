@@ -30,6 +30,8 @@ export interface ReportInput {
   projectedDebt: bigint;
   /** Redeem, Instant Redeem: this Position's Gemas still waiting on yield. */
   waitingGemas: bigint;
+  /** Instant Redeem: the bridge's mirror of the vault Treasury is below what the vault itself holds now, and a report refreshes it. */
+  treasuryBehind?: boolean;
   /** The newest report this browser asked for on this Position, if any. */
   recent: { baseline: bigint; at: number } | null;
   now: number;
@@ -38,13 +40,18 @@ export interface ReportInput {
 /** Does the action gain from a fresh report, and if so what is the next step. */
 export function planReport(i: ReportInput): ReportPlan {
   if (!i.bridge) return { kind: "none" };
-  const needs = i.action === "unlock" ? i.onChainDebt > 0n && i.projectedDebt === 0n : i.waitingGemas > 0n && i.liveAccrued > i.bridge.yieldCumulative;
-  if (!needs) return { kind: "none" };
+  // A report that already arrived is applied whatever the action: it is paid for and only needs this step.
   if (i.bridge.lastYieldSeq > i.bridge.appliedYieldSeq) return { kind: "apply" };
-  if (i.recent && i.now - i.recent.at < REPORT_REUSE_MS) {
-    // Asked a moment ago: wait for it if it has not been applied; if it was, the live figure only drifts on from it.
-    return i.bridge.appliedYieldSeq > i.recent.baseline ? { kind: "none" } : { kind: "wait", baseline: i.recent.baseline };
+  const needs =
+    i.treasuryBehind === true ||
+    (i.action === "unlock" ? i.onChainDebt > 0n && i.projectedDebt === 0n : i.waitingGemas > 0n && i.liveAccrued > i.bridge.yieldCumulative);
+  if (!needs) return { kind: "none" };
+  if (i.recent && i.now - i.recent.at < REPORT_REUSE_MS && i.bridge.appliedYieldSeq <= i.recent.baseline) {
+    // Asked a moment ago and not applied yet: wait for that one.
+    return { kind: "wait", baseline: i.recent.baseline };
   }
+  // Nothing in flight: ask. If an earlier one was applied and the live figure moved on, this is a new report (the server's
+  // cooldown still applies; a refusal there turns into a wait).
   return { kind: "request" };
 }
 

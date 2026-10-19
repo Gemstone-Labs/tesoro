@@ -42,17 +42,33 @@ describe("planReport: Redeem and Instant Redeem", () => {
 });
 
 describe("planReport: a report already asked for or arrived", () => {
-  it("applies an arrived report before anything else", () => {
-    expect(planReport(base({ bridge: bridge({ lastYieldSeq: 4n }) }))).toEqual({ kind: "apply" });
+  it("applies an arrived report before anything else, for every action", () => {
+    const arrived = bridge({ lastYieldSeq: 4n });
+    expect(planReport(base({ bridge: arrived }))).toEqual({ kind: "apply" });
+    expect(planReport(base({ bridge: arrived, action: "redeem", onChainDebt: 0n, waitingGemas: 0n, liveAccrued: 0n }))).toEqual({ kind: "apply" });
+    expect(planReport(base({ bridge: arrived, action: "instant", onChainDebt: 0n, waitingGemas: 0n }))).toEqual({ kind: "apply" });
+    expect(planReport(base({ bridge: arrived, onChainDebt: 0n }))).toEqual({ kind: "apply" });
   });
-  it("waits for one asked a moment ago instead of asking again", () => {
+  it("waits for one asked a moment ago that is not applied yet", () => {
     expect(planReport(base({ recent: { baseline: 3n, at: 1_000_000 - 10_000 } }))).toEqual({ kind: "wait", baseline: 3n });
   });
-  it("does not ask again after a recent one was applied (the live figure only drifts on)", () => {
-    expect(planReport(base({ action: "redeem", waitingGemas: 7n, bridge: bridge({ lastYieldSeq: 4n, appliedYieldSeq: 4n }), recent: { baseline: 3n, at: 1_000_000 - 10_000 } }))).toEqual({ kind: "none" });
+  it("asks for a new one when the recent report was applied and the action still gains", () => {
+    const applied = bridge({ lastYieldSeq: 4n, appliedYieldSeq: 4n });
+    expect(planReport(base({ bridge: applied, recent: { baseline: 3n, at: 1_000_000 - 10_000 } }))).toEqual({ kind: "request" });
+    expect(planReport(base({ action: "redeem", waitingGemas: 7n, bridge: applied, recent: { baseline: 3n, at: 1_000_000 - 10_000 } }))).toEqual({ kind: "request" });
+  });
+  it("needs nothing once a recent applied report left nothing to gain", () => {
+    expect(planReport(base({ bridge: bridge({ lastYieldSeq: 4n, appliedYieldSeq: 4n }), onChainDebt: 0n, recent: { baseline: 3n, at: 1_000_000 - 10_000 } }))).toEqual({ kind: "none" });
   });
   it("asks again once the earlier one is old", () => {
     expect(planReport(base({ recent: { baseline: 3n, at: 1_000_000 - REPORT_REUSE_MS - 1 } }))).toEqual({ kind: "request" });
+  });
+});
+
+describe("planReport: Instant Redeem with a stale Treasury mirror", () => {
+  it("asks for a report when the vault holds more than the mirror shows, even with no new yield", () => {
+    expect(planReport(base({ action: "instant", onChainDebt: 0n, waitingGemas: 7n, liveAccrued: 100n, treasuryBehind: true }))).toEqual({ kind: "request" });
+    expect(planReport(base({ action: "instant", onChainDebt: 0n, waitingGemas: 7n, liveAccrued: 100n }))).toEqual({ kind: "none" });
   });
 });
 

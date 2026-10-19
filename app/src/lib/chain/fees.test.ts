@@ -13,6 +13,7 @@ import {
   parseVaultShares,
   parseVaultTreasury,
   vaultTreasuryAvailable,
+  instantTryCap,
   instantUnavailable,
   INSTANT_NOT_OPEN,
   INSTANT_UNAVAILABLE_BODY,
@@ -113,11 +114,12 @@ describe("Treasury decoders: a wrong size is absent", () => {
 
   it("reads a VaultTreasury: the reported balance less payouts recorded since the report", () => {
     const d = Buffer.alloc(VAULT_TREASURY_LEN);
-    expect(VAULT_TREASURY_LEN).toBe(93);
+    expect(VAULT_TREASURY_LEN).toBe(101);
     d.writeBigUInt64LE(5n * 10n ** 18n, 44);
     d.writeBigUInt64LE(10n ** 18n, 60);
     d.writeBigUInt64LE(3n * 10n ** 18n, 76);
-    expect(parseVaultTreasury(d)).toEqual({ balance: 5n * 10n ** 18n, paidAtReport: 10n ** 18n, instantRecorded: 3n * 10n ** 18n, available: 3n * 10n ** 18n });
+    d.writeBigUInt64LE(1_700_000_000n, 92);
+    expect(parseVaultTreasury(d)).toEqual({ balance: 5n * 10n ** 18n, paidAtReport: 10n ** 18n, instantRecorded: 3n * 10n ** 18n, reportTime: 1_700_000_000n, available: 3n * 10n ** 18n });
     d.writeBigUInt64LE(9n * 10n ** 18n, 76);
     expect(parseVaultTreasury(d)?.available).toBe(0n);
     expect(parseVaultTreasury(d.subarray(0, VAULT_TREASURY_LEN - 1))).toBeNull();
@@ -128,6 +130,18 @@ describe("Treasury decoders: a wrong size is absent", () => {
     expect(vaultTreasuryAvailable(100n, 50n, 20n)).toBe(100n);
     expect(vaultTreasuryAvailable(100n, 0n, 30n)).toBe(70n);
     expect(vaultTreasuryAvailable(10n, 0n, 30n)).toBe(0n);
+  });
+});
+
+describe("instantTryCap", () => {
+  const view = { available: 0n, paidAtReport: 0n, instantRecorded: 30n };
+  it("lets a press through when the vault's own balance would cover it", () => {
+    expect(instantTryCap(view, 100n)).toBe(70n);
+  });
+  it("keeps the mirror when the vault holds no more, or was not read", () => {
+    expect(instantTryCap({ ...view, available: 50n }, 60n)).toBe(50n);
+    expect(instantTryCap(view, null)).toBe(0n);
+    expect(instantTryCap(view, 10n)).toBe(0n);
   });
 });
 

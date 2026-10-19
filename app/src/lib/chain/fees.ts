@@ -60,8 +60,8 @@ export function parseTreasuryVaultKey(d: Uint8Array): Uint8Array | null {
 /** The treasury simSOL vault is an SPL token account: its balance sits at byte 64. */
 export const parseVaultShares = (d: Uint8Array): bigint | null => (d.length >= 72 ? rdU64(d, 64) : null);
 
-/** `VaultTreasury`: disc 8, eid u32, peer_address [32], balance u128, paid_at_report u128, instant_recorded u128, bump. */
-export const VAULT_TREASURY_LEN = 8 + 4 + 32 + 16 + 16 + 16 + 1;
+/** `VaultTreasury`: disc 8, eid u32, peer_address [32], balance u128, paid_at_report u128, instant_recorded u128, report_time u64, bump. */
+export const VAULT_TREASURY_LEN = 8 + 4 + 32 + 16 + 16 + 16 + 8 + 1;
 
 export interface VaultTreasuryView {
   /** What the vault Treasury held at the latest Yield Report. */
@@ -70,6 +70,8 @@ export interface VaultTreasuryView {
   paidAtReport: bigint;
   /** Instant Redeem payouts Solana has recorded. */
   instantRecorded: bigint;
+  /** Vault block time (unix seconds) of the latest report. */
+  reportTime: bigint;
   /** Source-asset units an Instant Redeem on this vault may still be paid: balance less what is recorded but not yet paid. */
   available: bigint;
 }
@@ -80,12 +82,23 @@ export function vaultTreasuryAvailable(balance: bigint, paidAtReport: bigint, in
   return balance > outstanding ? balance - outstanding : 0n;
 }
 
+/**
+ * What an Instant Redeem on a vault may try: the mirror's availability, or more when the vault itself holds more than its last
+ * report said (`live` = `treasuryBalance()` read now). Trying is safe: the action fetches the latest report first, which refreshes
+ * the mirror, and re-checks against it.
+ */
+export function instantTryCap(view: Pick<VaultTreasuryView, "available" | "paidAtReport" | "instantRecorded">, live: bigint | null): bigint {
+  if (live === null) return view.available;
+  const liveAvail = vaultTreasuryAvailable(live, view.paidAtReport, view.instantRecorded);
+  return liveAvail > view.available ? liveAvail : view.available;
+}
+
 export function parseVaultTreasury(d: Uint8Array): VaultTreasuryView | null {
   if (d.length !== VAULT_TREASURY_LEN) return null;
   const balance = rdU128(d, 44);
   const paidAtReport = rdU128(d, 60);
   const instantRecorded = rdU128(d, 76);
-  return { balance, paidAtReport, instantRecorded, available: vaultTreasuryAvailable(balance, paidAtReport, instantRecorded) };
+  return { balance, paidAtReport, instantRecorded, reportTime: rdU64(d, 92), available: vaultTreasuryAvailable(balance, paidAtReport, instantRecorded) };
 }
 
 // ---- Instant Redeem math (exactly tesoro_core `instant_redeem`) -------------------------------------
