@@ -10,6 +10,7 @@ import { catchUp, pendingOf, turnLine } from "./catchup";
 import { NAMES, ROSTER, TURN_MS, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { endLine } from "./end";
 import { missedLabel, ringLeft, ringStart } from "./clock";
+import { VanguardScreen, type TurnInfo } from "./VanguardScreen";
 import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
 import { depotsFor, enemyLeft, fromView, hitSide, indexOf, lookGame, opposite, piecesLeft, shownPieces, toView } from "./view";
 import "./vanguard.css";
@@ -149,7 +150,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           addFx("spotted", at.r + 0.5, at.c + 0.5, 1.7);
           sfx("check");
           shout(e.army === side ? "Two-Step Turn earned" : "They raided your depot");
-          line = e.army === side ? "Depot raided: you earned a Two-Step Turn. Spend it on any turn." : "They raided your depot and earned a Two-Step Turn.";
+          line = e.army === side ? "Depot raided: you earned a Two-Step Turn. On your turn press “Use Two-Step Turn” to move twice." : "They raided your depot and earned a Two-Step Turn.";
           await wait(500);
         } else if (e.kind === "storm") {
           const index = side === "us" ? e.index : 9 - e.index;
@@ -310,17 +311,19 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           <small>{a === "us" ? "US Army" : "Royal Italian Army"} · {piecesLeft(battle, a)} of 20</small>
         </span>
         {missed && <span className={`vg-missed${battle.timeouts[a === "us" ? 0 : 1] >= 2 ? " last" : ""}`}>{missed}</span>}
-        {active && <span className="vg-turn">{mineP ? (battle.twoStepActive ? `Two-Step · ${battle.stepsLeft} left` : "Your turn") : "Their turn"}</span>}
-        {mineP && twoStepLeft > 0 && !battle.twoStepActive && (
-          <button type="button" className="vg-two" onClick={useTwoStep} disabled={!yourTurn || battle.moved !== 0n}>
-            Use Two-Step Turn{twoStepLeft > 1 ? ` ×${twoStepLeft}` : ""}
-          </button>
-        )}
         {!mineP && banked > 0 && <span className="vg-tok">Two-Step ×{banked}</span>}
       </div>
     );
   };
 
+  const turn: TurnInfo = {
+    label: live ? (battle.turn === (side === "us" ? 0 : 1) ? (battle.twoStepActive ? `Two-Step · ${battle.stepsLeft} left` : "Your turn") : "Their turn") : "",
+    banked: twoStepLeft,
+    active: battle.twoStepActive !== 0,
+    yourTurn,
+    moved: battle.moved !== 0n,
+    onUse: useTwoStep,
+  };
   const standing = enemyLeft(battle, seat);
   const roster = (
     <div className="vg-roster" role="list" aria-label={`${foe === "us" ? "US" : "Italian"} pieces still on the board, by rank`}>
@@ -335,27 +338,33 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
 
   return (
     <Arena game="vanguard">
-      <div className="vg-screen">
-        <div className="vg-bar">
-          <Label>Vanguard</Label>
-          <span className="vg-bar-tools">
-            <MuteToggle />
-            <FullScreenToggle />
-          </span>
-        </div>
-        {plate(foe)}
-        {roster}
+      <VanguardScreen
+        bar={
+          <div className="vg-bar">
+            <Label>Vanguard</Label>
+            <span className="vg-bar-tools">
+              <MuteToggle />
+              <FullScreenToggle />
+            </span>
+          </div>
+        }
+        foe={plate(foe)}
+        roster={roster}
+        me={plate(side)}
+        turn={turn}
+        say={say}
+        stage={
         <div className="vg-stage">
           <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} viewer={side} onPiece={onPiece} onMark={onMark} />
           {call && <Callout key={call.key} text={call.text} tone={call.tone} duration={1300} onDone={() => setCall(null)} className="vg-call" />}
         </div>
-        {plate(side)}
+        }
+      >
         {reconnecting && <p className="vg-note warn" role="status">Reconnecting… the board may be a few moves behind.</p>}
         {catching && <p className="vg-note" role="status">Catching up with the moves you missed…</p>}
         {pending && <p className="vg-note" role="status">{pending.line}</p>}
-        <p className="vg-say" aria-live="polite">{say}</p>
         {children}
-      </div>
+      </VanguardScreen>
     </Arena>
   );
 }

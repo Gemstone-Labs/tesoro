@@ -6,6 +6,7 @@ import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
 import { CAP_MS, NAMES, ROSTER, TURN_MS, move, newGame, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Refusal, type Result, type Rng, type Square } from "../rules";
+import { VanguardScreen, type TurnInfo } from "../VanguardScreen";
 import { VanguardBoard, type HitSide, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { botMove } from "./bot";
 import "../vanguard.css";
@@ -169,7 +170,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
         addFx("spotted", e.at.r + 0.5, e.at.c + 0.5, 1.7);
         sfx("check");
         shout(e.army === "us" ? "Two-Step Turn earned" : "Italy raided your depot");
-        line = e.army === "us" ? "Depot raided: you earned a Two-Step Turn. Spend it on any turn." : "Italy raided your depot and earned a Two-Step Turn.";
+        line = e.army === "us" ? "Depot raided: you earned a Two-Step Turn. On your turn press “Use Two-Step Turn” to move twice." : "Italy raided your depot and earned a Two-Step Turn.";
         await wait(500);
       } else if (e.kind === "storm") {
         setStorm({ key: Date.now(), axis: e.axis, index: e.index, dir: e.dir });
@@ -297,17 +298,19 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
           <b>{a === "us" ? "You" : "Bot"}</b>
           <small>{a === "us" ? "US Army" : "Royal Italian Army"} · {count(a)} of 20</small>
         </span>
-        {active && <span className="vg-turn">{a === "us" ? (game.twoStepActive ? `Two-Step · ${game.stepsLeft} left` : "Your turn") : "Italy's turn"}</span>}
-        {a === "us" && game.twoStep.us > 0 && !game.twoStepActive && (
-          <button type="button" className="vg-two" onClick={useTwoStep} disabled={!yourTurn || game.movedThisTurn.length > 0}>
-            Use Two-Step Turn{game.twoStep.us > 1 ? ` ×${game.twoStep.us}` : ""}
-          </button>
-        )}
         {a === "it" && game.twoStep.it > 0 && <span className="vg-tok">Two-Step ×{game.twoStep.it}</span>}
       </div>
     );
   };
 
+  const turn: TurnInfo = {
+    label: started && !game.winner ? (game.turn === "us" ? (game.twoStepActive ? `Two-Step · ${game.stepsLeft} left` : "Your turn") : "Italy's turn") : "",
+    banked: game.twoStep.us,
+    active: game.twoStepActive,
+    yourTurn,
+    moved: game.movedThisTurn.length > 0,
+    onUse: useTwoStep,
+  };
   const won = game.winner === "us";
   // casualty tracking: every Italian piece that leaves the board was shown to you, so what is left per rank is known
   const alive = (rank: string) => game.pieces.filter((p) => p.army === "it" && p.rank === rank).length;
@@ -323,16 +326,22 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
   );
   return (
     <Arena game="vanguard">
-      <div className="vg-screen">
-        <div className="vg-bar">
-          <Label>Practice · Vanguard</Label>
-          <span className="vg-bar-tools">
-            <MuteToggle />
-            <FullScreenToggle />
-          </span>
-        </div>
-        {plate("it")}
-        {roster}
+      <VanguardScreen
+        bar={
+          <div className="vg-bar">
+            <Label>Practice · Vanguard</Label>
+            <span className="vg-bar-tools">
+              <MuteToggle />
+              <FullScreenToggle />
+            </span>
+          </div>
+        }
+        foe={plate("it")}
+        roster={roster}
+        me={plate("us")}
+        turn={turn}
+        say={say}
+        stage={
         <div className="vg-stage">
           <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
           {!started && (
@@ -361,9 +370,8 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
             </div>
           )}
         </div>
-        {plate("us")}
-        <p className="vg-say" aria-live="polite">{say}</p>
-      </div>
+        }
+      />
     </Arena>
   );
 }
