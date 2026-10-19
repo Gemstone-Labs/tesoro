@@ -49,15 +49,23 @@ export function settledPush(m: SettledMatch): SettledPush {
   return { matchId: m.id.toString(), game: m.game, entry, participants };
 }
 
-/** True when the server took the event (2xx). Never throws: the next pass tries again. */
-export async function pushSettled(url: string, secret: string, push: SettledPush, fetchFn: typeof fetch = fetch): Promise<boolean> {
+/**
+ * What the app server did with a push: took it (2xx), refused it as malformed (400: e.g. a Game that app does not
+ * list yet, so asking again cannot help), or failed (down, 5xx, bad secret: the next pass tries again).
+ */
+export type PushResult = "sent" | "rejected" | "failed";
+
+/** POSTs `body` with the shared secret. Never throws. */
+export async function postToApp(url: string, secret: string, body: unknown, fetchFn: typeof fetch = fetch): Promise<PushResult> {
   try {
-    const res = await fetchFn(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${secret}` }, body: JSON.stringify(push) });
-    return res.ok;
+    const res = await fetchFn(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${secret}` }, body: JSON.stringify(body) });
+    return res.ok ? "sent" : res.status === 400 ? "rejected" : "failed";
   } catch {
-    return false;
+    return "failed";
   }
 }
+
+export const pushSettled = (url: string, secret: string, push: SettledPush, fetchFn: typeof fetch = fetch) => postToApp(url, secret, push, fetchFn);
 
 /** Matches settled longer ago than this are not announced (a restart does not replay old history). */
 const WINDOW_MS = 3 * 24 * 3_600_000;
@@ -116,10 +124,14 @@ export async function notifyJob(ctx: Ctx, env: NodeJS.ProcessEnv = process.env):
         result,
         sides: [await sideOf(m.a), m.b ? await sideOf(m.b) : null],
       });
-      if (await pushSettled(url, secret, push)) {
+      const res = await pushSettled(url, secret, push);
+      if (res === "sent") {
         pushed.add(id.toString());
         sent++;
         log("notify", `match=${id}`, "DONE settled Match sent to the app");
+      } else if (res === "rejected") {
+        pushed.add(id.toString());
+        log("notify", `match=${id}`, `SKIP the app does not take ${game} events`);
       } else log("notify", `match=${id}`, "FAIL the app did not take the event, will retry");
     } catch (e) {
       log("notify", `match=${id}`, `ERROR ${String((e as Error).message ?? e).split("\n")[0].slice(0, 200)}`);

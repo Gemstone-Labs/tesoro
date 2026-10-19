@@ -6,7 +6,7 @@ import { seasonsToCheck } from "./season.ts";
 import { DELEGATION_PROGRAM_ID } from "@magicblock-labs/ephemeral-rollups-sdk";
 import { PublicKey } from "@solana/web3.js";
 import { log, type Ctx } from "./act.ts";
-import { gameOfKey, type GameId } from "./notify.ts";
+import { gameOfKey, postToApp, type GameId, type PushResult } from "./notify.ts";
 import { pk } from "./runtime.ts";
 
 /** One fact for a Player's Account (`account` is a TesoroAccount key); the job turns it into the app's wire event with the wallet authority. */
@@ -128,19 +128,36 @@ export function digestDue(nowMs: number, lastDay: string | null, hourUtc: number
   return d.getUTCHours() >= hourUtc && d.toISOString().slice(0, 10) !== lastDay;
 }
 
-const post = async (url: string, secret: string, body: unknown, fetchFn: typeof fetch) => {
-  try {
-    const res = await fetchFn(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${secret}` }, body: JSON.stringify(body) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-};
-
-/** True when the server took the events (2xx). Never throws: the next pass tries again. */
-export const pushEvents = (url: string, secret: string, events: object[], fetchFn: typeof fetch = fetch) => post(url, secret, { events }, fetchFn);
+export const pushEvents = (url: string, secret: string, events: object[], fetchFn: typeof fetch = fetch): Promise<PushResult> => postToApp(url, secret, { events }, fetchFn);
 /** True when the server ran the digest. */
-export const pushDigest = (url: string, secret: string, fetchFn: typeof fetch = fetch) => post(url, secret, {}, fetchFn);
+export const pushDigest = async (url: string, secret: string, fetchFn: typeof fetch = fetch) => (await postToApp(url, secret, {}, fetchFn)) === "sent";
+
+/**
+ * Sends events in groups and records each one the app is done with in `told`. The app refuses a whole group when one
+ * event in it is malformed (a Game it does not list yet), so a refused group is sent again one event at a time and
+ * only the refused events are dropped. Returns how many the app took.
+ */
+export async function sendEvents(url: string, secret: string, events: { key: string; body: object }[], told: Set<string>, fetchFn: typeof fetch = fetch): Promise<number> {
+  let sent = 0;
+  for (let i = 0; i < events.length; i += EVENTS_PER_PUSH) {
+    const group = events.slice(i, i + EVENTS_PER_PUSH);
+    const res = await pushEvents(url, secret, group.map((e) => e.body), fetchFn);
+    if (res === "sent") {
+      for (const e of group) told.add(e.key);
+      sent += group.length;
+      log("notify", "events", `DONE ${group.length} event(s) sent to the app`);
+    } else if (res === "rejected") {
+      for (const e of group) {
+        const one = group.length === 1 ? res : await pushEvents(url, secret, [e.body], fetchFn);
+        if (one === "failed") continue;
+        told.add(e.key);
+        if (one === "sent") sent++;
+        else log("notify", "events", `SKIP the app does not take this event: ${JSON.stringify(e.body).slice(0, 120)}`);
+      }
+    } else log("notify", "events", "FAIL the app did not take the events, will retry");
+  }
+  return sent;
+}
 
 const told = new Set<string>();
 const authorities = new Map<string, string>();
@@ -273,15 +290,7 @@ export async function notifyEventsJob(ctx: Ctx, env: NodeJS.ProcessEnv = process
     const key = JSON.stringify([account, fact]);
     if (!told.has(key)) events.push({ key, body: { ...fact, authority } });
   }
-  let sent = 0;
-  for (let i = 0; i < events.length; i += EVENTS_PER_PUSH) {
-    const group = events.slice(i, i + EVENTS_PER_PUSH);
-    if (await pushEvents(eventsUrl, secret, group.map((e) => e.body), fetchFn)) {
-      for (const e of group) told.add(e.key);
-      sent += group.length;
-      log("notify", "events", `DONE ${group.length} event(s) sent to the app`);
-    } else log("notify", "events", "FAIL the app did not take the events, will retry");
-  }
+  const sent = await sendEvents(eventsUrl, secret, events, told, fetchFn);
   const hour = Number(env.KEEPER_DIGEST_HOUR_UTC ?? 8);
   if (digestDue(Date.now(), digestDay, hour) && (await pushDigest(new URL("digest", base).toString(), secret, fetchFn))) {
     digestDay = new Date().toISOString().slice(0, 10);

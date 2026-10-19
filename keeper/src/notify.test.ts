@@ -49,13 +49,16 @@ describe("push to the app", () => {
   it("posts the event with the shared secret and reports whether the server took it", async () => {
     let seen: { url: string; init: any } | undefined;
     const ok = (async (url: string, init: any) => ((seen = { url, init }), new Response("{}", { status: 200 }))) as unknown as typeof fetch;
-    assert.equal(await pushSettled("https://x/api/notify/event", "s", settledPush(base), ok), true);
+    assert.equal(await pushSettled("https://x/api/notify/event", "s", settledPush(base), ok), "sent");
     assert.equal(seen?.init.headers.authorization, "Bearer s");
     assert.equal(JSON.parse(seen?.init.body).matchId, "123");
     const bad = (async () => new Response("no", { status: 500 })) as unknown as typeof fetch;
-    assert.equal(await pushSettled("u", "s", settledPush(base), bad), false);
+    assert.equal(await pushSettled("u", "s", settledPush(base), bad), "failed");
+    // a Game the app does not take: final, the keeper stops asking
+    const malformed = (async () => new Response("{}", { status: 400 })) as unknown as typeof fetch;
+    assert.equal(await pushSettled("u", "s", settledPush(base), malformed), "rejected");
     const down = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
-    assert.equal(await pushSettled("u", "s", settledPush(base), down), false);
+    assert.equal(await pushSettled("u", "s", settledPush(base), down), "failed");
   });
 });
 

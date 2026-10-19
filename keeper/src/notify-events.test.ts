@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { debtClearedFacts, digestDue, matchFacts, offerFacts, opponentPlayedFact, pushDigest, pushEvents, seasonFacts, type MatchFacts, type OfferFacts } from "./notify-events.ts";
+import { debtClearedFacts, digestDue, matchFacts, offerFacts, opponentPlayedFact, pushDigest, pushEvents, seasonFacts, sendEvents, type MatchFacts, type OfferFacts } from "./notify-events.ts";
 
 const NOW = 1_800_000_000;
 const base: MatchFacts = { id: 7n, game: "holdem", status: "active", deadline: NOW + 600, entry: 500, players: ["a", "b"], session: null };
@@ -116,13 +116,42 @@ describe("daily digest call and push", () => {
   it("posts events and the digest with the shared secret and reports whether the server took them", async () => {
     const seen: any[] = [];
     const ok = (async (url: string, init: any) => (seen.push({ url, init }), new Response("{}", { status: 200 }))) as unknown as typeof fetch;
-    assert.equal(await pushEvents("https://x/api/notify/events", "s", [{ kind: "x" }], ok), true);
+    assert.equal(await pushEvents("https://x/api/notify/events", "s", [{ kind: "x" }], ok), "sent");
     assert.equal(await pushDigest("https://x/api/notify/digest", "s", ok), true);
     assert.equal(seen[0].init.headers.authorization, "Bearer s");
     assert.deepEqual(JSON.parse(seen[0].init.body), { events: [{ kind: "x" }] });
     const bad = (async () => new Response("no", { status: 500 })) as unknown as typeof fetch;
     assert.equal(await pushDigest("u", "s", bad), false);
     const down = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
-    assert.equal(await pushEvents("u", "s", [], down), false);
+    assert.equal(await pushEvents("u", "s", [], down), "failed");
+    const malformed = (async () => new Response("{}", { status: 400 })) as unknown as typeof fetch;
+    assert.equal(await pushEvents("u", "s", [{ kind: "x" }], malformed), "rejected");
+  });
+});
+
+describe("sending events to an app that does not take every Game", () => {
+  // the live app answers 400 to any batch with a Game it does not list (staging's keeper sees Vanguard first)
+  const app = (calls: string[][]) =>
+    (async (_url: string, init: any) => {
+      const games = (JSON.parse(init.body).events as { game: string }[]).map((e) => e.game);
+      calls.push(games);
+      return new Response("{}", { status: games.includes("vanguard") ? 400 : 200 });
+    }) as unknown as typeof fetch;
+  const ev = (key: string, game: string) => ({ key, body: { kind: "match-refunded", game } });
+
+  it("still delivers the other Games' events and drops only the ones the app refuses, without asking again", async () => {
+    const told = new Set<string>();
+    const calls: string[][] = [];
+    const events = [ev("a", "holdem"), ev("b", "vanguard"), ev("c", "block-puzzle")];
+    assert.equal(await sendEvents("u", "s", events, told, app(calls)), 2);
+    assert.deepEqual([...told].sort(), ["a", "b", "c"]);
+    assert.deepEqual(calls, [["holdem", "vanguard", "block-puzzle"], ["holdem"], ["vanguard"], ["block-puzzle"]]);
+  });
+
+  it("keeps events for the next pass when the app is down", async () => {
+    const told = new Set<string>();
+    const down = (async () => new Response("no", { status: 503 })) as unknown as typeof fetch;
+    assert.equal(await sendEvents("u", "s", [ev("a", "holdem")], told, down), 0);
+    assert.equal(told.size, 0);
   });
 });
