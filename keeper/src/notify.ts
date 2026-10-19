@@ -1,4 +1,4 @@
-import * as anchor from "@coral-xyz/anchor";
+import anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { BLOCK_PUZZLE_PROGRAM_ID } from "../../app/src/games/block-puzzle/chain.ts";
 import { HOLDEM_PROGRAM_ID } from "../../app/src/games/holdem/chain.ts";
