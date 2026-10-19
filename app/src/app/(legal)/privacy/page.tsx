@@ -29,7 +29,7 @@ export default function Privacy() {
 
       <Section id="public" title="Read this first: blockchains are public">
         <p>
-          {BRAND.name} is built on public blockchains. Your wallet addresses, your Positions, Advances, Gemas, Matches, Backings, Season results, and your Profile name and
+          {BRAND.name} is built on public blockchains. Your wallet addresses, your Locks, Advances, Gemas, Matches, Backings, Season results, and your Profile name and
           picture are written on chain. Anyone can read them, forever, and nobody, including us, can edit or erase them. If someone links an address to your
           identity, they can see everything it has done. Choose your Profile name and picture with that in mind, and never put personal details in them.
         </p>
@@ -40,7 +40,7 @@ export default function Privacy() {
           head={["Data", "Where it comes from", "Why we use it"]}
           rows={[
             ["Email address", "The waitlist, your Invite, notification settings, or sign-in by email.", "To sign you in, send your Invite and the notices you asked for, and run the waitlist."],
-            ["Wallet addresses and on-chain activity", "Your wallets and the blockchains. Public.", "To run your Account: Positions, Gemas, Matches, payouts, Seasons."],
+            ["Wallet addresses and on-chain activity", "Your wallets and the blockchains. Public.", "To run your Account: Locks, Gemas, Matches, payouts, Seasons."],
             ["Profile name and picture", "You choose them. Public, kept on chain.", "To show you to other Players."],
             ["18+ confirmation", "You tell us once, before your first Match.", "To record that you said you are at least 18. Self-declared; we do not check your age."],
             ["Protections and fair-play records", "Your Entry Limit, Break, Self-Exclusion, and signals used to find bots and multiple Accounts.", "To enforce your limits and our fair-play rules."],
@@ -75,9 +75,9 @@ export default function Privacy() {
             ["Resend", "Sending email", "Your email address and the message."],
             ["Vercel", "Hosting our website", "Requests to our site, including your IP address and logs."],
             ["MagicBlock", "Rollups that run Matches, and price feeds", "Wallet addresses and the Match activity sent to its network."],
-            ["LayerZero", "Cross-chain messages for Ethereum and HyperEVM Positions", "Wallet addresses and Position messages, public on chain."],
+            ["LayerZero", "Cross-chain messages for Ethereum and HyperEVM Locks", "Wallet addresses and Lock messages, public on chain."],
             ["Pyth and MagicBlock price feeds", "Prices for Advances", "Nothing about you."],
-            ["Staking providers (Jito, Lido, Kinetiq)", "Staking tokens for Positions", "On-chain activity of the Position, public."],
+            ["Staking providers (Jito, Lido, Kinetiq)", "Staking tokens for Locks", "On-chain activity of the Lock, public."],
             ["Blockchains and wallets", "Everything on chain", "Public by design."],
           ]}
         />
