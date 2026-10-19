@@ -54,11 +54,13 @@ export type InstantOffer = {
 };
 
 /** Redeem as an exchange: every redeemable Gema in, each Source asset out, the Sources folded away. */
-export function RedeemExchange({ payouts, instant = null, busy, error, done, canSign, onRedeem, onInstant, onClose }: {
+export function RedeemExchange({ payouts, instant = null, busy, busyNote, error, done, canSign, onRedeem, onInstant, onClose }: {
   payouts: RedeemPayout[];
   /** Won Gemas can be sold now for less; omitted where that does not apply (offline). */
   instant?: InstantOffer | null;
   busy: boolean;
+  /** What the wait is for, when it is more than the payout itself (e.g. fetching the latest yield). */
+  busyNote?: string | null;
   error: string | null;
   done: RedeemDone | null;
   canSign: boolean;
@@ -181,7 +183,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       <SimulatedYieldLabel />
       {error && <p className="status err" role="alert">{error}</p>}
       {busy ? (
-        <Busy>Paying out your Gemas…</Busy>
+        <Busy>{busyNote ?? "Paying out your Gemas…"}</Busy>
       ) : (
         <Button variant="money" size="lg" block disabled={!canSign} onClick={showInstant ? onInstant : onRedeem}>
           {showInstant ? "Redeem now" : "Redeem"} <GemaAmount value={total} size="md" />

@@ -365,11 +365,11 @@ export const TOPICS: { id: string; title: string; qs: { q: string; a: ReactNode 
         ),
       },
       {
-        q: "My ETH or HYPE Lock shows yield that is not reported",
+        q: "My ETH or HYPE Lock shows yield that is not counted yet",
         a: (
           <p>
-            Yield earned on Ethereum or HyperEVM is applied to what is left to pay back once it is reported to {BRAND.name}. Press Report yield on the Lock to send it
-            now; it costs a small cross-chain fee.
+            Yield earned on Ethereum or HyperEVM reaches {BRAND.name} when you Redeem or Unlock. Those buttons fetch the latest yield first, which usually takes a
+            minute or two, then carry on. If you leave in between, it still lands and the next press goes straight through.
           </p>
         ),
       },

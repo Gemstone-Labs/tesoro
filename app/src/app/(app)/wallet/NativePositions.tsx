@@ -39,7 +39,7 @@ import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, ty
 import { getChain } from "@/lib/chain/client";
 import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { ethRedeemables, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { ethRedeemables, freshenHoldings, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
@@ -665,6 +665,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<RedeemDone | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const sigs = useRef<string[]>([]);
   const rows = nativeRedeemables(snapshot?.holdings ?? []);
   const ethRows = ethRedeemables(snapshot?.holdings ?? []);
@@ -704,6 +705,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     setError(null);
     try {
       const signer = auth.signer;
+      if (ethCtx && plan.some((p) => p.holding.eth)) await freshenHoldings(ethCtx, plan.map((p) => p.holding), "instant", setNote);
       let latest = plan;
       const run = await runInstant(
         plan.map((p) => p.line),
@@ -750,7 +752,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
       for (const h of rows) sigs.current.push(await redeemNative(auth.signer, h.position, h.source, h.redeemable, h.stakeMint));
       if (ethRows.length > 0) {
         if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-        await redeemEthHoldings(ethCtx, snapshot?.holdings ?? []);
+        await redeemEthHoldings(ethCtx, snapshot?.holdings ?? [], setNote);
       }
       setDone({ gemas, later: ethRows.length > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
       await refresh();
@@ -762,5 +764,5 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     }
   };
 
-  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
+  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
 }

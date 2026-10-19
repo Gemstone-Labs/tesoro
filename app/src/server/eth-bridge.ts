@@ -6,6 +6,7 @@
  *  - `init-position`, `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield`, `send-pay-instant`: the permissionless
  *    bridge steps (docs/cross-chain.md), paid by the relayer so the Account only needs a little SOL. A keeper
  *    may run them first; each step skips when there is nothing left to do.
+ *  - `report-yield` (test mode): the relayer's EVM key asks the vault for a Yield Report (ADR 0010), throttled per Position.
  *  - `advance`: `take_advance` at the oracle price, oracle-signed, for the Account to co-sign.
  *
  * Server only: keys are read from disk here and never leave this module.
@@ -49,6 +50,8 @@ import {
   sourceAuthPda,
   vaultAbi,
   vaultTreasuryPda,
+  withHeadroom,
+  fetchVaultPosition,
   type EvmNet,
 } from "@/lib/chain/eth";
 import type { SignedFields } from "@/lib/chain/signed-request";
@@ -56,6 +59,7 @@ import { requireDevnet, requireHoodi, requireHyperEvm, requireTestMode } from ".
 import { HYPE_DEFAULT_MAX_PER_HOUR, createHypeTopup } from "./hype-topup";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { relayerSend } from "./relayer-send";
+import { createYieldReporter } from "./yield-report";
 import { createSimFaucet } from "./sim-faucet";
 import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
@@ -82,8 +86,8 @@ const limits = {
   advancePerUser: new WindowLimiter(10, DAY),
 };
 
-export type EthStep = "fund-evm" | "fund-hype" | "faucet-lst" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "send-pay-instant" | "advance";
-const STEPS: EthStep[] = ["fund-evm", "fund-hype", "faucet-lst", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "send-pay-instant", "advance"];
+export type EthStep = "fund-evm" | "fund-hype" | "faucet-lst" | "init-position" | "apply-locked" | "apply-yield" | "report-yield" | "send-unlock" | "send-pay-yield" | "send-pay-instant" | "advance";
+const STEPS: EthStep[] = ["fund-evm", "fund-hype", "faucet-lst", "init-position", "apply-locked", "apply-yield", "report-yield", "send-unlock", "send-pay-yield", "send-pay-instant", "advance"];
 
 // ---- keys and clients ----------------------------------------------------------------------------
 
@@ -307,6 +311,29 @@ async function applyYield(vault: string, pid: Buffer) {
   });
   return { skipped: false, signature: await relaySend([ix]) };
 }
+
+// ---- Yield Report request (test mode: the relayer's EVM key) -------------------------------------
+
+const reportYieldFor = createYieldReporter({
+  requireChain: (vault) => (netOfVault(vault).key === "hyperevm" ? requireHyperEvm(HYPEREVM_RPC) : requireHoodi(HOODI_RPC)),
+  vaultPosition: async (vault, id) => {
+    const p = await retryRead(() => fetchVaultPosition(vault, id));
+    return p ? { unlocked: p.unlocked } : null;
+  },
+  lastYieldSeq: async (vault, id) => {
+    const info = await relayConn().getAccountInfo(bridgePositionPda(ethPositionId(vault, id)));
+    return (info ? parseBridgePosition(info.data) : null)?.lastYieldSeq ?? 0n;
+  },
+  fee: async (vault) => withHeadroom(await retryRead(() => evmClient(netOfVault(vault)).readContract({ address: vault as Address, abi: vaultAbi, functionName: "quoteYieldAccrued" }))),
+  send: async (vault, id, value) => {
+    const net = netOfVault(vault);
+    const wallet = createWalletClient({ account: privateKeyToAccount(evmRelayerKey()), chain: net.chain, transport: http(net.rpc) });
+    const hash = await relayerSend(net.key, () => wallet.writeContract({ address: vault as Address, abi: vaultAbi, functionName: "reportYield", args: [id], value }));
+    const receipt = await evmClient(net).waitForTransactionReceipt({ hash, timeout: 90_000 });
+    if (receipt.status !== "success") throw new Error("reportYield reverted");
+    return hash;
+  },
+});
 
 // ---- LayerZero sends (send_unlock, send_pay_yield, send_pay_instant) -------------------------------------------------
 
@@ -583,7 +610,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
   const { step, address, fields, sub } = await verifySignedRequest("tesoro-eth", STEPS, raw, authorization, { nonces });
   const wallet = address.toBase58();
 
-  if (step === "fund-evm" || step === "fund-hype" || step === "faucet-lst") requireTestMode();
+  if (step === "fund-evm" || step === "fund-hype" || step === "faucet-lst" || step === "report-yield") requireTestMode();
   if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "fund-hype") return fundHype(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "faucet-lst") return faucetLst(wallet, fields, sub);
@@ -599,6 +626,8 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
         return await applyLocked(ref.vault, ref.pid);
       case "apply-yield":
         return await applyYield(ref.vault, ref.pid).then((r) => (console.info("eth-bridge apply-yield", JSON.stringify(r)), r));
+      case "report-yield":
+        return await reportYieldFor(ref.vault, ref.id);
       case "send-unlock":
         return await sendUnlock(ref.vault, ref.pid);
       case "send-pay-instant":
