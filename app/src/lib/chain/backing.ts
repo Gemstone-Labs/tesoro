@@ -215,6 +215,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
   const players = new Set<string>(reqRows.map((r) => pk(r.account.inner.player).toBase58()));
   const records = players.size ? await fetchRecords(players) : new Map<string, PlayerForm>();
   const requests = reqRows
+    .filter((r) => gameOf(pk(r.account.inner.game)) !== null)
     .map((r) => toRequest(r, records.get(pk(r.account.inner.player).toBase58()) ?? noForm()))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   // A consumed Offer funded the newest Match with the same Backer, Player, Game and entry.
@@ -232,6 +233,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
     return ids.length ? ids.reduce((x, y) => (x > y ? x : y)) : null;
   };
   const offers = offerRows
+    .filter((o) => gameOf(pk(o.account.inner.game)) !== null)
     .map((o) => toOffer(o, enumKey(o.account.inner.status) === "consumed" ? matchOf(o) : null))
     .sort((a, b) => b.expiresAt - a.expiresAt);
   return { requests, offers, fetchedAt: Date.now() };
@@ -241,7 +243,7 @@ export async function fetchBackingBoard(): Promise<BackingBoard> {
 export async function fetchLiveRequests(player: string, record: PlayerRecord): Promise<ChainRequest[]> {
   const rows: any[] = await getChain().core.account.requestState.all();
   return rows
-    .filter((r) => pk(r.account.inner.player).toBase58() === player)
+    .filter((r) => pk(r.account.inner.player).toBase58() === player && gameOf(pk(r.account.inner.game)) !== null)
     .map((r) => toRequest(r, { record, pnl: [] }))
     .filter((r) => r.live)
     .sort((a, b) => b.expiresAt - a.expiresAt);
@@ -249,7 +251,7 @@ export async function fetchLiveRequests(player: string, record: PlayerRecord): P
 
 export async function fetchOffer(address: PublicKey): Promise<ChainOffer | null> {
   const acc = await getChain().core.account.offerState.fetchNullable(address);
-  return acc ? toOffer({ publicKey: address, account: acc }, null) : null;
+  return acc && gameOf(pk(acc.inner.game)) !== null ? toOffer({ publicKey: address, account: acc }, null) : null;
 }
 
 // ---- writes ---------------------------------------------------------------------------------
