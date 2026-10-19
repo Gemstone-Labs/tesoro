@@ -89,7 +89,7 @@ export function WaitlistForm({ source: invitedBy }: { source?: string }) {
         value={roles}
         onChange={setRoles}
         label="I'm here because…"
-        hint="Optional. It goes on your card."
+        hint="Optional."
         after={{
           studio: (
             <div className="wl-studio">
