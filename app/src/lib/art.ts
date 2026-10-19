@@ -12,7 +12,7 @@ export const art = {
   /** Wide hero art (2400x1000), left 40% dark and empty for the title. */
   blockPuzzleHero: f("block-puzzle-hero"),
   holdemHero: f("holdem-hero"),
-  tradingDuelHero: f("trading-duel-hero"),
+  tradingDuelHero: f("trading-duel-hero-2"),
   vanguardHero: f("vanguard-hero"),
   /** Square key art. */
   blockPuzzleTile: f("block-puzzle-tile"),
@@ -33,11 +33,11 @@ export const art = {
   hero: {
     "block-puzzle": f("block-puzzle-hero"),
     holdem: f("holdem-hero"),
-    "trading-duel": f("trading-duel-hero"),
+    "trading-duel": f("trading-duel-hero-2"),
     vanguard: f("vanguard-hero"),
   },
   /** Dark backdrops for the play screens (Astra art for the edges of the Arena). */
-  arena: { "block-puzzle": f("arena/block-puzzle"), holdem: f("arena/holdem"), "trading-duel": f("arena/trading-duel"), vanguard: f("arena/vanguard") },
+  arena: { "block-puzzle": f("arena/block-puzzle"), holdem: f("arena/holdem"), "trading-duel": f("arena/trading-duel-2"), vanguard: f("arena/vanguard") },
   /** Play Again thumbs reuse the square tiles (cropped by CSS). */
   thumb: {
     "block-puzzle": f("block-puzzle-tile"),
