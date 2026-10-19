@@ -6,6 +6,7 @@ import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
 import { CAP_MS, NAMES, ROSTER, TURN_MS, move, newGame, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Refusal, type Result, type Rng, type Square } from "../rules";
+import { START_COUNTDOWN } from "../clock";
 import { VanguardScreen, type TurnInfo } from "../VanguardScreen";
 import { VanguardBoard, type HitSide, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
 import { botMove } from "./bot";
@@ -14,7 +15,7 @@ import "../vanguard.css";
 export interface VanguardPracticeProps {
   /** Fixed setup and bot (stories, tests). */
   seed?: number;
-  /** Skip the 3-2-1 countdown. */
+  /** Skip the get-ready countdown. */
   instant?: boolean;
   /** Turn clock on (the real 5 seconds); off for a calm look around. */
   clock?: boolean;
@@ -346,6 +347,8 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
           <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} onPiece={onPiece} onMark={onMark} />
           {!started && (
             <Countdown
+              {...START_COUNTDOWN}
+              className="vg-count"
               onDone={() => {
                 setStarted(true);
                 commit(freshClock({ ...gameRef.current, startedAt: Date.now() }));

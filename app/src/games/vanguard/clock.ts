@@ -1,5 +1,5 @@
 import { STATUS, type Battle } from "./decode";
-import { CAP_MS, CHAIN_CLOCK, TIMEOUTS_TO_LOSE, TURN_MS } from "./rules";
+import { CAP_MS, CHAIN_CLOCK, OPENING_GRACE_MS, TIMEOUTS_TO_LOSE, TURN_MS } from "./rules";
 
 /** After the deadline passes, wait this long more before asking: the Players' clients and the keeper can race, a spare second costs nothing. */
 const MARGIN_MS = 1_000;
@@ -8,13 +8,23 @@ const MARGIN_MS = 1_000;
 export const turnKey = (b: Battle): string => [b.status, b.turnNo, b.moves, b.turn, b.stepsLeft, b.twoStepActive].join(":");
 
 /** The first turn of the Match, which has the opening grace on top of its clock. */
-const isOpening = (b: Battle): boolean => b.turnNo === 0 && b.moves === 0;
+export const isOpening = (b: Battle): boolean => b.turnNo === 0 && b.moves === 0;
 
 /**
  * When the 5 second ring starts, in this client's clock: the moment it saw the turn begin. The opening turn waits
  * out the opening grace first (the first mover is still loading), so its ring stays full until then.
  */
 export const ringStart = (b: Battle, seenAt: number): number => seenAt + (isOpening(b) ? CHAIN_CLOCK.openingGraceMs : 0);
+
+/** The get-ready countdown before the first move: 10 real seconds (the chain's opening grace), ticking on the last 3. */
+export const START_COUNTDOWN = { from: OPENING_GRACE_MS / 1000, stepMs: 1000, tickAt: 3 } as const;
+
+/** Whole seconds of get-ready left on a live Match's opening turn, or null when there is none (picks up after a reload). */
+export function getReadyLeft(b: Battle, seenAt: number, nowMs: number): number | null {
+  if (b.status !== STATUS.live || !isOpening(b)) return null;
+  const left = Math.ceil((ringStart(b, seenAt) - nowMs) / 1000);
+  return left > 0 ? left : null;
+}
 
 /** How much of the turn is left, from 1 (just began) to 0 (the 5 seconds are up). */
 export const ringLeft = (b: Battle, seenAt: number, nowMs: number): number => Math.max(0, Math.min(1, (ringStart(b, seenAt) + TURN_MS - nowMs) / TURN_MS));

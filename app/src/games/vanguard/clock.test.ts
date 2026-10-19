@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Battle } from "./decode";
-import { claimDue, missedLabel, ringLeft, ringStart, turnKey } from "./clock";
+import { START_COUNTDOWN, claimDue, getReadyLeft, missedLabel, ringLeft, ringStart, turnKey } from "./clock";
+import { OPENING_GRACE_MS } from "./rules";
 
 const T0 = 1_760_000_000_000;
 const base = { status: 2, deadline: 0, startedAt: 1_760_000_000, startDeadline: 1_760_000_300, entropyDeadline: 0, turn: 0, turnNo: 3, moves: 3, stepsLeft: 1, twoStepActive: 0, eventSeq: 5 } as unknown as Battle;
@@ -74,5 +75,26 @@ describe("missed turns", () => {
   it("says nothing until a clock has run out, then counts to three", () => {
     expect([0, 1, 2].map(missedLabel)).toEqual([null, "Missed 1 of 3", "Missed 2 of 3"]);
     expect(missedLabel(3)).toBe("Missed 3 of 3");
+  });
+});
+
+describe("the get-ready countdown before the first move", () => {
+  it("counts 10 real seconds, ticking only on the last 3, as long as the chain's opening grace", () => {
+    expect(START_COUNTDOWN).toEqual({ from: 10, stepMs: 1000, tickAt: 3 });
+    expect(START_COUNTDOWN.from * START_COUNTDOWN.stepMs).toBe(OPENING_GRACE_MS);
+  });
+
+  it("shows on a real Match's opening turn with the seconds left, so a reload picks up where it was", () => {
+    const opening = { ...base, turnNo: 0, moves: 0 } as Battle;
+    expect(getReadyLeft(opening, T0, T0)).toBe(10);
+    expect(getReadyLeft(opening, T0, T0 + 3_200)).toBe(7);
+    expect(getReadyLeft(opening, T0, T0 + 9_999)).toBe(1);
+  });
+
+  it("is gone once the opening grace is over, on later turns, and before the Match is live", () => {
+    const opening = { ...base, turnNo: 0, moves: 0 } as Battle;
+    expect(getReadyLeft(opening, T0, T0 + 10_000)).toBeNull();
+    expect(getReadyLeft(base, T0, T0)).toBeNull();
+    expect(getReadyLeft({ ...opening, status: 1 } as Battle, T0, T0)).toBeNull();
   });
 });

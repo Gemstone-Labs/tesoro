@@ -4,12 +4,12 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Label } from "@/components/ui";
 import { art } from "@/lib/art";
-import { Arena, Callout, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
+import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
 import { STATUS, rankOfCode, type ArmyAccount, type Battle } from "./decode";
 import { catchUp, pendingOf, turnLine } from "./catchup";
 import { NAMES, ROSTER, TURN_MS, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { endLine } from "./end";
-import { missedLabel, ringLeft, ringStart } from "./clock";
+import { START_COUNTDOWN, getReadyLeft, isOpening, missedLabel, ringLeft, ringStart, turnKey } from "./clock";
 import { VanguardScreen, type TurnInfo } from "./VanguardScreen";
 import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
 import { depotsFor, enemyLeft, fromView, hitSide, indexOf, lookGame, opposite, piecesLeft, shownPieces, toView } from "./view";
@@ -291,6 +291,11 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   };
 
   const left = live ? ringLeft(battle, turnSeenAt, now) : 0;
+  // the get-ready countdown over the opening grace; it stays up through "Go!" and goes once the first move lands
+  const [readyDone, setReadyDone] = useState<string | null>(null);
+  const readyLeft = live ? getReadyLeft(battle, turnSeenAt, now) : null;
+  const readyKey = turnKey(battle);
+  const showReady = live && readyDone !== readyKey && (readyLeft !== null || (isOpening(battle) && now - ringStart(battle, turnSeenAt) < 800));
   const plate = (a: Army) => {
     const mineP = a === side;
     const active = live && battle.turn === (a === "us" ? 0 : 1);
@@ -356,6 +361,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
         stage={
         <div className="vg-stage">
           <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} viewer={side} onPiece={onPiece} onMark={onMark} />
+          {showReady && <Countdown key={readyKey} {...START_COUNTDOWN} from={readyLeft ?? 0} className="vg-count" onEnd={() => setReadyDone(readyKey)} />}
           {call && <Callout key={call.key} text={call.text} tone={call.tone} duration={1300} onDone={() => setCall(null)} className="vg-call" />}
         </div>
         }

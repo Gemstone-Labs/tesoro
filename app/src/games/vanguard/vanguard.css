@@ -124,6 +124,10 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 @keyframes vg-tgt { from { opacity: 0.6; } to { opacity: 1; } }
 .vg-mark:hover, .vg-mark:focus-visible { outline: none; background-color: rgba(255, 236, 170, 0.14); }
 
+/* the get-ready countdown: the board stays in view to study, the number sits small over it */
+.vg-count { background: none; }
+.vg-count .fx-count-n { font-size: clamp(56px, 9vw, 96px); text-shadow: 0 2px 0 #2a1206, 0 0 28px rgba(0, 0, 0, 0.8); }
+
 /* painted effects, on black: drawn with a screen blend so black is invisible */
 .vg-fx { position: absolute; z-index: 20; pointer-events: none; mix-blend-mode: screen; transform: translate(-50%, -50%); background: center / contain no-repeat; animation: vg-pop 0.7s ease-out forwards; }
 .vg-fx.clash { background-image: url(/art/vanguard/fx-clash.webp); }
