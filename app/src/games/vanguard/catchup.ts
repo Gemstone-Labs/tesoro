@@ -53,6 +53,6 @@ export function pendingOf(b: Battle, seat: number): PendingView | null {
 export function turnLine(e: Extract<GameEvent, { kind: "turn" }>, side: Army, declaredByYou: boolean): string | null {
   if (!e.timedOut) return null;
   const yours = e.turn !== side;
-  if (yours) return declaredByYou ? "That move was not allowed, so you lost your turn." : "Time! Your turn passed.";
-  return "Your opponent ran out of time.";
+  if (yours) return declaredByYou ? "Move refused: turn lost." : "Time! Turn passed.";
+  return "Opponent ran out of time.";
 }

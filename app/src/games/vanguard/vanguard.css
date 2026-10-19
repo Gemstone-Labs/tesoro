@@ -195,3 +195,47 @@ html.game-full .vg-screen { --vg-avail: calc(100dvh - 64px); }
 .vg-note { margin: 0; width: min(100%, 640px); font-size: 13px; text-align: center; color: var(--fg-dim, #aab6bf); }
 .vg-note.warn { color: var(--warn, #f1c35b); }
 .vg-spectate { display: grid; gap: 10px; justify-items: center; width: 100%; }
+
+/* ---- Side panels: dark turned-wood plaques, brass rim, rivets, engraved labels. The feed has its own backing and every line is at least 4.5:1 against it. ---- */
+.vg-feed-h { display: none; margin: 0; }
+.vg-screen .vg-who small { white-space: normal; overflow: visible; text-overflow: clip; }
+.vg-say { animation: vg-in 0.38s ease-out both; }
+@keyframes vg-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.vg-screen .vg-plate, .vg-screen .vg-turnbox, .vg-screen .vg-feed {
+  --rv: radial-gradient(circle, #f6dc9a 0 1.4px, #94692a 2.4px 3.4px, rgba(0, 0, 0, 0.55) 4px, transparent 5px);
+  position: relative; border: 0; border-radius: 4px;
+  background: var(--rv) left 5px top 5px / 10px 10px no-repeat, var(--rv) right 5px top 5px / 10px 10px no-repeat, var(--rv) left 5px bottom 5px / 10px 10px no-repeat, var(--rv) right 5px bottom 5px / 10px 10px no-repeat,
+    linear-gradient(rgba(22, 11, 5, 0.5), rgba(8, 4, 2, 0.74)), url(/art/vanguard/ui/wood.webp) 0 0 / 300px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55), 0 0 0 1px #060302, inset 0 1px 0 1px rgba(255, 238, 180, 0.5), inset 0 0 0 2px #b88a3c, inset 0 0 0 3px #2e1a08, inset 0 0 18px rgba(0, 0, 0, 0.6);
+}
+.vg-screen .vg-plate { padding: 10px 20px; }
+.vg-screen .vg-plate.active { box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55), 0 0 18px rgba(232, 190, 110, 0.38), 0 0 0 1px #060302, inset 0 1px 0 1px rgba(255, 246, 200, 0.7), inset 0 0 0 2px #f0cd7a, inset 0 0 0 3px #2e1a08, inset 0 0 18px rgba(0, 0, 0, 0.6); }
+.vg-screen .vg-who b { font-size: 21px; letter-spacing: 0.09em; color: #f9e6b0; text-shadow: 0 -1px 0 #000, 0 1px 0 rgba(255, 225, 150, 0.28); }
+.vg-screen .vg-who small { font: 600 13px/1.2 var(--f-display); letter-spacing: 0.09em; text-transform: uppercase; color: #d8c293; }
+.vg-screen .vg-ring-track { stroke: rgba(0, 0, 0, 0.55); }
+.vg-screen .vg-ring-arc { stroke: #f0cd7a; }
+.vg-screen .vg-ava-img { box-shadow: 0 0 0 2px #2e1a08, 0 0 0 3px #b88a3c; }
+.vg-screen .vg-tok { color: #f6d98e; font-family: var(--f-display); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.vg-screen .vg-roster span { border-radius: 3px; padding: 5px 0 4px; color: #d8c293; background: linear-gradient(rgba(22, 11, 5, 0.45), rgba(8, 4, 2, 0.7)), url(/art/vanguard/ui/wood.webp) 40% 60% / 220px; box-shadow: 0 0 0 1px #060302, inset 0 0 0 1px #9a7230, inset 0 0 8px rgba(0, 0, 0, 0.6); }
+.vg-screen .vg-roster b { color: #f9e6b0; font-size: 17px; text-shadow: 0 -1px 0 #000; }
+.vg-screen .vg-roster span.out { opacity: 0.5; }
+.vg-screen .vg-turnbox { padding: 12px 20px; }
+.vg-screen .vg-turn { font: 800 19px/1 var(--f-display); letter-spacing: 0.12em; color: #f6d98e; text-shadow: 0 -1px 0 #000, 0 1px 0 rgba(255, 225, 150, 0.25); }
+.vg-screen .vg-hint { color: #d8c293; }
+.vg-screen .vg-two { border: 1px solid #4a300d; border-radius: 3px; background: linear-gradient(#f0d184, #b98a34 55%, #9d7126); color: #2a1706; font: 800 15px/1 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 0 rgba(255, 240, 180, 0.55); box-shadow: inset 0 1px 0 rgba(255, 246, 200, 0.8), 0 2px 0 #3a2408; }
+.vg-screen .vg-two:disabled { opacity: 0.8; filter: saturate(0.55) brightness(0.72); }
+.vg-screen .vg-feed { padding: 14px 22px 16px; }
+.vg-screen .vg-feed-h { margin-bottom: 8px; font: 700 13px/1 var(--f-display); letter-spacing: 0.26em; text-transform: uppercase; color: #d9ad5a; text-align: center; text-shadow: 0 -1px 0 #000; }
+.vg-screen .vg-say { color: #fff1cc; font-weight: 600; text-shadow: 0 1px 2px #000; }
+.vg-screen .vg-old { color: #d8c293; }
+.vg-screen .vg-old[data-age="2"] { color: #c7b283; }
+.vg-screen .vg-old[data-age="3"] { color: #b9a577; }
+.vg-screen .vg-old { border-top: 1px solid rgba(184, 138, 60, 0.28); padding-top: 6px; }
+
+@container (min-width: 1000px) {
+  .vg-feed-h { display: block; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vg-say { animation: none !important; }
+}

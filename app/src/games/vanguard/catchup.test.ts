@@ -129,18 +129,18 @@ describe("the turn record", () => {
   const turn = (t: "us" | "it", timedOut: boolean) => ({ seq: 1, kind: "turn" as const, turn: t, timedOut });
 
   it("names the Player whose turn was lost (the record holds the army that plays next)", () => {
-    expect(turnLine(turn("it", true), "us", false)).toBe("Time! Your turn passed.");
-    expect(turnLine(turn("us", true), "us", false)).toBe("Your opponent ran out of time.");
+    expect(turnLine(turn("it", true), "us", false)).toBe("Time! Turn passed.");
+    expect(turnLine(turn("us", true), "us", false)).toBe("Opponent ran out of time.");
     expect(turnLine(turn("it", false), "us", false)).toBeNull();
   });
 
   it("calls a refused declared move a lost turn", () => {
     const line = turnLine(turn("it", true), "us", true);
-    expect(line).toBe("That move was not allowed, so you lost your turn.");
+    expect(line).toBe("Move refused: turn lost.");
   });
 
   it("only blames your own declare for your own turn", () => {
-    expect(turnLine(turn("us", true), "us", true)).toBe("Your opponent ran out of time.");
+    expect(turnLine(turn("us", true), "us", true)).toBe("Opponent ran out of time.");
   });
 });
 
