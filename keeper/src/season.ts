@@ -69,6 +69,18 @@ export function prizeHoldings(holdings: PoolHolding[], amount: bigint): PoolHold
   return left === 0n ? out : null;
 }
 
+/** The pool after paying `amount` the way `prizeHoldings` picks it: lets one pass pay rank after rank from one read. */
+export function afterPrize(holdings: PoolHolding[], amount: bigint): PoolHolding[] {
+  const taken = new Map<string, bigint>();
+  let left = amount;
+  for (const h of prizeHoldings(holdings, amount) ?? []) {
+    const take = h.amount < left ? h.amount : left;
+    taken.set(h.pubkey.toBase58(), take);
+    left -= take;
+  }
+  return holdings.map((h) => ({ ...h, amount: h.amount - (taken.get(h.pubkey.toBase58()) ?? 0n) }));
+}
+
 // HoldingState: disc 8, bump 1, account 32, then inner { source 32, is_own 1, amount 8, reserved 8 }.
 const HOLDING_ACCOUNT_AT = 9;
 
@@ -91,11 +103,11 @@ async function record(ctx: Ctx, n: number, table: Standing[], signer: ReturnType
   return r.ok;
 }
 
-async function payRank(ctx: Ctx, rec: SeasonRecord, rank: number, signer: ReturnType<typeof keypairSigner>): Promise<boolean> {
+async function payRank(ctx: Ctx, rec: SeasonRecord, rank: number, pool: PoolHolding[], signer: ReturnType<typeof keypairSigner>): Promise<boolean> {
   const winner = new PublicKey(rec.winners[rank]);
   const amount = rec.amounts[rank];
   const subject = `season=${rec.number}`;
-  const holdings = amount > 0n ? prizeHoldings(await poolHoldings(ctx), amount) : [];
+  const holdings = amount > 0n ? prizeHoldings(pool, amount) : [];
   if (!holdings) {
     log("season", subject, `WARN rank ${rank + 1}: the pool holds less than ${amount} Gemas in whole Holdings; not paid`);
     return false;
@@ -168,9 +180,12 @@ export async function seasonJob(ctx: Ctx): Promise<number> {
       log("season", `season=${n}`, `${rec.count} ranked, pool ${rec.poolTotal} Gemas, ${why}`);
       continue;
     }
+    // One read per pass: a list read right after a payment can still show the Holdings it drained.
+    let pool = await poolHoldings(ctx);
     let paid = 0;
     for (const rank of plan.ranks) {
-      if (!(await payRank(ctx, rec, rank, signer))) break;
+      if (!(await payRank(ctx, rec, rank, pool, signer))) break;
+      pool = afterPrize(pool, rec.amounts[rank]);
       paid++;
     }
     actions += paid;

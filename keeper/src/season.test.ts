@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
 import { PAYOUT_WINDOW_SECS, SEASON_EPOCH, SEASON_SECS, type Standing } from "../../app/src/lib/chain/season.ts";
-import { payPlan, prizeHoldings, seasonPoints, seasonsToCheck, topRanks, type PoolHolding } from "./season.ts";
+import { afterPrize, payPlan, prizeHoldings, seasonPoints, seasonsToCheck, topRanks, type PoolHolding } from "./season.ts";
 
 const src = (b: number) => new PublicKey(new Uint8Array(32).fill(b));
 const holding = (b: number, amount: bigint): PoolHolding => ({ pubkey: src(100 + b), source: src(b), amount });
@@ -49,6 +49,16 @@ describe("points cap per opponent", () => {
 });
 
 describe("prize holdings", () => {
+  it("pays the next rank from what the last one left, without re-reading the pool", () => {
+    // Season 2 (2026-10-19): rank 2 was planned from a read that still showed rank 1's Holdings full, and failed.
+    const pool = [holding(1, 40n), holding(2, 30n), holding(3, 100n)];
+    const rank1 = prizeHoldings(pool, 55n)!;
+    const left = afterPrize(pool, 55n);
+    assert.deepEqual(left.map((h) => [h.source.toBase58(), h.amount]), [[src(1).toBase58(), 0n], [src(2).toBase58(), 15n], [src(3).toBase58(), 100n]]);
+    assert.equal(rank1.length, 2);
+    assert.deepEqual(prizeHoldings(left, 39n)?.map((h) => h.source.toBase58()), [src(2).toBase58(), src(3).toBase58()], "skips the drained Holding");
+    assert.deepEqual(afterPrize(pool, 0n), pool);
+  });
   it("drains the pool in Source order, the last one partly", () => {
     const pool = [holding(3, 100n), holding(1, 4n), holding(2, 0n), holding(5, 50n)];
     assert.deepEqual(prizeHoldings(pool, 3n)?.map((h) => h.source.toBase58()), [src(1).toBase58()]);
