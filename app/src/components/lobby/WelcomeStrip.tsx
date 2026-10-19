@@ -11,7 +11,7 @@ export function WelcomeStrip() {
   return (
     <div className="cut cut-card welcome-strip">
       <p>
-        <b>New here?</b> Practice free, no account needed. To play for Gemas, lock crypto in a Position and take an Advance.
+        <b>New here?</b> Practice free, no account needed. To play for Gemas, lock crypto and take an Advance.
       </p>
       <Button href={practiceHref("block-puzzle")}>Practice free</Button>
     </div>

@@ -12,7 +12,7 @@ const pct = (x: number, y: number) => ({ left: `${(x / W) * 100}%`, top: `${(y /
 type Node = { id: string; x: number; y: number; art?: LandingKey | "back"; title: string; sub?: string; small?: boolean; label: [number, number] };
 
 const NODES: Node[] = [
-  { id: "position", x: 92, y: 220, art: "step1", title: "Open a Position", sub: "SOL · ETH · HYPE", label: [92, 312] },
+  { id: "position", x: 92, y: 220, art: "step1", title: "Get Gemas", sub: "Lock SOL · ETH · HYPE", label: [92, 312] },
   { id: "advance", x: 332, y: 220, art: "step2", title: "Take an Advance", sub: "1–12 months of projected yield, today, as Gemas", label: [332, 312] },
   { id: "play", x: 592, y: 92, art: "step4", title: "Play yourself", label: [592, 182] },
   { id: "back", x: 592, y: 372, art: "back", title: "Back a Player", sub: "Fund a stronger Player’s entry", label: [592, 462] },
@@ -45,7 +45,7 @@ function NodeArt({ node }: { node: Node }) {
 /** Win and Lose: the result in a line, then the small print. */
 const OUTCOMES = {
   win: { line: "Take the loser’s Gemas.", note: "Paid out as their yield lands." },
-  lose: { line: "Your Gemas go to the winner.", note: "Your Position unlocks once its yield repays the Advance." },
+  lose: { line: "Your Gemas go to the winner.", note: "Your Lock unlocks once its yield repays the Advance." },
 };
 
 function Outcome({ win }: { win?: boolean }) {
@@ -160,12 +160,12 @@ export function HowItWorks() {
               How it works
             </h2>
             <p className="lp-lede lp-measure" data-reveal>
-              Your stake earns yield. {BRAND.name} hands you that yield now, as Gemas, and the yield pays it back while you play.
+              What you lock earns yield. {BRAND.name} hands you that yield now, as Gemas, and the yield pays it back while you play.
             </p>
           </div>
         </header>
 
-        <figure className="lp-flowmap" data-reveal aria-label="Open a Position, take an Advance as Gemas, then play yourself or back a Player. At settlement the winner takes the loser's Gemas, paid out as their yield lands; the loser's Position unlocks once its yield repays the Advance. Your Principal is never played.">
+        <figure className="lp-flowmap" data-reveal aria-label="Lock SOL, ETH or HYPE, take an Advance as Gemas, then play yourself or back a Player. At settlement the winner takes the loser's Gemas, paid out as their yield lands; the loser's Lock unlocks once its yield repays the Advance. What you lock is never played.">
           <svg viewBox={`0 0 ${W} ${H}`} fill="none" strokeLinecap="round" aria-hidden>
             <defs>
               <filter id="lp-tube-glow" x="-10%" y="-40%" width="120%" height="180%">
@@ -210,7 +210,7 @@ export function HowItWorks() {
         <FlowPhone />
         <p className="lp-flow-foot" data-reveal>
           <span className="lp-hold k-foot">
-            <b>Your Principal is never played.</b> Only future yield moves.
+            <b>What you lock is never played.</b> Only future yield moves.
           </span>
         </p>
       </div>

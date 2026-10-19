@@ -66,25 +66,25 @@ export const positions: Position[] = [
 
 export const holdings: GemaHolding[] = [
   {
-    source: { positionId: "pos_sol", chain: "SOL", asset: "SOL", owner: "Your Position", advanceId: "adv_sol" },
+    source: { positionId: "pos_sol", chain: "SOL", asset: "SOL", owner: "Your Lock", advanceId: "adv_sol" },
     gemas: 5200,
     accruedShare: 0.17,
     own: true,
   },
   {
-    source: { positionId: "pos_hype", chain: "HYPE", asset: "HYPE", owner: "Your Position", advanceId: "adv_hype" },
+    source: { positionId: "pos_hype", chain: "HYPE", asset: "HYPE", owner: "Your Lock", advanceId: "adv_hype" },
     gemas: 1100,
     accruedShare: 0.32,
     own: true,
   },
   {
-    source: { positionId: "pos_bob_hype", chain: "HYPE", asset: "HYPE", owner: "Bob's Position", advanceId: "adv_bob" },
+    source: { positionId: "pos_bob_hype", chain: "HYPE", asset: "HYPE", owner: "Bob's Lock", advanceId: "adv_bob" },
     gemas: 2500,
     accruedShare: 0.12,
     own: false,
   },
   {
-    source: { positionId: "pos_carol_eth", chain: "ETH", asset: "ETH", owner: "Carol's Position", advanceId: "adv_carol" },
+    source: { positionId: "pos_carol_eth", chain: "ETH", asset: "ETH", owner: "Carol's Lock", advanceId: "adv_carol" },
     gemas: 1260,
     accruedShare: 0.05,
     own: false,

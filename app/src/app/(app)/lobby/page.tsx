@@ -20,7 +20,7 @@ export default function Lobby() {
     id: "lobby-first",
     pose: "himWelcome",
     title: `Welcome to ${BRAND.name}`,
-    text: "Pick a game, choose an entry and press Play now. Your Gemas come from a Position in your Wallet.",
+    text: "Pick a game, choose an entry and press Play now. Your Gemas come from a Lock in your Wallet.",
     link: { href: "/wallet", label: "Open the Wallet" },
   });
 

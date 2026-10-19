@@ -1,45 +1,47 @@
 # Tesoro
 
-Stakers play now with yield they have not earned yet: Tesoro advances a staking position's projected yield as Gemas to play with, and the position stays locked until they are paid back.
+Stakers play now with yield they have not earned yet: Tesoro advances a Lock's projected yield as Gemas to play with, and the Lock stays locked until they are paid back.
+
+Player words and code words: on 2026-10-19 the founder renamed the money terms Players read to plain words (Lock, Locked amount, Length, Earned, Left to pay back, test SOL). Code, programs, IDLs and the developer docs keep the older names (Position, Principal, Horizon, Accrued Yield, Debt, simSOL); each entry below names both. ADRs keep the words of their day.
 
 ## Language
 
 ### Money
 
-**Position**:
-A staker's locked, yield-bearing stake in Tesoro. Its Principal is never played with and never pays Debt; only its yield does.
-_Avoid_: deposit, stake, vault, collateral
+**Lock** (code and on-chain: Position):
+A staker's locked, yield-bearing stake in Tesoro. What it holds (its Locked amount) is never played with and never pays anything back; only its yield does. Players see "SOL Lock 1", "Your SOL Locks", "New Lock"; the action that makes one is "Get Gemas".
+_Avoid_: Position (in Player copy), deposit, stake, vault, collateral
 
-**Principal**:
-The staked amount inside a Position, as opposed to the yield it earns. It is only ever locked, never spent.
-_Avoid_: deposit, capital, collateral
+**Locked amount** (code and on-chain: Principal):
+The staked amount inside a Lock, as opposed to the yield it earns. It is only ever locked, never spent. In sentences Players read "your SOL" or "what you lock".
+_Avoid_: Principal (in Player copy), deposit, capital, collateral
 
 **Advance**:
-Gemas issued upfront against the projected yield of a Position over a chosen period, creating an obligation that keeps the Position locked until it is resolved.
+Gemas issued upfront against the projected yield of a Lock over a chosen Length, creating an obligation that keeps the Lock locked until it is paid back.
 _Avoid_: loan, credit line, borrow, PNPL credit
 
 **Extend**:
-Adding months to a Position's open Advance while its Debt is above zero, up to a total Horizon of 12 months. The added months' Gemas arrive at once as the owner's own Gemas of the same Source, at that Source's original price, and the Unlock Estimate moves out by the added months. At Debt 0 the Player takes another Advance instead.
+Adding months to a Lock's open Advance while some is still left to pay back, up to a total Length of 12 months. The added months' Gemas arrive at once as the owner's own Gemas of the same Source, at that Source's original price, and the Unlock Estimate moves out by the added months. Once it is paid back the Player takes another Advance instead.
 _Avoid_: top-up, second Advance, refinance
 
 **Extend Limit**:
-A Player's own cap on the months Extend may add in any 30-day period, across all their Positions: 3 until they set it, 0 (Extend off) to 11 when they do. A Player can Extend at most once every 24 hours. Lowering the limit applies at once; raising it applies 24 hours later. Counted on real time, not the simulated yield clock.
+A Player's own cap on the months Extend may add in any 30-day period, across all their Locks: 3 until they set it, 0 (Extend off) to 11 when they do. A Player can Extend at most once every 24 hours. Lowering the limit applies at once; raising it applies 24 hours later. Counted on real time, not the simulated yield clock.
 _Avoid_: borrowing cap, credit limit
 
-**Horizon**:
-The period (1–12 months) a staker chooses when taking an Advance; the Advance is 80% of the Position's projected yield over it: the yield net of the Yield Fee, so the Unlock Estimate still lands at the Horizon. A Position holds at most one open Advance. An open Advance with Debt can be extended up to a total of 12 months (see **Extend**).
-_Avoid_: term, lock period, maturity
+**Length** (code and on-chain: Horizon):
+The period (1–12 months) a staker chooses when taking an Advance; the Advance is 80% of the Lock's projected yield over it: the yield net of the Yield Fee, so the Unlock Estimate still lands at the end of the Length. A Lock holds at most one open Advance. An open Advance with some left to pay back can be extended up to a total of 12 months (see **Extend**).
+_Avoid_: Horizon (in Player copy), term, lock period, maturity
 
 **Unlock Estimate**:
-The projected date a Position's Debt reaches zero. An estimate, never a promise: it moves with the provider's actual yield.
+The projected date a Lock is paid back and unlocks. An estimate, never a promise: it moves with the provider's actual yield.
 _Avoid_: unlock date, maturity date
 
-**Accrued Yield**:
-The yield a Position has earned since it opened, net of the Yield Fee: its Principal times its staking growth since then. Always current; nobody has to record it, and it is what repays Debt and lets Gemas be Redeemed.
-_Avoid_: refreshed yield, reported yield, cranked yield
+**Earned** (code: Accrued Yield):
+The yield a Lock has earned since it opened, net of the Yield Fee: its Locked amount times its staking growth since then. Always current; nobody has to record it, and it is what pays back the Advance and lets Gemas be Redeemed.
+_Avoid_: Accrued Yield (in Player copy), refreshed yield, reported yield, cranked yield
 
 **Staking Rate**:
-How much of its asset one unit of a Position's staking token is worth. It grows as the staking provider earns; its growth since a Position opened is that Position's yield. On devnet it is simulated (a fixed test APY, 1 month = 10 min).
+How much of its asset one unit of a Lock's staking token is worth. It grows as the staking provider earns; its growth since a Lock opened is that Lock's yield. On devnet it is simulated (a fixed test APY, 1 month = 10 min). Not shown to Players.
 _Avoid_: exchange rate, redemption rate, price, APY
 
 **Gema** (plural Gemas):
@@ -50,14 +52,14 @@ _Avoid_: credit, ORO, points, tokens, coins, chips, balance
 The Advance a Gema was issued from, which fixes the asset and the amount that Gema redeems for. Gemas are equal at the table but not at redemption: its value follows its Source asset.
 _Avoid_: backing (reserved for backing a player), provenance, collateral
 
-**Debt**:
-The outstanding Gemas Sourced from a Position, fixed in the Position's own asset. Only the Position's own accrued yield, or the return of Gemas Sourced from it, ever reduces it; the Position stays locked until it reaches zero.
-_Avoid_: loan balance, obligation
+**Left to pay back** (code and on-chain: Debt):
+The outstanding Gemas Sourced from a Lock, fixed in the Lock's own asset ("0.55 SOL left to pay back"). Only the Lock's own Earned yield, or the return of Gemas Sourced from it, ever reduces it; the Lock stays locked until it reaches zero ("Paid back").
+_Avoid_: Debt (in Player copy), loan balance, obligation
 
 ### Identity
 
 **Account**:
-One person's single Tesoro identity, holding one address per chain family (Solana, EVM). Positions, Gemas, Match history and Backings all belong to the Account, never to a wallet.
+One person's single Tesoro identity, holding one address per chain family (Solana, EVM). Locks, Gemas, Match history and Backings all belong to the Account, never to a wallet.
 _Avoid_: wallet, user
 
 **Profile**:
@@ -103,11 +105,11 @@ In-match score units in Hold'em with no value outside the Match: the stack a Pla
 _Avoid_: in-game Gemas, bets
 
 **Platform Fee**:
-Tesoro's fixed share of every Pot on every game, taken in Gemas at settlement. One of Tesoro's three revenues, with the Yield Fee and the Instant Redeem Fee. Nothing is ever charged on Principal.
+Tesoro's fixed share of every Pot on every game, taken in Gemas at settlement. One of Tesoro's three revenues, with the Yield Fee and the Instant Redeem Fee. Nothing is ever charged on a Locked amount.
 _Avoid_: rake, commission, house edge
 
 **Yield Fee**:
-Tesoro's 20% of every increment of yield a Position earns (SOL, ETH and HYPE alike), taken before the yield counts toward Debt, redemption or free yield. Never charged on Principal.
+Tesoro's 20% of every increment of yield a Lock earns (SOL, ETH and HYPE alike), taken before the yield counts toward paying back, redemption or free yield. Never charged on a Locked amount.
 _Avoid_: performance fee, staking commission, interest
 
 **Studio Fee**:
@@ -149,29 +151,29 @@ A Backer's terms for a Backing: game, entry and the Player's share of the surplu
 _Avoid_: bid, proposal, deal
 
 **Backer**:
-The holder of the Gemas that fund a Backing. Only they bear the loss; their own Position repays its Debt as usual.
+The holder of the Gemas that fund a Backing. Only they bear the loss; their own Lock pays back as usual.
 _Avoid_: investor, sponsor, staker (as a role in a Backing)
 
 **Player**:
-Whoever plays a Match, whether with their own Gemas or under a Backing. A backed Player never gains Debt and can never redeem or redirect the Backer's Gemas.
+Whoever plays a Match, whether with their own Gemas or under a Backing. A backed Player never owes anything and can never redeem or redirect the Backer's Gemas.
 _Avoid_: user, gamer, backee
 
 ### Redemption
 
 **Redeem**:
-To turn Gemas into their Source asset, possible only as far as the Source Position's yield has actually accrued. Winning Gemas never shortens the winner's own lock. Won Gemas can instead be Instant Redeemed.
+To turn Gemas into their Source asset, possible only as far as the Source Lock's yield has actually been Earned. Winning Gemas never shortens the winner's own lock. Won Gemas can instead be Instant Redeemed.
 _Avoid_: withdraw, cash out, claim
 
 **Instant Redeem**:
-Turning won Gemas into their Source asset now, before the Source's yield has landed, for 75% of their value, while the Treasury of that asset holds enough to pay it. The Treasury pays it and takes the Gemas; Tesoro keeps the other 25% (the **Instant Redeem Fee**). Only free Gemas the holder won whose yield has not landed yet (landed Gemas are Redeemed at full value), never their own-Sourced ones; the Source's Debt and counts are untouched.
+Turning won Gemas into their Source asset now, before the Source's yield has landed, for 75% of their value, while the Treasury of that asset holds enough to pay it. The Treasury pays it and takes the Gemas; Tesoro keeps the other 25% (the **Instant Redeem Fee**). Only free Gemas the holder won whose yield has not landed yet (landed Gemas are Redeemed at full value), never their own-Sourced ones; what the Source Lock has left to pay back, and its counts, are untouched.
 _Avoid_: early withdrawal, cash out, sell
 
 **Treasury**:
-Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects the Yield Fee, pays Instant Redeems while it holds enough, is refilled when the Gemas it bought are redeemed at full value, and Tesoro may withdraw from it at any time. Not the Leaderboard Pool, and not a Position.
-_Avoid_: reserve, vault (a Position's custody), pool
+Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects the Yield Fee, pays Instant Redeems while it holds enough, is refilled when the Gemas it bought are redeemed at full value, and Tesoro may withdraw from it at any time. Not the Leaderboard Pool, and not a Lock.
+_Avoid_: reserve, vault (a Lock's custody), pool
 
 **Yield Report**:
-An ETH or HYPE vault's statement of a Position's Accrued Yield (and what the vault's Treasury still holds), carried to Solana when a Player's Redeem or Unlock needs it. Anyone may ask for it; nobody can alter it.
+An ETH or HYPE vault's statement of a Lock's Earned yield (and what the vault's Treasury still holds), carried to Solana when a Player's Redeem or Unlock needs it. Anyone may ask for it; nobody can alter it.
 _Avoid_: sync, refresh, crank
 
 ### Protections

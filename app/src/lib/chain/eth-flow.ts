@@ -8,6 +8,10 @@ import { DemoError, type GetToken } from "./demo-client";
 import {
   ETH_VAULTS,
   coreAccountPda,
+  fetchEthState,
+  fetchVaultPosition,
+  projectedEthDebt,
+  vaultByAddress,
   NETS,
   coreUnlockIx,
   evmClient,
@@ -30,6 +34,9 @@ import { ensureReady } from "./match-flow";
 import { newNonce, signedMessage, type SignedFields } from "./signed-request";
 import { plainError } from "@/lib/errors";
 import { NATIVE_OPEN_GAS, nativeOpenValue, quoteNativeStake, zapAbi, rateSourceAbi, kinetiqZapAbi } from "./eth-native";
+import { debtGemas } from "./ledger";
+import { addOp, loadOps, patchOp } from "./eth-track";
+import { REPORT_POLL_MS, REPORT_WAIT_MS, planReport, reportApplied, type ReportAction } from "./eth-report";
 import { assertCanAffordOpen, playerPaysGas, quoteOpenCost, type OpenCostQuote } from "./eth-fee";
 
 /** What the ETH and HYPE flows need: the Account's Solana signer, its EVM wallet, and the Privy token for server routes. */
@@ -260,7 +267,7 @@ export async function openEthPosition(
   const receipt = await waitEvm(hash, net);
   const logs = parseEventLogs({ abi: vaultAbi, eventName: "PositionLocked", logs: receipt.logs });
   const id = logs.find((l) => l.address.toLowerCase() === vault.address.toLowerCase())?.args.positionId;
-  if (id === undefined) throw new Error("Position opened, but its id was not in the receipt.");
+  if (id === undefined) throw new Error("Lock started, but its id was not in the receipt.");
   // Someone else opened one in between: the message for the real id still needs its inbox record (delivery retries).
   if (id !== predicted) await ethCall("init-position", ctx, { vault: vault.address, id: id.toString() });
   return { vault: vault.address, id, hash, linkSig };
@@ -268,8 +275,8 @@ export async function openEthPosition(
 
 /**
  * Anyone may call it; the caller pays the LayerZero fee. Resolves once confirmed on the vault's chain.
- * Seam for yield-by-math 09: the Wallet's "Report yield" button goes away and Redeem/Unlock call this (or the relayer
- * does) as their first step; it reverts `YieldBelowReported` while a slashing keeps the rate under the last report.
+ * Mainnet path of `freshenYield` (the Player's own EVM wallet pays; test mode has the relayer send it instead). Reverts
+ * `YieldBelowReported` while a slashing keeps the rate under the last report.
  */
 export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): Promise<Hex> {
   const net = NETS[vault.net];
@@ -287,6 +294,82 @@ export async function reportEthYield(ctx: EthCtx, vault: EthVault, id: bigint): 
   });
   await waitEvm(hash, net);
   return hash;
+}
+
+/**
+ * The first step of Redeem, Instant Redeem and Unlock on an ETH or HYPE Position (ADR 0010): when the vault's live yield is
+ * ahead of what Solana has and the action would gain from it, asks for a Yield Report and waits until it is applied on
+ * Solana. Test mode: the relayer sends the request. Mainnet: the Player's own EVM wallet does. A report already asked for
+ * or arrived is not asked for twice. Resolves true once a report was applied, false when none was needed. Leaving is safe: the report still lands and is applied. Gives up after
+ * `REPORT_WAIT_MS` with a retryable message.
+ */
+export async function freshenYield(
+  ctx: EthCtx,
+  args: { vault: string; id: bigint; action: ReportAction; waitingGemas?: bigint; treasuryBehind?: boolean; onStatus?: (note: string | null) => void },
+): Promise<boolean> {
+  const { vault, id, action, onStatus } = args;
+  const base = getChain().base;
+  const holder = ctx.signer.publicKey;
+  const address = holder.toBase58();
+  const net = netOfVault(vault);
+  const read = () => fetchEthState(base, vault, id, holder);
+  const [state, vp] = await Promise.all([read(), fetchVaultPosition(vault, id)]);
+  if (!vp || vp.unlocked) return false;
+  const math = state.source?.math ?? null;
+  const recentOp = loadOps(address).find((o) => o.kind === "yield" && o.vault.toLowerCase() === vault.toLowerCase() && o.id === id.toString() && o.baseline !== undefined);
+  const plan = planReport({
+    action,
+    bridge: state.bridge,
+    liveAccrued: vp.accrued,
+    onChainDebt: math ? debtGemas(math) : 0n,
+    projectedDebt: projectedEthDebt(math, vp.accrued),
+    waitingGemas: args.waitingGemas ?? 0n,
+    treasuryBehind: args.treasuryBehind,
+    recent: recentOp ? { baseline: BigInt(recentOp.baseline!), at: recentOp.createdAt } : null,
+    now: Date.now(),
+  });
+  if (plan.kind === "none") return false;
+  onStatus?.(`Getting the latest yield from ${net.label}… usually a minute or two`);
+  let baseline: bigint;
+  let opKey: string | null = recentOp?.key ?? null;
+  if (plan.kind === "wait") baseline = plan.baseline;
+  else if (plan.kind === "apply") baseline = state.bridge!.appliedYieldSeq;
+  else {
+    baseline = state.bridge!.lastYieldSeq;
+    let hash: string | undefined;
+    if (playerPaysGas()) {
+      const vaultInfo = vaultByAddress(vault);
+      if (!vaultInfo) throw new Error("This Lock is on a contract the app no longer lists.");
+      hash = await reportEthYield(ctx, vaultInfo, id);
+    } else {
+      try {
+        hash = (await ethCall<{ hash: Hex }>("report-yield", ctx, { vault, id: id.toString() })).hash;
+      } catch (e) {
+        // Another tab or device asked a moment ago: wait for that one.
+        if (!(e instanceof DemoError && e.code === "report-pending")) throw e;
+      }
+    }
+    if (hash) opKey = addOp(address, { kind: "yield", vault, id: id.toString(), hash, baseline: baseline.toString() }).key;
+  }
+  const deadline = Date.now() + REPORT_WAIT_MS;
+  let lastApply = 0;
+  while (Date.now() < deadline) {
+    await sleep(REPORT_POLL_MS);
+    const s = await read().catch(() => null);
+    if (!s?.bridge) continue;
+    if (reportApplied(s.bridge, baseline)) {
+      if (opKey) patchOp(address, opKey, { done: true });
+      onStatus?.(null);
+      return true;
+    }
+    // The keeper normally applies an arrived report; if it has not within a moment, the relay does.
+    if (s.bridge.lastYieldSeq > s.bridge.appliedYieldSeq && Date.now() - lastApply > 15_000) {
+      lastApply = Date.now();
+      await ethCall("apply-yield", ctx, { vault, id: id.toString() }).catch(() => undefined);
+    }
+  }
+  onStatus?.(null);
+  throw new Error(`The latest yield from ${net.label} has not arrived yet. It is still on its way and will be applied by itself; try again in a minute.`);
 }
 
 // ---- Solana side ------------------------------------------------------------------------------------

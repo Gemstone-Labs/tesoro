@@ -39,7 +39,7 @@ import { MAX_ADVANCE_MONTHS, blockedLabel, extendLimitView, fetchExtendLimit, ty
 import { getChain } from "@/lib/chain/client";
 import type { Chain } from "@/lib/mock";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { ethRedeemables, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
+import { NOTHING_REDEEMABLE_YET, ethRedeemables, ethYieldWaiting, freshenHoldings, instantRedeemEthSource, redeemEthHoldings, useEthCtx } from "./EthPositions";
 import { useInstantRedeem } from "./instant";
 import { RedeemExchange, ReturnOwnSheet, useReturnable, type RedeemDone, type RedeemPayout } from "./MoneySheets";
 import { GemasLabel } from "./AdvanceQuote";
@@ -63,10 +63,10 @@ function useNow(ms: number) {
 
 
 const DONE: Record<string, string> = {
-  faucet: "Got test simSOL",
-  open: "Position opened",
+  faucet: "Got test SOL",
+  open: "Lock started",
   advance: "Advance taken",
-  unlock: "Principal unlocked",
+  unlock: "Coins unlocked",
   redeem: "Redeemed",
 };
 
@@ -105,7 +105,7 @@ function useAction(refresh: () => Promise<unknown>) {
 export function NativeFaucet({ market, loading, asButton = false }: { market: NativeMarket | null; loading: boolean; asButton?: boolean }) {
   const { auth, refresh } = useAccount();
   const a = useAction(refresh);
-  const [step, setStep] = useState("Getting simSOL");
+  const [step, setStep] = useState("Getting test SOL");
   const signer = auth.signer;
   if (market?.stake) {
     return (
@@ -119,7 +119,7 @@ export function NativeFaucet({ market, loading, asButton = false }: { market: Na
     return (
       <div className="wl-faucet">
         <Button block disabled={!signer || a.busy !== null} onClick={get}>
-          {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
+          {a.busy === "faucet" ? `${step}…` : "Get test SOL"}
         </Button>
         {a.done && <Sig label="faucet" sig={a.done.sig} />}
         {a.error && <p className="status err" role="alert">{a.error}</p>}
@@ -130,12 +130,12 @@ export function NativeFaucet({ market, loading, asButton = false }: { market: Na
   return (
     <>
       <span>
-        {loading ? "Loading your Account…" : <>You have <b className="tnum">{market ? fmtSol(market.simSol, 3) : "—"}</b> simSOL</>}
+        {loading ? "Loading your Account…" : <>You have <b className="tnum">{market ? fmtSol(market.simSol, 3) : "—"}</b> test SOL</>}
         {!empty && (
           <>
             {" · "}
             <button type="button" className="wl-link" disabled={!signer || a.busy !== null} onClick={get}>
-              {a.busy === "faucet" ? `${step}…` : "Get test simSOL"}
+              {a.busy === "faucet" ? `${step}…` : "Get test SOL"}
             </button>
           </>
         )}
@@ -197,7 +197,7 @@ function StakeOpenForm({ market, loading, onDone }: { market: NativeMarket | nul
     return (
       <div className="stack">
         <div className="status ok" role="status">
-          <CheckIcon /> Position opened · <GemaAmount value={gemas} size="md" /> issued
+          <CheckIcon /> Lock started · <GemaAmount value={gemas} size="md" /> issued
         </div>
         <Sig label="open" sig={a.done.sig} />
         <Button block onClick={() => { a.clear(); setText(""); onDone?.(); }}>Done</Button>
@@ -234,15 +234,15 @@ function StakeOpenForm({ market, loading, onDone }: { market: NativeMarket | nul
       estimate={estimate ? `${fmtWhen(estimate)} (${fmtInMinutes(estimate, now)})` : "—"}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
-        ["Principal", `${fmtSol(principal)} SOL`],
+        ["Locked amount", `${fmtSol(principal)} SOL`],
         ["Projected yield (after the Yield Fee)", `${quote ? fmtSol(quote.projectedUnits) : "—"} SOL`],
-        ["Staking rate", stake ? `${(Number(stake.rate) / 1e12).toFixed(6)} SOL per ${symbol}` : "—"],
+        ["Yield rate", stake ? `${(Number(stake.rate) / 1e12).toFixed(6)} SOL per ${symbol}` : "—"],
         ["Price feed", market?.price ? `SOL $${(Number(market.price.microUsd) / 1e6).toFixed(2)} · ${Math.max(0, Math.round(priceAge / 60))} min ago` : "not published yet"],
       ]}
       alerts={
         <>
           {market && !priceOk && <p className="status err" role="alert">The SOL price is updating. Try again in a few minutes.</p>}
-          {stake && !stake.open && <p className="status err" role="alert">Opening a Position is not available yet.</p>}
+          {stake && !stake.open && <p className="status err" role="alert">Locking is not available yet.</p>}
           {stake?.open && apyBps === 0 && <p className="status err" role="alert">The staking pool shows no recent growth to size an Advance on. Try again later.</p>}
           {deposit?.problem && <p className="status err" role="alert">{deposit.problem}</p>}
           {tooMuch && <p className="status err" role="alert">That is more {from === "sol" ? "SOL" : symbol} than you have.</p>}
@@ -250,8 +250,8 @@ function StakeOpenForm({ market, loading, onDone }: { market: NativeMarket | nul
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
-      note={<span className="note">Real yield · your Position earns {symbol}&apos;s staking rate{from === "sol" ? ". SOL is staked for you first; the whole step reverts if it mints less than quoted." : "."}</span>}
-      buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Open a Position" gemas={gemas} />}
+      note={<span className="note">Real yield · your Lock earns {symbol}&apos;s yield rate{from === "sol" ? ". SOL is staked for you first; the whole step reverts if it mints less than quoted." : "."}</span>}
+      buttonLabel={a.busy ? `${step}…` : <GemasLabel action="Get Gemas" gemas={gemas} />}
       disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
       onSubmit={() =>
         auth.signer &&
@@ -318,7 +318,7 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
     return (
       <div className="stack">
         <div className="status ok" role="status">
-          <CheckIcon /> Position opened · <GemaAmount value={gemas} size="md" /> issued
+          <CheckIcon /> Lock started · <GemaAmount value={gemas} size="md" /> issued
         </div>
         <Sig label="open" sig={a.done.sig} />
         {back && (
@@ -350,7 +350,7 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
       estimate={`${fmtWhen(horizonAt)} (${fmtInMinutes(horizonAt, now)})`}
       details={[
         ["Worth at issuance", fmtUsd(gemasToUsd(gemas))],
-        ["Principal", `${fmtSol(principal)} SOL`],
+        ["Locked amount", `${fmtSol(principal)} SOL`],
         ["Projected yield (after the Yield Fee)", `${quote ? fmtSol(quote.projectedUnits) : "—"} SOL`],
         [
           "Price feed",
@@ -360,13 +360,13 @@ function SimOpenForm({ market, loading, onDone }: { market: NativeMarket | null;
       alerts={
         <>
           {market && !priceOk && <p className="status err" role="alert">The SOL price is updating. Try again in a few minutes.</p>}
-          {tooMuch && <p className="status err" role="alert">That is more simSOL than you have.</p>}
+          {tooMuch && <p className="status err" role="alert">That is more test SOL than you have.</p>}
           {a.error && <p className="status err" role="alert">{a.error}</p>}
         </>
       }
       note={<span className="sim">Simulated yield · 1 month = {SIM_MONTH_MIN} min</span>}
       buttonLabel={
-        a.busy ? `${step}…` : tooMuch ? "Not enough simSOL" : shares === 0n ? "Enter an amount" : market && !priceOk ? "Waiting for the SOL price" : <GemasLabel action="Open a Position" gemas={gemas} />
+        a.busy ? `${step}…` : tooMuch ? "Not enough test SOL" : shares === 0n ? "Enter an amount" : market && !priceOk ? "Waiting for the SOL price" : <GemasLabel action="Get Gemas" gemas={gemas} />
       }
       disabled={!valid || !priceOk || a.busy !== null || !auth.signer}
       onSubmit={() => auth.signer && a.run("open", async () => (await openPositionWithAdvance(auth.signer!, auth.getAccessToken, shares, months, setStep)).signature)}
@@ -382,7 +382,7 @@ export function NativePositionCard({
   market,
   onRedeem,
   extend = EXTEND_ADVANCE_ENABLED,
-  label = "SOL Position",
+  label = "SOL Lock",
   compact,
 }: {
   position: ChainPosition;
@@ -434,9 +434,9 @@ export function NativePositionCard({
       series={series}
       notes={
         <>
-          <p className="note">Accrued yield {fmtSol(cur.accrued, 5)} SOL{info.stakeRateOpen > 0n ? ` (${symbol} staking rate)` : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
-          {locked && !canUnlock && <p className="note">Unlock returns the Principal once Debt is zero. Only this Position&apos;s own yield repays it.</p>}
-          {canUnlock && <p className="note">Debt is zero: Unlock to get your SOL back, or take another Advance on the same Principal.</p>}
+          <p className="note">Earned {fmtSol(cur.accrued, 5)} SOL{info.stakeRateOpen > 0n ? ` (${symbol} yield rate)` : " (simulated)"}. {BRAND.name} keeps {yieldFeeBps / 100}% of the yield (the Yield Fee), so this is your {100 - yieldFeeBps / 100}%.</p>
+          {locked && !canUnlock && <p className="note">Unlock returns your SOL once it is paid back. Only this Lock&apos;s own yield pays it back.</p>}
+          {canUnlock && <p className="note">Paid back: Unlock to get your SOL back, or take another Advance on the same SOL.</p>}
         </>
       }
     >
@@ -508,7 +508,7 @@ function NativeAdvanceForm({ info, market, onClose }: { info: NativeInfo; market
             stake: growth,
           })
         : now + months * SIM_MONTH_MIN * 60_000;
-  const title = `${fmtSol(info.principalLamports, 3)} SOL Position`;
+  const title = `${fmtSol(info.principalLamports, 3)} SOL Lock`;
 
   if (a.done) {
     return (
@@ -598,7 +598,7 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
   const gemas = Number(quote.gemas);
   const addedYield = advanceUnits(info.principalLamports, rateBps, source.horizonMonths + months, yieldFeeBps) - advanceUnits(info.principalLamports, rateBps, source.horizonMonths, yieldFeeBps);
   const unlock = gemas > 0 ? unlockEstimateMs({ clock: clockOf(info), speedup: speedupOf(pool), appliedNet: info.appliedNet, source: quote.extended, nowMs: now, stake: stakeGrowthOf(market) }) : null;
-  const title = `${fmtSol(info.principalLamports, 3)} SOL Position`;
+  const title = `${fmtSol(info.principalLamports, 3)} SOL Lock`;
 
   if (a.done) {
     return (
@@ -625,7 +625,7 @@ function NativeExtendForm({ info, market, onClose, limit: given }: { info: Nativ
       unlock={unlock ? `${fmtWhen(unlock)} (${fmtInMinutes(unlock, now)})` : "—"}
       alerts={
         <>
-          <p className="note">Adds {fmtGemas(gemas)} Gemas of Debt to this Advance. Your Principal stays locked for {source.horizonMonths + months} months in all.</p>
+          <p className="note">Adds {fmtGemas(gemas)} Gemas to pay back to this Advance. Your SOL stays locked for {source.horizonMonths + months} months in all.</p>
           <ExtendLimitPanel
             view={view}
             busy={setLimit.busy !== null}
@@ -665,12 +665,14 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<RedeemDone | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const sigs = useRef<string[]>([]);
   const rows = nativeRedeemables(snapshot?.holdings ?? []);
   const ethRows = ethRedeemables(snapshot?.holdings ?? []);
+  const ethWaiting = ethYieldWaiting(snapshot?.holdings ?? []);
   const ethCtx = useEthCtx();
   const pool = snapshot?.market?.pool ?? null;
-  const from = (h: ChainHolding) => (h.isOwn ? `Your ${h.asset} Position` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
+  const from = (h: ChainHolding) => (h.isOwn ? `Your ${h.asset} Lock` : `Won · ${h.sourceOwner.slice(0, 4)}…${h.sourceOwner.slice(-4)}`);
   const payouts: RedeemPayout[] = [
     ...rows.map((h) => ({
       key: h.holding.toBase58(),
@@ -682,7 +684,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
         : pool && !h.stakeMint
           ? Number(redeemPayoutShares(h, h.redeemable, rateAt(pool))) / LAMPORTS
           : null,
-      token: h.stakeMint ? (snapshot?.market?.stake?.token.symbol ?? tokenSymbol(h.stakeMint)) : "simSOL",
+      token: h.stakeMint ? (snapshot?.market?.stake?.token.symbol ?? tokenSymbol(h.stakeMint)) : "test SOL",
       later: false,
     })),
     ...ethRows.map((h) => ({
@@ -696,7 +698,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     })),
   ];
 
-  const { offer: instant, plan, freshPlan } = useInstantRedeem(asset);
+  const { offer: instant, plan, behind, freshPlan } = useInstantRedeem(asset);
 
   const redeemNow = async () => {
     if (!auth.signer) return;
@@ -704,6 +706,7 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     setError(null);
     try {
       const signer = auth.signer;
+      if (ethCtx && plan.some((p) => p.holding.eth)) await freshenHoldings(ethCtx, plan.map((p) => p.holding), "instant", setNote, behind);
       let latest = plan;
       const run = await runInstant(
         plan.map((p) => p.line),
@@ -748,11 +751,19 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     setError(null);
     try {
       for (const h of rows) sigs.current.push(await redeemNative(auth.signer, h.position, h.source, h.redeemable, h.stakeMint));
-      if (ethRows.length > 0) {
+      let ethGemas = 0;
+      let ethCount = 0;
+      if (ethRows.length > 0 || ethWaiting.length > 0) {
         if (!ethCtx) throw new Error("Your ETH wallet is not ready yet. Try again in a moment.");
-        await redeemEthHoldings(ethCtx, snapshot?.holdings ?? []);
+        const r = await redeemEthHoldings(ethCtx, snapshot?.holdings ?? [], setNote);
+        ethGemas = Number(r.gemas);
+        ethCount = r.count;
       }
-      setDone({ gemas, later: ethRows.length > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
+      if (rows.length === 0 && ethCount === 0) {
+        await refresh();
+        throw new Error(NOTHING_REDEEMABLE_YET);
+      }
+      setDone({ gemas: rows.reduce((s, h) => s + Number(h.redeemable), 0) + ethGemas || gemas, later: ethCount > 0, receipts: sigs.current.map((sig) => ({ label: "Redeemed", sig })) });
       await refresh();
     } catch (e) {
       setError(friendlyError(e));
@@ -762,5 +773,5 @@ function RedeemForm({ onClose, asset }: { onClose: () => void; asset?: Chain }) 
     }
   };
 
-  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
+  return <RedeemExchange payouts={payouts} instant={instant} busy={busy} busyNote={note} yieldCheck={ethWaiting.length > 0 ? [...new Set(ethWaiting.map((h) => h.asset))].join(" and ") : null} error={error} done={done} canSign={Boolean(auth.signer)} onRedeem={() => void redeem()} onInstant={() => void redeemNow()} onClose={onClose} />;
 }

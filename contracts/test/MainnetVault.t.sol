@@ -99,7 +99,7 @@ abstract contract MainnetVaultBase is Test {
     function _report(uint64 id) internal returns (uint256 accrued, uint256 treasury, uint64 seq) {
         vault.reportYield{value: 0.0001 ether}(id);
         bytes memory m = lz.lastMessage();
-        assertEq(m.length, 77, "Yield Report is 77 bytes");
+        assertEq(m.length, 101, "Yield Report is 101 bytes");
         assertEq(uint8(m[0]), 2);
         assertEq(bytes32(_slice(m, 5, 32)), _key(id));
         seq = uint64(bytes8(_slice(m, 37, 8)));
@@ -128,7 +128,7 @@ abstract contract MainnetVaultBase is Test {
         assertApproxEqAbs(vault.accruedYield(id), 0.96 ether, 2);
     }
 
-    function test_yieldReportIs77BytesWithAccruedAndTreasury() public {
+    function test_yieldReportIs101BytesWithAccruedAndTreasury() public {
         uint64 id = _open(10 ether);
         tok.setRate(1.26e18);
         (uint256 accrued, uint256 treasury, uint64 seq) = _report(id);

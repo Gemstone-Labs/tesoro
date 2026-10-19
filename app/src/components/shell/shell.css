@@ -191,8 +191,8 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
   font-family: var(--f-mono); font-size: var(--fs-12); color: var(--fg-2);
 }
 .site-foot-strip > span { display: inline-flex; align-items: center; gap: 8px; }
-/* social links sit first, bottom left; the 44px targets hang into the gutter so the marks line up with the text above */
-.site-foot-social { display: flex; align-items: center; margin-left: -13px; }
+/* social links close the brand block; the 44px targets hang into the gutter so the marks line up with the text */
+.site-foot-social { display: flex; align-items: center; margin: 8px 0 -13px -13px; }
 .site-foot-fair::before {
   content: ""; width: 8px; height: 8px; background: var(--em);
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
@@ -202,6 +202,9 @@ a.side-link:hover { background: var(--surface); color: var(--fg); }
 @media (min-width: 900px) {
   .site-foot-in { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr); }
   .site-foot-in, .site-foot-strip { padding-inline: 32px; }
+  /* beside the columns the X drops to the bottom, its mark 16px above the strip's line */
+  .site-foot-brand { grid-template-rows: auto auto auto 1fr; }
+  .site-foot-social { align-self: end; margin-top: 24px; margin-bottom: -37px; }
 }
 @media (min-width: 1024px) { .site-foot { padding-bottom: 28px; } }
 

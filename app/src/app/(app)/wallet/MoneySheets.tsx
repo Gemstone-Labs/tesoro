@@ -51,14 +51,20 @@ export type InstantOffer = {
   available: { asset: Chain; amount: number | null; token: string }[];
   /** Plain reason Redeem now cannot be used, shown instead of the rows. */
   unavailable: string | null;
+  /** Some rows are ETH or HYPE Gemas: Redeem now fetches the latest yield first. */
+  fetchesYield?: boolean;
 };
 
 /** Redeem as an exchange: every redeemable Gema in, each Source asset out, the Sources folded away. */
-export function RedeemExchange({ payouts, instant = null, busy, error, done, canSign, onRedeem, onInstant, onClose }: {
+export function RedeemExchange({ payouts, instant = null, busy, busyNote, yieldCheck, error, done, canSign, onRedeem, onInstant, onClose }: {
   payouts: RedeemPayout[];
   /** Won Gemas can be sold now for less; omitted where that does not apply (offline). */
   instant?: InstantOffer | null;
   busy: boolean;
+  /** What the wait is for, when it is more than the payout itself (e.g. fetching the latest yield). */
+  busyNote?: string | null;
+  /** Won ETH or HYPE Gemas are all still pending, so nothing is redeemable until the latest yield is fetched: names the chains. */
+  yieldCheck?: string | null;
   error: string | null;
   done: RedeemDone | null;
   canSign: boolean;
@@ -77,12 +83,22 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       </div>
     );
   }
+  const yieldPanel = yieldCheck ? (
+    <div className="mx-empty">
+      <span className="mx-empty-mark"><GemaMark size={34} /></span>
+      <b>Waiting on yield</b>
+      <p className="meta">Your won {yieldCheck} Gemas become redeemable as their Lock earns yield, and that yield only reaches {BRAND.name} when you ask. Get the latest yield first (usually a minute or two); whatever it covers is redeemed straight after, and if it covers nothing yet you are told.</p>
+      {error && <p className="status err" role="alert">{error}</p>}
+      {busy ? <Busy>{busyNote ?? "Getting the latest yield…"}</Busy> : <Button variant="money" size="lg" block disabled={!canSign} onClick={onRedeem}>Get the latest yield and redeem</Button>}
+    </div>
+  ) : null;
   if (payouts.length === 0 && !instant) {
+    if (yieldPanel) return <div className="mx">{yieldPanel}</div>;
     return (
       <div className="mx-empty">
         <span className="mx-empty-mark"><GemaMark size={34} /></span>
         <b>Nothing to redeem yet</b>
-        <p className="meta">Gemas become redeemable as their Source Position earns yield. Check back in a few minutes.</p>
+        <p className="meta">Gemas become redeemable as their Lock earns yield. Check back in a few minutes.</p>
         <Button block onClick={onClose}>Close</Button>
       </div>
     );
@@ -116,11 +132,13 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
           <p className="meta">{instant.unavailable ?? "None of your won Gemas are waiting on yield. Redeem them at full value."}</p>
           <Button block onClick={onClose}>Close</Button>
         </div>
+      ) : shown.length === 0 && yieldPanel && !showInstant ? (
+        yieldPanel
       ) : shown.length === 0 ? (
         <div className="mx-empty">
           <span className="mx-empty-mark"><GemaMark size={34} /></span>
           <b>Nothing to redeem yet</b>
-          <p className="meta">Gemas become redeemable as their Source Position earns yield. Check back in a few minutes.</p>
+          <p className="meta">Gemas become redeemable as their Lock earns yield. Check back in a few minutes.</p>
           <Button block onClick={onClose}>Close</Button>
         </div>
       ) : (
@@ -152,10 +170,11 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       {showInstant && (
         <p className="mx-fee">
           Only won Gemas still waiting on yield are sold: {BRAND.name} keeps {instant.feePct}% for paying you now and collects the yield later. Gemas whose yield has landed are redeemed at full value.
+          {instant.fetchesYield && " For ETH and HYPE Gemas it first fetches the latest yield (usually a minute or two) so the amount it can pay is up to date; if that changes the amounts, you are asked to confirm them."}
         </p>
       )}
       <details className="mx-from">
-        <summary>From {plural(shown.length, "Source")}</summary>
+        <summary>From {plural(shown.length, "Lock")}</summary>
         <dl className="kv">
           {shown.map((p) => (
             <div key={p.key} style={{ display: "contents" }}>
@@ -181,7 +200,7 @@ export function RedeemExchange({ payouts, instant = null, busy, error, done, can
       <SimulatedYieldLabel />
       {error && <p className="status err" role="alert">{error}</p>}
       {busy ? (
-        <Busy>Paying out your Gemas…</Busy>
+        <Busy>{busyNote ?? "Paying out your Gemas…"}</Busy>
       ) : (
         <Button variant="money" size="lg" block disabled={!canSign} onClick={showInstant ? onInstant : onRedeem}>
           {showInstant ? "Redeem now" : "Redeem"} <GemaAmount value={total} size="md" />
@@ -221,7 +240,7 @@ export function ReturnExchange({
     return (
       <div className="mx">
         <div className="status ok" role="status">
-          <CheckIcon /> Returned {fmtGemas(done.gemas)} Gemas · {done.cleared ? "Debt cleared, your Position unlocks" : "Debt lowered"}
+          <CheckIcon /> Returned {fmtGemas(done.gemas)} Gemas · {done.cleared ? "Paid back, your Lock unlocks" : "Left to pay back is lower"}
         </div>
         <Button block onClick={onClose}>Done</Button>
         <Receipts items={done.receipts} />
@@ -234,7 +253,7 @@ export function ReturnExchange({
       <div className="mx-empty">
         <span className="mx-empty-mark"><GemaMark size={34} /></span>
         <b>No Gemas to return</b>
-        <p className="meta">Only your own unspent Gemas from this Position can go back. Won Gemas and Gemas held for Offers stay with you.</p>
+        <p className="meta">Only your own unspent Gemas from this Lock can go back. Won Gemas and Gemas held for Offers stay with you.</p>
         <Button block onClick={onClose}>Close</Button>
       </div>
     );
@@ -247,7 +266,7 @@ export function ReturnExchange({
         <div className="mx-seg" role="radiogroup" aria-label="Advance to return to">
           {choices.map((ch, i) => (
             <button key={ch.key} type="button" role="radio" aria-checked={i === pick} className="cut" onClick={() => onPick(i)}>
-              {ch.label} <small>{fmtDebt(ch.debt)} Debt</small>
+              {ch.label} <small>{fmtDebt(ch.debt)} left to pay back</small>
             </button>
           ))}
         </div>
@@ -278,9 +297,9 @@ export function ReturnExchange({
         </div>
         <span className="mx-arrow cut" aria-hidden="true"><ArrowDown /></span>
         <div className="mx-panel get cut">
-          <div className="mx-head"><span className="label">Debt goes to</span><span className="meta">now {fmtDebt(c.debt)}</span></div>
+          <div className="mx-head"><span className="label">Left to pay back</span><span className="meta">now {fmtDebt(c.debt)}</span></div>
           <div className="mx-fig"><b className={after === 0 ? "clear" : undefined}>{fmtDebt(after)}</b></div>
-          <span className="mx-when">{after === 0 ? <><CheckIcon /> Debt cleared: your Position unlocks</> : "Your Position stays locked until Debt is 0"}</span>
+          <span className="mx-when">{after === 0 ? <><CheckIcon /> Paid back: your Lock unlocks</> : "Your Lock stays locked until it is paid back"}</span>
         </div>
       </div>
       <SimulatedYieldLabel />
@@ -306,10 +325,10 @@ export function RedeemSheet({ open, onClose }: { open: boolean; onClose: () => v
     .map((h) => ({
       key: h.source.positionId,
       asset: h.source.chain,
-      from: h.own ? `Your ${h.source.asset} Position` : `Won · ${h.source.owner}`,
+      from: h.own ? `Your ${h.source.asset} Lock` : `Won · ${h.source.owner}`,
       gemas: redeemableOf(h),
       amount: gemasToAsset(redeemableOf(h), h.source.asset),
-      token: h.source.chain === "SOL" ? "simSOL" : h.source.asset,
+      token: h.source.chain === "SOL" ? "test SOL" : h.source.asset,
       later: h.source.chain !== "SOL",
     }));
   const total = payouts.reduce((s, p) => s + p.gemas, 0);

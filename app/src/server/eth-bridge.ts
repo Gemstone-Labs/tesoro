@@ -6,6 +6,7 @@
  *  - `init-position`, `apply-locked`, `apply-yield`, `send-unlock`, `send-pay-yield`, `send-pay-instant`: the permissionless
  *    bridge steps (docs/cross-chain.md), paid by the relayer so the Account only needs a little SOL. A keeper
  *    may run them first; each step skips when there is nothing left to do.
+ *  - `report-yield` (test mode): the relayer's EVM key asks the vault for a Yield Report (ADR 0010), throttled per Position.
  *  - `advance`: `take_advance` at the oracle price, oracle-signed, for the Account to co-sign.
  *
  * Server only: keys are read from disk here and never leave this module.
@@ -49,6 +50,8 @@ import {
   sourceAuthPda,
   vaultAbi,
   vaultTreasuryPda,
+  withHeadroom,
+  fetchVaultPosition,
   type EvmNet,
 } from "@/lib/chain/eth";
 import type { SignedFields } from "@/lib/chain/signed-request";
@@ -56,6 +59,7 @@ import { requireDevnet, requireHoodi, requireHyperEvm, requireTestMode } from ".
 import { HYPE_DEFAULT_MAX_PER_HOUR, createHypeTopup } from "./hype-topup";
 import { WindowLimiter, takeAll } from "./rate-limit";
 import { relayerSend } from "./relayer-send";
+import { createYieldReporter } from "./yield-report";
 import { createSimFaucet } from "./sim-faucet";
 import { evmPrivateKey } from "./keys";
 import { BASE_RPC, DemoHttpError, RELAYER_MIN_LAMPORTS, chain, nonces, oracleKey, perUser, relayerKey, sendAndConfirm } from "./demo-advance";
@@ -82,8 +86,8 @@ const limits = {
   advancePerUser: new WindowLimiter(10, DAY),
 };
 
-export type EthStep = "fund-evm" | "fund-hype" | "faucet-lst" | "init-position" | "apply-locked" | "apply-yield" | "send-unlock" | "send-pay-yield" | "send-pay-instant" | "advance";
-const STEPS: EthStep[] = ["fund-evm", "fund-hype", "faucet-lst", "init-position", "apply-locked", "apply-yield", "send-unlock", "send-pay-yield", "send-pay-instant", "advance"];
+export type EthStep = "fund-evm" | "fund-hype" | "faucet-lst" | "init-position" | "apply-locked" | "apply-yield" | "report-yield" | "send-unlock" | "send-pay-yield" | "send-pay-instant" | "advance";
+const STEPS: EthStep[] = ["fund-evm", "fund-hype", "faucet-lst", "init-position", "apply-locked", "apply-yield", "report-yield", "send-unlock", "send-pay-yield", "send-pay-instant", "advance"];
 
 // ---- keys and clients ----------------------------------------------------------------------------
 
@@ -204,9 +208,9 @@ const key = (pubkey: PublicKey, isSigner = false, isWritable = false) => ({ pubk
 function parseRef(fields: SignedFields) {
   const vault = typeof fields.vault === "string" ? fields.vault : "";
   if (!isKnownVault(vault)) throw new DemoHttpError(400, "bad-request", "Unknown vault.");
-  if (typeof fields.id !== "string" || !/^[1-9]\d{0,18}$/.test(fields.id)) throw new DemoHttpError(400, "bad-request", "Malformed Position id.");
+  if (typeof fields.id !== "string" || !/^[1-9]\d{0,18}$/.test(fields.id)) throw new DemoHttpError(400, "bad-request", "Malformed Lock id.");
   const id = BigInt(fields.id);
-  if (id >= 1n << 63n) throw new DemoHttpError(400, "bad-request", "Malformed Position id.");
+  if (id >= 1n << 63n) throw new DemoHttpError(400, "bad-request", "Malformed Lock id.");
   return { vault, id, pid: ethPositionId(vault, id) };
 }
 
@@ -232,7 +236,7 @@ async function initPosition(vault: string, id: bigint, pid: Buffer) {
   const conn = relayConn();
   if (await conn.getAccountInfo(bridgePositionPda(pid))) return { skipped: true };
   const last = await retryRead(() => evmClient(netOfVault(vault)).readContract({ address: vault as Address, abi: vaultAbi, functionName: "nextPositionId" }));
-  if (!initPositionIdAllowed(id, last)) throw new DemoHttpError(400, "bad-request", "Unknown Position id.");
+  if (!initPositionIdAllowed(id, last)) throw new DemoHttpError(400, "bad-request", "Unknown Lock id.");
   const relayer = relayerKey();
   const ix = new TransactionInstruction({
     programId: BRIDGE_ID,
@@ -285,9 +289,9 @@ async function applyYield(vault: string, pid: Buffer) {
   const net = netOfVault(vault);
   const cp = corePositionPda(pid);
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
-  if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
+  if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
   const view = parseBridgePosition(bp.data);
-  if (!view) throw new DemoHttpError(409, "abandoned", "This Position is on a retired vault and can no longer be updated.");
+  if (!view) throw new DemoHttpError(409, "abandoned", "This Lock is on a retired contract and can no longer be updated.");
   if (view.lastYieldSeq === 0n || view.lastYieldSeq <= view.appliedYieldSeq) return { skipped: true };
   const openAdvance = core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4] === 1 ? core.data.readUInt32LE(8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 1) : null;
   const ix = new TransactionInstruction({
@@ -307,6 +311,29 @@ async function applyYield(vault: string, pid: Buffer) {
   });
   return { skipped: false, signature: await relaySend([ix]) };
 }
+
+// ---- Yield Report request (test mode: the relayer's EVM key) -------------------------------------
+
+const reportYieldFor = createYieldReporter({
+  requireChain: (vault) => (netOfVault(vault).key === "hyperevm" ? requireHyperEvm(HYPEREVM_RPC) : requireHoodi(HOODI_RPC)),
+  vaultPosition: async (vault, id) => {
+    const p = await retryRead(() => fetchVaultPosition(vault, id));
+    return p ? { unlocked: p.unlocked } : null;
+  },
+  lastYieldSeq: async (vault, id) => {
+    const info = await relayConn().getAccountInfo(bridgePositionPda(ethPositionId(vault, id)));
+    return (info ? parseBridgePosition(info.data) : null)?.lastYieldSeq ?? 0n;
+  },
+  fee: async (vault) => withHeadroom(await retryRead(() => evmClient(netOfVault(vault)).readContract({ address: vault as Address, abi: vaultAbi, functionName: "quoteYieldAccrued" }))),
+  send: async (vault, id, value) => {
+    const net = netOfVault(vault);
+    const wallet = createWalletClient({ account: privateKeyToAccount(evmRelayerKey()), chain: net.chain, transport: http(net.rpc) });
+    const hash = await relayerSend(net.key, () => wallet.writeContract({ address: vault as Address, abi: vaultAbi, functionName: "reportYield", args: [id], value }));
+    const receipt = await evmClient(net).waitForTransactionReceipt({ hash, timeout: 90_000 });
+    if (receipt.status !== "success") throw new Error("reportYield reverted");
+    return hash;
+  },
+});
 
 // ---- LayerZero sends (send_unlock, send_pay_yield, send_pay_instant) -------------------------------------------------
 
@@ -365,11 +392,11 @@ async function sendUnlock(vault: string, pid: Buffer) {
   const conn = relayConn();
   const cp = corePositionPda(pid);
   const [bp, core] = await conn.getMultipleAccountsInfo([bridgePositionPda(pid), cp]);
-  if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
+  if (!bp || !core) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
   const view = parseBridgePosition(bp.data);
-  if (!view) throw new DemoHttpError(409, "abandoned", "This Position is on a retired vault and can no longer be updated.");
+  if (!view) throw new DemoHttpError(409, "abandoned", "This Lock is on a retired contract and can no longer be updated.");
   if (view.unlockSent) return { skipped: true };
-  if (core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2] !== 1) throw new DemoHttpError(409, "not-unlocked", "Unlock the Position on Solana first.");
+  if (core.data[8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2] !== 1) throw new DemoHttpError(409, "not-unlocked", "Unlock the Lock on Solana first.");
   const acc = await sendAccounts(vault);
   const fee = await quoteFee(vault, 3, acc.quote);
   const relayer = relayerKey();
@@ -400,15 +427,15 @@ async function sendPay(kind: "yield" | "instant", vault: string, pid: Buffer, ho
   const cp = corePositionPda(pid);
   const holder = coreAccountPda(holderAuthority);
   const core = await conn.getAccountInfo(cp);
-  if (!core) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
+  if (!core) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
   const advances = core.data.readUInt32LE(8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1);
-  if (advances === 0) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Position.");
+  if (advances === 0) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Lock.");
   const index = sourceIndex === undefined ? advances - 1 : sourceIndex;
-  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= advances) throw new DemoHttpError(400, "bad-request", "Unknown Source for this Position.");
+  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= advances) throw new DemoHttpError(400, "bad-request", "Unknown Gemas source for this Lock.");
   const source = sourcePda(cp, index);
   const claimKey = kind === "yield" ? claimPda(holder, source) : instantClaimPda(holder, source);
   const [claim, account] = await conn.getMultipleAccountsInfo([claimKey, holder]);
-  if (!claim || !account) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Source.");
+  if (!claim || !account) throw new DemoHttpError(409, "no-claim", "Nothing to pay out for this Lock.");
   if (!new PublicKey(claim.data.subarray(8, 40)).equals(holder) || !new PublicKey(claim.data.subarray(40, 72)).equals(source) || !new PublicKey(claim.data.subarray(72, 104)).equals(cp)) throw new DemoHttpError(409, "no-claim", "That Claim does not belong to this Account.");
   if (claim.data.readBigUInt64LE(112) <= claim.data.readBigUInt64LE(120)) return { skipped: true };
   const evm = `0x${Buffer.from(account.data.subarray(41, 61)).toString("hex")}`;
@@ -501,15 +528,15 @@ export async function assetPrice(asset: Asset): Promise<{ microUsd: bigint; live
 
 async function advance(address: PublicKey, vault: string, pid: Buffer, months: number, sub: string | null) {
   const conn = relayConn();
-  if (!Number.isInteger(months) || months < 1 || months > 12) throw new DemoHttpError(400, "bad-request", "Horizon must be 1 to 12 months.");
+  if (!Number.isInteger(months) || months < 1 || months > 12) throw new DemoHttpError(400, "bad-request", "Length must be 1 to 12 months.");
   const cp = corePositionPda(pid);
   const info = await conn.getAccountInfo(cp);
-  if (!info) throw new DemoHttpError(409, "not-opened", "The Position is not open on Solana yet.");
+  if (!info) throw new DemoHttpError(409, "not-opened", "The Lock is not open on Solana yet.");
   const ownerAccount = coreAccountPda(address);
-  if (!new PublicKey(info.data.subarray(41, 73)).equals(ownerAccount)) throw new DemoHttpError(403, "not-yours", "That Position is not yours.");
+  if (!new PublicKey(info.data.subarray(41, 73)).equals(ownerAccount)) throw new DemoHttpError(403, "not-yours", "That Lock is not yours.");
   const base = 8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1;
   const advances = info.data.readUInt32LE(base);
-  if (info.data[base + 4] === 1) throw new DemoHttpError(409, "advance-open", "This Position already has an open Advance.");
+  if (info.data[base + 4] === 1) throw new DemoHttpError(409, "advance-open", "This Lock already has an open Advance.");
   const asset = netOfVault(vault).native;
   const price = await assetPrice(asset);
   if (!price.live) throw new DemoHttpError(503, "no-price", `The ${asset} price is unavailable right now. Try again in a minute.`);
@@ -575,7 +602,7 @@ export const chainName = (vault: string) => (netOfVault(vault).key === "hoodi" ?
 export function relayFailure(vault: string, e: unknown): DemoHttpError {
   const name = chainName(vault);
   if (isTransient(e)) return new DemoHttpError(503, "busy", `The ${name} network is busy. Try again in a few seconds.`);
-  return new DemoHttpError(500, "error", `${name} Position step failed.`);
+  return new DemoHttpError(500, "error", `${name} Lock step failed.`);
 }
 
 export async function handleEthRequest(raw: unknown, authorization: string | null): Promise<unknown> {
@@ -583,7 +610,7 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
   const { step, address, fields, sub } = await verifySignedRequest("tesoro-eth", STEPS, raw, authorization, { nonces });
   const wallet = address.toBase58();
 
-  if (step === "fund-evm" || step === "fund-hype" || step === "faucet-lst") requireTestMode();
+  if (step === "fund-evm" || step === "fund-hype" || step === "faucet-lst" || step === "report-yield") requireTestMode();
   if (step === "fund-evm") return fundEvm(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "fund-hype") return fundHype(wallet, typeof fields.evm === "string" ? fields.evm : "", sub);
   if (step === "faucet-lst") return faucetLst(wallet, fields, sub);
@@ -599,6 +626,8 @@ export async function handleEthRequest(raw: unknown, authorization: string | nul
         return await applyLocked(ref.vault, ref.pid);
       case "apply-yield":
         return await applyYield(ref.vault, ref.pid).then((r) => (console.info("eth-bridge apply-yield", JSON.stringify(r)), r));
+      case "report-yield":
+        return await reportYieldFor(ref.vault, ref.id);
       case "send-unlock":
         return await sendUnlock(ref.vault, ref.pid);
       case "send-pay-instant":

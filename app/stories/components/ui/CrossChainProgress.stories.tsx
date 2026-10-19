@@ -27,7 +27,7 @@ export const Verifying: Story = {};
 export const Crediting: Story = { args: { stage: 2 } };
 export const Done: Story = { args: { stage: 3 } };
 export const Failed: Story = { args: { stage: 1, failed: true, chain: "HYPE" } };
-/** Opening an ETH Position: five steps, three stations between the tiles. */
+/** Locking ETH: five steps, three stations between the tiles. */
 export const OpenPosition: Story = { args: { stage: 3, txHash: undefined, ...op("open", ETH_VAULTS[0].address) } };
 /** Outbound: from the Account to HyperEVM. */
 export const Redeem: Story = { args: { stage: 1, chain: undefined, txHash: undefined, from: "account", to: "HYPE", ...op("redeem", ETH_VAULTS[1].address) } };

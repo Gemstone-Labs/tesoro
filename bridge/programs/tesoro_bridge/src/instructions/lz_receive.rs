@@ -86,11 +86,13 @@ impl LzReceive<'_> {
                     false
                 }
             },
-            Inbound::Yield { cumulative, treasury_in } => {
+            Inbound::Yield { cumulative, treasury_balance, instant_paid, report_time } => {
                 if header.seq > position.last_yield_seq {
                     position.last_yield_seq = header.seq;
                     position.yield_cumulative = cumulative;
-                    position.treasury_in = treasury_in;
+                    position.treasury_balance = treasury_balance;
+                    position.instant_paid = instant_paid;
+                    position.report_time = report_time;
                     true
                 } else {
                     false

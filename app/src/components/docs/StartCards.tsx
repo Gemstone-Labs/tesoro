@@ -23,7 +23,7 @@ export function StartCards() {
           <IconTile icon={BookOpenCheck} tone="sapphire" size="sm" />
           <h2>Play</h2>
         </header>
-        <p>Open the app, open a Position from your Wallet and play your first Match in a few minutes.</p>
+        <p>Open the app, get Gemas from your Wallet and play your first Match in a few minutes.</p>
         <Link href="/lobby" className="btn neutral cut cut-btn">
           Launch app <ArrowRight aria-hidden />
         </Link>

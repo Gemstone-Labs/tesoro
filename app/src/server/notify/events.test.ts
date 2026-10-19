@@ -34,13 +34,13 @@ describe("who gets what for each event", () => {
       "Your Hold'em Match was refunded",
       "A Backer made you an Offer",
       "A Player accepted your Offer",
-      "Your Debt is paid off",
+      "Your Advance is paid back",
       "You placed 3rd in Season 2",
       "Your opponent has played your Vanguard Match",
     ]);
     expect(subjects.every((m) => m.to === "p@example.com")).toBe(true);
     expect(subjects[2].text).toContain("entry of 500 Gemas is back");
-    expect(subjects[5].text).toContain("Unlock your Position or take another Advance");
+    expect(subjects[5].text).toContain("Unlock it or take another Advance");
     expect(subjects[6].text).toContain("won 1,250 Gemas from the Pool");
   });
 
@@ -116,7 +116,7 @@ describe("event push from the keeper", () => {
     }
   });
 
-  it("builds ids from the facts: a Debt that clears again after a new Advance is a new event", () => {
+  it("builds ids from the facts: an Advance paid back again after a new Advance is a new event", () => {
     const ids = parseEvents({ events: [{ kind: "debt-cleared", authority: A, positionId: "P", advance: 0, asset: "SOL" }, { kind: "debt-cleared", authority: A, positionId: "P", advance: 1, asset: "SOL" }] }).map((e) => e.id);
     expect(ids).toEqual(["debt-cleared:P:0", "debt-cleared:P:1"]);
   });

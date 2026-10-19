@@ -72,7 +72,7 @@ export default function Page() {
       <p>
         A Pot is a list of <code>(source, amount)</code> lines per side. The winner receives the loser&apos;s <b>actual</b> lines, each keeping its Source,
         plus their own entry back. The recipient&apos;s Holding of each Source is credited; it counts as own-sourced only if they own that Source&apos;s
-        Position. Holdings for a payout must exist before settling; anyone can create them with <code>open_holding</code>, so a recipient cannot block a
+        Lock. Holdings for a payout must exist before settling; anyone can create them with <code>open_holding</code>, so a recipient cannot block a
         settlement.
       </p>
 
@@ -82,7 +82,7 @@ export default function Page() {
         <li>They are taken in Gemas from the <b>loser&apos;s lines</b>: Platform Fee first, then Studio Fee, then Leaderboard Fee, then (for a backed win) the Player&apos;s share of what remains. Lines are merged by Source and drained in ascending Source-address order.</li>
         <li>The Leaderboard Fee is paid to the Leaderboard Pool, a {BRAND.name} Account owned by the address <code>[&quot;leaderboard&quot;]</code>, as one more <code>(recipient, source)</code> payout line. Each decisive settlement also emits <code>MatchWon</code> (Player, loser, entry, points, season).</li>
         <li>Fees are floored, so the winner gets the dust. A Draw, abandonment or no-show takes none.</li>
-        <li>Match Fees are separate from {BRAND.name}&apos;s other two revenues, which never touch a Pot: the Yield Fee (20% of the yield every Position earns) and the Instant Redeem Fee ({INSTANT_FEE_PCT}% of won Gemas redeemed early). Both are kept by the Treasury.</li>
+        <li>Match Fees are separate from {BRAND.name}&apos;s other two revenues, which never touch a Pot: the Yield Fee (20% of the yield every Lock earns) and the Instant Redeem Fee ({INSTANT_FEE_PCT}% of won Gemas redeemed early). Both are kept by the Treasury.</li>
       </ul>
 
       <H3 id="allocation">Entry draw and bounds</H3>

@@ -195,18 +195,18 @@ export default function Design() {
           <Card large>
             <PendingBySource
               items={[
-                { key: "a", chain: "HYPE", owner: "Bob's Position", pending: 2200, accruedShare: 0.12 },
-                { key: "b", chain: "ETH", owner: "Carol's Position", pending: 1197, accruedShare: 0.71 },
-                { key: "c", chain: "SOL", owner: "Your Position", pending: 4316, accruedShare: 0 },
+                { key: "a", chain: "HYPE", owner: "Bob's Lock", pending: 2200, accruedShare: 0.12 },
+                { key: "b", chain: "ETH", owner: "Carol's Lock", pending: 1197, accruedShare: 0.71 },
+                { key: "c", chain: "SOL", owner: "Your Lock", pending: 4316, accruedShare: 0 },
               ]}
             />
           </Card>
         </div>
       </Section>
 
-      <Section title="Slider" note="Horizon 1–12 months; also the Player's share of the surplus.">
+      <Section title="Slider" note="Length 1–12 months; also the Player's share of the surplus.">
         <div style={{ maxWidth: 420 }}>
-          <Slider label="Horizon" value={h} min={1} max={12} onChange={setH} display={`${h} ${h === 1 ? "month" : "months"}`} minLabel="1 month" maxLabel="12 months" />
+          <Slider label="Length" value={h} min={1} max={12} onChange={setH} display={`${h} ${h === 1 ? "month" : "months"}`} minLabel="1 month" maxLabel="12 months" />
         </div>
       </Section>
 

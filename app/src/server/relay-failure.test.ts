@@ -8,8 +8,8 @@ const vaultOn = (net: string) => ETH_VAULTS.find((v) => v.net === net)!.address;
 
 describe("relayFailure", () => {
   it("names Ethereum for a Hoodi Position and HyperEVM for a HYPE one", () => {
-    expect(relayFailure(vaultOn("hoodi"), new Error("boom")).message).toBe("Ethereum Position step failed.");
-    expect(relayFailure(vaultOn("hyperevm"), new Error("boom")).message).toBe("HyperEVM Position step failed.");
+    expect(relayFailure(vaultOn("hoodi"), new Error("boom")).message).toBe("Ethereum Lock step failed.");
+    expect(relayFailure(vaultOn("hyperevm"), new Error("boom")).message).toBe("HyperEVM Lock step failed.");
   });
   it("says the network is busy for a transient error, with the right chain", () => {
     const e = relayFailure(vaultOn("hyperevm"), new Error("Request exceeds defined limit."));

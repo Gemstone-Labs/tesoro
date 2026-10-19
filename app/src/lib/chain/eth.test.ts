@@ -92,7 +92,9 @@ const bridge = (over: Partial<NonNullable<EthState["bridge"]>> = {}): NonNullabl
   appliedYieldSeq: 0n,
   outSeq: 0n,
   unlockSent: false,
-  treasuryIn: 0n,
+  treasuryBalance: 0n,
+  instantPaid: 0n,
+  reportTime: 0n,
   ...over,
 });
 const core = (advances = 0): NonNullable<EthState["core"]> => ({ position: pos, principalWei: 1n, rateBps: 500, status: "locked", advances, openAdvance: null, cumulativeYield: 0n });
@@ -273,17 +275,21 @@ describe("HyperEVM vault (smoke Position 1, devnet)", () => {
     expect(opSteps("redeem", HYPE_VAULT)[2].title).toBe("simHYPE on HyperEVM");
     expect(opSteps("open", VAULT)[0].title).toBe("Hoodi confirmed");
     expect(opCopy("open", HYPE_VAULT).label).toBe("HYPE → Gemas");
-    expect(opCopy("unlock", HYPE_VAULT).done).toBe("Principal is back on HyperEVM.");
+    expect(opCopy("unlock", HYPE_VAULT).done).toBe("Your coins are back on HyperEVM.");
   });
 });
 
 describe("old accounts are absent, not crashes", () => {
-  it("reads a BridgePosition only in the new layout (treasury_in appended)", () => {
+  it("reads a BridgePosition only in the 212-byte layout (treasury_balance, instant_paid)", () => {
     const d = Buffer.alloc(BRIDGE_POSITION_LEN);
     d.writeBigUInt64LE(5n, 45);
     d[130] = 1;
     d.writeBigUInt64LE(77n, 172);
-    expect(parseBridgePosition(d)).toMatchObject({ lastInSeq: 5n, opened: true, treasuryIn: 77n });
+    d.writeBigUInt64LE(9n, 188);
+    d.writeBigUInt64LE(1_700_000_000n, 204);
+    expect(d.length).toBe(212);
+    expect(parseBridgePosition(d)).toMatchObject({ lastInSeq: 5n, opened: true, treasuryBalance: 77n, instantPaid: 9n, reportTime: 1_700_000_000n });
+    expect(parseBridgePosition(d.subarray(0, 204))).toBeNull();
     expect(parseBridgePosition(d.subarray(0, 172))).toBeNull();
     expect(parseBridgePosition(Buffer.alloc(0))).toBeNull();
   });

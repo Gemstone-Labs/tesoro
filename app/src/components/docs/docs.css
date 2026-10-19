@@ -99,7 +99,13 @@
 .docs-callout p { color: var(--fg-2); font-size: var(--fs-16); }
 .docs-callout-title { font-size: var(--fs-12); letter-spacing: 0.09em; text-transform: uppercase; color: var(--fg); }
 .docs-callout.is-sim { --edge: var(--edge-2); background: var(--raised-2); }
-.docs-callout.is-warn { --edge: var(--edge-2); background: var(--raised-2); }
+/* warn: amber edge, tint and title, so a risk notice reads as a warning */
+.docs-callout.is-warn { --edge: var(--warn); background: linear-gradient(var(--warn-tint, rgba(242, 185, 75, 0.09)) 0 0), var(--raised-2); padding: 18px 22px; gap: 8px; }
+.docs-callout.is-warn .docs-callout-title { display: inline-flex; align-items: center; gap: 8px; color: var(--warn); }
+.docs-callout.is-warn .docs-callout-title svg { width: 16px; height: 16px; flex: none; }
+.docs-callout.is-warn p { color: var(--fg); }
+.docs-prose > .docs-callout.is-warn { margin-block: 32px; }
+:root[data-theme="light"] .docs-callout.is-warn { --warn: #7d4f00; --warn-tint: rgba(214, 150, 40, 0.16); }
 
 /* ——— Tables ——— */
 .docs-table { overflow-x: auto; border: 1px solid var(--line); background: var(--raised); max-width: 100%; }

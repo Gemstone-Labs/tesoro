@@ -10,10 +10,10 @@ export default function Page() {
   return (
     <DocPage href="/docs/risks" hero={<Compare
   left={{ title: "Trusted, not enforced", icon: Handshake, tone: "amber", items: [`The issuance price, from a ${BRAND.name}-controlled key`, "Hidden information, kept by MagicBlock's secure environment", "Cross-chain messages, delivered by LayerZero", "Program upgrades, by one admin key"] }}
-  right={{ title: "Enforced by the programs", icon: ShieldCheck, tone: "emerald", items: ["Principal is never entered into a Match or used to pay Debt", "A Match is settled exactly once, by the Game's own program", "Fees are fixed when the Match opens", "Anyone can trigger a timeout or a refund"] }}
+  right={{ title: "Enforced by the programs", icon: ShieldCheck, tone: "emerald", items: ["What you lock is never entered into a Match or used to pay back an Advance", "A Match is settled exactly once, by the Game's own program", "Fees are fixed when the Match opens", "Anyone can trigger a timeout or a refund"] }}
 />}>
       <Callout kind="warn" title="Read this first">
-        <p>{BRAND.name} runs on smart contracts. Read this page before you lock anything you are not ready to lose access to for a while.</p>
+        <p>When you lock crypto, it stays locked until your Advance is paid back, and that can take longer than the estimate. Only lock what you won&apos;t need for a while. The rest of this page explains the risks.</p>
       </Callout>
 
       <H2 id="prices">Prices come from a trusted key</H2>
@@ -22,13 +22,13 @@ export default function Page() {
         of Gemas. It is used once, at issuance, and never again.
       </p>
 
-      <H2 id="principal">What &ldquo;Principal is never played&rdquo; means, and does not</H2>
+      <H2 id="principal">What &ldquo;what you lock is never played&rdquo; means, and does not</H2>
       <p>
-        It means that no Match entry, Fee (including the Yield Fee, which is taken from yield only) or Backing ever draws on your Principal, and that Principal never pays Debt. The ledger is built and tested so
-        that nothing reads Principal after an Advance is sized. It does not mean your Principal is protected or risk-free. It is still:
+        It means that no Match entry, Fee (including the Yield Fee, which is taken from yield only) or Backing ever draws on what you lock, and that it never pays back an Advance. The ledger is built and tested so
+        that nothing reads your Locked amount after an Advance is sized. It does not mean what you lock is protected or risk-free. It is still:
       </p>
       <ul>
-        <li><b>Locked</b> until the Debt is repaid. If the staking token&apos;s yield slows, the lock lasts longer. The Unlock Estimate is an estimate, never a promise.</li>
+        <li><b>Locked</b> until the Advance is paid back. If the staking token&apos;s yield slows, the lock lasts longer. The Unlock Estimate is an estimate, never a promise.</li>
         <li><b>Exposed to the staking token itself:</b> its price, its protocol and its smart contracts.</li>
         <li><b>Held by upgradeable programs.</b> A single admin key can upgrade every program today, with no multisig and no timelock.</li>
       </ul>
@@ -37,7 +37,7 @@ export default function Page() {
       <ul>
         <li><b>Won Gemas wait for real yield.</b> If a loser&apos;s staking yield collapses, the Gemas you won from them stay pending with no end date. This is by design.</li>
         <li><b>Redeem now is limited by {BRAND.name}&apos;s holdings.</b> It pays from {BRAND.name}&apos;s own balance for that asset. When the balance is short, the request is refused until it is topped up or refilled, and you can always wait for a normal Redeem instead.</li>
-        <li><b>Many small Sources.</b> An entry draws on at most 8 Sources. If your Gemas are spread over more, redeem some small balances first.</li>
+        <li><b>Many small batches.</b> An entry draws on Gemas from at most 8 different Advances. If your Gemas are spread over more, redeem some small balances first.</li>
         <li><b>You can lose your entry.</b> Every Match is a contest of skill against another Player, and you can lose what you enter. A Backer can lose the whole entry they fund.</li>
         <li><b>Skill is not luck-free.</b> Block Puzzle shares the same pieces between Players, but Hold&apos;em has chance in every hand.</li>
       </ul>
@@ -48,9 +48,9 @@ export default function Page() {
         rows={[
           ["The price key", "The issuance price of an Advance.", "A wrong price mis-sizes an Advance at issuance."],
           ["MagicBlock's secure environment", "Keeping hidden cards, pieces and positions hidden.", "Hidden information could be seen early."],
-          ["LayerZero's verification network", "Delivering cross-chain messages truthfully.", "A false message could report false yield. A vault still pays out no more than the yield it has accrued."],
+          ["LayerZero's verification network", "Delivering cross-chain messages truthfully.", "A false message could report false yield. A vault still pays out no more than the yield it has earned."],
           ["The admin key", `Registering Games, setting fees (Platform, Yield and Instant Redeem), funding ${BRAND.name}&apos;s holdings, upgrading programs.`, "A single key can change the rules or the programs."],
-          ["The keeper", "Liveness only: relaying messages, expiring offers, publishing the price. SOL Position yield needs no keeper: it is computed when you use it.", "If it stops, anyone can send the same transactions, but things go slower."],
+          ["The keeper", "Liveness only: relaying messages, expiring offers, publishing the price. SOL Lock yield needs no keeper: it is computed when you use it.", "If it stops, anyone can send the same transactions, but things go slower."],
         ]}
       />
 

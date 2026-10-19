@@ -236,6 +236,7 @@
 }
 
 .docs-hero { margin-top: 28px; }
+.docs-hero + .docs-prose { margin-top: 40px; }
 .docs-hero .dx-fig { max-width: none; }
 .docs-article:has(.docs-hero) .docs-head { border-bottom: 0; padding-bottom: 0; }
 
@@ -357,5 +358,5 @@
 .dx-programs p { font-size: var(--fs-14); line-height: 1.45; max-width: none; }
 .dx-programs code { font: 500 var(--fs-12) var(--f-mono); }
 @media (max-width: 899px) { .dx-programs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 599px) { .dx-programs, .dx-arch-top, .dx-arch-bottom, .dx-arch-links { grid-template-columns: 1fr; } .docs-prose .dx-arch-sol ul { grid-template-columns: 1fr; } .docs-hero + .docs-prose { margin-top: 36px; }
+@media (max-width: 599px) { .dx-programs, .dx-arch-top, .dx-arch-bottom, .dx-arch-links { grid-template-columns: 1fr; } .docs-prose .dx-arch-sol ul { grid-template-columns: 1fr; }
 .docs-article:has(.docs-hero) .docs-head + .docs-hero { margin-bottom: 0; }

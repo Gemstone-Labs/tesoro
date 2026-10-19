@@ -23,7 +23,7 @@ export const WithContent: Story = {
     large: true,
     children: (
       <div className="stack">
-        <Label>Your Position</Label>
+        <Label>Your Lock</Label>
         <ChainChip chain="SOL" />
         <Meter value={0.4} label="Yield accrued" />
       </div>

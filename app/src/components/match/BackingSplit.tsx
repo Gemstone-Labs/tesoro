@@ -82,9 +82,9 @@ export function BackingSplit({ m }: { m: ChainMatch }) {
             : "Nobody won or lost."
           : asPlayer
             ? kind === "won"
-              ? "Your share is yours to keep. The Backer's Gemas were never in your Wallet, and you took on no Debt."
-              : "You lost nothing and gained no Debt: the Backer's Gemas funded this entry."
-            : "Only the Backer bears a loss. The backed Player never gains Debt and cannot redeem or redirect your Gemas."}
+              ? "Your share is yours to keep. The Backer's Gemas were never in your Wallet, and you owe nothing."
+              : "You lost nothing and owe nothing: the Backer's Gemas funded this entry."
+            : "Only the Backer bears a loss. The backed Player never owes anything and cannot redeem or redirect your Gemas."}
       </p>
     </section>
   );

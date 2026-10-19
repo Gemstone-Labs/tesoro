@@ -55,13 +55,13 @@ function backAt(at: number, now: number) {
 
 function hero(state: PositionState, unlockAt: number | null, now: number) {
   if (state === "repaying") {
-    if (!unlockAt) return { k: "Principal back", big: "Soon", note: "Once yield accrues" };
+    if (!unlockAt) return { k: "Unlock Estimate", big: "Soon", note: "Once yield accrues" };
     const b = backAt(unlockAt, now);
-    return { k: "Principal back", big: b.time, note: b.when };
+    return { k: "Unlock Estimate", big: b.time, note: b.when };
   }
-  if (state === "paid") return { k: "Principal back", big: "Now", note: "Debt is zero: unlock any time" };
-  if (state === "unlocked") return { k: "Principal", big: "Returned", note: "This Position is closed" };
-  return { k: "Principal", big: "Locked", note: "Earning yield · no Advance taken" };
+  if (state === "paid") return { k: "Unlock Estimate", big: "Now", note: "Paid back: unlock any time" };
+  if (state === "unlocked") return { k: "Locked amount", big: "Returned", note: "This Lock is closed" };
+  return { k: "Locked amount", big: "Locked", note: "Earning yield · no Advance taken" };
 }
 
 /** Projected Debt draining to zero, across the card. */
@@ -76,9 +76,9 @@ function BurnDown({ series, debt }: { series: DebtSeries; debt: string }) {
   return (
     <figure className="wl-burn">
       <figcaption>
-        <b>{debt}</b> of Debt now · yield pays it to zero <span>· projected</span>
+        <b>{debt}</b> left to pay back · yield pays it to zero <span>· projected</span>
       </figcaption>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Debt, projected: ${debt} now, zero at ${series.labels[last]}`}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Left to pay back, projected: ${debt} now, zero at ${series.labels[last]}`}>
         <defs>
           <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="currentColor" stopOpacity="0.28" />
@@ -145,7 +145,7 @@ export function PositionTile({
   const unlocked = state === "unlocked";
   const [open, setOpen] = useState(defaultOpen);
   const bodyId = useId();
-  const flat = state === "repaying" ? (series && debt ? `${debt} of Debt` : "Waiting for the first yield") : "No Debt";
+  const flat = state === "repaying" ? (series && debt ? `${debt} left to pay back` : "Waiting for the first yield") : "Nothing to pay back";
   if (compact && !open) {
     const [day, rel] = h.note.split(" · ");
     const when = state === "repaying" ? (unlockAt ? `Back ${/^To/.test(day) ? day.toLowerCase() : day} ${h.big} · ${rel}` : "Back once yield accrues") : state === "paid" ? "Paid off · unlock any time" : h.note;
@@ -186,11 +186,11 @@ export function PositionTile({
       <div className="wl-tile-body" id={bodyId} hidden={!open}>
         <dl className="wl-facts">
           <div>
-            <dt>Principal</dt>
+            <dt>Locked amount</dt>
             <dd>{principal}</dd>
           </div>
           <div>
-            <dt>Debt</dt>
+            <dt>Left to pay back</dt>
             <dd>
               {debt ?? "None"}
               {debtAsset && <small>{debtAsset}</small>}

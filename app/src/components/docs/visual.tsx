@@ -182,17 +182,17 @@ export function Compare({ left, right }: { left: { title: string; icon: LucideIc
 /* ——— Diagrams ——— */
 
 const FLOW = [
-  { n: 1, title: "Position", body: "Lock a staking token. The Principal is never played.", img: "step1", ratio: "320 / 437" },
+  { n: 1, title: "Lock", body: "Lock a staking token. What you lock is never played.", img: "step1", ratio: "320 / 437" },
   { n: 2, title: "Advance", body: "Receive 80% of the projected yield, upfront.", img: "step2", ratio: "320 / 260" },
   { n: 3, title: "Gemas", body: "Worth $0.01 each when issued.", img: "step3", ratio: "320 / 260" },
   { n: 4, title: "Match", body: "Enter a head-to-head game. Winner takes the Pot.", img: "step4", ratio: "320 / 260" },
-  { n: 5, title: "Redeem", body: "Won Gemas turn into the Source asset as yield lands.", img: "step5", ratio: "320 / 260" },
+  { n: 5, title: "Redeem", body: "Won Gemas turn into the coin they came from as yield lands.", img: "step5", ratio: "320 / 260" },
 ];
 
-/** Position → Advance → Gemas → Match → Redeem, with the loop that repays the Debt and unlocks the Principal. */
+/** Lock → Advance → Gemas → Match → Redeem, with the loop that pays back the Advance and unlocks your coins. */
 export function FlowDiagram() {
   return (
-    <Diagram label="The flow from a Position to Redeem" wide caption="Yield pays the Debt on its own. When the Debt is zero, the Principal can be unlocked.">
+    <Diagram label="The flow from a Lock to Redeem" wide caption="Yield pays back the Advance on its own. When nothing is left to pay back, you can unlock what you locked.">
       <ol className="dx-flow">
         {FLOW.map((s, i) => (
           <li key={s.title} style={{ ["--i" as string]: i }}>
@@ -207,9 +207,9 @@ export function FlowDiagram() {
         ))}
       </ol>
       <div className="dx-loop" aria-hidden>
-        <span>The Position&apos;s yield repays the Debt</span>
+        <span>The Lock&apos;s yield pays it back</span>
         <i />
-        <span>Debt 0 → Unlock the Principal</span>
+        <span>Paid back → Unlock</span>
       </div>
     </Diagram>
   );
@@ -341,10 +341,10 @@ export function SeasonDiagram() {
   );
 }
 
-/** Where Positions live and how the ledger hears about them. */
+/** Where Locks live and how the ledger hears about them. */
 export function ChainPath({ detail = false }: { detail?: boolean }) {
   return (
-    <Diagram label="How Ethereum and HyperEVM Positions reach the Solana ledger" caption="Four messages cross, carried by LayerZero V2. Each takes under a minute to a few minutes.">
+    <Diagram label="How Ethereum and HyperEVM Locks reach the Solana ledger" caption="Four messages cross, carried by LayerZero V2. Each takes under a minute to a few minutes.">
       <div className="dx-chains">
         <div className="dx-chain-col">
           <div className="dx-chain-box" data-chain="eth">
@@ -358,7 +358,7 @@ export function ChainPath({ detail = false }: { detail?: boolean }) {
         </div>
         <div className="dx-chain-mid">
           <div className="dx-msg to">
-            <span>Position opened</span>
+            <span>Lock opened</span>
             <span>Yield reported</span>
             <ArrowRight aria-hidden />
           </div>
@@ -373,7 +373,7 @@ export function ChainPath({ detail = false }: { detail?: boolean }) {
           <div className="dx-chain-box solana" data-chain="sol">
             <b>Solana</b>
             <span>The ledger</span>
-            <code>Gemas · Debt · Matches · Backings</code>
+            <code>Gemas · Advances · Matches · Backings</code>
           </div>
         </div>
       </div>
@@ -407,12 +407,12 @@ export function Sequence({ steps, label, caption }: { steps: { from: string; to:
   );
 }
 
-/** Position timeline: the Debt falls as yield lands, then Unlock. Illustrative shape, not a measured series. */
+/** Lock timeline: what is left to pay back falls as yield lands, then Unlock. Illustrative shape, not a measured series. */
 export function DebtDiagram() {
   return (
-    <Diagram label="How the Debt falls over time" caption="Illustration of a 3 month Horizon. The line is a straight descent because yield accrues at a steady rate; a real Unlock Estimate moves with the yield actually earned.">
-      <svg className="dx-debt" viewBox="0 0 640 220" role="img" aria-label="Debt starts at the full Advance and falls to zero at the end of the Horizon, then the Principal unlocks">
-        <title>Debt over the Horizon</title>
+    <Diagram label="How what is left to pay back falls over time" caption="Illustration of a 3 month Length. The line is a straight descent because yield arrives at a steady rate; a real Unlock Estimate moves with the yield actually earned.">
+      <svg className="dx-debt" viewBox="0 0 640 220" role="img" aria-label="What is left to pay back starts at the full Advance and falls to zero at the end of the Length, then your Lock unlocks">
+        <title>Left to pay back over the Length</title>
         <line x1="56" y1="180" x2="610" y2="180" className="axis" />
         <line x1="56" y1="24" x2="56" y2="180" className="axis" />
         <path d="M56 40 L520 180" className="debt-area-line" />
@@ -420,10 +420,10 @@ export function DebtDiagram() {
         <circle cx="56" cy="40" r="5" className="dot" />
         <circle cx="520" cy="180" r="5" className="dot" />
         <path d="M520 180 L596 180" className="unlock" />
-        <text x="64" y="30" className="t">Advance: Debt 1,750 Gemas</text>
-        <text x="300" y="96" className="t2">yield lands, Debt falls</text>
-        <text x="516" y="162" textAnchor="end" className="t">Debt 0</text>
-        <text x="628" y="203" textAnchor="end" className="t">Unlock: Principal returns</text>
+        <text x="64" y="30" className="t">Advance: 1,750 Gemas to pay back</text>
+        <text x="300" y="96" className="t2">yield lands, less left</text>
+        <text x="516" y="162" textAnchor="end" className="t">Paid back</text>
+        <text x="628" y="203" textAnchor="end" className="t">Unlock: your coins return</text>
         <text x="56" y="203" className="t2">Open</text>
       </svg>
     </Diagram>
@@ -463,12 +463,12 @@ export function AvatarStrip() {
 /** A Gema, and the Source that decides what it redeems for. */
 export function SourceDiagram() {
   const rows = [
-    ["Advance from a SOL Position", "redeems in simSOL", "#9945ff"],
-    ["Advance from an ETH Position", "redeems in simETH", "#627eea"],
-    ["Advance from a HYPE Position", "redeems in simHYPE", "#2fc9aa"],
+    ["Advance from a SOL Lock", "redeems in test SOL", "#9945ff"],
+    ["Advance from an ETH Lock", "redeems in test ETH", "#627eea"],
+    ["Advance from a HYPE Lock", "redeems in test HYPE", "#2fc9aa"],
   ];
   return (
-    <Diagram label="Every Gema is a claim on its Source" caption="At the table all Gemas are equal. At Redeem, the Source fixes the asset. Won Gemas keep the Source they came with.">
+    <Diagram label="Every Gema is a claim on the coin it came from" caption="At the table all Gemas are equal. At Redeem, the Lock it came from fixes the coin. Won Gemas keep the coin they came with.">
       <div className="dx-source">
         <div className="dx-source-gem">
           <Image className="on-dark" src="/art/landing/gem-poster.webp" alt="A Gema" width={240} height={300} sizes="160px" />
@@ -535,9 +535,9 @@ export function Architecture() {
         <div className="dx-arch-sol">
           <b>Solana · base layer</b>
           <ul>
-            <li><code>tesoro_core</code> Accounts, Positions, Gemas, Debt, Matches, Fees, Backing</li>
+            <li><code>tesoro_core</code> Accounts, Locks, Gemas, Advances, Matches, Fees, Backing</li>
             <li><code>block_puzzle</code> <code>holdem</code> <code>trading_duel</code> settle by CPI</li>
-            <li><code>sim_lst</code> staking token behind SOL Positions</li>
+            <li><code>sim_lst</code> staking token behind SOL Locks</li>
             <li><code>tesoro_bridge</code> LayerZero V2 OApp</li>
           </ul>
         </div>

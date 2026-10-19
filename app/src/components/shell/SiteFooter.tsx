@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { TesoroLogo, XFollow } from "@/components/brand";
 import { ChainGlyph } from "@/components/ui";
-import { LAUNCH_STAGE, OUTBOUND } from "@/lib/landing/config";
+import { LAUNCH_STAGE } from "@/lib/landing/config";
 import { BRAND } from "@/lib/brand";
 
 const CHAINS = [
@@ -13,10 +13,10 @@ const CHAINS = [
 const COLUMNS: { title: string; links: [label: string, href: string | null][] }[] = [
   { title: "Play", links: [["Lobby", "/lobby"], ["Games", "/play"], ["Leaderboard", "/leaderboard"], ["Your Matches", "/matches"]] },
   { title: "Money", links: [["Wallet", "/wallet"], ["Backing", "/backing"]] },
-  { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"], ["X @PlayTesoro", OUTBOUND.x ?? null]] },
+  { title: "Learn", links: [["Docs", "/docs"], ["Help", "/help"], ["Terms", "/terms"], ["Privacy", "/privacy"]] },
 ];
 
-/** Brand block and link columns, then a strip with the social links, the fair-play note and the simulated-yield label. */
+/** Brand block (with the social links) and link columns, then a strip with the fair-play note and the simulated-yield label. */
 export function SiteFooter() {
   return (
     <footer className="site-foot">
@@ -25,8 +25,8 @@ export function SiteFooter() {
           <Link href="/lobby" aria-label={`${BRAND.name}, home`}>
             <TesoroLogo height={30} />
           </Link>
-          <p>Skill games on Solana. Your staking Principal is never played.</p>
-          <ul className="site-foot-chains" aria-label="Positions on">
+          <p>Skill games on Solana. What you lock is never played.</p>
+          <ul className="site-foot-chains" aria-label="Locks on">
             {CHAINS.map((c) => (
               <li key={c.asset} className="cut cut-chip">
                 <ChainGlyph asset={c.asset} size={16} />
@@ -34,6 +34,9 @@ export function SiteFooter() {
               </li>
             ))}
           </ul>
+          <div className="site-foot-social" aria-label="Tesoro elsewhere" role="group">
+            <XFollow variant="a" place="foot" />
+          </div>
         </div>
         <nav className="site-foot-cols" aria-label="Footer">
           {COLUMNS.map((col) => (
@@ -55,9 +58,6 @@ export function SiteFooter() {
         </nav>
       </div>
       <div className="site-foot-strip">
-        <div className="site-foot-social" aria-label="Tesoro elsewhere" role="group">
-          <XFollow variant="a" place="foot" />
-        </div>
         <span className="site-foot-fair">Fair play · every result on record</span>
         {LAUNCH_STAGE === "testnet" && <span className="site-foot-test">Test mode · simulated yield · 1 month = 10 min</span>}
         <span>© 2026 {BRAND.companyName}</span>

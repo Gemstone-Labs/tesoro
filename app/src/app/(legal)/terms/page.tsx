@@ -27,7 +27,7 @@ export default function Terms() {
           do not use {BRAND.name}.
         </p>
         <p>
-          Words with capital letters, such as Position, Principal, Advance, Gema, Source, Debt, Match, Pot and Season, mean what they mean in the{" "}
+          Words with capital letters, such as Lock, Locked amount, Advance, Length, Gema, Match, Pot and Season, mean what they mean in the{" "}
           <Link href="/docs">Docs</Link>. The Docs explain how {BRAND.name} works; these Terms are the binding rules. If they differ, these Terms win.
         </p>
       </Section>
@@ -44,7 +44,7 @@ export default function Terms() {
 
       <Section id="test-mode" title="Test mode">
         <p>
-          While {BRAND.name} runs on test networks (&ldquo;test mode&rdquo;), yield is simulated and speeded up, and Gemas, Positions and anything else shown have
+          While {BRAND.name} runs on test networks (&ldquo;test mode&rdquo;), yield is simulated and speeded up, and Gemas, Locks and anything else shown have
           no real value. Nothing you hold in test mode can be exchanged for money, and we may reset or remove test mode balances and data at any time. These
           Terms apply to test mode too, except the parts that only make sense for real assets.
         </p>
@@ -52,7 +52,7 @@ export default function Terms() {
 
       <Section id="accounts" title="Your Account and wallets">
         <p>
-          You sign in with an email or a wallet, through our sign-in provider. Your Account holds your Positions, Gemas, Match history and Backings, and
+          You sign in with an email or a wallet, through our sign-in provider. Your Account holds your Locks, Gemas, Match history and Backings, and
           lives on public blockchains. You are responsible for your email, your wallets, your keys and everything done with them. We cannot recover keys,
           reverse transactions or restore access you lost. Tell us quickly at {ENTITY.contactEmail} if you think your access was compromised.
         </p>
@@ -62,16 +62,16 @@ export default function Terms() {
         </p>
       </Section>
 
-      <Section id="positions" title="Positions, Principal and Advances">
+      <Section id="positions" title="Locks and Advances">
         <ul>
           <li>
-            A <b>Position</b> locks a staking token you own in {BRAND.name}&apos;s programs or vaults. We do not take ownership of it and we never play with your
-            Principal: no Match entry, fee or Backing draws on it, and it never pays Debt.
+            A <b>Lock</b> holds a staking token you own in {BRAND.name}&apos;s programs or vaults. We do not take ownership of it and we never play with what
+            you lock (its <b>Locked amount</b>): no Match entry, fee or Backing draws on it, and it never pays back an Advance.
           </li>
           <li>
-            An <b>Advance</b> issues you Gemas upfront against the yield your Position is projected to earn over the Horizon you choose. It is not a loan
-            or a line of credit. It creates <b>Debt</b>, in the Position&apos;s own asset, that only the Position&apos;s accrued yield (or the return of Gemas
-            Sourced from it) can reduce. The Position stays locked until its Debt is zero.
+            An <b>Advance</b> issues you Gemas upfront against the yield your Lock is projected to earn over the <b>Length</b> you choose. It is not a loan
+            or a line of credit. It leaves an amount <b>left to pay back</b>, in the Lock&apos;s own asset, that only the Lock&apos;s earned yield (or the return
+            of Gemas issued from it) can reduce. The Lock stays locked until nothing is left to pay back.
           </li>
           <li>
             The <b>Unlock Estimate</b> is an estimate, not a promise. It moves with the staking provider&apos;s real yield. If yield slows, your lock lasts longer.
@@ -82,27 +82,27 @@ export default function Terms() {
             raising it applies 24 hours later.
           </li>
           <li>
-            We may change which staking token and provider (for example Jito, Lido or Kinetiq) new Positions use. Open Positions keep the token they started with.
+            We may change which staking token and provider (for example Jito, Lido or Kinetiq) new Locks use. Existing Locks keep the token they started with.
           </li>
           <li>
-            We take a <b>Yield Fee</b> of 20% of the yield a Position earns, before it counts toward Debt, redemption or free yield. We never charge it on Principal.
+            We take a <b>Yield Fee</b> of 20% of the yield a Lock earns, before it counts toward paying back, redemption or free yield. We never charge it on a Locked amount.
           </li>
         </ul>
       </Section>
 
       <Section id="gemas" title="Gemas">
         <p>
-          A Gema is the play unit across {BRAND.name}. It is worth $0.01 at the moment it is issued. It is a claim on the accrued yield of its Source, not a
+          A Gema is the play unit across {BRAND.name}. It is worth $0.01 at the moment it is issued. It is a claim on the earned yield of the Advance it was issued from, not a
           currency, a security, a deposit or a stored value account with us, and it is not insured. Gemas are equal at the table but not at redemption: what a
-          Gema redeems for follows its Source asset and the yield actually earned.
+          Gema redeems for follows the asset of that Advance and the yield actually earned.
         </p>
         <ul>
-          <li><b>Redeem</b> turns Gemas into their Source asset, only as far as the Source Position&apos;s yield has actually accrued. Winning Gemas never shortens your own lock.</li>
+          <li><b>Redeem</b> turns Gemas into the asset they came from, only as far as the yield of the Lock they came from has actually been earned. Winning Gemas never shortens your own lock.</li>
           <li>
-            <b>Instant Redeem</b> turns Gemas you won into their Source asset before that yield has landed, for 75% of their value, and only while {BRAND.name}&apos;s
+            <b>Instant Redeem</b> turns Gemas you won into the asset they came from before that yield has landed, for 75% of their value, and only while {BRAND.name}&apos;s
             Treasury for that asset holds enough to pay. The other 25% is {BRAND.name}&apos;s fee. When the Treasury is short, the request is refused.
           </li>
-          <li>Won Gemas can wait a long time, or without an end date, if the yield of the loser&apos;s Source collapses.</li>
+          <li>Won Gemas can wait a long time, or without an end date, if the yield of the loser&apos;s Lock collapses.</li>
           <li>Gemas can be used to play and redeem as described here. They cannot be sold to or bought from us for money.</li>
         </ul>
       </Section>
@@ -148,7 +148,7 @@ export default function Terms() {
         </ul>
         <p>
           If we reasonably believe you broke these rules, we may void your Matches, withhold or take back payouts and Points, disqualify you from a Season, restrict
-          or end your access in our apps, and report you where the law requires. Smart contracts hold your Principal; we cannot take it, but we can stop you using our
+          or end your access in our apps, and report you where the law requires. Smart contracts hold what you lock; we cannot take it, but we can stop you using our
           apps, queues and payouts.
         </p>
       </Section>
@@ -221,7 +221,7 @@ export default function Terms() {
 
       <Section id="ending" title="Ending">
         <p>
-          You may stop using {BRAND.name} at any time. Your Principal stays yours under the Position&apos;s rules, and Redeem and Unlock stay available as the programs allow.
+          You may stop using {BRAND.name} at any time. What you lock stays yours under the Lock&apos;s rules, and Redeem and Unlock stay available as the programs allow.
           We may suspend or end your access to our apps and services at any time, for example for a breach of these Terms or a legal requirement. Sections that by their
           nature should survive, including fair play, risks, liability, indemnity and disputes, survive.
         </p>
