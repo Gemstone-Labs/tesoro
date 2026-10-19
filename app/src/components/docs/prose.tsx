@@ -4,7 +4,7 @@ import { CopyButton } from "./CopyButton";
 import { TocInline } from "./TocRail";
 import { groupOf, neighbours, ALL_PAGES } from "./nav";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, TriangleAlert } from "lucide-react";
 
 /** A heading with an anchor. `id` is the URL fragment. */
 export function H2({ id, children }: { id: string; children: ReactNode }) {
@@ -37,7 +37,12 @@ export function Sim({ children = "Simulated" }: { children?: ReactNode }) {
 export function Callout({ kind = "note", title, children }: { kind?: "note" | "sim" | "warn"; title?: string; children: ReactNode }) {
   return (
     <aside className={`docs-callout cut cut-card is-${kind}`} role="note">
-      {title && <b className="docs-callout-title">{title}</b>}
+      {title && (
+        <b className="docs-callout-title">
+          {kind === "warn" && <TriangleAlert aria-hidden />}
+          {title}
+        </b>
+      )}
       <div>{children}</div>
     </aside>
   );

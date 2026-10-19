@@ -13,7 +13,7 @@ export default function Page() {
   right={{ title: "Enforced by the programs", icon: ShieldCheck, tone: "emerald", items: ["What you lock is never entered into a Match or used to pay back an Advance", "A Match is settled exactly once, by the Game's own program", "Fees are fixed when the Match opens", "Anyone can trigger a timeout or a refund"] }}
 />}>
       <Callout kind="warn" title="Read this first">
-        <p>{BRAND.name} runs on smart contracts. Read this page before you lock anything you are not ready to lose access to for a while.</p>
+        <p>When you lock crypto, it stays locked until your Advance is paid back, and that can take longer than the estimate. Only lock what you won&apos;t need for a while. The rest of this page explains the risks.</p>
       </Callout>
 
       <H2 id="prices">Prices come from a trusted key</H2>
