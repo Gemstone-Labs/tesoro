@@ -188,7 +188,6 @@ a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(23
 a.tile:hover { transition-duration: 0.15s; }
 .tile-glare { position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.3s ease; background: radial-gradient(45% 55% at var(--gx, 50%) var(--gy, 30%), rgba(255, 255, 255, 0.16), transparent 70%); }
 a.tile:hover .tile-glare { opacity: 1; }
-.tile-live { position: absolute; top: 18px; left: 18px; z-index: 3; display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; font-size: var(--fs-13); font-weight: 700; color: var(--fg); background: rgba(6, 9, 12, 0.7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); --edge: var(--edge-2); }
 
 /* ——— Leaderboard teaser ——— */
 .lb-teaser .rail-track > * { grid-column: 1 / -1; }

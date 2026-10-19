@@ -75,10 +75,6 @@ export function PlayNowRail() {
             <Image src={g.tile} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" />
             <span className="tile-shade" aria-hidden="true" />
             <span className="tile-glare" aria-hidden="true" />
-            <span className="cut cut-chip tile-live">
-              <i className="live-dot" aria-hidden="true" />
-              Live now
-            </span>
             <span className="tile-label">
               <strong>{g.name}</strong>
               {g.game && <TileInfo waiting={waitingByEntry(queue?.[g.game], ENTRY_SIZES, me)} loaded={queue !== null} fact={facts[g.game]} />}
