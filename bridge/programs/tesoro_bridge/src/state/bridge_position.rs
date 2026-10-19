@@ -32,7 +32,8 @@ pub struct BridgePosition {
     pub unlock_sent: bool,
     /// The vault Treasury balance reported with the latest YieldAccrued.
     pub treasury_balance: u128,
-    /// The vault's cumulative Instant payouts, reported with that same YieldAccrued. Last field: the
-    /// account grew by 16 bytes at the end.
+    /// The vault's cumulative Instant payouts, reported with that same YieldAccrued.
     pub instant_paid: u128,
+    /// Vault block time of that same YieldAccrued; 0 = no report yet. Last field.
+    pub report_time: u64,
 }

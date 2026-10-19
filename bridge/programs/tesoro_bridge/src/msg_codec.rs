@@ -12,17 +12,18 @@ use crate::errors::BridgeError;
 //
 // Bodies:
 //   1 PositionLocked (EVM -> Solana): owner [32] | asset [32] | principal u128 | horizon u8
-//   2 YieldAccrued   (EVM -> Solana): cumulative u128 | treasury_balance u128 | instant_paid u128
+//   2 YieldAccrued   (EVM -> Solana): cumulative u128 | treasury_balance u128 | instant_paid u128 | report_time u64
 //   3 Unlock         (Solana -> EVM): amount u128 (always 0)
 //   4 PayYield       (Solana -> EVM): to [32] | amount u128
 //   5 PayInstant     (Solana -> EVM): to [32] | amount u128   paid from the vault's treasury
 //
 // `cumulative` is the Position's accrued yield net of the Yield Fee; `treasury_balance` is what the
 // vault's treasury can pay now (it falls with Instant Redeem payouts and withdrawals); `instant_paid`
-// is the vault's cumulative Instant Redeem payouts at that same block.
+// is the vault's cumulative Instant Redeem payouts at that same block; `report_time` is that block's
+// timestamp, which orders snapshots of the vault Treasury.
 pub const HEADER_LEN: usize = 1 + 4 + 32 + 8;
 pub const LOCKED_LEN: usize = HEADER_LEN + 32 + 32 + 16 + 1;
-pub const YIELD_LEN: usize = HEADER_LEN + 16 + 16 + 16;
+pub const YIELD_LEN: usize = HEADER_LEN + 16 + 16 + 16 + 8;
 pub const UNLOCK_LEN: usize = HEADER_LEN + 16;
 pub const PAY_YIELD_LEN: usize = HEADER_LEN + 32 + 16;
 pub const PAY_INSTANT_LEN: usize = PAY_YIELD_LEN;
@@ -44,7 +45,7 @@ pub struct Header {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Inbound {
     Locked { owner: [u8; 32], asset: [u8; 32], principal: u128, horizon: u8 },
-    Yield { cumulative: u128, treasury_balance: u128, instant_paid: u128 },
+    Yield { cumulative: u128, treasury_balance: u128, instant_paid: u128, report_time: u64 },
 }
 
 pub fn encode_header(h: &Header, buf: &mut Vec<u8>) {
@@ -138,6 +139,7 @@ pub fn decode_inbound(buf: &[u8]) -> Result<(Header, Inbound)> {
                 cumulative: u128::from_be_bytes(read(buf, HEADER_LEN)?),
                 treasury_balance: u128::from_be_bytes(read(buf, HEADER_LEN + 16)?),
                 instant_paid: u128::from_be_bytes(read(buf, HEADER_LEN + 32)?),
+                report_time: u64::from_be_bytes(read(buf, HEADER_LEN + 48)?),
             }
         },
         _ => return err!(BridgeError::InvalidMessageType),
@@ -214,8 +216,9 @@ mod tests {
         buf.extend_from_slice(&123_456_789u128.to_be_bytes());
         buf.extend_from_slice(&42_000u128.to_be_bytes());
         buf.extend_from_slice(&7_000u128.to_be_bytes());
+        buf.extend_from_slice(&1_760_000_000u64.to_be_bytes());
         assert_eq!(buf.len(), YIELD_LEN);
-        assert_eq!(YIELD_LEN, 93);
+        assert_eq!(YIELD_LEN, 101);
         let (h, body) = decode_inbound(&buf).unwrap();
         assert_eq!(h.seq, 9);
         assert_eq!(
@@ -223,12 +226,14 @@ mod tests {
             Inbound::Yield {
                 cumulative: 123_456_789,
                 treasury_balance: 42_000,
-                instant_paid: 7_000
+                instant_paid: 7_000,
+                report_time: 1_760_000_000
             }
         );
-        // The 61- and 77-byte messages of the old vaults are refused.
+        // The 61-, 77- and 93-byte messages of older vaults are refused.
         assert!(decode_inbound(&buf[..HEADER_LEN + 16]).is_err());
         assert!(decode_inbound(&buf[..HEADER_LEN + 32]).is_err());
+        assert!(decode_inbound(&buf[..HEADER_LEN + 48]).is_err());
     }
 
     #[test]

@@ -21,8 +21,9 @@ pub struct SyncTreasury<'info> {
 impl SyncTreasury<'_> {
     pub fn apply(ctx: &mut Context<SyncTreasury>, _params: &PositionRef) -> Result<()> {
         let position = &ctx.accounts.bridge_position;
-        let (balance, paid) = (position.treasury_balance, position.instant_paid);
-        ctx.accounts.vault_treasury.apply_report(balance, paid);
+        let (balance, paid, time) =
+            (position.treasury_balance, position.instant_paid, position.report_time);
+        ctx.accounts.vault_treasury.apply_report(balance, paid, time);
         Ok(())
     }
 }

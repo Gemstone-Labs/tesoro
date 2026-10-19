@@ -77,9 +77,11 @@ impl ApplyYield<'_> {
         );
         tesoro_core::cpi::apply_yield_from_source(cpi, position.last_yield_seq, cumulative)?;
         position.applied_yield_seq = position.last_yield_seq;
-        ctx.accounts
-            .vault_treasury
-            .apply_report(position.treasury_balance, position.instant_paid);
+        ctx.accounts.vault_treasury.apply_report(
+            position.treasury_balance,
+            position.instant_paid,
+            position.report_time,
+        );
         Ok(())
     }
 }

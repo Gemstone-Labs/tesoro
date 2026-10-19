@@ -108,6 +108,7 @@ function readBridgePosition(d: Buffer) {
         appliedYieldSeq: rd(8).readBigUInt64LE(0), outSeq: rd(8).readBigUInt64LE(0), unlockSent: rd(1)[0] === 1,
         treasuryBalance: u128(Buffer.from(rd(16)).reverse()),
         instantPaid: u128(Buffer.from(rd(16)).reverse()),
+        reportTime: rd(8).readBigUInt64LE(0),
     }
 }
 function readCorePosition(d: Buffer) {
@@ -397,13 +398,14 @@ async function main() {
             const pk = vaultTreasuryPda(eid, vault)
             const info = await connection.getAccountInfo(pk)
             if (!info) return console.log('vault treasury', pk.toBase58(), 'missing (set_peer_config creates it)')
-            // disc 8, eid u32, peer_address [32], balance u128, paid_at_report u128, instant_recorded u128, bump
+            // disc 8, eid u32, peer_address [32], balance u128, paid_at_report u128, instant_recorded u128, report_time u64, bump
             const u128 = (o: number) => BigInt('0x' + Buffer.from(info.data.subarray(o, o + 16)).reverse().toString('hex'))
             const balance = u128(44)
             const paidAtReport = u128(60)
             const recorded = u128(76)
+            const reportTime = info.data.readBigUInt64LE(92)
             const outstanding = recorded > paidAtReport ? recorded - paidAtReport : 0n
-            console.log('vault treasury', pk.toBase58(), JSON.stringify({ balance: balance.toString(), paidAtReport: paidAtReport.toString(), instantRecorded: recorded.toString(), available: (balance > outstanding ? balance - outstanding : 0n).toString() }))
+            console.log('vault treasury', pk.toBase58(), JSON.stringify({ balance: balance.toString(), paidAtReport: paidAtReport.toString(), instantRecorded: recorded.toString(), reportTime: reportTime.toString(), available: (balance > outstanding ? balance - outstanding : 0n).toString() }))
             return
         }
         default: throw new Error('unknown command')

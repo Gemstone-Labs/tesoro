@@ -15,11 +15,13 @@ import {PositionVault} from "./PositionVault.sol";
 /// Wire format (identical to bridge/programs/tesoro_bridge/src/msg_codec.rs; abi.encodePacked, big-endian):
 ///   header  : uint8 msgType | uint32 sourceChain | bytes32 positionId | uint64 seq                    (45 bytes)
 ///   1 PositionLocked (EVM to Solana): header | bytes32 owner | bytes32 lst | uint128 principalUnderlying | uint8 horizon
-///   2 YieldAccrued   (EVM to Solana): header | uint128 cumulativeAccruedUnderlying | uint128 treasuryBalance | uint128 instantPaid (93 bytes)
+///   2 YieldAccrued   (EVM to Solana): header | uint128 cumulativeAccruedUnderlying | uint128 treasuryBalance | uint128 instantPaid | uint64 reportTime (101 bytes)
 ///                     treasuryBalance = what the vault Treasury can still pay now. It rises with fees and refills and FALLS
 ///                     with Instant Redeems and withdrawals (it used to be the only-growing treasuryIn).
 ///                     instantPaid = the vault's cumulative Instant Redeem payouts at the same block; Solana subtracts the payouts it
 ///                     recorded that this figure does not cover yet (they are still waiting to be paid).
+///                     reportTime = block.timestamp of the report; Solana takes a Treasury snapshot only if it is not older than the
+///                     one it holds, so an old report cannot be replayed over a newer one.
 ///   3 Unlock         (Solana to EVM): header | uint128 0
 ///   4 PayYield       (Solana to EVM): header | bytes32 to | uint128 amountUnderlying
 ///   5 PayInstant     (Solana to EVM): header | bytes32 to | uint128 amountUnderlying (paid from the Treasury; reverts, and is delivered again, while the Treasury holds less)
@@ -71,7 +73,7 @@ contract PositionVaultOApp is PositionVault, OApp {
 
     /// @notice Native fee to send `reportYield`'s message.
     function quoteYieldAccrued() external view returns (uint256) {
-        return _quote(solanaEid, _packYield(1, 1, 1, 1, 1, 1), _options(), false).nativeFee;
+        return _quote(solanaEid, _packYield(1, 1, 1, 1, 1, 1, 1), _options(), false).nativeFee;
     }
 
     // ------------------------------------------------------------------ outbound
@@ -103,7 +105,8 @@ contract PositionVaultOApp is PositionVault, OApp {
                 seq,
                 _u128(uint256(_word(payload, 4))),
                 _u128(uint256(_word(payload, 7))),
-                _u128(uint256(_word(payload, 8)))
+                _u128(uint256(_word(payload, 8))),
+                uint64(uint256(_word(payload, 6)))
             );
         } else {
             revert InvalidMessageType();
@@ -161,12 +164,16 @@ contract PositionVaultOApp is PositionVault, OApp {
         return abi.encodePacked(MSG_POSITION_LOCKED, chain, bytes32(key), seq, owner, asset, principal, horizon);
     }
 
-    function _packYield(uint32 chain, uint256 key, uint64 seq, uint128 cumulative, uint128 treasury, uint128 paid)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encodePacked(MSG_YIELD_ACCRUED, chain, bytes32(key), seq, cumulative, treasury, paid);
+    function _packYield(
+        uint32 chain,
+        uint256 key,
+        uint64 seq,
+        uint128 cumulative,
+        uint128 treasury,
+        uint128 paid,
+        uint64 time
+    ) internal pure returns (bytes memory) {
+        return abi.encodePacked(MSG_YIELD_ACCRUED, chain, bytes32(key), seq, cumulative, treasury, paid, time);
     }
 
     function _options() internal view returns (bytes memory) {

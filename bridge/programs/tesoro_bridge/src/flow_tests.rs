@@ -23,6 +23,8 @@ use tesoro_core::{
 };
 
 type Failed = litesvm::types::FailedTransactionMetadata;
+/// Vault block time of the test Yield Reports: this plus the message seq.
+const REPORT_EPOCH: u64 = 1_760_000_000;
 const SOL: u64 = 1_000_000_000;
 const ETH: u128 = 1_000_000_000_000_000_000;
 
@@ -201,6 +203,7 @@ impl Env {
                 balance: 0,
                 paid_at_report: 0,
                 instant_recorded: 0,
+                report_time: 0,
                 bump: Pubkey::find_program_address(
                     &[TREASURY_SEED, &EID_HOODI.to_be_bytes(), &msg_codec::pad_address(&VAULT)],
                     &crate::ID,
@@ -397,6 +400,7 @@ impl Env {
                 unlock_sent: false,
                 treasury_balance: 0,
                 instant_paid: 0,
+                report_time: 0,
             },
         );
     }
@@ -417,6 +421,7 @@ impl Env {
         p.yield_cumulative = cumulative;
         p.treasury_balance = treasury_balance;
         p.instant_paid = instant_paid;
+        p.report_time = REPORT_EPOCH + seq; // one second per seq
         p.last_in_seq = p.last_in_seq.max(seq);
         self.put(key, crate::ID, &p);
     }

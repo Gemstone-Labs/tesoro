@@ -117,7 +117,7 @@ contract KHypeRateAdapterTest is Test {
         vm.prank(alice);
         v.reportYield{value: 0.0001 ether}(id);
         bytes memory m = lz.lastMessage();
-        assertEq(m.length, 93);
+        assertEq(m.length, 101);
         assertEq(uint8(m[0]), 2);
         assertApproxEqAbs(uint128(bytes16(_slice(m, 45, 16))), 0.4 ether, 2);
         assertApproxEqAbs(uint128(bytes16(_slice(m, 61, 16))), 0.1 ether, 2);
