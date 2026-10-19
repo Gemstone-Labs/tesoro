@@ -10,12 +10,15 @@ export interface CatalogueEntry {
   game?: GameId;
 }
 
+/** The order the Lobby shows the live Games in, in the hero carousel and the Play Now grid (founder pick). */
+export const LOBBY_ORDER: GameId[] = ["vanguard", "holdem", "trading-duel", "block-puzzle"];
+
 /** The Lobby's Play Now rail: the live Games, then the announced ones. */
 export const CATALOGUE: CatalogueEntry[] = [
-  { key: "block-puzzle", name: "Block Puzzle", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
+  { key: "vanguard", name: "Vanguard", tile: art.vanguardTile, live: true, game: "vanguard" },
   { key: "holdem", name: "Heads-up Hold'em", tile: art.holdemTile, live: true, game: "holdem" },
   { key: "trading-duel", name: "Trading Duel", tile: art.tradingDuelTile, live: true, game: "trading-duel" },
-  { key: "vanguard", name: "Vanguard", tile: art.vanguardTile, live: true, game: "vanguard" },
+  { key: "block-puzzle", name: "Block Puzzle", tile: art.blockPuzzleTile, live: true, game: "block-puzzle" },
   { key: "word-duel", name: "Word Duel", tile: art.comingSoon["word-duel"], live: false },
   { key: "bubble-burst", name: "Bubble Burst", tile: art.comingSoon["bubble-burst"], live: false },
   { key: "pocket-pool", name: "Pocket Pool", tile: art.comingSoon["pocket-pool"], live: false },
