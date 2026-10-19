@@ -10,7 +10,8 @@ import { plainError } from "@/lib/errors";
 import { refusalLine } from "./refusal";
 import { PublicKey } from "@solana/web3.js";
 import { VANGUARD_PROGRAM_ID, addresses, type PlayerSigner } from "./chain";
-import { claimDue, turnKey } from "./clock";
+import { turnKey } from "./clock";
+import { actionsDue, canDelegate, contributeBundled, readDue, tickDelayMs } from "./driver";
 import { STATUS, battleKey, decodeBattle, type ArmyAccount, type Battle } from "./decode";
 
 /** Where a Vanguard Match is in its life, read from chain. */
@@ -83,6 +84,11 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   const lastVrf = useRef(0);
   const lastClaim = useRef(0);
   const lastResolve = useRef(0);
+  const battleRef = useRef<Battle | null>(null);
+  const lastUpdate = useRef(0);
+  const lastRead = useRef(0);
+  const armyKey = useRef("");
+  const tickRef = useRef<() => void>(() => undefined);
   const settledSeen = useRef(false);
   const finalRead = useRef(false);
   const delegated = useRef(false);
@@ -104,6 +110,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   }, []);
 
   const applyBattle = useCallback((b: Battle) => {
+    battleRef.current = b;
     const k = battleKey(b);
     if (k === shownKey.current) return;
     shownKey.current = k;
@@ -169,16 +176,16 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
 
     if (info.owner.equals(VANGUARD_PROGRAM_ID)) {
       const b = decodeBattle(info.data);
-      if (b.status === STATUS.created) {
+      if (b.status === STATUS.created && canDelegate(b, Math.floor(now() / 1000))) {
         setStage("setup", "Creating your session");
         if (!late) return;
         await vg.delegateMatch(p, id);
         return;
       }
-      // Committed back after the Match ended: settle.
+      // Committed back after the Match ended, or never started in time (a no-show is refunded): settle.
       delegated.current = false;
       setView((v) => ({ ...v, battle: b }));
-      setStage("closing", "Paying out the Pot");
+      setStage("closing", b.status === STATUS.created ? "Refunding your entry" : "Paying out the Pot");
       setView((v) => (v.commit ? { ...v, commit: null } : v));
       if (!closingSince.current) closingSince.current = now();
       // One Player settles at once (the winner; seat 0 for a draw or a cancel). The other waits and settles
@@ -214,7 +221,7 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
 
     if (b.status === STATUS.setup) {
       setStage("setup", "Drawing the armies in secret");
-      await setUp(seat);
+      await setUp(seat, b);
       return;
     }
 
@@ -247,24 +254,20 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     setCommitPending(id, true);
     setView((v) => ({ ...v, commit: { phase: "sending", won: mine } }));
 
-    async function setUp(s: 0 | 1) {
+    async function setUp(s: 0 | 1, current: Battle) {
       if (!p || id === null) return;
       if (!contributed.current) {
-        try {
-          await vg.contributeEntropy(p, id, false);
-        } catch (e) {
-          if (!/AlreadyContributed/.test(String(e))) throw e;
-        }
+        await contributeBundled(vg, p, id, current.oracleQueue);
         contributed.current = true;
         contributedAt.current = now();
         lastVrf.current = 0;
         return;
       }
-      // Seat 1 asks for the randomness and deals; seat 0 only steps in if that stalls.
+      // The second contributor already asked with its secret. Either Player asks again if the output is late.
       if (s === 0 && now() - contributedAt.current < 6_000) return;
       if (now() - lastVrf.current > 15_000) {
         try {
-          await vg.requestVrf(p, id);
+          await vg.requestVrf(p, id, current.oracleQueue);
           lastVrf.current = now();
         } catch {
           // Refused until both secrets are in.
@@ -292,12 +295,23 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
   }, [step, patch]);
 
   useEffect(() => {
+    tickRef.current = () => void tick();
+  }, [tick]);
+
+  // The driver reads the Match, the base-layer Battle and the rollup Battle each pass: while the Match is live the
+  // Battle subscription carries the board, so passes come slowly.
+  useEffect(() => {
     if (!p || id === null) return;
-    const first = setTimeout(() => void tick(), 0);
-    const t = setInterval(() => void tick(), 1500);
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const loop = async () => {
+      await tick();
+      if (!stop) timer = setTimeout(() => void loop(), tickDelayMs(stage.current));
+    };
+    timer = setTimeout(() => void loop(), 0);
     return () => {
-      clearTimeout(first);
-      clearInterval(t);
+      stop = true;
+      clearTimeout(timer);
     };
   }, [p, id, tick]);
 
@@ -308,40 +322,64 @@ export function useVanguardMatch(id: bigint | null, signer: ChainSigner | null, 
     let stop = false;
     let busy = false;
     let unwatch: (() => void) | null = null;
+    const live = () => {
+      const seat = seatRef.current;
+      return seat !== null && delegated.current && ["live", "closing", "setup"].includes(stage.current) ? seat : null;
+    };
+    const readArmy = async (b: Battle) => {
+      const seat = live();
+      if (seat === null || b.status < STATUS.setup) return;
+      const key = [b.status, b.turnNo, b.moves, b.actionSeq].join(":");
+      if (key === armyKey.current) return;
+      armyKey.current = key;
+      const army = await getVanguard().readOwnArmy(p, id, seat).catch(() => null);
+      if (army && army.ranks.some((r) => r !== 0) && !stop) setView((v) => (v.army && v.army.moves === army.moves && v.army.fuel === army.fuel && v.army.side === army.side ? v : { ...v, army }));
+    };
+    // What to send from the Battle held, no reads: a declared move or timeout waits for a later slot (either Player
+    // or the keeper applies it), and past a deadline the program passes the turn, ends the Match on the cap or
+    // cancels it; anyone may ask.
+    const send = async () => {
+      const b = battleRef.current;
+      if (!b || stop || live() === null) return;
+      const due = actionsDue(b, turnSeenRef.current || now(), now(), lastResolve.current, lastClaim.current);
+      const vg = getVanguard();
+      if (due.resolve) {
+        lastResolve.current = now();
+        await vg.resolve(p, id).catch(() => undefined);
+      }
+      if (due.claim) {
+        lastClaim.current = now();
+        await vg.claimTimeout(p, id).catch(() => undefined);
+      }
+    };
     void getVanguard()
       .watchBattle(p, id, (b) => {
-        if (!stop) applyBattle(b);
+        if (stop) return;
+        lastUpdate.current = now();
+        applyBattle(b);
+        void readArmy(b);
+        void send();
+        if (b.status !== STATUS.live && stage.current === "live") tickRef.current();
       })
       .then((u) => {
         if (stop) u();
         else unwatch = u;
       })
       .catch(() => undefined);
+    // The subscription may miss an update: read the Battle only when it has been quiet for a while.
     const poll = async () => {
-      const seat = seatRef.current;
-      if (busy || stop || seat === null || !delegated.current || !["live", "closing", "setup"].includes(stage.current)) return;
+      if (busy || stop || live() === null) return;
       busy = true;
       try {
-        const vg = getVanguard();
-        const b = await vg.readBattle(p, id);
-        if (!b || stop) return;
-        setView((v) => (v.reconnecting ? { ...v, reconnecting: false } : v));
-        applyBattle(b);
-        if (b.status >= STATUS.setup) {
-          const army = await vg.readOwnArmy(p, id, seat);
-          if (army && army.ranks.some((r) => r !== 0) && !stop) setView((v) => (v.army && v.army.moves === army.moves && v.army.fuel === army.fuel && v.army.side === army.side ? v : { ...v, army }));
+        if (readDue(now(), lastUpdate.current, lastRead.current)) {
+          const b = await getVanguard().readBattle(p, id);
+          lastRead.current = now();
+          if (!b || stop) return;
+          setView((v) => (v.reconnecting ? { ...v, reconnecting: false } : v));
+          applyBattle(b);
+          await readArmy(b);
         }
-        // A declared move or timeout waits for a later slot; either Player (or the keeper) applies it.
-        if (b.status === STATUS.live && b.pendingKind !== 0 && now() - lastResolve.current > 600) {
-          lastResolve.current = now();
-          await vg.resolve(p, id).catch(() => undefined);
-        }
-        // Past a deadline the program passes the turn, ends the Match on the cap or cancels it; anyone may ask.
-        const seenAt = turnSeenRef.current || now();
-        if ((b.status === STATUS.live || b.status === STATUS.setup) && claimDue(b, seenAt, now()) && now() - lastClaim.current > 2_500) {
-          lastClaim.current = now();
-          await vg.claimTimeout(p, id).catch(() => undefined);
-        }
+        await send();
       } catch {
         // The driver reports persistent failures; a missed poll is retried, and the board says it is behind.
         if (!stop) setView((v) => (v.reconnecting ? v : { ...v, reconnecting: true }));

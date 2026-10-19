@@ -1,14 +1,14 @@
 import type { Battle } from "./decode";
 import { endWhy } from "./end";
 
-/** Why the Match ended, in one line, for the end panel and the result screen. */
-export function EndWhy({ battle, seat }: { battle: Battle; seat: number }) {
+/** Why the Match ended: a title and one sentence, for the result screen. `titleOnly` leaves the sentence out where the board already says it. */
+export function EndWhy({ battle, seat, titleOnly = false }: { battle: Battle; seat: number; titleOnly?: boolean }) {
   const why = endWhy(battle, seat);
   if (!why) return null;
   return (
     <p className="vg-why" role="status">
       <b>{why.title}</b>
-      <span>{why.line}</span>
+      {!titleOnly && <span>{why.line}</span>}
     </p>
   );
 }

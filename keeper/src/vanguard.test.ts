@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PENDING, STATUS } from "../../app/src/games/vanguard/decode.ts";
-import { GRACE_SECS, vanguardStep, type BattleFacts } from "./vanguard.ts";
+import { GRACE_SECS, SETUP_ASSIST_SECS, setupMove, vanguardStep, type BattleFacts } from "./vanguard.ts";
 
 const DAY = 86_400;
 const battle = (status: number, over: Partial<BattleFacts> = {}): BattleFacts => ({
@@ -57,7 +57,7 @@ describe("Vanguard hygiene (rollup)", () => {
   });
 
   it("cancels a Battle stuck in setup past the entropy or setup deadline", () => {
-    assert.equal(tee(battle(STATUS.setup), 1400 + GRACE_SECS).do, "wait");
+    assert.equal(tee(battle(STATUS.setup), 1400 + GRACE_SECS).do, "assist_setup");
     assert.equal(tee(battle(STATUS.setup), 1401 + GRACE_SECS).do, "claim_timeout");
   });
 
@@ -80,5 +80,39 @@ describe("Vanguard hygiene (rollup)", () => {
 
   it("always says why it waits", () => {
     assert.match(tee(battle(STATUS.live), 1500).why, /turn|deadline/i);
+  });
+});
+
+describe("a Battle the rollup stopped serving (the tesoro_core deadline passes)", () => {
+  it("refunds the Match whatever state the rollup last showed, except a finished Battle", () => {
+    for (const status of [STATUS.created, STATUS.setup, STATUS.live]) {
+      assert.equal(vanguardStep(battle(status), "tee", 10, 10, 0n).do, "refund");
+      assert.equal(vanguardStep(battle(status, { pendingKind: PENDING.move, pendingSlot: 1n }), "tee", 11, 10, 9n).do, "refund");
+      assert.notEqual(vanguardStep(battle(status), "tee", 9, 10, 0n).do, "refund");
+    }
+    assert.equal(vanguardStep(battle(STATUS.over, { permissioned: true }), "tee", 11, 10, 0n).do, "close_match");
+  });
+});
+
+describe("setup that stalls", () => {
+  it("is helped along while it is inside its window, and cancelled once past it", () => {
+    assert.equal(tee(battle(STATUS.setup), 1400 + GRACE_SECS).do, "assist_setup");
+    assert.equal(tee(battle(STATUS.setup), 1401 + GRACE_SECS).do, "claim_timeout");
+  });
+
+  it("deals when the deal would go through, whatever the randomness request did", () => {
+    assert.equal(setupMove({ canDeal: true, canRequest: true, now: 100, lastRequestAt: 0, setupStartedAt: 0 }), "deal");
+  });
+
+  it("asks for the randomness once both secrets are in and nothing is stored, but not on every pass", () => {
+    const base = { canDeal: false, canRequest: true, setupStartedAt: 100 };
+    assert.equal(setupMove({ ...base, now: 100 + SETUP_ASSIST_SECS, lastRequestAt: 0 }), "request_vrf");
+    assert.equal(setupMove({ ...base, now: 100 + SETUP_ASSIST_SECS + 5, lastRequestAt: 100 + SETUP_ASSIST_SECS }), "wait");
+    assert.equal(setupMove({ ...base, now: 100 + SETUP_ASSIST_SECS + 20, lastRequestAt: 100 + SETUP_ASSIST_SECS }), "request_vrf");
+  });
+
+  it("leaves the first seconds to the Players' clients, and does nothing while a secret is missing", () => {
+    assert.equal(setupMove({ canDeal: false, canRequest: true, now: 103, lastRequestAt: 0, setupStartedAt: 100 }), "wait");
+    assert.equal(setupMove({ canDeal: false, canRequest: false, now: 500, lastRequestAt: 0, setupStartedAt: 100 }), "wait");
   });
 });

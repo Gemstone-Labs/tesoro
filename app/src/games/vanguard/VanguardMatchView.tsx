@@ -116,7 +116,7 @@ export function VanguardMatchView({ matchId }: { matchId: string }) {
             <Card large>
               <div className="stack">
                 <Label>Match over</Label>
-                {battle && seat !== null && <EndWhy battle={battle} seat={seat} />}
+                {battle && seat !== null && <EndWhy battle={battle} seat={seat} titleOnly />}
                 <Busy>{view.commit ? commitCopy(view.commit).title : `${view.note || "Saving the result"}…`}</Busy>
                 <p className="note">{view.commit ? commitCopy(view.commit).line : "Saving the result and paying out the Pot. This takes a few seconds."}</p>
               </div>
