@@ -8,6 +8,7 @@
 
 pub mod backing;
 pub mod extend_limit;
+pub mod line_store;
 pub mod matches;
 pub mod money;
 pub mod native;
