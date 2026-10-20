@@ -84,7 +84,7 @@ export function Studios() {
                 <a href={`${OUTBOUND.docs}/developers`}>
                   <Plus aria-hidden />
                   <span>Your game</span>
-                  <small>Free to list</small>
+                  <small>Free to apply</small>
                 </a>
               </li>
             </ul>

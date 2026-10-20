@@ -9,11 +9,17 @@ import holdemIdl from "./idl/holdem.json";
 import coreIdl from "./idl/tesoro_core.json";
 import tradingDuelIdl from "./idl/trading_duel.json";
 import vanguardIdl from "./idl/vanguard.json";
+import { CLUSTER } from "@/lib/cluster-settings";
+import { SOLANA_DEVNET_RPC } from "@/lib/solana-network";
 import { BASE_RPC_URL } from "./config";
+import { rpcFetch } from "./rpc-fetch";
 import { SplitConnection, routeGpa } from "./split-connection";
 
-/** No RPC call waits forever: a hung request fails after 20 s and the caller's retry or error path takes over. */
-const timedFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(20_000) });
+/**
+ * No RPC call waits forever (20 s), and a brief outage of the browser RPC is retried. In test mode the last
+ * try goes to Solana's public devnet RPC, so one provider's 503 does not stop a Player. Mainnet has no fallback.
+ */
+const browserFetch = rpcFetch({ fallback: CLUSTER.id === "test" && BASE_RPC_URL !== SOLANA_DEVNET_RPC ? SOLANA_DEVNET_RPC : undefined });
 
 let chain: BlockPuzzleChain | null = null;
 let holdem: HoldemChain | null = null;
@@ -24,7 +30,7 @@ let vanguard: VanguardChain | null = null;
 export function getChain(): BlockPuzzleChain {
   if (!chain) {
     chain = new BlockPuzzleChain({
-      base: new SplitConnection(BASE_RPC_URL, routeGpa, { commitment: "confirmed", fetch: timedFetch }),
+      base: new SplitConnection(BASE_RPC_URL, routeGpa, { commitment: "confirmed", fetch: browserFetch }),
       blockPuzzleIdl: blockPuzzleIdl as Idl,
       coreIdl: coreIdl as Idl,
     });
