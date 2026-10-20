@@ -356,6 +356,7 @@ impl Env {
                 redeemed: 0,
                 yield_units: 0,
                 redeemed_units: 0,
+                due_at: 0,
             },
         };
         let mut data = Vec::new();

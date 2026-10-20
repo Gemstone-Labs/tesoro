@@ -417,6 +417,9 @@ impl<'info> KindCtx<'info> {
                 });
                 Ok(())
             }
+            // A Position the oracle reports on Solana (test mode) is paid off chain: the Gemas are
+            // burned and `Redeemed` is the seam. EVM Sources are redeemed through the bridge.
+            Self::Reported => Ok(()),
             _ => err!(TesoroError::BadRemainingAccounts),
         }
     }
@@ -589,6 +592,9 @@ pub(crate) fn redeem_line<'a, 'info>(
     sync_in_books(books, position, source, source_key, &rates)?;
     let (at, idx, mut line) =
         find_line(pool, key).ok_or_else(|| core_err(CoreError::HoldingMismatch))?;
+    if k > line.amount {
+        return Err(core_err(CoreError::InsufficientGemas));
+    }
     if line.is_playable() {
         pool.check_withdraw(k).map_err(draw_err)?;
     }
@@ -874,6 +880,9 @@ pub(crate) fn return_own_line<'a, 'info>(
 ) -> Result<()> {
     let (at, idx, mut line) =
         find_line(pool, key).ok_or_else(|| core_err(CoreError::HoldingMismatch))?;
+    if k > line.amount {
+        return Err(core_err(CoreError::InsufficientGemas));
+    }
     pool.check_withdraw(k).map_err(draw_err)?;
     let (book, ck) = books
         .book_with_history(&source_key.to_bytes())

@@ -377,6 +377,7 @@ fn source_for(position: APk, owner: APk) -> SourceState {
             redeemed: 0,
             yield_units: 0,
             redeemed_units: 0,
+            due_at: 0,
         },
     }
 }

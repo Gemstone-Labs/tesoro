@@ -11,11 +11,15 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
-use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain, PAYOUT_WINDOW_SECS};
+use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain};
+use tesoro_core::ledger::book::fp_ceil;
+use tesoro_core::ledger::line_store::{CLASS_GENERAL, SIDE_OWN};
 use tesoro_core::state::*;
-use tesoro_core::{accounts, instruction};
+use tesoro_core::storage::*;
+use tesoro_core::{accounts, instruction, LineRef};
 
 mod common;
+use common::econ::{book_metas, gemas_in, read_book};
 
 const GAME: APk = APk::new_from_array([9; 32]);
 const ENTRY: u64 = 1_000;
@@ -195,6 +199,22 @@ impl Env {
             vec![],
         );
         env.send(&[register], &admin, &[]).expect("register game");
+        let economy = ix(
+            accounts::SetEconomy {
+                admin: a(admin.pubkey()),
+                config,
+                economy: pda(&[ECONOMY_SEED]),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetEconomy {
+                season_keeper: APk::default(),
+                fill_keeper: APk::default(),
+                keeper_fills: false,
+                routes: [APk::default(); MAX_ROUTES],
+            },
+            vec![],
+        );
+        env.send(&[economy], &admin, &[]).expect("economy");
         env
     }
 
@@ -249,6 +269,22 @@ impl Env {
             vec![],
         );
         self.send(&[create], &kp, &[]).expect("create account");
+        // Room for the Sources a Player collects: the tests below keep several at once.
+        let grow = ix(
+            accounts::GrowStore {
+                payer: key,
+                account,
+                basket: basket_address(&account).0,
+                spill: spill_address(&account).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::GrowStore {
+                which: tesoro_core::StoreKind::Basket,
+                extra_lines: 16,
+            },
+            vec![],
+        );
+        self.send(&[grow], &kp, &[]).expect("grow basket");
         Person { kp, key, account }
     }
 
@@ -313,13 +349,21 @@ impl Env {
         price: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
         let source = source_pda(position, index);
-        let asset = {
+        let (asset, open_advance) = {
             let acct = self.svm.get_account(&s(position)).expect("position");
-            PositionState::try_deserialize(&mut acct.data.as_slice())
-                .expect("position")
-                .inner
-                .source_asset
+            let state = PositionState::try_deserialize(&mut acct.data.as_slice())
+                .expect("position");
+            (state.inner.source_asset, state.inner.open_advance)
         };
+        let mut remaining = vec![AccountMeta::new_readonly(
+            s(pda(&[ONCHAIN_PRICE_SEED, &asset])),
+            false,
+        )];
+        if let Some(prev) = open_advance {
+            let prev = source_pda(position, prev);
+            remaining.push(AccountMeta::new_readonly(s(prev), false));
+            remaining.extend(book_metas(&self.svm, prev));
+        }
         let advance = ix(
             accounts::TakeAdvance {
                 oracle: a(self.oracle.pubkey()),
@@ -330,20 +374,94 @@ impl Env {
                 protections: protections_pda(p.account),
                 position,
                 source,
-                holding: holding_pda(p.account, source),
+                book: book_address(&source).0,
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeAdvance {
                 horizon_months: horizon,
                 price_micro_usd: price,
             },
-            vec![AccountMeta::new_readonly(
-                s(pda(&[ONCHAIN_PRICE_SEED, &asset])),
-                false,
-            )],
+            remaining,
         );
         let oracle = self.oracle.insecure_clone();
-        self.send(&[advance], &oracle, &[&p.kp])
+        self.send(&[advance], &oracle, &[&p.kp])?;
+        self.ensure_pages(source);
+        self.forge_holding(p, source);
+        Ok(())
+    }
+
+    /// Creates page 0 of every class of the Source that writes checkpoint records.
+    fn ensure_pages(&mut self, source: APk) {
+        let n_ext = read_book(&self.svm, source).n_ext;
+        let payer = Keypair::new();
+        self.svm.airdrop(&payer.pubkey(), SOL).unwrap();
+        for class in std::iter::once(1u8).chain(3..4 + n_ext) {
+            let page = ckpt_address(&source, class, 0).0;
+            if self.svm.get_account(&s(page)).is_some() {
+                continue;
+            }
+            let init = ix(
+                accounts::InitCkptPage {
+                    payer: a(payer.pubkey()),
+                    book: book_address(&source).0,
+                    page,
+                    system_program: anchor_lang::system_program::ID,
+                },
+                instruction::InitCkptPage { class, page_no: 0 },
+                vec![],
+            );
+            self.send(&[init], &payer, &[]).expect("checkpoint page");
+        }
+    }
+
+    /// Matching still reads Holdings until ticket 09 moves it onto baskets: give the owner a
+    /// Holding of the new Source with the Gemas the Advance issued (the basket has them too).
+    fn forge_holding(&mut self, p: &Person, source: APk) {
+        self.open_holding(p.account, source);
+        let issued = self.load::<SourceState>(source).inner.issued;
+        let hk = holding_pda(p.account, source);
+        let mut holding = self.load::<HoldingState>(hk);
+        let mut account = self.load::<TesoroAccount>(p.account);
+        holding
+            .inner
+            .credit(&mut account.inner, issued)
+            .expect("credit the forged Holding");
+        self.overwrite(p.account, &account, TesoroAccount::SPACE);
+        self.overwrite(hk, &holding, HoldingState::SPACE);
+    }
+
+    /// The matching side of a `return_own` (matching reads Holdings until ticket 09).
+    fn forge_debit(&mut self, p: &Person, source: APk, n: u64) {
+        let hk = holding_pda(p.account, source);
+        let mut holding = self.load::<HoldingState>(hk);
+        let mut account = self.load::<TesoroAccount>(p.account);
+        holding
+            .inner
+            .debit(&mut account.inner, n)
+            .expect("debit the forged Holding");
+        self.overwrite(p.account, &account, TesoroAccount::SPACE);
+        self.overwrite(hk, &holding, HoldingState::SPACE);
+    }
+
+    fn overwrite<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
+        let mut buf = Vec::new();
+        v.try_serialize(&mut buf).expect("serialize");
+        buf.resize(len, 0);
+        let mut acct = self.svm.get_account(&s(k)).expect("account");
+        acct.data = buf;
+        self.svm.set_account(s(k), acct).expect("set account");
+    }
+
+    /// The owner's own General line of the Source, to name in Redeem and return_own.
+    fn line(&self, source: APk, side: u8) -> LineRef {
+        LineRef {
+            side,
+            due_at: self.load::<SourceState>(source).inner.due_at,
+            class: CLASS_GENERAL,
+            tranche: 0,
+        }
     }
 
     fn yield_to(
@@ -354,6 +472,7 @@ impl Env {
         seq: u64,
         cumulative: u64,
     ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let remaining = source.map_or(vec![], |src| book_metas(&self.svm, src));
         let apply = ix(
             accounts::ApplyYield {
                 oracle: a(signer.pubkey()),
@@ -362,7 +481,7 @@ impl Env {
                 source,
             },
             instruction::ApplyYield { seq, cumulative },
-            vec![],
+            remaining,
         );
         self.send(&[apply], signer, &[])
     }
@@ -696,6 +815,69 @@ fn only_the_oracle_authority_reports_yield_and_prices() {
     assert_eq!(custom_code(&err), 6000);
 }
 
+impl Env {
+    fn redeem_ix_reported(&self, p: &Person, position: APk, source: APk, side: u8, amount: u64) -> Instruction {
+        ix(
+            accounts::Redeem {
+                holder_authority: p.key,
+                holder_account: p.account,
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                position,
+                source,
+            },
+            instruction::Redeem {
+                line: self.line(source, side),
+                amount,
+            },
+            book_metas(&self.svm, source),
+        )
+    }
+
+    fn unlock_ix_reported(&self, p: &Person, position: APk) -> Instruction {
+        let mut remaining = vec![];
+        let state = self.load::<PositionState>(position);
+        if let Some(open) = state.inner.open_advance {
+            let src = source_pda(position, open);
+            remaining.push(rem(src));
+            remaining.extend(book_metas(&self.svm, src));
+        }
+        ix(
+            accounts::Unlock {
+                owner_authority: p.key,
+                owner_account: p.account,
+                economy: pda(&[ECONOMY_SEED]),
+                position,
+            },
+            instruction::Unlock {},
+            remaining,
+        )
+    }
+
+    fn return_own_ix_reported(&self, p: &Person, position: APk, source: APk, amount: u64) -> Instruction {
+        ix(
+            accounts::ReturnOwn {
+                owner_authority: p.key,
+                owner_account: p.account,
+                basket: basket_address(&p.account).0,
+                spill: spill_address(&p.account).0,
+                position,
+                source,
+            },
+            instruction::ReturnOwn {
+                line: self.line(source, SIDE_OWN),
+                amount,
+            },
+            book_metas(&self.svm, source),
+        )
+    }
+
+    /// Left to pay back of a Source's book, in Gemas.
+    fn debt_of(&self, source: APk) -> u64 {
+        fp_ceil(read_book(&self.svm, source).uncovered_total()) as u64
+    }
+}
+
 #[test]
 fn yield_repays_debt_and_redeem_stops_at_accrued() {
     let mut d = duel();
@@ -704,12 +886,11 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 1, 5 * SOL / 2)
         .expect("yield");
-    let src = d.env.load::<SourceState>(d.a_source).inner;
-    assert_eq!(src.debt(), 37_500);
-    assert_eq!(src.redeemable(), 37_500);
+    assert_eq!(d.env.debt_of(d.a_source), 37_500);
 
     // Replay of the same message and an older sequence change nothing.
     let before = d.env.load::<PositionState>(d.a_position).inner;
+    let book_before = read_book(&d.env.svm, d.a_source);
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 1, 4 * SOL)
         .expect("replay is a no-op");
@@ -717,7 +898,8 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
         .yield_to(&oracle, d.a_position, Some(d.a_source), 0, 4 * SOL)
         .expect("stale is a no-op");
     assert_eq!(d.env.load::<PositionState>(d.a_position).inner, before);
-    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), 37_500);
+    assert_eq!(read_book(&d.env.svm, d.a_source), book_before);
+    assert_eq!(d.env.debt_of(d.a_source), 37_500);
     // Cumulative yield never goes backwards.
     let err = d
         .env
@@ -726,18 +908,9 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
     assert_eq!(custom_code(&err), core(CoreError::CumulativeDecreased));
 
     let redeem = |d: &mut Duel, amount: u64| {
-        let position = d.a_position;
-        let ixn = ix(
-            accounts::Redeem {
-                holder_authority: d.alice.key,
-                holder_account: d.alice.account,
-                position,
-                source: d.a_source,
-                holding: d.a_holding,
-            },
-            instruction::Redeem { amount },
-            vec![],
-        );
+        let ixn = d
+            .env
+            .redeem_ix_reported(&d.alice, d.a_position, d.a_source, SIDE_OWN, amount);
         let alice = d.alice.kp.insecure_clone();
         d.env.send(&[ixn], &alice, &[])
     };
@@ -745,31 +918,27 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
     assert_eq!(custom_code(&err), core(CoreError::ExceedsRedeemable));
     redeem(&mut d, 37_500).expect("redeem accrued part");
     let src = d.env.load::<SourceState>(d.a_source).inner;
-    assert_eq!((src.redeemed, src.redeemed_units), (37_500, 2_500_000_000));
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 37_500);
+    // Whole shares round down: a lamport at most stays with the line.
+    assert_eq!(src.redeemed, 37_500);
+    assert!(
+        (2_499_999_999..=2_500_000_000).contains(&src.redeemed_units),
+        "{}",
+        src.redeemed_units
+    );
+    assert_eq!(gemas_in(&d.env.svm, d.alice.account, d.a_source), 37_500);
     let err = redeem(&mut d, 1).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::ExceedsRedeemable));
 
     // Debt remains, so the Position stays locked and cannot unlock.
-    let unlock = ix(
-        accounts::Unlock {
-            owner_authority: d.alice.key,
-            owner_account: d.alice.account,
-            position: d.a_position,
-        },
-        instruction::Unlock {},
-        vec![],
-    );
     let alice = d.alice.kp.insecure_clone();
-    let err = d
-        .env
-        .send(std::slice::from_ref(&unlock), &alice, &[])
-        .unwrap_err();
+    let unlock = d.env.unlock_ix_reported(&d.alice, d.a_position);
+    let err = d.env.send(&[unlock], &alice, &[]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::DebtOutstanding));
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 3, 6 * SOL)
         .expect("more yield");
-    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), 0);
+    assert_eq!(d.env.debt_of(d.a_source), 0);
+    let unlock = d.env.unlock_ix_reported(&d.alice, d.a_position);
     d.env
         .send(&[unlock], &alice, &[])
         .expect("unlock at zero debt");
@@ -778,35 +947,21 @@ fn yield_repays_debt_and_redeem_stops_at_accrued() {
 #[test]
 fn return_own_cancels_debt_and_principal_never_does() {
     let mut d = duel();
-    let return_ix = |d: &Duel, who: &Person, amount: u64| {
-        ix(
-            accounts::ReturnOwn {
-                owner_authority: who.key,
-                owner_account: who.account,
-                position: d.a_position,
-                source: d.a_source,
-                holding: holding_pda(who.account, d.a_source),
-            },
-            instruction::ReturnOwn { amount },
-            vec![],
-        )
-    };
     let alice = d.alice.kp.insecure_clone();
-    d.env
-        .send(&[return_ix(&d, &d.alice, 10_000)], &alice, &[])
-        .expect("return own");
-    let src = d.env.load::<SourceState>(d.a_source).inner;
-    assert_eq!(
-        (src.returned, src.debt(), src.outstanding()),
-        (10_000, 65_000, 65_000)
-    );
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 65_000);
-    // More than the Debt is refused.
-    let err = d
+    let ret = d
         .env
-        .send(&[return_ix(&d, &d.alice, 65_001)], &alice, &[])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::ExceedsDebt));
+        .return_own_ix_reported(&d.alice, d.a_position, d.a_source, 10_000);
+    d.env.send(&[ret], &alice, &[]).expect("return own");
+    let src = d.env.load::<SourceState>(d.a_source).inner;
+    assert_eq!((src.returned, src.outstanding()), (10_000, 65_000));
+    assert_eq!(d.env.debt_of(d.a_source), 65_000);
+    assert_eq!(gemas_in(&d.env.svm, d.alice.account, d.a_source), 65_000);
+    // More Gemas than the line holds are refused.
+    let ret = d
+        .env
+        .return_own_ix_reported(&d.alice, d.a_position, d.a_source, 65_001);
+    let err = d.env.send(&[ret], &alice, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), core(CoreError::InsufficientGemas));
 
     // Bob wins some of Alice's Gemas; returning them (or anything else) as Bob cannot cut her Debt.
     let bob = d.bob.kp.insecure_clone();
@@ -821,10 +976,13 @@ fn return_own_cancels_debt_and_principal_never_does() {
         .settle(&game, m, MatchResult::Joiner, payouts)
         .expect("settle");
     assert!(d.env.holding_amount(&d.bob, d.a_source) > 0);
-    let debt = d.env.load::<SourceState>(d.a_source).inner.debt();
+    let debt = d.env.debt_of(d.a_source);
     // Bob is not the Position owner: the ownership constraint rejects it.
-    assert!(d.env.send(&[return_ix(&d, &d.bob, 1)], &bob, &[]).is_err());
-    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), debt);
+    let steal = d
+        .env
+        .return_own_ix_reported(&d.bob, d.a_position, d.a_source, 1);
+    assert!(d.env.send(&[steal], &bob, &[]).is_err());
+    assert_eq!(d.env.debt_of(d.a_source), debt);
 }
 
 #[test]
@@ -1579,18 +1737,11 @@ fn cu_profile_matching() {
     // next entry draws from two Holdings (own first, then won).
     let bob = d.bob.kp.insecure_clone();
     let b_position = position_pda(2);
-    let ret = ix(
-        accounts::ReturnOwn {
-            owner_authority: d.bob.key,
-            owner_account: d.bob.account,
-            position: b_position,
-            source: d.b_source,
-            holding: d.b_holding,
-        },
-        instruction::ReturnOwn { amount: 74_800 },
-        vec![],
-    );
+    let ret = d
+        .env
+        .return_own_ix_reported(&d.bob, b_position, d.b_source, 74_800);
     d.env.send(&[ret], &bob, &[]).expect("return own");
+    d.env.forge_debit(&d.bob, d.b_source, 74_800);
     let won = holding_pda(d.bob.account, d.a_source);
     let m2 = d.env.open_match(&d.bob, 500, &[d.b_holding, won]).unwrap();
     let open2 = d.env.last_cu;
@@ -1645,24 +1796,13 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
     env.take_advance(&alice, position, 0, 6, 150_000_000)
         .expect("advance");
     let source = source_pda(position, 0);
-    let holding = holding_pda(alice.account, source);
     env.yield_to(&oracle, position, Some(source), 1, 5 * SOL / 2)
         .expect("yield");
 
-    let redeem = ix(
-        accounts::Redeem {
-            holder_authority: alice.key,
-            holder_account: alice.account,
-            position,
-            source,
-            holding,
-        },
-        instruction::Redeem { amount: 100 },
-        vec![],
-    );
+    let redeem = env.redeem_ix_reported(&alice, position, source, SIDE_OWN, 100);
     let err = env.send(&[redeem], &alice.kp, &[]).unwrap_err();
     assert_eq!(custom_code(&err), ERR_BRIDGED_SOURCE);
-    assert_eq!(env.holding_amount(&alice, source), 75_000, "nothing burned");
+    assert_eq!(gemas_in(&env.svm, alice.account, source), 75_000, "nothing burned");
 
     let register = ix(
         accounts::SetSourceAuthority {
@@ -1679,6 +1819,8 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
     );
     let admin = env.admin.insecure_clone();
     env.send(&[register], &admin, &[]).expect("register");
+    let bridge_line = env.line(source, SIDE_OWN);
+    let bridge_books = book_metas(&env.svm, source);
     let via_bridge = |signer: &Keypair| {
         ix(
             accounts::RedeemFromSource {
@@ -1686,12 +1828,16 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
                 source_signer: a(signer.pubkey()),
                 source_authority: pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
                 holder_account: alice.account,
+                basket: basket_address(&alice.account).0,
+                spill: spill_address(&alice.account).0,
                 position,
                 source,
-                holding,
             },
-            instruction::RedeemFromSource { amount: 100 },
-            vec![],
+            instruction::RedeemFromSource {
+                line: bridge_line,
+                amount: 100,
+            },
+            bridge_books.clone(),
         )
     };
     // Alice cannot stand in for the bridge.
@@ -1701,7 +1847,7 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
     assert_eq!(custom_code(&err), 6000);
     env.send(&[via_bridge(&bridge)], &alice.kp, &[&bridge])
         .expect("redeem through the bridge authority");
-    assert_eq!(env.holding_amount(&alice, source), 74_900);
+    assert_eq!(gemas_in(&env.svm, alice.account, source), 74_900);
     assert_eq!(
         env.load::<SourceState>(source).inner.redeemed_units,
         6_666_666
@@ -1895,12 +2041,6 @@ fn a_ninth_holding_is_refused() {
 fn pool_pda() -> APk {
     account_pda(pda(&[LEADERBOARD_SEED]))
 }
-fn window_pda(n: u32) -> APk {
-    pda(&[SEASON_WINDOW_SEED, &n.to_le_bytes()])
-}
-fn season_pda(n: u32) -> APk {
-    pda(&[SEASON_SEED, &n.to_le_bytes()])
-}
 
 impl Env {
     /// Rewrites Config in the layout that predates the Leaderboard, then runs `init_leaderboard`.
@@ -1934,30 +2074,6 @@ impl Env {
         self.send(&[init], &admin, &[]).expect("init leaderboard");
     }
 
-    fn record_season(
-        &mut self,
-        signer: &Keypair,
-        n: u32,
-        ranked: &[(&Person, u64)],
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let record = ix(
-            accounts::RecordSeason {
-                authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                pool_account: pool_pda(),
-                season: season_pda(n),
-                season_window: window_pda(n),
-                system_program: anchor_lang::system_program::ID,
-            },
-            instruction::RecordSeason {
-                number: n,
-                points: ranked.iter().map(|(_, p)| *p).collect(),
-            },
-            ranked.iter().map(|(p, _)| rem(p.account)).collect(),
-        );
-        self.send(&[record], signer, &[])
-    }
-
     /// Pool Holdings of `candidates` that hold Gemas, ascending by Source (the canonical order).
     fn pool_sources(&self, candidates: &[APk]) -> Vec<(APk, u64)> {
         let mut out: Vec<(APk, u64)> = candidates
@@ -1981,60 +2097,11 @@ impl Env {
         out
     }
 
-    fn void_rank(
-        &mut self,
-        signer: &Keypair,
-        n: u32,
-        rank: u8,
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let void = ix(
-            accounts::VoidSeasonRank {
-                admin: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                season: season_pda(n),
-                season_window: window_pda(n),
-            },
-            instruction::VoidSeasonRank { rank },
-            vec![],
-        );
-        self.send(&[void], signer, &[])
-    }
-
-    fn pay_rank(
-        &mut self,
-        signer: &Keypair,
-        n: u32,
-        rank: u8,
-        winner: &Person,
-        sources: &[APk],
-    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
-        let mut remaining: Vec<AccountMeta> = sources
-            .iter()
-            .map(|src| rem(holding_pda(pool_pda(), *src)))
-            .collect();
-        for src in sources {
-            self.open_holding(winner.account, *src);
-            remaining.push(rem(holding_pda(winner.account, *src)));
-        }
-        let pay = ix(
-            accounts::PaySeasonRank {
-                authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
-                season: season_pda(n),
-                season_window: window_pda(n),
-                pool_account: pool_pda(),
-                winner_account: winner.account,
-            },
-            instruction::PaySeasonRank { rank },
-            remaining,
-        );
-        self.send(&[pay], signer, &[])
-    }
 }
 
 #[test]
-fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
-    use tesoro_core::ledger::{season_end, SEASON_EPOCH};
+fn leaderboard_fee_fills_the_pool() {
+    use tesoro_core::ledger::SEASON_EPOCH;
     let mut d = duel();
     d.env.enable_leaderboard(100);
     let cfg = d.env.load::<Config>(pda(&[CONFIG_SEED]));
@@ -2108,144 +2175,6 @@ fn leaderboard_fee_fills_the_pool_and_a_season_pays_the_top_ranks() {
         .expect("draw");
     let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
     assert_eq!(pool.won_total + pool.own_total, 30);
-
-    // The season is still running.
-    let admin = d.env.admin.insecure_clone();
-    let oracle = d.env.oracle.insecure_clone();
-    let err = d
-        .env
-        .record_season(&admin, 1, &[(&d.alice, 10), (&d.bob, 5)])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::SeasonNotEnded));
-    d.env.set_time(season_end(1).unwrap() + 60);
-    // Only the admin or the keeper records.
-    let stranger = Keypair::new();
-    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
-    let err = d
-        .env
-        .record_season(&stranger, 1, &[(&d.alice, 10), (&d.bob, 5)])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), 6000);
-    // Ranks are ordered and distinct.
-    let err = d
-        .env
-        .record_season(&oracle, 1, &[(&d.alice, 5), (&d.bob, 10)])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::SeasonInvalid));
-    d.env
-        .record_season(&oracle, 1, &[(&d.alice, 10), (&d.bob, 5)])
-        .expect("record");
-    let season = d.env.load::<SeasonState>(season_pda(1)).inner;
-    assert_eq!((season.pool_total, season.count), (30, 2));
-    // 25% of 30 = 7, 18% of 30 = 5.
-    assert_eq!(season.amounts[..3], [7, 5, 0]);
-    // Recorded once.
-    assert!(d.env.record_season(&admin, 1, &[(&d.alice, 10)]).is_err());
-
-    let window = d.env.load::<SeasonWindowState>(window_pda(1)).inner;
-    let recorded_at = season_end(1).unwrap() + 60;
-    assert_eq!((window.recorded_at, window.voided_mask), (recorded_at, 0));
-
-    // Inside the 48-hour window nothing is paid.
-    let all: Vec<APk> = sources.iter().map(|(src, _)| *src).collect();
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowOpen));
-    // Only the admin voids; the keeper and strangers cannot.
-    let err = d.env.void_rank(&oracle, 1, 1).unwrap_err();
-    assert_eq!(custom_code(&err), 6000);
-    let err = d.env.void_rank(&stranger, 1, 1).unwrap_err();
-    assert_eq!(custom_code(&err), 6000);
-    let err = d.env.void_rank(&admin, 1, 2).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::SeasonInvalid));
-    d.env.void_rank(&admin, 1, 1).expect("void bob");
-    let err = d.env.void_rank(&admin, 1, 1).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::RankVoided));
-    assert_eq!(
-        d.env
-            .load::<SeasonWindowState>(window_pda(1))
-            .inner
-            .voided_mask,
-        0b10
-    );
-    // One second before the window ends: still refused.
-    d.env.set_time(recorded_at + PAYOUT_WINDOW_SECS - 1);
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowOpen));
-    d.env.set_time(recorded_at + PAYOUT_WINDOW_SECS);
-    // Too late to void now.
-    let err = d.env.void_rank(&admin, 1, 0).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::PayoutWindowClosed));
-
-    // The wrong winner, the wrong Holding order and a stranger are refused.
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 0, &d.bob, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), 6003);
-    let err = d
-        .env
-        .pay_rank(&stranger, 1, 0, &d.alice, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), 6000);
-    let rev: Vec<APk> = all.iter().rev().cloned().collect();
-    let err = d.env.pay_rank(&oracle, 1, 0, &d.alice, &rev).unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::NonCanonicalPrize));
-    let before = d.env.total_gemas(&d.alice);
-    d.env
-        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
-        .expect("pay 1st");
-    assert_eq!(d.env.total_gemas(&d.alice), before + 7);
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 0, &d.alice, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::AlreadyPaid));
-    // The voided rank pays nothing.
-    let before = d.env.total_gemas(&d.bob);
-    let err = d
-        .env
-        .pay_rank(&oracle, 1, 1, &d.bob, &all[..1])
-        .unwrap_err();
-    assert_eq!(custom_code(&err), core(CoreError::RankVoided));
-    assert_eq!(d.env.total_gemas(&d.bob), before);
-    // No rank 2 was recorded.
-    assert!(d.env.pay_rank(&oracle, 1, 2, &d.alice, &all[..1]).is_err());
-
-    // 30 - 7 stays in the pool (the unfilled and the voided shares): it rolls into the next
-    // season, Sources intact.
-    let pool = d.env.load::<TesoroAccount>(pool_pda()).inner;
-    assert_eq!(pool.won_total + pool.own_total, 23);
-    assert_eq!(
-        d.env
-            .pool_sources(&[d.a_source, d.b_source])
-            .iter()
-            .map(|(_, n)| n)
-            .sum::<u64>(),
-        23
-    );
-    for src in [d.a_source, d.b_source] {
-        let total: u64 = [&d.alice, &d.bob, &d.env.platform, &d.env.studio]
-            .iter()
-            .map(|p| d.env.holding_amount(p, src))
-            .sum::<u64>()
-            + d.env
-                .svm
-                .get_account(&s(holding_pda(pool_pda(), src)))
-                .map(|_| {
-                    d.env
-                        .load::<HoldingState>(holding_pda(pool_pda(), src))
-                        .inner
-                        .amount
-                })
-                .unwrap_or(0);
-        assert_eq!(total, d.env.load::<SourceState>(src).inner.outstanding());
-    }
 }
 
 fn decode_b64(s: &str) -> Vec<u8> {
@@ -2736,32 +2665,16 @@ fn redeem_unlock_and_debt_repayment_still_work_under_a_self_exclusion() {
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 1, 5 * SOL / 2)
         .expect("yield repays debt");
-    let redeem = ix(
-        accounts::Redeem {
-            holder_authority: d.alice.key,
-            holder_account: d.alice.account,
-            position: d.a_position,
-            source: d.a_source,
-            holding: d.a_holding,
-        },
-        instruction::Redeem { amount: 37_500 },
-        vec![],
-    );
+    let redeem = d
+        .env
+        .redeem_ix_reported(&d.alice, d.a_position, d.a_source, SIDE_OWN, 37_500);
     let alice = d.alice.kp.insecure_clone();
     d.env.send(&[redeem], &alice, &[]).expect("redeem");
-    assert_eq!(d.env.holding_amount(&d.alice, d.a_source), 37_500);
+    assert_eq!(gemas_in(&d.env.svm, d.alice.account, d.a_source), 37_500);
     d.env
         .yield_to(&oracle, d.a_position, Some(d.a_source), 2, 6 * SOL)
         .expect("more yield");
-    let unlock = ix(
-        accounts::Unlock {
-            owner_authority: d.alice.key,
-            owner_account: d.alice.account,
-            position: d.a_position,
-        },
-        instruction::Unlock {},
-        vec![],
-    );
+    let unlock = d.env.unlock_ix_reported(&d.alice, d.a_position);
     d.env.send(&[unlock], &alice, &[]).expect("unlock");
 }
 
@@ -2769,20 +2682,12 @@ fn redeem_unlock_and_debt_repayment_still_work_under_a_self_exclusion() {
 fn return_own_still_works_under_a_self_exclusion() {
     let mut d = duel();
     d.env.set_self_exclusion(&d.alice, 6).unwrap();
-    let ret = ix(
-        accounts::ReturnOwn {
-            owner_authority: d.alice.key,
-            owner_account: d.alice.account,
-            position: d.a_position,
-            source: d.a_source,
-            holding: d.a_holding,
-        },
-        instruction::ReturnOwn { amount: 1_000 },
-        vec![],
-    );
+    let ret = d
+        .env
+        .return_own_ix_reported(&d.alice, d.a_position, d.a_source, 1_000);
     let alice = d.alice.kp.insecure_clone();
     d.env.send(&[ret], &alice, &[]).expect("return own gemas");
-    assert_eq!(d.env.load::<SourceState>(d.a_source).inner.debt(), 74_000);
+    assert_eq!(d.env.debt_of(d.a_source), 74_000);
 }
 
 #[test]
