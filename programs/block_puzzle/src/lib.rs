@@ -204,7 +204,7 @@ pub mod block_puzzle {
                     ctx.accounts.tesoro_core_program.to_account_info(),
                     tesoro_core::cpi::accounts::ExtendMatchDeadline {
                         game_authority: ctx.accounts.authority.to_account_info(),
-                        config: ctx.accounts.config.to_account_info(),
+                        game_record: ctx.accounts.game_record.to_account_info(),
                         match_state: ctx.accounts.match_state.to_account_info(),
                     },
                     signer,
@@ -308,7 +308,7 @@ pub mod block_puzzle {
                 ctx.accounts.tesoro_core_program.to_account_info(),
                 tesoro_core::cpi::accounts::ExtendMatchDeadline {
                     game_authority: ctx.accounts.authority.to_account_info(),
-                    config: ctx.accounts.config.to_account_info(),
+                    game_record: ctx.accounts.game_record.to_account_info(),
                     match_state: ctx.accounts.match_state.to_account_info(),
                 },
                 signer,
@@ -737,6 +737,7 @@ fn finalize<'info>(
             tesoro_core::cpi::accounts::SettleMatch {
                 game_authority: ctx.accounts.authority.to_account_info(),
                 config: ctx.accounts.config.to_account_info(),
+                game_record: ctx.accounts.game_record.to_account_info(),
                 match_state: ctx.accounts.match_state.to_account_info(),
             },
             signer,
@@ -803,9 +804,9 @@ pub struct OpenSession<'info> {
     /// CHECK: the Game's authority PDA; signs the `tesoro_core` CPI
     #[account(seeds = [AUTHORITY_SEED], bump)]
     pub authority: UncheckedAccount<'info>,
-    /// CHECK: `tesoro_core` config, validated by `tesoro_core`
+    /// CHECK: this Game's `tesoro_core` record, validated by `tesoro_core`
     #[account(owner = tesoro_core::ID)]
-    pub config: UncheckedAccount<'info>,
+    pub game_record: UncheckedAccount<'info>,
     pub tesoro_core_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -831,9 +832,9 @@ pub struct JoinSession<'info> {
     /// CHECK: the Game's authority PDA; signs the `tesoro_core` CPI
     #[account(seeds = [AUTHORITY_SEED], bump = session.authority_bump)]
     pub authority: UncheckedAccount<'info>,
-    /// CHECK: `tesoro_core` config, validated by `tesoro_core`
+    /// CHECK: this Game's `tesoro_core` record, validated by `tesoro_core`
     #[account(owner = tesoro_core::ID)]
-    pub config: UncheckedAccount<'info>,
+    pub game_record: UncheckedAccount<'info>,
     pub tesoro_core_program: Program<'info, tesoro_core::program::TesoroCore>,
     pub system_program: Program<'info, System>,
 }
@@ -1044,6 +1045,9 @@ pub struct Settle<'info> {
     /// CHECK: `tesoro_core` config, validated by `tesoro_core`
     #[account(owner = tesoro_core::ID)]
     pub config: UncheckedAccount<'info>,
+    /// CHECK: this Game's `tesoro_core` record, validated by `tesoro_core`
+    #[account(owner = tesoro_core::ID)]
+    pub game_record: UncheckedAccount<'info>,
     /// CHECK: the Match, bound to the Session, validated by `tesoro_core`
     #[account(mut, owner = tesoro_core::ID, address = session.match_state)]
     pub match_state: UncheckedAccount<'info>,

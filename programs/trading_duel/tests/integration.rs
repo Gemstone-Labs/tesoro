@@ -34,6 +34,41 @@ fn s(p: APk) -> Pk {
 fn tpda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &tesoro_core::ID).0
 }
+
+/// The Game's record in tesoro_core, and the loader accounts `open_match` reads its deploy slot from.
+fn game_record_pda() -> APk {
+    APk::find_program_address(&[GAME_SEED, trading_duel::ID.as_ref()], &tesoro_core::ID).0
+}
+fn program_data_pda() -> APk {
+    APk::find_program_address(
+        &[trading_duel::ID.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0
+}
+
+/// Makes `key` the upgrade authority of the Game program loaded into `svm`, as the Game's studio
+/// would hold it, and returns the slot the loader recorded for its deployment.
+fn control_program(svm: &mut LiteSVM, program: APk, key: APk) -> u64 {
+    let pd = s(APk::find_program_address(
+        &[program.as_ref()],
+        &anchor_lang::solana_program::bpf_loader_upgradeable::ID,
+    )
+    .0);
+    let mut acct = svm.get_account(&pd).expect("program data");
+    acct.data[12] = 1;
+    acct.data[13..45].copy_from_slice(key.as_ref());
+    let slot = u64::from_le_bytes(acct.data[4..12].try_into().expect("slot"));
+    svm.set_account(pd, acct).expect("set program data");
+    slot
+}
+fn pair_pda(opener: APk, joiner: APk) -> APk {
+    APk::find_program_address(
+        &[PAIR_SEED, opener.as_ref(), joiner.as_ref()],
+        &tesoro_core::ID,
+    )
+    .0
+}
 fn dpda(seeds: &[&[u8]]) -> APk {
     APk::find_program_address(seeds, &trading_duel::ID).0
 }
@@ -389,21 +424,42 @@ impl Env {
         let admin = env.admin.insecure_clone();
         env.send(&[init], &admin, &[]).expect("init config");
         // The Game authority is the trading_duel PDA, not a keypair.
+        let ctl = Keypair::new();
+        let slot = control_program(&mut env.svm, trading_duel::ID, a(ctl.pubkey()));
         let register = ix(
             tesoro_core::ID,
             tesoro_core::accounts::RegisterGame {
-                admin: a(admin.pubkey()),
+                payer: a(admin.pubkey()),
+                control: a(ctl.pubkey()),
                 config: tpda(&[CONFIG_SEED]),
+                game_program: trading_duel::ID,
+                program_data: program_data_pda(),
                 studio_recipient: env.studio.account,
+                game_record: game_record_pda(),
+                system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::RegisterGame {
-                game: trading_duel::ID,
-                authority: authority_pda(),
+                settle_authority: authority_pda(),
                 studio_bps: 300,
             },
             vec![],
         );
-        env.send(&[register], &admin, &[]).expect("register game");
+        env.send(&[register], &admin, &[&ctl])
+            .expect("register game");
+        let list = ix(
+            tesoro_core::ID,
+            tesoro_core::accounts::ListGame {
+                admin: a(admin.pubkey()),
+                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+            },
+            tesoro_core::instruction::ListGame {
+                listed_until: 4_000_000_000,
+                approved_slot: slot,
+            },
+            vec![],
+        );
+        env.send(&[list], &admin, &[]).expect("list game");
 
         env.alice = env.person();
         env.bob = env.person();
@@ -420,6 +476,9 @@ impl Env {
             tesoro_core::accounts::OpenMatch {
                 player_authority: alice.key,
                 config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
+                game_program: trading_duel::ID,
+                program_data: program_data_pda(),
                 player_account: alice.account,
                 protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
@@ -441,6 +500,8 @@ impl Env {
                 protections: tpda(&[PROTECTIONS_SEED, bob.account.as_ref()]),
                 match_state: tmatch_pda(self.id),
                 opener_protections: tpda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
+                pair: pair_pda(alice.account, bob.account),
+                system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::JoinMatch {},
             vec![rem(self.b_holding)],
@@ -455,7 +516,7 @@ impl Env {
             trading_duel::accounts::CreateMatch {
                 creator,
                 tesoro_match: tmatch_pda(self.id),
-                config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
                 account_a: self.alice.account,
                 account_b: self.bob.account,
                 authority: authority_pda(),
@@ -673,6 +734,7 @@ impl Env {
                 duel: ad.duel,
                 tesoro_match: tmatch_pda(self.id),
                 config: tpda(&[CONFIG_SEED]),
+                game_record: game_record_pda(),
                 authority: authority_pda(),
                 tesoro_program: tesoro_core::ID,
             },

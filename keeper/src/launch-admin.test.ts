@@ -18,6 +18,8 @@ import {
   describeStep,
   evmAssetKey,
   gameAuthorityPda,
+  gameRecordPda,
+  programDataPda,
   pythFeedAccount,
   type LaunchInput,
   type PlanStep,
@@ -170,15 +172,42 @@ test("set_invite_gate is the last instruction and turns the gate on with the Inv
   assert.ok(steps.findIndex((s) => s.name === "vault-account") < steps.length - 1);
 });
 
-test("register_game uses the Game's authority PDA, the Studio Account and the program ids", () => {
+test("register_game is signed by the program's upgrade authority and names the settle authority PDA, ProgramData and Studio Account", () => {
   const i = input();
+  const control = k();
+  i.games![0].control = control;
   const ids = { block_puzzle: k().toBase58() };
   const steps = named(buildLaunchPlan({ ...i, programs: ids }), "games");
-  const d = coder.decode(steps[0].ixs[0].data)!.data as { game: PublicKey; authority: PublicKey; studio_bps: number };
-  assert.equal(d.game.toBase58(), ids.block_puzzle);
-  assert.ok(d.authority.equals(gameAuthorityPda(new PublicKey(ids.block_puzzle))));
-  assert.ok(steps[0].ixs[0].keys[2].pubkey.equals(coreAccountPda(CORE, i.games![0].studio)));
+  const game = new PublicKey(ids.block_puzzle);
+  const d = decode(steps[0])[0].data as { settle_authority: PublicKey; studio_bps: number };
+  assert.ok(d.settle_authority.equals(gameAuthorityPda(game)));
   assert.equal(d.studio_bps, 300);
+  assert.ok(steps[0].signer!.equals(control));
+  const keys = steps[0].ixs[0].keys;
+  assert.ok(keys[0].pubkey.equals(control) && keys[1].pubkey.equals(control), "control pays and signs");
+  assert.ok(keys[3].pubkey.equals(game));
+  assert.ok(keys[4].pubkey.equals(programDataPda(game)));
+  assert.ok(keys[5].pubkey.equals(coreAccountPda(CORE, i.games![0].studio)));
+  assert.ok(keys[6].pubkey.equals(gameRecordPda(CORE, game)));
+  assert.ok(steps[1].signer!.equals(i.admin), "a game without a control key is signed by the admin");
+});
+
+test("list_game is an admin step and only appears with an approved slot", () => {
+  const i = input();
+  assert.equal(named(buildLaunchPlan(i), "games").length, 3);
+  i.games![1].approvedSlot = 400_000_000;
+  i.games![1].listedUntil = 1_800_000_000;
+  const steps = named(buildLaunchPlan(i), "games");
+  assert.equal(steps.length, 4);
+  const list = steps[2];
+  assert.ok(list.signer!.equals(i.admin));
+  const dec = decode(list)[0];
+  assert.equal(dec.name, "list_game");
+  const data = dec.data as { listed_until: { toNumber(): number }; approved_slot: { toNumber(): number } };
+  assert.equal(data.listed_until.toNumber(), 1_800_000_000);
+  assert.equal(data.approved_slot.toNumber(), 400_000_000);
+  i.games![1].listedUntil = undefined;
+  assert.throws(() => buildLaunchPlan(i), /listed-until/);
 });
 
 test("Source authorities are the bridge authority PDA for Ethereum (1) and HyperEVM (2)", () => {

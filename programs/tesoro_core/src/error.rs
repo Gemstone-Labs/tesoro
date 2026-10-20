@@ -69,6 +69,22 @@ pub enum TesoroError {
     OracleLocked,
     #[msg("this account is not of the retired world, so it cannot be retired")]
     NotOldWorld,
+    #[msg("the Game program is not a live program of a loader the registry understands")]
+    GameProofInvalid,
+    #[msg("the signer does not control the Game program")]
+    NotGameControl,
+    #[msg("a Studio Fee is at most 10%")]
+    StudioFeeTooHigh,
+    #[msg("the Studio recipient may not be the Pool, the Treasury or the platform recipient")]
+    StudioRecipientReserved,
+    #[msg("no change is waiting for this Game")]
+    NoPendingChange,
+    #[msg("a change to a Game applies 7 days after it is proposed")]
+    ChangeDelayNotElapsed,
+    #[msg("this Game is not listed, or was upgraded since the admin approved it")]
+    GameNotListed,
+    #[msg("these two Accounts have started too many Matches together today")]
+    PairLimitReached,
 }
 
 pub fn core_err(e: CoreError) -> Error {

@@ -17,7 +17,9 @@ Per Source: `issued`, `returned` (cancelled by the owner), `redeemed`, `yield_un
 
 | On chain | CONTEXT term | Seeds |
 |---|---|---|
-| `Config` | (registry, fees, oracle) | `["config"]` |
+| `Config` | (fees, oracle; the old Game list is unused) | `["config"]` |
+| `GameRecord` | one per Game: settle authority, Studio terms, pending change, listing | `["game", program_id]` |
+| `PairState` | Matches one opener-to-joiner pair started today | `["pair", opener Account, joiner Account]` |
 | `TesoroAccount` | Account | `["account", authority]` |
 | `PositionState` | Position | `["position", chain_byte, position_id]` |
 | `SourceState` | Source (one per Advance) | `["source", position, index_le]` |
@@ -31,7 +33,7 @@ Per Source: `issued`, `returned` (cancelled by the owner), `redeemed`, `yield_un
 
 ## Instructions
 
-Config: `initialize_config`, `update_config`, `register_game`, `remove_game` (admin). Invite gate (admin): `set_invite_gate(required, key)`. Identity: `create_account` (takes the `invite_gate` PDA; while the gate is required the Invite `key` must also sign, passed as the first remaining account, else `InviteRequired`; no gate account means off), `set_evm_address`, `open_holding` (anyone pays; own-sourced iff the Source belongs to the Account).
+Config: `initialize_config`, `update_config` (admin). Game registry: `register_game`, `propose_game_change`, `apply_game_change`, `cancel_game_change` (signed by the control of the Game program, see below), `list_game` (admin). Invite gate (admin): `set_invite_gate(required, key)`. Identity: `create_account` (takes the `invite_gate` PDA; while the gate is required the Invite `key` must also sign, passed as the first remaining account, else `InviteRequired`; no gate account means off), `set_evm_address`, `open_holding` (anyone pays; own-sourced iff the Source belongs to the Account).
 Position: `open_position` (oracle), `open_native_position`, `take_native_advance`, `extend_native_advance`, `init_native_custody`, `set_price` (see Solana-native Positions below), `take_advance` (owner picks the Horizon, oracle supplies the price, both sign), `apply_yield` (oracle; idempotent by `seq`), `return_own`, `redeem` (refuses EVM-sourced Sources: they use `redeem_from_source`, co-signed by the chain's source authority, called by the bridge's `redeem_to_evm`), `claim_free_yield`, `unlock`. Protections (owner): `set_entry_limit`, `set_break`, `set_self_exclusion`. On-chain prices: `set_onchain_price` (admin), `take_native_advance_onchain`, `take_advance_onchain` (see ADR 0012).
 Match: `open_match`, `join_match`, `open_match_backed`, `join_match_backed`, `settle_match` (registered Game authority only), `extend_match_deadline` (registered Game authority only), `refund_match`.
 Backing: `create_request`, `cancel_request`, `create_offer`, `accept_directed`, `apply_offer`, `accept_applicant`, `cancel_offer`, `expire_offer` (both take the accepted Request as an optional account, required when the Offer had one, and return it to Open).
@@ -243,3 +245,14 @@ On the mainnet cluster a SOL Position holds a real staking token (jitoSOL for no
 
 **Known basis risk.** Yield is paid in tokens at the rate of the payout; the tokens paid early keep appreciating in the Player's wallet while the Position's remaining tokens carry the Principal. A Position that redeems yield and then sees the rate rise further is short by `units_redeemed x (later growth)` against the one formula; that slack is the Position's own 20% Yield Fee buffer, and the Principal-reserve rule above stops the Treasury from spending it. Errors appended (stable): `StakeTokenInactive` 6025, `StakeCeilingNotSet` 6026, `NotStakePosition` 6027, `BadStakePoolAccount` 6028; ledger `StaleStakePool`, `NoStakingGrowth` after `ProtectionCannotShorten`.
 
+
+## Game registry and listing (ticket 10, docs/adr/0013)
+
+A Game is one `["game", program_id]` record. `Config.games` is no longer read or written.
+
+- **Registering proves control of the program.** The `game_program` account must be an executable program of the upgradeable loader (the ProgramData address is derived from the program id and must be the one the Program account names, owned by the loader and in the `ProgramData` state), of loader v4 (status Deployed; a finalized one only if it forwards to itself), or of the older non-upgradeable loader. The signer must be the upgrade authority read from that state. A program that can no longer be upgraded accepts only the PDA `["tesoro-register"]` of the Game program itself (it signs with `invoke_signed`), never a key. An unreadable program (closed, retracted, wrong accounts) is refused everywhere.
+- **Terms.** The record names the settle authority, the Studio recipient and the Studio Fee (at most 10%; Platform + Studio + Leaderboard together at most 50%). The Studio recipient may not be the Pool, the Treasury or the Platform recipient (also checked again when a change is applied).
+- **Changes.** `propose_game_change` starts a 7-day wait; `apply_game_change` applies it. Both need the control signature of the moment, and the key that proposed must still be in control when it applies: if the upgrade authority changes hands during the wait, the new holder proposes again. A second proposal restarts the wait; `cancel_game_change` clears it. The admin cannot edit a record.
+- **Listing.** `list_game(listed_until, approved_slot)` (admin). `open_match` and `open_match_backed` read the deploy slot of the Game program (`game_program` and `program_data` accounts) and store `MatchState.listed` and `MatchState.deploy_slot`. Listed means `listed_until` is in the future and the slot equals `approved_slot`, so an upgraded Game is unlisted until the admin approves the new slot. Unlisted: a win emits `MatchWon.points = 0`, and a backed Match is refused (`GameNotListed`) at open and at join.
+- **Pair limit.** A joiner may join at most 20 Matches opened by the same opener in a 24-hour window (`PairState`, `PairLimitReached`). The per-Account cap on Matches open at once belongs to the Match lifecycle (ticket 09), where the per-Account Match counter lives.
+- **Call sites.** `open_match`, `open_match_backed`, `create_request`, `create_offer` take `game_record` (the three Game accounts for the two `open_match` variants); `join_match` and `join_match_backed` take `pair` and `system_program`; `settle_match` takes `config` and `game_record`; `refund_match` and `extend_match_deadline` take `game_record` instead of `config`. Game programs pass their own record (`["game", crate::ID]` of tesoro_core).

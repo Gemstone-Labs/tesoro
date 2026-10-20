@@ -68,7 +68,7 @@ describe("a Config still in the old layout (app deployed before the upgrade)", (
   });
   it("still decodes with the new IDL (the unused tail is zero)", () => {
     const decoded: any = new BorshCoder(idl as never).accounts.decode("Config", legacy());
-    expect(decoded.games).toHaveLength(3);
+    expect(decoded.legacyGames ?? decoded.legacy_games).toHaveLength(3);
     expect(decoded.leaderboard_bps ?? decoded.leaderboardBps).toBe(0);
     expect((decoded.pool_account ?? decoded.poolAccount).equals(PublicKey.default)).toBe(true);
   });

@@ -18,6 +18,9 @@ use tesoro_core::{accounts, instruction};
 mod common;
 
 const GAME: APk = APk::new_from_array([9; 32]);
+/// Slot the test Game was deployed in, and the slot the admin approves.
+const GAME_SLOT: u64 = 100;
+const LISTED_FOR_EVER: i64 = 4_000_000_000;
 const ENTRY: u64 = 1_000;
 const SOL: u64 = 1_000_000_000;
 
@@ -50,6 +53,9 @@ fn request_pda(account: APk, nonce: u64) -> APk {
 }
 fn offer_pda(account: APk, nonce: u64) -> APk {
     pda(&[OFFER_SEED, account.as_ref(), &nonce.to_le_bytes()])
+}
+fn pair_pda(opener: APk, joiner: APk) -> APk {
+    pda(&[PAIR_SEED, opener.as_ref(), joiner.as_ref()])
 }
 fn protections_pda(account: APk) -> APk {
     pda(&[PROTECTIONS_SEED, account.as_ref()])
@@ -98,6 +104,8 @@ struct Env {
     admin: Keypair,
     oracle: Keypair,
     game_auth: Keypair,
+    /// Upgrade authority of the test Game program.
+    game_ctl: Keypair,
     platform: Person,
     studio: Person,
     next_match: u64,
@@ -132,7 +140,8 @@ impl Env {
         let admin = Keypair::new();
         let oracle = Keypair::new();
         let game_auth = Keypair::new();
-        for k in [&admin, &oracle, &game_auth] {
+        let game_ctl = Keypair::new();
+        for k in [&admin, &oracle, &game_auth, &game_ctl] {
             svm.airdrop(&k.pubkey(), 1_000 * SOL).expect("airdrop");
         }
         svm.set_sysvar(&Clock {
@@ -149,6 +158,7 @@ impl Env {
             admin,
             oracle,
             game_auth,
+            game_ctl,
             platform: placeholder(Keypair::new()),
             studio: placeholder(Keypair::new()),
             next_match: 1,
@@ -181,20 +191,18 @@ impl Env {
         common::put_sim_sol_mint(&mut env.svm);
         let treasury = common::init_treasury_ix(a(admin.pubkey()), 0, 3_500);
         env.send(&[treasury], &admin, &[]).expect("init treasury");
-        let register = ix(
-            accounts::RegisterGame {
-                admin: a(admin.pubkey()),
-                config,
-                studio_recipient: studio,
-            },
-            instruction::RegisterGame {
-                game: GAME,
-                authority: a(env.game_auth.pubkey()),
-                studio_bps: 300,
-            },
-            vec![],
+        common::forge_upgradeable_program(
+            &mut env.svm,
+            s(GAME),
+            Some(env.game_ctl.pubkey()),
+            GAME_SLOT,
         );
-        env.send(&[register], &admin, &[]).expect("register game");
+        let game_ctl = env.game_ctl.insecure_clone();
+        let register = env.register_game_ix(&game_ctl, a(env.game_auth.pubkey()), 300, studio);
+        env.send(&[register], &admin, &[&game_ctl])
+            .expect("register game");
+        let list = env.list_game_ix(LISTED_FOR_EVER, GAME_SLOT);
+        env.send(&[list], &admin, &[]).expect("list game");
         env
     }
 
@@ -225,6 +233,56 @@ impl Env {
                 Err(e)
             }
         }
+    }
+
+    fn game_accounts(&self) -> (APk, APk, APk) {
+        (
+            common::game_record(GAME),
+            GAME,
+            a(common::program_data_address(s(GAME))),
+        )
+    }
+
+    fn register_game_ix(
+        &self,
+        control: &Keypair,
+        settle_authority: APk,
+        studio_bps: u16,
+        studio_recipient: APk,
+    ) -> Instruction {
+        let (game_record, game_program, program_data) = self.game_accounts();
+        ix(
+            accounts::RegisterGame {
+                payer: a(self.admin.pubkey()),
+                control: a(control.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                game_program,
+                program_data,
+                studio_recipient,
+                game_record,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::RegisterGame {
+                settle_authority,
+                studio_bps,
+            },
+            vec![],
+        )
+    }
+
+    fn list_game_ix(&self, listed_until: i64, approved_slot: u64) -> Instruction {
+        ix(
+            accounts::ListGame {
+                admin: a(self.admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
+            },
+            instruction::ListGame {
+                listed_until,
+                approved_slot,
+            },
+            vec![],
+        )
     }
 
     fn person(&mut self) -> Person {
@@ -408,6 +466,9 @@ impl Env {
             accounts::OpenMatch {
                 player_authority: p.key,
                 config: pda(&[CONFIG_SEED]),
+                game_record: self.game_accounts().0,
+                game_program: GAME,
+                program_data: self.game_accounts().2,
                 player_account: p.account,
                 protections: protections_pda(p.account),
                 match_state: match_pda(id),
@@ -501,6 +562,8 @@ impl Env {
                 protections: protections_pda(p.account),
                 match_state: match_pda(id),
                 opener_protections: protections_pda(self.opener_account(id)),
+                pair: pair_pda(self.opener_account(id), p.account),
+                system_program: anchor_lang::system_program::ID,
             },
             instruction::JoinMatch {},
             holdings.iter().map(|h| rem(*h)).collect(),
@@ -553,6 +616,7 @@ impl Env {
             accounts::SettleMatch {
                 game_authority: a(signer.pubkey()),
                 config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 match_state: match_pda(id),
             },
             instruction::SettleMatch { result },
@@ -570,7 +634,7 @@ impl Env {
         let refund = ix(
             accounts::RefundMatch {
                 caller: a(caller.pubkey()),
-                config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 match_state: match_pda(id),
                 opener_protections: Some(protections_pda(self.opener_account(id))),
             },
@@ -902,7 +966,7 @@ fn match_settles_to_winner_minus_fees_exactly_once() {
 }
 
 #[test]
-fn unregistered_game_cannot_settle_and_bad_entries_are_refused() {
+fn only_the_settle_authority_settles_and_bad_entries_are_refused() {
     let mut d = duel();
     let err = d.env.open_match(&d.alice, 700, &[d.a_holding]).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::InvalidEntry));
@@ -911,24 +975,15 @@ fn unregistered_game_cannot_settle_and_bad_entries_are_refused() {
         .open_match(&d.alice, 500, &[d.a_holding])
         .expect("open");
     d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
-    // A Game removed from the registry can no longer settle.
-    let remove = ix(
-        accounts::RemoveGame {
-            admin: a(d.env.admin.pubkey()),
-            config: pda(&[CONFIG_SEED]),
-        },
-        instruction::RemoveGame { game: GAME },
-        vec![],
-    );
-    let admin = d.env.admin.insecure_clone();
-    d.env.send(&[remove], &admin, &[]).expect("remove");
-    let game = d.env.game_auth.insecure_clone();
+    // Only the Game's settle authority settles its Matches.
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
     let payouts = d.env.payout_accounts(m, MatchResult::Opener);
     let err = d
         .env
-        .settle(&game, m, MatchResult::Opener, payouts)
+        .settle(&stranger, m, MatchResult::Opener, payouts)
         .unwrap_err();
-    assert_eq!(custom_code(&err), 6001);
+    assert_eq!(custom_code(&err), 6000);
 }
 
 #[test]
@@ -1021,7 +1076,7 @@ fn only_the_game_authority_extends_a_deadline_forward_and_within_the_cap() {
         let i = ix(
             accounts::ExtendMatchDeadline {
                 game_authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 match_state: match_pda(m),
             },
             instruction::ExtendMatchDeadline {
@@ -1072,7 +1127,7 @@ fn the_game_authority_extends_an_open_match_so_a_queue_entry_can_wait_a_day() {
         let i = ix(
             accounts::ExtendMatchDeadline {
                 game_authority: a(signer.pubkey()),
-                config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 match_state: match_pda(m),
             },
             instruction::ExtendMatchDeadline {
@@ -1133,6 +1188,7 @@ impl Backing {
             accounts::CreateRequest {
                 player_authority: self.dave.key,
                 config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 player_account: self.dave.account,
                 protections: protections_pda(self.dave.account),
                 request,
@@ -1156,6 +1212,7 @@ impl Backing {
             accounts::CreateOffer {
                 backer_authority: self.carol.key,
                 config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 backer_account: self.carol.account,
                 protections: protections_pda(self.carol.account),
                 offer,
@@ -1216,6 +1273,9 @@ impl Backing {
             accounts::OpenMatchBacked {
                 player_authority: self.dave.key,
                 config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
+                game_program: GAME,
+                program_data: a(common::program_data_address(s(GAME))),
                 player_account: self.dave.account,
                 protections: protections_pda(self.dave.account),
                 offer,
@@ -1454,6 +1514,7 @@ fn funding_a_backing_counts_toward_the_backers_entry_limit() {
         accounts::CreateOffer {
             backer_authority: b.carol.key,
             config: pda(&[CONFIG_SEED]),
+            game_record: common::game_record(GAME),
             backer_account: b.carol.account,
             protections: protections_pda(b.carol.account),
             offer,
@@ -2432,6 +2493,7 @@ fn a_player_on_a_break_cannot_ask_to_be_backed_or_be_backed() {
             accounts::CreateRequest {
                 player_authority: b.dave.key,
                 config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
                 player_account: b.dave.account,
                 protections: protections_pda(b.dave.account),
                 request: request_pda(b.dave.account, nonce),
@@ -2577,6 +2639,8 @@ fn a_backed_match_cannot_be_joined_by_a_player_on_a_break() {
             backer_protections: protections_pda(b.carol.account),
             match_state: match_pda(id),
             opener_protections: protections_pda(b.d.bob.account),
+            pair: pair_pda(b.d.bob.account, b.dave.account),
+            system_program: anchor_lang::system_program::ID,
         },
         instruction::JoinMatchBacked {},
         vec![rem(b.c_holding)],
@@ -2600,6 +2664,7 @@ fn a_backer_on_a_break_cannot_fund_an_offer() {
         accounts::CreateOffer {
             backer_authority: b.carol.key,
             config: pda(&[CONFIG_SEED]),
+            game_record: common::game_record(GAME),
             backer_account: b.carol.account,
             protections: protections_pda(b.carol.account),
             offer: offer_pda(b.carol.account, 1),
@@ -3029,4 +3094,220 @@ fn a_locked_oracle_cannot_register_positions_report_yield_or_price_advances() {
     env.set_oracle_lock(&admin, false).expect("unlock");
     env.take_advance(&p, position, 0, 6, 150_000_000)
         .expect("advance once unlocked");
+}
+
+// ---- Listing, upgrades and the pair limit ----
+
+fn won_points(logs: &[String]) -> u64 {
+    let won: Vec<Vec<u8>> = logs
+        .iter()
+        .filter_map(|l| l.strip_prefix("Program data: "))
+        .map(decode_b64)
+        .filter(|b| b.len() == 8 + 172)
+        .collect();
+    assert_eq!(won.len(), 1, "one MatchWon");
+    u64::from_le_bytes(won[0][8 + 112..8 + 120].try_into().expect("points"))
+}
+
+fn play_a_win(d: &mut Duel, entry: u64) -> u64 {
+    let game = d.env.game_auth.insecure_clone();
+    let m = d
+        .env
+        .open_match(&d.alice, entry, &[d.a_holding])
+        .expect("open");
+    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    let payouts = d.env.payout_accounts(m, MatchResult::Opener);
+    d.env
+        .settle(&game, m, MatchResult::Opener, payouts)
+        .expect("settle");
+    m
+}
+
+#[test]
+fn a_win_on_a_listed_game_earns_points() {
+    let mut d = duel();
+    let m = play_a_win(&mut d, ENTRY);
+    let st = d.env.load::<MatchState>(match_pda(m));
+    assert!(st.listed);
+    assert_eq!(st.deploy_slot, GAME_SLOT);
+    assert_eq!(
+        won_points(&d.env.last_logs),
+        tesoro_core::ledger::points_for_win(ENTRY)
+    );
+}
+
+#[test]
+fn upgrading_a_game_unlists_it_until_the_admin_approves_the_new_slot() {
+    let mut d = duel();
+    // The Game's authority upgrades the program: the ProgramData slot moves.
+    common::set_program_data(
+        &mut d.env.svm,
+        s(GAME),
+        Some(d.env.game_ctl.pubkey()),
+        GAME_SLOT + 7,
+    );
+    let m = play_a_win(&mut d, ENTRY);
+    let st = d.env.load::<MatchState>(match_pda(m));
+    assert!(!st.listed, "an upgraded Game counts as unlisted");
+    assert_eq!(st.deploy_slot, GAME_SLOT + 7);
+    assert_eq!(won_points(&d.env.last_logs), 0, "no Points while unlisted");
+    // Re-approval applies to Matches opened after it, not to the one already open.
+    let admin = d.env.admin.insecure_clone();
+    let list = d.env.list_game_ix(LISTED_FOR_EVER, GAME_SLOT + 7);
+    d.env.send(&[list], &admin, &[]).expect("approve");
+    let m2 = play_a_win(&mut d, ENTRY);
+    assert!(d.env.load::<MatchState>(match_pda(m2)).listed);
+    assert!(won_points(&d.env.last_logs) > 0);
+    assert!(!d.env.load::<MatchState>(match_pda(m)).listed);
+}
+
+#[test]
+fn a_listing_that_ran_out_or_was_withdrawn_earns_no_points() {
+    let mut d = duel();
+    let now = d.env.now();
+    let admin = d.env.admin.insecure_clone();
+    let list = d.env.list_game_ix(now + 100, GAME_SLOT);
+    d.env.send(&[list], &admin, &[]).expect("list");
+    d.env.set_time(now + 101);
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.load::<MatchState>(match_pda(m)).listed);
+    let list = d.env.list_game_ix(0, 0);
+    d.env.send(&[list], &admin, &[]).expect("unlist");
+    let m = play_a_win(&mut d, ENTRY);
+    assert!(!d.env.load::<MatchState>(match_pda(m)).listed);
+}
+
+#[test]
+fn only_the_admin_lists_a_game() {
+    let mut d = duel();
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let list = ix(
+        accounts::ListGame {
+            admin: a(stranger.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            game_record: common::game_record(GAME),
+        },
+        instruction::ListGame {
+            listed_until: LISTED_FOR_EVER,
+            approved_slot: 1,
+        },
+        vec![],
+    );
+    let err = d.env.send(&[list], &stranger, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+    // Not even the Game's own authority can list itself.
+    let ctl = d.env.game_ctl.insecure_clone();
+    let list = ix(
+        accounts::ListGame {
+            admin: a(ctl.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            game_record: common::game_record(GAME),
+        },
+        instruction::ListGame {
+            listed_until: LISTED_FOR_EVER,
+            approved_slot: 1,
+        },
+        vec![],
+    );
+    let err = d.env.send(&[list], &ctl, &[]).unwrap_err();
+    assert_eq!(custom_code(&err), 6000);
+}
+
+#[test]
+fn a_backed_match_on_an_unlisted_game_is_refused_at_open() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 4_000, None);
+    b.accept_public(offer, request);
+    // The Game is upgraded after the Offer was made.
+    common::set_program_data(
+        &mut b.d.env.svm,
+        s(GAME),
+        Some(b.d.env.game_ctl.pubkey()),
+        GAME_SLOT + 1,
+    );
+    let err = b.open_backed(offer, 500, &[b.c_holding]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::GameNotListed)
+    );
+    assert_eq!(b.reserved(), 500, "the Offer's Gemas stay reserved");
+    // The admin approves the new slot: the same Offer opens.
+    let admin = b.d.env.admin.insecure_clone();
+    let list = b.d.env.list_game_ix(LISTED_FOR_EVER, GAME_SLOT + 1);
+    b.d.env.send(&[list], &admin, &[]).expect("approve");
+    b.open_backed(offer, 500, &[b.c_holding])
+        .expect("opens once listed");
+}
+
+#[test]
+fn an_unregistered_game_cannot_open_a_match_or_a_request() {
+    let mut d = duel();
+    let other = APk::new_unique();
+    let open = ix(
+        accounts::OpenMatch {
+            player_authority: d.alice.key,
+            config: pda(&[CONFIG_SEED]),
+            game_record: common::game_record(other),
+            game_program: other,
+            program_data: a(common::program_data_address(s(other))),
+            player_account: d.alice.account,
+            protections: protections_pda(d.alice.account),
+            match_state: match_pda(900),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::OpenMatch {
+            match_id: 900,
+            game: other,
+            entry: ENTRY,
+        },
+        vec![rem(d.a_holding)],
+    );
+    let alice = d.alice.kp.insecure_clone();
+    let err = d.env.send(&[open], &alice, &[]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        3012,
+        "no Game record: AccountNotInitialized"
+    );
+}
+
+#[test]
+fn a_pair_cannot_start_more_than_twenty_matches_a_day() {
+    let mut d = duel();
+    for _ in 0..MAX_PAIR_MATCHES {
+        let m = d
+            .env
+            .open_match(&d.alice, 500, &[d.a_holding])
+            .expect("open");
+        d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    }
+    let m = d
+        .env
+        .open_match(&d.alice, 500, &[d.a_holding])
+        .expect("open");
+    let err = d.env.join_match(&d.bob, m, &[d.b_holding]).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::PairLimitReached)
+    );
+    // The other direction is its own pair; a new day resets the count.
+    let m2 = d.env.open_match(&d.bob, 500, &[d.b_holding]).expect("open");
+    d.env
+        .join_match(&d.alice, m2, &[d.a_holding])
+        .expect("other direction");
+    let now = d.env.now();
+    d.env.set_time(now + PAIR_WINDOW_SECS + 1);
+    let m3 = d
+        .env
+        .open_match(&d.alice, 500, &[d.a_holding])
+        .expect("open next day");
+    d.env
+        .join_match(&d.bob, m3, &[d.b_holding])
+        .expect("next day");
+    let pair = d
+        .env
+        .load::<PairState>(pair_pda(d.alice.account, d.bob.account));
+    assert_eq!(pair.count, 1);
 }

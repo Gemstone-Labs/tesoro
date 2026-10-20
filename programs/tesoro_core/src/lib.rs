@@ -4,6 +4,7 @@ pub mod error;
 pub mod instructions;
 pub mod ledger;
 pub mod pyth;
+pub mod registry;
 pub mod state;
 pub mod util;
 
@@ -37,17 +38,36 @@ pub mod tesoro_core {
         instructions::admin::set_admin(ctx, new_admin)
     }
 
+    /// Registers a Game. Signed by the control of its program (upgrade authority, or the program's
+    /// `["tesoro-register"]` PDA once immutable). The Game id is the `game_program` account.
     pub fn register_game(
         ctx: Context<RegisterGame>,
-        game: Pubkey,
-        authority: Pubkey,
+        settle_authority: Pubkey,
         studio_bps: u16,
     ) -> Result<()> {
-        instructions::admin::register_game(ctx, game, authority, studio_bps)
+        instructions::registry::register_game(ctx, settle_authority, studio_bps)
     }
 
-    pub fn remove_game(ctx: Context<RemoveGame>, game: Pubkey) -> Result<()> {
-        instructions::admin::remove_game(ctx, game)
+    /// Proposes new settle authority and Studio terms; they apply 7 days later.
+    pub fn propose_game_change(
+        ctx: Context<ChangeGame>,
+        settle_authority: Pubkey,
+        studio_bps: u16,
+    ) -> Result<()> {
+        instructions::registry::propose_game_change(ctx, settle_authority, studio_bps)
+    }
+
+    pub fn apply_game_change(ctx: Context<ApplyGameChange>) -> Result<()> {
+        instructions::registry::apply_game_change(ctx)
+    }
+
+    pub fn cancel_game_change(ctx: Context<CancelGameChange>) -> Result<()> {
+        instructions::registry::cancel_game_change(ctx)
+    }
+
+    /// Admin: lists a Game until a time for an approved deploy slot (or unlists it with 0).
+    pub fn list_game(ctx: Context<ListGame>, listed_until: i64, approved_slot: u64) -> Result<()> {
+        instructions::registry::list_game(ctx, listed_until, approved_slot)
     }
 
     /// Extends a Config that predates the Leaderboard, creates the pool Account and sets the fee.

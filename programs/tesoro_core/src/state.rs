@@ -51,6 +51,13 @@ pub const MAX_PRICE_AGE_SECS: i64 = 24 * 60 * 60;
 pub const SOURCE_AUTHORITY_SEED: &[u8] = b"source_auth";
 /// The Invite gate setting (ADR 0012): `["invite_gate"]`. Its own account so `Config` keeps its layout.
 pub const INVITE_GATE_SEED: &[u8] = b"invite_gate";
+/// One record per Game: `["game", program_id]`.
+pub const GAME_SEED: &[u8] = b"game";
+/// The PDA an immutable Game program signs registration changes with: `["tesoro-register"]` of the
+/// Game program (not of this program).
+pub const REGISTER_SEED: &[u8] = b"tesoro-register";
+/// Matches one opener-to-joiner pair may start in a window: `["pair", opener Account, joiner Account]`.
+pub const PAIR_SEED: &[u8] = b"pair";
 
 /// Address of the Invite gate account (it may not exist yet: no account means the gate is off).
 pub fn invite_gate_pda() -> Pubkey {
@@ -69,17 +76,93 @@ impl InviteGate {
     pub const SPACE: usize = 8 + 1 + 1 + 32;
 }
 
-pub const MAX_GAMES: usize = 8;
+/// A Game's Studio Fee never exceeds this share of the Pot.
+pub const MAX_STUDIO_BPS: u16 = 1_000;
+/// Wait between proposing a change to a Game's record and applying it.
+pub const GAME_CHANGE_DELAY_SECS: i64 = 7 * 24 * 60 * 60;
+/// The 8-entry list that `Config` carried before the per-Game records: kept so an account written
+/// with it still reads. Nothing reads or writes it.
+const LEGACY_GAMES: usize = 8;
 
 #[derive(Clone, Copy, AnchorSerialize, AnchorDeserialize)]
-pub struct GameEntry {
-    /// Identity of the Game (its program id).
+pub struct LegacyGameEntry {
+    pub game: Pubkey,
+    pub authority: Pubkey,
+    pub studio_bps: u16,
+    pub studio_recipient: Pubkey,
+}
+
+/// One Game. Registered once by whoever controls its program (see `registry`); changed only by
+/// that same control, after `GAME_CHANGE_DELAY_SECS`. Listing is written by the admin.
+#[account]
+pub struct GameRecord {
+    pub bump: u8,
+    /// The Game program's id.
     pub game: Pubkey,
     /// Only this key may settle the Game's Matches (a PDA of the Game program, or a server key).
-    pub authority: Pubkey,
+    pub settle_authority: Pubkey,
     pub studio_bps: u16,
     /// `TesoroAccount` that receives the Studio Fee.
     pub studio_recipient: Pubkey,
+    /// Unix time a proposed change was made; zero while none is waiting.
+    pub pending_at: i64,
+    /// The control key that proposed it. Applying needs the same key to be in control still.
+    pub pending_by: Pubkey,
+    pub pending_settle_authority: Pubkey,
+    pub pending_studio_bps: u16,
+    pub pending_studio_recipient: Pubkey,
+    /// The Game counts as listed until this unix time (admin). Zero: never listed.
+    pub listed_until: i64,
+    /// The deploy slot the admin approved. A program upgraded since has a different slot and
+    /// counts as unlisted until the admin approves again.
+    pub approved_slot: u64,
+}
+
+impl GameRecord {
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 8 + 32 + 32 + 2 + 32 + 8 + 8;
+
+    /// Listed right now, for the deploy slot the loader reports (`None`: it could not be read).
+    pub fn is_listed(&self, now: i64, deploy_slot: Option<u64>) -> bool {
+        self.listed_until > now && deploy_slot == Some(self.approved_slot)
+    }
+
+    pub fn fee_terms(&self, config: &Config) -> ledger::FeeTerms {
+        ledger::FeeTerms {
+            platform_bps: config.platform_bps,
+            studio_bps: self.studio_bps,
+            platform_recipient: config.platform_recipient.to_bytes(),
+            studio_recipient: self.studio_recipient.to_bytes(),
+        }
+    }
+}
+
+/// How many Matches one opener-to-joiner pair has started in the current window.
+#[account]
+pub struct PairState {
+    pub bump: u8,
+    pub window_start: i64,
+    pub count: u16,
+}
+
+/// Matches one opener-to-joiner pair may start per window.
+pub const MAX_PAIR_MATCHES: u16 = 20;
+pub const PAIR_WINDOW_SECS: i64 = 24 * 60 * 60;
+
+impl PairState {
+    pub const SPACE: usize = 8 + 1 + 8 + 2;
+
+    /// Counts one more Match started at `now`; `false` when the pair is at its limit for the window.
+    pub fn record(&mut self, now: i64) -> bool {
+        if now >= self.window_start.saturating_add(PAIR_WINDOW_SECS) {
+            self.window_start = now;
+            self.count = 0;
+        }
+        if self.count >= MAX_PAIR_MATCHES {
+            return false;
+        }
+        self.count += 1;
+        true
+    }
 }
 
 #[account]
@@ -92,7 +175,8 @@ pub struct Config {
     pub platform_bps: u16,
     /// `TesoroAccount` that receives the Platform Fee.
     pub platform_recipient: Pubkey,
-    pub games: Vec<GameEntry>,
+    /// Unused since the per-Game records; its bytes stay so older accounts keep their layout.
+    pub legacy_games: Vec<LegacyGameEntry>,
     /// Leaderboard Fee in basis points of the Pot. Appended after `games`: an account created
     /// before it reads the fields as zero (the unused tail of the account is zeroed) and is
     /// extended by `init_leaderboard`.
@@ -116,11 +200,8 @@ pub struct Config {
 impl Config {
     pub const SPACE: usize = Self::LEGACY_SPACE + 2 + 32 + 8 + 8 * ledger::MAX_ENTRY_SIZES + 1;
     /// The layout before the Leaderboard fields.
-    pub const LEGACY_SPACE: usize = 8 + 1 + 32 + 32 + 2 + 32 + 4 + MAX_GAMES * (32 + 32 + 2 + 32);
-
-    pub fn game(&self, game: &Pubkey) -> Option<&GameEntry> {
-        self.games.iter().find(|g| g.game == *game)
-    }
+    pub const LEGACY_SPACE: usize =
+        8 + 1 + 32 + 32 + 2 + 32 + 4 + LEGACY_GAMES * (32 + 32 + 2 + 32);
 
     /// The entry sizes in force: the admin's list, or the default ladder while none is set.
     pub fn entries(&self) -> Vec<u64> {
@@ -144,15 +225,6 @@ impl Config {
         ledger::LeaderboardTerms {
             bps: self.leaderboard_bps,
             recipient: self.pool_account.to_bytes(),
-        }
-    }
-
-    pub fn fee_terms(&self, g: &GameEntry) -> ledger::FeeTerms {
-        ledger::FeeTerms {
-            platform_bps: self.platform_bps,
-            studio_bps: g.studio_bps,
-            platform_recipient: self.platform_recipient.to_bytes(),
-            studio_recipient: g.studio_recipient.to_bytes(),
         }
     }
 }
@@ -249,10 +321,15 @@ pub struct MatchState {
     pub bump: u8,
     pub id: u64,
     pub inner: Match,
+    /// The Game was listed when the Match opened: only then does a win earn Points.
+    pub listed: bool,
+    /// The Game program's deploy slot when the Match opened (zero if it could not be read or the
+    /// program cannot be upgraded).
+    pub deploy_slot: u64,
 }
 
 impl MatchState {
-    pub const SPACE: usize = 8 + 1 + 8 + 32 + 8 + 68 + 1 + SIDE + 1 + SIDE + 8;
+    pub const SPACE: usize = 8 + 1 + 8 + 32 + 8 + 68 + 1 + SIDE + 1 + SIDE + 8 + 1 + 8;
 }
 
 #[account]

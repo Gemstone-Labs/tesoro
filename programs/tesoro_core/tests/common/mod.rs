@@ -81,3 +81,66 @@ pub fn init_treasury_ix(admin: APk, yield_fee_bps: u16, instant_fee_bps: u16) ->
         .data(),
     }
 }
+
+// ---- Game registry fixtures ----
+
+pub const UPGRADEABLE_LOADER: &str = "BPFLoaderUpgradeab1e11111111111111111111111";
+
+pub fn program_data_address(program: Pk) -> Pk {
+    let loader: Pk = UPGRADEABLE_LOADER.parse().expect("loader id");
+    Pk::find_program_address(&[program.as_ref()], &loader).0
+}
+
+/// Writes an upgradeable-loader Program account and its ProgramData, as the loader lays them out.
+/// `authority: None` is a program that can no longer be upgraded.
+pub fn forge_upgradeable_program(svm: &mut LiteSVM, program: Pk, authority: Option<Pk>, slot: u64) {
+    let loader: Pk = UPGRADEABLE_LOADER.parse().expect("loader id");
+    let pd = program_data_address(program);
+    let mut prog = 2u32.to_le_bytes().to_vec();
+    prog.extend_from_slice(pd.as_ref());
+    svm.set_account(
+        program,
+        Account {
+            lamports: 1_000_000_000,
+            data: prog,
+            owner: loader,
+            executable: true,
+            rent_epoch: 0,
+        },
+    )
+    .expect("program");
+    set_program_data(svm, program, authority, slot);
+}
+
+/// Rewrites the ProgramData of a forged program (an upgrade or an authority change).
+pub fn set_program_data(svm: &mut LiteSVM, program: Pk, authority: Option<Pk>, slot: u64) {
+    let loader: Pk = UPGRADEABLE_LOADER.parse().expect("loader id");
+    let mut data = 3u32.to_le_bytes().to_vec();
+    data.extend_from_slice(&slot.to_le_bytes());
+    match authority {
+        Some(k) => {
+            data.push(1);
+            data.extend_from_slice(k.as_ref());
+        }
+        None => {
+            data.push(0);
+            data.extend_from_slice(&[0; 32]);
+        }
+    }
+    data.extend_from_slice(&[0xAB; 64]);
+    svm.set_account(
+        program_data_address(program),
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: loader,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .expect("program data");
+}
+
+pub fn game_record(game: APk) -> APk {
+    pda(&[GAME_SEED, game.as_ref()])
+}

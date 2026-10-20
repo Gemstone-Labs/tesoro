@@ -36,7 +36,7 @@ use ephemeral_rollups_sdk::{
 use tesoro_core::{
     instructions::MatchResult,
     ledger::MatchStatus,
-    state::{Config, MatchState, TesoroAccount, ACCOUNT_SEED, CONFIG_SEED},
+    state::{Config, GameRecord, MatchState, TesoroAccount, ACCOUNT_SEED, CONFIG_SEED, GAME_SEED},
 };
 
 pub use state::*;
@@ -162,7 +162,7 @@ pub mod holdem {
                 ctx.accounts.tesoro_program.to_account_info(),
                 tesoro_core::cpi::accounts::ExtendMatchDeadline {
                     game_authority: ctx.accounts.authority.to_account_info(),
-                    config: ctx.accounts.config.to_account_info(),
+                    game_record: ctx.accounts.game_record.to_account_info(),
                     match_state: ctx.accounts.tesoro_match.to_account_info(),
                 },
                 signer_seeds,
@@ -531,6 +531,7 @@ pub mod holdem {
                     tesoro_core::cpi::accounts::SettleMatch {
                         game_authority: ctx.accounts.authority.to_account_info(),
                         config: ctx.accounts.config.to_account_info(),
+                        game_record: ctx.accounts.game_record.to_account_info(),
                         match_state: ctx.accounts.tesoro_match.to_account_info(),
                     },
                     signer_seeds,
@@ -551,7 +552,7 @@ pub mod holdem {
                     ctx.accounts.tesoro_program.to_account_info(),
                     tesoro_core::cpi::accounts::RefundMatch {
                         caller: ctx.accounts.authority.to_account_info(),
-                        config: ctx.accounts.config.to_account_info(),
+                        game_record: ctx.accounts.game_record.to_account_info(),
                         match_state: ctx.accounts.tesoro_match.to_account_info(),
                         opener_protections: None,
                     },
@@ -691,8 +692,12 @@ pub struct CreateMatch<'info> {
         seeds::program = tesoro_core::ID
     )]
     pub tesoro_match: Box<Account<'info, MatchState>>,
-    #[account(seeds = [CONFIG_SEED], bump = config.bump, seeds::program = tesoro_core::ID)]
-    pub config: Box<Account<'info, Config>>,
+    #[account(
+        seeds = [GAME_SEED, crate::ID.as_ref()],
+        bump = game_record.bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub game_record: Box<Account<'info, GameRecord>>,
     #[account(
         seeds = [ACCOUNT_SEED, account_a.authority.as_ref()],
         bump = account_a.bump,
@@ -903,6 +908,12 @@ pub struct Finalize<'info> {
     pub tesoro_match: Box<Account<'info, MatchState>>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump, seeds::program = tesoro_core::ID)]
     pub config: Box<Account<'info, Config>>,
+    #[account(
+        seeds = [GAME_SEED, crate::ID.as_ref()],
+        bump = game_record.bump,
+        seeds::program = tesoro_core::ID
+    )]
+    pub game_record: Box<Account<'info, GameRecord>>,
     /// CHECK: the registered Game authority; signs the CPI with its stored canonical bump.
     #[account(seeds = [AUTHORITY_SEED], bump = game_match.authority_bump)]
     pub authority: UncheckedAccount<'info>,

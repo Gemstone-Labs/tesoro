@@ -83,6 +83,10 @@ const pda = (programId: PublicKey, seeds: (Buffer | Uint8Array)[]) => PublicKey.
 export const configPda = (core: PublicKey) => pda(core, [Buffer.from("config")]);
 export const coreAccountPda = (core: PublicKey, authority: PublicKey) => pda(core, [Buffer.from("account"), authority.toBuffer()]);
 export const gameAuthorityPda = (game: PublicKey) => pda(game, [Buffer.from("authority")]);
+/** The upgradeable loader and a program's ProgramData, which tesoro_core reads to prove control and the deploy slot. */
+export const gameRecordPda = (core: PublicKey, game: PublicKey) => pda(core, [Buffer.from("game"), game.toBuffer()]);
+export const UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+export const programDataPda = (game: PublicKey) => pda(UPGRADEABLE_LOADER, [game.toBuffer()]);
 
 /**
  * One tesoro_core instruction: account order, signer and writable flags come from the IDL; `accounts` names the ones the
@@ -128,6 +132,12 @@ export interface GameInput {
   /** Wallet that owns the Studio's Account (it must exist before register_game: `create_account` by that wallet). */
   studio: PublicKey;
   studioBps: number;
+  /** The Game program's upgrade authority, who alone may register it (default: the admin). */
+  control?: PublicKey;
+  /** Deploy slot the admin approves (`solana program show`). Without it the Game is registered but not listed. */
+  approvedSlot?: number;
+  /** Unix time the listing ends. Needed with `approvedSlot`. */
+  listedUntil?: number;
 }
 
 export interface LaunchInput {
@@ -325,16 +335,30 @@ export function buildLaunchPlan(input: LaunchInput): PlanStep[] {
     for (const g of games) {
       const gameId = ids[g.name];
       const authority = gameAuthorityPda(gameId);
+      const control = g.control ?? admin;
+      const game = coreIx(core, "register_game", { payer: control, control, game_program: gameId, program_data: programDataPda(gameId), studio_recipient: coreAccountPda(core, g.studio) }, { settle_authority: authority, studio_bps: g.studioBps });
       add({
         name: "games",
         title: `tesoro_core: register_game ${g.name} (Studio Fee ${g.studioBps} bps)`,
-        ...adminSigns(),
+        signer: control,
         why:
-          `Game program ${gameId.toBase58()}, settlement authority = its ["authority"] PDA ${authority.toBase58()}. Studio recipient = the Account of ${g.studio.toBase58()} ` +
-          `(${coreAccountPda(core, g.studio).toBase58()}); that wallet must have called create_account first. Platform + Studio + Leaderboard fees are capped at 50% together.`,
-        ixs: [coreIx(core, "register_game", { admin, studio_recipient: coreAccountPda(core, g.studio) }, { game: gameId, authority, studio_bps: g.studioBps })],
-        check: "Config.games lists the Game with this fee and recipient",
+          `Game program ${gameId.toBase58()}, settle authority = its ["authority"] PDA ${authority.toBase58()}. Signed by the program's upgrade authority ${control.toBase58()} (tesoro_core reads it from ProgramData), not by the admin. ` +
+          `Studio recipient = the Account of ${g.studio.toBase58()} (${coreAccountPda(core, g.studio).toBase58()}); that wallet must have called create_account first, and it may not be the Pool, the Treasury or the Platform recipient. ` +
+          `Studio Fee is at most 10%; Platform + Studio + Leaderboard fees are capped at 50% together. Registering does not list the Game; later changes wait 7 days.`,
+        ixs: [game],
+        check: `Game record ["game", ${gameId.toBase58()}] exists with this fee and recipient`,
       });
+      if (g.approvedSlot !== undefined) {
+        if (!g.listedUntil) throw new Error(`${g.name}: a listing needs a listed-until time`);
+        add({
+          name: "games",
+          title: `tesoro_core: list_game ${g.name} (until ${new Date(g.listedUntil * 1000).toISOString().slice(0, 10)}, slot ${g.approvedSlot})`,
+          ...adminSigns(),
+          why: `Lists the Game for deploy slot ${g.approvedSlot}. If its program is upgraded the slot changes and the Game is unlisted (no Points, no backed Matches) until the admin lists it again. Confirm the slot with \`solana program show ${gameId.toBase58()}\` after the final deploy.`,
+          ixs: [coreIx(core, "list_game", { admin, game_record: gameRecordPda(core, gameId) }, { listed_until: new BN(g.listedUntil), approved_slot: new BN(g.approvedSlot) })],
+          check: `Game record listed_until ${g.listedUntil}, approved_slot ${g.approvedSlot}`,
+        });
+      }
     }
   }
 

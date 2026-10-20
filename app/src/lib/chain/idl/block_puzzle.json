@@ -184,6 +184,9 @@
           "name": "config"
         },
         {
+          "name": "game_record"
+        },
+        {
           "name": "match_state",
           "writable": true
         },
@@ -1356,7 +1359,7 @@
           }
         },
         {
-          "name": "config"
+          "name": "game_record"
         },
         {
           "name": "tesoro_core_program",
@@ -1478,7 +1481,7 @@
           }
         },
         {
-          "name": "config"
+          "name": "game_record"
         },
         {
           "name": "tesoro_core_program",
@@ -1898,6 +1901,9 @@
         },
         {
           "name": "config"
+        },
+        {
+          "name": "game_record"
         },
         {
           "name": "match_state",
@@ -2383,6 +2389,21 @@
                 "name": "Match"
               }
             }
+          },
+          {
+            "name": "listed",
+            "docs": [
+              "The Game was listed when the Match opened: only then does a win earn Points."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "deploy_slot",
+            "docs": [
+              "The Game program's deploy slot when the Match opened (zero if it could not be read or the",
+              "program cannot be upgraded)."
+            ],
+            "type": "u64"
           }
         ]
       }
