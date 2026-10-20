@@ -6,6 +6,7 @@ import { Menu, Search, X } from "lucide-react";
 import { AvatarSkeleton } from "@/components/account/Player";
 import { Button, CountUp, GemaMark } from "@/components/ui";
 import { useAccount } from "@/lib/account";
+import { requestGetGemas } from "@/lib/get-gemas";
 import { AccountMenu } from "./AccountMenu";
 import { PoolChest } from "./PoolChest";
 import { useSearch } from "./SearchContext";
@@ -19,6 +20,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const signedIn = auth.status === "signed-in";
   const signedOut = auth.status === "signed-out";
   const onLobby = path === "/lobby";
+  const onWallet = path === "/wallet";
 
   return (
     <header className={`topbar${onLobby ? " on-lobby" : ""}`}>
@@ -57,7 +59,17 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         <PoolChest />
         {auth.status !== "signed-out" &&
           (ready || (error && auth.status !== "loading") ? (
-            <Link href="/wallet" className="cut cut-card gpill" aria-label="Your Gemas, open Wallet" title="Simulated yield · 1 month = 10 min">
+            <Link
+              href="/wallet"
+              className="cut cut-card gpill"
+              aria-label={onWallet ? "Your Gemas, get Gemas" : "Your Gemas, open Wallet"}
+              title="Simulated yield · 1 month = 10 min"
+              onClick={(e) => {
+                if (!onWallet) return;
+                e.preventDefault();
+                requestGetGemas();
+              }}
+            >
               <GemaMark size={30} glint />
               <b className="tnum">{ready ? <CountUp value={gemas.total} /> : "—"}</b>
               <span>Gemas</span>
