@@ -8,6 +8,7 @@ import { Button, Card, FacetCrown, GemaMark, GemaUsd, Sheet, SimulatedYieldLabel
 import { redeemableOf, useAccount } from "@/lib/account";
 import { DEFAULT_HORIZON_MONTHS } from "@/lib/advance";
 import { fmtAsset, fmtGemas } from "@/lib/format";
+import { onGetGemas } from "@/lib/get-gemas";
 import { GAME_NAMES, type Chain, type GameId, type GemaHolding, type Position } from "@/lib/mock";
 import { useGuideTip } from "@/components/guide/Guide";
 import { AdvanceSheet } from "./AdvanceSheet";
@@ -57,6 +58,8 @@ export default function Wallet() {
     }, 0);
     return () => clearTimeout(t);
   }, []);
+  // The top bar's Gemas pill opens the same sheet while on this page.
+  useEffect(() => onGetGemas(() => auth.gate("get Gemas", () => setOpenSheet(true))), [auth]);
   useGuideTip({
     id: "wallet-first",
     pose: "himExplain",
