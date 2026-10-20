@@ -8,6 +8,7 @@
 
 pub mod backing;
 pub mod book;
+pub mod draw;
 pub mod extend_limit;
 pub mod line_store;
 pub mod matches;
