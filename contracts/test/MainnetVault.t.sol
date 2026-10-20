@@ -114,7 +114,250 @@ abstract contract MainnetVaultBase is Test {
         }
     }
 
+    function _fund(uint256 shares) internal {
+        tok.mint(address(this), shares);
+        tok.approve(address(vault), shares);
+        vault.fundTreasury(shares);
+    }
+
+    // ---------------------------------------------------------------- Treasury in shares (slashing)
+
+    function test_withdrawAfterSlashLeavesOpenPositionYieldPayable() public {
+        uint64 id = _open(10 ether); // 12 underlying at 1.2
+        tok.setRate(1.32e18);
+        _fund(1 ether);
+        tok.setRate(1.25e18); // slash
+        vault.withdrawTreasury(vault.treasuryBalance(), address(this));
+        uint256 owed = vault.payableYield(id);
+        _recv(_pay(4, id, 1, redeemer, uint128(owed)));
+        assertEq(vault.payableYield(id), 0);
+    }
+
+    function test_withdrawAfterSlashLeavesUnlockedPositionYieldPayable() public {
+        uint64 id = _open(10 ether);
+        _fund(1 ether);
+        tok.setRate(1.32e18);
+        _recv(_unlock(id, 1));
+        tok.setRate(1.188e18); // -10% after Unlock
+        vault.withdrawTreasury(vault.treasuryBalance(), address(this));
+        uint256 owed = vault.payableYield(id);
+        _recv(_pay(4, id, 2, redeemer, uint128(owed)));
+        assertEq(vault.payableYield(id), 0);
+    }
+
+    /// Instant Redeem used to spend open fees; a fall back to the open rate then made Unlock underflow.
+    function test_unlockReturnsPrincipalAfterInstantSpentOpenFeesAndRateFell() public {
+        uint64 id = _open(10 ether);
+        tok.setRate(1.32e18);
+        uint256 spendable = vault.treasuryBalance();
+        if (spendable > 0) _recv(_pay(5, id, 1, redeemer, uint128(spendable)));
+        tok.setRate(1.2e18);
+        uint256 before = tok.balanceOf(alice);
+        _recv(_unlock(id, 2));
+        assertEq(tok.balanceOf(alice) - before, 10 ether, "full Principal back");
+    }
+
     // ---------------------------------------------------------------- tests
+
+    // ---- Treasury in shares: spec .scratch/treasury-in-shares (D1 realised-only, D2 holders carry slashes, D3 no cushion)
+
+    function _sumHeld(uint64 n) internal view returns (uint256 s) {
+        for (uint64 i = 1; i <= n; i++) {
+            s += vault.getPosition(i).heldShares;
+        }
+    }
+
+    function _instant(uint64 id, uint64 seq, uint256 amt) internal {
+        _recv(_pay(5, id, seq, redeemer, uint128(amt)));
+    }
+
+    function test_treasuryEarnsStakingYieldOnFundedShares() public {
+        _fund(10 ether); // 12 underlying at 1.2
+        assertEq(vault.treasuryBalance(), 12 ether);
+        tok.setRate(1.32e18);
+        assertEq(vault.treasuryBalance(), 13.2 ether, "1.1x the funded underlying");
+    }
+
+    function test_slashLowersTheTreasuryOnlyByItsOwnLoss() public {
+        uint64 id = _open(10 ether);
+        _fund(10 ether);
+        tok.setRate(1.08e18); // -10%
+        assertEq(vault.treasuryBalance(), 10.8 ether, "only the funded shares lost value");
+        assertEq(vault.getPosition(id).heldShares, 10 ether, "the Position's shares are untouched");
+    }
+
+    function test_openFeesAreNotSpendable() public {
+        uint64 id = _open(10 ether);
+        tok.setRate(1.32e18);
+        assertEq(vault.treasuryBalance(), 0);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1, 0));
+        vault.withdrawTreasury(1, address(this));
+        bytes memory one = _pay(5, id, 1, redeemer, 1);
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 1, 0));
+        _recv(one);
+        _fund(1 ether);
+        uint256 t = vault.treasuryBalance();
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, t + 1, t));
+        vault.withdrawTreasury(t + 1, address(this));
+    }
+
+    function test_unlockMovesTheFeeAndTheLeftoverIntoTheTreasuryAndRecordsTheClaimInShares() public {
+        uint64 id = _open(10 ether); // Pu 12
+        tok.setRate(1.32e18); // gross 1.2, fee 0.24, accrued 0.96
+        _recv(_unlock(id, 1));
+        uint256 released = tok.balanceOf(alice) - 90 ether;
+        assertEq(vault.getPosition(id).heldShares, 0);
+        assertEq(vault.treasuryShares(), 10 ether - released, "everything not released is the Treasury's");
+        assertEq(vault.unlockRate(id), 1.32e18);
+        assertEq(vault.owedSharesOf(id), uint256(0.96 ether) * 1e18 / 1.32e18);
+        assertEq(vault.owedShares(), vault.owedSharesOf(id));
+        assertApproxEqAbs(vault.treasuryBalance(), 0.24 ether, 4, "the spendable part is the fee");
+        assertEq(tok.balanceOf(address(vault)), vault.treasuryShares());
+    }
+
+    /// Unlock A, withdraw the whole Treasury, then a slash: A's holders are still paid in full (in shares), and
+    /// the open Position B keeps every share it held.
+    function test_slashAfterAFullWithdrawalPaysUnlockedHoldersAndTouchesNoOpenPosition() public {
+        uint64 a = _open(10 ether);
+        uint64 b = _open(10 ether);
+        tok.setRate(1.32e18);
+        _recv(_unlock(a, 1));
+        vault.withdrawTreasury(vault.treasuryBalance(), address(this));
+        uint256 heldB = vault.getPosition(b).heldShares;
+        tok.setRate(1.254e18); // -5%
+        uint256 owedA = vault.payableYield(a);
+        _recv(_pay(4, a, 2, redeemer, uint128(owedA)));
+        assertEq(vault.payableYield(a), 0);
+        assertEq(vault.getPosition(b).heldShares, heldB);
+        assertEq(vault.owedShares(), 0);
+        // the holder carried the slash: their shares were fixed at the Unlock rate
+        assertApproxEqAbs(tok.balanceOf(redeemer), owedA * 1e18 / 1.32e18, 2);
+        _recv(_pay(4, b, 1, redeemer, uint128(vault.payableYield(b))));
+        _recv(_unlock(b, 2));
+    }
+
+    /// Unlock, slash, then Tesoro's redeemed Gemas of the unlocked Position come back to the vault: the claim
+    /// becomes Treasury ownership and is spendable.
+    function test_unlockThenSlashThenRefillOfAnUnlockedPositionsGemas() public {
+        uint64 id = _open(10 ether);
+        tok.setRate(1.32e18);
+        _recv(_unlock(id, 1));
+        tok.setRate(1.188e18);
+        uint256 spendableBefore = vault.spendableTreasuryShares();
+        uint256 sharesBefore = vault.treasuryShares();
+        uint256 owed = vault.payableYield(id);
+        _recv(_pay(4, id, 2, address(vault), uint128(owed)));
+        assertEq(vault.treasuryShares(), sharesBefore, "no shares move");
+        assertEq(vault.owedShares(), 0);
+        assertApproxEqAbs(
+            vault.spendableTreasuryShares(), spendableBefore + owed * 1e18 / 1.32e18, 2, "the claim is now spendable"
+        );
+        vault.withdrawTreasury(vault.treasuryBalance(), address(this));
+    }
+
+    /// Solana accepted an Instant claim against a higher report; a slash then leaves the Treasury short. The
+    /// PayInstant waits (nothing recorded) and the owner's `fundTreasury` releases it.
+    function test_instantClaimAcceptedBeforeASlashWaitsForFunding() public {
+        uint64 id = _open(10 ether);
+        _fund(10 ether);
+        tok.setRate(1.32e18);
+        (, uint256 reported,) = _report(id);
+        assertEq(reported, 13.2 ether);
+        tok.setRate(1.2e18); // slash: the Treasury is 12 now
+        bytes memory claim = _pay(5, id, 2, redeemer, uint128(13.2 ether));
+        vm.expectRevert(abi.encodeWithSelector(PositionVault.InsufficientTreasury.selector, 13.2 ether, 12 ether));
+        _recv(claim);
+        assertEq(vault.instantPaid(), 0);
+        _fund(1 ether);
+        _recv(claim);
+        assertEq(vault.instantPaid(), 13.2 ether);
+        assertApproxEqAbs(tok.balanceOf(redeemer) * 1.2e18 / 1e18, 13.2 ether, 2);
+    }
+
+    /// Instant Redeem racing an Unlock, both orders, with a rate fall between: Principal comes back whole.
+    function test_instantRedeemRacingAnUnlockNeverStrandsPrincipal() public {
+        uint64 a = _open(10 ether);
+        _fund(2 ether);
+        tok.setRate(1.32e18);
+        _instant(a, 1, vault.treasuryBalance()); // drains the Treasury to the floor
+        tok.setRate(1.2e18);
+        uint256 before = tok.balanceOf(alice);
+        _recv(_unlock(a, 2));
+        assertEq(tok.balanceOf(alice) - before, 10 ether);
+        // other order: Unlock first, then Instant against the fee it released
+        uint64 b = _open(10 ether);
+        tok.setRate(1.32e18);
+        _recv(_unlock(b, 1));
+        uint256 fee = vault.treasuryBalance();
+        assertGt(fee, 0);
+        _instant(b, 2, fee);
+        assertLe(vault.treasuryBalance(), 1);
+    }
+
+    /// A slash under one open Position's rate must not block an unlocked Position's holders or the owner: only
+    /// the Treasury's own shares are in play.
+    function test_slashBelowAnOpenPositionsRateDoesNotBlockUnlockedHolders() public {
+        uint64 a = _open(10 ether); // opens at 1.2
+        tok.setRate(1.32e18);
+        uint64 b = _open(10 ether); // opens at 1.32
+        tok.setRate(1.4e18);
+        _recv(_unlock(a, 1));
+        tok.setRate(1.25e18); // below b's open rate
+        _recv(_pay(4, a, 2, redeemer, uint128(vault.payableYield(a))));
+        assertEq(vault.payableYield(a), 0);
+        uint256 w = vault.treasuryBalance();
+        if (w > 0) vault.withdrawTreasury(w, address(this));
+        assertEq(vault.getPosition(b).heldShares, 10 ether);
+        uint256 before = tok.balanceOf(alice);
+        _recv(_unlock(b, 1));
+        assertEq(tok.balanceOf(alice) - before, 10 ether, "all of b's shares come back");
+    }
+
+    /// Rounding always favours the vault: a Position paid in many tiny pieces never exceeds what it was owed.
+    function test_manySmallPayoutsOfAnUnlockedPositionNeverExceedTheClaim() public {
+        uint64 id = _open(10 ether);
+        tok.setRate(1.31e18);
+        _recv(_unlock(id, 1));
+        uint256 owed = vault.payableYield(id);
+        uint256 piece = owed / 7;
+        uint64 seq = 2;
+        while (vault.payableYield(id) > 0) {
+            uint256 amt = vault.payableYield(id) < piece ? vault.payableYield(id) : piece;
+            _recv(_pay(4, id, seq++, redeemer, uint128(amt)));
+        }
+        assertLe(tok.balanceOf(redeemer), owed * 1e18 / 1.31e18);
+        assertLe(vault.owedShares(), 7, "at most dust left");
+        assertGe(vault.treasuryShares(), vault.owedShares());
+    }
+
+    /// Fuzz: one Position, any rate path, unlock at a rate, a slash after: unlocked holders are always paid and
+    /// the Treasury always holds what it owes.
+    function testFuzz_unlockedHoldersAlwaysPayable(uint256 r1, uint256 r2, uint256 r3, uint256 fund, uint256 cut)
+        public
+    {
+        r1 = bound(r1, 1.2e18, 3e18);
+        r2 = bound(r2, 0.5e18, 3e18);
+        r3 = bound(r3, 0.5e18, 3e18);
+        fund = bound(fund, 0, 5 ether);
+        uint64 id = _open(10 ether);
+        if (fund > 0) _fund(fund);
+        tok.setRate(r1);
+        _recv(_unlock(id, 1));
+        assertGe(vault.treasuryShares(), vault.owedShares());
+        tok.setRate(r2);
+        uint256 w = vault.treasuryBalance();
+        if (w > 0) vault.withdrawTreasury(w, address(this));
+        tok.setRate(r3);
+        uint256 owed = vault.payableYield(id);
+        cut = bound(cut, 0, 100);
+        uint256 first = owed * cut / 100;
+        uint64 seq = 2;
+        if (first > 0) _recv(_pay(4, id, seq++, redeemer, uint128(first)));
+        if (owed - first > 0) _recv(_pay(4, id, seq++, redeemer, uint128(owed - first)));
+        assertEq(vault.payableYield(id), 0);
+        assertGe(vault.treasuryShares(), vault.owedShares());
+        assertEq(tok.balanceOf(address(vault)), vault.treasuryShares());
+    }
 
     function test_accruedYieldIsRealRateGrowthLessTheYieldFee() public {
         uint64 id = _open(10 ether); // 12 underlying at 1.2
@@ -123,9 +366,11 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.accruedYield(id), 0);
         tok.setRate(1.26e18); // +5% growth since open: 0.6 gross
         assertApproxEqAbs(vault.accruedYield(id), 0.48 ether, 2, "80% of 0.6");
-        assertApproxEqAbs(vault.treasuryBalance(), 0.12 ether, 2, "20% to the Treasury at the source");
+        assertEq(vault.treasuryBalance(), 0, "open fees are not spendable");
         tok.setRate(1.32e18); // +10%
         assertApproxEqAbs(vault.accruedYield(id), 0.96 ether, 2);
+        _recv(_unlock(id, 1));
+        assertApproxEqAbs(vault.treasuryBalance(), 0.24 ether, 4, "20% to the Treasury once unlocked");
     }
 
     function test_yieldReportIs101BytesWithAccruedAndTreasury() public {
@@ -134,7 +379,7 @@ abstract contract MainnetVaultBase is Test {
         (uint256 accrued, uint256 treasury, uint64 seq) = _report(id);
         assertEq(seq, 2, "seq 1 was PositionLocked");
         assertApproxEqAbs(accrued, 0.48 ether, 2);
-        assertApproxEqAbs(treasury, 0.12 ether, 2);
+        assertEq(treasury, 0, "an open Position's fee is not in the Treasury figure");
         assertEq(lz.lastOptions(), abi.encodePacked(uint16(3), uint8(1), uint16(17), uint8(1), uint128(200_000)));
     }
 
@@ -199,10 +444,11 @@ abstract contract MainnetVaultBase is Test {
         uint64 b = _open(10 ether); // opens at 1.32
         tok.setRate(1.26e18); // a is +5%, b is -4.5%
         assertEq(vault.accruedYield(b), 0);
-        uint256 feeA = (vault.accruedYield(a) * 2000) / 8000;
-        assertLe(vault.treasuryBalance(), feeA + 4, "never above the fee of Positions that earned");
+        assertEq(vault.treasuryBalance(), 0, "open fees are not spendable");
         tok.setRate(1.4e18); // both above their open rate
         uint256 sum = ((vault.accruedYield(a) * 2000) / 8000) + ((vault.accruedYield(b) * 2000) / 8000);
+        _recv(_unlock(a, 1));
+        _recv(_unlock(b, 1));
         assertApproxEqAbs(vault.treasuryBalance(), sum, 8);
     }
 
@@ -261,8 +507,10 @@ abstract contract MainnetVaultBase is Test {
     /// Treasury cannot cover now reverts (nothing is recorded as handled) and the same message pays once it can.
     function test_instantRedeemPaysFromTheTreasuryElseWaitsForIt() public {
         uint64 id = _open(10 ether);
+        _fund(1 ether); // 1.2 underlying at 1.2: the Treasury is funded, as the runbook says
         tok.setRate(1.32e18);
         uint128 fee = uint128(vault.treasuryBalance());
+        assertApproxEqAbs(fee, 1.32 ether, 2, "the funded shares earn staking yield");
         _recv(_pay(5, id, 1, redeemer, fee));
         assertEq(vault.instantPaid(), fee);
         assertApproxEqAbs(tok.balanceOf(redeemer) * 1.32e18 / 1e18, fee, 2);
@@ -273,7 +521,7 @@ abstract contract MainnetVaultBase is Test {
         assertEq(vault.instantPaid(), fee, "nothing paid, nothing recorded");
 
         // The Treasury is refilled; the same message, delivered again, pays exactly once.
-        tok.setRate(1.8e18);
+        _fund(1 ether); // the owner funds it
         assertGe(vault.treasuryBalance(), 0.9 ether);
         uint256 before = tok.balanceOf(redeemer);
         _recv(short);
@@ -288,10 +536,11 @@ abstract contract MainnetVaultBase is Test {
         tok.setRate(1.32e18);
         uint128 amt = uint128(vault.payableYield(id));
         _recv(_pay(4, id, 1, address(vault), amt)); // Tesoro's redeemed Gemas return to the vault Treasury
-        assertEq(vault.treasuryCredited(), amt);
+        assertApproxEqAbs(vault.treasuryShares(), uint256(amt) * 1e18 / 1.32e18, 2);
         uint256 t = vault.treasuryBalance();
+        assertApproxEqAbs(t, amt, 2);
         vault.withdrawTreasury(t, address(0xC0FFEE));
-        assertEq(vault.treasuryBalance(), 0);
+        assertLe(vault.treasuryBalance(), 1, "at most a wei of rounding dust stays");
         assertApproxEqAbs(tok.balanceOf(address(0xC0FFEE)) * 1.32e18 / 1e18, t, 2);
         _recv(_unlock(id, 2));
         assertApproxEqAbs((tok.balanceOf(alice) - 90 ether) * 1.32e18 / 1e18, 12 ether, 2, "Principal untouched");

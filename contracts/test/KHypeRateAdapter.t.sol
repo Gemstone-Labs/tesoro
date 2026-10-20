@@ -88,19 +88,21 @@ contract KHypeRateAdapterTest is Test {
         uint64 id = _open(10 ether);
         kh.setRate(1.05e18);
         assertApproxEqAbs(vault.accruedYield(id), 0.4 ether, 2, "Position keeps 80% of 0.5 HYPE");
-        assertApproxEqAbs(vault.treasuryBalance(), 0.1 ether, 2, "Treasury gets 20%");
+        assertEq(vault.treasuryBalance(), 0, "the fee of an open Position is not spendable");
         assertEq(kh.balanceOf(address(vault)), vault.getPosition(id).heldShares);
+        ep.deliver(address(vault), abi.encode(uint8(3), CHAIN, id, uint64(1)));
+        assertApproxEqAbs(vault.treasuryBalance(), 0.1 ether, 2, "Treasury gets 20% once the Position unlocks");
     }
 
     function test_slashingLowersTheRateAndTheYieldFollowsItDown() public {
         uint64 id = _open(10 ether);
         kh.setRate(1.05e18);
-        uint256 feeBefore = vault.treasuryBalance();
         kh.setRate(1.0e18); // slashing: the rate falls, nothing is owed
         assertEq(vault.treasuryBalance(), 0, "no fee on a fall");
         assertEq(vault.accruedYield(id), 0);
         kh.setRate(1.05e18);
-        assertApproxEqAbs(vault.treasuryBalance(), feeBefore, 4, "the fee is back with the rate");
+        assertEq(vault.treasuryBalance(), 0, "open fees are never spendable");
+        assertGt(vault.accruedYield(id), 0);
     }
 
     function test_reportIs93BytesOverLayerZero() public {
@@ -120,7 +122,7 @@ contract KHypeRateAdapterTest is Test {
         assertEq(m.length, 101);
         assertEq(uint8(m[0]), 2);
         assertApproxEqAbs(uint128(bytes16(_slice(m, 45, 16))), 0.4 ether, 2);
-        assertApproxEqAbs(uint128(bytes16(_slice(m, 61, 16))), 0.1 ether, 2);
+        assertEq(uint128(bytes16(_slice(m, 61, 16))), 0, "the open Position's fee is not in the Treasury figure");
         assertEq(uint128(bytes16(_slice(m, 77, 16))), 0, "no Instant payout yet");
     }
 
