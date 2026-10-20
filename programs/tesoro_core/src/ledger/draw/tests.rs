@@ -23,7 +23,7 @@ impl Rng {
     }
 }
 
-type Books = BTreeMap<Key, SourceBook>;
+type Books = MemBooks;
 type P<'a> = Pool<'a, &'a mut [u8], &'a mut [u8]>;
 
 /// A basket, its spill and the Source books, plus every other place a line can be.
@@ -43,7 +43,7 @@ struct World {
 fn world(cap: usize) -> World {
     let mut basket = vec![0u8; required_len(cap)];
     LineStore::init(basket.as_mut_slice(), key(OWNER), 1).unwrap();
-    let mut books = BTreeMap::new();
+    let mut books = MemBooks::default();
     for s in 0..5u8 {
         let mut b = SourceBook::new();
         b.start_extension().unwrap();
@@ -98,19 +98,14 @@ impl World {
     fn credit(&mut self, side: u8, due: i64, src: u8, class: u8, amount: u64) -> Placed {
         let tranche = if class == CLASS_EXTENSION_BASE { 1 } else { 0 };
         let mut line = SourceBook::blank_line(side, due, key(src), class, tranche);
-        self.books
-            .get_mut(&key(src))
-            .unwrap()
-            .issue(&mut line, amount)
-            .unwrap();
+        self.books.issue(&key(src), &mut line, amount).unwrap();
         self.issued += amount;
         self.allowance += spill_slots_for_credit(1);
         self.run(|p, books| p.put(books, &line)).unwrap()
     }
     fn land(&mut self, src: u8, gemas: u64) {
-        let book = self.books.get_mut(&key(src)).unwrap();
-        let cum = book.h + fp(gemas);
-        book.land(cum, (fp(gemas)) >> 32).unwrap();
+        let cum = self.books[&key(src)].h + fp(gemas);
+        self.books.land(&key(src), cum, fp(gemas) >> 32).unwrap();
     }
     fn free(&mut self) -> u64 {
         self.run_raw(|p, _| Ok(p.free())).unwrap()
@@ -623,11 +618,7 @@ fn spill_full_changes_nothing_and_names_the_room_needed() {
     let mut w = world(1);
     w.credit(SIDE_OWN, 1, 0, CLASS_GENERAL, 10);
     let mut line = SourceBook::blank_line(SIDE_OWN, 2, key(1), CLASS_GENERAL, 0);
-    w.books
-        .get_mut(&key(1))
-        .unwrap()
-        .issue(&mut line, 5)
-        .unwrap();
+    w.books.issue(&key(1), &mut line, 5).unwrap();
     w.issued += 5;
     let (b0, s0) = (w.basket.clone(), w.spill.clone());
     assert_eq!(
@@ -867,9 +858,8 @@ impl Sim {
                     line.class,
                     line.tranche,
                 );
-                books
-                    .book_mut(&line.source)?
-                    .transfer(&mut rest, &mut out, k)?;
+                let (book, history) = books.book_with_history(&line.source)?;
+                book.transfer(&mut rest, &mut out, k, &*history)?;
                 if in_basket {
                     let idx = p.basket.find(&line.key()).unwrap();
                     if rest.amount == 0 {

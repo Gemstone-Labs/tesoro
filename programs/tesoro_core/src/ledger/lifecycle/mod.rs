@@ -957,9 +957,10 @@ fn cut_step(
     let saved = w.books().book_mut(&orig.source)?.clone();
     let mut src = orig;
     let mut dst = SourceBook::blank_line(SIDE_OWN, 0, orig.source, cut.class, 0);
-    w.books()
-        .book_mut(&orig.source)?
-        .cut_fee(&mut src, &mut dst, cut.k)?;
+    {
+        let (book, history) = w.books().book_with_history(&orig.source)?;
+        book.cut_fee(&mut src, &mut dst, cut.k, history)?;
+    }
     if let Err(e) = w.credit_fee(cut.class, owner.as_ref(), &dst) {
         *w.books().book_mut(&orig.source)? = saved;
         return Err(e);
@@ -1000,9 +1001,10 @@ fn surplus_step(
         let mut rest = *orig;
         let mut part =
             SourceBook::blank_line(SIDE_WON, orig.due_at, orig.source, orig.class, orig.tranche);
-        w.books()
-            .book_mut(&orig.source)?
-            .transfer(&mut rest, &mut part, take)?;
+        {
+            let (book, history) = w.books().book_with_history(&orig.source)?;
+            book.transfer(&mut rest, &mut part, take, &*history)?;
+        }
         if let Err(e) = w.credit(&winner.player, &part) {
             *w.books().book_mut(&orig.source)? = saved;
             return Err(e);

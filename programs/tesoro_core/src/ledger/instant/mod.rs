@@ -32,6 +32,7 @@
 #[cfg(test)]
 mod tests;
 
+use super::book::checkpoint::CheckpointStore;
 use super::book::wide::{mul_div_u128, Round};
 use super::book::{Redeemed, SourceBook};
 use super::draw::{Bytes, DrawError, DrawResult, Pool, SourceBooks};
@@ -188,11 +189,18 @@ fn draw_err(e: DrawError) -> CoreError {
 }
 
 /// An order's Gemas all belong to one Source, so one book serves every credit.
-struct OneBook<'a>(&'a mut SourceBook);
+struct OneBook<'a>(&'a mut SourceBook, &'a mut dyn CheckpointStore);
 
 impl SourceBooks for OneBook<'_> {
     fn book_mut(&mut self, _source: &Key) -> DrawResult<&mut SourceBook> {
         Ok(self.0)
+    }
+
+    fn book_with_history(
+        &mut self,
+        _source: &Key,
+    ) -> DrawResult<(&mut SourceBook, &mut dyn CheckpointStore)> {
+        Ok((&mut *self.0, &mut *self.1))
     }
 }
 
@@ -212,6 +220,7 @@ pub struct Requested {
 pub fn request_instant_redeem<B: Bytes, S: Bytes>(
     kind: SourceKind,
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     pool: &mut Pool<B, S>,
     key: &LineKey,
     owner: Key,
@@ -247,7 +256,7 @@ pub fn request_instant_redeem<B: Bytes, S: Bytes>(
     let mut b = book.clone();
     let ready = b.redeemable(&line)?.min(line.amount);
     let redeemed = if ready > 0 {
-        Some(b.redeem(&mut line, ready)?)
+        Some(b.redeem(&mut line, ready, &*history)?)
     } else {
         None
     };
@@ -263,7 +272,7 @@ pub fn request_instant_redeem<B: Bytes, S: Bytes>(
         line.class,
         line.tranche,
     );
-    b.transfer(&mut line, &mut order_line, sell)?;
+    b.transfer(&mut line, &mut order_line, sell, &*history)?;
     // `line` shrinks (never grows), so rewriting or removing it needs no room.
     let done = match (in_spill, line.amount == 0) {
         (false, true) => pool.basket.remove_at(idx).map(drop),
@@ -316,6 +325,7 @@ pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
     signer: &Key,
     route: &mut RouteLedger,
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     order: &mut InstantOrder,
     treasury: &mut Pool<B, S>,
     gemas: u64,
@@ -336,7 +346,7 @@ pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
     let mut ol = order.line;
     let ready = b.redeemable(&ol)?.min(ol.amount);
     let redeemed = if ready > 0 {
-        Some(b.redeem(&mut ol, ready)?)
+        Some(b.redeem(&mut ol, ready, &*history)?)
     } else {
         None
     };
@@ -353,10 +363,10 @@ pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
         PayMode::Deferred => r.reserve(payout)?,
     }
     let mut part = SourceBook::blank_line(ol.side, ol.due_at, ol.source, ol.class, ol.tranche);
-    b.transfer(&mut ol, &mut part, gemas)?;
+    b.transfer(&mut ol, &mut part, gemas, &*history)?;
     // The last step that can fail: a full Treasury pool changes nothing (grow its spill, retry).
     treasury
-        .put(&mut OneBook(&mut b), &part)
+        .put(&mut OneBook(&mut b, &mut *history), &part)
         .map_err(draw_err)?;
     *route = r;
     *book = b;
@@ -379,6 +389,7 @@ pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
 /// nothing promoted. A full pool is `SpillFull` and changes nothing: grow the spill, retry.
 fn return_to_pool<B: Bytes, S: Bytes>(
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     order: &mut InstantOrder,
     pool: &mut Pool<B, S>,
 ) -> CoreResult<u64> {
@@ -387,7 +398,7 @@ fn return_to_pool<B: Bytes, S: Bytes>(
     }
     let k = order.line.amount;
     let mut b = book.clone();
-    pool.put(&mut OneBook(&mut b), &order.line)
+    pool.put(&mut OneBook(&mut b, history), &order.line)
         .map_err(draw_err)?;
     let l = order.line;
     order.line = SourceBook::blank_line(l.side, l.due_at, l.source, l.class, l.tranche);
@@ -399,24 +410,26 @@ fn return_to_pool<B: Bytes, S: Bytes>(
 pub fn cancel_instant_redeem<B: Bytes, S: Bytes>(
     signer: &Key,
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     order: &mut InstantOrder,
     pool: &mut Pool<B, S>,
 ) -> CoreResult<u64> {
     if *signer != order.owner {
         return Err(CoreError::NotParty);
     }
-    return_to_pool(book, order, pool)
+    return_to_pool(book, history, order, pool)
 }
 
 /// Expiry: anyone returns the unsold Gemas to the owner once `expires_at` has passed.
 pub fn expire_instant_redeem<B: Bytes, S: Bytes>(
     now: i64,
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     order: &mut InstantOrder,
     pool: &mut Pool<B, S>,
 ) -> CoreResult<u64> {
     if now < order.expires_at {
         return Err(CoreError::NotExpired);
     }
-    return_to_pool(book, order, pool)
+    return_to_pool(book, history, order, pool)
 }

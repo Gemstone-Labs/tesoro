@@ -44,6 +44,7 @@
 
 use std::collections::BTreeMap;
 
+use super::book::checkpoint::CheckpointStore;
 use super::book::{BookError, SourceBook};
 use super::line_store::{
     required_len, Line, LineKey, LineStore, LineStoreError, CLASS_GENERAL, FLAG_BACKING_OPEN,
@@ -117,16 +118,89 @@ pub type DrawResult<T> = Result<T, DrawError>;
 pub trait Bytes: AsRef<[u8]> + AsMut<[u8]> {}
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Bytes for T {}
 
-/// The books of the Sources a transaction supplies. A draw needs a book only to split a line or
-/// to merge into an existing one.
+/// The books of the Sources a transaction supplies, each with the closed-segment records its lines
+/// may need to catch up (and room for new ones). A draw needs a book only to split a line or to
+/// merge into an existing one; settlement also lands yield and cuts fees.
 pub trait SourceBooks {
     fn book_mut(&mut self, source: &Key) -> DrawResult<&mut SourceBook>;
+
+    /// The Source's book and its history. The records of every Source whose line a transaction
+    /// edits must be supplied with it.
+    fn book_with_history(
+        &mut self,
+        source: &Key,
+    ) -> DrawResult<(&mut SourceBook, &mut dyn CheckpointStore)>;
 }
 
-impl SourceBooks for BTreeMap<Key, SourceBook> {
+/// Source books with their histories in memory (tests and off-chain code).
+#[cfg(not(target_os = "solana"))]
+#[derive(Default, Clone)]
+pub struct MemBooks {
+    pub map: BTreeMap<Key, SourceBook>,
+    pub ck: BTreeMap<Key, super::book::checkpoint::MemCheckpoints>,
+}
+
+#[cfg(not(target_os = "solana"))]
+impl MemBooks {
+    pub fn insert(&mut self, source: Key, book: SourceBook) {
+        self.map.insert(source, book);
+        self.ck
+            .insert(source, super::book::checkpoint::MemCheckpoints::new(source));
+    }
+
+    /// `SourceBook::issue` with this Source's history.
+    pub fn issue(&mut self, source: &Key, line: &mut Line, k: u64) -> Result<(), BookError> {
+        let ck = &self.ck[source];
+        self.map.get_mut(source).expect("book").issue(line, k, ck)
+    }
+
+    /// `SourceBook::land` with this Source's history.
+    pub fn land(&mut self, source: &Key, cum: u128, shares: u128) -> Result<(), BookError> {
+        let ck = self.ck.get_mut(source).expect("history");
+        self.map
+            .get_mut(source)
+            .expect("book")
+            .land(cum, shares, ck)
+            .map(drop)
+    }
+}
+
+#[cfg(not(target_os = "solana"))]
+impl core::ops::Deref for MemBooks {
+    type Target = BTreeMap<Key, SourceBook>;
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+#[cfg(not(target_os = "solana"))]
+impl core::ops::DerefMut for MemBooks {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.map
+    }
+}
+
+#[cfg(not(target_os = "solana"))]
+impl SourceBooks for MemBooks {
     fn book_mut(&mut self, source: &Key) -> DrawResult<&mut SourceBook> {
-        self.get_mut(source)
+        self.map
+            .get_mut(source)
             .ok_or(DrawError::Book(BookError::NoSuchClass))
+    }
+
+    fn book_with_history(
+        &mut self,
+        source: &Key,
+    ) -> DrawResult<(&mut SourceBook, &mut dyn CheckpointStore)> {
+        let book = self
+            .map
+            .get_mut(source)
+            .ok_or(DrawError::Book(BookError::NoSuchClass))?;
+        let ck = self
+            .ck
+            .get_mut(source)
+            .ok_or(DrawError::Book(BookError::NoSuchClass))?;
+        Ok((book, ck))
     }
 }
 
@@ -300,9 +374,8 @@ impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
             line.tranche,
         );
         let mut rest = line;
-        books
-            .book_mut(&line.source)?
-            .transfer(&mut rest, &mut part, take)?;
+        let (book, history) = books.book_with_history(&line.source)?;
+        book.transfer(&mut rest, &mut part, take, &*history)?;
         match at {
             Where::Basket => self.basket.set_line(idx, &rest)?,
             Where::Spill => self.spill.set_line(idx, &rest)?,
@@ -447,9 +520,8 @@ fn put_line<B: Bytes>(
                 .get(idx)
                 .ok_or(DrawError::Store(LineStoreError::NotFound))?;
             let mut s = *line;
-            books
-                .book_mut(&line.source)?
-                .transfer(&mut s, &mut d, line.amount)?;
+            let (book, history) = books.book_with_history(&line.source)?;
+            book.transfer(&mut s, &mut d, line.amount, &*history)?;
             dst.set_line(idx, &d)?;
             Ok(true)
         }
@@ -576,9 +648,8 @@ impl PotPages {
     pub fn push_joined(&mut self, books: &mut dyn SourceBooks, mut line: Line) -> DrawResult<()> {
         if let Some(mut last) = self.last_line().filter(|l| l.key() == line.key()) {
             let k = line.amount;
-            books
-                .book_mut(&line.source)?
-                .transfer(&mut line, &mut last, k)?;
+            let (book, history) = books.book_with_history(&line.source)?;
+            book.transfer(&mut line, &mut last, k, &*history)?;
             self.pop_last()?;
             line = last;
         }

@@ -119,7 +119,10 @@ pub fn prize_line(side: u8, due_at: i64, source: Key, amount: u64) -> Line {
         p: P_ONE,
         scale: 0,
         epoch: 0,
-        reserved: [0; 5],
+        ck: 0,
+        shares: 0,
+        s_snap: Default::default(),
+        reserved: [0; 1],
     }
 }
 

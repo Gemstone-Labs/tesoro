@@ -20,6 +20,7 @@
 //! prize payouts that are not executed yet). Only prize Redeem takes shares out.
 
 use super::{SourceKind, DEFAULT_POOL_SHARE_BPS};
+use crate::ledger::book::checkpoint::CheckpointStore;
 use crate::ledger::book::wide::{mul_div_u128, Round};
 use crate::ledger::book::SourceBook;
 use crate::ledger::line_store::{Line, CLASS_LEADERBOARD};
@@ -264,6 +265,7 @@ impl RouteLedger {
         book: &mut SourceBook,
         counter: &mut Line,
         k: u64,
+        history: &(impl CheckpointStore + ?Sized),
     ) -> CoreResult<Harvested> {
         kind.require_yield()?;
         if !self.escrow_enabled {
@@ -275,7 +277,7 @@ impl RouteLedger {
         let unissued = self.escrow_unissued;
         let mut book_after = book.clone();
         let mut line_after = *counter;
-        let out = book_after.redeem(&mut line_after, k)?;
+        let out = book_after.redeem(&mut line_after, k, history)?;
         let unissued = add(unissued, out.shares)?;
         *book = book_after;
         *counter = line_after;

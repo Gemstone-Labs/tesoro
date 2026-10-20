@@ -1,6 +1,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use super::*;
+use crate::ledger::book::checkpoint::NoCheckpoints;
 use crate::ledger::book::{fp, SourceBook, SHARE_BITS};
 use crate::ledger::line_store::{
     required_len, LineKey, LineStore, CLASS_LEADERBOARD, SIDE_OWN, SIDE_WON,
@@ -214,8 +215,9 @@ fn a_later_season_never_touches_an_earlier_prize_sources_shares() {
 fn leaderboard_book(issue: u64, landed: u64, shares: u128) -> (SourceBook, Line) {
     let mut book = SourceBook::new();
     let mut counter = SourceBook::blank_line(SIDE_OWN, 0, key(9), CLASS_LEADERBOARD, 0);
-    book.issue(&mut counter, issue).unwrap();
-    book.land(fp(landed), shares << SHARE_BITS).unwrap();
+    book.issue(&mut counter, issue, &NoCheckpoints).unwrap();
+    book.land(fp(landed), shares << SHARE_BITS, &mut NoCheckpoints)
+        .unwrap();
     (book, counter)
 }
 
@@ -224,18 +226,32 @@ fn harvest_moves_the_ready_part_of_the_leaderboard_counter_into_the_escrow() {
     let mut r = on();
     let (mut book, mut counter) = leaderboard_book(100, 100, 1_000);
     let h = r
-        .harvest(SourceKind::Yield, &mut book, &mut counter, 60)
+        .harvest(
+            SourceKind::Yield,
+            &mut book,
+            &mut counter,
+            60,
+            &NoCheckpoints,
+        )
         .unwrap();
     assert_eq!((h.gemas, h.shares), (60, 600));
     assert_eq!(r.escrow_unissued, 600);
     assert_eq!(counter.amount, 40);
     // only what is ready can be harvested
     assert!(r
-        .harvest(SourceKind::Yield, &mut book, &mut counter, 41)
+        .harvest(
+            SourceKind::Yield,
+            &mut book,
+            &mut counter,
+            41,
+            &NoCheckpoints
+        )
         .is_err());
     assert_eq!(r.escrow_unissued, 600);
     let (mut b2, mut c2) = leaderboard_book(100, 60, 600);
-    assert!(r.harvest(SourceKind::Yield, &mut b2, &mut c2, 61).is_err());
+    assert!(r
+        .harvest(SourceKind::Yield, &mut b2, &mut c2, 61, &NoCheckpoints)
+        .is_err());
     assert_eq!(c2.amount, 100);
 }
 
@@ -245,17 +261,35 @@ fn harvest_is_refused_on_prize_sources_off_escrows_and_other_classes() {
     let mut r = on();
     let (b0, c0) = (book.clone(), counter);
     assert_eq!(
-        r.harvest(SourceKind::Prize, &mut book, &mut counter, 10),
+        r.harvest(
+            SourceKind::Prize,
+            &mut book,
+            &mut counter,
+            10,
+            &NoCheckpoints
+        ),
         Err(CoreError::PrizeSourceRefused)
     );
     let mut off = RouteLedger::default();
     assert_eq!(
-        off.harvest(SourceKind::Yield, &mut book, &mut counter, 10),
+        off.harvest(
+            SourceKind::Yield,
+            &mut book,
+            &mut counter,
+            10,
+            &NoCheckpoints
+        ),
         Err(CoreError::PrizeEscrowOff)
     );
     counter.class = 3;
     assert_eq!(
-        r.harvest(SourceKind::Yield, &mut book, &mut counter, 10),
+        r.harvest(
+            SourceKind::Yield,
+            &mut book,
+            &mut counter,
+            10,
+            &NoCheckpoints
+        ),
         Err(CoreError::SourceMismatch)
     );
     counter.class = CLASS_LEADERBOARD;

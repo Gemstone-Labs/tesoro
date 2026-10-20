@@ -1,6 +1,6 @@
 use super::*;
 use crate::ledger::book::{fp, SourceBook};
-use crate::ledger::draw::{grow_spill_body, spill_body, DrawResult, Pool};
+use crate::ledger::draw::{grow_spill_body, spill_body, DrawResult, MemBooks, Pool};
 use crate::ledger::line_store::{required_len, LineStore, CLASS_EXTENSION_BASE, CLASS_GENERAL};
 
 fn key(n: u8) -> Key {
@@ -30,7 +30,7 @@ impl Rng {
     }
 }
 
-type Books = BTreeMap<Key, SourceBook>;
+type Books = MemBooks;
 
 struct Acct {
     basket: Vec<u8>,
@@ -87,7 +87,7 @@ impl World {
                 },
             );
         }
-        let mut books = BTreeMap::new();
+        let mut books = MemBooks::default();
         let mut issued = BTreeMap::new();
         for s in 100..104u8 {
             let mut b = SourceBook::new();
@@ -134,11 +134,7 @@ impl World {
             (CLASS_GENERAL, 0)
         };
         let mut line = SourceBook::blank_line(side, due, key(src), class, tranche);
-        self.books
-            .get_mut(&key(src))
-            .unwrap()
-            .issue(&mut line, amount)
-            .unwrap();
+        self.books.issue(&key(src), &mut line, amount).unwrap();
         *self.issued.get_mut(&key(src)).unwrap() += amount;
         loop {
             match self.pool(&key(who), |p, books| p.put(books, &line)) {
@@ -188,10 +184,10 @@ impl Settlement for World {
         let Some(t) = self.target.get(source).copied() else {
             return Ok(());
         };
-        let b = self.books.get_mut(source).unwrap();
-        if t > b.h {
-            let shares = (t - b.h) >> 32;
-            b.land(t, shares)?;
+        let h = self.books[source].h;
+        if t > h {
+            let shares = (t - h) >> 32;
+            self.books.land(source, t, shares)?;
         }
         Ok(())
     }
@@ -220,11 +216,8 @@ impl Settlement for World {
                     .copied()
                     .unwrap_or_else(|| SourceBook::blank_line(SIDE_OWN, 0, line.source, class, 0));
                 let mut l = *line;
-                self.books.get_mut(&line.source).unwrap().transfer(
-                    &mut l,
-                    &mut counter,
-                    line.amount,
-                )?;
+                let (book, history) = self.books.book_with_history(&line.source).unwrap();
+                book.transfer(&mut l, &mut counter, line.amount, &*history)?;
                 self.counters.insert((class, line.source), counter);
             }
         }
@@ -261,11 +254,7 @@ fn pot(w: &mut World, owner: u8, lines: &[(u8, u8, u64)]) -> PotPages {
     sorted.sort_by_key(|l| (l.0, l.1));
     for (i, (src, _tr, amount)) in sorted.iter().enumerate() {
         let mut line = SourceBook::blank_line(SIDE_OWN, i as i64, key(*src), CLASS_GENERAL, 0);
-        w.books
-            .get_mut(&key(*src))
-            .unwrap()
-            .issue(&mut line, *amount)
-            .unwrap();
+        w.books.issue(&key(*src), &mut line, *amount).unwrap();
         *w.issued.get_mut(&key(*src)).unwrap() += amount;
         p.push(&line).unwrap();
     }

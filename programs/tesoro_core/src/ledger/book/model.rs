@@ -38,6 +38,10 @@ impl Rat {
     pub fn from_fp(v: u128) -> Rat {
         Rat::new(BigInt::from(v), BigInt::one() << 64usize)
     }
+    /// `floor(self)`.
+    pub fn floor_int(&self) -> BigInt {
+        self.n.div_floor(&self.d)
+    }
     pub fn to_f64(&self) -> f64 {
         use num_traits::ToPrimitive;
         let (n, d) = (
@@ -45,6 +49,9 @@ impl Rat {
             self.d.to_f64().unwrap_or(f64::NAN),
         );
         n / d
+    }
+    pub fn from_u128_pub(v: u128) -> Rat {
+        Rat::new(BigInt::from(v), BigInt::one())
     }
     pub fn zero() -> Rat {
         Rat::int(0)
@@ -93,6 +100,8 @@ impl Ord for Rat {
 pub struct MLine {
     pub amount: u64,
     pub unpaid: Rat,
+    /// Staking-token shares the line owns, in units of 2^-32 share (like the ledger's).
+    pub shares: Rat,
 }
 
 impl MLine {
@@ -137,6 +146,7 @@ impl Model {
         self.lines.entry(id).or_insert_with(|| MLine {
             amount: 0,
             unpaid: Rat::zero(),
+            shares: Rat::zero(),
         })
     }
 
@@ -157,8 +167,9 @@ impl Model {
         l.unpaid = l.unpaid.add(&Rat::int(k as i128));
     }
 
-    /// Pay classes in order; what no class owes is returned.
-    pub fn land(&mut self, delta: &Rat) -> Rat {
+    /// Pay classes in order; what no class owes is returned. `q` shares (2^-32 units) are split by
+    /// what each class takes, and each class hands its part to its lines by their unpaid share.
+    pub fn land(&mut self, delta: &Rat, q: &Rat) -> Rat {
         let mut rest = delta.clone();
         for class in 0..self.classes as u8 {
             if rest.is_zero() {
@@ -170,8 +181,11 @@ impl Model {
             }
             let pay = rest.lesser(&total);
             let keep = total.sub(&pay).div(&total); // fraction of each line still unpaid
+            let q_class = q.mul(&pay).div(delta);
             for ((_, c), l) in self.lines.iter_mut() {
                 if *c == class {
+                    let gain = q_class.mul(&l.unpaid).div(&total);
+                    l.shares = l.shares.add(&gain);
                     l.unpaid = l.unpaid.mul(&keep);
                 }
             }
@@ -189,21 +203,32 @@ impl Model {
             (l.amount, l.unpaid.clone())
         };
         let moved = unpaid.mul(&Rat::int(k as i128)).div(&Rat::int(a as i128));
+        let moved_shares = self
+            .line_mut(src)
+            .shares
+            .mul(&Rat::int(k as i128))
+            .div(&Rat::int(a as i128));
         {
             let l = self.line_mut(src);
             l.amount -= k;
             l.unpaid = l.unpaid.sub(&moved);
+            l.shares = l.shares.sub(&moved_shares);
         }
         let l = self.line_mut(dst);
         l.amount += k;
         l.unpaid = l.unpaid.add(&moved);
+        l.shares = l.shares.add(&moved_shares);
     }
 
     /// Redeem `k`. The real ledger may let a holder redeem a Gema when the exact ready is a few
     /// units of 2^-64 short of it; the model then forgives that much unpaid and returns it.
-    pub fn redeem(&mut self, id: LineId, k: u64) -> Rat {
+    pub fn redeem(&mut self, id: LineId, k: u64, paid_q32: u128, flush: bool) -> Rat {
         let l = self.line_mut(id);
         l.amount -= k;
+        l.shares = l.shares.sub(&Rat::from_u128_pub(paid_q32));
+        if flush && l.amount == 0 {
+            l.shares = Rat::zero();
+        }
         let cap = Rat::int(l.amount as i128);
         if l.unpaid > cap {
             let forgiven = l.unpaid.sub(&cap);
@@ -223,7 +248,9 @@ impl Model {
         let ready = Rat::int(k as i128).sub(&cancelled);
         self.returned = self.returned.add(&ready);
         let l = self.line_mut(id);
+        let moved_shares = l.shares.mul(&Rat::int(k as i128)).div(&Rat::int(a as i128));
         l.amount -= k;
         l.unpaid = l.unpaid.sub(&cancelled);
+        l.shares = l.shares.sub(&moved_shares);
     }
 }

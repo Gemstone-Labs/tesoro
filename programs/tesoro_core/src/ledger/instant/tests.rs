@@ -4,6 +4,7 @@ use super::{
     cancel_instant_redeem as cancel_pool, expire_instant_redeem as expire_pool,
     fill_instant_redeem as fill_pool, request_instant_redeem as request_pool, *,
 };
+use crate::ledger::book::checkpoint::{CheckpointStore, MemCheckpoints};
 use crate::ledger::book::fp;
 use crate::ledger::draw::{grow_spill_body, spill_body};
 use crate::ledger::line_store::{
@@ -29,6 +30,7 @@ fn no_spill(owner: Key) -> LineStore<Vec<u8>> {
 fn request_instant_redeem(
     kind: SourceKind,
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     basket: &mut Basket,
     key: &LineKey,
     owner: Key,
@@ -40,6 +42,7 @@ fn request_instant_redeem(
     request_pool(
         kind,
         book,
+        history,
         &mut Pool::new(basket, &mut sp),
         key,
         owner,
@@ -54,6 +57,7 @@ fn fill_instant_redeem(
     signer: &Key,
     route: &mut RouteLedger,
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     order: &mut InstantOrder,
     treasury: &mut Basket,
     gemas: u64,
@@ -66,6 +70,7 @@ fn fill_instant_redeem(
         signer,
         route,
         book,
+        history,
         order,
         &mut Pool::new(treasury, &mut sp),
         gemas,
@@ -77,21 +82,29 @@ fn fill_instant_redeem(
 fn cancel_instant_redeem(
     signer: &Key,
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     order: &mut InstantOrder,
     basket: &mut Basket,
 ) -> CoreResult<u64> {
     let mut sp = no_spill(key(10));
-    cancel_pool(signer, book, order, &mut Pool::new(basket, &mut sp))
+    cancel_pool(
+        signer,
+        book,
+        history,
+        order,
+        &mut Pool::new(basket, &mut sp),
+    )
 }
 
 fn expire_instant_redeem(
     now: i64,
     book: &mut SourceBook,
+    history: &mut dyn CheckpointStore,
     order: &mut InstantOrder,
     basket: &mut Basket,
 ) -> CoreResult<u64> {
     let mut sp = no_spill(key(10));
-    expire_pool(now, book, order, &mut Pool::new(basket, &mut sp))
+    expire_pool(now, book, history, order, &mut Pool::new(basket, &mut sp))
 }
 
 fn basket(n: u8, lines: usize) -> Basket {
@@ -101,6 +114,7 @@ fn basket(n: u8, lines: usize) -> Basket {
 /// A Source whose owner holds `issued` Gemas of class General.
 struct Src {
     book: SourceBook,
+    ck: MemCheckpoints,
     owner: Line,
     cum: u64,
     redeemed: u64,
@@ -111,9 +125,11 @@ impl Src {
     fn new(id: u8, issued: u64) -> Src {
         let mut book = SourceBook::new();
         let mut owner = SourceBook::blank_line(SIDE_OWN, DUE, key(id), CLASS_GENERAL, 0);
-        book.issue(&mut owner, issued).unwrap();
+        let ck = MemCheckpoints::new(key(id));
+        book.issue(&mut owner, issued, &ck).unwrap();
         Src {
             book,
+            ck,
             owner,
             cum: 0,
             redeemed: 0,
@@ -126,7 +142,7 @@ impl Src {
         self.cum += gemas;
         let cum = fp(self.cum);
         let shares = self.book.pending(cum) >> 32;
-        self.book.land(cum, shares).unwrap();
+        self.book.land(cum, shares, &mut self.ck).unwrap();
     }
 
     /// Gives `k` Gemas of class `class` to the player's basket (a won line).
@@ -142,7 +158,7 @@ impl Src {
         if class != CLASS_GENERAL {
             // a class other than General: the owner needs a line of it
             src = SourceBook::blank_line(SIDE_OWN, DUE, self.owner.source, class, tranche);
-            self.book.issue(&mut src, k).unwrap();
+            self.book.issue(&mut src, k, &self.ck).unwrap();
             self.issued += k;
         }
         let (mut dst, at) = match b.find(&key) {
@@ -152,7 +168,7 @@ impl Src {
                 None,
             ),
         };
-        self.book.transfer(&mut src, &mut dst, k).unwrap();
+        self.book.transfer(&mut src, &mut dst, k, &self.ck).unwrap();
         match at {
             Some(i) => b.set_line(i, &dst).unwrap(),
             None => {
@@ -235,6 +251,7 @@ fn request(s: &mut Src, b: &mut Basket, sell: u64) -> CoreResult<Requested> {
     request_instant_redeem(
         SourceKind::Yield,
         &mut s.book,
+        &mut s.ck,
         b,
         &k,
         key(10),
@@ -252,7 +269,8 @@ fn a_request_redeems_the_ready_part_and_moves_the_rest_into_the_order() {
     s.redeemed += red.gemas;
     // 2,000 landed over 10,000 Gemas: 1,000 ready (a fixed-point ulp short is allowed)
     assert!((999..=1_000).contains(&red.gemas), "{}", red.gemas);
-    assert_eq!(red.shares, red.gemas as u128);
+    // one share per Gema, whole shares rounded down (an ulp short of a share pays one fewer)
+    assert!((red.gemas as u128 - 1..=red.gemas as u128).contains(&red.shares));
     let o = r.order;
     assert_eq!(o.line.amount, 3_000);
     assert_eq!(
@@ -283,7 +301,7 @@ fn a_request_refuses_what_it_must() {
     );
     let k = s.won_key(CLASS_GENERAL, 0);
     let go = |s: &mut Src, b: &mut Basket, kind, k: &LineKey, ttl| {
-        request_instant_redeem(kind, &mut s.book, b, k, key(10), 10, NOW, ttl)
+        request_instant_redeem(kind, &mut s.book, &mut s.ck, b, k, key(10), 10, NOW, ttl)
     };
     assert_eq!(
         go(
@@ -335,13 +353,16 @@ fn fee_classes_cannot_be_sold() {
     let mut s = Src::new(1, 1_000);
     let mut fee = SourceBook::blank_line(SIDE_WON, DUE, key(1), CLASS_PLATFORM, 0);
     let mut owner = s.owner;
-    s.book.cut_fee(&mut owner, &mut fee, 100).unwrap();
+    s.book
+        .cut_fee(&mut owner, &mut fee, 100, &mut s.ck)
+        .unwrap();
     s.owner = owner;
     let mut b = basket(10, 4);
     b.insert(&fee).unwrap();
     let r = request_instant_redeem(
         SourceKind::Yield,
         &mut s.book,
+        &mut s.ck,
         &mut b,
         &fee.key(),
         key(10),
@@ -387,6 +408,7 @@ fn a_full_fill_pays_75_percent_of_the_value_at_fill_and_keeps_class_and_tranche(
     let mut order = request_instant_redeem(
         SourceKind::Yield,
         &mut s.book,
+        &mut s.ck,
         &mut player,
         &key_ext,
         key(10),
@@ -403,6 +425,7 @@ fn a_full_fill_pays_75_percent_of_the_value_at_fill_and_keeps_class_and_tranche(
         &key(200),
         &mut route,
         &mut s.book,
+        &mut s.ck,
         &mut order,
         &mut treasury,
         4_000,
@@ -439,6 +462,7 @@ fn partial_fills_add_up_and_leave_the_rest_open() {
             &key(200),
             &mut route,
             &mut s.book,
+            &mut s.ck,
             &mut order,
             &mut treasury,
             k,
@@ -462,6 +486,7 @@ fn partial_fills_add_up_and_leave_the_rest_open() {
             &key(200),
             &mut route,
             &mut s.book,
+            &mut s.ck,
             &mut order,
             &mut treasury,
             1,
@@ -472,7 +497,8 @@ fn partial_fills_add_up_and_leave_the_rest_open() {
         CoreError::InvalidStatus
     );
     assert_eq!(
-        cancel_instant_redeem(&key(10), &mut s.book, &mut order, &mut player).unwrap_err(),
+        cancel_instant_redeem(&key(10), &mut s.book, &mut s.ck, &mut order, &mut player)
+            .unwrap_err(),
         CoreError::InvalidStatus
     );
 }
@@ -499,6 +525,7 @@ fn a_fill_above_spendable_is_refused_and_changes_nothing() {
         &key(200),
         &mut route,
         &mut s.book,
+        &mut s.ck,
         &mut order,
         &mut treasury,
         4_000,
@@ -537,6 +564,7 @@ fn a_fill_above_spendable_is_refused_and_changes_nothing() {
         &key(200),
         &mut route,
         &mut s.book,
+        &mut s.ck,
         &mut order,
         &mut treasury,
         k + 1,
@@ -549,6 +577,7 @@ fn a_fill_above_spendable_is_refused_and_changes_nothing() {
         &key(200),
         &mut route,
         &mut s.book,
+        &mut s.ck,
         &mut order,
         &mut treasury,
         k,
@@ -574,6 +603,7 @@ fn only_the_admin_or_an_enabled_keeper_fills() {
             &key(who),
             &mut route,
             &mut s.book,
+            &mut s.ck,
             order,
             &mut treasury,
             10,
@@ -621,6 +651,7 @@ fn an_expired_order_cannot_be_filled_and_anyone_can_return_it() {
             &key(200),
             &mut route,
             &mut s.book,
+            &mut s.ck,
             &mut order,
             &mut treasury,
             1,
@@ -631,10 +662,10 @@ fn an_expired_order_cannot_be_filled_and_anyone_can_return_it() {
         CoreError::Expired
     );
     assert_eq!(
-        expire_instant_redeem(at - 1, &mut s.book, &mut order, &mut player).unwrap_err(),
+        expire_instant_redeem(at - 1, &mut s.book, &mut s.ck, &mut order, &mut player).unwrap_err(),
         CoreError::NotExpired
     );
-    let k = expire_instant_redeem(at, &mut s.book, &mut order, &mut player).unwrap();
+    let k = expire_instant_redeem(at, &mut s.book, &mut s.ck, &mut order, &mut player).unwrap();
     assert_eq!(k, 1_000);
     assert!(!order.is_open());
 }
@@ -654,18 +685,26 @@ fn cancel_and_expiry_return_exactly_what_was_locked() {
     let basket_ready = s.book.ready_of(&basket_line).unwrap();
     assert!(ready_in_order > fp(100));
     assert_eq!(
-        cancel_instant_redeem(&key(11), &mut s.book, &mut o.clone(), &mut player).unwrap_err(),
+        cancel_instant_redeem(
+            &key(11),
+            &mut s.book,
+            &mut s.ck,
+            &mut o.clone(),
+            &mut player
+        )
+        .unwrap_err(),
         CoreError::NotParty
     );
     for who in [0u8, 1] {
         let (mut book, mut p, mut ord) = (s.book.clone(), basket(10, 16), o.clone());
+        let mut ck = s.ck.clone();
         for l in player.lines() {
             p.insert(&l).unwrap();
         }
         let k = if who == 0 {
-            cancel_instant_redeem(&key(10), &mut book, &mut ord, &mut p).unwrap()
+            cancel_instant_redeem(&key(10), &mut book, &mut ck, &mut ord, &mut p).unwrap()
         } else {
-            expire_instant_redeem(o.expires_at + 1, &mut book, &mut ord, &mut p).unwrap()
+            expire_instant_redeem(o.expires_at + 1, &mut book, &mut ck, &mut ord, &mut p).unwrap()
         };
         assert_eq!(k, 3_000);
         let back = p.get(p.find(&o.line.key()).unwrap()).unwrap();
@@ -701,6 +740,7 @@ fn ready_gemas_that_appear_while_an_order_waits_are_redeemed_in_full_at_fill() {
         &key(200),
         &mut route,
         &mut s.book,
+        &mut s.ck,
         &mut order,
         &mut treasury,
         100,
@@ -728,6 +768,7 @@ fn a_deferred_fill_reserves_the_payout_for_the_bridge_message() {
         &key(200),
         &mut route,
         &mut s.book,
+        &mut s.ck,
         &mut order,
         &mut treasury,
         400,
@@ -764,6 +805,7 @@ fn the_treasury_basket_can_be_full_and_nothing_changes() {
         &key(200),
         &mut route,
         &mut s.book,
+        &mut s.ck,
         &mut order,
         &mut full,
         10,
@@ -830,9 +872,9 @@ fn cancel_and_expiry_into_a_full_basket_go_to_the_spill_not_a_separate_overflow(
             let mut sp = LineStore::new(spill.as_mut_slice()).unwrap();
             let mut pool = Pool::new(&mut player, &mut sp);
             if expiry {
-                expire_pool(o.expires_at, &mut s.book, &mut o, &mut pool)
+                expire_pool(o.expires_at, &mut s.book, &mut s.ck, &mut o, &mut pool)
             } else {
-                cancel_pool(&key(10), &mut s.book, &mut o, &mut pool)
+                cancel_pool(&key(10), &mut s.book, &mut s.ck, &mut o, &mut pool)
             }
             .unwrap_err()
         };
@@ -852,9 +894,9 @@ fn cancel_and_expiry_into_a_full_basket_go_to_the_spill_not_a_separate_overflow(
             let mut pool = Pool::new(&mut player, &mut sp);
             let free_before = pool.free();
             let k = if expiry {
-                expire_pool(o.expires_at, &mut s.book, &mut o, &mut pool)
+                expire_pool(o.expires_at, &mut s.book, &mut s.ck, &mut o, &mut pool)
             } else {
-                cancel_pool(&key(10), &mut s.book, &mut o, &mut pool)
+                cancel_pool(&key(10), &mut s.book, &mut s.ck, &mut o, &mut pool)
             }
             .unwrap();
             // playable at once, no claim needed
@@ -896,6 +938,7 @@ fn a_fill_into_a_full_treasury_pool_goes_to_its_spill_after_growth() {
             &key(200),
             route,
             &mut s.book,
+            &mut s.ck,
             order,
             &mut Pool::new(treasury, &mut sp),
             k,
@@ -968,6 +1011,7 @@ fn a_request_sells_from_a_line_that_sits_in_the_spill_and_respects_the_whole_poo
     let e = request_pool(
         SourceKind::Yield,
         &mut s.book,
+        &mut s.ck,
         &mut pool,
         &k,
         key(10),
@@ -982,6 +1026,7 @@ fn a_request_sells_from_a_line_that_sits_in_the_spill_and_respects_the_whole_poo
     let r = request_pool(
         SourceKind::Yield,
         &mut s.book,
+        &mut s.ck,
         &mut pool,
         &k,
         key(10),
@@ -1097,6 +1142,7 @@ fn fuzz_one(seed: u64, ops: usize, st: &mut Stats) {
                 match request_instant_redeem(
                     SourceKind::Yield,
                     &mut srcs[i].book,
+                    &mut srcs[i].ck,
                     &mut player,
                     &l.key(),
                     key(10),
@@ -1187,6 +1233,7 @@ fn fuzz_one(seed: u64, ops: usize, st: &mut Stats) {
                     &signer,
                     &mut route,
                     &mut s.book,
+                    &mut s.ck,
                     &mut o.order,
                     &mut treasury,
                     k,
@@ -1266,11 +1313,18 @@ fn fuzz_one(seed: u64, ops: usize, st: &mut Stats) {
                 );
                 let by_owner = rng.below(2) == 0;
                 let res = if by_owner {
-                    cancel_instant_redeem(&key(10), &mut s.book, &mut o.order, &mut player)
+                    cancel_instant_redeem(
+                        &key(10),
+                        &mut s.book,
+                        &mut s.ck,
+                        &mut o.order,
+                        &mut player,
+                    )
                 } else {
                     expire_instant_redeem(
                         o.order.expires_at + rng.below(2) as i64 - 1,
                         &mut s.book,
+                        &mut s.ck,
                         &mut o.order,
                         &mut player,
                     )
@@ -1322,7 +1376,10 @@ fn fuzz_one(seed: u64, ops: usize, st: &mut Stats) {
                     SourceBook::blank_line(SIDE_WON, 0, l.source, l.class, l.tranche)
                 });
                 let open_before: Vec<u64> = orders.iter().map(|o| o.order.line.amount).collect();
-                srcs[i].book.transfer(&mut src, pot, k).unwrap();
+                srcs[i]
+                    .book
+                    .transfer(&mut src, pot, k, &srcs[i].ck)
+                    .unwrap();
                 if src.amount == 0 {
                     player.remove_at(idx).unwrap();
                 } else {
@@ -1346,7 +1403,7 @@ fn fuzz_one(seed: u64, ops: usize, st: &mut Stats) {
                 if k > 0 {
                     let idx = player.find(&l.key()).unwrap();
                     let mut ln = l;
-                    srcs[i].book.redeem(&mut ln, k).unwrap();
+                    srcs[i].book.redeem(&mut ln, k, &srcs[i].ck).unwrap();
                     srcs[i].redeemed += k;
                     if ln.amount == 0 {
                         player.remove_at(idx).unwrap();
