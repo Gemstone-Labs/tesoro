@@ -81,9 +81,10 @@ impl PoolShare {
         }
     }
 
-    /// The share in force at `now`.
+    /// The share in force at `now`. Before the first Season (a test clock) the standing share
+    /// applies.
     pub fn bps_now(&self, now: i64) -> CoreResult<u16> {
-        Ok(self.bps_at(season_at(now)?))
+        Ok(self.bps_at(season_at(now).unwrap_or(0)))
     }
 
     /// `set_prize_share`: applies from `from_season`, which must start after the Season `now`

@@ -626,6 +626,26 @@ impl Default for SourceBook {
 }
 
 impl SourceBook {
+    /// A copy on the heap, built without a 2 KB temporary on the stack (the SBF frame is 4 KB).
+    pub fn boxed_clone(&self) -> Box<SourceBook> {
+        let mut b = Box::new(SourceBook::new());
+        b.assign(self);
+        b
+    }
+
+    /// Overwrites this book with `other`, field by field (no large temporary).
+    pub fn assign(&mut self, other: &SourceBook) {
+        self.h = other.h;
+        self.r = other.r;
+        self.owner_fp = other.owner_fp;
+        self.owner_shares = other.owner_shares;
+        self.taken_fp = other.taken_fp;
+        self.n_ext = other.n_ext;
+        for i in 0..MAX_CLASSES {
+            self.classes.0[i] = other.classes.0[i];
+        }
+    }
+
     pub const fn new() -> SourceBook {
         Book {
             h: 0,

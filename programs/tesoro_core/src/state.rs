@@ -157,29 +157,27 @@ impl Config {
     }
 }
 
-/// A finished season: the ranking and prizes recorded by `record_season`, paid by
-/// `pay_season_rank`. Seeds `["season", number as u32 LE]`.
+/// A recorded Season: the ranking, the frozen prize budget and the per-rank payout cursors, with
+/// the 48-hour payout window. Created by `record_season`, paid by `pay_season_rank` one
+/// (rank, budget line) step at a time. Seeds `["season", number as u32 LE]`.
 #[account]
 pub struct SeasonState {
     pub bump: u8,
-    pub inner: ledger::Season,
+    pub inner: ledger::PrizeSeason,
 }
 
 impl SeasonState {
-    pub const SPACE: usize = 8 + 1 + 4 + 8 + 1 + ledger::PRIZE_PLACES * (32 + 8 + 8) + 2;
-}
-
-/// The payout window of a recorded season (ADR 0012): when it was recorded and which ranks the
-/// admin voided. A separate account so `SeasonState` keeps its layout. Created by
-/// `record_season`; seeds `["season_window", number as u32 LE]`.
-#[account]
-pub struct SeasonWindowState {
-    pub bump: u8,
-    pub inner: ledger::SeasonWindow,
-}
-
-impl SeasonWindowState {
-    pub const SPACE: usize = 8 + 1 + 4 + 8 + 2;
+    /// `PrizeSeason` with its most budget lines.
+    pub const SPACE: usize = 8
+        + 1
+        + (4 + (4 + 8 + 2)
+            + 1
+            + ledger::PRIZE_PLACES * 32
+            + ledger::PRIZE_PLACES * 8
+            + 4
+            + ledger::MAX_BUDGET_LINES * ledger::BUDGET_LINE_LEN
+            + ledger::PRIZE_PLACES
+            + 1);
 }
 
 /// The signer allowed to report `PositionLocked` / `YieldAccrued` for Positions of one source
@@ -218,7 +216,7 @@ pub struct PositionState {
 
 impl PositionState {
     pub const SPACE: usize =
-        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2 + 8;
+        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2 + 8 + 16 + 16 + 8;
 }
 
 #[account]
@@ -228,7 +226,7 @@ pub struct SourceState {
 }
 
 impl SourceState {
-    pub const SPACE: usize = 8 + 1 + 32 + 32 + 4 + 1 + 16 + 8 + 5 * 8;
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 4 + 1 + 16 + 8 + 5 * 8 + 8;
 }
 
 #[account]
@@ -312,10 +310,14 @@ pub struct NativeCustody {
     pub fee_weight_time: u128,
     pub realised_fee: u128,
     pub open_positions: u64,
+    /// The Treasury's shares of this route: what it holds, what holders and the Pool are owed
+    /// (realised fees only, D1), the prize escrow. Simulated shares are minted at payout, so most
+    /// of these are virtual until paid.
+    pub route: ledger::RouteLedger,
 }
 
 impl NativeCustody {
-    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 4 * 16 + 8;
+    pub const SPACE: usize = 8 + 1 + 1 + 3 * 32 + 4 * 16 + 8 + ledger::RouteLedger::SPACE;
 
     pub fn totals(&self) -> ledger::PoolTotals {
         ledger::PoolTotals {
@@ -376,10 +378,13 @@ pub struct StakeCustody {
     pub instant_shares: u64,
     /// Tokens withdrawn to the company wallet, cumulative.
     pub withdrawn_shares: u64,
+    /// The Treasury's shares of this route. The vault holds exactly the open Positions' custody
+    /// plus `route.treasury_shares` plus the prize escrow (`route.escrow_total()`).
+    pub route: ledger::RouteLedger,
 }
 
 impl StakeCustody {
-    pub const SPACE: usize = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8;
+    pub const SPACE: usize = 8 + 2 + 3 * 32 + 4 * 16 + 8 + 3 * 8 + ledger::RouteLedger::SPACE;
 
     pub fn totals(&self) -> ledger::StakeTotals {
         ledger::StakeTotals {
@@ -505,6 +510,220 @@ impl OnchainPrice {
             PythError::Stale => error!(TesoroError::StalePrice),
             PythError::LowConfidence => error!(TesoroError::PriceTooUncertain),
         })
+    }
+}
+
+#[event]
+pub struct InstantRequested {
+    pub order: Pubkey,
+    pub account: Pubkey,
+    pub source: Pubkey,
+    pub gemas: u64,
+    pub expires_at: i64,
+}
+
+#[event]
+pub struct InstantFilled {
+    pub order: Pubkey,
+    pub source: Pubkey,
+    pub gemas: u64,
+    /// Shares the Treasury paid the seller.
+    pub payout_shares: u64,
+    pub fee_bps: u16,
+}
+
+#[event]
+pub struct InstantReturned {
+    pub order: Pubkey,
+    pub gemas: u64,
+    pub expired: bool,
+}
+
+#[event]
+pub struct Harvested {
+    pub source: Pubkey,
+    pub gemas: u64,
+    pub shares: u64,
+}
+
+#[event]
+pub struct SeasonFunded {
+    pub season: u32,
+    pub route: Pubkey,
+    pub moved_shares: u64,
+    pub prize_source: Pubkey,
+    pub gemas: u64,
+}
+
+#[event]
+pub struct PrizeRedeemed {
+    pub prize_source: Pubkey,
+    pub account: Pubkey,
+    pub gemas: u64,
+    pub shares: u64,
+}
+
+/// Seed of the economy settings: `["economy"]`.
+pub const ECONOMY_SEED: &[u8] = b"economy";
+/// Seed of an Instant Redeem order: `["instant", holder account, nonce LE]`.
+pub const INSTANT_ORDER_SEED: &[u8] = b"instant";
+/// Seed of a prize Source: `["prize", route (custody), season LE]`.
+pub const PRIZE_SOURCE_SEED: &[u8] = b"prize";
+/// Seed of the Pool's Season reservations: `["pool_reservations"]`.
+pub const POOL_RESERVATIONS_SEED: &[u8] = b"pool_reservations";
+
+/// How many routes (custodies) `record_season` waits for.
+pub const MAX_ROUTES: usize = 4;
+
+/// Who may do what in the economy upgrade, as explicit settings (never the oracle authority).
+/// Seeds `["economy"]`; created by the admin's `set_economy`.
+#[account]
+pub struct EconomyConfig {
+    pub bump: u8,
+    /// Runs Seasons (`fund_season_prize`, `record_season`, `pay_season_rank`) besides the admin.
+    pub season_keeper: Pubkey,
+    /// May fill Instant Redeem orders while `keeper_fills` is on (the admin always may).
+    pub fill_keeper: Pubkey,
+    /// Off by default: only the admin fills.
+    pub keeper_fills: bool,
+    /// The Pool's share of every realised Yield Fee, changeable from a Season announced ahead.
+    pub pool_share: ledger::PoolShare,
+    /// Custodies whose prize escrow `record_season` waits for (zero = unused slot).
+    pub routes: [Pubkey; MAX_ROUTES],
+}
+
+impl EconomyConfig {
+    pub const SPACE: usize = 8 + 1 + 32 + 32 + 1 + (2 + 4 + 2) + 32 * MAX_ROUTES;
+
+    pub fn fill_authority(&self, admin: &Pubkey) -> ledger::FillAuthority {
+        ledger::FillAuthority {
+            admin: admin.to_bytes(),
+            keeper: self.fill_keeper.to_bytes(),
+            keeper_fills: self.keeper_fills,
+        }
+    }
+}
+
+/// An open Instant Redeem order (ticket 07's `InstantOrder` on chain): the unsold Gemas sit in
+/// `line`, off the owner's basket, until a fill buys them, the owner cancels or the order expires.
+/// Seeds `["instant", holder account, nonce LE]`; the owner pays the rent and gets it back.
+#[account]
+pub struct InstantOrderState {
+    pub bump: u8,
+    pub nonce: u64,
+    /// The seller's `TesoroAccount`.
+    pub account: Pubkey,
+    /// The seller's wallet.
+    pub owner: Pubkey,
+    /// `Line` bytes (`LINE_LEN`).
+    pub line: [u8; ledger::LINE_LEN],
+    pub requested: u64,
+    pub created_at: i64,
+    pub expires_at: i64,
+    pub sold: u64,
+    pub redeemed_while_open: u64,
+    pub paid_shares: u128,
+}
+
+impl InstantOrderState {
+    pub const SPACE: usize = 8 + 1 + 8 + 32 + 32 + ledger::LINE_LEN + 8 + 8 + 8 + 8 + 8 + 16;
+
+    /// The Source whose Gemas the order holds.
+    pub fn line_source(&self) -> Pubkey {
+        Pubkey::new_from_array(ledger::line_store::Line::decode(&self.line).source)
+    }
+
+    pub fn order(&self) -> ledger::InstantOrder {
+        ledger::InstantOrder {
+            owner: self.account.to_bytes(),
+            line: ledger::line_store::Line::decode(&self.line),
+            requested: self.requested,
+            created_at: self.created_at,
+            expires_at: self.expires_at,
+            sold: self.sold,
+            redeemed_while_open: self.redeemed_while_open,
+            paid_shares: self.paid_shares,
+        }
+    }
+
+    pub fn set_order(&mut self, o: &ledger::InstantOrder) {
+        o.line.encode(&mut self.line);
+        self.requested = o.requested;
+        self.created_at = o.created_at;
+        self.expires_at = o.expires_at;
+        self.sold = o.sold;
+        self.redeemed_while_open = o.redeemed_while_open;
+        self.paid_shares = o.paid_shares;
+    }
+}
+
+/// A prize Source: Gemas issued against a quantity of shares held in a route's prize escrow
+/// (ticket 06's `PrizeSource`). It has no book and no unpaid Gemas. Seeds
+/// `["prize", route, season LE]`.
+#[account]
+pub struct PrizeSourceState {
+    pub bump: u8,
+    /// The custody (route) whose escrow backs it.
+    pub route: Pubkey,
+    pub season: u32,
+    pub inner: ledger::PrizeSource,
+}
+
+impl PrizeSourceState {
+    pub const SPACE: usize = 8 + 1 + 32 + 4 + (32 + 16 + 8);
+}
+
+/// One reservation of a Pool line by a recorded Season's budget (Borsh form of
+/// `ledger::PoolReservations`' entries).
+#[derive(Clone, Copy, AnchorSerialize, AnchorDeserialize)]
+pub struct ReservationEntry {
+    pub side: u8,
+    pub due_at: i64,
+    pub source: Key,
+    pub class: u8,
+    pub tranche: u8,
+    pub amount: u64,
+}
+
+/// The Pool's lines that Seasons have promised (`ledger::PoolReservations`). Seeds
+/// `["pool_reservations"]`.
+#[account]
+pub struct PoolReservationsState {
+    pub bump: u8,
+    pub entries: Vec<ReservationEntry>,
+}
+
+impl PoolReservationsState {
+    pub const SPACE: usize = 8 + 1 + 4 + ledger::MAX_RESERVATION_ENTRIES * 51;
+
+    pub fn reservations(&self) -> ledger::PoolReservations {
+        ledger::PoolReservations::from_entries(self.entries.iter().map(|e| {
+            (
+                ledger::LineKey {
+                    side: e.side,
+                    due_at: e.due_at,
+                    source: e.source,
+                    class: e.class,
+                    tranche: e.tranche,
+                },
+                e.amount,
+            )
+        }))
+    }
+
+    pub fn set_reservations(&mut self, r: &ledger::PoolReservations) {
+        self.entries = r
+            .entries()
+            .iter()
+            .map(|(k, a)| ReservationEntry {
+                side: k.side,
+                due_at: k.due_at,
+                source: k.source,
+                class: k.class,
+                tranche: k.tranche,
+                amount: *a,
+            })
+            .collect();
     }
 }
 

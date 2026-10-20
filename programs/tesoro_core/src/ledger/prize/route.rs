@@ -96,6 +96,9 @@ fn mul_div_down(a: u128, b: u128, d: u128) -> CoreResult<u128> {
 }
 
 impl RouteLedger {
+    /// Bytes of a Borsh-serialised route (all fields are fixed width).
+    pub const SPACE: usize = 4 * 16 + 1 + 3 * 16 + 4 + 2 * 16;
+
     /// The single figure Treasury withdraw, Instant Redeem fills and prize funding answer to.
     pub fn spendable(&self) -> u128 {
         let claims = self
@@ -275,11 +278,11 @@ impl RouteLedger {
             return Err(CoreError::SourceMismatch);
         }
         let unissued = self.escrow_unissued;
-        let mut book_after = book.clone();
+        let mut book_after = book.boxed_clone();
         let mut line_after = *counter;
         let out = book_after.redeem(&mut line_after, k, history)?;
         let unissued = add(unissued, out.shares)?;
-        *book = book_after;
+        book.assign(&book_after);
         *counter = line_after;
         self.escrow_unissued = unissued;
         Ok(Harvested {

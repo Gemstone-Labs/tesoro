@@ -11,12 +11,12 @@
 //!   lamports at the rate of that moment. Nothing is minted.
 
 use crate::error::{core_err, TesoroError};
-use crate::instructions::native::{is_native, is_stake, load_source, touch_extend_limit};
-use crate::instructions::position::{chain_byte, issue_advance};
-use crate::ledger::{
-    self, native, parse_stake_pool, CoreError, SourceChain, StakePoolRead, MAX_APY_CEILING_BPS,
-};
+use crate::instructions::economy::*;
+use crate::instructions::native::{is_native, is_stake, touch_extend_limit};
+use crate::instructions::position::chain_byte;
+use crate::ledger::{self, parse_stake_pool, CoreError, SourceChain, StakePoolRead, MAX_APY_CEILING_BPS};
 use crate::state::*;
+use crate::storage::*;
 use crate::util::{now, require_can_advance};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::hash::hashv;
@@ -34,23 +34,6 @@ pub const STAKE_POOL_PROGRAMS: [Pubkey; 3] = [
 /// Position ids of stake Positions are derived from their owner and a nonce.
 pub fn stake_position_id(owner_authority: &Pubkey, nonce: u64) -> [u8; 32] {
     hashv(&[b"stake", owner_authority.as_ref(), &nonce.to_le_bytes()]).to_bytes()
-}
-
-/// Reads and checks a stake pool account for `custody`: the custody's pool, owned by a stake pool
-/// program, the token's own pool, updated recently enough.
-fn read_pool(info: &AccountInfo, custody: &StakeCustody) -> Result<StakePoolRead> {
-    require_keys_eq!(*info.key, custody.pool, TesoroError::BadStakePoolAccount);
-    require!(
-        STAKE_POOL_PROGRAMS.contains(info.owner),
-        TesoroError::BadStakePoolAccount
-    );
-    let read = parse_stake_pool(&info.try_borrow_data()?).map_err(core_err)?;
-    require!(
-        read.pool_mint == custody.mint.to_bytes(),
-        TesoroError::BadStakePoolAccount
-    );
-    read.require_fresh(Clock::get()?.epoch).map_err(core_err)?;
-    Ok(read)
 }
 
 // --- Settings --------------------------------------------------------------------------------
@@ -120,6 +103,7 @@ pub(crate) fn set_stake_token(ctx: Context<SetStakeToken>) -> Result<()> {
         a.custody.pool = a.stake_pool.key();
         a.custody.vault = a.vault.key();
         a.custody.set_totals(ledger::StakeTotals::default());
+        a.custody.route = ledger::RouteLedger::default();
     } else {
         require_keys_eq!(
             a.custody.pool,
@@ -304,13 +288,13 @@ pub(crate) fn open_stake_position(
 /// An Advance against a stake Position, priced from the asset's Pyth feed (the mapping is keyed by
 /// the token's mint) and sized on the pool's recent growth under the admin's ceiling. The owner
 /// signs alone. The keeper's `PriceFeed` and the oracle's `take_advance` cannot reach a stake
-/// Position.
+/// Position. When the Position has its previous Advance open, that Source, its book and its pages
+/// are the remaining accounts.
 #[derive(Accounts)]
 pub struct TakeStakeAdvance<'info> {
     #[account(mut)]
     pub owner_authority: Signer<'info>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
         bump = owner_account.bump
     )]
@@ -346,14 +330,6 @@ pub struct TakeStakeAdvance<'info> {
     pub custody: Box<Account<'info, StakeCustody>>,
     /// CHECK: the custody's stake pool; checked by `read_pool`.
     pub stake_pool: UncheckedAccount<'info>,
-    /// The Position's open Advance, when it has one.
-    #[account(
-        mut,
-        seeds = [SOURCE_SEED, position.key().as_ref(), &prev_source.inner.index.to_le_bytes()],
-        bump = prev_source.bump,
-        constraint = prev_source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
-    )]
-    pub prev_source: Option<Account<'info, SourceState>>,
     #[account(
         init,
         payer = owner_authority,
@@ -365,11 +341,17 @@ pub struct TakeStakeAdvance<'info> {
     #[account(
         init,
         payer = owner_authority,
-        space = HoldingState::SPACE,
-        seeds = [HOLDING_SEED, owner_account.key().as_ref(), source.key().as_ref()],
+        space = SOURCE_BOOK_LEN,
+        seeds = [BOOK_SEED, source.key().as_ref()],
         bump
     )]
-    pub holding: Account<'info, HoldingState>,
+    pub book: AccountLoader<'info, SourceBookHead>,
+    /// CHECK: the owner's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, owner_account.key().as_ref()], bump)]
+    pub basket: UncheckedAccount<'info>,
+    /// CHECK: the owner's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
+    pub spill: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -386,49 +368,48 @@ fn sizing(read: &StakePoolRead, config: &StakeConfig) -> Result<u16> {
     Ok(apy)
 }
 
-pub(crate) fn take_stake_advance(
-    mut ctx: Context<TakeStakeAdvance>,
+pub(crate) fn take_stake_advance<'info>(
+    mut ctx: Context<'_, '_, 'info, 'info, TakeStakeAdvance<'info>>,
     horizon_months: u8,
 ) -> Result<()> {
+    require_can_advance(&ctx.accounts.protections.to_account_info())?;
+    let remaining = ctx.remaining_accounts;
+    let (source_bump, book_bump) = (ctx.bumps.source, ctx.bumps.book);
     let a = &mut ctx.accounts;
-    require_can_advance(&a.protections.to_account_info())?;
     let ts = now()?;
     let price = a.onchain_price.read(&a.price_feed.to_account_info(), ts)?;
     let read = read_pool(&a.stake_pool.to_account_info(), &a.custody)?;
     let rate = read.rate().map_err(core_err)?;
     let apy = sizing(&read, &a.stake_config)?;
-    let net = ledger::stake_position_accrued(&a.position.inner, rate).map_err(core_err)?;
+    let rates = stake_rates(&a.position.inner, rate)?;
     let fee = a.position.inner.yield_fee_bps;
-    if a.position.inner.open_advance.is_some() && a.prev_source.is_none() {
-        return err!(TesoroError::SourceRequired);
-    }
-    native::prepare_advance(
-        &mut a.position.inner,
-        a.prev_source.as_mut().map(|s| &mut s.inner),
-        net.net,
-    )
-    .map_err(core_err)?;
     a.position.inner.rate_bps = apy;
-    issue_advance(
-        &mut a.position,
-        &mut a.source,
-        &mut a.holding,
-        &mut a.owner_account,
-        ctx.bumps.source,
-        ctx.bumps.holding,
+    let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
+    begin_advance(
+        NewAdvance {
+            position: &mut a.position,
+            source: &mut a.source,
+            source_bump,
+            book: &a.book,
+            book_bump,
+            basket: &basket,
+            spill: &spill,
+        },
+        &rates,
+        remaining,
         horizon_months,
         price,
         fee,
     )
 }
 
-/// Adds months to a stake Position's open Advance, sized as an Advance is.
+/// Adds months to a stake Position's open Advance, sized as an Advance is. Remaining accounts: the
+/// Source's book and its checkpoint pages.
 #[derive(Accounts)]
 pub struct ExtendStakeAdvance<'info> {
     #[account(mut)]
     pub owner_authority: Signer<'info>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
         bump = owner_account.bump
     )]
@@ -463,14 +444,12 @@ pub struct ExtendStakeAdvance<'info> {
         constraint = source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
     )]
     pub source: Account<'info, SourceState>,
-    #[account(
-        mut,
-        seeds = [HOLDING_SEED, owner_account.key().as_ref(), source.key().as_ref()],
-        bump = holding.bump,
-        constraint = holding.account == owner_account.key() @ TesoroError::InvalidAccount,
-        constraint = holding.inner.source == source.key().to_bytes() @ TesoroError::InvalidAccount
-    )]
-    pub holding: Account<'info, HoldingState>,
+    /// CHECK: the owner's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, owner_account.key().as_ref()], bump)]
+    pub basket: UncheckedAccount<'info>,
+    /// CHECK: the owner's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
+    pub spill: UncheckedAccount<'info>,
     /// The owner's Extend Limit, created at the default on the first Extend.
     #[account(
         init_if_needed,
@@ -483,11 +462,12 @@ pub struct ExtendStakeAdvance<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn extend_stake_advance(
-    ctx: Context<ExtendStakeAdvance>,
+pub(crate) fn extend_stake_advance<'info>(
+    ctx: Context<'_, '_, 'info, 'info, ExtendStakeAdvance<'info>>,
     extra_months: u8,
 ) -> Result<()> {
     require_can_advance(&ctx.accounts.protections.to_account_info())?;
+    let remaining = ctx.remaining_accounts;
     let bump = ctx.bumps.extend_limit;
     let a = ctx.accounts;
     let ts = now()?;
@@ -499,62 +479,27 @@ pub(crate) fn extend_stake_advance(
     let read = read_pool(&a.stake_pool.to_account_info(), &a.custody)?;
     let rate = read.rate().map_err(core_err)?;
     let apy = sizing(&read, &a.stake_config)?;
-    let net = ledger::stake_position_accrued(&a.position.inner, rate).map_err(core_err)?;
+    let rates = stake_rates(&a.position.inner, rate)?;
     let fee = a.position.inner.yield_fee_bps;
-    let mut source =
-        native::source_view(&a.position.inner, &a.source.inner, net.net).map_err(core_err)?;
     a.position.inner.rate_bps = apy;
-    let gemas = a
-        .position
-        .inner
-        .extend_advance(&mut source, extra_months, fee)
-        .map_err(core_err)?;
-    a.source.inner = source;
-    a.holding
-        .inner
-        .credit(&mut a.owner_account.inner, gemas)
-        .map_err(core_err)?;
-    emit!(AdvanceExtended {
-        position: a.position.key(),
-        source: a.source.key(),
-        gemas,
+    extend_open_advance(
+        ExtendAccounts {
+            position: &mut a.position,
+            source: &mut a.source,
+            payer: a.owner_authority.to_account_info(),
+            system_program: a.system_program.to_account_info(),
+            basket: a.basket.to_account_info(),
+            spill: a.spill.to_account_info(),
+        },
+        &rates,
+        remaining,
         extra_months,
-        horizon_months: a.source.inner.horizon_months,
-    });
-    Ok(())
-}
-
-// --- Remaining accounts of redeem, unlock, return_own, redeem_treasury -----------------------
-//
-// A stake Position adds `[custody, stake_pool, ...]` after the fixed accounts of the generic
-// instructions (see each function for the tail).
-
-/// A loaded custody and the pool's read: what every payout needs.
-pub(crate) struct StakeNow<'info> {
-    pub custody: Account<'info, StakeCustody>,
-    pub rate: u64,
-}
-
-fn load_stake<'info>(
-    custody_info: &'info AccountInfo<'info>,
-    pool_info: &AccountInfo,
-    mint: &[u8; 32],
-) -> Result<StakeNow<'info>> {
-    let custody = Account::<StakeCustody>::try_from(custody_info)?;
-    let expected = Pubkey::create_program_address(
-        &[STAKE_CUSTODY_SEED, custody.mint.as_ref(), &[custody.bump]],
-        &crate::ID,
+        fee,
     )
-    .map_err(|_| error!(TesoroError::InvalidAccount))?;
-    require_keys_eq!(expected, *custody_info.key, TesoroError::InvalidAccount);
-    require!(custody.mint.to_bytes() == *mint, TesoroError::InvalidMint);
-    let read = read_pool(pool_info, &custody)?;
-    let rate = read.rate().map_err(core_err)?;
-    Ok(StakeNow { custody, rate })
 }
 
 /// Sends `tokens` from the custody's vault, signed by the custody PDA.
-fn pay_tokens<'info>(
+pub(crate) fn pay_tokens<'info>(
     custody: &Account<'info, StakeCustody>,
     vault: &AccountInfo<'info>,
     destination: &AccountInfo<'info>,
@@ -577,207 +522,6 @@ fn pay_tokens<'info>(
         ),
         tokens,
     )
-}
-
-fn wallet_token<'info>(
-    info: &'info AccountInfo<'info>,
-    mint: &Pubkey,
-    owner: &Pubkey,
-) -> Result<Account<'info, TokenAccount>> {
-    require!(info.is_writable, TesoroError::NotWritable);
-    let t = Account::<TokenAccount>::try_from(info)?;
-    require_keys_eq!(t.mint, *mint, TesoroError::InvalidMint);
-    require_keys_eq!(t.owner, *owner, TesoroError::InvalidAccount);
-    Ok(t)
-}
-
-/// `redeem` of a stake Source. `remaining`: `[custody, stake_pool, vault, holder_token,
-/// token_program]`. The Source is brought to its derived state first; the Gemas' value is paid in
-/// tokens at the rate of this moment.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn redeem_stake<'info>(
-    position: &PositionState,
-    position_key: &Pubkey,
-    source: &mut SourceState,
-    holder_account: &mut TesoroAccount,
-    holding: &mut HoldingState,
-    holder_authority: &Pubkey,
-    amount: u64,
-    remaining: &'info [AccountInfo<'info>],
-) -> Result<u64> {
-    let [custody_info, pool_info, vault, dest_info, token_program] = remaining else {
-        return err!(TesoroError::BadRemainingAccounts);
-    };
-    let st = load_stake(custody_info, pool_info, &position.inner.source_asset)?;
-    let dest = wallet_token(dest_info, &st.custody.mint, holder_authority)?;
-    let net = ledger::stake_position_accrued(&position.inner, st.rate).map_err(core_err)?;
-    source.inner =
-        native::source_view(&position.inner, &source.inner, net.net).map_err(core_err)?;
-    let units = ledger::redeem(
-        &mut source.inner,
-        &mut holder_account.inner,
-        &mut holding.inner,
-        amount,
-    )
-    .map_err(core_err)?;
-    let tokens = ledger::tokens_for_units(units, st.rate).map_err(core_err)?;
-    if tokens == 0 {
-        return Err(core_err(CoreError::ZeroShares));
-    }
-    pay_tokens(
-        &st.custody,
-        vault,
-        &dest.to_account_info(),
-        token_program,
-        tokens,
-    )?;
-    emit!(StakePayout {
-        position: *position_key,
-        to: dest.key(),
-        shares: tokens,
-        sol_units: units,
-        kind: 0,
-    });
-    Ok(units)
-}
-
-/// `redeem_treasury` of a stake Source: the Gemas' value stays in the vault and joins the
-/// Treasury's balance. `remaining`: `[custody (writable), stake_pool]`.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn redeem_treasury_stake<'info>(
-    position: &PositionState,
-    source: &mut SourceState,
-    treasury_account: &mut TesoroAccount,
-    treasury_holding: &mut HoldingState,
-    amount: u64,
-    remaining: &'info [AccountInfo<'info>],
-) -> Result<u64> {
-    let [custody_info, pool_info] = remaining else {
-        return err!(TesoroError::BadRemainingAccounts);
-    };
-    require!(custody_info.is_writable, TesoroError::NotWritable);
-    let mut st = load_stake(custody_info, pool_info, &position.inner.source_asset)?;
-    let net = ledger::stake_position_accrued(&position.inner, st.rate).map_err(core_err)?;
-    source.inner =
-        native::source_view(&position.inner, &source.inner, net.net).map_err(core_err)?;
-    let units = ledger::redeem(
-        &mut source.inner,
-        &mut treasury_account.inner,
-        &mut treasury_holding.inner,
-        amount,
-    )
-    .map_err(core_err)?;
-    let tokens = ledger::tokens_for_units(units, st.rate).map_err(core_err)?;
-    st.custody.refilled_shares = st
-        .custody
-        .refilled_shares
-        .checked_add(tokens)
-        .ok_or(TesoroError::InvalidAccount)?;
-    st.custody.exit(&crate::ID)?;
-    Ok(units)
-}
-
-/// `unlock` of a stake Position. `remaining`: `[custody (writable), stake_pool, vault (writable),
-/// owner_token (writable), token_program]`, then the open Advance's Source when the Position has
-/// one. Debt is computed here and must be zero; Principal and the free yield return in tokens.
-pub(crate) fn unlock_stake_position<'info>(
-    position: &mut Account<PositionState>,
-    owner_authority: &Pubkey,
-    remaining: &'info [AccountInfo<'info>],
-) -> Result<()> {
-    let [custody_info, pool_info, vault, dest_info, token_program, tail @ ..] = remaining else {
-        return err!(TesoroError::BadRemainingAccounts);
-    };
-    require!(custody_info.is_writable, TesoroError::NotWritable);
-    let mut st = load_stake(custody_info, pool_info, &position.inner.source_asset)?;
-    let dest = wallet_token(dest_info, &st.custody.mint, owner_authority)?;
-    let position_key = position.key();
-    let net = ledger::stake_position_accrued(&position.inner, st.rate).map_err(core_err)?;
-    let mut open = match position.inner.open_advance {
-        Some(index) => {
-            let info = tail.first().ok_or(TesoroError::SourceRequired)?;
-            Some(load_source(info, &position_key, index)?)
-        }
-        None => None,
-    };
-    let free = native::unlock_native(
-        &mut position.inner,
-        open.as_mut().map(|s| &mut s.inner),
-        net.net,
-    )
-    .map_err(core_err)?;
-    if let Some(source) = open.as_ref() {
-        source.exit(&crate::ID)?;
-    }
-
-    let shares = position.inner.custody_shares;
-    let fee_tokens = ledger::tokens_for_units(net.fee, st.rate).map_err(core_err)?;
-    let mut totals = st.custody.totals();
-    totals
-        .remove_position(
-            shares,
-            position.inner.principal,
-            position.inner.yield_fee_bps,
-            fee_tokens,
-        )
-        .map_err(core_err)?;
-    st.custody.set_totals(totals);
-    position.inner.custody_shares = 0;
-    st.custody.exit(&crate::ID)?;
-
-    let principal_tokens =
-        ledger::unlock_tokens(position.inner.principal, 0, shares, st.rate).map_err(core_err)?;
-    let total_tokens =
-        ledger::unlock_tokens(position.inner.principal, free, shares, st.rate).map_err(core_err)?;
-    pay_tokens(
-        &st.custody,
-        vault,
-        &dest.to_account_info(),
-        token_program,
-        total_tokens,
-    )?;
-    emit!(StakePayout {
-        position: position_key,
-        to: dest.key(),
-        shares: principal_tokens,
-        sol_units: position.inner.principal,
-        kind: 1,
-    });
-    if free > 0 && total_tokens > principal_tokens {
-        emit!(StakePayout {
-            position: position_key,
-            to: dest.key(),
-            shares: total_tokens - principal_tokens,
-            sol_units: free,
-            kind: 2,
-        });
-    }
-    Ok(())
-}
-
-/// `return_own` of a stake Source. `remaining`: `[custody, stake_pool]`.
-pub(crate) fn return_own_stake_source<'info>(
-    position: &mut PositionState,
-    source: &mut SourceState,
-    account: &mut TesoroAccount,
-    holding: &mut HoldingState,
-    amount: u64,
-    remaining: &'info [AccountInfo<'info>],
-) -> Result<()> {
-    let [custody_info, pool_info] = remaining else {
-        return err!(TesoroError::BadRemainingAccounts);
-    };
-    let st = load_stake(custody_info, pool_info, &position.inner.source_asset)?;
-    let net = ledger::stake_position_accrued(&position.inner, st.rate).map_err(core_err)?;
-    native::return_own_native(
-        &mut position.inner,
-        &mut source.inner,
-        &mut account.inner,
-        &mut holding.inner,
-        amount,
-        net.net,
-    )
-    .map_err(core_err)
 }
 
 // --- Treasury --------------------------------------------------------------------------------
@@ -839,135 +583,54 @@ pub(crate) fn init_treasury_stake(
     Ok(())
 }
 
-/// Instant Redeem of won Gemas of a stake Source: the Treasury's balance in the token (the earned
-/// Yield Fee plus what it redeemed, less what it paid, never below the Principal reserve) pays the
-/// holder in the same transaction, or the instruction fails (`TreasuryShort`).
+/// The admin tops up the Treasury with `shares` of the staking token (its own funding: never a
+/// Yield Fee, so nothing of it is owed to the Pool).
 #[derive(Accounts)]
-pub struct InstantRedeemStake<'info> {
-    #[account(mut)]
-    pub holder_authority: Signer<'info>,
+pub struct FundTreasuryStake<'info> {
+    pub admin: Signer<'info>,
+    #[account(
+        seeds = [CONFIG_SEED],
+        bump = config.bump,
+        has_one = admin @ TesoroError::Unauthorized
+    )]
+    pub config: Box<Account<'info, Config>>,
     #[account(
         mut,
-        seeds = [ACCOUNT_SEED, holder_authority.key().as_ref()],
-        bump = holder_account.bump
-    )]
-    pub holder_account: Box<Account<'info, TesoroAccount>>,
-    #[account(
-        seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
-        bump = position.bump,
-        constraint = is_stake(&position.inner) @ TesoroError::NotStakePosition
-    )]
-    pub position: Box<Account<'info, PositionState>>,
-    #[account(
-        seeds = [SOURCE_SEED, position.key().as_ref(), &source.inner.index.to_le_bytes()],
-        bump = source.bump,
-        constraint = source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
-    )]
-    pub source: Box<Account<'info, SourceState>>,
-    #[account(
-        mut,
-        seeds = [HOLDING_SEED, holder_account.key().as_ref(), source.key().as_ref()],
-        bump = holding.bump
-    )]
-    pub holding: Box<Account<'info, HoldingState>>,
-    #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
-    pub treasury: Box<Account<'info, Treasury>>,
-    #[account(
-        mut,
-        seeds = [ACCOUNT_SEED, treasury.key().as_ref()],
-        bump = treasury.account_bump
-    )]
-    pub treasury_account: Box<Account<'info, TesoroAccount>>,
-    #[account(
-        init_if_needed,
-        payer = holder_authority,
-        space = HoldingState::SPACE,
-        seeds = [HOLDING_SEED, treasury_account.key().as_ref(), source.key().as_ref()],
-        bump
-    )]
-    pub treasury_holding: Box<Account<'info, HoldingState>>,
-    #[account(
-        mut,
-        seeds = [STAKE_CUSTODY_SEED, position.inner.source_asset.as_ref()],
+        seeds = [STAKE_CUSTODY_SEED, custody.mint.as_ref()],
         bump = custody.bump
     )]
     pub custody: Box<Account<'info, StakeCustody>>,
     #[account(mut, address = custody.vault @ TesoroError::InvalidAccount)]
     pub vault: Box<Account<'info, TokenAccount>>,
-    #[account(
-        mut,
-        token::mint = custody.mint,
-        token::authority = holder_authority
-    )]
-    pub holder_token: Box<Account<'info, TokenAccount>>,
-    /// CHECK: the custody's stake pool; checked by `read_pool`.
-    pub stake_pool: UncheckedAccount<'info>,
+    #[account(mut, token::mint = custody.mint, token::authority = admin)]
+    pub admin_token: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn instant_redeem_stake(ctx: Context<InstantRedeemStake>, amount: u64) -> Result<()> {
-    let a = ctx.accounts;
-    let treasury_account_key = a.treasury_account.key();
-    let source_key = a.source.key();
-    crate::instructions::treasury::open_treasury_holding(
-        &mut a.treasury_holding,
-        ctx.bumps.treasury_holding,
-        &treasury_account_key,
-        &source_key,
-    );
-    let read = read_pool(&a.stake_pool.to_account_info(), &a.custody)?;
-    let rate = read.rate().map_err(core_err)?;
-    let net = ledger::stake_position_accrued(&a.position.inner, rate).map_err(core_err)?;
-    let view =
-        native::source_view(&a.position.inner, &a.source.inner, net.net).map_err(core_err)?;
-    let (units, payout) = crate::instructions::treasury::sell_to_treasury(
-        &a.treasury,
-        &view,
-        &mut a.holder_account,
-        &mut a.holding,
-        &mut a.treasury_account,
-        &mut a.treasury_holding,
-        amount,
-    )?;
-    let tokens = ledger::tokens_for_units(payout, rate).map_err(core_err)?;
-    if tokens == 0 {
-        return Err(core_err(CoreError::ZeroShares));
+pub(crate) fn fund_treasury_stake(ctx: Context<FundTreasuryStake>, shares: u64) -> Result<()> {
+    if shares == 0 {
+        return Err(core_err(CoreError::ZeroAmount));
     }
-    let balance = a.custody.treasury_balance(rate, a.vault.amount)?;
-    require!(tokens <= balance, TesoroError::TreasuryShort);
-    a.custody.instant_shares = a
-        .custody
-        .instant_shares
-        .checked_add(tokens)
-        .ok_or(TesoroError::InvalidAccount)?;
-    pay_tokens(
-        &a.custody,
-        &a.vault.to_account_info(),
-        &a.holder_token.to_account_info(),
-        &a.token_program.to_account_info(),
-        tokens,
+    let a = ctx.accounts;
+    token::transfer(
+        CpiContext::new(
+            a.token_program.to_account_info(),
+            Transfer {
+                from: a.admin_token.to_account_info(),
+                to: a.vault.to_account_info(),
+                authority: a.admin.to_account_info(),
+            },
+        ),
+        shares,
     )?;
-    emit!(StakePayout {
-        position: a.position.key(),
-        to: a.holder_token.key(),
-        shares: tokens,
-        sol_units: payout,
-        kind: 3,
-    });
-    emit!(InstantRedeemed {
-        position: a.position.key(),
-        source: source_key,
-        account: a.holder_account.key(),
-        gemas: amount,
-        source_units: units,
-        payout_units: payout,
-    });
+    a.custody.route.receive(u128::from(shares)).map_err(core_err)?;
+    emit!(TreasuryFunded { shares });
     Ok(())
 }
 
-/// The admin withdraws `amount` lamports of value of the Treasury balance, in the token, to the
-/// company wallet's token account. Refused (`TreasuryShort`) beyond the balance.
+/// The admin withdraws `amount` lamports of value of the Treasury's spendable shares, in the
+/// token, to the company wallet's token account. Only what the Treasury may spend (realised fees
+/// and its own funding, never shares owed to holders or the Pool): `OverSpendable` beyond that.
 #[derive(Accounts)]
 pub struct WithdrawTreasuryStake<'info> {
     pub admin: Signer<'info>,
@@ -1017,8 +680,7 @@ pub(crate) fn withdraw_treasury_stake(
     if tokens == 0 {
         return Err(core_err(CoreError::ZeroShares));
     }
-    let balance = a.custody.treasury_balance(rate, a.vault.amount)?;
-    require!(tokens <= balance, TesoroError::TreasuryShort);
+    a.custody.route.spend(u128::from(tokens)).map_err(core_err)?;
     a.custody.withdrawn_shares = a
         .custody
         .withdrawn_shares

@@ -253,7 +253,7 @@ pub fn request_instant_redeem<B: Bytes, S: Bytes>(
     if line.side != SIDE_WON || !line.is_playable() {
         return Err(CoreError::NotWonGemas);
     }
-    let mut b = book.clone();
+    let mut b = book.boxed_clone();
     let ready = b.redeemable(&line)?.min(line.amount);
     let redeemed = if ready > 0 {
         Some(b.redeem(&mut line, ready, &*history)?)
@@ -281,7 +281,7 @@ pub fn request_instant_redeem<B: Bytes, S: Bytes>(
         (true, false) => pool.spill.set_line(idx, &line),
     };
     done.map_err(|e| draw_err(e.into()))?;
-    *book = b;
+    book.assign(&b);
     Ok(Requested {
         order: InstantOrder {
             owner,
@@ -342,7 +342,7 @@ pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
     if now >= order.expires_at {
         return Err(CoreError::Expired);
     }
-    let mut b = book.clone();
+    let mut b = book.boxed_clone();
     let mut ol = order.line;
     let ready = b.redeemable(&ol)?.min(ol.amount);
     let redeemed = if ready > 0 {
@@ -366,10 +366,10 @@ pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
     b.transfer(&mut ol, &mut part, gemas, &*history)?;
     // The last step that can fail: a full Treasury pool changes nothing (grow its spill, retry).
     treasury
-        .put(&mut OneBook(&mut b, &mut *history), &part)
+        .put(&mut OneBook(&mut *b, &mut *history), &part)
         .map_err(draw_err)?;
     *route = r;
-    *book = b;
+    book.assign(&b);
     order.line = ol;
     order.sold += gemas;
     order.redeemed_while_open += ready;
@@ -397,12 +397,12 @@ fn return_to_pool<B: Bytes, S: Bytes>(
         return Err(CoreError::InvalidStatus);
     }
     let k = order.line.amount;
-    let mut b = book.clone();
-    pool.put(&mut OneBook(&mut b, history), &order.line)
+    let mut b = book.boxed_clone();
+    pool.put(&mut OneBook(&mut *b, history), &order.line)
         .map_err(draw_err)?;
     let l = order.line;
     order.line = SourceBook::blank_line(l.side, l.due_at, l.source, l.class, l.tranche);
-    *book = b;
+    book.assign(&b);
     Ok(k)
 }
 

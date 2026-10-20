@@ -5,14 +5,15 @@
 //! asset by the admin in an `OnchainPrice`. The keeper's price job and the oracle-supplied price of
 //! `take_advance` serve test mode only: `take_advance` refuses an asset once it has a mapping.
 
-use crate::error::{core_err, TesoroError};
+use crate::error::TesoroError;
+use crate::instructions::economy::*;
 use crate::instructions::native::{is_native, is_stake};
-use crate::instructions::position::{chain_byte, issue_advance};
-use crate::ledger::native;
+use crate::instructions::position::chain_byte;
 use crate::pyth::{
     MAX_ONCHAIN_CONF_BPS, MAX_ONCHAIN_PRICE_AGE_SECS, PRICE_UPDATE_V2, PYTH_RECEIVER,
 };
 use crate::state::*;
+use crate::storage::*;
 use crate::util::{now, require_can_advance};
 use anchor_lang::prelude::*;
 use sim_lst::Pool;
@@ -99,12 +100,13 @@ pub fn require_no_onchain_price(asset: &Pubkey, remaining: &[AccountInfo]) -> Re
 }
 
 /// An Advance against a native Position, priced from its asset's Pyth feed: the owner signs alone.
+/// When the Position still has its previous Advance open, that Source, its book and its pages are
+/// the remaining accounts.
 #[derive(Accounts)]
 pub struct TakeNativeAdvanceOnchain<'info> {
     #[account(mut)]
     pub owner_authority: Signer<'info>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
         bump = owner_account.bump
     )]
@@ -139,14 +141,6 @@ pub struct TakeNativeAdvanceOnchain<'info> {
         constraint = pool.mint == SIM_SOL_MINT @ TesoroError::InvalidPool
     )]
     pub pool: Box<Account<'info, Pool>>,
-    /// The Position's open Advance, when it has one.
-    #[account(
-        mut,
-        seeds = [SOURCE_SEED, position.key().as_ref(), &prev_source.inner.index.to_le_bytes()],
-        bump = prev_source.bump,
-        constraint = prev_source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
-    )]
-    pub prev_source: Option<Account<'info, SourceState>>,
     #[account(
         init,
         payer = owner_authority,
@@ -158,40 +152,45 @@ pub struct TakeNativeAdvanceOnchain<'info> {
     #[account(
         init,
         payer = owner_authority,
-        space = HoldingState::SPACE,
-        seeds = [HOLDING_SEED, owner_account.key().as_ref(), source.key().as_ref()],
+        space = SOURCE_BOOK_LEN,
+        seeds = [BOOK_SEED, source.key().as_ref()],
         bump
     )]
-    pub holding: Account<'info, HoldingState>,
+    pub book: AccountLoader<'info, SourceBookHead>,
+    /// CHECK: the owner's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, owner_account.key().as_ref()], bump)]
+    pub basket: UncheckedAccount<'info>,
+    /// CHECK: the owner's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
+    pub spill: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn take_native_advance_onchain(
-    mut ctx: Context<TakeNativeAdvanceOnchain>,
+pub(crate) fn take_native_advance_onchain<'info>(
+    mut ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvanceOnchain<'info>>,
     horizon_months: u8,
 ) -> Result<()> {
+    require_can_advance(&ctx.accounts.protections.to_account_info())?;
+    let remaining = ctx.remaining_accounts;
+    let (source_bump, book_bump) = (ctx.bumps.source, ctx.bumps.book);
     let a = &mut ctx.accounts;
-    require_can_advance(&a.protections.to_account_info())?;
     let ts = now()?;
     let price = a.onchain_price.read(&a.price_feed.to_account_info(), ts)?;
-    let net = native::position_accrued(&a.position.inner, a.pool.speedup, ts).map_err(core_err)?;
+    let rates = native_rates(&a.position.inner, &a.pool)?;
     let fee = a.position.inner.yield_fee_bps;
-    if a.position.inner.open_advance.is_some() && a.prev_source.is_none() {
-        return err!(TesoroError::SourceRequired);
-    }
-    native::prepare_advance(
-        &mut a.position.inner,
-        a.prev_source.as_mut().map(|s| &mut s.inner),
-        net.net,
-    )
-    .map_err(core_err)?;
-    issue_advance(
-        &mut a.position,
-        &mut a.source,
-        &mut a.holding,
-        &mut a.owner_account,
-        ctx.bumps.source,
-        ctx.bumps.holding,
+    let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
+    begin_advance(
+        NewAdvance {
+            position: &mut a.position,
+            source: &mut a.source,
+            source_bump,
+            book: &a.book,
+            book_bump,
+            basket: &basket,
+            spill: &spill,
+        },
+        &rates,
+        remaining,
         horizon_months,
         price,
         fee,
@@ -200,6 +199,8 @@ pub(crate) fn take_native_advance_onchain(
 
 /// An Advance against an EVM-sourced Position, priced from its asset's Pyth feed. The oracle
 /// authority and the owner sign as for `take_advance`, but the oracle no longer chooses the price.
+/// When the Position still has its previous Advance open, that Source, its book and its pages are
+/// the remaining accounts.
 #[derive(Accounts)]
 pub struct TakeAdvanceOnchain<'info> {
     #[account(mut)]
@@ -215,7 +216,6 @@ pub struct TakeAdvanceOnchain<'info> {
     #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
     pub treasury: Box<Account<'info, Treasury>>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
         bump = owner_account.bump
     )]
@@ -252,20 +252,28 @@ pub struct TakeAdvanceOnchain<'info> {
     #[account(
         init,
         payer = oracle,
-        space = HoldingState::SPACE,
-        seeds = [HOLDING_SEED, owner_account.key().as_ref(), source.key().as_ref()],
+        space = SOURCE_BOOK_LEN,
+        seeds = [BOOK_SEED, source.key().as_ref()],
         bump
     )]
-    pub holding: Account<'info, HoldingState>,
+    pub book: AccountLoader<'info, SourceBookHead>,
+    /// CHECK: the owner's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, owner_account.key().as_ref()], bump)]
+    pub basket: UncheckedAccount<'info>,
+    /// CHECK: the owner's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
+    pub spill: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn take_advance_onchain(
-    ctx: Context<TakeAdvanceOnchain>,
+pub(crate) fn take_advance_onchain<'info>(
+    mut ctx: Context<'_, '_, 'info, 'info, TakeAdvanceOnchain<'info>>,
     horizon_months: u8,
 ) -> Result<()> {
-    let a = ctx.accounts;
-    // A native Position is advanced by the owner alone through `take_native_advance_onchain`.
+    let remaining = ctx.remaining_accounts;
+    let (source_bump, book_bump) = (ctx.bumps.source, ctx.bumps.book);
+    let a = &mut ctx.accounts;
+    // A native or stake Position is advanced by the owner alone through its own instruction.
     require!(
         !is_native(&a.position.inner) && !is_stake(&a.position.inner),
         TesoroError::NativePosition
@@ -274,15 +282,23 @@ pub(crate) fn take_advance_onchain(
     let price = a
         .onchain_price
         .read(&a.price_feed.to_account_info(), now()?)?;
-    issue_advance(
-        &mut a.position,
-        &mut a.source,
-        &mut a.holding,
-        &mut a.owner_account,
-        ctx.bumps.source,
-        ctx.bumps.holding,
+    let rates = reported_rates(&a.position.inner);
+    let fee = a.treasury.yield_fee_bps;
+    let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
+    begin_advance(
+        NewAdvance {
+            position: &mut a.position,
+            source: &mut a.source,
+            source_bump,
+            book: &a.book,
+            book_bump,
+            basket: &basket,
+            spill: &spill,
+        },
+        &rates,
+        remaining,
         horizon_months,
         price,
-        a.treasury.yield_fee_bps,
+        fee,
     )
 }

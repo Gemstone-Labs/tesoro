@@ -70,6 +70,19 @@ pub struct Position {
     /// opened, lamports per pool token at 1e12. Non-zero marks a stake Position; growth since open
     /// is the Staking Rate now over this. Zero for every other Position.
     pub stake_rate_open: u64,
+    /// Staking-token shares (32 fractional bits) that the Position's Sources have landed and that
+    /// are not yet paid out or taken: the part of its custody that belongs to the holders of its
+    /// Gemas and to the owner's pocket. Economy upgrade (ticket 11).
+    pub held_shares: u128,
+    /// Shares (32 fractional bits) that are the owner's free yield: the owner's pocket of the
+    /// closed Sources and the yield that accrued while no Advance was open. Paid at Unlock
+    /// (native), claimable (reported Sources), or simply part of what Unlock leaves the owner
+    /// (staking token). Economy upgrade (ticket 11).
+    pub free_shares: u128,
+    /// Staking-token Positions: whole shares already paid out of the custody before Unlock (to
+    /// holders by Redeem, to the prize escrow by harvest, to the Treasury by its own Redeem).
+    /// `custody_shares` stays what was deposited, so the pooled fee totals can be unwound exactly.
+    pub paid_shares: u64,
 }
 
 impl Position {
@@ -106,6 +119,9 @@ impl Position {
             custody_shares: 0,
             yield_fee_bps: 0,
             stake_rate_open: 0,
+            held_shares: 0,
+            free_shares: 0,
+            paid_shares: 0,
         })
     }
 
@@ -159,12 +175,13 @@ impl Position {
             redeemed: 0,
             yield_units: 0,
             redeemed_units: 0,
+            due_at: 0,
         })
     }
 
     /// Gemas an Advance of `months` is worth: projected yield net of the Yield Fee, as Gemas at
     /// `price_micro_usd`, floored.
-    fn advance_gemas(
+    pub(crate) fn advance_gemas(
         &self,
         months: u8,
         price_micro_usd: u64,
@@ -320,6 +337,9 @@ pub struct Source {
     pub yield_units: u64,
     /// Source-asset units already paid out by Redeem.
     pub redeemed_units: u64,
+    /// Planned repayment date of the Source's Gemas (unix seconds), set by the instruction layer
+    /// when the Advance is taken and moved by Extend: the fast-first key of its basket lines.
+    pub due_at: i64,
 }
 
 impl Source {

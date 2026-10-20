@@ -1,14 +1,12 @@
+use crate::books::OnchainBooks;
 use crate::error::{core_err, TesoroError};
-use crate::instructions::native::is_stake;
-use crate::instructions::native::{
-    is_native, redeem_native, return_own_native_source, unlock_native_position,
-};
-use crate::instructions::stake::{
-    is_computed, redeem_stake, return_own_stake_source, unlock_stake_position,
-};
-use crate::ledger::{self, SourceChain};
+use crate::instructions::economy::*;
+use crate::instructions::stake::is_computed as is_computed_kind;
+use crate::ledger::draw::SourceBooks;
+use crate::ledger::{self, CustodyKind, SourceChain};
 use crate::state::*;
-use crate::util::require_can_advance;
+use crate::storage::*;
+use crate::util::{now, require_can_advance};
 use anchor_lang::prelude::*;
 
 pub(crate) fn chain_byte(chain: SourceChain) -> u8 {
@@ -83,7 +81,9 @@ pub(crate) fn open_position(
 
 /// An Advance: the owner picks the Horizon, the oracle authority supplies the USD price at
 /// issuance (test mode only: an asset with an `OnchainPrice` is advanced by `take_advance_onchain`
-/// and this refuses it; the asset's `OnchainPrice` address is the first remaining account). Both sign.
+/// and this refuses it; the asset's `OnchainPrice` address is the first remaining account). Both
+/// sign. When the Position still has its previous Advance open, that Source, its book and its
+/// pages follow in the remaining accounts, after the `OnchainPrice` address.
 #[derive(Accounts)]
 pub struct TakeAdvance<'info> {
     #[account(mut)]
@@ -99,7 +99,6 @@ pub struct TakeAdvance<'info> {
     #[account(seeds = [TREASURY_SEED], bump = treasury.bump)]
     pub treasury: Box<Account<'info, Treasury>>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
         bump = owner_account.bump
     )]
@@ -128,16 +127,22 @@ pub struct TakeAdvance<'info> {
     #[account(
         init,
         payer = oracle,
-        space = HoldingState::SPACE,
-        seeds = [HOLDING_SEED, owner_account.key().as_ref(), source.key().as_ref()],
+        space = SOURCE_BOOK_LEN,
+        seeds = [BOOK_SEED, source.key().as_ref()],
         bump
     )]
-    pub holding: Account<'info, HoldingState>,
+    pub book: AccountLoader<'info, SourceBookHead>,
+    /// CHECK: the owner's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, owner_account.key().as_ref()], bump)]
+    pub basket: UncheckedAccount<'info>,
+    /// CHECK: the owner's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
+    pub spill: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn take_advance(
-    ctx: Context<TakeAdvance>,
+pub(crate) fn take_advance<'info>(
+    mut ctx: Context<'_, '_, 'info, 'info, TakeAdvance<'info>>,
     horizon_months: u8,
     price_micro_usd: u64,
 ) -> Result<()> {
@@ -146,75 +151,43 @@ pub(crate) fn take_advance(
         TesoroError::OracleLocked
     );
     require!(
-        !is_computed(&ctx.accounts.position.inner),
+        !is_computed_kind(&ctx.accounts.position.inner),
         TesoroError::NativePosition
     );
+    let [price_marker, remaining @ ..] = ctx.remaining_accounts else {
+        return err!(TesoroError::BadRemainingAccounts);
+    };
     crate::instructions::onchain_price::require_no_onchain_price(
         &Pubkey::new_from_array(ctx.accounts.position.inner.source_asset),
-        ctx.remaining_accounts,
+        std::slice::from_ref(price_marker),
     )?;
     require_can_advance(&ctx.accounts.protections.to_account_info())?;
-    let a = ctx.accounts;
-    issue_advance(
-        &mut a.position,
-        &mut a.source,
-        &mut a.holding,
-        &mut a.owner_account,
-        ctx.bumps.source,
-        ctx.bumps.holding,
+    let (source_bump, book_bump) = (ctx.bumps.source, ctx.bumps.book);
+    let a = &mut ctx.accounts;
+    let rates = reported_rates(&a.position.inner);
+    let fee = a.treasury.yield_fee_bps;
+    let (basket, spill) = (a.basket.to_account_info(), a.spill.to_account_info());
+    begin_advance(
+        NewAdvance {
+            position: &mut a.position,
+            source: &mut a.source,
+            source_bump,
+            book: &a.book,
+            book_bump,
+            basket: &basket,
+            spill: &spill,
+        },
+        &rates,
+        remaining,
         horizon_months,
         price_micro_usd,
-        a.treasury.yield_fee_bps,
+        fee,
     )
 }
 
-/// Opens the Position's Advance (net of the Yield Fee) and credits its Gemas to the owner's
-/// Holding. Shared by `take_advance` (oracle price) and `take_native_advance` (on-chain price feed).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn issue_advance(
-    position: &mut Account<PositionState>,
-    source: &mut Account<SourceState>,
-    holding: &mut Account<HoldingState>,
-    owner_account: &mut Account<TesoroAccount>,
-    source_bump: u8,
-    holding_bump: u8,
-    horizon_months: u8,
-    price_micro_usd: u64,
-    yield_fee_bps: u16,
-) -> Result<()> {
-    let position_key = position.key();
-    let source_key = source.key();
-    let issued = position
-        .inner
-        .open_advance(
-            position_key.to_bytes(),
-            horizon_months,
-            price_micro_usd,
-            yield_fee_bps,
-        )
-        .map_err(core_err)?;
-    let gemas = issued.issued;
-    let owner_key = owner_account.key();
-    holding.bump = holding_bump;
-    holding.account = owner_key;
-    holding.inner = ledger::Holding::new(source_key.to_bytes(), true);
-    holding
-        .inner
-        .credit(&mut owner_account.inner, gemas)
-        .map_err(core_err)?;
-    source.bump = source_bump;
-    source.inner = issued;
-    emit!(AdvanceIssued {
-        position: position_key,
-        source: source_key,
-        gemas,
-        horizon_months,
-        price_micro_usd,
-    });
-    Ok(())
-}
-
-/// `YieldAccrued(seq, cumulative)`. Idempotent: a replayed or older `seq` changes nothing.
+/// `YieldAccrued(seq, cumulative)`. Idempotent: a replayed or older `seq` changes nothing. Lands
+/// the yield the open Advance has earned: when the Position has one, its Source is passed, and its
+/// book and checkpoint pages are the remaining accounts.
 #[derive(Accounts)]
 pub struct ApplyYield<'info> {
     pub oracle: Signer<'info>,
@@ -240,45 +213,114 @@ pub struct ApplyYield<'info> {
     pub source: Option<Account<'info, SourceState>>,
 }
 
-pub(crate) fn apply_yield(ctx: Context<ApplyYield>, seq: u64, cumulative: u64) -> Result<()> {
+pub(crate) fn apply_yield<'info>(
+    mut ctx: Context<'_, '_, 'info, 'info, ApplyYield<'info>>,
+    seq: u64,
+    cumulative: u64,
+) -> Result<()> {
     require!(
         !ctx.accounts.config.oracle_locked,
         TesoroError::OracleLocked
     );
     require!(
-        !is_computed(&ctx.accounts.position.inner),
+        !is_computed_kind(&ctx.accounts.position.inner),
         TesoroError::NativePosition
     );
-    let position_key = ctx.accounts.position.key();
-    let source = ctx.accounts.source.as_mut().map(|s| &mut s.inner);
-    let applied = ctx
-        .accounts
-        .position
-        .inner
-        .apply_yield(source, seq, cumulative)
-        .map_err(core_err)?;
-    if applied {
-        let debt_gemas = ctx.accounts.source.as_ref().map_or(0, |s| s.inner.debt());
-        emit!(YieldApplied {
-            position: position_key,
-            seq,
-            cumulative,
-            debt_gemas,
-        });
+    let remaining = ctx.remaining_accounts;
+    let a = &mut ctx.accounts;
+    apply_reported_yield(&mut a.position, a.source.as_mut(), remaining, seq, cumulative)
+}
+
+/// Applies a Yield Report to a reported Position and lands the yield. Shared by the oracle's
+/// `apply_yield` and the bridge's `apply_yield_from_source`.
+pub(crate) fn apply_reported_yield<'info>(
+    position: &mut Account<'info, PositionState>,
+    source: Option<&mut Account<'info, SourceState>>,
+    books_all: &'info [AccountInfo<'info>],
+    seq: u64,
+    cumulative: u64,
+) -> Result<()> {
+    if seq <= position.inner.last_seq {
+        return Ok(());
     }
+    if cumulative < position.inner.cumulative_yield {
+        return Err(core_err(ledger::CoreError::CumulativeDecreased));
+    }
+    let position_key = position.key();
+    position.inner.last_seq = seq;
+    position.inner.cumulative_yield = cumulative;
+    let rates = reported_rates(&position.inner);
+    let mut debt_gemas = 0;
+    match (position.inner.open_advance, source) {
+        (Some(index), Some(src)) => {
+            require!(
+                src.inner.index == index && src.inner.position == position_key.to_bytes(),
+                TesoroError::InvalidAccount
+            );
+            let source_key = src.key();
+            let mut books = OnchainBooks::load(books_all)?;
+            {
+                let (book, ck) = books
+                    .book_with_history(&source_key.to_bytes())
+                    .map_err(draw_err)?;
+                ledger::economy::sync_source(
+                    &mut position.inner,
+                    &src.inner,
+                    book,
+                    rates.net,
+                    &rates.rate,
+                    ck,
+                )
+                .map_err(core_err)?;
+                if book.uncovered_total() == 0 {
+                    ledger::economy::close_advance(
+                        &mut position.inner,
+                        &src.inner,
+                        book,
+                        rates.net,
+                        &rates.rate,
+                        ck,
+                    )
+                    .map_err(core_err)?;
+                } else {
+                    debt_gemas = u64::try_from(ledger::book::fp_ceil(book.uncovered_total()))
+                        .unwrap_or(u64::MAX);
+                }
+            }
+            books.flush()?;
+        }
+        (Some(_), None) => return err!(TesoroError::InvalidAccount),
+        (None, _) => {
+            ledger::economy::bank_free_yield(&mut position.inner, rates.net, &rates.rate)
+                .map_err(core_err)?;
+        }
+    }
+    emit!(YieldApplied {
+        position: position_key,
+        seq,
+        cumulative,
+        debt_gemas,
+    });
     Ok(())
 }
 
-/// Return of the owner's own unspent Gemas cancels Debt. Principal is not an input.
+/// Return of the owner's own unspent Gemas of one line: the repaid part is released to the owner's
+/// free yield (once), the unpaid part is cancelled. Principal is not an input. Remaining accounts:
+/// the kind's accounts (not paying), then the Source's book and pages.
 #[derive(Accounts)]
 pub struct ReturnOwn<'info> {
     pub owner_authority: Signer<'info>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, owner_authority.key().as_ref()],
         bump = owner_account.bump
     )]
     pub owner_account: Account<'info, TesoroAccount>,
+    /// CHECK: the owner's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, owner_account.key().as_ref()], bump)]
+    pub basket: UncheckedAccount<'info>,
+    /// CHECK: the owner's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, owner_account.key().as_ref()], bump)]
+    pub spill: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
@@ -293,63 +335,54 @@ pub struct ReturnOwn<'info> {
         constraint = source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
     )]
     pub source: Account<'info, SourceState>,
-    #[account(
-        mut,
-        seeds = [HOLDING_SEED, owner_account.key().as_ref(), source.key().as_ref()],
-        bump = holding.bump
-    )]
-    pub holding: Account<'info, HoldingState>,
 }
 
-/// For a native Position `remaining_accounts` must be `[pool]`: its Debt is computed from the clock.
 pub(crate) fn return_own<'info>(
-    mut ctx: Context<'_, '_, 'info, 'info, ReturnOwn<'info>>,
+    ctx: Context<'_, '_, 'info, 'info, ReturnOwn<'info>>,
+    line: LineRef,
     amount: u64,
 ) -> Result<()> {
     let remaining = ctx.remaining_accounts;
-    let a = &mut ctx.accounts;
-    if is_stake(&a.position.inner) {
-        return return_own_stake_source(
+    let a = ctx.accounts;
+    let (kind, rest) = KindCtx::load(&a.position.inner, remaining, PayTo::Nobody)?;
+    let rates = kind.rates(&a.position.inner)?;
+    let mut books = OnchainBooks::load(rest)?;
+    let source_key = a.source.key();
+    let key = line.key(&source_key);
+    with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
+        return_own_line(
+            pool,
+            &mut books,
             &mut a.position,
             &mut a.source,
-            &mut a.owner_account,
-            &mut a.holding,
+            &source_key,
+            &key,
             amount,
-            remaining,
-        );
-    }
-    if is_native(&a.position.inner) {
-        return return_own_native_source(
-            &mut a.position,
-            &mut a.source,
-            &mut a.owner_account,
-            &mut a.holding,
-            amount,
-            remaining,
-        );
-    }
-    ledger::return_own(
-        &mut a.position.inner,
-        &mut a.source.inner,
-        &mut a.owner_account.inner,
-        &mut a.holding.inner,
-        amount,
-    )
-    .map_err(core_err)
+            &rates,
+        )
+    })?;
+    books.flush()
 }
 
-/// Redeem Gemas for their Source asset, up to the holder's pro rata share of what the Source has
-/// accrued. Emits `Redeemed` (the `PayYield` seam); winning Gemas never touch the winner's lock.
+/// Redeem Gemas for their Source asset, up to the line's repaid part. Pays the shares they were
+/// worth when their yield landed. Emits `Redeemed`. Remaining accounts: the kind's accounts
+/// (paying to the holder), then the Source's book and pages.
 #[derive(Accounts)]
 pub struct Redeem<'info> {
     pub holder_authority: Signer<'info>,
     #[account(
-        mut,
         seeds = [ACCOUNT_SEED, holder_authority.key().as_ref()],
         bump = holder_account.bump
     )]
     pub holder_account: Account<'info, TesoroAccount>,
+    /// CHECK: the holder's basket, checked by its seeds.
+    #[account(mut, seeds = [BASKET_SEED, holder_account.key().as_ref()], bump)]
+    pub basket: UncheckedAccount<'info>,
+    /// CHECK: the holder's spill, checked by its seeds.
+    #[account(mut, seeds = [SPILL_SEED, holder_account.key().as_ref()], bump)]
+    pub spill: UncheckedAccount<'info>,
     #[account(
+        mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
         bump = position.bump
     )]
@@ -361,19 +394,11 @@ pub struct Redeem<'info> {
         constraint = source.inner.position == position.key().to_bytes() @ TesoroError::InvalidAccount
     )]
     pub source: Account<'info, SourceState>,
-    #[account(
-        mut,
-        seeds = [HOLDING_SEED, holder_account.key().as_ref(), source.key().as_ref()],
-        bump = holding.bump
-    )]
-    pub holding: Account<'info, HoldingState>,
 }
 
-/// For a native Position `remaining_accounts` must be `[pool, holder_token_account, mint,
-/// yield_config, yield_authority, sim_lst_program, token_program]`: the yield the Gemas are worth is
-/// computed from the clock and minted to the holder in the same transaction.
 pub(crate) fn redeem<'info>(
-    mut ctx: Context<'_, '_, 'info, 'info, Redeem<'info>>,
+    ctx: Context<'_, '_, 'info, 'info, Redeem<'info>>,
+    line: LineRef,
     amount: u64,
 ) -> Result<()> {
     // Gemas of an EVM-sourced Advance are paid on their source chain, which only the bridge can
@@ -383,49 +408,46 @@ pub(crate) fn redeem<'info>(
         TesoroError::BridgedSource
     );
     let remaining = ctx.remaining_accounts;
-    let a = &mut ctx.accounts;
-    let units = if is_stake(&a.position.inner) {
-        redeem_stake(
-            &a.position,
-            &a.position.key(),
+    let a = ctx.accounts;
+    let wallet = a.holder_authority.key();
+    let (mut kind, rest) = KindCtx::load(&a.position.inner, remaining, PayTo::Wallet(&wallet))?;
+    let mut books = OnchainBooks::load(rest)?;
+    let source_key = a.source.key();
+    let key = line.key(&source_key);
+    let out = with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
+        redeem_line(
+            pool,
+            &mut books,
+            &mut kind,
+            &mut a.position,
             &mut a.source,
-            &mut a.holder_account,
-            &mut a.holding,
-            &a.holder_authority.key(),
-            amount,
-            remaining,
-        )?
-    } else if is_native(&a.position.inner) {
-        redeem_native(
-            &a.position,
-            &a.position.key(),
-            &mut a.source,
-            &mut a.holder_account,
-            &mut a.holding,
-            &a.holder_authority.key(),
-            amount,
-            remaining,
-        )?
-    } else {
-        ledger::redeem(
-            &mut a.source.inner,
-            &mut a.holder_account.inner,
-            &mut a.holding.inner,
+            &source_key,
+            &key,
             amount,
         )
-        .map_err(core_err)?
-    };
+    })?;
+    if out.shares == 0 {
+        return Err(ledger_zero_shares());
+    }
+    books.flush()?;
+    kind.pay_shares(&a.position.key(), out.shares as u64, 0)?;
+    kind.exit()?;
     emit!(Redeemed {
         position: a.position.key(),
-        source: a.source.key(),
+        source: source_key,
         account: a.holder_account.key(),
-        gemas: amount,
-        source_units: units,
+        gemas: out.gemas,
+        source_units: out.units,
     });
     Ok(())
 }
 
-/// The owner claims yield accrued beyond any Advance.
+fn ledger_zero_shares() -> Error {
+    core_err(ledger::CoreError::ZeroShares)
+}
+
+/// The owner claims yield accrued beyond any Advance (reported Positions; a native or stake
+/// Position's free yield comes back with `unlock`).
 #[derive(Accounts)]
 pub struct ClaimFreeYield<'info> {
     pub owner_authority: Signer<'info>,
@@ -444,16 +466,21 @@ pub struct ClaimFreeYield<'info> {
 }
 
 pub(crate) fn claim_free_yield(ctx: Context<ClaimFreeYield>, amount: u64) -> Result<()> {
-    // A native Position's free yield stays in its vault and returns to the owner with `unlock`.
     require!(
-        !is_computed(&ctx.accounts.position.inner),
+        !is_computed_kind(&ctx.accounts.position.inner),
         TesoroError::NativePosition
     );
-    ctx.accounts
-        .position
-        .inner
-        .claim_free_yield(amount)
-        .map_err(core_err)?;
+    if amount == 0 {
+        return Err(core_err(ledger::CoreError::ZeroAmount));
+    }
+    let p = &mut ctx.accounts.position.inner;
+    if amount > ledger::economy::claimable_units(p) {
+        return Err(core_err(ledger::CoreError::ExceedsRedeemable));
+    }
+    p.free_yield_claimed = p
+        .free_yield_claimed
+        .checked_add(amount)
+        .ok_or_else(|| core_err(ledger::CoreError::Math))?;
     emit!(YieldClaimed {
         position: ctx.accounts.position.key(),
         amount,
@@ -461,7 +488,8 @@ pub(crate) fn claim_free_yield(ctx: Context<ClaimFreeYield>, amount: u64) -> Res
     Ok(())
 }
 
-/// Debt is zero: release Principal (the `Unlock` message seam).
+/// Debt is zero: release Principal. Remaining accounts: the kind's accounts (paying to the owner),
+/// then, when the Position has an open Advance, its Source, book and pages.
 #[derive(Accounts)]
 pub struct Unlock<'info> {
     pub owner_authority: Signer<'info>,
@@ -470,6 +498,8 @@ pub struct Unlock<'info> {
         bump = owner_account.bump
     )]
     pub owner_account: Account<'info, TesoroAccount>,
+    #[account(seeds = [ECONOMY_SEED], bump = economy.bump)]
+    pub economy: Account<'info, EconomyConfig>,
     #[account(
         mut,
         seeds = [POSITION_SEED, &[chain_byte(position.inner.source_chain)], position.position_id.as_ref()],
@@ -479,28 +509,100 @@ pub struct Unlock<'info> {
     pub position: Account<'info, PositionState>,
 }
 
-/// For a native Position `remaining_accounts` must be `[custody, vault, pool, owner_token_account,
-/// mint, yield_config, yield_authority, sim_lst_program, token_program]`, then
-/// the open Advance's Source when it has one: Debt is computed from the clock (it must be zero),
-/// Principal returns from the shared vault and the free yield is minted to the owner.
 pub(crate) fn unlock<'info>(ctx: Context<'_, '_, 'info, 'info, Unlock<'info>>) -> Result<()> {
-    if is_stake(&ctx.accounts.position.inner) {
-        unlock_stake_position(
-            &mut ctx.accounts.position,
-            &ctx.accounts.owner_authority.key(),
-            ctx.remaining_accounts,
-        )?;
-    } else if is_native(&ctx.accounts.position.inner) {
-        unlock_native_position(
-            &mut ctx.accounts.position,
-            &ctx.accounts.owner_authority.key(),
-            ctx.remaining_accounts,
-        )?;
-    } else {
-        ctx.accounts.position.inner.unlock().map_err(core_err)?;
-    }
+    let remaining = ctx.remaining_accounts;
+    let a = ctx.accounts;
+    let wallet = a.owner_authority.key();
+    let pool_bps = a.economy.pool_share.bps_now(now()?).map_err(core_err)?;
+    let (mut kind, rest) = KindCtx::load(&a.position.inner, remaining, PayTo::Wallet(&wallet))?;
+    let position_key = a.position.key();
+    unlock_position(&mut a.position, &mut kind, rest, pool_bps)?;
     emit!(PositionUnlocked {
-        position: ctx.accounts.position.key(),
+        position: position_key,
     });
+    Ok(())
+}
+
+/// Closes (or banks), settles and pays the Unlock of one Position.
+pub(crate) fn unlock_position<'info>(
+    position: &mut Account<'info, PositionState>,
+    kind: &mut KindCtx<'info>,
+    rest: &'info [AccountInfo<'info>],
+    pool_bps: u16,
+) -> Result<()> {
+    let position_key = position.key();
+    let rates = kind.rates(&position.inner)?;
+    match position.inner.open_advance {
+        Some(index) => {
+            let [src_info, books_rest @ ..] = rest else {
+                return err!(TesoroError::SourceRequired);
+            };
+            let src = read_source(src_info, &position_key, index)?;
+            let mut books = OnchainBooks::load(books_rest)?;
+            {
+                let (book, ck) = books
+                    .book_with_history(&src.key().to_bytes())
+                    .map_err(draw_err)?;
+                ledger::economy::close_advance(
+                    &mut position.inner,
+                    &src.inner,
+                    book,
+                    rates.net,
+                    &rates.rate,
+                    ck,
+                )
+                .map_err(core_err)?;
+            }
+            books.flush()?;
+        }
+        None => {
+            ledger::economy::bank_free_yield(&mut position.inner, rates.net, &rates.rate)
+                .map_err(core_err)?;
+        }
+    }
+    let before = position.inner.clone();
+    let custody_kind = kind.custody_kind();
+    let payout = ledger::economy::settle_unlock(
+        &mut position.inner,
+        custody_kind,
+        rates.fee_units,
+        &rates.rate,
+    )
+    .map_err(core_err)?;
+    match kind {
+        KindCtx::Native { custody, .. } => {
+            let mut totals = custody.totals();
+            totals
+                .remove_position(
+                    before.principal,
+                    before.opened_at,
+                    before.rate_bps,
+                    before.yield_fee_bps,
+                    rates.fee_units,
+                )
+                .map_err(core_err)?;
+            custody.set_totals(totals);
+            ledger::economy::route_after_unlock(&mut custody.route, &payout, pool_bps)
+                .map_err(core_err)?;
+        }
+        KindCtx::Stake { custody, .. } => {
+            let mut totals = custody.totals();
+            totals
+                .remove_position(
+                    before.custody_shares,
+                    before.principal,
+                    before.yield_fee_bps,
+                    payout.fee_shares,
+                )
+                .map_err(core_err)?;
+            custody.set_totals(totals);
+            ledger::economy::route_after_unlock(&mut custody.route, &payout, pool_bps)
+                .map_err(core_err)?;
+        }
+        KindCtx::Reported => {}
+    }
+    kind.exit()?;
+    kind.pay_custody(&position_key, payout.owner_shares)?;
+    kind.pay_shares(&position_key, payout.mint_shares, 2)?;
     Ok(())
 }
