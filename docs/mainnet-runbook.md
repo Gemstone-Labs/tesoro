@@ -302,7 +302,7 @@ For each: what is blocked, and a recommendation (founders decide).
 11. **Waitlist data location.** Copy the waitlist rows to the mainnet Supabase project or run the script against the old project (T-14 step 5).
 12. **Which Vercel project serves `www` on mainnet** (edit the existing one and strip test secrets, or fresh project and move the domain). Recommendation: fresh project for mainnet; the secret-leak risk of editing disappears.
 13. **Alert mails during the pre-launch week** (T-7 keeper `NOTIFY_URL`).
-14. **Instant Redeem availability at launch.** Treasuries start empty and fill only from the Yield Fee; day-one Instant Redeem will read "unavailable" for everyone. Confirm the copy is acceptable, or seed a Treasury (ADR 0011 says nobody seeds it).
+14. **Instant Redeem availability at launch.** Treasuries start empty and fill only from the Yield Fee; day-one Instant Redeem will read "unavailable" for everyone. EVM vaults are stricter: their Treasury spends only fees of Positions that have unlocked (up to 12 months), so **fund each EVM Treasury at launch** with `fundTreasury(shares)` from the Safe (founder decision D1, 2026-10-20; the size is the founders' call), or Instant Redeem on ETH and HYPE has no capacity until funding, refills or the first Unlock. Alert on a PayInstant that waits more than a day: `fundTreasury` releases it. Confirm the copy is acceptable, or seed a Treasury (ADR 0011 says nobody seeds it).
 
 ---
 

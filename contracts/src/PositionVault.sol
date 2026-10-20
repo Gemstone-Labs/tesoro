@@ -28,8 +28,17 @@ import {IRateSource, IERC20Minimal, IMessageEndpoint, IYieldMinter} from "./IRat
 /// A Yield Report that would carry less than an earlier one is refused (`YieldBelowReported`), because Solana would
 /// reject the lower cumulative after the Player paid for the message.
 ///
-/// Treasury (underlying units) = fees of open Positions + fees of closed Positions (realised at Unlock)
-///   + funding + refills - withdrawals - Instant Redeem payouts.
+/// Treasury, real-LST vaults (`yieldMinter == 0`): held in LST SHARES (`treasuryShares`, T), valued at the live rate.
+///   spendableShares = max(0, T - owedShares - poolOwedShares - reservedShares)
+///   treasuryBalance = spendableShares * rate / 1e18
+/// It spends only what it owns outright: fees of Positions that have unlocked, funding and refills. Fees of open
+/// Positions are not spendable, because a rate fall can erase them after they were paid out and Unlock would then
+/// be short of Principal. At Unlock a Position's leftover shares (fee plus unpaid yield) move into T and the unpaid
+/// yield is recorded as `owedShares` for the Gema holders, fixed in shares at the Unlock rate: a slash after Unlock
+/// is carried by the holders (founder decision D2, 2026-10-20), never by the Principal or by open Positions.
+/// `poolOwedShares` and `reservedShares` are zero slots for the Leaderboard Pool and escrows (economy upgrade).
+/// SimLST vaults (`yieldMinter != 0`, flat rate, shares minted on payout) keep the underlying-unit accounting:
+///   Treasury = open fees + realisedFees + treasuryCredited - treasuryWithdrawn - instantPaid.
 /// `reportYield(id)` is permissionless and sends `(accrued, treasuryBalance, instantPaid)`: what the vault Treasury can still pay
 /// now, the Instant Redeem payouts the vault has made so far (Solana subtracts the payouts it recorded that this count does not include yet) and the block time, so Solana can tell a newer snapshot from an older one. An Instant Redeem payout the Treasury cannot cover reverts and waits: the same message pays once the Treasury holds enough.
 ///
@@ -90,12 +99,28 @@ contract PositionVault {
     uint256 public sumFeeD; // sum of d_i * feeBps_i
     /// @notice Sum of principalUnderlying over open Positions: the shares that back it are never spent on payouts.
     uint256 public openPrincipalUnderlying;
-    /// @notice Fees of Positions already unlocked (fixed at Unlock).
+    /// @notice SimLST vaults only: fees of Positions already unlocked (fixed at Unlock).
     uint256 public realisedFees;
-    /// @notice Cumulative underlying added by `fundTreasury` and by refills (PayYield to the vault).
+    /// @notice SimLST vaults only: cumulative underlying added by `fundTreasury` and by refills (PayYield to the vault).
     uint256 public treasuryCredited;
-    /// @notice Cumulative underlying taken by `withdrawTreasury`.
+    /// @notice SimLST vaults only: cumulative underlying taken by `withdrawTreasury`.
     uint256 public treasuryWithdrawn;
+    /// @notice Real-LST vaults: shares the Treasury owns (T). It holds fees of unlocked Positions, funding, refills,
+    ///         and the shares behind the yield owed to Gema holders of unlocked Positions (`owedShares`).
+    uint256 public treasuryShares;
+    /// @notice Real-LST vaults: shares the open Positions still hold (Principal plus their unpaid yield and fee).
+    ///         Everything else the vault holds is the Treasury's (`treasuryShares`).
+    uint256 public openHeldShares;
+    /// @notice Real-LST vaults: shares owed to Gema holders of unlocked Positions (sum of `owedSharesOf`).
+    uint256 public owedShares;
+    /// @notice Zero slot: shares owed to the Leaderboard Pool (economy upgrade fills it in).
+    uint256 public poolOwedShares;
+    /// @notice Zero slot: shares reserved for pending payouts (economy upgrade fills it in).
+    uint256 public reservedShares;
+    /// @notice Shares still owed to the Gema holders of an unlocked Position (real-LST vaults).
+    mapping(uint64 => uint256) public owedSharesOf;
+    /// @notice The rate at Unlock, which converts the holders' underlying claim into those shares.
+    mapping(uint64 => uint256) public unlockRate;
     /// @notice Cumulative underlying paid out by Instant Redeem.
     uint256 public instantPaid;
 
@@ -173,7 +198,8 @@ contract PositionVault {
         if (shares == 0) revert ZeroAmount();
         if (!lst.transferFrom(msg.sender, address(this), shares)) revert TransferFailed();
         uint256 underlying = _value(shares, rateSource.underlyingPerShare());
-        treasuryCredited += underlying;
+        if (_real()) treasuryShares += shares;
+        else treasuryCredited += underlying;
         emit TreasuryFunded(msg.sender, shares, underlying);
     }
 
@@ -183,8 +209,9 @@ contract PositionVault {
         if (amount == 0) revert ZeroAmount();
         uint256 available = treasuryBalance();
         if (amount > available) revert InsufficientTreasury(amount, available);
-        treasuryWithdrawn += amount;
         uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
+        if (_real()) treasuryShares -= shares;
+        else treasuryWithdrawn += amount;
         _payShares(to, shares);
         emit TreasuryWithdrawn(to, amount, shares);
     }
@@ -197,9 +224,16 @@ contract PositionVault {
 
     /// @notice What the vault Treasury can still pay now, in underlying units (the figure a Yield Report carries).
     function treasuryBalance() public view returns (uint256) {
+        if (_real()) return _value(spendableTreasuryShares(), rateSource.underlyingPerShare());
         uint256 inflow = _openFees(_clock()) + realisedFees + treasuryCredited;
         uint256 outflow = treasuryWithdrawn + instantPaid;
         return inflow > outflow ? inflow - outflow : 0;
+    }
+
+    /// @notice Real-LST vaults: Treasury shares nobody else has a claim on.
+    function spendableTreasuryShares() public view returns (uint256) {
+        uint256 claimed = owedShares + poolOwedShares + reservedShares;
+        return treasuryShares > claimed ? treasuryShares - claimed : 0;
     }
 
     function getPosition(uint64 id) external view returns (Position memory) {
@@ -327,7 +361,7 @@ contract PositionVault {
         uint256 gross = _gross(p, _clock());
         uint256 fee = (gross * p.feeBps) / BPS;
         p.frozenAccrued = gross - fee;
-        realisedFees += fee;
+        if (!_real()) realisedFees += fee;
         _close(p);
         p.unlocked = true;
 
@@ -336,10 +370,26 @@ contract PositionVault {
         if (release > p.principalShares) release = p.principalShares;
         if (yieldMinter == address(0)) {
             if (release > p.heldShares) release = p.heldShares;
-            p.heldShares -= release;
+            _moveLeftoverToTreasury(id, p, rate, release);
         }
         if (!lst.transfer(p.owner, release)) revert TransferFailed();
         emit PositionUnlocked(id, p.owner, release, seq);
+    }
+
+    /// @dev Real LSTs: everything the Position still holds beyond the shares released to its owner joins the Treasury
+    ///      (the Yield Fee and the unpaid yield). The unpaid yield becomes `owedShares` at the Unlock rate, rounded
+    ///      down and never above what moved, so the Treasury always holds at least what it owes.
+    function _moveLeftoverToTreasury(uint64 id, Position storage p, uint256 rate, uint256 release) internal {
+        uint256 rest = p.heldShares - release;
+        openHeldShares -= p.heldShares;
+        p.heldShares = 0;
+        treasuryShares += rest;
+        uint256 unpaid = p.frozenAccrued > p.paidUnderlying ? p.frozenAccrued - p.paidUnderlying : 0;
+        uint256 owed = (unpaid * RATE_SCALE) / rate;
+        if (owed > rest) owed = rest;
+        unlockRate[id] = rate;
+        owedSharesOf[id] = owed;
+        owedShares += owed;
     }
 
     function _onPayYield(uint64 id, Position storage p, uint64 seq, address to, uint256 amount) internal {
@@ -348,12 +398,27 @@ contract PositionVault {
         if (amount > available) revert ExceedsAccruedYield(amount, available);
 
         p.paidUnderlying += amount;
-        uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
-        _recordPayout(p, shares, amount);
+        bool settled = _real() && p.unlocked;
+        // An unlocked Position's holders are owed shares fixed at the Unlock rate; otherwise the live rate.
+        uint256 shares = (amount * RATE_SCALE) / (settled ? unlockRate[id] : rateSource.underlyingPerShare());
+        if (settled) {
+            uint256 owed = owedSharesOf[id];
+            if (shares > owed) revert InsufficientShares(shares, owed);
+            owedSharesOf[id] = owed - shares;
+            owedShares -= shares;
+            // The shares are already among the Treasury's. Paying a holder sends them out; a refill keeps them,
+            // and with the claim gone they become spendable.
+            if (to != address(this)) treasuryShares -= shares;
+        } else {
+            _recordPayout(p, shares, amount);
+            if (to == address(this)) {
+                if (_real()) treasuryShares += shares;
+                else treasuryCredited += amount;
+            }
+        }
         if (to == address(this)) {
             // Tesoro redeemed the Gemas it bought with Instant Redeems: the yield goes back to the Treasury. No
             // tokens move; the yield was never minted (SimLST) or is already among the held shares (real).
-            treasuryCredited += amount;
             emit TreasuryRefilled(id, amount, seq);
             return;
         }
@@ -372,6 +437,7 @@ contract PositionVault {
         uint256 shares = (amount * RATE_SCALE) / rateSource.underlyingPerShare();
         if (amount > available) revert InsufficientTreasury(amount, available);
         if (shares > _spendable()) revert InsufficientShares(shares, _spendable());
+        if (_real()) treasuryShares -= shares;
         instantPaid += amount;
         _payShares(to, shares);
         emit InstantPaid(id, to, amount, shares, seq);
@@ -382,6 +448,10 @@ contract PositionVault {
     }
 
     // ---------------------------------------------------------------- math
+
+    function _real() internal view returns (bool) {
+        return yieldMinter == address(0);
+    }
 
     function _value(uint256 shares, uint256 rate) internal pure returns (uint256) {
         return (shares * rate) / RATE_SCALE;
@@ -411,6 +481,7 @@ contract PositionVault {
             a = p.principalShares;
             b = pu * RATE_SCALE;
             p.heldShares = a;
+            openHeldShares += a;
         }
         p.a = a;
         p.b = b;
@@ -453,17 +524,19 @@ contract PositionVault {
         uint256 f = p.feeBps;
         p.a -= shares;
         p.heldShares -= shares;
+        openHeldShares -= shares;
         p.d += amount * RATE_SCALE;
         sumFeeA -= shares * f;
         sumFeeD += amount * RATE_SCALE * f;
     }
 
-    /// @dev Shares a real-LST vault may pay out: its balance minus the shares that back open Principal.
+    /// @dev Shares a real-LST vault may pay out: its balance minus what open Positions hold. Each Position's own
+    ///      shares back its own Principal (a payout from them is bounded by the yield formula), so a rate fall below
+    ///      one Position's open rate never freezes the Treasury's payouts to unlocked holders.
     function _spendable() internal view returns (uint256) {
         if (yieldMinter != address(0)) return type(uint256).max; // short shares are minted
         uint256 bal = lst.balanceOf(address(this));
-        uint256 reserve = _reserve();
-        return bal > reserve ? bal - reserve : 0;
+        return bal > openHeldShares ? bal - openHeldShares : 0;
     }
 
     function _reserve() internal view returns (uint256) {
