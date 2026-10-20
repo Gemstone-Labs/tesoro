@@ -1919,3 +1919,106 @@ fn gains_round_down_and_never_exceed_what_the_lines_earned() {
         "{total} of {landed}"
     );
 }
+
+#[test]
+fn a_book_in_account_bytes_behaves_exactly_like_one_in_memory() {
+    // The same operations on a `SourceBook` and on a `BookBytes` over an encoded book leave the
+    // same bytes, step by step; the byte book decodes only what it touches.
+    for seed in 0..40u64 {
+        let mut r = Rng(seed * 77 + 1);
+        let mut mem = W::new();
+        let mut raw = vec![0xEEu8; encoded_len(MAX_EXTENSIONS)];
+        let mut bytes_ck = MemCheckpoints::new(SRC);
+        {
+            let b = BookBytes::init(&mut raw).unwrap();
+            b.close();
+        }
+        let mut lines_m: Vec<Line> = (0..4).map(|i| gline(CLASS_GENERAL, i)).collect();
+        let mut lines_b = lines_m.clone();
+        for step in 0..120 {
+            let mut book = BookBytes::open(&mut raw).unwrap();
+            match r.below(7) {
+                0 => {
+                    let i = r.below(4) as usize;
+                    let k = r.range(1, 5_000);
+                    mem.issue(&mut lines_m[i], k).unwrap();
+                    book.issue(&mut lines_b[i], k, &bytes_ck).unwrap();
+                }
+                1 | 2 => {
+                    let d = r.range(1, 3_000) as u128 * (G / 7) + r.range(0, 99) as u128;
+                    let q = d >> 10;
+                    let to = mem.h + d;
+                    mem.land(to, q).unwrap();
+                    book.land(to, q, &mut bytes_ck).unwrap();
+                }
+                3 => {
+                    let (i, j) = (r.below(4) as usize, r.below(4) as usize);
+                    if i != j && lines_m[i].amount > 0 {
+                        let k = r.range(1, lines_m[i].amount);
+                        let (mut a, mut b) = (lines_m[i], lines_m[j]);
+                        mem.transfer(&mut a, &mut b, k).unwrap();
+                        lines_m[i] = a;
+                        lines_m[j] = b;
+                        let (mut a, mut b) = (lines_b[i], lines_b[j]);
+                        book.transfer(&mut a, &mut b, k, &bytes_ck).unwrap();
+                        lines_b[i] = a;
+                        lines_b[j] = b;
+                    }
+                }
+                4 => {
+                    let i = r.below(4) as usize;
+                    let k = fp_floor(mem.ready_of(&lines_m[i]).unwrap());
+                    if k > 0 {
+                        mem.redeem(&mut lines_m[i], k).unwrap();
+                        book.redeem(&mut lines_b[i], k, &bytes_ck).unwrap();
+                    }
+                }
+                5 => {
+                    let i = r.below(4) as usize;
+                    if lines_m[i].amount > 0 {
+                        let k = r.range(1, lines_m[i].amount);
+                        mem.return_own(&mut lines_m[i], k).unwrap();
+                        book.return_own(&mut lines_b[i], k, &mut bytes_ck).unwrap();
+                    }
+                }
+                _ => {
+                    let i = r.below(4) as usize;
+                    if lines_m[i].amount > 1 {
+                        let k = r.range(1, lines_m[i].amount / 2);
+                        let fee = r.below(3) as u8;
+                        let (mut a, mut b) = (lines_m[i], gline(fee, 50));
+                        mem.cut_fee(&mut a, &mut b, k).unwrap();
+                        lines_m[i] = a;
+                        let (mut a, mut b) = (lines_b[i], gline(fee, 50));
+                        book.cut_fee(&mut a, &mut b, k, &mut bytes_ck).unwrap();
+                        lines_b[i] = a;
+                    }
+                }
+            }
+            book.close();
+            let mut want = vec![0u8; encoded_len(0)];
+            mem.encode(&mut want).unwrap();
+            assert_eq!(&raw[..want.len()], &want[..], "seed {seed} step {step}");
+            assert_eq!(lines_m, lines_b);
+        }
+    }
+}
+
+#[test]
+fn an_extension_started_in_account_bytes_needs_room_and_starts_fresh() {
+    let mut raw = vec![0u8; encoded_len(0)];
+    let mut b = BookBytes::init(&mut raw).unwrap();
+    assert_eq!(
+        b.start_extension(),
+        Err(BookError::Math),
+        "no room for a class"
+    );
+    drop(b);
+    let mut raw = vec![0u8; encoded_len(1)];
+    let mut b = BookBytes::init(&mut raw).unwrap();
+    assert_eq!(b.start_extension(), Ok(CLASS_GENERAL + 1));
+    b.close();
+    let again = BookBytes::open(&mut raw).unwrap();
+    assert_eq!(again.n_ext, 1);
+    assert_eq!(again.classes.get(4), ClassState::fresh());
+}

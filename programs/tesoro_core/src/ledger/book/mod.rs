@@ -463,9 +463,63 @@ impl ClassState {
     }
 }
 
-/// The bookkeeping of one Source.
+/// Where a book keeps its classes: an array in memory ([`ClassArray`]) or the bytes of a Source
+/// account ([`ClassBytes`]), which decodes only the classes an operation touches.
+pub trait ClassSlots {
+    /// Class `i` (the caller keeps `i` below the class count).
+    fn get(&self, i: usize) -> ClassState;
+    fn put(&mut self, i: usize, c: &ClassState);
+    /// Classes there is room for.
+    fn capacity(&self) -> usize;
+}
+
+/// All classes in memory (1.9 KB: for tests and off-chain code; on chain use [`BookBytes`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceBook {
+pub struct ClassArray(pub [ClassState; MAX_CLASSES]);
+
+impl core::ops::Deref for ClassArray {
+    type Target = [ClassState];
+    fn deref(&self) -> &[ClassState] {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for ClassArray {
+    fn deref_mut(&mut self) -> &mut [ClassState] {
+        &mut self.0
+    }
+}
+
+impl ClassSlots for ClassArray {
+    fn get(&self, i: usize) -> ClassState {
+        self.0[i]
+    }
+    fn put(&mut self, i: usize, c: &ClassState) {
+        self.0[i] = *c;
+    }
+    fn capacity(&self) -> usize {
+        MAX_CLASSES
+    }
+}
+
+/// The class records of an encoded book, read and written in place.
+pub struct ClassBytes<'a>(pub &'a mut [u8]);
+
+impl ClassSlots for ClassBytes<'_> {
+    fn get(&self, i: usize) -> ClassState {
+        ClassState::decode(&self.0[i * CLASS_LEN..(i + 1) * CLASS_LEN])
+    }
+    fn put(&mut self, i: usize, c: &ClassState) {
+        c.encode(&mut self.0[i * CLASS_LEN..(i + 1) * CLASS_LEN]);
+    }
+    fn capacity(&self) -> usize {
+        self.0.len() / CLASS_LEN
+    }
+}
+
+/// The bookkeeping of one Source: counters and classes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Book<S> {
     /// `H`: cumulative coverage ever landed (Fp). Only grows; the checkpoint for the next landing.
     pub h: u128,
     /// `R`: coverage released to the owner by `return_own` (Fp). `C = H - R`.
@@ -479,8 +533,11 @@ pub struct SourceBook {
     pub taken_fp: u128,
     /// Extension tranches started.
     pub n_ext: u8,
-    pub classes: [ClassState; MAX_CLASSES],
+    pub classes: S,
 }
+
+/// A book with all classes in memory.
+pub type SourceBook = Book<ClassArray>;
 
 /// What a landing did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -531,25 +588,27 @@ impl Default for SourceBook {
 
 impl SourceBook {
     pub const fn new() -> SourceBook {
-        SourceBook {
+        Book {
             h: 0,
             r: 0,
             owner_fp: 0,
             owner_shares: 0,
             taken_fp: 0,
             n_ext: 0,
-            classes: [ClassState::fresh(); MAX_CLASSES],
+            classes: ClassArray([ClassState::fresh(); MAX_CLASSES]),
         }
     }
+}
 
+impl<S: ClassSlots> Book<S> {
     /// Classes in use: the three fee classes, General and the started Extensions.
     pub fn class_count(&self) -> usize {
         CLASS_EXTENSION_BASE as usize + self.n_ext as usize
     }
 
-    pub fn class(&self, class: u8) -> BookResult<&ClassState> {
+    pub fn class(&self, class: u8) -> BookResult<ClassState> {
         if (class as usize) < self.class_count() {
-            Ok(&self.classes[class as usize])
+            Ok(self.classes.get(class as usize))
         } else {
             Err(BookError::NoSuchClass)
         }
@@ -562,16 +621,16 @@ impl SourceBook {
 
     /// Left to pay back, Fp.
     pub fn uncovered_total(&self) -> u128 {
-        self.classes[..self.class_count()]
-            .iter()
-            .fold(0u128, |acc, c| acc.saturating_add(c.uncovered))
+        (0..self.class_count()).fold(0u128, |acc, i| {
+            acc.saturating_add(self.classes.get(i).uncovered)
+        })
     }
 
     /// Ready not yet redeemed, returned or sold, over all classes (Fp).
     pub fn ready_total(&self) -> u128 {
-        self.classes[..self.class_count()]
-            .iter()
-            .fold(0u128, |acc, c| acc.saturating_add(c.ready))
+        (0..self.class_count()).fold(0u128, |acc, i| {
+            acc.saturating_add(self.classes.get(i).ready)
+        })
     }
 
     /// A zero line of this Source and class at the start of the class's epoch. Safe to hand to
@@ -601,6 +660,10 @@ impl SourceBook {
         if self.n_ext >= MAX_EXTENSIONS {
             return Err(BookError::TooManyExtensions);
         }
+        if self.class_count() >= self.classes.capacity() {
+            return Err(BookError::Math);
+        }
+        self.classes.put(self.class_count(), &ClassState::fresh());
         self.n_ext += 1;
         Ok(CLASS_GENERAL + self.n_ext)
     }
@@ -614,10 +677,10 @@ impl SourceBook {
         ck: &C,
     ) -> BookResult<()> {
         let id = line.class;
-        let mut c = *self.class(id)?;
+        let mut c = self.class(id)?;
         let mut l = *line;
         c.touch(id, &mut l, ck)?;
-        self.classes[id as usize] = c;
+        self.classes.put(id as usize, &c);
         *line = l;
         Ok(())
     }
@@ -626,7 +689,7 @@ impl SourceBook {
     /// it is not charged to the class.
     pub fn peek<C: CheckpointStore + ?Sized>(&self, line: &Line, ck: &C) -> BookResult<Line> {
         let id = line.class;
-        let mut c = *self.class(id)?;
+        let mut c = self.class(id)?;
         let mut l = *line;
         c.touch(id, &mut l, ck)?;
         Ok(l)
@@ -701,14 +764,14 @@ impl SourceBook {
             return Err(BookError::ZeroAmount);
         }
         let id = line.class;
-        let mut c = *self.class(id)?;
+        let mut c = self.class(id)?;
         let mut l = *line;
         c.touch(id, &mut l, ck)?;
         l.amount = l.amount.checked_add(k).ok_or(BookError::Math)?;
         l.uncovered = l.uncovered.checked_add(fp(k)).ok_or(BookError::Math)?;
         c.uncovered = c.uncovered.checked_add(fp(k)).ok_or(BookError::Math)?;
         c.w = c.w.checked_add(fp(k)).ok_or(BookError::Math)?;
-        self.classes[id as usize] = c;
+        self.classes.put(id as usize, &c);
         *line = l;
         Ok(())
     }
@@ -736,10 +799,11 @@ impl SourceBook {
         let n = self.class_count();
         // validate before touching anything
         let mut rest = delta;
-        for c in self.classes[..n].iter() {
+        for i in 0..n {
             if rest == 0 {
                 break;
             }
+            let c = self.classes.get(i);
             let d = rest.min(c.uncovered);
             if d > 0 && !c.headroom() {
                 return Err(BookError::CounterExhausted);
@@ -749,16 +813,18 @@ impl SourceBook {
         let owner_fp = self.owner_fp.checked_add(rest).ok_or(BookError::Math)?;
         let mut rest = delta;
         let mut shares_left = shares;
-        for (id, c) in self.classes[..n].iter_mut().enumerate() {
+        for id in 0..n {
             if rest == 0 {
                 break;
             }
+            let mut c = self.classes.get(id);
             let d = rest.min(c.uncovered);
             if d == 0 {
                 continue;
             }
             let sh = mul_div_u128(shares, d, delta, Round::Down).ok_or(BookError::Math)?;
             c.land(id as u8, d, sh, ck)?;
+            self.classes.put(id, &c);
             rest -= d;
             shares_left -= sh;
         }
@@ -842,7 +908,7 @@ impl SourceBook {
         }
         let id = src.class;
         let exact = is_exact_class(id);
-        let mut c = *self.class(id)?;
+        let mut c = self.class(id)?;
         let (mut s, mut d) = (*src, *dst);
         c.touch(id, &mut s, ck)?;
         c.touch(id, &mut d, ck)?;
@@ -874,7 +940,7 @@ impl SourceBook {
             .checked_add(sp.moved_unpaid)
             .ok_or(BookError::Math)?;
         d.shares = d.shares.checked_add(x).ok_or(BookError::Math)?;
-        self.classes[id as usize] = c;
+        self.classes.put(id as usize, &c);
         self.owner_fp = owner_fp;
         self.owner_shares = owner_shares;
         *src = s;
@@ -907,8 +973,8 @@ impl SourceBook {
             return Err(BookError::NotEnoughAmount);
         }
         let (ia, ib) = (src.class, dst.class);
-        let mut ca = *self.class(ia)?;
-        let mut cb = *self.class(ib)?;
+        let mut ca = self.class(ia)?;
+        let mut cb = self.class(ib)?;
         if !ca.headroom() {
             return Err(BookError::CounterExhausted);
         }
@@ -952,8 +1018,8 @@ impl SourceBook {
         if is_exact_class(ib) {
             d.shares = d.shares.checked_add(x).ok_or(BookError::Math)?;
         }
-        self.classes[ia as usize] = ca;
-        self.classes[ib as usize] = cb;
+        self.classes.put(ia as usize, &ca);
+        self.classes.put(ib as usize, &cb);
         self.owner_fp = owner_fp;
         self.owner_shares = owner_shares;
         *src = s;
@@ -980,7 +1046,7 @@ impl SourceBook {
         }
         let id = line.class;
         let exact = is_exact_class(id);
-        let mut c = *self.class(id)?;
+        let mut c = self.class(id)?;
         let mut l = *line;
         c.touch(id, &mut l, ck)?;
         let ready = fp(l.amount)
@@ -1018,7 +1084,7 @@ impl SourceBook {
             c.ready -= fp(k);
             c.shares -= paid << SHARE_BITS;
         }
-        self.classes[id as usize] = c;
+        self.classes.put(id as usize, &c);
         self.owner_shares = owner_shares;
         *line = l;
         Ok(Redeemed {
@@ -1044,7 +1110,7 @@ impl SourceBook {
         }
         let id = line.class;
         let exact = is_exact_class(id);
-        let mut c = *self.class(id)?;
+        let mut c = self.class(id)?;
         if !c.headroom() {
             return Err(BookError::CounterExhausted);
         }
@@ -1085,7 +1151,7 @@ impl SourceBook {
         l.amount -= k;
         l.uncovered = sp.kept_unpaid;
         l.shares -= if exact { x_ready } else { 0 };
-        self.classes[id as usize] = c;
+        self.classes.put(id as usize, &c);
         self.r = r;
         self.owner_fp = owner_fp;
         self.owner_shares = owner_shares;
@@ -1126,8 +1192,9 @@ impl SourceBook {
                 .checked_add(fp(l.amount))
                 .ok_or("sum of amounts overflows")?;
         }
-        for (i, c) in self.classes[..self.class_count()].iter().enumerate() {
-            if c.ready.checked_add(c.uncovered) != Some(per_class[i]) {
+        for (i, per) in per_class.iter().enumerate().take(self.class_count()) {
+            let c = self.classes.get(i);
+            if c.ready.checked_add(c.uncovered) != Some(*per) {
                 return Err("identity E: ready + uncovered != sum of line amounts");
             }
             if c.w < c.uncovered {
@@ -1206,18 +1273,9 @@ impl SourceBook {
         Ok(from_unpaid)
     }
 
-    /// Size of the encoded book with `n_ext` Extensions.
-    pub const fn encoded_len(n_ext: u8) -> usize {
-        BOOK_FIXED_LEN + (CLASS_EXTENSION_BASE as usize + n_ext as usize) * CLASS_LEN
-    }
-
-    /// Write the book (little endian, only the classes in use) into `out`.
-    pub fn encode(&self, out: &mut [u8]) -> BookResult<()> {
-        let len = Self::encoded_len(self.n_ext);
-        if out.len() < len {
-            return Err(BookError::Math);
-        }
-        out[..len].fill(0);
+    /// Counters as bytes (the first `BOOK_FIXED_LEN` bytes of an encoded book).
+    fn encode_header(&self, out: &mut [u8]) {
+        out[..BOOK_FIXED_LEN].fill(0);
         out[0] = BOOK_VERSION;
         out[1..17].copy_from_slice(&self.h.to_le_bytes());
         out[17..33].copy_from_slice(&self.r.to_le_bytes());
@@ -1225,56 +1283,160 @@ impl SourceBook {
         out[49..65].copy_from_slice(&self.owner_shares.to_le_bytes());
         out[65..81].copy_from_slice(&self.taken_fp.to_le_bytes());
         out[81] = self.n_ext;
-        for (i, c) in self.classes[..self.class_count()].iter().enumerate() {
+    }
+}
+
+/// Size of the encoded book with `n_ext` Extensions.
+pub const fn encoded_len(n_ext: u8) -> usize {
+    BOOK_FIXED_LEN + (CLASS_EXTENSION_BASE as usize + n_ext as usize) * CLASS_LEN
+}
+
+impl SourceBook {
+    /// Size of the encoded book with `n_ext` Extensions.
+    pub const fn encoded_len(n_ext: u8) -> usize {
+        encoded_len(n_ext)
+    }
+
+    /// Write the book (little endian, only the classes in use) into `out`.
+    pub fn encode(&self, out: &mut [u8]) -> BookResult<()> {
+        let len = encoded_len(self.n_ext);
+        if out.len() < len {
+            return Err(BookError::Math);
+        }
+        out[..len].fill(0);
+        self.encode_header(out);
+        for i in 0..self.class_count() {
             let at = BOOK_FIXED_LEN + i * CLASS_LEN;
-            out[at..at + 16].copy_from_slice(&c.p.to_le_bytes());
-            out[at + 16..at + 32].copy_from_slice(&c.uncovered.to_le_bytes());
-            out[at + 32..at + 48].copy_from_slice(&c.ready.to_le_bytes());
-            out[at + 48..at + 64].copy_from_slice(&c.shares.to_le_bytes());
-            out[at + 64..at + 80].copy_from_slice(&c.w.to_le_bytes());
-            out[at + 80..at + 112].copy_from_slice(&c.s.to_le_bytes());
-            out[at + 112..at + 116].copy_from_slice(&c.scale.to_le_bytes());
-            out[at + 116..at + 120].copy_from_slice(&c.epoch.to_le_bytes());
-            out[at + 120..at + 124].copy_from_slice(&c.ck.to_le_bytes());
+            self.classes[i].encode(&mut out[at..at + CLASS_LEN]);
         }
         Ok(())
     }
 
     pub fn decode(raw: &[u8]) -> BookResult<SourceBook> {
-        if raw.len() < BOOK_FIXED_LEN || raw[0] != BOOK_VERSION {
-            return Err(BookError::Math);
-        }
-        let n_ext = raw[81];
-        if n_ext > MAX_EXTENSIONS || raw.len() < Self::encoded_len(n_ext) {
-            return Err(BookError::TooManyExtensions);
-        }
         let mut book = SourceBook::new();
-        book.h = u128_at(raw, 1);
-        book.r = u128_at(raw, 17);
-        book.owner_fp = u128_at(raw, 33);
-        book.owner_shares = u128_at(raw, 49);
-        book.taken_fp = u128_at(raw, 65);
-        book.n_ext = n_ext;
-        for i in 0..book.class_count() {
+        book.decode_into(raw)?;
+        Ok(book)
+    }
+
+    /// Decode into an existing book (no 2 KB temporaries on a small stack).
+    pub fn decode_into(&mut self, raw: &[u8]) -> BookResult<()> {
+        decode_header(raw, self)?;
+        for i in 0..self.class_count() {
             let at = BOOK_FIXED_LEN + i * CLASS_LEN;
-            let mut s = [0u8; 32];
-            s.copy_from_slice(&raw[at + 80..at + 112]);
-            book.classes[i] = ClassState {
-                p: u128_at(raw, at),
-                uncovered: u128_at(raw, at + 16),
-                ready: u128_at(raw, at + 32),
-                shares: u128_at(raw, at + 48),
-                w: u128_at(raw, at + 64),
-                s: U256::from_le_bytes(&s),
-                scale: u32_at(raw, at + 112),
-                epoch: u32_at(raw, at + 116),
-                ck: u32_at(raw, at + 120),
-            };
-            if book.classes[i].p == 0 {
+            let c = ClassState::decode(&raw[at..at + CLASS_LEN]);
+            if c.p == 0 {
                 return Err(BookError::BadSnapshot);
             }
+            self.classes[i] = c;
         }
-        Ok(book)
+        Ok(())
+    }
+}
+
+fn decode_header<S>(raw: &[u8], book: &mut Book<S>) -> BookResult<()> {
+    if raw.len() < BOOK_FIXED_LEN || raw[0] != BOOK_VERSION {
+        return Err(BookError::Math);
+    }
+    let n_ext = raw[81];
+    if n_ext > MAX_EXTENSIONS || raw.len() < encoded_len(n_ext) {
+        return Err(BookError::TooManyExtensions);
+    }
+    book.h = u128_at(raw, 1);
+    book.r = u128_at(raw, 17);
+    book.owner_fp = u128_at(raw, 33);
+    book.owner_shares = u128_at(raw, 49);
+    book.taken_fp = u128_at(raw, 65);
+    book.n_ext = n_ext;
+    Ok(())
+}
+
+/// A book read and written in place in the bytes of a Source account: the counters are decoded
+/// once, each class when an operation touches it, so a transaction with many Sources holds no
+/// 2 KB array per book. Call [`BookBytes::close`] after the operations to write the counters.
+pub struct BookBytes<'a> {
+    book: Book<ClassBytes<'a>>,
+    header: &'a mut [u8],
+}
+
+impl<'a> BookBytes<'a> {
+    pub fn open(raw: &'a mut [u8]) -> BookResult<BookBytes<'a>> {
+        let mut book = Book {
+            h: 0,
+            r: 0,
+            owner_fp: 0,
+            owner_shares: 0,
+            taken_fp: 0,
+            n_ext: 0,
+            classes: ClassBytes(&mut []),
+        };
+        decode_header(raw, &mut book)?;
+        let (header, rest) = raw.split_at_mut(BOOK_FIXED_LEN);
+        book.classes = ClassBytes(rest);
+        Ok(BookBytes { book, header })
+    }
+
+    /// Format an empty book (no Extension) in `raw`, which must be at least `encoded_len(0)` long.
+    pub fn init(raw: &'a mut [u8]) -> BookResult<BookBytes<'a>> {
+        if raw.len() < encoded_len(0) {
+            return Err(BookError::Math);
+        }
+        raw.fill(0);
+        let fresh = SourceBook::new();
+        fresh.encode_header(raw);
+        for i in 0..CLASS_EXTENSION_BASE as usize {
+            let at = BOOK_FIXED_LEN + i * CLASS_LEN;
+            ClassState::fresh().encode(&mut raw[at..at + CLASS_LEN]);
+        }
+        BookBytes::open(raw)
+    }
+
+    /// Write the counters back. The classes were written as they changed.
+    pub fn close(self) {
+        self.book.encode_header(self.header);
+    }
+}
+
+impl<'a> core::ops::Deref for BookBytes<'a> {
+    type Target = Book<ClassBytes<'a>>;
+    fn deref(&self) -> &Self::Target {
+        &self.book
+    }
+}
+
+impl<'a> core::ops::DerefMut for BookBytes<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.book
+    }
+}
+
+impl ClassState {
+    pub fn encode(&self, out: &mut [u8]) {
+        out[..CLASS_LEN].fill(0);
+        out[0..16].copy_from_slice(&self.p.to_le_bytes());
+        out[16..32].copy_from_slice(&self.uncovered.to_le_bytes());
+        out[32..48].copy_from_slice(&self.ready.to_le_bytes());
+        out[48..64].copy_from_slice(&self.shares.to_le_bytes());
+        out[64..80].copy_from_slice(&self.w.to_le_bytes());
+        out[80..112].copy_from_slice(&self.s.to_le_bytes());
+        out[112..116].copy_from_slice(&self.scale.to_le_bytes());
+        out[116..120].copy_from_slice(&self.epoch.to_le_bytes());
+        out[120..124].copy_from_slice(&self.ck.to_le_bytes());
+    }
+
+    pub fn decode(raw: &[u8]) -> ClassState {
+        let mut s = [0u8; 32];
+        s.copy_from_slice(&raw[80..112]);
+        ClassState {
+            p: u128_at(raw, 0),
+            uncovered: u128_at(raw, 16),
+            ready: u128_at(raw, 32),
+            shares: u128_at(raw, 48),
+            w: u128_at(raw, 64),
+            s: U256::from_le_bytes(&s),
+            scale: u32_at(raw, 112),
+            epoch: u32_at(raw, 116),
+            ck: u32_at(raw, 120),
+        }
     }
 }
 
