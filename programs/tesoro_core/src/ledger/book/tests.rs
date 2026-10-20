@@ -2074,7 +2074,6 @@ fn an_extension_started_in_account_bytes_needs_room_and_starts_fresh() {
         Err(BookError::Math),
         "no room for a class"
     );
-    drop(b);
     let mut raw = vec![0u8; encoded_len(1)];
     let mut b = BookBytes::init(&mut raw).unwrap();
     assert_eq!(b.start_extension(), Ok(CLASS_GENERAL + 1));
