@@ -178,7 +178,8 @@
 /* two columns once there is room, even for one chain: a lone card keeps half the width */
 .wl-pockets { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
 @container (min-width: 720px) {
-  .wl-pockets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* cards in a row share its height */
+  .wl-pockets { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
 }
 .wl-pocket { --edge: var(--edge-2); --tone: var(--fg-3); background: linear-gradient(180deg, color-mix(in srgb, var(--tone) 13%, transparent), transparent 150px), var(--surface); padding: 20px; display: grid; gap: 18px; align-content: start; min-width: 0; }
 .wl-pocket.c-SOL { --tone: #a27bff; }
