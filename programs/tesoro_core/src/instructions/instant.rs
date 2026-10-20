@@ -114,34 +114,40 @@ pub(crate) fn request_instant_redeem<'info>(
     let key = line.key(&source_key);
     let account_key = a.holder_account.key();
     let ts = now()?;
-    let requested = with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        let (book, ck) = books
-            .book_with_history(&source_key.to_bytes())
-            .map_err(draw_err)?;
-        inst::request_instant_redeem(
-            SourceKind::Yield,
-            book,
-            ck,
-            pool,
-            &key,
-            account_key.to_bytes(),
-            sell,
-            ts,
-            ttl_secs,
-        )
-        .map_err(core_err)
-    })?;
+    let requested = with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            let (book, ck) = books
+                .book_with_history(&source_key.to_bytes())
+                .map_err(draw_err)?;
+            inst::request_instant_redeem(
+                SourceKind::Yield,
+                book,
+                ck,
+                pool,
+                &key,
+                account_key.to_bytes(),
+                sell,
+                ts,
+                ttl_secs,
+            )
+            .map_err(core_err)
+        },
+    )?;
     if let Some(r) = &requested.redeemed {
-        require!(
-            !reported,
-            TesoroError::BridgedSource
-        );
+        require!(!reported, TesoroError::BridgedSource);
         let paid = u64::try_from(r.shares).map_err(|_| core_err(CoreError::Math))?;
         let tag = kind.custody_kind();
         ledger::economy::debit_paid_shares(&mut a.position.inner, tag, kind.route_mut(), paid)
             .map_err(core_err)?;
-        let units = u64::try_from(rates.rate.units_for_shares(u128::from(paid)).map_err(core_err)?)
-            .map_err(|_| core_err(CoreError::Math))?;
+        let units = u64::try_from(
+            rates
+                .rate
+                .units_for_shares(u128::from(paid))
+                .map_err(core_err)?,
+        )
+        .map_err(|_| core_err(CoreError::Math))?;
         a.source.inner.redeemed = a
             .source
             .inner
@@ -224,7 +230,10 @@ fn fee_figures(book: &ledger::book::SourceBook) -> (u128, u128) {
     let fees = (0..3u8).fold(0u128, |acc, c| {
         acc.saturating_add(book.class(c).map_or(0, |s| s.uncovered))
     });
-    (fees >> ledger::book::FP_BITS, book.uncovered_total() >> ledger::book::FP_BITS)
+    (
+        fees >> ledger::book::FP_BITS,
+        book.uncovered_total() >> ledger::book::FP_BITS,
+    )
 }
 
 pub(crate) fn fill_instant_redeem<'info>(
@@ -287,7 +296,16 @@ pub(crate) fn fill_instant_redeem<'info>(
                 // `ck` is a trait object borrowed from `books`, and the pool call needs the same
                 // book for merges: the pure fill takes both through one `SourceBooks`.
                 inst::fill_instant_redeem(
-                    &auth, &filler, route, book, ck, &mut order, treasury_pool, gemas, &terms, ts,
+                    &auth,
+                    &filler,
+                    route,
+                    book,
+                    ck,
+                    &mut order,
+                    treasury_pool,
+                    gemas,
+                    &terms,
+                    ts,
                 )
                 .map_err(core_err)
             },
@@ -298,15 +316,25 @@ pub(crate) fn fill_instant_redeem<'info>(
         let tag = kind.custody_kind();
         ledger::economy::debit_paid_shares(&mut a.position.inner, tag, kind.route_mut(), paid)
             .map_err(core_err)?;
-        let units = u64::try_from(rates.rate.units_for_shares(u128::from(paid)).map_err(core_err)?)
-            .map_err(|_| core_err(CoreError::Math))?;
+        let units = u64::try_from(
+            rates
+                .rate
+                .units_for_shares(u128::from(paid))
+                .map_err(core_err)?,
+        )
+        .map_err(|_| core_err(CoreError::Math))?;
         a.source.inner.redeemed = a.source.inner.redeemed.saturating_add(r.gemas);
         a.source.inner.redeemed_units = a.source.inner.redeemed_units.saturating_add(units);
         kind.pay_shares(&position_key, paid, 0)?;
     }
     let payout = u64::try_from(filled.payout_shares).map_err(|_| core_err(CoreError::Math))?;
     match (&kind, treasury_vault) {
-        (KindCtx::Native { pool, pay: Some(p), .. }, Some(v)) => {
+        (
+            KindCtx::Native {
+                pool, pay: Some(p), ..
+            },
+            Some(v),
+        ) => {
             let mut vault = Account::<TokenAccount>::try_from(v)?;
             let fee = FeeMint {
                 pool,
@@ -339,7 +367,10 @@ pub(crate) fn fill_instant_redeem<'info>(
         fee_bps: filled.fee_bps,
     });
     if finished {
-        close_order(&a.order.to_account_info(), &a.owner_wallet.to_account_info())?;
+        close_order(
+            &a.order.to_account_info(),
+            &a.owner_wallet.to_account_info(),
+        )?;
     }
     Ok(())
 }
@@ -449,8 +480,16 @@ pub(crate) fn fill_instant_redeem_from_source<'info>(
             &a.treasury_spill.to_account_info(),
             |treasury_pool| {
                 inst::fill_instant_redeem(
-                    &auth, &signer, &mut route, book, ck, &mut order, treasury_pool, gemas,
-                    &terms, ts,
+                    &auth,
+                    &signer,
+                    &mut route,
+                    book,
+                    ck,
+                    &mut order,
+                    treasury_pool,
+                    gemas,
+                    &terms,
+                    ts,
                 )
                 .map_err(core_err)
             },
@@ -460,8 +499,13 @@ pub(crate) fn fill_instant_redeem_from_source<'info>(
         // The repaid part of the order was Redeemed at full value: the bridge records that claim
         // with the Source's `redeemed_units`, like any Redeem.
         let paid = u64::try_from(r.shares).map_err(|_| core_err(CoreError::Math))?;
-        ledger::economy::debit_paid_shares(&mut a.position.inner, CustodyKind::Reported, None, paid)
-            .map_err(core_err)?;
+        ledger::economy::debit_paid_shares(
+            &mut a.position.inner,
+            CustodyKind::Reported,
+            None,
+            paid,
+        )
+        .map_err(core_err)?;
         a.source.inner.redeemed = a.source.inner.redeemed.saturating_add(r.gemas);
         a.source.inner.redeemed_units = a.source.inner.redeemed_units.saturating_add(paid);
     }
@@ -477,7 +521,10 @@ pub(crate) fn fill_instant_redeem_from_source<'info>(
         fee_bps: filled.fee_bps,
     });
     if finished {
-        close_order(&a.order.to_account_info(), &a.owner_wallet.to_account_info())?;
+        close_order(
+            &a.order.to_account_info(),
+            &a.owner_wallet.to_account_info(),
+        )?;
     }
     Ok(payout)
 }
@@ -515,21 +562,21 @@ pub(crate) fn cancel_instant_redeem<'info>(
     ctx: Context<'_, '_, 'info, 'info, ReturnInstantRedeem<'info>>,
 ) -> Result<()> {
     let a = ctx.accounts;
-    require_keys_eq!(
-        a.signer.key(),
-        a.order.owner,
-        TesoroError::Unauthorized
-    );
+    require_keys_eq!(a.signer.key(), a.order.owner, TesoroError::Unauthorized);
     let source = Pubkey::new_from_array(a.order.order().line.source);
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
     let mut order = a.order.order();
     let signer = a.owner_account.key().to_bytes();
-    let returned = with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        let (book, ck) = books
-            .book_with_history(&source.to_bytes())
-            .map_err(draw_err)?;
-        inst::cancel_instant_redeem(&signer, book, ck, &mut order, pool).map_err(core_err)
-    })?;
+    let returned = with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            let (book, ck) = books
+                .book_with_history(&source.to_bytes())
+                .map_err(draw_err)?;
+            inst::cancel_instant_redeem(&signer, book, ck, &mut order, pool).map_err(core_err)
+        },
+    )?;
     books.flush()?;
     a.order.set_order(&order);
     emit!(InstantReturned {
@@ -537,7 +584,10 @@ pub(crate) fn cancel_instant_redeem<'info>(
         gemas: returned,
         expired: false,
     });
-    close_order(&a.order.to_account_info(), &a.owner_wallet.to_account_info())
+    close_order(
+        &a.order.to_account_info(),
+        &a.owner_wallet.to_account_info(),
+    )
 }
 
 pub(crate) fn expire_instant_redeem<'info>(
@@ -548,12 +598,16 @@ pub(crate) fn expire_instant_redeem<'info>(
     let mut books = OnchainBooks::load(ctx.remaining_accounts)?;
     let mut order = a.order.order();
     let ts = now()?;
-    let returned = with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        let (book, ck) = books
-            .book_with_history(&source.to_bytes())
-            .map_err(draw_err)?;
-        inst::expire_instant_redeem(ts, book, ck, &mut order, pool).map_err(core_err)
-    })?;
+    let returned = with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            let (book, ck) = books
+                .book_with_history(&source.to_bytes())
+                .map_err(draw_err)?;
+            inst::expire_instant_redeem(ts, book, ck, &mut order, pool).map_err(core_err)
+        },
+    )?;
     books.flush()?;
     a.order.set_order(&order);
     emit!(InstantReturned {
@@ -561,5 +615,8 @@ pub(crate) fn expire_instant_redeem<'info>(
         gemas: returned,
         expired: true,
     });
-    close_order(&a.order.to_account_info(), &a.owner_wallet.to_account_info())
+    close_order(
+        &a.order.to_account_info(),
+        &a.owner_wallet.to_account_info(),
+    )
 }

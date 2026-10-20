@@ -29,17 +29,17 @@ mod tests;
 
 pub use backing::*;
 pub use economy::{CustodyKind, ShareRate, UnlockPayout};
-pub use instant::{FillAuthority, InstantOrder, PayMode, Rate, FillTerms, INSTANT_REDEEM_FEE_BPS};
+pub use extend_limit::*;
+pub use instant::{FillAuthority, FillTerms, InstantOrder, PayMode, Rate, INSTANT_REDEEM_FEE_BPS};
 pub use line_store::{LineKey, LINE_LEN};
+pub use matches::*;
+pub use money::*;
+pub use native::*;
 pub use prize::{
     BudgetLine, PayStep, PoolLine, PoolReservations, PoolShare, PrizePayout, PrizeSeason,
     PrizeSource, RouteLedger, SourceKind, BUDGET_LINE_LEN, MAX_BUDGET_LINES,
     MAX_RESERVATION_ENTRIES,
 };
-pub use extend_limit::*;
-pub use matches::*;
-pub use money::*;
-pub use native::*;
 pub use protections::*;
 pub use season::*;
 pub use stake::*;

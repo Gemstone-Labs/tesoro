@@ -13,9 +13,9 @@
 use crate::error::{core_err, TesoroError};
 use crate::instructions::economy::*;
 use crate::instructions::position::chain_byte;
-use crate::storage::*;
 use crate::ledger::{self, native, CoreError, SourceChain};
 use crate::state::*;
+use crate::storage::*;
 use crate::util::{now, require_can_advance};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::hash::hashv;
@@ -627,40 +627,15 @@ pub(crate) fn load_pool<'info>(info: &'info AccountInfo<'info>) -> Result<Accoun
     Ok(pool)
 }
 
-pub(crate) fn load_custody<'info>(info: &'info AccountInfo<'info>) -> Result<Account<'info, NativeCustody>> {
+pub(crate) fn load_custody<'info>(
+    info: &'info AccountInfo<'info>,
+) -> Result<Account<'info, NativeCustody>> {
     require!(info.is_writable, TesoroError::NotWritable);
     let custody = Account::<NativeCustody>::try_from(info)?;
     let expected = Pubkey::create_program_address(&[NATIVE_SEED, &[custody.bump]], &crate::ID)
         .map_err(|_| error!(TesoroError::InvalidAccount))?;
     require_keys_eq!(expected, *info.key, TesoroError::InvalidAccount);
     Ok(custody)
-}
-
-/// The Source of `position` at `index`, writable.
-pub(crate) fn load_source<'info>(
-    info: &'info AccountInfo<'info>,
-    position: &Pubkey,
-    index: u32,
-) -> Result<Account<'info, SourceState>> {
-    require!(info.is_writable, TesoroError::NotWritable);
-    let source = Account::<SourceState>::try_from(info)?;
-    let expected = Pubkey::create_program_address(
-        &[
-            SOURCE_SEED,
-            position.as_ref(),
-            &index.to_le_bytes(),
-            &[source.bump],
-        ],
-        &crate::ID,
-    )
-    .map_err(|_| error!(TesoroError::InvalidAccount))?;
-    require_keys_eq!(expected, *info.key, TesoroError::InvalidAccount);
-    require_eq!(source.inner.index, index, TesoroError::InvalidAccount);
-    require!(
-        source.inner.position == position.to_bytes(),
-        TesoroError::InvalidAccount
-    );
-    Ok(source)
 }
 
 /// Who the minted yield is for: a wallet (its token account) or one fixed vault.
@@ -799,38 +774,4 @@ impl<'info> YieldMint<'info> {
         });
         Ok(())
     }
-
-    /// Mints `units` SOL of yield, in simSOL at the rate, to the destination and reports it.
-    pub(crate) fn pay(&self, position: &Pubkey, units: u64, kind: u8) -> Result<()> {
-        let rate = sim_lst::current_rate(&self.pool, now()?)?;
-        let shares = native::shares_for_units_floor(units, rate).map_err(core_err)?;
-        if shares == 0 {
-            return Err(core_err(CoreError::ZeroShares));
-        }
-        let seeds: &[&[u8]] = &[YIELD_SEED, &[self.authority_bump]];
-        sim_lst::cpi::mint_yield(
-            CpiContext::new_with_signer(
-                self.sim_lst_program.clone(),
-                sim_lst::cpi::accounts::MintYield {
-                    authority: self.yield_authority.clone(),
-                    config: self.yield_config.clone(),
-                    pool: self.pool.to_account_info(),
-                    mint: self.mint.clone(),
-                    destination: self.destination.to_account_info(),
-                    token_program: self.token_program.clone(),
-                },
-                &[seeds],
-            ),
-            shares,
-        )?;
-        emit!(NativePayout {
-            position: *position,
-            to: self.destination.key(),
-            shares,
-            sol_units: units,
-            kind,
-        });
-        Ok(())
-    }
 }
-

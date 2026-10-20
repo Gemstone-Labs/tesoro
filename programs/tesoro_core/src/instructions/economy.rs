@@ -25,14 +25,14 @@ use crate::error::{core_err, BasketError, TesoroError};
 use crate::ledger::draw::{DrawError, Pool, SourceBooks};
 use crate::ledger::line_store::{LineKey, LineStore, LineStoreError};
 use crate::ledger::{
-    self, native, parse_stake_pool, CoreError, CustodyKind, Position, PositionStatus, RouteLedger,
-    ShareRate, StakePoolRead,
+    self, native, parse_stake_pool, CoreError, CustodyKind, Position, RouteLedger, ShareRate,
+    StakePoolRead,
 };
 use crate::state::*;
 use crate::storage::*;
 use crate::util::now;
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, TokenAccount};
 use sim_lst::Pool as SimPool;
 
 /// Names one line of a Source in an Account's basket or spill: the rest of its key is the Source.
@@ -178,6 +178,7 @@ pub(crate) struct StakePay<'info> {
     pub token_program: &'info AccountInfo<'info>,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum KindCtx<'info> {
     Native {
         custody: Account<'info, NativeCustody>,
@@ -607,8 +608,13 @@ pub(crate) fn redeem_line<'a, 'info>(
     let kind_tag = kind.custody_kind();
     ledger::economy::debit_paid_shares(&mut position.inner, kind_tag, kind.route_mut(), paid)
         .map_err(core_err)?;
-    let units = u64::try_from(rates.rate.units_for_shares(u128::from(paid)).map_err(core_err)?)
-        .map_err(|_| core_err(CoreError::Math))?;
+    let units = u64::try_from(
+        rates
+            .rate
+            .units_for_shares(u128::from(paid))
+            .map_err(core_err)?,
+    )
+    .map_err(|_| core_err(CoreError::Math))?;
     source.inner.redeemed = source
         .inner
         .redeemed
@@ -638,7 +644,10 @@ pub(crate) struct NewBook<'a> {
 }
 
 impl SourceBooks for NewBook<'_> {
-    fn book_mut(&mut self, _source: &ledger::Key) -> ledger::draw::DrawResult<&mut ledger::book::SourceBook> {
+    fn book_mut(
+        &mut self,
+        _source: &ledger::Key,
+    ) -> ledger::draw::DrawResult<&mut ledger::book::SourceBook> {
         Ok(self.book)
     }
 
@@ -721,8 +730,9 @@ pub(crate) fn begin_advance<'a, 'info>(
         ledger::economy::planned_due_at(now()?, horizon_months, rates.speedup).map_err(core_err)?;
     let source_key = a.source.key();
     let mut book = Box::new(SourceBook::new());
-    let line = ledger::economy::advance_line(&mut *book, source_key.to_bytes(), &src, &NoCheckpoints)
-        .map_err(core_err)?;
+    let line =
+        ledger::economy::advance_line(&mut *book, source_key.to_bytes(), &src, &NoCheckpoints)
+            .map_err(core_err)?;
     {
         let mut head = a.book.load_init()?;
         head.bump = a.book_bump;
@@ -786,7 +796,10 @@ fn grow_book_for_extension<'info>(
     require!(info.is_writable, BasketError::AccountNotWritable);
     let n_ext = {
         let data = info.try_borrow_data()?;
-        require!(data.len() > BOOK_AT + ledger::book::BOOK_FIXED_LEN, BasketError::BadSourceBook);
+        require!(
+            data.len() > BOOK_AT + ledger::book::BOOK_FIXED_LEN,
+            BasketError::BadSourceBook
+        );
         data[BOOK_AT + ledger::book::BOOK_FIXED_LEN - 1]
     };
     let new_len = BOOK_AT + ledger::book::encoded_len(n_ext.saturating_add(1));

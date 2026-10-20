@@ -169,7 +169,13 @@ pub(crate) fn apply_yield_from_source<'info>(
 ) -> Result<()> {
     let remaining = ctx.remaining_accounts;
     let a = &mut ctx.accounts;
-    apply_reported_yield(&mut a.position, a.source.as_mut(), remaining, seq, cumulative)
+    apply_reported_yield(
+        &mut a.position,
+        a.source.as_mut(),
+        remaining,
+        seq,
+        cumulative,
+    )
 }
 
 /// `redeem` for Gemas of an EVM-sourced Advance, signed by the holder and by the registered source
@@ -225,18 +231,22 @@ pub(crate) fn redeem_from_source<'info>(
     let mut books = OnchainBooks::load(remaining)?;
     let source_key = a.source.key();
     let key = line.key(&source_key);
-    let out = with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        redeem_line(
-            pool,
-            &mut books,
-            &mut kind,
-            &mut a.position,
-            &mut a.source,
-            &source_key,
-            &key,
-            amount,
-        )
-    })?;
+    let out = with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            redeem_line(
+                pool,
+                &mut books,
+                &mut kind,
+                &mut a.position,
+                &mut a.source,
+                &source_key,
+                &key,
+                amount,
+            )
+        },
+    )?;
     require!(out.shares > 0, TesoroError::InvalidAccount);
     books.flush()?;
     emit!(Redeemed {

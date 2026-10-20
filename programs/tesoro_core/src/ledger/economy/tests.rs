@@ -1,7 +1,7 @@
 use super::*;
 use crate::ledger::book::checkpoint::MemCheckpoints;
 use crate::ledger::book::{fp, SourceBook};
-use crate::ledger::line_store::{CLASS_GENERAL, SIDE_OWN, SIDE_WON};
+use crate::ledger::line_store::{CLASS_GENERAL, SIDE_WON};
 use crate::ledger::{
     principal_for_shares, stake_position_accrued, tokens_for_units, SourceChain, STAKE_RATE_SCALE,
 };
@@ -43,12 +43,15 @@ struct World {
 impl World {
     fn new(shares: u64) -> Self {
         let principal = principal_for_shares(shares, R0).unwrap();
-        let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, 500).unwrap();
+        let mut pos =
+            Position::new(OWNER, SourceChain::Solana, [7; 32], 9, principal, 500).unwrap();
         pos.stake_rate_open = R0;
         pos.yield_fee_bps = FEE;
         pos.custody_shares = shares;
-        let mut route = RouteLedger::default();
-        route.escrow_enabled = true;
+        let route = RouteLedger {
+            escrow_enabled: true,
+            ..RouteLedger::default()
+        };
         Self {
             pos,
             srcs: vec![],
@@ -75,10 +78,6 @@ impl World {
 
     fn fee_units(&self) -> u64 {
         stake_position_accrued(&self.pos, self.rate).unwrap().fee
-    }
-
-    fn open(&self, s: usize) -> bool {
-        self.pos.open_advance == Some(s as u32)
     }
 
     /// Takes an Advance of `months`, closing the previous one if it is repaid.
@@ -370,7 +369,10 @@ fn return_own_releases_ready_once_and_unlock_pays_it_once() {
     let held_before = w.pos.held_shares;
     w.return_own(0, idx, amount).unwrap();
     assert_eq!(w.books[0].uncovered_total(), 0);
-    assert!(w.pos.open_advance.is_none(), "returning the debt closes the Advance");
+    assert!(
+        w.pos.open_advance.is_none(),
+        "returning the debt closes the Advance"
+    );
     assert!(w.pos.free_shares > 0);
     assert!(w.pos.held_shares < held_before + 1);
     w.check();
@@ -483,7 +485,10 @@ fn the_pool_half_follows_the_share_in_force_and_the_route_never_overspends() {
     assert_eq!((route.owed_shares, route.pool_owed), (700, 500));
     assert_eq!(route.spendable(), 500);
     route_after_unlock(&mut route, &payout, 0).unwrap();
-    assert_eq!(route.pool_owed, 500, "a share of zero owes the Pool nothing more");
+    assert_eq!(
+        route.pool_owed, 500,
+        "a share of zero owes the Pool nothing more"
+    );
     assert_eq!(route.spendable(), 1_500);
 }
 
@@ -495,7 +500,10 @@ fn the_dust_tolerance_is_far_below_a_whole_gema() {
 #[test]
 fn rates_convert_units_and_shares_both_ways_rounding_down() {
     let r = ShareRate::stake(R0).unwrap();
-    assert_eq!(r.whole_shares_for_units(1_300_000_000).unwrap(), 1_000_000_000);
+    assert_eq!(
+        r.whole_shares_for_units(1_300_000_000).unwrap(),
+        1_000_000_000
+    );
     assert_eq!(r.whole_shares_for_units(1).unwrap(), 0);
     assert_eq!(r.units_for_shares(1_000_000_000).unwrap(), 1_300_000_000);
     let n = ShareRate::native(1_050_000_000).unwrap();

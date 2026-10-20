@@ -3301,7 +3301,6 @@ fn the_storm_waits_for_the_turn_that_ends_it_not_for_the_first_step_of_a_two_ste
     assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
 }
 
-
 /// Matching reads Holdings until ticket 09 moves it onto baskets: give the Advance's owner a
 /// Holding of the new Source with the Gemas the Advance issued (the basket holds them too).
 fn forge_holding_amount(svm: &mut litesvm::LiteSVM, account: APk, source: APk) {
@@ -3323,17 +3322,20 @@ fn forge_holding_amount(svm: &mut litesvm::LiteSVM, account: APk, source: APk) {
         TesoroAccount::try_deserialize(&mut acc.data.as_slice()).expect("account")
     };
     h.inner.credit(&mut acct.inner, issued).expect("credit");
-    for (k, buf) in [(hk, {
-        let mut b = Vec::new();
-        h.try_serialize(&mut b).unwrap();
-        b.resize(HoldingState::SPACE, 0);
-        b
-    }), (account, {
-        let mut b = Vec::new();
-        acct.try_serialize(&mut b).unwrap();
-        b.resize(TesoroAccount::SPACE, 0);
-        b
-    })] {
+    for (k, buf) in [
+        (hk, {
+            let mut b = Vec::new();
+            h.try_serialize(&mut b).unwrap();
+            b.resize(HoldingState::SPACE, 0);
+            b
+        }),
+        (account, {
+            let mut b = Vec::new();
+            acct.try_serialize(&mut b).unwrap();
+            b.resize(TesoroAccount::SPACE, 0);
+            b
+        }),
+    ] {
         let mut acc = svm.get_account(&s(k)).expect("account");
         acc.data = buf;
         svm.set_account(s(k), acc).expect("set");

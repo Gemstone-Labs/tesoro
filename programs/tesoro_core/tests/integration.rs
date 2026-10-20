@@ -11,9 +11,9 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tesoro_core::instructions::MatchResult;
-use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain};
 use tesoro_core::ledger::book::fp_ceil;
 use tesoro_core::ledger::line_store::{CLASS_GENERAL, SIDE_OWN};
+use tesoro_core::ledger::{CoreError, MatchStatus, Outcome, SourceChain};
 use tesoro_core::state::*;
 use tesoro_core::storage::*;
 use tesoro_core::{accounts, instruction, LineRef};
@@ -351,8 +351,8 @@ impl Env {
         let source = source_pda(position, index);
         let (asset, open_advance) = {
             let acct = self.svm.get_account(&s(position)).expect("position");
-            let state = PositionState::try_deserialize(&mut acct.data.as_slice())
-                .expect("position");
+            let state =
+                PositionState::try_deserialize(&mut acct.data.as_slice()).expect("position");
             (state.inner.source_asset, state.inner.open_advance)
         };
         let mut remaining = vec![AccountMeta::new_readonly(
@@ -816,7 +816,14 @@ fn only_the_oracle_authority_reports_yield_and_prices() {
 }
 
 impl Env {
-    fn redeem_ix_reported(&self, p: &Person, position: APk, source: APk, side: u8, amount: u64) -> Instruction {
+    fn redeem_ix_reported(
+        &self,
+        p: &Person,
+        position: APk,
+        source: APk,
+        side: u8,
+        amount: u64,
+    ) -> Instruction {
         ix(
             accounts::Redeem {
                 holder_authority: p.key,
@@ -854,7 +861,13 @@ impl Env {
         )
     }
 
-    fn return_own_ix_reported(&self, p: &Person, position: APk, source: APk, amount: u64) -> Instruction {
+    fn return_own_ix_reported(
+        &self,
+        p: &Person,
+        position: APk,
+        source: APk,
+        amount: u64,
+    ) -> Instruction {
         ix(
             accounts::ReturnOwn {
                 owner_authority: p.key,
@@ -1802,7 +1815,11 @@ fn f07_plain_redeem_of_an_evm_sourced_gema_is_refused() {
     let redeem = env.redeem_ix_reported(&alice, position, source, SIDE_OWN, 100);
     let err = env.send(&[redeem], &alice.kp, &[]).unwrap_err();
     assert_eq!(custom_code(&err), ERR_BRIDGED_SOURCE);
-    assert_eq!(gemas_in(&env.svm, alice.account, source), 75_000, "nothing burned");
+    assert_eq!(
+        gemas_in(&env.svm, alice.account, source),
+        75_000,
+        "nothing burned"
+    );
 
     let register = ix(
         accounts::SetSourceAuthority {
@@ -2096,7 +2113,6 @@ impl Env {
         out.sort_by_key(|(src, _)| *src);
         out
     }
-
 }
 
 #[test]

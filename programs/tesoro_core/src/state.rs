@@ -215,8 +215,30 @@ pub struct PositionState {
 }
 
 impl PositionState {
-    pub const SPACE: usize =
-        8 + 1 + 32 + 32 + 1 + 32 + 1 + 8 + 2 + 1 + 4 + 5 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 2 + 8 + 16 + 16 + 8;
+    pub const SPACE: usize = 8
+        + 1
+        + 32
+        + 32
+        + 1
+        + 32
+        + 1
+        + 8
+        + 2
+        + 1
+        + 4
+        + 5
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 2
+        + 8
+        + 16
+        + 16
+        + 8;
 }
 
 #[account]

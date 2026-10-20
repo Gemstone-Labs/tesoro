@@ -366,7 +366,7 @@ pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
     b.transfer(&mut ol, &mut part, gemas, &*history)?;
     // The last step that can fail: a full Treasury pool changes nothing (grow its spill, retry).
     treasury
-        .put(&mut OneBook(&mut *b, &mut *history), &part)
+        .put(&mut OneBook(&mut b, &mut *history), &part)
         .map_err(draw_err)?;
     *route = r;
     book.assign(&b);
@@ -398,7 +398,7 @@ fn return_to_pool<B: Bytes, S: Bytes>(
     }
     let k = order.line.amount;
     let mut b = book.boxed_clone();
-    pool.put(&mut OneBook(&mut *b, history), &order.line)
+    pool.put(&mut OneBook(&mut b, history), &order.line)
         .map_err(draw_err)?;
     let l = order.line;
     order.line = SourceBook::blank_line(l.side, l.due_at, l.source, l.class, l.tranche);

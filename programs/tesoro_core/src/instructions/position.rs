@@ -3,7 +3,7 @@ use crate::error::{core_err, TesoroError};
 use crate::instructions::economy::*;
 use crate::instructions::stake::is_computed as is_computed_kind;
 use crate::ledger::draw::SourceBooks;
-use crate::ledger::{self, CustodyKind, SourceChain};
+use crate::ledger::{self, SourceChain};
 use crate::state::*;
 use crate::storage::*;
 use crate::util::{now, require_can_advance};
@@ -228,7 +228,13 @@ pub(crate) fn apply_yield<'info>(
     );
     let remaining = ctx.remaining_accounts;
     let a = &mut ctx.accounts;
-    apply_reported_yield(&mut a.position, a.source.as_mut(), remaining, seq, cumulative)
+    apply_reported_yield(
+        &mut a.position,
+        a.source.as_mut(),
+        remaining,
+        seq,
+        cumulative,
+    )
 }
 
 /// Applies a Yield Report to a reported Position and lands the yield. Shared by the oracle's
@@ -349,18 +355,22 @@ pub(crate) fn return_own<'info>(
     let mut books = OnchainBooks::load(rest)?;
     let source_key = a.source.key();
     let key = line.key(&source_key);
-    with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        return_own_line(
-            pool,
-            &mut books,
-            &mut a.position,
-            &mut a.source,
-            &source_key,
-            &key,
-            amount,
-            &rates,
-        )
-    })?;
+    with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            return_own_line(
+                pool,
+                &mut books,
+                &mut a.position,
+                &mut a.source,
+                &source_key,
+                &key,
+                amount,
+                &rates,
+            )
+        },
+    )?;
     books.flush()
 }
 
@@ -414,18 +424,22 @@ pub(crate) fn redeem<'info>(
     let mut books = OnchainBooks::load(rest)?;
     let source_key = a.source.key();
     let key = line.key(&source_key);
-    let out = with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        redeem_line(
-            pool,
-            &mut books,
-            &mut kind,
-            &mut a.position,
-            &mut a.source,
-            &source_key,
-            &key,
-            amount,
-        )
-    })?;
+    let out = with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            redeem_line(
+                pool,
+                &mut books,
+                &mut kind,
+                &mut a.position,
+                &mut a.source,
+                &source_key,
+                &key,
+                amount,
+            )
+        },
+    )?;
     if out.shares == 0 {
         return Err(ledger_zero_shares());
     }

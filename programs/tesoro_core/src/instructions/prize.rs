@@ -24,9 +24,7 @@ use crate::instructions::economy::*;
 use crate::instructions::position::chain_byte;
 use crate::ledger::draw::{Bytes, SourceBooks};
 use crate::ledger::line_store::{Line, LineKey, CLASS_GENERAL, CLASS_LEADERBOARD, SIDE_WON};
-use crate::ledger::{
-    self, CoreError, PoolShare, PrizeSource, RouteLedger, ShareRate, SourceKind,
-};
+use crate::ledger::{self, CoreError, PoolShare, PrizeSource, RouteLedger, ShareRate, SourceKind};
 use crate::state::*;
 use crate::storage::*;
 use crate::util::now;
@@ -94,7 +92,11 @@ pub struct SetPrizeShare<'info> {
     pub economy: Account<'info, EconomyConfig>,
 }
 
-pub(crate) fn set_prize_share(ctx: Context<SetPrizeShare>, from_season: u32, bps: u16) -> Result<()> {
+pub(crate) fn set_prize_share(
+    ctx: Context<SetPrizeShare>,
+    from_season: u32,
+    bps: u16,
+) -> Result<()> {
     ctx.accounts
         .economy
         .pool_share
@@ -261,16 +263,11 @@ pub struct Harvest<'info> {
     pub source: Account<'info, SourceState>,
 }
 
-pub(crate) fn harvest<'info>(
-    ctx: Context<'_, '_, 'info, 'info, Harvest<'info>>,
-) -> Result<()> {
+pub(crate) fn harvest<'info>(ctx: Context<'_, '_, 'info, 'info, Harvest<'info>>) -> Result<()> {
     let remaining = ctx.remaining_accounts;
     let a = ctx.accounts;
     let (mut kind, rest) = KindCtx::load(&a.position.inner, remaining, PayTo::Nobody)?;
-    require!(
-        kind.route().is_some(),
-        TesoroError::BridgedSource
-    );
+    require!(kind.route().is_some(), TesoroError::BridgedSource);
     let rates = kind.rates(&a.position.inner)?;
     let mut books = OnchainBooks::load(rest)?;
     let source_key = a.source.key();
@@ -303,8 +300,13 @@ pub(crate) fn harvest<'info>(
         .map_err(core_err)?;
     debug_assert!(escrow_after.is_some());
     a.source.inner.redeemed = a.source.inner.redeemed.saturating_add(out.gemas);
-    let units = u64::try_from(rates.rate.units_for_shares(u128::from(shares)).map_err(core_err)?)
-        .map_err(|_| core_err(CoreError::Math))?;
+    let units = u64::try_from(
+        rates
+            .rate
+            .units_for_shares(u128::from(shares))
+            .map_err(core_err)?,
+    )
+    .map_err(|_| core_err(CoreError::Math))?;
     a.source.inner.redeemed_units = a.source.inner.redeemed_units.saturating_add(units);
     books.flush()?;
     kind.exit()?;
@@ -319,6 +321,7 @@ pub(crate) fn harvest<'info>(
 
 // --- Funding a Season's prize ------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn fund_route<'info>(
     route: &mut RouteLedger,
     custody: Pubkey,
@@ -578,16 +581,20 @@ pub(crate) fn redeem_prize<'info>(
         TesoroError::InvalidAccount
     );
     let key = prize_line_key(&a.prize_source.key());
-    with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        let (at, idx, mut line) =
-            find_line(pool, &key).ok_or_else(|| core_err(CoreError::HoldingMismatch))?;
-        pool.check_withdraw(amount).map_err(draw_err)?;
-        if amount > line.amount {
-            return Err(core_err(CoreError::InsufficientGemas));
-        }
-        line.amount -= amount;
-        store_line(pool, at, idx, &line)
-    })?;
+    with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            let (at, idx, mut line) =
+                find_line(pool, &key).ok_or_else(|| core_err(CoreError::HoldingMismatch))?;
+            pool.check_withdraw(amount).map_err(draw_err)?;
+            if amount > line.amount {
+                return Err(core_err(CoreError::InsufficientGemas));
+            }
+            line.amount -= amount;
+            store_line(pool, at, idx, &line)
+        },
+    )?;
     let shares = {
         let route = kind
             .route_mut()

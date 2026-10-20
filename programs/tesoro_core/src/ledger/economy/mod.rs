@@ -134,8 +134,13 @@ pub fn units_to_gemas_fp(src: &Source, units: u64) -> CoreResult<u128> {
 
 /// Units (2^64 fixed point) that `gemas_fp` Gemas (2^64 fixed point) are worth, rounded down.
 pub fn gemas_fp_to_units_fp(src: &Source, gemas_fp: u128) -> CoreResult<u128> {
-    mul_div_u128(gemas_fp, src.unit_num, u128::from(src.unit_den), Round::Down)
-        .ok_or(CoreError::Math)
+    mul_div_u128(
+        gemas_fp,
+        src.unit_num,
+        u128::from(src.unit_den),
+        Round::Down,
+    )
+    .ok_or(CoreError::Math)
 }
 
 /// Shares (32 fractional bits) that `k` whole Gemas of `src` are worth at `rate`, rounded down:
@@ -370,7 +375,13 @@ pub fn extend_source<S: ClassSlots, C: CheckpointStore + ?Sized>(
     let mut next = src.clone();
     let minted = extend_gemas(position, &mut next, extra_months, yield_fee_bps, speedup)?;
     let class = book.start_extension()?;
-    let mut line = Book::<S>::blank_line(SIDE_OWN, next.due_at, source_key, class, class - CLASS_GENERAL);
+    let mut line = Book::<S>::blank_line(
+        SIDE_OWN,
+        next.due_at,
+        source_key,
+        class,
+        class - CLASS_GENERAL,
+    );
     book.issue(&mut line, minted, &*ck)?;
     *src = next;
     Ok((line, minted))
@@ -430,19 +441,19 @@ pub fn debit_paid_shares(
                 .held_shares
                 .checked_sub(u128::from(paid) << SHARE_BITS)
                 .ok_or(CoreError::BookInconsistent)?;
-            let paid_total = if kind == CustodyKind::Stake && position.status == PositionStatus::Locked
-            {
-                let total = position
-                    .paid_shares
-                    .checked_add(paid)
-                    .ok_or(CoreError::Math)?;
-                if total > position.custody_shares {
-                    return Err(CoreError::VaultShortfall);
-                }
-                total
-            } else {
-                position.paid_shares
-            };
+            let paid_total =
+                if kind == CustodyKind::Stake && position.status == PositionStatus::Locked {
+                    let total = position
+                        .paid_shares
+                        .checked_add(paid)
+                        .ok_or(CoreError::Math)?;
+                    if total > position.custody_shares {
+                        return Err(CoreError::VaultShortfall);
+                    }
+                    total
+                } else {
+                    position.paid_shares
+                };
             position.held_shares = held;
             position.paid_shares = paid_total;
             Ok(())
@@ -518,7 +529,8 @@ pub fn settle_unlock(
             owed_shares: owed,
         },
         CustodyKind::Stake => {
-            let custody = position.custody_shares - position.paid_shares.min(position.custody_shares);
+            let custody =
+                position.custody_shares - position.paid_shares.min(position.custody_shares);
             let rest = custody.checked_sub(owed).ok_or(CoreError::VaultShortfall)?;
             let fee = rate.whole_shares_for_units(fee_units)?.min(rest);
             UnlockPayout {

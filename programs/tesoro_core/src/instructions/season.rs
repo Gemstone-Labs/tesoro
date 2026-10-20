@@ -135,7 +135,10 @@ pub(crate) fn record_season<'info>(
         let store = LineStore::new(&data[DISC..]).map_err(store_err)?;
         for l in store.lines() {
             if l.class >= CLASS_GENERAL && l.amount > 0 {
-                require!(pool_lines.len() < MAX_POOL_LINES, TesoroError::InvalidAccount);
+                require!(
+                    pool_lines.len() < MAX_POOL_LINES,
+                    TesoroError::InvalidAccount
+                );
                 pool_lines.push(PoolLine {
                     key: l.key(),
                     amount: l.amount,
@@ -285,11 +288,7 @@ pub struct VoidSeasonRank<'info> {
 pub(crate) fn void_season_rank(ctx: Context<VoidSeasonRank>, rank: u8) -> Result<()> {
     let ts = now()?;
     let number = ctx.accounts.season.inner.number;
-    ctx.accounts
-        .season
-        .inner
-        .void(rank, ts)
-        .map_err(core_err)?;
+    ctx.accounts.season.inner.void(rank, ts).map_err(core_err)?;
     emit!(SeasonRankVoided {
         season: number,
         rank,

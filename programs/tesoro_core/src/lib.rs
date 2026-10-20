@@ -126,7 +126,10 @@ pub mod tesoro_core {
         instructions::prize::harvest(ctx)
     }
 
-    pub fn fund_season_prize_native(ctx: Context<FundSeasonPrizeNative>, season: u32) -> Result<()> {
+    pub fn fund_season_prize_native(
+        ctx: Context<FundSeasonPrizeNative>,
+        season: u32,
+    ) -> Result<()> {
         instructions::prize::fund_season_prize_native(ctx, season)
     }
 

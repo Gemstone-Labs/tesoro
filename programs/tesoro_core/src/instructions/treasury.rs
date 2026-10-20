@@ -407,21 +407,29 @@ pub(crate) fn redeem_treasury<'info>(
     let mut books = OnchainBooks::load(rest)?;
     let source_key = a.source.key();
     let key = line.key(&source_key);
-    let out = with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        redeem_line(
-            pool,
-            &mut books,
-            &mut kind,
-            &mut a.position,
-            &mut a.source,
-            &source_key,
-            &key,
-            amount,
-        )
-    })?;
+    let out = with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            redeem_line(
+                pool,
+                &mut books,
+                &mut kind,
+                &mut a.position,
+                &mut a.source,
+                &source_key,
+                &key,
+                amount,
+            )
+        },
+    )?;
     require!(out.shares > 0, TesoroError::InvalidAccount);
     books.flush()?;
-    kind.pay_shares(&a.position.key(), out.shares as u64, 4)?;
+    // Stake shares stay in the custody vault as the Treasury's own; native simSOL is minted into
+    // the Treasury's vault.
+    if !is_stake(&a.position.inner) {
+        kind.pay_shares(&a.position.key(), out.shares as u64, 4)?;
+    }
     kind.route_mut()
         .ok_or_else(|| error!(TesoroError::NotNativePosition))?
         .receive(u128::from(out.shares))
@@ -490,18 +498,22 @@ pub(crate) fn redeem_treasury_from_source<'info>(
     let mut books = OnchainBooks::load(remaining)?;
     let source_key = a.source.key();
     let key = line.key(&source_key);
-    let out = with_pool(&a.basket.to_account_info(), &a.spill.to_account_info(), |pool| {
-        redeem_line(
-            pool,
-            &mut books,
-            &mut kind,
-            &mut a.position,
-            &mut a.source,
-            &source_key,
-            &key,
-            amount,
-        )
-    })?;
+    let out = with_pool(
+        &a.basket.to_account_info(),
+        &a.spill.to_account_info(),
+        |pool| {
+            redeem_line(
+                pool,
+                &mut books,
+                &mut kind,
+                &mut a.position,
+                &mut a.source,
+                &source_key,
+                &key,
+                amount,
+            )
+        },
+    )?;
     require!(out.shares > 0, TesoroError::InvalidAccount);
     books.flush()?;
     emit!(Redeemed {

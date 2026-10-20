@@ -14,7 +14,9 @@ use crate::error::{core_err, TesoroError};
 use crate::instructions::economy::*;
 use crate::instructions::native::{is_native, is_stake, touch_extend_limit};
 use crate::instructions::position::chain_byte;
-use crate::ledger::{self, parse_stake_pool, CoreError, SourceChain, StakePoolRead, MAX_APY_CEILING_BPS};
+use crate::ledger::{
+    self, parse_stake_pool, CoreError, SourceChain, StakePoolRead, MAX_APY_CEILING_BPS,
+};
 use crate::state::*;
 use crate::storage::*;
 use crate::util::{now, require_can_advance};
@@ -623,7 +625,10 @@ pub(crate) fn fund_treasury_stake(ctx: Context<FundTreasuryStake>, shares: u64) 
         ),
         shares,
     )?;
-    a.custody.route.receive(u128::from(shares)).map_err(core_err)?;
+    a.custody
+        .route
+        .receive(u128::from(shares))
+        .map_err(core_err)?;
     emit!(TreasuryFunded { shares });
     Ok(())
 }
@@ -680,7 +685,10 @@ pub(crate) fn withdraw_treasury_stake(
     if tokens == 0 {
         return Err(core_err(CoreError::ZeroShares));
     }
-    a.custody.route.spend(u128::from(tokens)).map_err(core_err)?;
+    a.custody
+        .route
+        .spend(u128::from(tokens))
+        .map_err(core_err)?;
     a.custody.withdrawn_shares = a
         .custody
         .withdrawn_shares
