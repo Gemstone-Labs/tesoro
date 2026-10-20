@@ -523,6 +523,24 @@ impl PotPages {
             .collect()
     }
 
+    /// The line at position `i` (pages are dense, so `i` maps to a page and a slot).
+    pub fn get(&self, i: usize) -> Option<Line> {
+        let page = self.pages.get(i / PAGE_LINES)?;
+        LineStore::new(page.as_slice()).ok()?.get(i % PAGE_LINES)
+    }
+
+    /// Overwrite the line at position `i` with an updated copy of the same key (settlement
+    /// shrinks lines in place; an emptied line keeps its slot so positions never move).
+    pub fn set(&mut self, i: usize, line: &Line) -> DrawResult<()> {
+        let page = self
+            .pages
+            .get_mut(i / PAGE_LINES)
+            .ok_or(DrawError::Store(LineStoreError::NotFound))?;
+        let mut s = LineStore::new(page.as_mut_slice())?;
+        s.set_line(i % PAGE_LINES, line)?;
+        Ok(())
+    }
+
     pub fn last_line(&self) -> Option<Line> {
         let p = self.pages.last()?;
         let s = LineStore::new(p.as_slice()).ok()?;
