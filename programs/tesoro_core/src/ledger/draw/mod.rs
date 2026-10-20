@@ -705,7 +705,7 @@ impl Ticket {
 
     /// The Player (or sponsor) paid rent for `extra` more lines of paged storage and overflow.
     pub fn grow_storage(&mut self, extra: usize) -> DrawResult<()> {
-        self.line_cap += extra;
+        self.line_cap = self.line_cap.saturating_add(extra);
         self.overflow.grow(self.line_cap)
     }
 
@@ -806,7 +806,10 @@ impl Ticket {
                     .checked_sub(pulled)
                     .ok_or(DrawError::ReservationShort)?;
                 b.set_reserved_total(r);
-                self.reserved_left -= pulled;
+                self.reserved_left = self
+                    .reserved_left
+                    .checked_sub(pulled)
+                    .ok_or(DrawError::ReservationShort)?;
             }
             step.pulled += 1;
             self.sync_header(b);
@@ -834,7 +837,10 @@ impl Ticket {
                 .checked_add(line.amount)
                 .ok_or(DrawError::ReservationShort)?;
             b.set_reserved_total(r);
-            self.reserved_left += line.amount;
+            self.reserved_left = self
+                .reserved_left
+                .checked_add(line.amount)
+                .ok_or(DrawError::ReservationShort)?;
         }
         self.sync_header(b);
         Ok(())
@@ -924,9 +930,9 @@ impl Ticket {
             } else {
                 self.overflow.credit(books, &line)?;
                 step.lines_to_overflow += 1;
-                step.gemas_to_overflow += line.amount;
+                step.gemas_to_overflow = step.gemas_to_overflow.saturating_add(line.amount);
                 if self.kind == TicketKind::Backing {
-                    self.reservation_lost += line.amount;
+                    self.reservation_lost = self.reservation_lost.saturating_add(line.amount);
                 }
             }
             self.pages.pop_last()?;
