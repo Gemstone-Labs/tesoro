@@ -26,4 +26,7 @@ sim_lst = { path = "../sim_lst", features = ["cpi"] }
 [dev-dependencies]
 litesvm = "=0.11.0"
 proptest = "1.11.0"
+num-bigint = "0.4.6"
+num-integer = "0.1.46"
+num-traits = "0.2.19"
 solana-sdk = "3.0.0"

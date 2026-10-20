@@ -9,13 +9,10 @@ fn line(side: u8, due_at: i64, src: u8, class: u8, tranche: u8, amount: u64) -> 
         source: [src; 32],
         amount,
         uncovered: amount as u128 * 3,
-        ready: amount as u128,
-        ready_shares: amount as u128 * 2,
         p: 1 << 64,
-        s: 7,
         scale: 1,
         epoch: 2,
-        reserved: [0; 16],
+        reserved: [0; 5],
     }
 }
 
@@ -28,24 +25,26 @@ fn fresh(cap: usize) -> Vec<u8> {
 #[test]
 fn layout_constants_are_what_the_docs_say() {
     assert_eq!(HEADER_LEN, 128);
-    assert_eq!(LINE_LEN, 160);
+    assert_eq!(LINE_LEN, 96);
     let l = line(1, -5, 3, CLASS_GENERAL, 0, 11);
     let mut raw = [0xAAu8; LINE_LEN];
     l.encode(&mut raw);
     assert_eq!(Line::decode(&raw), l);
-    assert_eq!(&raw[3..8], &[0; 5]);
-    assert_eq!(&raw[144..], &[0; 16]);
+    assert_eq!(&raw[91..], &[0; 5]);
 }
 
 #[test]
 fn init_writes_version_bump_account_and_rejects_bad_bodies() {
     let buf = fresh(2);
     let s = LineStore::new(&buf[..]).unwrap();
-    assert_eq!((s.version(), s.bump(), s.account()), (1, 254, [9; 32]));
+    assert_eq!(
+        (s.version(), s.bump(), s.account()),
+        (BASKET_VERSION, 254, [9; 32])
+    );
     assert_eq!((s.len(), s.capacity()), (0, 2));
     assert!(LineStore::new(&buf[..HEADER_LEN - 1]).is_err());
     let mut bad = buf.clone();
-    bad[0] = 2;
+    bad[0] = BASKET_VERSION + 1;
     assert_eq!(
         LineStore::new(&bad[..]).err(),
         Some(LineStoreError::BadStore)
@@ -147,16 +146,13 @@ fn merge_adds_only_after_materialise_and_keeps_reserved_bytes() {
     let mut buf = fresh(2);
     let mut s = LineStore::new(&mut buf[..]).unwrap();
     let mut base = line(1, 5, 1, CLASS_GENERAL, 0, 10);
-    base.reserved = [7; 16];
+    base.reserved = [7; 5];
     s.insert(&base).unwrap();
     let add = line(1, 5, 1, CLASS_GENERAL, 0, 4);
     assert_eq!(s.merge(&add), Ok(0));
     let got = s.get(0).unwrap();
-    assert_eq!(
-        (got.amount, got.uncovered, got.ready, got.ready_shares),
-        (14, 42, 14, 28)
-    );
-    assert_eq!(got.reserved, [7; 16]);
+    assert_eq!((got.amount, got.uncovered), (14, 42));
+    assert_eq!(got.reserved, [7; 5]);
     assert_eq!(s.won_total(), 14);
 
     let mut stale = add;
@@ -206,7 +202,7 @@ fn check_detects_corruption() {
         s.insert(&line(0, 1, 1, CLASS_GENERAL, 0, 1)).unwrap();
         s.insert(&line(0, 2, 1, CLASS_GENERAL, 0, 1)).unwrap();
     }
-    buf[HEADER_LEN + LINE_LEN + 8] = 0; // second line's due_at 2 -> 0: out of order
+    buf[HEADER_LEN + LINE_LEN + 3] = 0; // second line's due_at 2 -> 0: out of order
     assert_eq!(
         LineStore::new(&buf[..]).unwrap().check(),
         Err(LineStoreError::Unsorted)
@@ -285,13 +281,10 @@ fn pool_line(r: &mut Rng) -> Line {
         source: [r.below(4) as u8; 32],
         amount: r.below(1000),
         uncovered: r.next() as u128 >> 4,
-        ready: r.next() as u128 >> 4,
-        ready_shares: r.next() as u128 >> 4,
         p: 1 << 64,
-        s: r.below(2) as u128,
         scale: r.below(2) as u32,
         epoch: 0,
-        reserved: [0; 16],
+        reserved: [0; 5],
     }
 }
 
@@ -333,9 +326,7 @@ fn run_ops(seed: u64, ops: u64) {
                     let mut l = m.lines[r.below(m.lines.len() as u64) as usize];
                     l.amount = r.below(1000);
                     l.uncovered = r.next() as u128 >> 4;
-                    l.ready = r.next() as u128 >> 4;
-                    l.ready_shares = r.next() as u128 >> 4;
-                    l.reserved = [0; 16];
+                    l.reserved = [0; 5];
                     l
                 } else {
                     pool_line(&mut r)
@@ -351,8 +342,6 @@ fn run_ops(seed: u64, ops: u64) {
                             let o = &mut m.lines[i];
                             o.amount += inc.amount;
                             o.uncovered += inc.uncovered;
-                            o.ready += inc.ready;
-                            o.ready_shares += inc.ready_shares;
                             Ok(i)
                         }
                     }
@@ -366,7 +355,7 @@ fn run_ops(seed: u64, ops: u64) {
                     let mut l = m.lines[i];
                     l.amount = r.below(1000);
                     l.uncovered = r.next() as u128 >> 4;
-                    l.reserved = [r.below(3) as u8; 16];
+                    l.reserved = [r.below(3) as u8; 5];
                     if r.below(4) == 0 {
                         l.due_at += 100;
                         assert_eq!(s.set_line(i, &l), Err(LineStoreError::KeyChanged));
