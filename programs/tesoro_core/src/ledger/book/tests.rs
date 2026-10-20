@@ -1,3 +1,4 @@
+use super::checkpoint::MemCheckpoints;
 use super::model::{LineId, Model, Rat};
 use super::wide::*;
 use super::*;
@@ -220,10 +221,13 @@ enum Mode {
     Huge,
     /// Tiny landings only, to push P through many scales and farm rounding.
     Dust,
+    /// Small numbers with holders that sleep through everything, then wake up.
+    Dormant,
 }
 
 struct Sys {
     book: SourceBook,
+    ck: MemCheckpoints,
     lines: BTreeMap<LineId, Line>,
     model: Model,
     redeemed: u64,
@@ -232,9 +236,13 @@ struct Sys {
     shares_paid_fp: u128,
     taken_shares: u128,
     issued: u64,
+    frozen: Vec<u8>,
     ops: u64,
     max_deficit_ratio: f64,
     max_excess: f64,
+    max_share_ratio: f64,
+    max_records: u32,
+    max_reads: u64,
     forgiven: Rat,
     log: Vec<String>,
 }
@@ -253,6 +261,7 @@ impl Sys {
     fn new() -> Sys {
         Sys {
             book: SourceBook::new(),
+            ck: MemCheckpoints::new(SRC),
             lines: BTreeMap::new(),
             model: Model::new(),
             redeemed: 0,
@@ -261,9 +270,13 @@ impl Sys {
             shares_paid_fp: 0,
             taken_shares: 0,
             issued: 0,
+            frozen: Vec::new(),
             ops: 0,
             max_deficit_ratio: 0.0,
             max_excess: 0.0,
+            max_share_ratio: 0.0,
+            max_records: 0,
+            max_reads: 0,
             forgiven: Rat::zero(),
             log: Vec::new(),
         }
@@ -296,7 +309,7 @@ impl Sys {
         let before = self.prev_ready();
         self.log.push(format!("issue {id:?} {k}"));
         let mut l = self.line(id);
-        self.book.issue(&mut l, k).unwrap();
+        self.book.issue(&mut l, k, &self.ck).unwrap();
         self.store(id, l);
         self.issued += k;
         self.model.issue(id, k);
@@ -318,12 +331,13 @@ impl Sys {
             .map(|c| (c.ready, c.uncovered))
             .collect();
         let pending = self.book.pending(target);
-        let landing = self.book.land(target, shares).unwrap();
+        let landing = self.book.land(target, shares, &mut self.ck).unwrap();
         assert_eq!(landing.delta, pending);
         if pending > 0 {
             self.computed = self.computed.max(target);
             self.shares_landed += shares;
-            self.model.land(&Rat::from_fp(pending));
+            self.model
+                .land(&Rat::from_fp(pending), &Rat::from_u128_pub(shares));
             // payout order: a class that took coverage had every senior class paid in full
             for (i, before_i) in class_before.iter().enumerate() {
                 if self.book.classes[i].ready > before_i.0 {
@@ -344,7 +358,7 @@ impl Sys {
         self.log.push(format!("transfer {src:?} -> {dst:?} {k}"));
         let (mut s, mut d) = (self.line(src), self.line(dst));
         self.book
-            .transfer(&mut s, &mut d, k)
+            .transfer(&mut s, &mut d, k, &self.ck)
             .unwrap_or_else(|e| panic!("{e:?}\n{}", self.log.join("\n")));
         self.store(src, s);
         self.store(dst, d);
@@ -356,7 +370,7 @@ impl Sys {
         let before = self.prev_ready();
         self.log.push(format!("cut_fee {src:?} -> {dst:?} {k}"));
         let (mut s, mut d) = (self.line(src), self.line(dst));
-        self.book.cut_fee(&mut s, &mut d, k).unwrap();
+        self.book.cut_fee(&mut s, &mut d, k, &mut self.ck).unwrap();
         self.store(src, s);
         self.store(dst, d);
         self.model.transfer(src, dst, k);
@@ -367,11 +381,13 @@ impl Sys {
         let before = self.prev_ready();
         self.log.push(format!("redeem {id:?} {k}"));
         let mut l = self.line(id);
-        let r = self.book.redeem(&mut l, k).unwrap();
+        let r = self.book.redeem(&mut l, k, &self.ck).unwrap();
         self.shares_paid_fp += r.shares << SHARE_BITS;
         self.redeemed += k;
         self.store(id, l);
-        let forgiven = self.model.redeem(id, k);
+        let forgiven = self
+            .model
+            .redeem(id, k, r.shares << SHARE_BITS, is_exact_class(id.1));
         self.forgiven = self.forgiven.add(&forgiven);
         self.after(&[id], &before);
     }
@@ -381,7 +397,7 @@ impl Sys {
         self.log.push(format!("return_own {id:?} {k}"));
         let mut l = self.line(id);
         let debt = self.book.uncovered_total();
-        let r = self.book.return_own(&mut l, k).unwrap();
+        let r = self.book.return_own(&mut l, k, &mut self.ck).unwrap();
         assert_eq!(
             self.book.uncovered_total(),
             debt - r.cancelled,
@@ -470,6 +486,53 @@ impl Sys {
                 ctx()
             );
         }
+        // shares: every line against the exact model, and the lines together never above what
+        // the class holds
+        let mut class_shares = vec![BigInt::from(0); self.book.class_count()];
+        for (id, l) in &self.lines {
+            let m = &self.model.lines[id];
+            let reads0 = self.ck.reads.get();
+            let sh = self.book.shares_of(l, &self.ck).unwrap();
+            self.max_reads = self.max_reads.max(self.ck.reads.get() - reads0);
+            class_shares[l.class as usize] += BigInt::from(sh);
+            let diff = (m.shares.floor_int() - BigInt::from(sh)).to_f64().unwrap();
+            let eps = self.ops as f64 * (64.0 + self.issued as f64 * 4.0) * 4.0 + 64.0;
+            self.max_share_ratio = self.max_share_ratio.max(diff.abs() / eps);
+            assert!(
+                diff.abs() <= eps,
+                "line {id:?} shares are {diff} units from the model (bound {eps})\nline {l:?}\nmodel shares {:e}, impl {sh}\nclass {:?}\n{}",
+                m.shares.to_f64(),
+                self.book.classes[l.class as usize],
+                {
+                    let mut all = String::new();
+                    for (i2, l2) in &self.lines {
+                        let m2 = &self.model.lines[i2];
+                        all += &format!(
+                            "  {i2:?}: a={} model {:e} impl {} ready {} unpaid-model {:e}\n",
+                            l2.amount,
+                            m2.shares.to_f64(),
+                            self.book.shares_of(l2, &self.ck).unwrap(),
+                            self.book.ready_of(l2).unwrap(),
+                            m2.unpaid.to_f64() * 1.8446744073709552e19
+                        );
+                    }
+                    all + &ctx()
+                }
+            );
+        }
+        for (class, sum) in class_shares.iter().enumerate() {
+            let c = &self.book.classes[class];
+            assert!(
+                *sum <= BigInt::from(c.shares),
+                "lines own more shares than the class holds: {sum} > {}\n{}",
+                c.shares,
+                ctx()
+            );
+            self.max_records = self.max_records.max(c.ck);
+            if is_exact_class(class as u8) {
+                assert_eq!(self.ck.len(class as u8), c.ck, "records written\n{}", ctx());
+            }
+        }
         // Left to pay back is the class counters; it stays within the bound of the exact figure
         let impl_total = self.book.uncovered_total();
         let exact = self.model.unpaid_total().floor_fp();
@@ -494,7 +557,7 @@ fn pick_line(r: &mut Rng, sys: &Sys, pred: impl Fn(&LineId, &Line) -> bool) -> O
     let ids: Vec<LineId> = sys
         .lines
         .iter()
-        .filter(|(i, l)| pred(i, l))
+        .filter(|(i, l)| !sys.frozen.contains(&i.0) && pred(i, l))
         .map(|(i, _)| *i)
         .collect();
     if ids.is_empty() {
@@ -518,7 +581,7 @@ fn run(seed: u64, mode: Mode, steps: usize) -> Sys {
     let mut r = Rng(seed);
     let mut sys = Sys::new();
     let (first, cap): (u64, u64) = match mode {
-        Mode::Small => (r.range(1, 40), 2_000),
+        Mode::Small | Mode::Dormant => (r.range(1, 40) + 8, 2_000),
         Mode::Huge => (r.range(1 << 55, 1 << 61), u64::MAX - (1 << 62)),
         Mode::Dust => (r.range(1_000, 1_000_000), 1 << 40),
         Mode::Mixed => {
@@ -527,6 +590,13 @@ fn run(seed: u64, mode: Mode, steps: usize) -> Sys {
         }
     };
     sys.issue((OWNER, CLASS_GENERAL), first);
+    if matches!(mode, Mode::Dormant) && first >= 8 {
+        // holders that never act until the end: two General lines and an outside studio's fee line
+        sys.frozen = vec![5, 6, 14];
+        sys.transfer((OWNER, CLASS_GENERAL), (5, CLASS_GENERAL), first / 4);
+        sys.transfer((OWNER, CLASS_GENERAL), (6, CLASS_GENERAL), 1);
+        sys.cut_fee((OWNER, CLASS_GENERAL), (14, 1), 1);
+    }
     for _ in 0..steps {
         let roll = r.below(100);
         let n_classes = sys.book.class_count();
@@ -633,6 +703,27 @@ fn run(seed: u64, mode: Mode, steps: usize) -> Sys {
             }
         }
     }
+    // the sleepers wake: they sell everything they hold to the Treasury, in class
+    let sleepers: Vec<LineId> = sys
+        .lines
+        .keys()
+        .filter(|i| sys.frozen.contains(&i.0))
+        .copied()
+        .collect();
+    sys.frozen.clear();
+    for id in sleepers {
+        let amount = sys.lines[&id].amount;
+        let ready = fp_floor(sys_ready(&sys, &sys.lines[&id]));
+        if ready > 0 {
+            sys.redeem(id, ready.min(amount));
+        }
+        if let Some(l) = sys.lines.get(&id) {
+            let k = l.amount;
+            if !is_fee_class(id.1) {
+                sys.transfer(id, (TREASURY, id.1), k);
+            }
+        }
+    }
     sys
 }
 
@@ -654,6 +745,8 @@ fn fuzz(mode: Mode, default_seeds: u64, steps: usize) {
         .unwrap_or(0);
     let mut worst = 0f64;
     let mut worst_excess = 0f64;
+    let mut worst_share = 0f64;
+    let (mut records, mut reads) = (0u32, 0u64);
     for seed in base..base + seeds(default_seeds) {
         let sys = run(
             seed.wrapping_mul(0x1234_5678_9ABC_DEF1) ^ 0xDEAD,
@@ -662,9 +755,12 @@ fn fuzz(mode: Mode, default_seeds: u64, steps: usize) {
         );
         worst = worst.max(sys.max_deficit_ratio);
         worst_excess = worst_excess.max(sys.max_excess);
+        worst_share = worst_share.max(sys.max_share_ratio);
+        records = records.max(sys.max_records);
+        reads = reads.max(sys.max_reads);
     }
     eprintln!(
-        "{mode:?}: worst deficit / bound = {worst:.6}, worst excess over model {worst_excess} ulps"
+        "{mode:?}: worst deficit / bound = {worst:.6}, worst excess over model {worst_excess} ulps, worst share error / bound = {worst_share:.6}, most records of a class {records}, most record reads for one line {reads}"
     );
 }
 
@@ -684,8 +780,78 @@ fn fuzz_huge_amounts_near_the_u64_edge() {
 }
 
 #[test]
+fn fuzz_dormant_holders_across_many_epochs() {
+    fuzz(Mode::Dormant, 200, 220);
+}
+
+#[test]
 fn fuzz_dust_landings_through_many_scales() {
     fuzz(Mode::Dust, 100, 250);
+}
+
+/// A book with its checkpoint store, so directed tests read like the API without the plumbing.
+#[derive(Clone)]
+struct W {
+    book: SourceBook,
+    ck: MemCheckpoints,
+}
+
+impl PartialEq for W {
+    fn eq(&self, o: &W) -> bool {
+        self.book == o.book
+    }
+}
+
+impl std::fmt::Debug for W {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.book.fmt(f)
+    }
+}
+
+impl std::ops::Deref for W {
+    type Target = SourceBook;
+    fn deref(&self) -> &SourceBook {
+        &self.book
+    }
+}
+
+impl std::ops::DerefMut for W {
+    fn deref_mut(&mut self) -> &mut SourceBook {
+        &mut self.book
+    }
+}
+
+impl W {
+    fn new() -> W {
+        W {
+            book: SourceBook::new(),
+            ck: MemCheckpoints::new(SRC),
+        }
+    }
+    fn issue(&mut self, line: &mut Line, k: u64) -> BookResult<()> {
+        self.book.issue(line, k, &self.ck)
+    }
+    fn land(&mut self, to: u128, shares: u128) -> BookResult<Landing> {
+        self.book.land(to, shares, &mut self.ck)
+    }
+    fn transfer(&mut self, s: &mut Line, d: &mut Line, k: u64) -> BookResult<Moved> {
+        self.book.transfer(s, d, k, &self.ck)
+    }
+    fn cut_fee(&mut self, s: &mut Line, d: &mut Line, k: u64) -> BookResult<Moved> {
+        self.book.cut_fee(s, d, k, &mut self.ck)
+    }
+    fn redeem(&mut self, l: &mut Line, k: u64) -> BookResult<Redeemed> {
+        self.book.redeem(l, k, &self.ck)
+    }
+    fn return_own(&mut self, l: &mut Line, k: u64) -> BookResult<Returned> {
+        self.book.return_own(l, k, &mut self.ck)
+    }
+    fn materialise(&mut self, l: &mut Line) -> BookResult<()> {
+        self.book.materialise(l, &self.ck)
+    }
+    fn shares(&self, l: &Line) -> u128 {
+        self.book.shares_of(l, &self.ck).unwrap()
+    }
 }
 
 // ---------------------------------------------------------------- regressions and directed cases
@@ -706,16 +872,16 @@ fn gline(class: u8, who: u8) -> Line {
     )
 }
 
-fn ready(book: &SourceBook, l: &Line) -> u128 {
+fn ready(book: &W, l: &Line) -> u128 {
     book.ready_of(l).unwrap()
 }
 
-fn unpaid(book: &SourceBook, l: &Line) -> u128 {
+fn unpaid(book: &W, l: &Line) -> u128 {
     book.uncovered_of(l).unwrap()
 }
 
 /// Land `delta` on top of `H` with `shares` whole shares.
-fn land(book: &mut SourceBook, delta: u128, shares: u128) -> Landing {
+fn land(book: &mut W, delta: u128, shares: u128) -> Landing {
     let to = book.h + delta;
     book.land(to, shares << SHARE_BITS).unwrap()
 }
@@ -727,7 +893,7 @@ fn all_lines<'a>(ls: &'a [&'a Line]) -> impl Iterator<Item = &'a Line> {
 #[test]
 fn a_class_paid_in_full_starts_a_new_epoch_and_new_fees_get_their_own_share() {
     // Claude round 2 N1: Platform 100 repaid in full, then 50 more arrive; 25 lands.
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut platform = gline(0, 10);
     let mut general = gline(CLASS_GENERAL, 0);
     b.issue(&mut platform, 100).unwrap();
@@ -754,7 +920,7 @@ fn a_class_paid_in_full_starts_a_new_epoch_and_new_fees_get_their_own_share() {
 #[test]
 fn a_finite_index_cannot_manufacture_ready() {
     // Codex round 2 N1: 100 unpaid, 99 allocated, 100 new unpaid, 1 allocated.
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut a = gline(CLASS_GENERAL, 1);
     let mut c = gline(CLASS_GENERAL, 2);
     b.issue(&mut a, 100).unwrap();
@@ -780,8 +946,8 @@ fn sub_gema_fractions_survive_touching_at_every_landing() {
     // Claude round 2 N2: a 1,000 Gema line, 2,000 landings of 0.4 Gema. Touched at every landing
     // or only once, it must end at 800 ready (within rounding), never 500.
     let landing = (G / 10) * 4;
-    let mut once = SourceBook::new();
-    let mut touched = SourceBook::new();
+    let mut once = W::new();
+    let mut touched = W::new();
     let mut l_once = gline(CLASS_GENERAL, 1);
     let mut l_touched = gline(CLASS_GENERAL, 1);
     once.issue(&mut l_once, 1_000).unwrap();
@@ -804,7 +970,7 @@ fn sub_gema_fractions_survive_touching_at_every_landing() {
 #[test]
 fn return_own_gives_back_exactly_its_ready_and_nothing_twice() {
     // Round 2 N3, round 3 F3, round 4 H1: owner 96 + others 32, 32 repaid.
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut owner = gline(CLASS_GENERAL, 0);
     let mut other = gline(CLASS_GENERAL, 1);
     b.issue(&mut owner, 128).unwrap();
@@ -846,7 +1012,7 @@ fn return_own_gives_back_exactly_its_ready_and_nothing_twice() {
 #[test]
 fn an_extension_never_slows_earlier_holders_even_after_instant_redeem() {
     // Round 3 F4 / Claude H2: General 100 unpaid, Extension 100 unpaid, the Extension is sold.
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut a = gline(CLASS_GENERAL, 1);
     b.issue(&mut a, 100).unwrap();
     let class = b.start_extension().unwrap();
@@ -884,7 +1050,7 @@ fn an_extension_never_slows_earlier_holders_even_after_instant_redeem() {
 #[test]
 fn moves_carry_their_proportional_ready_and_nothing_else() {
     // Round 3 F7: amount 100 with half ready; moving 50 moves 25 ready, not 0 and not 50.
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut l = gline(CLASS_GENERAL, 1);
     b.issue(&mut l, 128).unwrap();
     land(&mut b, 64 * G, 0);
@@ -904,7 +1070,7 @@ fn moves_carry_their_proportional_ready_and_nothing_else() {
 #[test]
 fn lines_with_stale_snapshots_merge_only_after_both_are_brought_up_to_date() {
     // Codex round 2 N2: a 100 line with latent ready next to a 100 that arrives later.
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut old = gline(CLASS_GENERAL, 1);
     b.issue(&mut old, 128).unwrap();
     land(&mut b, 64 * G, 0);
@@ -924,7 +1090,7 @@ fn lines_with_stale_snapshots_merge_only_after_both_are_brought_up_to_date() {
 
 #[test]
 fn classes_are_paid_strictly_in_order() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut platform = gline(0, 10);
     let mut studio = gline(1, 11);
     let mut board = gline(2, 12);
@@ -955,7 +1121,7 @@ fn classes_are_paid_strictly_in_order() {
 fn a_fee_is_repaid_only_from_yield_that_lands_after_it_arrives() {
     // Spec: "fee arriving with stale yield". The settlement syncs the Source first; then the fee
     // class takes only later yield. 32 of 128 already repaid when the fee is cut.
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut winner_side = gline(CLASS_GENERAL, 1);
     b.issue(&mut winner_side, 128).unwrap();
     land(&mut b, 32 * G, 0); // synced before the fee
@@ -975,13 +1141,13 @@ fn a_fee_is_repaid_only_from_yield_that_lands_after_it_arrives() {
     assert_eq!(ready(&b, &platform), 64 * G);
     assert_eq!(ready(&b, &winner_side), 16 * G, "General waited");
     land(&mut b, 8 * G, 0);
-    assert_eq!(ready(&b, &winner_side), 24 * G);
+    near(ready(&b, &winner_side), 24 * G);
     b.check(0, all_lines(&[&platform, &winner_side])).unwrap();
 }
 
 #[test]
 fn fee_cuts_move_shares_with_the_ready_part() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut loser = gline(CLASS_GENERAL, 1);
     b.issue(&mut loser, 128).unwrap();
     land(&mut b, 64 * G, 64); // 64 ready backed by 64 shares
@@ -1008,42 +1174,43 @@ fn fee_cuts_move_shares_with_the_ready_part() {
 }
 
 #[test]
-fn slashing_lowers_value_and_never_the_gema_count() {
-    // The shares behind ready are fixed when yield lands; the value of a share follows the staking
-    // token. The ledger's part: ready Gemas of a class share that class's shares, redeeming pays
-    // them at the pool's rate rounded down, and no landing ever lowers a holder's ready count.
-    let mut b = SourceBook::new();
+fn a_holder_keeps_the_shares_its_yield_was_worth_when_it_landed() {
+    // Founder D2: a ready Gema is a claim on the shares its yield was worth when it landed. Two
+    // holders of one class; the share price falls between landings; nothing is averaged.
+    let mut b = W::new();
     let mut a = gline(CLASS_GENERAL, 1);
     let mut c = gline(CLASS_GENERAL, 2);
     b.issue(&mut a, 100).unwrap();
     let mut a2 = a;
     b.transfer(&mut a2, &mut c, 50).unwrap();
     a = a2;
-    land(&mut b, 100 * G, 90); // 100 ready worth 90 shares
-    assert_eq!(b.shares_for(CLASS_GENERAL, 100).unwrap(), 90);
-    assert_eq!(b.redeem(&mut a, 50).unwrap().shares, 45);
-    assert_eq!(
-        b.redeem(&mut c, 25).unwrap().shares,
-        22,
-        "22.5 paid as 22: against the redeemer"
-    );
-    let pool = b.classes[CLASS_GENERAL as usize];
-    assert_eq!((pool.ready, pool.shares), (25 * G, 23 << SHARE_BITS));
-    // later yield lands at a lower share price (after a slash it takes more shares to carry the
-    // same value): the pool takes it in, and c still has exactly its 25 ready Gemas
-    let mut d = gline(CLASS_GENERAL, 3);
-    b.issue(&mut d, 100).unwrap();
-    land(&mut b, 100 * G, 130);
-    assert_eq!(ready(&b, &c), 25 * G, "the Gema count never goes down");
-    let pool = b.classes[CLASS_GENERAL as usize];
-    assert_eq!((pool.ready, pool.shares), (125 * G, 153 << SHARE_BITS));
-    assert_eq!(b.shares_for(CLASS_GENERAL, 25).unwrap(), 30);
-    b.check(75, all_lines(&[&c, &d])).unwrap();
+    // 50 Gemas land at 1 share each: each holder repaid 25 and owns 25 shares
+    land(&mut b, 50 * G, 50);
+    near(b.shares(&a), 25 << SHARE_BITS);
+    near(b.shares(&c), 25 << SHARE_BITS);
+    // a redeems its 25 ready Gemas now and is paid their 25 shares; c waits
+    assert_eq!(b.redeem(&mut a, 25).unwrap().shares, 25);
+    // the rest lands after a slash: 2 shares carry one Gema's value
+    land(&mut b, 50 * G, 100);
+    // c: 25 x 1 + 25 x 2 = 75; a: only the second landing, 25 x 2 = 50
+    near(b.shares(&c), 75 << SHARE_BITS);
+    near(b.shares(&a), 50 << SHARE_BITS);
+    // touching changes nothing about what a line owns
+    let mut c_touched = c;
+    b.materialise(&mut c_touched).unwrap();
+    assert_eq!(b.shares(&c_touched), b.shares(&c));
+    assert_eq!(ready(&b, &c), 50 * G, "the Gema count never goes down");
+    b.check(25, all_lines(&[&a, &c])).unwrap();
+}
+
+/// `got` is `want` or a few units under it (rounding is always against the holder).
+fn near(got: u128, want: u128) {
+    assert!(got <= want && want - got < 64, "{got} vs {want}");
 }
 
 #[test]
 fn coverage_is_a_high_water_mark() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut a = gline(CLASS_GENERAL, 1);
     b.issue(&mut a, 100).unwrap();
     land(&mut b, 40 * G, 40);
@@ -1060,7 +1227,7 @@ fn coverage_is_a_high_water_mark() {
 
 #[test]
 fn coverage_beyond_everything_unpaid_is_the_owners() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut a = gline(CLASS_GENERAL, 1);
     b.issue(&mut a, 10).unwrap();
     let l = land(&mut b, 25 * G, 25);
@@ -1082,7 +1249,7 @@ fn coverage_beyond_everything_unpaid_is_the_owners() {
 fn tiny_transfers_cannot_farm_rounding() {
     // Many one-Gema moves back and forth: nothing is created, and the rounding that is lost goes
     // to the owner's pocket, never to either side.
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut x = gline(CLASS_GENERAL, 1);
     let mut y = gline(CLASS_GENERAL, 2);
     b.issue(&mut x, 1_001).unwrap();
@@ -1114,7 +1281,7 @@ fn tiny_transfers_cannot_farm_rounding() {
 
 #[test]
 fn a_class_drained_by_return_own_marks_the_rest_fully_repaid() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut owner = gline(CLASS_GENERAL, 0);
     b.issue(&mut owner, 128).unwrap();
     let mut other = gline(CLASS_GENERAL, 1);
@@ -1134,7 +1301,7 @@ fn a_class_drained_by_return_own_marks_the_rest_fully_repaid() {
 
 #[test]
 fn errors_change_nothing() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut a = gline(CLASS_GENERAL, 1);
     b.issue(&mut a, 10).unwrap();
     land(&mut b, 4 * G, 4);
@@ -1171,7 +1338,7 @@ fn errors_change_nothing() {
 
 #[test]
 fn overflow_at_the_u64_edge_is_refused_without_changes() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut a = gline(CLASS_GENERAL, 1);
     b.issue(&mut a, u64::MAX - 5).unwrap();
     let before = (b.clone(), a);
@@ -1197,13 +1364,13 @@ fn overflow_at_the_u64_edge_is_refused_without_changes() {
 
 #[test]
 fn an_exhausted_epoch_counter_is_refused_atomically() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut a = gline(CLASS_GENERAL, 1);
     b.issue(&mut a, 10).unwrap();
     b.classes[CLASS_GENERAL as usize].epoch = u32::MAX;
     a.epoch = u32::MAX;
     let before = b.clone();
-    assert_eq!(b.land(10 * G, 0), Err(BookError::Math));
+    assert_eq!(b.land(10 * G, 0), Err(BookError::CounterExhausted));
     assert_eq!(b, before);
 }
 
@@ -1244,7 +1411,7 @@ fn the_book_survives_a_round_trip_through_bytes() {
     }
     assert!(SourceBook::decode(&[0u8; 10]).is_err());
     let mut zero_p = vec![0u8; SourceBook::encoded_len(0)];
-    SourceBook::new().encode(&mut zero_p).unwrap();
+    W::new().encode(&mut zero_p).unwrap();
     zero_p[BOOK_FIXED_LEN] = 0;
     for b in zero_p[BOOK_FIXED_LEN..BOOK_FIXED_LEN + 16].iter_mut() {
         *b = 0;
@@ -1254,7 +1421,7 @@ fn the_book_survives_a_round_trip_through_bytes() {
 
 #[test]
 fn landing_splits_shares_by_what_each_class_took() {
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut p = gline(0, 10);
     let mut g = gline(CLASS_GENERAL, 0);
     b.issue(&mut p, 10).unwrap();
@@ -1264,7 +1431,7 @@ fn landing_splits_shares_by_what_each_class_took() {
     assert_eq!(b.classes[0].shares, 20 << SHARE_BITS);
     assert_eq!(b.classes[CLASS_GENERAL as usize].shares, 180 << SHARE_BITS);
     // with excess: 30 owed, 50 lands worth 100 shares: 60 shares to the class, 40 to the owner
-    let mut b = SourceBook::new();
+    let mut b = W::new();
     let mut g = gline(CLASS_GENERAL, 0);
     b.issue(&mut g, 30).unwrap();
     land(&mut b, 50 * G, 100);
@@ -1283,7 +1450,7 @@ fn junior_classes_never_touch_senior_ones() {
     // can observe may differ: not their lines, not their ready, not the class state.
     for seed in 0..60u64 {
         let mut r = Rng(seed ^ 0xABCD);
-        let (mut a, mut b) = (SourceBook::new(), SourceBook::new());
+        let (mut a, mut b) = (W::new(), W::new());
         let mut la: BTreeMap<u8, Line> = BTreeMap::new();
         let mut lb: BTreeMap<u8, Line> = BTreeMap::new();
         let mut ext: BTreeMap<(u8, u8), Line> = BTreeMap::new();
@@ -1418,4 +1585,337 @@ fn junior_classes_never_touch_senior_ones() {
 fn pick_general(lines: &BTreeMap<u8, Line>, r: &mut Rng) -> u8 {
     let ids: Vec<u8> = lines.keys().copied().filter(|k| *k < 100).collect();
     ids[r.below(ids.len() as u64) as usize]
+}
+
+// ---------------------------------------------------------------- share sequences from the reviews
+//
+// `review-pooled-shares-claude.md` and `-codex.md`: the sequences that moved value between holders
+// when a class pooled its shares. Each runs through `Sys`, so every step is also checked against
+// the exact model, the conservation identities and the bounds.
+
+const PRICE: u128 = 1 << SHARE_BITS;
+
+#[test]
+fn sweeping_early_does_not_move_a_patient_holders_shares() {
+    // Same landings in two worlds; in one the other holder redeems everything ready after every
+    // landing. The patient holder must own the same shares in both.
+    let run_world = |sweep: bool| {
+        let mut sys = Sys::new();
+        sys.issue((OWNER, CLASS_GENERAL), 2_000);
+        sys.transfer((OWNER, CLASS_GENERAL), (1, CLASS_GENERAL), 1_000);
+        sys.transfer((OWNER, CLASS_GENERAL), (2, CLASS_GENERAL), 1_000);
+        for day in 0..60u128 {
+            // the share price falls 0.3% a day (the rate rises) and jumps down once (a slash)
+            let per_gema = 1_000_000u128 - day * 3_000 - if day >= 40 { 50_000 } else { 0 };
+            let d = 25 * G + day;
+            sys.sync(d, d / G * per_gema * PRICE / 1_000_000);
+            if sweep {
+                let l = sys.lines[&(1, CLASS_GENERAL)];
+                let k = fp_floor(sys.book.ready_of(&l).unwrap());
+                if k > 0 {
+                    sys.redeem((1, CLASS_GENERAL), k);
+                }
+            }
+        }
+        (
+            sys.book
+                .shares_of(&sys.lines[&(2, CLASS_GENERAL)], &sys.ck)
+                .unwrap(),
+            sys,
+        )
+    };
+    let (patient_with_sweeper, _) = run_world(true);
+    let (patient_alone, sys) = run_world(false);
+    assert!(
+        patient_with_sweeper.abs_diff(patient_alone) < 1 << 10,
+        "{patient_with_sweeper} vs {patient_alone}"
+    );
+    // and the sweeper's own redeemed shares are what its own landings were worth: both holders
+    // earn the same here, so the world without sweeping gives each the same shares
+    let a = sys
+        .book
+        .shares_of(&sys.lines[&(1, CLASS_GENERAL)], &sys.ck)
+        .unwrap();
+    assert!(a.abs_diff(patient_alone) < 1 << 10);
+}
+
+#[test]
+fn recycling_an_advance_cannot_reach_old_holders_shares() {
+    // Review: the owner repays Advance 1, old holders keep ready Gemas, the owner issues Advance 2
+    // into the same class and its new Gemas used to be priced with the old pool.
+    let mut sys = Sys::new();
+    sys.issue((OWNER, CLASS_GENERAL), 100);
+    sys.transfer((OWNER, CLASS_GENERAL), (1, CLASS_GENERAL), 100);
+    sys.sync(100 * G, 100 * PRICE); // epoch 0 fully repaid at 1 share per Gema
+    let old = sys
+        .book
+        .shares_of(&sys.lines[&(1, CLASS_GENERAL)], &sys.ck)
+        .unwrap();
+    near(old, 100 * PRICE);
+    // Advance 2 into the same class, repaid after the share price halved
+    sys.issue((OWNER, CLASS_GENERAL), 100);
+    sys.sync(100 * G, 200 * PRICE);
+    let owner = sys
+        .book
+        .shares_of(&sys.lines[&(OWNER, CLASS_GENERAL)], &sys.ck)
+        .unwrap();
+    near(owner, 200 * PRICE);
+    assert_eq!(
+        sys.book
+            .shares_of(&sys.lines[&(1, CLASS_GENERAL)], &sys.ck)
+            .unwrap(),
+        old,
+        "the old holder's shares did not move"
+    );
+    // a slash between the landings: the holder who was unpaid at the slash carries nothing of it
+    sys.issue((OWNER, CLASS_GENERAL), 100);
+    sys.sync(50 * G, 50 * PRICE);
+    sys.sync(50 * G, 150 * PRICE); // slash: three shares per Gema now
+    let o = sys
+        .book
+        .shares_of(&sys.lines[&(OWNER, CLASS_GENERAL)], &sys.ck)
+        .unwrap();
+    near(o, 200 * PRICE + 50 * PRICE + 150 * PRICE);
+}
+
+#[test]
+fn studio_claim_timing_does_not_matter() {
+    // Two outside studios with equal Studio lines; one claims after every landing, one at the end.
+    let run_world = |claims: bool| {
+        let mut sys = Sys::new();
+        sys.issue((20, 1), 50);
+        sys.issue((21, 1), 50);
+        let mut paid = 0u128;
+        for (i, price) in [1u128, 3, 2, 5].iter().enumerate() {
+            sys.sync(25 * G, 25 * price * PRICE);
+            if claims && i < 3 {
+                let l = sys.lines[&(20, 1)];
+                let k = fp_floor(sys.book.ready_of(&l).unwrap());
+                if k > 0 {
+                    let before = sys.shares_paid_fp;
+                    sys.redeem((20, 1), k);
+                    paid += (sys.shares_paid_fp - before) / PRICE;
+                }
+            }
+        }
+        let a = sys
+            .lines
+            .get(&(20, 1))
+            .map_or(0, |l| sys.book.shares_of(l, &sys.ck).unwrap());
+        let b = sys.book.shares_of(&sys.lines[&(21, 1)], &sys.ck).unwrap();
+        (a, b, paid)
+    };
+    let (a_late, b_late, _) = run_world(false);
+    let (a_early, b_early, paid_early) = run_world(true);
+    assert!(
+        b_late.abs_diff(b_early) < 1 << 10,
+        "the other studio is unaffected"
+    );
+    // the early studio was paid whole shares along the way; what it still owns plus what it was
+    // paid is what the late studio owns, within the sub-share remainders
+    let total_early = a_early + paid_early * PRICE;
+    assert!(
+        total_early.abs_diff(a_late) < 8 * PRICE,
+        "{total_early} vs {a_late}"
+    );
+}
+
+#[test]
+fn a_dormant_holder_across_two_thousand_epochs_reads_only_its_own_records() {
+    let mut sys = Sys::new();
+    sys.issue((20, 1), 10); // X sleeps
+    sys.issue((21, 1), 10);
+    sys.sync(10 * G, 100 * PRICE);
+    sys.sync(10 * G, 100 * PRICE); // epoch 0 ends: X fully repaid
+    near(
+        sys.book.shares_of(&sys.lines[&(20, 1)], &sys.ck).unwrap(),
+        100 * PRICE,
+    );
+    let reads_before = sys.ck.reads.get();
+    for i in 0..2_000u128 {
+        // Y keeps cycling the class; each epoch writes one record
+        sys.frozen = vec![20];
+        sys.issue((21, 1), 1);
+        sys.sync(G, (7 + i % 3) * PRICE);
+    }
+    assert!(sys.book.classes[1].ck >= 2_000);
+    assert_eq!(sys.ck.len(1), sys.book.classes[1].ck);
+    assert!(
+        sys.ck.len(1) > checkpoint::PAGE_RECORDS * 50,
+        "records span many pages"
+    );
+    // X wakes: the catch-up reads the records of its own epoch only, not the 2,000 after it
+    let before = sys.ck.reads.get();
+    let x = sys.lines[&(20, 1)];
+    let shares = sys.book.shares_of(&x, &sys.ck).unwrap();
+    near(shares, 100 * PRICE);
+    let reads = sys.ck.reads.get() - before;
+    assert!(reads <= 2, "{reads} records read");
+    let _ = reads_before;
+    let r = {
+        let mut l = x;
+        sys.book.redeem(&mut l, 10, &sys.ck).unwrap()
+    };
+    assert_eq!(
+        r.shares,
+        99.max(r.shares).min(100),
+        "paid whole shares: {}",
+        r.shares
+    );
+}
+
+#[test]
+fn a_missing_checkpoint_is_refused_and_changes_nothing() {
+    let mut sys = Sys::new();
+    sys.issue((20, 1), 10);
+    sys.sync(10 * G, 100 * PRICE); // epoch ends: one record
+    let stale = sys.lines[&(20, 1)];
+    let mut book = sys.book.clone();
+    let none = checkpoint::NoCheckpoints;
+    let mut l = stale;
+    assert_eq!(
+        book.materialise(&mut l, &none),
+        Err(BookError::MissingCheckpoint)
+    );
+    assert_eq!((book, l), (sys.book.clone(), stale));
+    let mut dst = gline(1, 22);
+    let mut s2 = stale;
+    assert_eq!(
+        sys.book.transfer(&mut s2, &mut dst, 1, &none),
+        Err(BookError::MissingCheckpoint)
+    );
+}
+
+#[test]
+fn the_rounded_weight_counterexample_cannot_over_allocate_shares() {
+    // Codex: two one-Gema lines, 2 - 1 ulp lands, both rounded up when touched, then the last
+    // ulp lands with a lot of shares. A naive accumulator hands each line all of them.
+    let mut b = W::new();
+    let mut x = gline(CLASS_GENERAL, 1);
+    let mut y = gline(CLASS_GENERAL, 2);
+    b.issue(&mut x, 1).unwrap();
+    b.issue(&mut y, 1).unwrap();
+    let big = 1u128 << 60;
+    b.land(2 * G - 1, 0).unwrap();
+    b.materialise(&mut x).unwrap();
+    b.materialise(&mut y).unwrap();
+    let landed = b.h + 1;
+    b.land(landed, big).unwrap();
+    let total = b.shares(&x) + b.shares(&y);
+    assert!(total <= big, "lines own {total}, only {big} landed");
+    assert!(b.classes[CLASS_GENERAL as usize].shares >= total);
+}
+
+#[test]
+fn many_scale_changes_keep_a_stale_lines_shares_exact() {
+    // A big class repaid down to a sliver again and again: the index changes scale each time, and
+    // a line touched once at the start must still get every segment's share.
+    let mut sys = Sys::new();
+    sys.issue((OWNER, CLASS_GENERAL), 1 << 40);
+    sys.transfer((OWNER, CLASS_GENERAL), (1, CLASS_GENERAL), 1_000);
+    let mut r = Rng(5);
+    for _ in 0..25 {
+        let u = sys.book.uncovered_total();
+        let keep = (u >> r.range(30, 60)).max(1);
+        sys.sync(u - keep, (u - keep) >> 20);
+        sys.issue((OWNER, CLASS_GENERAL), r.range(1, 1 << 38));
+    }
+    assert!(
+        sys.book.classes[CLASS_GENERAL as usize].ck >= 5,
+        "scales changed"
+    );
+    // the stale holder's shares came through every segment; Sys checked them against the model
+    assert!(
+        sys.book
+            .shares_of(&sys.lines[&(1, CLASS_GENERAL)], &sys.ck)
+            .unwrap()
+            > 0
+    );
+}
+
+#[test]
+fn checkpoint_pages_round_trip_and_refuse_bad_bytes() {
+    use checkpoint::*;
+    let mut raw = vec![0u8; PAGE_LEN + 5];
+    let src = [3u8; 32];
+    let mut view = PageViewMut::init(&mut raw[1..], &src, 4, 9).unwrap();
+    let rec = |i: u32| Checkpoint {
+        epoch: i,
+        scale: i + 1,
+        ends_epoch: i.is_multiple_of(2),
+        s_end: U256([i as u64, 1, 2, u64::MAX]),
+    };
+    for i in 0..PAGE_RECORDS {
+        view.push(i, &rec(i)).unwrap();
+    }
+    assert_eq!(
+        view.push(PAGE_RECORDS, &rec(0)),
+        Err(BookError::BadCheckpoint)
+    );
+    // read from an unaligned offset
+    let read = PageView::new(&raw[1..], &src, 4, 9).unwrap();
+    assert_eq!(read.count(), PAGE_RECORDS);
+    for i in 0..PAGE_RECORDS {
+        assert_eq!(read.get(i).unwrap(), Some(rec(i)));
+    }
+    assert!(
+        PageView::new(&raw[1..], &[4u8; 32], 4, 9).is_err(),
+        "wrong Source"
+    );
+    assert!(PageView::new(&raw[1..], &src, 5, 9).is_err(), "wrong class");
+    assert!(PageView::new(&raw[1..], &src, 4, 8).is_err(), "wrong page");
+    let mut bad = raw.clone();
+    bad[1 + PAGE_HEADER_LEN + 8] = 7; // flags
+    assert_eq!(
+        PageView::new(&bad[1..], &src, 4, 9).unwrap().get(0),
+        Err(BookError::BadCheckpoint)
+    );
+    assert_eq!(PAGE_LEN, 1_576);
+}
+
+#[test]
+fn a_tiny_index_is_scaled_up_before_it_is_multiplied() {
+    // A landing that leaves a few units unpaid in a huge class leaves P tiny. The next landing
+    // scales it up first (closing a segment of the share sum) and nothing a line owns changes.
+    let mut sys = Sys::new();
+    sys.issue((OWNER, CLASS_GENERAL), 1 << 36);
+    sys.transfer((OWNER, CLASS_GENERAL), (1, CLASS_GENERAL), 1_000); // stale from here on
+    let u = sys.book.uncovered_total();
+    sys.sync(u - 7, 5 << 50);
+    let c = sys.book.classes[CLASS_GENERAL as usize];
+    assert!(c.p < P_MIN, "P is tiny after leaving 7 units: {}", c.p);
+    let records = c.ck;
+    sys.issue((OWNER, CLASS_GENERAL), 100);
+    sys.sync(3, 1 << 20);
+    let c = sys.book.classes[CLASS_GENERAL as usize];
+    assert!(
+        c.p >= P_MIN && c.ck > records,
+        "scaled up with a closed segment"
+    );
+    sys.sync(sys.book.uncovered_total() / 3, 1 << 45);
+}
+
+#[test]
+fn gains_round_down_and_never_exceed_what_the_lines_earned() {
+    // 3 holders of 10 Gemas; an awkward number of shares lands: the floor of each share is dropped
+    // and the total stays under what landed.
+    let mut b = W::new();
+    let mut ls = [
+        gline(CLASS_GENERAL, 1),
+        gline(CLASS_GENERAL, 2),
+        gline(CLASS_GENERAL, 3),
+    ];
+    for l in ls.iter_mut() {
+        b.issue(l, 10).unwrap();
+    }
+    for q in [1u128, 2, 10, 1_000_001, (1 << 70) + 12_345] {
+        let to = b.h + G;
+        b.land(to, q).unwrap();
+    }
+    let landed: u128 = [1u128, 2, 10, 1_000_001, (1 << 70) + 12_345].iter().sum();
+    let total: u128 = ls.iter().map(|l| b.shares(l)).sum();
+    assert!(
+        total <= landed && landed - total < 16,
+        "{total} of {landed}"
+    );
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::ledger::book::wide::U256;
 
 fn line(side: u8, due_at: i64, src: u8, class: u8, tranche: u8, amount: u64) -> Line {
     Line {
@@ -12,7 +13,10 @@ fn line(side: u8, due_at: i64, src: u8, class: u8, tranche: u8, amount: u64) -> 
         p: 1 << 64,
         scale: 1,
         epoch: 2,
-        reserved: [0; 5],
+        ck: 3,
+        shares: amount as u128 * 5,
+        s_snap: U256([7, 0, 0, 1]),
+        reserved: [0; 1],
     }
 }
 
@@ -25,12 +29,13 @@ fn fresh(cap: usize) -> Vec<u8> {
 #[test]
 fn layout_constants_are_what_the_docs_say() {
     assert_eq!(HEADER_LEN, 128);
-    assert_eq!(LINE_LEN, 96);
+    assert_eq!(LINE_LEN, 144);
     let l = line(1, -5, 3, CLASS_GENERAL, 0, 11);
     let mut raw = [0xAAu8; LINE_LEN];
     l.encode(&mut raw);
     assert_eq!(Line::decode(&raw), l);
-    assert_eq!(&raw[91..], &[0; 5]);
+    assert_eq!(&raw[143..], &[0; 1]);
+    assert_eq!(&raw[91..95], &3u32.to_le_bytes());
 }
 
 #[test]
@@ -146,13 +151,13 @@ fn merge_adds_only_after_materialise_and_keeps_reserved_bytes() {
     let mut buf = fresh(2);
     let mut s = LineStore::new(&mut buf[..]).unwrap();
     let mut base = line(1, 5, 1, CLASS_GENERAL, 0, 10);
-    base.reserved = [7; 5];
+    base.reserved = [7; 1];
     s.insert(&base).unwrap();
     let add = line(1, 5, 1, CLASS_GENERAL, 0, 4);
     assert_eq!(s.merge(&add), Ok(0));
     let got = s.get(0).unwrap();
-    assert_eq!((got.amount, got.uncovered), (14, 42));
-    assert_eq!(got.reserved, [7; 5]);
+    assert_eq!((got.amount, got.uncovered, got.shares), (14, 42, 70));
+    assert_eq!(got.reserved, [7; 1]);
     assert_eq!(s.won_total(), 14);
 
     let mut stale = add;
@@ -284,7 +289,10 @@ fn pool_line(r: &mut Rng) -> Line {
         p: 1 << 64,
         scale: r.below(2) as u32,
         epoch: 0,
-        reserved: [0; 5],
+        ck: 0,
+        shares: r.next() as u128 >> 4,
+        s_snap: U256([0; 4]),
+        reserved: [0; 1],
     }
 }
 
@@ -326,7 +334,8 @@ fn run_ops(seed: u64, ops: u64) {
                     let mut l = m.lines[r.below(m.lines.len() as u64) as usize];
                     l.amount = r.below(1000);
                     l.uncovered = r.next() as u128 >> 4;
-                    l.reserved = [0; 5];
+                    l.shares = r.next() as u128 >> 4;
+                    l.reserved = [0; 1];
                     l
                 } else {
                     pool_line(&mut r)
@@ -342,6 +351,7 @@ fn run_ops(seed: u64, ops: u64) {
                             let o = &mut m.lines[i];
                             o.amount += inc.amount;
                             o.uncovered += inc.uncovered;
+                            o.shares += inc.shares;
                             Ok(i)
                         }
                     }
@@ -355,7 +365,7 @@ fn run_ops(seed: u64, ops: u64) {
                     let mut l = m.lines[i];
                     l.amount = r.below(1000);
                     l.uncovered = r.next() as u128 >> 4;
-                    l.reserved = [r.below(3) as u8; 5];
+                    l.reserved = [r.below(3) as u8; 1];
                     if r.below(4) == 0 {
                         l.due_at += 100;
                         assert_eq!(s.set_line(i, &l), Err(LineStoreError::KeyChanged));

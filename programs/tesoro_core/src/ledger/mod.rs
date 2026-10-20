@@ -141,6 +141,10 @@ core_errors! {
     NoSuchClass => "the Source has no such class or Extension tranche",
     TooManyExtensions => "a Source has at most 11 Extension tranches",
     NotAFeeCut => "a fee cut moves Gemas of a playable class into a fee class of the same Source",
+    MissingCheckpoint => "a line needs a closed-segment record that was not supplied",
+    BadCheckpoint => "a checkpoint record or page is malformed",
+    CounterExhausted => "a class counter (epoch, scale or segment number) is exhausted",
+    NotPooled => "only the pooled fee classes answer this",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -210,6 +214,10 @@ impl From<book::BookError> for CoreError {
             B::NotEnoughAmount => CoreError::InsufficientGemas,
             B::NotEnoughReady => CoreError::ExceedsRedeemable,
             B::NotAFeeCut => CoreError::NotAFeeCut,
+            B::MissingCheckpoint => CoreError::MissingCheckpoint,
+            B::BadCheckpoint => CoreError::BadCheckpoint,
+            B::CounterExhausted => CoreError::CounterExhausted,
+            B::NotPooled => CoreError::NotPooled,
         }
     }
 }

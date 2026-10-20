@@ -152,83 +152,51 @@ impl U256 {
 
     /// Quotient and remainder of `self / d`. `d` must not be zero.
     pub fn div_rem(&self, d: u128) -> (U256, u128) {
-        debug_assert!(d != 0);
-        // significant limbs of the dividend
-        let len = 4 - self.0.iter().rev().take_while(|l| **l == 0).count();
-        if len <= 2 {
-            let n = self.0[0] as u128 | (self.0[1] as u128) << 64;
-            return (U256::from_u128(n / d), n % d);
-        }
-        if d <= u64::MAX as u128 {
-            let mut q = [0u64; 4];
-            let mut rem: u128 = 0;
-            for i in (0..len).rev() {
-                let cur = (rem << 64) | self.0[i] as u128;
-                if cur >= d {
-                    q[i] = (cur / d) as u64;
-                    rem = cur % d;
-                } else {
-                    rem = cur;
-                }
-            }
-            return (U256(q), rem);
-        }
-        // Knuth algorithm D with a two-limb divisor and a dividend of 3 or 4 limbs.
-        let shift = ((d >> 64) as u64).leading_zeros();
-        let v = d << shift;
-        let (v0, v1) = (v as u64 as u128, (v >> 64) as u64 as u128);
-        // dividend << shift, one limb longer
-        let mut un = [0u64; 5];
-        if shift == 0 {
-            un[..4].copy_from_slice(&self.0);
-        } else {
-            un[4] = self.0[3] >> (64 - shift);
-            for i in (1..4).rev() {
-                un[i] = (self.0[i] << shift) | (self.0[i - 1] >> (64 - shift));
-            }
-            un[0] = self.0[0] << shift;
-        }
-        let mut q = [0u64; 4];
-        for j in (0..=len - 2).rev() {
-            let num = ((un[j + 2] as u128) << 64) | un[j + 1] as u128;
-            let mut qhat = num / v1;
-            let mut rhat = num % v1;
-            while qhat >> 64 != 0 || qhat * v0 > ((rhat << 64) | un[j] as u128) {
-                qhat -= 1;
-                rhat += v1;
-                if rhat >> 64 != 0 {
-                    break;
-                }
-            }
-            // un[j..j+3] -= qhat * v
-            let mut borrow: i128 = 0;
-            let mut carry: u128 = 0;
-            let prods = [qhat * v0, qhat * v1];
-            for (i, prod) in prods.iter().enumerate() {
-                let p = prod + carry;
-                carry = p >> 64;
-                let t = un[i + j] as i128 - borrow - (p as u64 as i128);
-                un[i + j] = t as u64;
-                borrow = if t < 0 { 1 } else { 0 };
-            }
-            let t = un[j + 2] as i128 - borrow - carry as i128;
-            un[j + 2] = t as u64;
-            if t < 0 {
-                // qhat was one too large: add the divisor back
-                qhat -= 1;
-                let mut c: u128 = 0;
-                for (i, vi) in [v0, v1].iter().enumerate() {
-                    let s = un[i + j] as u128 + vi + c;
-                    un[i + j] = s as u64;
-                    c = s >> 64;
-                }
-                un[j + 2] = un[j + 2].wrapping_add(c as u64);
-            }
-            q[j] = qhat as u64;
-        }
-        debug_assert_eq!(un[2], 0);
-        let r = (((un[1] as u128) << 64) | un[0] as u128) >> shift;
+        let (q, r) = div_rem_limbs(&self.0, d);
         (U256(q), r)
+    }
+
+    pub fn checked_add(&self, o: &U256) -> Option<U256> {
+        let mut out = [0u64; 4];
+        let mut carry = false;
+        for (i, slot) in out.iter_mut().enumerate() {
+            let (v1, c1) = self.0[i].overflowing_add(o.0[i]);
+            let (v2, c2) = v1.overflowing_add(carry as u64);
+            *slot = v2;
+            carry = c1 || c2;
+        }
+        (!carry).then_some(U256(out))
+    }
+
+    /// `self - o`, `None` if `o` is larger.
+    pub fn checked_sub(&self, o: &U256) -> Option<U256> {
+        let mut out = [0u64; 4];
+        let mut borrow = false;
+        for (i, slot) in out.iter_mut().enumerate() {
+            let (v1, b1) = self.0[i].overflowing_sub(o.0[i]);
+            let (v2, b2) = v1.overflowing_sub(borrow as u64);
+            *slot = v2;
+            borrow = b1 || b2;
+        }
+        (!borrow).then_some(U256(out))
+    }
+
+    pub fn to_le_bytes(&self) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        for (i, limb) in self.0.iter().enumerate() {
+            out[i * 8..i * 8 + 8].copy_from_slice(&limb.to_le_bytes());
+        }
+        out
+    }
+
+    pub fn from_le_bytes(b: &[u8; 32]) -> U256 {
+        let mut limbs = [0u64; 4];
+        for (i, limb) in limbs.iter_mut().enumerate() {
+            let mut w = [0u8; 8];
+            w.copy_from_slice(&b[i * 8..i * 8 + 8]);
+            *limb = u64::from_le_bytes(w);
+        }
+        U256(limbs)
     }
 
     pub fn cmp_wide(&self, other: &U256) -> Ordering {
@@ -270,4 +238,172 @@ pub fn mul_div_wide(a: u128, b: u128, d: u128, round: Round) -> Option<U256> {
         return q.checked_inc();
     }
     Some(q)
+}
+
+/// Quotient and remainder of a little-endian limb number divided by a non-zero `u128`
+/// (Knuth algorithm D, no allocation). `N` is at most 7.
+pub fn div_rem_limbs<const N: usize>(n: &[u64; N], d: u128) -> ([u64; N], u128) {
+    debug_assert!(d != 0 && N <= 7);
+    let len = N - n.iter().rev().take_while(|l| **l == 0).count();
+    let mut q = [0u64; N];
+    if len <= 2 {
+        let lo = if N > 0 { n[0] as u128 } else { 0 };
+        let hi = if N > 1 { (n[1] as u128) << 64 } else { 0 };
+        let v = lo | hi;
+        let (qv, rv) = (v / d, v % d);
+        if N > 0 {
+            q[0] = qv as u64;
+        }
+        if N > 1 {
+            q[1] = (qv >> 64) as u64;
+        }
+        return (q, rv);
+    }
+    if d <= u64::MAX as u128 {
+        let mut rem: u128 = 0;
+        for i in (0..len).rev() {
+            let cur = (rem << 64) | n[i] as u128;
+            if cur >= d {
+                q[i] = (cur / d) as u64;
+                rem = cur % d;
+            } else {
+                rem = cur;
+            }
+        }
+        return (q, rem);
+    }
+    // Knuth algorithm D with a two-limb divisor.
+    let shift = ((d >> 64) as u64).leading_zeros();
+    let v = d << shift;
+    let (v0, v1) = (v as u64 as u128, (v >> 64) as u64 as u128);
+    let mut un = [0u64; 8];
+    if shift == 0 {
+        un[..N].copy_from_slice(n);
+    } else {
+        un[N] = n[N - 1] >> (64 - shift);
+        for i in (1..N).rev() {
+            un[i] = (n[i] << shift) | (n[i - 1] >> (64 - shift));
+        }
+        un[0] = n[0] << shift;
+    }
+    for j in (0..=len - 2).rev() {
+        let num = ((un[j + 2] as u128) << 64) | un[j + 1] as u128;
+        let mut qhat = num / v1;
+        let mut rhat = num % v1;
+        while qhat >> 64 != 0 || qhat * v0 > ((rhat << 64) | un[j] as u128) {
+            qhat -= 1;
+            rhat += v1;
+            if rhat >> 64 != 0 {
+                break;
+            }
+        }
+        let mut borrow: i128 = 0;
+        let mut carry: u128 = 0;
+        let prods = [qhat * v0, qhat * v1];
+        for (i, prod) in prods.iter().enumerate() {
+            let p = prod + carry;
+            carry = p >> 64;
+            let t = un[i + j] as i128 - borrow - (p as u64 as i128);
+            un[i + j] = t as u64;
+            borrow = if t < 0 { 1 } else { 0 };
+        }
+        let t = un[j + 2] as i128 - borrow - carry as i128;
+        un[j + 2] = t as u64;
+        if t < 0 {
+            qhat -= 1;
+            let mut c: u128 = 0;
+            for (i, vi) in [v0, v1].iter().enumerate() {
+                let s = un[i + j] as u128 + vi + c;
+                un[i + j] = s as u64;
+                c = s >> 64;
+            }
+            un[j + 2] = un[j + 2].wrapping_add(c as u64);
+        }
+        q[j] = qhat as u64;
+    }
+    debug_assert_eq!(un[2], 0);
+    let r = (((un[1] as u128) << 64) | un[0] as u128) >> shift;
+    (q, r)
+}
+
+/// `a * b` for a `u128` and a 256-bit number: six limbs.
+pub fn mul_u128_u256(a: u128, b: &U256) -> [u64; 6] {
+    let al = [a as u64, (a >> 64) as u64];
+    let mut out = [0u64; 6];
+    for (i, ai) in al.iter().enumerate() {
+        let mut carry: u128 = 0;
+        for j in 0..4 {
+            let t = (*ai as u128) * (b.0[j] as u128) + out[i + j] as u128 + carry;
+            out[i + j] = t as u64;
+            carry = t >> 64;
+        }
+        out[i + 4] = carry as u64;
+    }
+    out
+}
+
+/// `floor(n / 2^bits)`, or rounded up, over `N` limbs.
+pub fn shr_limbs<const N: usize>(n: &[u64; N], bits: u32, round: Round) -> [u64; N] {
+    let total = N as u32 * 64;
+    if bits == 0 {
+        return *n;
+    }
+    let nonzero = n.iter().any(|l| *l != 0);
+    if bits >= total {
+        let mut out = [0u64; N];
+        if round == Round::Up && nonzero {
+            out[0] = 1;
+        }
+        return out;
+    }
+    let limbs = (bits / 64) as usize;
+    let rem = bits % 64;
+    let mut out = [0u64; N];
+    let mut lost = n[..limbs].iter().any(|l| *l != 0);
+    for (i, slot) in out.iter_mut().enumerate() {
+        let src = i + limbs;
+        if src >= N {
+            break;
+        }
+        let mut v = n[src] >> rem;
+        if rem != 0 && src + 1 < N {
+            v |= n[src + 1] << (64 - rem);
+        }
+        *slot = v;
+    }
+    if rem != 0 && (n[limbs] & ((1u64 << rem) - 1)) != 0 {
+        lost = true;
+    }
+    if round == Round::Up && lost {
+        for limb in out.iter_mut() {
+            let (v, c) = limb.overflowing_add(1);
+            *limb = v;
+            if !c {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// The value as a `u128` if the limbs above the second are zero.
+pub fn limbs_to_u128<const N: usize>(n: &[u64; N]) -> Option<u128> {
+    if n.iter().skip(2).any(|l| *l != 0) {
+        return None;
+    }
+    let lo = if N > 0 { n[0] as u128 } else { 0 };
+    let hi = if N > 1 { (n[1] as u128) << 64 } else { 0 };
+    Some(lo | hi)
+}
+
+/// The value as a 256-bit number if the limbs above the fourth are zero.
+pub fn limbs_to_u256<const N: usize>(n: &[u64; N]) -> Option<U256> {
+    if n.iter().skip(4).any(|l| *l != 0) {
+        return None;
+    }
+    let mut out = [0u64; 4];
+    for (i, l) in n.iter().take(4).enumerate() {
+        out[i] = *l;
+    }
+    Some(U256(out))
 }
