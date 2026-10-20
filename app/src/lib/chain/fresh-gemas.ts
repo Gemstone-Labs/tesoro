@@ -9,3 +9,11 @@ export function checkGemas(available: bigint | number, entry: number, confirmedF
   if (BigInt(available) >= BigInt(entry)) return "enough";
   return confirmedFresh ? "short" : "recheck";
 }
+
+/**
+ * The entry was refused for lack of Gemas. When the balance on screen already covers the entry, the Gemas just
+ * opened have not reached the read the entry used yet ("landing": try again); otherwise the Player is short.
+ */
+export function chainShortfall(available: bigint | number, entry: number): "short" | "landing" {
+  return BigInt(available) >= BigInt(entry) ? "landing" : "short";
+}

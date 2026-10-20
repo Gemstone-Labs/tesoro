@@ -55,7 +55,8 @@ export const createAccountIx = (authority: PublicKey): Promise<TransactionInstru
 export async function ensureReady(signer: ChainSigner, getToken: GetToken, onStep?: (s: string) => void): Promise<AccountSnapshot> {
   onStep?.("Checking your SOL and Account…");
   await ensureSol(signer, getToken, MIN_SOL_LAMPORTS);
-  let snap = await fetchAccountState(signer.publicKey);
+  // Fresh: an entry draws on these Holdings, and Gemas opened a moment ago are not in the cached lists yet.
+  let snap = await fetchAccountState(signer.publicKey, { fresh: true });
   if (!snap.exists) {
     onStep?.(`Creating your ${BRAND.name} Account…`);
     await getChain().sendBase(signer, [await createAccountIx(signer.publicKey)]);
