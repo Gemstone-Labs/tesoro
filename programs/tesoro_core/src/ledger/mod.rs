@@ -11,6 +11,7 @@ pub mod book;
 pub mod draw;
 pub mod extend_limit;
 pub mod instant;
+pub mod lifecycle;
 pub mod line_store;
 pub mod matches;
 pub mod money;
