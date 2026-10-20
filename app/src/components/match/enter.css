@@ -31,5 +31,7 @@
   .enter-seat.seeking .enter-av, .enter-seat.seeking .enter-av img { animation: none; }
 }
 .enter-age { display: grid; gap: 12px; justify-items: center; }
+/* a sentence with a link: block text, not the .status flex row (a flex row made the link its own column) */
+.enter-age .status { display: block; text-align: center; line-height: 1.45; text-wrap: balance; }
 .enter-age a, .enter-age-link { color: var(--emerald, inherit); text-decoration: underline; }
 .enter-age-link { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }

@@ -107,9 +107,7 @@ export function GamePage({ game }: { game: GameId }) {
               {!awayText && (
                 <Button size="lg" onClick={() => auth.gate("Challenge a friend", () => router.push(query("challenge")))}>
                   <UserPlus aria-hidden="true" />
-                  <span>
-                    Challenge<span className="gp-friend"> a friend</span>
-                  </span>
+                  Challenge a friend
                 </Button>
               )}
               <Button size="lg" href={practiceHref(game, asset)}>

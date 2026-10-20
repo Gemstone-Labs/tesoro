@@ -16,7 +16,9 @@
 .gp-play-label { font-size: var(--fs-24); font-weight: 900; }
 .gp-play-sub { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-14); font-weight: 700; word-spacing: normal; opacity: 0.82; }
 .gp-play-sub svg { width: 15px; height: 15px; }
-.gp-more { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+/* side by side when both labels fit, stacked full width when they do not */
+.gp-more { display: flex; flex-wrap: wrap; gap: 12px; }
+.gp-more > .btn { flex: 1 1 auto; }
 .gp-more .btn.neutral { min-width: 0; min-height: 52px; gap: 9px; padding: 0 12px; font-size: var(--fs-16); white-space: nowrap; background: rgba(14, 19, 24, 0.82); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .gp-more .btn.neutral:hover { background: var(--surface-2); }
 .gp-more .btn svg { width: 18px; height: 18px; color: var(--fg-2); }
@@ -79,6 +81,5 @@
 .gp-hero .asset b { font-size: var(--fs-18); }
 
 @media (max-width: 420px) {
-  .gp-friend { display: none; }
   .gp-hero .entry span { font-size: var(--fs-18); }
 }
