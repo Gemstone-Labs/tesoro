@@ -1784,3 +1784,34 @@ fn unlock_closes_a_repaid_advance_and_pays_in_the_token() {
     env.redeem(&alice, pos, source, held).expect("late redeem");
     assert_eq!(env.gemas(&alice, source), 0);
 }
+
+// --- Ticket 11: the Treasury spends only realised fees (D1) -----------------------------------
+
+/// Failure 2 of the treasury slashing work, on the Solana staking custody: the Treasury balance
+/// counted the earned fee of OPEN Positions as spendable. The admin withdraws it, the pool is
+/// slashed, and the Player's Unlock finds the vault short of the shares it must return.
+#[test]
+fn an_open_positions_fee_is_not_spendable_so_a_slash_cannot_leave_unlock_short() {
+    let mut env = Env::new();
+    let alice = env.holder(10 * SOL);
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let company = env.person();
+    env.set_tokens(&company, 0);
+    env.set_company(company.key);
+    // The pool grows 10%: an open fee is earned but nothing is realised, because nobody unlocked.
+    env.set_total(1_430_000_000_000);
+    let rate = env.rate();
+    let balance = env.treasury_balance();
+    let units = ledger::units_for_tokens(balance, rate).unwrap();
+    // Whatever the Treasury balance says, the program must not hand out an unrealised fee.
+    let withdrawn = env.withdraw(company.token, units);
+    // The pool is then slashed below the rate Alice opened at.
+    env.set_total(1_170_000_000_000);
+    env.unlock(&alice, pos)
+        .unwrap_or_else(|e| panic!("unlock failed after withdraw {withdrawn:?}: {e:?}"));
+    assert_eq!(
+        env.token_balance(alice.token),
+        10 * SOL,
+        "Alice carries the slash as a token holder, not a missing-token failure"
+    );
+}
