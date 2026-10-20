@@ -1477,3 +1477,38 @@ fn fuzz_match_lifecycle_against_a_model() {
         assert!(c > 0, "the fuzz never exercised: {n}");
     }
 }
+
+#[test]
+fn room_plan_adds_up_when_the_outside_studio_also_plays() {
+    let mut rng = Rng(21);
+    let mut w = World::new(&mut rng);
+    let apart = open_with(
+        &mut w,
+        id(1, 0),
+        terms(true, 200, 300),
+        100,
+        party(1, 1, 0),
+        &[(100, 0, 60), (101, 0, 40)],
+        0,
+    );
+    let apart_room = apart.room_plan()[&key(1)];
+    // the same Match, but the studio's Account is the opener itself
+    let mut t = terms(true, 200, 300);
+    t.studio_owner = Some(key(1));
+    let pa = pot(&mut w, 1, &[(100, 0, 60), (101, 0, 40)]);
+    let same = MatchRecord::open(
+        id(1, 1),
+        MatchMeta::default(),
+        key(GAME),
+        key(AUTH),
+        SLOT,
+        t,
+        100,
+        &SIZES,
+        party(1, 1, 0),
+        pa,
+        0,
+    )
+    .unwrap();
+    assert_eq!(same.room_plan()[&key(1)], 2 * apart_room);
+}

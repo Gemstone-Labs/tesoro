@@ -539,7 +539,9 @@ impl MatchRecord {
             add(b.funder);
         }
         if let Some(s) = self.terms.studio_owner {
-            add(s);
+            // The Studio Fee lines (at most one per cut, so at most `n`) land in the same spill
+            // as that Account's own credits when it also plays or backs: the needs add up.
+            *out.entry(s).or_insert(0) += n;
         }
         out
     }
