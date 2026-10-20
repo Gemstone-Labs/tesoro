@@ -7,6 +7,7 @@
 //! untouched.
 
 pub mod backing;
+pub mod book;
 pub mod extend_limit;
 pub mod line_store;
 pub mod matches;
@@ -136,6 +137,10 @@ core_errors! {
     ProtectionCannotShorten => "a Break or Self-Exclusion cannot end earlier than it already does",
     StaleStakePool => "the staking pool has not been updated this epoch or the one before",
     NoStakingGrowth => "the staking token shows no growth to size an Advance on",
+    BookInconsistent => "a Source's bookkeeping contradicts itself",
+    NoSuchClass => "the Source has no such class or Extension tranche",
+    TooManyExtensions => "a Source has at most 11 Extension tranches",
+    NotAFeeCut => "a fee cut moves Gemas of a playable class into a fee class of the same Source",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -190,4 +195,21 @@ pub fn validate_entry_sizes(sizes: &[u64]) -> CoreResult<()> {
         }
     }
     Ok(())
+}
+
+impl From<book::BookError> for CoreError {
+    fn from(e: book::BookError) -> CoreError {
+        use book::BookError as B;
+        match e {
+            B::Math => CoreError::Math,
+            B::BadSnapshot | B::Corrupt(_) => CoreError::BookInconsistent,
+            B::NoSuchClass => CoreError::NoSuchClass,
+            B::TooManyExtensions => CoreError::TooManyExtensions,
+            B::ClassMismatch => CoreError::SourceMismatch,
+            B::ZeroAmount => CoreError::ZeroAmount,
+            B::NotEnoughAmount => CoreError::InsufficientGemas,
+            B::NotEnoughReady => CoreError::ExceedsRedeemable,
+            B::NotAFeeCut => CoreError::NotAFeeCut,
+        }
+    }
 }
