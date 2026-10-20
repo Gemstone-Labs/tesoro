@@ -5,37 +5,49 @@
 //!
 //! # The rules in one page
 //!
-//! * **Draw order.** A basket is sorted (side, `due_at`, ...), so its order *is* the draw order:
-//!   own lines first, then won lines by earliest `due_at`. Fee-class lines and empty lines are
-//!   skipped. The program picks the lines; nobody can choose which of their Gemas an entry uses.
-//! * **Free Gemas.** `free = playable total - reserved_total - ticket_need`. The Offer
-//!   reservation is an *amount* held by the slowest Gemas (the tail of the draw order), so an
-//!   entry, which takes from the front, can use every free Gema and never touches the tail.
-//!   A player whose free Gemas cover an entry can always enter: the draw takes the first
-//!   `entry` Gemas of the order, and `free >= entry` is the only condition.
+//! * **A Player's Gemas live in a [`Pool`]**: the basket plus its **spill**, a second sorted
+//!   line store (one per Account) that takes every line that does not fit a full basket
+//!   (settle, refund, Ticket return, claim). The draw order is the merged order of both, so a
+//!   Gema in the spill is as free, and as drawable, as one in the basket. *Nothing has to be
+//!   claimed before it can be played*: a full basket can never stop an entry.
+//! * **Draw order.** Own lines first, then won lines by earliest `due_at`; fee-class and empty
+//!   lines are skipped. The program picks the lines; nobody chooses which of their Gemas an
+//!   entry uses.
+//! * **Free Gemas.** `free = pool playable total - reserved_total - ticket_need`. The Offer
+//!   reservation is an *amount* held by the slowest Gemas (the tail of the order), so an entry,
+//!   which takes from the front, never touches it. A Player whose free Gemas cover an entry can
+//!   always enter: the only condition is `free >= entry`.
 //! * **Direct draw** when the entry needs at most `max_lines` lines; otherwise an **Entry
 //!   Ticket**. The Ticket moves the next lines of the order into its paged storage, `stage` by
-//!   `stage`; while it is open the basket allows no other draw, no Offer reservation, and
-//!   withdrawals must leave what the Ticket still needs. `consume` checks that no drawable
-//!   playable basket line sorts before the Ticket's last staged line, then hands over the
-//!   pages, which become that side's Pot pages. Faster Gemas that arrived meanwhile are staged
-//!   in by `stage` (it returns the slowest staged lines to the basket first).
-//! * **Cancel / expiry** put the lines back exactly, in chunks anyone may continue; a line that
-//!   does not fit a full basket goes to the Ticket's own overflow record, claimable later.
+//!   `stage`; while it is open there is no other entry, no Offer reservation, and withdrawals
+//!   must leave what it still needs. `consume` checks that no drawable playable line sorts
+//!   before the Ticket's last staged line, then hands over the pages, which become that side's
+//!   Pot pages. Faster Gemas that arrived meanwhile are staged in (`stage` returns the slowest
+//!   staged lines first).
+//! * **Cancel / expiry** put the lines back exactly, in chunks anyone may continue.
 //! * **Backing.** An Offer reserves an amount. When the backed Match opens, the Backer's lines
-//!   are drawn by the same order (direct, or through a permissionless Backing Ticket); the
-//!   reservation shrinks by exactly what was drawn.
+//!   are drawn by the same order (direct, or through a Backing Ticket). A Backing Ticket has its
+//!   own flag and never blocks the Backer's own entries: it only holds back new Offers until it
+//!   finishes. Only the Backer can cancel it at once; anyone can once it expires.
 //!
-//! Lines move whole without touching a Source's book (a line is valid wherever it lies); only a
-//! split line, or a merge into an existing line, goes through [`SourceBook::transfer`], which
-//! brings both lines up to date and moves the ready part proportionally.
+//! # Room
+//!
+//! A line that fits neither the basket nor the spill makes the operation fail with
+//! [`DrawError::SpillFull`], changing nothing. The instruction layer grows the spill (sponsored,
+//! refundable) and retries. The slots to reserve are bounded: a Ticket needs `storage_lines()`
+//! (it reserves them before staging), a credit needs one per line it adds
+//! ([`spill_slots_for_credit`]). So settle, refund, restage and cancel never strand a Player.
+//!
+//! Lines move whole without touching a Source's book; only a split line, or a merge into an
+//! existing line, goes through [`SourceBook::transfer`], which brings both lines up to date and
+//! moves the ready part proportionally.
 
 use std::collections::BTreeMap;
 
 use super::book::{BookError, SourceBook};
 use super::line_store::{
-    required_len, Line, LineKey, LineStore, LineStoreError, CLASS_GENERAL, FLAG_TICKET_OPEN,
-    HEADER_LEN, LINE_LEN,
+    required_len, Line, LineKey, LineStore, LineStoreError, CLASS_GENERAL, FLAG_BACKING_OPEN,
+    FLAG_TICKET_OPEN, HEADER_LEN, LINE_LEN,
 };
 use super::Key;
 
@@ -46,14 +58,14 @@ pub const PAGE_LINES: usize = (10_240 - HEADER_LEN) / LINE_LEN;
 pub const MAX_DRAW_LINES: usize = 12;
 /// Open Offers one Account may have.
 pub const MAX_OPEN_OFFERS: u32 = 8;
-/// Time an unconsumed Ticket has before anyone may cancel it.
+/// Time an unconsumed Entry Ticket has before anyone may cancel it.
 pub const TICKET_WINDOW_SECS: i64 = 60 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrawError {
     /// The free Gemas do not cover the amount.
     InsufficientGemas,
-    /// A Ticket is open: no other draw, reservation or second Ticket.
+    /// A Ticket of this kind is open: no second one, and no Offer reservation.
     TicketOpen,
     /// The Ticket is not open (consumed, cancelling, or none).
     NotOpen,
@@ -63,7 +75,7 @@ pub enum DrawError {
     NotOwner,
     /// The Ticket's storage rent was not reserved yet.
     StorageNotReserved,
-    /// The Ticket has no room for another line.
+    /// The Ticket has no room for another line: grow its storage.
     TicketStorageFull,
     /// The entry is not fully staged yet.
     NotComplete,
@@ -71,10 +83,9 @@ pub enum DrawError {
     FasterGemasAvailable,
     /// The entry needs more lines than one transaction moves.
     NeedsTicket,
-    /// Returning a staged line needs a free basket slot and there is none: grow the basket.
-    BasketFull,
-    /// The overflow record has no room (its rent was sized for the lines the draw can use).
-    OverflowFull,
+    /// Neither the basket nor the spill has a slot for a line. Nothing changed; grow the spill
+    /// (reserved rent) and retry.
+    SpillFull,
     /// Too many open Offers.
     TooManyOffers,
     /// Releasing or drawing more than is reserved.
@@ -102,7 +113,7 @@ impl From<LineStoreError> for DrawError {
 
 pub type DrawResult<T> = Result<T, DrawError>;
 
-/// Mutable bytes of a basket, Ticket page or overflow record body.
+/// Mutable bytes of a basket, spill, Ticket page or Pot page body.
 pub trait Bytes: AsRef<[u8]> + AsMut<[u8]> {}
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Bytes for T {}
 
@@ -119,75 +130,337 @@ impl SourceBooks for BTreeMap<Key, SourceBook> {
     }
 }
 
+/// A fresh spill body with room for `capacity` lines.
+pub fn spill_body(owner: Key, capacity: usize) -> DrawResult<Vec<u8>> {
+    fresh_body(owner, capacity)
+}
+
+/// Grow a spill body (the instruction layer's `realloc`, rent already reserved).
+pub fn grow_spill_body(body: &mut Vec<u8>, capacity: usize) {
+    if body.len() < required_len(capacity) {
+        body.resize(required_len(capacity), 0);
+    }
+}
+
+/// Slots a credit of `lines` lines can need in the spill: one each, in the worst case.
+pub fn spill_slots_for_credit(lines: usize) -> usize {
+    lines
+}
+
+fn fresh_body(owner: Key, capacity: usize) -> DrawResult<Vec<u8>> {
+    let mut body = vec![0u8; required_len(capacity)];
+    LineStore::init(body.as_mut_slice(), owner, 0)?;
+    Ok(body)
+}
+
 // ---------------------------------------------------------------------------------------------
-// Free Gemas, withdrawals, Offer reservations
+// The pool: basket + spill
 // ---------------------------------------------------------------------------------------------
 
-/// Playable Gemas in the basket (own + won; fee classes never count).
-pub fn playable_total<B: AsRef<[u8]>>(b: &LineStore<B>) -> u64 {
-    b.own_total().saturating_add(b.won_total())
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placed {
+    Basket,
+    Spill,
 }
 
-/// Gemas an entry may draw now: playable, minus Offer reservations, minus what an open Entry
-/// Ticket still needs.
-pub fn free_gemas<B: AsRef<[u8]>>(b: &LineStore<B>) -> u64 {
-    playable_total(b)
-        .saturating_sub(b.reserved_total())
-        .saturating_sub(b.ticket_need())
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Where {
+    Basket,
+    Spill,
 }
 
-pub fn ticket_is_open<B: AsRef<[u8]>>(b: &LineStore<B>) -> bool {
-    b.flags() & FLAG_TICKET_OPEN != 0
+/// An Account's Gemas: its basket and its spill. The Offer reservation and the open Ticket's
+/// need live in the basket header and count against both.
+pub struct Pool<'a, B: Bytes, S: Bytes> {
+    pub basket: &'a mut LineStore<B>,
+    pub spill: &'a mut LineStore<S>,
 }
 
-/// May `k` Gemas leave the basket (Redeem, `return_own`, Instant Redeem order, any withdrawal)?
-/// They must leave the Offer reservations and an open Ticket's remaining need whole, so a Redeem
-/// can never double-spend them.
-pub fn check_withdraw<B: AsRef<[u8]>>(b: &LineStore<B>, k: u64) -> DrawResult<()> {
-    if k == 0 {
-        return Err(DrawError::ZeroAmount);
+impl<'a, B: Bytes, S: Bytes> Pool<'a, B, S> {
+    pub fn new(basket: &'a mut LineStore<B>, spill: &'a mut LineStore<S>) -> Self {
+        Pool { basket, spill }
     }
-    if k > free_gemas(b) {
-        return Err(DrawError::WouldBreakReservation);
+
+    /// Playable Gemas in the basket and the spill (fee classes never count).
+    pub fn playable_total(&self) -> u64 {
+        [
+            self.basket.own_total(),
+            self.basket.won_total(),
+            self.spill.own_total(),
+            self.spill.won_total(),
+        ]
+        .iter()
+        .fold(0u64, |a, v| a.saturating_add(*v))
     }
-    Ok(())
+
+    /// Gemas an entry may draw now: playable, minus Offer reservations, minus what an open Entry
+    /// Ticket still needs.
+    pub fn free(&self) -> u64 {
+        self.playable_total()
+            .saturating_sub(self.basket.reserved_total())
+            .saturating_sub(self.basket.ticket_need())
+    }
+
+    pub fn entry_ticket_open(&self) -> bool {
+        self.basket.flags() & FLAG_TICKET_OPEN != 0
+    }
+
+    pub fn backing_ticket_open(&self) -> bool {
+        self.basket.flags() & FLAG_BACKING_OPEN != 0
+    }
+
+    /// May `k` Gemas leave (Redeem, `return_own`, Instant Redeem order, any withdrawal)? They
+    /// must leave the Offer reservations and an open Entry Ticket's remaining need whole, so a
+    /// Redeem can never double-spend them.
+    pub fn check_withdraw(&self, k: u64) -> DrawResult<()> {
+        if k == 0 {
+            return Err(DrawError::ZeroAmount);
+        }
+        if k > self.free() {
+            return Err(DrawError::WouldBreakReservation);
+        }
+        Ok(())
+    }
+
+    /// Reserve `amount` for a new Offer. Refused while any Ticket is open (a reservation made
+    /// after staging could hide faster Gemas from the draw).
+    pub fn reserve_offer(&mut self, amount: u64, open_offers: u32) -> DrawResult<()> {
+        if amount == 0 {
+            return Err(DrawError::ZeroAmount);
+        }
+        if self.entry_ticket_open() || self.backing_ticket_open() {
+            return Err(DrawError::TicketOpen);
+        }
+        if open_offers >= MAX_OPEN_OFFERS {
+            return Err(DrawError::TooManyOffers);
+        }
+        if amount > self.free() {
+            return Err(DrawError::InsufficientGemas);
+        }
+        let r = self
+            .basket
+            .reserved_total()
+            .checked_add(amount)
+            .ok_or(DrawError::InsufficientGemas)?;
+        self.basket.set_reserved_total(r);
+        Ok(())
+    }
+
+    /// Release `amount` of reservation (Offer cancelled, expired or declined). Always works.
+    pub fn release_offer(&mut self, amount: u64) -> DrawResult<()> {
+        let r = self
+            .basket
+            .reserved_total()
+            .checked_sub(amount)
+            .ok_or(DrawError::ReservationShort)?;
+        self.basket.set_reserved_total(r);
+        Ok(())
+    }
+
+    fn first_in<T: AsRef<[u8]>>(s: &LineStore<T>) -> Option<(usize, Line)> {
+        (0..s.len()).find_map(|i| {
+            let l = s.get(i)?;
+            (l.class >= CLASS_GENERAL && l.amount > 0).then_some((i, l))
+        })
+    }
+
+    /// The front of the draw order: the smaller key of the two stores' first playable lines.
+    fn first_playable(&self) -> Option<(Where, usize, Line)> {
+        match (Self::first_in(self.basket), Self::first_in(self.spill)) {
+            (Some((i, a)), Some((j, b))) => Some(if b.key() < a.key() {
+                (Where::Spill, j, b)
+            } else {
+                (Where::Basket, i, a)
+            }),
+            (Some((i, a)), None) => Some((Where::Basket, i, a)),
+            (None, Some((j, b))) => Some((Where::Spill, j, b)),
+            (None, None) => None,
+        }
+    }
+
+    /// Move up to `cap` Gemas off the front of the order into a returned line (whole, or split).
+    fn take_front(&mut self, books: &mut dyn SourceBooks, cap: u64) -> DrawResult<Line> {
+        let (at, idx, line) = self.first_playable().ok_or(DrawError::InsufficientGemas)?;
+        let take = line.amount.min(cap);
+        if take == 0 {
+            return Err(DrawError::ZeroAmount);
+        }
+        if take == line.amount {
+            match at {
+                Where::Basket => self.basket.remove_at(idx)?,
+                Where::Spill => self.spill.remove_at(idx)?,
+            };
+            return Ok(line);
+        }
+        let mut part = SourceBook::blank_line(
+            line.side,
+            line.due_at,
+            line.source,
+            line.class,
+            line.tranche,
+        );
+        let mut rest = line;
+        books
+            .book_mut(&line.source)?
+            .transfer(&mut rest, &mut part, take)?;
+        match at {
+            Where::Basket => self.basket.set_line(idx, &rest)?,
+            Where::Spill => self.spill.set_line(idx, &rest)?,
+        }
+        Ok(part)
+    }
+
+    /// Put a line back or credit it: merge into the basket line with the same key, else insert
+    /// into the basket if it has room, else merge into / insert in the spill. `SpillFull` (and
+    /// nothing changed) when there is no room anywhere.
+    pub fn put(&mut self, books: &mut dyn SourceBooks, line: &Line) -> DrawResult<Placed> {
+        if self.basket.find(&line.key()).is_ok() || self.basket.len() < self.basket.capacity() {
+            put_line(self.basket, books, line)?;
+            return Ok(Placed::Basket);
+        }
+        if put_line(self.spill, books, line)? {
+            Ok(Placed::Spill)
+        } else {
+            Err(DrawError::SpillFull)
+        }
+    }
+
+    /// Move up to `max` lines from the spill into the basket while it has room or a line to merge
+    /// into (the Wallet's tidy-up; never needed to play). Returns how many moved.
+    pub fn claim(&mut self, books: &mut dyn SourceBooks, max: usize) -> DrawResult<usize> {
+        let mut moved = 0;
+        while moved < max {
+            let Some(line) = self.spill.get(0) else { break };
+            if !put_line(self.basket, books, &line)? {
+                break;
+            }
+            self.spill.remove_at(0)?;
+            moved += 1;
+        }
+        Ok(moved)
+    }
+
+    /// The lines (and amounts taken from each) the draw of `amount` would use now, in the merged
+    /// order, for the entry preview and to decide direct draw versus Ticket.
+    pub fn plan_draw(&self, amount: u64, limit: u64) -> DrawResult<Vec<(LineKey, u64)>> {
+        if amount == 0 {
+            return Err(DrawError::ZeroAmount);
+        }
+        if amount > limit {
+            return Err(DrawError::InsufficientGemas);
+        }
+        let mut a = self.basket.lines().peekable();
+        let mut b = self.spill.lines().peekable();
+        let mut out = Vec::new();
+        let mut left = amount;
+        while left > 0 {
+            let next = match (a.peek(), b.peek()) {
+                (Some(x), Some(y)) if y.key() < x.key() => b.next(),
+                (Some(_), _) => a.next(),
+                (None, Some(_)) => b.next(),
+                (None, None) => break,
+            };
+            let Some(l) = next else { break };
+            if l.class < CLASS_GENERAL || l.amount == 0 {
+                continue;
+            }
+            let t = l.amount.min(left);
+            out.push((l.key(), t));
+            left -= t;
+        }
+        Ok(out)
+    }
+
+    /// Draw an entry in one transaction. Fails with [`DrawError::NeedsTicket`] when it needs
+    /// more than `max_lines` lines; nothing changes then.
+    pub fn draw_direct(
+        &mut self,
+        books: &mut dyn SourceBooks,
+        owner: Key,
+        amount: u64,
+        max_lines: usize,
+    ) -> DrawResult<PotPages> {
+        if self.entry_ticket_open() {
+            return Err(DrawError::TicketOpen);
+        }
+        let plan = self.plan_draw(amount, self.free())?;
+        if plan.len() > max_lines {
+            return Err(DrawError::NeedsTicket);
+        }
+        let mut pot = PotPages::new(owner);
+        let mut left = amount;
+        while left > 0 {
+            let l = self.take_front(books, left)?;
+            left -= l.amount;
+            pot.push_joined(books, l)?;
+        }
+        Ok(pot)
+    }
+
+    /// Draw a Backer's reserved amount when the backed Match opens (direct). The reservation
+    /// shrinks by what is drawn. The draw may use the Gemas the Offer itself reserved, never
+    /// another Offer's.
+    pub fn draw_backing_direct(
+        &mut self,
+        books: &mut dyn SourceBooks,
+        owner: Key,
+        amount: u64,
+        max_lines: usize,
+    ) -> DrawResult<PotPages> {
+        if self.backing_ticket_open() {
+            return Err(DrawError::TicketOpen);
+        }
+        let reserved = self.basket.reserved_total();
+        if amount == 0 {
+            return Err(DrawError::ZeroAmount);
+        }
+        if amount > reserved {
+            return Err(DrawError::ReservationShort);
+        }
+        let limit = self.playable_total().saturating_sub(reserved - amount);
+        let plan = self.plan_draw(amount, limit)?;
+        if plan.len() > max_lines {
+            return Err(DrawError::NeedsTicket);
+        }
+        let mut pot = PotPages::new(owner);
+        let mut left = amount;
+        while left > 0 {
+            let l = self.take_front(books, left)?;
+            left -= l.amount;
+            pot.push_joined(books, l)?;
+        }
+        self.basket.set_reserved_total(reserved - amount);
+        Ok(pot)
+    }
 }
 
-/// Reserve `amount` for a new Offer. Refused while a Ticket is open (a reservation made after
-/// staging could hide faster Gemas from the draw).
-pub fn reserve_offer<B: Bytes>(
-    b: &mut LineStore<B>,
-    amount: u64,
-    open_offers: u32,
-) -> DrawResult<()> {
-    if amount == 0 {
-        return Err(DrawError::ZeroAmount);
+/// Place `line` in `dst`: merge into the line with the same key (through the Source's book) or
+/// insert it. `Ok(false)` when there is no room; nothing changed then.
+fn put_line<B: Bytes>(
+    dst: &mut LineStore<B>,
+    books: &mut dyn SourceBooks,
+    line: &Line,
+) -> DrawResult<bool> {
+    match dst.find(&line.key()) {
+        Ok(idx) => {
+            let mut d = dst
+                .get(idx)
+                .ok_or(DrawError::Store(LineStoreError::NotFound))?;
+            let mut s = *line;
+            books
+                .book_mut(&line.source)?
+                .transfer(&mut s, &mut d, line.amount)?;
+            dst.set_line(idx, &d)?;
+            Ok(true)
+        }
+        Err(_) => {
+            if dst.len() >= dst.capacity() {
+                return Ok(false);
+            }
+            dst.insert(line)?;
+            Ok(true)
+        }
     }
-    if ticket_is_open(b) {
-        return Err(DrawError::TicketOpen);
-    }
-    if open_offers >= MAX_OPEN_OFFERS {
-        return Err(DrawError::TooManyOffers);
-    }
-    if amount > free_gemas(b) {
-        return Err(DrawError::InsufficientGemas);
-    }
-    let r = b
-        .reserved_total()
-        .checked_add(amount)
-        .ok_or(DrawError::InsufficientGemas)?;
-    b.set_reserved_total(r);
-    Ok(())
-}
-
-/// Release `amount` of reservation (Offer cancelled, expired or declined). Always works.
-pub fn release_offer<B: Bytes>(b: &mut LineStore<B>, amount: u64) -> DrawResult<()> {
-    let r = b
-        .reserved_total()
-        .checked_sub(amount)
-        .ok_or(DrawError::ReservationShort)?;
-    b.set_reserved_total(r);
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -234,8 +507,12 @@ impl PotPages {
         self.pages
             .iter()
             .filter_map(|p| LineStore::new(p.as_slice()).ok())
-            .map(|s| s.own_total() + s.won_total() + s.fee_total())
-            .sum()
+            .map(|s| {
+                s.own_total()
+                    .saturating_add(s.won_total())
+                    .saturating_add(s.fee_total())
+            })
+            .fold(0u64, |a, v| a.saturating_add(v))
     }
 
     pub fn lines(&self) -> Vec<Line> {
@@ -276,6 +553,20 @@ impl PotPages {
         Ok(())
     }
 
+    /// Append a line; if the last line has the same key (the pool held that line in two places,
+    /// or part of the line the Ticket ended on), join them through the Source's book.
+    pub fn push_joined(&mut self, books: &mut dyn SourceBooks, mut line: Line) -> DrawResult<()> {
+        if let Some(mut last) = self.last_line().filter(|l| l.key() == line.key()) {
+            let k = line.amount;
+            books
+                .book_mut(&line.source)?
+                .transfer(&mut line, &mut last, k)?;
+            self.pop_last()?;
+            line = last;
+        }
+        self.push(&line)
+    }
+
     /// Remove and return the last (slowest) line.
     pub fn pop_last(&mut self) -> DrawResult<Option<Line>> {
         let Some(at) = self.pages.len().checked_sub(1) else {
@@ -314,260 +605,17 @@ impl PotPages {
     }
 }
 
-fn fresh_body(owner: Key, capacity: usize) -> DrawResult<Vec<u8>> {
-    let mut body = vec![0u8; required_len(capacity)];
-    LineStore::init(body.as_mut_slice(), owner, 0)?;
-    Ok(body)
-}
-
 // ---------------------------------------------------------------------------------------------
-// Overflow record
-// ---------------------------------------------------------------------------------------------
-
-/// Lines that did not fit a full basket, claimable by the owner. Its rent is reserved before
-/// anything is debited, sized to the lines it can ever receive.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Overflow {
-    body: Vec<u8>,
-}
-
-impl Overflow {
-    pub fn new(owner: Key, capacity: usize) -> DrawResult<Overflow> {
-        Ok(Overflow {
-            body: fresh_body(owner, capacity)?,
-        })
-    }
-
-    fn grow(&mut self, capacity: usize) -> DrawResult<()> {
-        if capacity > self.store()?.capacity() {
-            self.body.resize(required_len(capacity), 0);
-        }
-        Ok(())
-    }
-
-    pub fn store(&self) -> DrawResult<LineStore<&[u8]>> {
-        Ok(LineStore::new(self.body.as_slice())?)
-    }
-
-    pub fn len(&self) -> usize {
-        self.store().map_or(0, |s| s.len())
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn total(&self) -> u64 {
-        self.store()
-            .map_or(0, |s| s.own_total() + s.won_total() + s.fee_total())
-    }
-
-    pub fn lines(&self) -> Vec<Line> {
-        self.store().map_or(Vec::new(), |s| s.lines().collect())
-    }
-
-    /// Put a line in, merging into one with the same key.
-    pub fn credit(&mut self, books: &mut dyn SourceBooks, line: &Line) -> DrawResult<()> {
-        let mut s = LineStore::new(self.body.as_mut_slice())?;
-        if put_line(&mut s, books, line)? {
-            Ok(())
-        } else {
-            Err(DrawError::OverflowFull)
-        }
-    }
-
-    /// Move lines (the first ones, up to `max`) into the basket while it has room or a line to
-    /// merge into. Returns how many moved.
-    pub fn claim<B: Bytes>(
-        &mut self,
-        basket: &mut LineStore<B>,
-        books: &mut dyn SourceBooks,
-        max: usize,
-    ) -> DrawResult<usize> {
-        let mut moved = 0;
-        while moved < max {
-            let mut s = LineStore::new(self.body.as_mut_slice())?;
-            let Some(line) = s.get(0) else { break };
-            if !put_line(basket, books, &line)? {
-                break;
-            }
-            s.remove_at(0)?;
-            moved += 1;
-        }
-        Ok(moved)
-    }
-}
-
-/// Place `line` in `dst`: merge into the line with the same key (through the Source's book) or
-/// insert it. `Ok(false)` when there is no room; nothing changed then.
-fn put_line<B: Bytes>(
-    dst: &mut LineStore<B>,
-    books: &mut dyn SourceBooks,
-    line: &Line,
-) -> DrawResult<bool> {
-    match dst.find(&line.key()) {
-        Ok(idx) => {
-            let mut d = dst
-                .get(idx)
-                .ok_or(DrawError::Store(LineStoreError::NotFound))?;
-            let mut s = *line;
-            books
-                .book_mut(&line.source)?
-                .transfer(&mut s, &mut d, line.amount)?;
-            dst.set_line(idx, &d)?;
-            Ok(true)
-        }
-        Err(_) => {
-            if dst.len() >= dst.capacity() {
-                return Ok(false);
-            }
-            dst.insert(line)?;
-            Ok(true)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// The draw
-// ---------------------------------------------------------------------------------------------
-
-fn first_playable<B: AsRef<[u8]>>(b: &LineStore<B>) -> Option<(usize, Line)> {
-    (0..b.len()).find_map(|i| {
-        let l = b.get(i)?;
-        (l.class >= CLASS_GENERAL && l.amount > 0).then_some((i, l))
-    })
-}
-
-/// Move up to `cap` Gemas off the front of the order into a returned line (whole, or split).
-fn take_front<B: Bytes>(
-    b: &mut LineStore<B>,
-    books: &mut dyn SourceBooks,
-    cap: u64,
-) -> DrawResult<Line> {
-    let (idx, line) = first_playable(b).ok_or(DrawError::InsufficientGemas)?;
-    let take = line.amount.min(cap);
-    if take == 0 {
-        return Err(DrawError::ZeroAmount);
-    }
-    if take == line.amount {
-        b.remove_at(idx)?;
-        return Ok(line);
-    }
-    let mut part = SourceBook::blank_line(
-        line.side,
-        line.due_at,
-        line.source,
-        line.class,
-        line.tranche,
-    );
-    let mut rest = line;
-    books
-        .book_mut(&line.source)?
-        .transfer(&mut rest, &mut part, take)?;
-    b.set_line(idx, &rest)?;
-    Ok(part)
-}
-
-/// The lines (and amounts taken from each) the draw of `amount` would use now, for the entry
-/// preview and to decide direct draw versus Ticket. `limit` is the Gemas the draw may reach.
-pub fn plan_draw<B: AsRef<[u8]>>(
-    b: &LineStore<B>,
-    amount: u64,
-    limit: u64,
-) -> DrawResult<Vec<(LineKey, u64)>> {
-    if amount == 0 {
-        return Err(DrawError::ZeroAmount);
-    }
-    if amount > limit {
-        return Err(DrawError::InsufficientGemas);
-    }
-    let mut out = Vec::new();
-    let mut left = amount;
-    for l in b.lines() {
-        if l.class < CLASS_GENERAL || l.amount == 0 {
-            continue;
-        }
-        let t = l.amount.min(left);
-        out.push((l.key(), t));
-        left -= t;
-        if left == 0 {
-            break;
-        }
-    }
-    Ok(out)
-}
-
-/// Draw an entry in one transaction. Fails with [`DrawError::NeedsTicket`] when it needs more
-/// than `max_lines` lines; nothing changes then.
-pub fn draw_direct<B: Bytes>(
-    b: &mut LineStore<B>,
-    books: &mut dyn SourceBooks,
-    owner: Key,
-    amount: u64,
-    max_lines: usize,
-) -> DrawResult<PotPages> {
-    if ticket_is_open(b) {
-        return Err(DrawError::TicketOpen);
-    }
-    let plan = plan_draw(b, amount, free_gemas(b))?;
-    if plan.len() > max_lines {
-        return Err(DrawError::NeedsTicket);
-    }
-    let mut pot = PotPages::new(owner);
-    let mut left = amount;
-    while left > 0 {
-        let l = take_front(b, books, left)?;
-        left -= l.amount;
-        pot.push(&l)?;
-    }
-    Ok(pot)
-}
-
-/// Draw a Backer's reserved amount when the backed Match opens (direct). The reservation shrinks
-/// by what is drawn. The draw may use the Gemas the Offer itself reserved, but never another
-/// Offer's.
-pub fn draw_backing_direct<B: Bytes>(
-    b: &mut LineStore<B>,
-    books: &mut dyn SourceBooks,
-    owner: Key,
-    amount: u64,
-    max_lines: usize,
-) -> DrawResult<PotPages> {
-    if ticket_is_open(b) {
-        return Err(DrawError::TicketOpen);
-    }
-    let reserved = b.reserved_total();
-    if amount == 0 {
-        return Err(DrawError::ZeroAmount);
-    }
-    if amount > reserved {
-        return Err(DrawError::ReservationShort);
-    }
-    let limit = playable_total(b).saturating_sub(reserved - amount);
-    let plan = plan_draw(b, amount, limit)?;
-    if plan.len() > max_lines {
-        return Err(DrawError::NeedsTicket);
-    }
-    let mut pot = PotPages::new(owner);
-    let mut left = amount;
-    while left > 0 {
-        let l = take_front(b, books, left)?;
-        left -= l.amount;
-        pot.push(&l)?;
-    }
-    b.set_reserved_total(reserved - amount);
-    Ok(pot)
-}
-
-// ---------------------------------------------------------------------------------------------
-// Entry Tickets
+// Tickets
 // ---------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TicketKind {
     /// The Player's own entry: only the owner stages.
     Entry,
-    /// A Backer's accepted Offer: anyone stages; the program fixes order and destination.
+    /// A Backer's accepted Offer: anyone stages; the program fixes order and destination. Only
+    /// the Requester's signed Match open (the Offer it accepted) may open one, so a stranger
+    /// cannot start one; the Backer can cancel it at once.
     Backing,
 }
 
@@ -596,8 +644,7 @@ pub struct StageStep {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CancelStep {
     pub lines_to_basket: usize,
-    pub lines_to_overflow: usize,
-    pub gemas_to_overflow: u64,
+    pub lines_to_spill: usize,
     pub done: bool,
 }
 
@@ -611,31 +658,28 @@ pub struct Ticket {
     /// Entry size, or the Backing's amount.
     pub target: u64,
     pub expires_at: i64,
-    /// The sponsor (or Player) paid for the paged storage and the overflow record.
+    /// The sponsor (or Player) paid for the paged storage and the spill slots a return can need.
     pub storage_reserved: bool,
-    /// Most lines the reserved storage holds.
+    /// Most lines the reserved storage holds; also the most spill slots a cancel or restage of
+    /// this Ticket can need.
     pub line_cap: usize,
     /// Backing only: reservation not yet staged.
     pub reserved_left: u64,
-    /// Backing only: reservation that could not come back (a returned line went to overflow).
-    pub reservation_lost: u64,
     pub pages: PotPages,
-    pub overflow: Overflow,
 }
 
 impl Ticket {
-    fn begin<B: Bytes>(
-        b: &mut LineStore<B>,
+    fn begin<B: Bytes, S: Bytes>(
+        pool: &Pool<B, S>,
         kind: TicketKind,
         game: Key,
         nonce: u64,
         target: u64,
         expires_at: i64,
-    ) -> DrawResult<Ticket> {
-        let account = b.account();
-        // storage for every line the draw can use, one split on each side, and a restage margin
-        let line_cap = b.len().saturating_add(2);
-        Ok(Ticket {
+    ) -> Ticket {
+        let account = pool.basket.account();
+        let lines = pool.basket.len().saturating_add(pool.spill.len());
+        Ticket {
             account,
             game,
             nonce,
@@ -644,17 +688,15 @@ impl Ticket {
             target,
             expires_at,
             storage_reserved: false,
-            line_cap,
+            line_cap: lines.saturating_add(2),
             reserved_left: 0,
-            reservation_lost: 0,
             pages: PotPages::new(account),
-            overflow: Overflow::new(account, line_cap)?,
-        })
+        }
     }
 
     /// Open an Entry Ticket. The only condition is that the free Gemas cover the entry.
-    pub fn open_entry<B: Bytes>(
-        b: &mut LineStore<B>,
+    pub fn open_entry<B: Bytes, S: Bytes>(
+        pool: &mut Pool<B, S>,
         game: Key,
         nonce: u64,
         entry: u64,
@@ -663,21 +705,23 @@ impl Ticket {
         if entry == 0 {
             return Err(DrawError::ZeroAmount);
         }
-        if ticket_is_open(b) {
+        if pool.entry_ticket_open() {
             return Err(DrawError::TicketOpen);
         }
-        if entry > free_gemas(b) {
+        if entry > pool.free() {
             return Err(DrawError::InsufficientGemas);
         }
-        let t = Self::begin(b, TicketKind::Entry, game, nonce, entry, expires_at)?;
-        b.set_flags(b.flags() | FLAG_TICKET_OPEN);
-        b.set_ticket_need(entry);
+        let t = Self::begin(pool, TicketKind::Entry, game, nonce, entry, expires_at);
+        pool.basket
+            .set_flags(pool.basket.flags() | FLAG_TICKET_OPEN);
+        pool.basket.set_ticket_need(entry);
         Ok(t)
     }
 
-    /// Open a Backing Ticket for an accepted Offer of `amount` (already reserved).
-    pub fn open_backing<B: Bytes>(
-        b: &mut LineStore<B>,
+    /// Open a Backing Ticket for an accepted Offer of `amount` (already reserved). It uses its
+    /// own flag: the Backer's entries are not affected.
+    pub fn open_backing<B: Bytes, S: Bytes>(
+        pool: &mut Pool<B, S>,
         game: Key,
         nonce: u64,
         amount: u64,
@@ -686,27 +730,34 @@ impl Ticket {
         if amount == 0 {
             return Err(DrawError::ZeroAmount);
         }
-        if ticket_is_open(b) {
+        if pool.backing_ticket_open() {
             return Err(DrawError::TicketOpen);
         }
-        if amount > b.reserved_total() {
+        if amount > pool.basket.reserved_total() {
             return Err(DrawError::ReservationShort);
         }
-        let mut t = Self::begin(b, TicketKind::Backing, game, nonce, amount, expires_at)?;
+        let mut t = Self::begin(pool, TicketKind::Backing, game, nonce, amount, expires_at);
         t.reserved_left = amount;
-        b.set_flags(b.flags() | FLAG_TICKET_OPEN);
+        pool.basket
+            .set_flags(pool.basket.flags() | FLAG_BACKING_OPEN);
         Ok(t)
     }
 
-    /// Lines the Ticket's paged storage and its overflow record are sized for.
+    fn flag(&self) -> u8 {
+        match self.kind {
+            TicketKind::Entry => FLAG_TICKET_OPEN,
+            TicketKind::Backing => FLAG_BACKING_OPEN,
+        }
+    }
+
+    /// Lines the Ticket's paged storage is sized for, and the most spill slots it can need.
     pub fn storage_lines(&self) -> usize {
         self.line_cap
     }
 
-    /// The Player (or sponsor) paid rent for `extra` more lines of paged storage and overflow.
-    pub fn grow_storage(&mut self, extra: usize) -> DrawResult<()> {
+    /// The Player (or sponsor) paid rent for `extra` more lines of paged storage and spill room.
+    pub fn grow_storage(&mut self, extra: usize) {
         self.line_cap = self.line_cap.saturating_add(extra);
-        self.overflow.grow(self.line_cap)
     }
 
     /// The storage rent is reserved: staging may start.
@@ -718,43 +769,50 @@ impl Ticket {
         self.pages.total()
     }
 
-    fn hold<B: AsRef<[u8]>>(&self, b: &LineStore<B>) -> u64 {
+    fn hold<B: Bytes, S: Bytes>(&self, pool: &Pool<B, S>) -> u64 {
         match self.kind {
-            TicketKind::Entry => b.reserved_total(),
-            TicketKind::Backing => b.reserved_total().saturating_sub(self.reserved_left),
+            TicketKind::Entry => pool.basket.reserved_total(),
+            TicketKind::Backing => pool
+                .basket
+                .reserved_total()
+                .saturating_sub(self.reserved_left),
         }
     }
 
-    /// Gemas this Ticket may still pull from the basket now.
-    fn limit<B: AsRef<[u8]>>(&self, b: &LineStore<B>) -> u64 {
-        playable_total(b).saturating_sub(self.hold(b))
+    /// Gemas this Ticket may still pull from the pool now.
+    fn limit<B: Bytes, S: Bytes>(&self, pool: &Pool<B, S>) -> u64 {
+        pool.playable_total().saturating_sub(self.hold(pool))
     }
 
-    /// Does a drawable basket line sort before the Ticket's last staged line?
-    pub fn faster_waiting<B: AsRef<[u8]>>(&self, b: &LineStore<B>) -> bool {
+    /// Does a drawable line sort before the Ticket's last staged line?
+    pub fn faster_waiting<B: Bytes, S: Bytes>(&self, pool: &Pool<B, S>) -> bool {
         let Some(last) = self.pages.last_line() else {
             return false;
         };
-        self.limit(b) > 0 && first_playable(b).is_some_and(|(_, f)| f.key() < last.key())
+        self.limit(pool) > 0
+            && pool
+                .first_playable()
+                .is_some_and(|(_, _, f)| f.key() < last.key())
     }
 
-    fn sync_header<B: Bytes>(&self, b: &mut LineStore<B>) {
+    fn sync_header<B: Bytes, S: Bytes>(&self, pool: &mut Pool<B, S>) {
         if self.kind == TicketKind::Entry {
             let need = if self.state == TicketState::Open {
                 self.target.saturating_sub(self.staged())
             } else {
                 0
             };
-            b.set_ticket_need(need);
+            pool.basket.set_ticket_need(need);
         }
     }
 
     /// Stage up to `max_ops` lines (each pull or return counts one). Pulls the next lines of the
     /// draw order into the Ticket; if faster Gemas arrived since, first returns the slowest
-    /// staged lines to the basket so the Ticket is again a prefix of the order.
-    pub fn stage<B: Bytes>(
+    /// staged lines so the Ticket is again a prefix of the order. A returned line always has
+    /// room (basket, else spill); `SpillFull` only if the reserved spill slots were not granted.
+    pub fn stage<B: Bytes, S: Bytes>(
         &mut self,
-        b: &mut LineStore<B>,
+        pool: &mut Pool<B, S>,
         books: &mut dyn SourceBooks,
         max_ops: usize,
         signer_is_owner: bool,
@@ -762,7 +820,7 @@ impl Ticket {
         if self.state != TicketState::Open {
             return Err(DrawError::NotOpen);
         }
-        if self.account != b.account() {
+        if self.account != pool.basket.account() {
             return Err(DrawError::Mismatch);
         }
         if self.kind == TicketKind::Entry && !signer_is_owner {
@@ -773,8 +831,8 @@ impl Ticket {
         }
         let mut step = StageStep::default();
         while step.pulled + step.returned < max_ops {
-            if self.faster_waiting(b) {
-                self.return_tail(b, books)?;
+            if self.faster_waiting(pool) {
+                self.return_tail(pool, books)?;
                 step.returned += 1;
                 continue;
             }
@@ -782,92 +840,86 @@ impl Ticket {
             if staged >= self.target {
                 break;
             }
-            let cap = (self.target - staged).min(self.limit(b));
+            let cap = (self.target - staged).min(self.limit(pool));
             if cap == 0 {
                 return Err(DrawError::InsufficientGemas);
             }
             if self.pages.len() >= self.line_cap {
                 return Err(DrawError::TicketStorageFull);
             }
-            let mut line = take_front(b, books, cap)?;
+            let line = pool.take_front(books, cap)?;
             let pulled = line.amount;
-            if let Some(mut last) = self.pages.last_line().filter(|l| l.key() == line.key()) {
-                // the basket still held part of the line the Ticket ended on: join them
-                books
-                    .book_mut(&line.source)?
-                    .transfer(&mut line, &mut last, pulled)?;
-                self.pages.pop_last()?;
-                line = last;
-            }
-            self.pages.push(&line)?;
+            self.pages.push_joined(books, line)?;
             if self.kind == TicketKind::Backing {
-                let r = b
+                let r = pool
+                    .basket
                     .reserved_total()
                     .checked_sub(pulled)
                     .ok_or(DrawError::ReservationShort)?;
-                b.set_reserved_total(r);
+                pool.basket.set_reserved_total(r);
                 self.reserved_left = self
                     .reserved_left
                     .checked_sub(pulled)
                     .ok_or(DrawError::ReservationShort)?;
             }
             step.pulled += 1;
-            self.sync_header(b);
+            self.sync_header(pool);
         }
-        self.sync_header(b);
+        self.sync_header(pool);
         step.staged = self.staged();
-        step.ready = step.staged == self.target && !self.faster_waiting(b);
+        step.ready = step.staged == self.target && !self.faster_waiting(pool);
         Ok(step)
     }
 
-    /// Put the slowest staged line back in the basket. Needs a slot (or a line to merge into).
-    fn return_tail<B: Bytes>(
+    /// Put the slowest staged line back in the pool.
+    fn return_tail<B: Bytes, S: Bytes>(
         &mut self,
-        b: &mut LineStore<B>,
+        pool: &mut Pool<B, S>,
         books: &mut dyn SourceBooks,
     ) -> DrawResult<()> {
         let line = self.pages.last_line().ok_or(DrawError::NotComplete)?;
-        if !put_line(b, books, &line)? {
-            return Err(DrawError::BasketFull);
-        }
+        pool.put(books, &line)?;
         self.pages.pop_last()?;
         if self.kind == TicketKind::Backing {
-            let r = b
+            let r = pool
+                .basket
                 .reserved_total()
                 .checked_add(line.amount)
                 .ok_or(DrawError::ReservationShort)?;
-            b.set_reserved_total(r);
+            pool.basket.set_reserved_total(r);
             self.reserved_left = self
                 .reserved_left
                 .checked_add(line.amount)
                 .ok_or(DrawError::ReservationShort)?;
         }
-        self.sync_header(b);
+        self.sync_header(pool);
         Ok(())
     }
 
     /// `open_match` / `join_match`: consume the complete Ticket. Its pages become the Pot pages.
-    pub fn consume<B: Bytes>(
+    pub fn consume<B: Bytes, S: Bytes>(
         &mut self,
-        b: &mut LineStore<B>,
+        pool: &mut Pool<B, S>,
         game: &Key,
         entry: u64,
     ) -> DrawResult<PotPages> {
         if self.state != TicketState::Open {
             return Err(DrawError::NotOpen);
         }
-        if self.account != b.account() || &self.game != game || self.target != entry {
+        if self.account != pool.basket.account() || &self.game != game || self.target != entry {
             return Err(DrawError::Mismatch);
         }
         if self.staged() != self.target {
             return Err(DrawError::NotComplete);
         }
-        if self.faster_waiting(b) {
+        if self.faster_waiting(pool) {
             return Err(DrawError::FasterGemasAvailable);
         }
         self.state = TicketState::Closed;
-        b.set_flags(b.flags() & !FLAG_TICKET_OPEN);
-        b.set_ticket_need(0);
+        pool.basket.set_flags(pool.basket.flags() & !self.flag());
+        if self.kind == TicketKind::Entry {
+            pool.basket.set_ticket_need(0);
+        }
         Ok(core::mem::replace(
             &mut self.pages,
             PotPages::new(self.account),
@@ -875,9 +927,9 @@ impl Ticket {
     }
 
     /// Start cancelling: the owner at any time, anyone once the deadline passed. One-way.
-    pub fn begin_cancel<B: Bytes>(
+    pub fn begin_cancel<B: Bytes, S: Bytes>(
         &mut self,
-        b: &mut LineStore<B>,
+        pool: &mut Pool<B, S>,
         now: i64,
         by_owner: bool,
     ) -> DrawResult<()> {
@@ -891,16 +943,15 @@ impl Ticket {
             return Err(DrawError::NotExpired);
         }
         self.state = TicketState::Cancelling;
-        self.sync_header(b);
+        self.sync_header(pool);
         Ok(())
     }
 
-    /// Return up to `max_lines` staged lines, slowest first. A line goes back to the basket, or
-    /// to the Ticket's overflow record when the basket is full. Idempotent: calling it with
-    /// nothing left reports `done`.
-    pub fn cancel_step<B: Bytes>(
+    /// Return up to `max_lines` staged lines, slowest first, to the basket or the spill.
+    /// Idempotent: calling it with nothing left reports `done`.
+    pub fn cancel_step<B: Bytes, S: Bytes>(
         &mut self,
-        b: &mut LineStore<B>,
+        pool: &mut Pool<B, S>,
         books: &mut dyn SourceBooks,
         max_lines: usize,
     ) -> DrawResult<CancelStep> {
@@ -914,33 +965,30 @@ impl Ticket {
             return Err(DrawError::NotOpen);
         }
         let mut step = CancelStep::default();
-        while step.lines_to_basket + step.lines_to_overflow < max_lines {
+        while step.lines_to_basket + step.lines_to_spill < max_lines {
             let Some(line) = self.pages.last_line() else {
                 break;
             };
-            if put_line(b, books, &line)? {
-                step.lines_to_basket += 1;
-                if self.kind == TicketKind::Backing {
-                    let r = b
-                        .reserved_total()
-                        .checked_add(line.amount)
-                        .ok_or(DrawError::ReservationShort)?;
-                    b.set_reserved_total(r);
-                }
-            } else {
-                self.overflow.credit(books, &line)?;
-                step.lines_to_overflow += 1;
-                step.gemas_to_overflow = step.gemas_to_overflow.saturating_add(line.amount);
-                if self.kind == TicketKind::Backing {
-                    self.reservation_lost = self.reservation_lost.saturating_add(line.amount);
-                }
+            match pool.put(books, &line)? {
+                Placed::Basket => step.lines_to_basket += 1,
+                Placed::Spill => step.lines_to_spill += 1,
+            }
+            if self.kind == TicketKind::Backing {
+                let r = pool
+                    .basket
+                    .reserved_total()
+                    .checked_add(line.amount)
+                    .ok_or(DrawError::ReservationShort)?;
+                pool.basket.set_reserved_total(r);
             }
             self.pages.pop_last()?;
         }
         if self.pages.is_empty() {
             self.state = TicketState::Cancelled;
-            b.set_flags(b.flags() & !FLAG_TICKET_OPEN);
-            b.set_ticket_need(0);
+            pool.basket.set_flags(pool.basket.flags() & !self.flag());
+            if self.kind == TicketKind::Entry {
+                pool.basket.set_ticket_need(0);
+            }
             step.done = true;
         }
         Ok(step)

@@ -16,7 +16,7 @@
 //! |---|---|
 //! | 0 | `version` u8 (`BASKET_VERSION`) |
 //! | 1 | `bump` u8 |
-//! | 2 | `flags` u8 (bit 0 = a Ticket is open) |
+//! | 2 | `flags` u8 (bit 0 = an Entry Ticket is open, bit 1 = a Backing Ticket is open) |
 //! | 4 | `len` u32, used lines |
 //! | 8 | `account` [u8; 32] |
 //! | 40 | `own_total` u64, sum of `amount` of playable own lines |
@@ -49,6 +49,9 @@ pub const CLASS_GENERAL: u8 = 3;
 pub const CLASS_EXTENSION_BASE: u8 = 4;
 
 pub const FLAG_TICKET_OPEN: u8 = 1;
+/// A Backing Ticket is open. Separate from the Entry Ticket so a Backer's own entries never wait
+/// for a Backing.
+pub const FLAG_BACKING_OPEN: u8 = 2;
 
 const H_VERSION: usize = 0;
 const H_BUMP: usize = 1;
