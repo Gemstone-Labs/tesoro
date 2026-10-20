@@ -6,9 +6,7 @@ use anchor_lang::prelude::Pubkey as APk;
 use litesvm::LiteSVM;
 use solana_sdk::instruction::AccountMeta;
 use solana_sdk::pubkey::Pubkey as Pk;
-use tesoro_core::ledger::book::checkpoint::{
-    Checkpoint, CheckpointStore, PageView, PAGE_RECORDS,
-};
+use tesoro_core::ledger::book::checkpoint::{Checkpoint, CheckpointStore, PageView, PAGE_RECORDS};
 use tesoro_core::ledger::book::{BookError, BookResult, SourceBook};
 use tesoro_core::ledger::line_store::{Line, LineKey, LineStore, SIDE_OWN, SIDE_WON};
 use tesoro_core::storage::*;
@@ -37,16 +35,10 @@ pub struct SvmPages<'a> {
 impl CheckpointStore for SvmPages<'_> {
     fn get(&self, class: u8, idx: u32) -> Option<Checkpoint> {
         let page_no = idx / PAGE_RECORDS;
-        let acc = self
-            .svm
-            .get_account(&s(ckpt_address(&self.source, class, page_no).0))?;
-        let view = PageView::new(
-            &acc.data[CKPT_PAGE_AT..],
-            &self.source.to_bytes(),
-            class,
-            page_no,
-        )
-        .ok()?;
+        let acc = self.svm.get_account(&s(ckpt_address(&self.source, class, page_no).0))?;
+        let view =
+            PageView::new(&acc.data[CKPT_PAGE_AT..], &self.source.to_bytes(), class, page_no)
+                .ok()?;
         view.get(idx % PAGE_RECORDS).ok()?
     }
 
@@ -56,9 +48,7 @@ impl CheckpointStore for SvmPages<'_> {
 }
 
 pub fn read_book(svm: &LiteSVM, source: APk) -> SourceBook {
-    let acc = svm
-        .get_account(&s(book_address(&source).0))
-        .expect("book account");
+    let acc = svm.get_account(&s(book_address(&source).0)).expect("book account");
     SourceBook::decode(&acc.data[BOOK_AT..]).expect("book")
 }
 
@@ -92,10 +82,7 @@ pub fn book_metas(svm: &LiteSVM, source: APk) -> Vec<AccountMeta> {
 
 pub fn read_lines(svm: &LiteSVM, store: APk) -> Vec<Line> {
     let acc = svm.get_account(&s(store)).expect("store");
-    LineStore::new(&acc.data[DISC..])
-        .expect("store")
-        .lines()
-        .collect()
+    LineStore::new(&acc.data[DISC..]).expect("store").lines().collect()
 }
 
 /// The line of `account` (basket first, then spill) for a Source, side, class and tranche.
@@ -111,7 +98,10 @@ pub fn find_line(
         .into_iter()
         .flat_map(|st| read_lines(svm, st))
         .find(|l| {
-            l.source == source.to_bytes() && l.side == side && l.class == class && l.tranche == tranche
+            l.source == source.to_bytes()
+                && l.side == side
+                && l.class == class
+                && l.tranche == tranche
         })
 }
 
@@ -144,33 +134,20 @@ fn write_store(svm: &mut LiteSVM, store: APk, f: impl FnOnce(&mut LineStore<&mut
 /// What a won Match does to the baskets: moves `k` Gemas of `source` (own side, `class`,
 /// `tranche`) from `from` to `to` as won Gemas, with their proportional repaid part, through the
 /// book. (Settlement in ticket 09 does exactly this through `transfer`.)
-pub fn win(
-    svm: &mut LiteSVM,
-    source: APk,
-    from: APk,
-    to: APk,
-    class: u8,
-    tranche: u8,
-    k: u64,
-) {
+pub fn win(svm: &mut LiteSVM, source: APk, from: APk, to: APk, class: u8, tranche: u8, k: u64) {
     let mut book = read_book(svm, source);
     let from_basket = basket_address(&from).0;
     let to_basket = basket_address(&to).0;
     let mut src = find_line(svm, from, source, SIDE_OWN, class, tranche)
         .or_else(|| find_line(svm, from, source, SIDE_WON, class, tranche))
         .expect("source line");
-    let from_store = if read_lines(svm, from_basket)
-        .iter()
-        .any(|l| l.key() == src.key())
-    {
+    let from_store = if read_lines(svm, from_basket).iter().any(|l| l.key() == src.key()) {
         from_basket
     } else {
         spill_address(&from).0
     };
     let mut dst = SourceBook::blank_line(SIDE_WON, src.due_at, src.source, src.class, src.tranche);
-    let existing = read_lines(svm, to_basket)
-        .into_iter()
-        .find(|l| l.key() == dst.key());
+    let existing = read_lines(svm, to_basket).into_iter().find(|l| l.key() == dst.key());
     if let Some(l) = existing {
         dst = l;
     }
@@ -191,7 +168,7 @@ pub fn win(
         Ok(i) => st.set_line(i, &dst).unwrap(),
         Err(_) => {
             st.insert(&dst).unwrap();
-        }
+        },
     });
     write_book(svm, source, &book);
 }
@@ -215,9 +192,8 @@ pub fn fee_cut(
     } else {
         spill_address(&from).0
     };
-    let mut cnt = counter(svm, source, fee_class).unwrap_or_else(|| {
-        SourceBook::blank_line(SIDE_OWN, 0, source.to_bytes(), fee_class, 0)
-    });
+    let mut cnt = counter(svm, source, fee_class)
+        .unwrap_or_else(|| SourceBook::blank_line(SIDE_OWN, 0, source.to_bytes(), fee_class, 0));
     {
         let mut pages = SvmPages { svm, source };
         book.cut_fee(&mut src, &mut cnt, k, &mut pages).expect("cut_fee");
