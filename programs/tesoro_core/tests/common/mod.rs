@@ -81,3 +81,5 @@ pub fn init_treasury_ix(admin: APk, yield_fee_bps: u16, instant_fee_bps: u16) ->
         .data(),
     }
 }
+
+pub mod econ;

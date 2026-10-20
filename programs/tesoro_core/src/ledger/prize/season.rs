@@ -21,6 +21,10 @@ use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
 /// rank, so this bounds a Season's payout work (10 ranks x 16 lines). The biggest free lines are
 /// taken; smaller ones (rounding dust of past Seasons) wait for a Season in which they matter.
 pub const MAX_BUDGET_LINES: usize = 16;
+/// Bytes of a Borsh-serialised [`BudgetLine`].
+pub const BUDGET_LINE_LEN: usize = 1 + 1 + 1 + 8 + 32 + 8 + 8;
+/// Most Pool lines the reservations name at once (a Season reserves at most [`MAX_BUDGET_LINES`]).
+pub const MAX_RESERVATION_ENTRIES: usize = 64;
 
 /// A Pool basket line as the budget sees it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +68,16 @@ pub struct PoolReservations {
 }
 
 impl PoolReservations {
+    pub fn from_entries(entries: impl IntoIterator<Item = (LineKey, u64)>) -> Self {
+        Self {
+            entries: entries.into_iter().collect(),
+        }
+    }
+
+    pub fn entries(&self) -> &[(LineKey, u64)] {
+        &self.entries
+    }
+
     pub fn reserved_of(&self, key: &LineKey) -> u64 {
         self.entries
             .iter()

@@ -16,6 +16,7 @@ use crate::ledger::book::checkpoint::{
 };
 use crate::ledger::book::{BookError, BookResult, SourceBook};
 use crate::ledger::draw::{DrawError, DrawResult, SourceBooks};
+use crate::ledger::line_store as ledger_line;
 use crate::ledger::Key;
 use crate::storage::*;
 use anchor_lang::prelude::*;
@@ -200,6 +201,24 @@ impl<'a, 'info> OnchainBooks<'a, 'info> {
             book.encode(&mut data[BOOK_AT..]).map_err(book_err)?;
         }
         Ok(())
+    }
+
+    /// The Source's fee counter of `class` (Platform, Studio or Leaderboard), if one was credited.
+    pub fn counter(&self, source: &Key, class: u8) -> Option<ledger_line::Line> {
+        let e = self.entries.iter().find(|e| e.source == *source)?;
+        let data = e.info.try_borrow_data().ok()?;
+        counter_get(&data, class)
+    }
+
+    /// Writes the Source's fee counter of `class` back into its book account.
+    pub fn set_counter(&mut self, source: &Key, class: u8, line: &ledger_line::Line) -> bool {
+        let Some(e) = self.entries.iter().find(|e| e.source == *source) else {
+            return false;
+        };
+        let Ok(mut data) = e.info.try_borrow_mut_data() else {
+            return false;
+        };
+        counter_put(&mut data, class, line)
     }
 
     /// Write the decoded book back into its account. Call after the ledger operations succeeded.

@@ -413,7 +413,9 @@ fn cu_profile_apply_yield_from_source() {
             protections: pda(&[PROTECTIONS_SEED, env.owner_account.as_ref()]),
             position,
             source,
-            holding: pda(&[HOLDING_SEED, env.owner_account.as_ref(), source.as_ref()]),
+            book: tesoro_core::storage::book_address(&source).0,
+            basket: tesoro_core::storage::basket_address(&env.owner_account).0,
+            spill: tesoro_core::storage::spill_address(&env.owner_account).0,
             system_program: anchor_lang::system_program::ID,
         },
         instruction::TakeAdvance {
@@ -436,7 +438,20 @@ fn cu_profile_apply_yield_from_source() {
         ));
     env.send2(&[advance], &oracle, &owner).expect("advance");
     let payer = env.owner.insecure_clone();
-    let apply = ix(
+    // The pages a landing that repays the Advance writes its closed segment to.
+    for class in [1u8, 3] {
+        let init = ix(
+            accounts::InitCkptPage {
+                payer: a(payer.pubkey()),
+                book: tesoro_core::storage::book_address(&source).0,
+                page: tesoro_core::storage::ckpt_address(&source, class, 0).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitCkptPage { class, page_no: 0 },
+        );
+        env.send(&[init], &payer).expect("page");
+    }
+    let mut apply = ix(
         accounts::ApplyYieldFromSource {
             source_signer: a(bridge.pubkey()),
             source_authority: pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
@@ -448,6 +463,15 @@ fn cu_profile_apply_yield_from_source() {
             cumulative: 30_000_000_000,
         },
     );
+    for k in [
+        tesoro_core::storage::book_address(&source).0,
+        tesoro_core::storage::ckpt_address(&source, 1, 0).0,
+        tesoro_core::storage::ckpt_address(&source, 3, 0).0,
+    ] {
+        apply
+            .accounts
+            .push(solana_sdk::instruction::AccountMeta::new(s(k), false));
+    }
     env.send2(&[apply], &payer, &bridge).expect("repay debt");
     println!(
         "CU apply_yield_from_source: no open Advance {no_advance}; with open Advance {}",
