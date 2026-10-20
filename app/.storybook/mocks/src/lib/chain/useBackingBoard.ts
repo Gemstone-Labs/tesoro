@@ -2,8 +2,7 @@
 import * as real from "../../../../../src/lib/chain/useBackingBoard";
 import { screenData } from "../../../../../stories/screens/support/screen";
 
-export const { recordFromMatches, recordShort, recordText, timeLeft, shortKey } = real;
-export type { BackingData } from "../../../../../src/lib/chain/useBackingBoard";
+export * from "../../../../../src/lib/chain/useBackingBoard";
 
 export function useBackingBoard(): real.BackingData {
   const board = real.useBackingBoard();
