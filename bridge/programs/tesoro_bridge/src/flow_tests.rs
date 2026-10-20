@@ -1228,3 +1228,22 @@ fn normal_redeem_through_the_bridge_is_unchanged_by_instant_redeems() {
         claim.units_total
     );
 }
+
+#[test]
+fn an_order_with_repaid_gemas_is_not_filled_through_the_bridge() {
+    let mut env = Env::new();
+    let id = 1;
+    env.opened_with_advance(id);
+    let (bob, bob_account, source) = env.winner_with(id, 1_000);
+    env.request_instant(id, &bob, bob_account, source, 1_000, 1).expect("order");
+    // The yield lands while the order is open: its Gemas are now repaid. A fill would Redeem them
+    // at full value, a payout only `redeem_to_evm` records, so the fill is refused whole.
+    env.receive_yield(id, 2, 5_000_000_000_000_000, ETH, 0);
+    env.sync_treasury(id).expect("sync");
+    env.apply_yield(id, true).expect("apply yield");
+    let err = env.fill_instant(id, &bob, bob_account, source, 1, 100).expect_err("ready");
+    assert_eq!(custom_code(&err), Some(6012), "BridgedSource");
+    assert_eq!(env.load::<VaultTreasury>(env.vault_treasury()).instant_recorded, 0);
+    assert!(env.svm.get_account(&s(env.order_address(bob_account, 1))).is_some(), "order open");
+    assert_eq!(econ::gemas_in(&env.svm, core_treasury_account(), source), 0);
+}

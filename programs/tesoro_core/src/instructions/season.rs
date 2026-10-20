@@ -57,6 +57,10 @@ pub struct RecordSeason<'info> {
     /// CHECK: the Pool's basket, checked by its seeds.
     #[account(seeds = [BASKET_SEED, pool_account.key().as_ref()], bump)]
     pub pool_basket: UncheckedAccount<'info>,
+    /// CHECK: the Pool's spill, checked by its seeds. Prize Gemas that did not fit the basket wait
+    /// here and are part of the budget.
+    #[account(seeds = [SPILL_SEED, pool_account.key().as_ref()], bump)]
+    pub pool_spill: UncheckedAccount<'info>,
     #[account(
         init_if_needed,
         payer = authority,
@@ -129,8 +133,10 @@ pub(crate) fn record_season<'info>(
     let route_refs: Vec<&ledger::RouteLedger> = routes.iter().collect();
 
     let mut pool_lines: Vec<PoolLine> = Vec::new();
-    {
-        let info = ctx.accounts.pool_basket.to_account_info();
+    for info in [
+        ctx.accounts.pool_basket.to_account_info(),
+        ctx.accounts.pool_spill.to_account_info(),
+    ] {
         let data = info.try_borrow_data()?;
         let store = LineStore::new(&data[DISC..]).map_err(store_err)?;
         for l in store.lines() {

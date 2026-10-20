@@ -425,21 +425,6 @@ impl StakeCustody {
         self.realised_fee_shares = t.realised_fee_shares;
         self.open_positions = t.open_positions;
     }
-
-    /// The Treasury's balance in tokens at `rate`: the earned Yield Fee plus what it redeemed,
-    /// less what it paid out; never more than the vault holds above the Principal reserve.
-    pub fn treasury_balance(&self, rate: u64, vault_amount: u64) -> Result<u64> {
-        use crate::error::core_err;
-        let totals = self.totals();
-        let earned = totals.earned_fee_shares(rate).map_err(core_err)?;
-        let claim = earned
-            .saturating_add(self.refilled_shares)
-            .saturating_sub(self.instant_shares)
-            .saturating_sub(self.withdrawn_shares);
-        let headroom =
-            vault_amount.saturating_sub(totals.principal_reserve(rate).map_err(core_err)?);
-        Ok(claim.min(headroom))
-    }
 }
 
 /// Tesoro's Treasury (CONTEXT.md): its Yield Fee on Solana-native Positions is computed from the

@@ -495,20 +495,10 @@ pub(crate) fn fill_instant_redeem_from_source<'info>(
             },
         )?
     };
-    if let Some(r) = &filled.redeemed {
-        // The repaid part of the order was Redeemed at full value: the bridge records that claim
-        // with the Source's `redeemed_units`, like any Redeem.
-        let paid = u64::try_from(r.shares).map_err(|_| core_err(CoreError::Math))?;
-        ledger::economy::debit_paid_shares(
-            &mut a.position.inner,
-            CustodyKind::Reported,
-            None,
-            paid,
-        )
-        .map_err(core_err)?;
-        a.source.inner.redeemed = a.source.inner.redeemed.saturating_add(r.gemas);
-        a.source.inner.redeemed_units = a.source.inner.redeemed_units.saturating_add(paid);
-    }
+    // An order with Gemas ready to Redeem would have them Redeemed at full value here, a payout only
+    // the bridge can record. The whole fill is refused instead: the seller cancels, which returns
+    // the Gemas, and Redeems them through the bridge.
+    require!(filled.redeemed.is_none(), TesoroError::BridgedSource);
     books.flush()?;
     let payout = u64::try_from(filled.payout_shares).map_err(|_| core_err(CoreError::Math))?;
     let finished = !order.is_open();

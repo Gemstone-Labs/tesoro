@@ -112,6 +112,13 @@ impl ShareRate {
         mul_div_u128(shares, self.rate, self.scale, Round::Down).ok_or(CoreError::Math)
     }
 
+    /// Whole shares worth `units` whole units, rounded up (what must be kept to cover `units`).
+    pub fn whole_shares_for_units_ceil(&self, units: u64) -> CoreResult<u64> {
+        let s = mul_div_u128(u128::from(units), self.scale, self.rate, Round::Up)
+            .ok_or(CoreError::Math)?;
+        u64::try_from(s).map_err(|_| CoreError::Math)
+    }
+
     /// Whole shares worth `units` whole units, rounded down (what a payout of `units` sends).
     pub fn whole_shares_for_units(&self, units: u64) -> CoreResult<u64> {
         let s = mul_div_u128(u128::from(units), self.scale, self.rate, Round::Down)
@@ -532,7 +539,18 @@ pub fn settle_unlock(
             let custody =
                 position.custody_shares - position.paid_shares.min(position.custody_shares);
             let rest = custody.checked_sub(owed).ok_or(CoreError::VaultShortfall)?;
-            let fee = rate.whole_shares_for_units(fee_units)?.min(rest);
+            // Holders' shares keep growing (or shrinking) with the pool after they land, so the
+            // growth of those shares is not the owner's. The Yield Fee is therefore paid only from
+            // what is left above the owner's Principal and own free yield: it absorbs that growth
+            // and the owner never gets back less than the Principal's value while any fee remains.
+            let owner_floor = rate
+                .whole_shares_for_units_ceil(position.principal)?
+                .saturating_add(
+                    u64::try_from(position.free_shares >> SHARE_BITS).unwrap_or(u64::MAX),
+                );
+            let fee = rate
+                .whole_shares_for_units(fee_units)?
+                .min(rest.saturating_sub(owner_floor));
             UnlockPayout {
                 owner_shares: rest - fee,
                 mint_shares: 0,

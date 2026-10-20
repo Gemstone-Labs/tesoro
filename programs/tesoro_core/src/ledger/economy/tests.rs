@@ -652,13 +652,14 @@ proptest! {
 #[test]
 fn a_fee_larger_than_what_the_custody_has_left_is_clamped_not_invented() {
     let rate = ShareRate::stake(R0).unwrap();
-    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
+    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 1, 500).unwrap();
     pos.stake_rate_open = R0;
     pos.custody_shares = 1_000;
     pos.held_shares = 400u128 << SHARE_BITS;
     pos.paid_shares = 0;
     let p = settle_unlock(&mut pos, CustodyKind::Stake, 10 * SOL, &rate).unwrap();
-    assert_eq!((p.owed_shares, p.fee_shares, p.owner_shares), (400, 600, 0));
+    // The owner keeps the share that covers the Principal (1 lamport), the fee takes the rest.
+    assert_eq!((p.owed_shares, p.fee_shares, p.owner_shares), (400, 599, 1));
     // Holders owed more than the custody holds is an inconsistency, not a payout.
     let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, SOL, 500).unwrap();
     pos.custody_shares = 100;
@@ -668,4 +669,61 @@ fn a_fee_larger_than_what_the_custody_has_left_is_clamped_not_invented() {
         Err(CoreError::VaultShortfall)
     );
     assert_eq!(pos.status, PositionStatus::Locked);
+}
+
+#[test]
+fn the_fee_is_paid_only_above_the_owners_principal() {
+    let rate = ShareRate::stake(R0).unwrap();
+    // 1,000 shares, 400 owed to holders: the owner's 600 shares are worth 780 units at R0.
+    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 700, 500).unwrap();
+    pos.stake_rate_open = R0;
+    pos.custody_shares = 1_000;
+    pos.held_shares = 400u128 << SHARE_BITS;
+    let p = settle_unlock(&mut pos, CustodyKind::Stake, 500, &rate).unwrap();
+    // The Principal (700 units) needs 539 shares; the fee wanted 385 but only 61 are above it.
+    assert_eq!(
+        (p.owed_shares, p.fee_shares, p.owner_shares),
+        (400, 61, 539)
+    );
+    // A Principal worth more than the owner's shares leaves no fee at all.
+    let mut pos = Position::new(OWNER, SourceChain::Solana, [7; 32], 9, 900, 500).unwrap();
+    pos.stake_rate_open = R0;
+    pos.custody_shares = 1_000;
+    pos.held_shares = 400u128 << SHARE_BITS;
+    let p = settle_unlock(&mut pos, CustodyKind::Stake, 500, &rate).unwrap();
+    assert_eq!((p.fee_shares, p.owner_shares), (0, 600));
+}
+
+#[test]
+fn growth_of_landed_shares_never_takes_the_owners_principal() {
+    // Coverage lands in many small steps while the pool grows, so the landed shares grow with the
+    // pool and the Position's own growth is counted on them again. Priced on the Position's whole
+    // growth the owner would get back a little less than the Principal.
+    let mut w = World::new(10 * SOL);
+    w.advance(12).unwrap();
+    let step = R0 / 20_000;
+    for _ in 0..4_000 {
+        w.rate += step;
+        w.sync(0).unwrap();
+        if w.books[0].uncovered_total() == 0 {
+            break;
+        }
+    }
+    assert_eq!(w.books[0].uncovered_total(), 0, "the Advance is repaid");
+    let fee_units = w.fee_units();
+    let rate = w.share_rate();
+    w.unlock().unwrap();
+    let p = w.unlocked.unwrap();
+    let rest = w.custody0 - p.owed_shares;
+    let uncapped = rate.whole_shares_for_units(fee_units).unwrap().min(rest);
+    let value = |shares: u64| rate.units_for_shares(u128::from(shares)).unwrap();
+    assert!(
+        value(rest - uncapped) < u128::from(w.pos.principal),
+        "without the floor the owner would get back less than the Principal"
+    );
+    assert!(
+        value(p.owner_shares) >= u128::from(w.pos.principal),
+        "the owner's shares are worth at least the Principal"
+    );
+    assert!(p.fee_shares > 0 && p.fee_shares < uncapped);
 }

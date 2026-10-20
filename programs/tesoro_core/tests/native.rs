@@ -3231,6 +3231,7 @@ impl Env {
                 economy: pda(&[ECONOMY_SEED]),
                 pool_account: self.pool_account(),
                 pool_basket: basket_address(&self.pool_account()).0,
+                pool_spill: spill_address(&self.pool_account()).0,
                 reservations: pda(&[POOL_RESERVATIONS_SEED]),
                 season: pda(&[SEASON_SEED, &number.to_le_bytes()]),
                 system_program: anchor_lang::system_program::ID,
@@ -3380,6 +3381,28 @@ fn a_season_is_funded_recorded_and_paid_from_the_escrow() {
         err.err,
         solana_sdk::transaction::TransactionError::InstructionError(_, _)
     ));
+
+    // A basket that was full when the prize arrived keeps it in the spill: it is part of the
+    // budget all the same.
+    let pool = env.pool_account();
+    let grow = tix(
+        accounts::GrowStore {
+            payer: a(keeper.kp.pubkey()),
+            account: pool,
+            basket: basket_address(&pool).0,
+            spill: spill_address(&pool).0,
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::GrowStore {
+            which: tesoro_core::StoreKind::Spill,
+            extra_lines: 4,
+        },
+        vec![],
+    );
+    env.send(&[grow], &keeper.kp, &[])
+        .expect("grow the Pool's spill");
+    econ::move_lines_to_spill(&mut env.svm, pool);
+    assert_eq!(econ::read_lines(&env.svm, basket_address(&pool).0).len(), 0);
 
     // Record: the ranking and a frozen budget; one line (the prize Source).
     env.record_season(&keeper.kp, 1, &[(&bob, 20), (&carol, 10)])

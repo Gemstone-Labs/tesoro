@@ -542,6 +542,135 @@
       ]
     },
     {
+      "name": "cancel_instant_redeem",
+      "docs": [
+        "The seller takes the unsold Gemas back, any time before they are sold."
+      ],
+      "discriminator": [
+        9,
+        75,
+        1,
+        241,
+        142,
+        254,
+        69,
+        188
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "docs": [
+            "The seller on cancel; anyone on expiry."
+          ],
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  115,
+                  116,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.account",
+                "account": "InstantOrderState"
+              },
+              {
+                "kind": "account",
+                "path": "order.nonce",
+                "account": "InstantOrderState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_wallet",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "cancel_offer",
       "discriminator": [
         92,
@@ -936,6 +1065,79 @@
                 "kind": "account",
                 "path": "request.inner.player",
                 "account": "RequestState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_season",
+      "docs": [
+        "Releases what no rank took so it rolls into the next Season (anyone, once all is paid)."
+      ],
+      "discriminator": [
+        162,
+        198,
+        31,
+        37,
+        77,
+        0,
+        199,
+        152
+      ],
+      "accounts": [
+        {
+          "name": "season",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "season.inner.number",
+                "account": "SeasonState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reservations",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  114,
+                  101,
+                  115,
+                  101,
+                  114,
+                  118,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
               }
             ]
           }
@@ -1353,6 +1555,135 @@
       ]
     },
     {
+      "name": "expire_instant_redeem",
+      "docs": [
+        "Anyone returns the unsold Gemas of an expired order to its seller."
+      ],
+      "discriminator": [
+        240,
+        169,
+        33,
+        142,
+        102,
+        51,
+        168,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "docs": [
+            "The seller on cancel; anyone on expiry."
+          ],
+          "signer": true
+        },
+        {
+          "name": "owner_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  115,
+                  116,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.account",
+                "account": "InstantOrderState"
+              },
+              {
+                "kind": "account",
+                "path": "order.nonce",
+                "account": "InstantOrderState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_wallet",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "expire_offer",
       "discriminator": [
         161,
@@ -1577,7 +1908,6 @@
         },
         {
           "name": "owner_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1715,29 +2045,46 @@
           }
         },
         {
-          "name": "holding",
+          "name": "basket",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
               },
               {
                 "kind": "account",
-                "path": "source"
+                "path": "owner_account"
               }
             ]
           }
@@ -1806,7 +2153,6 @@
         },
         {
           "name": "owner_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1945,29 +2291,46 @@
           }
         },
         {
-          "name": "holding",
+          "name": "basket",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
               },
               {
                 "kind": "account",
-                "path": "source"
+                "path": "owner_account"
               }
             ]
           }
@@ -2013,6 +2376,935 @@
         {
           "name": "extra_months",
           "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "fill_instant_redeem",
+      "docs": [
+        "The fill authority buys all or part of an order at 75% of the value at fill."
+      ],
+      "discriminator": [
+        95,
+        31,
+        53,
+        204,
+        190,
+        60,
+        229,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "filler",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  115,
+                  116,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.account",
+                "account": "InstantOrderState"
+              },
+              {
+                "kind": "account",
+                "path": "order.nonce",
+                "account": "InstantOrderState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_wallet",
+          "writable": true
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "gemas",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "fill_instant_redeem_from_source",
+      "docs": [
+        "The bridge fills an order of an EVM-sourced Source against the vault's mirrored budget."
+      ],
+      "discriminator": [
+        220,
+        201,
+        171,
+        0,
+        62,
+        33,
+        209,
+        246
+      ],
+      "accounts": [
+        {
+          "name": "source_signer",
+          "signer": true
+        },
+        {
+          "name": "source_authority"
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  115,
+                  116,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order.account",
+                "account": "InstantOrderState"
+              },
+              {
+                "kind": "account",
+                "path": "order.nonce",
+                "account": "InstantOrderState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_wallet",
+          "writable": true
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "gemas",
+          "type": "u64"
+        },
+        {
+          "name": "available_shares",
+          "type": "u64"
+        }
+      ],
+      "returns": "u64"
+    },
+    {
+      "name": "fund_season_prize_native",
+      "discriminator": [
+        94,
+        118,
+        89,
+        250,
+        253,
+        21,
+        246,
+        16
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                7,
+                154,
+                161,
+                69,
+                216,
+                177,
+                40,
+                67,
+                215,
+                30,
+                166,
+                242,
+                144,
+                228,
+                213,
+                146,
+                76,
+                46,
+                113,
+                198,
+                206,
+                125,
+                111,
+                40,
+                115,
+                27,
+                40,
+                112,
+                130,
+                25,
+                11,
+                236
+              ]
+            }
+          }
+        },
+        {
+          "name": "price_feed",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  35,
+                  157,
+                  106,
+                  206,
+                  250,
+                  168,
+                  141,
+                  111,
+                  63,
+                  255,
+                  166,
+                  173,
+                  253,
+                  158,
+                  121,
+                  120,
+                  0,
+                  19,
+                  215,
+                  247,
+                  105,
+                  111,
+                  139,
+                  199,
+                  36,
+                  7,
+                  197,
+                  30,
+                  126,
+                  15,
+                  209,
+                  93
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "custody"
+              },
+              {
+                "kind": "arg",
+                "path": "season"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "season",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "fund_season_prize_stake",
+      "discriminator": [
+        148,
+        16,
+        71,
+        132,
+        35,
+        225,
+        141,
+        68
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "custody.mint",
+                "account": "StakeCustody"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "stake_pool"
+        },
+        {
+          "name": "onchain_price",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  110,
+                  99,
+                  104,
+                  97,
+                  105,
+                  110,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "custody.mint",
+                "account": "StakeCustody"
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_feed"
+        },
+        {
+          "name": "pool_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "custody"
+              },
+              {
+                "kind": "arg",
+                "path": "season"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "season",
+          "type": "u32"
         }
       ]
     },
@@ -2076,7 +3368,118 @@
           }
         },
         {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "treasury_vault",
+          "writable": true
+        },
+        {
+          "name": "admin_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "shares",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "fund_treasury_stake",
+      "docs": [
+        "Admin: tops up the Treasury with `shares` of the staking token (its own funding)."
+      ],
+      "discriminator": [
+        14,
+        19,
+        71,
+        95,
+        163,
+        173,
+        141,
+        60
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  100,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "custody.mint",
+                "account": "StakeCustody"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
           "writable": true
         },
         {
@@ -2329,6 +3732,57 @@
           "type": "u32"
         }
       ]
+    },
+    {
+      "name": "harvest",
+      "docs": [
+        "Anyone: the ready part of a Source's Leaderboard counter goes into the prize escrow."
+      ],
+      "discriminator": [
+        228,
+        241,
+        31,
+        182,
+        53,
+        169,
+        59,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
     },
     {
       "name": "init_ckpt_page",
@@ -3310,815 +4764,6 @@
         {
           "name": "platform_bps",
           "type": "u16"
-        }
-      ]
-    },
-    {
-      "name": "instant_redeem",
-      "discriminator": [
-        187,
-        107,
-        208,
-        125,
-        224,
-        237,
-        40,
-        93
-      ],
-      "accounts": [
-        {
-          "name": "holder_authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "holder_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "holder_authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "position"
-        },
-        {
-          "name": "source",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  111,
-                  117,
-                  114,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              },
-              {
-                "kind": "account",
-                "path": "source.inner.index",
-                "account": "SourceState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "holder_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "treasury"
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "treasury_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121,
-                  95,
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "holder_token",
-          "writable": true
-        },
-        {
-          "name": "pool",
-          "docs": [
-            "The canonical sim_lst Pool, whose rate converts the payout to simSOL."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  111,
-                  108
-                ]
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                7,
-                154,
-                161,
-                69,
-                216,
-                177,
-                40,
-                67,
-                215,
-                30,
-                166,
-                242,
-                144,
-                228,
-                213,
-                146,
-                76,
-                46,
-                113,
-                198,
-                206,
-                125,
-                111,
-                40,
-                115,
-                27,
-                40,
-                112,
-                130,
-                25,
-                11,
-                236
-              ]
-            }
-          }
-        },
-        {
-          "name": "custody",
-          "docs": [
-            "The shared native custody, whose pool totals give the earned Yield Fee."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  110,
-                  97,
-                  116,
-                  105,
-                  118,
-                  101
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "mint",
-          "writable": true,
-          "address": "3Q2VRPmdAZHutWNhE2Rof9Pdg6MnTMotXucmoD5cgAZJ"
-        },
-        {
-          "name": "yield_config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  121,
-                  105,
-                  101,
-                  108,
-                  100,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                7,
-                154,
-                161,
-                69,
-                216,
-                177,
-                40,
-                67,
-                215,
-                30,
-                166,
-                242,
-                144,
-                228,
-                213,
-                146,
-                76,
-                46,
-                113,
-                198,
-                206,
-                125,
-                111,
-                40,
-                115,
-                27,
-                40,
-                112,
-                130,
-                25,
-                11,
-                236
-              ]
-            }
-          }
-        },
-        {
-          "name": "yield_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  121,
-                  105,
-                  101,
-                  108,
-                  100
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "sim_lst_program",
-          "address": "WgcM5GessXmBx91ggdMrgFEVaitNQBJZ3KTmz1VqD4F"
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "instant_redeem_from_source",
-      "discriminator": [
-        166,
-        149,
-        174,
-        49,
-        1,
-        173,
-        107,
-        189
-      ],
-      "accounts": [
-        {
-          "name": "holder_authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "source_signer",
-          "signer": true
-        },
-        {
-          "name": "source_authority"
-        },
-        {
-          "name": "holder_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "holder_authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "position"
-        },
-        {
-          "name": "source",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  111,
-                  117,
-                  114,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              },
-              {
-                "kind": "account",
-                "path": "source.inner.index",
-                "account": "SourceState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "holder_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "treasury"
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "treasury_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        }
-      ],
-      "returns": "u64"
-    },
-    {
-      "name": "instant_redeem_stake",
-      "docs": [
-        "Instant Redeem of won Gemas of a stake Source, paid in the token from the Treasury balance."
-      ],
-      "discriminator": [
-        175,
-        8,
-        1,
-        60,
-        163,
-        186,
-        151,
-        113
-      ],
-      "accounts": [
-        {
-          "name": "holder_authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "holder_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "holder_authority"
-              }
-            ]
-          }
-        },
-        {
-          "name": "position"
-        },
-        {
-          "name": "source",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  111,
-                  117,
-                  114,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              },
-              {
-                "kind": "account",
-                "path": "source.inner.index",
-                "account": "SourceState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "holder_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "treasury"
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "treasury_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
-        },
-        {
-          "name": "custody",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  116,
-                  97,
-                  107,
-                  101,
-                  95,
-                  99,
-                  117,
-                  115,
-                  116,
-                  111,
-                  100,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position.inner.source_asset",
-                "account": "PositionState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault",
-          "writable": true
-        },
-        {
-          "name": "holder_token",
-          "writable": true
-        },
-        {
-          "name": "stake_pool"
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
         }
       ]
     },
@@ -5423,6 +6068,9 @@
     },
     {
       "name": "pay_season_rank",
+      "docs": [
+        "Pays one (rank, budget line) step: every rank takes the same share of every line."
+      ],
       "discriminator": [
         108,
         86,
@@ -5457,6 +6105,25 @@
           }
         },
         {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "season",
           "writable": true,
           "pda": {
@@ -5481,38 +6148,37 @@
           }
         },
         {
-          "name": "season_window",
+          "name": "reservations",
+          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  114,
+                  101,
                   115,
                   101,
+                  114,
+                  118,
                   97,
-                  115,
-                  111,
-                  110,
-                  95,
-                  119,
+                  116,
                   105,
-                  110,
-                  100,
                   111,
-                  119
+                  110,
+                  115
                 ]
-              },
-              {
-                "kind": "account",
-                "path": "season.inner.number",
-                "account": "SeasonState"
               }
             ]
           }
         },
         {
           "name": "pool_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -5536,8 +6202,52 @@
           }
         },
         {
-          "name": "winner_account",
+          "name": "pool_basket",
           "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner_account",
           "pda": {
             "seeds": [
               {
@@ -5559,11 +6269,63 @@
               }
             ]
           }
+        },
+        {
+          "name": "winner_basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "winner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner_spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "winner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_source"
         }
       ],
       "args": [
         {
           "name": "rank",
+          "type": "u8"
+        },
+        {
+          "name": "line",
           "type": "u8"
         }
       ]
@@ -5605,6 +6367,25 @@
           }
         },
         {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "pool_account",
           "pda": {
             "seeds": [
@@ -5629,6 +6410,82 @@
           }
         },
         {
+          "name": "pool_basket",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_spill",
+          "docs": [
+            "here and are part of the budget."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reservations",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  114,
+                  101,
+                  115,
+                  101,
+                  114,
+                  118,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "season",
           "writable": true,
           "pda": {
@@ -5642,36 +6499,6 @@
                   115,
                   111,
                   110
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "number"
-              }
-            ]
-          }
-        },
-        {
-          "name": "season_window",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  101,
-                  97,
-                  115,
-                  111,
-                  110,
-                  95,
-                  119,
-                  105,
-                  110,
-                  100,
-                  111,
-                  119
                 ]
               },
               {
@@ -5701,6 +6528,9 @@
     },
     {
       "name": "redeem",
+      "docs": [
+        "Redeems `amount` repaid Gemas of one line; pays the shares their yield was worth."
+      ],
       "discriminator": [
         184,
         12,
@@ -5718,7 +6548,6 @@
         },
         {
           "name": "holder_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -5741,7 +6570,53 @@
           }
         },
         {
-          "name": "position"
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
         },
         {
           "name": "source",
@@ -5770,37 +6645,17 @@
               }
             ]
           }
-        },
-        {
-          "name": "holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "holder_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
         }
       ],
       "args": [
+        {
+          "name": "line",
+          "type": {
+            "defined": {
+              "name": "LineRef"
+            }
+          }
+        },
         {
           "name": "amount",
           "type": "u64"
@@ -5833,7 +6688,6 @@
         },
         {
           "name": "holder_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -5856,7 +6710,53 @@
           }
         },
         {
-          "name": "position"
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
         },
         {
           "name": "source",
@@ -5885,34 +6785,111 @@
               }
             ]
           }
+        }
+      ],
+      "args": [
+        {
+          "name": "line",
+          "type": {
+            "defined": {
+              "name": "LineRef"
+            }
+          }
         },
         {
-          "name": "holding",
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "redeem_prize",
+      "discriminator": [
+        39,
+        30,
+        139,
+        176,
+        11,
+        18,
+        151,
+        73
+      ],
+      "accounts": [
+        {
+          "name": "holder_authority",
+          "signer": true
+        },
+        {
+          "name": "holder_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "holder_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
               }
             ]
           }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_source",
+          "writable": true
         }
       ],
       "args": [
@@ -5924,6 +6901,9 @@
     },
     {
       "name": "redeem_treasury",
+      "docs": [
+        "The Treasury Account redeems Gemas it bought (an Instant Redeem fill); anyone may call it."
+      ],
       "discriminator": [
         16,
         151,
@@ -5957,7 +6937,6 @@
         },
         {
           "name": "treasury_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -5980,7 +6959,53 @@
           }
         },
         {
-          "name": "position"
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
         },
         {
           "name": "source",
@@ -6009,37 +7034,17 @@
               }
             ]
           }
-        },
-        {
-          "name": "treasury_holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "treasury_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
         }
       ],
       "args": [
+        {
+          "name": "line",
+          "type": {
+            "defined": {
+              "name": "LineRef"
+            }
+          }
+        },
         {
           "name": "amount",
           "type": "u64"
@@ -6088,7 +7093,6 @@
         },
         {
           "name": "treasury_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -6111,7 +7115,53 @@
           }
         },
         {
-          "name": "position"
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
         },
         {
           "name": "source",
@@ -6140,37 +7190,17 @@
               }
             ]
           }
-        },
-        {
-          "name": "treasury_holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "treasury_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
         }
       ],
       "args": [
+        {
+          "name": "line",
+          "type": {
+            "defined": {
+              "name": "LineRef"
+            }
+          }
+        },
         {
           "name": "amount",
           "type": "u64"
@@ -6448,6 +7478,183 @@
               "name": "SourceChain"
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "request_instant_redeem",
+      "docs": [
+        "Puts won Gemas into an order Tesoro fills; the repaid part is Redeemed at full value."
+      ],
+      "discriminator": [
+        242,
+        196,
+        86,
+        222,
+        247,
+        135,
+        217,
+        251
+      ],
+      "accounts": [
+        {
+          "name": "holder_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "holder_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  115,
+                  116,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "holder_account"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "line",
+          "type": {
+            "defined": {
+              "name": "LineRef"
+            }
+          }
+        },
+        {
+          "name": "sell",
+          "type": "u64"
+        },
+        {
+          "name": "ttl_secs",
+          "type": "i64"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
         }
       ]
     },
@@ -6832,6 +8039,9 @@
     },
     {
       "name": "return_own",
+      "docs": [
+        "Returns `amount` of the owner's own Gemas of one line of the Source."
+      ],
       "discriminator": [
         220,
         102,
@@ -6849,7 +8059,6 @@
         },
         {
           "name": "owner_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -6867,6 +8076,51 @@
               {
                 "kind": "account",
                 "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner_account"
               }
             ]
           }
@@ -6902,37 +8156,17 @@
               }
             ]
           }
-        },
-        {
-          "name": "holding",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner_account"
-              },
-              {
-                "kind": "account",
-                "path": "source"
-              }
-            ]
-          }
         }
       ],
       "args": [
+        {
+          "name": "line",
+          "type": {
+            "defined": {
+              "name": "LineRef"
+            }
+          }
+        },
         {
           "name": "amount",
           "type": "u64"
@@ -7068,6 +8302,98 @@
         {
           "name": "days",
           "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "set_economy",
+      "docs": [
+        "Admin: the Season keeper, the Instant Redeem fill keeper and its switch, and the routes a",
+        "recorded Season waits for."
+      ],
+      "discriminator": [
+        203,
+        204,
+        176,
+        215,
+        108,
+        130,
+        140,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "season_keeper",
+          "type": "pubkey"
+        },
+        {
+          "name": "fill_keeper",
+          "type": "pubkey"
+        },
+        {
+          "name": "keeper_fills",
+          "type": "bool"
+        },
+        {
+          "name": "routes",
+          "type": {
+            "array": [
+              "pubkey",
+              4
+            ]
+          }
         }
       ]
     },
@@ -7850,6 +9176,132 @@
         {
           "name": "price_micro_usd",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_prize_escrow",
+      "docs": [
+        "Admin: switches a custody's prize escrow (off until the slashing fix is accepted)."
+      ],
+      "discriminator": [
+        69,
+        235,
+        12,
+        165,
+        183,
+        125,
+        247,
+        186
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_prize_share",
+      "docs": [
+        "Admin: the Pool's share of every Yield Fee realised from a Season announced ahead."
+      ],
+      "discriminator": [
+        38,
+        87,
+        186,
+        166,
+        100,
+        215,
+        184,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "from_season",
+          "type": "u32"
+        },
+        {
+          "name": "bps",
+          "type": "u16"
         }
       ]
     },
@@ -8719,7 +10171,6 @@
         },
         {
           "name": "owner_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -8801,29 +10252,67 @@
           }
         },
         {
-          "name": "holding",
+          "name": "book",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  104,
+                  98,
                   111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
               },
               {
                 "kind": "account",
-                "path": "source"
+                "path": "owner_account"
               }
             ]
           }
@@ -8912,7 +10401,6 @@
         },
         {
           "name": "owner_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -9027,29 +10515,67 @@
           }
         },
         {
-          "name": "holding",
+          "name": "book",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  104,
+                  98,
                   111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
               },
               {
                 "kind": "account",
-                "path": "source"
+                "path": "owner_account"
               }
             ]
           }
@@ -9086,7 +10612,6 @@
         },
         {
           "name": "owner_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -9250,38 +10775,6 @@
           }
         },
         {
-          "name": "prev_source",
-          "docs": [
-            "The Position's open Advance, when it has one."
-          ],
-          "writable": true,
-          "optional": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  111,
-                  117,
-                  114,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              },
-              {
-                "kind": "account",
-                "path": "prev_source.inner.index",
-                "account": "SourceState"
-              }
-            ]
-          }
-        },
-        {
           "name": "source",
           "writable": true,
           "pda": {
@@ -9310,29 +10803,67 @@
           }
         },
         {
-          "name": "holding",
+          "name": "book",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  104,
+                  98,
                   111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
               },
               {
                 "kind": "account",
-                "path": "source"
+                "path": "owner_account"
               }
             ]
           }
@@ -9372,7 +10903,6 @@
         },
         {
           "name": "owner_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -9515,38 +11045,6 @@
           }
         },
         {
-          "name": "prev_source",
-          "docs": [
-            "The Position's open Advance, when it has one."
-          ],
-          "writable": true,
-          "optional": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  111,
-                  117,
-                  114,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              },
-              {
-                "kind": "account",
-                "path": "prev_source.inner.index",
-                "account": "SourceState"
-              }
-            ]
-          }
-        },
-        {
           "name": "source",
           "writable": true,
           "pda": {
@@ -9575,29 +11073,67 @@
           }
         },
         {
-          "name": "holding",
+          "name": "book",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  104,
+                  98,
                   111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
               },
               {
                 "kind": "account",
-                "path": "source"
+                "path": "owner_account"
               }
             ]
           }
@@ -9637,7 +11173,6 @@
         },
         {
           "name": "owner_account",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -9781,38 +11316,6 @@
           "name": "stake_pool"
         },
         {
-          "name": "prev_source",
-          "docs": [
-            "The Position's open Advance, when it has one."
-          ],
-          "writable": true,
-          "optional": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  111,
-                  117,
-                  114,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              },
-              {
-                "kind": "account",
-                "path": "prev_source.inner.index",
-                "account": "SourceState"
-              }
-            ]
-          }
-        },
-        {
           "name": "source",
           "writable": true,
           "pda": {
@@ -9841,29 +11344,67 @@
           }
         },
         {
-          "name": "holding",
+          "name": "book",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  104,
+                  98,
                   111,
-                  108,
-                  100,
-                  105,
-                  110,
-                  103
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "owner_account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
               },
               {
                 "kind": "account",
-                "path": "source"
+                "path": "owner_account"
               }
             ]
           }
@@ -9916,6 +11457,25 @@
               {
                 "kind": "account",
                 "path": "owner_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "economy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  99,
+                  111,
+                  110,
+                  111,
+                  109,
+                  121
+                ]
               }
             ]
           }
@@ -10046,29 +11606,6 @@
         },
         {
           "name": "season",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  101,
-                  97,
-                  115,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "season.inner.number",
-                "account": "SeasonState"
-              }
-            ]
-          }
-        },
-        {
-          "name": "season_window",
           "writable": true,
           "pda": {
             "seeds": [
@@ -10080,14 +11617,7 @@
                   97,
                   115,
                   111,
-                  110,
-                  95,
-                  119,
-                  105,
-                  110,
-                  100,
-                  111,
-                  119
+                  110
                 ]
               },
               {
@@ -10254,6 +11784,7 @@
         },
         {
           "name": "custody",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -10372,7 +11903,7 @@
     {
       "name": "withdraw_treasury_stake",
       "docs": [
-        "Admin: withdraws Treasury balance, in the token, to the company wallet."
+        "Admin: withdraws the Treasury's spendable shares, in the token, to the company wallet."
       ],
       "discriminator": [
         55,
@@ -10514,6 +12045,19 @@
       ]
     },
     {
+      "name": "EconomyConfig",
+      "discriminator": [
+        217,
+        204,
+        127,
+        47,
+        151,
+        223,
+        164,
+        182
+      ]
+    },
+    {
       "name": "ExtendLimitState",
       "discriminator": [
         130,
@@ -10537,6 +12081,19 @@
         76,
         152,
         254
+      ]
+    },
+    {
+      "name": "InstantOrderState",
+      "discriminator": [
+        126,
+        179,
+        8,
+        86,
+        85,
+        147,
+        75,
+        124
       ]
     },
     {
@@ -10618,6 +12175,19 @@
       ]
     },
     {
+      "name": "PoolReservationsState",
+      "discriminator": [
+        91,
+        129,
+        134,
+        206,
+        24,
+        24,
+        196,
+        64
+      ]
+    },
+    {
       "name": "PositionState",
       "discriminator": [
         154,
@@ -10641,6 +12211,19 @@
         35,
         243,
         156
+      ]
+    },
+    {
+      "name": "PrizeSourceState",
+      "discriminator": [
+        111,
+        243,
+        27,
+        187,
+        106,
+        147,
+        78,
+        221
       ]
     },
     {
@@ -10693,19 +12276,6 @@
         189,
         152,
         52
-      ]
-    },
-    {
-      "name": "SeasonWindowState",
-      "discriminator": [
-        4,
-        209,
-        198,
-        40,
-        87,
-        32,
-        39,
-        122
       ]
     },
     {
@@ -10906,6 +12476,32 @@
       ]
     },
     {
+      "name": "Harvested",
+      "discriminator": [
+        249,
+        229,
+        78,
+        151,
+        106,
+        185,
+        149,
+        11
+      ]
+    },
+    {
+      "name": "InstantFilled",
+      "discriminator": [
+        195,
+        66,
+        58,
+        142,
+        24,
+        73,
+        184,
+        210
+      ]
+    },
+    {
       "name": "InstantRedeemed",
       "discriminator": [
         213,
@@ -10916,6 +12512,32 @@
         14,
         161,
         56
+      ]
+    },
+    {
+      "name": "InstantRequested",
+      "discriminator": [
+        87,
+        221,
+        40,
+        202,
+        38,
+        39,
+        119,
+        226
+      ]
+    },
+    {
+      "name": "InstantReturned",
+      "discriminator": [
+        9,
+        49,
+        207,
+        180,
+        179,
+        217,
+        84,
+        96
       ]
     },
     {
@@ -11023,6 +12645,19 @@
       ]
     },
     {
+      "name": "PrizeRedeemed",
+      "discriminator": [
+        243,
+        193,
+        245,
+        166,
+        160,
+        101,
+        182,
+        207
+      ]
+    },
+    {
       "name": "Redeemed",
       "discriminator": [
         14,
@@ -11033,6 +12668,19 @@
         165,
         107,
         38
+      ]
+    },
+    {
+      "name": "SeasonFunded",
+      "discriminator": [
+        86,
+        2,
+        211,
+        175,
+        10,
+        250,
+        20,
+        35
       ]
     },
     {
@@ -11513,6 +13161,56 @@
       }
     },
     {
+      "name": "BudgetLine",
+      "docs": [
+        "One frozen line of a Season's budget."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "class",
+            "type": "u8"
+          },
+          {
+            "name": "tranche",
+            "type": "u8"
+          },
+          {
+            "name": "due_at",
+            "type": "i64"
+          },
+          {
+            "name": "source",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Gemas set aside for this Season's ranks. Never changes after `record`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "paid",
+            "docs": [
+              "Gemas paid out of it so far."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Config",
       "type": {
         "kind": "struct",
@@ -11601,6 +13299,66 @@
               "oracle key cannot mint Gemas. Appended last: an older Config reads it as false."
             ],
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EconomyConfig",
+      "docs": [
+        "Who may do what in the economy upgrade, as explicit settings (never the oracle authority).",
+        "Seeds `[\"economy\"]`; created by the admin's `set_economy`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "season_keeper",
+            "docs": [
+              "Runs Seasons (`fund_season_prize`, `record_season`, `pay_season_rank`) besides the admin."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fill_keeper",
+            "docs": [
+              "May fill Instant Redeem orders while `keeper_fills` is on (the admin always may)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper_fills",
+            "docs": [
+              "Off by default: only the admin fills."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "pool_share",
+            "docs": [
+              "The Pool's share of every realised Yield Fee, changeable from a Season announced ahead."
+            ],
+            "type": {
+              "defined": {
+                "name": "PoolShare"
+              }
+            }
+          },
+          {
+            "name": "routes",
+            "docs": [
+              "Custodies whose prize escrow `record_season` waits for (zero = unused slot)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                4
+              ]
+            }
           }
         ]
       }
@@ -11845,6 +13603,26 @@
       }
     },
     {
+      "name": "Harvested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Holding",
       "docs": [
         "Gemas held by one Account of one Source."
@@ -11901,6 +13679,108 @@
       }
     },
     {
+      "name": "InstantFilled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order",
+            "type": "pubkey"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          },
+          {
+            "name": "payout_shares",
+            "docs": [
+              "Shares the Treasury paid the seller."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InstantOrderState",
+      "docs": [
+        "An open Instant Redeem order (ticket 07's `InstantOrder` on chain): the unsold Gemas sit in",
+        "`line`, off the owner's basket, until a fill buys them, the owner cancels or the order expires.",
+        "Seeds `[\"instant\", holder account, nonce LE]`; the owner pays the rent and gets it back."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "account",
+            "docs": [
+              "The seller's `TesoroAccount`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "The seller's wallet."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "line",
+            "docs": [
+              "`Line` bytes (`LINE_LEN`)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                144
+              ]
+            }
+          },
+          {
+            "name": "requested",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "sold",
+            "type": "u64"
+          },
+          {
+            "name": "redeemed_while_open",
+            "type": "u64"
+          },
+          {
+            "name": "paid_shares",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
       "name": "InstantRedeemed",
       "docs": [
         "Won Gemas sold to the Treasury: `payout_units` is paid now (on Solana in the same transaction,",
@@ -11932,6 +13812,54 @@
           {
             "name": "payout_units",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InstantRequested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order",
+            "type": "pubkey"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InstantReturned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          },
+          {
+            "name": "expired",
+            "type": "bool"
           }
         ]
       }
@@ -11979,6 +13907,36 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LineRef",
+      "docs": [
+        "Names one line of a Source in an Account's basket or spill: the rest of its key is the Source."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "side",
+            "docs": [
+              "0 = the owner's own Gemas, 1 = won Gemas."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "due_at",
+            "type": "i64"
+          },
+          {
+            "name": "class",
+            "type": "u8"
+          },
+          {
+            "name": "tranche",
+            "type": "u8"
           }
         ]
       }
@@ -12244,6 +14202,19 @@
           {
             "name": "open_positions",
             "type": "u64"
+          },
+          {
+            "name": "route",
+            "docs": [
+              "The Treasury's shares of this route: what it holds, what holders and the Pool are owed",
+              "(realised fees only, D1), the prize escrow. Simulated shares are minted at payout, so most",
+              "of these are virtual until paid."
+            ],
+            "type": {
+              "defined": {
+                "name": "RouteLedger"
+              }
+            }
           }
         ]
       }
@@ -12669,6 +14640,58 @@
       }
     },
     {
+      "name": "PoolReservationsState",
+      "docs": [
+        "The Pool's lines that Seasons have promised (`ledger::PoolReservations`). Seeds",
+        "`[\"pool_reservations\"]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "entries",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ReservationEntry"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolShare",
+      "docs": [
+        "The Pool's share of every realised Yield Fee, changeable only from a Season announced ahead."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bps",
+            "type": "u16"
+          },
+          {
+            "name": "next_from",
+            "docs": [
+              "First Season the pending change applies to; 0 = none pending."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "next_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
       "name": "Position",
       "docs": [
         "A staker's locked, yield-bearing stake. `principal` is recorded but no function of this core",
@@ -12813,6 +14836,34 @@
               "is the Staking Rate now over this. Zero for every other Position."
             ],
             "type": "u64"
+          },
+          {
+            "name": "held_shares",
+            "docs": [
+              "Staking-token shares (32 fractional bits) that the Position's Sources have landed and that",
+              "are not yet paid out or taken: the part of its custody that belongs to the holders of its",
+              "Gemas and to the owner's pocket. Economy upgrade (ticket 11)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "free_shares",
+            "docs": [
+              "Shares (32 fractional bits) that are the owner's free yield: the owner's pocket of the",
+              "closed Sources and the yield that accrued while no Advance was open. Paid at Unlock",
+              "(native), claimable (reported Sources), or simply part of what Unlock leaves the owner",
+              "(staking token). Economy upgrade (ticket 11)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "paid_shares",
+            "docs": [
+              "Staking-token Positions: whole shares already paid out of the custody before Unlock (to",
+              "holders by Redeem, to the prize escrow by harvest, to the Treasury by its own Redeem).",
+              "`custody_shares` stays what was deposited, so the pooled fee totals can be unwound exactly."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -12915,6 +14966,179 @@
           {
             "name": "price_micro_usd",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrizeRedeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "prize_source",
+            "type": "pubkey"
+          },
+          {
+            "name": "account",
+            "type": "pubkey"
+          },
+          {
+            "name": "gemas",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrizeSeason",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "number",
+            "type": "u32"
+          },
+          {
+            "name": "window",
+            "type": {
+              "defined": {
+                "name": "SeasonWindow"
+              }
+            }
+          },
+          {
+            "name": "count",
+            "type": "u8"
+          },
+          {
+            "name": "winners",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                },
+                10
+              ]
+            }
+          },
+          {
+            "name": "points",
+            "type": {
+              "array": [
+                "u64",
+                10
+              ]
+            }
+          },
+          {
+            "name": "lines",
+            "docs": [
+              "The frozen budget, sorted by line key."
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "BudgetLine"
+                }
+              }
+            }
+          },
+          {
+            "name": "cursor",
+            "docs": [
+              "Per rank: how many budget lines it has been paid."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                10
+              ]
+            }
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrizeSource",
+      "docs": [
+        "A prize Source: Gemas issued against a fixed quantity of escrowed shares. The Gemas count",
+        "never changes with the coin price; a holder of `k` Gemas redeems `k / gemas` of `shares`, so a",
+        "slash lowers every holder's coin value by the same ratio and the Source can never owe more",
+        "than it holds."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "shares",
+            "docs": [
+              "Shares of the escrow this Source still owns (not counting pending payouts)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "gemas",
+            "docs": [
+              "Prize Gemas outstanding (not counting pending payouts)."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrizeSourceState",
+      "docs": [
+        "A prize Source: Gemas issued against a quantity of shares held in a route's prize escrow",
+        "(ticket 06's `PrizeSource`). It has no book and no unpaid Gemas. Seeds",
+        "`[\"prize\", route, season LE]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "route",
+            "docs": [
+              "The custody (route) whose escrow backs it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "inner",
+            "type": {
+              "defined": {
+                "name": "PrizeSource"
+              }
+            }
           }
         ]
       }
@@ -13177,6 +15401,47 @@
       }
     },
     {
+      "name": "ReservationEntry",
+      "docs": [
+        "One reservation of a Pool line by a recorded Season's budget (Borsh form of",
+        "`ledger::PoolReservations`' entries)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "due_at",
+            "type": "i64"
+          },
+          {
+            "name": "source",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "class",
+            "type": "u8"
+          },
+          {
+            "name": "tranche",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "ReservedLine",
       "docs": [
         "Reservation of a Backer's Gemas for an Offer; `is_own` keeps the own-first classes intact."
@@ -13205,69 +15470,96 @@
       }
     },
     {
-      "name": "Season",
-      "docs": [
-        "What a finished season pays, fixed when it is recorded."
-      ],
+      "name": "RouteLedger",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "number",
+            "name": "treasury_shares",
+            "docs": [
+              "Shares the Treasury holds, including everything it owes."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "owed_shares",
+            "type": "u128"
+          },
+          {
+            "name": "pool_owed",
+            "type": "u128"
+          },
+          {
+            "name": "reserved",
+            "type": "u128"
+          },
+          {
+            "name": "escrow_enabled",
+            "docs": [
+              "The prize escrow ships switched off until the slashing fix lands (decisions.md, D1)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "escrow_unissued",
+            "type": "u128"
+          },
+          {
+            "name": "escrow_backing",
+            "type": "u128"
+          },
+          {
+            "name": "escrow_pending",
+            "type": "u128"
+          },
+          {
+            "name": "last_funded",
+            "docs": [
+              "Last Season whose prize was funded on this route (0 = none). Strictly increasing."
+            ],
             "type": "u32"
           },
           {
-            "name": "pool_total",
+            "name": "pool_realised_total",
             "docs": [
-              "Gemas in the pool when the season was recorded; prizes are shares of this."
+              "Lifetime Pool halves of realised Yield Fees; `== pool_owed + pool_funded_total`."
             ],
+            "type": "u128"
+          },
+          {
+            "name": "pool_funded_total",
+            "docs": [
+              "Lifetime shares moved from `pool_owed` into the escrow."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeasonFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "season",
+            "type": "u32"
+          },
+          {
+            "name": "route",
+            "type": "pubkey"
+          },
+          {
+            "name": "moved_shares",
             "type": "u64"
           },
           {
-            "name": "count",
-            "docs": [
-              "Ranked Players (at most `PRIZE_PLACES`)."
-            ],
-            "type": "u8"
+            "name": "prize_source",
+            "type": "pubkey"
           },
           {
-            "name": "winners",
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    "u8",
-                    32
-                  ]
-                },
-                10
-              ]
-            }
-          },
-          {
-            "name": "points",
-            "type": {
-              "array": [
-                "u64",
-                10
-              ]
-            }
-          },
-          {
-            "name": "amounts",
-            "type": {
-              "array": [
-                "u64",
-                10
-              ]
-            }
-          },
-          {
-            "name": "paid_mask",
-            "docs": [
-              "Bit `i` set once rank `i` was paid."
-            ],
-            "type": "u16"
+            "name": "gemas",
+            "type": "u64"
           }
         ]
       }
@@ -13339,8 +15631,9 @@
     {
       "name": "SeasonState",
       "docs": [
-        "A finished season: the ranking and prizes recorded by `record_season`, paid by",
-        "`pay_season_rank`. Seeds `[\"season\", number as u32 LE]`."
+        "A recorded Season: the ranking, the frozen prize budget and the per-rank payout cursors, with",
+        "the 48-hour payout window. Created by `record_season`, paid by `pay_season_rank` one",
+        "(rank, budget line) step at a time. Seeds `[\"season\", number as u32 LE]`."
       ],
       "type": {
         "kind": "struct",
@@ -13353,7 +15646,7 @@
             "name": "inner",
             "type": {
               "defined": {
-                "name": "Season"
+                "name": "PrizeSeason"
               }
             }
           }
@@ -13386,31 +15679,6 @@
               "Bit `i` set once rank `i` was voided: it pays nothing and its share stays in the pool."
             ],
             "type": "u16"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SeasonWindowState",
-      "docs": [
-        "The payout window of a recorded season (ADR 0012): when it was recorded and which ranks the",
-        "admin voided. A separate account so `SeasonState` keeps its layout. Created by",
-        "`record_season`; seeds `[\"season_window\", number as u32 LE]`."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "inner",
-            "type": {
-              "defined": {
-                "name": "SeasonWindow"
-              }
-            }
           }
         ]
       }
@@ -13551,6 +15819,14 @@
               "Source-asset units already paid out by Redeem."
             ],
             "type": "u64"
+          },
+          {
+            "name": "due_at",
+            "docs": [
+              "Planned repayment date of the Source's Gemas (unix seconds), set by the instruction layer",
+              "when the Advance is taken and moved by Extend: the fast-first key of its basket lines."
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -13868,6 +16144,18 @@
               "Tokens withdrawn to the company wallet, cumulative."
             ],
             "type": "u64"
+          },
+          {
+            "name": "route",
+            "docs": [
+              "The Treasury's shares of this route. The vault holds exactly the open Positions' custody",
+              "plus `route.treasury_shares` plus the prize escrow (`route.escrow_total()`)."
+            ],
+            "type": {
+              "defined": {
+                "name": "RouteLedger"
+              }
+            }
           }
         ]
       }
