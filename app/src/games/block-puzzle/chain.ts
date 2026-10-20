@@ -131,6 +131,13 @@ export class BlockPuzzleChain {
   static coreAccount(authority: PublicKey) {
     return PublicKey.findProgramAddressSync([Buffer.from("account"), authority.toBuffer()], TESORO_CORE_PROGRAM_ID)[0];
   }
+  /** An Account's basket and spill (ticket 08): PDAs of the Account, made by `create_account`. */
+  static basket(account: PublicKey) {
+    return PublicKey.findProgramAddressSync([Buffer.from("basket"), account.toBuffer()], TESORO_CORE_PROGRAM_ID)[0];
+  }
+  static spill(account: PublicKey) {
+    return PublicKey.findProgramAddressSync([Buffer.from("spill"), account.toBuffer()], TESORO_CORE_PROGRAM_ID)[0];
+  }
   static holding(account: PublicKey, source: PublicKey) {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("holding"), account.toBuffer(), source.toBuffer()],

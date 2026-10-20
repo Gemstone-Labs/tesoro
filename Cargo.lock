@@ -6025,6 +6025,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "bytemuck",
  "litesvm",
  "num-bigint 0.4.8",
  "num-integer",

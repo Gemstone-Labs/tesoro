@@ -28,9 +28,10 @@ export function redeemDeps(): RedeemDeps {
       const invite = key();
       const player = new PublicKey(authority);
       const { conn, core } = chain();
+      const account = seed(Buffer.from("account"), player.toBuffer());
       const ix = await core.methods
         .createAccount(Array(20).fill(0))
-        .accountsPartial({ authority: player, account: seed(Buffer.from("account"), player.toBuffer()), inviteGate: seed(Buffer.from("invite_gate")), systemProgram: SystemProgram.programId })
+        .accountsPartial({ authority: player, account, basket: seed(Buffer.from("basket"), account.toBuffer()), spill: seed(Buffer.from("spill"), account.toBuffer()), inviteGate: seed(Buffer.from("invite_gate")), systemProgram: SystemProgram.programId })
         .remainingAccounts([{ pubkey: invite.publicKey, isSigner: true, isWritable: false }])
         .instruction();
       const tx = new Transaction().add(ix);

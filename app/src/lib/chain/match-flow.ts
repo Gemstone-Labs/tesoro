@@ -48,7 +48,13 @@ export { QueueUnconfirmedError, type Entered } from "./queue";
 export const createAccountIx = (authority: PublicKey): Promise<TransactionInstruction> =>
   getChain()
     .core.methods.createAccount(Array(20).fill(0))
-    .accountsPartial({ authority, account: BlockPuzzleChain.coreAccount(authority), systemProgram: SystemProgram.programId })
+    .accountsPartial({
+      authority,
+      account: BlockPuzzleChain.coreAccount(authority),
+      basket: BlockPuzzleChain.basket(BlockPuzzleChain.coreAccount(authority)),
+      spill: BlockPuzzleChain.spill(BlockPuzzleChain.coreAccount(authority)),
+      systemProgram: SystemProgram.programId,
+    })
     .instruction();
 
 /** SOL for fees and rent (demo faucet if needed) and the TesoroAccount itself. */
