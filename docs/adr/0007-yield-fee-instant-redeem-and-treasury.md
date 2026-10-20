@@ -2,6 +2,8 @@
 
 > Superseded in part by ADR 0010: the fee is a running claim (not minted at accrue), the Treasury can be withdrawn, and the EVM `treasuryIn` mirror becomes the Treasury balance carried by each Yield Report. Fee rates and sizing stand.
 
+> Amended by economy-upgrade ticket 26 (2026-10-20): on real-LST EVM vaults the Treasury is held in shares, spends only realised fees, and counts what unlocked Gema holders are owed in shares (no cushion); see `docs/cross-chain.md` "Treasury in shares".
+
 Decided (founder, Oct 12, 2026). Tesoro had one revenue, the Platform Fee on Matches. It now has three. The **Yield Fee**: 20% of every increment of staking yield a Position earns (SOL, ETH, HYPE), never Principal. The **Instant Redeem Fee**: a holder of won Gemas may redeem now, before the Source's yield has landed, for 65% of their value; Tesoro keeps 35%. A **Treasury** is the counterparty: it pays the 65% now, takes the Gemas, and redeems them at full value later as the Source's yield lands.
 
 ## How it is built

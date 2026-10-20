@@ -169,7 +169,7 @@ Turning won Gemas into their Source asset now, before the Source's yield has lan
 _Avoid_: early withdrawal, cash out, sell
 
 **Treasury**:
-Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects the Yield Fee, pays Instant Redeems while it holds enough, is refilled when the Gemas it bought are redeemed at full value, and Tesoro may withdraw from it at any time. Not the Leaderboard Pool, and not a Lock.
+Tesoro's own holdings and revenue, one per asset (on Solana, and inside each EVM vault). It collects the Yield Fee, pays Instant Redeems while it holds enough, is refilled when the Gemas it bought are redeemed at full value, and Tesoro may withdraw from it at any time. In an ETH or HYPE vault it is held in the staking token's shares and spends only fees already realised (a Lock's fee counts once the Lock is Unlocked), never what Gema holders of an unlocked Lock are still owed. Not the Leaderboard Pool, and not a Lock.
 _Avoid_: reserve, vault (a Lock's custody), pool
 
 **Yield Report**:
