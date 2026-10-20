@@ -114,7 +114,7 @@ a.tile:hover { --edge: linear-gradient(180deg, rgba(234, 239, 236, 0.7), rgba(23
   .slide-art::after { background: linear-gradient(0deg, rgba(10, 19, 34, 0.96) 0%, rgba(10, 19, 34, 0.7) 52%, transparent 85%); }
   .slide-art img { object-position: 65% top; }
   .slide-body .btn.lg { min-height: 54px; font-size: var(--fs-18); }
-  /* Play now carries its entry, so on narrow slides Practice free takes its own row rather than running off the edge */
+  /* on narrow slides Practice free takes its own row rather than running off the edge */
   .slide-cta { flex-wrap: wrap; gap: 10px; }
   .slide-cta .btn, .slide-cta .btn:first-child { flex: 1 1 auto; }
   .hero-next { display: none; }

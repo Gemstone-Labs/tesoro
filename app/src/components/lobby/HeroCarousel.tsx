@@ -6,7 +6,6 @@ import Link from "next/link";
 import { ArrowRight, Pause, Play } from "lucide-react";
 import { PlayerAvatar } from "@/components/account/Player";
 import { Button } from "@/components/ui";
-import { GemasLabel } from "@/app/(app)/wallet/AdvanceQuote";
 import { challengeHref, practiceHref } from "@/lib/game-params";
 import { useAccount } from "@/lib/account";
 import { art } from "@/lib/art";
@@ -24,15 +23,13 @@ interface Slide {
   image: string;
   /** Two-line title, smaller type. */
   long?: boolean;
-  /** The Game page's opening entry, so Play now shows what it will cost. */
-  entry: number;
 }
 
 /** The featured Games. Entry, Queue and Challenge live on each Game's page; the hero only leads there. */
 export const SLIDES: Slide[] = [
-  { game: "holdem", title: "Buckshot Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true, entry: 500 },
-  { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero, entry: 500 },
-  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero, entry: 1000 },
+  { game: "holdem", title: "Buckshot Hold'em", sub: "Real-time · 2 players", image: art.holdemHero, long: true },
+  { game: "trading-duel", title: "Trading Duel", sub: "Live price · 2.5 minutes · most hits wins", image: art.tradingDuelHero },
+  { game: "block-puzzle", title: "Block Puzzle", sub: "Same pieces · 90 seconds · higher score wins", image: art.blockPuzzleHero },
 ];
 
 const ADVANCE_MS = 7000;
@@ -253,7 +250,7 @@ function HeroSlide({
             <p className="status" role="status">{awayText}</p>
           ) : (
             <Button variant="money" size="lg" href={`/play/${slide.game}`}>
-              <GemasLabel action="Play now" gemas={slide.entry} />
+              Play now
             </Button>
           )}
           <Button size="lg" href={practiceHref(slide.game)}>
