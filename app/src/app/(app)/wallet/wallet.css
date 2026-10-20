@@ -174,8 +174,12 @@
 
 
 /* ——— By chain: one card per chain with its Gemas, its own Positions and who the won Gemas came from ——— */
-.wl-positions { gap: 16px; }
-.wl-pockets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 20px; align-items: start; }
+.wl-positions { gap: 16px; container-type: inline-size; }
+/* two columns once there is room, even for one chain: a lone card keeps half the width */
+.wl-pockets { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+@container (min-width: 720px) {
+  .wl-pockets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .wl-pocket { --edge: var(--edge-2); --tone: var(--fg-3); background: linear-gradient(180deg, color-mix(in srgb, var(--tone) 13%, transparent), transparent 150px), var(--surface); padding: 20px; display: grid; gap: 18px; align-content: start; min-width: 0; }
 .wl-pocket.c-SOL { --tone: #a27bff; }
 .wl-pocket.c-ETH { --tone: #7f9cff; }
