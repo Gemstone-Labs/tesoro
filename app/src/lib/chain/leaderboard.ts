@@ -141,16 +141,33 @@ const WON_DISC = Buffer.from((coreIdl as any).events.find((e: any) => e.name ===
 const WON_BODY_V1 = 8 + 32 + 8 + 32 + 32 + 8 + 8 + 4 + 8;
 const ZERO_KEY = PublicKey.default.toBase58();
 
+const CORE_ID = (coreIdl as { address: string }).address;
+const INVOKE = /^Program (\w+) invoke \[\d+\]$/;
+const LEAVE = /^Program (\w+) (success|failed)/;
+
 /**
  * Parses the `MatchWon` events of one transaction's logs. By hand, because events written before the loser
  * was added are 32 bytes shorter and the current IDL would refuse them (they read as uncapped).
+ * Only events tesoro_core itself wrote count: any program can log the same bytes, so each `Program data:`
+ * line is attributed to the program running at that point of the invoke stack.
  */
 export function winsFromLogs(logs: string[], signature: string): Win[] {
   const out: Win[] = [];
+  const stack: string[] = [];
   for (const line of logs) {
-    const at = line.indexOf("Program data: ");
-    if (at < 0) continue;
-    const buf = Buffer.from(line.slice(at + 14), "base64");
+    const invoke = INVOKE.exec(line);
+    if (invoke) {
+      stack.push(invoke[1]);
+      continue;
+    }
+    const leave = LEAVE.exec(line);
+    if (leave) {
+      if (stack[stack.length - 1] !== leave[1]) return [];
+      stack.pop();
+      continue;
+    }
+    if (!line.startsWith("Program data: ") || stack[stack.length - 1] !== CORE_ID) continue;
+    const buf = Buffer.from(line.slice(14), "base64");
     if (buf.length < 8 + WON_BODY_V1 || !buf.subarray(0, 8).equals(WON_DISC)) continue;
     const v = new DataView(buf.buffer, buf.byteOffset + 8, buf.length - 8);
     const key = (o: number) => new PublicKey(buf.subarray(8 + o, 8 + o + 32)).toBase58();

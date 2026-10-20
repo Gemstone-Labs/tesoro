@@ -75,11 +75,13 @@ describe("a Config still in the old layout (app deployed before the upgrade)", (
 });
 
 describe("MatchWon events", () => {
-  it("are read from the logs of a settlement", () => {
-    const player = PublicKey.unique();
-    const loser = PublicKey.unique();
-    const disc = Buffer.from(idl.events.find((e) => e.name === "MatchWon")!.discriminator);
-    const body = new BorshCoder(idl as never).types.encode("MatchWon", {
+  const player = PublicKey.unique();
+  const loser = PublicKey.unique();
+  const disc = Buffer.from(idl.events.find((e) => e.name === "MatchWon")!.discriminator);
+  const won = () => Buffer.concat([disc, eventBody()]);
+  const inCore = (data: Buffer) => [`Program ${idl.address} invoke [2]`, `Program data: ${data.toString("base64")}`, `Program ${idl.address} success`];
+  const eventBody = () =>
+    new BorshCoder(idl as never).types.encode("MatchWon", {
       match_id: new BN(7),
       game: PublicKey.unique(),
       entry: new BN(1000),
@@ -91,14 +93,39 @@ describe("MatchWon events", () => {
       ts: new BN(1_791_200_100),
       loser,
     });
-    const data = Buffer.concat([disc, body]);
-    const logs = [`Program ${idl.address} invoke [2]`, `Program data: ${data.toString("base64")}`, `Program ${idl.address} success`];
-    expect(winsFromLogs(logs, "sig")).toEqual([{ player: player.toBase58(), points: 10, ts: 1_791_200_100, matchId: "7", loser: loser.toBase58() }]);
+
+  it("are read from the logs of a settlement", () => {
+    const body = eventBody();
+    expect(winsFromLogs(inCore(won()), "sig")).toEqual([{ player: player.toBase58(), points: 10, ts: 1_791_200_100, matchId: "7", loser: loser.toBase58() }]);
     // An event from before the loser was named is the same bytes without it: read, and never capped.
     const old = Buffer.concat([disc, body.subarray(0, body.length - 32)]);
-    expect(winsFromLogs([`Program data: ${old.toString("base64")}`], "sig")).toEqual([
-      { player: player.toBase58(), points: 10, ts: 1_791_200_100, matchId: "7" },
-    ]);
+    expect(winsFromLogs(inCore(old), "sig")).toEqual([{ player: player.toBase58(), points: 10, ts: 1_791_200_100, matchId: "7" }]);
+  });
+
+  it("counts only events tesoro_core wrote", () => {
+    const fake = "Fake111111111111111111111111111111111111111";
+    const game = "CjhY1WkwetHYx56uvqRGGA3XuyShXrALSZkB3GjVusbE";
+    const ev = `Program data: ${won().toString("base64")}`;
+    // Another program logging the same bytes, top level or calling into core around it.
+    expect(winsFromLogs([`Program ${fake} invoke [1]`, ev, `Program ${fake} success`], "sig")).toEqual([]);
+    expect(
+      winsFromLogs(
+        [`Program ${fake} invoke [1]`, `Program ${idl.address} invoke [2]`, `Program ${idl.address} success`, ev, `Program ${fake} success`],
+        "sig",
+      ),
+    ).toEqual([]);
+    // The bytes quoted inside a log line, and an event with no program running.
+    expect(winsFromLogs([`Program ${idl.address} invoke [1]`, `Program log: ${ev}`, `Program ${idl.address} success`], "sig")).toEqual([]);
+    expect(winsFromLogs([ev], "sig")).toEqual([]);
+    // A malformed stack is refused whole.
+    expect(winsFromLogs([`Program ${idl.address} invoke [1]`, ev, `Program ${fake} success`], "sig")).toEqual([]);
+    // The real shape: a Game program calls settle_match, core writes the event.
+    expect(
+      winsFromLogs(
+        [`Program ${game} invoke [1]`, `Program ${idl.address} invoke [2]`, ev, `Program ${idl.address} success`, `Program ${game} success`],
+        "sig",
+      ),
+    ).toHaveLength(1);
   });
 });
 
