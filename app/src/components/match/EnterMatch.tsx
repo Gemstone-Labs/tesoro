@@ -7,7 +7,7 @@ import { PlayerAvatar } from "@/components/account/Player";
 import { useQueue } from "@/components/lobby/useQueue";
 import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES, estimatedWin } from "@/lib/chain/ledger";
-import { checkGemas } from "@/lib/chain/fresh-gemas";
+import { chainShortfall, checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
@@ -67,8 +67,10 @@ export function EnterMatch(props: EnterKind) {
   const gemasCheck = !launched && props.kind !== "challenge-join" && !props.backing && onChain && !loading ? checkGemas(gemas.available, props.entry, freshRead === "ok") : "enough";
   // A shortfall is only believed after a fresh read: Gemas from a Position that just opened may not be in the cached list yet.
   // When that read fails nothing is confirmed, so the entry goes ahead and the chain has the last word.
-  const needsGemas = props.kind !== "challenge-join" && (gemasCheck === "short" || failure?.short === true);
   const entryGemas = props.kind === "challenge-join" ? 0 : props.entry;
+  // The chain refused for lack of Gemas while the balance shown covers the entry: the new Gemas are still landing.
+  const landing = failure?.short === true && props.kind !== "challenge-join" && chainShortfall(gemas.available, entryGemas) === "landing";
+  const needsGemas = props.kind !== "challenge-join" && (gemasCheck === "short" || (failure?.short === true && !landing));
   const rechecking = gemasCheck === "recheck" && freshRead !== "failed";
 
   useEffect(() => {
@@ -244,9 +246,9 @@ export function EnterMatch(props: EnterKind) {
           </>
         ) : failure ? (
           <>
-            <p className="status err" role="alert">{failure.text}</p>
+            <p className="status err" role="alert">{landing ? "Your new Gemas are still landing. Try again in a few seconds." : failure.text}</p>
             <div className="hstack wrap">
-              {failure.short ? <Button variant="money" href={`/wallet?open=1&game=${game}`}>Get Gemas</Button> : <Button onClick={() => window.location.reload()}>Retry</Button>}
+              {failure.short && !landing ? <Button variant="money" href={`/wallet?open=1&game=${game}`}>Get Gemas</Button> : <Button onClick={() => window.location.reload()}>Retry</Button>}
               <Button href="/lobby">Lobby</Button>
             </div>
           </>

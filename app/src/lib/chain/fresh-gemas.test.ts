@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkGemas } from "./fresh-gemas";
+import { chainShortfall, checkGemas } from "./fresh-gemas";
 
 describe("checkGemas", () => {
   it("passes when the Gemas cover the entry, fresh or not", () => {
@@ -11,5 +11,15 @@ describe("checkGemas", () => {
   });
   it("reports the shortfall once the read was fresh", () => {
     expect(checkGemas(999n, 1000, true)).toBe("short");
+  });
+});
+
+describe("chainShortfall", () => {
+  it("is a real shortfall when the balance is below the entry too", () => {
+    expect(chainShortfall(300n, 500)).toBe("short");
+  });
+  it("says the Gemas are still landing when the balance already covers the entry", () => {
+    expect(chainShortfall(512n, 500)).toBe("landing");
+    expect(chainShortfall(500, 500)).toBe("landing");
   });
 });
