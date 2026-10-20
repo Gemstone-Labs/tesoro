@@ -281,7 +281,9 @@ impl Env {
                 protections: tpda(&[PROTECTIONS_SEED, p.account.as_ref()]),
                 position,
                 source,
-                holding,
+                book: tesoro_core::storage::book_address(&source).0,
+                basket: tesoro_core::storage::basket_address(&p.account).0,
+                spill: tesoro_core::storage::spill_address(&p.account).0,
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::TakeAdvance {
@@ -299,6 +301,8 @@ impl Env {
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&p.kp]).expect("advance");
+        self.open_holding(p.account, source);
+        forge_holding_amount(&mut self.svm, p.account, source);
         (source, holding)
     }
 
@@ -3295,4 +3299,43 @@ fn the_storm_waits_for_the_turn_that_ends_it_not_for_the_first_step_of_a_two_ste
     assert_eq!((env.battle().storm_done, storm_events(&env)), (0, 0));
     env.mv(0, id_of(95), 85).expect("second step");
     assert_eq!((env.battle().storm_done, storm_events(&env)), (1, 1));
+}
+
+
+/// Matching reads Holdings until ticket 09 moves it onto baskets: give the Advance's owner a
+/// Holding of the new Source with the Gemas the Advance issued (the basket holds them too).
+fn forge_holding_amount(svm: &mut litesvm::LiteSVM, account: APk, source: APk) {
+    use anchor_lang::{AccountDeserialize, AccountSerialize};
+    let issued = {
+        let acc = svm.get_account(&s(source)).expect("source");
+        SourceState::try_deserialize(&mut acc.data.as_slice())
+            .expect("source")
+            .inner
+            .issued
+    };
+    let hk = holding_pda(account, source);
+    let mut h = {
+        let acc = svm.get_account(&s(hk)).expect("holding");
+        HoldingState::try_deserialize(&mut acc.data.as_slice()).expect("holding")
+    };
+    let mut acct = {
+        let acc = svm.get_account(&s(account)).expect("account");
+        TesoroAccount::try_deserialize(&mut acc.data.as_slice()).expect("account")
+    };
+    h.inner.credit(&mut acct.inner, issued).expect("credit");
+    for (k, buf) in [(hk, {
+        let mut b = Vec::new();
+        h.try_serialize(&mut b).unwrap();
+        b.resize(HoldingState::SPACE, 0);
+        b
+    }), (account, {
+        let mut b = Vec::new();
+        acct.try_serialize(&mut b).unwrap();
+        b.resize(TesoroAccount::SPACE, 0);
+        b
+    })] {
+        let mut acc = svm.get_account(&s(k)).expect("account");
+        acc.data = buf;
+        svm.set_account(s(k), acc).expect("set");
+    }
 }
