@@ -2113,7 +2113,7 @@ fn rounding_a_tiny_tail_up_never_lets_the_lines_exceed_what_landed() {
     b.land(10 * G - 1, 0).unwrap();
     b.materialise(&mut a).unwrap();
     let to = b.h + 1;
-    let q = 300 << SHARE_BITS;
+    let q = 200 << SHARE_BITS;
     b.land(to, q).unwrap();
     assert!(b.shares(&a) + b.shares(&c) <= q);
 }
@@ -2189,7 +2189,8 @@ fn a_cut_that_fails_on_its_destination_writes_no_record() {
 
 #[test]
 fn a_store_that_refuses_a_record_fails_the_landing() {
-    // The one failure after a first write is the store itself; the transaction reverts.
+    // A failure after a first write can only come from the store itself (a refused record); the
+    // transaction reverts.
     let mut b = SourceBook::new();
     let mut x = gline(CLASS_GENERAL, 1);
     b.issue(&mut x, 5, &checkpoint::NoCheckpoints).unwrap();
@@ -2289,4 +2290,51 @@ fn limbs_big<const N: usize>(n: &[u64; N]) -> BigUint {
         r = (r << 64) | BigUint::from(*limb);
     }
     r
+}
+
+#[test]
+fn a_landing_whose_sums_would_overflow_is_refused_before_any_write() {
+    // Codex follow-up (d): the class's and the owner pocket's share sums are checked up front
+    let mut b = W::new();
+    let mut x = gline(CLASS_GENERAL, 1);
+    b.issue(&mut x, 1).unwrap();
+    b.owner_shares = u128::MAX - 1;
+    let before = (b.clone(), b.ck.len(CLASS_GENERAL));
+    // 1 Gema owed, 1 more is excess: the class takes 1 share, the owner pocket would take 2
+    assert_eq!(b.land(2 * G, 3), Err(BookError::Math));
+    assert_eq!((b.clone(), b.ck.len(CLASS_GENERAL)), before);
+    // the class side too
+    let mut c = W::new();
+    let mut y = gline(CLASS_GENERAL, 1);
+    c.issue(&mut y, 5).unwrap();
+    c.classes[CLASS_GENERAL as usize].shares = u128::MAX - 1;
+    let before = (c.clone(), c.ck.len(CLASS_GENERAL));
+    assert_eq!(c.land(5 * G, 2), Err(BookError::Math));
+    assert_eq!((c.clone(), c.ck.len(CLASS_GENERAL)), before);
+}
+
+#[test]
+fn closed_segments_must_run_at_rising_scales() {
+    let mut sys = Sys::new();
+    sys.issue((20, CLASS_GENERAL), 1 << 36);
+    let u = sys.book.uncovered_total();
+    sys.sync(u - 3, PRICE);
+    sys.sync(sys.book.uncovered_total() - 2, PRICE);
+    let l = sys.lines[&(20, CLASS_GENERAL)];
+    struct Flat<'a>(&'a MemCheckpoints);
+    impl checkpoint::CheckpointStore for Flat<'_> {
+        fn get(&self, class: u8, idx: u32) -> Option<checkpoint::Checkpoint> {
+            self.0.get(class, idx).map(|mut c| {
+                c.scale = 0; // every segment claims scale 0
+                c
+            })
+        }
+        fn push(&mut self, _: u8, _: u32, _: checkpoint::Checkpoint) -> BookResult<()> {
+            unreachable!()
+        }
+    }
+    assert_eq!(
+        sys.book.shares_of(&l, &Flat(&sys.ck)),
+        Err(BookError::BadCheckpoint)
+    );
 }

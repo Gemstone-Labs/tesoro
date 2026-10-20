@@ -46,9 +46,13 @@
 //! conservative upper bound of `V`, kept as `W = U + Z` where `Z` grows by one unit per rounded-up
 //! line touch and by `W / P` per landing (the rounding of `P`), and shrinks with the lines that
 //! leave. Since `V <= W`, `V * q / W <= q`: the lines never earn more shares than landed, whatever
-//! the rounding. The price is the stranded `q * (1 - V / W)` per landing (relative 2^-64 per
-//! landing), which stays in `class.shares` unclaimed. `W >= U >= 0` always, so the P update
-//! `P * (W - D) / W` keeps `V' >= U - D` too (the ready argument above is unchanged).
+//! the rounding. The price is the stranded `q * (1 - V / W)` per landing, which stays in
+//! `class.shares` unclaimed: a relative 2^-64 per landing while the class is large, but in the
+//! last ulps of an epoch (`W` a handful of ulps) one rounded-up touch or inexact index step
+//! misallocates or strands up to the shares of that landing, which the supported domain bounds
+//! (`SHARES_PER_ULP_BITS`): a few hundred base units at the limit, far below one at real rates.
+//! `W >= U >= 0` always, so the P update `P * (W - D) / W` keeps `V' >= U - D` too (the ready
+//! argument above is unchanged).
 //!
 //! # History
 //!
@@ -268,6 +272,7 @@ impl ClassState {
         let mut total: u128 = 0;
         let mut j = line.ck;
         let mut s_start = line.s_snap;
+        let mut prev_scale = line.scale;
         loop {
             let (s_end, scale_j, last) = if j == self.ck {
                 if self.epoch != line.epoch {
@@ -284,6 +289,11 @@ impl ClassState {
             if scale_j < line.scale {
                 return Err(BookError::BadSnapshot);
             }
+            if j != line.ck && scale_j <= prev_scale {
+                // within one epoch every closed segment runs at a higher scale than the last
+                return Err(BookError::BadCheckpoint);
+            }
+            prev_scale = scale_j;
             let steps = scale_j - line.scale;
             if steps >= MAX_CATCHUP_SCALE_STEPS {
                 // u < 2^128 and dS < 2^256 (see `s_increment`), p >= 1 and the divisor has at
@@ -825,8 +835,10 @@ impl<S: ClassSlots> Book<S> {
         if delta == 0 {
             return Ok(Landing::default());
         }
-        if shares >> SHARES_PER_ULP_BITS > delta {
-            return Err(BookError::SharesOutOfRange);
+        if let Some(max) = delta.checked_mul(1u128 << SHARES_PER_ULP_BITS) {
+            if shares > max {
+                return Err(BookError::SharesOutOfRange);
+            }
         }
         let n = self.class_count();
         // validate before touching anything
@@ -837,12 +849,20 @@ impl<S: ClassSlots> Book<S> {
             }
             let c = self.classes.get(i);
             let d = rest.min(c.uncovered);
-            if d > 0 && !c.headroom() {
-                return Err(BookError::CounterExhausted);
+            if d > 0 {
+                if !c.headroom() {
+                    return Err(BookError::CounterExhausted);
+                }
+                // a class's part of the shares is at most all of them
+                c.shares.checked_add(shares).ok_or(BookError::Math)?;
+                c.ready.checked_add(d).ok_or(BookError::Math)?;
             }
             rest -= d;
         }
         let owner_fp = self.owner_fp.checked_add(rest).ok_or(BookError::Math)?;
+        self.owner_shares
+            .checked_add(shares)
+            .ok_or(BookError::Math)?;
         let mut rest = delta;
         let mut shares_left = shares;
         for id in 0..n {
