@@ -3,11 +3,12 @@
 //! An instruction that edits lines of several Sources (a claim now; settle, refund and Ticket
 //! chunks in tickets 09 and 11) passes each Source's book account and the checkpoint pages its
 //! lines may need in `remaining_accounts`, in any order. [`OnchainBooks::load`] checks every one
-//! (owner, discriminator, PDA address, writable), decodes each book **once** into a boxed
-//! `SourceBook` (2 KB of heap per distinct Source: the in-memory book does not fit a 4 KB stack
-//! frame, and `BookBytes` cannot sit behind the `SourceBooks` trait), and hands the ledger
-//! `(book, history)` pairs. [`OnchainBooks::flush`] writes the books back; call it only after
-//! the ledger operation succeeded. A failed instruction reverts every account anyway.
+//! (owner, discriminator, PDA address, writable) and decodes a book only when a line needs its
+//! Source: one boxed `SourceBook` at a time, written back to its account when another Source is
+//! asked for. Heap use is therefore constant (about 2 KB), and the number of distinct Sources a
+//! transaction handles is limited by its size and compute budget. [`OnchainBooks::flush`] writes
+//! the last one back; call it only after the ledger operation succeeded. A failed instruction
+//! reverts every account anyway.
 
 use crate::error::BasketError;
 use crate::ledger::book::checkpoint::{
@@ -68,13 +69,23 @@ impl CheckpointStore for PageSet<'_, '_> {
 struct Entry<'a, 'info> {
     source: Key,
     info: &'a AccountInfo<'info>,
-    book: Box<SourceBook>,
     history: PageSet<'a, 'info>,
 }
 
 /// The books (and histories) supplied to one instruction.
+///
+/// The account bytes are the source of truth. At most ONE book is decoded at a time (one boxed
+/// `SourceBook`, 2 KB of heap whatever the number of Sources); asking for another Source first
+/// writes the current one back to its account. So the number of distinct Sources in a transaction
+/// is limited by the transaction's size and compute budget, never by the 32 KB heap. A chunk that
+/// handles lines grouped by Source swaps rarely; one that alternates pays an encode and a decode
+/// (a few thousand CU) per swap.
 pub struct OnchainBooks<'a, 'info> {
     entries: Vec<Entry<'a, 'info>>,
+    /// The one decoded book, allocated once and decoded over for every swap: the on-chain heap
+    /// is a bump allocator that never frees, so a fresh `Box` per swap would leak 2 KB each.
+    book: Option<Box<SourceBook>>,
+    current: Option<usize>,
 }
 
 fn check_writable(info: &AccountInfo) -> Result<()> {
@@ -82,17 +93,23 @@ fn check_writable(info: &AccountInfo) -> Result<()> {
     Ok(())
 }
 
+fn book_err(_: BookError) -> DrawError {
+    DrawError::Book(BookError::Corrupt("source book account"))
+}
+
 impl<'a, 'info> OnchainBooks<'a, 'info> {
     /// No books: for instructions that only move whole lines.
     pub fn empty() -> Self {
         OnchainBooks {
             entries: Vec::new(),
+            book: None,
+            current: None,
         }
     }
 
-    /// Check and decode the supplied accounts. Every account must be a Source book or a
-    /// checkpoint page of one of the supplied books, owned by this program, at its PDA address,
-    /// and writable. Anything else fails: a stray account is a client bug.
+    /// Check the supplied accounts. Every account must be a Source book or a checkpoint page of
+    /// one of the supplied books, owned by this program, at its PDA address, and writable.
+    /// Nothing is decoded until a line needs its Source.
     pub fn load(accounts: &'a [AccountInfo<'info>]) -> Result<Self> {
         let mut entries: Vec<Entry<'a, 'info>> = Vec::new();
         for info in accounts {
@@ -115,14 +132,11 @@ impl<'a, 'info> OnchainBooks<'a, 'info> {
                 !entries.iter().any(|e| e.source == source),
                 BasketError::DuplicateBook
             );
-            let mut book = Box::new(SourceBook::new());
-            book.decode_into(&data[BOOK_AT..])
-                .map_err(|_| BasketError::BadSourceBook)?;
+            require!(data.len() >= BOOK_AT, BasketError::BadSourceBook);
             drop(data);
             entries.push(Entry {
                 source,
                 info,
-                book,
                 history: PageSet {
                     source,
                     pages: Vec::new(),
@@ -170,39 +184,62 @@ impl<'a, 'info> OnchainBooks<'a, 'info> {
                 info,
             });
         }
-        Ok(OnchainBooks { entries })
+        Ok(OnchainBooks {
+            entries,
+            book: None,
+            current: None,
+        })
     }
 
-    /// Write every book back into its account.
-    pub fn flush(self) -> Result<()> {
-        for e in self.entries {
-            let mut data = e.info.try_borrow_mut_data()?;
-            e.book
-                .encode(&mut data[BOOK_AT..])
-                .map_err(|_| BasketError::BadSourceBook)?;
+    fn write_back(&mut self) -> DrawResult<()> {
+        if let (Some(idx), Some(book)) = (self.current.take(), self.book.as_ref()) {
+            let mut data = self.entries[idx]
+                .info
+                .try_borrow_mut_data()
+                .map_err(|_| DrawError::Book(BookError::Corrupt("source book account")))?;
+            book.encode(&mut data[BOOK_AT..]).map_err(book_err)?;
         }
         Ok(())
     }
 
-    fn entry(&mut self, source: &Key) -> DrawResult<&mut Entry<'a, 'info>> {
-        self.entries
-            .iter_mut()
-            .find(|e| e.source == *source)
-            .ok_or(DrawError::Book(BookError::NoSuchClass))
+    /// Write the decoded book back into its account. Call after the ledger operations succeeded.
+    pub fn flush(mut self) -> Result<()> {
+        self.write_back().map_err(|_| BasketError::BadSourceBook)?;
+        Ok(())
+    }
+
+    fn entry(&mut self, source: &Key) -> DrawResult<(&mut SourceBook, &mut PageSet<'a, 'info>)> {
+        let idx = self
+            .entries
+            .iter()
+            .position(|e| e.source == *source)
+            .ok_or(DrawError::Book(BookError::NoSuchClass))?;
+        if self.current != Some(idx) {
+            self.write_back()?;
+            let book = self.book.get_or_insert_with(|| Box::new(SourceBook::new()));
+            let data = self.entries[idx]
+                .info
+                .try_borrow_data()
+                .map_err(|_| DrawError::Book(BookError::Corrupt("source book account")))?;
+            book.decode_into(&data[BOOK_AT..]).map_err(book_err)?;
+            self.current = Some(idx);
+        }
+        let book = &mut **self.book.as_mut().expect("decoded above");
+        Ok((book, &mut self.entries[idx].history))
     }
 }
 
 impl SourceBooks for OnchainBooks<'_, '_> {
     fn book_mut(&mut self, source: &Key) -> DrawResult<&mut SourceBook> {
-        Ok(&mut *self.entry(source)?.book)
+        Ok(self.entry(source)?.0)
     }
 
     fn book_with_history(
         &mut self,
         source: &Key,
     ) -> DrawResult<(&mut SourceBook, &mut dyn CheckpointStore)> {
-        let e = self.entry(source)?;
-        Ok((&mut *e.book, &mut e.history))
+        let (book, history) = self.entry(source)?;
+        Ok((book, history))
     }
 }
 

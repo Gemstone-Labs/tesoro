@@ -980,6 +980,48 @@ fn claim_merges_a_line_into_the_basket_line_with_the_same_key_through_the_book()
 }
 
 #[test]
+fn claim_handles_sixteen_sources_in_one_instruction() {
+    let mut env = Env::new();
+    let (owner, account) = env.person();
+    let basket = basket_address(&account).0;
+    let spill = spill_address(&account).0;
+    env.grow(&owner, account, StoreKind::Basket, 36).unwrap();
+    env.grow(&owner, account, StoreKind::Spill, 34).unwrap();
+    // 16 Sources, two lines each (due 10 and 20) in both the basket and the spill, so the claim
+    // visits every Source twice and swaps the decoded book 32 times
+    let mut books = Vec::new();
+    let (mut in_basket, mut in_spill) = (Vec::new(), Vec::new());
+    for i in 0..16u32 {
+        let (source_key, book_key) = env.source_with_book(100 + i);
+        let source = source_key.to_bytes();
+        let mut book = SourceBook::new();
+        for due in [10, 20] {
+            let mut b = won(source, due, CLASS_GENERAL, 0);
+            book.issue(&mut b, 10, &NoCheckpoints).unwrap();
+            let mut sp = won(source, due, CLASS_GENERAL, 0);
+            book.issue(&mut sp, 5, &NoCheckpoints).unwrap();
+            in_basket.push(b);
+            in_spill.push(sp);
+        }
+        let mut acc = env.svm.get_account(&s(book_key)).unwrap();
+        book.encode(&mut acc.data[BOOK_AT..]).unwrap();
+        env.svm.set_account(s(book_key), acc).unwrap();
+        books.push(book_key);
+    }
+    env.put_lines(basket, &in_basket);
+    env.put_lines(spill, &in_spill);
+    env.claim(account, 32, books).unwrap();
+    eprintln!(
+        "MEASURE CU claim_spill, 32 merges over 16 Sources (32 book swaps): {}",
+        env.last_cu
+    );
+    assert!(env.lines(spill).is_empty());
+    let lines = env.lines(basket);
+    assert_eq!(lines.len(), 32);
+    assert!(lines.iter().all(|l| l.amount == 15));
+}
+
+#[test]
 fn claim_refuses_a_platform_or_leaderboard_line_in_a_spill() {
     let mut env = Env::new();
     let (owner, account) = env.person();
