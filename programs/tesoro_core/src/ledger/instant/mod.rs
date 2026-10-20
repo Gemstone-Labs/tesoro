@@ -34,7 +34,8 @@ mod tests;
 
 use super::book::wide::{mul_div_u128, Round};
 use super::book::{Redeemed, SourceBook};
-use super::line_store::{Line, LineKey, LineStore, LineStoreError, SIDE_WON};
+use super::draw::{Bytes, DrawError, DrawResult, Pool, SourceBooks};
+use super::line_store::{Line, LineKey, SIDE_WON};
 use super::prize::{RouteLedger, SourceKind};
 use super::{CoreError, CoreResult, Key, BPS, MAX_INSTANT_FEE_BPS};
 
@@ -175,11 +176,23 @@ fn payout_for(k: u64, terms: &FillTerms) -> CoreResult<(u128, u128)> {
     Ok((value, payout))
 }
 
-fn store_err(e: LineStoreError) -> CoreError {
+fn draw_err(e: DrawError) -> CoreError {
     match e {
-        LineStoreError::Full => CoreError::BasketFull,
-        LineStoreError::Overflow => CoreError::Math,
+        DrawError::SpillFull => CoreError::SpillFull,
+        DrawError::WouldBreakReservation => CoreError::ReservedGemas,
+        DrawError::InsufficientGemas => CoreError::InsufficientGemas,
+        DrawError::ZeroAmount => CoreError::ZeroAmount,
+        DrawError::Book(e) => e.into(),
         _ => CoreError::BookInconsistent,
+    }
+}
+
+/// An order's Gemas all belong to one Source, so one book serves every credit.
+struct OneBook<'a>(&'a mut SourceBook);
+
+impl SourceBooks for OneBook<'_> {
+    fn book_mut(&mut self, _source: &Key) -> DrawResult<&mut SourceBook> {
+        Ok(self.0)
     }
 }
 
@@ -196,10 +209,10 @@ pub struct Requested {
 /// Refused for own Gemas, fee classes and prize Sources, and when the Gemas leaving (Redeemed
 /// plus sold) would dip into what an Offer reservation needs. `Err` changes nothing.
 #[allow(clippy::too_many_arguments)]
-pub fn request_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
+pub fn request_instant_redeem<B: Bytes, S: Bytes>(
     kind: SourceKind,
     book: &mut SourceBook,
-    basket: &mut LineStore<T>,
+    pool: &mut Pool<B, S>,
     key: &LineKey,
     owner: Key,
     sell: u64,
@@ -213,8 +226,21 @@ pub fn request_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
     if !(MIN_ORDER_TTL_SECS..=MAX_ORDER_TTL_SECS).contains(&ttl_secs) {
         return Err(CoreError::InvalidOrderTtl);
     }
-    let idx = basket.find(key).map_err(|_| CoreError::HoldingMismatch)?;
-    let mut line = basket.get(idx).ok_or(CoreError::HoldingMismatch)?;
+    let (in_spill, idx) = match pool.basket.find(key) {
+        Ok(i) => (false, i),
+        Err(_) => (
+            true,
+            pool.spill
+                .find(key)
+                .map_err(|_| CoreError::HoldingMismatch)?,
+        ),
+    };
+    let mut line = if in_spill {
+        pool.spill.get(idx)
+    } else {
+        pool.basket.get(idx)
+    }
+    .ok_or(CoreError::HoldingMismatch)?;
     if line.side != SIDE_WON || !line.is_playable() {
         return Err(CoreError::NotWonGemas);
     }
@@ -229,14 +255,7 @@ pub fn request_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
         return Err(CoreError::InsufficientGemas);
     }
     let leaving = ready.checked_add(sell).ok_or(CoreError::Math)?;
-    let free = basket
-        .own_total()
-        .checked_add(basket.won_total())
-        .ok_or(CoreError::Math)?
-        .saturating_sub(basket.reserved_total());
-    if leaving > free {
-        return Err(CoreError::ReservedGemas);
-    }
+    pool.check_withdraw(leaving).map_err(draw_err)?;
     let mut order_line = SourceBook::blank_line(
         line.side,
         line.due_at,
@@ -245,11 +264,14 @@ pub fn request_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
         line.tranche,
     );
     b.transfer(&mut line, &mut order_line, sell)?;
-    if line.amount == 0 {
-        basket.remove_at(idx).map_err(store_err)?;
-    } else {
-        basket.set_line(idx, &line).map_err(store_err)?;
-    }
+    // `line` shrinks (never grows), so rewriting or removing it needs no room.
+    let done = match (in_spill, line.amount == 0) {
+        (false, true) => pool.basket.remove_at(idx).map(drop),
+        (false, false) => pool.basket.set_line(idx, &line),
+        (true, true) => pool.spill.remove_at(idx).map(drop),
+        (true, false) => pool.spill.set_line(idx, &line),
+    };
+    done.map_err(|e| draw_err(e.into()))?;
     *book = b;
     Ok(Requested {
         order: InstantOrder {
@@ -286,16 +308,16 @@ pub struct Filled {
 /// fill, from `spendable_shares`. `treasury` is the Treasury Account's basket, which takes the
 /// Gemas under the seller's key (class and tranche kept). Refused for a signer without fill
 /// authority, an expired or finished order, more Gemas than the order holds (after Redeeming its
-/// ready part), a payout above `route.spendable()`, or a full Treasury basket. `Err` changes
+/// ready part), a payout above `route.spendable()`, or a Treasury pool with no room (`SpillFull`: grow its spill, retry). `Err` changes
 /// nothing.
 #[allow(clippy::too_many_arguments)]
-pub fn fill_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
+pub fn fill_instant_redeem<B: Bytes, S: Bytes>(
     auth: &FillAuthority,
     signer: &Key,
     route: &mut RouteLedger,
     book: &mut SourceBook,
     order: &mut InstantOrder,
-    treasury: &mut LineStore<T>,
+    treasury: &mut Pool<B, S>,
     gemas: u64,
     terms: &FillTerms,
     now: i64,
@@ -330,20 +352,12 @@ pub fn fill_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
         PayMode::Now => r.spend(payout)?,
         PayMode::Deferred => r.reserve(payout)?,
     }
-    let (mut dst, at) = match treasury.find(&ol.key()) {
-        Ok(i) => (treasury.get(i).ok_or(CoreError::BookInconsistent)?, Some(i)),
-        Err(_) => (
-            SourceBook::blank_line(ol.side, ol.due_at, ol.source, ol.class, ol.tranche),
-            None,
-        ),
-    };
-    b.transfer(&mut ol, &mut dst, gemas)?;
-    match at {
-        Some(i) => treasury.set_line(i, &dst).map_err(store_err)?,
-        None => {
-            treasury.insert(&dst).map_err(store_err)?;
-        }
-    }
+    let mut part = SourceBook::blank_line(ol.side, ol.due_at, ol.source, ol.class, ol.tranche);
+    b.transfer(&mut ol, &mut part, gemas)?;
+    // The last step that can fail: a full Treasury pool changes nothing (grow its spill, retry).
+    treasury
+        .put(&mut OneBook(&mut b), &part)
+        .map_err(draw_err)?;
     *route = r;
     *book = b;
     order.line = ol;
@@ -360,88 +374,49 @@ pub fn fill_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
     })
 }
 
-/// Puts all the order's remaining Gemas into `dst` (an existing line of the same key, or a blank
-/// one) exactly: same Source, class and tranche, nothing promoted. Leaves the order finished.
-fn release(book: &mut SourceBook, order: &mut InstantOrder, dst: &mut Line) -> CoreResult<()> {
+/// Puts all the order's remaining Gemas back into the owner's pool (merging into the line of the
+/// same key, else a free basket slot, else the spill) exactly: same Source, class and tranche,
+/// nothing promoted. A full pool is `SpillFull` and changes nothing: grow the spill, retry.
+fn return_to_pool<B: Bytes, S: Bytes>(
+    book: &mut SourceBook,
+    order: &mut InstantOrder,
+    pool: &mut Pool<B, S>,
+) -> CoreResult<u64> {
     if !order.is_open() {
         return Err(CoreError::InvalidStatus);
     }
     let k = order.line.amount;
     let mut b = book.clone();
-    let mut ol = order.line;
-    b.transfer(&mut ol, dst, k)?;
+    pool.put(&mut OneBook(&mut b), &order.line)
+        .map_err(draw_err)?;
+    let l = order.line;
+    order.line = SourceBook::blank_line(l.side, l.due_at, l.source, l.class, l.tranche);
     *book = b;
-    order.line = ol;
-    Ok(())
-}
-
-/// Returns the order's Gemas to the owner's basket (merging into the line of the same key).
-fn return_to_basket<T: AsRef<[u8]> + AsMut<[u8]>>(
-    book: &mut SourceBook,
-    order: &mut InstantOrder,
-    basket: &mut LineStore<T>,
-) -> CoreResult<u64> {
-    let k = order.line.amount;
-    let (mut dst, at) = match basket.find(&order.line.key()) {
-        Ok(i) => (basket.get(i).ok_or(CoreError::BookInconsistent)?, Some(i)),
-        Err(_) => (
-            SourceBook::blank_line(
-                order.line.side,
-                order.line.due_at,
-                order.line.source,
-                order.line.class,
-                order.line.tranche,
-            ),
-            None,
-        ),
-    };
-    let (mut b, mut o) = (book.clone(), order.clone());
-    release(&mut b, &mut o, &mut dst)?;
-    match at {
-        Some(i) => basket.set_line(i, &dst).map_err(store_err)?,
-        None => {
-            basket.insert(&dst).map_err(store_err)?;
-        }
-    }
-    *book = b;
-    *order = o;
     Ok(k)
 }
 
 /// `cancel_instant_redeem`: the owner takes the unsold Gemas back, any time before they are sold.
-pub fn cancel_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
+pub fn cancel_instant_redeem<B: Bytes, S: Bytes>(
     signer: &Key,
     book: &mut SourceBook,
     order: &mut InstantOrder,
-    basket: &mut LineStore<T>,
+    pool: &mut Pool<B, S>,
 ) -> CoreResult<u64> {
     if *signer != order.owner {
         return Err(CoreError::NotParty);
     }
-    return_to_basket(book, order, basket)
+    return_to_pool(book, order, pool)
 }
 
 /// Expiry: anyone returns the unsold Gemas to the owner once `expires_at` has passed.
-pub fn expire_instant_redeem<T: AsRef<[u8]> + AsMut<[u8]>>(
+pub fn expire_instant_redeem<B: Bytes, S: Bytes>(
     now: i64,
     book: &mut SourceBook,
     order: &mut InstantOrder,
-    basket: &mut LineStore<T>,
+    pool: &mut Pool<B, S>,
 ) -> CoreResult<u64> {
     if now < order.expires_at {
         return Err(CoreError::NotExpired);
     }
-    return_to_basket(book, order, basket)
-}
-
-/// Cancel or expiry when the owner's basket is full: the Gemas go into `dst` (the caller's
-/// overflow record line, blank or existing) instead.
-pub fn release_instant_redeem(
-    book: &mut SourceBook,
-    order: &mut InstantOrder,
-    dst: &mut Line,
-) -> CoreResult<u64> {
-    let k = order.line.amount;
-    release(book, order, dst)?;
-    Ok(k)
+    return_to_pool(book, order, pool)
 }

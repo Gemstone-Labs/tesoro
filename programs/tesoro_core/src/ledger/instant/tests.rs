@@ -1,8 +1,14 @@
 #![allow(clippy::too_many_arguments)]
 
-use super::*;
+use super::{
+    cancel_instant_redeem as cancel_pool, expire_instant_redeem as expire_pool,
+    fill_instant_redeem as fill_pool, request_instant_redeem as request_pool, *,
+};
 use crate::ledger::book::fp;
-use crate::ledger::line_store::{required_len, CLASS_GENERAL, CLASS_PLATFORM, SIDE_OWN, SIDE_WON};
+use crate::ledger::draw::{grow_spill_body, spill_body};
+use crate::ledger::line_store::{
+    required_len, LineStore, CLASS_GENERAL, CLASS_PLATFORM, SIDE_OWN, SIDE_WON,
+};
 use std::collections::BTreeMap;
 
 const DUE: i64 = 5_000;
@@ -13,6 +19,80 @@ fn key(n: u8) -> Key {
 }
 
 type Basket = LineStore<Vec<u8>>;
+
+/// The unit tests below use accounts whose spill has no room: a credit that does not fit the
+/// basket is refused (`SpillFull`). The spill itself is covered by the tests at the end.
+fn no_spill(owner: Key) -> LineStore<Vec<u8>> {
+    LineStore::new(spill_body(owner, 0).unwrap()).unwrap()
+}
+
+fn request_instant_redeem(
+    kind: SourceKind,
+    book: &mut SourceBook,
+    basket: &mut Basket,
+    key: &LineKey,
+    owner: Key,
+    sell: u64,
+    now: i64,
+    ttl: i64,
+) -> CoreResult<Requested> {
+    let mut sp = no_spill(owner);
+    request_pool(
+        kind,
+        book,
+        &mut Pool::new(basket, &mut sp),
+        key,
+        owner,
+        sell,
+        now,
+        ttl,
+    )
+}
+
+fn fill_instant_redeem(
+    auth: &FillAuthority,
+    signer: &Key,
+    route: &mut RouteLedger,
+    book: &mut SourceBook,
+    order: &mut InstantOrder,
+    treasury: &mut Basket,
+    gemas: u64,
+    terms: &FillTerms,
+    now: i64,
+) -> CoreResult<Filled> {
+    let mut sp = no_spill(key(11));
+    fill_pool(
+        auth,
+        signer,
+        route,
+        book,
+        order,
+        &mut Pool::new(treasury, &mut sp),
+        gemas,
+        terms,
+        now,
+    )
+}
+
+fn cancel_instant_redeem(
+    signer: &Key,
+    book: &mut SourceBook,
+    order: &mut InstantOrder,
+    basket: &mut Basket,
+) -> CoreResult<u64> {
+    let mut sp = no_spill(key(10));
+    cancel_pool(signer, book, order, &mut Pool::new(basket, &mut sp))
+}
+
+fn expire_instant_redeem(
+    now: i64,
+    book: &mut SourceBook,
+    order: &mut InstantOrder,
+    basket: &mut Basket,
+) -> CoreResult<u64> {
+    let mut sp = no_spill(key(10));
+    expire_pool(now, book, order, &mut Pool::new(basket, &mut sp))
+}
 
 fn basket(n: u8, lines: usize) -> Basket {
     LineStore::init(vec![0u8; required_len(lines)], key(n), 255).unwrap()
@@ -691,8 +771,227 @@ fn the_treasury_basket_can_be_full_and_nothing_changes() {
         NOW,
     )
     .unwrap_err();
-    assert_eq!(e, CoreError::BasketFull);
+    assert_eq!(e, CoreError::SpillFull);
     assert_eq!(before, (route, order, s.book));
+}
+
+// ------------------------------------------------------------------------------ the spill
+
+/// All of Source `id`'s lines in the stores and orders, for the book's identity check.
+fn lines_of(id: u8, stores: &[&Basket], spills: &[&[u8]], orders: &[&InstantOrder]) -> Vec<Line> {
+    let mut v: Vec<Line> = stores.iter().flat_map(|s| s.lines()).collect();
+    for b in spills {
+        v.extend(LineStore::new(*b).unwrap().lines());
+    }
+    v.extend(orders.iter().map(|o| o.line));
+    v.retain(|l| l.source == key(id));
+    v
+}
+
+fn check_source(s: &Src, stores: &[&Basket], spills: &[&[u8]], orders: &[&InstantOrder]) {
+    let lines = lines_of(1, stores, spills, orders);
+    let refs: Vec<&Line> = lines.iter().collect();
+    s.check(&refs);
+}
+
+/// A player whose single basket slot is taken by another Source's Gemas, with an order open
+/// for every non-ready Gema of Source 1's 5,000.
+fn full_basket_world() -> (Src, Basket, InstantOrder) {
+    let mut s = Src::new(1, 10_000);
+    let mut player = basket(10, 1);
+    s.give(&mut player, CLASS_GENERAL, 0, 5_000);
+    s.land(2_000);
+    let line = player.lines().next().unwrap();
+    let sell = 5_000 - s.book.redeemable(&line).unwrap();
+    let r = request(&mut s, &mut player, sell).unwrap();
+    s.redeemed += r.redeemed.unwrap().gemas;
+    assert_eq!(player.len(), 0);
+    Src::new(2, 1_000).give(&mut player, CLASS_GENERAL, 0, 100);
+    assert_eq!(player.len(), player.capacity());
+    (s, player, r.order)
+}
+
+#[test]
+fn cancel_and_expiry_into_a_full_basket_go_to_the_spill_not_a_separate_overflow() {
+    for expiry in [false, true] {
+        let (mut s, mut player, order) = full_basket_world();
+        let o_key = order.line.key();
+        let sold = order.line.amount;
+        let kept = (player.len(), player.won_total());
+        let mut spill = spill_body(key(10), 0).unwrap();
+        let mut o = order.clone();
+        // no room anywhere: refused, nothing changed
+        let before = (
+            s.book.clone(),
+            o.clone(),
+            player.lines().collect::<Vec<_>>(),
+        );
+        let e = {
+            let mut sp = LineStore::new(spill.as_mut_slice()).unwrap();
+            let mut pool = Pool::new(&mut player, &mut sp);
+            if expiry {
+                expire_pool(o.expires_at, &mut s.book, &mut o, &mut pool)
+            } else {
+                cancel_pool(&key(10), &mut s.book, &mut o, &mut pool)
+            }
+            .unwrap_err()
+        };
+        assert_eq!(e, CoreError::SpillFull);
+        assert_eq!(
+            before,
+            (
+                s.book.clone(),
+                o.clone(),
+                player.lines().collect::<Vec<_>>()
+            )
+        );
+        // the instruction layer grows the spill and retries
+        grow_spill_body(&mut spill, 1);
+        let k = {
+            let mut sp = LineStore::new(spill.as_mut_slice()).unwrap();
+            let mut pool = Pool::new(&mut player, &mut sp);
+            let free_before = pool.free();
+            let k = if expiry {
+                expire_pool(o.expires_at, &mut s.book, &mut o, &mut pool)
+            } else {
+                cancel_pool(&key(10), &mut s.book, &mut o, &mut pool)
+            }
+            .unwrap();
+            // playable at once, no claim needed
+            assert_eq!(pool.free(), free_before + k);
+            k
+        };
+        assert_eq!(k, sold);
+        assert!(!o.is_open());
+        assert_eq!((player.len(), player.won_total()), kept);
+        let sp = LineStore::new(spill.as_slice()).unwrap();
+        let back = sp.get(sp.find(&o_key).unwrap()).unwrap();
+        assert_eq!(
+            (back.amount, back.class, back.tranche),
+            (sold, CLASS_GENERAL, 0)
+        );
+        check_source(&s, &[&player], &[spill.as_slice()], &[&o]);
+    }
+}
+
+#[test]
+fn a_fill_into_a_full_treasury_pool_goes_to_its_spill_after_growth() {
+    let (mut s, mut player, mut order) = full_basket_world();
+    let o_key = order.line.key();
+    let sold = order.line.amount;
+    let mut treasury = basket(11, 1);
+    Src::new(2, 10).give(&mut treasury, CLASS_GENERAL, 0, 5);
+    let mut spill = spill_body(key(11), 0).unwrap();
+    let mut route = route(10_000);
+    let t = terms(1, 1, PayMode::Now);
+    let go = |s: &mut Src,
+              route: &mut RouteLedger,
+              order: &mut InstantOrder,
+              treasury: &mut Basket,
+              spill: &mut Vec<u8>,
+              k: u64| {
+        let mut sp = LineStore::new(spill.as_mut_slice()).unwrap();
+        fill_pool(
+            &auth(),
+            &key(200),
+            route,
+            &mut s.book,
+            order,
+            &mut Pool::new(treasury, &mut sp),
+            k,
+            &t,
+            NOW + 5,
+        )
+    };
+    let before = (route.clone(), order.clone(), s.book.clone());
+    assert_eq!(
+        go(
+            &mut s,
+            &mut route,
+            &mut order,
+            &mut treasury,
+            &mut spill,
+            1_000
+        )
+        .unwrap_err(),
+        CoreError::SpillFull
+    );
+    assert_eq!(before, (route.clone(), order.clone(), s.book.clone()));
+    grow_spill_body(&mut spill, 1);
+    go(
+        &mut s,
+        &mut route,
+        &mut order,
+        &mut treasury,
+        &mut spill,
+        1_000,
+    )
+    .unwrap();
+    // a second partial fill merges into the spill line, which needs no new slot
+    go(
+        &mut s,
+        &mut route,
+        &mut order,
+        &mut treasury,
+        &mut spill,
+        500,
+    )
+    .unwrap();
+    let sp = LineStore::new(spill.as_slice()).unwrap();
+    let tl = sp.get(sp.find(&o_key).unwrap()).unwrap();
+    assert_eq!((tl.amount, tl.class, tl.tranche), (1_500, CLASS_GENERAL, 0));
+    assert_eq!(order.line.amount, sold - 1_500);
+    let _ = &mut player;
+    check_source(&s, &[&player, &treasury], &[spill.as_slice()], &[&order]);
+}
+
+#[test]
+fn a_request_sells_from_a_line_that_sits_in_the_spill_and_respects_the_whole_pool() {
+    let mut s = Src::new(1, 10_000);
+    let mut player = basket(10, 1);
+    Src::new(2, 10).give(&mut player, CLASS_GENERAL, 0, 5);
+    let mut tmp = basket(10, 2);
+    s.give(&mut tmp, CLASS_GENERAL, 0, 4_000);
+    let mut spill = spill_body(key(10), 1).unwrap();
+    {
+        let mut sp = LineStore::new(spill.as_mut_slice()).unwrap();
+        sp.insert(&tmp.lines().next().unwrap()).unwrap();
+    }
+    s.land(1_000);
+    let k = s.won_key(CLASS_GENERAL, 0);
+    let mut sp = LineStore::new(spill.as_mut_slice()).unwrap();
+    // a reservation the whole pool must keep: 4,000 + 5 playable, 4,000 reserved
+    player.set_reserved_total(4_000);
+    let mut pool = Pool::new(&mut player, &mut sp);
+    let ready = s.book.redeemable(&pool.spill.get(0).unwrap()).unwrap();
+    let room = 5 - ready.min(5);
+    let e = request_pool(
+        SourceKind::Yield,
+        &mut s.book,
+        &mut pool,
+        &k,
+        key(10),
+        2_000,
+        NOW,
+        DEFAULT_ORDER_TTL_SECS,
+    )
+    .unwrap_err();
+    assert_eq!(e, CoreError::ReservedGemas);
+    let _ = room;
+    pool.basket.set_reserved_total(0);
+    let r = request_pool(
+        SourceKind::Yield,
+        &mut s.book,
+        &mut pool,
+        &k,
+        key(10),
+        2_000,
+        NOW,
+        DEFAULT_ORDER_TTL_SECS,
+    )
+    .unwrap();
+    assert_eq!(r.order.line.amount, 2_000);
+    assert_eq!(pool.spill.get(0).unwrap().amount, 4_000 - ready - 2_000);
 }
 
 #[test]

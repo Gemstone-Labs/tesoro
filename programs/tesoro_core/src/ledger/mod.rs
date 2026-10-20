@@ -158,7 +158,7 @@ core_errors! {
     NotFillAuthority => "only the admin, or the keeper while its fill rule is on, may fill Instant Redeem orders",
     ReservedGemas => "these Gemas back an Offer reservation",
     InvalidOrderTtl => "an Instant Redeem order lasts 1 hour to 30 days",
-    BasketFull => "the basket has no room for another line",
+    SpillFull => "the account has no room for another line: grow its spill and retry",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
