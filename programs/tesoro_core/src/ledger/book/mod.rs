@@ -41,7 +41,8 @@
 //!
 //! Each line owns the shares it has earned: `banked + uncovered * (S - s_snap) / p` plus the closed
 //! segments' terms. Per landing the lines earn `sum_i u_i * dS / p_i = V * q / W` (all weights taken
-//! at the landing's index). The index and the share sum use the *weight* `W`, not `U`: a
+//! at the landing's index; `V` is the *unrounded* sum of the lines' indexed unpaid amounts, not the
+//! sum of their rounded-up views). The index and the share sum use the *weight* `W`, not `U`: a
 //! conservative upper bound of `V`, kept as `W = U + Z` where `Z` grows by one unit per rounded-up
 //! line touch and by `W / P` per landing (the rounding of `P`), and shrinks with the lines that
 //! leave. Since `V <= W`, `V * q / W <= q`: the lines never earn more shares than landed, whatever
@@ -97,6 +98,15 @@ pub const SHARE_BITS: u32 = 32;
 /// Extra fractional bits of the share sum, so one landing's rounding is below one share unit for
 /// every line.
 pub const S_FRAC_BITS: u32 = 64;
+/// A line's share catch-up reads at most this many segments of its epoch: after ten scale steps
+/// every later term is exactly zero, however many more segments the epoch has.
+pub const MAX_CATCHUP_SCALE_STEPS: u32 = 10;
+/// Largest supported ratio of shares landed to coverage landed: `2^40` share units (2^-32 of a
+/// base unit) per unit of 2^-64 Gema, i.e. 2^72 base units of the staking token per Gema. Real
+/// Sources are many orders below (a Gema is $0.01); the bound keeps every share-sum increment
+/// below 2^200 so the u256 sum cannot overflow, and keeps the weight slack's share error below one
+/// base unit.
+pub const SHARES_PER_ULP_BITS: u32 = 40;
 /// Extension tranches a Source can have (Extend's limits keep a Position to at most 11).
 pub const MAX_EXTENSIONS: u8 = 11;
 /// Platform, Studio, Leaderboard, General and the Extensions.
@@ -129,6 +139,8 @@ pub enum BookError {
     CounterExhausted,
     /// Only the pooled fee classes (Platform, Leaderboard) answer this.
     NotPooled,
+    /// More shares than `2^SHARES_PER_ULP_BITS` per unit of coverage landed.
+    SharesOutOfRange,
 }
 
 pub type BookResult<T> = Result<T, BookError>;
@@ -258,13 +270,25 @@ impl ClassState {
         let mut s_start = line.s_snap;
         loop {
             let (s_end, scale_j, last) = if j == self.ck {
+                if self.epoch != line.epoch {
+                    return Err(BookError::BadSnapshot);
+                }
                 (self.s, self.scale, true)
             } else {
                 let rec = ck.get(id, j).ok_or(BookError::MissingCheckpoint)?;
+                if rec.epoch != line.epoch {
+                    return Err(BookError::BadCheckpoint);
+                }
                 (rec.s_end, rec.scale, rec.ends_epoch)
             };
             if scale_j < line.scale {
                 return Err(BookError::BadSnapshot);
+            }
+            let steps = scale_j - line.scale;
+            if steps >= MAX_CATCHUP_SCALE_STEPS {
+                // u < 2^128 and dS < 2^256 (see `s_increment`), p >= 1 and the divisor has at
+                // least 2^(32 * 10 + 64) = 2^384: this term and every later one is exactly 0
+                return Ok(total);
             }
             let ds = s_end.checked_sub(&s_start).ok_or(BookError::BadSnapshot)?;
             if !ds.is_zero() {
@@ -273,9 +297,7 @@ impl ClassState {
                 let (q, _) = div_rem_limbs(&prod, line.p);
                 let q = shr_limbs(
                     &q,
-                    SCALE_BITS
-                        .saturating_mul(scale_j - line.scale)
-                        .saturating_add(S_FRAC_BITS),
+                    SCALE_BITS.saturating_mul(steps).saturating_add(S_FRAC_BITS),
                     Round::Down,
                 );
                 let term = limbs_to_u128(&q).ok_or(BookError::Math)?;
@@ -436,18 +458,25 @@ impl ClassState {
             let (qt, r) = shifted.div_rem(w);
             let qt = if r != 0 { qt.checked_inc() } else { Some(qt) };
             let p = qt.and_then(|v| v.to_u128()).ok_or(BookError::Math)?;
-            // the rounding of P moves the lines' total by at most w / (P * 2^32)
-            let once = w / self.p + u128::from(!w.is_multiple_of(self.p));
-            (
-                p,
-                (once >> SCALE_BITS) + u128::from(once & 0xFFFF_FFFF != 0),
-                true,
-            )
+            // an inexact P moves the lines' total by less than w / (P * 2^32); an exact one by 0
+            let extra = if r == 0 {
+                0
+            } else {
+                let once = w / self.p + u128::from(!w.is_multiple_of(self.p));
+                (once >> SCALE_BITS) + u128::from(once & 0xFFFF_FFFF != 0)
+            };
+            (p, extra, true)
         } else {
             let (qt, r) = n.div_rem(w);
             let qt = if r != 0 { qt.checked_inc() } else { Some(qt) };
             let p = qt.and_then(|v| v.to_u128()).ok_or(BookError::Math)?;
-            (p, w / self.p + u128::from(!w.is_multiple_of(self.p)), false)
+            // an inexact P moves the lines' total by less than w / P; an exact one by 0
+            let extra = if r == 0 {
+                0
+            } else {
+                w / self.p + u128::from(!w.is_multiple_of(self.p))
+            };
+            (p, extra, false)
         };
         if rescale {
             self.close_segment(id, false, ck)?;
@@ -796,6 +825,9 @@ impl<S: ClassSlots> Book<S> {
         if delta == 0 {
             return Ok(Landing::default());
         }
+        if shares >> SHARES_PER_ULP_BITS > delta {
+            return Err(BookError::SharesOutOfRange);
+        }
         let n = self.class_count();
         // validate before touching anything
         let mut rest = delta;
@@ -999,14 +1031,7 @@ impl<S: ClassSlots> Book<S> {
         cb.shares = cb.shares.checked_add(x).ok_or(BookError::Math)?;
         let mut owner_fp = self.owner_fp.checked_add(sp.dust).ok_or(BookError::Math)?;
         let mut owner_shares = self.owner_shares;
-        Self::shed(
-            ia,
-            &mut ca,
-            sp.removed_unpaid,
-            &mut owner_fp,
-            &mut owner_shares,
-            ck,
-        )?;
+        // everything that can fail on the inputs comes before `shed`, which may write a record
         s.amount -= k;
         s.uncovered = sp.kept_unpaid;
         s.shares -= x;
@@ -1018,6 +1043,14 @@ impl<S: ClassSlots> Book<S> {
         if is_exact_class(ib) {
             d.shares = d.shares.checked_add(x).ok_or(BookError::Math)?;
         }
+        Self::shed(
+            ia,
+            &mut ca,
+            sp.removed_unpaid,
+            &mut owner_fp,
+            &mut owner_shares,
+            ck,
+        )?;
         self.classes.put(ia as usize, &ca);
         self.classes.put(ib as usize, &cb);
         self.owner_fp = owner_fp;

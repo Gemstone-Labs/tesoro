@@ -147,6 +147,7 @@ core_errors! {
     BadCheckpoint => "a checkpoint record or page is malformed",
     CounterExhausted => "a class counter (epoch, scale or segment number) is exhausted",
     NotPooled => "only the pooled fee classes answer this",
+    SharesOutOfRange => "more staking-token shares than 2^40 per unit of coverage landed",
     PrizeSourceRefused => "prize Gemas can only be redeemed through the prize escrow",
     PrizeEscrowOff => "the prize escrow is switched off",
     PrizeFundingWaits => "the Treasury holds less than holders, reservations and the Pool are owed; prize funding waits",
@@ -231,6 +232,7 @@ impl From<book::BookError> for CoreError {
             B::BadCheckpoint => CoreError::BadCheckpoint,
             B::CounterExhausted => CoreError::CounterExhausted,
             B::NotPooled => CoreError::NotPooled,
+            B::SharesOutOfRange => CoreError::SharesOutOfRange,
         }
     }
 }

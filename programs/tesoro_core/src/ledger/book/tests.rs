@@ -241,6 +241,7 @@ struct Sys {
     max_deficit_ratio: f64,
     max_excess: f64,
     max_share_ratio: f64,
+    max_ratio: f64,
     max_records: u32,
     max_reads: u64,
     forgiven: Rat,
@@ -275,6 +276,7 @@ impl Sys {
             max_deficit_ratio: 0.0,
             max_excess: 0.0,
             max_share_ratio: 0.0,
+            max_ratio: 0.0,
             max_records: 0,
             max_reads: 0,
             forgiven: Rat::zero(),
@@ -334,6 +336,7 @@ impl Sys {
         let landing = self.book.land(target, shares, &mut self.ck).unwrap();
         assert_eq!(landing.delta, pending);
         if pending > 0 {
+            self.max_ratio = self.max_ratio.max(shares as f64 / pending as f64);
             self.computed = self.computed.max(target);
             self.shares_landed += shares;
             self.model
@@ -381,7 +384,31 @@ impl Sys {
         let before = self.prev_ready();
         self.log.push(format!("redeem {id:?} {k}"));
         let mut l = self.line(id);
+        // what the exact model says this line is owed for these Gemas, in whole shares
+        let expected = {
+            let m = &self.model.lines[&id];
+            let owed = m.shares.mul(&Rat::int(k as i128)).div(&m.ready());
+            owed.div(&Rat::from_u128_pub(1u128 << SHARE_BITS))
+                .floor_int()
+        };
         let r = self.book.redeem(&mut l, k, &self.ck).unwrap();
+        if is_exact_class(id.1) {
+            let slack = (self.ops as f64
+                * (64.0 + self.issued as f64 * 4.0)
+                * 4.0
+                * self.max_ratio.max(1.0)
+                + 64.0)
+                / (1u64 << SHARE_BITS) as f64
+                + 2.0;
+            let diff = (expected.clone() - BigInt::from(r.shares))
+                .to_f64()
+                .unwrap();
+            assert!(
+                diff.abs() <= slack,
+                "Redeem paid {} but the model says {expected}",
+                r.shares
+            );
+        }
         self.shares_paid_fp += r.shares << SHARE_BITS;
         self.redeemed += k;
         self.store(id, l);
@@ -496,7 +523,10 @@ impl Sys {
             self.max_reads = self.max_reads.max(self.ck.reads.get() - reads0);
             class_shares[l.class as usize] += BigInt::from(sh);
             let diff = (m.shares.floor_int() - BigInt::from(sh)).to_f64().unwrap();
-            let eps = self.ops as f64 * (64.0 + self.issued as f64 * 4.0) * 4.0 + 64.0;
+            // the error is the weight slack (ulps of unpaid) times the shares per ulp landed
+            let eps =
+                self.ops as f64 * (64.0 + self.issued as f64 * 4.0) * 4.0 * self.max_ratio.max(1.0)
+                    + 64.0;
             self.max_share_ratio = self.max_share_ratio.max(diff.abs() / eps);
             assert!(
                 diff.abs() <= eps,
@@ -532,6 +562,25 @@ impl Sys {
             if is_exact_class(class as u8) {
                 assert_eq!(self.ck.len(class as u8), c.ck, "records written\n{}", ctx());
             }
+        }
+        // the weight bound really bounds the lines' unrounded indexed unpaid total
+        for class in 0..self.book.class_count() {
+            let c = self.book.classes[class];
+            let mut v = Rat::zero();
+            for l in self.lines.values().filter(|l| l.class as usize == class) {
+                if l.epoch == c.epoch && l.uncovered > 0 {
+                    let steps = (c.scale - l.scale) as usize;
+                    let ratio = Rat::new(BigInt::from(c.p), BigInt::from(l.p) << (32 * steps));
+                    v = v.add(&Rat::from_u128_pub(l.uncovered).mul(&ratio));
+                }
+            }
+            assert!(
+                v <= Rat::from_u128_pub(c.w),
+                "class {class}: virtual unpaid {:e} above the weight bound {}\n{}",
+                v.to_f64(),
+                c.w,
+                ctx()
+            );
         }
         // Left to pay back is the class counters; it stays within the bound of the exact figure
         let impl_total = self.book.uncovered_total();
@@ -621,8 +670,19 @@ fn run(seed: u64, mode: Mode, steps: usize) -> Sys {
                     _ => unpaid.saturating_sub(r.range(0, 3) as u128),
                 },
             };
-            let shares =
-                (delta >> 30).saturating_mul(r.range(1, 1 << 20) as u128) + r.range(0, 5) as u128;
+            // shares per unit of coverage: usually small, sometimes anything the domain allows
+            // (up to 2^36 share units per ulp), sometimes none
+            let shares = match r.below(10) {
+                0 => 0,
+                1 => {
+                    let e = r.range(0, 36) as u32;
+                    (delta.saturating_mul(1u128 << e)).min(1u128 << 100) + r.range(0, 3) as u128
+                }
+                _ => {
+                    (delta >> 30).saturating_mul(r.range(1, 1 << 20) as u128)
+                        + r.range(0, 5) as u128
+                }
+            };
             sys.sync(delta, shares);
         } else if roll < 44 {
             let Some(src) = pick_line(&mut r, &sys, |_, l| l.class >= CLASS_GENERAL) else {
@@ -1767,9 +1827,9 @@ fn a_dormant_holder_across_two_thousand_epochs_reads_only_its_own_records() {
 #[test]
 fn a_missing_checkpoint_is_refused_and_changes_nothing() {
     let mut sys = Sys::new();
-    sys.issue((20, 1), 10);
+    sys.issue((20, CLASS_GENERAL), 10);
     sys.sync(10 * G, 100 * PRICE); // epoch ends: one record
-    let stale = sys.lines[&(20, 1)];
+    let stale = sys.lines[&(20, CLASS_GENERAL)];
     let mut book = sys.book.clone();
     let none = checkpoint::NoCheckpoints;
     let mut l = stale;
@@ -1778,12 +1838,13 @@ fn a_missing_checkpoint_is_refused_and_changes_nothing() {
         Err(BookError::MissingCheckpoint)
     );
     assert_eq!((book, l), (sys.book.clone(), stale));
-    let mut dst = gline(1, 22);
+    let mut dst = gline(CLASS_GENERAL, 22);
     let mut s2 = stale;
     assert_eq!(
         sys.book.transfer(&mut s2, &mut dst, 1, &none),
         Err(BookError::MissingCheckpoint)
     );
+    assert_eq!((s2, dst), (stale, gline(CLASS_GENERAL, 22)));
 }
 
 #[test]
@@ -1795,7 +1856,7 @@ fn the_rounded_weight_counterexample_cannot_over_allocate_shares() {
     let mut y = gline(CLASS_GENERAL, 2);
     b.issue(&mut x, 1).unwrap();
     b.issue(&mut y, 1).unwrap();
-    let big = 1u128 << 60;
+    let big = 1u128 << 40;
     b.land(2 * G - 1, 0).unwrap();
     b.materialise(&mut x).unwrap();
     b.materialise(&mut y).unwrap();
@@ -2021,4 +2082,211 @@ fn an_extension_started_in_account_bytes_needs_room_and_starts_fresh() {
     let again = BookBytes::open(&mut raw).unwrap();
     assert_eq!(again.n_ext, 1);
     assert_eq!(again.classes.get(4), ClassState::fresh());
+}
+
+// ---------------------------------------------------------------- Codex review of the integers
+
+#[test]
+fn an_exact_index_step_does_not_charge_the_weight() {
+    // Codex finding 1: one 1-Gema line, G-1 lands (an exact index step), then the last ulp lands
+    // with 100 shares. The line earns all of them, not half.
+    let mut b = W::new();
+    let mut x = gline(CLASS_GENERAL, 1);
+    b.issue(&mut x, 1).unwrap();
+    b.land(G - 1, 0).unwrap();
+    assert_eq!(b.classes[CLASS_GENERAL as usize].w, 1);
+    let to = b.h + 1;
+    b.land(to, 100 << SHARE_BITS).unwrap();
+    near(b.shares(&x), 100 << SHARE_BITS);
+}
+
+#[test]
+fn rounding_a_tiny_tail_up_never_lets_the_lines_exceed_what_landed() {
+    // Codex finding 1, second example: A 1 Gema, B 9 Gemas, 10G-1 lands, A is touched (its tail
+    // rounds up to a whole ulp) and the last ulp lands with 300 shares. A is paid more than its
+    // exact third of a hundred, but the lines together never own more than landed.
+    let mut b = W::new();
+    let mut a = gline(CLASS_GENERAL, 1);
+    let mut c = gline(CLASS_GENERAL, 2);
+    b.issue(&mut a, 1).unwrap();
+    b.issue(&mut c, 9).unwrap();
+    b.land(10 * G - 1, 0).unwrap();
+    b.materialise(&mut a).unwrap();
+    let to = b.h + 1;
+    let q = 300 << SHARE_BITS;
+    b.land(to, q).unwrap();
+    assert!(b.shares(&a) + b.shares(&c) <= q);
+}
+
+#[test]
+fn shares_beyond_the_supported_ratio_are_refused_before_anything_changes() {
+    // Codex finding 3: 2^101 shares for one ulp of coverage would overflow the share sum.
+    let mut b = W::new();
+    let mut x = gline(CLASS_GENERAL, 1);
+    b.issue(&mut x, 1 << 36).unwrap();
+    let u = b.uncovered_total();
+    b.land(u - 3, 0).unwrap();
+    let before = (b.clone(), b.ck.len(CLASS_GENERAL));
+    assert_eq!(b.land(b.h + 1, 1 << 101), Err(BookError::SharesOutOfRange));
+    assert_eq!((b.clone(), b.ck.len(CLASS_GENERAL)), before);
+    // the edge of the domain is accepted and fits
+    b.land(b.h + 1, 1 << SHARES_PER_ULP_BITS).unwrap();
+}
+
+#[test]
+fn a_dormant_line_in_a_long_epoch_reads_at_most_a_few_records() {
+    // Codex finding 2: the epoch itself has hundreds of closed segments (the class is repaid down
+    // to an ulp again and again but never in full); a line asleep since the first reads about ten.
+    let mut sys = Sys::new();
+    sys.issue((OWNER, CLASS_GENERAL), 2_000);
+    sys.cut_fee((OWNER, CLASS_GENERAL), (14, 1), 1);
+    sys.frozen = vec![14];
+    for _ in 0..150 {
+        sys.cut_fee((OWNER, CLASS_GENERAL), (15, 1), 1);
+        let u = sys.book.class(1).unwrap().uncovered;
+        sys.sync(u - 1, 3 * PRICE);
+    }
+    assert!(
+        sys.book.class(1).unwrap().ck > 150,
+        "many segments in one epoch"
+    );
+    assert_eq!(
+        sys.book.class(1).unwrap().epoch,
+        0,
+        "and still the first epoch"
+    );
+    let before = sys.ck.reads.get();
+    let x = sys.lines[&(14, 1)];
+    let shares = sys.book.shares_of(&x, &sys.ck).unwrap();
+    let reads = sys.ck.reads.get() - before;
+    assert!(reads <= MAX_CATCHUP_SCALE_STEPS as u64 + 1, "{reads} reads");
+    assert!(shares > 0);
+    // paying the last ulp changes nothing about the work
+    let u = sys.book.class(1).unwrap().uncovered;
+    sys.sync(u, 3 * PRICE);
+    let before = sys.ck.reads.get();
+    sys.book.shares_of(&x, &sys.ck).unwrap();
+    assert!(sys.ck.reads.get() - before <= MAX_CATCHUP_SCALE_STEPS as u64 + 1);
+}
+
+#[test]
+fn a_cut_that_fails_on_its_destination_writes_no_record() {
+    // Codex finding 4: the destination's amount overflows after the source class would have closed
+    // a segment. Nothing may be written.
+    let mut b = W::new();
+    let mut dst = gline(1, 10);
+    b.issue(&mut dst, u64::MAX).unwrap();
+    b.land(u64::MAX as u128 * G, 0).unwrap();
+    let mut src = gline(CLASS_GENERAL, 1);
+    b.issue(&mut src, 1).unwrap();
+    let before = (b.clone(), src, dst, b.ck.len(CLASS_GENERAL), b.ck.len(1));
+    assert_eq!(b.cut_fee(&mut src, &mut dst, 1), Err(BookError::Math));
+    assert_eq!(
+        (b.clone(), src, dst, b.ck.len(CLASS_GENERAL), b.ck.len(1)),
+        before
+    );
+}
+
+#[test]
+fn a_store_that_refuses_a_record_fails_the_landing() {
+    // The one failure after a first write is the store itself; the transaction reverts.
+    let mut b = SourceBook::new();
+    let mut x = gline(CLASS_GENERAL, 1);
+    b.issue(&mut x, 5, &checkpoint::NoCheckpoints).unwrap();
+    assert_eq!(
+        b.land(5 * G, 0, &mut checkpoint::NoCheckpoints),
+        Err(BookError::MissingCheckpoint)
+    );
+}
+
+#[test]
+fn history_records_of_the_wrong_epoch_are_refused() {
+    let mut sys = Sys::new();
+    sys.issue((20, CLASS_GENERAL), 10);
+    sys.sync(10 * G, PRICE);
+    sys.issue((20, CLASS_GENERAL), 10);
+    sys.sync(10 * G, PRICE);
+    // a store that hands back the second epoch's record for the first epoch's line
+    struct Wrong<'a>(&'a MemCheckpoints);
+    impl checkpoint::CheckpointStore for Wrong<'_> {
+        fn get(&self, class: u8, idx: u32) -> Option<checkpoint::Checkpoint> {
+            self.0.get(class, if idx == 0 { 1 } else { idx })
+        }
+        fn push(&mut self, _: u8, _: u32, _: checkpoint::Checkpoint) -> BookResult<()> {
+            unreachable!()
+        }
+    }
+    let mut stale = gline(CLASS_GENERAL, 21);
+    let mut fresh = W::new();
+    fresh.issue(&mut stale, 1).unwrap();
+    // line of epoch 0 (ck 0) read through a store whose record 0 claims epoch 1
+    let l = {
+        let mut l = sys.lines[&(20, CLASS_GENERAL)];
+        l.epoch = 0;
+        l.ck = 0;
+        l.uncovered = 5;
+        l.p = P_ONE;
+        l.scale = 0;
+        l
+    };
+    assert_eq!(
+        sys.book.shares_of(&l, &Wrong(&sys.ck)),
+        Err(BookError::BadCheckpoint)
+    );
+}
+
+#[test]
+fn limb_arithmetic_matches_big_integers_for_five_to_seven_limbs() {
+    let mut r = Rng(11);
+    for _ in 0..60_000 {
+        let n5: [u64; 5] = core::array::from_fn(|_| r.shaped() as u64);
+        let n6: [u64; 6] = core::array::from_fn(|_| r.shaped() as u64);
+        let n7: [u64; 7] = core::array::from_fn(|_| r.shaped() as u64);
+        let mut d = r.shaped();
+        if d == 0 {
+            d = 3;
+        }
+        fn check<const N: usize>(n: &[u64; N], d: u128) {
+            let big_n = limbs_big(n);
+            let (q, rem) = div_rem_limbs(n, d);
+            let (eq, er) = big_n.div_rem(&big(d));
+            assert_eq!((limbs_big(&q), big(rem)), (eq, er), "{n:?} / {d}");
+        }
+        check(&n5, d);
+        check(&n6, d);
+        check(&n7, d);
+        let bits = r.below(460) as u32;
+        let down = shr_limbs(&n6, bits, Round::Down);
+        let want = if bits >= 384 {
+            BigUint::zero()
+        } else {
+            limbs_big(&n6) >> bits
+        };
+        assert_eq!(limbs_big(&down), want);
+        let up = shr_limbs(&n6, bits, Round::Up);
+        let exact = bits < 384 && (&want << bits) == limbs_big(&n6);
+        let want_up = if exact || limbs_big(&n6).is_zero() {
+            want.clone()
+        } else {
+            want + 1u32
+        };
+        assert_eq!(limbs_big(&up), want_up);
+        // 128 x 256 -> 384
+        let a = r.shaped();
+        let s = U256([
+            r.shaped() as u64,
+            r.shaped() as u64,
+            r.shaped() as u64,
+            r.shaped() as u64,
+        ]);
+        assert_eq!(limbs_big(&mul_u128_u256(a, &s)), big(a) * wide_big(&s));
+    }
+}
+
+fn limbs_big<const N: usize>(n: &[u64; N]) -> BigUint {
+    let mut r = BigUint::zero();
+    for limb in n.iter().rev() {
+        r = (r << 64) | BigUint::from(*limb);
+    }
+    r
 }
