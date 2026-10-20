@@ -14,6 +14,7 @@ pub mod line_store;
 pub mod matches;
 pub mod money;
 pub mod native;
+pub mod prize;
 pub mod protections;
 pub mod season;
 pub mod stake;
@@ -142,6 +143,17 @@ core_errors! {
     NoSuchClass => "the Source has no such class or Extension tranche",
     TooManyExtensions => "a Source has at most 11 Extension tranches",
     NotAFeeCut => "a fee cut moves Gemas of a playable class into a fee class of the same Source",
+    PrizeSourceRefused => "prize Gemas can only be redeemed through the prize escrow",
+    PrizeEscrowOff => "the prize escrow is switched off",
+    PrizeFundingWaits => "the Treasury holds less than holders, reservations and the Pool are owed; prize funding waits",
+    AlreadyFunded => "this Season's prize was already funded on this route",
+    OverSpendable => "amount exceeds what the Treasury may spend after holders, the Pool and reservations",
+    PrizeBackingShort => "the prize escrow does not hold enough shares for this",
+    BudgetStep => "prize payout step is out of order or already done",
+    PoolShareTooSoon => "a new prize share applies from a Season at least one full Season ahead",
+    SeasonNotFunded => "this Season's prize was not funded on every route",
+    SeasonUnfinished => "some ranks of this Season are still unpaid",
+    OwedExceedsTreasury => "holders would be owed more shares than the Treasury holds beyond the Pool and reservations",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
