@@ -57,6 +57,11 @@ pub mod tesoro_core {
         instructions::registry::propose_game_change(ctx, settle_authority, studio_bps)
     }
 
+    /// Returns the rent of an opener-to-joiner pair counter after its window.
+    pub fn close_pair(ctx: Context<ClosePair>, opener: Pubkey, joiner: Pubkey) -> Result<()> {
+        instructions::matching::close_pair(ctx, opener, joiner)
+    }
+
     pub fn apply_game_change(ctx: Context<ApplyGameChange>) -> Result<()> {
         instructions::registry::apply_game_change(ctx)
     }

@@ -13,24 +13,30 @@ pub enum MatchResult {
     Draw,
 }
 
-/// Whether the Game counts as listed right now, and its deploy slot (zero when unreadable). A
-/// program that cannot be read (closed, wrong accounts) is unlisted, never an error: Matches on it
-/// still open, they just earn no Points and cannot be backed.
+/// Whether the Game counts as listed right now, and its deploy slot. A program upgraded since the
+/// admin approved it is unlisted. While the admin's listing is in force, a program that cannot be
+/// read (closed, wrong accounts) is an error, not "unlisted": otherwise an opener could pass junk
+/// to strip the Points from a Match their opponent is about to join.
 fn listing(
     record: &GameRecord,
     game_program: &AccountInfo,
     program_data: &AccountInfo,
 ) -> Result<(bool, u64)> {
-    let slot = crate::instructions::registry::read_deploy(game_program, program_data)
-        .ok()
-        .map(|d| d.slot);
-    Ok((record.is_listed(now()?, slot), slot.unwrap_or(0)))
+    let now = now()?;
+    match crate::instructions::registry::read_deploy(game_program, program_data) {
+        Ok(deploy) => Ok((record.is_listed(now, Some(deploy.slot)), deploy.slot)),
+        Err(_) => {
+            require!(record.listed_until <= now, TesoroError::GameProofInvalid);
+            Ok((false, 0))
+        }
+    }
 }
 
 /// Counts a Match started by this opener-to-joiner pair.
-fn record_pair(pair: &mut Account<PairState>, bump: u8, now: i64) -> Result<()> {
+fn record_pair(pair: &mut Account<PairState>, bump: u8, payer: Pubkey, now: i64) -> Result<()> {
     if pair.window_start == 0 && pair.count == 0 {
         pair.bump = bump;
+        pair.payer = payer;
     }
     require!(pair.record(now), TesoroError::PairLimitReached);
     Ok(())
@@ -156,7 +162,12 @@ pub struct JoinMatch<'info> {
 pub(crate) fn join_match<'info>(
     ctx: Context<'_, '_, 'info, 'info, JoinMatch<'info>>,
 ) -> Result<()> {
-    record_pair(&mut ctx.accounts.pair, ctx.bumps.pair, now()?)?;
+    record_pair(
+        &mut ctx.accounts.pair,
+        ctx.bumps.pair,
+        ctx.accounts.player_authority.key(),
+        now()?,
+    )?;
     let player = ctx.accounts.player_account.key();
     let entry = ctx.accounts.match_state.inner.entry;
     require_can_play(&ctx.accounts.opener_protections.to_account_info())?;
@@ -305,6 +316,13 @@ pub struct JoinMatchBacked<'info> {
         bump
     )]
     pub backer_protections: UncheckedAccount<'info>,
+    #[account(seeds = [GAME_SEED, match_state.inner.game.as_ref()], bump = game_record.bump)]
+    pub game_record: Box<Account<'info, GameRecord>>,
+    /// CHECK: the Game program the Match was opened for; the loader state is read by `listing`.
+    #[account(address = Pubkey::new_from_array(match_state.inner.game))]
+    pub game_program: UncheckedAccount<'info>,
+    /// CHECK: the program's ProgramData; `listing` derives and checks it.
+    pub program_data: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [MATCH_SEED, &match_state.id.to_le_bytes()],
@@ -331,8 +349,23 @@ pub struct JoinMatchBacked<'info> {
 pub(crate) fn join_match_backed<'info>(
     ctx: Context<'_, '_, 'info, 'info, JoinMatchBacked<'info>>,
 ) -> Result<()> {
-    require!(ctx.accounts.match_state.listed, TesoroError::GameNotListed);
-    record_pair(&mut ctx.accounts.pair, ctx.bumps.pair, now()?)?;
+    // A backer's Gemas follow only a Game that is still the one the admin approved: if the program
+    // was upgraded after the Match opened, the Match is refunded, not joined.
+    let (listed, slot) = listing(
+        &ctx.accounts.game_record,
+        &ctx.accounts.game_program.to_account_info(),
+        &ctx.accounts.program_data.to_account_info(),
+    )?;
+    require!(
+        listed && ctx.accounts.match_state.listed && slot == ctx.accounts.match_state.deploy_slot,
+        TesoroError::GameNotListed
+    );
+    record_pair(
+        &mut ctx.accounts.pair,
+        ctx.bumps.pair,
+        ctx.accounts.player_authority.key(),
+        now()?,
+    )?;
     let (game, entry) = {
         let m = &ctx.accounts.match_state.inner;
         (Pubkey::new_from_array(m.game), m.entry)
@@ -527,4 +560,32 @@ pub(crate) fn extend_match_deadline(
         .inner
         .extend_deadline(now()?, new_deadline)
         .map_err(core_err)
+}
+
+/// Returns the rent of a pair counter once its window has ended. Anyone may call; the rent goes
+/// back to whoever paid it.
+#[derive(Accounts)]
+#[instruction(opener: Pubkey, joiner: Pubkey)]
+pub struct ClosePair<'info> {
+    pub caller: Signer<'info>,
+    #[account(
+        mut,
+        close = payer,
+        seeds = [PAIR_SEED, opener.as_ref(), joiner.as_ref()],
+        bump = pair.bump
+    )]
+    pub pair: Account<'info, PairState>,
+    /// CHECK: receives the rent; must be the key that paid for the counter.
+    #[account(mut, address = pair.payer)]
+    pub payer: UncheckedAccount<'info>,
+}
+
+pub(crate) fn close_pair(ctx: Context<ClosePair>, _opener: Pubkey, _joiner: Pubkey) -> Result<()> {
+    let ended = ctx
+        .accounts
+        .pair
+        .window_start
+        .saturating_add(PAIR_WINDOW_SECS);
+    require!(now()? >= ended, TesoroError::PairWindowOpen);
+    Ok(())
 }

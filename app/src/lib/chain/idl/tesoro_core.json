@@ -987,6 +987,67 @@
       "args": []
     },
     {
+      "name": "close_pair",
+      "docs": [
+        "Returns the rent of an opener-to-joiner pair counter after its window."
+      ],
+      "discriminator": [
+        45,
+        8,
+        194,
+        47,
+        65,
+        139,
+        172,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "pair",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  105,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "opener"
+              },
+              {
+                "kind": "arg",
+                "path": "joiner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "opener",
+          "type": "pubkey"
+        },
+        {
+          "name": "joiner",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "create_account",
       "discriminator": [
         99,
@@ -3823,6 +3884,33 @@
               }
             ]
           }
+        },
+        {
+          "name": "game_record",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_state.inner.game",
+                "account": "MatchState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
         },
         {
           "name": "match_state",
@@ -10853,6 +10941,11 @@
       "code": 6038,
       "name": "PairLimitReached",
       "msg": "these two Accounts have started too many Matches together today"
+    },
+    {
+      "code": 6039,
+      "name": "PairWindowOpen",
+      "msg": "this pair counter is still inside its 24-hour window"
     }
   ],
   "types": [
@@ -12189,6 +12282,13 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the counter's rent (the joiner's wallet); `close_pair` returns it there."
+            ],
+            "type": "pubkey"
           },
           {
             "name": "window_start",

@@ -731,3 +731,28 @@ fn the_settle_authority_may_not_be_empty() {
         .unwrap_err();
     assert_eq!(code(&err), 6000);
 }
+
+#[test]
+fn the_upgrade_authority_can_register_and_pay_with_one_key() {
+    let mut e = Env::new();
+    let owner = e.owner.insecure_clone();
+    let game = e.game;
+    let i = ix(
+        accounts::RegisterGame {
+            payer: a(owner.pubkey()),
+            control: a(owner.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            game_program: a(game),
+            program_data: a(common::program_data_address(game)),
+            studio_recipient: e.studio,
+            game_record: common::game_record(a(game)),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::RegisterGame {
+            settle_authority: a(owner.pubkey()),
+            studio_bps: 300,
+        },
+    );
+    e.send(&[i], &owner, &[]).expect("one key pays and signs");
+    assert_eq!(e.record(game).settle_authority, a(owner.pubkey()));
+}

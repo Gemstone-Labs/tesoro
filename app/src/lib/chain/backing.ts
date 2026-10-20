@@ -500,6 +500,7 @@ async function joinBacked(signer: ChainSigner, id: bigint, offer: ChainOffer) {
     .joinMatchBacked()
     .accountsPartial({
       playerAuthority: signer.publicKey,
+      ...gameAccounts(GAME_IDS[offer.game]),
       playerAccount: joiner,
       protections: protectionsPda(BlockPuzzleChain.coreAccount(signer.publicKey)),
       offer: offer.address,

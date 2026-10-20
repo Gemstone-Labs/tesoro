@@ -85,6 +85,8 @@ pub enum TesoroError {
     GameNotListed,
     #[msg("these two Accounts have started too many Matches together today")]
     PairLimitReached,
+    #[msg("this pair counter is still inside its 24-hour window")]
+    PairWindowOpen,
 }
 
 pub fn core_err(e: CoreError) -> Error {

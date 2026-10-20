@@ -140,6 +140,8 @@ impl GameRecord {
 #[account]
 pub struct PairState {
     pub bump: u8,
+    /// Who paid the counter's rent (the joiner's wallet); `close_pair` returns it there.
+    pub payer: Pubkey,
     pub window_start: i64,
     pub count: u16,
 }
@@ -149,7 +151,7 @@ pub const MAX_PAIR_MATCHES: u16 = 20;
 pub const PAIR_WINDOW_SECS: i64 = 24 * 60 * 60;
 
 impl PairState {
-    pub const SPACE: usize = 8 + 1 + 8 + 2;
+    pub const SPACE: usize = 8 + 1 + 32 + 8 + 2;
 
     /// Counts one more Match started at `now`; `false` when the pair is at its limit for the window.
     pub fn record(&mut self, now: i64) -> bool {

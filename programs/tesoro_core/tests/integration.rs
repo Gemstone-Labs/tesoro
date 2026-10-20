@@ -1295,6 +1295,36 @@ impl Backing {
         self.d.env.send(&[open], &dave, &[]).map(|_| id)
     }
 
+    fn join_backed(
+        &mut self,
+        offer: APk,
+        id: u64,
+    ) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+        let (game_record, game_program, program_data) = self.d.env.game_accounts();
+        let opener = self.d.env.opener_account(id);
+        let join = ix(
+            accounts::JoinMatchBacked {
+                player_authority: self.dave.key,
+                player_account: self.dave.account,
+                protections: protections_pda(self.dave.account),
+                offer,
+                backer_account: self.carol.account,
+                backer_protections: protections_pda(self.carol.account),
+                game_record,
+                game_program,
+                program_data,
+                match_state: match_pda(id),
+                opener_protections: protections_pda(opener),
+                pair: pair_pda(opener, self.dave.account),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::JoinMatchBacked {},
+            vec![rem(self.c_holding)],
+        );
+        let dave = self.dave.kp.insecure_clone();
+        self.d.env.send(&[join], &dave, &[])
+    }
+
     fn reserved(&self) -> u64 {
         self.d
             .env
@@ -2629,24 +2659,7 @@ fn a_backed_match_cannot_be_joined_by_a_player_on_a_break() {
         account: b.d.bob.account,
     };
     b.d.env.set_break(&bob, 1).unwrap();
-    let join = ix(
-        accounts::JoinMatchBacked {
-            player_authority: b.dave.key,
-            player_account: b.dave.account,
-            protections: protections_pda(b.dave.account),
-            offer,
-            backer_account: b.carol.account,
-            backer_protections: protections_pda(b.carol.account),
-            match_state: match_pda(id),
-            opener_protections: protections_pda(b.d.bob.account),
-            pair: pair_pda(b.d.bob.account, b.dave.account),
-            system_program: anchor_lang::system_program::ID,
-        },
-        instruction::JoinMatchBacked {},
-        vec![rem(b.c_holding)],
-    );
-    let dave = b.dave.kp.insecure_clone();
-    let err = b.d.env.send(&[join], &dave, &[]).unwrap_err();
+    let err = b.join_backed(offer, id).unwrap_err();
     assert_eq!(custom_code(&err), core(CoreError::OnBreak));
     assert_eq!(b.reserved(), 500);
 }
@@ -3310,4 +3323,150 @@ fn a_pair_cannot_start_more_than_twenty_matches_a_day() {
         .env
         .load::<PairState>(pair_pda(d.alice.account, d.bob.account));
     assert_eq!(pair.count, 1);
+}
+
+#[test]
+fn a_backed_join_is_refused_once_the_game_was_upgraded_after_the_match_opened() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    let id = b.d.env.open_match(&b.d.bob, 500, &[b.d.b_holding]).unwrap();
+    assert!(b.d.env.load::<MatchState>(match_pda(id)).listed);
+    // The studio upgrades its program while the Match waits for an opponent.
+    common::set_program_data(
+        &mut b.d.env.svm,
+        s(GAME),
+        Some(b.d.env.game_ctl.pubkey()),
+        GAME_SLOT + 3,
+    );
+    let err = b.join_backed(offer, id).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::GameNotListed)
+    );
+    assert_eq!(b.reserved(), 500, "the Backer's Gemas stay reserved");
+    // Even after the admin approves the new slot, this Match was opened for the old build.
+    let admin = b.d.env.admin.insecure_clone();
+    let list = b.d.env.list_game_ix(LISTED_FOR_EVER, GAME_SLOT + 3);
+    b.d.env.send(&[list], &admin, &[]).expect("approve");
+    let err = b.join_backed(offer, id).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::GameNotListed)
+    );
+}
+
+#[test]
+fn a_backed_join_works_while_the_game_is_unchanged() {
+    let mut b = backing_setup();
+    let request = b.request(1, 500);
+    let offer = b.offer(1, 500, 5_000, None);
+    b.accept_public(offer, request);
+    let id = b.d.env.open_match(&b.d.bob, 500, &[b.d.b_holding]).unwrap();
+    b.join_backed(offer, id).expect("join");
+    assert_eq!(
+        b.d.env.load::<MatchState>(match_pda(id)).inner.status,
+        MatchStatus::Active
+    );
+}
+
+#[test]
+fn junk_program_accounts_cannot_strip_a_listed_match_of_its_points() {
+    let mut d = duel();
+    let junk = APk::new_unique();
+    let open = |d: &mut Duel, id: u64, program_data: APk| {
+        let i = ix(
+            accounts::OpenMatch {
+                player_authority: d.alice.key,
+                config: pda(&[CONFIG_SEED]),
+                game_record: common::game_record(GAME),
+                game_program: GAME,
+                program_data,
+                player_account: d.alice.account,
+                protections: protections_pda(d.alice.account),
+                match_state: match_pda(id),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::OpenMatch {
+                match_id: id,
+                game: GAME,
+                entry: ENTRY,
+            },
+            vec![rem(d.a_holding)],
+        );
+        let alice = d.alice.kp.insecure_clone();
+        d.env.send(&[i], &alice, &[])
+    };
+    // A real account that is not the Game's ProgramData, and an account that does not exist.
+    for bogus in [junk, d.alice.account, a(d.env.admin.pubkey())] {
+        let err = open(&mut d, 900, bogus).unwrap_err();
+        assert_eq!(
+            custom_code(&err),
+            anchor_code(tesoro_core::error::TesoroError::GameProofInvalid)
+        );
+    }
+    // Once the admin has unlisted the Game, the same call opens an unlisted Match.
+    let admin = d.env.admin.insecure_clone();
+    let unlist = d.env.list_game_ix(0, 0);
+    d.env.send(&[unlist], &admin, &[]).expect("unlist");
+    open(&mut d, 900, junk).expect("opens, unlisted");
+    assert!(!d.env.load::<MatchState>(match_pda(900)).listed);
+}
+
+#[test]
+fn a_pair_counter_returns_its_rent_to_the_joiner_after_the_window() {
+    let mut d = duel();
+    let m = d
+        .env
+        .open_match(&d.alice, 500, &[d.a_holding])
+        .expect("open");
+    let before = d.env.svm.get_balance(&d.bob.kp.pubkey()).expect("balance");
+    d.env.join_match(&d.bob, m, &[d.b_holding]).expect("join");
+    let pair = pair_pda(d.alice.account, d.bob.account);
+    let close = |d: &mut Duel, caller: &Keypair| {
+        let i = ix(
+            accounts::ClosePair {
+                caller: a(caller.pubkey()),
+                pair,
+                payer: d.bob.key,
+            },
+            instruction::ClosePair {
+                opener: d.alice.account,
+                joiner: d.bob.account,
+            },
+            vec![],
+        );
+        d.env.send(&[i], caller, &[])
+    };
+    let stranger = Keypair::new();
+    d.env.svm.airdrop(&stranger.pubkey(), SOL).expect("airdrop");
+    let err = close(&mut d, &stranger).unwrap_err();
+    assert_eq!(
+        custom_code(&err),
+        anchor_code(tesoro_core::error::TesoroError::PairWindowOpen)
+    );
+    let now = d.env.now();
+    d.env.set_time(now + PAIR_WINDOW_SECS);
+    // The rent can only go to the wallet that paid it.
+    let wrong = ix(
+        accounts::ClosePair {
+            caller: a(stranger.pubkey()),
+            pair,
+            payer: a(stranger.pubkey()),
+        },
+        instruction::ClosePair {
+            opener: d.alice.account,
+            joiner: d.bob.account,
+        },
+        vec![],
+    );
+    assert!(d.env.send(&[wrong], &stranger, &[]).is_err());
+    close(&mut d, &stranger).expect("anyone closes it after the window");
+    assert!(d.env.svm.get_account(&s(pair)).is_none());
+    let after = d.env.svm.get_balance(&d.bob.kp.pubkey()).expect("balance");
+    assert!(
+        after > before.saturating_sub(10_000_000),
+        "rent came back to Bob"
+    );
 }
