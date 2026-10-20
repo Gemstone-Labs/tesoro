@@ -5,9 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import { BookOpen, ChevronRight, CircleHelp, Gamepad2, HandCoins, House, Swords, Trophy, Wallet, type LucideIcon } from "lucide-react";
 import { AvatarSkeleton, PlayerAvatar, PlayerName } from "@/components/account/Player";
-import { TesoroLogo, XMark } from "@/components/brand";
-import { X_HANDLE } from "@/components/brand/XFollow";
-import { OUTBOUND } from "@/lib/landing/config";
+import { TesoroLogo } from "@/components/brand";
 import { useAccount } from "@/lib/account";
 import { accountKeyOf } from "@/lib/chain/account-key";
 import { BRAND } from "@/lib/brand";
@@ -94,12 +92,6 @@ export function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
       <div className="side-nav side-lower">
         <SideLink item={{ href: "/docs", label: "Docs", Icon: BookOpen }} path={path} onNavigate={onNavigate} />
         <SideLink item={{ href: "/help", label: "Help", Icon: CircleHelp }} path={path} onNavigate={onNavigate} />
-        {onNavigate && OUTBOUND.x && (
-          <a href={OUTBOUND.x} target="_blank" rel="noopener" className="cut cut-card side-link" onClick={onNavigate}>
-            <XMark size={20} aria-hidden="true" />
-            <span className="side-label">Follow {X_HANDLE} on X</span>
-          </a>
-        )}
       </div>
       {me && profile ? (
         <Link
