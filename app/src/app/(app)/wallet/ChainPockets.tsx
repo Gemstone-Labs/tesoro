@@ -122,7 +122,7 @@ function PocketCard({ p, hidden, onRedeem, onAll }: { p: Pocket; hidden: boolean
       )}
 
       {(p.positions.length > 0 || p.closed.length > 0) && (
-        <div className="wl-pocket-part">
+        <div className="wl-pocket-part wl-pocket-locks">
           <h3>Your {p.chain} Locks</h3>
           {p.positions.length > 0 && <div className="wl-pocket-pos">{p.positions}</div>}
           {p.closed.length > 0 && (
@@ -135,7 +135,7 @@ function PocketCard({ p, hidden, onRedeem, onAll }: { p: Pocket; hidden: boolean
       )}
 
       {p.sources.length > 0 && (
-        <div className="wl-pocket-part">
+        <div className="wl-pocket-part wl-pocket-won">
           <h3>
             Won from {p.sources.length} {p.sources.length === 1 ? "Player" : "Players"}
           </h3>
