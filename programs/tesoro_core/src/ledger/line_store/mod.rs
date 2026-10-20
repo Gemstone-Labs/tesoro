@@ -24,7 +24,8 @@
 //! | 56 | `fee_total` u64, sum of `amount` of fee-class lines (never playable) |
 //! | 64 | `reserved_total` u64 (Offer reservations, set by the caller) |
 //! | 72 | `sponsored_lamports` u64 (sponsored rent, set by the caller) |
-//! | 80 | 48 reserved bytes, zero |
+//! | 80 | `ticket_need` u64 (Gemas the open Entry Ticket still has to stage, set by the draw module) |
+//! | 88 | 40 reserved bytes, zero |
 //!
 //! Lines follow, `LINE_LEN` = 96 bytes each, sorted ascending by [`LineKey`]:
 //! (side, `due_at`, source, class, tranche). See [`Line`] for the line layout.
@@ -59,6 +60,7 @@ const H_WON: usize = 48;
 const H_FEE: usize = 56;
 const H_RESERVED_TOTAL: usize = 64;
 const H_SPONSORED: usize = 72;
+const H_TICKET_NEED: usize = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineStoreError {
@@ -257,6 +259,11 @@ impl<T: AsRef<[u8]>> LineStore<T> {
     pub fn sponsored_lamports(&self) -> u64 {
         self.u64_at(H_SPONSORED)
     }
+    /// Gemas the open Entry Ticket still has to stage from this basket (0 with no Ticket open).
+    /// Withdrawals and Offer reservations must leave them, or the Ticket could never complete.
+    pub fn ticket_need(&self) -> u64 {
+        self.u64_at(H_TICKET_NEED)
+    }
 
     /// Used lines.
     pub fn len(&self) -> usize {
@@ -385,6 +392,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
     }
     pub fn set_sponsored_lamports(&mut self, v: u64) {
         self.put_u64(H_SPONSORED, v);
+    }
+    pub fn set_ticket_need(&mut self, v: u64) {
+        self.put_u64(H_TICKET_NEED, v);
     }
 
     fn bucket_at(line: &Line) -> usize {
