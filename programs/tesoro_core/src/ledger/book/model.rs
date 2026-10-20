@@ -76,11 +76,6 @@ impl Rat {
         assert!(self.n.sign() != Sign::Minus);
         (&self.n << 64usize).div_floor(&self.d)
     }
-    /// Exact comparison with a fixed-point value.
-    pub fn cmp_fp(&self, fp: u128) -> Ordering {
-        // self ? fp / 2^64  <=>  self.n * 2^64 ? fp * self.d
-        (&self.n << 64usize).cmp(&(BigInt::from(fp) * &self.d))
-    }
 }
 
 impl PartialOrd for Rat {

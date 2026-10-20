@@ -435,7 +435,7 @@ impl Sys {
             let ready = self.book.ready_of(l).unwrap();
             class_ready[l.class as usize] += ready;
             let mr = m.ready();
-            let signed = BigInt::from(mr.floor_fp()) - BigInt::from(ready);
+            let signed = mr.floor_fp() - BigInt::from(ready);
             let deficit = signed.to_f64().unwrap();
             self.max_excess = self.max_excess.max(-deficit);
             // the error of a line comes from the whole class's rounding (a holder's share of it),
