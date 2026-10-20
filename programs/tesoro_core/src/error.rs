@@ -71,6 +71,50 @@ pub enum TesoroError {
     NotOldWorld,
 }
 
+/// Errors of the economy storage layer (baskets, spills, the sponsor, Source books). Their own
+/// range, so the numbers do not move when `TesoroError` gains codes.
+#[error_code(offset = 6300)]
+pub enum BasketError {
+    #[msg("the store is already at the size you asked for")]
+    NothingToResize,
+    #[msg("the store would go over its maximum number of lines")]
+    StoreAtMaximum,
+    #[msg("one call adds at most 71 lines")]
+    GrowTooLarge,
+    #[msg("sponsoring is paused")]
+    SponsorPaused,
+    #[msg("only the sponsor's relayer authorises sponsored rent")]
+    NotSponsorRelayer,
+    #[msg("this Account is at its cap of sponsored rent")]
+    AccountSponsorCap,
+    #[msg("the sponsor is at its total cap of sponsored rent")]
+    TotalSponsorCap,
+    #[msg("the sponsor does not hold enough SOL")]
+    SponsorShort,
+    #[msg("the sponsor's caps cannot be below what is already outstanding")]
+    CapBelowOutstanding,
+    #[msg("the basket or spill account is malformed")]
+    BadStore,
+    #[msg("a basket and a spill hold no Platform or Leaderboard line: those live in the Source's book")]
+    FeeCounterOnly,
+    #[msg("account is not a Source book of this program")]
+    BadSourceBook,
+    #[msg("account is not a checkpoint page of a supplied Source book")]
+    BadCheckpointPage,
+    #[msg("the same book or page was supplied twice")]
+    DuplicateBook,
+    #[msg("a line needs the book of its Source")]
+    BookMissing,
+    #[msg("the supplied accounts must be writable")]
+    AccountNotWritable,
+    #[msg("the page number is not the next one for this class")]
+    WrongPage,
+    #[msg("the Source book already exists for this Source")]
+    BookExists,
+    #[msg("the ledger refused the operation")]
+    Ledger,
+}
+
 pub fn core_err(e: CoreError) -> Error {
     Error::from(AnchorError {
         error_name: e.name().to_string(),

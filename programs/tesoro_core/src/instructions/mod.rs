@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod backing;
+pub mod basket;
 pub mod identity;
 pub mod matching;
 pub mod native;
@@ -13,6 +14,7 @@ pub mod treasury;
 
 pub use admin::*;
 pub use backing::*;
+pub use basket::*;
 pub use identity::*;
 pub use matching::*;
 pub use native::*;

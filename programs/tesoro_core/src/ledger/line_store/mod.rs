@@ -25,7 +25,8 @@
 //! | 64 | `reserved_total` u64 (Offer reservations, set by the caller) |
 //! | 72 | `sponsored_lamports` u64 (sponsored rent, set by the caller) |
 //! | 80 | `ticket_need` u64 (Gemas the open Entry Ticket still has to stage, set by the draw module) |
-//! | 88 | 40 reserved bytes, zero |
+//! | 88 | `room_reserved` u32 (spill slots reserved for Matches in flight, set by the instruction layer) |
+//! | 92 | 36 reserved bytes, zero |
 //!
 //! Lines follow, `LINE_LEN` = 144 bytes each, sorted ascending by [`LineKey`]:
 //! (side, `due_at`, source, class, tranche). See [`Line`] for the line layout.
@@ -65,6 +66,7 @@ const H_FEE: usize = 56;
 const H_RESERVED_TOTAL: usize = 64;
 const H_SPONSORED: usize = 72;
 const H_TICKET_NEED: usize = 80;
+const H_ROOM_RESERVED: usize = 88;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineStoreError {
@@ -286,6 +288,12 @@ impl<T: AsRef<[u8]>> LineStore<T> {
         self.u64_at(H_TICKET_NEED)
     }
 
+    /// Spill slots held back for Matches in flight (`shrink` keeps them; see `ledger::lifecycle`'s
+    /// room plan). Only meaningful in a spill.
+    pub fn room_reserved(&self) -> u32 {
+        u32::from_le_bytes(arr(&self.raw()[H_ROOM_RESERVED..H_ROOM_RESERVED + 4]))
+    }
+
     /// Used lines.
     pub fn len(&self) -> usize {
         u32::from_le_bytes(arr(&self.raw()[H_LEN..H_LEN + 4])) as usize
@@ -416,6 +424,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
     }
     pub fn set_ticket_need(&mut self, v: u64) {
         self.put_u64(H_TICKET_NEED, v);
+    }
+    pub fn set_room_reserved(&mut self, v: u32) {
+        self.raw_mut()[H_ROOM_RESERVED..H_ROOM_RESERVED + 4].copy_from_slice(&v.to_le_bytes());
     }
 
     fn bucket_at(line: &Line) -> usize {

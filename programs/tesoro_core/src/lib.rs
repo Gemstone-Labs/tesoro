@@ -1,10 +1,12 @@
 use anchor_lang::prelude::*;
 
+pub mod books;
 pub mod error;
 pub mod instructions;
 pub mod ledger;
 pub mod pyth;
 pub mod state;
+pub mod storage;
 pub mod util;
 
 pub use instructions::*;
@@ -92,6 +94,89 @@ pub mod tesoro_core {
     /// the pool for the next season.
     pub fn void_season_rank(ctx: Context<VoidSeasonRank>, rank: u8) -> Result<()> {
         instructions::season::void_season_rank(ctx, rank)
+    }
+
+    // --- Baskets, spills, sponsor, Source books (ticket 08) ----------------------------------
+
+    /// Creates the basket and spill of an Account that already exists. Anyone may pay.
+    pub fn init_stores(ctx: Context<InitStores>) -> Result<()> {
+        instructions::basket::init_stores(ctx)
+    }
+
+    /// Admin only: creates the sponsor that pays refundable rent for Players.
+    pub fn init_sponsor(
+        ctx: Context<InitSponsor>,
+        relayer: Pubkey,
+        per_account_cap: u64,
+        total_cap: u64,
+        pages_cap: u64,
+    ) -> Result<()> {
+        instructions::basket::init_sponsor(ctx, relayer, per_account_cap, total_cap, pages_cap)
+    }
+
+    /// Admin only: the relayer key, the pause switch and the caps of the sponsor.
+    pub fn set_sponsor(
+        ctx: Context<SetSponsor>,
+        relayer: Pubkey,
+        paused: bool,
+        per_account_cap: u64,
+        total_cap: u64,
+        pages_cap: u64,
+    ) -> Result<()> {
+        instructions::basket::set_sponsor(
+            ctx,
+            relayer,
+            paused,
+            per_account_cap,
+            total_cap,
+            pages_cap,
+        )
+    }
+
+    /// Anyone grows a basket or spill with their own lamports (a gift to its owner).
+    pub fn grow_store(ctx: Context<GrowStore>, which: StoreKind, extra_lines: u32) -> Result<()> {
+        instructions::basket::grow_store(ctx, which, extra_lines)
+    }
+
+    /// The sponsor grows a basket or spill; needs the relayer's signature, within the caps.
+    pub fn grow_store_sponsored(
+        ctx: Context<GrowStoreSponsored>,
+        which: StoreKind,
+        extra_lines: u32,
+    ) -> Result<()> {
+        instructions::basket::grow_store_sponsored(ctx, which, extra_lines)
+    }
+
+    /// The owner drops free slots; the sponsor is refunded first.
+    pub fn shrink_store(ctx: Context<ShrinkStore>, which: StoreKind, keep_free: u32) -> Result<()> {
+        instructions::basket::shrink_store(ctx, which, keep_free)
+    }
+
+    /// Anyone moves up to `max` spill lines into the basket. Source books are remaining accounts.
+    pub fn claim_spill<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ClaimSpill<'info>>,
+        max: u8,
+    ) -> Result<()> {
+        instructions::basket::claim_spill(ctx, max)
+    }
+
+    /// Anyone creates the book account of a Source.
+    pub fn init_source_book(ctx: Context<InitSourceBook>) -> Result<()> {
+        instructions::basket::init_source_book(ctx)
+    }
+
+    /// Anyone pays for the next page of a class's checkpoint records.
+    pub fn init_ckpt_page(ctx: Context<InitCkptPage>, class: u8, page_no: u32) -> Result<()> {
+        instructions::basket::init_ckpt_page(ctx, class, page_no)
+    }
+
+    /// The same page, paid by the sponsor; needs the relayer's signature.
+    pub fn init_ckpt_page_sponsored(
+        ctx: Context<InitCkptPageSponsored>,
+        class: u8,
+        page_no: u32,
+    ) -> Result<()> {
+        instructions::basket::init_ckpt_page_sponsored(ctx, class, page_no)
     }
 
     // --- Accounts and Holdings --------------------------------------------------------------

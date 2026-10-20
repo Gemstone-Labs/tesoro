@@ -773,6 +773,99 @@
       ]
     },
     {
+      "name": "claim_spill",
+      "docs": [
+        "Anyone moves up to `max` spill lines into the basket. Source books are remaining accounts."
+      ],
+      "discriminator": [
+        217,
+        111,
+        172,
+        175,
+        179,
+        89,
+        107,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "max",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "clear_request",
       "discriminator": [
         205,
@@ -888,6 +981,51 @@
               {
                 "kind": "account",
                 "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
               }
             ]
           }
@@ -1958,6 +2096,387 @@
       ]
     },
     {
+      "name": "grow_store",
+      "docs": [
+        "Anyone grows a basket or spill with their own lamports (a gift to its owner)."
+      ],
+      "discriminator": [
+        180,
+        250,
+        142,
+        30,
+        146,
+        69,
+        100,
+        136
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "which",
+          "type": {
+            "defined": {
+              "name": "StoreKind"
+            }
+          }
+        },
+        {
+          "name": "extra_lines",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "grow_store_sponsored",
+      "docs": [
+        "The sponsor grows a basket or spill; needs the relayer's signature, within the caps."
+      ],
+      "discriminator": [
+        41,
+        233,
+        1,
+        96,
+        107,
+        87,
+        160,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "relayer",
+          "signer": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "which",
+          "type": {
+            "defined": {
+              "name": "StoreKind"
+            }
+          }
+        },
+        {
+          "name": "extra_lines",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "init_ckpt_page",
+      "docs": [
+        "Anyone pays for the next page of a class's checkpoint records."
+      ],
+      "discriminator": [
+        139,
+        106,
+        24,
+        118,
+        154,
+        123,
+        230,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "book",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "book"
+              }
+            ]
+          }
+        },
+        {
+          "name": "page",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "class",
+          "type": "u8"
+        },
+        {
+          "name": "page_no",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "init_ckpt_page_sponsored",
+      "docs": [
+        "The same page, paid by the sponsor; needs the relayer's signature."
+      ],
+      "discriminator": [
+        127,
+        189,
+        139,
+        60,
+        221,
+        188,
+        179,
+        201
+      ],
+      "accounts": [
+        {
+          "name": "relayer",
+          "docs": [
+            "Fronts the rent through the system program, and is made whole from the sponsor at once",
+            "(the runtime does not let a program credit a system account and then allocate it)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "book",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "book"
+              }
+            ]
+          }
+        },
+        {
+          "name": "page",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "class",
+          "type": "u8"
+        },
+        {
+          "name": "page_no",
+          "type": "u32"
+        }
+      ]
+    },
+    {
       "name": "init_leaderboard",
       "docs": [
         "Extends a Config that predates the Leaderboard, creates the pool Account and sets the fee."
@@ -2207,6 +2726,266 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_source_book",
+      "docs": [
+        "Anyone creates the book account of a Source."
+      ],
+      "discriminator": [
+        214,
+        4,
+        36,
+        242,
+        181,
+        130,
+        12,
+        98
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "source",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  117,
+                  114,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.position",
+                "account": "SourceState"
+              },
+              {
+                "kind": "account",
+                "path": "source.inner.index",
+                "account": "SourceState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "book",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_sponsor",
+      "docs": [
+        "Admin only: creates the sponsor that pays refundable rent for Players."
+      ],
+      "discriminator": [
+        171,
+        84,
+        165,
+        61,
+        98,
+        53,
+        242,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "relayer",
+          "type": "pubkey"
+        },
+        {
+          "name": "per_account_cap",
+          "type": "u64"
+        },
+        {
+          "name": "total_cap",
+          "type": "u64"
+        },
+        {
+          "name": "pages_cap",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "init_stores",
+      "docs": [
+        "Creates the basket and spill of an Account that already exists. Anyone may pay."
+      ],
+      "discriminator": [
+        156,
+        148,
+        88,
+        220,
+        167,
+        43,
+        50,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
         },
         {
           "name": "system_program",
@@ -7304,6 +8083,91 @@
       ]
     },
     {
+      "name": "set_sponsor",
+      "docs": [
+        "Admin only: the relayer key, the pause switch and the caps of the sponsor."
+      ],
+      "discriminator": [
+        217,
+        184,
+        101,
+        32,
+        234,
+        70,
+        199,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "relayer",
+          "type": "pubkey"
+        },
+        {
+          "name": "paused",
+          "type": "bool"
+        },
+        {
+          "name": "per_account_cap",
+          "type": "u64"
+        },
+        {
+          "name": "total_cap",
+          "type": "u64"
+        },
+        {
+          "name": "pages_cap",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "set_stake_apy_ceiling",
       "docs": [
         "Admin: the ceiling on the annualised growth an Advance is sized on, in basis points."
@@ -7662,6 +8526,131 @@
               "name": "MatchResult"
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "shrink_store",
+      "docs": [
+        "The owner drops free slots; the sponsor is refunded first."
+      ],
+      "discriminator": [
+        169,
+        55,
+        241,
+        64,
+        202,
+        170,
+        12,
+        11
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "spill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "account"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sponsor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  112,
+                  111,
+                  110,
+                  115,
+                  111,
+                  114
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "which",
+          "type": {
+            "defined": {
+              "name": "StoreKind"
+            }
+          }
+        },
+        {
+          "name": "keep_free",
+          "type": "u32"
         }
       ]
     },
@@ -9499,6 +10488,19 @@
   ],
   "accounts": [
     {
+      "name": "BasketHead",
+      "discriminator": [
+        137,
+        25,
+        109,
+        172,
+        100,
+        135,
+        253,
+        227
+      ]
+    },
+    {
       "name": "Config",
       "discriminator": [
         155,
@@ -9720,6 +10722,19 @@
       ]
     },
     {
+      "name": "SourceBookHead",
+      "discriminator": [
+        54,
+        69,
+        210,
+        78,
+        228,
+        233,
+        162,
+        239
+      ]
+    },
+    {
       "name": "SourceState",
       "discriminator": [
         0,
@@ -9730,6 +10745,32 @@
         107,
         63,
         90
+      ]
+    },
+    {
+      "name": "SpillHead",
+      "discriminator": [
+        72,
+        141,
+        250,
+        120,
+        245,
+        118,
+        208,
+        155
+      ]
+    },
+    {
+      "name": "SponsorState",
+      "discriminator": [
+        162,
+        205,
+        20,
+        208,
+        250,
+        139,
+        185,
+        61
       ]
     },
     {
@@ -10423,6 +11464,31 @@
             "fields": [
               "u8"
             ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "BasketHead",
+      "docs": [
+        "Head of a basket account: the `LineStore` header (`HEADER_LEN` bytes, byte 1 is the bump). The",
+        "lines follow in the same account."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raw",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
           }
         ]
       }
@@ -12518,6 +13584,50 @@
       }
     },
     {
+      "name": "SourceBookHead",
+      "docs": [
+        "Head of a Source's book account."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "_pad",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "source",
+            "docs": [
+              "The `SourceState` address this book belongs to."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "SourceChain",
       "type": {
         "kind": "enum",
@@ -12550,6 +13660,92 @@
                 "name": "Source"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SpillHead",
+      "docs": [
+        "Head of a spill account, same format as [`BasketHead`]."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raw",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SponsorState",
+      "docs": [
+        "What the program pays for Players and Sources, and the limits on it (spec \"Capacity and",
+        "sponsored rent\"). The account also holds the lamports it pays out: anyone may send SOL to it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "relayer",
+            "docs": [
+              "Only this key's signature authorises sponsored growth and sponsored pages."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "While set, nothing is sponsored (Players pay for themselves)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "per_account_cap",
+            "docs": [
+              "Most sponsored (refundable) rent one Account's basket and spill may hold together."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_cap",
+            "docs": [
+              "Most sponsored refundable rent outstanding over all Accounts."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "outstanding",
+            "docs": [
+              "Sponsored refundable rent outstanding now (all baskets and spills)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pages_cap",
+            "docs": [
+              "Most the sponsor may spend, over time, on checkpoint pages (never refunded)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pages_spent",
+            "type": "u64"
           }
         ]
       }
@@ -12760,6 +13956,23 @@
           {
             "name": "pool",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StoreKind",
+      "docs": [
+        "Which of an Account's two stores an instruction acts on."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Basket"
+          },
+          {
+            "name": "Spill"
           }
         ]
       }
