@@ -195,3 +195,45 @@ pub fn win(
     });
     write_book(svm, source, &book);
 }
+
+/// What a settled Match does with a fee: cuts `k` Gemas out of `from`'s own line (`class`,
+/// `tranche`) into the Source's fee counter of `fee_class` (Platform 0, Studio 1, Leaderboard 2).
+pub fn fee_cut(
+    svm: &mut LiteSVM,
+    source: APk,
+    from: APk,
+    class: u8,
+    tranche: u8,
+    fee_class: u8,
+    k: u64,
+) {
+    let mut book = read_book(svm, source);
+    let from_basket = basket_address(&from).0;
+    let mut src = find_line(svm, from, source, SIDE_OWN, class, tranche).expect("line");
+    let store = if read_lines(svm, from_basket).iter().any(|l| l.key() == src.key()) {
+        from_basket
+    } else {
+        spill_address(&from).0
+    };
+    let mut cnt = counter(svm, source, fee_class).unwrap_or_else(|| {
+        SourceBook::blank_line(SIDE_OWN, 0, source.to_bytes(), fee_class, 0)
+    });
+    {
+        let mut pages = SvmPages { svm, source };
+        book.cut_fee(&mut src, &mut cnt, k, &mut pages).expect("cut_fee");
+    }
+    let key = src.key();
+    write_store(svm, store, |st| {
+        let idx = st.find(&key).expect("line");
+        if src.amount == 0 {
+            st.remove_at(idx).unwrap();
+        } else {
+            st.set_line(idx, &src).unwrap();
+        }
+    });
+    let addr = s(book_address(&source).0);
+    let mut acc = svm.get_account(&addr).expect("book");
+    assert!(counter_put(&mut acc.data, fee_class, &cnt));
+    svm.set_account(addr, acc).unwrap();
+    write_book(svm, source, &book);
+}

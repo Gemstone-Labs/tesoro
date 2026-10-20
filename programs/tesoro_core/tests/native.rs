@@ -151,6 +151,11 @@ struct Env {
 
 impl Env {
     fn new() -> Self {
+        Self::with_start(T0)
+    }
+
+    /// An Env whose clock starts at `t0` (the Season tests start inside Season 1).
+    fn with_start(t0: i64) -> Self {
         let mut svm = LiteSVM::new();
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy/");
         svm.add_program_from_file(s(tesoro_core::ID), format!("{dir}tesoro_core.so"))
@@ -158,7 +163,7 @@ impl Env {
         svm.add_program_from_file(s(sim_lst::ID), format!("{dir}sim_lst.so"))
             .expect("run `pnpm build:programs` first");
         svm.set_sysvar(&Clock {
-            unix_timestamp: T0,
+            unix_timestamp: t0,
             ..Clock::default()
         });
         let admin = Keypair::new();
@@ -2957,4 +2962,411 @@ fn repayment_redeem_and_unlock_work_during_a_self_exclusion() {
     assert_eq!(env.debt(source), 0, "Debt is computed, not cranked");
     env.redeem(&alice, pos, source, gemas / 2).expect("redeem");
     env.unlock(&alice, pos).expect("unlock");
+}
+
+// --- Harvest, the Season prize and prize Redeem (ticket 11) -----------------------------------
+
+const SEASON_1_START: i64 = tesoro_core::ledger::SEASON_EPOCH;
+const SEASON_SECS: i64 = tesoro_core::ledger::SEASON_SECS;
+
+impl Env {
+    fn pool_account(&self) -> APk {
+        pda(&[ACCOUNT_SEED, pda(&[LEADERBOARD_SEED]).as_ref()])
+    }
+
+    /// The Leaderboard Pool Account (1% fee) with its basket and spill.
+    fn init_pool(&mut self) {
+        let admin = self.admin.insecure_clone();
+        let init = tix(
+            accounts::InitLeaderboard {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                pool_authority: pda(&[LEADERBOARD_SEED]),
+                pool_account: self.pool_account(),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitLeaderboard { leaderboard_bps: 100 },
+            vec![],
+        );
+        self.send(&[init], &admin, &[]).expect("init leaderboard");
+        let stores = tix(
+            accounts::InitStores {
+                payer: a(admin.pubkey()),
+                account: self.pool_account(),
+                basket: basket_address(&self.pool_account()).0,
+                spill: spill_address(&self.pool_account()).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitStores {},
+            vec![],
+        );
+        self.send(&[stores], &admin, &[]).expect("pool stores");
+    }
+
+    fn set_escrow(&mut self, on: bool) {
+        let admin = self.admin.insecure_clone();
+        let set = tix(
+            accounts::SetPrizeEscrow {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                custody: pda(&[NATIVE_SEED]),
+            },
+            instruction::SetPrizeEscrow { enabled: on },
+            vec![],
+        );
+        self.send(&[set], &admin, &[]).expect("escrow switch");
+    }
+
+    fn keeper_economy(&mut self, keeper: APk) {
+        let admin = self.admin.insecure_clone();
+        let set = tix(
+            accounts::SetEconomy {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetEconomy {
+                season_keeper: keeper,
+                fill_keeper: APk::default(),
+                keeper_fills: false,
+                routes: [pda(&[NATIVE_SEED]), APk::default(), APk::default(), APk::default()],
+            },
+            vec![],
+        );
+        self.send(&[set], &admin, &[]).expect("economy");
+    }
+
+    fn harvest(&mut self, payer: &Keypair, pos: Pos, source: APk) -> Result<(), Failed> {
+        let mut remaining = vec![rem(pos.custody, true), rem(self.pool, false)];
+        remaining.extend(book_metas(&self.svm, source));
+        let harvest = tix(
+            accounts::Harvest {
+                position: pos.position,
+                source,
+            },
+            instruction::Harvest {},
+            remaining,
+        );
+        self.send(&[harvest], payer, &[])
+    }
+
+    fn prize_source(&self, season: u32) -> APk {
+        pda(&[PRIZE_SOURCE_SEED, pda(&[NATIVE_SEED]).as_ref(), &season.to_le_bytes()])
+    }
+
+    fn fund_prize(&mut self, signer: &Keypair, season: u32) -> Result<APk, Failed> {
+        let ps = self.prize_source(season);
+        let fund = tix(
+            accounts::FundSeasonPrizeNative {
+                authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                custody: pda(&[NATIVE_SEED]),
+                pool: self.pool,
+                price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
+                pool_account: self.pool_account(),
+                pool_basket: basket_address(&self.pool_account()).0,
+                pool_spill: spill_address(&self.pool_account()).0,
+                prize_source: ps,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::FundSeasonPrizeNative { season },
+            vec![],
+        );
+        self.send(&[fund], signer, &[]).map(|_| ps)
+    }
+
+    fn record_season(
+        &mut self,
+        signer: &Keypair,
+        number: u32,
+        ranked: &[(&Person, u64)],
+    ) -> Result<(), Failed> {
+        let mut remaining: Vec<AccountMeta> = ranked.iter().map(|(p, _)| rem(p.account, false)).collect();
+        remaining.push(rem(pda(&[NATIVE_SEED]), false));
+        let record = tix(
+            accounts::RecordSeason {
+                authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                pool_account: self.pool_account(),
+                pool_basket: basket_address(&self.pool_account()).0,
+                reservations: pda(&[POOL_RESERVATIONS_SEED]),
+                season: pda(&[SEASON_SEED, &number.to_le_bytes()]),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::RecordSeason {
+                number,
+                points: ranked.iter().map(|(_, pts)| *pts).collect(),
+            },
+            remaining,
+        );
+        self.send(&[record], signer, &[])
+    }
+
+    fn pay_rank(
+        &mut self,
+        signer: &Keypair,
+        season: u32,
+        rank: u8,
+        line: u8,
+        winner: &Person,
+        prize_source: APk,
+    ) -> Result<(), Failed> {
+        let pay = tix(
+            accounts::PaySeasonRank {
+                authority: a(signer.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                season: pda(&[SEASON_SEED, &season.to_le_bytes()]),
+                reservations: pda(&[POOL_RESERVATIONS_SEED]),
+                pool_account: self.pool_account(),
+                pool_basket: basket_address(&self.pool_account()).0,
+                pool_spill: spill_address(&self.pool_account()).0,
+                winner_account: winner.account,
+                winner_basket: self.basket(winner),
+                winner_spill: self.spill(winner),
+                prize_source,
+            },
+            instruction::PaySeasonRank { rank, line },
+            vec![],
+        );
+        self.send(&[pay], signer, &[])
+    }
+
+    fn redeem_prize(&mut self, p: &Person, prize_source: APk, amount: u64) -> Result<(), Failed> {
+        let pos = Pos {
+            position: APk::default(),
+            custody: pda(&[NATIVE_SEED]),
+            vault: pda(&[NATIVE_VAULT_SEED]),
+        };
+        let redeem = tix(
+            accounts::RedeemPrize {
+                holder_authority: p.key,
+                holder_account: p.account,
+                basket: self.basket(p),
+                spill: self.spill(p),
+                prize_source,
+            },
+            instruction::RedeemPrize { amount },
+            self.kind_paying(pos, p.token),
+        );
+        self.send(&[redeem], &p.kp, &[])
+    }
+
+    fn pool_prize_gemas(&self, prize_source: APk) -> u64 {
+        gemas_in(&self.svm, self.pool_account(), prize_source)
+    }
+}
+
+/// Alice's Advance pays a Leaderboard Fee (forged as settlement will cut it), the fee is
+/// harvested into the escrow as it repays, her Unlock realises the Pool's half of the Yield Fee,
+/// and after the Season ends the keeper funds the prize, records the Season with a frozen budget
+/// and pays two ranks, who redeem their prize Gemas for the shares held for them.
+#[test]
+fn a_season_is_funded_recorded_and_paid_from_the_escrow() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    env.init_pool();
+    let keeper = env.person();
+    env.keeper_economy(keeper.key);
+    let alice = env.staker();
+    let bob = env.staker();
+    let carol = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    econ::fee_cut(&mut env.svm, source, alice.account, CLASS_GENERAL, 0, 2, 400);
+
+    // The escrow ships off: nothing is harvested, funded or moved until the admin switches it on.
+    env.advance(2 * MONTH);
+    let payer = env.person();
+    let err = env.harvest(&payer.kp, pos, source).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::PrizeEscrowOff));
+    env.set_escrow(true);
+
+    // Two months repay the 400 Leaderboard Gemas (class 2 is paid before the Advance's own).
+    env.harvest(&payer.kp, pos, source).expect("harvest");
+    let counter = econ::counter(&env.svm, source, 2).expect("counter");
+    assert_eq!(counter.amount, 0, "every ready Gema of the counter was cashed in");
+    let route = env.route();
+    assert!(route.escrow_unissued > 0);
+    assert_eq!(route.escrow_unissued, route.escrow_total());
+    let harvested = route.escrow_unissued;
+    // A second harvest finds nothing to cash in.
+    assert!(env.harvest(&payer.kp, pos, source).is_err());
+
+    // Alice repays everything and unlocks: the Yield Fee is realised, half owed to the Pool.
+    env.advance(10 * MONTH + 1);
+    env.unlock(&alice, pos).unwrap();
+    let pool_owed = env.route().pool_owed;
+    assert!(pool_owed > 0);
+
+    // Season 1 must have ended; funding before that is refused.
+    env.set_price(PRICE).unwrap();
+    let err = env.fund_prize(&keeper.kp, 1).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::SeasonNotEnded));
+    env.set_time(SEASON_1_START + SEASON_SECS + 5);
+    env.set_price(PRICE).unwrap();
+    // Only the admin or the Season keeper fund.
+    let mallory = env.person();
+    let err = env.fund_prize(&mallory.kp, 1).unwrap_err();
+    assert_eq!(code(&err), 6000);
+    let prize = env.fund_prize(&keeper.kp, 1).expect("fund");
+    let route = env.route();
+    assert_eq!((route.pool_owed, route.escrow_unissued), (0, 0));
+    assert_eq!(route.escrow_backing, harvested + pool_owed);
+    let ps = env.load::<PrizeSourceState>(prize);
+    assert_eq!(ps.inner.shares, harvested + pool_owed);
+    assert!(ps.inner.gemas > 0);
+    assert_eq!(env.pool_prize_gemas(prize), ps.inner.gemas, "the Pool's basket holds the prize");
+    // Once per Season per route.
+    env.advance(1);
+    let err = env.fund_prize(&keeper.kp, 1).unwrap_err();
+    assert!(matches!(
+        err.err,
+        solana_sdk::transaction::TransactionError::InstructionError(_, _)
+    ));
+
+    // Record: the ranking and a frozen budget; one line (the prize Source).
+    env.record_season(&keeper.kp, 1, &[(&bob, 20), (&carol, 10)]).expect("record");
+    let season = env.load::<SeasonState>(pda(&[SEASON_SEED, &1u32.to_le_bytes()]));
+    assert_eq!(season.inner.count, 2);
+    assert_eq!(season.inner.lines.len(), 1);
+    let budget = season.inner.lines[0].amount;
+    assert_eq!(budget, ps.inner.gemas);
+    let reservations = env.load::<PoolReservationsState>(pda(&[POOL_RESERVATIONS_SEED]));
+    assert_eq!(reservations.entries.len(), 1);
+    assert_eq!(reservations.entries[0].amount, budget);
+
+    // The 48-hour window: nobody is paid, and a voided rank never is.
+    let err = env.pay_rank(&keeper.kp, 1, 0, 0, &bob, prize).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::PayoutWindowOpen));
+    env.advance(48 * 3600 + 1);
+    // A step out of order, to the wrong winner, or by a stranger is refused.
+    let err = env.pay_rank(&keeper.kp, 1, 0, 1, &bob, prize).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::BudgetStep));
+    assert!(env.pay_rank(&keeper.kp, 1, 0, 0, &carol, prize).is_err());
+    assert!(env.pay_rank(&mallory.kp, 1, 0, 0, &bob, prize).is_err());
+    env.pay_rank(&keeper.kp, 1, 0, 0, &bob, prize).expect("rank 1");
+    env.pay_rank(&keeper.kp, 1, 1, 0, &carol, prize).expect("rank 2");
+    let first = (budget as u128 * 2_500 / 10_000) as u64;
+    let second = (budget as u128 * 1_800 / 10_000) as u64;
+    assert_eq!(gemas_in(&env.svm, bob.account, prize), first);
+    assert_eq!(gemas_in(&env.svm, carol.account, prize), second);
+    // Once: the same step again is refused.
+    let err = env.pay_rank(&keeper.kp, 1, 0, 0, &bob, prize).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::BudgetStep));
+    assert_eq!(env.pool_prize_gemas(prize), budget - first - second);
+
+    // Prize Redeem pays the shares held for the Gemas, at once, and only the holder's own.
+    let supply = env.supply();
+    let before = env.token_balance(bob.token);
+    env.redeem_prize(&bob, prize, first).expect("redeem prize");
+    let paid = env.token_balance(bob.token) - before;
+    let expected = (ps.inner.shares as u128 * first as u128 / ps.inner.gemas as u128) as u64;
+    assert_eq!(paid, expected);
+    assert_eq!(env.supply() - supply, paid);
+    let after = env.load::<PrizeSourceState>(prize);
+    assert_eq!(after.inner.gemas, ps.inner.gemas - first);
+    assert_eq!(after.inner.shares, ps.inner.shares - expected as u128);
+    assert_eq!(env.route().escrow_backing, after.inner.shares);
+    let err = env.redeem_prize(&bob, prize, 1).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::HoldingMismatch));
+    // Every other Redeem path refuses a prize Source: it has no book to ask.
+    assert!(env.redeem_prize(&carol, prize, second + 1).is_err());
+    env.redeem_prize(&carol, prize, second).expect("carol redeems");
+}
+
+/// Funding that arrives while a Season is being paid never changes what that Season recorded.
+#[test]
+fn funding_arriving_mid_payout_does_not_change_a_recorded_budget() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    env.init_pool();
+    env.set_escrow(true);
+    let admin = env.admin.insecure_clone();
+    let alice = env.staker();
+    let bob = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH + 1);
+    env.unlock(&alice, pos).unwrap();
+    env.set_time(SEASON_1_START + SEASON_SECS + 5);
+    env.set_price(PRICE).unwrap();
+    let prize1 = env.fund_prize(&admin, 1).expect("fund 1");
+    env.record_season(&admin, 1, &[(&bob, 5)]).expect("record 1");
+    let recorded = env
+        .load::<SeasonState>(pda(&[SEASON_SEED, &1u32.to_le_bytes()]))
+        .inner
+        .lines[0]
+        .clone();
+    // A second Position's fee arrives and Season 2 is funded before Season 1 is paid.
+    let carol = env.staker();
+    env.set_time(SEASON_1_START + SEASON_SECS + 10);
+    env.set_price(PRICE).unwrap();
+    let pos2 = env.open(&carol, 10 * SOL).unwrap();
+    env.advance_native(&carol, pos2, 1).unwrap();
+    env.advance(MONTH + 1);
+    env.unlock(&carol, pos2).unwrap();
+    env.set_time(SEASON_1_START + 2 * SEASON_SECS + 5);
+    env.set_price(PRICE).unwrap();
+    let prize2 = env.fund_prize(&admin, 2).expect("fund 2");
+    let new_gemas = env.pool_prize_gemas(prize2);
+    assert!(new_gemas > 0);
+    // Season 1 pays out of its frozen budget: rank 1 takes 25% of the recorded line, not of the
+    // Pool as it now stands, and the new Season's prize is untouched.
+    env.pay_rank(&admin, 1, 0, 0, &bob, prize1).expect("pay");
+    assert_eq!(
+        gemas_in(&env.svm, bob.account, prize1),
+        (recorded.amount as u128 * 2_500 / 10_000) as u64
+    );
+    assert_eq!(env.pool_prize_gemas(prize2), new_gemas);
+    let _ = source;
+}
+
+/// A voided rank is never paid and its share rolls into the next Season once the Season closes.
+#[test]
+fn a_voided_rank_is_not_paid_and_closing_releases_the_rest() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    env.init_pool();
+    env.set_escrow(true);
+    let admin = env.admin.insecure_clone();
+    let alice = env.staker();
+    let bob = env.staker();
+    let carol = env.staker();
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    env.advance_native(&alice, pos, 1).unwrap();
+    env.advance(MONTH + 1);
+    env.unlock(&alice, pos).unwrap();
+    env.set_time(SEASON_1_START + SEASON_SECS + 5);
+    env.set_price(PRICE).unwrap();
+    let prize = env.fund_prize(&admin, 1).unwrap();
+    env.record_season(&admin, 1, &[(&bob, 9), (&carol, 4)]).unwrap();
+    let void = tix(
+        accounts::VoidSeasonRank {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            season: pda(&[SEASON_SEED, &1u32.to_le_bytes()]),
+        },
+        instruction::VoidSeasonRank { rank: 0 },
+        vec![],
+    );
+    env.send(&[void], &admin, &[]).expect("void");
+    env.advance(48 * 3600 + 1);
+    let err = env.pay_rank(&admin, 1, 0, 0, &bob, prize).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::RankVoided));
+    env.pay_rank(&admin, 1, 1, 0, &carol, prize).unwrap();
+    // Not closable while rank 1 (index 0) is neither paid nor voided... it is voided, so the
+    // Season is finished once the window has passed.
+    let close = tix(
+        accounts::CloseSeason {
+            season: pda(&[SEASON_SEED, &1u32.to_le_bytes()]),
+            reservations: pda(&[POOL_RESERVATIONS_SEED]),
+        },
+        instruction::CloseSeason {},
+        vec![],
+    );
+    env.send(&[close], &admin, &[]).expect("close");
+    let res = env.load::<PoolReservationsState>(pda(&[POOL_RESERVATIONS_SEED]));
+    assert!(res.entries.is_empty(), "nothing stays promised after the Season closes");
+    assert!(env.pool_prize_gemas(prize) > 0, "the voided share stays in the Pool");
 }
