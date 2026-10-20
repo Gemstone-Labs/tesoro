@@ -150,6 +150,17 @@ impl<'a> PageViewMut<'a> {
     }
     /// Append at `slot`, which must be the next free one.
     pub fn push(&mut self, slot: u32, rec: &Checkpoint) -> BookResult<()> {
+        if slot < self.count() {
+            // writing the identical record again is harmless (a retried operation re-derives it)
+            let at = PAGE_HEADER_LEN + slot as usize * RECORD_LEN;
+            let mut want = [0u8; RECORD_LEN];
+            rec.encode(&mut want);
+            return if self.0[at..at + RECORD_LEN] == want {
+                Ok(())
+            } else {
+                Err(BookError::BadCheckpoint)
+            };
+        }
         if slot != self.count() || slot >= PAGE_RECORDS {
             return Err(BookError::BadCheckpoint);
         }

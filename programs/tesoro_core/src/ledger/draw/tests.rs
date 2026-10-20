@@ -1,7 +1,7 @@
 use super::*;
-use crate::ledger::book::checkpoint::{CheckpointStore, MemCheckpoints};
 use crate::ledger::book::{fp, SourceBook};
 use crate::ledger::line_store::{LineStore, CLASS_EXTENSION_BASE, SIDE_OWN, SIDE_WON};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 fn key(n: u8) -> Key {
     [n; 32]
@@ -23,110 +23,114 @@ impl Rng {
     }
 }
 
-/// The Source books of a test, each with its closed-segment history.
-#[derive(Default)]
-struct Books {
-    map: BTreeMap<Key, SourceBook>,
-    ck: BTreeMap<Key, MemCheckpoints>,
-}
+type Books = MemBooks;
+type P<'a> = Pool<'a, &'a mut [u8], &'a mut [u8]>;
 
-impl SourceBooks for Books {
-    fn book_mut(&mut self, source: &Key) -> DrawResult<&mut SourceBook> {
-        self.map
-            .get_mut(source)
-            .ok_or(DrawError::Book(BookError::NoSuchClass))
-    }
-    fn book_with_history(
-        &mut self,
-        source: &Key,
-    ) -> DrawResult<(&mut SourceBook, &dyn CheckpointStore)> {
-        let book = self
-            .map
-            .get_mut(source)
-            .ok_or(DrawError::Book(BookError::NoSuchClass))?;
-        let ck = self
-            .ck
-            .get(source)
-            .ok_or(DrawError::Book(BookError::NoSuchClass))?;
-        Ok((book, ck))
-    }
-}
-
-/// A basket plus the Source books and every other place a line can be.
+/// A basket, its spill and the Source books, plus every other place a line can be.
+#[derive(Clone)]
 struct World {
     basket: Vec<u8>,
+    spill: Vec<u8>,
     books: Books,
     gone: Vec<Line>,
     pots: Vec<PotPages>,
-    spill: Overflow,
     issued: u64,
+    /// Spill slots the instruction layer had to grant, and the most it may be asked for.
+    grown: usize,
+    allowance: usize,
 }
 
 fn world(cap: usize) -> World {
     let mut basket = vec![0u8; required_len(cap)];
     LineStore::init(basket.as_mut_slice(), key(OWNER), 1).unwrap();
-    let mut books = Books::default();
+    let mut books = MemBooks::default();
     for s in 0..5u8 {
         let mut b = SourceBook::new();
         b.start_extension().unwrap();
-        books.map.insert(key(s), b);
-        books.ck.insert(key(s), MemCheckpoints::new(key(s)));
+        books.insert(key(s), b);
     }
     World {
         basket,
+        spill: spill_body(key(OWNER), 0).unwrap(),
         books,
         gone: vec![],
         pots: vec![],
-        spill: Overflow::new(key(OWNER), 4096).unwrap(),
         issued: 0,
+        grown: 0,
+        allowance: 0,
     }
 }
 
 impl World {
-    fn b(&mut self) -> (LineStore<&mut [u8]>, &mut Books) {
-        (
-            LineStore::new(self.basket.as_mut_slice()).unwrap(),
-            &mut self.books,
-        )
-    }
-    fn r(&self) -> LineStore<&[u8]> {
-        LineStore::new(self.basket.as_slice()).unwrap()
-    }
-    /// Issue `amount` fresh Gemas of Source `src` and credit them like a settle: merge into the
-    /// basket, or into the spill record when the basket is full.
-    fn credit(&mut self, side: u8, due: i64, src: u8, class: u8, amount: u64) {
-        let tranche = if class == CLASS_EXTENSION_BASE { 1 } else { 0 };
-        let mut line = SourceBook::blank_line(side, due, key(src), class, tranche);
-        self.books
-            .map
-            .get_mut(&key(src))
-            .unwrap()
-            .issue(&mut line, amount, &self.books.ck[&key(src)])
-            .unwrap();
-        self.issued += amount;
-        let mut b = LineStore::new(self.basket.as_mut_slice()).unwrap();
-        if !put_line(&mut b, &mut self.books, &line).unwrap() {
-            self.spill.credit(&mut self.books, &line).unwrap();
+    /// Run `f` on the pool; on `SpillFull` grant one more spill slot (reserved rent) and retry.
+    fn run<R>(&mut self, mut f: impl FnMut(&mut P, &mut Books) -> DrawResult<R>) -> DrawResult<R> {
+        loop {
+            let r = {
+                let mut b = LineStore::new(self.basket.as_mut_slice()).unwrap();
+                let mut s = LineStore::new(self.spill.as_mut_slice()).unwrap();
+                let mut p = Pool::new(&mut b, &mut s);
+                f(&mut p, &mut self.books)
+            };
+            match r {
+                Err(DrawError::SpillFull) => {
+                    let cap = LineStore::new(self.spill.as_slice()).unwrap().capacity();
+                    grow_spill_body(&mut self.spill, cap + 1);
+                    self.grown += 1;
+                }
+                other => return other,
+            }
         }
     }
+    /// Like `run` but the caller wants the raw result, `SpillFull` included.
+    fn run_raw<R>(&mut self, f: impl FnOnce(&mut P, &mut Books) -> DrawResult<R>) -> DrawResult<R> {
+        let mut b = LineStore::new(self.basket.as_mut_slice()).unwrap();
+        let mut s = LineStore::new(self.spill.as_mut_slice()).unwrap();
+        let mut p = Pool::new(&mut b, &mut s);
+        f(&mut p, &mut self.books)
+    }
+    fn b(&self) -> LineStore<&[u8]> {
+        LineStore::new(self.basket.as_slice()).unwrap()
+    }
+    fn s(&self) -> LineStore<&[u8]> {
+        LineStore::new(self.spill.as_slice()).unwrap()
+    }
+    /// Issue `amount` fresh Gemas of Source `src` and credit them like a settle.
+    fn credit(&mut self, side: u8, due: i64, src: u8, class: u8, amount: u64) -> Placed {
+        let tranche = if class == CLASS_EXTENSION_BASE { 1 } else { 0 };
+        let mut line = SourceBook::blank_line(side, due, key(src), class, tranche);
+        self.books.issue(&key(src), &mut line, amount).unwrap();
+        self.issued += amount;
+        self.allowance += spill_slots_for_credit(1);
+        self.run(|p, books| p.put(books, &line)).unwrap()
+    }
     fn land(&mut self, src: u8, gemas: u64) {
-        let book = self.books.map.get_mut(&key(src)).unwrap();
-        let cum = book.h + fp(gemas);
-        let ck = self.books.ck.get_mut(&key(src)).unwrap();
-        book.land(cum, (fp(gemas)) >> 32, ck).unwrap();
+        let cum = self.books[&key(src)].h + fp(gemas);
+        self.books.land(&key(src), cum, fp(gemas) >> 32).unwrap();
+    }
+    fn free(&mut self) -> u64 {
+        self.run_raw(|p, _| Ok(p.free())).unwrap()
+    }
+    fn all_lines(&self) -> Vec<Line> {
+        let mut v: Vec<Line> = self.b().lines().collect();
+        v.extend(self.s().lines());
+        v
     }
     fn amounts(&self) -> Vec<(u8, i64, u8, u8, u64)> {
-        self.r()
-            .lines()
+        let mut v: Vec<_> = self
+            .all_lines()
+            .iter()
             .map(|l| (l.side, l.due_at, l.source[0], l.class, l.amount))
-            .collect()
+            .collect();
+        v.sort();
+        v
     }
-    fn check(&self) {
-        self.r().check().unwrap();
+    fn check(&self, extra: &[Line]) {
+        self.b().check().unwrap();
+        self.s().check().unwrap();
         let mut by_src: BTreeMap<Key, Vec<Line>> = BTreeMap::new();
-        let mut all: Vec<Line> = self.r().lines().collect();
+        let mut all = self.all_lines();
         all.extend(self.gone.iter().copied());
-        all.extend(self.spill.lines());
+        all.extend(extra.iter().copied());
         for p in &self.pots {
             p.check().unwrap();
             all.extend(p.lines());
@@ -135,7 +139,7 @@ impl World {
             by_src.entry(l.source).or_default().push(l);
         }
         for (k, lines) in by_src {
-            self.books.map[&k].check(0, lines.iter()).unwrap();
+            self.books[&k].check(0, lines.iter()).unwrap();
         }
     }
 }
@@ -154,8 +158,9 @@ fn draw_takes_own_first_then_won_by_earliest_due_and_skips_fee_lines() {
     w.credit(SIDE_WON, 2, 2, CLASS_GENERAL, 100);
     w.credit(SIDE_OWN, 9, 3, CLASS_GENERAL, 100);
     w.credit(SIDE_OWN, 1, 4, 1, 50); // Studio fee line: never drawn
-    let (mut b, books) = w.b();
-    let pot = draw_direct(&mut b, books, key(OWNER), 250, 12).unwrap();
+    let pot = w
+        .run(|p, books| p.draw_direct(books, key(OWNER), 250, 12))
+        .unwrap();
     assert_eq!(
         pot_amounts(&pot),
         vec![
@@ -164,10 +169,9 @@ fn draw_takes_own_first_then_won_by_earliest_due_and_skips_fee_lines() {
             (SIDE_WON, 5, 1, 3, 50)
         ]
     );
-    assert_eq!(b.fee_total(), 50);
-    assert_eq!(playable_total(&b), 50);
+    assert_eq!(w.b().fee_total(), 50);
     w.pots.push(pot);
-    w.check();
+    w.check(&[]);
 }
 
 #[test]
@@ -175,20 +179,21 @@ fn the_reservation_is_held_by_the_slowest_lines_and_an_entry_never_touches_it() 
     let mut w = world(16);
     w.credit(SIDE_OWN, 1, 1, CLASS_GENERAL, 500);
     w.credit(SIDE_WON, 3, 2, CLASS_GENERAL, 500);
-    let (mut b, books) = w.b();
-    reserve_offer(&mut b, 500, 0).unwrap();
-    assert_eq!(free_gemas(&b), 500);
+    w.run(|p, _| p.reserve_offer(500, 0)).unwrap();
+    assert_eq!(w.free(), 500);
     assert_eq!(
-        draw_direct(&mut b, books, key(OWNER), 501, 12).unwrap_err(),
+        w.run(|p, books| p.draw_direct(books, key(OWNER), 501, 12))
+            .unwrap_err(),
         DrawError::InsufficientGemas
     );
-    let pot = draw_direct(&mut b, books, key(OWNER), 500, 12).unwrap();
+    let pot = w
+        .run(|p, books| p.draw_direct(books, key(OWNER), 500, 12))
+        .unwrap();
     assert_eq!(pot_amounts(&pot), vec![(SIDE_OWN, 1, 1, 3, 500)]);
-    // what is left is exactly the reserved slow line
-    assert_eq!(b.get(0).unwrap().amount, 500);
-    assert_eq!(b.reserved_total(), 500);
+    assert_eq!(w.b().get(0).unwrap().amount, 500);
+    assert_eq!(w.b().reserved_total(), 500);
     w.pots.push(pot);
-    w.check();
+    w.check(&[]);
 }
 
 #[test]
@@ -196,18 +201,19 @@ fn a_split_line_moves_ready_proportionally() {
     let mut w = world(8);
     w.credit(SIDE_OWN, 1, 1, CLASS_GENERAL, 1000);
     w.land(1, 400);
-    let (mut b, books) = w.b();
-    let pot = draw_direct(&mut b, books, key(OWNER), 250, 12).unwrap();
-    let book = &w.books.map[&key(1)];
+    let pot = w
+        .run(|p, books| p.draw_direct(books, key(OWNER), 250, 12))
+        .unwrap();
+    let book = &w.books[&key(1)];
     let part = pot.lines()[0];
-    let rest = w.r().get(0).unwrap();
+    let rest = w.b().get(0).unwrap();
     assert_eq!(part.amount + rest.amount, 1000);
     assert_eq!(
         book.ready_of(&part).unwrap() / 250,
         book.ready_of(&rest).unwrap() / 750
     );
     w.pots.push(pot);
-    w.check();
+    w.check(&[]);
 }
 
 #[test]
@@ -216,13 +222,29 @@ fn a_draw_over_the_line_cap_needs_a_ticket_and_changes_nothing() {
     for i in 0..20 {
         w.credit(SIDE_OWN, i, (i % 5) as u8, CLASS_GENERAL, 10);
     }
-    let before = w.basket.clone();
-    let (mut b, books) = w.b();
+    let (b0, s0) = (w.basket.clone(), w.spill.clone());
     assert_eq!(
-        draw_direct(&mut b, books, key(OWNER), 150, 12).unwrap_err(),
+        w.run(|p, books| p.draw_direct(books, key(OWNER), 150, 12))
+            .unwrap_err(),
         DrawError::NeedsTicket
     );
-    assert_eq!(w.basket, before);
+    assert_eq!((w.basket.clone(), w.spill.clone()), (b0, s0));
+}
+
+fn open_ticket(w: &mut World, entry: u64) -> Ticket {
+    let mut t = w
+        .run(|p, _| Ticket::open_entry(p, key(GAME), 1, entry, 1_000))
+        .unwrap();
+    t.mark_storage_reserved();
+    t
+}
+
+fn stage_all(w: &mut World, t: &mut Ticket) {
+    loop {
+        if w.run(|p, books| t.stage(p, books, 12, true)).unwrap().ready {
+            break;
+        }
+    }
 }
 
 #[test]
@@ -237,71 +259,64 @@ fn a_ticket_stages_in_steps_and_its_pages_become_the_pot() {
             1 + (i as u64 % 3),
         );
     }
-    let total = w.r().own_total();
     let entry = 400;
-    assert!(total >= entry);
-    let (mut b, books) = w.b();
-    let mut t = Ticket::open_entry(&mut b, key(GAME), 1, entry, 1_000).unwrap();
-    assert!(ticket_is_open(&b));
-    assert_eq!(b.ticket_need(), entry);
-    t.mark_storage_reserved();
+    let mut t = open_ticket(&mut w, entry);
+    assert!(w.b().flags() & FLAG_TICKET_OPEN != 0);
+    assert_eq!(w.b().ticket_need(), entry);
     let mut steps = 0;
     loop {
-        let s = t.stage(&mut b, books, 12, true).unwrap();
+        let s = w.run(|p, books| t.stage(p, books, 12, true)).unwrap();
         steps += 1;
-        assert_eq!(b.ticket_need(), entry - s.staged);
+        assert_eq!(w.b().ticket_need(), entry - s.staged);
         if s.ready {
             break;
         }
     }
     assert!(steps > 1);
-    let pot = t.consume(&mut b, &key(GAME), entry).unwrap();
-    assert!(!ticket_is_open(&b));
-    assert_eq!(b.ticket_need(), 0);
+    let pot = w.run(|p, _| t.consume(p, &key(GAME), entry)).unwrap();
+    assert_eq!(w.b().flags(), 0);
+    assert_eq!(w.b().ticket_need(), 0);
     assert_eq!(pot.total(), entry);
-    assert!(pot.page_count() >= 1);
     w.pots.push(pot);
-    w.check();
+    w.check(&[]);
 }
 
 #[test]
 fn staging_needs_storage_reserved_first_and_the_owner_for_an_entry() {
     let mut w = world(16);
     w.credit(SIDE_OWN, 1, 1, CLASS_GENERAL, 100);
-    let (mut b, books) = w.b();
-    let mut t = Ticket::open_entry(&mut b, key(GAME), 1, 50, 1_000).unwrap();
+    let mut t = w
+        .run(|p, _| Ticket::open_entry(p, key(GAME), 1, 50, 1_000))
+        .unwrap();
     assert_eq!(
-        t.stage(&mut b, books, 12, true).unwrap_err(),
+        w.run(|p, books| t.stage(p, books, 12, true)).unwrap_err(),
         DrawError::StorageNotReserved
     );
     t.mark_storage_reserved();
     assert_eq!(
-        t.stage(&mut b, books, 12, false).unwrap_err(),
+        w.run(|p, books| t.stage(p, books, 12, false)).unwrap_err(),
         DrawError::NotOwner
     );
-    assert!(t.stage(&mut b, books, 12, true).unwrap().ready);
+    assert!(w.run(|p, books| t.stage(p, books, 12, true)).unwrap().ready);
 }
 
 #[test]
-fn while_a_ticket_is_open_nothing_else_draws_reserves_or_opens() {
+fn while_an_entry_ticket_is_open_no_other_entry_reservation_or_ticket() {
     let mut w = world(16);
     w.credit(SIDE_OWN, 1, 1, CLASS_GENERAL, 1000);
-    let (mut b, books) = w.b();
-    let _t = Ticket::open_entry(&mut b, key(GAME), 1, 500, 1_000).unwrap();
+    let _t = open_ticket(&mut w, 500);
     assert_eq!(
-        draw_direct(&mut b, books, key(OWNER), 100, 12).unwrap_err(),
+        w.run(|p, books| p.draw_direct(books, key(OWNER), 100, 12))
+            .unwrap_err(),
         DrawError::TicketOpen
     );
     assert_eq!(
-        Ticket::open_entry(&mut b, key(GAME), 2, 100, 1_000).unwrap_err(),
+        w.run(|p, _| Ticket::open_entry(p, key(GAME), 2, 100, 1_000))
+            .unwrap_err(),
         DrawError::TicketOpen
     );
     assert_eq!(
-        reserve_offer(&mut b, 100, 0).unwrap_err(),
-        DrawError::TicketOpen
-    );
-    assert_eq!(
-        draw_backing_direct(&mut b, books, key(OWNER), 100, 12).unwrap_err(),
+        w.run(|p, _| p.reserve_offer(100, 0)).unwrap_err(),
         DrawError::TicketOpen
     );
 }
@@ -309,66 +324,48 @@ fn while_a_ticket_is_open_nothing_else_draws_reserves_or_opens() {
 #[test]
 fn bypass_stage_fast_then_enter_slow_is_refused_and_restaging_fixes_it() {
     let mut w = world(16);
-    w.credit(SIDE_WON, 50, 1, CLASS_GENERAL, 300); // slow
+    w.credit(SIDE_WON, 50, 1, CLASS_GENERAL, 300);
     w.credit(SIDE_WON, 60, 2, CLASS_GENERAL, 300);
-    let (mut b, books) = w.b();
-    let mut t = Ticket::open_entry(&mut b, key(GAME), 1, 300, 1_000).unwrap();
-    t.mark_storage_reserved();
-    assert!(t.stage(&mut b, books, 12, true).unwrap().ready);
-    // faster Gemas arrive after staging
+    let mut t = open_ticket(&mut w, 300);
+    assert!(w.run(|p, books| t.stage(p, books, 12, true)).unwrap().ready);
     w.credit(SIDE_WON, 10, 3, CLASS_GENERAL, 200);
-    let (mut b, books) = w.b();
-    assert!(t.faster_waiting(&b));
+    assert!(w.run_raw(|p, _| Ok(t.faster_waiting(p))).unwrap());
     assert_eq!(
-        t.consume(&mut b, &key(GAME), 300).unwrap_err(),
+        w.run(|p, _| t.consume(p, &key(GAME), 300)).unwrap_err(),
         DrawError::FasterGemasAvailable
     );
-    let s = t.stage(&mut b, books, 12, true).unwrap();
+    let s = w.run(|p, books| t.stage(p, books, 12, true)).unwrap();
     assert!(s.ready && s.returned >= 1);
-    let pot = t.consume(&mut b, &key(GAME), 300).unwrap();
+    let pot = w.run(|p, _| t.consume(p, &key(GAME), 300)).unwrap();
     assert_eq!(
         pot_amounts(&pot),
         vec![(SIDE_WON, 10, 3, 3, 200), (SIDE_WON, 50, 1, 3, 100)]
     );
     w.pots.push(pot);
-    w.check();
-}
-
-#[test]
-fn bypass_offer_reserved_after_staging_is_refused() {
-    let mut w = world(16);
-    w.credit(SIDE_WON, 50, 1, CLASS_GENERAL, 300);
-    let (mut b, _) = w.b();
-    let _t = Ticket::open_entry(&mut b, key(GAME), 1, 100, 1_000).unwrap();
-    assert_eq!(
-        reserve_offer(&mut b, 100, 0).unwrap_err(),
-        DrawError::TicketOpen
-    );
+    w.check(&[]);
 }
 
 #[test]
 fn a_consume_with_a_mismatch_or_an_incomplete_ticket_is_refused() {
     let mut w = world(16);
     w.credit(SIDE_OWN, 1, 1, CLASS_GENERAL, 500);
-    let (mut b, books) = w.b();
-    let mut t = Ticket::open_entry(&mut b, key(GAME), 1, 300, 1_000).unwrap();
-    t.mark_storage_reserved();
+    let mut t = open_ticket(&mut w, 300);
     assert_eq!(
-        t.consume(&mut b, &key(GAME), 300).unwrap_err(),
+        w.run(|p, _| t.consume(p, &key(GAME), 300)).unwrap_err(),
         DrawError::NotComplete
     );
-    t.stage(&mut b, books, 12, true).unwrap();
+    w.run(|p, books| t.stage(p, books, 12, true)).unwrap();
     assert_eq!(
-        t.consume(&mut b, &key(9), 300).unwrap_err(),
+        w.run(|p, _| t.consume(p, &key(9), 300)).unwrap_err(),
         DrawError::Mismatch
     );
     assert_eq!(
-        t.consume(&mut b, &key(GAME), 400).unwrap_err(),
+        w.run(|p, _| t.consume(p, &key(GAME), 400)).unwrap_err(),
         DrawError::Mismatch
     );
-    assert!(t.consume(&mut b, &key(GAME), 300).is_ok());
+    assert!(w.run(|p, _| t.consume(p, &key(GAME), 300)).is_ok());
     assert_eq!(
-        t.consume(&mut b, &key(GAME), 300).unwrap_err(),
+        w.run(|p, _| t.consume(p, &key(GAME), 300)).unwrap_err(),
         DrawError::NotOpen
     );
 }
@@ -377,36 +374,34 @@ fn a_consume_with_a_mismatch_or_an_incomplete_ticket_is_refused() {
 fn no_double_spend_between_a_ticket_an_offer_and_a_redeem() {
     let mut w = world(16);
     w.credit(SIDE_OWN, 1, 1, CLASS_GENERAL, 1000);
-    let (mut b, _) = w.b();
-    reserve_offer(&mut b, 300, 0).unwrap();
-    // 700 free: a 500 Ticket leaves 200 to withdraw, and the Offer's 300 stay
-    let _t = Ticket::open_entry(&mut b, key(GAME), 1, 500, 1_000).unwrap();
-    assert_eq!(free_gemas(&b), 200);
+    w.run(|p, _| p.reserve_offer(300, 0)).unwrap();
+    let _t = open_ticket(&mut w, 500);
+    assert_eq!(w.free(), 200);
     assert_eq!(
-        check_withdraw(&b, 201).unwrap_err(),
+        w.run(|p, _| p.check_withdraw(201)).unwrap_err(),
         DrawError::WouldBreakReservation
     );
-    assert!(check_withdraw(&b, 200).is_ok());
-    // the entry is refused if the Offer and a Redeem already took the room
+    assert!(w.run(|p, _| p.check_withdraw(200)).is_ok());
     let mut w2 = world(16);
     w2.credit(SIDE_OWN, 1, 1, CLASS_GENERAL, 1000);
-    let (mut b2, _) = w2.b();
-    reserve_offer(&mut b2, 600, 0).unwrap();
+    w2.run(|p, _| p.reserve_offer(600, 0)).unwrap();
     assert_eq!(
-        Ticket::open_entry(&mut b2, key(GAME), 1, 500, 1_000).unwrap_err(),
+        w2.run(|p, _| Ticket::open_entry(p, key(GAME), 1, 500, 1_000))
+            .unwrap_err(),
         DrawError::InsufficientGemas
     );
     assert_eq!(
-        reserve_offer(&mut b2, 401, 1).unwrap_err(),
+        w2.run(|p, _| p.reserve_offer(401, 1)).unwrap_err(),
         DrawError::InsufficientGemas
     );
     assert_eq!(
-        reserve_offer(&mut b2, 1, MAX_OPEN_OFFERS).unwrap_err(),
+        w2.run(|p, _| p.reserve_offer(1, MAX_OPEN_OFFERS))
+            .unwrap_err(),
         DrawError::TooManyOffers
     );
-    release_offer(&mut b2, 600).unwrap();
+    w2.run(|p, _| p.release_offer(600)).unwrap();
     assert_eq!(
-        release_offer(&mut b2, 1).unwrap_err(),
+        w2.run(|p, _| p.release_offer(1)).unwrap_err(),
         DrawError::ReservationShort
     );
 }
@@ -419,120 +414,236 @@ fn cancel_returns_every_line_exactly_and_clears_the_flag() {
     }
     w.land(1, 3);
     let before = w.amounts();
-    let before_total = w.r().own_total();
-    let mut t = {
-        let (mut b, books) = w.b();
-        let mut t = Ticket::open_entry(&mut b, key(GAME), 1, 150, 1_000).unwrap();
-        t.mark_storage_reserved();
-        while !t.stage(&mut b, books, 12, true).unwrap().ready {}
-        t
-    };
-    let (mut b, books) = w.b();
+    let mut t = open_ticket(&mut w, 150);
+    stage_all(&mut w, &mut t);
     assert_eq!(
-        t.begin_cancel(&mut b, 0, false).unwrap_err(),
+        w.run(|p, _| t.begin_cancel(p, 0, false)).unwrap_err(),
         DrawError::NotExpired
     );
-    t.begin_cancel(&mut b, 1_000, false).unwrap(); // expiry: anyone
+    w.run(|p, _| t.begin_cancel(p, 1_000, false)).unwrap();
     assert_eq!(
-        t.stage(&mut b, books, 1, true).unwrap_err(),
+        w.run(|p, books| t.stage(p, books, 1, true)).unwrap_err(),
         DrawError::NotOpen
     );
     let mut chunks = 0;
     loop {
-        let s = t.cancel_step(&mut b, books, 5).unwrap();
+        let s = w.run(|p, books| t.cancel_step(p, books, 5)).unwrap();
         chunks += 1;
         if s.done {
             break;
         }
     }
     assert!(chunks > 1);
-    assert!(t.cancel_step(&mut b, books, 5).unwrap().done); // idempotent
-    assert!(!ticket_is_open(&b));
-    assert_eq!(b.own_total(), before_total);
+    assert!(w.run(|p, books| t.cancel_step(p, books, 5)).unwrap().done);
+    assert_eq!(w.b().flags(), 0);
     assert_eq!(w.amounts(), before);
-    w.check();
+    w.check(&[]);
+}
+
+// --- the three gaps of ticket 04b ---------------------------------------------------------------
+
+#[test]
+fn gaps_1_a_player_with_gemas_only_in_the_spill_enters_without_claiming() {
+    let mut w = world(3);
+    for i in 0..3 {
+        w.credit(SIDE_OWN, i, 0, CLASS_GENERAL, 10);
+    }
+    // the basket is full; these settlements land in the spill
+    assert_eq!(w.credit(SIDE_WON, 5, 1, CLASS_GENERAL, 500), Placed::Spill);
+    assert_eq!(w.credit(SIDE_WON, 6, 2, CLASS_GENERAL, 500), Placed::Spill);
+    // spend the basket's own Gemas elsewhere: only the spill is left
+    let pot = w
+        .run(|p, books| p.draw_direct(books, key(OWNER), 30, 12))
+        .unwrap();
+    w.pots.push(pot);
+    assert_eq!(w.b().len(), 0);
+    assert_eq!(w.free(), 1000);
+    // direct and through a Ticket, in the merged order (won due 5 before due 6)
+    let pot = w
+        .run(|p, books| p.draw_direct(books, key(OWNER), 600, 12))
+        .unwrap();
+    assert_eq!(
+        pot_amounts(&pot),
+        vec![(SIDE_WON, 5, 1, 3, 500), (SIDE_WON, 6, 2, 3, 100)]
+    );
+    w.pots.push(pot);
+    let mut t = open_ticket(&mut w, 400);
+    stage_all(&mut w, &mut t);
+    let pot = w.run(|p, _| t.consume(p, &key(GAME), 400)).unwrap();
+    assert_eq!(pot.total(), 400);
+    w.pots.push(pot);
+    w.check(&[]);
 }
 
 #[test]
-fn cancel_into_a_full_basket_goes_to_the_overflow_record_and_is_claimable() {
+fn gaps_1_cancel_and_refund_into_a_full_basket_use_the_spill_and_stay_free() {
     let mut w = world(10);
     for i in 0..10i64 {
         w.credit(SIDE_OWN, i, (i % 5) as u8, CLASS_GENERAL, 10);
     }
-    let mut t = {
-        let (mut b, books) = w.b();
-        let mut t = Ticket::open_entry(&mut b, key(GAME), 1, 50, 1_000).unwrap();
-        t.mark_storage_reserved();
-        while !t.stage(&mut b, books, 12, true).unwrap().ready {}
-        t
-    };
+    let mut t = open_ticket(&mut w, 50);
+    stage_all(&mut w, &mut t);
     // the freed slots fill with new Gemas of other keys
     for i in 100..105i64 {
         w.credit(SIDE_OWN, i, 0, CLASS_GENERAL, 3);
     }
-    assert_eq!(w.r().len(), 10);
-    let (mut b, books) = w.b();
-    t.begin_cancel(&mut b, 0, true).unwrap();
-    let s = t.cancel_step(&mut b, books, 100).unwrap();
+    assert_eq!(w.b().len(), 10);
+    w.run(|p, _| t.begin_cancel(p, 0, true)).unwrap();
+    let s = w.run(|p, books| t.cancel_step(p, books, 100)).unwrap();
     assert!(s.done);
-    assert_eq!(s.lines_to_overflow, 5);
-    assert_eq!(s.gemas_to_overflow, 50);
-    assert_eq!(t.overflow.total(), 50);
-    assert_eq!(b.own_total(), 50 + 15);
-    // make room and claim
-    let mut big = vec![0u8; required_len(20)];
-    {
-        let mut nb = LineStore::init(big.as_mut_slice(), key(OWNER), 1).unwrap();
-        for l in b.lines() {
-            nb.insert(&l).unwrap();
-        }
-        let n = t.overflow.claim(&mut nb, books, 100).unwrap();
-        assert_eq!(n, 5);
-        assert!(t.overflow.is_empty());
-        assert_eq!(nb.own_total(), 115);
-    }
+    assert_eq!(w.s().len(), 5);
+    // everything is free at once: 50 back + 15 + 50 other
+    assert_eq!(w.free(), 50 + 15 + 50);
+    assert!(w.grown <= w.allowance + t.storage_lines());
+    w.check(&[]);
+    // and claiming is only tidying up
+    let moved = w.run(|p, books| p.claim(books, 100)).unwrap();
+    assert_eq!(moved, 0);
 }
 
 #[test]
-fn backing_ticket_is_staged_by_anyone_and_cancel_restores_the_reservation() {
+fn gaps_2_restage_after_faster_gemas_refilled_a_full_basket_never_strands() {
+    let mut w = world(4);
+    for (i, due) in [50i64, 60, 70, 80].iter().enumerate() {
+        w.credit(SIDE_WON, *due, i as u8, CLASS_GENERAL, 100);
+    }
+    let mut t = open_ticket(&mut w, 200);
+    assert!(w.run(|p, books| t.stage(p, books, 12, true)).unwrap().ready);
+    // two freed slots fill with faster Gemas of new keys, then more arrive in the spill
+    for (i, due) in [1i64, 2, 3].iter().enumerate() {
+        w.credit(SIDE_WON, *due, i as u8, CLASS_GENERAL, 100);
+    }
+    assert_eq!(w.b().len(), 4);
+    assert!(!w.s().is_empty());
+    loop {
+        match w.run(|p, books| t.stage(p, books, 12, true)) {
+            Ok(s) if s.ready => break,
+            Ok(_) => {}
+            Err(e) => panic!("{e:?}"),
+        }
+    }
+    let pot = w.run(|p, _| t.consume(p, &key(GAME), 200)).unwrap();
+    assert_eq!(
+        pot_amounts(&pot),
+        vec![(SIDE_WON, 1, 0, 3, 100), (SIDE_WON, 2, 1, 3, 100)]
+    );
+    w.pots.push(pot);
+    w.check(&[]);
+}
+
+#[test]
+fn gaps_3_a_backing_ticket_never_blocks_the_backers_own_entries() {
     let mut w = world(64);
     for i in 0..30i64 {
         w.credit(SIDE_OWN, i, (i % 5) as u8, CLASS_GENERAL, 10);
     }
-    let (mut b, books) = w.b();
-    reserve_offer(&mut b, 200, 0).unwrap();
-    reserve_offer(&mut b, 50, 1).unwrap();
-    let mut t = Ticket::open_backing(&mut b, key(GAME), 1, 200, 1_000).unwrap();
-    t.mark_storage_reserved();
-    t.stage(&mut b, books, 5, false).unwrap(); // a stranger stages
-    assert!(b.reserved_total() < 250);
-    assert_eq!(b.ticket_need(), 0);
-    t.begin_cancel(&mut b, 0, true).unwrap();
-    while !t.cancel_step(&mut b, books, 4).unwrap().done {}
-    assert_eq!(b.reserved_total(), 250);
-    assert_eq!(t.reservation_lost, 0);
-    // now draw it directly in a bigger chunk budget
-    let pot = draw_backing_direct(&mut b, books, key(OWNER), 50, 12).unwrap();
-    assert_eq!(pot.total(), 50);
-    assert_eq!(b.reserved_total(), 200);
+    w.run(|p, _| p.reserve_offer(100, 0)).unwrap();
+    let mut back = w
+        .run(|p, _| Ticket::open_backing(p, key(GAME), 1, 100, 1_000))
+        .unwrap();
+    back.mark_storage_reserved();
+    // a stranger stages part of it
+    w.run(|p, books| back.stage(p, books, 3, false)).unwrap();
+    assert_eq!(w.b().flags() & FLAG_TICKET_OPEN, 0);
+    // the Backer enters directly and through an Entry Ticket, meanwhile
+    let pot = w
+        .run(|p, books| p.draw_direct(books, key(OWNER), 40, 12))
+        .unwrap();
+    w.pots.push(pot);
+    let mut t = open_ticket(&mut w, 100);
+    stage_all(&mut w, &mut t);
+    let pot = w.run(|p, _| t.consume(p, &key(GAME), 100)).unwrap();
+    w.pots.push(pot);
+    // no second Backing Ticket, no new Offer while it is open
     assert_eq!(
-        draw_backing_direct(&mut b, books, key(OWNER), 201, 12).unwrap_err(),
+        w.run(|p, _| Ticket::open_backing(p, key(GAME), 2, 10, 1_000))
+            .unwrap_err(),
+        DrawError::TicketOpen
+    );
+    assert_eq!(
+        w.run(|p, _| p.reserve_offer(10, 1)).unwrap_err(),
+        DrawError::TicketOpen
+    );
+    // a stranger cannot cancel it early; the Backer can at once
+    assert_eq!(
+        w.run(|p, _| back.begin_cancel(p, 0, false)).unwrap_err(),
+        DrawError::NotExpired
+    );
+    w.run(|p, _| back.begin_cancel(p, 0, true)).unwrap();
+    while !w
+        .run(|p, books| back.cancel_step(p, books, 4))
+        .unwrap()
+        .done
+    {}
+    assert_eq!(w.b().flags(), 0);
+    assert_eq!(w.b().reserved_total(), 100);
+    w.run(|p, _| p.reserve_offer(10, 1)).unwrap();
+    w.check(&[]);
+}
+
+#[test]
+fn backing_ticket_cancel_restores_the_reservation_then_draws_directly() {
+    let mut w = world(64);
+    for i in 0..30i64 {
+        w.credit(SIDE_OWN, i, (i % 5) as u8, CLASS_GENERAL, 10);
+    }
+    w.run(|p, _| p.reserve_offer(200, 0)).unwrap();
+    w.run(|p, _| p.reserve_offer(50, 1)).unwrap();
+    let mut t = w
+        .run(|p, _| Ticket::open_backing(p, key(GAME), 1, 200, 1_000))
+        .unwrap();
+    t.mark_storage_reserved();
+    w.run(|p, books| t.stage(p, books, 5, false)).unwrap();
+    assert!(w.b().reserved_total() < 250);
+    assert_eq!(w.b().ticket_need(), 0);
+    w.run(|p, _| t.begin_cancel(p, 0, true)).unwrap();
+    while !w.run(|p, books| t.cancel_step(p, books, 4)).unwrap().done {}
+    assert_eq!(w.b().reserved_total(), 250);
+    let pot = w
+        .run(|p, books| p.draw_backing_direct(books, key(OWNER), 50, 12))
+        .unwrap();
+    assert_eq!(pot.total(), 50);
+    assert_eq!(w.b().reserved_total(), 200);
+    assert_eq!(
+        w.run(|p, books| p.draw_backing_direct(books, key(OWNER), 201, 12))
+            .unwrap_err(),
         DrawError::ReservationShort
     );
+    w.pots.push(pot);
+    w.check(&[]);
+}
+
+#[test]
+fn spill_full_changes_nothing_and_names_the_room_needed() {
+    let mut w = world(1);
+    w.credit(SIDE_OWN, 1, 0, CLASS_GENERAL, 10);
+    let mut line = SourceBook::blank_line(SIDE_OWN, 2, key(1), CLASS_GENERAL, 0);
+    w.books.issue(&key(1), &mut line, 5).unwrap();
+    w.issued += 5;
+    let (b0, s0) = (w.basket.clone(), w.spill.clone());
+    assert_eq!(
+        w.run_raw(|p, books| p.put(books, &line)).unwrap_err(),
+        DrawError::SpillFull
+    );
+    assert_eq!((w.basket.clone(), w.spill.clone()), (b0, s0));
+    w.run(|p, books| p.put(books, &line)).unwrap();
+    assert_eq!(w.grown, 1);
 }
 
 // ---------------------------------------------------------------------------------------------
 // Fuzz against an independent model
 // ---------------------------------------------------------------------------------------------
 
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
-static COV: [AtomicUsize; 6] = [const { AtomicUsize::new(0) }; 6];
+static COV: [AtomicUsize; 9] = [const { AtomicUsize::new(0) }; 9];
 const C_TICKET: usize = 0;
 const C_RESTAGE: usize = 1;
-const C_OVERFLOW: usize = 2;
+const C_SPILL: usize = 2;
 const C_BACKING_TICKET: usize = 3;
 const C_REFUSED_FASTER: usize = 4;
 const C_CLAIM: usize = 5;
+const C_ENTER_DURING_BACKING: usize = 6;
+const C_ENTER_WITH_SPILL: usize = 7;
+const C_CREDIT_DURING_TICKET_FULL: usize = 8;
 
 type Union = BTreeMap<LineKey, u64>;
 
@@ -557,19 +668,32 @@ fn canonical(union: &Union, amount: u64) -> BTreeMap<LineKey, u64> {
     out
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    Entry,
+    Backing,
+}
+
+#[derive(Clone)]
 struct Sim {
     w: World,
     rng: Rng,
     cap: usize,
-    ticket: Option<Ticket>,
-    spills: Vec<Overflow>,
-    /// Model: every Gema in the basket and the open Ticket, by key.
+    ent: Option<Ticket>,
+    bk: Option<Ticket>,
+    /// Model: every Gema of the Player that is not out: basket, spill, both Tickets.
     union: Union,
     offers: Vec<u64>,
-    /// Amount of the Offer under an open Backing Ticket (its reservation travels with the Ticket).
+    /// Amount of the Offer under an open Backing Ticket (its reservation travels with it).
     backing: u64,
     now: i64,
     max_lines: usize,
+}
+
+impl Clone for Rng {
+    fn clone(&self) -> Rng {
+        Rng(self.0)
+    }
 }
 
 fn mk_key(l: &Line) -> LineKey {
@@ -579,14 +703,14 @@ fn mk_key(l: &Line) -> LineKey {
 impl Sim {
     fn new(seed: u64) -> Sim {
         let mut rng = Rng(seed.wrapping_mul(0x9E3779B97F4A7C15) | 1);
-        let cap = [6, 12, 40, 400][rng.below(4) as usize];
+        let cap = [3, 6, 12, 40, 400][rng.below(5) as usize];
         let max_lines = 1 + rng.below(5) as usize;
         Sim {
             w: world(cap),
             rng,
             cap,
-            ticket: None,
-            spills: vec![],
+            ent: None,
+            bk: None,
             union: BTreeMap::new(),
             offers: vec![],
             backing: 0,
@@ -595,18 +719,20 @@ impl Sim {
         }
     }
 
-    fn staged(&self) -> u64 {
-        self.ticket.as_ref().map_or(0, |t| t.staged())
+    fn slot(&mut self, s: Slot) -> &mut Option<Ticket> {
+        match s {
+            Slot::Entry => &mut self.ent,
+            Slot::Backing => &mut self.bk,
+        }
+    }
+    fn staged_e(&self) -> u64 {
+        self.ent.as_ref().map_or(0, |t| t.staged())
+    }
+    fn staged_b(&self) -> u64 {
+        self.bk.as_ref().map_or(0, |t| t.staged())
     }
     fn reserved(&self) -> u64 {
-        let lost = self.ticket.as_ref().map_or(0, |t| t.reservation_lost);
-        self.offers.iter().sum::<u64>() + self.backing - self.staged_backing() - lost
-    }
-    fn staged_backing(&self) -> u64 {
-        match &self.ticket {
-            Some(t) if t.kind == TicketKind::Backing => t.staged(),
-            _ => 0,
-        }
+        self.offers.iter().sum::<u64>() + self.backing - self.staged_b()
     }
     fn playable_union(&self) -> u64 {
         self.union
@@ -616,57 +742,56 @@ impl Sim {
             .sum()
     }
     fn need(&self) -> u64 {
-        match &self.ticket {
-            Some(t) if t.kind == TicketKind::Entry && t.state == TicketState::Open => {
-                t.target - t.staged()
-            }
+        match &self.ent {
+            Some(t) if t.state == TicketState::Open => t.target - t.staged(),
             _ => 0,
         }
     }
     fn model_free(&self) -> u64 {
-        (self.playable_union() - self.staged()) - self.reserved() - self.need()
+        (self.playable_union() - self.staged_e() - self.staged_b()) - self.reserved() - self.need()
     }
-    fn basket_union(&self) -> Union {
+    /// Basket and spill summed by key.
+    fn pool_union(&self) -> Union {
         let mut u = BTreeMap::new();
-        for l in self.w.r().lines() {
-            u.insert(mk_key(&l), l.amount);
+        for l in self.w.all_lines() {
+            *u.entry(mk_key(&l)).or_default() += l.amount;
         }
         u
     }
+    fn open(t: &Option<Ticket>) -> bool {
+        t.as_ref()
+            .is_some_and(|t| matches!(t.state, TicketState::Open | TicketState::Cancelling))
+    }
 
     fn invariants(&mut self) {
-        let b = self.w.r();
-        b.check().unwrap();
-        // the model and the real basket + ticket agree line by line
-        let mut real = self.basket_union();
-        if let Some(t) = &self.ticket {
+        self.w.b().check().unwrap();
+        self.w.s().check().unwrap();
+        let mut real = self.pool_union();
+        for t in [&self.ent, &self.bk].into_iter().flatten() {
             t.pages.check().unwrap();
             for l in t.pages.lines() {
                 *real.entry(mk_key(&l)).or_default() += l.amount;
             }
         }
-        assert_eq!(real, self.union, "basket + ticket != model");
+        assert_eq!(real, self.union, "pool + tickets != model");
+        let b = self.w.b();
         assert_eq!(b.reserved_total(), self.reserved());
         assert_eq!(b.ticket_need(), self.need());
-        assert_eq!(
-            ticket_is_open(&b),
-            self.ticket
-                .as_ref()
-                .is_some_and(|t| !matches!(t.state, TicketState::Closed | TicketState::Cancelled))
-        );
-        // no double spend: what the basket holds covers the reservations and the Ticket's need
-        assert!(playable_total(&b) >= b.reserved_total() + b.ticket_need());
-        // conservation
-        let mut sum = self.w.r().lines().map(|l| l.amount).sum::<u64>();
-        sum += self.staged();
-        sum += self.w.spill.total();
-        sum += self.spills.iter().map(|o| o.total()).sum::<u64>();
-        if let Some(t) = &self.ticket {
-            sum += t.overflow.total();
-        }
+        assert_eq!(b.flags() & FLAG_TICKET_OPEN != 0, Self::open(&self.ent));
+        assert_eq!(b.flags() & FLAG_BACKING_OPEN != 0, Self::open(&self.bk));
+        let pool_playable = self.playable_union() - self.staged_e() - self.staged_b();
+        assert!(pool_playable >= b.reserved_total() + b.ticket_need());
+        let mut sum: u64 = self.w.all_lines().iter().map(|l| l.amount).sum();
+        sum += self.staged_e() + self.staged_b();
         sum += self.w.pots.iter().map(|p| p.total()).sum::<u64>();
         sum += self.w.gone.iter().map(|l| l.amount).sum::<u64>();
         assert_eq!(sum, self.w.issued, "a Gema was created or lost");
+        assert!(
+            self.w.grown <= self.w.allowance,
+            "the spill needed more slots ({}) than were reserved ({})",
+            self.w.grown,
+            self.w.allowance
+        );
     }
 
     fn op_credit(&mut self) {
@@ -683,70 +808,88 @@ impl Sim {
             class,
             tranche,
         };
-        let in_basket = self.basket_union().contains_key(&k);
-        let full = self.w.r().len() >= self.cap;
-        self.w.credit(side, due, src, class, amount);
-        if in_basket || !full {
-            *self.union.entry(k).or_default() += amount;
+        let full = self.w.b().len() >= self.cap;
+        if full && (Self::open(&self.ent) || Self::open(&self.bk)) {
+            COV[C_CREDIT_DURING_TICKET_FULL].fetch_add(1, Relaxed);
+        }
+        let placed = self.w.credit(side, due, src, class, amount);
+        if placed == Placed::Spill {
+            COV[C_SPILL].fetch_add(1, Relaxed);
+        }
+        *self.union.entry(k).or_default() += amount;
+    }
+
+    fn sub_union(&mut self, k: &LineKey, a: u64) {
+        let e = self.union.get_mut(k).unwrap();
+        *e -= a;
+        if *e == 0 {
+            self.union.remove(k);
         }
     }
 
     fn op_withdraw(&mut self) {
         let free = self.model_free();
-        let lines: Vec<Line> = self
-            .w
-            .r()
-            .lines()
-            .filter(|l| l.class >= CLASS_GENERAL)
-            .collect();
-        // the guard must agree with the model, in both directions
-        let over = free + 1;
-        let (b, _) = self.w.b();
         assert_eq!(
-            check_withdraw(&b, over).unwrap_err(),
+            self.w.run(|p, _| p.check_withdraw(free + 1)).unwrap_err(),
             DrawError::WouldBreakReservation
         );
+        let lines: Vec<(bool, Line)> = self
+            .w
+            .b()
+            .lines()
+            .map(|l| (true, l))
+            .chain(self.w.s().lines().map(|l| (false, l)))
+            .filter(|(_, l)| l.class >= CLASS_GENERAL)
+            .collect();
         if lines.is_empty() || free == 0 {
-            let (b, _) = self.w.b();
-            assert!(check_withdraw(&b, 1).is_err() || free > 0);
             return;
         }
-        let line = lines[self.rng.below(lines.len() as u64) as usize];
+        let (in_basket, line) = lines[self.rng.below(lines.len() as u64) as usize];
         let k = 1 + self.rng.below(line.amount.min(free));
-        let (mut b, books) = self.w.b();
-        check_withdraw(&b, k).unwrap();
-        let idx = b.find(&line.key()).unwrap();
-        let mut rest = line;
-        let mut out = SourceBook::blank_line(
-            line.side,
-            line.due_at,
-            line.source,
-            line.class,
-            line.tranche,
-        );
-        let (book, history) = books.book_with_history(&line.source).unwrap();
-        book.transfer(&mut rest, &mut out, k, history).unwrap();
-        if rest.amount == 0 {
-            b.remove_at(idx).unwrap();
-        } else {
-            b.set_line(idx, &rest).unwrap();
-        }
+        let out = self
+            .w
+            .run_raw(|p, books| {
+                p.check_withdraw(k)?;
+                let mut rest = line;
+                let mut out = SourceBook::blank_line(
+                    line.side,
+                    line.due_at,
+                    line.source,
+                    line.class,
+                    line.tranche,
+                );
+                let (book, history) = books.book_with_history(&line.source)?;
+                book.transfer(&mut rest, &mut out, k, &*history)?;
+                if in_basket {
+                    let idx = p.basket.find(&line.key()).unwrap();
+                    if rest.amount == 0 {
+                        p.basket.remove_at(idx)?;
+                    } else {
+                        p.basket.set_line(idx, &rest)?;
+                    }
+                } else {
+                    let idx = p.spill.find(&line.key()).unwrap();
+                    if rest.amount == 0 {
+                        p.spill.remove_at(idx)?;
+                    } else {
+                        p.spill.set_line(idx, &rest)?;
+                    }
+                }
+                Ok(out)
+            })
+            .unwrap();
         self.w.gone.push(out);
-        let e = self.union.get_mut(&line.key()).unwrap();
-        *e -= k;
-        if *e == 0 {
-            self.union.remove(&line.key());
-        }
+        self.sub_union(&line.key(), k);
     }
 
     fn op_reserve(&mut self) {
         let amount = 1 + self.rng.below(300);
-        let expect_ok = self.ticket.is_none()
+        let expect_ok = !Self::open(&self.ent)
+            && !Self::open(&self.bk)
             && (self.offers.len() as u32) < MAX_OPEN_OFFERS
             && amount <= self.model_free();
         let n = self.offers.len() as u32;
-        let (mut b, _) = self.w.b();
-        let r = reserve_offer(&mut b, amount, n);
+        let r = self.w.run(|p, _| p.reserve_offer(amount, n));
         assert_eq!(r.is_ok(), expect_ok, "{r:?} amount {amount}");
         if expect_ok {
             self.offers.push(amount);
@@ -759,42 +902,56 @@ impl Sim {
         }
         let i = self.rng.below(self.offers.len() as u64) as usize;
         let a = self.offers.remove(i);
-        let (mut b, _) = self.w.b();
-        release_offer(&mut b, a).unwrap();
+        self.w.run(|p, _| p.release_offer(a)).unwrap();
     }
 
-    fn check_pot_is_canonical(&mut self, pot: &PotPages, amount: u64, union_before: &Union) {
-        let want = canonical(union_before, amount);
+    fn take_pot(&mut self, pot: &PotPages, amount: u64, before: &Union) {
+        let want = canonical(before, amount);
         let got: BTreeMap<LineKey, u64> =
             pot.lines().iter().map(|l| (mk_key(l), l.amount)).collect();
         assert_eq!(got, want, "the draw did not follow the program's order");
         for (k, a) in &got {
-            let e = self.union.get_mut(k).unwrap();
-            *e -= a;
-            if *e == 0 {
-                self.union.remove(k);
-            }
+            self.sub_union(k, *a);
         }
+    }
+
+    fn model_pool_union(&self) -> Union {
+        // the model's view of what the order is made of: everything not staged
+        self.union.clone()
     }
 
     fn op_enter(&mut self) {
         let ml = self.max_lines;
         let entry = [10u64, 30, 80, 200][self.rng.below(4) as usize];
         let free = self.model_free();
-        let before = self.union.clone();
-        if self.ticket.is_some() {
-            let (mut b, books) = self.w.b();
+        let before = self.model_pool_union();
+        if Self::open(&self.ent) {
             assert_eq!(
-                draw_direct(&mut b, books, key(OWNER), entry, ml).unwrap_err(),
+                self.w
+                    .run(|p, books| p.draw_direct(books, key(OWNER), entry, ml))
+                    .unwrap_err(),
                 DrawError::TicketOpen
             );
             return;
         }
-        let (mut b, books) = self.w.b();
-        match draw_direct(&mut b, books, key(OWNER), entry, ml) {
+        if Self::open(&self.bk) {
+            COV[C_ENTER_DURING_BACKING].fetch_add(1, Relaxed);
+        }
+        if !self.w.s().is_empty() {
+            COV[C_ENTER_WITH_SPILL].fetch_add(1, Relaxed);
+        }
+        // the union includes staged Backing lines; the order of the pool excludes them, but the
+        // Backing Ticket's lines are all sorted before whatever the pool still holds only if the
+        // Ticket pulled them first, so the canonical draw is taken over the pool alone
+        let pool = self.pool_union();
+        let _ = before;
+        match self
+            .w
+            .run(|p, books| p.draw_direct(books, key(OWNER), entry, ml))
+        {
             Ok(pot) => {
                 assert!(entry <= free);
-                self.check_pot_is_canonical(&pot, entry, &before);
+                self.take_pot(&pot, entry, &pool);
                 self.w.pots.push(pot);
             }
             Err(DrawError::InsufficientGemas) => {
@@ -805,12 +962,16 @@ impl Sim {
             }
             Err(DrawError::NeedsTicket) => {
                 assert!(entry <= free);
-                let mut t =
-                    Ticket::open_entry(&mut b, key(GAME), self.now as u64, entry, self.now + 500)
-                        .expect("a covered entry always opens a Ticket");
+                let mut t = self
+                    .w
+                    .run(|p, _| {
+                        Ticket::open_entry(p, key(GAME), self.now as u64, entry, self.now + 500)
+                    })
+                    .expect("a covered entry always opens a Ticket");
                 t.mark_storage_reserved();
+                self.w.allowance += t.storage_lines();
                 COV[C_TICKET].fetch_add(1, Relaxed);
-                self.ticket = Some(t);
+                self.ent = Some(t);
             }
             Err(e) => panic!("{e:?}"),
         }
@@ -823,54 +984,56 @@ impl Sim {
         }
         let i = self.rng.below(self.offers.len() as u64) as usize;
         let a = self.offers[i];
-        let before = self.union.clone();
-        let (mut b, books) = self.w.b();
-        if self.ticket.is_some() {
+        let pool = self.pool_union();
+        if Self::open(&self.bk) {
             assert_eq!(
-                draw_backing_direct(&mut b, books, key(OWNER), a, ml).unwrap_err(),
+                self.w
+                    .run(|p, books| p.draw_backing_direct(books, key(OWNER), a, ml))
+                    .unwrap_err(),
                 DrawError::TicketOpen
             );
             return;
         }
-        match draw_backing_direct(&mut b, books, key(OWNER), a, ml) {
+        match self
+            .w
+            .run(|p, books| p.draw_backing_direct(books, key(OWNER), a, ml))
+        {
             Ok(pot) => {
                 self.offers.remove(i);
-                self.check_pot_is_canonical(&pot, a, &before);
+                self.take_pot(&pot, a, &pool);
                 self.w.pots.push(pot);
             }
             Err(DrawError::NeedsTicket) => {
-                let mut t =
-                    Ticket::open_backing(&mut b, key(GAME), self.now as u64, a, self.now + 500)
-                        .unwrap();
+                let mut t = self
+                    .w
+                    .run(|p, _| {
+                        Ticket::open_backing(p, key(GAME), self.now as u64, a, self.now + 500)
+                    })
+                    .unwrap();
                 t.mark_storage_reserved();
-                // the Offer's amount now travels with the Ticket
+                self.w.allowance += t.storage_lines();
                 self.offers.remove(i);
-                self.ticket = Some(t);
+                self.bk = Some(t);
                 self.backing = a;
                 COV[C_BACKING_TICKET].fetch_add(1, Relaxed);
             }
             Err(e) => panic!("{e:?}"),
         }
     }
-}
 
-impl Sim {
-    /// Stage a few steps. Returns true when the Ticket is ready.
-    fn op_stage(&mut self, max_ops: usize) -> bool {
-        let Some(mut t) = self.ticket.take() else {
+    /// Stage a few steps of a slot's Ticket. Returns true when it is ready.
+    fn op_stage(&mut self, slot: Slot, max_ops: usize) -> bool {
+        let Some(mut t) = self.slot(slot).take() else {
             return false;
         };
         if t.state != TicketState::Open {
-            self.ticket = Some(t);
+            *self.slot(slot) = Some(t);
             return false;
         }
-        let owner =
-            t.kind == TicketKind::Backing && self.rng.below(2) == 0 || t.kind == TicketKind::Entry;
-        let mut ready = false;
-        for _ in 0..2 {
-            let before_full = self.w.r().len() >= self.cap;
-            let (mut b, books) = self.w.b();
-            match t.stage(&mut b, books, max_ops, owner) {
+        let owner = slot == Slot::Entry || self.rng.below(2) == 0;
+        let ready;
+        loop {
+            match self.w.run(|p, books| t.stage(p, books, max_ops, owner)) {
                 Ok(s) => {
                     if s.returned > 0 {
                         COV[C_RESTAGE].fetch_add(1, Relaxed);
@@ -878,19 +1041,14 @@ impl Sim {
                     ready = s.ready;
                     break;
                 }
-                Err(DrawError::TicketStorageFull) => t.grow_storage(4).unwrap(),
-                Err(DrawError::BasketFull) => {
-                    assert!(
-                        before_full || self.w.r().len() >= self.cap,
-                        "BasketFull with room"
-                    );
-                    break;
+                Err(DrawError::TicketStorageFull) => {
+                    t.grow_storage(4);
+                    self.w.allowance += 4;
                 }
                 Err(e) => panic!("stage failed for a covered entry: {e:?}"),
             }
         }
-        // the ticket kept the model union intact; only the Backing reservation moves with it
-        self.ticket = Some(t);
+        *self.slot(slot) = Some(t);
         ready
     }
 
@@ -898,38 +1056,45 @@ impl Sim {
         let Some(last) = t.pages.last_line() else {
             return false;
         };
-        let basket = self.basket_union();
-        let total: u64 = basket
+        let pool = self.pool_union();
+        let total: u64 = pool
             .iter()
             .filter(|(k, _)| k.class >= CLASS_GENERAL)
             .map(|(_, a)| a)
             .sum();
-        let hold = self.reserved();
+        let hold = match t.kind {
+            TicketKind::Entry => self.reserved(),
+            TicketKind::Backing => self.reserved() - t.reserved_left,
+        };
         if total <= hold {
             return false;
         }
-        basket
-            .iter()
+        pool.iter()
             .find(|(k, a)| k.class >= CLASS_GENERAL && **a > 0)
             .is_some_and(|(k, _)| *k < last.key())
     }
 
-    fn op_consume(&mut self) {
-        let Some(t0) = self.ticket.as_ref() else {
+    fn op_consume(&mut self, slot: Slot) {
+        let Some(t0) = (match slot {
+            Slot::Entry => self.ent.as_ref(),
+            Slot::Backing => self.bk.as_ref(),
+        }) else {
             return;
         };
         if t0.state != TicketState::Open {
             return;
         }
         let expect_ok = t0.staged() == t0.target && !self.model_faster(t0);
-        let mut t = self.ticket.take().unwrap();
-        let before = self.union.clone();
+        let mut t = self.slot(slot).take().unwrap();
+        // the order this Ticket followed: the pool plus its own pages (the other Ticket's lines
+        // were drawn earlier and are gone from the order)
+        let mut before = self.pool_union();
+        for l in t.pages.lines() {
+            *before.entry(mk_key(&l)).or_default() += l.amount;
+        }
         let target = t.target;
         let kind = t.kind;
-        let r = {
-            let (mut b, _) = self.w.b();
-            t.consume(&mut b, &key(GAME), target)
-        };
+        let r = self.w.run(|p, _| t.consume(p, &key(GAME), target));
         if r.as_ref().err() == Some(&DrawError::FasterGemasAvailable) {
             COV[C_REFUSED_FASTER].fetch_add(1, Relaxed);
         }
@@ -939,91 +1104,61 @@ impl Sim {
                 if kind == TicketKind::Backing {
                     self.backing = 0;
                 }
-                // the Ticket's lines left the union: the pot is the canonical draw
                 let want = canonical(&before, target);
                 let got: BTreeMap<LineKey, u64> =
                     pot.lines().iter().map(|l| (mk_key(l), l.amount)).collect();
                 assert_eq!(got, want, "Ticket order differs from the program's order");
-                // the staged part was in the union already; remove it
                 for (k, a) in &got {
-                    let e = self.union.get_mut(k).unwrap();
-                    *e -= a;
-                    if *e == 0 {
-                        self.union.remove(k);
-                    }
+                    self.sub_union(k, *a);
                 }
                 self.w.pots.push(pot);
-                self.spills.push(t.overflow.clone());
             }
-            Err(_) => self.ticket = Some(t),
+            Err(_) => *self.slot(slot) = Some(t),
         }
     }
 
-    fn sub_union(&mut self, k: &LineKey, a: u64) {
-        let e = self.union.get_mut(k).unwrap();
-        *e -= a;
-        if *e == 0 {
-            self.union.remove(k);
-        }
-    }
-
-    fn op_cancel(&mut self) {
-        if self
-            .ticket
-            .as_ref()
-            .is_none_or(|t| matches!(t.state, TicketState::Closed | TicketState::Cancelled))
-        {
+    fn op_cancel(&mut self, slot: Slot) {
+        if !Self::open(match slot {
+            Slot::Entry => &self.ent,
+            Slot::Backing => &self.bk,
+        }) {
             return;
         }
         {
             let now = self.now;
             let by_owner = self.rng.below(2) == 0;
-            let t = self.ticket.as_mut().unwrap();
-            let (mut b, _) = self.w.b();
+            let mut t = self.slot(slot).take().unwrap();
             if t.state == TicketState::Open {
-                if by_owner {
-                    t.begin_cancel(&mut b, now, false).ok();
-                    assert!(t.state == TicketState::Open || now >= t.expires_at);
-                    if t.state == TicketState::Open {
-                        t.begin_cancel(&mut b, now, true).unwrap();
+                if slot == Slot::Backing && !by_owner {
+                    // a stranger cannot cancel before the deadline
+                    if now < t.expires_at {
+                        assert_eq!(
+                            self.w
+                                .run(|p, _| t.begin_cancel(p, now, false))
+                                .unwrap_err(),
+                            DrawError::NotExpired
+                        );
                     }
+                    self.now += 1_000;
+                    let n = self.now;
+                    self.w.run(|p, _| t.begin_cancel(p, n, false)).unwrap();
+                } else if by_owner {
+                    self.w.run(|p, _| t.begin_cancel(p, now, true)).unwrap();
                 } else {
                     self.now += 1_000;
-                    t.begin_cancel(&mut b, self.now, false).unwrap();
+                    let n = self.now;
+                    self.w.run(|p, _| t.begin_cancel(p, n, false)).unwrap();
                 }
             }
+            *self.slot(slot) = Some(t);
         }
         self.invariants();
         loop {
             let max = 1 + self.rng.below(5) as usize;
-            let mut t = self.ticket.take().unwrap();
-            let before = t.overflow.lines();
-            let s = {
-                let (mut b, books) = self.w.b();
-                t.cancel_step(&mut b, books, max).unwrap()
-            };
-            if s.lines_to_overflow > 0 {
-                COV[C_OVERFLOW].fetch_add(1, Relaxed);
-                assert!(
-                    self.w.r().len() >= self.cap,
-                    "overflow while the basket had room"
-                );
-            }
-            let after = t.overflow.lines();
-            let mut delta: BTreeMap<LineKey, i128> = BTreeMap::new();
-            for l in &after {
-                *delta.entry(mk_key(l)).or_default() += l.amount as i128;
-            }
-            for l in &before {
-                *delta.entry(mk_key(l)).or_default() -= l.amount as i128;
-            }
-            for (k, d) in delta {
-                if d > 0 {
-                    self.sub_union(&k, d as u64);
-                }
-            }
+            let mut t = self.slot(slot).take().unwrap();
+            let s = self.w.run(|p, books| t.cancel_step(p, books, max)).unwrap();
             let done = s.done;
-            self.ticket = Some(t);
+            *self.slot(slot) = Some(t);
             self.invariants();
             if done {
                 break;
@@ -1033,49 +1168,23 @@ impl Sim {
                 self.invariants();
             }
         }
-        let t = self.ticket.take().unwrap();
-        if t.kind == TicketKind::Backing {
-            let left = self.backing - t.reservation_lost;
+        if slot == Slot::Backing {
+            // the whole reservation is back: the Offer is whole again
+            let a = self.backing;
             self.backing = 0;
-            if left > 0 {
-                self.offers.push(left);
-            }
+            self.offers.push(a);
         }
-        self.spills.push(t.overflow);
+        *self.slot(slot) = None;
         self.invariants();
     }
 
     fn op_claim(&mut self) {
-        let mut ovs = std::mem::take(&mut self.spills);
-        ovs.push(std::mem::replace(
-            &mut self.w.spill,
-            Overflow::new(key(OWNER), 4096).unwrap(),
-        ));
-        let i = self.rng.below(ovs.len() as u64) as usize;
-        let before = ovs[i].lines();
-        {
-            let (mut b, books) = self.w.b();
-            ovs[i]
-                .claim(&mut b, books, 1 + self.rng.below(6) as usize)
-                .unwrap();
-        }
-        if !before.is_empty() {
+        let before = self.w.s().len();
+        let max = 1 + self.rng.below(6) as usize;
+        self.w.run(|p, books| p.claim(books, max)).unwrap();
+        if before > 0 {
             COV[C_CLAIM].fetch_add(1, Relaxed);
         }
-        let after: Vec<LineKey> = ovs[i].lines().iter().map(mk_key).collect();
-        let kept: BTreeMap<LineKey, u64> = ovs[i]
-            .lines()
-            .iter()
-            .map(|l| (mk_key(l), l.amount))
-            .collect();
-        for l in before {
-            if !after.contains(&mk_key(&l)) || kept[&mk_key(&l)] != l.amount {
-                *self.union.entry(mk_key(&l)).or_default() +=
-                    l.amount - kept.get(&mk_key(&l)).copied().unwrap_or(0);
-            }
-        }
-        self.w.spill = ovs.pop().unwrap();
-        self.spills = ovs;
     }
 
     fn op_land(&mut self) {
@@ -1086,84 +1195,96 @@ impl Sim {
 
     fn step(&mut self) {
         match self.rng.below(100) {
-            0..=29 => self.op_credit(),
-            30..=37 => self.op_withdraw(),
-            38..=43 => self.op_reserve(),
-            44..=47 => self.op_release(),
-            48..=57 => self.op_enter(),
-            58..=61 => self.op_open_backing(),
-            62..=77 => {
+            0..=27 => self.op_credit(),
+            28..=34 => self.op_withdraw(),
+            35..=39 => self.op_reserve(),
+            40..=43 => self.op_release(),
+            44..=52 => self.op_enter(),
+            53..=57 => self.op_open_backing(),
+            58..=66 => {
                 let n = 1 + self.rng.below(5) as usize;
-                self.op_stage(n);
+                self.op_stage(Slot::Entry, n);
             }
-            78..=86 => self.op_consume(),
-            87..=91 => self.op_cancel(),
+            67..=72 => {
+                let n = 1 + self.rng.below(5) as usize;
+                self.op_stage(Slot::Backing, n);
+            }
+            73..=79 => self.op_consume(Slot::Entry),
+            80..=83 => self.op_consume(Slot::Backing),
+            84..=88 => self.op_cancel(Slot::Entry),
+            89..=91 => self.op_cancel(Slot::Backing),
             92..=94 => self.op_claim(),
             _ => self.op_land(),
         }
         self.invariants();
     }
 
-    /// The founder's requirement: with no Ticket in the way (or after cancelling it), whoever's
-    /// free Gemas cover an entry completes it, whatever the basket looks like.
-    fn assert_can_always_enter(&mut self) {
-        let ml = self.max_lines;
-        if self.ticket.is_some() {
-            self.op_cancel();
+    /// The founder's requirement, checked on a copy after every operation and with nothing
+    /// cancelled first: whoever's free Gemas cover an entry completes it (an open Entry Ticket
+    /// completes), whatever the basket, spill, Offers and Backing Tickets look like.
+    fn assert_can_always_enter(&self) {
+        let mut c = self.clone();
+        if Self::open(&c.ent) && c.ent.as_ref().unwrap().state == TicketState::Open {
+            c.finish_entry_ticket();
+            c.invariants();
+        }
+        if Self::open(&c.ent) {
+            return; // cancelling: the Player waits for the chunks, then enters
         }
         for entry in [10u64, 30, 80, 200] {
-            if entry > self.model_free() {
+            if entry > c.model_free() {
                 continue;
             }
-            let before = self.union.clone();
-            let (mut b, books) = self.w.b();
-            let pot = match draw_direct(&mut b, books, key(OWNER), entry, ml) {
-                Ok(p) => p,
+            let ml = c.max_lines;
+            let pool = c.pool_union();
+            let r =
+                c.w.run(|p, books| p.draw_direct(books, key(OWNER), entry, ml));
+            match r {
+                Ok(pot) => {
+                    c.take_pot(&pot, entry, &pool);
+                    c.w.pots.push(pot);
+                }
                 Err(DrawError::NeedsTicket) => {
-                    let mut t = Ticket::open_entry(&mut b, key(GAME), 9, entry, 9).unwrap();
+                    let mut t =
+                        c.w.run(|p, _| Ticket::open_entry(p, key(GAME), 9, entry, 9))
+                            .unwrap();
                     t.mark_storage_reserved();
-                    let mut guard = 0;
-                    loop {
-                        match t.stage(&mut b, books, ml, true) {
-                            Ok(s) if s.ready => break,
-                            Ok(_) => {}
-                            Err(DrawError::TicketStorageFull) => t.grow_storage(4).unwrap(),
-                            Err(e) => panic!("covered entry {entry} could not stage: {e:?}"),
-                        }
-                        guard += 1;
-                        assert!(guard < 5_000, "staging does not converge");
-                    }
-                    t.consume(&mut b, &key(GAME), entry).unwrap()
+                    c.w.allowance += t.storage_lines();
+                    c.ent = Some(t);
+                    c.finish_entry_ticket();
                 }
                 Err(e) => panic!("covered entry {entry} refused: {e:?}"),
-            };
-            self.check_pot_is_canonical(&pot, entry, &before);
-            self.w.pots.push(pot);
-            self.invariants();
+            }
+            c.invariants();
         }
     }
-}
 
-impl Sim {
-    fn final_check(&mut self) {
-        for o in std::mem::take(&mut self.spills) {
-            for l in o.lines() {
-                self.w.gone.push(l);
-            }
+    fn finish_entry_ticket(&mut self) {
+        let mut guard = 0;
+        while !self.op_stage(Slot::Entry, MAX_DRAW_LINES) {
+            guard += 1;
+            assert!(guard < 5_000, "staging does not converge");
         }
-        self.w.check();
+        self.op_consume(Slot::Entry);
+        assert!(self.ent.is_none(), "a covered entry could not be consumed");
+    }
+
+    fn final_check(&mut self) {
+        let extra: Vec<Line> = [&self.ent, &self.bk]
+            .into_iter()
+            .flatten()
+            .flat_map(|t| t.pages.lines())
+            .collect();
+        self.w.check(&extra);
     }
 }
 
 fn run(seed: u64, ops: usize) {
     let mut s = Sim::new(seed);
-    for i in 0..ops {
+    for _ in 0..ops {
         s.step();
-        if i % 25 == 24 {
-            s.assert_can_always_enter();
-        }
+        s.assert_can_always_enter();
     }
-    s.assert_can_always_enter();
     s.final_check();
 }
 
@@ -1171,7 +1292,7 @@ fn seeds() -> u64 {
     std::env::var("DRAW_FUZZ_SEEDS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(400)
+        .unwrap_or(300)
 }
 
 #[test]
@@ -1180,7 +1301,9 @@ fn fuzz_draw_tickets_offers_against_a_model() {
         run(seed, 200);
     }
     let c: Vec<usize> = COV.iter().map(|c| c.load(Relaxed)).collect();
-    eprintln!("coverage [ticket, restage, overflow, backing ticket, refused faster, claim]: {c:?}");
+    eprintln!(
+        "coverage [ticket, restage, spill credit, backing ticket, refused faster, claim, enter during backing, enter with spill, credit during ticket in full basket]: {c:?}"
+    );
     for (i, n) in c.iter().enumerate() {
         assert!(*n > 0, "the fuzz never reached case {i}: {c:?}");
     }

@@ -10,6 +10,8 @@ pub mod backing;
 pub mod book;
 pub mod draw;
 pub mod extend_limit;
+pub mod instant;
+pub mod lifecycle;
 pub mod line_store;
 pub mod matches;
 pub mod money;
@@ -159,6 +161,10 @@ core_errors! {
     SeasonNotFunded => "this Season's prize was not funded on every route",
     SeasonUnfinished => "some ranks of this Season are still unpaid",
     OwedExceedsTreasury => "holders would be owed more shares than the Treasury holds beyond the Pool and reservations",
+    NotFillAuthority => "only the admin, or the keeper while its fill rule is on, may fill Instant Redeem orders",
+    ReservedGemas => "these Gemas back an Offer reservation",
+    InvalidOrderTtl => "an Instant Redeem order lasts 1 hour to 30 days",
+    SpillFull => "the account has no room for another line: grow its spill and retry",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
