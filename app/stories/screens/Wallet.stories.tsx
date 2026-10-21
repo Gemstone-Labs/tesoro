@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { userEvent, waitFor, within } from "storybook/test";
 import { PublicKey } from "@solana/web3.js";
-import { demoSnapshot } from "@/lib/chain/fixture";
+import { demoSnapshot, fixtureHolding } from "@/lib/chain/fixture";
 import { ETH_VAULTS } from "@/lib/chain/eth";
 import type { AccountSnapshot, ChainPosition } from "@/lib/chain/read";
 import Wallet from "@/app/(app)/wallet/page";
@@ -66,25 +66,22 @@ const heavySnapshot = (a: string): AccountSnapshot => {
   const s = demoSnapshot(a);
   const PRICE = { SOL: 150, ETH: 2600, HYPE: 40 } as const;
   const DECIMALS = { SOL: 9n, ETH: 18n, HYPE: 18n } as const;
-  const held = (n: number, asset: "SOL" | "ETH" | "HYPE", isOwn: boolean, owner: string, amount: bigint, redeemable: bigint) => ({
-    holding: new PublicKey(demoKey(3000 + n)),
-    source: new PublicKey(demoKey(4000 + n)),
-    position: new PublicKey(demoKey(5000 + n)),
-    isOwn,
-    amount,
-    reserved: 0n,
-    free: amount,
-    redeemable,
-    pending: isOwn ? 0n : amount - redeemable,
-    sourceDebt: 0n,
-    unitNum: 10n ** (DECIMALS[asset] + 4n),
-    unitDen: BigInt(PRICE[asset] * 1_000_000),
-    sourceOwner: owner,
-    asset,
-    native: asset === "SOL",
-    eth: asset === "SOL" ? null : { vault: ETH_VAULTS[asset === "ETH" ? 0 : 1].address, id: BigInt(n) },
-    stakeMint: null,
-  });
+  const held = (n: number, asset: "SOL" | "ETH" | "HYPE", isOwn: boolean, owner: string, amount: bigint, redeemable: bigint) =>
+    fixtureHolding(n, {
+      source: new PublicKey(demoKey(4000 + n)),
+      position: new PublicKey(demoKey(5000 + n)),
+      isOwn,
+      amount,
+      redeemable,
+      // fast Gemas first: lines further out repay later
+      dueAt: Math.floor(Date.now() / 1000) + (1 + (n % 40)) * 86_400,
+      unitNum: 10n ** (DECIMALS[asset] + 4n),
+      unitDen: BigInt(PRICE[asset] * 1_000_000),
+      sourceOwner: owner,
+      asset,
+      native: asset === "SOL",
+      eth: asset === "SOL" ? null : { vault: ETH_VAULTS[asset === "ETH" ? 0 : 1].address, id: BigInt(n) },
+    });
   const won = Array.from({ length: 230 }, (_, i) => {
     const asset = i % 9 < 5 ? "SOL" : i % 9 < 7 ? "ETH" : "HYPE";
     const amount = BigInt(90 + ((i * 7919) % 2400));

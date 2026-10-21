@@ -80,27 +80,54 @@ export function backed(m: ChainMatch, other: string, shareBps = 4000, asBacker =
   };
 }
 
-export function demoSnapshot(address: string): AccountSnapshot {
-  const holding = (n: number, isOwn: boolean, amount: bigint, redeemable: bigint, asset: "SOL" | "HYPE"): ChainHolding => ({
-    holding: key(200 + n),
-    source: key(300 + n),
+/** One basket line for fixtures and stories: line `n` of a Source, planned to repay 30 days out. */
+export function fixtureHolding(n: number, over: Partial<ChainHolding> = {}): ChainHolding {
+  const isOwn = over.isOwn ?? true;
+  const amount = over.amount ?? 100n;
+  const dueAt = over.dueAt ?? Math.floor(Date.now() / 1000) + 30 * 86_400;
+  const source = over.source ?? key(300 + n);
+  return {
+    key: `${isOwn ? 0 : 1}:${dueAt}:${source.toBase58()}:3:0`,
+    line: { side: isOwn ? 0 : 1, dueAt: BigInt(dueAt), class: 3, tranche: 0 },
+    store: "basket",
+    source,
     position: key(400 + n),
     stakeMint: null,
     isOwn,
+    classId: 3,
+    tranche: 0,
+    dueAt,
     amount,
     reserved: 0n,
     free: amount,
-    redeemable,
-    pending: isOwn ? 0n : amount - redeemable,
+    redeemable: 0n,
+    pending: isOwn ? 0n : amount - (over.redeemable ?? 0n),
     sourceDebt: 0n,
-    // SOL at $110 (9 decimals), HYPE at $40 (18 decimals)
-    unitNum: asset === "SOL" ? 10n ** 13n : 10n ** 22n,
-    unitDen: asset === "SOL" ? 110_000_000n : 40_000_000n,
-    sourceOwner: isOwn ? address : key(500 + n).toBase58(),
-    asset,
+    unitNum: 10n ** 13n,
+    unitDen: 110_000_000n,
+    sourceOwner: key(500 + n).toBase58(),
+    asset: "SOL",
     native: false,
     eth: null,
-  });
+    sourceIndex: 0,
+    open: false,
+    accounts: [],
+    ...over,
+  };
+}
+
+export function demoSnapshot(address: string): AccountSnapshot {
+  const holding = (n: number, isOwn: boolean, amount: bigint, redeemable: bigint, asset: "SOL" | "HYPE"): ChainHolding =>
+    fixtureHolding(n, {
+      isOwn,
+      amount,
+      redeemable,
+      asset,
+      sourceOwner: isOwn ? address : key(500 + n).toBase58(),
+      // SOL at $110 (9 decimals), HYPE at $40 (18 decimals)
+      unitNum: asset === "SOL" ? 10n ** 13n : 10n ** 22n,
+      unitDen: asset === "SOL" ? 110_000_000n : 40_000_000n,
+    });
   const position: ChainPosition = {
     address: key(400 + 1),
     asset: "SOL",
@@ -120,6 +147,10 @@ export function demoSnapshot(address: string): AccountSnapshot {
     lamports: 2_000_000_000,
     ownTotal: 3500n,
     wonTotal: 1500n,
+    reservedTotal: 0n,
+    ticketNeed: 0n,
+    feeTotal: 0n,
+    stores: null,
     holdings: [holding(1, true, 3500n, 1240n, "SOL"), holding(2, false, 1500n, 0n, "HYPE")],
     positions: [position],
     matches: [
