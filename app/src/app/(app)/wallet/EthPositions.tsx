@@ -356,7 +356,7 @@ export function EthOpenForm({ vault, onOpened }: { vault: EthVault; onOpened: (o
       note={
         <>
           You sign once to link your wallet, then {native ? `stake your ${unit} with ${vault.symbol === "kHYPE" ? "Kinetiq" : "Lido"} and open in one step` : "approve and open"} on {net.label}. Once your Lock reaches {BRAND.name}, in about 2 to 5
-          minutes, your Advance is taken while this page or your Wallet is open. The Unlock Estimate is an estimate, not a promise.{" "}
+          minutes, your Advance is taken while this page or your Vault is open. The Unlock Estimate is an estimate, not a promise.{" "}
           <span className="sim">Simulated yield · 1 month = {ETH_SIM_MONTH_MIN} min</span>
         </>
       }

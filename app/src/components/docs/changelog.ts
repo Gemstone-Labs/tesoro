@@ -7,7 +7,7 @@ export const CHANGES: Change[] = [
   { date: "19 Oct", iso: "2026-10-19", title: "Email when your Match settles", body: "Add an email under Edit profile and we tell you how your Match went. Optional, and never public." },
   { date: "19 Oct", iso: "2026-10-19", title: "ETH and HYPE Locks earn by the clock", body: "Earned on Ethereum and HyperEVM Locks now grows with time, like SOL. Unlock and Redeem take two quick steps.", href: "/docs/chains" },
   { date: "18 Oct", iso: "2026-10-18", title: "Say who you are on the waitlist", body: "Tell us if you play games, stake crypto or make games. Your tag shows on your card and its share link.", href: "/" },
-  { date: "17 Oct", iso: "2026-10-17", title: "Wallet by chain", body: "One card per chain, each with its own Redeem, its Locks and the Players you won Gemas from.", href: "/wallet" },
+  { date: "17 Oct", iso: "2026-10-17", title: "Wallet by chain", body: "One card per chain, each with its own Redeem, its Locks and the Players you won Gemas from.", href: "/vault" },
   { date: "16 Oct", iso: "2026-10-16", title: "Instant Redeem pays 75%", body: "Redeem Gemas before their yield lands and get 75% of their value now.", href: "/docs/gemas#instant-redeem" },
   { date: "16 Oct", iso: "2026-10-16", title: "Rematch and share your win", body: "After a Match, tap Rematch for a ready Challenge to the same Player, or share your win as a card on X.", href: "/docs/matches" },
   { date: "16 Oct", iso: "2026-10-16", title: "Delayed Matches say when they refund", body: "If a Match gets stuck, it shows Delayed and the time it refunds by.", href: "/docs/matches" },

@@ -63,7 +63,7 @@ function explain(e: unknown): string {
   if (e instanceof EntryError) {
     return e.code === "insufficient"
       ? "Not enough available Gemas. Gemas reserved for your other Offers cannot be reserved again."
-      : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances. Redeem a few small balances in your Wallet first.`;
+      : `This entry would draw on Gemas from more than ${MAX_ENTRY_SOURCES} Advances. Redeem a few small balances in your Vault first.`;
   }
   return plainError(e);
 }
@@ -809,7 +809,7 @@ function OfferDrawer({
 
           {short && (
             <p className="status err" role="alert">
-              You have {fmtGemas(available)} Gemas available. <Link href="/wallet">Get Gemas in your Wallet</Link>
+              You have {fmtGemas(available)} Gemas available. <Link href="/vault">Get Gemas in your Vault</Link>
             </p>
           )}
           <footer className="bk-drawer-foot">

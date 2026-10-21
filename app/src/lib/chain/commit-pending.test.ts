@@ -16,7 +16,7 @@ describe("commit pending", () => {
 
   it("words winners and losers differently once slow", () => {
     expect(commitCopy({ phase: "sending", won: false }).line).toBe("Sending it to the chain…");
-    expect(commitCopy({ phase: "slow", won: true }).line).toMatch(/winnings show in your Wallet/);
+    expect(commitCopy({ phase: "slow", won: true }).line).toMatch(/winnings show in your Vault/);
     expect(commitCopy({ phase: "slow", won: false }).line).not.toMatch(/winnings/);
   });
 
