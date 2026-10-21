@@ -5,11 +5,11 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Button, Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../../fx";
-import { CAP_MS, NAMES, ROSTER, TURN_MS, move, newGame, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Refusal, type Result, type Rng, type Square } from "../rules";
+import { CAP_MS, NAMES, ROSTER, TURN_MS, move, newGame, rankOf, seeded, startTwoStep, targets, timeout, type Depot, type Game, type GameEvent, type Refusal, type Result, type Rng, type Square } from "../rules";
 import { PRACTICE_COUNTDOWN } from "../clock";
 import { VanguardScreen, type TurnInfo } from "../VanguardScreen";
 import { VanguardBoard, type HitSide, type ShownFx, type ShownPiece, type ShownStorm } from "../VanguardBoard";
-import { botMove } from "./bot";
+import { applyBot, botMove } from "./bot";
 import "../vanguard.css";
 
 export interface VanguardPracticeProps {
@@ -43,7 +43,7 @@ const slideMs = (a: Square, b: Square) => Math.min(380, 140 + (Math.abs(a.r - b.
 
 /** What the US Player sees: own faces always, Italian faces only once known. */
 function shownFrom(g: Game): ShownPiece[] {
-  return g.pieces.map((p) => ({ id: p.id, army: p.army, rank: p.rank, r: p.r, c: p.c, up: p.army === "us" || p.known }));
+  return g.pieces.map((p) => ({ id: p.id, army: p.army, rank: rankOf(g, p), r: p.r, c: p.c, up: p.army === "us" || p.known }));
 }
 
 const END_LINE = {
@@ -220,7 +220,7 @@ function PracticeMatch({ seed, instant = false, clock = true, stormAt, twoStep =
           const s = startTwoStep(g, stamp(g));
           if (s.ok) g = s.game;
         }
-        apply(move(g, { id: m.id, to: m.to, at: stamp(g) }));
+        apply(applyBot(g, m, stamp(g)));
       }, game.movedThisTurn.length ? 350 : 700 + Math.random() * 600);
       return () => clearTimeout(id);
     }
