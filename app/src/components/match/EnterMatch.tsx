@@ -9,6 +9,7 @@ import { useAccount } from "@/lib/account";
 import { MAX_ENTRY_SOURCES, estimatedWin } from "@/lib/chain/ledger";
 import { chainShortfall, checkGemas } from "@/lib/chain/fresh-gemas";
 import { BackingError, createChallengeBacked, enterQueueBacked, joinChallengeBacked } from "@/lib/chain/backing";
+import { seatsAt } from "@/lib/chain/lobby-plays";
 import { ChallengeError, EntryError, QueueUnconfirmedError, createChallenge, enterQueue, joinChallenge, type Entered } from "@/lib/chain/match-flow";
 import { DemoError } from "@/lib/chain/demo-client";
 import { ageCall } from "@/lib/chain/age-client";
@@ -175,11 +176,10 @@ export function EnterMatch(props: EnterKind) {
   const assetName = game === "trading-duel" ? (["SOL", "ETH", "HYPE"][asset] ?? "SOL") : "";
   const title = props.kind === "queue" ? "Play now" : props.kind === "challenge-new" ? "New Challenge" : "Challenge";
   const me = snapshot?.accountKey.toBase58() ?? null;
-  // Players already waiting at this entry: the opponent seat cycles through them while the Queue runs.
-  const waiting =
-    props.kind === "queue" && seats
-      ? [...new Set(seats[game].filter((w) => w.entry === props.entry && w.player !== me && (game !== "trading-duel" || w.asset === asset)).map((w) => w.player))]
-      : [];
+  // Players waiting at this entry you can be paired with (the opponent seat cycles through them while the Queue runs).
+  // A Player you back never is: tesoro_core refuses that join.
+  const here = props.kind === "queue" && seats ? seatsAt(seats[game].filter((w) => game !== "trading-duel" || w.asset === asset), props.entry, me ?? undefined) : { open: [], backed: 0 };
+  const waiting = here.open;
   const found = status === "Opponent found.";
   const busy = !signedOut && existing === null && !needsGemas && !failure && gate !== "ask";
   const seat = found ? "Opponent" : props.kind === "challenge-new" ? (props.opponent ? "Rematch" : "Your friend") : props.kind === "challenge-join" ? "Opponent" : waiting.length ? `${waiting.length} waiting` : "Open seat";
@@ -190,9 +190,11 @@ export function EnterMatch(props: EnterKind) {
         ? "Joining your friend's Match."
         : waiting.length
           ? `${waiting.length} waiting at this entry: you take the oldest seat.`
-          : game === "block-puzzle"
-            ? "No one waiting yet: you play now and are paired when someone joins."
-            : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
+          : here.backed
+            ? `${here.backed === 1 ? "The Player waiting at this entry is one you back" : "The Players waiting at this entry are ones you back"}, and you can't play someone you back. ${game === "block-puzzle" ? "You play now and are paired with someone else." : "You sit first and the Match starts when someone else joins."}`
+            : game === "block-puzzle"
+              ? "No one waiting yet: you play now and are paired when someone joins."
+              : `No one waiting yet: you sit first and the Match starts when someone joins${assetName ? ` (trading ${assetName})` : ""}.`;
   const heldLine = `${props.backing ? "The entry is" : `Your ${fmtGemas(entryGemas)} Gemas are`} held for this Match. If nobody joins within an hour, ${props.backing ? "it comes" : "they come"} back.`;
   return (
     <section className="enter" aria-label={title}>

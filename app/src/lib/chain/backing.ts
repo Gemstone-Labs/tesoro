@@ -516,7 +516,7 @@ export async function enterQueueBacked(signer: ChainSigner, backing: string, gam
   const snap = await ensureReady(signer, getToken);
   const offer = await requireBacking(signer, backing, game, entry);
   return queueEntry({
-    ...queueDeps(signer, snap.accountKey, game, entry, asset),
+    ...queueDeps(signer, snap.accountKey, game, entry, asset, backerAccountOf(offer)),
     join: (id) => joinBacked(signer, id, offer),
     open: (id) => openBacked(signer, id, offer),
     // Another Player joined first: only move on while the Offer is still ours to use.

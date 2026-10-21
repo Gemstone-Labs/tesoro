@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { firstSlideGame } from "./first-slide";
 
-const seat = (player: string) => ({ player, entry: 1000, asset: 0 });
+const seat = (player: string) => ({ player, funder: player, entry: 1000, asset: 0 });
 const GAMES = ["block-puzzle", "holdem", "trading-duel"] as const;
 
 describe("firstSlideGame", () => {
