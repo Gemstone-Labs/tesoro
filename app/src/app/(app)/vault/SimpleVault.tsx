@@ -3,19 +3,15 @@
 import { useState } from "react";
 import { Info } from "lucide-react";
 import { ViewSwitchLink } from "@/components/deposit/ViewSwitchLink";
-import { BalanceHero } from "@/components/money/BalanceHero";
 import { Button, CheckIcon, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
-import { CLUSTER } from "@/lib/cluster-settings";
 import { requestDeposit } from "@/lib/deposit/bus";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
-import { cashOutNow, cashOutReady, withdrawDeposit } from "@/lib/deposit/vault-actions";
+import { withdrawDeposit } from "@/lib/deposit/vault-actions";
 import { fmtBackAt, vaultView, type DepositRow } from "@/lib/deposit/vault";
 import { plainError } from "@/lib/errors";
-import { fmtGemas, fmtUsd } from "@/lib/format";
+import { fmtUsd } from "@/lib/format";
 import "./vault.css";
-
-const TEST_MODE = CLUSTER.yieldModel !== "real";
 
 export function SimpleVault() {
   const { auth, snapshot, gemas, loading, ready, error, refresh } = useAccount();
@@ -24,9 +20,8 @@ export function SimpleVault() {
   const [notice, setNotice] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
-  const view = vaultView({ snapshot, gemasAvailable: gemas.available, nowMs: now });
+  const view = vaultView({ snapshot, gemasAvailable: gemas.available, gemasTotal: gemas.total, nowMs: now });
   const signer = auth.signer;
-  const w = view.winnings;
 
   const run = async (id: string, work: () => Promise<string>) => {
     setBusy(id);
@@ -46,24 +41,10 @@ export function SimpleVault() {
       await withdrawDeposit(signer, snapshot, d.id);
       return `${d.label} withdrawn. Your SOL is back in your wallet.`;
     });
-  const cashOut = () =>
-    signer && snapshot && run("cash", async () => {
-      const r = await cashOutReady(signer, snapshot, { cashOutTo: "wallet" });
-      return `Cashed out ${fmtGemas(r.gemas)} Gemas to your wallet.`;
-    });
-  const cashOutSoon = () =>
-    signer && snapshot && run("now", async () => {
-      const r = await cashOutNow(signer, snapshot, { cashOutTo: "wallet" });
-      return r.changed
-        ? `Part of it went through (${fmtGemas(r.gemas)} Gemas). Your winnings changed while you were confirming: check the new amount and try again.`
-        : `Cashed out ${fmtGemas(r.gemas)} Gemas to your wallet.`;
-    });
-
   const loadingFirst = (loading || !ready) && !snapshot && !error;
-  const waiting = w.readyNow > 0 || w.readyLater > 0;
 
   return (
-    <div className="wl vt-body">
+    <div className="wl-part">
       {error && !snapshot && (
         <p className="status err" role="alert">
           Could not read your Account. <Button size="sm" onClick={() => void refresh()}>Retry</Button>
@@ -72,64 +53,7 @@ export function SimpleVault() {
       {notice && <p className="status ok vt-notice" role="status"><CheckIcon aria-hidden="true" /> {notice}</p>}
       {problem && <p className="status err vt-notice" role="alert">{problem}</p>}
 
-      <BalanceHero
-        label="Gemas to play"
-        figure={ready ? fmtGemas(view.gemas) : "—"}
-        usdOf={ready ? view.gemas : undefined}
-        busy={!ready}
-        simulated={CLUSTER.yieldModel !== "real"}
-        summary={ready && (
-          <>
-            <span>Ready to cash out <b className="tnum">{fmtGemas(w.readyNow)}</b></span>
-            <span aria-hidden="true">·</span>
-            <span>Ready later <b className="tnum">{fmtGemas(w.readyLater)}</b></span>
-          </>
-        )}
-        columns={[
-          {
-            label: "Ready to cash out",
-            figure: ready ? fmtGemas(w.readyNow) : "—",
-            usdOf: ready ? w.readyNow : undefined,
-            emerald: true,
-            note: ready && w.readyNow === 0 ? "Nothing to cash out yet" : undefined,
-            action: (
-              <Button variant="money" disabled={!ready || w.readyNow === 0 || !signer || busy !== null} onClick={() => void cashOut()}>
-                {busy === "cash" ? "Cashing out…" : "Cash out"}
-              </Button>
-            ),
-          },
-          {
-            label: "Ready later",
-            figure: ready ? fmtGemas(w.readyLater) : "—",
-            usdOf: ready ? w.readyLater : undefined,
-            note: !ready ? undefined : w.readyLater === 0 ? "Nothing waiting." : w.readyLaterAtMs ? `around ${fmtBackAt(w.readyLaterAtMs)}` : `within about ${PACK_MONTHS} months`,
-            action: ready && w.readyLater > 0 && (w.instant ? (
-              <>
-                <Button disabled={!signer || busy !== null} onClick={() => void cashOutSoon()}>
-                  {busy === "now" ? "Cashing out…" : `Cash out now · you keep ${w.instant.keepPct}%`}
-                </Button>
-                <span className="meta">About {fmtUsd(Math.round(w.instant.usd * 100) / 100)} for {fmtGemas(w.instant.gemas)} Gemas.</span>
-              </>
-            ) : (
-              <span className="meta">Cashing out now isn&apos;t available right now.</span>
-            )),
-          },
-        ]}
-      />
-
       {loadingFirst && <SkeletonCards count={2} avatar={false} label="Loading your Vault…" />}
-
-      {ready && !view.isNew && (waiting || view.otherChainWinnings) && (
-        <div className="vt-foot">
-          {waiting && (
-            <p className="note vt-note">
-              <Info aria-hidden="true" />
-              <span>{TEST_MODE ? "Cash out to your wallet. In test mode it pays test SOL." : "Cash out to your wallet."}</span>
-            </p>
-          )}
-          {view.otherChainWinnings && <p className="note">You also have winnings on other chains: see the <ViewSwitchLink to="advanced" />.</p>}
-        </div>
-      )}
 
       {ready && view.isNew && (
         <section className="cut cut-card vt-empty" aria-label="Get started">

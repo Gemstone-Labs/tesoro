@@ -1,9 +1,10 @@
 /* The Vault: Gemas to play, winnings, deposits. */
 /* the body shares the Wallet's .wl grid and section gap, so both views line up */
 .vt-head { align-items: center; }
-.vt-head-side { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; justify-content: flex-end; }
-.vt-head-side .btn { white-space: nowrap; }
-.vt-seg { --edge: var(--edge-1); display: inline-flex; padding: 3px; gap: 2px; background: var(--raised); }
+.vt-head .btn { white-space: nowrap; }
+/* the views' bodies join the page grid, so the card, the toggle and each section keep one rhythm */
+.wl-part { display: contents; }
+.vt-seg { --edge: var(--edge-1); justify-self: start; display: inline-flex; padding: 3px; gap: 2px; background: var(--raised); }
 .vt-seg-opt { background: none; border: 0; cursor: pointer; font: inherit; font-size: var(--fs-14); font-weight: 700; color: var(--fg-2); padding: 8px 16px; border-radius: 4px; min-height: 40px; }
 .vt-seg-opt:hover { color: var(--fg); }
 .vt-seg-opt[aria-pressed="true"] { background: var(--raised-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line-2); }
@@ -32,9 +33,6 @@
 
 @media (max-width: 639px) {
   .vt-head { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .vt-head-side { justify-content: flex-start; width: 100%; gap: 12px; }
-  .vt-head-side { flex-wrap: nowrap; }
-  .vt-head-side .btn { flex: 1; min-width: 0; padding-inline: 14px; }
   .vt-deposits, .vt-empty { padding: 18px 16px; }
   .vt-dep .btn { width: 100%; }
   .vt-dep-line { font-size: var(--fs-15); }

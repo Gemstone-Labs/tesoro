@@ -11,25 +11,30 @@ const OPTIONS: { mode: ViewMode; label: string }[] = [
   { mode: "advanced", label: "Advanced" },
 ];
 
-/** The same header in both views: title and rate on the left, the view toggle and Get Gemas on the right. */
+/** The same header in both views: title and rate on the left, Get Gemas on the right. */
 export function VaultHeader() {
-  const { mode, setMode } = useViewMode();
+  const { mode } = useViewMode();
   return (
     <header className="page-head vt-head">
       <div>
         <h1 className="page-title">Vault</h1>
         <p className="page-sub">1 Gema = $0.01</p>
       </div>
-      <div className="vt-head-side">
-        <div className="cut cut-chip vt-seg" role="group" aria-label="View">
-          {OPTIONS.map((o) => (
-            <button key={o.mode} type="button" className="vt-seg-opt" aria-pressed={mode === o.mode} onClick={() => setMode(o.mode)}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-        <Button variant="money" size="lg" onClick={() => (mode === "simple" ? requestDeposit() : requestGetGemas())}>Get Gemas</Button>
-      </div>
+      <Button variant="money" size="lg" onClick={() => (mode === "simple" ? requestDeposit() : requestGetGemas())}>Get Gemas</Button>
     </header>
+  );
+}
+
+/** Simple | Advanced, under the balance card: it switches what's below the card, in place. */
+export function ViewToggle() {
+  const { mode, setMode } = useViewMode();
+  return (
+    <div className="cut cut-chip vt-seg" role="group" aria-label="View">
+      {OPTIONS.map((o) => (
+        <button key={o.mode} type="button" className="vt-seg-opt" aria-pressed={mode === o.mode} onClick={() => setMode(o.mode)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }

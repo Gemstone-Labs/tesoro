@@ -3,6 +3,7 @@
 import { useId, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { FacetCrown, GemaMark, GemaUsd, SimulatedYieldLabel } from "@/components/ui";
+import { InfoTip } from "./Tip";
 import "@/app/(app)/wallet/wallet.css";
 
 export interface HeroColumn {
@@ -13,6 +14,8 @@ export interface HeroColumn {
   usdOf?: number;
   /** Money that can move now: the emerald column. */
   emerald?: boolean;
+  /** An ⓘ next to the label that explains the figure. */
+  info?: ReactNode;
   action?: ReactNode;
   /** A small line under the action. */
   note?: ReactNode;
@@ -62,7 +65,14 @@ export function BalanceHero({ label, figure, usdOf, busy = false, summary, colum
       <div className="wl-second" id={id}>
         {columns.map((c) => (
           <div key={c.label} className={c.emerald ? "wl-redeemable" : "wl-pending"} aria-label={c.label}>
-            <h2>{c.label}</h2>
+            <h2 className="wl-col-head">
+              {c.label}
+              {c.info && (
+                <InfoTip label={`About ${c.label}`} align="end">
+                  {c.info}
+                </InfoTip>
+              )}
+            </h2>
             <b>{c.figure}</b>
             {c.usdOf !== undefined && <GemaUsd className="wl-usd" value={c.usdOf} />}
             {c.action}

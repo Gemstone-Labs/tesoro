@@ -10,7 +10,7 @@ import { useViewMode } from "@/lib/deposit/use-view-mode";
 import { requestGetGemas } from "@/lib/get-gemas";
 import { WalletView } from "../wallet/WalletView";
 import { SimpleVault } from "./SimpleVault";
-import { VaultHeader } from "./VaultHeader";
+import { VaultHeader, ViewToggle } from "./VaultHeader";
 import "./vault.css";
 
 export default function VaultPage() {
@@ -60,7 +60,13 @@ function Vault() {
   return (
     <>
       <VaultHeader />
-      {resolved && (simple ? <SimpleVault /> : <WalletView />)}
+      {resolved && (
+        <div className="wl">
+          <WalletView part="card" />
+          <ViewToggle />
+          {simple ? <SimpleVault /> : <WalletView part="body" />}
+        </div>
+      )}
     </>
   );
 }

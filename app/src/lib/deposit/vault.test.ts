@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import { NATIVE_MARKET, nativePosition } from "../../../stories/components/wallet/support";
 import type { ChainHolding, ChainPosition } from "@/lib/chain/read";
-import { fmtBackAt, planCashOutNow, vaultView, type VaultSnapshot } from "./vault";
+import { fmtBackAt, vaultView, type VaultSnapshot } from "./vault";
 
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 
@@ -74,31 +74,12 @@ describe("Vault view model", () => {
     expect(v.deposits.map((d) => d.label)).toEqual(["Deposit 2"]);
   });
 
-  it("points ETH and HYPE deposits and winnings to the Advanced view", () => {
+  it("points ETH and HYPE deposits to the Advanced view", () => {
     const eth: ChainPosition = { ...nativePosition("debt"), native: null, asset: "ETH", eth: { vault: "0xabc", id: 1n } };
     const wonEth = holding(7, { native: false, asset: "ETH", eth: { vault: "0xabc", id: 1n } });
     const v = view(snap([eth], [wonEth]));
     expect(v.otherChainDeposits).toBe(true);
-    expect(v.otherChainWinnings).toBe(true);
     expect(v.deposits).toEqual([]);
-    expect(v.winnings.readyNow).toBe(0);
-  });
-
-  it("groups won Solana Gemas into ready now and ready later, ignoring your own", () => {
-    const v = view(snap([], [holding(1), holding(2, { redeemable: 100n, pending: 300n }), holding(3, { isOwn: true })]));
-    expect(v.winnings.readyNow).toBe(500);
-    expect(v.winnings.readyLater).toBe(900);
-    expect(v.winnings.readyNowUsd).toBeCloseTo(5);
-  });
-
-  it("offers Cash out now at what the Treasury keeps from the fee, never more than it can pay", () => {
-    const v = view(snap([], [holding(1)]));
-    expect(v.winnings.instant?.keepPct).toBe(75);
-    expect(v.winnings.instant?.gemas).toBe(600);
-    expect(v.winnings.instant?.usd).toBeCloseTo(4.5);
-    const empty = { ...NATIVE_MARKET, treasuryShares: 0n };
-    expect(planCashOutNow([holding(1)], empty, Math.floor(Date.now() / 1000))).toEqual([]);
-    expect(planCashOutNow([holding(1)], null, 0)).toEqual([]);
   });
 
   it("says the month in mainnet words and the time in test mode", () => {
