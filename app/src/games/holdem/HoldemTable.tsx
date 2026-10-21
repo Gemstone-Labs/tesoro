@@ -270,7 +270,7 @@ export function HoldemTable({ table: t, seat, hole, busy, ended, entry, onAct, o
   const oppHand = hands ? hands[opp].name : null;
 
   return (
-    <Arena game="holdem" fullScreenKey={false} autoFull={!practice && !ended}>
+    <Arena game="holdem" fullScreenKey={false} autoFull={!ended}>
     <section className="hdx" aria-label="Hold'em table" style={{ ["--pace" as string]: PACE }}>
       <header className="hdx-head" aria-label="Table">
         <div className="hdx-head-l">

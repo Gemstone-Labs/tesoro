@@ -11,7 +11,7 @@ export type ArenaGame = "block-puzzle" | "holdem" | "trading-duel" | "vanguard";
  * The stage a game sits on: a dark backdrop with colour at the edges and a quiet, dark centre, kept
  * inside the content column (the app shell is untouched). Paints `art.arena[game]` over a CSS
  * gradient per game, which shows if the art fails to load. Also mounts the `FxLayer` bursts draw on,
- * and owns full screen: `autoFull` turns it on (a live Match passes `autoFull={!ended}`, so it turns off again when
+ * and owns full screen: `autoFull` turns it on (a Match or Practice game passes `autoFull={!ended}`, so it turns off again when
  * the Match ends), F toggles it (unless `fullScreenKey` is off, as in Hold'em where F folds), Esc leaves it, and
  * leaving the game leaves it.
  * `<Arena game="holdem">...the game...</Arena>`.
