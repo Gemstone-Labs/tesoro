@@ -265,7 +265,7 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "event_authority",
+          "name": "core_event_authority",
           "pda": {
             "seeds": [
               {
@@ -333,6 +333,38 @@
         {
           "name": "tesoro_core_program",
           "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
@@ -1779,8 +1811,11 @@
       "name": "request_seed",
       "docs": [
         "Rollup, anyone. Requests VRF randomness from the delegated oracle queue; the oracle calls",
-        "back into `seed_callback` inside the rollup, which writes it only into the SeedVault. May",
-        "be repeated until the output arrives."
+        "back into `seed_callback` inside the rollup, which writes it only into the SeedVault. The",
+        "program picks the VRF input (`request_input`) and remembers it as the request id: the",
+        "callback names the same id as an account, so only the answer to the current request is",
+        "taken. One request is outstanding at a time; after `SEED_RETRY_SLOTS` without an answer",
+        "the next request replaces it."
       ],
       "discriminator": [
         162,
@@ -1800,6 +1835,7 @@
         },
         {
           "name": "vault",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1858,12 +1894,7 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": [
-        {
-          "name": "client_seed",
-          "type": "u8"
-        }
-      ]
+      "args": []
     },
     {
       "name": "seal",
@@ -1903,7 +1934,8 @@
     {
       "name": "seed_callback",
       "docs": [
-        "Rollup, called by the VRF program only. Stores the Seed in the private SeedVault."
+        "Rollup, called by the VRF program only. Stores the Seed in the private SeedVault, if it",
+        "answers the request the SeedVault is waiting for."
       ],
       "discriminator": [
         232,
@@ -1946,6 +1978,12 @@
               }
             ]
           }
+        },
+        {
+          "name": "request",
+          "docs": [
+            "id of the request the vault is waiting for."
+          ]
         }
       ],
       "args": [
@@ -2117,7 +2155,7 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "event_authority",
+          "name": "core_event_authority",
           "pda": {
             "seeds": [
               {
@@ -2185,6 +2223,38 @@
         {
           "name": "tesoro_core_program",
           "address": "AR9c426k5531GhYNSvQAz3YhpBvCc5x22YaKCesTAckh"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": []
@@ -2377,6 +2447,16 @@
       "code": 6020,
       "name": "InvalidValidator",
       "msg": "delegation must name the TEE validator"
+    },
+    {
+      "code": 6021,
+      "name": "SeedRequestPending",
+      "msg": "a seed request is already waiting for its answer"
+    },
+    {
+      "code": 6022,
+      "name": "SeedRequestMismatch",
+      "msg": "no seed request is waiting, or the answer is not for the current request"
     }
   ],
   "types": [
@@ -3043,6 +3123,39 @@
           },
           {
             "name": "seed",
+            "type": "u64"
+          },
+          {
+            "name": "requests",
+            "docs": [
+              "Seed requests made so far; the next request id is derived from it."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "pending",
+            "docs": [
+              "A request is out and its answer has not come yet."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "request_id",
+            "docs": [
+              "The VRF input of the current request (`request_input`), also the id its answer must carry."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "requested_slot",
+            "docs": [
+              "Rollup slot of the current request."
+            ],
             "type": "u64"
           }
         ]

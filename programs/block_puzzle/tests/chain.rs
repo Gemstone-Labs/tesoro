@@ -520,13 +520,13 @@ impl Env {
     /// What the rollup does in `init_vault_permission`, `init_permission` and the VRF callback,
     /// none of which LiteSVM can run: the Seed lands in the SeedVault and nowhere else.
     fn prepare_opener(&mut self, id: u64) -> u64 {
-        let seed = block_puzzle::derive_seed(&match_pda(id), &[id as u8; 32]);
         let vault = self.vault(id);
         let mut acct = self.svm.get_account(&s(vault)).expect("vault exists");
         let mut v = SeedVault::try_deserialize(&mut acct.data.as_slice()).expect("deserialize");
         v.permission_ready = true;
-        v.ready = true;
-        v.seed = seed;
+        let request_id = v.start_request(1).expect("request");
+        v.accept(&request_id, &[id as u8; 32]).expect("answer");
+        let seed = v.seed;
         let mut buf = Vec::new();
         v.try_serialize(&mut buf).expect("serialize");
         acct.data[..buf.len()].copy_from_slice(&buf);
@@ -645,8 +645,10 @@ impl Env {
             program_data: program_data_pda(),
             receipt: core_pda(&[b"settled", match_pda(id).as_ref()]),
             system_program: anchor_lang::system_program::ID,
-            event_authority: core_pda(&[b"__event_authority"]),
+            core_event_authority: core_pda(&[b"__event_authority"]),
             tesoro_core_program: tesoro_core::ID,
+            event_authority: bp_pda(&[b"__event_authority"]),
+            program: block_puzzle::ID,
         }
     }
 
@@ -1141,6 +1143,39 @@ fn higher_replayed_score_wins_and_the_pot_settles_through_tesoro_core() {
         bp_err(block_puzzle::BlockPuzzleError::AlreadySettled)
     );
     assert_eq!(env.total(&alice), 75_000 + ENTRY - 100);
+}
+
+#[test]
+fn the_settle_record_is_an_event_cpi_that_logs_cannot_forge() {
+    use anchor_lang::Discriminator;
+    let (mut env, alice, bob) = Env::new();
+    let (id, seed) = env.ready(&alice, &bob);
+    let (ba, bb) = (env.board(id, 0), env.board(id, 1));
+    env.begin(&alice, ba).expect("begin a");
+    env.begin(&bob, bb).expect("begin b");
+    env.play(&alice, ba, &greedy(seed, 20)).expect("a plays");
+    env.play(&bob, bb, &greedy(seed, 5)).expect("b plays");
+    env.finish(&alice, ba).expect("finish a");
+    env.finish(&bob, bb).expect("finish b");
+    env.seal(id).expect("seal");
+    let meta = env.settle(id, MatchResult::Opener).expect("settle");
+    let record = block_puzzle::SessionSettled::DISCRIMINATOR;
+    let tag = anchor_lang::event::EVENT_IX_TAG_LE;
+    let inner: Vec<_> = meta
+        .inner_instructions
+        .iter()
+        .flatten()
+        .filter(|i| i.instruction.data.starts_with(&tag))
+        .filter(|i| i.instruction.data[8..].starts_with(record))
+        .collect();
+    assert_eq!(inner.len(), 1, "one settle record as an inner instruction");
+    assert!(
+        !meta
+            .logs
+            .iter()
+            .any(|l| l.starts_with("Program data:") && l.contains("SessionSettled")),
+        "no log-only record"
+    );
 }
 
 #[test]
@@ -1737,4 +1772,36 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
         &tesoro_core::ID,
     )
     .0
+}
+
+/// Writes a real Pot (as `open_match` makes it) for the app's byte readers
+/// (`app/src/games/block-puzzle/match-accounts.test.ts`) when `WRITE_POT_FIXTURE` names a file.
+#[test]
+fn a_real_pot_is_what_the_apps_readers_decode() {
+    let (mut env, alice, _bob) = Env::new();
+    let (id, _) = env.opened(&alice);
+    let state: MatchState = env.load_core(match_pda(id));
+    let pot = state.pots[0];
+    let data = env.svm.get_account(&s(pot)).expect("pot").data;
+    let store = tesoro_core::ledger::line_store::LineStore::new(&data[tesoro_core::pots::POT_AT..])
+        .expect("store");
+    let lines: Vec<(String, u64)> = store
+        .lines()
+        .map(|l| (APk::new_from_array(l.source).to_string(), l.amount))
+        .collect();
+    assert!(!lines.is_empty());
+    assert_eq!(lines.iter().map(|l| l.1).sum::<u64>(), ENTRY);
+    if let Ok(path) = std::env::var("WRITE_POT_FIXTURE") {
+        let rows: Vec<String> = lines
+            .iter()
+            .map(|(k, a)| format!("{{\"source\":\"{k}\",\"amount\":\"{a}\"}}"))
+            .collect();
+        let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
+        let json = format!(
+            "{{\"hex\":\"{hex}\",\"lines\":[{}],\"total\":\"{ENTRY}\",\"payer\":\"{}\"}}\n",
+            rows.join(","),
+            APk::new_from_array(data[8 + 72..8 + 104].try_into().unwrap())
+        );
+        std::fs::write(path, json).expect("write fixture");
+    }
 }

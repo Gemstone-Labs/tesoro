@@ -4,14 +4,14 @@
  *
  *   pnpm --filter @tesoro/keeper exec tsx scripts/both-runs-closed.ts
  *
- * Uses the two test wallets in ~/.config/tesoro/block-puzzle-testers.json (staked by
+ * Uses the two test wallets in ~/.config/tesoro/block-puzzle-testers.json (each holding 500 playable Gemas, see
  * programs/block_puzzle/scripts/devnet-match.ts), the deployer as fee payer, and only the app's chain client.
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Keypair, PublicKey } from "@solana/web3.js";
-import { BlockPuzzleChain, keypairSigner, type Move } from "../../app/src/games/block-puzzle/chain.ts";
+import { Keypair } from "@solana/web3.js";
+import { keypairSigner, type Move } from "../../app/src/games/block-puzzle/chain.ts";
 import { apply, dims, fitsAt, handBase, newState, pieceAt, SIZE, HAND } from "../../app/src/games/block-puzzle/engine.ts";
 import { buildRuntime, newConnection } from "../src/runtime.ts";
 import { settings } from "../src/env.ts";
@@ -50,16 +50,10 @@ const rt = buildRuntime(s, conn, deployer);
 const chain = rt.bp;
 const [S0, S1, D] = [keypairSigner(testers[0]), keypairSigner(testers[1]), keypairSigner(deployer)];
 
-/** Own-sourced Holding of a tester staked by devnet-match.ts (position ids 11 and 12, source index 0). */
-const holdingOf = (signer: ReturnType<typeof keypairSigner>, id: number) => {
-  const position = PublicKey.findProgramAddressSync([Buffer.from("position"), Buffer.from([0]), Buffer.from(Array(32).fill(id))], rt.core.programId)[0];
-  const source = PublicKey.findProgramAddressSync([Buffer.from("source"), position.toBuffer(), Buffer.alloc(4)], rt.core.programId)[0];
-  return BlockPuzzleChain.holding(BlockPuzzleChain.coreAccount(signer.publicKey), source);
-};
-
-const id = BigInt(Date.now());
-console.log("match id", id.toString(), "match", BlockPuzzleChain.addresses(id).match.toBase58());
-console.log("open", await chain.openMatch(S0, id, 1000, [holdingOf(S0, 11)]));
+const opened = await chain.openMatch(S0, 500);
+const id = opened.match;
+console.log("match", id.toBase58());
+console.log("open", opened.sig);
 await chain.delegateOpener(D, id);
 await chain.initVaultPermission(S0, id);
 await chain.initPermission(S0, id, 0);
@@ -69,10 +63,10 @@ const { seed } = await chain.beginRun(S0, id, 0);
 await chain.play(S0, id, 0, greedy(seed, 20));
 await chain.finish(S0, id, 0);
 console.log("opener finished; joining");
-console.log("join", await chain.joinMatch(S1, id, [holdingOf(S1, 12)]));
+console.log("join", await chain.joinMatch(S1, id));
 await chain.delegateJoiner(D, id);
 await chain.initPermission(S1, id, 1);
 await chain.beginRun(S1, id, 1);
 await chain.play(S1, id, 1, greedy(seed, 8));
 await chain.finish(S1, id, 1);
-console.log("both runs closed, nothing sealed. Now run the keeper:", id.toString());
+console.log("both runs closed, nothing sealed. Now run the keeper:", id.toBase58());

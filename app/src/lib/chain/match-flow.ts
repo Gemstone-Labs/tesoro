@@ -112,21 +112,20 @@ export function queueDeps(signer: ChainSigner, me: PublicKey, game: GameId, entr
 export async function enterQueue(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", onStep?: (s: string) => void, asset: 0 | 1 | 2 = 0): Promise<Entered> {
   const chain = getChain();
   const snap = await ensureReady(signer, getToken);
-  const holdings = entryHoldings(snap, entry);
   return queueEntry({
     ...queueDeps(signer, snap.accountKey, game, entry, asset),
-    join: (id) => chain.joinMatch(signer, id, holdings, GAME_IDS[game]),
-    open: (id) => chain.openMatch(signer, id, entry, holdings, GAME_IDS[game]),
+    join: (id) => chain.joinMatch(signer, id, GAME_IDS[game]),
+    open: () => chain.openMatch(signer, entry, { game: GAME_IDS[game], asset }).then((r) => r.sig),
     onStep,
   });
 }
 
 /** Challenge: open a Match only reachable through its link. */
 export async function createChallenge(signer: ChainSigner, entry: number, getToken: GetToken, game: GameId = "block-puzzle", asset: 0 | 1 | 2 = 0, onStep?: (s: string) => void): Promise<bigint> {
-  const snap = await ensureReady(signer, getToken, onStep);
+  await ensureReady(signer, getToken, onStep);
   const id = newMatchId(true, game, asset);
   onStep?.("Opening your Challenge…");
-  await getChain().openMatch(signer, id, entry, entryHoldings(snap, entry), GAME_IDS[game]);
+  await getChain().openMatch(signer, entry, { game: GAME_IDS[game], challenge: true, asset });
   return id;
 }
 
@@ -151,7 +150,7 @@ export async function joinChallenge(signer: ChainSigner, id: bigint, getToken: G
   if (!m.challenge) throw new ChallengeError("not-challenge");
   if (m.seat !== null) return;
   if (m.status !== "open") throw new ChallengeError("taken");
-  await getChain().joinMatch(signer, id, entryHoldings(snap, m.entry), GAME_IDS[m.game]);
+  await getChain().joinMatch(signer, id, GAME_IDS[m.game]);
 }
 
 // ---- Match orchestration --------------------------------------------------------------------
@@ -274,7 +273,7 @@ export async function prepareRun(signer: ChainSigner, id: bigint, seat: Seat, on
     onStep("Dealing your pieces");
     await tolerate(() => chain.initVaultPermission(signer, id), async () => true);
     for (let i = 0; i < 30; i++) {
-      if (i % 10 === 0) await chain.requestSeed(signer, id, 7 + (i % 200)).catch(() => undefined);
+      if (i % 10 === 0) await chain.requestSeed(signer, id).catch(() => undefined);
       await sleep(1500);
       if (await chain.seedReady(signer, id)) return;
     }

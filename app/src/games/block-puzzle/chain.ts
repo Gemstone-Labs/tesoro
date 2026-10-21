@@ -5,20 +5,48 @@
  * Needs `@coral-xyz/anchor`, `@solana/web3.js`, `@magicblock-labs/ephemeral-rollups-sdk` and
  * `tweetnacl` in the app.
  *
+ * A Match is named by its MatchState address (`["match", opener Account, n]`, `MatchKey`); the
+ * entry is drawn from the Account's basket into a Pot (a direct draw, or an Entry Ticket staged in
+ * steps when the basket is fragmented).
+ *
  * Lifecycle, in the order the app calls it (seat 0 opens the Match, seat 1 joins later):
  *   openMatch (also opens the Session) -> delegateOpener -> initVaultPermission + initPermission
- *   -> requestSeed (VRF, inside the TEE) -> seedReady (poll) -> beginRun (returns the Seed) -> play
- *   (repeat) -> finish. The opener can play before anybody is paired.
+ *   -> requestSeed (VRF, inside the TEE; the program picks the input) -> seedReady (poll) -> beginRun
+ *   (returns the Seed) -> play (repeat) -> finish. The opener can play before anybody is paired.
  *   joinMatch (also joins the Session) -> delegateJoiner -> initPermission -> beginRun -> play -> finish.
- *   Then sealAndCommit (once both runs are closed) -> settle -> fetchResult.
+ *   Then sealAndCommit (once both runs are closed) -> settle (starts the run) -> runChunks (anyone;
+ *   pays out in chunks) -> closeMatch (rents back) -> fetchResult.
  * The Seed is never on the base layer: it lives in a SeedVault nobody can read and reaches a Player's
  * private Board only when their run begins.
  * A Player's `play` calls go to the private rollup (TEE); everything else to the base layer.
  * Scores are never sent: the program replays the moves with the same engine as `./engine.ts`.
  */
-import { protectionsPda } from "../../lib/chain/native";
-import { gameAccounts, gameRecordPda, pairPda } from "../../lib/chain/game-record";
-import { NO_LEADERBOARD, fetchLeaderboardTerms, type LeaderboardTerms } from "../../lib/chain/leaderboard";
+import { SIM_SOL_MINT, nativeCustodyPda } from "../../lib/chain/native";
+import { gameAccounts, gameRecordPda, pairPda, programDataPda } from "../../lib/chain/game-record";
+import {
+  MAX_CHUNK_STEPS,
+  MAX_DIRECT_LINES,
+  MAX_STAGE_OPS,
+  bookPda,
+  basketPda,
+  checkpointCandidates,
+  countersPda,
+  decodeLines,
+  economyPda,
+  eventAuthorityPda,
+  matchAddress,
+  potPayer,
+  potSources,
+  potSponsored,
+  potTotal,
+  protectionsPda,
+  receiptPda,
+  sponsorPda,
+  spillPda,
+  stageOf,
+  ticketPda,
+  type MatchStage,
+} from "./match-accounts";
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
@@ -60,8 +88,17 @@ export const MAX_PLAY_BATCH = 40;
 
 export type Move = { piece: number; x: number; y: number };
 export type Seat = 0 | 1;
-/** `open_holding` instructions per transaction (each is ~130 bytes; a legacy transaction holds 1232). */
-export const OPEN_HOLDINGS_PER_TX = 5;
+
+/** A Match is named by its MatchState address. */
+export type MatchKey = PublicKey;
+/** What the older callers still hold: a client-built Match id, which names nothing any more. */
+export type LegacyMatchId = bigint;
+const keyOf = (m: MatchKey | LegacyMatchId): PublicKey => {
+  if (typeof m === "bigint") throw new Error("Matches are named by their MatchState address now (economy upgrade); this caller still holds a client-built id");
+  return m;
+};
+/** Legacy transactions hold 1232 bytes. */
+const TX_BYTES = 1232;
 
 export type Result = "opener" | "joiner" | "draw";
 
@@ -92,13 +129,13 @@ export interface ChainConfig {
   teeValidator?: PublicKey;
 }
 
-type Line = { source: PublicKey; amount: bigint };
-type Payout = { recipient: PublicKey; source: PublicKey; amount: bigint };
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const le8 = (n: bigint | number | BN) => new BN(n.toString()).toArrayLike(Buffer, "le", 8);
-const keyCmp = (a: PublicKey, b: PublicKey) => Buffer.compare(a.toBuffer(), b.toBuffer());
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
+const bn = (n: bigint | number) => new BN(n.toString());
+/** A random pot nonce: unique per Account in practice (48 bits of entropy). */
+const randomNonce = () => BigInt("0x" + Buffer.from(nacl.randomBytes(6)).toString("hex"));
+/** Fee classes (Platform, Studio, Leaderboard) are never playable; the rest are. */
+const FIRST_PLAYABLE_CLASS = 3;
 
 /** An IDL program whose accounts are looked up by name at runtime (the IDLs are loaded as JSON). */
 export type AnyProgram = Omit<Program<any>, "account"> & { account: Record<string, any> };
@@ -145,18 +182,19 @@ export class BlockPuzzleChain {
       TESORO_CORE_PROGRAM_ID,
     )[0];
   }
-  static addresses(matchId: bigint | number | BN) {
+  static addresses(match: MatchKey | LegacyMatchId) {
+    const matchKey = keyOf(match);
     const config = PublicKey.findProgramAddressSync([Buffer.from("config")], TESORO_CORE_PROGRAM_ID)[0];
-    const match = PublicKey.findProgramAddressSync([Buffer.from("match"), le8(matchId)], TESORO_CORE_PROGRAM_ID)[0];
     const bpPda = (seeds: Buffer[]) => PublicKey.findProgramAddressSync(seeds, BLOCK_PUZZLE_PROGRAM_ID)[0];
-    const session = bpPda([Buffer.from("session"), match.toBuffer()]);
+    const session = bpPda([Buffer.from("session"), matchKey.toBuffer()]);
     const board = (seat: Seat) => bpPda([Buffer.from("board"), session.toBuffer(), Buffer.from([seat])]);
     return {
       config,
-      match,
+      match: matchKey,
       session,
       vault: bpPda([Buffer.from("vault"), session.toBuffer()]),
       authority: bpPda([Buffer.from("authority")]),
+      eventAuthority: bpPda([Buffer.from("__event_authority")]),
       boards: [board(0), board(1)] as [PublicKey, PublicKey],
     };
   }
@@ -257,71 +295,221 @@ export class BlockPuzzleChain {
     return false;
   }
 
-  // ---- tesoro_core: create and join ---------------------------------------------------------
+  // ---- tesoro_core: baskets, Tickets, create and join ---------------------------------------
 
-  /** Seat 0 opens a Match; for Block Puzzle also its Session (one transaction). `holdings`: own-sourced first, then won (see tesoro-core.md). */
-  async openMatch(signer: ChainSigner, matchId: bigint, entry: number, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
-    const a = BlockPuzzleChain.addresses(matchId);
-    const ix = await this.core.methods
-      .openMatch(new BN(matchId.toString()), game, new BN(entry))
+  private async storeData(account: PublicKey) {
+    const [basket, spill] = await this.base.getMultipleAccountsInfo([basketPda(account), spillPda(account)]);
+    if (!basket || !spill) throw new Error("This Account has no basket yet. Create the Account first.");
+    return { basket: basket.data, spill: spill.data };
+  }
+
+  /** The Account's playable lines (own and won, fee classes excluded), basket then spill. */
+  private async playableLines(account: PublicKey) {
+    const { basket, spill } = await this.storeData(account);
+    return [...decodeLines(basket, 8), ...decodeLines(spill, 8)].filter((l) => l.class >= FIRST_PLAYABLE_CLASS && l.amount > 0n);
+  }
+
+  /** Slots of a spill that are free for new lines (not held for Matches in flight). */
+  private spillFree(spill: Uint8Array): number {
+    const buf = Buffer.from(spill.buffer, spill.byteOffset, spill.byteLength);
+    const capacity = Math.floor((buf.length - 8 - 128) / 144);
+    const first = buf.readUInt32LE(8 + 92);
+    const len = buf.readUInt32LE(8 + 4);
+    const reserved = buf.readUInt32LE(8 + 88);
+    return capacity - first - len - reserved;
+  }
+
+  /** Anyone may grow an Account's spill. A Match holds room in the spills for every credit it may make, so open and join need it free. */
+  async ensureSpillRoom(payer: ChainSigner, account: PublicKey, free: number) {
+    const { spill } = await this.storeData(account);
+    let need = free - this.spillFree(spill);
+    while (need > 0) {
+      const extra = Math.min(need, 70);
+      const ix = await this.core.methods
+        .growStore({ spill: {} }, extra)
+        .accountsPartial({ payer: payer.publicKey, account, basket: basketPda(account), spill: spillPda(account), systemProgram: SystemProgram.programId })
+        .instruction();
+      await this.sendBase(payer, [ix]);
+      need -= extra;
+    }
+  }
+
+  /** The distinct Sources of the Account's lines, as the books an entry's draw or staging may touch. */
+  private async bookAccounts(sources: PublicKey[]) {
+    const metas: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
+    for (const src of sources) {
+      const candidates = [bookPda(src), ...checkpointCandidates(src)];
+      const infos = await this.base.getMultipleAccountsInfo(candidates);
+      candidates.forEach((pubkey, i) => {
+        if (infos[i]) metas.push({ pubkey, isSigner: false, isWritable: true });
+      });
+    }
+    return metas;
+  }
+
+  /**
+   * Gets the entry out of the basket into a Pot: a direct draw when the Account has at most
+   * MAX_DIRECT_LINES playable lines (the Pot is made by open/join itself), else an Entry Ticket
+   * staged in steps first. Returns the Pot's address and the `pot_lines` argument.
+   */
+  private async preparePot(signer: ChainSigner, account: PublicKey, entry: bigint, game: PublicKey) {
+    const lines = await this.playableLines(account);
+    const nonce = randomNonce();
+    const pot = ticketPda(account, nonce);
+    if (lines.length <= MAX_DIRECT_LINES) {
+      return { pot, nonce, potLines: Math.max(1, lines.length), remaining: await this.bookAccounts(distinct(lines.map((l) => l.source)).slice(0, 4)), ticket: false };
+    }
+    const ticketLines = Math.min(lines.length, 68);
+    const open = await this.core.methods
+      .openTicket(bn(nonce), { entry: {} }, game, bn(entry), ticketLines)
       .accountsPartial({
-        playerAuthority: signer.publicKey,
-        config: a.config,
-        ...gameAccounts(game),
-        playerAccount: BlockPuzzleChain.coreAccount(signer.publicKey),
-        matchState: a.match,
+        payer: signer.publicKey,
+        authority: signer.publicKey,
+        requester: account,
+        owner: account,
+        basket: basketPda(account),
+        spill: spillPda(account),
+        ticket: pot,
         systemProgram: SystemProgram.programId,
       })
-      .remainingAccounts(holdings.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })))
       .instruction();
-    if (!game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return this.sendBase(signer, [ix]);
-    const session = await this.openSessionIx(signer.publicKey, matchId, signer.publicKey);
-    return this.sendBase(signer, [ix, session]);
+    await this.sendBase(signer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), open]);
+    const books = await this.bookAccounts(distinct(lines.map((l) => l.source)).slice(0, 6));
+    let last = -1n;
+    for (let i = 0; i < 40; i++) {
+      const info = await this.base.getAccountInfo(pot);
+      const staged = info ? potTotal(info.data) : 0n;
+      if (staged >= entry) break;
+      if (staged === last) throw new Error("Staging the entry made no progress");
+      last = staged;
+      const stage = await this.core.methods
+        .stageEntry(MAX_STAGE_OPS)
+        .accountsPartial({ signer: signer.publicKey, owner: account, basket: basketPda(account), spill: spillPda(account), ticket: pot })
+        .remainingAccounts(books)
+        .instruction();
+      await this.sendBase(signer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), stage]);
+    }
+    return { pot, nonce, potLines: 1, remaining: [], ticket: true };
   }
 
-  /** The Protections address of the Account that opened the Match (a Player on a Break or Self-Excluded cannot be joined or kept waiting). */
-  async openerProtections(matchId: bigint): Promise<PublicKey> {
-    return protectionsPda(await this.openerAccount(matchId));
+  /** The number the Account's next Match gets (its own counter). */
+  private async nextMatchNumber(account: PublicKey): Promise<bigint> {
+    const counters: any = await this.core.account.accountCounters.fetchNullable(countersPda(account));
+    return counters ? BigInt(counters.nextMatch.toString()) : 0n;
   }
 
-  /** The record of the Game the Match was opened for (refunds go through whichever Game it is). */
-  async gameRecordOf(matchId: bigint): Promise<PublicKey> {
-    const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
-    return gameRecordPda(m.inner.game);
+  /**
+   * Seat 0 opens a Match for `game` and draws `entry` Gemas from their basket into a Pot (for Block
+   * Puzzle also its Session). `challenge` marks a Match made for a friend; `asset` is Trading
+   * Duel's market. Returns the Match's address.
+   */
+  async openMatch(signer: ChainSigner, entry: number | bigint, opts: { game?: PublicKey; challenge?: boolean; asset?: number } = {}) {
+    const game = opts.game ?? BLOCK_PUZZLE_PROGRAM_ID;
+    const entryAmount = BigInt(entry);
+    const account = BlockPuzzleChain.coreAccount(signer.publicKey);
+    const n = await this.nextMatchNumber(account);
+    const match = matchAddress(account, n);
+    const prepared = await this.preparePot(signer, account, entryAmount, game);
+    await this.ensureSpillRoom(signer, account, prepared.potLines * 2 + 4);
+    const ix = await this.core.methods
+      .openMatch(game, bn(entryAmount), bn(n), bn(prepared.nonce), opts.challenge ?? false, opts.asset ?? 0, prepared.potLines)
+      .accountsPartial({
+        payer: signer.publicKey,
+        playerAuthority: signer.publicKey,
+        config: BlockPuzzleChain.addresses(match).config,
+        economy: economyPda(),
+        ...gameAccounts(game),
+        playerAccount: account,
+        counters: countersPda(account),
+        protections: protectionsPda(account),
+        basket: basketPda(account),
+        spill: spillPda(account),
+        pot: prepared.pot,
+        matchState: match,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(prepared.remaining)
+      .instruction();
+    const budget = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 });
+    if (!game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return { match, n, sig: await this.sendBase(signer, [budget, ix]) };
+    const session = await this.openSessionIx(signer.publicKey, match, signer.publicKey);
+    return { match, n, sig: await this.sendBaseFit(signer, [budget, ix], [session]) };
   }
 
   /** The Account that opened the Match. */
-  async openerAccount(matchId: bigint): Promise<PublicKey> {
+  async openerAccount(matchId: MatchKey | LegacyMatchId): Promise<PublicKey> {
     const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
     return new PublicKey(Uint8Array.from(m.inner.a.player));
   }
 
-  /** Seat 1 joins with an equal entry; for Block Puzzle also binds to the Session (one transaction). */
-  async joinMatch(signer: ChainSigner, matchId: bigint, holdings: PublicKey[], game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
+  /** The Protections address of the Account that opened the Match (a Player on a Break or Self-Excluded cannot be joined or kept waiting). */
+  async openerProtections(matchId: MatchKey | LegacyMatchId): Promise<PublicKey> {
+    return protectionsPda(await this.openerAccount(matchId));
+  }
+
+  /** The record of the Game the Match was opened for (refunds go through whichever Game it is). */
+  async gameRecordOf(matchId: MatchKey | LegacyMatchId): Promise<PublicKey> {
+    const m = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
+    return gameRecordPda(pk(m.inner.game));
+  }
+
+  /** Seat 1 joins with an equal entry, drawn into their own Pot; for Block Puzzle also binds to the Session. */
+  async joinMatch(signer: ChainSigner, matchId: MatchKey | LegacyMatchId, game: PublicKey = BLOCK_PUZZLE_PROGRAM_ID) {
     const a = BlockPuzzleChain.addresses(matchId);
-    const opener = await this.openerAccount(matchId);
+    const m: any = await this.core.account.matchState.fetch(a.match);
+    const opener = pk(m.inner.a.player);
+    const openerFunder = pk(m.inner.a.funder);
     const joiner = BlockPuzzleChain.coreAccount(signer.publicKey);
+    const prepared = await this.preparePot(signer, joiner, BigInt(m.inner.entry.toString()), game);
+    const room = Number(m.inner.potLines[0]) + prepared.potLines + 2;
+    for (const who of [joiner, opener, openerFunder]) await this.ensureSpillRoom(signer, who, room);
     const ix = await this.core.methods
-      .joinMatch()
+      .joinMatch(bn(prepared.nonce), prepared.potLines)
       .accountsPartial({
+        payer: signer.publicKey,
         playerAuthority: signer.publicKey,
         playerAccount: joiner,
+        counters: countersPda(joiner),
+        protections: protectionsPda(joiner),
+        basket: basketPda(joiner),
+        spill: spillPda(joiner),
+        pot: prepared.pot,
         matchState: a.match,
         openerProtections: protectionsPda(opener),
+        openerSpill: spillPda(opener),
+        openerFunderSpill: spillPda(openerFunder),
         pair: pairPda(opener, joiner),
+        ...gameAccounts(game),
         systemProgram: SystemProgram.programId,
       })
-      .remainingAccounts(holdings.map((pubkey) => ({ pubkey, isSigner: false, isWritable: true })))
+      .remainingAccounts(prepared.remaining)
       .instruction();
-    if (!game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return this.sendBase(signer, [ix]);
-    const session = await this.joinSessionIx(signer.publicKey, matchId, BlockPuzzleChain.coreAccount(signer.publicKey));
-    return this.sendBase(signer, [ix, session]);
+    const budget = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 });
+    if (!game.equals(BLOCK_PUZZLE_PROGRAM_ID)) return this.sendBase(signer, [budget, ix]);
+    const session = await this.joinSessionIx(signer.publicKey, a.match, joiner);
+    return this.sendBaseFit(signer, [budget, ix], [session]);
+  }
+
+  /** One transaction when it fits in 1232 bytes, else the extra instructions in a second one. */
+  private async sendBaseFit(signer: ChainSigner, first: TransactionInstruction[], then: TransactionInstruction[]): Promise<string> {
+    const probe = new Transaction().add(...first, ...then);
+    probe.feePayer = signer.publicKey;
+    probe.recentBlockhash = "11111111111111111111111111111111";
+    let fits = true;
+    try {
+      fits = probe.serialize({ requireAllSignatures: false, verifySignatures: false }).length <= TX_BYTES;
+    } catch {
+      fits = false;
+    }
+    if (fits) return this.sendBase(signer, [...first, ...then]);
+    await this.sendBase(signer, first);
+    return this.sendBase(signer, then);
   }
 
   // ---- session, delegation and the hidden Seed ----------------------------------------------
 
   /** Base layer, anyone. Binds the Session, the opener's Board and the SeedVault to an Open Match. */
-  async openSessionIx(payer: PublicKey, matchId: bigint, opener: PublicKey) {
+  async openSessionIx(payer: PublicKey, matchId: MatchKey | LegacyMatchId, opener: PublicKey) {
     const a = BlockPuzzleChain.addresses(matchId);
     return this.bp.methods
       .openSession()
@@ -333,7 +521,6 @@ export class BlockPuzzleChain {
         board0: a.boards[0],
         vault: a.vault,
         authority: a.authority,
-        gameRecord: gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID),
         tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -341,7 +528,7 @@ export class BlockPuzzleChain {
   }
 
   /** Base layer, anyone (`accountB` is the joiner's TesoroAccount). Creates their Board and extends the Match's refund deadline. */
-  async joinSessionIx(payer: PublicKey, matchId: bigint, accountB: PublicKey) {
+  async joinSessionIx(payer: PublicKey, matchId: MatchKey | LegacyMatchId, accountB: PublicKey) {
     const a = BlockPuzzleChain.addresses(matchId);
     return this.bp.methods
       .joinSession()
@@ -352,7 +539,6 @@ export class BlockPuzzleChain {
         accountB,
         board1: a.boards[1],
         authority: a.authority,
-        gameRecord: gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID),
         tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -360,7 +546,7 @@ export class BlockPuzzleChain {
   }
 
   /** Anyone. Moves the opener's Board and the SeedVault to the TEE validator. */
-  async delegateOpener(payer: ChainSigner, matchId: bigint) {
+  async delegateOpener(payer: ChainSigner, matchId: MatchKey | LegacyMatchId) {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.bp.methods
       .delegateOpener()
@@ -374,7 +560,7 @@ export class BlockPuzzleChain {
   }
 
   /** Anyone, once a second Player joined. Moves the joiner's Board to the TEE validator. */
-  async delegateJoiner(payer: ChainSigner, matchId: bigint) {
+  async delegateJoiner(payer: ChainSigner, matchId: MatchKey | LegacyMatchId) {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.bp.methods
       .delegateJoiner()
@@ -387,7 +573,7 @@ export class BlockPuzzleChain {
   }
 
   /** In the TEE. Makes a Board readable only by its Player. */
-  async initPermission(signer: ChainSigner, matchId: bigint, seat: Seat) {
+  async initPermission(signer: ChainSigner, matchId: MatchKey | LegacyMatchId, seat: Seat) {
     const board = BlockPuzzleChain.addresses(matchId).boards[seat];
     const ix = await this.bp.methods
       .initPermission()
@@ -404,7 +590,7 @@ export class BlockPuzzleChain {
   }
 
   /** In the TEE. Makes the SeedVault unreadable by every wallet (private, zero members). */
-  async initVaultPermission(signer: ChainSigner, matchId: bigint) {
+  async initVaultPermission(signer: ChainSigner, matchId: MatchKey | LegacyMatchId) {
     const vault = BlockPuzzleChain.addresses(matchId).vault;
     const ix = await this.bp.methods
       .initVaultPermission()
@@ -420,18 +606,22 @@ export class BlockPuzzleChain {
     return this.sendTee(signer, [ix]);
   }
 
-  /** In the TEE, anyone. Asks the VRF oracle for the Seed; the callback writes it into the SeedVault only. */
-  async requestSeed(signer: ChainSigner, matchId: bigint, clientSeed = 7) {
+  /**
+   * In the TEE, anyone. Asks the VRF oracle for the Seed; the callback writes it into the SeedVault
+   * only. The program picks the VRF input and accepts only the answer to its current request; a
+   * second request is refused until `SEED_RETRY_SLOTS` (600 rollup slots, about 30 s) have passed.
+   */
+  async requestSeed(signer: ChainSigner, matchId: MatchKey | LegacyMatchId) {
     const vault = BlockPuzzleChain.addresses(matchId).vault;
     const ix = await this.bp.methods
-      .requestSeed(clientSeed)
+      .requestSeed()
       .accountsPartial({ payer: signer.publicKey, vault, oracleQueue: VRF_QUEUE } as any)
       .instruction();
     return this.sendTee(signer, [ix]);
   }
 
   /** In the TEE. True once the Seed is drawn. Reveals nothing: the SeedVault cannot be read. */
-  async seedReady(signer: ChainSigner, matchId: bigint): Promise<boolean> {
+  async seedReady(signer: ChainSigner, matchId: MatchKey | LegacyMatchId): Promise<boolean> {
     const vault = BlockPuzzleChain.addresses(matchId).vault;
     const ix = await this.bp.methods.checkSeed().accountsPartial({ payer: signer.publicKey, vault }).instruction();
     try {
@@ -449,7 +639,7 @@ export class BlockPuzzleChain {
    * in the same transaction; this returns it (read from that Board), which is the first moment the
    * Player can know the piece sequence.
    */
-  async beginRun(signer: ChainSigner, matchId: bigint, seat: Seat): Promise<{ sig: string; seed: bigint }> {
+  async beginRun(signer: ChainSigner, matchId: MatchKey | LegacyMatchId, seat: Seat): Promise<{ sig: string; seed: bigint }> {
     const a = BlockPuzzleChain.addresses(matchId);
     const ix = await this.bp.methods
       .beginRun()
@@ -465,7 +655,7 @@ export class BlockPuzzleChain {
   }
 
   /** Submits moves in batches of at most 40; an illegal move fails its whole batch. */
-  async play(signer: ChainSigner, matchId: bigint, seat: Seat, moves: Move[]): Promise<string[]> {
+  async play(signer: ChainSigner, matchId: MatchKey | LegacyMatchId, seat: Seat, moves: Move[]): Promise<string[]> {
     const board = BlockPuzzleChain.addresses(matchId).boards[seat];
     const sigs: string[] = [];
     for (let i = 0; i < moves.length; i += MAX_PLAY_BATCH) {
@@ -478,14 +668,14 @@ export class BlockPuzzleChain {
     return sigs;
   }
 
-  async finish(signer: ChainSigner, matchId: bigint, seat: Seat) {
+  async finish(signer: ChainSigner, matchId: MatchKey | LegacyMatchId, seat: Seat) {
     const board = BlockPuzzleChain.addresses(matchId).boards[seat];
     const ix = await this.bp.methods.finish().accountsPartial({ player: signer.publicKey, board }).instruction();
     return this.sendTee(signer, [ix]);
   }
 
   /** A Player reads their own Board in the TEE (null for anyone else). Never call for the opponent. */
-  async fetchOwnBoard(signer: ChainSigner, matchId: bigint, seat: Seat) {
+  async fetchOwnBoard(signer: ChainSigner, matchId: MatchKey | LegacyMatchId, seat: Seat) {
     const conn = await this.tee(signer);
     const board = BlockPuzzleChain.addresses(matchId).boards[seat];
     const info = await conn.getAccountInfo(board).catch(() => null);
@@ -497,7 +687,7 @@ export class BlockPuzzleChain {
    * timeout). Seals both Boards, closes their permissions and commits + undelegates them.
    * Waits for the Boards to be back on the base layer and returns the commit signature.
    */
-  async sealAndCommit(payer: ChainSigner, matchId: bigint, onSent?: () => void): Promise<{ teeSig: string; commitSig?: string }> {
+  async sealAndCommit(payer: ChainSigner, matchId: MatchKey | LegacyMatchId, onSent?: () => void): Promise<{ teeSig: string; commitSig?: string }> {
     const a = BlockPuzzleChain.addresses(matchId);
     const seal = await this.bp.methods
       .seal()
@@ -529,41 +719,44 @@ export class BlockPuzzleChain {
 
   // ---- settlement ---------------------------------------------------------------------------
 
-  /** Anyone. Settles through tesoro_core from the committed Boards (the program picks the winner). */
-  async settle(payer: ChainSigner, matchId: bigint) {
+  /**
+   * Anyone. Starts the settlement through tesoro_core from the committed Boards (the program picks
+   * the winner) and writes the receipt. The payouts follow in chunks: `runChunks`, then `closeMatch`.
+   */
+  async settle(payer: ChainSigner, matchId: MatchKey | LegacyMatchId) {
     const a = BlockPuzzleChain.addresses(matchId);
     const [b0, b1]: any[] = await Promise.all(a.boards.map((b) => this.bp.account.board.fetch(b)));
     const result = decide([b0.startedAt.isZero(), b1.startedAt.isZero()], [b0.score, b1.score]);
-    const remaining = await this.payoutAccounts(payer, matchId, result);
-    const ix = await this.bp.methods
-      .settle()
-      .accountsPartial(this.settleAccounts(payer, a))
-      .remainingAccounts(remaining)
-      .instruction();
+    const ix = await this.bp.methods.settle().accountsPartial(this.settleAccounts(payer, a)).instruction();
     return { sig: await this.sendBase(payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]), result };
   }
 
-  /** tesoro_core `refund_match`: the opener of an unjoined Match, anyone after the deadline. Returns the entries. */
-  async refundMatch(caller: ChainSigner, matchId: bigint) {
+  /** tesoro_core `refund_match`: the opener of an unjoined Match, anyone after the deadline. Starts the refund; `runChunks` and `closeMatch` finish it. */
+  async refundMatch(caller: ChainSigner, matchId: MatchKey | LegacyMatchId) {
     const a = BlockPuzzleChain.addresses(matchId);
-    const remaining = await this.payoutAccounts(caller, matchId, "draw");
+    const m: any = await this.core.account.matchState.fetch(a.match);
+    const game = pk(m.inner.game);
     const ix = await this.core.methods
       .refundMatch()
-      .accountsPartial({ caller: caller.publicKey, gameRecord: await this.gameRecordOf(matchId), matchState: a.match, openerProtections: await this.openerProtections(matchId) })
-      .remainingAccounts(remaining)
+      .accountsPartial({
+        caller: caller.publicKey,
+        payer: caller.publicKey,
+        ...gameAccounts(game),
+        matchState: a.match,
+        receipt: receiptPda(a.match),
+        openerProtections: protectionsPda(pk(m.inner.a.player)),
+        systemProgram: SystemProgram.programId,
+        eventAuthority: eventAuthorityPda(),
+        program: TESORO_CORE_PROGRAM_ID,
+      })
       .instruction();
     return this.sendBase(caller, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
   }
 
-  /** Anyone, after the submission deadline, for a joined Match whose Boards were never delegated. Refunds both. */
-  async claimTimeout(payer: ChainSigner, matchId: bigint) {
+  /** Anyone, after the submission deadline, for a joined Match whose Boards were never delegated. Starts refunding both; `runChunks` and `closeMatch` finish it. */
+  async claimTimeout(payer: ChainSigner, matchId: MatchKey | LegacyMatchId) {
     const a = BlockPuzzleChain.addresses(matchId);
-    const remaining = await this.payoutAccounts(payer, matchId, "draw");
-    const ix = await this.bp.methods
-      .claimTimeout()
-      .accountsPartial(this.settleAccounts(payer, a))
-      .remainingAccounts(remaining)
-      .instruction();
+    const ix = await this.bp.methods.claimTimeout().accountsPartial(this.settleAccounts(payer, a)).instruction();
     return this.sendBase(payer, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
   }
 
@@ -577,49 +770,162 @@ export class BlockPuzzleChain {
       config: a.config,
       gameRecord: gameRecordPda(BLOCK_PUZZLE_PROGRAM_ID),
       matchState: a.match,
+      gameProgram: BLOCK_PUZZLE_PROGRAM_ID,
+      programData: programDataPda(BLOCK_PUZZLE_PROGRAM_ID),
+      receipt: receiptPda(a.match),
+      systemProgram: SystemProgram.programId,
+      coreEventAuthority: eventAuthorityPda(),
       tesoroCoreProgram: TESORO_CORE_PROGRAM_ID,
+      eventAuthority: a.eventAuthority,
+      program: BLOCK_PUZZLE_PROGRAM_ID,
     };
   }
 
-  /** Payout accounts in tesoro_core's order; opens any Holding a recipient is missing first. */
-  private async payoutAccounts(payer: ChainSigner, matchId: bigint, result: Result) {
-    const m: any = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
-    const payouts = computePayouts(m.inner, result, await fetchLeaderboardTerms(this.base));
-    const holdings = payouts.map((p) => BlockPuzzleChain.holding(p.recipient, p.source));
-    const existing = await this.base.getMultipleAccountsInfo(holdings);
-    const missing: TransactionInstruction[] = [];
-    for (let i = 0; i < payouts.length; i++) {
-      if (existing[i]) continue;
-      const p = payouts[i];
-      missing.push(
-        await this.core.methods
-          .openHolding()
-          .accountsPartial({ payer: payer.publicKey, account: p.recipient, source: p.source, holding: holdings[i], systemProgram: SystemProgram.programId })
-          .instruction(),
-      );
+  /** The Accounts that get paid (or refunded) in a Match: both sides, their funders and an outside Studio. */
+  private owners(m: any): PublicKey[] {
+    const out: PublicKey[] = [];
+    const add = (k: PublicKey) => {
+      if (!out.some((o) => o.equals(k))) out.push(k);
+    };
+    add(pk(m.inner.a.player));
+    add(pk(m.inner.a.funder));
+    if (m.inner.b) {
+      add(pk(m.inner.b.player));
+      add(pk(m.inner.b.funder));
     }
-    // A settlement can pay up to 18 Holdings: open the missing ones a few per transaction.
-    for (let i = 0; i < missing.length; i += OPEN_HOLDINGS_PER_TX) await this.sendBase(payer, missing.slice(i, i + OPEN_HOLDINGS_PER_TX));
-    const metas: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
-    payouts.forEach((p, i) => metas.push({ pubkey: p.recipient, isSigner: false, isWritable: true }, { pubkey: holdings[i], isSigner: false, isWritable: true }));
-    return metas;
+    if (m.inner.terms.studioOwner) add(pk(m.inner.terms.studioOwner));
+    return out;
+  }
+
+  /**
+   * The accounts one settlement chunk reads and writes besides the Match and its Pots: every
+   * credited Account's basket and spill, and for each Source with Gemas left in the Pots its book
+   * (with checkpoint pages), SourceState and Position, plus the custody and rate account of the
+   * Position's kind. A superset of the program's next-steps list (see `potSources`).
+   */
+  private async chunkAccounts(m: any, potData: (Uint8Array | null)[]) {
+    const meta = (pubkey: PublicKey, isWritable: boolean) => ({ pubkey, isSigner: false, isWritable });
+    const out = [];
+    for (const o of this.owners(m)) out.push(meta(basketPda(o), true), meta(spillPda(o), true));
+    const sources = potSources(potData);
+    const states: any[] = sources.length ? await this.core.account.sourceState.fetchMultiple(sources) : [];
+    const positions: PublicKey[] = states.map((s, i) => {
+      if (!s) throw new Error(`Source ${sources[i].toBase58()} not found`);
+      return pk(s.inner.position);
+    });
+    const positionStates: any[] = positions.length ? await this.core.account.positionState.fetchMultiple(positions) : [];
+    const extra = new Map<string, PublicKey>();
+    for (const p of positionStates) {
+      if (!p) continue;
+      const solana = "solana" in p.inner.sourceChain;
+      const asset = pk(p.inner.sourceAsset);
+      if (!solana) continue;
+      if (asset.equals(SIM_SOL_MINT)) {
+        const custody = nativeCustodyPda();
+        extra.set(custody.toBase58(), custody);
+        const c: any = await this.core.account.nativeCustody.fetch(custody);
+        extra.set(c.pool.toBase58(), c.pool);
+      } else if (!new BN(p.inner.stakeRateOpen.toString()).isZero()) {
+        const custody = PublicKey.findProgramAddressSync([Buffer.from("stake_custody"), asset.toBuffer()], TESORO_CORE_PROGRAM_ID)[0];
+        extra.set(custody.toBase58(), custody);
+        const c: any = await this.core.account.stakeCustody.fetch(custody);
+        extra.set(c.pool.toBase58(), c.pool);
+      }
+    }
+    for (let i = 0; i < sources.length; i++) {
+      out.push(...(await this.bookAccounts([sources[i]])), meta(sources[i], false), meta(positions[i], true));
+    }
+    for (const k of extra.values()) out.push(meta(k, false));
+    return out;
+  }
+
+  /** The Pot accounts of a Match that have been made (side B only once somebody joined). */
+  private potKeys(m: any): PublicKey[] {
+    return (m.pots as PublicKey[]).filter((k) => !k.equals(PublicKey.default));
+  }
+
+  /** Anyone. One `match_chunk` of at most `steps` steps. Returns false once the run is complete. */
+  async chunk(caller: ChainSigner, matchId: MatchKey | LegacyMatchId, steps = MAX_CHUNK_STEPS): Promise<boolean> {
+    const a = BlockPuzzleChain.addresses(matchId);
+    const m: any = await this.core.account.matchState.fetch(a.match);
+    if (stageOf(m.inner.stage) === "closed") return false;
+    const pots = this.potKeys(m);
+    const potData = (await this.base.getMultipleAccountsInfo(pots)).map((i) => i?.data ?? null);
+    const remaining = await this.chunkAccounts(m, potData);
+    const ix = await this.core.methods
+      .matchChunk(steps)
+      .accountsPartial({
+        caller: caller.publicKey,
+        matchState: a.match,
+        potA: pots[0],
+        potB: pots[1] ?? null,
+        eventAuthority: eventAuthorityPda(),
+        program: TESORO_CORE_PROGRAM_ID,
+      })
+      .remainingAccounts(remaining)
+      .instruction();
+    await this.sendBase(caller, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
+    return true;
+  }
+
+  /** Anyone. Chunks until the Settling or Refunding run is complete (the Match is then Closed). */
+  async runChunks(caller: ChainSigner, matchId: MatchKey | LegacyMatchId, steps = MAX_CHUNK_STEPS): Promise<MatchStage> {
+    const a = BlockPuzzleChain.addresses(matchId);
+    for (let i = 0; i < 200; i++) {
+      const m: any = await this.core.account.matchState.fetch(a.match);
+      const stage = stageOf(m.inner.stage);
+      if (stage === "closed") return stage;
+      if (stage !== "settling" && stage !== "refunding") throw new Error(`The Match is ${stage}: no settlement is running`);
+      await this.chunk(caller, a.match, steps);
+    }
+    throw new Error("The settlement did not finish in 200 chunks");
+  }
+
+  /** Anyone, once the Match is Closed: gives the account rents back and frees the opener's and joiner's Match slots. */
+  async closeMatch(caller: ChainSigner, matchId: MatchKey | LegacyMatchId) {
+    const a = BlockPuzzleChain.addresses(matchId);
+    const m: any = await this.core.account.matchState.fetch(a.match);
+    const pots = this.potKeys(m);
+    const potInfos = await this.base.getMultipleAccountsInfo(pots);
+    const payers = potInfos.map((i) => (i ? potPayer(i.data) : PublicKey.default));
+    const sponsored = potInfos.some((i) => i && potSponsored(i.data) > 0n);
+    const remaining = [
+      ...this.owners(m).map((o) => ({ pubkey: spillPda(o), isSigner: false, isWritable: true })),
+      { pubkey: countersPda(pk(m.inner.a.player)), isSigner: false, isWritable: true },
+      ...(m.inner.b ? [{ pubkey: countersPda(pk(m.inner.b.player)), isSigner: false, isWritable: true }] : []),
+    ];
+    const ix = await this.core.methods
+      .closeMatch()
+      .accountsPartial({
+        caller: caller.publicKey,
+        matchState: a.match,
+        matchPayer: m.payer,
+        potA: pots[0],
+        potAPayer: payers[0],
+        potB: pots[1] ?? null,
+        potBPayer: pots[1] ? payers[1] : null,
+        sponsor: sponsored ? sponsorPda() : null,
+      })
+      .remainingAccounts(remaining)
+      .instruction();
+    return this.sendBase(caller, [ix]);
   }
 
   // ---- results ------------------------------------------------------------------------------
 
-  async fetchSession(matchId: bigint) {
+  async fetchSession(matchId: MatchKey | LegacyMatchId) {
     return this.bp.account.session.fetch(BlockPuzzleChain.addresses(matchId).session) as Promise<any>;
   }
 
   /** Public result: readable by anyone once settled (and each Board's move log after commit). */
-  async fetchResult(matchId: bigint) {
+  async fetchResult(matchId: MatchKey | LegacyMatchId) {
     const s = await this.fetchSession(matchId);
     const m: any = await this.core.account.matchState.fetch(BlockPuzzleChain.addresses(matchId).match);
     return {
       settled: s.settled as boolean,
       result: (["opener", "joiner", "draw"] as const)[s.result as number],
       scores: (s.scores as number[]).map(Number) as [number, number],
-      matchStatus: Object.keys(m.inner.status)[0],
+      matchStatus: stageOf(m.inner.stage),
       seed: BigInt(s.seed.toString()),
       deadline: Number(s.deadline.toString()),
     };
@@ -634,70 +940,4 @@ export function decide(forfeited: [boolean, boolean], scores: [number, number]):
   return scores[0] > scores[1] ? "opener" : scores[0] < scores[1] ? "joiner" : "draw";
 }
 
-const big = (n: any) => BigInt(n.toString());
-const normalize = (lines: any[]): Line[] => {
-  const out: Line[] = [];
-  const sorted = lines.map((l) => ({ source: pk(l.source), amount: big(l.amount) })).filter((l) => l.amount > 0n);
-  sorted.sort((x, y) => keyCmp(x.source, y.source));
-  for (const l of sorted) {
-    const last = out[out.length - 1];
-    if (last && last.source.equals(l.source)) last.amount += l.amount;
-    else out.push({ ...l });
-  }
-  return out;
-};
-const take = (lines: Line[], amount: bigint): Line[] => {
-  const taken: Line[] = [];
-  for (const l of lines) {
-    if (amount === 0n) break;
-    const t = l.amount < amount ? l.amount : amount;
-    if (t > 0n) {
-      l.amount -= t;
-      amount -= t;
-      taken.push({ source: l.source, amount: t });
-    }
-  }
-  return taken;
-};
-const sum = (lines: Line[]) => lines.reduce((a, l) => a + l.amount, 0n);
-
-/** Port of `Match::settle` payouts in programs/tesoro_core/src/ledger/matches.rs (merged and sorted). */
-export function computePayouts(m: any, result: Result, lb: LeaderboardTerms = NO_LEADERBOARD): Payout[] {
-  const out: Payout[] = [];
-  const push = (recipient: PublicKey, lines: Line[]) => {
-    for (const l of lines) if (l.amount > 0n) out.push({ recipient, source: l.source, amount: l.amount });
-  };
-  const sideA = m.a;
-  const sideB = m.b;
-  if (result === "draw") {
-    push(pk(sideA.funder), normalize(sideA.lines));
-    if (sideB) push(pk(sideB.funder), normalize(sideB.lines));
-  } else {
-    const [winner, loser] = result === "opener" ? [sideA, sideB] : [sideB, sideA];
-    const pot = big(m.entry) * 2n;
-    const platform = (pot * BigInt(m.fees.platformBps)) / 10_000n;
-    const studio = (pot * BigInt(m.fees.studioBps)) / 10_000n;
-    const rest = normalize(loser.lines);
-    push(pk(m.fees.platformRecipient), take(rest, platform));
-    push(pk(m.fees.studioRecipient), take(rest, studio));
-    if (lb.recipient) push(lb.recipient, take(rest, (pot * BigInt(lb.bps)) / 10_000n));
-    if (pk(winner.funder).equals(pk(winner.player)) === false) {
-      const surplus = sum(rest);
-      push(pk(winner.funder), normalize(winner.lines));
-      const share = (surplus * BigInt(winner.shareBps)) / 10_000n;
-      push(pk(winner.player), take(rest, share));
-      push(pk(winner.funder), rest);
-    } else {
-      push(pk(winner.player), normalize(winner.lines));
-      push(pk(winner.player), rest);
-    }
-  }
-  out.sort((x, y) => keyCmp(x.recipient, y.recipient) || keyCmp(x.source, y.source));
-  const merged: Payout[] = [];
-  for (const p of out) {
-    const last = merged[merged.length - 1];
-    if (last && last.recipient.equals(p.recipient) && last.source.equals(p.source)) last.amount += p.amount;
-    else merged.push({ ...p });
-  }
-  return merged;
-}
+const distinct = (keys: PublicKey[]) => keys.filter((k, i) => keys.findIndex((o) => o.equals(k)) === i);

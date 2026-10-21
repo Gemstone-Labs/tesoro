@@ -10,16 +10,17 @@ The opener plays before an opponent is paired (Queue: "Play now, you'll be paire
 
 | # | Where | Instruction | Who |
 |---|---|---|---|
-| 1 | base | `tesoro_core::open_match` (`game = block_puzzle`, entry 500 / 1,000 / 2,500) + `open_session` (same transaction) | seat 0 (`open_session`: anyone) |
+| 1 | base | `tesoro_core::open_match` (`game = block_puzzle`; the entry is drawn from the opener's basket into a Pot, or from a staged Entry Ticket; Match = `["match", opener Account, n]`) + `open_session` (same transaction when it fits) | seat 0 (`open_session`: anyone) |
 | 2 | base | `delegate_opener`: opener's `Board` and the `SeedVault` to the TEE validator `MTEWGuqx...` (any other validator, or none, is refused: audit F-01) | anyone |
 | 3 | TEE | `init_vault_permission` (private, **zero members**), `init_permission` (Board private, member = its Player) | anyone |
-| 4 | TEE | `request_seed(client_seed)`: VRF request; the oracle's callback `seed_callback` writes the Seed only into the SeedVault. `check_seed` succeeds once it is there | anyone |
+| 4 | TEE | `request_seed`: VRF request with a program-chosen input, bound to the request; the oracle's callback `seed_callback` writes the Seed only into the SeedVault, only for the current request. `check_seed` succeeds once it is there | anyone |
 | 5 | TEE | `begin_run`: copies the Seed into the beginning Player's own Board and starts their 90 s clock; `play(moves)` (batches of at most 40); `finish` | the Player |
 | 6 | base | `tesoro_core::join_match` + `join_session` (same transaction): creates seat 1's Board, extends the Match refund deadline | seat 1 (`join_session`: anyone) |
 | 7 | base | `delegate_joiner`: the joiner's Board to the TEE | anyone |
 | 8 | TEE | joiner: `init_permission`, `begin_run`, `play`, `finish` (same Seed) | the Player |
 | 9 | TEE | `seal` + `commit_boards`: only when both runs are closed (or deadlines passed); closes permissions, wipes the SeedVault, commits + undelegates both Boards and the SeedVault | anyone |
-| 10 | base | `settle` (or `claim_timeout`): CPI `tesoro_core::settle_match` signed by the `["authority"]` PDA | anyone |
+| 10 | base | `settle` (or `claim_timeout`): CPI `tesoro_core::settle_match` signed by the `["authority"]` PDA. It starts the run and writes the receipt `["settled", match]`; `SessionSettled` is an event-CPI of block_puzzle | anyone |
+| 11 | base | `tesoro_core::match_chunk` (anyone, repeated until the Match is Closed: fee cuts and payouts), then `close_match` (rents back) | anyone |
 
 Nobody joins: `tesoro_core::refund_match` (the opener at once, anyone after the Match deadline) returns the entry. Steps 2 to 5 do not depend on step 6.
 
@@ -29,17 +30,17 @@ Nobody joins: `tesoro_core::refund_match` (the opener at once, anyone after the 
 `join_session`: `payer`, `session` (mut), `match_state` (mut, Active), `account_b` (joiner's TesoroAccount), `board_1` (PDA `["board", session, 1]`, init), `authority` (PDA `["authority"]`), `config`, `tesoro_core_program`, `system_program`.
 `delegate_opener`: `payer`, `session`, `board_0`, `vault`, `validator` (+ delegation accounts). `delegate_joiner`: `payer`, `session`, `board_1`, `validator`.
 `init_permission`: `payer`, `board`, `permission`, `permission_program`, `ephemeral_vault`, `magic_program`. `init_vault_permission`: same with `vault`.
-`request_seed(client_seed: u8)`: `payer`, `vault`, `oracle_queue` (the delegated default VRF queue) + VRF program accounts. `seed_callback(randomness: [u8; 32])`: only the VRF program identity can sign. `check_seed`: `payer`, `vault`.
+`request_seed`: `payer`, `vault` (mut), `oracle_queue` (the delegated default VRF queue) + VRF program accounts. `seed_callback(randomness: [u8; 32])`: `vault`, `request` (an account whose address is the request id) and the VRF program identity as signer. `check_seed`: `payer`, `vault`.
 `begin_run`: `player` (signer), `board`, `vault`. `play(moves: Vec<MoveArg>)`, `finish`: `player`, `board`.
 `seal`: `payer`, `board_0`, `board_1`. `commit_boards`: `payer`, `board_0`, `board_1`, `vault`, `permission_0`, `permission_1`, `vault_permission`, `permission_program`, `ephemeral_vault`, `magic_context` (+ program).
-`settle`, `claim_timeout`: `payer`, `session`, `board_0`, `board_1`, `authority`, `config`, `match_state`, `tesoro_core_program` + payout accounts as `remaining_accounts` (as for `settle_match`).
+`settle`, `claim_timeout`: `payer`, `session`, `board_0`, `board_1`, `authority`, `config`, `game_record`, `match_state`, `game_program`, `program_data`, `receipt`, `system_program`, `core_event_authority`, `tesoro_core_program`, and this program's own `event_authority` + `program` (event-CPI). The payouts are `match_chunk`s afterwards (tesoro_core).
 Removed from the previous version: `start_session`, `reveal_seed`, `delegate_boards`.
 
 ### Seed: nobody chooses it, nobody sees it early
 
 Requirements: fixed before the opener plays; unpredictable at open time; the joiner must not learn the opener's moves; nobody may precompute the piece sequence before their run.
 
-`seed = first 8 bytes of H("tesoro/block-puzzle/seed" || match || vrf_output)`, computed **inside the private rollup**. After `delegate_opener` the SeedVault is in the TEE with a private permission that has no member, so no wallet can read it (docs/spikes/S1.md did the same for the Hold'em Deck). `request_seed` asks the MagicBlock VRF oracle from inside the TEE; the callback writes the output only into the SeedVault, once (`SeedAlreadyDrawn`). Nothing about the Seed touches the base layer, so it cannot be known at open time, and the opener cannot grind (the request is one-shot, and the output is not readable). It is fixed before the first `begin_run`, which requires `vault.ready`.
+`seed = first 8 bytes of H("tesoro/block-puzzle/seed" || match || request_id || vrf_output)`, computed **inside the private rollup**. After `delegate_opener` the SeedVault is in the TEE with a private permission that has no member, so no wallet can read it (docs/spikes/S1.md did the same for the Hold'em Deck). `request_seed` asks the MagicBlock VRF oracle from inside the TEE. The program picks the VRF input, `H("tesoro/block-puzzle/vrf-request" || match || request number)`, keeps it as the request id and names it as an account in the callback; the callback is taken only while that request is pending (`SeedRequestMismatch` otherwise), writes the output only into the SeedVault, once (`SeedAlreadyDrawn`), and the id goes into the seed hash. A new request is refused (`SeedRequestPending`) until 600 rollup slots have passed; then it replaces the old one and the old answer is dead. Nothing about the Seed touches the base layer, so it cannot be known at open time, and the opener cannot grind (the request is one-shot, and the output is not readable). It is fixed before the first `begin_run`, which requires `vault.ready`.
 
 `begin_run` is the only instruction that moves the Seed: it copies it into the beginning Player's own Board (readable only by that Player) in the same transaction that starts their clock. The Board's `seed` is 0 before that, so the piece sequence reaches a Player only when their run begins. The client reads it back from its own Board (`beginRun` returns it). The Seed becomes public only when the Boards commit (settlement copies it into the Session).
 

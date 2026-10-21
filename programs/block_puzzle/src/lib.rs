@@ -121,6 +121,10 @@ pub enum BlockPuzzleError {
     NotJoined,
     #[msg("delegation must name the TEE validator")]
     InvalidValidator,
+    #[msg("a seed request is already waiting for its answer")]
+    SeedRequestPending,
+    #[msg("no seed request is waiting, or the answer is not for the current request")]
+    SeedRequestMismatch,
 }
 
 #[derive(Clone, Copy, AnchorSerialize, AnchorDeserialize)]
@@ -139,11 +143,28 @@ pub struct SessionSettled {
     pub forfeited: [bool; 2],
 }
 
+/// Slots the oracle gets to answer a seed request before the same SeedVault may ask again
+/// (rollup slots are ~50 ms; the default queue answers within a second or two).
+pub const SEED_RETRY_SLOTS: u64 = 600;
+
+/// The VRF input the program chooses for a SeedVault's `request_no`-th request: a domain
+/// separator over the Match and the request number, never anything a client sent. It is also the
+/// request id the answer must carry back (see `SeedVault::accept`).
+pub fn request_input(match_state: &Pubkey, request_no: u32) -> [u8; 32] {
+    hashv(&[
+        b"tesoro/block-puzzle/vrf-request",
+        match_state.as_ref(),
+        &request_no.to_le_bytes(),
+    ])
+    .to_bytes()
+}
+
 /// The Seed for a Match from the VRF output. Only ever computed inside the rollup.
-pub fn derive_seed(match_state: &Pubkey, randomness: &[u8; 32]) -> u64 {
+pub fn derive_seed(match_state: &Pubkey, request_id: &[u8; 32], randomness: &[u8; 32]) -> u64 {
     let digest = hashv(&[
         b"tesoro/block-puzzle/seed",
         match_state.as_ref(),
+        request_id,
         randomness,
     ])
     .to_bytes();
@@ -413,23 +434,33 @@ pub mod block_puzzle {
     }
 
     /// Rollup, anyone. Requests VRF randomness from the delegated oracle queue; the oracle calls
-    /// back into `seed_callback` inside the rollup, which writes it only into the SeedVault. May
-    /// be repeated until the output arrives.
-    pub fn request_seed(ctx: Context<RequestSeed>, client_seed: u8) -> Result<()> {
-        let vault = &ctx.accounts.vault;
-        require!(vault.permission_ready, BlockPuzzleError::PermissionNotReady);
-        require!(!vault.ready, BlockPuzzleError::SeedAlreadyDrawn);
+    /// back into `seed_callback` inside the rollup, which writes it only into the SeedVault. The
+    /// program picks the VRF input (`request_input`) and remembers it as the request id: the
+    /// callback names the same id as an account, so only the answer to the current request is
+    /// taken. One request is outstanding at a time; after `SEED_RETRY_SLOTS` without an answer
+    /// the next request replaces it.
+    pub fn request_seed(ctx: Context<RequestSeed>) -> Result<()> {
+        let slot = Clock::get()?.slot;
+        let vault = &mut ctx.accounts.vault;
+        let request_id = vault.start_request(slot)?;
         let ix = create_request_scoped_randomness_ix(RequestRandomnessParams {
             payer: ctx.accounts.payer.key(),
             oracle_queue: ctx.accounts.oracle_queue.key(),
             callback_program_id: ID,
             callback_discriminator: instruction::SeedCallback::DISCRIMINATOR.to_vec(),
-            caller_seed: [client_seed; 32],
-            accounts_metas: Some(vec![SerializableAccountMeta {
-                pubkey: ctx.accounts.vault.key(),
-                is_signer: false,
-                is_writable: true,
-            }]),
+            caller_seed: request_id,
+            accounts_metas: Some(vec![
+                SerializableAccountMeta {
+                    pubkey: ctx.accounts.vault.key(),
+                    is_signer: false,
+                    is_writable: true,
+                },
+                SerializableAccountMeta {
+                    pubkey: Pubkey::new_from_array(request_id),
+                    is_signer: false,
+                    is_writable: false,
+                },
+            ]),
             ..Default::default()
         });
         ctx.accounts
@@ -437,13 +468,11 @@ pub mod block_puzzle {
         Ok(())
     }
 
-    /// Rollup, called by the VRF program only. Stores the Seed in the private SeedVault.
+    /// Rollup, called by the VRF program only. Stores the Seed in the private SeedVault, if it
+    /// answers the request the SeedVault is waiting for.
     pub fn seed_callback(ctx: Context<SeedCallback>, randomness: [u8; 32]) -> Result<()> {
-        let vault = &mut ctx.accounts.vault;
-        require!(!vault.ready, BlockPuzzleError::SeedAlreadyDrawn);
-        vault.seed = derive_seed(&vault.match_state, &randomness);
-        vault.ready = true;
-        Ok(())
+        let request_id = ctx.accounts.request.key().to_bytes();
+        ctx.accounts.vault.accept(&request_id, &randomness)
     }
 
     /// Rollup, anyone. Succeeds once the Seed is drawn and reveals nothing: clients poll it to
@@ -742,14 +771,14 @@ fn finalize<'info>(
                 match_state: ctx.accounts.match_state.to_account_info(),
                 receipt: ctx.accounts.receipt.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
-                event_authority: ctx.accounts.event_authority.to_account_info(),
+                event_authority: ctx.accounts.core_event_authority.to_account_info(),
                 program: ctx.accounts.tesoro_core_program.to_account_info(),
             },
             signer,
         ),
         result,
     )?;
-    emit!(SessionSettled {
+    emit_cpi!(SessionSettled {
         match_state: match_key,
         result: code,
         scores,
@@ -922,7 +951,7 @@ pub struct InitVaultPermission<'info> {
 pub struct RequestSeed<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(seeds = [VAULT_SEED, vault.session.as_ref()], bump = vault.bump)]
+    #[account(mut, seeds = [VAULT_SEED, vault.session.as_ref()], bump = vault.bump)]
     pub vault: Account<'info, SeedVault>,
     /// CHECK: validated by the VRF program
     #[account(mut, address = ephemeral_rollups_sdk::vrf::consts::DEFAULT_EPHEMERAL_QUEUE)]
@@ -934,6 +963,9 @@ pub struct RequestSeed<'info> {
 pub struct SeedCallback<'info> {
     #[account(mut, seeds = [VAULT_SEED, vault.session.as_ref()], bump = vault.bump)]
     pub vault: Account<'info, SeedVault>,
+    /// CHECK: carries the request id as its address; `SeedVault::accept` compares it with the
+    /// id of the request the vault is waiting for.
+    pub request: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1020,6 +1052,7 @@ pub struct CommitBoards<'info> {
 }
 
 /// Starts the settlement in `tesoro_core` (its payout chunks follow); `payer` pays the receipt.
+#[event_cpi]
 #[derive(Accounts)]
 pub struct Settle<'info> {
     #[account(mut)]
@@ -1065,7 +1098,7 @@ pub struct Settle<'info> {
     pub system_program: Program<'info, System>,
     /// CHECK: tesoro_core's event authority PDA.
     #[account(seeds = [b"__event_authority"], bump, seeds::program = tesoro_core::ID)]
-    pub event_authority: UncheckedAccount<'info>,
+    pub core_event_authority: UncheckedAccount<'info>,
     pub tesoro_core_program: Program<'info, tesoro_core::program::TesoroCore>,
 }
 
@@ -1103,6 +1136,51 @@ pub struct SeedVault {
     pub permission_ready: bool,
     pub ready: bool,
     pub seed: u64,
+    /// Seed requests made so far; the next request id is derived from it.
+    pub requests: u32,
+    /// A request is out and its answer has not come yet.
+    pub pending: bool,
+    /// The VRF input of the current request (`request_input`), also the id its answer must carry.
+    pub request_id: [u8; 32],
+    /// Rollup slot of the current request.
+    pub requested_slot: u64,
+}
+
+impl SeedVault {
+    /// Starts the next request and returns its id. Refused while the Seed is drawn, while the
+    /// vault is not private yet, and while an earlier request is still inside its window.
+    pub fn start_request(&mut self, slot: u64) -> Result<[u8; 32]> {
+        require!(self.permission_ready, BlockPuzzleError::PermissionNotReady);
+        require!(!self.ready, BlockPuzzleError::SeedAlreadyDrawn);
+        if self.pending {
+            let retry_at = self
+                .requested_slot
+                .checked_add(SEED_RETRY_SLOTS)
+                .ok_or(BlockPuzzleError::Overflow)?;
+            require!(slot >= retry_at, BlockPuzzleError::SeedRequestPending);
+        }
+        self.requests = self
+            .requests
+            .checked_add(1)
+            .ok_or(BlockPuzzleError::Overflow)?;
+        self.request_id = request_input(&self.match_state, self.requests);
+        self.pending = true;
+        self.requested_slot = slot;
+        Ok(self.request_id)
+    }
+
+    /// Takes the oracle's answer if it is for the request the vault waits for.
+    pub fn accept(&mut self, request_id: &[u8; 32], randomness: &[u8; 32]) -> Result<()> {
+        require!(!self.ready, BlockPuzzleError::SeedAlreadyDrawn);
+        require!(
+            self.pending && *request_id == self.request_id,
+            BlockPuzzleError::SeedRequestMismatch
+        );
+        self.seed = derive_seed(&self.match_state, request_id, randomness);
+        self.pending = false;
+        self.ready = true;
+        Ok(())
+    }
 }
 
 /// One Player's run. Private in the rollup; public once committed after both runs close. The
@@ -1189,12 +1267,87 @@ mod tests {
         assert!(matches!(decide([true, true], [0, 0]), MatchResult::Draw));
     }
 
+    fn vault() -> SeedVault {
+        SeedVault {
+            bump: 255,
+            session: Pubkey::new_unique(),
+            match_state: Pubkey::new_unique(),
+            permission_ready: true,
+            ready: false,
+            seed: 0,
+            requests: 0,
+            pending: false,
+            request_id: [0; 32],
+            requested_slot: 0,
+        }
+    }
+
     #[test]
-    fn seed_depends_on_the_output_and_the_match() {
+    fn seed_depends_on_the_output_the_request_and_the_match() {
         let m = Pubkey::new_unique();
-        let r = [7u8; 32];
-        assert_eq!(derive_seed(&m, &r), derive_seed(&m, &r));
-        assert_ne!(derive_seed(&m, &r), derive_seed(&m, &[8u8; 32]));
-        assert_ne!(derive_seed(&m, &r), derive_seed(&Pubkey::new_unique(), &r));
+        let (id, r) = ([1u8; 32], [7u8; 32]);
+        assert_eq!(derive_seed(&m, &id, &r), derive_seed(&m, &id, &r));
+        assert_ne!(derive_seed(&m, &id, &r), derive_seed(&m, &id, &[8u8; 32]));
+        assert_ne!(derive_seed(&m, &id, &r), derive_seed(&m, &[2u8; 32], &r));
+        assert_ne!(
+            derive_seed(&m, &id, &r),
+            derive_seed(&Pubkey::new_unique(), &id, &r)
+        );
+    }
+
+    #[test]
+    fn the_vrf_input_is_the_programs_and_differs_per_match_and_request() {
+        let (m, n) = (Pubkey::new_unique(), Pubkey::new_unique());
+        assert_eq!(request_input(&m, 1), request_input(&m, 1));
+        assert_ne!(request_input(&m, 1), request_input(&m, 2));
+        assert_ne!(request_input(&m, 1), request_input(&n, 1));
+    }
+
+    #[test]
+    fn only_the_answer_to_the_current_request_is_taken() {
+        let mut v = vault();
+        let r = [9u8; 32];
+        // nothing asked yet: any answer is refused
+        assert!(v.accept(&request_input(&v.match_state, 1), &r).is_err());
+        let first = v.start_request(10).expect("request");
+        assert_eq!(first, request_input(&v.match_state, 1));
+        // an answer carrying another request id (another Match's, or a stale one) is refused
+        assert!(v
+            .accept(&request_input(&Pubkey::new_unique(), 1), &r)
+            .is_err());
+        assert!(v.accept(&[0; 32], &r).is_err());
+        assert!(!v.ready);
+        v.accept(&first, &r).expect("answer");
+        assert!(v.ready && !v.pending);
+        assert_eq!(v.seed, derive_seed(&v.match_state, &first, &r));
+        // one answer only; no new request once drawn
+        assert!(v.accept(&first, &[1; 32]).is_err());
+        assert!(v.start_request(10_000).is_err());
+    }
+
+    #[test]
+    fn one_request_is_outstanding_until_its_window_passes_and_then_the_old_one_is_dead() {
+        let mut v = vault();
+        let first = v.start_request(100).expect("request");
+        assert!(v.start_request(100 + SEED_RETRY_SLOTS - 1).is_err());
+        let second = v.start_request(100 + SEED_RETRY_SLOTS).expect("retry");
+        assert_ne!(first, second);
+        // the late answer to the first request is refused; the second is taken
+        assert!(v.accept(&first, &[3; 32]).is_err());
+        v.accept(&second, &[3; 32]).expect("answer");
+    }
+
+    #[test]
+    fn a_vault_that_is_not_private_yet_does_not_ask() {
+        let mut v = vault();
+        v.permission_ready = false;
+        assert!(v.start_request(1).is_err());
+    }
+
+    #[test]
+    fn the_longest_wait_fits_inside_the_cores_seven_day_cap() {
+        // opened_at .. join in the last second of the Queue window .. last submission + grace
+        let longest = QUEUE_WINDOW_SECS + SUBMISSION_SECS + SETTLE_GRACE_SECS;
+        assert!(longest < 7 * 24 * 60 * 60);
     }
 }
