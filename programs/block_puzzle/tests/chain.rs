@@ -310,6 +310,8 @@ impl Env {
             tesoro_core::accounts::CreateAccount {
                 authority: a(kp.pubkey()),
                 account,
+                basket: tesoro_core::storage::basket_address(&account).0,
+                spill: tesoro_core::storage::spill_address(&account).0,
                 invite_gate: tesoro_core::state::invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -360,7 +362,9 @@ impl Env {
                 protections: core_pda(&[PROTECTIONS_SEED, account.as_ref()]),
                 position,
                 source,
-                holding,
+                book: tesoro_core::storage::book_address(&source).0,
+                basket: tesoro_core::storage::basket_address(&account).0,
+                spill: tesoro_core::storage::spill_address(&account).0,
                 system_program: anchor_lang::system_program::ID,
             },
             tesoro_core::instruction::TakeAdvance {
@@ -378,6 +382,8 @@ impl Env {
         );
         put_core_treasury(&mut self.svm);
         self.send(&[advance], &oracle, &[&kp]).expect("advance");
+        self.open_holding(account, source);
+        forge_holding_amount(&mut self.svm, account, source);
         Person {
             key: a(kp.pubkey()),
             kp,
@@ -1807,4 +1813,45 @@ fn tesoro_core_treasury() -> anchor_lang::prelude::Pubkey {
         &tesoro_core::ID,
     )
     .0
+}
+
+/// Matching reads Holdings until ticket 09 moves it onto baskets: give the Advance's owner a
+/// Holding of the new Source with the Gemas the Advance issued (the basket holds them too).
+fn forge_holding_amount(svm: &mut litesvm::LiteSVM, account: APk, source: APk) {
+    use anchor_lang::{AccountDeserialize, AccountSerialize};
+    let issued = {
+        let acc = svm.get_account(&s(source)).expect("source");
+        SourceState::try_deserialize(&mut acc.data.as_slice())
+            .expect("source")
+            .inner
+            .issued
+    };
+    let hk = holding_pda(account, source);
+    let mut h = {
+        let acc = svm.get_account(&s(hk)).expect("holding");
+        HoldingState::try_deserialize(&mut acc.data.as_slice()).expect("holding")
+    };
+    let mut acct = {
+        let acc = svm.get_account(&s(account)).expect("account");
+        TesoroAccount::try_deserialize(&mut acc.data.as_slice()).expect("account")
+    };
+    h.inner.credit(&mut acct.inner, issued).expect("credit");
+    for (k, buf) in [
+        (hk, {
+            let mut b = Vec::new();
+            h.try_serialize(&mut b).unwrap();
+            b.resize(HoldingState::SPACE, 0);
+            b
+        }),
+        (account, {
+            let mut b = Vec::new();
+            acct.try_serialize(&mut b).unwrap();
+            b.resize(TesoroAccount::SPACE, 0);
+            b
+        }),
+    ] {
+        let mut acc = svm.get_account(&s(k)).expect("account");
+        acc.data = buf;
+        svm.set_account(s(k), acc).expect("set");
+    }
 }

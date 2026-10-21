@@ -7,11 +7,17 @@
 //! untouched.
 
 pub mod backing;
+pub mod book;
+pub mod draw;
+pub mod economy;
 pub mod extend_limit;
+pub mod instant;
+pub mod lifecycle;
 pub mod line_store;
 pub mod matches;
 pub mod money;
 pub mod native;
+pub mod prize;
 pub mod protections;
 pub mod season;
 pub mod stake;
@@ -22,10 +28,18 @@ pub mod yield_math;
 mod tests;
 
 pub use backing::*;
+pub use economy::{CustodyKind, ShareRate, UnlockPayout};
 pub use extend_limit::*;
+pub use instant::{FillAuthority, FillTerms, InstantOrder, PayMode, Rate, INSTANT_REDEEM_FEE_BPS};
+pub use line_store::{LineKey, LINE_LEN};
 pub use matches::*;
 pub use money::*;
 pub use native::*;
+pub use prize::{
+    BudgetLine, PayStep, PoolLine, PoolReservations, PoolShare, PrizePayout, PrizeSeason,
+    PrizeSource, RouteLedger, SourceKind, BUDGET_LINE_LEN, MAX_BUDGET_LINES,
+    MAX_RESERVATION_ENTRIES,
+};
 pub use protections::*;
 pub use season::*;
 pub use stake::*;
@@ -136,6 +150,30 @@ core_errors! {
     ProtectionCannotShorten => "a Break or Self-Exclusion cannot end earlier than it already does",
     StaleStakePool => "the staking pool has not been updated this epoch or the one before",
     NoStakingGrowth => "the staking token shows no growth to size an Advance on",
+    BookInconsistent => "a Source's bookkeeping contradicts itself",
+    NoSuchClass => "the Source has no such class or Extension tranche",
+    TooManyExtensions => "a Source has at most 11 Extension tranches",
+    NotAFeeCut => "a fee cut moves Gemas of a playable class into a fee class of the same Source",
+    MissingCheckpoint => "a line needs a closed-segment record that was not supplied",
+    BadCheckpoint => "a checkpoint record or page is malformed",
+    CounterExhausted => "a class counter (epoch, scale or segment number) is exhausted",
+    NotPooled => "only the pooled fee classes answer this",
+    SharesOutOfRange => "more staking-token shares than 2^40 per unit of coverage landed",
+    PrizeSourceRefused => "prize Gemas can only be redeemed through the prize escrow",
+    PrizeEscrowOff => "the prize escrow is switched off",
+    PrizeFundingWaits => "the Treasury holds less than holders, reservations and the Pool are owed; prize funding waits",
+    AlreadyFunded => "this Season's prize was already funded on this route",
+    OverSpendable => "amount exceeds what the Treasury may spend after holders, the Pool and reservations",
+    PrizeBackingShort => "the prize escrow does not hold enough shares for this",
+    BudgetStep => "prize payout step is out of order or already done",
+    PoolShareTooSoon => "a new prize share applies from a Season at least one full Season ahead",
+    SeasonNotFunded => "this Season's prize was not funded on every route",
+    SeasonUnfinished => "some ranks of this Season are still unpaid",
+    OwedExceedsTreasury => "holders would be owed more shares than the Treasury holds beyond the Pool and reservations",
+    NotFillAuthority => "only the admin, or the keeper while its fill rule is on, may fill Instant Redeem orders",
+    ReservedGemas => "these Gemas back an Offer reservation",
+    InvalidOrderTtl => "an Instant Redeem order lasts 1 hour to 30 days",
+    SpillFull => "the account has no room for another line: grow its spill and retry",
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -190,4 +228,26 @@ pub fn validate_entry_sizes(sizes: &[u64]) -> CoreResult<()> {
         }
     }
     Ok(())
+}
+
+impl From<book::BookError> for CoreError {
+    fn from(e: book::BookError) -> CoreError {
+        use book::BookError as B;
+        match e {
+            B::Math => CoreError::Math,
+            B::BadSnapshot | B::Corrupt(_) => CoreError::BookInconsistent,
+            B::NoSuchClass => CoreError::NoSuchClass,
+            B::TooManyExtensions => CoreError::TooManyExtensions,
+            B::ClassMismatch => CoreError::SourceMismatch,
+            B::ZeroAmount => CoreError::ZeroAmount,
+            B::NotEnoughAmount => CoreError::InsufficientGemas,
+            B::NotEnoughReady => CoreError::ExceedsRedeemable,
+            B::NotAFeeCut => CoreError::NotAFeeCut,
+            B::MissingCheckpoint => CoreError::MissingCheckpoint,
+            B::BadCheckpoint => CoreError::BadCheckpoint,
+            B::CounterExhausted => CoreError::CounterExhausted,
+            B::NotPooled => CoreError::NotPooled,
+            B::SharesOutOfRange => CoreError::SharesOutOfRange,
+        }
+    }
 }

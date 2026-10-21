@@ -16,7 +16,7 @@
 //! |---|---|
 //! | 0 | `version` u8 (`BASKET_VERSION`) |
 //! | 1 | `bump` u8 |
-//! | 2 | `flags` u8 (bit 0 = a Ticket is open) |
+//! | 2 | `flags` u8 (bit 0 = an Entry Ticket is open, bit 1 = a Backing Ticket is open) |
 //! | 4 | `len` u32, used lines |
 //! | 8 | `account` [u8; 32] |
 //! | 40 | `own_total` u64, sum of `amount` of playable own lines |
@@ -24,16 +24,19 @@
 //! | 56 | `fee_total` u64, sum of `amount` of fee-class lines (never playable) |
 //! | 64 | `reserved_total` u64 (Offer reservations, set by the caller) |
 //! | 72 | `sponsored_lamports` u64 (sponsored rent, set by the caller) |
-//! | 80 | 48 reserved bytes, zero |
+//! | 80 | `ticket_need` u64 (Gemas the open Entry Ticket still has to stage, set by the draw module) |
+//! | 88 | `room_reserved` u32 (spill slots reserved for Matches in flight, set by the instruction layer) |
+//! | 92 | 36 reserved bytes, zero |
 //!
-//! Lines follow, `LINE_LEN` = 160 bytes each, sorted ascending by [`LineKey`]:
+//! Lines follow, `LINE_LEN` = 144 bytes each, sorted ascending by [`LineKey`]:
 //! (side, `due_at`, source, class, tranche). See [`Line`] for the line layout.
 
+use super::book::wide::U256;
 use super::Key;
 
-pub const BASKET_VERSION: u8 = 1;
+pub const BASKET_VERSION: u8 = 3;
 pub const HEADER_LEN: usize = 128;
-pub const LINE_LEN: usize = 160;
+pub const LINE_LEN: usize = 144;
 
 pub const SIDE_OWN: u8 = 0;
 pub const SIDE_WON: u8 = 1;
@@ -48,6 +51,9 @@ pub const CLASS_GENERAL: u8 = 3;
 pub const CLASS_EXTENSION_BASE: u8 = 4;
 
 pub const FLAG_TICKET_OPEN: u8 = 1;
+/// A Backing Ticket is open. Separate from the Entry Ticket so a Backer's own entries never wait
+/// for a Backing.
+pub const FLAG_BACKING_OPEN: u8 = 2;
 
 const H_VERSION: usize = 0;
 const H_BUMP: usize = 1;
@@ -59,6 +65,8 @@ const H_WON: usize = 48;
 const H_FEE: usize = 56;
 const H_RESERVED_TOTAL: usize = 64;
 const H_SPONSORED: usize = 72;
+const H_TICKET_NEED: usize = 80;
+const H_ROOM_RESERVED: usize = 88;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineStoreError {
@@ -89,22 +97,29 @@ pub struct LineKey {
     pub tranche: u8,
 }
 
-/// One basket line, 160 bytes:
+/// One basket line, 144 bytes. Every field is needed; the exact bookkeeping (`ledger::book`) reads
+/// and writes them:
 ///
-/// | offset | field |
-/// |---|---|
-/// | 0 | `side` u8, 1 `class` u8, 2 `tranche` u8, 3..8 zero |
-/// | 8 | `due_at` i64 |
-/// | 16 | `source` [u8; 32] |
-/// | 48 | `amount` u64 (Gemas) |
-/// | 56 | `uncovered` u128 (fixed point) |
-/// | 72 | `ready` u128 (fixed point) |
-/// | 88 | `ready_shares` u128 (ready as staking-token shares) |
-/// | 104 | `p` u128, 120 `s` u128 (class index snapshot) |
-/// | 136 | `scale` u32, 140 `epoch` u32 |
-/// | 144 | 16 reserved bytes |
+/// | offset | field | why |
+/// |---|---|---|
+/// | 0 | `side` u8 | own / won, first in the sort key |
+/// | 1 | `class` u8 | which pool of the Source the Gemas are in (payout order) |
+/// | 2 | `tranche` u8 | Extension number, part of the key so a recipient's tranches stay apart |
+/// | 3 | `due_at` i64 | earliest planned repayment, the draw's fast-first key |
+/// | 11 | `source` [u8; 32] | which Source's book to ask |
+/// | 43 | `amount` u64 | whole Gemas of the line |
+/// | 51 | `uncovered` u128 | unpaid part as of the snapshot, Gemas x 2^64 |
+/// | 67 | `p` u128 | class index at the snapshot |
+/// | 83 | `scale` u32, 87 `epoch` u32 | rest of the index snapshot |
+/// | 91 | `ck` u32 | number of the class's closed segments at the snapshot (where its history starts) |
+/// | 95 | `shares` u128 | staking-token shares this line already owns (32 fractional bits) |
+/// | 111 | `s_snap` u256 | the class's share sum at the snapshot |
+/// | 143 | 1 reserved byte | zero |
 ///
-/// The key fields come first so a binary search reads 57 bytes per probe.
+/// Ready is not stored: it is `amount * 2^64 - uncovered` once the line is brought up to date.
+/// Shares the line has earned since its snapshot are `uncovered * (S - s_snap) / p` plus the
+/// closed segments' terms; a touch adds them to `shares`. The key fields come first so a binary
+/// search reads 43 bytes per probe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Line {
     pub side: u8,
@@ -114,13 +129,13 @@ pub struct Line {
     pub source: Key,
     pub amount: u64,
     pub uncovered: u128,
-    pub ready: u128,
-    pub ready_shares: u128,
     pub p: u128,
-    pub s: u128,
     pub scale: u32,
     pub epoch: u32,
-    pub reserved: [u8; 16],
+    pub ck: u32,
+    pub shares: u128,
+    pub s_snap: U256,
+    pub reserved: [u8; 1],
 }
 
 impl Line {
@@ -139,12 +154,13 @@ impl Line {
         self.class >= CLASS_GENERAL
     }
 
-    /// Both lines were brought up to date at the same (`p`, `s`, `scale`, `epoch`).
+    /// Both lines were brought up to date at the same snapshot of their class.
     pub fn same_index(&self, other: &Line) -> bool {
         self.p == other.p
-            && self.s == other.s
             && self.scale == other.scale
             && self.epoch == other.epoch
+            && self.ck == other.ck
+            && self.s_snap == other.s_snap
     }
 
     pub fn encode(&self, out: &mut [u8]) {
@@ -152,48 +168,48 @@ impl Line {
         out[0] = self.side;
         out[1] = self.class;
         out[2] = self.tranche;
-        out[8..16].copy_from_slice(&self.due_at.to_le_bytes());
-        out[16..48].copy_from_slice(&self.source);
-        out[48..56].copy_from_slice(&self.amount.to_le_bytes());
-        out[56..72].copy_from_slice(&self.uncovered.to_le_bytes());
-        out[72..88].copy_from_slice(&self.ready.to_le_bytes());
-        out[88..104].copy_from_slice(&self.ready_shares.to_le_bytes());
-        out[104..120].copy_from_slice(&self.p.to_le_bytes());
-        out[120..136].copy_from_slice(&self.s.to_le_bytes());
-        out[136..140].copy_from_slice(&self.scale.to_le_bytes());
-        out[140..144].copy_from_slice(&self.epoch.to_le_bytes());
-        out[144..160].copy_from_slice(&self.reserved);
+        out[3..11].copy_from_slice(&self.due_at.to_le_bytes());
+        out[11..43].copy_from_slice(&self.source);
+        out[43..51].copy_from_slice(&self.amount.to_le_bytes());
+        out[51..67].copy_from_slice(&self.uncovered.to_le_bytes());
+        out[67..83].copy_from_slice(&self.p.to_le_bytes());
+        out[83..87].copy_from_slice(&self.scale.to_le_bytes());
+        out[87..91].copy_from_slice(&self.epoch.to_le_bytes());
+        out[91..95].copy_from_slice(&self.ck.to_le_bytes());
+        out[95..111].copy_from_slice(&self.shares.to_le_bytes());
+        out[111..143].copy_from_slice(&self.s_snap.to_le_bytes());
+        out[143..144].copy_from_slice(&self.reserved);
     }
 
     pub fn decode(raw: &[u8]) -> Line {
         let mut source = [0u8; 32];
-        source.copy_from_slice(&raw[16..48]);
-        let mut reserved = [0u8; 16];
-        reserved.copy_from_slice(&raw[144..160]);
+        source.copy_from_slice(&raw[11..43]);
+        let mut reserved = [0u8; 1];
+        reserved.copy_from_slice(&raw[143..144]);
         Line {
             side: raw[0],
             class: raw[1],
             tranche: raw[2],
-            due_at: i64::from_le_bytes(arr(&raw[8..16])),
+            due_at: i64::from_le_bytes(arr(&raw[3..11])),
             source,
-            amount: u64::from_le_bytes(arr(&raw[48..56])),
-            uncovered: u128::from_le_bytes(arr(&raw[56..72])),
-            ready: u128::from_le_bytes(arr(&raw[72..88])),
-            ready_shares: u128::from_le_bytes(arr(&raw[88..104])),
-            p: u128::from_le_bytes(arr(&raw[104..120])),
-            s: u128::from_le_bytes(arr(&raw[120..136])),
-            scale: u32::from_le_bytes(arr(&raw[136..140])),
-            epoch: u32::from_le_bytes(arr(&raw[140..144])),
+            amount: u64::from_le_bytes(arr(&raw[43..51])),
+            uncovered: u128::from_le_bytes(arr(&raw[51..67])),
+            p: u128::from_le_bytes(arr(&raw[67..83])),
+            scale: u32::from_le_bytes(arr(&raw[83..87])),
+            epoch: u32::from_le_bytes(arr(&raw[87..91])),
+            ck: u32::from_le_bytes(arr(&raw[91..95])),
+            shares: u128::from_le_bytes(arr(&raw[95..111])),
+            s_snap: U256::from_le_bytes(&arr(&raw[111..143])),
             reserved,
         }
     }
 
     fn decode_key(raw: &[u8]) -> LineKey {
         let mut source = [0u8; 32];
-        source.copy_from_slice(&raw[16..48]);
+        source.copy_from_slice(&raw[11..43]);
         LineKey {
             side: raw[0],
-            due_at: i64::from_le_bytes(arr(&raw[8..16])),
+            due_at: i64::from_le_bytes(arr(&raw[3..11])),
             source,
             class: raw[1],
             tranche: raw[2],
@@ -265,6 +281,17 @@ impl<T: AsRef<[u8]>> LineStore<T> {
     }
     pub fn sponsored_lamports(&self) -> u64 {
         self.u64_at(H_SPONSORED)
+    }
+    /// Gemas the open Entry Ticket still has to stage from this basket (0 with no Ticket open).
+    /// Withdrawals and Offer reservations must leave them, or the Ticket could never complete.
+    pub fn ticket_need(&self) -> u64 {
+        self.u64_at(H_TICKET_NEED)
+    }
+
+    /// Spill slots held back for Matches in flight (`shrink` keeps them; see `ledger::lifecycle`'s
+    /// room plan). Only meaningful in a spill.
+    pub fn room_reserved(&self) -> u32 {
+        u32::from_le_bytes(arr(&self.raw()[H_ROOM_RESERVED..H_ROOM_RESERVED + 4]))
     }
 
     /// Used lines.
@@ -395,6 +422,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
     pub fn set_sponsored_lamports(&mut self, v: u64) {
         self.put_u64(H_SPONSORED, v);
     }
+    pub fn set_ticket_need(&mut self, v: u64) {
+        self.put_u64(H_TICKET_NEED, v);
+    }
+    pub fn set_room_reserved(&mut self, v: u32) {
+        self.raw_mut()[H_ROOM_RESERVED..H_ROOM_RESERVED + 4].copy_from_slice(&v.to_le_bytes());
+    }
 
     fn bucket_at(line: &Line) -> usize {
         if !line.is_playable() {
@@ -484,12 +517,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
 
     /// Add `incoming` to the line with the same key, or insert it if there is none. Both lines
     /// must already be materialised at the same index snapshot (the caller brings the stored
-    /// line up to date first, then merges). `amount`, `uncovered`, `ready` and `ready_shares`
-    /// add; the stored line keeps its reserved bytes, and `incoming.reserved` must be zero.
+    /// line up to date first, then merges). `amount`, `uncovered` and `shares` add; the stored line keeps
+    /// its reserved bytes, and `incoming.reserved` must be zero.
     /// Returns the line's index. On `Err` nothing changed.
     pub fn merge(&mut self, incoming: &Line) -> Result<usize, LineStoreError> {
         Self::check_line(incoming)?;
-        if incoming.reserved != [0u8; 16] {
+        if incoming.reserved != [0u8; 1] {
             return Err(LineStoreError::BadLine);
         }
         let idx = match self.find(&incoming.key()) {
@@ -508,13 +541,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> LineStore<T> {
             .uncovered
             .checked_add(incoming.uncovered)
             .ok_or(LineStoreError::Overflow)?;
-        line.ready = line
-            .ready
-            .checked_add(incoming.ready)
-            .ok_or(LineStoreError::Overflow)?;
-        line.ready_shares = line
-            .ready_shares
-            .checked_add(incoming.ready_shares)
+        line.shares = line
+            .shares
+            .checked_add(incoming.shares)
             .ok_or(LineStoreError::Overflow)?;
         self.set_line(idx, &line)?;
         Ok(idx)

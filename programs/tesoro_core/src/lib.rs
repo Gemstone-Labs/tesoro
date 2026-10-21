@@ -1,11 +1,13 @@
 use anchor_lang::prelude::*;
 
+pub mod books;
 pub mod error;
 pub mod instructions;
 pub mod ledger;
 pub mod pyth;
 pub mod registry;
 pub mod state;
+pub mod storage;
 pub mod util;
 
 pub use instructions::*;
@@ -117,17 +119,154 @@ pub mod tesoro_core {
         instructions::season::record_season(ctx, number, points)
     }
 
+    /// Pays one (rank, budget line) step: every rank takes the same share of every line.
     pub fn pay_season_rank<'info>(
         ctx: Context<'_, '_, 'info, 'info, PaySeasonRank<'info>>,
         rank: u8,
+        line: u8,
     ) -> Result<()> {
-        instructions::season::pay_season_rank(ctx, rank)
+        instructions::season::pay_season_rank(ctx, rank, line)
+    }
+
+    /// Releases what no rank took so it rolls into the next Season (anyone, once all is paid).
+    pub fn close_season(ctx: Context<CloseSeason>) -> Result<()> {
+        instructions::season::close_season(ctx)
+    }
+
+    // --- Economy settings, harvest, prizes (ticket 11) ---------------------------------------
+
+    /// Admin: the Season keeper, the Instant Redeem fill keeper and its switch, and the routes a
+    /// recorded Season waits for.
+    pub fn set_economy(
+        ctx: Context<SetEconomy>,
+        season_keeper: Pubkey,
+        fill_keeper: Pubkey,
+        keeper_fills: bool,
+        routes: [Pubkey; state::MAX_ROUTES],
+    ) -> Result<()> {
+        instructions::prize::set_economy(ctx, season_keeper, fill_keeper, keeper_fills, routes)
+    }
+
+    /// Admin: the Pool's share of every Yield Fee realised from a Season announced ahead.
+    pub fn set_prize_share(ctx: Context<SetPrizeShare>, from_season: u32, bps: u16) -> Result<()> {
+        instructions::prize::set_prize_share(ctx, from_season, bps)
+    }
+
+    /// Admin: switches a custody's prize escrow (off until the slashing fix is accepted).
+    pub fn set_prize_escrow(ctx: Context<SetPrizeEscrow>, enabled: bool) -> Result<()> {
+        instructions::prize::set_prize_escrow(ctx, enabled)
+    }
+
+    /// Anyone: the ready part of a Source's Leaderboard counter goes into the prize escrow.
+    pub fn harvest<'info>(ctx: Context<'_, '_, 'info, 'info, Harvest<'info>>) -> Result<()> {
+        instructions::prize::harvest(ctx)
+    }
+
+    pub fn fund_season_prize_native(
+        ctx: Context<FundSeasonPrizeNative>,
+        season: u32,
+    ) -> Result<()> {
+        instructions::prize::fund_season_prize_native(ctx, season)
+    }
+
+    pub fn fund_season_prize_stake(ctx: Context<FundSeasonPrizeStake>, season: u32) -> Result<()> {
+        instructions::prize::fund_season_prize_stake(ctx, season)
+    }
+
+    pub fn redeem_prize<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RedeemPrize<'info>>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::prize::redeem_prize(ctx, amount)
     }
 
     /// Admin only, inside the 48-hour payout window: the rank pays nothing and its share stays in
     /// the pool for the next season.
     pub fn void_season_rank(ctx: Context<VoidSeasonRank>, rank: u8) -> Result<()> {
         instructions::season::void_season_rank(ctx, rank)
+    }
+
+    // --- Baskets, spills, sponsor, Source books (ticket 08) ----------------------------------
+
+    /// Creates the basket and spill of an Account that already exists. Anyone may pay.
+    pub fn init_stores(ctx: Context<InitStores>) -> Result<()> {
+        instructions::basket::init_stores(ctx)
+    }
+
+    /// Admin only: creates the sponsor that pays refundable rent for Players.
+    pub fn init_sponsor(
+        ctx: Context<InitSponsor>,
+        relayer: Pubkey,
+        per_account_cap: u64,
+        total_cap: u64,
+        pages_cap: u64,
+    ) -> Result<()> {
+        instructions::basket::init_sponsor(ctx, relayer, per_account_cap, total_cap, pages_cap)
+    }
+
+    /// Admin only: the relayer key, the pause switch and the caps of the sponsor.
+    pub fn set_sponsor(
+        ctx: Context<SetSponsor>,
+        relayer: Pubkey,
+        paused: bool,
+        per_account_cap: u64,
+        total_cap: u64,
+        pages_cap: u64,
+    ) -> Result<()> {
+        instructions::basket::set_sponsor(
+            ctx,
+            relayer,
+            paused,
+            per_account_cap,
+            total_cap,
+            pages_cap,
+        )
+    }
+
+    /// Anyone grows a basket or spill with their own lamports (a gift to its owner).
+    pub fn grow_store(ctx: Context<GrowStore>, which: StoreKind, extra_lines: u32) -> Result<()> {
+        instructions::basket::grow_store(ctx, which, extra_lines)
+    }
+
+    /// The sponsor grows a basket or spill; needs the relayer's signature, within the caps.
+    pub fn grow_store_sponsored(
+        ctx: Context<GrowStoreSponsored>,
+        which: StoreKind,
+        extra_lines: u32,
+    ) -> Result<()> {
+        instructions::basket::grow_store_sponsored(ctx, which, extra_lines)
+    }
+
+    /// The owner drops free slots; the sponsor is refunded first.
+    pub fn shrink_store(ctx: Context<ShrinkStore>, which: StoreKind, keep_free: u32) -> Result<()> {
+        instructions::basket::shrink_store(ctx, which, keep_free)
+    }
+
+    /// Anyone moves up to `max` spill lines into the basket. Source books are remaining accounts.
+    pub fn claim_spill<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ClaimSpill<'info>>,
+        max: u8,
+    ) -> Result<()> {
+        instructions::basket::claim_spill(ctx, max)
+    }
+
+    /// Anyone creates the book account of a Source.
+    pub fn init_source_book(ctx: Context<InitSourceBook>) -> Result<()> {
+        instructions::basket::init_source_book(ctx)
+    }
+
+    /// Anyone pays for the next page of a class's checkpoint records.
+    pub fn init_ckpt_page(ctx: Context<InitCkptPage>, class: u8, page_no: u32) -> Result<()> {
+        instructions::basket::init_ckpt_page(ctx, class, page_no)
+    }
+
+    /// The same page, paid by the sponsor; needs the relayer's signature.
+    pub fn init_ckpt_page_sponsored(
+        ctx: Context<InitCkptPageSponsored>,
+        class: u8,
+        page_no: u32,
+    ) -> Result<()> {
+        instructions::basket::init_ckpt_page_sponsored(ctx, class, page_no)
     }
 
     // --- Accounts and Holdings --------------------------------------------------------------
@@ -182,30 +321,38 @@ pub mod tesoro_core {
         )
     }
 
-    pub fn take_advance(
-        ctx: Context<TakeAdvance>,
+    pub fn take_advance<'info>(
+        ctx: Context<'_, '_, 'info, 'info, TakeAdvance<'info>>,
         horizon_months: u8,
         price_micro_usd: u64,
     ) -> Result<()> {
         instructions::position::take_advance(ctx, horizon_months, price_micro_usd)
     }
 
-    pub fn apply_yield(ctx: Context<ApplyYield>, seq: u64, cumulative: u64) -> Result<()> {
+    pub fn apply_yield<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ApplyYield<'info>>,
+        seq: u64,
+        cumulative: u64,
+    ) -> Result<()> {
         instructions::position::apply_yield(ctx, seq, cumulative)
     }
 
+    /// Returns `amount` of the owner's own Gemas of one line of the Source.
     pub fn return_own<'info>(
         ctx: Context<'_, '_, 'info, 'info, ReturnOwn<'info>>,
+        line: LineRef,
         amount: u64,
     ) -> Result<()> {
-        instructions::position::return_own(ctx, amount)
+        instructions::position::return_own(ctx, line, amount)
     }
 
+    /// Redeems `amount` repaid Gemas of one line; pays the shares their yield was worth.
     pub fn redeem<'info>(
         ctx: Context<'_, '_, 'info, 'info, Redeem<'info>>,
+        line: LineRef,
         amount: u64,
     ) -> Result<()> {
-        instructions::position::redeem(ctx, amount)
+        instructions::position::redeem(ctx, line, amount)
     }
 
     pub fn claim_free_yield(ctx: Context<ClaimFreeYield>, amount: u64) -> Result<()> {
@@ -230,7 +377,10 @@ pub mod tesoro_core {
         instructions::native::open_native_position(ctx, nonce, lst_amount)
     }
 
-    pub fn take_native_advance(ctx: Context<TakeNativeAdvance>, horizon_months: u8) -> Result<()> {
+    pub fn take_native_advance<'info>(
+        ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvance<'info>>,
+        horizon_months: u8,
+    ) -> Result<()> {
         instructions::native::take_native_advance(ctx, horizon_months)
     }
 
@@ -252,23 +402,23 @@ pub mod tesoro_core {
     }
 
     /// `take_native_advance` priced from the asset's Pyth feed instead of the keeper's price.
-    pub fn take_native_advance_onchain(
-        ctx: Context<TakeNativeAdvanceOnchain>,
+    pub fn take_native_advance_onchain<'info>(
+        ctx: Context<'_, '_, 'info, 'info, TakeNativeAdvanceOnchain<'info>>,
         horizon_months: u8,
     ) -> Result<()> {
         instructions::onchain_price::take_native_advance_onchain(ctx, horizon_months)
     }
 
     /// `take_advance` priced from the asset's Pyth feed instead of a price the oracle names.
-    pub fn take_advance_onchain(
-        ctx: Context<TakeAdvanceOnchain>,
+    pub fn take_advance_onchain<'info>(
+        ctx: Context<'_, '_, 'info, 'info, TakeAdvanceOnchain<'info>>,
         horizon_months: u8,
     ) -> Result<()> {
         instructions::onchain_price::take_advance_onchain(ctx, horizon_months)
     }
 
-    pub fn extend_native_advance(
-        ctx: Context<ExtendNativeAdvance>,
+    pub fn extend_native_advance<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ExtendNativeAdvance<'info>>,
         extra_months: u8,
     ) -> Result<()> {
         instructions::native::extend_native_advance(ctx, extra_months)
@@ -321,20 +471,26 @@ pub mod tesoro_core {
     }
 
     /// An Advance against a stake Position: Pyth price, sized on the pool's recent growth.
-    pub fn take_stake_advance(ctx: Context<TakeStakeAdvance>, horizon_months: u8) -> Result<()> {
+    pub fn take_stake_advance<'info>(
+        ctx: Context<'_, '_, 'info, 'info, TakeStakeAdvance<'info>>,
+        horizon_months: u8,
+    ) -> Result<()> {
         instructions::stake::take_stake_advance(ctx, horizon_months)
     }
 
-    pub fn extend_stake_advance(ctx: Context<ExtendStakeAdvance>, extra_months: u8) -> Result<()> {
+    pub fn extend_stake_advance<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ExtendStakeAdvance<'info>>,
+        extra_months: u8,
+    ) -> Result<()> {
         instructions::stake::extend_stake_advance(ctx, extra_months)
     }
 
-    /// Instant Redeem of won Gemas of a stake Source, paid in the token from the Treasury balance.
-    pub fn instant_redeem_stake(ctx: Context<InstantRedeemStake>, amount: u64) -> Result<()> {
-        instructions::stake::instant_redeem_stake(ctx, amount)
+    /// Admin: tops up the Treasury with `shares` of the staking token (its own funding).
+    pub fn fund_treasury_stake(ctx: Context<FundTreasuryStake>, shares: u64) -> Result<()> {
+        instructions::stake::fund_treasury_stake(ctx, shares)
     }
 
-    /// Admin: withdraws Treasury balance, in the token, to the company wallet.
+    /// Admin: withdraws the Treasury's spendable shares, in the token, to the company wallet.
     pub fn withdraw_treasury_stake(ctx: Context<WithdrawTreasuryStake>, amount: u64) -> Result<()> {
         instructions::stake::withdraw_treasury_stake(ctx, amount)
     }
@@ -374,29 +530,65 @@ pub mod tesoro_core {
         instructions::treasury::withdraw_treasury(ctx, amount)
     }
 
-    pub fn instant_redeem(ctx: Context<InstantRedeem>, amount: u64) -> Result<()> {
-        instructions::treasury::instant_redeem(ctx, amount)
-    }
-
-    pub fn instant_redeem_from_source(
-        ctx: Context<InstantRedeemFromSource>,
-        amount: u64,
-    ) -> Result<u64> {
-        instructions::treasury::instant_redeem_from_source(ctx, amount)
-    }
-
+    /// The Treasury Account redeems Gemas it bought (an Instant Redeem fill); anyone may call it.
     pub fn redeem_treasury<'info>(
         ctx: Context<'_, '_, 'info, 'info, RedeemTreasury<'info>>,
+        line: LineRef,
         amount: u64,
     ) -> Result<()> {
-        instructions::treasury::redeem_treasury(ctx, amount)
+        instructions::treasury::redeem_treasury(ctx, line, amount)
     }
 
-    pub fn redeem_treasury_from_source(
-        ctx: Context<RedeemTreasuryFromSource>,
+    pub fn redeem_treasury_from_source<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RedeemTreasuryFromSource<'info>>,
+        line: LineRef,
         amount: u64,
     ) -> Result<()> {
-        instructions::treasury::redeem_treasury_from_source(ctx, amount)
+        instructions::treasury::redeem_treasury_from_source(ctx, line, amount)
+    }
+
+    // --- Instant Redeem orders ---------------------------------------------------------------
+
+    /// Puts won Gemas into an order Tesoro fills; the repaid part is Redeemed at full value.
+    pub fn request_instant_redeem<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RequestInstantRedeem<'info>>,
+        line: LineRef,
+        sell: u64,
+        ttl_secs: i64,
+        nonce: u64,
+    ) -> Result<()> {
+        instructions::instant::request_instant_redeem(ctx, line, sell, ttl_secs, nonce)
+    }
+
+    /// The fill authority buys all or part of an order at 75% of the value at fill.
+    pub fn fill_instant_redeem<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FillInstantRedeem<'info>>,
+        gemas: u64,
+    ) -> Result<()> {
+        instructions::instant::fill_instant_redeem(ctx, gemas)
+    }
+
+    /// The bridge fills an order of an EVM-sourced Source against the vault's mirrored budget.
+    pub fn fill_instant_redeem_from_source<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FillInstantRedeemFromSource<'info>>,
+        gemas: u64,
+        available_shares: u64,
+    ) -> Result<u64> {
+        instructions::instant::fill_instant_redeem_from_source(ctx, gemas, available_shares)
+    }
+
+    /// The seller takes the unsold Gemas back, any time before they are sold.
+    pub fn cancel_instant_redeem<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ReturnInstantRedeem<'info>>,
+    ) -> Result<()> {
+        instructions::instant::cancel_instant_redeem(ctx)
+    }
+
+    /// Anyone returns the unsold Gemas of an expired order to its seller.
+    pub fn expire_instant_redeem<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ReturnInstantRedeem<'info>>,
+    ) -> Result<()> {
+        instructions::instant::expire_instant_redeem(ctx)
     }
 
     // --- Source authorities (cross-chain bridge) --------------------------------------------
@@ -436,16 +628,20 @@ pub mod tesoro_core {
         )
     }
 
-    pub fn apply_yield_from_source(
-        ctx: Context<ApplyYieldFromSource>,
+    pub fn apply_yield_from_source<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ApplyYieldFromSource<'info>>,
         seq: u64,
         cumulative: u64,
     ) -> Result<()> {
         instructions::source_auth::apply_yield_from_source(ctx, seq, cumulative)
     }
 
-    pub fn redeem_from_source(ctx: Context<RedeemFromSource>, amount: u64) -> Result<()> {
-        instructions::source_auth::redeem_from_source(ctx, amount)
+    pub fn redeem_from_source<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RedeemFromSource<'info>>,
+        line: LineRef,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::source_auth::redeem_from_source(ctx, line, amount)
     }
 
     // --- Matches ----------------------------------------------------------------------------

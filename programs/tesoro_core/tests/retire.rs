@@ -377,6 +377,7 @@ fn source_for(position: APk, owner: APk) -> SourceState {
             redeemed: 0,
             yield_units: 0,
             redeemed_units: 0,
+            due_at: 0,
         },
     }
 }
@@ -464,7 +465,7 @@ fn a_current_custody_is_refused() {
     let (position, owner) = (APk::new_unique(), APk::new_unique());
     let (custody, vault) = env.old_custody(position, owner, 1, true);
     let mut acct = env.svm.get_account(&s(custody)).expect("custody");
-    acct.data.truncate(NativeCustody::SPACE);
+    acct.data.resize(NativeCustody::SPACE, 0);
     env.svm.set_account(s(custody), acct).expect("set");
     let err = env
         .retire_custody(&admin, custody, vault, owner)

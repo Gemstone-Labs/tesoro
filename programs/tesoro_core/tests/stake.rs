@@ -18,10 +18,17 @@ use solana_sdk::pubkey::Pubkey as Pk;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
-use tesoro_core::ledger::{self, PositionStatus};
+use tesoro_core::ledger::book::checkpoint::MemCheckpoints;
+use tesoro_core::ledger::book::fp_ceil;
+use tesoro_core::ledger::line_store::{CLASS_GENERAL, SIDE_OWN, SIDE_WON};
+use tesoro_core::ledger::{self, PositionStatus, ShareRate};
 use tesoro_core::stake::{stake_position_id, STAKE_POOL_PROGRAMS};
 use tesoro_core::state::*;
-use tesoro_core::{accounts, instruction};
+use tesoro_core::storage::*;
+use tesoro_core::{accounts, instruction, LineRef};
+
+mod common;
+use common::econ::{self, book_metas, find_line, gemas_in, read_book};
 
 const SOL: u64 = 1_000_000_000;
 const T0: i64 = 1_000_000;
@@ -39,7 +46,6 @@ const CEILING_BPS: u16 = 2_000;
 const ERR_BAD_REMAINING: u32 = 6004;
 const ERR_NATIVE_POSITION: u32 = 6009;
 const ERR_NOT_NATIVE: u32 = 6010;
-const ERR_TREASURY_SHORT: u32 = 6017;
 const ERR_STAKE_INACTIVE: u32 = 6025;
 const ERR_CEILING_NOT_SET: u32 = 6026;
 const ERR_BAD_POOL: u32 = 6028;
@@ -136,6 +142,7 @@ struct Env {
     mint: APk,
     pool: APk,
     next_nonce: u64,
+    opened: Vec<APk>,
 }
 
 fn pool_data(total: u64, supply: u64, epoch: u64, last_total: u64, last_supply: u64) -> Vec<u8> {
@@ -247,6 +254,7 @@ impl Env {
             mint,
             pool,
             next_nonce: 1,
+            opened: vec![],
         };
         let admin = env.admin.insecure_clone();
         let platform = env.person();
@@ -283,7 +291,46 @@ impl Env {
             .expect("set token");
         env.set_ceiling(CEILING_BPS).expect("ceiling");
         env.map_price();
+        env.init_economy();
         env
+    }
+
+    /// The economy settings and the Treasury Account's basket and spill.
+    fn init_economy(&mut self) {
+        let admin = self.admin.insecure_clone();
+        let set = tix(
+            accounts::SetEconomy {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::SetEconomy {
+                season_keeper: APk::default(),
+                fill_keeper: APk::default(),
+                keeper_fills: false,
+                routes: [
+                    self.custody_address(),
+                    APk::default(),
+                    APk::default(),
+                    APk::default(),
+                ],
+            },
+            vec![],
+        );
+        self.send(&[set], &admin, &[]).expect("set economy");
+        let stores = tix(
+            accounts::InitStores {
+                payer: a(admin.pubkey()),
+                account: treasury_account(),
+                basket: basket_address(&treasury_account()).0,
+                spill: spill_address(&treasury_account()).0,
+                system_program: anchor_lang::system_program::ID,
+            },
+            instruction::InitStores {},
+            vec![],
+        );
+        self.send(&[stores], &admin, &[]).expect("treasury stores");
     }
 
     fn send(
@@ -347,6 +394,8 @@ impl Env {
             accounts::CreateAccount {
                 authority: key,
                 account,
+                basket: tesoro_core::storage::basket_address(&account).0,
+                spill: tesoro_core::storage::spill_address(&account).0,
                 invite_gate: invite_gate_pda(),
                 system_program: anchor_lang::system_program::ID,
             },
@@ -536,7 +585,9 @@ impl Env {
         let nonce = self.next_nonce;
         self.next_nonce += 1;
         let (open, pos) = self.open_ix(p, nonce, shares);
-        self.send(&[open], &p.kp, &[]).map(|_| pos)
+        self.send(&[open], &p.kp, &[])?;
+        self.opened.push(pos.position);
+        Ok(pos)
     }
 
     fn position(&self, pos: Pos) -> ledger::Position {
@@ -545,37 +596,96 @@ impl Env {
     fn source(&self, pos: Pos, index: u32) -> APk {
         pda(&[SOURCE_SEED, pos.position.as_ref(), &index.to_le_bytes()])
     }
-    fn holding(&self, p: &Person, source: APk) -> APk {
-        pda(&[HOLDING_SEED, p.account.as_ref(), source.as_ref()])
+    fn basket(&self, p: &Person) -> APk {
+        basket_address(&p.account).0
+    }
+    fn spill(&self, p: &Person) -> APk {
+        spill_address(&p.account).0
     }
     fn gemas(&self, p: &Person, source: APk) -> u64 {
-        self.load::<HoldingState>(self.holding(p, source))
-            .inner
-            .amount
+        gemas_in(&self.svm, p.account, source)
     }
     fn stored(&self, source: APk) -> ledger::Source {
         self.load::<SourceState>(source).inner
     }
 
-    /// The Source as the program derives it now.
-    fn view(&self, source: APk) -> ledger::Source {
+    /// The line a holder names: the General class of a Source (`side`: 0 own, 1 won).
+    fn line(&self, source: APk, side: u8) -> LineRef {
+        LineRef {
+            side,
+            due_at: self.stored(source).due_at,
+            class: CLASS_GENERAL,
+            tranche: 0,
+        }
+    }
+
+    fn side_of(&self, p: &Person, source: APk) -> u8 {
+        if self.stored(source).owner == p.account.to_bytes() {
+            SIDE_OWN
+        } else {
+            SIDE_WON
+        }
+    }
+
+    fn mem_pages(&self, source: APk) -> MemCheckpoints {
+        let mut m = MemCheckpoints::new(source.to_bytes());
+        for class in 0..15u8 {
+            for page_no in 0..4u32 {
+                let k = ckpt_address(&source, class, page_no).0;
+                if let Some(acc) = self.svm.get_account(&s(k)) {
+                    m.pages
+                        .insert((class, page_no), acc.data[CKPT_PAGE_AT..].to_vec());
+                }
+            }
+        }
+        m
+    }
+
+    /// The Source's book as an instruction would leave it after syncing now.
+    fn synced(&self, source: APk) -> (ledger::book::SourceBook, ledger::Position, MemCheckpoints) {
         let stored = self.stored(source);
-        let position = self
+        let mut position = self
             .load::<PositionState>(APk::new_from_array(stored.position))
             .inner;
         let net = ledger::stake_position_accrued(&position, self.rate())
             .unwrap()
             .net;
-        ledger::native::source_view(&position, &stored, net).unwrap()
+        let rate = ShareRate::stake(self.rate()).unwrap();
+        let mut book = read_book(&self.svm, source);
+        let mut ck = self.mem_pages(source);
+        ledger::economy::sync_source(&mut position, &stored, &mut book, net, &rate, &mut ck)
+            .unwrap();
+        (book, position, ck)
     }
     fn debt(&self, source: APk) -> u64 {
-        self.view(source).debt()
+        fp_ceil(self.synced(source).0.uncovered_total()) as u64
+    }
+    /// What the holder's General line of the Source can Redeem now.
+    fn redeemable(&self, p: &Person, source: APk) -> u64 {
+        let side = self.side_of(p, source);
+        let (book, _, ck) = self.synced(source);
+        let Some(line) = find_line(&self.svm, p.account, source, side, CLASS_GENERAL, 0) else {
+            return 0;
+        };
+        book.redeemable(&book.peek(&line, &ck).unwrap()).unwrap()
+    }
+
+    /// `[prev_source, its book and pages]` when the Position still has an Advance open.
+    fn prev_tail(&self, pos: Pos) -> Vec<AccountMeta> {
+        match self.position(pos).open_advance {
+            Some(index) => {
+                let prev = self.source(pos, index);
+                let mut v = vec![rem(prev, false)];
+                v.extend(book_metas(&self.svm, prev));
+                v
+            }
+            None => vec![],
+        }
     }
 
     fn advance_ix(&self, p: &Person, pos: Pos, months: u8) -> (Instruction, APk) {
         let position = self.position(pos);
         let source = self.source(pos, position.advances);
-        let prev_source = position.open_advance.map(|index| self.source(pos, index));
         let advance = tix(
             accounts::TakeStakeAdvance {
                 owner_authority: p.key,
@@ -587,15 +697,16 @@ impl Env {
                 stake_config: pda(&[STAKE_CONFIG_SEED]),
                 custody: self.custody_address(),
                 stake_pool: self.pool,
-                prev_source,
                 source,
-                holding: self.holding(p, source),
+                book: book_address(&source).0,
+                basket: self.basket(p),
+                spill: self.spill(p),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::TakeStakeAdvance {
                 horizon_months: months,
             },
-            vec![],
+            self.prev_tail(pos),
         );
         (advance, source)
     }
@@ -603,7 +714,33 @@ impl Env {
     fn advance_stake(&mut self, p: &Person, pos: Pos, months: u8) -> Result<APk, Failed> {
         self.refresh_feed();
         let (advance, source) = self.advance_ix(p, pos, months);
-        self.send(&[advance], &p.kp, &[]).map(|_| source)
+        self.send(&[advance], &p.kp, &[])?;
+        self.ensure_pages(source);
+        Ok(source)
+    }
+
+    /// Creates page 0 of every class of the Source that writes checkpoint records.
+    fn ensure_pages(&mut self, source: APk) {
+        let n_ext = read_book(&self.svm, source).n_ext;
+        let payer = Keypair::new();
+        self.svm.airdrop(&payer.pubkey(), SOL).unwrap();
+        for class in std::iter::once(1u8).chain(3..4 + n_ext) {
+            let page = ckpt_address(&source, class, 0).0;
+            if self.svm.get_account(&s(page)).is_some() {
+                continue;
+            }
+            let init = tix(
+                accounts::InitCkptPage {
+                    payer: a(payer.pubkey()),
+                    book: book_address(&source).0,
+                    page,
+                    system_program: anchor_lang::system_program::ID,
+                },
+                instruction::InitCkptPage { class, page_no: 0 },
+                vec![],
+            );
+            self.send(&[init], &payer, &[]).expect("checkpoint page");
+        }
     }
 
     fn extend_stake(
@@ -623,37 +760,66 @@ impl Env {
                 custody: self.custody_address(),
                 stake_pool: self.pool,
                 source,
-                holding: self.holding(p, source),
+                basket: self.basket(p),
+                spill: self.spill(p),
                 extend_limit: pda(&[EXTEND_LIMIT_SEED, p.account.as_ref()]),
                 system_program: anchor_lang::system_program::ID,
             },
             instruction::ExtendStakeAdvance { extra_months },
-            vec![],
+            book_metas(&self.svm, source),
         );
-        self.send(&[extend], &p.kp, &[])
+        self.send(&[extend], &p.kp, &[])?;
+        self.ensure_pages(source);
+        Ok(())
     }
 
     fn pool_tail(&self) -> Vec<AccountMeta> {
         vec![rem(self.custody_address(), true), rem(self.pool, false)]
     }
 
-    fn redeem_ix(&self, p: &Person, pos: Pos, source: APk, amount: u64) -> Instruction {
-        let mut remaining = self.pool_tail();
-        remaining.extend([
+    /// The kind accounts of a paying instruction: `[custody, stake_pool, vault, destination,
+    /// token_program]`.
+    fn kind_paying(&self, dest: APk) -> Vec<AccountMeta> {
+        let mut v = self.pool_tail();
+        v.extend([
             rem(self.vault(), true),
-            rem(p.token, true),
+            rem(dest, true),
             rem(TOKEN_PROGRAM_ID, false),
         ]);
+        v
+    }
+
+    fn redeem_line_ix(
+        &self,
+        p: &Person,
+        pos: Pos,
+        source: APk,
+        line: LineRef,
+        amount: u64,
+    ) -> Instruction {
+        let mut remaining = self.kind_paying(p.token);
+        remaining.extend(book_metas(&self.svm, source));
         tix(
             accounts::Redeem {
                 holder_authority: p.key,
                 holder_account: p.account,
+                basket: self.basket(p),
+                spill: self.spill(p),
                 position: pos.position,
                 source,
-                holding: self.holding(p, source),
             },
-            instruction::Redeem { amount },
+            instruction::Redeem { line, amount },
             remaining,
+        )
+    }
+
+    fn redeem_ix(&self, p: &Person, pos: Pos, source: APk, amount: u64) -> Instruction {
+        self.redeem_line_ix(
+            p,
+            pos,
+            source,
+            self.line(source, self.side_of(p, source)),
+            amount,
         )
     }
 
@@ -663,19 +829,17 @@ impl Env {
     }
 
     fn unlock_ix(&self, p: &Person, pos: Pos) -> Instruction {
-        let mut remaining = self.pool_tail();
-        remaining.extend([
-            rem(self.vault(), true),
-            rem(p.token, true),
-            rem(TOKEN_PROGRAM_ID, false),
-        ]);
+        let mut remaining = self.kind_paying(p.token);
         if let Some(index) = self.position(pos).open_advance {
-            remaining.push(rem(self.source(pos, index), true));
+            let source = self.source(pos, index);
+            remaining.push(rem(source, false));
+            remaining.extend(book_metas(&self.svm, source));
         }
         tix(
             accounts::Unlock {
                 owner_authority: p.key,
                 owner_account: p.account,
+                economy: pda(&[ECONOMY_SEED]),
                 position: pos.position,
             },
             instruction::Unlock {},
@@ -689,101 +853,207 @@ impl Env {
     }
 
     fn return_own(&mut self, p: &Person, pos: Pos, source: APk, amount: u64) -> Result<(), Failed> {
+        let mut remaining = self.pool_tail();
+        remaining.extend(book_metas(&self.svm, source));
         let ret = tix(
             accounts::ReturnOwn {
                 owner_authority: p.key,
                 owner_account: p.account,
+                basket: self.basket(p),
+                spill: self.spill(p),
                 position: pos.position,
                 source,
-                holding: self.holding(p, source),
             },
-            instruction::ReturnOwn { amount },
-            self.pool_tail(),
+            instruction::ReturnOwn {
+                line: self.line(source, SIDE_OWN),
+                amount,
+            },
+            remaining,
         );
         self.send(&[ret], &p.kp, &[])
     }
 
-    // --- Treasury ---------------------------------------------------------------------------
-
-    fn treasury_holding(&self, source: APk) -> APk {
-        pda(&[HOLDING_SEED, treasury_account().as_ref(), source.as_ref()])
-    }
-
-    /// Moves `n` of `from`'s own Gemas of `source` to `to` as won Gemas, as after a Match.
+    /// What a won Match does to the baskets (see `common::econ::win`).
     fn give_won(&mut self, from: &Person, to: &Person, source: APk, n: u64) {
-        let mut from_account = self.load::<TesoroAccount>(from.account);
-        let from_key = self.holding(from, source);
-        let mut from_holding = self.load::<HoldingState>(from_key);
-        from_holding
-            .inner
-            .debit(&mut from_account.inner, n)
+        econ::win(
+            &mut self.svm,
+            source,
+            from.account,
+            to.account,
+            CLASS_GENERAL,
+            0,
+            n,
+        );
+    }
+
+    /// The vault holds exactly the open Positions' custody, the Treasury's shares and the escrow.
+    fn check_vault(&self) {
+        let c = self.custody();
+        let open: u64 = self
+            .opened
+            .iter()
+            .map(|p| self.load::<PositionState>(*p).inner)
+            .filter(|p| p.status == PositionStatus::Locked)
+            .map(|p| p.custody_shares - p.paid_shares)
+            .sum();
+        let vault = self.token_balance(self.vault()) as u128;
+        let want = open as u128 + c.route.treasury_shares + c.route.escrow_total();
+        assert_eq!(
+            vault, want,
+            "vault {vault} != custody {open} + route {:?}",
+            c.route
+        );
+        c.route.check(&[]).expect("route claims fit the Treasury");
+    }
+
+    fn route(&self) -> ledger::RouteLedger {
+        self.custody().route
+    }
+
+    /// The Treasury's spendable shares: what it may withdraw or spend on a fill.
+    fn spendable(&self) -> u64 {
+        self.route().spendable() as u64
+    }
+
+    fn treasury_gemas(&self, source: APk) -> u64 {
+        gemas_in(&self.svm, treasury_account(), source)
+    }
+
+    fn fund_treasury(&mut self, tokens: u64) {
+        let admin = self.admin.insecure_clone();
+        let admin_token = get_associated_token_address(&a(admin.pubkey()), &self.mint);
+        self.svm
+            .set_account(
+                s(admin_token),
+                account(
+                    TOKEN_PROGRAM_ID,
+                    token_account_data(self.mint, a(admin.pubkey()), tokens),
+                ),
+            )
             .unwrap();
-        let mut to_account = self.load::<TesoroAccount>(to.account);
-        let to_key = self.holding(to, source);
-        let mut to_holding = match self.svm.get_account(&s(to_key)) {
-            Some(_) => self.load::<HoldingState>(to_key),
-            None => HoldingState {
-                bump: APk::find_program_address(
-                    &[HOLDING_SEED, to.account.as_ref(), source.as_ref()],
-                    &tesoro_core::ID,
-                )
-                .1,
-                account: to.account,
-                inner: ledger::Holding::new(source.to_bytes(), false),
-            },
-        };
-        to_holding.inner.credit(&mut to_account.inner, n).unwrap();
-        self.write(from.account, &from_account, TesoroAccount::SPACE);
-        self.write(from_key, &from_holding, HoldingState::SPACE);
-        self.write(to.account, &to_account, TesoroAccount::SPACE);
-        self.write(to_key, &to_holding, HoldingState::SPACE);
-    }
-
-    fn write<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
-        let mut buf = Vec::new();
-        v.try_serialize(&mut buf).expect("serialize");
-        buf.resize(len, 0);
-        let mut acct = self.svm.get_account(&s(k)).unwrap_or_default();
-        acct.owner = s(tesoro_core::ID);
-        acct.lamports = acct.lamports.max(SOL / 100);
-        acct.data = buf;
-        self.svm.set_account(s(k), acct).expect("set account");
-    }
-
-    fn instant_redeem_ix(&self, p: &Person, pos: Pos, source: APk, amount: u64) -> Instruction {
-        tix(
-            accounts::InstantRedeemStake {
-                holder_authority: p.key,
-                holder_account: p.account,
-                position: pos.position,
-                source,
-                holding: self.holding(p, source),
-                treasury: pda(&[TREASURY_SEED]),
-                treasury_account: treasury_account(),
-                treasury_holding: self.treasury_holding(source),
+        let fund = tix(
+            accounts::FundTreasuryStake {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
                 custody: self.custody_address(),
                 vault: self.vault(),
-                holder_token: p.token,
-                stake_pool: self.pool,
+                admin_token,
                 token_program: TOKEN_PROGRAM_ID,
+            },
+            instruction::FundTreasuryStake { shares: tokens },
+            vec![],
+        );
+        self.send(&[fund], &admin, &[]).expect("fund treasury");
+    }
+
+    fn order_address(&self, p: &Person, nonce: u64) -> APk {
+        pda(&[INSTANT_ORDER_SEED, p.account.as_ref(), &nonce.to_le_bytes()])
+    }
+
+    fn request_ix(&self, p: &Person, pos: Pos, source: APk, sell: u64, nonce: u64) -> Instruction {
+        let mut remaining = self.kind_paying(p.token);
+        remaining.extend(book_metas(&self.svm, source));
+        tix(
+            accounts::RequestInstantRedeem {
+                holder_authority: p.key,
+                holder_account: p.account,
+                basket: self.basket(p),
+                spill: self.spill(p),
+                position: pos.position,
+                source,
+                order: self.order_address(p, nonce),
                 system_program: anchor_lang::system_program::ID,
             },
-            instruction::InstantRedeemStake { amount },
-            vec![],
+            instruction::RequestInstantRedeem {
+                line: self.line(source, SIDE_WON),
+                sell,
+                ttl_secs: 7 * 24 * 3600,
+                nonce,
+            },
+            remaining,
         )
     }
 
-    fn instant_redeem(
+    fn request(
         &mut self,
         p: &Person,
         pos: Pos,
         source: APk,
-        amount: u64,
+        sell: u64,
+        nonce: u64,
     ) -> Result<(), Failed> {
-        let ix = self.instant_redeem_ix(p, pos, source, amount);
+        let ix = self.request_ix(p, pos, source, sell, nonce);
         self.send(&[ix], &p.kp, &[])
     }
 
+    fn fill_ix(
+        &self,
+        signer: APk,
+        seller: &Person,
+        pos: Pos,
+        source: APk,
+        nonce: u64,
+        gemas: u64,
+    ) -> Instruction {
+        let mut remaining = self.kind_paying(seller.token);
+        remaining.extend(book_metas(&self.svm, source));
+        tix(
+            accounts::FillInstantRedeem {
+                filler: signer,
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                treasury: pda(&[TREASURY_SEED]),
+                treasury_account: treasury_account(),
+                treasury_basket: basket_address(&treasury_account()).0,
+                treasury_spill: spill_address(&treasury_account()).0,
+                order: self.order_address(seller, nonce),
+                owner_wallet: seller.key,
+                position: pos.position,
+                source,
+            },
+            instruction::FillInstantRedeem { gemas },
+            remaining,
+        )
+    }
+
+    fn fill(
+        &mut self,
+        seller: &Person,
+        pos: Pos,
+        source: APk,
+        nonce: u64,
+        gemas: u64,
+    ) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let ix = self.fill_ix(a(admin.pubkey()), seller, pos, source, nonce, gemas);
+        self.send(&[ix], &admin, &[])
+    }
+
+    fn return_order_ix(
+        &self,
+        signer: &Person,
+        seller: &Person,
+        source: APk,
+        nonce: u64,
+        expire: bool,
+    ) -> Instruction {
+        let accounts = accounts::ReturnInstantRedeem {
+            signer: signer.key,
+            owner_account: seller.account,
+            basket: self.basket(seller),
+            spill: self.spill(seller),
+            order: self.order_address(seller, nonce),
+            owner_wallet: seller.key,
+        };
+        let remaining = book_metas(&self.svm, source);
+        if expire {
+            tix(accounts, instruction::ExpireInstantRedeem {}, remaining)
+        } else {
+            tix(accounts, instruction::CancelInstantRedeem {}, remaining)
+        }
+    }
+
+    /// The Treasury redeems what it bought: stake shares stay in the custody vault.
     fn redeem_treasury(
         &mut self,
         payer: &Keypair,
@@ -791,16 +1061,25 @@ impl Env {
         source: APk,
         amount: u64,
     ) -> Result<(), Failed> {
+        let line = LineRef {
+            side: SIDE_WON,
+            due_at: self.stored(source).due_at,
+            class: CLASS_GENERAL,
+            tranche: 0,
+        };
+        let mut remaining = self.pool_tail();
+        remaining.extend(book_metas(&self.svm, source));
         let redeem = tix(
             accounts::RedeemTreasury {
                 treasury: pda(&[TREASURY_SEED]),
                 treasury_account: treasury_account(),
+                basket: basket_address(&treasury_account()).0,
+                spill: spill_address(&treasury_account()).0,
                 position: pos.position,
                 source,
-                treasury_holding: self.treasury_holding(source),
             },
-            instruction::RedeemTreasury { amount },
-            self.pool_tail(),
+            instruction::RedeemTreasury { line, amount },
+            remaining,
         );
         self.send(&[redeem], payer, &[])
     }
@@ -838,11 +1117,15 @@ impl Env {
         self.send(&[ix], &admin, &[])
     }
 
-    /// The Treasury's balance in tokens, as the program computes it.
-    fn treasury_balance(&self) -> u64 {
-        self.custody()
-            .treasury_balance(self.rate(), self.token_balance(self.vault()))
-            .unwrap()
+    fn write<T: anchor_lang::AccountSerialize>(&mut self, k: APk, v: &T, len: usize) {
+        let mut buf = Vec::new();
+        v.try_serialize(&mut buf).expect("serialize");
+        buf.resize(len, 0);
+        let mut acct = self.svm.get_account(&s(k)).unwrap_or_default();
+        acct.owner = s(tesoro_core::ID);
+        acct.lamports = acct.lamports.max(SOL / 100);
+        acct.data = buf;
+        self.svm.set_account(s(k), acct).expect("set account");
     }
 }
 
@@ -1171,31 +1454,25 @@ fn growth_since_open_is_the_staking_rate_ratio_and_pays_the_token() {
     env.set_total(1_313_000_000_000);
     let net = ledger::stake_position_accrued(&env.position(pos), env.rate()).unwrap();
     assert_eq!((net.gross, net.net), (130_000_000, 104_000_000));
-    let view = env.view(source);
-    assert_eq!(
-        view.yield_units,
-        net.net.min(view.units_to_repay_total().unwrap())
-    );
     assert!(env.debt(source) < issued);
 
-    // Redeem the Gemas that are covered: the payout is in the token at today's rate.
-    let covered = view.redeemable_for(env.gemas(&alice, source));
+    // Redeem the Gemas that are covered: the payout is the tokens their yield was worth when it
+    // landed, which is the rate of this instant.
+    let covered = env.redeemable(&alice, source);
     assert!(covered > 0);
     let before = env.token_balance(alice.token);
     env.redeem(&alice, pos, source, covered).expect("redeem");
-    let units = view.units_for(covered).unwrap();
-    assert_eq!(
-        env.token_balance(alice.token) - before,
-        tokens_for(units, env.rate())
-    );
-    assert_eq!(
-        env.token_balance(env.vault()),
-        10 * SOL - tokens_for(units, env.rate())
-    );
+    let units = env.stored(source).units_for(covered).unwrap();
+    let want = tokens_for(units, env.rate());
+    let got = env.token_balance(alice.token) - before;
+    assert!(got.abs_diff(want) <= 2, "got {got} want {want}");
+    assert_eq!(env.token_balance(env.vault()), 10 * SOL - got);
+    // The Position's custody bookkeeping follows the vault: paid shares leave its custody.
+    assert_eq!(env.position(pos).paid_shares, got);
 }
 
 #[test]
-fn unlock_returns_the_principal_and_the_free_yield_in_the_token_and_books_the_fee() {
+fn unlock_returns_the_rest_of_the_custody_and_realises_the_fee() {
     let mut env = Env::new();
     let alice = env.holder(10 * SOL);
     let pos = env.open(&alice, 10 * SOL).unwrap();
@@ -1207,27 +1484,27 @@ fn unlock_returns_the_principal_and_the_free_yield_in_the_token_and_books_the_fe
     assert_eq!(net.fee, 260_000_000);
     env.unlock(&alice, pos).expect("unlock");
     let paid = env.token_balance(alice.token);
-    let expect = ledger::unlock_tokens(13 * SOL, net.net, 10 * SOL, rate).unwrap();
-    assert_eq!(paid, expect);
-    // 10 tokens at 1.30 = 13 SOL principal; at 1.43 they are 9.0909 tokens; plus the free yield
-    // 1.04 SOL = 0.7273 tokens: the Player gets back about 9.818 of the 10 tokens.
-    assert!(paid > 9_800_000_000 && paid < 9_850_000_000, "{paid}");
-    // What stays in the vault is the Treasury's fee (and nothing else).
-    let left = env.token_balance(env.vault());
-    assert_eq!(left, 10 * SOL - paid);
+    // The owner gets the custody less the fee, in tokens.
     let fee_tokens = tokens_for(net.fee, rate);
-    assert!(
-        left.abs_diff(fee_tokens) <= 2,
-        "left {left} fee {fee_tokens}"
-    );
+    assert_eq!(paid, 10 * SOL - fee_tokens);
+    // The old rule (Principal plus free yield at today's rate) lands within a token unit.
+    let old = ledger::unlock_tokens(13 * SOL, net.net, 10 * SOL, rate).unwrap();
+    assert!(paid.abs_diff(old) <= 1, "{paid} {old}");
+    assert!(paid > 9_800_000_000 && paid < 9_850_000_000, "{paid}");
+    // What stays in the vault is the Treasury's realised fee (and nothing else).
+    let left = env.token_balance(env.vault());
+    assert_eq!(left, fee_tokens);
     let c = env.custody();
     assert_eq!((c.open_positions, c.principal), (0, 0));
     assert_eq!(c.realised_fee_shares as u64, fee_tokens);
+    assert_eq!(c.route.treasury_shares, fee_tokens as u128);
+    assert_eq!(c.route.pool_owed, (fee_tokens / 2) as u128);
+    assert_eq!(env.spendable(), fee_tokens - fee_tokens / 2);
     assert_eq!(env.position(pos).status, PositionStatus::Unlocked);
     assert_eq!(env.position(pos).custody_shares, 0);
-    assert_eq!(env.treasury_balance(), left.min(fee_tokens));
     // Twice is refused.
     assert!(env.unlock(&alice, pos).is_err());
+    env.check_vault();
 }
 
 #[test]
@@ -1239,7 +1516,8 @@ fn a_pool_that_lost_value_leaves_the_player_the_shares_and_no_yield() {
     env.unlock(&alice, pos).expect("unlock");
     assert_eq!(env.token_balance(alice.token), 10 * SOL);
     assert_eq!(env.token_balance(env.vault()), 0);
-    assert_eq!(env.treasury_balance(), 0);
+    assert_eq!(env.spendable(), 0);
+    env.check_vault();
 }
 
 #[test]
@@ -1273,9 +1551,15 @@ fn debt_clears_with_growth_alone_and_a_second_advance_does_not_count_old_yield()
     assert_eq!(env.position(pos).open_advance, Some(1));
     assert_eq!(env.position(pos).applied_net, net_before);
     assert_eq!(env.debt(second), env.stored(second).issued);
-    // The first Source kept what it needed; the rest is free yield.
-    assert_eq!(env.stored(first).yield_units, owed);
-    assert_eq!(env.position(pos).free_yield, net_before - owed);
+    // The first Source kept what it needed; the rest is the owner's free yield.
+    let b0 = read_book(&env.svm, first);
+    assert_eq!(b0.uncovered_total(), 0);
+    assert_eq!(
+        b0.owner_shares, 0,
+        "the pocket was taken when the Advance closed"
+    );
+    assert!(env.position(pos).free_shares > 0);
+    env.check_vault();
 }
 
 #[test]
@@ -1294,11 +1578,15 @@ fn return_own_cancels_debt_on_the_computed_model() {
         accounts::ReturnOwn {
             owner_authority: alice.key,
             owner_account: alice.account,
+            basket: env.basket(&alice),
+            spill: env.spill(&alice),
             position: pos.position,
             source,
-            holding: env.holding(&alice, source),
         },
-        instruction::ReturnOwn { amount: 1 },
+        instruction::ReturnOwn {
+            line: env.line(source, SIDE_OWN),
+            amount: 1,
+        },
         vec![],
     );
     let err = env.send(&[ret], &alice.kp, &[]).unwrap_err();
@@ -1425,9 +1713,10 @@ fn a_stake_position_prices_only_from_the_pyth_mapping() {
             position: pos.position,
             price_feed: pda(&[PRICE_SEED, SIM_SOL_MINT.as_ref()]),
             pool: pda(&[b"pool"]),
-            prev_source: None,
             source,
-            holding: env.holding(&alice, source),
+            book: book_address(&source).0,
+            basket: env.basket(&alice),
+            spill: env.spill(&alice),
             system_program: anchor_lang::system_program::ID,
         },
         instruction::TakeNativeAdvance { horizon_months: 1 },
@@ -1452,7 +1741,9 @@ fn a_stake_position_prices_only_from_the_pyth_mapping() {
             protections: pda(&[PROTECTIONS_SEED, alice.account.as_ref()]),
             position: pos.position,
             source,
-            holding: env.holding(&alice, source),
+            book: book_address(&source).0,
+            basket: env.basket(&alice),
+            spill: env.spill(&alice),
             system_program: anchor_lang::system_program::ID,
         },
         instruction::TakeAdvance {
@@ -1508,6 +1799,17 @@ fn extend_adds_the_extra_months_sized_the_same_way() {
         gemas_for(13 * SOL, 649, 3) - gemas_for(13 * SOL, 649, 2)
     );
     assert_eq!(env.gemas(&alice, source), after.issued);
+    // The Extension is its own tranche, junior to the Advance's own Gemas.
+    let ext = find_line(
+        &env.svm,
+        alice.account,
+        source,
+        SIDE_OWN,
+        CLASS_GENERAL + 1,
+        1,
+    )
+    .unwrap();
+    assert_eq!(ext.amount, after.issued - before.issued);
 }
 
 #[test]
@@ -1544,10 +1846,9 @@ fn the_oracle_and_the_bridge_cannot_drive_a_stake_position() {
     assert_eq!(code(&err), ERR_NATIVE_POSITION);
 }
 
-// --- Treasury --------------------------------------------------------------------------------
+// --- Treasury: realised fees only (D1), holders carry slashes (D2), no cushion (D3) -------------
 
-/// A Position of 10 tokens with a 12-month Advance, 1,000 of Alice's Gemas won by Bob, and a
-/// rate that has risen enough for the fee to cover the sale.
+/// A Position of 10 tokens with a 12-month Advance and 1,000 of Alice's Gemas won by Bob.
 fn treasury_env() -> (Env, Person, Person, Pos, APk) {
     let mut env = Env::new();
     let alice = env.holder(10 * SOL);
@@ -1559,117 +1860,118 @@ fn treasury_env() -> (Env, Person, Person, Pos, APk) {
 }
 
 #[test]
-fn the_treasury_balance_is_the_fee_on_growth_and_starts_empty() {
+fn the_treasury_starts_empty_and_a_fee_is_not_its_own_until_the_position_unlocks() {
     let (mut env, _alice, _bob, _pos, _source) = treasury_env();
-    assert_eq!(env.treasury_balance(), 0);
-    // 10% growth on 13 SOL: gross 1.3 SOL, fee 0.26 SOL, in tokens at the new rate.
+    assert_eq!(env.spendable(), 0);
+    // 10% growth on 13 SOL: the live claim shows a fee, but nothing is realised.
     env.set_total(1_430_000_000_000);
-    let want = tokens_for(260_000_000, env.rate());
-    let got = env.treasury_balance();
-    assert!(got <= want && want - got <= 3, "got {got} want {want}");
-}
-
-#[test]
-fn instant_redeem_pays_75_percent_in_the_token_from_the_fee_and_hands_the_treasury_the_gemas() {
-    let (mut env, _alice, bob, pos, source) = treasury_env();
-    // Empty Treasury: refused, nothing moved.
-    let err = env.instant_redeem(&bob, pos, source, 1_000).unwrap_err();
-    assert_eq!(code(&err), ERR_TREASURY_SHORT);
-    assert_eq!(env.gemas(&bob, source), 1_000);
-    assert!(env
-        .svm
-        .get_account(&s(env.treasury_holding(source)))
-        .is_none());
-
-    env.set_total(1_326_000_000_000);
-    let rate = env.rate();
-    let source_before = env.stored(source);
-    let balance_before = env.treasury_balance();
-    let view = env.view(source);
-    // Gemas whose yield has not landed yet are the ones Instant Redeem takes.
-    let pending = 1_000 - view.redeemable_for(1_000);
-    assert!(pending > 0);
-    env.instant_redeem(&bob, pos, source, pending)
-        .expect("instant");
-    let units = view.units_for(pending).unwrap();
-    let payout = units * 7_500 / 10_000;
-    let tokens = tokens_for(payout, rate);
-    assert_eq!(env.token_balance(bob.token), tokens);
-    assert_eq!(env.custody().instant_shares, tokens);
-    assert_eq!(env.treasury_balance(), balance_before - tokens);
-    let bought = env.load::<HoldingState>(env.treasury_holding(source));
-    assert_eq!((bought.inner.amount, bought.inner.is_own), (pending, false));
-    // Debt, the Source's stored counts and the Position are untouched.
-    assert_eq!(env.stored(source), source_before);
-    assert_eq!(env.position(pos).status, PositionStatus::Locked);
-
-    // Refilling: the Treasury redeems its Gemas once their yield lands, which adds to its balance.
-    env.set_total(2_000_000_000_000);
-    let before = env.custody().refilled_shares;
-    let payer = env.person();
-    let held = env
-        .load::<HoldingState>(env.treasury_holding(source))
-        .inner
-        .amount;
-    let redeemable = env.view(source).redeemable_for(held);
-    assert!(redeemable > 0);
-    env.redeem_treasury(&payer.kp, pos, source, redeemable)
-        .expect("redeem treasury");
-    assert!(env.custody().refilled_shares > before);
-}
-
-#[test]
-fn the_treasury_never_pays_below_the_principal_reserve() {
-    let (mut env, _alice, bob, pos, source) = treasury_env();
-    env.set_total(1_326_000_000_000);
-    // The fee claim is real, but pretend the vault lost tokens elsewhere: the headroom over the
-    // Principal reserve caps what the Treasury can pay.
-    let reserve = env
+    let live = env
         .custody()
         .totals()
-        .principal_reserve(env.rate())
+        .earned_fee_shares(env.rate())
         .unwrap();
-    let mut vault = env.svm.get_account(&s(env.vault())).unwrap();
-    let mut data = spl_token::state::Account::unpack(&vault.data).unwrap();
-    data.amount = reserve + 1_000;
-    spl_token::state::Account::pack(data, &mut vault.data).unwrap();
-    env.svm.set_account(s(env.vault()), vault).unwrap();
-    assert_eq!(env.treasury_balance(), 1_000);
-    let pending = 1_000 - env.view(source).redeemable_for(1_000);
-    assert!(pending > 0);
-    let err = env.instant_redeem(&bob, pos, source, pending).unwrap_err();
-    assert_eq!(code(&err), ERR_TREASURY_SHORT);
+    assert!(live > 0);
+    assert_eq!(
+        env.spendable(),
+        0,
+        "an open Position's fee is not spendable"
+    );
+    env.check_vault();
+}
+
+/// Failure 2 of the treasury slashing work, on the Solana staking custody: the Treasury balance
+/// counted the earned fee of OPEN Positions as spendable. The admin withdrew it, the pool was
+/// slashed, and the Player's Unlock found the vault short of the shares it must return. The
+/// Treasury now spends only realised fees: the withdrawal is refused.
+#[test]
+fn an_open_positions_fee_is_not_spendable_so_a_slash_cannot_leave_unlock_short() {
+    let mut env = Env::new();
+    let alice = env.holder(10 * SOL);
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let company = env.person();
+    env.set_tokens(&company, 0);
+    env.set_company(company.key);
+    // The pool grows 10%: an open fee is earned but nothing is realised, because nobody unlocked.
+    env.set_total(1_430_000_000_000);
+    let rate = env.rate();
+    let live = env.custody().totals().earned_fee_shares(rate).unwrap();
+    let units = ledger::units_for_tokens(live, rate).unwrap();
+    let err = env.withdraw(company.token, units).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::OverSpendable));
+    assert_eq!(env.token_balance(company.token), 0);
+    // The pool is then slashed below the rate Alice opened at.
+    env.set_total(1_170_000_000_000);
+    env.unlock(&alice, pos).expect("unlock after the slash");
+    assert_eq!(
+        env.token_balance(alice.token),
+        10 * SOL,
+        "Alice carries the slash as a token holder, not a missing-token failure"
+    );
+    env.check_vault();
 }
 
 #[test]
-fn the_admin_withdraws_the_fee_in_the_token_and_only_up_to_the_balance() {
-    let (mut env, _alice, _bob, _pos, _source) = treasury_env();
+fn after_unlock_the_treasury_spends_its_half_and_the_pool_half_is_protected() {
+    let mut env = Env::new();
+    let alice = env.holder(10 * SOL);
+    let pos = env.open(&alice, 10 * SOL).unwrap();
     let company = env.person();
-    let company_token = company.token;
     env.set_tokens(&company, 0);
-    // No company wallet set yet.
-    let err = env.withdraw(company_token, 1_000).unwrap_err();
-    assert_eq!(code(&err), 6019);
     env.set_company(company.key);
     env.set_total(1_430_000_000_000);
     let rate = env.rate();
-    let balance = env.treasury_balance();
-    assert!(balance > 0);
-    // More than the balance is refused.
-    let too_much = ledger::units_for_tokens(balance, rate).unwrap() + 1_000;
-    let err = env.withdraw(company_token, too_much).unwrap_err();
-    assert_eq!(code(&err), ERR_TREASURY_SHORT);
-    // Half of it is paid.
-    let half_units = ledger::units_for_tokens(balance / 2, rate).unwrap();
-    env.withdraw(company_token, half_units).expect("withdraw");
+    let fee = ledger::stake_position_accrued(&env.position(pos), rate)
+        .unwrap()
+        .fee;
+    env.unlock(&alice, pos).unwrap();
+    let fee_tokens = tokens_for(fee, rate);
+    let route = env.route();
+    assert_eq!(route.treasury_shares, fee_tokens as u128);
     assert_eq!(
-        env.token_balance(company_token),
-        tokens_for(half_units, rate)
+        route.pool_owed,
+        (fee_tokens / 2) as u128,
+        "half the Yield Fee is the Pool's"
     );
-    assert_eq!(env.custody().withdrawn_shares, tokens_for(half_units, rate));
-    assert!(env.treasury_balance() < balance - balance / 2 + 3);
+    let mine = env.spendable();
+    assert_eq!(mine, fee_tokens - fee_tokens / 2);
+    // A withdrawal beyond Tesoro's half is refused, however small the excess.
+    let max_units = ledger::units_for_tokens(mine, rate).unwrap();
+    let err = env.withdraw(company.token, max_units + 2_000).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::OverSpendable));
+    env.withdraw(company.token, max_units)
+        .expect("its own half");
+    assert_eq!(
+        env.token_balance(company.token),
+        tokens_for(max_units, rate)
+    );
+    assert!(
+        env.route().pool_owed == route.pool_owed,
+        "the Pool's half is untouched"
+    );
+    env.check_vault();
+}
+
+#[test]
+fn only_the_admin_withdraws_the_treasury_and_only_to_the_company_wallet() {
+    let (mut env, alice, _bob, pos, _source) = treasury_env();
+    let company = env.person();
+    let mallory = env.holder(0);
+    env.set_tokens(&company, 0);
+    // No company wallet set yet.
+    let err = env.withdraw(company.token, 1_000).unwrap_err();
+    assert_eq!(
+        code(&err),
+        6000 + tesoro_core::error::TesoroError::CompanyNotSet as u32
+    );
+    env.set_company(company.key);
+    env.fund_treasury(SOL);
+    // Not another wallet's token account, even as the admin.
+    let err = env.withdraw(mallory.token, 1_000).unwrap_err();
+    assert_eq!(
+        code(&err),
+        6000 + tesoro_core::error::TesoroError::InvalidAccount as u32
+    );
     // A non-admin cannot.
-    let mallory = env.person();
     let mut ix = tix(
         accounts::WithdrawTreasuryStake {
             admin: mallory.key,
@@ -1677,7 +1979,7 @@ fn the_admin_withdraws_the_fee_in_the_token_and_only_up_to_the_balance() {
             treasury: pda(&[TREASURY_SEED]),
             custody: env.custody_address(),
             vault: env.vault(),
-            company_token,
+            company_token: company.token,
             stake_pool: env.pool,
             token_program: TOKEN_PROGRAM_ID,
         },
@@ -1687,9 +1989,223 @@ fn the_admin_withdraws_the_fee_in_the_token_and_only_up_to_the_balance() {
     ix.accounts[0].is_signer = true;
     let err = env.send(&[ix], &mallory.kp, &[]).unwrap_err();
     assert_eq!(code(&err), ERR_UNAUTHORIZED);
+    let _ = (alice, pos);
+    env.withdraw(company.token, 1_000)
+        .expect("the admin pays the company");
+    env.check_vault();
 }
 
-// --- Property: the vault stays solvent for the Principal --------------------------------------
+/// Holders carry a slash (D2): their ready Gemas are claims on the shares the yield was worth
+/// when it landed, so a later slash lowers what the tokens are worth, never how many there are.
+#[test]
+fn a_slash_between_landing_and_redeem_changes_the_value_not_the_number_of_shares() {
+    let (mut env, _alice, bob, pos, source) = treasury_env();
+    // The pool grows 5%; a small Redeem by Bob lands the yield.
+    env.set_total(1_365_000_000_000);
+    let rate_landed = env.rate();
+    let ready_first = env.redeemable(&bob, source);
+    assert!(ready_first > 10);
+    env.redeem(&bob, pos, source, 1).expect("lands the yield");
+    let lands = env.token_balance(bob.token);
+    assert!(lands > 0);
+    let ready = env.redeemable(&bob, source);
+    // The pool is slashed below the rate the Position opened at.
+    env.set_total(1_100_000_000_000);
+    assert_eq!(
+        env.redeemable(&bob, source),
+        ready,
+        "Redeem now never goes down"
+    );
+    let before = env.token_balance(bob.token);
+    env.redeem(&bob, pos, source, ready)
+        .expect("redeem after the slash");
+    let got = env.token_balance(bob.token) - before;
+    // The shares are those the Gemas were worth at the landing, at the rate of the landing.
+    let units = env.stored(source).units_for(ready).unwrap();
+    let want = tokens_for(units, rate_landed);
+    assert!(
+        got.abs_diff(want) <= 2,
+        "got {got} want {want}: shares are fixed at landing"
+    );
+    env.check_vault();
+}
+
+#[test]
+fn unlocked_holders_are_owed_shares_that_the_treasury_can_never_spend() {
+    let mut env = Env::new();
+    let alice = env.holder(10 * SOL);
+    let bob = env.holder(0);
+    let company = env.person();
+    env.set_tokens(&company, 0);
+    env.set_company(company.key);
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_stake(&alice, pos, 1).unwrap();
+    env.give_won(&alice, &bob, source, 400);
+    env.set_total(1_400_000_000_000);
+    env.unlock(&alice, pos).expect("unlock");
+    let route = env.route();
+    assert!(
+        route.owed_shares > 0,
+        "Bob's 400 Gemas are claims on shares"
+    );
+    // The Treasury cannot touch what Bob is owed, whatever the rate does.
+    env.set_total(1_000_000_000_000);
+    let rate = env.rate();
+    let spendable = env.spendable();
+    let units = ledger::units_for_tokens(spendable, rate).unwrap();
+    let err = env.withdraw(company.token, units + 100_000).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::OverSpendable));
+    env.withdraw(company.token, units).unwrap();
+    // Bob is paid the shares fixed when they landed, from owed_shares.
+    let owed = env.route().owed_shares;
+    assert_eq!(owed, route.owed_shares);
+    let ready = env.redeemable(&bob, source);
+    assert!(ready > 0);
+    env.redeem(&bob, pos, source, ready).expect("late redeem");
+    let paid = env.token_balance(bob.token);
+    assert!(paid > 0 && (paid as u128) <= owed);
+    assert_eq!(env.route().owed_shares, owed - paid as u128);
+    env.check_vault();
+}
+
+/// A fill pays 75% of the value at fill from the spendable shares only, and a fill that would
+/// need more than the Treasury may spend is refused.
+#[test]
+fn an_instant_redeem_fill_is_bounded_by_the_spendable_shares() {
+    let (mut env, _alice, bob, pos, source) = treasury_env();
+    env.request(&bob, pos, source, 1_000, 1).expect("request");
+    assert_eq!(env.gemas(&bob, source), 0, "the Gemas wait in the order");
+    // Empty Treasury: nothing to spend.
+    let err = env.fill(&bob, pos, source, 1, 100).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::OverSpendable));
+    // Funding is the Treasury's own and spendable at once.
+    env.fund_treasury(SOL);
+    let rate = env.rate();
+    let units = env.stored(source).units_for(400).unwrap();
+    let value = tokens_for(units, rate);
+    let before = env.token_balance(bob.token);
+    let spend_before = env.spendable();
+    env.fill(&bob, pos, source, 1, 400).expect("fill");
+    let paid = env.token_balance(bob.token) - before;
+    let expect = value * 7_500 / 10_000;
+    assert!(paid.abs_diff(expect) <= 2, "paid {paid} expect {expect}");
+    assert_eq!(spend_before - env.spendable(), paid);
+    assert_eq!(env.treasury_gemas(source), 400);
+    // A fill needing more than is spendable is refused and changes nothing.
+    env.withdraw_all_spendable_to_company();
+    let err = env.fill(&bob, pos, source, 1, 100).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::OverSpendable));
+    assert_eq!(env.treasury_gemas(source), 400);
+    env.check_vault();
+}
+
+#[test]
+fn cancelling_a_part_filled_order_returns_the_unsold_gemas_exactly() {
+    let (mut env, _alice, bob, pos, source) = treasury_env();
+    env.request(&bob, pos, source, 1_000, 1).expect("request");
+    env.fund_treasury(SOL);
+    env.fill(&bob, pos, source, 1, 400).expect("fill");
+    assert_eq!(env.gemas(&bob, source), 0, "the rest waits in the order");
+    let cancel = env.return_order_ix(&bob, &bob, source, 1, false);
+    env.send(&[cancel], &bob.kp, &[]).expect("cancel");
+    assert_eq!(
+        env.gemas(&bob, source),
+        600,
+        "only the unsold Gemas come back"
+    );
+    assert_eq!(env.treasury_gemas(source), 400);
+    assert!(env
+        .svm
+        .get_account(&s(env.order_address(&bob, 1)))
+        .is_none());
+    env.check_vault();
+}
+
+#[test]
+fn the_treasury_redeems_what_it_bought_at_full_value_into_its_own_shares() {
+    let (mut env, _alice, bob, pos, source) = treasury_env();
+    env.request(&bob, pos, source, 1_000, 1).expect("request");
+    env.fund_treasury(SOL);
+    env.fill(&bob, pos, source, 1, 1_000).expect("fill");
+    assert_eq!(env.treasury_gemas(source), 1_000);
+    // Growth repays the whole Advance, so the Treasury's Gemas are redeemable.
+    env.set_total(1_430_000_000_000);
+    let before = env.route().treasury_shares;
+    let payer = env.person();
+    env.redeem_treasury(&payer.kp, pos, source, 1_000)
+        .expect("treasury redeems");
+    assert_eq!(env.treasury_gemas(source), 0);
+    assert!(
+        env.route().treasury_shares > before,
+        "the shares stay in the vault as the Treasury's"
+    );
+    env.check_vault();
+}
+
+impl Env {
+    fn withdraw_all_spendable_to_company(&mut self) {
+        let company = self.person();
+        self.set_tokens(&company, 0);
+        self.set_company(company.key);
+        let units = ledger::units_for_tokens(self.spendable(), self.rate()).unwrap();
+        if units > 0 {
+            self.withdraw(company.token, units).unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_stale_pool_stops_redeem_unlock_advance_and_the_instant_redeem_request() {
+    let (mut env, alice, bob, pos, source) = treasury_env();
+    env.set_total(1_326_000_000_000);
+    env.set_clock(env.now(), EPOCH + 2);
+    let stale = core_code(ledger::CoreError::StaleStakePool);
+    let covered = env.redeemable(&alice, source);
+    assert!(covered > 0);
+    assert_eq!(
+        code(&env.redeem(&alice, pos, source, covered).unwrap_err()),
+        stale
+    );
+    assert_eq!(code(&env.unlock(&alice, pos).unwrap_err()), stale);
+    assert_eq!(code(&env.advance_stake(&alice, pos, 1).unwrap_err()), stale);
+    assert_eq!(
+        code(&env.return_own(&alice, pos, source, 1).unwrap_err()),
+        stale
+    );
+    assert_eq!(
+        code(&env.request(&bob, pos, source, 500, 1).unwrap_err()),
+        stale
+    );
+    // The pool updating again opens everything back up.
+    env.set_clock(env.now(), EPOCH + 1);
+    env.redeem(&alice, pos, source, covered)
+        .expect("fresh again");
+}
+
+#[test]
+fn unlock_closes_a_repaid_advance_and_pays_in_the_token() {
+    let mut env = Env::new();
+    let alice = env.holder(10 * SOL);
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_stake(&alice, pos, 1).unwrap();
+    env.set_total(1_400_000_000_000);
+    assert_eq!(env.debt(source), 0);
+    assert_eq!(env.position(pos).open_advance, Some(0));
+    let rate = env.rate();
+    let net = ledger::stake_position_accrued(&env.position(pos), rate).unwrap();
+    env.unlock(&alice, pos)
+        .expect("unlock with the Source passed");
+    assert_eq!(env.position(pos).open_advance, None);
+    // The owner gets the custody less the shares owed to holders and the fee.
+    let held = env.route().owed_shares as u64;
+    let fee = tokens_for(net.fee, rate);
+    assert_eq!(env.token_balance(alice.token), 10 * SOL - held - fee);
+    // The Gemas of the closed Source still redeem against the shares left for them.
+    let gemas = env.gemas(&alice, source);
+    env.redeem(&alice, pos, source, gemas).expect("late redeem");
+    assert_eq!(env.gemas(&alice, source), 0);
+    env.check_vault();
+}
 
 #[test]
 fn the_vault_returns_every_principal_and_the_treasury_keeps_its_fee() {
@@ -1715,70 +2231,11 @@ fn the_vault_returns_every_principal_and_the_treasury_keeps_its_fee() {
         // Each Player gets at least their Principal's worth of tokens at the new rate.
         assert!(got >= tokens_for(position.principal, rate), "{got}");
         paid += got;
+        env.check_vault();
     }
     let left = env.token_balance(env.vault());
     assert_eq!(left, vault_before - paid);
-    // What remains is the Treasury's earned fee, nothing missing, nothing extra beyond rounding.
-    let earned = env.custody().totals().earned_fee_shares(rate).unwrap();
-    assert!(left >= earned, "vault {left} < fee {earned}");
-    assert!(left - earned <= 8, "vault {left} far above fee {earned}");
+    // What remains is exactly the Treasury's realised fees.
+    assert_eq!(left as u128, env.route().treasury_shares);
     assert_eq!(env.custody().open_positions, 0);
-}
-
-// --- More: staleness on every path, Unlock with an Advance ------------------------------------
-
-#[test]
-fn a_stale_pool_stops_redeem_unlock_advance_and_instant_redeem() {
-    let (mut env, alice, bob, pos, source) = treasury_env();
-    env.set_total(1_326_000_000_000);
-    env.set_clock(env.now(), EPOCH + 2);
-    let stale = core_code(ledger::CoreError::StaleStakePool);
-    let covered = env.view(source).redeemable_for(env.gemas(&alice, source));
-    assert!(covered > 0);
-    assert_eq!(
-        code(&env.redeem(&alice, pos, source, covered).unwrap_err()),
-        stale
-    );
-    assert_eq!(code(&env.unlock(&alice, pos).unwrap_err()), stale);
-    assert_eq!(code(&env.advance_stake(&alice, pos, 1).unwrap_err()), stale);
-    assert_eq!(
-        code(&env.return_own(&alice, pos, source, 1).unwrap_err()),
-        stale
-    );
-    let pending = 1_000 - env.view(source).redeemable_for(1_000);
-    assert_eq!(
-        code(&env.instant_redeem(&bob, pos, source, pending).unwrap_err()),
-        stale
-    );
-    // The pool updating again opens everything back up.
-    env.set_clock(env.now(), EPOCH + 1);
-    env.redeem(&alice, pos, source, covered)
-        .expect("fresh again");
-}
-
-#[test]
-fn unlock_closes_a_repaid_advance_and_pays_in_the_token() {
-    let mut env = Env::new();
-    let alice = env.holder(10 * SOL);
-    let pos = env.open(&alice, 10 * SOL).unwrap();
-    let source = env.advance_stake(&alice, pos, 1).unwrap();
-    env.set_total(1_400_000_000_000);
-    assert_eq!(env.debt(source), 0);
-    assert_eq!(env.position(pos).open_advance, Some(0));
-    let rate = env.rate();
-    let net = ledger::stake_position_accrued(&env.position(pos), rate).unwrap();
-    let owed = env.stored(source).units_to_repay_total().unwrap();
-    env.unlock(&alice, pos)
-        .expect("unlock with the Source passed");
-    assert_eq!(env.position(pos).open_advance, None);
-    assert_eq!(env.stored(source).yield_units, owed);
-    let free = net.net - owed;
-    assert_eq!(
-        env.token_balance(alice.token),
-        ledger::unlock_tokens(13 * SOL, free, 10 * SOL, rate).unwrap()
-    );
-    // The Gemas of the closed Source still redeem against the tokens left for them.
-    let held = env.gemas(&alice, source);
-    env.redeem(&alice, pos, source, held).expect("late redeem");
-    assert_eq!(env.gemas(&alice, source), 0);
 }

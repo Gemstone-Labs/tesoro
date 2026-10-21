@@ -174,3 +174,5 @@ pub fn code_hash(svm: &LiteSVM, program: Pk) -> [u8; 32] {
 pub fn game_record(game: APk) -> APk {
     pda(&[GAME_SEED, game.as_ref()])
 }
+
+pub mod econ;

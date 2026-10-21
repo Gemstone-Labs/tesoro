@@ -119,7 +119,10 @@ pub mod tesoro_bridge {
         ApplyLocked::apply(&mut ctx, &params)
     }
 
-    pub fn apply_yield(mut ctx: Context<ApplyYield>, params: PositionRef) -> Result<()> {
+    pub fn apply_yield<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, ApplyYield<'info>>,
+        params: PositionRef,
+    ) -> Result<()> {
         ApplyYield::apply(&mut ctx, &params)
     }
 
@@ -137,15 +140,22 @@ pub mod tesoro_bridge {
         SendUnlock::apply(&mut ctx, &params)
     }
 
-    pub fn redeem_to_evm(mut ctx: Context<RedeemToEvm>, gemas: u64) -> Result<()> {
-        RedeemToEvm::apply(&mut ctx, gemas)
+    pub fn redeem_to_evm<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, RedeemToEvm<'info>>,
+        line: tesoro_core::LineRef,
+        gemas: u64,
+    ) -> Result<()> {
+        RedeemToEvm::apply(&mut ctx, line, gemas)
     }
 
     pub fn send_pay_yield(mut ctx: Context<SendPayYield>, params: SendParams) -> Result<()> {
         SendPayYield::apply(&mut ctx, &params)
     }
 
-    pub fn instant_redeem_to_evm(mut ctx: Context<InstantRedeemToEvm>, gemas: u64) -> Result<()> {
+    pub fn instant_redeem_to_evm<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, InstantRedeemToEvm<'info>>,
+        gemas: u64,
+    ) -> Result<()> {
         InstantRedeemToEvm::apply(&mut ctx, gemas)
     }
 
@@ -153,8 +163,12 @@ pub mod tesoro_bridge {
         SendPayInstant::apply(&mut ctx, &params)
     }
 
-    pub fn redeem_treasury_to_evm(mut ctx: Context<RedeemTreasuryToEvm>, gemas: u64) -> Result<()> {
-        RedeemTreasuryToEvm::apply(&mut ctx, gemas)
+    pub fn redeem_treasury_to_evm<'info>(
+        mut ctx: Context<'_, '_, '_, 'info, RedeemTreasuryToEvm<'info>>,
+        line: tesoro_core::LineRef,
+        gemas: u64,
+    ) -> Result<()> {
+        RedeemTreasuryToEvm::apply(&mut ctx, line, gemas)
     }
 
     // --- Executor discovery ------------------------------------------------------------------
