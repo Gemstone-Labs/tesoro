@@ -346,3 +346,8 @@ export const realEvmPrizeDeps = (ctx: Ctx, oracle: () => Keypair | null): EvmPri
 });
 
 export { simulate };
+
+import { realCounterDeps } from "./counters.ts";
+
+/** The batch job the pass runs. */
+export const batchesJob = (ctx: Ctx) => batchJob(ctx, realBatchDeps(ctx, realCounterDeps(ctx)));

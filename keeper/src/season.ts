@@ -7,6 +7,7 @@ import { shortKey } from "./env.ts";
 import { seasonWinsFromChain } from "./events-scan.ts";
 import { basketOf, decodeStore, economyAddress, keyOf, pda, prizeSourceOf, seasonAddress, slack, spillOf } from "./kit.ts";
 import { oracleKey } from "./price.ts";
+import { fundEvmPrizes, realEvmPrizeDeps } from "./batches.ts";
 import { sendIxs, type SendOpts } from "./send.ts";
 import { poolIsStale, updateStakePoolBalanceIx } from "./stake-pool-update.ts";
 import { SIM_SOL_MINT, connReader, type Reader } from "./supply.ts";
@@ -129,6 +130,8 @@ export interface SeasonDeps {
   epoch(): Promise<bigint>;
   /** Keys this process can sign a Season step with. */
   candidates(): (Keypair | null)[];
+  /** Issues the prize of ETH/HYPE routes (`fund_season_prize_evm`); returns the number of transactions sent. */
+  evmPrizes?(n: number, authority: Keypair, pool: PublicKey): Promise<number>;
 }
 
 export const realSeasonDeps = (ctx: Ctx): SeasonDeps => ({
@@ -137,6 +140,7 @@ export const realSeasonDeps = (ctx: Ctx): SeasonDeps => ({
   wins: (n) => seasonWinsFromChain(ctx.conn, n, seasonStart(n), seasonEnd(n)),
   epoch: async () => BigInt((await ctx.conn.getEpochInfo("confirmed")).epoch),
   candidates: () => [ctx.payer, oracleKey()],
+  evmPrizes: (n, authority, pool) => fundEvmPrizes(ctx, realEvmPrizeDeps(ctx, oracleKey), n, authority, pool),
 });
 
 // ---- Funding the routes' prizes ----------------------------------------------------------------------------------------
@@ -270,6 +274,8 @@ export async function seasonJob(ctx: Ctx, d: SeasonDeps = realSeasonDeps(ctx)): 
         else funded = false;
       }
       if (!funded) continue;
+      // The Pool's share of ETH and HYPE yield. record_season does not wait for these routes: a prize funded later rolls into a later Season.
+      if (d.evmPrizes) actions += await d.evmPrizes(n, authority, pool).catch((e) => (log("season", subject, `WARN EVM prizes: ${String((e as Error).message ?? e).split("\n")[0].slice(0, 160)}`), 0));
       if (!(await record(ctx, d, n, table, authority, pool, routeKeys))) continue;
       actions++;
       rec = await readSeason(ctx.core, n);
