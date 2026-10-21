@@ -264,95 +264,6 @@
       "args": []
     },
     {
-      "name": "apply_game_change",
-      "discriminator": [
-        219,
-        231,
-        117,
-        168,
-        62,
-        248,
-        67,
-        147
-      ],
-      "accounts": [
-        {
-          "name": "control",
-          "signer": true
-        },
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "game_program"
-        },
-        {
-          "name": "program_data"
-        },
-        {
-          "name": "game_record",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  97,
-                  109,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_program"
-              }
-            ]
-          }
-        },
-        {
-          "name": "studio_recipient",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "studio_recipient.authority",
-                "account": "TesoroAccount"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "apply_offer",
       "discriminator": [
         196,
@@ -629,53 +540,6 @@
           "type": "u64"
         }
       ]
-    },
-    {
-      "name": "cancel_game_change",
-      "discriminator": [
-        57,
-        40,
-        182,
-        86,
-        245,
-        94,
-        208,
-        233
-      ],
-      "accounts": [
-        {
-          "name": "control",
-          "signer": true
-        },
-        {
-          "name": "game_program"
-        },
-        {
-          "name": "program_data"
-        },
-        {
-          "name": "game_record",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  97,
-                  109,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_program"
-              }
-            ]
-          }
-        }
-      ],
-      "args": []
     },
     {
       "name": "cancel_instant_redeem",
@@ -1207,67 +1071,6 @@
         }
       ],
       "args": []
-    },
-    {
-      "name": "close_pair",
-      "docs": [
-        "Returns the rent of an opener-to-joiner pair counter after its window."
-      ],
-      "discriminator": [
-        45,
-        8,
-        194,
-        47,
-        65,
-        139,
-        172,
-        120
-      ],
-      "accounts": [
-        {
-          "name": "caller",
-          "signer": true
-        },
-        {
-          "name": "pair",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  97,
-                  105,
-                  114
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "opener"
-              },
-              {
-                "kind": "arg",
-                "path": "joiner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "payer",
-          "writable": true
-        }
-      ],
-      "args": [
-        {
-          "name": "opener",
-          "type": "pubkey"
-        },
-        {
-          "name": "joiner",
-          "type": "pubkey"
-        }
-      ]
     },
     {
       "name": "close_season",
@@ -5421,93 +5224,6 @@
       "args": []
     },
     {
-      "name": "list_game",
-      "docs": [
-        "Admin: lists a Game until a time for the build that hashes to `approved_hash` (or unlists",
-        "it with 0)."
-      ],
-      "discriminator": [
-        250,
-        150,
-        54,
-        108,
-        200,
-        41,
-        114,
-        192
-      ],
-      "accounts": [
-        {
-          "name": "admin",
-          "signer": true,
-          "relations": [
-            "config"
-          ]
-        },
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "game_record",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  97,
-                  109,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_record.game",
-                "account": "GameRecord"
-              }
-            ]
-          }
-        },
-        {
-          "name": "game_program"
-        },
-        {
-          "name": "program_data"
-        }
-      ],
-      "args": [
-        {
-          "name": "listed_until",
-          "type": "i64"
-        },
-        {
-          "name": "approved_hash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        }
-      ]
-    },
-    {
       "name": "open_holding",
       "discriminator": [
         156,
@@ -6799,107 +6515,6 @@
       ]
     },
     {
-      "name": "propose_game_change",
-      "docs": [
-        "Proposes new settle authority and Studio terms; they apply 7 days later."
-      ],
-      "discriminator": [
-        210,
-        221,
-        122,
-        118,
-        134,
-        181,
-        79,
-        75
-      ],
-      "accounts": [
-        {
-          "name": "control",
-          "signer": true
-        },
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "game_program"
-        },
-        {
-          "name": "program_data"
-        },
-        {
-          "name": "game_record",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  97,
-                  109,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_program"
-              }
-            ]
-          }
-        },
-        {
-          "name": "studio_recipient",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  111,
-                  117,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "studio_recipient.authority",
-                "account": "TesoroAccount"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "settle_authority",
-          "type": "pubkey"
-        },
-        {
-          "name": "studio_bps",
-          "type": "u16"
-        }
-      ]
-    },
-    {
       "name": "record_season",
       "discriminator": [
         237,
@@ -7775,54 +7390,6 @@
           "type": "u64"
         }
       ]
-    },
-    {
-      "name": "refresh_listing",
-      "docs": [
-        "Anyone: moves the approved slot forward when the program's bytes still hash to the",
-        "approved build."
-      ],
-      "discriminator": [
-        84,
-        213,
-        200,
-        188,
-        142,
-        240,
-        12,
-        30
-      ],
-      "accounts": [
-        {
-          "name": "game_record",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  97,
-                  109,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "game_record.game",
-                "account": "GameRecord"
-              }
-            ]
-          }
-        },
-        {
-          "name": "game_program"
-        },
-        {
-          "name": "program_data"
-        }
-      ],
-      "args": []
     },
     {
       "name": "refund_match",
@@ -12644,6 +12211,439 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "apply_game_change",
+      "discriminator": [
+        219,
+        231,
+        117,
+        168,
+        62,
+        248,
+        67,
+        147
+      ],
+      "accounts": [
+        {
+          "name": "control",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "studio_recipient",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "studio_recipient.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "refresh_listing",
+      "docs": [
+        "Anyone: moves the approved slot forward when the program's bytes still hash to the",
+        "approved build."
+      ],
+      "discriminator": [
+        84,
+        213,
+        200,
+        188,
+        142,
+        240,
+        12,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_record.game",
+                "account": "GameRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "propose_game_change",
+      "docs": [
+        "Proposes new settle authority and Studio terms; they apply 7 days later."
+      ],
+      "discriminator": [
+        210,
+        221,
+        122,
+        118,
+        134,
+        181,
+        79,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "control",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "studio_recipient",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "studio_recipient.authority",
+                "account": "TesoroAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "settle_authority",
+          "type": "pubkey"
+        },
+        {
+          "name": "studio_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "cancel_game_change",
+      "discriminator": [
+        57,
+        40,
+        182,
+        86,
+        245,
+        94,
+        208,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "control",
+          "signer": true
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "list_game",
+      "docs": [
+        "Admin: lists a Game until a time for the build that hashes to `approved_hash` (or unlists",
+        "it with 0)."
+      ],
+      "discriminator": [
+        250,
+        150,
+        54,
+        108,
+        200,
+        41,
+        114,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_record.game",
+                "account": "GameRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "game_program"
+        },
+        {
+          "name": "program_data"
+        }
+      ],
+      "args": [
+        {
+          "name": "listed_until",
+          "type": "i64"
+        },
+        {
+          "name": "approved_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "close_pair",
+      "docs": [
+        "Returns the rent of an opener-to-joiner pair counter after its window."
+      ],
+      "discriminator": [
+        45,
+        8,
+        194,
+        47,
+        65,
+        139,
+        172,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "pair",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  105,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "opener"
+              },
+              {
+                "kind": "arg",
+                "path": "joiner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "opener",
+          "type": "pubkey"
+        },
+        {
+          "name": "joiner",
+          "type": "pubkey"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -12697,19 +12697,6 @@
         82,
         253,
         29
-      ]
-    },
-    {
-      "name": "GameRecord",
-      "discriminator": [
-        28,
-        157,
-        20,
-        4,
-        219,
-        32,
-        208,
-        147
       ]
     },
     {
@@ -12801,19 +12788,6 @@
         85,
         228,
         205
-      ]
-    },
-    {
-      "name": "PairState",
-      "discriminator": [
-        229,
-        212,
-        222,
-        222,
-        191,
-        128,
-        176,
-        235
       ]
     },
     {
@@ -13061,6 +13035,32 @@
         7,
         255,
         18
+      ]
+    },
+    {
+      "name": "PairState",
+      "discriminator": [
+        229,
+        212,
+        222,
+        222,
+        191,
+        128,
+        176,
+        235
+      ]
+    },
+    {
+      "name": "GameRecord",
+      "discriminator": [
+        28,
+        157,
+        20,
+        4,
+        219,
+        32,
+        208,
+        147
       ]
     }
   ],
@@ -14298,101 +14298,6 @@
       }
     },
     {
-      "name": "GameRecord",
-      "docs": [
-        "One Game. Registered once by whoever controls its program (see `registry`); changed only by",
-        "that same control, after `GAME_CHANGE_DELAY_SECS`. Listing is written by the admin."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "game",
-            "docs": [
-              "The Game program's id."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "settle_authority",
-            "docs": [
-              "Only this key may settle the Game's Matches (a PDA of the Game program, or a server key)."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "studio_bps",
-            "type": "u16"
-          },
-          {
-            "name": "studio_recipient",
-            "docs": [
-              "`TesoroAccount` that receives the Studio Fee."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "pending_at",
-            "docs": [
-              "Unix time a proposed change was made; zero while none is waiting."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "pending_by",
-            "docs": [
-              "The control key that proposed it. Applying needs the same key to be in control still."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "pending_settle_authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "pending_studio_bps",
-            "type": "u16"
-          },
-          {
-            "name": "pending_studio_recipient",
-            "type": "pubkey"
-          },
-          {
-            "name": "listed_until",
-            "docs": [
-              "The Game counts as listed until this unix time (admin). Zero: never listed."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "approved_slot",
-            "docs": [
-              "The deploy slot the admin approved. A program upgraded since has a different slot and",
-              "counts as unlisted until the admin approves again."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "approved_hash",
-            "docs": [
-              "SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).",
-              "A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these."
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "Harvested",
       "type": {
         "kind": "struct",
@@ -14672,30 +14577,6 @@
           },
           {
             "name": "key",
-            "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
-      "name": "LegacyGameEntry",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "game",
-            "type": "pubkey"
-          },
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "studio_bps",
-            "type": "u16"
-          },
-          {
-            "name": "studio_recipient",
             "type": "pubkey"
           }
         ]
@@ -15402,36 +15283,6 @@
                 32
               ]
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "PairState",
-      "docs": [
-        "How many Matches one opener-to-joiner pair has started in the current window."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bump",
-            "type": "u8"
-          },
-          {
-            "name": "payer",
-            "docs": [
-              "Who paid the counter's rent (the joiner's wallet); `close_pair` returns it there."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "window_start",
-            "type": "i64"
-          },
-          {
-            "name": "count",
-            "type": "u16"
           }
         ]
       }
@@ -17350,6 +17201,155 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameRecord",
+      "docs": [
+        "One Game. Registered once by whoever controls its program (see `registry`); changed only by",
+        "that same control, after `GAME_CHANGE_DELAY_SECS`. Listing is written by the admin."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "game",
+            "docs": [
+              "The Game program's id."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "settle_authority",
+            "docs": [
+              "Only this key may settle the Game's Matches (a PDA of the Game program, or a server key)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "docs": [
+              "`TesoroAccount` that receives the Studio Fee."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_at",
+            "docs": [
+              "Unix time a proposed change was made; zero while none is waiting."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "pending_by",
+            "docs": [
+              "The control key that proposed it. Applying needs the same key to be in control still."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_settle_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "pending_studio_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "listed_until",
+            "docs": [
+              "The Game counts as listed until this unix time (admin). Zero: never listed."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "approved_slot",
+            "docs": [
+              "The deploy slot the admin approved. A program upgraded since has a different slot and",
+              "counts as unlisted until the admin approves again."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "approved_hash",
+            "docs": [
+              "SHA-256 of the approved build's executable bytes without trailing zeros (`registry::code_hash`).",
+              "A moved slot keeps the listing only through `refresh_listing`, which proves the bytes are these."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PairState",
+      "docs": [
+        "How many Matches one opener-to-joiner pair has started in the current window."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "payer",
+            "docs": [
+              "Who paid the counter's rent (the joiner's wallet); `close_pair` returns it there."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "window_start",
+            "type": "i64"
+          },
+          {
+            "name": "count",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LegacyGameEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "studio_bps",
+            "type": "u16"
+          },
+          {
+            "name": "studio_recipient",
+            "type": "pubkey"
           }
         ]
       }
