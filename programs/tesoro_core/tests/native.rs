@@ -52,6 +52,7 @@ const ERR_PRICE_UNCERTAIN: u32 = 6021;
 const ERR_ONCHAIN_REQUIRED: u32 = 6022;
 const ERR_UNAUTHORIZED: u32 = 6000;
 const CONSTRAINT_SEEDS: u32 = 2006;
+const ACCOUNT_DISCRIMINATOR_MISMATCH: u32 = 3002;
 const ACCOUNT_OWNED_BY_WRONG_PROGRAM: u32 = 3007;
 
 fn a(p: Pk) -> APk {
@@ -2090,6 +2091,104 @@ impl Env {
         self.send(&[fund], &admin, &[])
     }
 
+    /// The Platform recipient as a Person with an (empty) token account.
+    fn platform_person(&mut self) -> Person {
+        let config = self.load::<Config>(pda(&[CONFIG_SEED]));
+        let account = config.platform_recipient;
+        let key = self.load::<TesoroAccount>(account).authority;
+        let p = Person {
+            kp: Keypair::new(),
+            key,
+            account,
+            token: get_associated_token_address(&key, &self.mint),
+        };
+        self.make_ata(&p);
+        p
+    }
+
+    fn make_ata(&mut self, p: &Person) {
+        let admin = self.admin.insecure_clone();
+        let ix = Instruction {
+            program_id: s(ATA_PROGRAM_ID),
+            accounts: vec![
+                AccountMeta::new(s(a(admin.pubkey())), true),
+                AccountMeta::new(s(p.token), false),
+                AccountMeta::new_readonly(s(p.key), false),
+                AccountMeta::new_readonly(s(self.mint), false),
+                AccountMeta::new_readonly(s(anchor_lang::system_program::ID), false),
+                AccountMeta::new_readonly(s(TOKEN_PROGRAM_ID), false),
+            ],
+            data: vec![1],
+        };
+        self.send(&[ix], &admin, &[]).expect("create token account");
+    }
+
+    fn set_studio(&mut self, recipient: APk) -> Result<(), Failed> {
+        let admin = self.admin.insecure_clone();
+        let set = tix(
+            accounts::SetTesoroStudio {
+                admin: a(admin.pubkey()),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                recipient_account: recipient,
+            },
+            instruction::SetTesoroStudio {},
+            vec![],
+        );
+        self.send(&[set], &admin, &[])
+    }
+
+    fn cash_in(
+        &mut self,
+        payer: &Keypair,
+        pos: Pos,
+        source: APk,
+        class: u8,
+        to: &Person,
+    ) -> Result<(), Failed> {
+        let mut remaining = self.kind_paying(pos, to.token);
+        remaining.extend(book_metas(&self.svm, source));
+        let ix = tix(
+            accounts::CashInFee {
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                recipient_account: to.account,
+                position: pos.position,
+                source,
+            },
+            instruction::CashInFee { class },
+            remaining,
+        );
+        self.send(&[ix], payer, &[])
+    }
+
+    /// What a fee counter can cash in now, in Gemas.
+    fn covered_fee(&self, pos: Pos, source: APk, class: u8) -> u64 {
+        let stored = self.stored(source);
+        let mut position = self.position(pos);
+        let pool = self.load::<sim_lst::Pool>(self.pool);
+        let ts = self.svm.get_sysvar::<Clock>().unix_timestamp;
+        let acc = native::position_accrued(&position, pool.speedup, ts).unwrap();
+        let rate = ShareRate::native(sim_lst::current_rate(&pool, ts).unwrap()).unwrap();
+        let mut book = read_book(&self.svm, source);
+        let mut ck = MemCheckpoints::new(source.to_bytes());
+        for c in 0..15u8 {
+            for page_no in 0..4u32 {
+                let k = ckpt_address(&source, c, page_no).0;
+                if let Some(acct) = self.svm.get_account(&s(k)) {
+                    ck.pages
+                        .insert((c, page_no), acct.data[CKPT_PAGE_AT..].to_vec());
+                }
+            }
+        }
+        ledger::economy::sync_source(&mut position, &stored, &mut book, acc.net, &rate, &mut ck)
+            .unwrap();
+        let Some(counter) = econ::counter(&self.svm, source, class) else {
+            return 0;
+        };
+        book.redeemable(&book.peek(&counter, &ck).unwrap()).unwrap()
+    }
+
     fn set_company(&mut self, company: APk) -> Result<(), Failed> {
         let admin = self.admin.insecure_clone();
         let set = tix(
@@ -3052,6 +3151,192 @@ fn once_mapped_the_oracle_cannot_name_the_price_of_an_evm_advance() {
 }
 
 #[test]
+fn a_native_sources_covered_fees_go_to_their_recipients() {
+    let mut env = Env::with_start(SEASON_1_START + 10);
+    let alice = env.staker();
+    let platform = env.platform_person();
+    let studio = env.staker();
+    env.set_studio(studio.account).expect("studio recipient");
+    let pos = env.open(&alice, 10 * SOL).unwrap();
+    let source = env.advance_native(&alice, pos, 12).unwrap();
+    for (class, k) in [(0u8, 300u64), (1, 200)] {
+        econ::fee_cut(
+            &mut env.svm,
+            source,
+            alice.account,
+            CLASS_GENERAL,
+            0,
+            class,
+            k,
+        );
+    }
+    let payer = env.person();
+    // The Platform Fee is covered first; the Studio Fee only after it.
+    env.advance(MONTH);
+    let (p, st) = (
+        env.covered_fee(pos, source, 0),
+        env.covered_fee(pos, source, 1),
+    );
+    assert!(p > 0 && p <= 300, "{p}");
+    let before = env.token_balance(platform.token);
+    env.cash_in(&payer.kp, pos, source, 0, &platform)
+        .expect("platform");
+    assert!(env.token_balance(platform.token) > before);
+    assert_eq!(econ::counter(&env.svm, source, 0).unwrap().amount, 300 - p);
+    let _ = st;
+    // The Studio Fee goes to the Studio recipient and only there.
+    env.advance(MONTH);
+    assert!(env.cash_in(&payer.kp, pos, source, 1, &platform).is_err());
+    let s_cov = env.covered_fee(pos, source, 1);
+    env.cash_in(&payer.kp, pos, source, 1, &studio)
+        .expect("studio");
+    assert_eq!(
+        econ::counter(&env.svm, source, 1).unwrap().amount,
+        200 - s_cov
+    );
+    // Nothing more is covered right now: repeating pays nothing.
+    let bal = env.token_balance(studio.token);
+    assert!(env.cash_in(&payer.kp, pos, source, 1, &studio).is_err());
+    assert_eq!(env.token_balance(studio.token), bal);
+    // Gemas still redeem and the custody still unlocks after the cash-ins.
+    env.advance(11 * MONTH);
+    if econ::counter(&env.svm, source, 0).unwrap().amount > 0 {
+        env.cash_in(&payer.kp, pos, source, 0, &platform)
+            .expect("rest of Platform");
+    }
+    if econ::counter(&env.svm, source, 1).unwrap().amount > 0 {
+        env.cash_in(&payer.kp, pos, source, 1, &studio)
+            .expect("rest of Studio");
+    }
+    assert_eq!(econ::counter(&env.svm, source, 0).unwrap().amount, 0);
+    assert_eq!(econ::counter(&env.svm, source, 1).unwrap().amount, 0);
+    env.unlock(&alice, pos).expect("unlock after cash-ins");
+}
+
+#[test]
+fn an_evm_sources_fee_cash_in_is_the_bridges_and_records_the_units_it_owes() {
+    let mut env = Env::new();
+    let alice = env.staker();
+    let studio = env.person();
+    env.set_studio(studio.account).expect("studio recipient");
+    let position = evm_position(&mut env, &alice, APk::new_unique());
+    let oracle = env.oracle.insecure_clone();
+    let adv = evm_advance_ix(&env, &alice, position, None, 1_000_000_000_000);
+    env.send(&[adv], &oracle, &[&alice.kp]).expect("advance");
+    let source = pda(&[SOURCE_SEED, position.as_ref(), &0u32.to_le_bytes()]);
+    env.ensure_pages(source);
+    econ::fee_cut(
+        &mut env.svm,
+        source,
+        alice.account,
+        CLASS_GENERAL,
+        0,
+        1,
+        300,
+    );
+    // The oracle reports the yield (test mode), so the Studio counter is covered.
+    let apply = tix(
+        accounts::ApplyYield {
+            oracle: a(oracle.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            position,
+            source: Some(source),
+        },
+        instruction::ApplyYield {
+            seq: 1,
+            cumulative: 50_000_000_000_000_000,
+        },
+        book_metas(&env.svm, source),
+    );
+    env.send(&[apply], &oracle, &[]).expect("yield");
+    let bridge = Keypair::new();
+    env.svm.airdrop(&bridge.pubkey(), SOL).unwrap();
+    let admin = env.admin.insecure_clone();
+    let reg = tix(
+        accounts::SetSourceAuthority {
+            admin: a(admin.pubkey()),
+            config: pda(&[CONFIG_SEED]),
+            source_authority: pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+            system_program: anchor_lang::system_program::ID,
+        },
+        instruction::SetSourceAuthority {
+            chain: ledger::SourceChain::Ethereum,
+            authority: a(bridge.pubkey()),
+        },
+        vec![],
+    );
+    env.send(&[reg], &admin, &[]).expect("register the bridge");
+    let from_source = |env: &Env, signer: &Keypair, to: APk, class: u8, min_units: u64| {
+        tix(
+            accounts::CashInFeeFromSource {
+                source_signer: a(signer.pubkey()),
+                source_authority: pda(&[SOURCE_AUTHORITY_SEED, &[1]]),
+                config: pda(&[CONFIG_SEED]),
+                economy: pda(&[ECONOMY_SEED]),
+                recipient_account: to,
+                position,
+                source,
+            },
+            instruction::CashInFeeFromSource { class, min_units },
+            book_metas(&env.svm, source),
+        )
+    };
+    // Solana's own cash-in refuses an EVM Source; only the registered bridge may use the twin.
+    let payer = env.person();
+    let err = env
+        .cash_in(
+            &payer.kp,
+            Pos {
+                position,
+                custody: APk::default(),
+                vault: APk::default(),
+            },
+            source,
+            1,
+            &studio,
+        )
+        .unwrap_err();
+    assert_eq!(code(&err), 6000 + TesoroError::BridgedSource as u32);
+    let ix = from_source(&env, &payer.kp, studio.account, 1, 0);
+    let err = env.send(&[ix], &payer.kp, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_UNAUTHORIZED);
+    // The recipient needs an EVM address, and the fee goes to its own recipient only.
+    let ix = from_source(&env, &bridge, studio.account, 1, 0);
+    let err = env.send(&[ix], &bridge, &[]).unwrap_err();
+    assert_eq!(code(&err), 6000 + TesoroError::EvmNotLinked as u32);
+    let link = tix(
+        accounts::SetEvmAddress {
+            authority: studio.key,
+            account: studio.account,
+        },
+        instruction::SetEvmAddress {
+            evm_address: [7; 20],
+        },
+        vec![],
+    );
+    env.send(&[link], &studio.kp, &[]).expect("link");
+    let ix = from_source(&env, &bridge, alice.account, 1, 0);
+    let err = env.send(&[ix], &bridge, &[]).unwrap_err();
+    assert_eq!(code(&err), ERR_UNAUTHORIZED);
+    // A batch minimum above what is covered leaves everything as it was.
+    let ix = from_source(&env, &bridge, studio.account, 1, u64::MAX);
+    assert!(env.send(&[ix], &bridge, &[]).is_err());
+    assert_eq!(econ::counter(&env.svm, source, 1).unwrap().amount, 300);
+    let before = env.stored(source).redeemed_units;
+    let ix = from_source(&env, &bridge, studio.account, 1, 1);
+    env.send(&[ix], &bridge, &[]).expect("cash in");
+    let after = env.stored(source);
+    assert!(after.redeemed_units > before, "the units owed are recorded");
+    let left = econ::counter(&env.svm, source, 1).unwrap().amount;
+    assert_eq!(after.redeemed, 300 - left);
+    assert!(left < 300);
+    // Repeating pays nothing.
+    let ix = from_source(&env, &bridge, studio.account, 1, 0);
+    let err = env.send(&[ix], &bridge, &[]).unwrap_err();
+    assert_eq!(code(&err), core_code(ledger::CoreError::ZeroAmount));
+}
+
+#[test]
 fn a_self_exclusion_stops_new_and_extended_advances_but_a_break_does_not() {
     let mut env = Env::new();
     let alice = env.staker();
@@ -3363,6 +3648,12 @@ fn a_season_is_funded_recorded_and_paid_from_the_escrow() {
     let err = env.fund_prize(&mallory.kp, 1).unwrap_err();
     assert_eq!(code(&err), 6000);
     let prize = env.fund_prize(&keeper.kp, 1).expect("fund");
+    // A prize Source is fully covered and has no fee counters: cash-in cannot name it.
+    let platform = env.platform_person();
+    let err = env
+        .cash_in(&payer.kp, pos, prize, 0, &platform)
+        .unwrap_err();
+    assert_eq!(code(&err), ACCOUNT_DISCRIMINATOR_MISMATCH);
     let route = env.route();
     assert_eq!((route.pool_owed, route.escrow_unissued), (0, 0));
     assert_eq!(route.escrow_backing, harvested + pool_owed);
