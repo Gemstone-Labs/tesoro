@@ -16939,6 +16939,17 @@
           {
             "name": "ts",
             "type": "i64"
+          },
+          {
+            "name": "a_share_bps",
+            "docs": [
+              "Each side's Player share of a Backing, in bps (0 for an unbacked side)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "b_share_bps",
+            "type": "u16"
           }
         ]
       }

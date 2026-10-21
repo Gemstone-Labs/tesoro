@@ -2357,18 +2357,14 @@ fn the_start_record_carries_both_sides_backing_shares_so_history_needs_no_match_
     b.d.env
         .settle_start(&game, id, MatchResult::Opener)
         .expect("start");
-    let started: Vec<MatchRunStarted> = b
-        .d
-        .env
-        .start_events
-        .iter()
-        .filter_map(|e| decode_event(e))
-        .collect();
+    let started: Vec<MatchRunStarted> =
+        b.d.env
+            .start_events
+            .iter()
+            .filter_map(|e| decode_event(e))
+            .collect();
     assert_eq!(started.len(), 1);
-    assert_eq!(
-        (started[0].a_share_bps, started[0].b_share_bps),
-        (4_000, 0)
-    );
+    assert_eq!((started[0].a_share_bps, started[0].b_share_bps), (4_000, 0));
 }
 
 #[test]
