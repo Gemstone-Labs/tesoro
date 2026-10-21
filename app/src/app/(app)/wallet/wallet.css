@@ -1,7 +1,6 @@
 /* ——— Wallet (take-1: wallet-desktop) ——— */
 .wl { display: grid; gap: var(--section-gap); grid-template-columns: minmax(0, 1fr); align-content: start; }
 .wl h2 { margin: 0; }
-.wl-head { align-items: center; }
 
 /* balance hero: one Total, two secondary figures */
 .wl-hero { padding: 32px 28px 24px; display: grid; gap: 28px 48px; grid-template-columns: minmax(0, 1fr); }
