@@ -189,3 +189,56 @@ export function chainOf(core: anchor.Program<any>, accounts: Map<string, Buffer>
   );
   return { methods: core.methods, coder: core.coder, programId: core.programId, account } as any;
 }
+
+// ---- Bridge accounts (tests): field order of bridge/programs/tesoro_bridge/src/state ------------------------------------
+
+const w128 = (b: Buffer, at: number, v: bigint) => {
+  b.writeBigUInt64LE(v & ((1n << 64n) - 1n), at);
+  b.writeBigUInt64LE(v >> 64n, at + 8);
+};
+
+export function routeBytes(o: { eid: number; peer: Buffer; asset?: Buffer; escrowEnabled?: boolean; min?: bigint; lastBatchId?: bigint; lastPayoutId?: bigint; escrowShares?: bigint; escrowUnits?: bigint; issuedShares?: bigint; issuedUnits?: bigint; lastFundedSeason?: number }): Buffer {
+  const b = Buffer.alloc(202);
+  b.writeUInt32LE(o.eid, 8);
+  o.peer.copy(b, 12);
+  (o.asset ?? Buffer.alloc(32)).copy(b, 45);
+  b[77] = o.escrowEnabled ? 1 : 0;
+  b.writeBigUInt64LE(o.min ?? 0n, 78);
+  b.writeBigUInt64LE(o.lastBatchId ?? 0n, 86);
+  b.writeBigUInt64LE(o.lastPayoutId ?? 0n, 94);
+  w128(b, 102, o.escrowShares ?? 0n);
+  w128(b, 118, o.escrowUnits ?? 0n);
+  w128(b, 134, o.issuedShares ?? 0n);
+  w128(b, 150, o.issuedUnits ?? 0n);
+  b.writeUInt32LE(o.lastFundedSeason ?? 0, 166);
+  return b;
+}
+
+export function batchBytes(o: { eid: number; peer: Buffer; id: bigint; rentPayer?: PublicKey; kind?: number; state?: number; count?: number; total?: bigint; paid?: bigint; sends?: number }): Buffer {
+  const b = Buffer.alloc(656);
+  b.writeUInt32LE(o.eid, 8);
+  o.peer.copy(b, 12);
+  b.writeBigUInt64LE(o.id, 44);
+  (o.rentPayer ?? PublicKey.default).toBuffer().copy(b, 53);
+  b[85] = o.kind ?? 0;
+  b[86] = o.state ?? 0;
+  b[107] = o.count ?? 0;
+  w128(b, 620, o.total ?? 0n);
+  w128(b, 636, o.paid ?? 0n);
+  b.writeUInt32LE(o.sends ?? 0, 652);
+  return b;
+}
+
+export function payoutBytes(o: { eid: number; peer: Buffer; id: bigint; rentPayer?: PublicKey; state?: number; holder?: PublicKey; prizeSource?: PublicKey; gemas?: bigint; shares?: bigint }): Buffer {
+  const b = Buffer.alloc(230);
+  b.writeUInt32LE(o.eid, 8);
+  o.peer.copy(b, 12);
+  b.writeBigUInt64LE(o.id, 44);
+  (o.rentPayer ?? PublicKey.default).toBuffer().copy(b, 53);
+  b[85] = o.state ?? 0;
+  (o.holder ?? PublicKey.default).toBuffer().copy(b, 86);
+  (o.prizeSource ?? PublicKey.default).toBuffer().copy(b, 138);
+  b.writeBigUInt64LE(o.gemas ?? 0n, 202);
+  w128(b, 210, o.shares ?? 0n);
+  return b;
+}

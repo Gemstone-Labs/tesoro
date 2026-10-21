@@ -27,9 +27,9 @@ export function counterAmounts(book: Uint8Array): [bigint, bigint, bigint] {
 /** What one pass looks at: a few Sources at a time, round robin, so a big list costs the same each pass. */
 const PER_PASS = Number(process.env.KEEPER_COUNTERS_PER_PASS ?? 25);
 /** Counters worth less than this many Gemas wait (a cash-in costs a transaction). */
-const MIN_GEMAS = BigInt(process.env.KEEPER_COUNTERS_MIN_GEMAS ?? 10);
+export const MIN_GEMAS = BigInt(process.env.KEEPER_COUNTERS_MIN_GEMAS ?? 10);
 /** A Source whose counter had nothing to pay is not tried again for this long. */
-const RETRY_MS = Number(process.env.KEEPER_COUNTERS_RETRY_SECS ?? 30 * 60) * 1000;
+export const RETRY_MS = Number(process.env.KEEPER_COUNTERS_RETRY_SECS ?? 30 * 60) * 1000;
 
 export interface SourceRow {
   address: PublicKey;
@@ -60,18 +60,22 @@ export const realCounterDeps = (ctx: Ctx): CounterDeps => ({
   now: () => Date.now(),
 });
 
-const cursors = { harvest: 0, cashin: 0 };
-const nextTry = new Map<string, number>();
+const cursors = { harvest: 0, cashin: 0, batches: 0 };
+export const nextTry = new Map<string, number>();
 
-interface Candidate {
+export interface Candidate {
   source: PublicKey;
   position: PublicKey;
-  custody: Custody;
+  /** The custody a Solana Position pays from; null for a reported (bridged) Position. */
+  custody: Custody | null;
+  chain: "solana" | "ethereum" | "hyperEvm";
+  /** The core Position id (an EVM Position's first 20 bytes are its vault). */
+  positionId: Uint8Array;
   counters: [bigint, bigint, bigint];
 }
 
 /** Sources of Solana Positions whose custody `want` accepts, with the counters of their books, `PER_PASS` of them from the cursor. */
-async function candidates(ctx: Ctx, d: CounterDeps, which: "harvest" | "cashin", want: (c: Custody) => boolean, positive: (counters: [bigint, bigint, bigint]) => boolean): Promise<Candidate[]> {
+export async function candidates(ctx: Ctx, d: CounterDeps, which: "harvest" | "cashin" | "batches", want: (c: Candidate) => boolean, positive: (counters: [bigint, bigint, bigint]) => boolean): Promise<Candidate[]> {
   const sources: SourceRow[] = (await d.list("SourceState")).map((r) => ({ address: r.pubkey, position: keyOf((ctx.core.coder.accounts.decode("sourceState", r.data) as any).inner.position) }));
   sources.sort((a, b) => a.address.toBase58().localeCompare(b.address.toBase58()));
   const { slice, next } = nextSlice(sources, cursors[which], PER_PASS);
@@ -83,13 +87,16 @@ async function candidates(ctx: Ctx, d: CounterDeps, which: "harvest" | "cashin",
   for (let i = 0; i < withCounters.length; i++) {
     const p = positions[i];
     if (!p) continue;
-    const custody = await custodyOf(ctx.core, d.read, ctx.core.coder.accounts.decode("positionState", p.data), SIM_SOL_MINT);
-    if (custody && want(custody)) out.push({ source: withCounters[i].address, position: withCounters[i].position, custody, counters: withCounters[i].counters });
+    const decoded: any = ctx.core.coder.accounts.decode("positionState", p.data);
+    const custody = await custodyOf(ctx.core, d.read, decoded, SIM_SOL_MINT);
+    const chain = Object.keys(decoded.inner.sourceChain)[0] as Candidate["chain"];
+    const cand: Candidate = { source: withCounters[i].address, position: withCounters[i].position, custody, chain, positionId: Uint8Array.from(decoded.positionId), counters: withCounters[i].counters };
+    if (want(cand)) out.push(cand);
   }
   return out;
 }
 
-const due = (key: string, now: number) => (nextTry.get(key) ?? 0) <= now;
+export const due = (key: string, now: number) => (nextTry.get(key) ?? 0) <= now;
 
 // ---- Harvest ---------------------------------------------------------------------------------------------------------
 
@@ -101,7 +108,7 @@ const due = (key: string, now: number) => (nextTry.get(key) ?? 0) <= now;
  */
 export async function harvestJob(ctx: Ctx, d: CounterDeps = realCounterDeps(ctx), escrowOn: (custody: PublicKey) => Promise<boolean> = (c) => escrowEnabled(ctx, d.read, c)): Promise<number> {
   const on = new Map<string, boolean>();
-  const list = await candidates(ctx, d, "harvest", () => true, (c) => c[CLASS_LEADERBOARD] >= MIN_GEMAS);
+  const list = (await candidates(ctx, d, "harvest", (c) => !!c.custody, (c) => c[CLASS_LEADERBOARD] >= MIN_GEMAS)) as (Candidate & { custody: Custody })[];
   let actions = 0;
   for (const c of list) {
     const key = `harvest:${c.source.toBase58()}`;
@@ -162,7 +169,7 @@ export async function cashInJob(ctx: Ctx, d: CounterDeps = realCounterDeps(ctx),
     log("fees", "-", "no fee recipient set (Config.platform_recipient, EconomyConfig.tesoro_studio)");
     return 0;
   }
-  const list = await candidates(ctx, d, "cashin", () => true, (c) => (!!rec.platform && c[CLASS_PLATFORM] >= MIN_GEMAS) || (!!rec.studio && c[CLASS_STUDIO] >= MIN_GEMAS));
+  const list = (await candidates(ctx, d, "cashin", (c) => !!c.custody, (c) => (!!rec.platform && c[CLASS_PLATFORM] >= MIN_GEMAS) || (!!rec.studio && c[CLASS_STUDIO] >= MIN_GEMAS))) as (Candidate & { custody: Custody })[];
   let actions = 0;
   for (const c of list) {
     for (const [cls, who] of [[CLASS_PLATFORM, rec.platform], [CLASS_STUDIO, rec.studio]] as const) {
