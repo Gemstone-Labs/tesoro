@@ -178,7 +178,7 @@ contract PositionVaultSimTest is VaultBase {
         assertEq(vault.getPosition(b).apyBps, 1000);
         assertApproxEqAbs(vault.accruedYield(b), vault.accruedYield(a) * 2, 2);
         // the Treasury claim matches both Positions' own fees
-        assertApproxEqAbs(vault.treasuryBalance(), _fee(a) + _fee(b), 2);
+        assertApproxEqAbs(vault.treasuryBalance(), (_fee(a) + _fee(b)) / 2, 2);
     }
 
     function _fee(uint64 id) internal view returns (uint256) {
@@ -197,7 +197,7 @@ contract PositionVaultSimTest is VaultBase {
         for (uint256 i; i < 5; i++) {
             sum += _fee(ids[i]);
         }
-        assertApproxEqAbs(vault.treasuryBalance(), sum, 5);
+        assertApproxEqAbs(vault.treasuryBalance(), sum / 2, 5);
         // closing a Position moves its fee from the open sums to the realised total without changing the claim
         uint256 before = vault.treasuryBalance();
         _deliver(_unlockMsg(ids[1], 1));
@@ -209,7 +209,7 @@ contract PositionVaultSimTest is VaultBase {
             uint256 g = p.unlocked ? 0 : (p.a * block.timestamp - p.b) / (10_000 * 365 days);
             sum += p.unlocked ? (vault.accruedYield(ids[i]) * 2000) / 8000 : (g * 2000) / 10_000;
         }
-        assertApproxEqAbs(vault.treasuryBalance(), sum, 10);
+        assertApproxEqAbs(vault.treasuryBalance(), sum / 2, 10);
     }
 
     function test_feeIsFlooredPerPosition() public {
@@ -235,7 +235,7 @@ contract PositionVaultSimTest is VaultBase {
         uint256 g = _gross(4 ether, 10 minutes);
         assertEq(vault.accruedYield(a), g - (g * 2000) / 10_000);
         assertEq(vault.accruedYield(b), g - g / 2);
-        assertApproxEqAbs(vault.treasuryBalance(), (g * 2000) / 10_000 + g / 2, 2);
+        assertApproxEqAbs(vault.treasuryBalance(), ((g * 2000) / 10_000 + g / 2) / 2, 2);
     }
 
     function test_setYieldFeeIsAdminOnlyAndCapped() public {
@@ -287,7 +287,7 @@ contract PositionVaultSimTest is VaultBase {
         _fundTreasury(1 ether);
         vm.warp(block.timestamp + 10 minutes);
         uint256 treasury = vault.treasuryBalance();
-        assertApproxEqAbs(treasury, 1 ether + (_gross(10 ether, 10 minutes) * 2000) / 10_000, 2);
+        assertApproxEqAbs(treasury, 1 ether + (_gross(10 ether, 10 minutes) * 2000) / 10_000 / 2, 2);
 
         vm.prank(alice);
         vm.expectRevert(PositionVault.NotAdmin.selector);
@@ -434,7 +434,7 @@ contract PositionVaultSimTest is VaultBase {
             if (p.unlocked) sum += (acc * 2000) / 8000;
             else sum += _fee(ids[i]);
         }
-        assertApproxEqAbs(vault.treasuryBalance(), sum, uint256(n) * 2 + 2);
+        assertApproxEqAbs(vault.treasuryBalance(), sum / 2, uint256(n) * 2 + 2);
     }
 
     function test_vaultIsTheOnlyMinter() public {
@@ -631,7 +631,9 @@ contract PositionVaultWstETHTest is VaultBase {
         assertApproxEqAbs(vault.accruedYield(id), 0.1648 ether, 2);
         assertEq(vault.treasuryBalance(), 0);
         _deliver(_unlockMsg(id, 1));
-        assertApproxEqAbs(vault.treasuryBalance(), 0.0412 ether, 4, "the fee joins the Treasury at Unlock");
+        assertApproxEqAbs(
+            vault.treasuryBalance(), 0.0206 ether, 4, "Tesoro's half of the fee joins the Treasury at Unlock"
+        );
     }
 
     function test_payYieldInSharesWorthUnderlyingFromTheHeldShares() public {
@@ -746,7 +748,7 @@ contract PositionVaultWstETHTest is VaultBase {
         // Principal is intact for Unlock, then the Treasury (the fee) pays out in full
         _deliver(_unlockMsg(id, 3));
         assertApproxEqAbs((wst.balanceOf(alice) - 90 ether) * 1.2e18 / 1e18, 10 ether, 2);
-        assertApproxEqAbs(vault.treasuryBalance(), fee, 6);
+        assertApproxEqAbs(vault.treasuryBalance(), fee / 2, 6);
         vault.withdrawTreasury(vault.treasuryBalance(), address(0xC0FFEE));
     }
 
@@ -765,9 +767,9 @@ contract PositionVaultWstETHTest is VaultBase {
         uint256 feeB = _realGross(b) * 2000 / 10_000;
         assertEq(vault.treasuryBalance(), 0, "open fees are not spendable");
         _deliver(_unlockMsg(b, 2));
-        assertApproxEqAbs(vault.treasuryBalance(), feeB, 6, "only the unlocked Position's fee");
+        assertApproxEqAbs(vault.treasuryBalance(), feeB / 2, 6, "only the unlocked Position's fee, Tesoro's half");
         _deliver(_unlockMsg(a, 2));
-        assertApproxEqAbs(vault.treasuryBalance(), feeA + feeB, 8);
+        assertApproxEqAbs(vault.treasuryBalance(), (feeA + feeB) / 2, 8);
     }
 
     function _realGross(uint64 id) internal view returns (uint256) {

@@ -91,7 +91,9 @@ contract KHypeRateAdapterTest is Test {
         assertEq(vault.treasuryBalance(), 0, "the fee of an open Position is not spendable");
         assertEq(kh.balanceOf(address(vault)), vault.getPosition(id).heldShares);
         ep.deliver(address(vault), abi.encode(uint8(3), CHAIN, id, uint64(1)));
-        assertApproxEqAbs(vault.treasuryBalance(), 0.1 ether, 2, "Treasury gets 20% once the Position unlocks");
+        assertApproxEqAbs(
+            vault.treasuryBalance(), 0.05 ether, 2, "Treasury gets 10% once the Position unlocks, the Pool 10%"
+        );
     }
 
     function test_slashingLowersTheRateAndTheYieldFollowsItDown() public {
@@ -119,7 +121,7 @@ contract KHypeRateAdapterTest is Test {
         vm.prank(alice);
         v.reportYield{value: 0.0001 ether}(id);
         bytes memory m = lz.lastMessage();
-        assertEq(m.length, 101);
+        assertEq(m.length, 133);
         assertEq(uint8(m[0]), 2);
         assertApproxEqAbs(uint128(bytes16(_slice(m, 45, 16))), 0.4 ether, 2);
         assertEq(uint128(bytes16(_slice(m, 61, 16))), 0, "the open Position's fee is not in the Treasury figure");

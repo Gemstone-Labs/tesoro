@@ -126,7 +126,7 @@ contract PositionVaultOAppTest is Test {
         assertGt(accrued, 0);
         vault.reportYield{value: 0.0001 ether}(id);
         bytes memory m = ep.lastMessage();
-        assertEq(m.length, 101);
+        assertEq(m.length, 133);
         assertEq(uint8(m[0]), 2);
         assertEq(bytes8(_slice(m, 37, 8)), bytes8(uint64(2)));
         assertEq(bytes16(_slice(m, 45, 16)), bytes16(uint128(accrued)));
@@ -141,7 +141,7 @@ contract PositionVaultOAppTest is Test {
         _recv(_instant(id, 1, redeemer, uint128(half)));
         vault.reportYield{value: 0.0001 ether}(id);
         bytes memory m = ep.lastMessage();
-        assertEq(m.length, 101);
+        assertEq(m.length, 133);
         assertEq(uint64(bytes8(_slice(m, 93, 8))), uint64(block.timestamp), "report time");
         assertEq(bytes16(_slice(m, 61, 16)), bytes16(uint128(vault.treasuryBalance())));
         assertEq(bytes16(_slice(m, 77, 16)), bytes16(uint128(half)));
