@@ -4,7 +4,6 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { GameTabs, HistoryPages, gameFilter } from "@/components/match/MatchHistory";
 import { DelayedMatches } from "@/components/match/DelayedMatches";
-import { MatchRow, BANNER_ROWS } from "@/components/match/MatchRow";
 import { MatchBanner, MatchBannerSkeleton } from "@/components/match/MatchBanner";
 import { Button, Card } from "@/components/ui";
 import { useAccount } from "@/lib/account";
@@ -12,7 +11,7 @@ import { useChainData } from "@/lib/chain/ChainDataProvider";
 import { accountHistory, historyPage } from "@/lib/chain/history";
 import { GAME_NAMES } from "@/lib/mock";
 
-/** Every finished Match of the signed-in Account (played or backed), newest first, 20 per page. */
+/** Every finished Match of the signed-in Account (played or backed), newest first, 10 banners per page. */
 export function AllMatches() {
   const { auth, onChain, snapshot } = useAccount();
   const { error, refresh } = useChainData();
@@ -64,13 +63,9 @@ export function AllMatches() {
       ) : (
         <>
           <div className="mb-list" aria-label={`${game ? GAME_NAMES[game] : "All"} Matches, page ${view.page} of ${view.pages}`} role="list">
-            {view.rows.map((r, i) => (
+            {view.rows.map((r) => (
               <div key={r.id} role="listitem">
-                {view.page === 1 && i < BANNER_ROWS ? (
-                  <MatchBanner r={r} account={snapshot.accountKey.toBase58()} now={now} me={snapshot.accountKey.toBase58()} />
-                ) : (
-                  <MatchRow r={r} now={now} />
-                )}
+                <MatchBanner r={r} account={snapshot.accountKey.toBase58()} now={now} me={snapshot.accountKey.toBase58()} />
               </div>
             ))}
           </div>

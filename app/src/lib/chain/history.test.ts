@@ -70,11 +70,11 @@ describe("accountHistory and paging", () => {
     expect(rows.map((r) => r.game)).toEqual(["block-puzzle", "holdem"]);
   });
 
-  it("pages 20 at a time and clamps the page", () => {
+  it("pages 10 at a time and clamps the page", () => {
     const rows = Array.from({ length: 45 }, (_, i) => i);
-    expect(historyPage(rows, 1)).toMatchObject({ page: 1, pages: 3 });
-    expect(historyPage(rows, 3).rows).toEqual([40, 41, 42, 43, 44]);
-    expect(historyPage(rows, 9).page).toBe(3);
+    expect(historyPage(rows, 1)).toMatchObject({ page: 1, pages: 5 });
+    expect(historyPage(rows, 5).rows).toEqual([40, 41, 42, 43, 44]);
+    expect(historyPage(rows, 9).page).toBe(5);
     expect(historyPage(rows, Number.NaN).page).toBe(1);
     expect(historyPage([], 1)).toEqual({ rows: [], page: 1, pages: 1 });
   });
