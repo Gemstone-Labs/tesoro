@@ -37,4 +37,18 @@ export const WithDeposits: Story = {
   },
 };
 
+/** A deposit past its 12 months that is still not ready, and one that is ready to withdraw. */
+export const LateDeposit: Story = {
+  parameters: {
+    data: {
+      snapshot: (a: string): AccountSnapshot => {
+        const s = demoSnapshot(a);
+        const late = nativePosition("debt");
+        const native = { ...late.native!, openedAt: Math.floor(Date.now() / 1000) - 86_400 * 400, source: { ...late.native!.source!, math: { ...late.native!.source!.math, issued: 50_000_000_000n, returned: 0n } } };
+        return { ...s, market: NATIVE_MARKET, positions: [{ ...late, native }, nativePosition("repaid")], holdings: s.holdings.map((h) => ({ ...h, native: true, eth: null, redeemable: 0n, pending: 0n })) };
+      },
+    },
+  },
+};
+
 export const SignedOut: Story = { parameters: { auth: "signed-out" } };

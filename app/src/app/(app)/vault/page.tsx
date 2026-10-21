@@ -4,12 +4,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Info } from "lucide-react";
 import { ViewSwitchLink } from "@/components/deposit/ViewSwitchLink";
-import { Button, Card, CheckIcon, FacetCrown, GemaAmount, GemaMark, GemaUsd, SkeletonCards } from "@/components/ui";
+import { BalanceHero } from "@/components/money/BalanceHero";
+import { Button, Card, CheckIcon, SkeletonCards } from "@/components/ui";
 import { useAccount } from "@/lib/account";
 import { CLUSTER } from "@/lib/cluster-settings";
 import { requestDeposit, type DepositIntent } from "@/lib/deposit/bus";
 import { PACK_MONTHS } from "@/lib/deposit/packs";
-import { SIM_MONTH_MIN } from "@/lib/chain/native";
 import { cashOutNow, cashOutReady, withdrawDeposit } from "@/lib/deposit/vault-actions";
 import { fmtBackAt, vaultView, type DepositRow } from "@/lib/deposit/vault";
 import { plainError } from "@/lib/errors";
@@ -18,7 +18,6 @@ import { GAME_NAMES, type GameId } from "@/lib/mock";
 import "./vault.css";
 
 const TEST_MODE = CLUSTER.yieldModel !== "real";
-const solText = (n: number) => `${n.toLocaleString("en-US", { maximumFractionDigits: 3 })} SOL`;
 
 export default function VaultPage() {
   return (
@@ -99,21 +98,17 @@ function Vault() {
     });
 
   const loadingFirst = (loading || !ready) && !snapshot && !error;
-  const hours = (PACK_MONTHS * SIM_MONTH_MIN) / 60;
+  const waiting = w.readyNow > 0 || w.readyLater > 0;
 
   return (
     <div className="vt">
       <header className="page-head vt-head">
-        <div>
-          <h1 className="page-title">Vault</h1>
-          <p className="page-sub">Your Gemas, your deposits and your winnings.</p>
+        <h1 className="page-title">Vault</h1>
+        <div className="vt-head-side">
+          <ViewSwitchLink to="advanced" className="vt-adv" />
+          <Button variant="money" size="lg" onClick={() => requestDeposit()}>Get Gemas</Button>
         </div>
-        <Button variant="money" size="lg" onClick={() => requestDeposit()}>Get Gemas</Button>
       </header>
-      <p className="vt-view">
-        <ViewSwitchLink to="advanced" />
-        {TEST_MODE && <span className="dep-test">Test mode · no card needed · {PACK_MONTHS} months = about {hours} hours</span>}
-      </p>
 
       {error && !snapshot && (
         <p className="status err" role="alert">
@@ -123,105 +118,102 @@ function Vault() {
       {notice && <p className="status ok vt-notice" role="status"><CheckIcon aria-hidden="true" /> {notice}</p>}
       {problem && <p className="status err vt-notice" role="alert">{problem}</p>}
 
-      <section className="cut cut-frame facet-panel vt-gemas" aria-label="Your Gemas">
-        <FacetCrown />
-        <h2>Gemas you can play with</h2>
-        <div className="vt-gemas-fig" aria-busy={!ready}>
-          <GemaMark size={56} glint />
-          <b>{ready ? fmtGemas(view.gemas) : "—"}</b>
-          {ready && <GemaUsd value={view.gemas} />}
-        </div>
-      </section>
+      <BalanceHero
+        label="Gemas to play"
+        figure={ready ? fmtGemas(view.gemas) : "—"}
+        usdOf={ready ? view.gemas : undefined}
+        busy={!ready}
+        sub={ready && (
+          <>
+            <span>Ready to cash out <b>{fmtGemas(w.readyNow)}</b></span>
+            <span aria-hidden="true">·</span>
+            <span>Ready later <b>{fmtGemas(w.readyLater)}</b></span>
+          </>
+        )}
+        columns={[
+          {
+            label: "Ready to cash out",
+            figure: ready ? fmtGemas(w.readyNow) : "—",
+            usdOf: ready ? w.readyNow : undefined,
+            emerald: true,
+            note: ready && w.readyNow === 0 ? "Win Matches and your winnings show up here." : undefined,
+            action: ready && w.readyNow > 0 && (
+              <Button variant="money" disabled={!signer || busy !== null} onClick={() => void cashOut()}>
+                {busy === "cash" ? "Cashing out…" : "Cash out"}
+              </Button>
+            ),
+          },
+          {
+            label: "Ready later",
+            figure: ready ? fmtGemas(w.readyLater) : "—",
+            usdOf: ready ? w.readyLater : undefined,
+            note: !ready ? undefined : w.readyLater === 0 ? "Nothing waiting." : w.readyLaterAtMs ? `around ${fmtBackAt(w.readyLaterAtMs)}` : `within about ${PACK_MONTHS} months`,
+            action: ready && w.readyLater > 0 && (w.instant ? (
+              <>
+                <Button disabled={!signer || busy !== null} onClick={() => void cashOutSoon()}>
+                  {busy === "now" ? "Cashing out…" : `Cash out now · you keep ${w.instant.keepPct}%`}
+                </Button>
+                <span className="meta">About {fmtUsd(Math.round(w.instant.usd * 100) / 100)} for {fmtGemas(w.instant.gemas)} Gemas.</span>
+              </>
+            ) : (
+              <span className="meta">Cashing out now isn&apos;t available right now.</span>
+            )),
+          },
+        ]}
+      />
 
       {loadingFirst && <SkeletonCards count={2} avatar={false} label="Loading your Vault…" />}
 
+      {ready && !view.isNew && (waiting || view.otherChainWinnings) && (
+        <div className="vt-foot">
+          {waiting && (
+            <p className="note vt-note">
+              <Info aria-hidden="true" />
+              <span>{TEST_MODE ? "Cash out to your wallet. In test mode it pays test SOL." : "Cash out to your wallet."}</span>
+            </p>
+          )}
+          {view.otherChainWinnings && <p className="note">You also have winnings on other chains: see the <ViewSwitchLink to="advanced" />.</p>}
+        </div>
+      )}
+
       {ready && view.isNew && (
         <section className="cut cut-card vt-empty" aria-label="Get started">
-          <h2>Your Vault is empty</h2>
+          <h2 className="display">Deposits</h2>
           <p className="meta">Make a deposit to get Gemas and start playing. Your deposit stays yours: you get it back after about {PACK_MONTHS} months.</p>
           <Button variant="money" size="lg" onClick={() => requestDeposit()}>Get Gemas</Button>
         </section>
       )}
 
       {ready && !view.isNew && (
-        <>
-          <section className="vt-section" aria-label="Your deposits">
-            <h2>Your deposits</h2>
-            {view.deposits.length === 0 && <p className="meta">No deposits right now.</p>}
-            <div className="vt-list">
-              {view.deposits.map((d) => (
-                <article key={d.id} className={`cut cut-card vt-dep ${d.state}`}>
-                  <h3>{d.label}</h3>
-                  <p className="meta">
-                    {solText(d.sol)}
-                    {d.worthUsd !== null && <> · worth about {fmtUsd(Math.round(d.worthUsd))} today</>}
-                    {d.gemasGiven ? <> · gave you {fmtGemas(d.gemasGiven)} Gemas</> : null}
-                  </p>
-                  <p className="vt-dep-state">
-                    {d.state === "ready" && <><CheckIcon aria-hidden="true" /> Ready to withdraw</>}
-                    {d.state === "growing" && <>{d.backAtMs ? `Back around ${fmtBackAt(d.backAtMs)}` : `Back after about ${PACK_MONTHS} months`}</>}
-                    {d.state === "late" && <>{d.backAtMs ? `Taking a little longer: about ${fmtBackAt(d.backAtMs)}` : "Taking a little longer. We'll show a new date soon."}</>}
-                  </p>
-                  {d.state === "ready" && (
-                    <div className="vt-dep-side">
-                      <Button size="sm" disabled={!signer || busy !== null} onClick={() => void withdraw(d)}>
-                        {busy === `withdraw:${d.id}` ? "Withdrawing…" : "Withdraw"}
-                      </Button>
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-            {view.withdrawn > 0 && <p className="note">{view.withdrawn} earlier {view.withdrawn === 1 ? "deposit" : "deposits"} withdrawn.</p>}
-            {view.otherChainDeposits && <p className="note">You also have deposits on other chains: see the <ViewSwitchLink to="advanced" /> to manage them.</p>}
-          </section>
-
-          <section className="vt-section" aria-label="Your winnings">
-            <h2>Your winnings</h2>
-            {w.readyNow === 0 && w.readyLater === 0 ? (
-              <p className="meta">Win Matches and your winnings show up here, ready to cash out.</p>
-            ) : (
-              <div className="vt-wins">
-                <div className="cut cut-card vt-win now">
-                  <h3>Ready now</h3>
-                  <GemaAmount value={w.readyNow} size="lg" usd />
-                  <p className="meta">Free to cash out.</p>
-                  <Button variant="money" disabled={!signer || w.readyNow === 0 || busy !== null} onClick={() => void cashOut()}>
-                    {busy === "cash" ? "Cashing out…" : "Cash out"}
+        <section className="cut cut-card vt-deposits" aria-label="Your deposits">
+          <h2 className="display">Deposits</h2>
+          {view.deposits.length === 0 && <p className="meta">No deposits right now.</p>}
+          <div className="vt-list">
+            {view.deposits.map((d) => (
+              <article key={d.id} className={`vt-dep ${d.state}`}>
+                <p className="vt-dep-line">
+                  <b>{d.label}</b>
+                  {d.state !== "ready" && d.worthUsd !== null && <><i aria-hidden="true">·</i><span>worth about {fmtUsd(Math.round(d.worthUsd))} today</span></>}
+                  <i aria-hidden="true">·</i>
+                  {d.state === "ready" && <span className="ok"><CheckIcon aria-hidden="true" /> Ready to withdraw</span>}
+                  {d.state === "growing" && <span>{d.backAtMs ? `Back around ${fmtBackAt(d.backAtMs)}` : `Back after about ${PACK_MONTHS} months`}</span>}
+                  {d.state === "late" && <span className="warn">{d.backAtMs ? `Taking a little longer · about ${fmtBackAt(d.backAtMs)}` : "Taking a little longer. We'll show a new date soon."}</span>}
+                </p>
+                {d.state === "ready" && (
+                  <Button variant="money" size="sm" disabled={!signer || busy !== null} onClick={() => void withdraw(d)}>
+                    {busy === `withdraw:${d.id}` ? "Withdrawing…" : "Withdraw"}
                   </Button>
-                </div>
-                <div className="cut cut-card vt-win">
-                  <h3>Ready later</h3>
-                  <GemaAmount value={w.readyLater} size="lg" usd />
-                  <p className="meta">
-                    {w.readyLater === 0
-                      ? "Nothing waiting."
-                      : w.readyLaterAtMs
-                        ? `Free to cash out from about ${fmtBackAt(w.readyLaterAtMs)}.`
-                        : `Free to cash out as the deposits behind them earn, within about ${PACK_MONTHS} months.`}
-                  </p>
-                  {w.instant ? (
-                    <>
-                      <Button disabled={!signer || busy !== null} onClick={() => void cashOutSoon()}>
-                        {busy === "now" ? "Cashing out…" : "Cash out now"}
-                      </Button>
-                      <p className="note">You keep {w.instant.keepPct}%: about {fmtUsd(Math.round(w.instant.usd * 100) / 100)} for {fmtGemas(w.instant.gemas)} Gemas.</p>
-                    </>
-                  ) : (
-                    w.readyLater > 0 && <p className="note">Cashing out now isn&apos;t available right now.</p>
-                  )}
-                </div>
-              </div>
-            )}
-            <div className="vt-foot">
-              <p className="note dep-info">
-                <Info aria-hidden="true" />
-                <span>{TEST_MODE ? "Cash out to your wallet. In test mode it pays test SOL." : "Cash out to your wallet."}</span>
-              </p>
-              {view.otherChainWinnings && <p className="note">You also have winnings on other chains: see the <ViewSwitchLink to="advanced" />.</p>}
-            </div>
-          </section>
-        </>
+                )}
+              </article>
+            ))}
+          </div>
+          <div className="vt-info">
+            <p className="note vt-note"><Info aria-hidden="true" /><span>You get your deposit back after about {PACK_MONTHS} months!</span></p>
+            <p className="note vt-note"><Info aria-hidden="true" /><span>What you get back depends on the SOL price when you withdraw.</span></p>
+          </div>
+          {view.withdrawn > 0 && <p className="note">{view.withdrawn} earlier {view.withdrawn === 1 ? "deposit" : "deposits"} withdrawn.</p>}
+          {view.otherChainDeposits && <p className="note">You also have deposits on other chains: see the <ViewSwitchLink to="advanced" /> to manage them.</p>}
+        </section>
       )}
     </div>
   );
