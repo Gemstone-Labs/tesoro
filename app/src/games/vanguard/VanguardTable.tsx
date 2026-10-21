@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Label } from "@/components/ui";
 import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
-import { STATUS, rankOfCode, type ArmyAccount, type Battle } from "./decode";
+import { STATUS, changeOfCode, rankOfCode, type ArmyAccount, type Battle } from "./decode";
 import { catchUp, pendingOf, turnLine } from "./catchup";
 import { NAMES, TIMEOUTS_TO_LOSE, rankOf as playedRank, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { endLine } from "./end";
@@ -356,20 +356,23 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower,
   /** The General of the Army that Become a Spy would switch (or just did): shown as a Spy as soon as the button is tapped. */
   const tenId = spyOn ? game.pieces.find((p) => p.army === side && canSwitch(game, p))?.id : spySent ?? undefined;
 
-  // Your own Army is the only place your Dig in and your switch are told: when it shows a new change, say so (whether the
-  // Battle or the Army reached this screen first).
+  // Your own Army is the only place your Dig in and your switch are told: when it shows a code it did not before, say so
+  // (whether the Battle or the Army reached this screen first, and whether or not the board already drew the result).
+  const armyBefore = useRef(army);
   useEffect(() => {
-    const mine = shownPieces(latest.current.battle, army, seat).filter((p) => p.army === side && p.changed);
-    const fresh = mine.filter((p) => !piecesRef.current.some((x) => x.id === p.id && x.changed === p.changed));
+    const before = armyBefore.current;
+    armyBefore.current = army;
+    const base = side === "us" ? 30 : 0;
+    const fresh = Array.from({ length: 30 }, (_, i) => i).filter((i) => changeOfCode(army.ranks[i]) !== null && changeOfCode(army.ranks[i]) !== changeOfCode(before.ranks[i]));
     if (!fresh.length) return;
-    fresh.forEach((p) => patch(p.id, { rank: p.rank, changed: p.changed, fresh: true }));
-    setSpySent((id) => (id !== null && fresh.some((p) => p.id === id) ? null : id));
-    const dug = fresh.some((p) => p.changed === "dug");
+    fresh.forEach((i) => patch(base + i, { rank: rankOfCode(army.ranks[i]), changed: changeOfCode(army.ranks[i]) ?? undefined, fresh: true }));
+    setSpySent((id) => (id !== null && fresh.some((i) => base + i === id) ? null : id));
+    const dug = fresh.some((i) => changeOfCode(army.ranks[i]) === "dug");
     sfx(dug ? "knock" : "check");
     shout(dug ? "Dug in" : "Now a Spy");
     setSay(dug ? "Your Major is a Landmine now." : "Your 10 is a Spy for good.");
     ownNote.current = Date.now();
-  }, [army, patch, seat, shout, side]);
+  }, [army, patch, shout, side]);
 
   const onPiece = (id: number) => {
     if (!yourTurn) return;
