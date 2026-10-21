@@ -257,7 +257,7 @@
 
 /* phones: the table shrinks, the info panel becomes a one-line strip */
 @media (max-width: 719px) {
-  .hdx-felt { min-height: 360px; padding: 22px 12px 18px; }
+  .hdx-felt { min-height: 360px; padding: 12px 12px 8px; gap: 4px; }
   .hdx-surface { transform: perspective(1200px) rotateX(9deg); }
   .hdx-deck { right: 9%; top: 27%; width: 26px; }
   .hd-card, .hd-flipc { --w: 36px; }
@@ -269,7 +269,18 @@
   .hd-btn { left: 38px; }
   .hd-bet { left: calc(50% + 58px); top: 6px; transform: none; }
   .hd-say { right: auto; left: 50%; top: 0; transform: translate(-50%, -50%); width: 200px; }
-  .hd-handlabel { position: relative; left: auto; top: auto; order: 3; margin-top: 6px; }
+  /* each seat keeps a fixed slot under its plaque for the hand name, so the table never changes height when one shows */
+  .hdx-seat { padding-bottom: 34px; }
+  .hd-handlabel { left: 0; right: 0; top: auto; bottom: 0; width: fit-content; margin-inline: auto; }
+  /* the hand result gets a fixed slot too (three lines fit: Final hand, who won, why) */
+  .hdx-mid { gap: 8px; }
+  .hdx-potslot { height: 78px; min-height: 0; }
+  /* plaques keep one height: the Winner tag stays on the name row, a missed-turn line fits beside the avatar */
+  .hd-name { flex-wrap: nowrap; min-width: 0; }
+  .hd-name strong { flex: none; }
+  .hd-addr { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hd-name, .hd-stack { line-height: 1.15; }
+  .hd-missed { font-size: var(--fs-11); line-height: 1.1; }
   .hd-turn:not(.won) { display: none; }
   /* the turn line and Hand log share one row, so the pinned action bar clears the hand name */
   .hdx-head-r { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin-left: 0; }

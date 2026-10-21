@@ -159,7 +159,6 @@ export function ActionBar({
           </div>
         </div>
       </div>
-      {!enabled && busy === null && <span className="hd-hint meta">Actions unlock on your turn.</span>}
       {busy && busy !== "claim_timeout" && <span className="hd-hint meta">Sending {busy.split(" ")[0]}…</span>}
     </div>
   );
