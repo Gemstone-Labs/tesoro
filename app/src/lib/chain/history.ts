@@ -67,7 +67,7 @@ export function accountHistory(played: ChainMatch[], funded: ChainMatch[] = []):
     .sort((a, b) => b.at - a.at);
 }
 
-export const HISTORY_PAGE = 20;
+export const HISTORY_PAGE = 10;
 
 /** One page of rows (1-based, clamped to the pages that exist). */
 export function historyPage<T>(rows: T[], page: number, size = HISTORY_PAGE): { rows: T[]; page: number; pages: number } {
