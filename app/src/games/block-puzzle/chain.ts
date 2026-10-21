@@ -68,6 +68,8 @@ export type Result = "opener" | "joiner" | "draw";
 export interface ChainSigner {
   publicKey: PublicKey;
   signTransaction(tx: Transaction): Promise<Transaction>;
+  /** Signs a serialized transaction of either version, for the relayer's v0 messages. Missing: the signer cannot take part in sponsored transactions. */
+  signSerialized?(tx: Uint8Array): Promise<Uint8Array>;
   /** Signs the TEE auth challenge (wallet `signMessage`). */
   signMessage(message: Uint8Array): Promise<Uint8Array>;
 }
