@@ -14,6 +14,7 @@ import { readAccountState } from "./account-state";
 import { isCurrentPosition } from "./position-size";
 import { fetchRoutedState } from "./snapshot-wire";
 import type { NativeInfo, NativeMarket } from "./native";
+import type { LineRef } from "./basket";
 
 const pk = (bytes: number[] | Uint8Array) => new PublicKey(Uint8Array.from(bytes));
 const big = (n: { toString(): string }) => BigInt(n.toString());
@@ -67,18 +68,35 @@ export interface MatchSide {
   shareBps: number;
 }
 
+/**
+ * One line of the Account's basket or spill (tesoro_core economy upgrade): Gemas of one Source,
+ * own or won, in one class and tranche, with the planned repayment date that orders the draw.
+ * Named `holding` in the Wallet code for historical reasons; there is no Holding account any more.
+ * Offer reservations are account-wide (`AccountSnapshot.reservedTotal`), so `reserved` is 0 here.
+ */
 export interface ChainHolding {
-  holding: PublicKey;
+  /** Stable id of the line (`side:dueAt:source:class:tranche`). */
+  key: string;
+  /** The `LineRef` argument of Redeem, Return and Instant Redeem. */
+  line: LineRef;
+  /** Where the line lives: the basket or the spill. */
+  store: "basket" | "spill";
   source: PublicKey;
   position: PublicKey;
   isOwn: boolean;
+  /** Class (0 Platform, 1 Studio, 2 Leaderboard, 3 General, 3+n Extension n); fee classes are never played. */
+  classId: number;
+  tranche: number;
+  /** Planned repayment, unix seconds: "ready by". Also the draw order (earliest first). */
+  dueAt: number;
   amount: bigint;
+  /** Always 0: Offers reserve per Account, not per line. */
   reserved: bigint;
+  /** Gemas of the line (the line itself is never partly reserved). */
   free: bigint;
-  /** Free Gemas of this holding that Redeem would pay now. */
+  /** Gemas Redeem would pay now, with the Source's earned yield landed first. */
   redeemable: bigint;
-  /** Won Gemas Redeem now can sell: what is still waiting on yield once `redeemable` is redeemed in full (Solana-native Sources)
-   * or as they stand (ETH, HYPE). 0 for own Gemas. */
+  /** Won Gemas Instant Redeem can sell: what is still waiting on yield once `redeemable` is redeemed in full. 0 for own Gemas. */
   pending: bigint;
   /** The Source's Debt in Gemas: what `return_own` can still cancel. */
   sourceDebt: bigint;
@@ -94,6 +112,21 @@ export interface ChainHolding {
   stakeMint: PublicKey | null;
   /** The Source belongs to an Ethereum or HyperEVM Position (Redeem pays on that chain through the bridge). */
   eth: { vault: string; id: bigint } | null;
+  /** Index of the Source on its Position. */
+  sourceIndex: number;
+  /** The Source is the Position's open Advance (its yield is still landing). */
+  open: boolean;
+  /** Checkpoint pages a Redeem of this line must pass, with the Source's book (see `bookAccounts`). */
+  accounts: PublicKey[];
+}
+
+export interface StoreSummary {
+  len: number;
+  capacity: number;
+  /** Spill only: slots held for Matches in flight. */
+  roomReserved: number;
+  flags: number;
+  sponsoredLamports: bigint;
 }
 
 export interface ChainAdvance {
@@ -130,6 +163,15 @@ export interface AccountSnapshot {
   lamports: number;
   ownTotal: bigint;
   wonTotal: bigint;
+  /** Gemas held back for open Offers (account-wide). */
+  reservedTotal: bigint;
+  /** Gemas an open Entry Ticket still has to stage. */
+  ticketNeed: bigint;
+  /** Fee-class Gemas (Studio Fee lines of an outside studio's Games): never played. */
+  feeTotal: bigint;
+  /** Basket and spill headers: capacity and fullness, for the room an entry and a join may need. */
+  stores: { basket: StoreSummary; spill: StoreSummary } | null;
+  /** One entry per basket and spill line, in the draw's merged order. */
   holdings: ChainHolding[];
   positions: ChainPosition[];
   matches: ChainMatch[];
@@ -447,12 +489,8 @@ export async function fetchAccountState(authority: PublicKey, opts: { fresh?: bo
   const chain = getChain();
   return readAccountState(
     {
-      lists: (key) =>
-        Promise.all([
-          chain.core.account.holdingState.all([{ memcmp: { offset: 9, bytes: key.toBase58() } }]),
-          // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
-          ownedPositions(chain, key),
-        ]),
+      // PositionState: disc 8 + bump 1 + position_id 32, then `inner.owner`.
+      lists: (key) => ownedPositions(chain, key),
       infos: (keys) => chain.base.getMultipleAccountsInfo(keys),
       balance: (a) => chain.base.getBalance(a),
       decode: (name, data) => chain.core.coder.accounts.decode(name, data),
