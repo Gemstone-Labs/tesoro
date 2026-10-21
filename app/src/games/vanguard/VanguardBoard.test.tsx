@@ -56,10 +56,14 @@ describe("VanguardBoard powers", () => {
     expect(draw({ preview: { kind: "blast", squares } }).match(/class="vg-pv"/g)).toHaveLength(2);
     expect(draw({ preview: { kind: "rescue", from: { r: 9, c: 9 }, to: { r: 5, c: 4 } } })).toMatch(/vg-rescue-arrow/);
   });
-  it("badges a dug-in Major with its old rank for the owner, and an exposed piece with the eye", () => {
+  it("badges a dug-in Major with its old rank for the owner, and glows an exposed piece", () => {
     const h = draw({ pieces: [{ ...mine, rank: "B", changed: "dug", exposed: true }] });
     expect(h).toContain('<span class="vg-was">7</span>');
-    expect(h).toContain("vg-eye");
+    expect(h).toMatch(/class="vg-piece us[^"]* exposed/);
+    expect(h).not.toContain("vg-eye");
     expect(h).toContain("was Major");
+  });
+  it("marks a hopping piece", () => {
+    expect(draw({ pieces: [{ ...mine, hop: true, ms: 620 }] })).toMatch(/class="vg-piece us[^"]* hop/);
   });
 });

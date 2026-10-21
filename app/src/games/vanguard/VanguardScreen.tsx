@@ -4,24 +4,17 @@ import { useState, type ReactNode } from "react";
 import { pushFeed } from "./feed";
 import "./vanguard.css";
 
-/** The selected piece's power: a button with the power's name, a preview step for Blast and Rescue, and a line saying what it does. */
+/** The selected piece's power: one button with the power's name and a line saying what it does. One tap does it. */
 export interface PowerInfo {
   label: string;
   hint: string;
-  /** Waiting for the confirm tap (the preview is on the board). */
-  armed: boolean;
   onPress: () => void;
-  onCancel: () => void;
 }
 
-/** Become a Spy, on the selected General of the Army: a toggle, and a one-way warning the first time it is turned on. */
+/** Become a Spy, on the selected General of the Army: the same kind of button; one tap switches it (on the turn's action), a second tap takes it back. */
 export interface SpyInfo {
   on: boolean;
-  /** Show the warning and wait for a yes. */
-  warning: boolean;
-  onToggle: () => void;
-  onConfirm: () => void;
-  onDismiss: () => void;
+  onPress: () => void;
 }
 
 export interface TurnInfo {
@@ -54,7 +47,7 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
   const ready = showButton && yourTurn && !moved;
   const { power, spy } = turn;
   const twoHint = !showButton ? "" : !yourTurn ? "Banked. Press it on your turn to move twice." : moved ? "Press it before your first step." : "Press it to move twice this turn.";
-  const hint = yourTurn && power ? power.hint : yourTurn && spy?.on ? "Becoming a Spy is free: now make your move. It stays secret until a fight shows it." : twoHint;
+  const hint = yourTurn && power ? power.hint : yourTurn && spy ? (spy.on ? "One way: it stays a Spy." : "Free with your move. One way: it stays a Spy.") : twoHint;
   // nothing to say before the Match starts or after it ends: no empty box
   if (!turn.label) return null;
   return (
@@ -66,34 +59,14 @@ export function TurnBox({ turn }: { turn: TurnInfo }) {
         </button>
       )}
       {yourTurn && power && (
-        <>
-          <button type="button" className={`vg-power${power.armed ? " armed" : ""}`} onClick={power.onPress}>
-            {power.armed ? `Confirm ${power.label}` : power.label}
-          </button>
-          {power.armed && (
-            <button type="button" className="vg-link" onClick={power.onCancel}>
-              Cancel
-            </button>
-          )}
-        </>
-      )}
-      {yourTurn && spy && (
-        <button type="button" className="vg-spy-t" aria-pressed={spy.on} onClick={spy.onToggle}>
-          Become a Spy
+        <button type="button" className="vg-power" onClick={power.onPress}>
+          {power.label}
         </button>
       )}
-      {yourTurn && spy?.warning && (
-        <div className="vg-warn" role="alertdialog" aria-label="Become a Spy is one way">
-          <span>Your General of the Army becomes a Spy for good. It can beat the enemy 10 when it attacks, but it is only a 1 in every other fight and can never turn back.</span>
-          <span className="vg-warn-row">
-            <button type="button" className="vg-power armed" onClick={spy.onConfirm}>
-              Become a Spy
-            </button>
-            <button type="button" className="vg-link" onClick={spy.onDismiss}>
-              Not now
-            </button>
-          </span>
-        </div>
+      {yourTurn && spy && (
+        <button type="button" className={`vg-power${spy.on ? " on" : ""}`} aria-pressed={spy.on} onClick={spy.onPress}>
+          {spy.on ? "Undo Spy" : "Become a Spy"}
+        </button>
       )}
       {hint && <small className="vg-hint">{hint}</small>}
     </div>
