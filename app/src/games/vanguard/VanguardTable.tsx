@@ -1,5 +1,6 @@
 "use client";
 
+import { BookOpen } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Label } from "@/components/ui";
@@ -7,12 +8,15 @@ import { art } from "@/lib/art";
 import { Arena, Callout, Countdown, FullScreenToggle, MuteToggle, prefersReducedMotion, sfx, type CalloutTone } from "../fx";
 import { STATUS, rankOfCode, type ArmyAccount, type Battle } from "./decode";
 import { catchUp, pendingOf, turnLine } from "./catchup";
-import { NAMES, ROSTER, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
+import { NAMES, TIMEOUTS_TO_LOSE, rankOf as playedRank, targets, type Army, type GameEvent, type Rank, type Square } from "./rules";
 import { endLine } from "./end";
 import { START_COUNTDOWN, getReadyLeft, isOpening, missedLabel, ringLeft, ringStart, turnKey, turnMsOf } from "./clock";
 import { VanguardScreen, type TurnInfo } from "./VanguardScreen";
-import { VanguardBoard, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
-import { depotsFor, enemyLeft, fromView, hitSide, indexOf, lookGame, opposite, piecesLeft, shownPieces, toView } from "./view";
+import { VanguardBoard, type HitSide, type Mark, type Preview, type ShownFx, type ShownPiece, type ShownStorm } from "./VanguardBoard";
+import { RulesSheet } from "./RulesSheet";
+import { blastSquares, canSwitch, isHopMove, isJump, powerBlockedLine, powerFor } from "./powers-ui";
+import type { ActionOptions } from "./useVanguardMatch";
+import { chainRoster, depotsFor, fromView, hitSide, indexOf, lookGame, opposite, piecesLeft, shownPieces, shownTen, toView } from "./view";
 import "./vanguard.css";
 
 export interface VanguardTableProps {
@@ -22,8 +26,12 @@ export interface VanguardTableProps {
   seat: 0 | 1;
   /** When this client first saw the current turn (ms): the countdown runs from here. */
   turnSeenAt: number;
-  /** Send a move (`to` is `row * 10 + col`). Rejects with a plain message when the rollup refused it. */
-  onMove: (piece: number, to: number) => Promise<void>;
+  /** Send a move (`to` is `row * 10 + col`); `spy` rides on it. Rejects with a plain message when the rollup refused it. */
+  onMove: (piece: number, to: number, o?: ActionOptions) => Promise<void>;
+  /** Blast, Rescue or Dig in with a piece. Each takes the turn. */
+  onPower: (kind: "blast" | "rescue" | "dig_in", piece: number, o?: ActionOptions) => Promise<void>;
+  /** Pass the turn on purpose (a missed turn). */
+  onPass: (o?: ActionOptions) => Promise<void>;
   onTwoStep: () => Promise<void>;
   /** The Match is over and being settled: no more taps. */
   ended?: boolean;
@@ -34,13 +42,16 @@ export interface VanguardTableProps {
 
 const wait = (ms: number) => new Promise<void>((ok) => setTimeout(ok, prefersReducedMotion() ? 0 : ms));
 const slideMs = (a: Square, b: Square) => Math.min(380, 140 + (Math.abs(a.r - b.r) + Math.abs(a.c - b.c)) * 40);
+/** A Lieutenant's jump or a General's wadi crossing is a hop: lift, arc over the squares between, land. */
+const HOP_MS = 620;
+const PASS_WARNING = "Pass again or miss once more and you lose.";
 
 /**
  * The war-room table for a chain Match. It draws what the Battle and your own Army say, from your side (the
  * Italian Player sees the board turned half way round). A plain move slides at once and is confirmed or snapped
  * back; an attack waits for the program's result, then the events the Battle recorded are played in order.
  */
-export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoStep, ended = false, reconnecting = false, children }: VanguardTableProps) {
+export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onPower, onPass, onTwoStep, ended = false, reconnecting = false, children }: VanguardTableProps) {
   const fxKey = useRef(1);
   const side: Army = battle.usSeat === seat ? "us" : "it";
   const foe: Army = side === "us" ? "it" : "us";
@@ -57,6 +68,15 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   const [sentAt, setSentAt] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [call, setCall] = useState<{ key: number; text: string; tone: CalloutTone } | null>(null);
+  /** Become a Spy was tapped: it rides on this turn's action (a move, an attack, a power or a pass), and is dropped if the turn ends without one. */
+  const [spyOn, setSpyOn] = useState(false);
+  /** The General of the Army that was sent with a switch: it keeps its Spy face until your Army confirms it. */
+  const [spySent, setSpySent] = useState<number | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  /** The enemy piece this screen once saw face up as a 10 (kept for the roster strip if it later shows as a Spy). */
+  const [tenSeen, setTenSeen] = useState<number | null>(null);
+  /** When your own Army last told its news (a Dig in, a switch): a later "you passed" line does not overwrite it. */
+  const ownNote = useRef(0);
   const cursor = useRef(battle.eventSeq);
   const latest = useRef({ battle, army });
   const running = useRef(false);
@@ -80,6 +100,7 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
       /** A rank the Player may know: shown on the piece, or published by the Battle. */
       const rankOf = (id: number): Rank | null => find(id)?.rank ?? rankOfCode(b.shown[id]);
       const mineId = (id: number) => (id >= 30 ? "us" : "it") === side;
+      const occupied = (r: number, c: number) => piecesRef.current.some((p) => !p.gone && p.r === r && p.c === c);
       let line = "";
       setSelected(null);
       for (const e of events) {
@@ -89,10 +110,15 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           const cur = find(e.id);
           if (mineId(e.id)) declared.current = false;
           if (cur && cur.r === to.r && cur.c === to.c) continue; // your own move, already on the board
-          const ms = slideMs(from, to);
-          patch(e.id, { r: to.r, c: to.c, ms });
-          sfx("knock");
+          const hop = isHopMove(from, to, occupied);
+          const ms = hop ? HOP_MS : slideMs(from, to);
+          patch(e.id, { r: to.r, c: to.c, ms, hop });
+          sfx(hop ? "wind" : "knock");
           await wait(ms);
+          if (hop) {
+            sfx("knock");
+            patch(e.id, { hop: false });
+          }
           if (!mineId(e.id)) line = "Your opponent moved.";
         } else if (e.kind === "attack") {
           if (mineId(e.att)) declared.current = false;
@@ -101,8 +127,12 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           const dr = Math.sign(to.r - from.r);
           const dc = Math.sign(to.c - from.c);
           const edge = { r: to.r - dr * 0.55, c: to.c - dc * 0.55 };
-          patch(e.att, { r: edge.r, c: edge.c, ms: slideMs(from, edge) });
-          await wait(slideMs(from, edge));
+          const hop = isHopMove(from, to, occupied);
+          const approach = hop ? HOP_MS : slideMs(from, edge);
+          patch(e.att, { r: edge.r, c: edge.c, ms: approach, hop });
+          if (hop) sfx("wind");
+          await wait(approach);
+          if (hop) patch(e.att, { hop: false });
           // the faces the program published: the beaten piece, both in a tie, a Landmine that went off
           const toward = hitSide(e.from, e.to, side);
           const shown = e.flash.filter((id) => !mineId(id));
@@ -135,6 +165,79 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
             : e.outcome === "tie" ? `Both ${a}s fall.`
             : mine ? (attWins ? `Your ${aRank} beat their ${dRank}.` : `Your ${aRank} lost.`)
             : attWins ? `Opponent took your ${dRank}.` : `Your ${dRank} held.`;
+        } else if (e.kind === "blast") {
+          const mine = mineId(e.id);
+          if (mine) declared.current = false;
+          const cur = find(e.id);
+          if (!mine && cur) {
+            patch(e.id, { up: true, rank: "3", hitFrom: "top" });
+            sfx("flip");
+            await wait(700);
+          }
+          const at = toView(e.at, side);
+          addFx("mine", at.r + 0.5, at.c + 0.5, 3.6);
+          sfx("blast");
+          shout("Engineer blast!", mine ? "plain" : "warn");
+          patch(e.id, { gone: true });
+          await wait(260);
+          // the enemy pieces around it turn face up to the Player who was not hit; their own are shown to the enemy
+          const turned = e.shown.filter((s) => !mineId(s.id) && !find(s.id)?.up);
+          e.shown.forEach((s) => {
+            const q = find(s.id);
+            if (!q) return;
+            if (mineId(s.id)) return patch(s.id, { exposed: true });
+            if (q.up) return;
+            const dr = Math.sign(q.r - at.r);
+            const dc = Math.sign(q.c - at.c);
+            patch(s.id, { up: true, rank: s.rank, hitFrom: dc > 0 ? "left" : dc < 0 ? "right" : dr > 0 ? "top" : "bottom" });
+          });
+          if (turned.length) sfx("flip");
+          const own = e.shown.filter((s) => mineId(s.id)).length;
+          line = mine ? (turned.length ? `Blast showed ${turned.length} enemy ${turned.length === 1 ? "piece" : "pieces"}.` : "Blast: nothing hidden nearby.") : `Their Blast showed ${own} of your ${own === 1 ? "piece" : "pieces"}.`;
+          await wait(turned.length ? 820 : 300);
+        } else if (e.kind === "rescue") {
+          const mine = mineId(e.colonel);
+          if (mine) declared.current = false;
+          const from = toView(e.from, side);
+          const to = toView(e.to, side);
+          if (!mine) {
+            patch(e.colonel, { up: true, rank: "8", hitFrom: "top" });
+            sfx("flip");
+            await wait(700);
+          }
+          addFx("mine", to.r + 0.5, to.c + 0.5, 2.8);
+          sfx("blast");
+          patch(e.colonel, { gone: true });
+          await wait(300);
+          addFx("dust", from.r + 0.5, from.c + 0.5, 2.4);
+          sfx("wind");
+          patch(e.truck, { r: to.r, c: to.c, ms: 700, fly: true, ...(mine ? {} : { up: true, rank: "F" as Rank, hitFrom: "bottom" as HitSide }) });
+          shout("Truck rescued!", mine ? "plain" : "warn");
+          await wait(720);
+          addFx("dust", to.r + 0.5, to.c + 0.5, 2.4);
+          patch(e.truck, { fly: false });
+          line = mine ? "Truck rescued: it jumped to your Colonel's square." : "Their Truck was rescued. It is face up now.";
+          await wait(300);
+        } else if (e.kind === "dug_in") {
+          // only a face-up Major's Dig in is named (F1), to both sides. A face-down one is a plain `pass` and shows nothing more.
+          declared.current = false;
+          patch(e.id, { rank: "B", fresh: true, ...(mineId(e.id) ? { changed: "dug" as const } : {}) });
+          shout(mineId(e.id) ? "Dug in" : "Their Major dug in", mineId(e.id) ? "plain" : "warn");
+          sfx("knock");
+          await wait(650);
+        } else if (e.kind === "pass") {
+          // a pass and a face-down Dig in are the same record: the opponent reads one line for both. Your own Army tells you which it was.
+          declared.current = false;
+          line = e.army === side ? "You passed." : "Your opponent passed.";
+        } else if (e.kind === "switched") {
+          // a face-up 10 switching is public; your own face-down one is told by your Army (below), never by a record
+          if (!mineId(e.id)) {
+            patch(e.id, { rank: "1", fresh: true });
+            shout("Their 10 became a Spy", "warn");
+            line = "Their 10 became a Spy.";
+            sfx("check");
+            await wait(600);
+          }
         } else if (e.kind === "spotted") {
           const p = find(e.id);
           patch(e.id, { up: true, rank: "F", hitFrom: "bottom" });
@@ -174,13 +277,15 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
         }
       }
       const { army: mineNow } = latest.current;
+      // a switch sent with the action is told by your Army (below) once it is read; until then only the 10's Spy face stands in
+      setSpySent(null);
       put(shownPieces(b, mineNow, seat));
       setDepots(depotsFor(b, side));
       cursor.current = b.eventSeq;
       if (b.status === STATUS.over || b.status === STATUS.cancelled) {
         sfx(b.winner === seat ? "win" : "lose");
         setSay(endLine(b, seat));
-      } else if (line) setSay(line);
+      } else if (line && Date.now() - ownNote.current > 4000) setSay(line);
     },
     [addFx, patch, put, seat, shout, side],
   );
@@ -242,7 +347,29 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
   const pending = live ? pendingOf(battle, seat) : null;
   const yourTurn = live && !animating && !pending && sentAt !== turnNow && battle.turn === (side === "us" ? 0 : 1);
   const sel = selected === null ? null : game.pieces.find((p) => p.id === selected) ?? null;
-  const marks = yourTurn && sel ? targets(game, sel).map((t) => ({ ...toView(t, side), attack: t.attack })) : [];
+  const power = yourTurn && sel ? powerFor(game, sel) : null;
+  const marks: Mark[] = yourTurn && sel ? targets(game, sel).map((t) => ({ ...toView(t, side), attack: t.attack, jump: isJump(playedRank(game, sel), sel, t) })) : [];
+  // what a power will do is drawn while its piece is selected: no extra tap
+  const truck = sel && power?.kind === "rescue" ? game.pieces.find((p) => p.army === side && p.rank === "F") : undefined;
+  const preview: Preview | null =
+    !sel || !power?.preview ? null : power.kind === "blast" ? { kind: "blast", squares: blastSquares(sel).map((q) => toView(q, side)) } : truck ? { kind: "rescue", from: toView(truck, side), to: toView(sel, side) } : null;
+  /** The General of the Army that Become a Spy would switch (or just did): shown as a Spy as soon as the button is tapped. */
+  const tenId = spyOn ? game.pieces.find((p) => p.army === side && canSwitch(game, p))?.id : spySent ?? undefined;
+
+  // Your own Army is the only place your Dig in and your switch are told: when it shows a new change, say so (whether the
+  // Battle or the Army reached this screen first).
+  useEffect(() => {
+    const mine = shownPieces(latest.current.battle, army, seat).filter((p) => p.army === side && p.changed);
+    const fresh = mine.filter((p) => !piecesRef.current.some((x) => x.id === p.id && x.changed === p.changed));
+    if (!fresh.length) return;
+    fresh.forEach((p) => patch(p.id, { rank: p.rank, changed: p.changed, fresh: true }));
+    setSpySent((id) => (id !== null && fresh.some((p) => p.id === id) ? null : id));
+    const dug = fresh.some((p) => p.changed === "dug");
+    sfx(dug ? "knock" : "check");
+    shout(dug ? "Dug in" : "Now a Spy");
+    setSay(dug ? "Your Major is a Landmine now." : "Your 10 is a Spy for good.");
+    ownNote.current = Date.now();
+  }, [army, patch, seat, shout, side]);
 
   const onPiece = (id: number) => {
     if (!yourTurn) return;
@@ -251,7 +378,9 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
     if (selected === id) return setSelected(null);
     setSelected(id);
     const t = targets(game, p);
-    if (!t.length) setSay(p.rank === "B" ? "Landmines never move." : p.rank === "F" && p.fuel >= 3 ? "Truck out of fuel." : p.rank === "F" ? "Truck can't move twice running." : "Nowhere to go.");
+    const rank = playedRank(game, p);
+    if (!t.length && !powerFor(game, p)) setSay(rank === "B" ? "Landmines never move." : rank === "F" && p.fuel >= 3 ? "Truck out of fuel." : rank === "F" ? "Truck can't move twice running." : "Nowhere to go.");
+    else setSay(powerBlockedLine(game, p) || (powerFor(game, p) ? "Move it, or use its power." : canSwitch(game, p) ? "Move it, or Become a Spy first." : "Pick a marked square."));
   };
 
   const snapBack = useCallback(
@@ -259,28 +388,60 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
       put(shownPieces(latest.current.battle, latest.current.army, seat));
       setSentAt(null);
       setSelected(null);
+      setSpySent(null);
       setSay(message);
     },
     [put, seat],
   );
 
+  /** One tap sends the action; Become a Spy rides on it. What the program decides comes back as events. */
+  const sent = (message: string) => {
+    setSentAt(turnNow);
+    setSelected(null);
+    setSpySent(spyOn ? (tenId ?? null) : null);
+    setSpyOn(false);
+    declared.current = true;
+    if (message) setSay(message);
+  };
+  const failed = (e: Error) => {
+    declared.current = false;
+    snapBack(e.message || "That did not go through.");
+  };
+
   const onMark = (mark: Square & { attack: boolean }) => {
     if (!yourTurn || selected === null) return;
     const to = fromView(mark, side);
     const piece = selected;
-    setSentAt(turnNow);
-    setSelected(null);
-    declared.current = true;
+    const spy = spyOn;
+    const from = piecesRef.current.find((p) => p.id === piece);
+    sent(mark.attack ? "Attacking…" : "");
     if (!mark.attack) {
-      // a plain move slides at once; the program confirms it, or the piece goes back
-      patch(piece, { r: mark.r, c: mark.c, ms: slideMs(piecesRef.current.find((p) => p.id === piece) ?? mark, mark) });
-      sfx("knock");
-    } else setSay("Attacking…");
-    onMove(piece, indexOf(to)).catch((e: Error) => {
-      declared.current = false;
-      snapBack(e.message || "That move did not go through.");
-    });
+      // a plain move slides at once (a jump hops); the program confirms it, or the piece goes back
+      const hop = !!from && isHopMove(from, mark, (r, c) => piecesRef.current.some((p) => !p.gone && p.r === r && p.c === c));
+      patch(piece, { r: mark.r, c: mark.c, ms: hop ? HOP_MS : slideMs(from ?? mark, mark), hop });
+      sfx(hop ? "wind" : "knock");
+      if (hop) setTimeout(() => patch(piece, { hop: false }), HOP_MS);
+    }
+    onMove(piece, indexOf(to), { spy }).catch(failed);
   };
+
+  const pressPower = () => {
+    if (!yourTurn || !sel || !power) return;
+    const spy = spyOn;
+    sent(power.kind === "dig_in" ? "" : `${power.label}…`);
+    onPower(power.kind, sel.id, { spy }).catch(failed);
+  };
+  const toggleSpy = () => {
+    setSpyOn(!spyOn);
+    setSay(spyOn ? "Spy taken back." : "One way: it stays a Spy.");
+  };
+  const pressPass = () => {
+    if (!yourTurn) return;
+    const spy = spyOn;
+    sent("");
+    onPass({ spy }).catch(failed);
+  };
+  const closeRules = useCallback(() => setRulesOpen(false), []);
 
   const twoStepLeft = battle.twoStep[side === "us" ? 0 : 1];
   const useTwoStep = () => {
@@ -322,25 +483,44 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
     );
   };
 
+  const mineIdx = side === "us" ? 0 : 1;
+  const canPass = game.version >= 6 && yourTurn && !game.twoStepActive && game.movedThisTurn.length === 0;
   const turn: TurnInfo = {
-    label: live ? (battle.turn === (side === "us" ? 0 : 1) ? (battle.twoStepActive ? `Two-Step · ${battle.stepsLeft} left` : "Your turn") : "Their turn") : "",
+    label: live ? (battle.turn === mineIdx ? (battle.twoStepActive ? `Two-Step · ${battle.stepsLeft} left` : "Your turn") : "Their turn") : "",
     banked: twoStepLeft,
     active: battle.twoStepActive !== 0,
     yourTurn,
     moved: battle.moved !== 0n,
     onUse: useTwoStep,
+    power: power ? { label: power.label, hint: power.hint, onPress: pressPower } : null,
+    spy: yourTurn && sel && canSwitch(game, sel) ? { on: spyOn, onPress: toggleSpy } : null,
+    pass: canPass ? { onPress: pressPass, warn: battle.timeouts[mineIdx] >= TIMEOUTS_TO_LOSE - 1 ? PASS_WARNING : null } : null,
   };
-  const standing = enemyLeft(battle, seat);
+  // the strip counts what the Battle shows of the enemy (dead pieces included), never an event count: it holds after a ring wrap or a reload
+  const seenTen = shownTen(battle, seat);
+  if (seenTen !== null && seenTen !== tenSeen) setTenSeen(seenTen);
+  const rv = chainRoster(battle, seat, seenTen ?? tenSeen);
   const roster = (
     <div className="vg-roster" role="list" aria-label={`${foe === "us" ? "US" : "Italian"} pieces still on the board, by rank`}>
-      {ROSTER.map(([rank, n]) => (
-        <span key={rank} role="listitem" className={standing[rank] === 0 ? "out" : ""} aria-label={`${NAMES[rank]}: ${standing[rank]} of ${n} left`}>
+      {rv.cells.map(({ rank, of, left: n }) => (
+        <span
+          key={rank}
+          role="listitem"
+          className={`${n === 0 ? "out" : ""}${rank === "10" && rv.tenOrSpy ? " maybe" : ""}`}
+          aria-label={`${NAMES[rank]}: ${n} of ${of} left${rank === "10" && rv.tenOrSpy ? ", may be a Spy now" : ""}`}
+        >
           <b>{rank}</b>
-          {standing[rank]}/{n}
+          {n}/{of}
         </span>
       ))}
+      {rv.tenOrSpy && (
+        <span className="vg-notes" role="note">
+          <em>10 or Spy?</em>
+        </span>
+      )}
     </div>
   );
+  const shownOnBoard = tenId === undefined ? pieces : pieces.map((p) => (p.id === tenId ? { ...p, rank: "1" as Rank, changed: "spy" as const } : p));
 
   return (
     <Arena game="vanguard" autoFull={!ended}>
@@ -349,6 +529,9 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
           <div className="vg-bar">
             <Label>Vanguard</Label>
             <span className="vg-bar-tools">
+              <button type="button" className="cut cut-chip fx-mute" onClick={() => setRulesOpen((o) => !o)} aria-expanded={rulesOpen} aria-label="Ranks and powers" title="Ranks and powers">
+                <BookOpen size={16} aria-hidden="true" />
+              </button>
               <MuteToggle />
               <FullScreenToggle />
             </span>
@@ -361,8 +544,9 @@ export function VanguardTable({ battle, army, seat, turnSeenAt, onMove, onTwoSte
         say={say}
         stage={
         <div className="vg-stage">
-          <VanguardBoard pieces={pieces} depots={depots} selected={selected} marks={marks} fx={fx} storm={storm} locked={!yourTurn} viewer={side} onPiece={onPiece} onMark={onMark} />
+          <VanguardBoard pieces={shownOnBoard} depots={depots} selected={selected} marks={marks} preview={preview} fx={fx} storm={storm} locked={!yourTurn} viewer={side} onPiece={onPiece} onMark={onMark} />
           {showReady && <Countdown key={readyKey} {...START_COUNTDOWN} from={readyLeft ?? 0} className="vg-count" onEnd={() => setReadyDone(readyKey)} />}
+          {rulesOpen && <RulesSheet onClose={closeRules} />}
           {call && <Callout key={call.key} text={call.text} tone={call.tone} duration={1300} onDone={() => setCall(null)} className="vg-call" />}
         </div>
         }
