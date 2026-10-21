@@ -56,14 +56,14 @@ export const AcknowledgmentFailed: Story = {
 export const Paying: Story = {
   render: () => (
     <Frame>
-      <WorkingView pack={DEPOSIT_PACKS[0]} phase="paying" testMode hours={2} />
+      <WorkingView pack={DEPOSIT_PACKS[0]} gemas={560} phase="paying" testMode hours={2} />
     </Frame>
   ),
 };
 export const Adding: Story = {
   render: () => (
     <Frame>
-      <WorkingView pack={DEPOSIT_PACKS[0]} phase="adding" testMode hours={2} />
+      <WorkingView pack={DEPOSIT_PACKS[0]} gemas={560} phase="adding" testMode hours={2} />
     </Frame>
   ),
 };

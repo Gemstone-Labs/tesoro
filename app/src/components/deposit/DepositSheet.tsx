@@ -22,7 +22,7 @@ const HOURS = (PACK_MONTHS * SIM_MONTH_MIN) / 60;
 const TITLES: Record<DepositStep, string> = {
   packs: "Get Gemas",
   ack: DEPOSIT_ACK_TITLE,
-  working: "Get Gemas",
+  working: "Adding your deposit",
   done: "Your Gemas are ready",
   error: "Get Gemas",
 };
@@ -67,7 +67,7 @@ export function DepositSheet({ open, onClose, intent }: { open: boolean; onClose
           onConfirm={() => void flow.ack.confirm()}
         />
       )}
-      {step === "working" && picked && <WorkingView pack={picked.pack} phase={flow.phase} testMode={TEST_MODE} hours={HOURS} />}
+      {step === "working" && picked && <WorkingView pack={picked.pack} gemas={picked.gemas} phase={flow.phase} testMode={TEST_MODE} hours={HOURS} />}
       {step === "done" && flow.result && (
         <DoneView gemas={flow.result.gemas} packId={flow.result.packId} back={backLink(intent)} onDone={onClose} testMode={TEST_MODE} hours={HOURS} />
       )}

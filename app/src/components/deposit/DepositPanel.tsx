@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { ChartColumn, Clock, CreditCard } from "lucide-react";
 import { type ReactNode } from "react";
-import { Busy, Button, CheckIcon, CountUp, GemaMark } from "@/components/ui";
+import { Button, CheckIcon, CountUp, GemaMark } from "@/components/ui";
 import { DEPOSIT_ACK_CONFIRM, DEPOSIT_ACK_POINTS, DEPOSIT_ACK_SKIP, DEPOSIT_ACK_TITLE } from "@/lib/deposit/acknowledgment";
 import { PACK_MONTHS, type DepositPack, type DepositPackId, type PackQuote } from "@/lib/deposit/packs";
 import { fmtGemas, fmtUsd } from "@/lib/format";
@@ -146,24 +146,33 @@ export function AckView({ dontShow, onDontShow, busy, error, onConfirm }: {
 
 export type WorkPhase = "paying" | "adding";
 
-export function WorkingView({ pack, phase, testMode, hours }: { pack: DepositPack; phase: WorkPhase; testMode: boolean; hours: number }) {
-  const steps: { id: WorkPhase; label: string }[] = [
-    { id: "paying", label: testMode ? "Getting your test SOL" : "Waiting for your payment" },
-    { id: "adding", label: "Adding your deposit and your Gemas" },
-  ];
-  const at = steps.findIndex((s) => s.id === phase);
+export function WorkingView({ pack, gemas, phase, testMode, hours }: { pack: DepositPack; gemas: number; phase: WorkPhase; testMode: boolean; hours: number }) {
+  const paid = phase === "adding";
+  const steps = [
+    { id: "paying", label: paid ? (testMode ? "Test SOL added" : "Payment received") : testMode ? "Getting your test SOL" : "Waiting for your payment", state: paid ? "done" : "now" },
+    { id: "adding", label: "Adding your deposit and your Gemas", state: paid ? "now" : "next" },
+  ] as const;
   return (
-    <div className="dep">
-      <p className="dep-pack-line">{pack.name} pack · {fmtUsd(pack.usd)}</p>
-      <ol className="dep-steps" aria-label="Progress">
-        {steps.map((s, i) => (
-          <li key={s.id} className={i < at ? "done" : undefined} aria-current={i === at ? "step" : undefined}>
-            {i < at ? <CheckIcon aria-label="Done" /> : i === at ? <span className="spinner" aria-hidden="true" /> : <span className="dot" aria-hidden="true" />}
-            <span>{s.label}</span>
+    <div className="dep-work">
+      <Image className="dep-art" src={packArt(pack.id)} width={512} height={512} alt="" sizes="180px" priority />
+      <p className="dep-work-title" aria-hidden="true">Adding your deposit</p>
+      <p className="dep-work-pack">
+        {pack.name} pack · Deposit {fmtUsd(pack.usd)} · ≈ {fmtGemas(gemas)} Gemas
+      </p>
+      <ol className="dep-work-steps" aria-label="Progress">
+        {steps.map((s) => (
+          <li key={s.id} className={s.state} aria-current={s.state === "now" ? "step" : undefined}>
+            <span className="cut cut-chip dep-work-mark" aria-hidden="true">
+              {s.state === "done" ? <CheckIcon /> : s.state === "now" ? <span className="spinner" /> : null}
+            </span>
+            <span>
+              {s.label}
+              {s.state === "done" && <span className="sr-only"> (done)</span>}
+            </span>
           </li>
         ))}
       </ol>
-      <Busy>{phase === "paying" ? "This takes a few seconds." : "Almost there. Don't close this window."}</Busy>
+      <p className="dep-work-note" role="status">This takes a few seconds. Don&apos;t close this window.</p>
       {testMode && <TestModeLine hours={hours} />}
     </div>
   );

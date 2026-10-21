@@ -1,14 +1,14 @@
 /* Deposit packs: a store-style modal of three cards, and the steps after a pick. */
 dialog.sheet.dep-sheet { max-width: 920px; }
 dialog.sheet.dep-sheet.ack { max-width: 720px; }
-dialog.sheet.dep-sheet.done { max-width: 640px; }
+dialog.sheet.dep-sheet.done, dialog.sheet.dep-sheet.working { max-width: 640px; }
 dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(34px, 4vw, 52px); letter-spacing: 0.005em; line-height: 1; }
 .dep { display: grid; gap: 18px; }
 
 /* ack and done draw their own big title: the sheet's one stays for screen readers, the close button floats */
-.dep-sheet.ack .sheet-in, .dep-sheet.done .sheet-in { position: relative; }
-.dep-sheet.ack .sheet-head, .dep-sheet.done .sheet-head { position: absolute; top: 12px; right: 12px; z-index: 2; }
-.dep-sheet.ack .sheet-head h2, .dep-sheet.done .sheet-head h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dep-sheet.ack .sheet-in, .dep-sheet.done .sheet-in, .dep-sheet.working .sheet-in { position: relative; }
+.dep-sheet.ack .sheet-head, .dep-sheet.done .sheet-head, .dep-sheet.working .sheet-head { position: absolute; top: 12px; right: 12px; z-index: 2; }
+.dep-sheet.ack .sheet-head h2, .dep-sheet.done .sheet-head h2, .dep-sheet.working .sheet-head h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .dep-sheet.ack .sheet-in { padding: 0; gap: 0; }
 
 /* packs: the Player pack sits in the middle, bigger and raised */
@@ -60,14 +60,22 @@ dialog.sheet.dep-sheet.packs .sheet-head h2 { font-family: var(--f-display); fon
 .dep-check input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--em); }
 .dep-actions { display: grid; gap: 8px; }
 
-/* paying and adding */
-.dep-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
-.dep-steps li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: center; font-weight: 700; color: var(--fg-2); }
-.dep-steps li[aria-current="step"] { color: var(--fg); }
-.dep-steps li.done { color: var(--fg); }
-.dep-steps .dot { width: 8px; height: 8px; margin: 0 auto; border: 1px solid var(--line-2); transform: rotate(45deg); }
-.dep-steps svg { width: 18px; height: 18px; color: var(--em-hi); }
 .dep-pack-line { margin: 0; color: var(--fg-2); font-size: var(--fs-13); }
+
+/* working (W1): the case small on top, the title, the pack line, two steps, the reassurance */
+.dep-work { display: grid; justify-items: center; text-align: center; gap: 12px; padding: 18px 8px 4px; }
+.dep-work .dep-art { width: min(44%, 180px, 22vh); filter: drop-shadow(0 0 30px rgba(36, 216, 168, 0.32)); }
+.dep-work-title { margin: 4px 0 0; font-family: var(--f-display); font-weight: 800; text-transform: uppercase; font-size: clamp(34px, 5vw, 52px); line-height: 1; letter-spacing: 0.005em; }
+.dep-work-pack { margin: 0; color: var(--fg-2); font-size: var(--fs-15); }
+.dep-work-steps { list-style: none; margin: 14px 0 6px; padding: 0; display: grid; gap: 22px; justify-self: center; text-align: left; position: relative; }
+.dep-work-steps li { display: grid; grid-template-columns: 36px auto; gap: 16px; align-items: center; font-weight: 700; font-size: var(--fs-16); color: var(--fg-2); position: relative; }
+.dep-work-steps li.done, .dep-work-steps li.now { color: var(--fg); }
+.dep-work-steps li + li::before { content: ""; position: absolute; left: 17px; top: -22px; height: 22px; width: 1px; background: var(--line-2); }
+.dep-work-mark { --c: var(--cut-chip); --edge: var(--edge-2); display: grid; place-items: center; width: 36px; height: 36px; background: var(--raised); }
+.dep-work-steps li.done .dep-work-mark { --edge: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.3)); color: #0b1012; background: linear-gradient(180deg, #f4f7f6, #c3cbc7); }
+.dep-work-mark svg { width: 20px; height: 20px; stroke-width: 2.5; }
+.dep-work-mark .spinner { width: 18px; height: 18px; }
+.dep-work-note { margin: 6px 0 0; color: var(--fg-2); font-size: var(--fs-14); }
 
 /* done: a big counter */
 .dep-done { display: grid; gap: 12px; justify-items: center; text-align: center; padding: 10px 0 2px; background: radial-gradient(42% 34% at 50% 56%, rgba(36, 216, 168, 0.2), rgba(36, 216, 168, 0.06) 55%, transparent 75%); }
