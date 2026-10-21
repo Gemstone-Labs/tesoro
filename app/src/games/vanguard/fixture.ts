@@ -39,6 +39,27 @@ export function encodeEvent(e: GameEvent): RingRecord {
       d.splice(0, 4, e.axis === "col" ? 1 : 0, e.index, e.dir < 0 ? 255 : 1, e.shifts.length);
       e.shifts.forEach((s, i) => d.splice(4 + i * 3, 3, s.id, sq(s.from), sq(s.to)));
       break;
+    case "blast":
+      kind = 8;
+      d.splice(0, 3, e.id, sq(e.at), e.shown.length);
+      e.shown.forEach((p, i) => d.splice(3 + i * 2, 2, p.id, CODE[p.rank]));
+      break;
+    case "rescue":
+      kind = 9;
+      d.splice(0, 4, e.colonel, e.truck, sq(e.from), sq(e.to));
+      break;
+    case "dug_in":
+      kind = 10;
+      d.splice(0, 2, armyCode(e.army), e.id);
+      break;
+    case "pass":
+      kind = 11;
+      d[0] = armyCode(e.army);
+      break;
+    case "switched":
+      kind = 12;
+      d[0] = e.id;
+      break;
     case "turn":
       kind = 6;
       d.splice(0, 2, armyCode(e.turn), e.timedOut ? 1 : 0);
@@ -72,19 +93,26 @@ export function chainState(game: Game, start: Game, history: GameEvent[], o: { u
     if (e.kind === "attack") e.flash.forEach((id) => revealed.add(id));
     if (e.kind === "spotted") revealed.add(e.id);
   }
-  const rankOf = new Map(start.pieces.map((p) => [p.id, p.rank]));
+  const startRank = new Map(start.pieces.map((p) => [p.id, p.rank]));
+  /** The rank a piece plays as now (a dug-in Major is a Landmine, a switched 10 a Spy), which is what the Battle publishes. */
+  const playsAs = (id: number, base: Rank): Rank => (game.changed[id] === "dug" ? "B" : game.changed[id] === "spy" ? "1" : base);
   const sqs = Array<number>(60).fill(NO_SQUARE);
   const shown = Array<number>(60).fill(0);
   const trail = Array.from({ length: 60 }, () => Array<number>(6).fill(0));
   const trailLen = Array<number>(60).fill(0);
   for (const p of game.pieces) {
     sqs[p.id] = sq(p);
-    if (p.known || over) shown[p.id] = CODE[p.rank];
+    if (p.known || over) shown[p.id] = CODE[playsAs(p.id, p.rank)];
     const t = p.trail.slice(-6).map((s) => Number(s.split(",")[0]) * 10 + Number(s.split(",")[1]));
     t.forEach((v, i) => (trail[p.id][i] = v));
     trailLen[p.id] = t.length;
   }
-  for (const id of revealed) shown[id] ||= CODE[rankOf.get(id) ?? "1"];
+  // a piece that left the board is published with the rank it played as when it left
+  const alive = new Set(game.pieces.map((p) => p.id));
+  for (const [id, base] of startRank) if (!alive.has(id)) shown[id] = CODE[playsAs(id, base)];
+  for (const id of revealed) shown[id] ||= CODE[playsAs(id, startRank.get(id) ?? "1")];
+  let endMask = 0n;
+  if (over) for (const id of Object.keys(game.changed)) endMask |= 1n << BigInt(id);
   const ring: RingRecord[] = Array.from({ length: 16 }, () => ({ seq: 0, kind: 0, data: Array<number>(35).fill(0) }));
   for (const e of history.slice(-16)) ring[e.seq % 16] = encodeEvent(e);
   const startedAt = Math.floor(game.startedAt / 1000);
@@ -145,14 +173,16 @@ export function chainState(game: Game, start: Game, history: GameEvent[], o: { u
     pendingSlot: 0n,
     pendingTime: 0,
     dealSlot: 0n,
+    endMask,
   };
   const army = (a: "us" | "it", seat: 0 | 1): ArmyAccount => {
     const ranks = Array<number>(30).fill(0);
     let truck = -9;
-    for (const p of start.pieces) if (p.army === a) ranks[p.id % 30] = CODE[p.rank];
+    // the owner's private codes: a Major that dug in and a General of the Army that became a Spy keep theirs after death
+    for (const p of start.pieces) if (p.army === a) ranks[p.id % 30] = game.changed[p.id] === "dug" ? 13 : game.changed[p.id] === "spy" ? 14 : CODE[p.rank];
     truck = game.truckTurn[a];
     const fuel = game.pieces.find((p) => p.army === a && p.rank === "F")?.fuel ?? 0;
-    return { bump: 255, battle: key(20), seat, player: FIXTURE_PLAYERS[seat], side: armyCode(a), ranks, fuel, truckTurn: truck, moves: 0 };
+    return { bump: 255, battle: key(20), seat, player: FIXTURE_PLAYERS[seat], side: armyCode(a), ranks, fuel, truckTurn: truck, moves: 0, sealKey: new Uint8Array(32).fill(0x40 + seat) };
   };
   const seatOfUs = usSeat;
   const armies: [ArmyAccount, ArmyAccount] = [army(seatOfUs === 0 ? "us" : "it", 0), army(seatOfUs === 0 ? "it" : "us", 1)];

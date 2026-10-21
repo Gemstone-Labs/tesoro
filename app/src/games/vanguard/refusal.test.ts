@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { refusalLine } from "./refusal";
+import { isStale, refusalLine } from "./refusal";
 
 const program = (msg: string) => new Error(`tx failed\nError Message: ${msg}.`);
 
@@ -20,5 +20,13 @@ describe("the line for a declare the program refused", () => {
 
   it("passes everything else through the shared error line", () => {
     expect(refusalLine(new Error("failed to fetch"))).toMatch(/network is busy/i);
+  });
+
+  it("says a declare for an earlier turn was stale, and names it as such so the board is read again", () => {
+    const stale = program("The action was sealed for an earlier turn");
+    expect(refusalLine(stale)).toBe("The board moved on. Try again.");
+    expect(isStale(stale)).toBe(true);
+    expect(isStale(program("Not allowed"))).toBe(false);
+    expect(isStale("custom program error: 6026 The action was sealed for an earlier turn")).toBe(true);
   });
 });

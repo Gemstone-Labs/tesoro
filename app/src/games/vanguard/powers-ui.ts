@@ -3,7 +3,7 @@
  * piece offers, what a Blast or a jump looks like, what the enemy roster strip may say, and what the end panel marks.
  * Nothing here reads a hidden rank of the other army: the roster strip works from a ledger of what the viewer was shown.
  */
-import { NAMES, ROSTER, act, onBoard, rankOf, type Army, type Game, type GameEvent, type Piece, type PowerKind, type Rank, type Square } from "./rules";
+import { NAMES, ROSTER, act, isWadi, onBoard, rankOf, type Army, type Game, type GameEvent, type Piece, type PowerKind, type Rank, type Square } from "./rules";
 
 /** One line per rank for the in-game rules sheet. */
 export const POWER_LINES: [Rank, string][] = [
@@ -31,6 +31,23 @@ export function blastSquares(at: Square): Square[] {
 /** A Lieutenant's jump (2 squares) or a General's wadi crossing (3 squares): the marks that get an arc. */
 export function isJump(rank: Rank, from: Square, to: Square): boolean {
   return (rank === "5" || rank === "9") && Math.max(Math.abs(from.r - to.r), Math.abs(from.c - to.c)) >= 2;
+}
+
+/**
+ * Whether a one-line move is a hop, judged from the board alone (the mover's rank may be hidden): two squares over an occupied
+ * square is a Lieutenant's jump, three squares across two wadi squares is a General's crossing. A Recon's run never has an
+ * occupied or wadi square under it, so it slides.
+ */
+export function isHopMove(from: Square, to: Square, occupied: (r: number, c: number) => boolean): boolean {
+  const dr = to.r - from.r;
+  const dc = to.c - from.c;
+  if ((dr !== 0 && dc !== 0) || (dr === 0 && dc === 0)) return false;
+  const n = Math.abs(dr || dc);
+  const sr = Math.sign(dr);
+  const sc = Math.sign(dc);
+  if (n === 2) return occupied(from.r + sr, from.c + sc);
+  if (n === 3) return isWadi(from.r + sr, from.c + sc) && isWadi(from.r + 2 * sr, from.c + 2 * sc);
+  return false;
 }
 
 export interface PowerOption {
@@ -121,7 +138,11 @@ export interface RosterView {
  * identity when it is unproven. A Dig in is secret and never counted here. It never reads a rank that was not shown.
  */
 export function rosterView(game: Game, ledger: Ledger, foe: Army = "it"): RosterView {
-  const alive = new Set(game.pieces.filter((p) => p.army === foe).map((p) => p.id));
+  return rosterOf(new Set(game.pieces.filter((p) => p.army === foe).map((p) => p.id)), !!game.winner, ledger);
+}
+
+/** The strip from the foe's piece numbers still on the board, whether the Match is over, and what was shown. */
+export function rosterOf(alive: ReadonlySet<number>, over: boolean, ledger: Ledger): RosterView {
   const last = (id: number) => ledger[id][ledger[id].length - 1];
   const ids = Object.keys(ledger).map(Number);
   const deadAs = (r: Rank) => ids.filter((id) => !alive.has(id) && last(id) === r).length;
@@ -135,7 +156,7 @@ export function rosterView(game: Game, ledger: Ledger, foe: Army = "it"): Roster
     const of = rank === "1" && switched ? n + 1 : n;
     return { rank, of, left: Math.max(0, of - deadAs(rank)) };
   });
-  return { cells, tenOrSpy: !game.winner && !tenSeen && !switched && tenLeft === 1 };
+  return { cells, tenOrSpy: !over && !tenSeen && !switched && tenLeft === 1 };
 }
 
 export interface ChangeLine {
