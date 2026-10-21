@@ -212,12 +212,16 @@ export function WalletView({ part = "all" }: { part?: "all" | "card" | "body" })
                 {ready && pendingAmount > 0 && <NextRedeem at={heroNext} className="tip-next" />}
               </>
             ),
-            action: ready && wonPending && (
+            action: (
               <HoverHint
                 align="end"
-                hint={instantOffer ? "Redeem Gemas you won now, before their yield lands, for a fee to Tesoro's Treasury." : "Instant Redeem isn't available right now. Try again later."}
+                hint={
+                  !ready ? null
+                    : !wonPending ? "Instant Redeem is for Gemas you won that are still Pending. Gemas from your own Locks wait for their yield."
+                    : instantOffer?.unavailable ?? `Redeem Gemas you won now, before their yield lands, at ${100 - (instantOffer?.feePct ?? 25)}% of their value.`
+                }
               >
-                <Button disabled={!instantOffer} onClick={() => openRedeem()}>Instant Redeem</Button>
+                <Button disabled={!ready || !wonPending || !instantOffer || !!instantOffer.unavailable} onClick={() => openRedeem()}>Instant Redeem</Button>
               </HoverHint>
             ),
           },

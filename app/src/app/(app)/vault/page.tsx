@@ -63,8 +63,10 @@ function Vault() {
       {resolved && (
         <div className="wl">
           <WalletView part="card" />
-          <ViewToggle />
-          {simple ? <SimpleVault /> : <WalletView part="body" />}
+          <div className="vt-below">
+            <ViewToggle />
+            {simple ? <SimpleVault /> : <WalletView part="body" />}
+          </div>
         </div>
       )}
     </>
