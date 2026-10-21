@@ -57,6 +57,7 @@ const books = (authority: PublicKey) => {
   const ownerAccount = accountOf(authority);
   return { ownerAccount, basket: pda([s("basket"), ownerAccount.toBuffer()]), spill: pda([s("spill"), ownerAccount.toBuffer()]) };
 };
+export const sponsorPda = pda([s("sponsor")]);
 const line = { side: 0, dueAt: new BN(0), class: 0, tranche: 0 };
 
 /**
@@ -67,15 +68,22 @@ export const playerIx = {
   redeem: (a: PublicKey) => coreIx("redeem", [line, new BN(5)], { holderAuthority: a, position: key(), source: key() }),
   redeemPrize: (a: PublicKey) => coreIx("redeem_prize", [new BN(5)], { holderAuthority: a, prizeSource: key() }),
   unlock: (a: PublicKey) => coreIx("unlock", [], { ownerAuthority: a, position: key() }),
-  requestInstantRedeem: (a: PublicKey) => coreIx("request_instant_redeem", [line, new BN(5), new BN(3600), new BN(1)], { holderAuthority: a, position: key(), source: key() }),
-  cancelInstantRedeem: (a: PublicKey, order = key()) => coreIx("cancel_instant_redeem", [], { signer: a, ...books(a), order, ownerWallet: a }),
-  expireInstantRedeem: (a: PublicKey, order = key()) => coreIx("expire_instant_redeem", [], { signer: a, ...books(a), order, ownerWallet: a }),
+  /** `payer` pays the order's rent: the holder, or the relayer with `sponsored` (the sponsor account repays it). */
+  requestInstantRedeem: (a: PublicKey, payer = a, sponsored = false) =>
+    coreIx("request_instant_redeem", [line, new BN(5), new BN(3600), new BN(1)], { payer, holderAuthority: a, position: key(), source: key(), sponsor: sponsored ? sponsorPda : null }),
+  cancelInstantRedeem: (a: PublicKey, order = key(), payer = a, sponsored = false) =>
+    coreIx("cancel_instant_redeem", [], { signer: a, ...books(a), order, ownerWallet: payer, sponsor: sponsored ? sponsorPda : null }),
+  expireInstantRedeem: (a: PublicKey, order = key(), payer = a, sponsored = false) =>
+    coreIx("expire_instant_redeem", [], { signer: a, ...books(a), order, ownerWallet: payer, sponsor: sponsored ? sponsorPda : null }),
   cancelOffer: (a: PublicKey, offer = key()) => coreIx("cancel_offer", [], { backerAuthority: a, offer, request: null }),
   cancelRequest: (a: PublicKey, request = key()) => coreIx("cancel_request", [], { playerAuthority: a, request }),
   claimFreeYield: (a: PublicKey) => coreIx("claim_free_yield", [new BN(5)], { ownerAuthority: a, position: key() }),
 };
 
-/** open_ticket (Backing, by the Requester) + stage_entry (by the Backer) as one transaction, relayer paying. */
+/**
+ * open_ticket (Backing) + stage_entry as one transaction, relayer paying, signed by the Requester alone: the accepted Offer
+ * is the Backer's consent (the program never asks a Backer to sign a Backing Ticket's staging).
+ */
 export async function backingPairIx(relayer: PublicKey, parties: { requester?: PublicKey; backer?: PublicKey } = {}) {
   const requester = parties.requester ?? key();
   const backer = parties.backer ?? key();
@@ -89,6 +97,6 @@ export async function backingPairIx(relayer: PublicKey, parties: { requester?: P
     offer: key(),
     sponsor: null,
   });
-  const stage = await coreIx("stage_entry", [8], { signer: backer, owner: backerAccount, ticket });
+  const stage = await coreIx("stage_entry", [8], { signer: requester, owner: backerAccount, ticket });
   return { ixs: [open, stage], requester, backer, backerAccount, ticket };
 }

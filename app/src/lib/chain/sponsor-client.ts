@@ -73,19 +73,16 @@ export async function sponsorBuild(signer: ChainSigner, getToken: GetToken, ixs:
   return post<SponsorBuild>("/api/sponsor/build", { step: "build", address, ts, nonce, signature: b64(signature), intent }, token);
 }
 
-/**
- * Adds this wallet's signature to a built message, or to a transaction another party already signed (a Backing Ticket has
- * two signers: the second one passes the first one's `tx` here). Returns the serialized transaction, base64.
- */
-export async function sponsorSign(signer: ChainSigner, built: SponsorBuild, partial?: string): Promise<string> {
+/** Adds this wallet's signature to a built message. Returns the serialized transaction, base64. */
+export async function sponsorSign(signer: ChainSigner, built: SponsorBuild): Promise<string> {
   if (!signer.signSerialized) throw new SponsorError("This wallet cannot take part in free transactions.", "unsupported-wallet", 400);
-  const unsigned = partial ? bytesOf(partial) : new VersionedTransaction(VersionedMessage.deserialize(bytesOf(built.message))).serialize();
-  const message = VersionedTransaction.deserialize(unsigned).message;
+  const message = VersionedMessage.deserialize(bytesOf(built.message));
+  const unsigned = new VersionedTransaction(message).serialize();
   const needsPlayer = message.staticAccountKeys.slice(1, message.header.numRequiredSignatures).some((k) => k.equals(signer.publicKey));
   return b64(needsPlayer ? await signer.signSerialized(unsigned) : unsigned);
 }
 
-/** Sends a transaction every party has signed. The server checks the signatures and the MAC, adds the fee payer's and sends. */
+/** Sends a signed transaction. The server checks the signatures and the MAC, adds the fee payer's and sends. */
 export async function sponsorSubmit(tx: string, built: SponsorBuild): Promise<string> {
   return (await post<{ signature: string }>("/api/sponsor/submit", { tx, meta: built.meta, mac: built.mac }, null)).signature;
 }

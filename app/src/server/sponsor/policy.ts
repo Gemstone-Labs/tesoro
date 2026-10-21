@@ -23,6 +23,12 @@ export interface Limits {
   accountSunkTotal: number;
   /** Transactions of an Account that failed, per day, before admissions stop. */
   failuresPerDay: number;
+  /**
+   * Failed transactions per day after which an Account's exits are no longer sponsored (it pays its own fee). Exits have
+   * no other quota, so this is what stops someone from burning the relayer's SOL on exits that fail on chain; it is far
+   * above what a Player who is not attacking ever reaches.
+   */
+  exitFailuresPerDay: number;
   /** Exits that undo an admission (cancel, refund) per day, before admissions stop. */
   cyclesPerDay: number;
   /** Calls to build a sponsored transaction per Account per day, whatever they are (stops build spam on exits). */
@@ -39,6 +45,7 @@ export const DEFAULT_LIMITS: Limits = {
   globalPerDay: 20_000,
   accountSunkTotal: 50_000_000,
   failuresPerDay: 20,
+  exitFailuresPerDay: 50,
   cyclesPerDay: 20,
   buildsPerDay: 2_000,
   completionReserve: 300_000n,
@@ -85,6 +92,11 @@ export async function admit(store: UsageStore, limits: Limits, plan: Plan, playe
   const sunk = Number(plan.spend.sunk);
   await take(k.sunk(player), sunk, limits.accountSunkTotal, LIFETIME, "total-limit", "This Account has used all the free transactions it gets.");
   return { undo };
+}
+
+/** Whether `player` has failed too many transactions today to be sponsored on exits. */
+export async function exitsBlocked(store: UsageStore, limits: Limits, player: string, now: number): Promise<boolean> {
+  return (await store.used(k.fail(player), DAY, now)) >= limits.exitFailuresPerDay;
 }
 
 /** A transaction of `player` failed after it was admitted. */

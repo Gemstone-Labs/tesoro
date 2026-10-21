@@ -277,16 +277,35 @@ describe("the Player's own exits (ticket 18b)", () => {
     const bare = Buffer.from(new VersionedTransaction(VersionedMessage.deserialize(Buffer.from(built.message, "base64"))).serialize()).toString("base64");
     await expect(s.sponsor.submit(bare, built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
   });
-  it("request_instant_redeem is sponsored for the fee, also while paused", async () => {
+  it("request_instant_redeem: the relayer pays the order's rent for a Player with no SOL, and it stops while paused", async () => {
+    const s = setup();
+    const built = await s.sponsor.build(s.player.publicKey, wire([await playerIx.requestInstantRedeem(s.player.publicKey, s.relayer.publicKey, true)]));
+    expect(built.class).toBe("admission");
+    await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
+    expect(s.sent).toHaveLength(1);
+    const p = setup({ paused: true });
+    await expect(p.sponsor.build(p.player.publicKey, wire([await playerIx.requestInstantRedeem(p.player.publicKey, p.relayer.publicKey, true)]))).rejects.toMatchObject({ code: "sponsor-paused" });
+  });
+  it("cancelling a sponsored order is an exit that works while paused", async () => {
     const s = setup({ paused: true });
-    const built = await s.sponsor.build(s.player.publicKey, wire([await playerIx.requestInstantRedeem(s.player.publicKey)]));
-    expect(built.class).toBe("continue");
+    const built = await s.sponsor.build(s.player.publicKey, wire([await playerIx.cancelInstantRedeem(s.player.publicKey, key(), s.relayer.publicKey, true)]));
+    expect(built.class).toBe("exit");
     await s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac);
     expect(s.sent).toHaveLength(1);
   });
+  it("exits that keep failing stop being sponsored for that Account, other Accounts are unaffected", async () => {
+    const s = setup({ sendFails: true, limits: { exitFailuresPerDay: 3 } });
+    for (let i = 0; i < 3; i++) {
+      const built = await s.sponsor.build(s.player.publicKey, wire([await playerIx.unlock(s.player.publicKey)]));
+      await expect(s.sponsor.submit(playerSigns(built, s.player), built.meta, built.mac)).rejects.toMatchObject({ code: "chain" });
+    }
+    await expect(s.sponsor.build(s.player.publicKey, wire([await playerIx.unlock(s.player.publicKey)]))).rejects.toMatchObject({ code: "too-many-failures" });
+    s.tick(25 * 60 * 60 * 1000);
+    await expect(s.sponsor.build(s.player.publicKey, wire([await playerIx.unlock(s.player.publicKey)]))).resolves.toBeTruthy();
+  });
 });
 
-describe("a Backing Ticket signed by two parties (ticket 18b)", () => {
+describe("a Backing Ticket signed by the Requester alone (ticket 18b)", () => {
   async function pair(over: Parameters<typeof setup>[0] = {}, backerGemas = 500n) {
     const s = setup(over);
     const backer = Keypair.generate();
@@ -295,58 +314,41 @@ describe("a Backing Ticket signed by two parties (ticket 18b)", () => {
     s.accounts.set(basketPda(accountOf(backer.publicKey)).toBase58(), { owner: CORE_ID, data: basketData(backerGemas) });
     return { s, backer, ixs: made.ixs };
   }
-  it("is built once, signed by both, then sent with the relayer paying", async () => {
-    const { s, backer, ixs } = await pair({ gemas: 0n });
+  it("is built once, signed by the Requester, then sent with the relayer paying; the Backer is not asked", async () => {
+    const { s, ixs } = await pair({ gemas: 0n });
     const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
     expect(built.class).toBe("admission");
-    const { signature } = await s.sponsor.submit(signedBy(built, [s.player, backer]), built.meta, built.mac);
+    const { signature } = await s.sponsor.submit(signedBy(built, [s.player]), built.meta, built.mac);
     expect(signature).toBe("sig1");
     expect(s.sent[0].message.staticAccountKeys[0].equals(s.relayer.publicKey)).toBe(true);
+    expect(s.sent[0].message.header.numRequiredSignatures).toBe(2);
     expect(await s.deps.store.held()).toBe(DEFAULT_LIMITS.completionReserve);
   });
   it("the Backer's Gemas fund it: a Backer with none is refused, a Requester with none is fine", async () => {
     const { s, ixs } = await pair({ gemas: 500n }, 0n);
     await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "no-gemas" });
   });
-  it("needs an Account for the other signer too", async () => {
-    const { s, backer, ixs } = await pair({ gemas: 0n });
-    s.accounts.delete(accountOf(backer.publicKey).toBase58());
+  it("a Requester with no Account is refused", async () => {
+    const { s, ixs } = await pair({ gemas: 0n, noAccount: true });
     await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "no-account" });
   });
-  it("is refused when only one party signed, or the second signature is not theirs", async () => {
+  it("is refused when it is not signed, or signed by someone else, and expires", async () => {
     const { s, backer, ixs } = await pair({ gemas: 0n });
     const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
-    await expect(s.sponsor.submit(signedBy(built, [s.player]), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
+    await expect(s.sponsor.submit(signedBy(built, []), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
     await expect(s.sponsor.submit(signedBy(built, [backer]), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
-    // a signature over other bytes in the Backer's slot
-    const tx = VersionedTransaction.deserialize(Buffer.from(signedBy(built, [s.player, backer]), "base64"));
-    const slot = tx.message.staticAccountKeys.findIndex((k) => k.equals(backer.publicKey));
-    tx.signatures[slot] = nacl.sign.detached(Buffer.from("something else"), backer.secretKey);
-    await expect(s.sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
-    // a signature from a stranger
-    const stranger = Keypair.generate();
-    tx.signatures[slot] = nacl.sign.detached(tx.message.serialize(), stranger.secretKey);
+    const tx = VersionedTransaction.deserialize(Buffer.from(signedBy(built, [s.player]), "base64"));
+    tx.signatures[1] = nacl.sign.detached(Buffer.from("something else"), s.player.secretKey);
     await expect(s.sponsor.submit(Buffer.from(tx.serialize()).toString("base64"), built.meta, built.mac)).rejects.toMatchObject({ code: "unsigned" });
     expect(s.sent).toHaveLength(0);
-  });
-  it("both parties must sign within the message's lifetime", async () => {
-    const { s, backer, ixs } = await pair({ gemas: 0n });
-    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
     s.tick(80_000);
-    await expect(s.sponsor.submit(signedBy(built, [s.player, backer]), built.meta, built.mac)).rejects.toMatchObject({ code: "expired" });
-  });
-  it("a swapped message is not ours even with both signatures", async () => {
-    const { s, backer, ixs } = await pair({ gemas: 0n });
-    const built = await s.sponsor.build(s.player.publicKey, wire(ixs));
-    const again = await backingPairIx(s.relayer.publicKey, { requester: s.player.publicKey, backer: backer.publicKey });
-    const other = await s.sponsor.build(s.player.publicKey, wire(again.ixs));
-    await expect(s.sponsor.submit(signedBy(other, [s.player, backer]), built.meta, built.mac)).rejects.toMatchObject({ code: "not-ours" });
+    await expect(s.sponsor.submit(signedBy(built, [s.player]), built.meta, built.mac)).rejects.toMatchObject({ code: "expired" });
   });
   it("is paused with the other admissions", async () => {
     const { s, ixs } = await pair({ paused: true, gemas: 0n });
     await expect(s.sponsor.build(s.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "sponsor-paused" });
   });
-  it("whoever asks must be one of the signers", async () => {
+  it("whoever asks must be the signer", async () => {
     const { ixs } = await pair({ gemas: 0n });
     const t = setup();
     await expect(t.sponsor.build(t.player.publicKey, wire(ixs))).rejects.toMatchObject({ code: "bad-signer" });

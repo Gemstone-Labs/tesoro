@@ -3,7 +3,7 @@ import { BN } from "@coral-xyz/anchor";
 import { SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import coreIdl from "@/lib/chain/idl/tesoro_core.json";
 import { backingPairIx, chunkIx, coreIx, key, openMatchIx, playerIx } from "./fixtures";
-import { CORE_ID, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
+import { CORE_ID, ORDER_RENT, ROWS, TX_SHAPES, planTransaction, type Ix } from "./rules";
 
 const relayer = key();
 const player = key();
@@ -153,9 +153,22 @@ describe("the Player's own exits and orders (ticket 18b)", () => {
     ix.keys.push({ pubkey: key(), isSigner: true, isWritable: false });
     refused([ix], "bad-accounts");
   });
-  it("request_instant_redeem is accepted but its rent stays the Player's: the relayer may not stand in for the holder", async () => {
-    expect(plan([await playerIx.requestInstantRedeem(player)]).names).toEqual(["request_instant_redeem"]);
-    refused([await playerIx.requestInstantRedeem(relayer)], "relayer-in-accounts");
+  it("request_instant_redeem: the holder pays, or the relayer pays and the sponsor repays it", async () => {
+    const own = plan([await playerIx.requestInstantRedeem(player)]);
+    expect(own).toMatchObject({ names: ["request_instant_redeem"], class: "admission" });
+    const sponsored = plan([await playerIx.requestInstantRedeem(player, relayer, true)]);
+    expect(sponsored.spend.refundable).toBe(ORDER_RENT);
+    expect(sponsored.signers.map((k) => k.toBase58())).toEqual([player.toBase58()]);
+    // the relayer never pays an order's rent without the sponsor account to repay it, or stands anywhere else
+    refused([await playerIx.requestInstantRedeem(player, relayer, false)], "bad-accounts");
+    const holder = await playerIx.requestInstantRedeem(relayer, relayer, true);
+    refused([holder], "relayer-in-accounts");
+  });
+  it("cancel and expire may name the relayer as the order's payer only with the sponsor account", async () => {
+    for (const make of [playerIx.cancelInstantRedeem, playerIx.expireInstantRedeem]) {
+      expect(plan([await make(player, key(), relayer, true)]).class).toBe("exit");
+      refused([await make(player, key(), relayer, false)], "bad-accounts");
+    }
   });
   it("an exit cannot ride along with another instruction", async () => {
     refused([await playerIx.unlock(player), await playerIx.unlock(player)], "bad-shape");
@@ -163,11 +176,11 @@ describe("the Player's own exits and orders (ticket 18b)", () => {
 });
 
 describe("a Backing Ticket opened and staged in one transaction", () => {
-  it("is an admission with two signers, the Requester and the Backer, and names whose lines fund it", async () => {
-    const { ixs, requester, backer, backerAccount } = await backingPairIx(relayer);
+  it("is an admission signed by the Requester alone, and names whose lines fund it", async () => {
+    const { ixs, requester, backerAccount } = await backingPairIx(relayer);
     const p = plan(ixs);
     expect(p).toMatchObject({ names: ["open_ticket", "stage_entry"], class: "admission" });
-    expect(p.signers.map((k) => k.toBase58()).sort()).toEqual([requester.toBase58(), backer.toBase58()].sort());
+    expect(p.signers.map((k) => k.toBase58())).toEqual([requester.toBase58()]);
     expect(p.funders.map((k) => k.toBase58())).toEqual([backerAccount.toBase58()]);
   });
   it("is refused when stage_entry is for another Ticket or another Account", async () => {
@@ -179,9 +192,12 @@ describe("a Backing Ticket opened and staged in one transaction", () => {
     b.ixs[1] = other.ixs[1];
     refused(b.ixs, "bad-shape");
   });
-  it("is refused with the relayer as the Backer's signer", async () => {
+  it("is refused with the relayer, or anyone but the Requester, as the signer of stage_entry", async () => {
     const a = await backingPairIx(relayer);
     a.ixs[1].keys[0] = { pubkey: relayer, isSigner: true, isWritable: false };
     refused(a.ixs, "relayer-in-accounts");
+    const b = await backingPairIx(relayer);
+    b.ixs[1].keys[0] = { pubkey: key(), isSigner: true, isWritable: false };
+    refused(b.ixs, "bad-shape");
   });
 });

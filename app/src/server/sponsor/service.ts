@@ -18,7 +18,7 @@ import {
 } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { DemoHttpError } from "../request-auth";
-import { admissionFits, admit, exitFits, recordCycle, recordFailure, type Balance, type Limits } from "./policy";
+import { admissionFits, admit, exitFits, exitsBlocked, recordCycle, recordFailure, type Balance, type Limits } from "./policy";
 import { CORE_ID, PRIORITY_MICROLAMPORTS, RuleError, SIGNATURE_LAMPORTS, planTransaction, type Ix, type Plan } from "./rules";
 import type { UsageStore } from "./store";
 
@@ -212,6 +212,7 @@ export class Sponsor {
       fronted = plan.spend.refundable + plan.spend.sunk + fee;
       if (reserve > 0n) hold.push(...plan.obligations.map((o) => o.toBase58()));
     } else {
+      if (await exitsBlocked(this.d.store, this.d.limits, who, now)) throw new DemoHttpError(429, "too-many-failures", "Too many failed transactions today. Pay the network fee from your own SOL to finish this.");
       await this.requireAccount(player);
       await this.requireOtherSigners(plan, player);
       await this.requireObligations(plan);
